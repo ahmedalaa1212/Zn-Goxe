@@ -1,85 +1,60 @@
-// دالة التنقل بين القوائم (Switch Views)
+// دالة التنقل بين القوائم
 function switchView(viewName) {
-    // 1. إخفاء كل الصفحات
-    const views = document.querySelectorAll('.game-view');
-    views.forEach(view => view.classList.remove('active'));
+    document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+    
+    document.getElementById('view-' + viewName).classList.add('active');
+    document.getElementById('nav-' + viewName).classList.add('active');
 
-    // 2. إزالة حالة "النشط" من كل الأزرار
-    const navItems = document.querySelectorAll('.nav-item');
-    navItems.forEach(item => item.classList.remove('active'));
-
-    // 3. إظهار الصفحة المطلوبة
-    const targetView = document.getElementById('view-' + viewName);
-    if (targetView) targetView.classList.add('active');
-
-    // 4. تفعيل الزرار اللي ضغطت عليه
-    const targetNav = document.getElementById('nav-' + viewName);
-    if (targetNav) targetNav.classList.add('active');
-
-    // 5. تحميل محتوى القائمة المطلوبة
-    if (viewName === 'farm') {
-        loadFarmContent();
-    } else {
-        // يمكنك إضافة دوال لباقي القوائم هنا لاحقاً
-        console.log("جاري تحميل قائمة: " + viewName);
-    }
+    if (viewName === 'farm') loadFarmContent();
 }
 
-// دالة تحميل بيانات المزرعة
 function loadFarmContent() {
     const farmView = document.getElementById('view-farm');
     
-    // محاكاة لبيانات المخزن (هتتربط لاحقاً بالـ Backend)
-    const currentStorage = 12450; 
-    const maxStorage = 20000;      
+    // بيانات تجريبية (هنربطها بالـ Database لاحقاً)
+    const znBalance = 15400; // الرصيد الكلي
+    const miningSpeed = 120; // سرعة التعدين في الساعة
+    const currentStorage = 12450;
+    const maxStorage = 20000;
     const percentage = (currentStorage / maxStorage) * 100;
 
     farmView.innerHTML = `
-        <div class="farm-container" style="text-align: center; padding: 20px;">
-            <!-- 1. منطقة المزرعة -->
-            <div class="farm-visual" style="font-size: 60px; margin: 30px 0;">🏗️</div>
-            <h2 style="margin-bottom: 20px;">مزرعة التعدين</h2>
-            
-            <!-- 2. عداد العملات الفعلي -->
-            <div id="balance-display" style="font-size: 32px; font-weight: bold; color: #fff; margin-bottom: 30px;">
-                الرصيد: ${currentStorage.toLocaleString()}
-            </div>
-            
-            <!-- 3. شريط التقدم -->
-            <div class="progress-bar-container" style="width: 90%; background: #333; height: 25px; margin: 0 auto; border-radius: 15px; overflow: hidden; border: 1px solid #444;">
-                <div id="storage-bar" style="width: ${percentage}%; background: linear-gradient(90deg, #0088cc, #00aaff); height: 100%; transition: width 0.5s;"></div>
-            </div>
-            
-            <!-- 4. بيانات المخزن -->
-            <p style="font-size: 14px; color: #aaa; margin-top: 10px;">
-                ${currentStorage.toLocaleString()} / ${maxStorage.toLocaleString()} عملة
-            </p>
-            
-            <!-- 5. زر التجميع -->
-            <button onclick="claimCoins()" style="margin-top: 25px; width: 80%; padding: 15px; background: #0088cc; border: none; color: white; font-size: 16px; border-radius: 12px; font-weight: bold; cursor: pointer;">
-                تجميع (Claim)
-            </button>
+        <!-- شريط البيانات العلوي -->
+        <div class="header-stats" style="display: flex; justify-content: space-between; padding: 10px; background: #1c1c1c; border-radius: 10px; margin-bottom: 20px;">
+            <div class="stat">⚡ سرعة: ${miningSpeed}/س</div>
+            <div class="stat" style="color: #00ffcc;">ZN: ${znBalance.toLocaleString()}</div>
+        </div>
 
-            <!-- 6. بطاقة المكافأة اليومية (مكانها داخل المزرعة) -->
-            <div class="daily-reward" style="margin-top: 30px; padding: 15px; background: #1c1c1c; border-radius: 12px; border: 1px solid #333;">
-                <p>🎁 استلم مكافأتك اليومية!</p>
-                <button onclick="claimDaily()" style="margin-top: 10px; background: #444; border: none; color: white; padding: 8px 20px; border-radius: 8px;">استلام</button>
+        <div class="farm-container" style="text-align: center;">
+            <div class="farm-visual" style="font-size: 50px; margin: 10px 0;">🏗️</div>
+            
+            <!-- شريط التقدم -->
+            <div class="progress-bar-container" style="width: 100%; background: #333; height: 20px; border-radius: 10px; overflow: hidden;">
+                <div style="width: ${percentage}%; background: #0088cc; height: 100%;"></div>
+            </div>
+            <p style="font-size: 12px; margin: 5px 0;">${currentStorage.toLocaleString()} / ${maxStorage.toLocaleString()}</p>
+            
+            <button onclick="claimCoins()" style="width: 100%; padding: 12px; background: #0088cc; border: none; color: white; border-radius: 8px; font-weight: bold;">تجميع (Claim)</button>
+
+            <!-- المكافأة اليومية (شريط صغير) -->
+            <div class="daily-reward" style="margin-top: 15px; padding: 8px; background: #222; border-radius: 5px; font-size: 12px; border: 1px solid #444;">
+                🎁 مكافأة اليوم: 500 ZN | <span onclick="claimDaily()" style="color: #0088cc; cursor: pointer;">استلام</span>
+            </div>
+
+            <!-- حقول التعدين الـ 10 (المستويات) -->
+            <div class="mining-fields" style="margin-top: 20px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;">
+                ${Array.from({length: 10}, (_, i) => `
+                    <div style="background: #1c1c1c; padding: 10px 0; border-radius: 5px; font-size: 10px; border: 1px solid #333;">
+                        LV ${i+1}
+                    </div>
+                `).join('')}
             </div>
         </div>
     `;
 }
 
-// دالة التجميع
-function claimCoins() {
-    alert("تم تجميع العملات بنجاح!");
-}
+function claimCoins() { alert("تم تجميع العملات!"); }
+function claimDaily() { alert("تم استلام المكافأة!"); }
 
-// دالة المكافأة اليومية
-function claimDaily() {
-    alert("تم استلام مكافأة اليوم!");
-}
-
-// تحميل المزرعة عند فتح اللعبة لأول مرة
-window.onload = () => {
-    loadFarmContent();
-};
+window.onload = () => loadFarmContent();
