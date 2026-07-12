@@ -67,25 +67,43 @@ def handle_upgrade():
     database.update_upgrade_level(int(tg_id), lvl_column, new_level)
     return jsonify({'success': True, 'new_balance': new_balance, 'new_level': new_level, 'lvl_num': lvl_num})
 
+# ==========================================
+# 🤖 أمر التشغيل المطور والرسالة التحفيزية
+# ==========================================
 @bot.message_handler(commands=['start'])
 def start_command(message):
     tg_id = message.from_user.id
     database.init_user(tg_id)
+    
+    # تجهيز لوحة الأزرار الشفافة
     markup = InlineKeyboardMarkup()
-    # تأكيد تحويل الرصيد والموقع لـ سمول بالكامل لضمان عمل تليجرام
+    
+    # 1. زرار فتح اللعبة المصغرة
     clean_web_url = WEB_URL.lower().strip()
     web_app_url = f"{clean_web_url}?tg_id={tg_id}"
-    btn = InlineKeyboardButton("🎮 افتح اللعبة وابدأ تجميع الرصيد", web_app=WebAppInfo(url=web_app_url))
-    markup.add(btn)
-    bot.send_message(
-        message.chat.id, 
-        f"أهلاً بك يا {message.from_user.first_name} في لعبة الضغط والترقيات المطورة! 🚀\n\n"
-        f"اضغط على الزرار بالأسفل لفتح اللعبة الآن، بياناتك متصلة بالسحاب وآمنة تماماً!", 
-        reply_markup=markup
+    btn_game = InlineKeyboardButton("🎮 دخول اللعبة وابدأ التجميع الآن", web_app=WebAppInfo(url=web_app_url))
+    
+    # 2. زرار الانضمام للقناة التليجرام
+    btn_channel = InlineKeyboardButton("📢 تابع قناة اللعبة الرسمية", url="https://t.me/zngoxe")
+    
+    # إضافة الأزرار تحت بعضها بشكل منظم
+    markup.add(btn_game)
+    markup.add(btn_channel)
+    
+    # نص الرسالة التحفيزية المليئة بالحماس
+    motivational_text = (
+        f"🔥 أهلاً بك يا {message.from_user.first_name} في عالم الـ Zn Goxe المثير! 🔥\n\n"
+        f"🚀 فرصة ذهبية مستنياك لتجميع العملات وتطوير إمبراطوريتك الرقمية من الصفر! "
+        f"كل ضغطة بتزود رصيدك، وكل ترقية بتشتريها بتضاعف قوتك وتخليك تتصدر قائمة الأبطال. "
+        f"بياناتك متأمنة في السحاب ومش هتضيع أبداً، لا تضيع ثانية واحدة وابدأ رحلة المليون الآن!\n\n"
+        f"📢 تأكد من الانضمام لقناتنا الرسمية لمتابعة المسابقات، الهدايا، والكود اليومي للمكافآت:\n"
+        f"🔗 https://t.me/zngoxe\n\n"
+        f"👇 اضغط على الأزرار بالأسفل وانطلق فوراً!"
     )
+    
+    bot.send_message(message.chat.id, motivational_text, reply_markup=markup)
 
 if __name__ == '__main__':
-    # تشغيل فحص وإنشاء الجداول تلقائياً عند بدء التشغيل
     database.create_tables()
     
     bot.remove_webhook()
@@ -93,6 +111,5 @@ if __name__ == '__main__':
     bot_thread.daemon = True
     bot_thread.start()
     
-    # الاعتماد على منفذ Railway القياسي المكتشف تلقائياً (8080)
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
