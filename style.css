@@ -1,0 +1,68 @@
+/* تنسيقات عامة للعبة */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+    background-color: #0f0f0f; /* لون خلفية مظلم وفخم */
+    color: #ffffff;
+    height: 100vh;
+    overflow: hidden;
+}
+
+#app {
+    height: calc(100vh - 70px); /* نترك مكان للشريط السفلي */
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.game-view {
+    display: none; /* إخفاء كل القوائم افتراضياً */
+}
+
+.game-view.active {
+    display: block; /* إظهار القائمة النشطة فقط */
+    animation: fadeIn 0.3s ease; /* تأثير ظهور ناعم */
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* تصميم شريط التنقل السفلي */
+.bottom-nav {
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    height: 70px;
+    background-color: #1c1c1c;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    border-top: 1px solid #333;
+}
+
+.nav-item {
+    background: none;
+    border: none;
+    color: #888;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: 0.3s;
+}
+
+.nav-item.active {
+    color: #0088cc; /* لون أزرق تليجرام */
+}
+
+.nav-item i {
+    font-size: 20px;
+}
