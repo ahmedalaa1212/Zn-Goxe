@@ -1,27 +1,27 @@
-// game.js الرئيسي - مسؤول عن التنقل فقط
+// المحرك الرئيسي للانتقالات
 async function switchView(viewName) {
-    // 1. تحديث الأزرار
+    // 1. تحديث الأزرار (تغيير اللون)
     document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
     document.getElementById('nav-' + viewName).classList.add('active');
 
-    // 2. تحميل المحتوى من المجلد الخاص (مثلاً: farm/farm.html)
-    const viewContainer = document.getElementById('view-' + viewName);
+    // 2. تحديد مكان العرض
+    const container = document.getElementById('view-' + viewName);
     
+    // 3. جلب محتوى القائمة من مجلدها
     try {
-        const response = await fetch(`${viewName}/${viewName}.html`);
-        const html = await response.text();
-        viewContainer.innerHTML = html;
+        const res = await fetch(`${viewName}/${viewName}.html`);
+        const html = await res.text();
+        container.innerHTML = html;
 
-        // 3. تشغيل ملف الـ JS الخاص بالمجلد ده
+        // 4. تنفيذ كود الـ JS الخاص بالقائمة (لو موجود)
         const script = document.createElement('script');
         script.src = `${viewName}/${viewName}.js`;
         document.body.appendChild(script);
-        
-        // إظهار القائمة
+
+        // 5. التبديل المرئي
         document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
-        viewContainer.classList.add('active');
-        
-    } catch (error) {
-        console.error("خطأ في تحميل القائمة:", error);
+        container.classList.add('active');
+    } catch (e) {
+        container.innerHTML = `<p style="text-align:center; padding:20px;">القائمة قيد التطوير...</p>`;
     }
 }
