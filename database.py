@@ -2,26 +2,56 @@ import os
 import psycopg2
 from psycopg2.extras import DictCursor
 
-# جلب رابط الاتصال من متغيرات بيئة سيرفر Railway
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
 def get_connection():
-    """إنشاء اتصال آمن بقاعدة البيانات"""
     return psycopg2.connect(DATABASE_URL)
 
-def init_user(telegram_id):
-    """تجهيز لاعب جديد وجدول ترقياته لو مش موجودين في اللعبة"""
+def create_tables():
+    """إنشاء جداول اللعبة تلقائياً في Supabase لو مش موجودة"""
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # إضافة المستخدم في جدول users لو مش موجود
+                # 1. جدول المستخدمين
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        telegram_id BIGINT PRIMARY KEY,
+                        balance BIGINT DEFAULT 0,
+                        last_claim_time TIMESTAMP DEFAULT NOW(),
+                        is_banned BOOLEAN DEFAULT FALSE
+                    );
+                """)
+                # 2. جدول الترقيات والمستويات
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS upgrades (
+                        telegram_id BIGINT PRIMARY KEY REFERENCES users(telegram_id) ON DELETE CASCADE,
+                        lvl1_count INT DEFAULT 0,
+                        lvl2_count INT DEFAULT 0,
+                        lvl3_count INT DEFAULT 0,
+                        lvl4_count INT DEFAULT 0,
+                        lvl5_count INT DEFAULT 0,
+                        lvl6_count INT DEFAULT 0,
+                        lvl7_count INT DEFAULT 0,
+                        lvl8_count INT DEFAULT 0,
+                        lvl9_count INT DEFAULT 0,
+                        lvl10_count INT DEFAULT 0
+                    );
+                """)
+                conn.commit()
+        print("Successfully checked/created database tables!")
+    except Exception as e:
+        print(f"Error creating tables: {e}")
+
+def init_user(telegram_id):
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO users (telegram_id)
                     VALUES (%s)
                     ON CONFLICT (telegram_id) DO NOTHING;
                 """, (telegram_id,))
                 
-                # إضافة مستويات الترقيات له في جدول upgrades لو مش موجود
                 cur.execute("""
                     INSERT INTO upgrades (telegram_id)
                     VALUES (%s)
@@ -32,8 +62,7 @@ def init_user(telegram_id):
         print(f"Error in init_user: {e}")
 
 def get_user_data(telegram_id):
-    """جلب بيانات اللاعب بالكامل (الرصيد والترقيات) في خطوة واحدة"""
-    init_user(telegram_id)  # نتأكد الأول إنه متسجل
+    init_user(telegram_id)
     try:
         with get_connection() as conn:
             with conn.cursor(cursor_factory=DictCursor) as cur:
@@ -51,23 +80,18 @@ def get_user_data(telegram_id):
         return None
 
 def update_balance(telegram_id, new_balance):
-    """تحديث رصيد اللاعب (زيادة أو نقصان بعد الضغط أو الشراء)"""
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE users SET balance = %s WHERE telegram_id = %s;
-                """, (new_balance, telegram_id))
+                cur.execute("UPDATE users SET balance = %s WHERE telegram_id = %s;", (new_balance, telegram_id))
                 conn.commit()
     except Exception as e:
         print(f"Error in update_balance: {e}")
 
 def update_upgrade_level(telegram_id, lvl_column, new_level):
-    """تحديث مستوى ترقية معينة للاعب بشكل ديناميكي"""
     allowed_columns = [f"lvl{i}_count" for i in range(1, 11)]
     if lvl_column not in allowed_columns:
         return
-        
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -78,13 +102,10 @@ def update_upgrade_level(telegram_id, lvl_column, new_level):
         print(f"Error in update_upgrade_level: {e}")
 
 def update_claim_time(telegram_id):
-    """تحديث وقت آخر مطالبة بالهدية اليومية للوقت الحالي"""
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE users SET last_claim_time = NOW() WHERE telegram_id = %s;
-                """, (telegram_id,))
+                cur.execute("UPDATE users SET last_claim_time = NOW() WHERE telegram_id = %s;", (telegram_id,))
                 conn.commit()
     except Exception as e:
         print(f"Error in update_claim_time: {e}")
