@@ -1,31 +1,85 @@
 <!DOCTYPE html>
-<html lang="ar">
+<html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لعبة تجريبية</title>
-    <style>
-        body { 
-            font-family: sans-serif; 
-            text-align: center; 
-            padding-top: 100px; 
-            background-color: #2c3e50; 
-            color: white; 
-        }
-        button { 
-            padding: 15px 30px; 
-            font-size: 20px; 
-            cursor: pointer; 
-            background-color: #e74c3c; 
-            color: white; 
-            border: none; 
-            border-radius: 10px; 
-        }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Zn Goxe - Crypto Mining Game</title>
+    <!-- استدعاء أيقونات رشيقة لتصميم شريط التنقل -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- استدعاء ملفات التصميم المستقلة التي سننشئها خطوة بخطوة -->
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="farm.css">
 </head>
 <body>
-    <h1>أهلاً بك يا بطل!</h1>
-    <p>لو الصفحة دي ظهرت، يبقى الرابط شغال 100%.</p>
-    <button onclick="alert('شغال يا وحش!')">اضغط للتجربة</button>
+
+    <!-- الحاوية الرئيسية للعبة (Main App Container) -->
+    <div id="app">
+        
+        <!-- 1. شاشة المزرعة وتعدين العملات (Crypto Farm) - القائمة الافتراضية -->
+        <div id="view-farm" class="game-view active">
+            <!-- الهيكل الداخلي للمزرعة سيتم وضعه هنا من خلال ملف farm الخاص بها -->
+            <div class="view-placeholder">جاري تحميل المزرعة...</div>
+        </div>
+
+        <!-- 2. شاشة متجر الترقيات (Upgrades Shop) -->
+        <div id="view-shop" class="game-view">
+            <div class="view-placeholder">جاري تحميل المتجر...</div>
+        </div>
+
+        <!-- 3. شاشة دعوة الأصدقاء (Referral System) -->
+        <div id="view-friends" class="game-view">
+            <div class="view-placeholder">جاري تحميل قائمة الأصدقاء...</div>
+        </div>
+
+        <!-- 4. شاشة المحفظة الرقمية (Wallet) -->
+        <div id="view-wallet" class="game-view">
+            <div class="view-placeholder">جاري تحميل المحفظة...</div>
+        </div>
+
+        <!-- 5. شاشة الإعدادات (Settings) -->
+        <div id="view-settings" class="game-view">
+            <div class="view-placeholder">جاري تحميل الإعدادات...</div>
+        </div>
+
+    </div>
+
+    <!-- 🌟 شريط التنقل السفلي الثابت (Bottom Navigation Bar) 🌟 -->
+    <!-- تم ترتيب القوائم بالترتيب المطلق من اليمين إلى اليسار ليناسب القراءة العربية -->
+    <nav class="bottom-nav">
+        
+        <!-- القائمة 1: دعوة الأصدقاء -->
+        <button class="nav-item" onclick="switchView('friends')" id="nav-friends">
+            <i class="fas fa-users"></i>
+            <span>الأصدقاء</span>
+        </button>
+
+        <!-- القائمة 2: المحفظة -->
+        <button class="nav-item" onclick="switchView('wallet')" id="nav-wallet">
+            <i class="fas fa-wallet"></i>
+            <span>المحفظة</span>
+        </button>
+
+        <!-- القائمة 3: المزرعة (الزرار الأكبر والنشط افتراضياً في المنتصف) -->
+        <button class="nav-item active" onclick="switchView('farm')" id="nav-farm">
+            <i class="fas fa-screwdriver-wrench"></i>
+            <span>المزرعة</span>
+        </button>
+
+        <!-- القائمة 4: المتجر -->
+        <button class="nav-item" onclick="switchView('shop')" id="nav-shop">
+            <i class="fas fa-store"></i>
+            <span>المتجر</span>
+        </button>
+
+        <!-- القائمة 5: الإعدادات -->
+        <button class="nav-item" onclick="switchView('settings')" id="nav-settings">
+            <i class="fas fa-cog"></i>
+            <span>الإعدادات</span>
+        </button>
+
+    </nav>
+
+    <!-- استدعاء ملفات البرمجة الذكية المستقلة للواجهة -->
+    <script src="game.js"></script>
 </body>
 </html>
