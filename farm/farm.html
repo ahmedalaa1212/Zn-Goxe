@@ -1,28 +1,30 @@
-<div class="farm-container" style="text-align: center; color: #fff;">
+<div class="farm-container" style="text-align: center; color: #fff; padding: 20px;">
     <!-- شريط البيانات العلوي -->
-    <div class="header-stats" style="display: flex; justify-content: space-between; padding: 10px; background: #1c1c1c; border-radius: 10px; margin-bottom: 20px;">
+    <div class="header-stats" style="display: flex; justify-content: space-between; padding: 10px; background: #1c1c1c; border-radius: 10px; margin-bottom: 20px; border: 1px solid #333;">
         <div class="stat">⚡ 120/س</div>
         <div class="stat" style="color: #ffcc00;">ZN: 15,400</div>
     </div>
 
+    <!-- المزرعة -->
     <div class="farm-visual" style="font-size: 50px; margin: 10px 0;">🏗️</div>
     
-    <div style="width: 100%; background: #333; height: 20px; border-radius: 10px; overflow: hidden;">
+    <!-- شريط التقدم -->
+    <div style="width: 100%; background: #333; height: 20px; border-radius: 10px; overflow: hidden; margin-bottom: 5px;">
         <div id="storage-progress" style="width: 60%; background: #0088cc; height: 100%;"></div>
     </div>
-    <p style="font-size: 12px; margin: 5px 0;">12,450 / 20,000</p>
+    <p style="font-size: 12px; margin-bottom: 20px;">12,450 / 20,000</p>
     
-    <button style="width: 100%; padding: 12px; background: #0088cc; border: none; color: white; border-radius: 8px; font-weight: bold;">تجميع (Claim)</button>
+    <!-- زر التجميع -->
+    <button style="width: 100%; padding: 12px; background: #0088cc; border: none; color: white; border-radius: 8px; font-weight: bold; cursor: pointer; margin-bottom: 15px;">تجميع (Claim)</button>
 
     <!-- شريط المكافأة اليومية -->
-    <div class="daily-reward" style="margin: 15px 0; padding: 10px; background: #222; border-radius: 8px; border: 1px solid #444; display: flex; justify-content: space-between; align-items: center;">
+    <div style="margin-bottom: 20px; padding: 10px; background: #222; border-radius: 8px; border: 1px solid #444; display: flex; justify-content: space-between; align-items: center; font-size: 13px;">
         <span>🎁 مكافأة اليوم: 500 ZN</span>
         <button style="background: #0088cc; border: none; color: white; padding: 5px 15px; border-radius: 5px; cursor: pointer;">استلام</button>
     </div>
 
     <!-- حقول التعدين الـ 10 -->
-    <div id="mining-fields" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px;">
-        <!-- سيتم توليدها بالـ JS -->
+    <div id="mining-fields" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+        <!-- يتم التوليد بالـ JS -->
     </div>
 </div>
-
