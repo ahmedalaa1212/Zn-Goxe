@@ -1,5 +1,4 @@
 pyTelegramBotAPI==4.12.0
 Flask==3.0.0
-psycopg2-binary==2.9.9
+psycopg2-binary
 gunicorn==21.2.0
-
