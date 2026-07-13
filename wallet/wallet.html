@@ -1,0 +1,17 @@
+<div class="wallet-container" style="padding: 20px; color: #fff;">
+    <!-- التبويبات الثلاثة -->
+    <div style="display: flex; gap: 5px; margin-bottom: 20px;">
+        <button onclick="showTab('deposit')" style="flex:1; padding:10px; background:#222; border:1px solid #444; color:#fff; border-radius:5px; cursor:pointer;">إيداع</button>
+        <button onclick="showTab('history')" style="flex:1; padding:10px; background:#222; border:1px solid #444; color:#fff; border-radius:5px; cursor:pointer;">سجلات</button>
+        <button onclick="showTab('withdraw')" style="flex:1; padding:10px; background:#222; border:1px solid #444; color:#fff; border-radius:5px; cursor:pointer;">سحب</button>
+    </div>
+
+    <!-- محتوى التبويبات -->
+    <div id="wallet-content">
+        <!-- يتم تحميل المحتوى هنا -->
+    </div>
+</div>
+
+<style>
+    .active-tab { background: #0088cc !important; border-color: #0088cc !important; }
+</style>
