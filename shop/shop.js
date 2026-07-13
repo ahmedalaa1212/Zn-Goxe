@@ -1,6 +1,7 @@
-let playerZnBalance = 15400;
+let playerZnBalance = 14400; // تم التحديث بناءً على صورتك الأخيرة
 let miningUpgrades = {1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0, 10:0};
 let currentStorageLevel = 0;
+let currentActiveTab = 'mining'; // للاحتفاظ بالتبويب الحالي
 
 const miningPackages = [
     { level: 1, price: 1000, boost: 500 }, { level: 2, price: 3000, boost: 1200 },
@@ -17,8 +18,12 @@ const storagePackages = [
     { level: 7, price: 250000, cap: "1,000,000" }, { level: 8, price: 500000, cap: "2,500,000" }
 ];
 
+// دالة عرض المنتجات بناءً على التبويب المحدد
 function renderShopTab(tab) {
+    currentActiveTab = tab;
     const content = document.getElementById('shop-content');
+    if (!content) return;
+    
     content.innerHTML = '';
     document.getElementById('btn-mining').style.background = (tab === 'mining') ? '#0088cc' : '#222';
     document.getElementById('btn-storage').style.background = (tab === 'storage') ? '#0088cc' : '#222';
@@ -47,6 +52,7 @@ function renderShopTab(tab) {
     }
 }
 
+// دالة التحقق من الرصيد وعرض النافذة المناسبة
 function checkAndBuy(type, level, price) {
     const modal = document.getElementById('msg-modal');
     document.getElementById('modal-msg').innerText = playerZnBalance < price ? "عذراً، رصيدك غير كافٍ!" : `هل تريد شراء الترقية مقابل ${price.toLocaleString()} ZN؟`;
@@ -65,4 +71,19 @@ function executePurchase(type, level, price) {
     closeModal();
     renderShopTab(type);
 }
+
 function closeModal() { document.getElementById('msg-modal').style.display = 'none'; }
+
+// الحـل السحري لبوت التليجرام: 
+// فحص مستمر كل 300 ملي ثانية (إذا كانت شاشة المتجر ظاهرة ومحتواها فارغ، قم بتعبئتها فوراً تلقائياً)
+setInterval(() => {
+    const shopSection = document.getElementById('main-shop-section');
+    const shopContent = document.getElementById('shop-content');
+    
+    if (shopSection && shopContent) {
+        // إذا كان القسم ظاهر (ليس مخفياً بـ display: none) ومحتوى المتجر فاضي تماماً
+        if (shopSection.style.display !== 'none' && window.getComputedStyle(shopSection).display !== 'none' && shopContent.innerHTML === '') {
+            renderShopTab(currentActiveTab);
+        }
+    }
+}, 300);
