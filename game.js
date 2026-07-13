@@ -1,34 +1,32 @@
-// المحرك الرئيسي للانتقالات (نظام المجلدات)
-async function switchView(viewName) {
-    // 1. تحديث الأزرار (تغيير لون الزر النشط)
-    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-    const activeNav = document.getElementById('nav-' + viewName);
-    if (activeNav) activeNav.classList.add('active');
+// دالة التنقل السريع بين القوائم وتغيير ألوان شريط الأزرار السفلي فوراً
+function switchView(viewName) {
+    // 1. جلب كافة شاشات اللعبة وإخفائها
+    const views = document.querySelectorAll('.game-view');
+    views.forEach(view => {
+        view.classList.remove('active');
+        view.style.display = 'none';
+    });
 
-    // 2. تحديد مكان العرض
-    const container = document.getElementById('view-' + viewName);
-    
-    // 3. جلب محتوى القائمة من المجلد الخاص بها
-    try {
-        const res = await fetch(`${viewName}/${viewName}.html`);
-        const html = await res.text();
-        container.innerHTML = html;
+    // 2. إظهار الشاشة التي ضغط عليها اللاعب فوراً
+    const targetView = document.getElementById(`view-${viewName}`);
+    if (targetView) {
+        targetView.classList.add('active');
+        targetView.style.display = 'block';
+    }
 
-        // 4. تنفيذ كود الـ JS الخاص بالقائمة (لضمان عمل كل شيء داخل مجلده)
-        const script = document.createElement('script');
-        script.src = `${viewName}/${viewName}.js`;
-        document.body.appendChild(script);
+    // 3. تحديث ألوان أزرار القائمة السفلية بشكل فوري وسلس
+    const navItems = document.querySelectorAll('.nav-item');
+    navItems.forEach(item => {
+        item.classList.remove('active');
+    });
 
-        // 5. التبديل المرئي بين الصفحات
-        document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
-        container.classList.add('active');
-    } catch (e) {
-        console.error("خطأ في تحميل القائمة:", e);
-        container.innerHTML = `<p style="text-align:center; padding:20px;">القائمة قيد التطوير...</p>`;
+    const activeNav = document.getElementById(`nav-${viewName}`);
+    if (activeNav) {
+        activeNav.classList.add('active');
     }
 }
 
-// 6. تشغيل المزرعة تلقائياً عند فتح البوت لأول مرة
-window.onload = () => {
-    switchView('farm'); 
-};
+// تشغيل شاشة المزرعة كشاشة افتراضية أول ما البوت يفتح
+document.addEventListener('DOMContentLoaded', () => {
+    switchView('farm');
+});
