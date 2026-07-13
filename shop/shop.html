@@ -1,4 +1,14 @@
-<div class="shop-container" style="padding:20px; color:#fff; max-width:400px; margin:0 auto; background:#0f0f0f; min-height:100vh;">
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="background:#0f0f0f; margin:0; font-family: sans-serif;">
+
+<!-- تعديل: أضفنا معرف للـ container الرئيسي للمتجر لمراقبته -->
+<div id="main-shop-section" class="shop-container" style="padding:20px; color:#fff; max-width:400px; margin:0 auto; background:#0f0f0f; min-height:100vh;">
+    
     <div style="text-align:center; margin-bottom:20px;">
         <h2 style="margin:0; color:#00cc66;">المتجر 🛒</h2>
         <div style="background:#1c1c1c; padding:10px; border-radius:10px; margin-top:10px; display:inline-block;">
@@ -11,10 +21,11 @@
         <button id="btn-storage" onclick="renderShopTab('storage')" style="flex:1; padding:12px; border:none; color:white; border-radius:8px; background:#222;">سعة التخزين</button>
     </div>
 
+    <!-- هذا هو الوعاء الذي تظهر فيه المنتجات -->
     <div id="shop-content"></div>
 </div>
 
-<!-- نافذة رسائل -->
+<!-- نافذة رسائل (تأكيد أو خطأ) -->
 <div id="msg-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); justify-content:center; align-items:center; z-index:999;">
     <div style="background:#1c1c1c; padding:20px; border-radius:15px; width:80%; text-align:center; border:1px solid #333;">
         <p id="modal-msg" style="color:#fff;"></p>
@@ -23,7 +34,5 @@
 </div>
 
 <script src="shop.js"></script>
-<script>
-    // التشغيل الإجباري عند فتح الصفحة
-    setTimeout(() => renderShopTab('mining'), 100);
-</script>
+</body>
+</html>
