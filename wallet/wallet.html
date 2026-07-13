@@ -1,14 +1,20 @@
-<div class="wallet-container" style="padding:20px; color:#fff; max-width:400px; margin:0 auto;">
-    <div style="background:#1c1c1c; padding:20px; border-radius:15px; text-align:center; margin-bottom:20px;">
-        <div style="color:#aaa;">رصيد ZN: 15,400</div>
-        <div style="color:#00cc66; font-size:24px; font-weight:bold;">$ 0.03080</div>
+<!-- واجهة المحفظة -->
+<div class="wallet-container" style="padding:20px; color:#fff; max-width:400px; margin:0 auto; background:#0f0f0f; min-height:100vh;">
+    
+    <!-- عرض الأرصدة -->
+    <div style="background:#1c1c1c; padding:20px; border-radius:15px; text-align:center; margin-bottom:20px; border: 1px solid #333;">
+        <div style="color:#aaa; font-size:14px;">رصيد ZN: <span id="zn-balance-display">15400</span></div>
+        <div style="color:#00cc66; font-size:26px; font-weight:bold; margin-top:5px;">$ <span id="usd-balance-display">0.03080</span></div>
     </div>
 
-    <div style="display:flex; gap:5px; margin-bottom:20px;">
-        <button id="btn-deposit" onclick="render('deposit')" style="flex:1; padding:10px; border:none; color:white; border-radius:8px;">إيداع</button>
-        <button id="btn-history" onclick="render('history')" style="flex:1; padding:10px; border:none; color:white; border-radius:8px;">سجلات</button>
-        <button id="btn-withdraw" onclick="render('withdraw')" style="flex:1; padding:10px; border:none; color:white; border-radius:8px;">سحب</button>
+    <!-- التبويبات (مترتبة زي صورتك) -->
+    <div style="display:flex; gap:10px; margin-bottom:20px; flex-direction:row-reverse;">
+        <button id="btn-withdraw" onclick="renderWalletTab('withdraw')" style="flex:1; padding:12px; border:none; color:white; border-radius:8px; background:#222; font-weight:bold;">سحب</button>
+        <button id="btn-history" onclick="renderWalletTab('history')" style="flex:1; padding:12px; border:none; color:white; border-radius:8px; background:#222; font-weight:bold;">سجلات</button>
+        <button id="btn-deposit" onclick="renderWalletTab('deposit')" style="flex:1; padding:12px; border:none; color:white; border-radius:8px; background:#0088cc; font-weight:bold;">إيداع</button>
     </div>
 
+    <!-- منطقة عرض المحتوى المتغير -->
     <div id="wallet-content"></div>
+
 </div>
