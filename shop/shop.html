@@ -20,3 +20,11 @@
     <div id="shop-content" style="display:flex; flex-direction:column; gap:10px; padding-bottom:30px;"></div>
 
 </div>
+
+<!-- سكريبت التشغيل الفوري لحل مشكلة الشاشة الفاضية -->
+<script>
+    if (typeof renderShopTab === 'function') {
+        let lastTab = localStorage.getItem('lastShopTab') || 'mining';
+        renderShopTab(lastTab);
+    }
+</script>
