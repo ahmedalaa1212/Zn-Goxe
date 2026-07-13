@@ -80,3 +80,8 @@ function executePurchase() {
         alert("رصيدك غير كافٍ!");
     }
 }
+// تشغيل تلقائي فور تحميل الصفحة
+window.onload = function() {
+    let lastTab = localStorage.getItem('lastShopTab') || 'mining';
+    renderShopTab(lastTab);
+};
