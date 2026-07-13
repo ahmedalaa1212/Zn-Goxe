@@ -1,32 +1,26 @@
 // رصيد اللاعب
 let playerZnBalance = 15400;
 
-// مستويات اللاعب الحالية (صفر يعني لسه مبدأش)
-let currentMiningLevel = 0; 
+// سجل ترقيات التعدين (كل مستوى بيبدأ من 0 ترقيات، والحد الأقصى 20)
+let miningUpgrades = {
+    1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0
+};
+
+// مستوى سعة التخزين (8 مستويات كترقية عادية)
 let currentStorageLevel = 0; 
 
-// بيانات باقات التعدين (20 مستوى)
+// بيانات باقات التعدين (10 مستويات أساسية)
 const miningPackages = [
-    { level: 1, price: 1000, boost: "+500 ZN / ساعة" },
-    { level: 2, price: 3000, boost: "+1,200 ZN / ساعة" },
-    { level: 3, price: 7000, boost: "+2,500 ZN / ساعة" },
-    { level: 4, price: 15000, boost: "+5,000 ZN / ساعة" },
-    { level: 5, price: 30000, boost: "+10,000 ZN / ساعة" },
-    { level: 6, price: 60000, boost: "+22,000 ZN / ساعة" },
-    { level: 7, price: 120000, boost: "+45,000 ZN / ساعة" },
-    { level: 8, price: 250000, boost: "+100,000 ZN / ساعة" },
-    { level: 9, price: 500000, boost: "+250,000 ZN / ساعة" },
-    { level: 10, price: 1000000, boost: "+600,000 ZN / ساعة" },
-    { level: 11, price: 2000000, boost: "+1,200,000 ZN / ساعة" },
-    { level: 12, price: 4000000, boost: "+2,500,000 ZN / ساعة" },
-    { level: 13, price: 8000000, boost: "+5,000,000 ZN / ساعة" },
-    { level: 14, price: 15000000, boost: "+10,000,000 ZN / ساعة" },
-    { level: 15, price: 30000000, boost: "+22,000,000 ZN / ساعة" },
-    { level: 16, price: 60000000, boost: "+45,000,000 ZN / ساعة" },
-    { level: 17, price: 120000000, boost: "+100,000,000 ZN / ساعة" },
-    { level: 18, price: 250000000, boost: "+250,000,000 ZN / ساعة" },
-    { level: 19, price: 500000000, boost: "+600,000,000 ZN / ساعة" },
-    { level: 20, price: 1000000000, boost: "+1,500,000,000 ZN / ساعة" }
+    { level: 1, price: 1000, boost: 500 },
+    { level: 2, price: 3000, boost: 1200 },
+    { level: 3, price: 7000, boost: 2500 },
+    { level: 4, price: 15000, boost: 5000 },
+    { level: 5, price: 30000, boost: 10000 },
+    { level: 6, price: 60000, boost: 22000 },
+    { level: 7, price: 120000, boost: 45000 },
+    { level: 8, price: 250000, boost: 100000 },
+    { level: 9, price: 500000, boost: 250000 },
+    { level: 10, price: 1000000, boost: 600000 }
 ];
 
 // بيانات باقات التخزين (8 مستويات)
@@ -46,7 +40,7 @@ function renderShopTab(tab) {
     const content = document.getElementById('shop-content');
     if (!content) return;
 
-    // حفظ التبويب الأخير عشان يفضل فاتحه
+    // حفظ التبويب الأخير 
     localStorage.setItem('lastShopTab', tab);
 
     // تظبيط ألوان الأزرار
@@ -56,31 +50,57 @@ function renderShopTab(tab) {
     // تفريغ المحتوى
     content.innerHTML = '';
 
-    let activeData = (tab === 'mining') ? miningPackages : storagePackages;
-    let playerCurrentLevel = (tab === 'mining') ? currentMiningLevel : currentStorageLevel;
+    if (tab === 'mining') {
+        // عرض باقات التعدين (10 باقات، لكل باقة 20 ترقية)
+        miningPackages.forEach(item => {
+            let boughtCount = miningUpgrades[item.level];
+            let isMaxed = boughtCount >= 20; // هل وصل للحد الأقصى (20 ترقية)؟
+            
+            let btnColor = isMaxed ? '#333' : '#00cc66'; 
+            let btnText = isMaxed ? 'تم الانتهاء من هذا المستوى ✅' : `شراء بـ ${item.price.toLocaleString()} ZN`;
+            let btnDisabled = isMaxed ? 'disabled' : '';
 
-    // رسم الكروت (الكل مفتوح يقدر يشتريه)
-    activeData.forEach(item => {
-        let isBought = item.level <= playerCurrentLevel; // لو اشترى مستوى 5، مستويات 1 لـ 5 هتبقى متعلمة صح
-        
-        let btnColor = isBought ? '#333' : '#00cc66'; // أخضر لو لسه مشتراهوش
-        let btnText = isBought ? 'تم الشراء ✅' : `شراء بـ ${item.price.toLocaleString()} ZN`;
-        let btnDisabled = isBought ? 'disabled' : '';
-
-        // تصميم الكارت (مفيش شفافية، كله منور وواضح)
-        let card = `
-            <div style="background:#1c1c1c; padding:15px; border-radius:10px; border:1px solid ${isBought ? '#333' : '#00cc66'}; display:flex; justify-content:space-between; align-items:center;">
-                <div>
-                    <div style="font-weight:bold; font-size:16px; margin-bottom:5px;">مستوى ${item.level}</div>
-                    <div style="color:#aaa; font-size:12px;">${tab === 'mining' ? 'السرعة:' : 'الحد الأقصى:'} <span style="color:#fff;">${tab === 'mining' ? item.boost : item.capacity}</span></div>
+            let card = `
+                <div style="background:#1c1c1c; padding:15px; border-radius:10px; border:1px solid ${isMaxed ? '#333' : '#00cc66'}; display:flex; flex-direction:column; gap:10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <div style="font-weight:bold; font-size:16px; margin-bottom:5px;">مستوى ${item.level}</div>
+                            <div style="color:#aaa; font-size:12px;">السرعة: <span style="color:#fff;">+${item.boost.toLocaleString()} ZN / ساعة</span></div>
+                        </div>
+                        <div style="color:${isMaxed ? '#888' : '#00cc66'}; font-size:12px; font-weight:bold; background:#222; padding:5px 10px; border-radius:5px;">
+                            الترقيات: ${boughtCount} / 20
+                        </div>
+                    </div>
+                    <button onclick="buyPackage('mining', ${item.level}, ${item.price})" style="width:100%; padding:10px; background:${btnColor}; border:none; color:${isMaxed ? '#888' : 'white'}; border-radius:8px; font-weight:bold;" ${btnDisabled}>
+                        ${btnText}
+                    </button>
                 </div>
-                <button onclick="buyPackage('${tab}', ${item.level}, ${item.price})" style="padding:10px 15px; background:${btnColor}; border:none; color:${isBought ? '#888' : 'white'}; border-radius:8px; font-weight:bold;" ${btnDisabled}>
-                    ${btnText}
-                </button>
-            </div>
-        `;
-        content.innerHTML += card;
-    });
+            `;
+            content.innerHTML += card;
+        });
+
+    } else if (tab === 'storage') {
+        // عرض باقات التخزين (مفتوحة وتقدر تشتري أي مستوى)
+        storagePackages.forEach(item => {
+            let isBought = item.level <= currentStorageLevel;
+            let btnColor = isBought ? '#333' : '#00cc66';
+            let btnText = isBought ? 'تم الشراء ✅' : `شراء بـ ${item.price.toLocaleString()} ZN`;
+            let btnDisabled = isBought ? 'disabled' : '';
+
+            let card = `
+                <div style="background:#1c1c1c; padding:15px; border-radius:10px; border:1px solid ${isBought ? '#333' : '#00cc66'}; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <div style="font-weight:bold; font-size:16px; margin-bottom:5px;">مستوى ${item.level}</div>
+                        <div style="color:#aaa; font-size:12px;">الحد الأقصى: <span style="color:#fff;">${item.capacity}</span></div>
+                    </div>
+                    <button onclick="buyPackage('storage', ${item.level}, ${item.price})" style="padding:10px 15px; background:${btnColor}; border:none; color:${isBought ? '#888' : 'white'}; border-radius:8px; font-weight:bold;" ${btnDisabled}>
+                        ${btnText}
+                    </button>
+                </div>
+            `;
+            content.innerHTML += card;
+        });
+    }
 
     // تحديث الرصيد في الواجهة
     document.getElementById('shop-zn-balance').innerText = playerZnBalance.toLocaleString();
@@ -89,24 +109,24 @@ function renderShopTab(tab) {
 // دالة الشراء
 function buyPackage(type, level, price) {
     if (playerZnBalance < price) {
-        alert("رصيدك من الـ ZN غير كافٍ لشراء هذا المستوى!");
+        alert("رصيدك من الـ ZN غير كافٍ!");
         return;
     }
     
-    // خصم الرصيد 
-    playerZnBalance -= price;
-    
-    // تحديث مستوى اللاعب للمستوى الجديد اللي اشتراه
-    if (type === 'mining') currentMiningLevel = level;
-    if (type === 'storage') currentStorageLevel = level;
+    if (type === 'mining') {
+        if (miningUpgrades[level] >= 20) return; // حماية إضافية
+        playerZnBalance -= price;
+        miningUpgrades[level] += 1; // زيادة عدد الترقيات بمقدار 1
+    } else if (type === 'storage') {
+        playerZnBalance -= price;
+        currentStorageLevel = level;
+    }
 
     // إعادة رسم الواجهة فوراً
     renderShopTab(type);
-    
-    alert(`مبروك! تم الترقية للمستوى ${level} بنجاح.`);
 }
 
-// تشغيل الواجهة لأول مرة عشان نضمن إنها متحملة
+// تشغيل الواجهة لأول مرة 
 setTimeout(() => {
     let lastTab = localStorage.getItem('lastShopTab') || 'mining';
     renderShopTab(lastTab);
