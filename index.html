@@ -17,34 +17,118 @@
         
         <!-- 1. شاشة المزرعة وتعدين العملات (Crypto Farm) - القائمة الافتراضية -->
         <div id="view-farm" class="game-view active">
-            <!-- الهيكل الداخلي للمزرعة سيتم وضعه هنا من خلال ملف farm الخاص بها -->
-            <div class="view-placeholder">جاري تحميل المزرعة...</div>
+            <h2 style="text-align: center; color: #0088cc; margin-top: 10px;">🚜 مزرعة التعدين</h2>
+            <!-- الـ ID المطلوب لملف farm.js ليحقن حقول التعدين بالداخل -->
+            <div id="mining-fields" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 15px; padding: 10px;">
+                <!-- يتم التوليد من farm.js -->
+            </div>
         </div>
 
         <!-- 2. شاشة متجر الترقيات (Upgrades Shop) -->
         <div id="view-shop" class="game-view">
-            <div class="view-placeholder">جاري تحميل المتجر...</div>
+            <!-- الهيكل والـ IDs المطلوبة لملف shop.js لقراءة الرصيد والتبويبات -->
+            <div id="main-shop-section" style="padding: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; background: #1c1c1c; padding: 12px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #252525;">
+                    <span>رصيدك الحالي:</span>
+                    <span style="color: #00cc66; font-weight: bold;"><span id="shop-zn-balance">14,400</span> ZN</span>
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <button id="btn-mining" onclick="renderShopTab('mining')" style="flex: 1; padding: 10px; border: none; color: white; border-radius: 5px; font-weight: bold; background: #0088cc; cursor: pointer;">تعدين</button>
+                    <button id="btn-storage" onclick="renderShopTab('storage')" style="flex: 1; padding: 10px; border: none; color: white; border-radius: 5px; font-weight: bold; background: #222; cursor: pointer;">مخزن</button>
+                </div>
+
+                <!-- المكان السحري الذي يضع فيه كود shop.js كروت المنتجات والترقيات -->
+                <div id="shop-content"></div>
+            </div>
         </div>
 
         <!-- 3. شاشة دعوة الأصدقاء (Referral System) -->
         <div id="view-friends" class="game-view">
-            <div class="view-placeholder">جاري تحميل قائمة الأصدقاء...</div>
+            <div id="main-friends-section" style="padding: 10px;">
+                <h2 style="text-align: center; margin-top: 10px; color: #ffcc00;">👥 نظام الإحالة والأصدقاء</h2>
+                <p style="text-align: center; color: #aaa; font-size: 14px; margin-bottom: 20px;">قم بدعوة أصدقائك للحصول على مكافآت ضخمة فورية!</p>
+                <!-- الـ ID المطلوب لملف friends.js ليحقن فيه قائمة المهمات والمكافآت -->
+                <div id="tasks-list"></div>
+            </div>
         </div>
 
         <!-- 4. شاشة المحفظة الرقمية (Wallet) -->
         <div id="view-wallet" class="game-view">
-            <div class="view-placeholder">جاري تحميل المحفظة...</div>
+            <div style="padding: 10px;">
+                <h2 style="text-align: center; margin-top: 10px; color: #00cc66;">👛 المحفظة الرقمية</h2>
+                <div style="background: #1c1c1c; padding: 25px; border-radius: 15px; text-align: center; margin-top: 30px; border: 1px solid #252525;">
+                    <i class="fas fa-wallet" style="font-size: 40px; color: #00cc66; margin-bottom: 15px;"></i>
+                    <div style="font-size: 14px; color: #aaa; margin-bottom: 5px;">إجمالي الرصيد القابل للسحب</div>
+                    <div style="font-size: 24px; font-weight: bold; color: #fff; letter-spacing: 1px;">ZN 14,400</div>
+                    <button style="margin-top: 20px; width: 100%; padding: 12px; background: #333; border: none; color: #888; border-radius: 8px; font-weight: bold; cursor: not-allowed;" disabled>سحب العملات (قريباً)</button>
+                </div>
+            </div>
         </div>
 
         <!-- 5. شاشة الإعدادات (Settings) -->
         <div id="view-settings" class="game-view">
-            <div class="view-placeholder">جاري تحميل الإعدادات...</div>
+            <!-- الـ ID والتقسيمات التي يبحث عنها ملف settings.js لتحديث بيانات التليجرام والإحصائيات -->
+            <div id="main-settings-section" style="padding: 10px;">
+                
+                <!-- كارت حساب اللاعب تليجرام -->
+                <div style="background: #1c1c1c; padding: 15px; border-radius: 12px; display: flex; align-items: center; gap: 15px; margin-bottom: 20px; border: 1px solid #252525;">
+                    <div id="player-avatar" style="width: 50px; height: 50px; background: #0088cc; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; color: white;">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div>
+                        <div id="player-username" style="font-weight: bold; font-size: 16px;">جاري جلب حسابك...</div>
+                        <div style="font-size: 13px; color: #aaa; margin-top: 4px; display: flex; align-items: center; gap: 6px;">
+                            ID: <span id="player-telegram-id">00000000</span>
+                            <i class="fas fa-copy" onclick="copyPlayerId()" style="color: #0088cc; cursor: pointer; padding: 2px;"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- إحصائيات ترقيات ومستويات اللاعب -->
+                <div style="background: #111; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #222;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 14px;">
+                        <span style="color: #aaa;">إجمالي ترقيات التعدين:</span>
+                        <span id="stat-total-mining" style="font-weight: bold; color: #ffcc00;">0 / 200</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 14px;">
+                        <span style="color: #aaa;">مستوى المخزن الحالي:</span>
+                        <span id="stat-storage-level" style="font-weight: bold; color: #00cc66;">مستوى 0</span>
+                    </div>
+                </div>
+
+                <!-- أزرار التحكم والخصوصية المربوطة بملفاتك -->
+                <button onclick="refreshGameData()" style="width: 100%; padding: 12px; background: #0088cc; border: none; color: white; border-radius: 8px; font-weight: bold; margin-bottom: 10px; cursor: pointer;"><i class="fas fa-sync-alt" style="margin-left: 8px;"></i>تحديث البيانات فوري</button>
+                <button onclick="showPrivacyModal()" style="width: 100%; padding: 12px; background: #222; border: none; color: #aaa; border-radius: 8px; font-size: 13px; cursor: pointer;">سياسة الخصوصية والشروط</button>
+            </div>
         </div>
 
     </div>
 
+    <!-- 🌟 النوافذ المنبثقة ورسائل التنبيه الذكية المشتركة لملفات الـ JS 🌟 -->
+    
+    <!-- نافذة الشراء المنبثقة لملف shop.js -->
+    <div id="msg-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 999; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box;">
+        <div style="background: #1c1c1c; padding: 20px; border-radius: 12px; width: 100%; max-width: 320px; text-align: center; border: 1px solid #333;">
+            <p id="modal-msg" style="margin-bottom: 20px; font-weight: bold; font-size: 15px; line-height: 1.5;"></p>
+            <div id="modal-actions" style="display: flex; justify-content: center; gap: 10px;"></div>
+        </div>
+    </div>
+
+    <!-- نافذة الخصوصية المنبثقة لملف settings.js -->
+    <div id="settings-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 999; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box;">
+        <div style="background: #1c1c1c; padding: 20px; border-radius: 12px; width: 100%; max-width: 320px; text-align: center; border: 1px solid #333;">
+            <h3 style="margin-top: 0; color: #0088cc;">شروط اللعبة والخصوصية</h3>
+            <p style="font-size: 13px; color: #aaa; text-align: right; line-height: 1.6;">جميع بيانات التعدين والترقيات والعملات يتم حفظها ومزامنتها محلياً وبشكل آمن عبر حساب تليجرام الخاص بك لضمان تجربة لعب عادلة ومحمية تماماً.</p>
+            <button onclick="closeSettingsModal()" style="width: 100%; padding: 10px; background: #444; border: none; color: white; border-radius: 5px; margin-top: 10px; cursor: pointer;">إغلاق</button>
+        </div>
+    </div>
+
+    <!-- إشعار التوست لنسخ الـ ID والعمليات السريعة لملف settings.js -->
+    <div id="toast-msg" style="display: none; position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: #00cc66; color: white; padding: 10px 20px; border-radius: 20px; font-size: 13px; font-weight: bold; z-index: 1000; box-shadow: 0 4px 10px rgba(0,0,0,0.3);">تم نسخ الـ ID بنجاح!</div>
+
+
     <!-- 🌟 شريط التنقل السفلي الثابت (Bottom Navigation Bar) 🌟 -->
-    <!-- تم ترتيب القوائم بالترتيب المطلق من اليمين إلى اليسار ليناسب القراءة العربية -->
     <nav class="bottom-nav">
         
         <!-- القائمة 1: دعوة الأصدقاء -->
@@ -79,7 +163,10 @@
 
     </nav>
 
-    <!-- استدعاء ملفات البرمجة الذكية المستقلة للواجهة -->
+    <!-- استدعاء ملف السكربت الرسمي لتليجرام لتفعيل الـ WebApp وتمرير بيانات المستخدم الحقيقية -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    
+    <!-- استدعاء ملف البرمجة الذكية المستقلة للواجهة والمحرك الرئيسي للعبة -->
     <script src="game.js"></script>
 </body>
 </html>
