@@ -10,10 +10,12 @@ const miningPackages = [
     { level: 9, price: 500000, boost: 250000 }, { level: 10, price: 1000000, boost: 600000 }
 ];
 
-// التأكد من تحميل العناصر أول ما الصفحة تفتح
-document.addEventListener('DOMContentLoaded', () => {
-    renderShopTab('mining');
-});
+const storagePackages = [
+    { level: 1, price: 2000, cap: "20,000" }, { level: 2, price: 5000, cap: "30,000" },
+    { level: 3, price: 10000, cap: "50,000" }, { level: 4, price: 25000, cap: "100,000" },
+    { level: 5, price: 50000, cap: "250,000" }, { level: 6, price: 100000, cap: "500,000" },
+    { level: 7, price: 250000, cap: "1,000,000" }, { level: 8, price: 500000, cap: "2,500,000" }
+];
 
 function renderShopTab(tab) {
     const content = document.getElementById('shop-content');
@@ -32,33 +34,35 @@ function renderShopTab(tab) {
                 </button>
             </div>`;
         });
+    } else {
+        storagePackages.forEach(item => {
+            let isBought = item.level <= currentStorageLevel;
+            content.innerHTML += `<div style="background:#1c1c1c; margin-bottom:10px; padding:15px; border-radius:10px; border:1px solid ${isBought ? '#333' : '#00cc66'}; display:flex; justify-content:space-between; align-items:center;">
+                <div><b>مستوى ${item.level}</b><div style="font-size:12px; color:#aaa;">السعة: ${item.cap} ZN</div></div>
+                <button onclick="checkAndBuy('storage', ${item.level}, ${item.price})" style="padding:10px; background:${isBought ? '#333' : '#00cc66'}; border:none; color:white; border-radius:5px;">
+                    ${isBought ? 'تم الشراء' : 'شراء بـ ' + item.price.toLocaleString()}
+                </button>
+            </div>`;
+        });
     }
 }
 
 function checkAndBuy(type, level, price) {
     const modal = document.getElementById('msg-modal');
-    const msg = document.getElementById('modal-msg');
-    const actions = document.getElementById('modal-actions');
-    
+    document.getElementById('modal-msg').innerText = playerZnBalance < price ? "عذراً، رصيدك غير كافٍ!" : `هل تريد شراء الترقية مقابل ${price.toLocaleString()} ZN؟`;
+    document.getElementById('modal-actions').innerHTML = playerZnBalance < price ? 
+        `<button onclick="closeModal()" style="padding:10px 20px; background:#cc0000; border:none; color:white; border-radius:5px;">إغلاق</button>` :
+        `<button onclick="closeModal()" style="padding:10px 20px; background:#444; border:none; color:white; border-radius:5px; margin-left:10px;">إلغاء</button>
+         <button onclick="executePurchase('${type}', ${level}, ${price})" style="padding:10px 20px; background:#00cc66; border:none; color:white; border-radius:5px;">تأكيد</button>`;
     modal.style.display = 'flex';
-    
-    if (playerZnBalance < price) {
-        msg.innerText = "عذراً، رصيدك غير كافٍ!";
-        actions.innerHTML = `<button onclick="closeModal()" style="padding:10px 20px; background:#cc0000; border:none; color:white; border-radius:5px;">إغلاق</button>`;
-    } else {
-        msg.innerText = `هل تريد شراء ترقية مقابل ${price.toLocaleString()} ZN؟`;
-        actions.innerHTML = `
-            <button onclick="closeModal()" style="padding:10px 20px; background:#444; border:none; color:white; border-radius:5px; margin-left:10px;">إلغاء</button>
-            <button onclick="executePurchase('${type}', ${level}, ${price})" style="padding:10px 20px; background:#00cc66; border:none; color:white; border-radius:5px;">تأكيد</button>`;
-    }
 }
 
 function executePurchase(type, level, price) {
     playerZnBalance -= price;
     document.getElementById('shop-zn-balance').innerText = playerZnBalance.toLocaleString();
     if (type === 'mining') miningUpgrades[level]++;
+    else currentStorageLevel = level;
     closeModal();
     renderShopTab(type);
 }
-
 function closeModal() { document.getElementById('msg-modal').style.display = 'none'; }
