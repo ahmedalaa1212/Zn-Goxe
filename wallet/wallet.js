@@ -5,7 +5,7 @@ let isWalletConnected = false; // حالة ربط المحفظة
 // استرجاع آخر صفحة كان فاتحها اللاعب عشان متتمسحش
 let currentWalletTab = localStorage.getItem('lastWalletTab') || 'deposit';
 
-// الدالة الرئيسية لعرض المحتوى
+// الدالة الرئيسية لعرض المحتوى (تم الاحتفاظ بنظامك وتصميمك تماماً)
 function renderWalletTab(tab) {
     currentWalletTab = tab;
     localStorage.setItem('lastWalletTab', tab); // حفظ الاختيار
@@ -27,7 +27,7 @@ function renderWalletTab(tab) {
         content.innerHTML = `
             <div style="text-align:center; padding:25px 20px; background:#1c1c1c; border-radius:10px; border:1px solid #333;">
                 <p style="margin-bottom:15px; font-size:16px;">إيداع <b>USDT</b> مباشر</p>
-                <button onclick="connectTonWallet()" style="width:100%; padding:15px; background:#0088cc; border:none; color:white; border-radius:8px; font-weight:bold; font-size:15px;">اتصال بمحفظة التليجرام (TonConnect)</button>
+                <button onclick="connectTonWallet()" style="width:100%; padding:15px; background:#0088cc; border:none; color:white; border-radius:8px; font-weight:bold; font-size:15px; cursor:pointer;">اتصال بمحفظة التليجرام (TonConnect)</button>
             </div>`;
     } 
     // 2. قسم السجلات
@@ -44,8 +44,8 @@ function renderWalletTab(tab) {
                 <!-- أداة التحويل -->
                 <div style="background:#1c1c1c; padding:20px; border-radius:10px; margin-bottom:15px; border:1px solid #333;">
                     <p style="font-size:14px; color:#aaa; margin-bottom:10px; text-align:right;">تحويل ZN إلى USD</p>
-                    <input type="number" id="zn-input" placeholder="كمية ZN" style="width:100%; padding:12px; margin-bottom:15px; border-radius:8px; border:none; background:#000; color:#fff; box-sizing:border-box;">
-                    <button onclick="convertManualPoints()" style="width:100%; padding:12px; background:#00cc66; color:white; border:none; border-radius:8px; font-weight:bold; font-size:15px;">تحويل النقاط</button>
+                    <input type="number" id="zn-input" placeholder="كمية ZN" style="width:100%; padding:12px; margin-bottom:15px; border-radius:8px; border:none; background:#000; color:#fff; box-sizing:border-box; outline:none;">
+                    <button onclick="convertManualPoints()" style="width:100%; padding:12px; background:#00cc66; color:white; border:none; border-radius:8px; font-weight:bold; font-size:15px; cursor:pointer;">تحويل النقاط</button>
                 </div>
 
                 <!-- أداة السحب -->
@@ -56,7 +56,7 @@ function renderWalletTab(tab) {
                     ${!isWalletConnected ? `
                         <div style="text-align:center; margin-bottom:15px; padding:10px; background:#2a1111; border-radius:8px;">
                             <p style="color:#ff4444; font-size:13px; margin-bottom:10px;">يجب ربط محفظة التليجرام لتتمكن من السحب</p>
-                            <button onclick="connectTonWallet()" style="width:100%; padding:10px; background:#0088cc; border:none; color:white; border-radius:8px; font-weight:bold;">ربط المحفظة الآن</button>
+                            <button onclick="connectTonWallet()" style="width:100%; padding:10px; background:#0088cc; border:none; color:white; border-radius:8px; font-weight:bold; cursor:pointer;">ربط المحفظة الآن</button>
                         </div>
                     ` : `
                         <div style="text-align:center; margin-bottom:15px; color:#00cc66; font-size:14px; font-weight:bold;">
@@ -64,10 +64,10 @@ function renderWalletTab(tab) {
                         </div>
                     `}
 
-                    <input type="number" id="usd-withdraw" placeholder="المبلغ للسحب ($)" style="width:100%; padding:12px; margin-bottom:15px; border-radius:8px; border:none; background:#000; color:#fff; box-sizing:border-box;">
+                    <input type="number" id="usd-withdraw" placeholder="المبلغ للسحب ($)" style="width:100%; padding:12px; margin-bottom:15px; border-radius:8px; border:none; background:#000; color:#fff; box-sizing:border-box; outline:none;">
                     
                     <!-- زر السحب (يُغلق إذا لم تكن المحفظة مربوطة) -->
-                    <button onclick="submitWithdrawal()" style="width:100%; padding:12px; background:${isWalletConnected ? '#ff4444' : '#555'}; border:none; color:white; border-radius:8px; font-weight:bold; font-size:15px;" ${!isWalletConnected ? 'disabled' : ''}>
+                    <button onclick="submitWithdrawal()" style="width:100%; padding:12px; background:${isWalletConnected ? '#ff4444' : '#555'}; border:none; color:white; border-radius:8px; font-weight:bold; font-size:15px; cursor:pointer;" ${!isWalletConnected ? 'disabled' : ''}>
                         تقديم طلب سحب
                     </button>
                 </div>
@@ -107,7 +107,20 @@ function submitWithdrawal() {
     alert('تم إرسال طلب سحب بقيمة ' + amount + '$ للمراجعة');
 }
 
-// حل مشكلة الشاشة البيضاء - تشغيل الدالة فور تحميل الملف
+// حل مشكلة الشاشة البيضاء - تشغيل الدالة فور تحميل الملف لأول مرة
 setTimeout(() => {
     renderWalletTab(currentWalletTab);
 }, 100);
+
+// ⚡ التحسين السحري الفائق السرعة لبوت التليجرام (Single Page App) ⚡
+// يفحص كل 100 ملي ثانية (10 مرات في الثانية) إذا كانت شاشة المحفظة ظاهرة للمستخدم ومحتواها فارغ، يعمر البيانات فوراً وبسرعة البرق!
+setInterval(() => {
+    const walletSection = document.getElementById('main-wallet-section');
+    const walletContent = document.getElementById('wallet-content');
+    
+    if (walletSection && walletContent) {
+        if (walletSection.style.display !== 'none' && window.getComputedStyle(walletSection).display !== 'none' && walletContent.innerHTML === '') {
+            renderWalletTab(currentWalletTab);
+        }
+    }
+}, 100); 
