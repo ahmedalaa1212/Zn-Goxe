@@ -1,13 +1,15 @@
-<div class="wallet-container" style="padding: 20px; color: #fff; max-width: 400px; margin: 0 auto;">
-    <h2 style="text-align: center; margin-bottom: 20px;">المحفظة</h2>
-
-    <!-- شريط التبويبات -->
-    <div style="display: flex; gap: 5px; margin-bottom: 20px;">
-        <button id="tab-deposit" onclick="openWalletTab('deposit')" style="flex:1; padding:10px; background:#0088cc; border:none; color:#fff; border-radius:5px; cursor:pointer;">إيداع</button>
-        <button id="tab-history" onclick="openWalletTab('history')" style="flex:1; padding:10px; background:#222; border:1px solid #444; color:#fff; border-radius:5px; cursor:pointer;">سجلات</button>
-        <button id="tab-withdraw" onclick="openWalletTab('withdraw')" style="flex:1; padding:10px; background:#222; border:1px solid #444; color:#fff; border-radius:5px; cursor:pointer;">سحب</button>
+<div class="wallet-container" style="padding: 20px; color: #fff;">
+    <!-- عرض الأرصدة -->
+    <div style="background:#1c1c1c; padding:15px; border-radius:10px; margin-bottom:20px; text-align:center;">
+        <p style="color:#aaa; font-size:12px;">رصيد ZN: <span id="zn-balance">15,400</span></p>
+        <p style="color:#00cc66; font-size:20px; font-weight:bold;">رصيد USD: <span id="usd-balance">0.00</span>$</p>
     </div>
 
-    <!-- مكان عرض المحتوى -->
+    <!-- التبويبات -->
+    <div style="display: flex; gap: 5px; margin-bottom: 20px;">
+        <button id="tab-deposit" onclick="openWalletTab('deposit')" style="flex:1; padding:10px; background:#0088cc; border:none; color:white; border-radius:5px;">إيداع</button>
+        <button id="tab-convert" onclick="openWalletTab('convert')" style="flex:1; padding:10px; background:#222; border:1px solid #444; color:white; border-radius:5px;">تحويل</button>
+        <button id="tab-withdraw" onclick="openWalletTab('withdraw')" style="flex:1; padding:10px; background:#222; border:1px solid #444; color:white; border-radius:5px;">سحب</button>
+    </div>
     <div id="wallet-content"></div>
 </div>
