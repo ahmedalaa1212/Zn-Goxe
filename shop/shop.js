@@ -1,4 +1,3 @@
-// shop.js
 let playerZnBalance = 15400;
 let miningUpgrades = {1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0, 10:0};
 let currentStorageLevel = 0;
@@ -20,7 +19,6 @@ const storagePackages = [
 ];
 
 function renderShopTab(tab) {
-    localStorage.setItem('lastShopTab', tab);
     const content = document.getElementById('shop-content');
     content.innerHTML = '';
     
@@ -31,57 +29,41 @@ function renderShopTab(tab) {
         miningPackages.forEach(item => {
             let boughtCount = miningUpgrades[item.level];
             let isMaxed = boughtCount >= 20;
-            content.innerHTML += `
-                <div style="background:#1c1c1c; padding:15px; border-radius:10px; border:1px solid ${isMaxed ? '#333' : '#00cc66'};">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                        <div><b>مستوى ${item.level}</b><div style="font-size:12px; color:#aaa;">السرعة: +${item.boost.toLocaleString()} ZN</div></div>
-                        <div style="font-size:12px; color:#00cc66; font-weight:bold;">الترقيات: ${boughtCount} / 20</div>
-                    </div>
-                    <button onclick="showConfirmModal('mining', ${item.level}, ${item.price})" style="width:100%; padding:10px; background:${isMaxed ? '#333' : '#00cc66'}; border:none; color:white; border-radius:8px;" ${isMaxed ? 'disabled' : ''}>
-                        ${isMaxed ? 'تم الانتهاء' : 'شراء بـ ' + item.price.toLocaleString() + ' ZN'}
-                    </button>
-                </div>`;
+            content.innerHTML += `<div style="background:#1c1c1c; margin-bottom:10px; padding:15px; border-radius:10px; border:1px solid ${isMaxed ? '#333' : '#00cc66'};">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <div><b>مستوى ${item.level}</b><div style="font-size:12px; color:#aaa;">السرعة: +${item.boost.toLocaleString()}</div></div>
+                    <div style="font-size:12px; color:#00cc66; font-weight:bold;">الترقيات: ${boughtCount} / 20</div>
+                </div>
+                <button onclick="showConfirmModal('mining', ${item.level}, ${item.price})" style="width:100%; padding:10px; background:${isMaxed ? '#333' : '#00cc66'}; border:none; color:white; border-radius:8px;" ${isMaxed ? 'disabled' : ''}>
+                    ${isMaxed ? 'تم الانتهاء' : 'شراء بـ ' + item.price.toLocaleString()}
+                </button>
+            </div>`;
         });
     } else {
         storagePackages.forEach(item => {
             let isBought = item.level <= currentStorageLevel;
-            content.innerHTML += `
-                <div style="background:#1c1c1c; padding:15px; border-radius:10px; border:1px solid ${isBought ? '#333' : '#00cc66'}; display:flex; justify-content:space-between; align-items:center;">
-                    <div><b>مستوى ${item.level}</b><div style="font-size:12px; color:#aaa;">السعة: ${item.capacity} ZN</div></div>
-                    <button onclick="showConfirmModal('storage', ${item.level}, ${item.price})" style="padding:10px; background:${isBought ? '#333' : '#00cc66'}; border:none; color:white; border-radius:8px;" ${isBought ? 'disabled' : ''}>
-                        ${isBought ? 'تم الشراء' : 'شراء بـ ' + item.price.toLocaleString()}
-                    </button>
-                </div>`;
+            content.innerHTML += `<div style="background:#1c1c1c; margin-bottom:10px; padding:15px; border-radius:10px; border:1px solid ${isBought ? '#333' : '#00cc66'}; display:flex; justify-content:space-between; align-items:center;">
+                <div><b>مستوى ${item.level}</b><div style="font-size:12px; color:#aaa;">السعة: ${item.capacity} ZN</div></div>
+                <button onclick="showConfirmModal('storage', ${item.level}, ${item.price})" style="padding:10px; background:${isBought ? '#333' : '#00cc66'}; border:none; color:white; border-radius:8px;" ${isBought ? 'disabled' : ''}>
+                    ${isBought ? 'تم الشراء' : 'شراء بـ ' + item.price.toLocaleString()}
+                </button>
+            </div>`;
         });
     }
 }
 
 function showConfirmModal(type, level, price) {
     pendingPurchase = { type, level, price };
-    document.getElementById('modal-text').innerText = `هل تريد تأكيد شراء ترقية لمستوى ${level}؟`;
+    document.getElementById('modal-text').innerText = `تأكيد شراء ترقية مستوى ${level}؟`;
     document.getElementById('confirm-modal').style.display = 'flex';
     document.getElementById('modal-confirm-btn').onclick = () => {
-        executePurchase();
-        closeModal();
+        if (playerZnBalance >= price) {
+            playerZnBalance -= price;
+            if (type === 'mining') miningUpgrades[level]++;
+            else currentStorageLevel = level;
+            document.getElementById('shop-zn-balance').innerText = playerZnBalance.toLocaleString();
+            renderShopTab(type);
+        }
+        document.getElementById('confirm-modal').style.display = 'none';
     };
 }
-
-function closeModal() { document.getElementById('confirm-modal').style.display = 'none'; }
-
-function executePurchase() {
-    let { type, level, price } = pendingPurchase;
-    if (playerZnBalance >= price) {
-        playerZnBalance -= price;
-        if (type === 'mining') miningUpgrades[level]++;
-        else currentStorageLevel = level;
-        document.getElementById('shop-zn-balance').innerText = playerZnBalance.toLocaleString();
-        renderShopTab(type);
-    } else {
-        alert("رصيدك غير كافٍ!");
-    }
-}
-// تشغيل تلقائي فور تحميل الصفحة
-window.onload = function() {
-    let lastTab = localStorage.getItem('lastShopTab') || 'mining';
-    renderShopTab(lastTab);
-};
