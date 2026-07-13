@@ -4,32 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Zn Goxe - Crypto Mining</title>
+    <!-- أيقونات FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
+    <!-- استدعاء ملفات الـ CSS الخاصة بك بناءً على صورة المجلدات -->
+    <link rel="stylesheet" href="farm/farm.css">
+    <!-- يمكنك إضافة المزيد من روابط الـ css هنا إذا كان لكل مجلد ستايل خاص -->
+
     <style>
-        /* --- التصميمات الأساسية --- */
         body {
             margin: 0; padding: 0;
             background-color: #121212; color: #fff;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            padding-bottom: 70px; /* مساحة للقائمة السفلية */
+            padding-bottom: 70px;
         }
 
-        /* الإخفاء والإظهار السحري للقوائم */
-        .game-view { display: none; }
-        .game-view.active { display: block; animation: fadeIn 0.3s ease-in-out; }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(5px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* تصميم الكروت (البطاقات) المشترك */
-        .card {
-            background: #1c1c1c; border: 1px solid #252525;
-            border-radius: 12px; padding: 15px; margin-bottom: 12px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        }
+        /* التحكم في إخفاء وإظهار القوائم */
+        .game-view { display: none !important; }
+        .game-view.active { display: block !important; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
         /* شريط التنقل السفلي */
         .bottom-nav {
@@ -44,96 +37,20 @@
         }
         .nav-item i { font-size: 20px; margin-bottom: 4px; }
         .nav-item.active { color: #0088cc; }
-        .nav-item.active i { transform: scale(1.1); }
-
-        /* أزرار المتجر */
-        .tab-btn {
-            flex: 1; padding: 10px; border: none; border-radius: 5px;
-            font-weight: bold; cursor: pointer; color: white;
-        }
-        .tab-btn.active-tab { background: #0088cc; }
-        .tab-btn.inactive-tab { background: #333; }
     </style>
 </head>
 <body>
 
+    <!-- الحاويات الفارغة التي سيمتلئ بداخلها تصميماتك من المجلدات الأخرى -->
     <div id="app">
-        <!-- 1. شاشة المزرعة -->
-        <div id="view-farm" class="game-view">
-            <h2 style="text-align: center; color: #0088cc;">🚜 مزرعة التعدين</h2>
-            <div id="mining-fields" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 10px;">
-                <!-- سيتم حقن الحقول هنا عبر JS -->
-            </div>
-        </div>
-
-        <!-- 2. شاشة المتجر -->
-        <div id="view-shop" class="game-view">
-            <div style="padding: 10px;">
-                <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
-                    <span>رصيدك الحالي:</span>
-                    <span style="color: #00cc66; font-weight: bold;">14,400 ZN</span>
-                </div>
-                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                    <button class="tab-btn active-tab" onclick="alert('جاري فتح قسم التعدين')">تعدين</button>
-                    <button class="tab-btn inactive-tab" onclick="alert('جاري فتح قسم المخزن')">مخزن</button>
-                </div>
-                <div id="shop-content">
-                    <!-- سيتم حقن كروت المتجر هنا عبر JS -->
-                </div>
-            </div>
-        </div>
-
-        <!-- 3. شاشة الأصدقاء -->
-        <div id="view-friends" class="game-view">
-            <div style="padding: 10px;">
-                <h2 style="text-align: center; color: #ffcc00;">👥 نظام الإحالة</h2>
-                <div id="tasks-list">
-                    <!-- سيتم حقن مهام الأصدقاء هنا عبر JS -->
-                </div>
-            </div>
-        </div>
-
-        <!-- 4. شاشة المحفظة -->
-        <div id="view-wallet" class="game-view">
-            <div style="padding: 10px;">
-                <h2 style="text-align: center; color: #00cc66;">👛 المحفظة الرقمية</h2>
-                <div class="card" style="text-align: center; margin-top: 20px; padding: 30px 15px;">
-                    <i class="fas fa-wallet" style="font-size: 40px; color: #00cc66; margin-bottom: 15px;"></i>
-                    <div style="color: #aaa; margin-bottom: 5px;">إجمالي الرصيد القابل للسحب</div>
-                    <div style="font-size: 26px; font-weight: bold;">ZN 14,400</div>
-                    <button style="margin-top: 20px; width: 100%; padding: 12px; background: #333; color: #888; border: none; border-radius: 8px; font-weight: bold;">سحب العملات (قريباً)</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- 5. شاشة الإعدادات -->
-        <div id="view-settings" class="game-view">
-            <div style="padding: 10px;">
-                <div class="card" style="display: flex; align-items: center; gap: 15px;">
-                    <div style="width: 50px; height: 50px; background: #0088cc; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px;">
-                        <i class="fas fa-user"></i>
-                    </div>
-                    <div>
-                        <div style="font-weight: bold; font-size: 16px;">اللاعب النشط</div>
-                        <div style="font-size: 13px; color: #aaa; margin-top: 4px;">ID: 123456789</div>
-                    </div>
-                </div>
-                <div class="card">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
-                        <span style="color: #aaa;">إجمالي ترقيات التعدين:</span>
-                        <span style="color: #ffcc00; font-weight: bold;">15 / 200</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between;">
-                        <span style="color: #aaa;">مستوى المخزن الحالي:</span>
-                        <span style="color: #00cc66; font-weight: bold;">مستوى 3</span>
-                    </div>
-                </div>
-                <button style="width: 100%; padding: 12px; background: #0088cc; border: none; color: white; border-radius: 8px; font-weight: bold; margin-bottom: 10px;">تحديث البيانات فوري</button>
-            </div>
-        </div>
+        <div id="view-farm" class="game-view active"></div>
+        <div id="view-shop" class="game-view"></div>
+        <div id="view-friends" class="game-view"></div>
+        <div id="view-wallet" class="game-view"></div>
+        <div id="view-settings" class="game-view"></div>
     </div>
 
-    <!-- شريط التنقل السفلي -->
+    <!-- شريط التنقل السفلي الخاص بك -->
     <nav class="bottom-nav">
         <button class="nav-item" onclick="switchView('friends')" id="nav-friends">
             <i class="fas fa-users"></i><span>الأصدقاء</span>
@@ -152,74 +69,64 @@
         </button>
     </nav>
 
-    <!-- الجافاسكربت المدمج لضمان تشغيل وملء البيانات -->
+    <!-- استدعاء مكتبة تليجرام -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    
+    <!-- السكريبت السحري لجلب الملفات وتشغيلها -->
     <script>
-        // دالة التنقل بين الشاشات
-        function switchView(viewName) {
-            // إخفاء كل الشاشات
-            document.querySelectorAll('.game-view').forEach(view => {
-                view.classList.remove('active');
-            });
-            // إظهار الشاشة المطلوبة
-            document.getElementById(`view-${viewName}`).classList.add('active');
+        // هذه الدالة ستقوم بسحب تصميمات الـ HTML من مجلداتك وعرضها
+        async function loadAllViews() {
+            const views = [
+                { id: 'view-farm', path: 'farm/farm.html' },
+                { id: 'view-shop', path: 'shop/shop.html' },
+                { id: 'view-friends', path: 'friends/friends.html' },
+                { id: 'view-wallet', path: 'wallet/wallet.html' },
+                { id: 'view-settings', path: 'settings/settings.html' }
+            ];
 
-            // تحديث ألوان الأزرار
-            document.querySelectorAll('.nav-item').forEach(item => {
-                item.classList.remove('active');
-            });
+            // 1. جلب محتوى التصميمات (HTML) أولاً
+            for (let view of views) {
+                try {
+                    let response = await fetch(view.path);
+                    if (response.ok) {
+                        let html = await response.text();
+                        document.getElementById(view.id).innerHTML = html;
+                    } else {
+                        console.error("لم يتم العثور على مسار: " + view.path);
+                    }
+                } catch (error) {
+                    console.error("خطأ في جلب التصميم: ", error);
+                }
+            }
+
+            // 2. بعد ظهور التصميمات بالكامل، نقوم بتحميل ملفات الـ JS لتعمل الأزرار والبيانات
+            const scripts = [
+                'game.js',
+                'farm/farm.js',
+                'shop/shop.js',
+                'friends/friends.js',
+                'settings/settings.js',
+                'wallet/wallet.js'
+            ];
+
+            for (let jsPath of scripts) {
+                let script = document.createElement('script');
+                script.src = jsPath;
+                document.body.appendChild(script);
+            }
+        }
+
+        // تشغيل كل شيء بمجرد فتح التطبيق
+        document.addEventListener('DOMContentLoaded', loadAllViews);
+
+        // دالة التنقل (مدمجة هنا لضمان عمل الأزرار السفلية فوراً)
+        function switchView(viewName) {
+            document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
+            document.getElementById(`view-${viewName}`).classList.add('active');
+            
+            document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
             document.getElementById(`nav-${viewName}`).classList.add('active');
         }
-
-        // دالة لملء المزرعة بالبيانات (لحل مشكلة الشاشة السوداء)
-        function renderFarmData() {
-            const container = document.getElementById('mining-fields');
-            let htmlContent = '';
-            for(let i=1; i<=4; i++) {
-                htmlContent += `
-                    <div class="card" style="text-align: center; padding: 15px 5px;">
-                        <div style="font-size: 30px; margin-bottom: 10px;">⛏️</div>
-                        <div style="font-size: 14px; font-weight: bold;">حقل ${i}</div>
-                        <div style="color: #00cc66; font-size: 12px; margin-top: 5px;">+5 ZN / ساعة</div>
-                    </div>
-                `;
-            }
-            container.innerHTML = htmlContent;
-        }
-
-        // دالة لملء المتجر بالبيانات
-        function renderShopData() {
-            const container = document.getElementById('shop-content');
-            container.innerHTML = `
-                <div class="card" style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <div style="font-weight: bold; margin-bottom: 5px;">كارت طاقة التعدين ⚡</div>
-                        <div style="color: #aaa; font-size: 12px;">يزيد سرعة التعدين بنسبة 10%</div>
-                    </div>
-                    <button style="background: #00cc66; border: none; padding: 8px 15px; color: white; border-radius: 5px; font-weight: bold;">شراء (500)</button>
-                </div>
-            `;
-        }
-
-        // دالة لملء قائمة الأصدقاء بالبيانات
-        function renderFriendsData() {
-            const container = document.getElementById('tasks-list');
-            container.innerHTML = `
-                <div class="card" style="text-align: center;">
-                    <i class="fas fa-gift" style="font-size: 30px; color: #ffcc00; margin-bottom: 10px;"></i>
-                    <div style="font-weight: bold;">رابط الدعوة الخاص بك</div>
-                    <div style="background: #111; padding: 10px; margin: 10px 0; border-radius: 5px; color: #0088cc; font-size: 12px;">t.me/ZnGoxeBot?start=12345</div>
-                    <button style="background: #ffcc00; border: none; padding: 10px 20px; color: #000; border-radius: 5px; font-weight: bold; width: 100%;">نسخ الرابط</button>
-                </div>
-            `;
-        }
-
-        // تشغيل اللعبة فور تحميل الصفحة وملء كل الشاشات بالبيانات
-        document.addEventListener('DOMContentLoaded', () => {
-            switchView('settings'); // يمكنك تغيير الشاشة الافتراضية من هنا
-            renderFarmData();
-            renderShopData();
-            renderFriendsData();
-        });
     </script>
 </body>
 </html>
