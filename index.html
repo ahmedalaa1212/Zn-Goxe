@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- استدعاء ملفات التصميم المستقلة -->
     <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="farm/farm.css">
+    <link rel="stylesheet" href="farm.css">
 </head>
 <body>
 
@@ -17,28 +17,27 @@
         
         <!-- 1. شاشة المزرعة وتعدين العملات (Crypto Farm) - القائمة الافتراضية -->
         <div id="view-farm" class="game-view active">
-            <div id="farm-content">جاري تحميل المزرعة...</div>
+            <div class="view-placeholder">جاري تحميل Mزرعة...</div>
         </div>
 
         <!-- 2. شاشة متجر الترقيات (Upgrades Shop) -->
         <div id="view-shop" class="game-view" style="display: none;">
-            <div id="shop-content">جاري تحميل المتجر...</div>
+            <div class="view-placeholder">جاري تحميل المتجر...</div>
         </div>
 
         <!-- 3. شاشة دعوة الأصدقاء (Referral System) -->
         <div id="view-friends" class="game-view" style="display: none;">
-            <div id="friends-content">جاري تحميل قائمة الأصدقاء...</div>
+            <div class="view-placeholder">جاري تحميل قائمة الأصدقاء...</div>
         </div>
 
         <!-- 4. شاشة المحفظة الرقمية (Wallet) -->
         <div id="view-wallet" class="game-view" style="display: none;">
-            <!-- هنا يتم ربط كود محفظتك الذكي مباشرة ليعمل فوراً وبسرعة البرق -->
-            <div id="wallet-container-box">جاري تحميل المحفظة...</div>
+            <div class="view-placeholder">جاري تحميل المحفظة...</div>
         </div>
 
         <!-- 5. شاشة الإعدادات (Settings) -->
         <div id="view-settings" class="game-view" style="display: none;">
-            <div id="settings-content">جاري تحميل الإعدادات...</div>
+            <div class="view-placeholder">جاري تحميل الإعدادات...</div>
         </div>
 
     </div>
@@ -78,14 +77,7 @@
 
     </nav>
 
-    <!-- 🛠️ استدعاء كافة ملفات الـ JS للمجلدات لتقرأ اللعبة بالكامل في الخلفية فوراً 🛠️ -->
-    <script src="farm/farm.js"></script>
-    <script src="shop/shop.js"></script>
-    <script src="friends/friends.js"></script>
-    <script src="wallet/wallet.js"></script>
-    <script src="settings/settings.js"></script>
-    
-    <!-- ملف التحكم الرئيسي والربط الخاطف -->
+    <!-- استدعاء ملف البرمجة الذكي الرئيسي فقط لضمان عدم حدوث تضارب أخطاء -->
     <script src="game.js"></script>
 </body>
 </html>
