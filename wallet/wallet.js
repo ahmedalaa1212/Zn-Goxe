@@ -1,33 +1,55 @@
-// كود ربط المحفظة والتحقق منها
-let isWalletConnected = false; // ستتغير قيمتها بعد الربط بـ API التليجرام
+let isWalletConnected = false; 
 
-function showTab(tab) {
+function openWalletTab(tab) {
     const content = document.getElementById('wallet-content');
+    const tabs = ['deposit', 'history', 'withdraw'];
     
-    // التبديل بين التبويبات (تحديث الكلاس النشط)
-    document.querySelectorAll('button').forEach(btn => btn.classList.remove('active-tab'));
-    
+    // تحديث شكل الأزرار
+    tabs.forEach(t => {
+        const btn = document.getElementById(`tab-${t}`);
+        btn.style.background = (t === tab) ? '#0088cc' : '#222';
+    });
+
     if (tab === 'deposit') {
         content.innerHTML = `
-            <div style="text-align:center; padding:20px; background:#1c1c1c; border-radius:10px;">
-                ${!isWalletConnected ? `
-                    <p style="color:#aaa;">يجب ربط محفظة التليجرام أولاً</p>
-                    <button onclick="connectWallet()" style="background:#0088cc; border:none; padding:12px; width:100%; border-radius:5px; color:#fff; font-weight:bold;">ربط المحفظة الآن</button>
-                ` : `
-                    <p style="color:#00cc66; font-size:14px; margin-bottom:10px;">✅ محفظتك مربوطة بنجاح</p>
-                    <p style="font-size:13px; color:#aaa;">أرسل العملات لعنوان المحفظة أدناه، وسيتم إضافتها تلقائياً:</p>
-                    <div style="background:#000; padding:15px; margin:15px 0; border-radius:8px; border:1px solid #444; color:#00ff00; font-family:monospace;">UQAm...89xZ</div>
-                    <button onclick="copyAddress()" style="background:#444; border:none; padding:8px 20px; border-radius:5px; color:#fff;">نسخ العنوان</button>
-                `}
+            <div style="text-align:center; padding:20px; background:#1c1c1c; border-radius:10px; border:1px solid #333;">
+                ${!isWalletConnected ? 
+                    `<p style="color:#aaa;">يجب ربط محفظة التليجرام أولاً</p>
+                     <button onclick="connectWallet()" style="background:#0088cc; border:none; padding:12px 30px; border-radius:5px; color:white; cursor:pointer;">ربط المحفظة</button>` 
+                    : 
+                    `<p style="color:#00cc66;">✅ المحفظة مربوطة</p>
+                     <p style="font-size:12px; color:#aaa;">أرسل العملات لهذا العنوان ليتم إضافتها تلقائياً:</p>
+                     <div style="background:#000; padding:10px; margin:10px 0; border-radius:5px; color:#00ff00; font-family:monospace;">UQAm...89xZ</div>`
+                }
             </div>`;
     } 
-    // ... (باقي التبويبات: التاريخ والسحب)
+    else if (tab === 'history') {
+        content.innerHTML = `
+            <div style="background:#1c1c1c; padding:15px; border-radius:10px; border:1px solid #333;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:10px; font-size:12px; color:#aaa;">
+                    <span>العملية</span><span>الحالة</span>
+                </div>
+                <div style="border-top:1px solid #444; padding-top:10px;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                        <span>إيداع</span><span style="color:#00cc66;">مكتمل</span>
+                    </div>
+                </div>
+            </div>`;
+    } 
+    else if (tab === 'withdraw') {
+        content.innerHTML = `
+            <div style="text-align:center; padding:20px; background:#1c1c1c; border-radius:10px; border:1px solid #333;">
+                <input type="number" placeholder="أدخل المبلغ للسحب" style="width:100%; padding:10px; margin-bottom:15px; border-radius:5px; border:none; background:#000; color:#fff;">
+                <button style="width:100%; padding:12px; background:#00cc66; border:none; color:white; border-radius:5px; font-weight:bold;">طلب سحب</button>
+            </div>`;
+    }
 }
 
 function connectWallet() {
-    // هنا بيتم ربط API التليجرام
-    // بعد نجاح الربط، بنغير الحالة ونعمل Refresh للواجهة
     isWalletConnected = true;
     alert("تم ربط المحفظة بنجاح!");
-    showTab('deposit');
+    openWalletTab('deposit');
 }
+
+// تحميل الصفحة الافتراضية
+openWalletTab('deposit');
