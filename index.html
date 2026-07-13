@@ -6,9 +6,19 @@
     <title>Zn Goxe - Crypto Mining Game</title>
     <!-- استدعاء أيقونات رشيقة لتصميم شريط التنقل -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- استدعاء ملفات التصميم المستقلة التي سننشئها خطوة بخطوة -->
+    <!-- استدعاء ملفات التصميم المستقلة -->
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="farm.css">
+    
+    <style>
+        /* 🛠️ الـ CSS السحري لضمان إخفاء وإظهار القوائم بناءً على الـ class بدون تعليق */
+        .game-view {
+            display: none !important;
+        }
+        .game-view.active {
+            display: block !important;
+        }
+    </style>
 </head>
 <body>
 
@@ -18,7 +28,7 @@
         <!-- 1. شاشة المزرعة وتعدين العملات (Crypto Farm) - القائمة الافتراضية -->
         <div id="view-farm" class="game-view active">
             <h2 style="text-align: center; color: #0088cc; margin-top: 10px;">🚜 مزرعة التعدين</h2>
-            <!-- الحاوية اللي هيدور عليها ملف farm.js عشان يحط الحقول -->
+            <!-- الحاوية المطلوبة لملف farm.js -->
             <div id="mining-fields" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 15px; padding: 10px;"></div>
         </div>
 
@@ -35,7 +45,7 @@
                     <button id="btn-storage" onclick="renderShopTab('storage')" style="flex: 1; padding: 10px; border: none; color: white; border-radius: 5px; font-weight: bold; background: #222; cursor: pointer;">مخزن</button>
                 </div>
 
-                <!-- الحاوية اللي هيدور عليها ملف shop.js عشان يحط الكروت -->
+                <!-- الحاوية المطلوبة لملف shop.js -->
                 <div id="shop-content"></div>
             </div>
         </div>
@@ -45,7 +55,7 @@
             <div id="main-friends-section" style="padding: 10px;">
                 <h2 style="text-align: center; margin-top: 10px; color: #ffcc00;">👥 نظام الإحالة والأصدقاء</h2>
                 <p style="text-align: center; color: #aaa; font-size: 14px; margin-bottom: 20px;">قم بدعوة أصدقائك للحصول على مكافآت ضخمة فورية!</p>
-                <!-- الحاوية اللي هيدور عليها ملف friends.js عشان يحط المهمات -->
+                <!-- الحاوية المطلوبة لملف friends.js -->
                 <div id="tasks-list"></div>
             </div>
         </div>
@@ -98,7 +108,7 @@
 
     </div>
 
-    <!-- العناصر المشتركة المطلوبة للنوافذ والاشعارات التلقائية -->
+    <!-- 🌟 العناصر المنبثقة التلقائية المشتركة للملفات الفرعية 🌟 -->
     <div id="msg-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 999; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box;">
         <div style="background: #1c1c1c; padding: 20px; border-radius: 12px; width: 100%; max-width: 320px; text-align: center; border: 1px solid #333;">
             <p id="modal-msg" style="margin-bottom: 20px; font-weight: bold; font-size: 15px;"></p>
@@ -119,7 +129,6 @@
 
     <!-- 🌟 شريط التنقل السفلي الثابت (Bottom Navigation Bar) 🌟 -->
     <nav class="bottom-nav">
-        
         <!-- القائمة 1: دعوة الأصدقاء -->
         <button class="nav-item" onclick="switchView('friends')" id="nav-friends">
             <i class="fas fa-users"></i>
@@ -132,7 +141,7 @@
             <span>المحفظة</span>
         </button>
 
-        <!-- القائمة 3: المزرعة -->
+        <!-- القائمة 3: المزرعة (الزرار الأكبر والنشط افتراضياً) -->
         <button class="nav-item active" onclick="switchView('farm')" id="nav-farm">
             <i class="fas fa-screwdriver-wrench"></i>
             <span>المزرعة</span>
@@ -149,10 +158,9 @@
             <i class="fas fa-cog"></i>
             <span>الإعدادات</span>
         </button>
-
     </nav>
 
-    <!-- 🌟 الاستدعاء الصحيح والكامل لربط كل القوائم معاً لتظهر البيانات فورا 🌟 -->
+    <!-- استدعاء ملفات الـ JS (اتأكد إنك حطيت كود game.js الجديد اللي صلحناه) -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="game.js"></script>
     <script src="farm.js"></script>
