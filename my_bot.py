@@ -15,7 +15,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
-# القوانين والثوابت الخاصة بباقات التعدين وسعة التخزين (مطابقة للفرونت إند)
+# القوانين والثوابت الخاصة بباقات التعدين وسعة التخزين
 BASE_MINING_RATE = 20  # عملة في الساعة مجاناً كبداية
 BASE_STORAGE_CAP = 10000
 
@@ -37,9 +37,8 @@ STORAGE_PACKAGES = {
 def calculate_unclaimed(user):
     """حساب الأرباح التي تم تعدينها بأمان في السيرفر بناءً على الوقت المنقضي"""
     try:
-        last_claim_str = user.get('last_claim_time')
-        if not last_claim_str:
-            return 0
+        # استخدام الوقت الحالي كقيمة افتراضية إذا لم يوجد وقت سابق
+        last_claim_str = user.get('last_claim_time', datetime.utcnow().isoformat())
         last_claim = datetime.fromisoformat(last_claim_str)
         seconds_passed = (datetime.utcnow() - last_claim).total_seconds()
         if seconds_passed < 0:
@@ -155,7 +154,7 @@ def handle_upgrade():
             return jsonify({'error': 'Not enough balance'}), 400
             
         database.update_balance(tg_id, current_balance - cost)
-        # تعديل: نستخدم كائن الـ db الموجود بالفعل في database.py لتجنب التعارض
+        # استخدام كائن الـ db الموجود بالفعل في database.py لتجنب التعارض
         database.db.collection('users').document(tg_id).update({'storage_level': level_num})
         
     return jsonify({'success': True})
