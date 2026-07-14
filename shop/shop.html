@@ -1,6 +1,12 @@
 <div class="shop-container" style="padding: 15px; direction: rtl; font-family: sans-serif; padding-bottom: 80px;">
     
-    <!-- قسم عروض الـ USDT الفخمة -->
+    <!-- شريط البيانات العلوي (تمت إضافته ليطابق المزرعة) -->
+    <div style="display: flex; justify-content: space-between; padding: 15px; background: #1a1a1a; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333;">
+        <div id="shop-rate" style="color: #ffcc00; font-weight: bold; font-size: 16px;">⚡ 0/س</div>
+        <div id="shop-balance" style="color: #ffcc00; font-weight: bold; font-size: 16px;">ZN: 0</div>
+    </div>
+
+    <!-- قسم عروض الـ USDT المميزة -->
     <h3 style="color: #fff; margin-bottom: 10px; font-size: 18px;">💎 عروض مميزة (USDT)</h3>
     <div style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 25px; scrollbar-width: none;">
         
@@ -30,30 +36,16 @@
         
     </div>
 
-    <!-- أزرار التنقل بين (التعدين) و (المخازن) -->
+    <!-- أزرار التنقل -->
     <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-        <button id="tab-mining" onclick="switchShopTab('mining')" style="flex: 1; padding: 12px; background: #0088cc; color: white; border: none; border-radius: 8px; font-weight: bold;">ترقيات التعدين</button>
-        <button id="tab-storage" onclick="switchShopTab('storage')" style="flex: 1; padding: 12px; background: #333; color: white; border: none; border-radius: 8px; font-weight: bold;">المخازن</button>
+        <button id="tab-mining" onclick="switchShopTab('mining')" style="flex: 1; padding: 12px; background: #0088cc; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">ترقيات التعدين</button>
+        <button id="tab-storage" onclick="switchShopTab('storage')" style="flex: 1; padding: 12px; background: #333; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">المخازن</button>
     </div>
 
-    <!-- قسم مستويات التعدين (9 مستويات) -->
-    <div id="shop-mining-section" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
-        <!-- سيتم الحقن بالجافاسكريبت -->
-    </div>
+    <!-- قسم مستويات التعدين -->
+    <div id="shop-mining-section" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;"></div>
 
-    <!-- قسم المخازن (10 مخازن) -->
-    <div id="shop-storage-section" style="display: none; grid-template-columns: repeat(2, 1fr); gap: 10px;">
-        <!-- سيتم الحقن بالجافاسكريبت -->
-    </div>
+    <!-- قسم المخازن -->
+    <div id="shop-storage-section" style="display: none; grid-template-columns: repeat(2, 1fr); gap: 10px;"></div>
 
 </div>
-
-<style>
-/* إخفاء شريط التمرير الأفقي لعروض الـ USDT مع الحفاظ على السحب */
-.usdt-card {
-    flex-shrink: 0;
-}
-.shop-container::-webkit-scrollbar {
-    display: none;
-}
-</style>
