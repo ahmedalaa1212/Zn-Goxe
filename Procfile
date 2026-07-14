@@ -1,2 +1,1 @@
-worker: python my_bot.py
-web: npm start
+web: node server.js
