@@ -2,16 +2,15 @@ const express = require('express');
 const app = express();
 const path = require('path');
 
-// ده اللي بيخلي السيرفر يقرأ كل ملفاتك في المجلد الرئيسي
+// تشغيل الملفات الثابتة في المجلد الرئيسي
 app.use(express.static(__dirname));
 
-// ده اللي بيخلي السيرفر يفتح ملف index.html بتاعك أول ما يدخلوا على اللعبة
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// تشغيل السيرفر
+// هام جداً لـ Railway
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server is running on port ${PORT}`);
 });
