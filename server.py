@@ -8,24 +8,27 @@ from firebase_admin import credentials, firestore
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
-app.use_static_for_root = True
-
-# تعريف المتغير بشكل فارغ في البداية لتجنب الكراش
 db = None
 
-# محاولة ربط الفايربيس بأمان دون إسقاط السيرفر
-firebase_creds_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT')
+# قراءة المتغير وتنظيفه تلقائياً من أي علامات تنصيص زائدة
+firebase_creds_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT', '').strip()
+
 if firebase_creds_json:
+    # تنظيف النص لو كان محاطاً بعلامات تنصيص مفردة أو مزدوجة تالفة من ريلواي
+    if (firebase_creds_json.startswith("'") and firebase_creds_json.endswith("'")) or \
+       (firebase_creds_json.startswith('"') and firebase_creds_json.endswith('"')):
+        firebase_creds_json = firebase_creds_json[1:-1].strip()
+    
     try:
         creds_dict = json.loads(firebase_creds_json)
         cred = credentials.Certificate(creds_dict)
         firebase_admin.initialize_app(cred)
         db = firestore.client()
-        print("✅ Firebase initialized successfully!")
+        print("✅ [Firebase] Connected and initialized successfully! Data is SAFE.")
     except Exception as e:
-        print(f"❌ Error initializing Firebase: {e}")
+        print(f"❌ [Firebase] Failed to initialize JSON: {e}")
 else:
-    print("⚠️ Warning: FIREBASE_SERVICE_ACCOUNT environment variable is empty!")
+    print("⚠️ [Firebase] FIREBASE_SERVICE_ACCOUNT variable is missing or empty!")
 
 @app.route('/')
 def index():
@@ -37,8 +40,12 @@ def serve_static(filename):
 
 @app.route('/api/claim', methods=['POST'])
 def claim():
+    # منع حفظ البيانات لو الفايربيس مش شغال عشان نضمن عدم ضياع رصيد اللاعب
     if db is None:
-        return jsonify({'success': False, 'error': 'Firebase not initialized. Please check Railway variables.'}), 500
+        return jsonify({
+            'success': False, 
+            'error': 'Database connection offline. Please check FIREBASE_SERVICE_ACCOUNT on Railway.'
+        }), 503
         
     data = request.get_json()
     telegram_id = data.get('telegramId')
@@ -57,7 +64,7 @@ def claim():
             current_balance = doc.to_dict().get('balance', 0)
             user_ref.update({'balance': current_balance + added_amount})
 
-        return jsonify({'success': True, 'message': 'تم تحديث الرصيد بنجاح!'}), 200
+        return jsonify({'success': True, 'message': 'تم تحديث الرصيد بنجاح وحفظه في السحابة!'}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
