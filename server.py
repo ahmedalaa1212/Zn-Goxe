@@ -1,6 +1,6 @@
 import os
 import json
-from flask import Flask, request, jsonify, send_from_path
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -27,12 +27,12 @@ db = firestore.client()
 # فتح صفحة اللعبة الرئيسية
 @app.route('/')
 def index():
-    return send_from_path('.', 'index.html')
+    return send_from_directory('.', 'index.html')
 
 # فتح باقي المجلدات والملفات (farm, shop, friends...) تلقائياً
-@app.route('/<path:path>')
-def static_proxy(path):
-    return send_from_path('.', path)
+@app.route('/<path:filename>')
+def serve_static(filename):
+    return send_from_directory('.', filename)
 
 # مسار تحديث الرصيد (الـ Claim)
 @app.route('/api/claim', methods=['POST'])
@@ -59,6 +59,5 @@ def claim():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
-    # ريلواي بيحدد البورت ديناميكياً
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
