@@ -5,38 +5,41 @@ from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# تشغيل السيرفر وقراءة الملفات من المجلد الرئيسي
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
-# ربط السيرفر بقاعدة بيانات فايربيس
+app.use_static_for_root = True
+
+# تعريف المتغير بشكل فارغ في البداية لتجنب الكراش
+db = None
+
+# محاولة ربط الفايربيس بأمان دون إسقاط السيرفر
 firebase_creds_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT')
 if firebase_creds_json:
     try:
         creds_dict = json.loads(firebase_creds_json)
         cred = credentials.Certificate(creds_dict)
         firebase_admin.initialize_app(cred)
-        print("Firebase initialized successfully!")
+        db = firestore.client()
+        print("✅ Firebase initialized successfully!")
     except Exception as e:
-        print(f"Error initializing Firebase: {e}")
+        print(f"❌ Error initializing Firebase: {e}")
 else:
-    print("Warning: FIREBASE_SERVICE_ACCOUNT environment variable not found!")
+    print("⚠️ Warning: FIREBASE_SERVICE_ACCOUNT environment variable is empty!")
 
-db = firestore.client()
-
-# فتح صفحة اللعبة الرئيسية
 @app.route('/')
 def index():
     return send_from_directory('.', 'index.html')
 
-# فتح باقي المجلدات والملفات (farm, shop, friends...) تلقائياً
 @app.route('/<path:filename>')
 def serve_static(filename):
     return send_from_directory('.', filename)
 
-# مسار تحديث الرصيد (الـ Claim)
 @app.route('/api/claim', methods=['POST'])
 def claim():
+    if db is None:
+        return jsonify({'success': False, 'error': 'Firebase not initialized. Please check Railway variables.'}), 500
+        
     data = request.get_json()
     telegram_id = data.get('telegramId')
     added_amount = data.get('addedAmount')
