@@ -1,94 +1,168 @@
 (function initFarm() {
-    // دالة لتحديث الواجهة بناءً على البيانات العالمية المجلوبة من السيرفر
+    // 💡 هذا المتغير يسهل عليك تعديل أي سرعة مستقبلاً من مكان واحد
+    const GAME_CONFIG = {
+        maxUpgradesPerLevel: 15,
+        levelsBaseRate: {
+            1: 2,   // مستوى 1 يعطي 2 في الساعة لكل ترقية
+            2: 8,   // مستوى 2 يعطي 8
+            3: 15,  // مستوى 3 يعطي 15
+            4: 30,  // الأرقام دي أمثلة تقدر تغيرها براحتك
+            5: 60,
+            6: 120,
+            7: 250,
+            8: 500,
+            9: 1000
+        }
+    };
+
+    let claimCooldown = 0; // عداد الـ 60 ثانية
+
     window.updateFarmUI = function() {
         const pData = window.PlayerData;
+        if (!pData) return;
         
-        const balanceEl = document.getElementById('farm-balance');
-        const rateEl = document.getElementById('farm-rate');
-        const storageTextEl = document.getElementById('storage-text');
+        // 1. تحديث الرصيد والسرعة
+        document.getElementById('farm-balance').innerText = `ZN: ${Math.floor(pData.balance).toLocaleString()}`;
+        document.getElementById('farm-rate').innerText = `⚡ ${pData.hourly_rate.toLocaleString()}/س`;
+        
+        // 2. تحديث شريط التخزين (يتغير للأحمر لو فل)
         const progressEl = document.getElementById('storage-progress');
-        const fieldsContainer = document.getElementById('mining-fields');
+        const storageTextEl = document.getElementById('storage-text');
         
-        if (balanceEl) balanceEl.innerText = `ZN: ${pData.balance.toLocaleString()}`;
-        if (rateEl) rateEl.innerText = `⚡ ${pData.hourly_rate.toLocaleString()}/س`;
-        
-        // حساب نسبة امتلاء المخزن
-        if (storageTextEl && progressEl) {
+        if (progressEl && storageTextEl) {
             let pct = (pData.unclaimed / pData.max_cap) * 100;
-            if (pct > 100) pct = 100;
+            if (pct >= 100) {
+                pct = 100;
+                progressEl.style.background = 'linear-gradient(90deg, #ff4444, #cc0000)'; // لون أحمر
+            } else {
+                progressEl.style.background = 'linear-gradient(90deg, #0088cc, #00bfff)'; // لون أزرق
+            }
             progressEl.style.width = `${pct}%`;
             storageTextEl.innerText = `${Math.floor(pData.unclaimed).toLocaleString()} / ${pData.max_cap.toLocaleString()}`;
         }
         
-        // رندر الحقول الـ 10 بناءً على ترقيات اللاعب الحقيقية من الفايربيس
+        // 3. رسم شبكة الـ 9 مستويات (3 عواميد)
+        const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
             let fieldsHTML = '';
-            for (let i = 1; i <= 10; i++) {
+            for (let i = 1; i <= 9; i++) {
                 let count = pData.upgrades[`lvl${i}`] || 0;
-                // الحقل يفتح إذا كان المستوى الأول أو تم شراء ترقية واحدة على الأقل من المستوى السابق
                 let isUnlocked = (i === 1) || ((pData.upgrades[`lvl${i-1}`] || 0) > 0);
+                let isMax = count >= GAME_CONFIG.maxUpgradesPerLevel;
                 
-                fieldsHTML += `
-                    <div style="background: ${isUnlocked ? '#1c1c1c' : '#111'}; padding: 15px; border-radius: 10px; border: 1px solid ${isUnlocked ? '#444' : '#222'}; color: ${isUnlocked ? '#fff' : '#555'};">
-                        ${isUnlocked ? `
-                            <div style="font-size: 20px; color: #ffcc00; margin-bottom: 5px;">🪙</div>
-                            <div style="font-size: 14px; font-weight: bold;">LV ${i}</div>
-                            <div style="font-size: 12px; color: #0088cc;">x${count}</div>
-                        ` : `
-                            <div style="font-size: 20px; margin-bottom: 5px;">🔒</div>
-                            <div style="font-size: 12px;">مغلق</div>
-                        `}
-                    </div>
-                `;
+                if (isMax) {
+                    // تصميم المستوى المكتمل (MAX - رمادي)
+                    fieldsHTML += `
+                        <div style="background: #333; border-radius: 10px; padding: 15px 5px; text-align: center; border: 1px solid #555; position: relative; overflow: hidden;">
+                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; font-size: 18px; transform: rotate(-20deg);">MAX</div>
+                            <div style="font-size: 24px; margin-bottom: 5px; opacity: 0.3;">🏛️</div>
+                            <div style="color: #888; font-size: 12px; font-weight: bold;">LV ${i}</div>
+                        </div>
+                    `;
+                } else if (isUnlocked) {
+                    // تصميم المستوى المفتوح
+                    fieldsHTML += `
+                        <div style="background: #1c1c1c; border-radius: 10px; padding: 15px 5px; text-align: center; border: 1px solid #333;">
+                            <div style="width: 30px; height: 30px; background: #ffcc00; border-radius: 50%; margin: 0 auto 5px auto; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">
+                                <span style="font-size: 14px;">🏛️</span>
+                            </div>
+                            <div style="color: white; font-size: 12px; font-weight: bold; margin-bottom: 2px;">LV ${i}</div>
+                            <div style="color: #0088cc; font-size: 14px; font-weight: bold;">x${count}</div>
+                        </div>
+                    `;
+                } else {
+                    // تصميم المستوى المغلق
+                    fieldsHTML += `
+                        <div style="background: #151515; border-radius: 10px; padding: 15px 5px; text-align: center; border: 1px solid #222;">
+                            <div style="font-size: 20px; color: #ffcc00; margin-bottom: 5px;">🔒</div>
+                            <div style="color: #666; font-size: 12px; font-weight: bold;">مغلق</div>
+                        </div>
+                    `;
+                }
             }
             fieldsContainer.innerHTML = fieldsHTML;
         }
     };
 
-    // عداد بصري يزود الرصيد المستحق للتجميع ثانية بثانية أمام عين اللاعب للإثارة الحماسية
+    // العداد البصري لزيادة التخزين وتحديث زر التجميع
     setInterval(() => {
         const pData = window.PlayerData;
-        if (!pData.tg_id) return;
+        if (!pData) return;
         
-        let ratePerSecond = pData.hourly_rate / 3600;
+        // زيادة التخزين أمام اللاعب
         if (pData.unclaimed < pData.max_cap) {
-            pData.unclaimed += ratePerSecond;
+            pData.unclaimed += pData.hourly_rate / 3600;
             if (pData.unclaimed > pData.max_cap) pData.unclaimed = pData.max_cap;
-            
-            const storageTextEl = document.getElementById('storage-text');
-            const progressEl = document.getElementById('storage-progress');
-            if (storageTextEl && progressEl) {
-                let pct = (pData.unclaimed / pData.max_cap) * 100;
-                progressEl.style.width = `${pct}%`;
-                storageTextEl.innerText = `${Math.floor(pData.unclaimed).toLocaleString()} / ${pData.max_cap.toLocaleString()}`;
+            window.updateFarmUI(); // تحديث الشريط
+        }
+
+        // معالجة زر التجميع (الـ 60 ثانية)
+        const claimBtn = document.getElementById('claim-btn');
+        if (claimBtn) {
+            if (claimCooldown > 0) {
+                claimCooldown--;
+                claimBtn.innerText = `انتظر ${claimCooldown} ثانية ⏳`;
+                claimBtn.className = "btn-cooldown";
+                claimBtn.disabled = true;
+            } else {
+                claimBtn.innerText = "تجميع الرصيد 📺";
+                claimBtn.className = pData.unclaimed > 0 ? "btn-ready" : "";
+                claimBtn.disabled = pData.unclaimed <= 0;
             }
         }
     }, 1000);
 
-    // دالة كليك لتجميع الأرباح وإرسالها للسيرفر
-    window.triggerClaimFromBtn = async function() {
+    // دالة محاكاة تشغيل إعلان تليجرام
+    function showTelegramAd() {
+        return new Promise((resolve) => {
+            // هنا هيتم ربط كود مزود الإعلانات (زي Adsgram) مستقبلاً
+            // حالياً هنعمل محاكاة كأن الإعلان بيظهر لمدة 3 ثواني
+            console.log("جارِ عرض الإعلان...");
+            setTimeout(() => {
+                console.log("انتهى الإعلان.");
+                resolve(true); // اللاعب شاهد الإعلان بنجاح
+            }, 3000); 
+        });
+    }
+
+    // دالة زر التجميع (إعلان -> سيرفر -> 60 ثانية)
+    window.handleClaim = async function() {
         const pData = window.PlayerData;
-        if (!pData.tg_id || pData.unclaimed <= 0) return;
+        if (pData.unclaimed <= 0 || claimCooldown > 0) return;
         
-        const btn = document.getElementById('claim-btn');
-        if (btn) btn.disabled = true;
+        // 1. تشغيل الإعلان أولاً
+        const adWatched = await showTelegramAd();
         
-        try {
-            let response = await fetch('/api/claim', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ tg_id: pData.tg_id })
-            });
-            if (response.ok) {
-                await pData.fetchUpdates();
+        if (adWatched) {
+            // 2. إذا شاهد الإعلان، نكلم السيرفر يضيف الرصيد
+            try {
+                let response = await fetch('/api/claim', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ tg_id: pData.tg_id })
+                });
+                
+                if (response.ok) {
+                    await pData.fetchUpdates();
+                    // 3. تفعيل عداد الـ 60 ثانية
+                    claimCooldown = 60; 
+                }
+            } catch (e) {
+                console.error("خطأ في التجميع", e);
             }
-        } catch (e) {
-            console.error(e);
-        } finally {
-            if (btn) btn.disabled = false;
+        }
+    };
+
+    // دالة استلام المكافأة اليومية
+    window.handleDaily = async function() {
+        // تشغيل الإعلان للمكافأة اليومية
+        const adWatched = await showTelegramAd();
+        if (adWatched) {
+            alert("تم استلام المكافأة اليومية بنجاح! (سيتم ربطها بالباك إند في الخطوة القادمة)");
+            // سنضيف كود الباك إند الخاص بها لاحقاً
         }
     };
     
     // تشغيل أولي
-    window.updateFarmUI();
+    setTimeout(window.updateFarmUI, 500);
 })();
