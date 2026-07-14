@@ -16,7 +16,7 @@
             6: 120000, 7: 300000, 8: 750000, 9: 2000000, 10: 5000000
         },
 
-        // سعات التخزين لكل مستوى
+        // سعات التخزين لكل مستوى (زي ما شرحتلي بالظبط)
         storageCapacities: {
             1: 20000,  2: 30000,  3: 50000,  4: 100000, 5: 200000,
             6: 500000, 7: 1000000, 8: 2500000, 9: 5000000, 10: 10000000
@@ -64,6 +64,7 @@
         if (miningSec) {
             let html = '';
             for (let i = 1; i <= 9; i++) {
+                // التأكد إن كائن الترقيات موجود عشان ميحصلش خطأ
                 let count = (pData.upgrades && pData.upgrades[`lvl${i}`]) || 0;
                 let price = SHOP_CONFIG.miningPrices[i];
                 let isMax = count >= SHOP_CONFIG.maxMiningUpgrades;
@@ -85,20 +86,23 @@
             miningSec.innerHTML = html;
         }
 
-        // 2. رسم المخازن الـ 10
+        // 2. رسم المخازن الـ 10 (باللوجيك الجديد)
         if (storageSec) {
             let html = '';
+            // لو مش ممتلك مخزن خالص بنعتبر المستوى الحالي 0
             let currentStorageLvl = pData.storage_level || 0; 
 
             for (let i = 1; i <= 10; i++) {
                 let price = SHOP_CONFIG.storagePrices[i];
                 let capacity = SHOP_CONFIG.storageCapacities[i];
+                
+                // لو المستوى الحالي يساوي أو أكبر من المخزن ده، يبقا انتهى/ممتلك
                 let isPassedOrMax = i <= currentStorageLvl;
                 let canAfford = pData.balance >= price;
 
                 html += `
                     <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 10px; padding: 12px; text-align: center; position: relative; overflow: hidden;">
-                        ${isPassedOrMax ? `<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; font-size: 16px; z-index: 10;">مُفعل ✅</div>` : ''}
+                        ${isPassedOrMax ? `<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; font-size: 16px; z-index: 10;">انتهاء MAX</div>` : ''}
                         <div style="font-size: 24px; margin-bottom: 5px;">📦</div>
                         <div style="color: #fff; font-weight: bold; font-size: 14px;">مخزن ${i}</div>
                         <div style="color: #0088cc; font-size: 11px; margin-bottom: 10px;">السعة: ${capacity.toLocaleString()} ZN</div>
@@ -115,33 +119,40 @@
 
     window.buyShopItem = async function(type, level, price) {
         const pData = window.PlayerData;
-        if (!pData || pData.balance < price) return alert("رصيد غير كافي!"); 
+        if (!pData || pData.balance < price) {
+            alert("الرصيد غير كافي!");
+            return; 
+        }
+
+        // الكوبري: السيرفر متبرمج يفهم كلمة mining بدلاً من speed
+        let apiType = (type === 'speed') ? 'mining' : 'storage';
 
         try {
-            let response = await fetch('/api/buy', {
+            // توجيه الطلب إلى /api/upgrade ليتطابق مع السيرفر
+            let response = await fetch('/api/upgrade', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ 
                     tg_id: pData.tg_id,
-                    type: type, 
-                    level: level
+                    type: apiType, 
+                    level_num: level // السيرفر متبرمج يقرأها level_num
                 })
             });
 
             if (response.ok) {
-                let data = await response.json();
-                window.PlayerData = data.user; 
+                await pData.fetchUpdates(); 
                 window.updateShopUI(); 
                 if (typeof window.updateFarmUI === 'function') window.updateFarmUI(); 
             } else {
                 let err = await response.json();
-                alert(err.error || "خطأ أثناء الشراء.");
+                alert(err.error || "حدث خطأ أثناء الشراء.");
             }
         } catch (e) {
             console.error(e);
-            alert("فشل الاتصال بالسيرفر");
+            alert("فشل الاتصال بالسيرفر.");
         }
     };
 
+    // تشغيل أولي
     setTimeout(window.updateShopUI, 500);
 })();
