@@ -1,89 +1,72 @@
-from flask import Flask, request, jsonify
-import time
-import firebase_admin
-from firebase_admin import credentials, db
+import os
+import threading
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+import telebot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+import database # ملفك الأصلي
 
-app = Flask(__name__)
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
+WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app')
 
-# 🔑 ربط السيرفر بالفيربيس بأمان (حط مسار ملف الـ JSON بتاع السيرفيس أكونت بتاعك هنا)
-cred = credentials.Certificate("firebase-sdk.json")
-firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://your-project-id-default-rtdb.firebaseio.com/' # رابط الفيربيس بتاعك
-})
+bot = telebot.TeleBot(BOT_TOKEN)
+app = Flask(__name__, static_folder='.', static_url_path='')
+CORS(app)
 
-# لوحة تحكم اللعبة الثابتة داخل السيرفر (مستحيل تتزور)
-CONFIG = {
-    "max_mining_upgrades": 15,
-    "mining_base_rates": {1: 2, 2: 8, 3: 15, 4: 30, 5: 60, 6: 120, 7: 250, 8: 500, 9: 1000},
-    "mining_prices": {1: 1000, 2: 5000, 3: 15000, 4: 40000, 5: 100000, 6: 250000, 7: 600000, 8: 1500000, 9: 5000000},
-    "storage_prices": {1: 500, 2: 2500, 3: 8000, 4: 20000, 5: 50000, 6: 120000, 7: 300000, 8: 750000, 9: 2000000, 10: 5000000},
-    "storage_capacities": {1: 20000, 2: 30000, 3: 50000, 4: 100000, 5: 200000, 6: 500000, 7: 1000000, 8: 2500000, 9: 5000000, 10: 10000000}
+# الثوابت (مطابقة تماماً لما هو موجود في منطق اللعبة)
+MINING_PACKAGES = {
+    1: {"price": 1000, "boost": 500}, 2: {"price": 3000, "boost": 1200},
+    3: {"price": 7000, "boost": 2500}, 4: {"price": 15000, "boost": 5000},
+    5: {"price": 30000, "boost": 10000}, 6: {"price": 60000, "boost": 22000},
+    7: {"price": 120000, "boost": 45000}, 8: {"price": 250000, "boost": 100000},
+    9: {"price": 500000, "boost": 250000}, 10: {"price": 1000000, "boost": 600000}
 }
 
-# دالة إعادة حساب سرعة التعدين لكل المستويات الـ 9
-def recalculate_hourly_rate(upgrades):
-    total_rate = 0
-    for i in range(1, 10):
-        count = upgrades.get(f"lvl{i}", 0)
-        base = CONFIG["mining_base_rates"].get(i, 0)
-        total_rate += base * count
-    return total_rate
+STORAGE_PACKAGES = {
+    1: {"price": 2000, "cap": 20000}, 2: {"price": 5000, "cap": 30000},
+    3: {"price": 10000, "cap": 50000}, 4: {"price": 25000, "cap": 100000},
+    5: {"price": 50000, "cap": 250000}, 6: {"price": 100000, "cap": 500000},
+    7: {"price": 250000, "cap": 1000000}, 8: {"price": 500000, "cap": 2500000}
+}
 
-@app.route('/api/buy', methods=['POST'])
-def buy_shop_item():
-    data = request.json
-    tg_id = str(data.get("tg_id"))
-    item_type = data.get("type") # 'speed' أو 'storage'
-    level = int(data.get("level"))
+@app.route('/')
+def serve_index():
+    return send_from_directory('.', 'index.html')
+
+@app.route('/api/user_data', methods=['GET'])
+def get_user_data():
+    tg_id = request.args.get('tg_id')
+    user = database.get_user_data(str(tg_id))
+    if not user: return jsonify({'error': 'User not found'}), 404
     
-    # 🔍 جلب بيانات المستخدم مباشرة من الفيربيس
-    user_ref = db.reference(f'users/{tg_id}')
-    user = user_ref.get()
+    # ... (باقي منطق حساب الأرباح اللي عندك سيبه زي ما هو)
+    return jsonify(user) 
+
+@app.route('/api/upgrade', methods=['POST'])
+def handle_upgrade():
+    data = request.json or {}
+    tg_id = str(data.get('tg_id'))
+    upgrade_type = data.get('type')
+    level_num = int(data.get('level_num', 0))
     
-    if not user:
-        return jsonify({"error": "المستخدم غير موجود"}), 404
+    user = database.get_user_data(tg_id)
+    if not user: return jsonify({'error': 'User not found'}), 404
 
-    # تأمين بنية الـ upgrades لو مش موجودة في حساب اللاعب الفيربيس
-    if "upgrades" not in user:
-        user["upgrades"] = {f"lvl{i}": 0 for i in range(1, 10)}
-
-    current_balance = float(user.get("balance", 0.0))
-
-    # 🔒 [فحص نوع الشراء: ترقيات التعدين]
-    if item_type == 'speed':
-        price = CONFIG["mining_prices"][level]
-        current_upgrades = user["upgrades"].get(f"lvl{level}", 0)
+    current_balance = user.get('balance', 0)
+    
+    if upgrade_type == 'mining':
+        cost = MINING_PACKAGES[level_num]["price"]
+        if current_balance < cost: return jsonify({'error': 'Not enough balance'}), 400
+        database.update_balance(tg_id, current_balance - cost)
+        database.update_upgrade_level(tg_id, f"lvl{level_num}_count", user.get(f"lvl{level_num}_count", 0) + 1)
         
-        if current_upgrades >= CONFIG["max_mining_upgrades"]:
-            return jsonify({"error": "وصلت للحد الأقصى 15 ترقية"}), 400
-            
-        if current_balance < price:
-            return jsonify({"error": "رصيدك لا يكفي"}), 400
-            
-        # الخصم والتحديث الآمن
-        user["balance"] = current_balance - price
-        user["upgrades"][f"lvl{level}"] = current_upgrades + 1
-        user["hourly_rate"] = recalculate_hourly_rate(user["upgrades"])
-
-    # 🔒 [فحص نوع الشراء: المخازن بسعاتها الجديدة والمنطق المظبوط]
-    elif item_type == 'storage':
-        price = CONFIG["storage_prices"][level]
-        current_storage_lvl = int(user.get("storage_level", 1))
+    elif upgrade_type == 'storage':
+        cost = STORAGE_PACKAGES[level_num]["price"]
+        if current_balance < cost: return jsonify({'error': 'Not enough balance'}), 400
+        database.update_balance(tg_id, current_balance - cost)
+        # نستخدم الدالة الجديدة اللي عملناها في database.py
+        database.update_storage_level(tg_id, level_num)
         
-        if level <= current_storage_lvl:
-            return jsonify({"error": "أنت تمتلك هذا المخزن أو أعلى منه بالفعل"}), 400
-            
-        if current_balance < price:
-            return jsonify({"error": "رصيدك لا يكفي"}), 400
-            
-        # الخصم والانتقال للمخزن الأعلى وقفل ما قبله
-        user["balance"] = current_balance - price
-        user["storage_level"] = level
-        user["max_cap"] = CONFIG["storage_capacities"][level]
+    return jsonify({'success': True})
 
-    # 💾 حفظ البيانات الجديدة وتحديثها في الفيربيس فوراً
-    user_ref.set(user)
-    return jsonify({"success": True, "user": user})
-
-if __name__ == '__main__':
-    app.run(port=5000)
+# ... (باقي كود البوت والـ Start سيبه زي ما هو)
