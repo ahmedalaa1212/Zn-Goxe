@@ -1,38 +1,59 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="background:#0f0f0f; margin:0; font-family: sans-serif;">
-
-<!-- تعديل: أضفنا معرف للـ container الرئيسي للمتجر لمراقبته -->
-<div id="main-shop-section" class="shop-container" style="padding:20px; color:#fff; max-width:400px; margin:0 auto; background:#0f0f0f; min-height:100vh;">
+<div class="shop-container" style="padding: 15px; direction: rtl; font-family: sans-serif; padding-bottom: 80px;">
     
-    <div style="text-align:center; margin-bottom:20px;">
-        <h2 style="margin:0; color:#00cc66;">المتجر 🛒</h2>
-        <div style="background:#1c1c1c; padding:10px; border-radius:10px; margin-top:10px; display:inline-block;">
-            رصيدك: <b id="shop-zn-balance" style="color:#00cc66;">15400</b> ZN
+    <!-- قسم عروض الـ USDT الفخمة -->
+    <h3 style="color: #fff; margin-bottom: 10px; font-size: 18px;">💎 عروض مميزة (USDT)</h3>
+    <div style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 25px; scrollbar-width: none;">
+        
+        <!-- العرض الأول -->
+        <div class="usdt-card" style="min-width: 140px; background: linear-gradient(135deg, #1c1c1c, #2a2a2a); border: 1px solid #28a745; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 4px 10px rgba(40, 167, 69, 0.2);">
+            <div style="font-size: 24px; margin-bottom: 5px;">📦</div>
+            <div style="color: #fff; font-weight: bold; font-size: 14px;">باقة المبتدئين</div>
+            <div style="color: #28a745; font-weight: bold; font-size: 16px; margin: 5px 0;">5 USDT</div>
+            <button onclick="buyWithUSDT('5')" style="width: 100%; background: #28a745; color: white; border: none; padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer;">شراء الآن</button>
         </div>
+
+        <!-- العرض الثاني -->
+        <div class="usdt-card" style="min-width: 140px; background: linear-gradient(135deg, #1c1c1c, #332b00); border: 1px solid #ffcc00; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 4px 10px rgba(255, 204, 0, 0.2);">
+            <div style="font-size: 24px; margin-bottom: 5px;">🚀</div>
+            <div style="color: #fff; font-weight: bold; font-size: 14px;">باقة المحترفين</div>
+            <div style="color: #ffcc00; font-weight: bold; font-size: 16px; margin: 5px 0;">15 USDT</div>
+            <button onclick="buyWithUSDT('15')" style="width: 100%; background: #ffcc00; color: #000; border: none; padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer;">شراء الآن</button>
+        </div>
+
+        <!-- العرض الثالث -->
+        <div class="usdt-card" style="min-width: 140px; background: linear-gradient(135deg, #1c1c1c, #3a1c1c); border: 1px solid #ff4444; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 4px 10px rgba(255, 68, 68, 0.2);">
+            <div style="font-size: 24px; margin-bottom: 5px;">👑</div>
+            <div style="color: #fff; font-weight: bold; font-size: 14px;">باقة الحيتان</div>
+            <div style="color: #ff4444; font-weight: bold; font-size: 16px; margin: 5px 0;">50 USDT</div>
+            <button onclick="buyWithUSDT('50')" style="width: 100%; background: #ff4444; color: white; border: none; padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer;">شراء الآن</button>
+        </div>
+        
     </div>
 
-    <div style="display:flex; gap:10px; margin-bottom:20px;">
-        <button id="btn-mining" onclick="renderShopTab('mining')" style="flex:1; padding:12px; border:none; color:white; border-radius:8px; background:#222;">باقات التعدين</button>
-        <button id="btn-storage" onclick="renderShopTab('storage')" style="flex:1; padding:12px; border:none; color:white; border-radius:8px; background:#222;">سعة التخزين</button>
+    <!-- أزرار التنقل بين (التعدين) و (المخازن) -->
+    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+        <button id="tab-mining" onclick="switchShopTab('mining')" style="flex: 1; padding: 12px; background: #0088cc; color: white; border: none; border-radius: 8px; font-weight: bold;">ترقيات التعدين</button>
+        <button id="tab-storage" onclick="switchShopTab('storage')" style="flex: 1; padding: 12px; background: #333; color: white; border: none; border-radius: 8px; font-weight: bold;">المخازن</button>
     </div>
 
-    <!-- هذا هو الوعاء الذي تظهر فيه المنتجات -->
-    <div id="shop-content"></div>
+    <!-- قسم مستويات التعدين (9 مستويات) -->
+    <div id="shop-mining-section" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+        <!-- سيتم الحقن بالجافاسكريبت -->
+    </div>
+
+    <!-- قسم المخازن (10 مخازن) -->
+    <div id="shop-storage-section" style="display: none; grid-template-columns: repeat(2, 1fr); gap: 10px;">
+        <!-- سيتم الحقن بالجافاسكريبت -->
+    </div>
+
 </div>
 
-<!-- نافذة رسائل (تأكيد أو خطأ) -->
-<div id="msg-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); justify-content:center; align-items:center; z-index:999;">
-    <div style="background:#1c1c1c; padding:20px; border-radius:15px; width:80%; text-align:center; border:1px solid #333;">
-        <p id="modal-msg" style="color:#fff;"></p>
-        <div id="modal-actions" style="margin-top:15px;"></div>
-    </div>
-</div>
-
-<script src="shop.js"></script>
-</body>
-</html>
+<style>
+/* إخفاء شريط التمرير الأفقي لعروض الـ USDT مع الحفاظ على السحب */
+.usdt-card {
+    flex-shrink: 0;
+}
+.shop-container::-webkit-scrollbar {
+    display: none;
+}
+</style>
