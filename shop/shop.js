@@ -1,27 +1,26 @@
 (function initShop() {
     
-    // لوحة التحكم وإضافة سعات المخازن الرسمية لكل مستوى
+    // حماية التليجرام
+    if (typeof window.Telegram === 'undefined' || !window.Telegram.WebApp.initDataUnsafe || !window.Telegram.WebApp.initDataUnsafe.user) {
+        return; 
+    }
+
+    const TELEGRAM_ID = window.Telegram.WebApp.initDataUnsafe.user.id.toString();
+
     const SHOP_CONFIG = {
         maxMiningUpgrades: 15, 
-        
-        // أسعار مستويات التعدين الـ 9
         miningPrices: {
             1: 1000, 2: 5000, 3: 15000, 4: 40000, 5: 100000,
             6: 250000, 7: 600000, 8: 1500000, 9: 5000000
         },
-        
-        // أسعار المخازن الـ 10
         storagePrices: {
             1: 500, 2: 2500, 3: 8000, 4: 20000, 5: 50000,
             6: 120000, 7: 300000, 8: 750000, 9: 2000000, 10: 5000000
         },
-
-        // سعات التخزين لكل مستوى (زي ما شرحتلي بالظبط)
         storageCapacities: {
             1: 20000,  2: 30000,  3: 50000,  4: 100000, 5: 200000,
             6: 500000, 7: 1000000, 8: 2500000, 9: 5000000, 10: 10000000
         },
-        
         walletDepositLink: "https://t.me/wallet" 
     };
 
@@ -53,18 +52,15 @@
         const pData = window.PlayerData;
         if (!pData) return;
 
-        // تحديث الرصيد والسرعة فوق خالص في المتجر
         document.getElementById('shop-balance').innerText = `ZN: ${Math.floor(pData.balance || 0).toLocaleString()}`;
         document.getElementById('shop-rate').innerText = `⚡ ${(pData.hourly_rate || 0).toLocaleString()}/س`;
 
         const miningSec = document.getElementById('shop-mining-section');
         const storageSec = document.getElementById('shop-storage-section');
 
-        // 1. رسم مستويات التعدين الـ 9
         if (miningSec) {
             let html = '';
             for (let i = 1; i <= 9; i++) {
-                // التأكد إن كائن الترقيات موجود عشان ميحصلش خطأ
                 let count = (pData.upgrades && pData.upgrades[`lvl${i}`]) || 0;
                 let price = SHOP_CONFIG.miningPrices[i];
                 let isMax = count >= SHOP_CONFIG.maxMiningUpgrades;
@@ -86,17 +82,14 @@
             miningSec.innerHTML = html;
         }
 
-        // 2. رسم المخازن الـ 10 (باللوجيك الجديد)
         if (storageSec) {
             let html = '';
-            // لو مش ممتلك مخزن خالص بنعتبر المستوى الحالي 0
             let currentStorageLvl = pData.storage_level || 0; 
 
             for (let i = 1; i <= 10; i++) {
                 let price = SHOP_CONFIG.storagePrices[i];
                 let capacity = SHOP_CONFIG.storageCapacities[i];
                 
-                // لو المستوى الحالي يساوي أو أكبر من المخزن ده، يبقا انتهى/ممتلك
                 let isPassedOrMax = i <= currentStorageLvl;
                 let canAfford = pData.balance >= price;
 
@@ -124,25 +117,25 @@
             return; 
         }
 
-        // الكوبري: السيرفر متبرمج يفهم كلمة mining بدلاً من speed
         let apiType = (type === 'speed') ? 'mining' : 'storage';
 
         try {
-            // توجيه الطلب إلى /api/upgrade ليتطابق مع السيرفر
             let response = await fetch('/api/upgrade', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ 
-                    tg_id: pData.tg_id,
+                    telegramId: TELEGRAM_ID,
                     type: apiType, 
-                    level_num: level // السيرفر متبرمج يقرأها level_num
+                    level_num: level 
                 })
             });
 
             if (response.ok) {
-                await pData.fetchUpdates(); 
+                // استدعاء الفايربيس لتأكيد الخصم والشراء
+                if (typeof window.fetchPlayerData === 'function') {
+                    await window.fetchPlayerData(); 
+                }
                 window.updateShopUI(); 
-                if (typeof window.updateFarmUI === 'function') window.updateFarmUI(); 
             } else {
                 let err = await response.json();
                 alert(err.error || "حدث خطأ أثناء الشراء.");
@@ -153,6 +146,6 @@
         }
     };
 
-    // تشغيل أولي
-    setTimeout(window.updateShopUI, 500);
+    // تحديث مبدئي للمتجر
+    setTimeout(window.updateShopUI, 1000);
 })();
