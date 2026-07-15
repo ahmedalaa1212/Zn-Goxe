@@ -13,7 +13,6 @@
 
     const TELEGRAM_ID = window.Telegram.WebApp.initDataUnsafe.user.id.toString();
 
-    // إعدادات اللعبة
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 15,
         dailyRewards: [3000, 6000, 10000, 15000, 25000, 40000, 100000],
@@ -22,10 +21,8 @@
     };
 
     let claimCooldown = 0; 
-    let currentDailyDay = parseInt(localStorage.getItem('zn_daily_day')) || 1;
-    let lastDailyTime = parseInt(localStorage.getItem('zn_daily_time')) || 0;
+    let isClaimingDaily = false; // لمنع ثغرة الدبل كليك على زر المكافأة
 
-    // جلب البيانات الأساسية من الفايربيس (السيرفر)
     window.fetchPlayerData = async function() {
         try {
             const response = await fetch(`/api/user_data?telegramId=${TELEGRAM_ID}`);
@@ -34,7 +31,6 @@
             if (result.success) {
                 const dbData = result.data;
                 
-                // حساب سرعة التعدين
                 let hRate = 0;
                 let upgs = {};
                 for(let i = 1; i <= 9; i++) {
@@ -45,12 +41,11 @@
                 
                 let maxCap = GAME_CONFIG.capacities[dbData.storage_level || 0] || 10000;
                 
-                // حساب التعدين وتجنب الأرقام السالبة
                 let unclaimed = 0;
                 if (dbData.last_claim_time) {
                     let lastClaim = new Date(dbData.last_claim_time).getTime();
                     let now = Date.now();
-                    let diffHours = Math.max(0, (now - lastClaim) / (1000 * 60 * 60)); // يمنع الوقت السالب
+                    let diffHours = Math.max(0, (now - lastClaim) / (1000 * 60 * 60)); 
                     unclaimed = diffHours * hRate;
                     if (unclaimed > maxCap) unclaimed = maxCap;
                 }
@@ -62,10 +57,14 @@
                     max_cap: maxCap,
                     unclaimed: unclaimed,
                     upgrades: upgs,
-                    storage_level: dbData.storage_level || 0
+                    storage_level: dbData.storage_level || 0,
+                    daily_day: dbData.daily_day || 1,
+                    last_daily_claim_time: dbData.last_daily_claim_time || "2000-01-01T00:00:00+00:00"
                 };
                 
+                // تحديث جميع الشاشات فوراً لضمان عدم حدوث أي تأخير
                 window.updateFarmUI();
+                if (typeof window.updateShopUI === 'function') window.updateShopUI();
             }
         } catch (e) {
             console.error("خطأ في الاتصال بالخادم:", e);
@@ -78,6 +77,21 @@
         
         document.getElementById('farm-balance').innerText = `ZN: ${Math.floor(pData.balance).toLocaleString()}`;
         document.getElementById('farm-rate').innerText = `⚡ ${pData.hourly_rate.toLocaleString()}/س`;
+        
+        const progressEl = document.getElementById('storage-progress');
+        const storageTextEl = document.getElementById('storage-text');
+        
+        if (progressEl && storageTextEl) {
+            let pct = (pData.unclaimed / pData.max_cap) * 100;
+            pct = Math.max(0, Math.min(pct, 100));
+            progressEl.style.width = `${pct}%`;
+            if (pct >= 100) {
+                progressEl.style.background = 'linear-gradient(90deg, #ff4444, #cc0000)'; 
+            } else {
+                progressEl.style.background = 'linear-gradient(90deg, #0088cc, #00bfff)'; 
+            }
+            storageTextEl.innerText = `${Math.floor(pData.unclaimed).toLocaleString()} / ${pData.max_cap.toLocaleString()}`;
+        }
         
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
@@ -128,12 +142,15 @@
 
     function renderDailyRewards() {
         const container = document.getElementById('daily-rewards-container');
-        if (!container) return;
+        const pData = window.PlayerData;
+        if (!container || !pData) return;
 
         let html = '';
         const now = Date.now();
-        const timePassed = now - lastDailyTime;
+        const lastClaim = new Date(pData.last_daily_claim_time).getTime();
+        const timePassed = now - lastClaim;
         const canClaim = timePassed >= (24 * 60 * 60 * 1000); 
+        const currentDailyDay = pData.daily_day || 1;
 
         for (let i = 0; i < 7; i++) {
             let dayNum = i + 1;
@@ -153,7 +170,7 @@
                         <div style="min-width: 85px; background: #2a2a2a; border: 2px solid #ffcc00; border-radius: 10px; padding: 10px; text-align: center; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">
                             <div style="color: #fff; font-size: 12px; font-weight: bold; margin-bottom: 5px;">اليوم ${dayNum}</div>
                             <div style="color: #ffcc00; font-size: 13px; font-weight: bold; margin-bottom: 8px;">${reward}</div>
-                            <button onclick="handleDailyClaim(${dayNum}, ${GAME_CONFIG.dailyRewards[i]})" style="background: #28a745; color: white; border: none; border-radius: 5px; padding: 6px; font-size: 11px; font-weight: bold; cursor: pointer; width: 100%; animation: pulseGreen 2s infinite;">استلام 📺</button>
+                            <button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${dayNum})" style="background: #28a745; color: white; border: none; border-radius: 5px; padding: 6px; font-size: 11px; font-weight: bold; cursor: pointer; width: 100%; animation: pulseGreen 2s infinite;">استلام 📺</button>
                         </div>
                     `;
                 } else {
@@ -178,17 +195,14 @@
         container.innerHTML = html;
     }
 
-    // لوب الواجهة (تم تعديل الخزان ليقف عند الحد الأقصى ولا يظهر سالب)
     setInterval(() => {
         const pData = window.PlayerData;
         if (!pData) return;
         
-        // قفل رياضي يمنع أي رقم سالب ويمنع تخطي الحد الأقصى
         pData.unclaimed = Math.max(0, Math.min(pData.unclaimed, pData.max_cap));
 
         if (pData.unclaimed < pData.max_cap) {
             pData.unclaimed += pData.hourly_rate / 3600;
-            // تأكيد مرة أخرى بعد الزيادة الوهمية
             if (pData.unclaimed >= pData.max_cap) {
                 pData.unclaimed = pData.max_cap;
             }
@@ -199,7 +213,7 @@
         
         if (progressEl && storageTextEl) {
             let pct = (pData.unclaimed / pData.max_cap) * 100;
-            pct = Math.max(0, Math.min(pct, 100)); // نسبة مئوية مضبوطة 100% كحد أقصى
+            pct = Math.max(0, Math.min(pct, 100)); 
             
             progressEl.style.width = `${pct}%`;
             if (pct >= 100) {
@@ -225,9 +239,10 @@
         }
 
         const timerEl = document.getElementById('daily-timer');
-        if (timerEl && currentDailyDay <= 7) {
+        if (timerEl && pData.last_daily_claim_time) {
             const now = Date.now();
-            const timePassed = now - lastDailyTime;
+            const lastClaim = new Date(pData.last_daily_claim_time).getTime();
+            const timePassed = now - lastClaim;
             const timeLeft = (24 * 60 * 60 * 1000) - timePassed;
             
             if (timeLeft > 0) {
@@ -252,29 +267,40 @@
         });
     }
 
-    window.handleDailyClaim = async function(day, rewardAmount) {
+    window.handleDailyClaim = async function(day) {
+        if (isClaimingDaily) return;
+        const btn = document.getElementById(`daily-btn-${day}`);
+        if (btn) {
+            btn.disabled = true;
+            btn.innerText = "جاري الاستلام... ⏳";
+        }
+        
+        isClaimingDaily = true;
         const adWatched = await showTelegramAd();
         if (adWatched) {
             try {
                 let response = await fetch('/api/daily_claim', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ telegramId: TELEGRAM_ID, reward: rewardAmount })
+                    body: JSON.stringify({ telegramId: TELEGRAM_ID })
                 });
 
-                if (response.ok) {
-                    currentDailyDay = day + 1;
-                    lastDailyTime = Date.now();
-                    localStorage.setItem('zn_daily_day', currentDailyDay);
-                    localStorage.setItem('zn_daily_time', lastDailyTime);
-                    
-                    alert(`🎉 مبروك! استلمت ${rewardAmount.toLocaleString()} ZN بنجاح.`);
+                let resData = await response.json();
+                if (response.ok && resData.success) {
+                    alert(`🎉 مبروك! استلمت ${resData.reward.toLocaleString()} ZN بنجاح.`);
                     await window.fetchPlayerData(); 
+                } else {
+                    alert(resData.error || "عفواً، لا يمكنك استلام المكافأة الآن.");
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerText = "استلام 📺";
+                    }
                 }
             } catch (e) {
                 console.error("خطأ في المكافأة اليومية", e);
             }
         }
+        isClaimingDaily = false;
     };
 
     window.handleClaim = async function() {
@@ -287,7 +313,7 @@
                 let response = await fetch('/api/claim', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ telegramId: pData.tg_id, addedAmount: pData.unclaimed })
+                    body: JSON.stringify({ telegramId: pData.tg_id })
                 });
                 
                 if (response.ok) {
