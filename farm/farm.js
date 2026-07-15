@@ -1,6 +1,6 @@
 (function initFarm() {
     
-    // تنظيف ذاكرة المتصفح من أي تواريخ قديمة فوراً
+    // تصفير ذاكرة المتصفح لتجنب أي أرقام وهمية
     localStorage.removeItem('zn_daily_day');
     localStorage.removeItem('zn_daily_time');
     
@@ -34,26 +34,32 @@
             if (result.success) {
                 const dbData = result.data;
                 
-                let hRate = parseFloat(dbData.calculated_hourly_rate || 0);
-                let maxCap = parseFloat(dbData.calculated_max_cap || 10000);
-                let unclaimed = parseFloat(dbData.calculated_unclaimed || 0);
-                let bal = parseFloat(dbData.balance || 0);
+                // حساب دقيق لفرق توقيت السيرفر لحل مشكلة الخزان نهائياً
+                let serverTime = new Date(dbData.server_time).getTime();
+                let clientTime = Date.now();
+                window.timeOffset = serverTime - clientTime; 
                 
+                let hRate = 0;
                 let upgs = {};
                 for(let i = 1; i <= 9; i++) {
-                    upgs[`lvl${i}`] = parseInt(dbData[`lvl${i}_count`] || 0);
+                    let count = parseInt(dbData[`lvl${i}_count`]) || 0;
+                    upgs[`lvl${i}`] = count;
+                    hRate += count * GAME_CONFIG.miningRates[i];
                 }
-
+                
+                let maxCap = GAME_CONFIG.capacities[parseInt(dbData.storage_level) || 0] || 10000;
+                
                 window.PlayerData = {
                     tg_id: dbData.telegram_id,
-                    balance: bal,
+                    balance: parseFloat(dbData.balance) || 0,
                     hourly_rate: hRate,
                     max_cap: maxCap,
-                    unclaimed: unclaimed,
                     upgrades: upgs,
-                    storage_level: parseInt(dbData.storage_level || 0),
-                    daily_day: parseInt(dbData.daily_day || 1),
-                    last_daily_claim_time: dbData.last_daily_claim_time || "2000-01-01T00:00:00+00:00"
+                    storage_level: parseInt(dbData.storage_level) || 0,
+                    daily_day: parseInt(dbData.daily_day) || 1,
+                    last_daily_claim_time: dbData.last_daily_claim_time || "2000-01-01T00:00:00+00:00",
+                    last_claim_time: dbData.last_claim_time || new Date(serverTime).toISOString(),
+                    unclaimed: 0 
                 };
                 
                 window.updateFarmUI();
@@ -68,28 +74,8 @@
         const pData = window.PlayerData;
         if (!pData) return;
         
-        let bal = parseFloat(pData.balance || 0);
-        let hRate = parseFloat(pData.hourly_rate || 0);
-        let unclaim = parseFloat(pData.unclaimed || 0);
-        let maxC = parseFloat(pData.max_cap || 10000);
-
-        document.getElementById('farm-balance').innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
-        document.getElementById('farm-rate').innerText = `⚡ ${hRate.toLocaleString()}/س`;
-        
-        const progressEl = document.getElementById('storage-progress');
-        const storageTextEl = document.getElementById('storage-text');
-        
-        if (progressEl && storageTextEl) {
-            let pct = (unclaim / maxC) * 100;
-            pct = Math.max(0, Math.min(pct, 100));
-            progressEl.style.width = `${pct}%`;
-            if (pct >= 100) {
-                progressEl.style.background = 'linear-gradient(90deg, #ff4444, #cc0000)'; 
-            } else {
-                progressEl.style.background = 'linear-gradient(90deg, #0088cc, #00bfff)'; 
-            }
-            storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
-        }
+        document.getElementById('farm-balance').innerText = `ZN: ${Math.floor(pData.balance).toLocaleString()}`;
+        document.getElementById('farm-rate').innerText = `⚡ ${pData.hourly_rate.toLocaleString()}/س`;
         
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
@@ -144,11 +130,11 @@
         if (!container || !pData) return;
 
         let html = '';
-        const now = Date.now();
+        let nowOffset = Date.now() + (window.timeOffset || 0);
         const lastClaim = new Date(pData.last_daily_claim_time).getTime();
-        const timePassed = now - lastClaim;
+        const timePassed = nowOffset - lastClaim;
         const canClaim = timePassed >= (24 * 60 * 60 * 1000); 
-        const currentDailyDay = parseInt(pData.daily_day || 1);
+        const currentDailyDay = pData.daily_day || 1;
 
         for (let i = 0; i < 7; i++) {
             let dayNum = i + 1;
@@ -197,25 +183,20 @@
         const pData = window.PlayerData;
         if (!pData) return;
         
-        let unclaim = parseFloat(pData.unclaimed || 0);
-        let maxC = parseFloat(pData.max_cap || 10000);
-        let hRate = parseFloat(pData.hourly_rate || 0);
+        let nowOffset = Date.now() + (window.timeOffset || 0);
+        let lastClaim = new Date(pData.last_claim_time).getTime();
+        let diffHours = Math.max(0, (nowOffset - lastClaim) / (1000 * 60 * 60));
         
-        unclaim = Math.max(0, Math.min(unclaim, maxC));
-
-        if (unclaim < maxC) {
-            unclaim += hRate / 3600;
-            if (unclaim >= maxC) {
-                unclaim = maxC;
-            }
-        }
+        let unclaim = diffHours * pData.hourly_rate;
+        unclaim = Math.max(0, Math.min(unclaim, pData.max_cap));
+        
         pData.unclaimed = unclaim;
 
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
         
         if (progressEl && storageTextEl) {
-            let pct = (unclaim / maxC) * 100;
+            let pct = (unclaim / pData.max_cap) * 100;
             pct = Math.max(0, Math.min(pct, 100)); 
             
             progressEl.style.width = `${pct}%`;
@@ -224,7 +205,7 @@
             } else {
                 progressEl.style.background = 'linear-gradient(90deg, #0088cc, #00bfff)'; 
             }
-            storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
+            storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${pData.max_cap.toLocaleString()}`;
         }
 
         const claimBtn = document.getElementById('claim-btn');
@@ -243,9 +224,8 @@
 
         const timerEl = document.getElementById('daily-timer');
         if (timerEl && pData.last_daily_claim_time) {
-            const now = Date.now();
-            const lastClaim = new Date(pData.last_daily_claim_time).getTime();
-            const timePassed = now - lastClaim;
+            const lastDaily = new Date(pData.last_daily_claim_time).getTime();
+            const timePassed = nowOffset - lastDaily;
             const timeLeft = (24 * 60 * 60 * 1000) - timePassed;
             
             if (timeLeft > 0) {
