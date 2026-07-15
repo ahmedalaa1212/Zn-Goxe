@@ -22,7 +22,6 @@ if firebase_creds_json:
     except Exception as e:
         print(f"❌ [Firebase] Error: {e}")
 
-# أسعار الترقية عشان السيرفر يخصم صح من الفايربيس
 SHOP_CONFIG = {
     'mining': {
         1: 1000, 2: 5000, 3: 15000, 4: 40000, 5: 100000,
@@ -45,7 +44,6 @@ def index():
 def serve_static(filename):
     return send_from_directory('.', filename)
 
-# مسار جلب البيانات (الفايربيس هو الأساس)
 @app.route('/api/user_data', methods=['GET'])
 def get_user_data():
     telegram_id = request.args.get('telegramId')
@@ -57,7 +55,6 @@ def get_user_data():
         data = doc.to_dict()
         return jsonify({'success': True, 'data': data}), 200
     
-    # لو المستخدم جديد، يتم إنشاؤه في الفايربيس
     new_user = {
         "telegram_id": str(telegram_id),
         "balance": 0,
@@ -71,7 +68,6 @@ def get_user_data():
     get_user_ref(telegram_id).set(new_user)
     return jsonify({'success': True, 'data': new_user}), 200
 
-# مسار تجميع المزرعة
 @app.route('/api/claim', methods=['POST'])
 def claim():
     data = request.get_json()
@@ -86,7 +82,6 @@ def claim():
         doc = user_ref.get()
         if doc.exists:
             current_balance = doc.to_dict().get('balance', 0)
-            # إضافة الرصيد وتحديث وقت التجميع
             user_ref.update({
                 'balance': current_balance + added_amount,
                 'last_claim_time': datetime.now(timezone.utc).isoformat()
@@ -95,7 +90,6 @@ def claim():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# مسار استلام المكافأة اليومية وتسجيلها بالفايربيس
 @app.route('/api/daily_claim', methods=['POST'])
 def daily_claim():
     data = request.get_json()
@@ -115,13 +109,11 @@ def daily_claim():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# مسار الشراء من المتجر وخصم الرصيد
 @app.route('/api/upgrade', methods=['POST'])
 def upgrade():
     data = request.get_json()
-    # يدعم الاسمين عشان ميحصلش تعارض
     telegram_id = str(data.get('telegramId') or data.get('tg_id'))
-    upg_type = data.get('type') # 'mining' or 'storage'
+    upg_type = data.get('type') 
     level_num = int(data.get('level_num'))
 
     try:
@@ -140,7 +132,6 @@ def upgrade():
         if current_balance < price:
             return jsonify({'success': False, 'error': 'الرصيد غير كافي'}), 400
             
-        # خصم الرصيد وتحديث المستوى في الفايربيس
         updates = {'balance': current_balance - price}
         if upg_type == 'mining':
             field_name = f'lvl{level_num}_count'
