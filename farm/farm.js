@@ -18,14 +18,14 @@
         maxUpgradesPerLevel: 15,
         dailyRewards: [3000, 6000, 10000, 15000, 25000, 40000, 100000],
         capacities: {0: 10000, 1: 20000, 2: 30000, 3: 50000, 4: 100000, 5: 200000, 6: 500000, 7: 1000000, 8: 2500000, 9: 5000000, 10: 10000000},
-        miningRates: {1: 100, 2: 500, 3: 1500, 4: 4000, 5: 10000, 6: 25000, 7: 60000, 8: 150000, 9: 500000} // سرعة كل مستوى للتوضيح
+        miningRates: {1: 100, 2: 500, 3: 1500, 4: 4000, 5: 10000, 6: 25000, 7: 60000, 8: 150000, 9: 500000} 
     };
 
     let claimCooldown = 0; 
     let currentDailyDay = parseInt(localStorage.getItem('zn_daily_day')) || 1;
     let lastDailyTime = parseInt(localStorage.getItem('zn_daily_time')) || 0;
 
-    // جلب البيانات الأساسية من الفايربيس (السيرفر) وترجمتها للواجهة
+    // جلب البيانات الأساسية من الفايربيس (السيرفر)
     window.fetchPlayerData = async function() {
         try {
             const response = await fetch(`/api/user_data?telegramId=${TELEGRAM_ID}`);
@@ -34,7 +34,7 @@
             if (result.success) {
                 const dbData = result.data;
                 
-                // حساب سرعة التعدين والترقيات من بيانات الفايربيس
+                // حساب سرعة التعدين
                 let hRate = 0;
                 let upgs = {};
                 for(let i = 1; i <= 9; i++) {
@@ -45,17 +45,16 @@
                 
                 let maxCap = GAME_CONFIG.capacities[dbData.storage_level || 0] || 10000;
                 
-                // حساب التعدين المتجمع بناءً على وقت الفايربيس
+                // حساب التعدين وتجنب الأرقام السالبة
                 let unclaimed = 0;
                 if (dbData.last_claim_time) {
                     let lastClaim = new Date(dbData.last_claim_time).getTime();
                     let now = Date.now();
-                    let diffHours = (now - lastClaim) / (1000 * 60 * 60);
+                    let diffHours = Math.max(0, (now - lastClaim) / (1000 * 60 * 60)); // يمنع الوقت السالب
                     unclaimed = diffHours * hRate;
                     if (unclaimed > maxCap) unclaimed = maxCap;
                 }
 
-                // تجهيز المتغير العام اللي اللعبة كلها بتعتمد عليه
                 window.PlayerData = {
                     tg_id: dbData.telegram_id,
                     balance: dbData.balance || 0,
@@ -73,28 +72,12 @@
         }
     };
 
-    // تحديث واجهة المزرعة
     window.updateFarmUI = function() {
         const pData = window.PlayerData;
         if (!pData) return;
         
         document.getElementById('farm-balance').innerText = `ZN: ${Math.floor(pData.balance).toLocaleString()}`;
         document.getElementById('farm-rate').innerText = `⚡ ${pData.hourly_rate.toLocaleString()}/س`;
-        
-        const progressEl = document.getElementById('storage-progress');
-        const storageTextEl = document.getElementById('storage-text');
-        
-        if (progressEl && storageTextEl) {
-            let pct = (pData.unclaimed / pData.max_cap) * 100;
-            if (pct >= 100) {
-                pct = 100;
-                progressEl.style.background = 'linear-gradient(90deg, #ff4444, #cc0000)'; 
-            } else {
-                progressEl.style.background = 'linear-gradient(90deg, #0088cc, #00bfff)'; 
-            }
-            progressEl.style.width = `${pct}%`;
-            storageTextEl.innerText = `${Math.floor(pData.unclaimed).toLocaleString()} / ${pData.max_cap.toLocaleString()}`;
-        }
         
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
@@ -140,7 +123,6 @@
             }
             fieldsContainer.innerHTML = fieldsHTML;
         }
-
         renderDailyRewards(); 
     };
 
@@ -196,23 +178,36 @@
         container.innerHTML = html;
     }
 
-    // لوب الواجهة 
+    // لوب الواجهة (تم تعديل الخزان ليقف عند الحد الأقصى ولا يظهر سالب)
     setInterval(() => {
         const pData = window.PlayerData;
         if (!pData) return;
         
-        // زيادة وهمية بصرية للتخزين عشان اللعب يكون حي
+        // قفل رياضي يمنع أي رقم سالب ويمنع تخطي الحد الأقصى
+        pData.unclaimed = Math.max(0, Math.min(pData.unclaimed, pData.max_cap));
+
         if (pData.unclaimed < pData.max_cap) {
             pData.unclaimed += pData.hourly_rate / 3600;
-            if (pData.unclaimed > pData.max_cap) pData.unclaimed = pData.max_cap;
-            
-            const progressEl = document.getElementById('storage-progress');
-            const storageTextEl = document.getElementById('storage-text');
-            if (progressEl && storageTextEl) {
-                let pct = (pData.unclaimed / pData.max_cap) * 100;
-                progressEl.style.width = `${pct}%`;
-                storageTextEl.innerText = `${Math.floor(pData.unclaimed).toLocaleString()} / ${pData.max_cap.toLocaleString()}`;
+            // تأكيد مرة أخرى بعد الزيادة الوهمية
+            if (pData.unclaimed >= pData.max_cap) {
+                pData.unclaimed = pData.max_cap;
             }
+        }
+
+        const progressEl = document.getElementById('storage-progress');
+        const storageTextEl = document.getElementById('storage-text');
+        
+        if (progressEl && storageTextEl) {
+            let pct = (pData.unclaimed / pData.max_cap) * 100;
+            pct = Math.max(0, Math.min(pct, 100)); // نسبة مئوية مضبوطة 100% كحد أقصى
+            
+            progressEl.style.width = `${pct}%`;
+            if (pct >= 100) {
+                progressEl.style.background = 'linear-gradient(90deg, #ff4444, #cc0000)'; 
+            } else {
+                progressEl.style.background = 'linear-gradient(90deg, #0088cc, #00bfff)'; 
+            }
+            storageTextEl.innerText = `${Math.floor(pData.unclaimed).toLocaleString()} / ${pData.max_cap.toLocaleString()}`;
         }
 
         const claimBtn = document.getElementById('claim-btn');
@@ -257,7 +252,6 @@
         });
     }
 
-    // استلام المكافأة اليومية وتسجيلها في السيرفر
     window.handleDailyClaim = async function(day, rewardAmount) {
         const adWatched = await showTelegramAd();
         if (adWatched) {
@@ -275,7 +269,6 @@
                     localStorage.setItem('zn_daily_time', lastDailyTime);
                     
                     alert(`🎉 مبروك! استلمت ${rewardAmount.toLocaleString()} ZN بنجاح.`);
-                    // جلب الداتا من الفايربيس بعد التحديث عشان نتأكد
                     await window.fetchPlayerData(); 
                 }
             } catch (e) {
@@ -284,7 +277,6 @@
         }
     };
 
-    // تجميع التعدين وتحديث السيرفر
     window.handleClaim = async function() {
         const pData = window.PlayerData;
         if (!pData || pData.unclaimed <= 0 || claimCooldown > 0) return;
@@ -299,7 +291,7 @@
                 });
                 
                 if (response.ok) {
-                    await window.fetchPlayerData(); // استدعاء الفايربيس لتأكيد الرصيد الجديد
+                    await window.fetchPlayerData(); 
                     claimCooldown = 60; 
                 }
             } catch (e) {
@@ -308,6 +300,5 @@
         }
     };
 
-    // التشغيل الأولي لجلب البيانات
     window.fetchPlayerData();
 })();
