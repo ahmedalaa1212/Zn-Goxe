@@ -39,7 +39,6 @@ SHOP_CONFIG = {
     }
 }
 
-# دوال حماية لتحويل الأرقام ومنع تعطل السيرفر
 def safe_float(val):
     try: return float(val)
     except (TypeError, ValueError): return 0.0
@@ -47,6 +46,12 @@ def safe_float(val):
 def safe_int(val):
     try: return int(val)
     except (TypeError, ValueError): return 0
+
+def make_aware(dt):
+    """دالة هامة جداً لحل مشكلة التوقيت: تجعل أي توقيت متوافقاً مع UTC لمنع الكراش"""
+    if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 def get_user_ref(tg_id):
     return db.collection('users').document(str(tg_id))
@@ -56,6 +61,7 @@ def calculate_user_harvest(user_data):
     if not last_claim_str: return 0.0
     try:
         last_claim = datetime.fromisoformat(str(last_claim_str))
+        last_claim = make_aware(last_claim) # تأمين التوقيت
     except ValueError:
         return 0.0
     now = datetime.now(timezone.utc)
@@ -103,7 +109,7 @@ def get_user_data():
         user_data = doc.to_dict()
         
     response_data = user_data.copy()
-    response_data['server_time'] = now_iso # لإرسال توقيت السيرفر للمزرعة لحل مشكلة الخزان
+    response_data['server_time'] = now_iso
     return jsonify({'success': True, 'data': response_data}), 200
 
 @app.route('/api/claim', methods=['POST'])
@@ -131,6 +137,7 @@ def claim():
         })
         return jsonify({'success': True, 'claimed': unclaimed}), 200
     except Exception as e:
+        print(f"Claim Error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/daily_claim', methods=['POST'])
@@ -146,8 +153,11 @@ def daily_claim():
             
         user_data = doc.to_dict()
         last_daily_str = user_data.get('last_daily_claim_time', "2000-01-01T00:00:00+00:00")
-        try: last_daily = datetime.fromisoformat(str(last_daily_str))
-        except ValueError: last_daily = datetime.fromisoformat("2000-01-01T00:00:00+00:00")
+        try: 
+            last_daily = datetime.fromisoformat(str(last_daily_str))
+            last_daily = make_aware(last_daily) # تأمين التوقيت
+        except ValueError: 
+            last_daily = make_aware(datetime.fromisoformat("2000-01-01T00:00:00+00:00"))
             
         now = datetime.now(timezone.utc)
         
@@ -167,6 +177,7 @@ def daily_claim():
         })
         return jsonify({'success': True, 'reward': reward}), 200
     except Exception as e:
+        print(f"Daily Claim Error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @firestore.transactional
@@ -176,6 +187,7 @@ def execute_upgrade_transaction(transaction, user_ref, upg_type, level_num):
         
     user_data = doc.to_dict()
     unclaimed = calculate_user_harvest(user_data)
+    # التأكد من جمع الرصيد الفعلي بأمان
     current_balance = safe_float(user_data.get('balance', 0)) + unclaimed
     
     price = SHOP_CONFIG.get(upg_type, {}).get(level_num)
@@ -185,6 +197,7 @@ def execute_upgrade_transaction(transaction, user_ref, upg_type, level_num):
     now_iso = datetime.now(timezone.utc).isoformat()
     
     if current_balance < price:
+        # إذا لم يكف الرصيد، نحفظ ما تم تجميعه فقط
         transaction.update(user_ref, {'balance': current_balance, 'last_claim_time': now_iso})
         return False, 'الرصيد غير كافي!'
         
@@ -224,6 +237,7 @@ def upgrade():
         if success: return jsonify({'success': True}), 200
         else: return jsonify({'success': False, 'error': message}), 400
     except Exception as e:
+        print(f"Upgrade Error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
