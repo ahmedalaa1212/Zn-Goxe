@@ -1,6 +1,5 @@
 (function initShop() {
     
-    // حماية التليجرام
     if (typeof window.Telegram === 'undefined' || !window.Telegram.WebApp.initDataUnsafe || !window.Telegram.WebApp.initDataUnsafe.user) {
         return; 
     }
@@ -12,6 +11,10 @@
         miningPrices: {
             1: 1000, 2: 5000, 3: 15000, 4: 40000, 5: 100000,
             6: 250000, 7: 600000, 8: 1500000, 9: 5000000
+        },
+        miningRates: { // السرعات الخاصة بكل مستوى لعرضها
+            1: 100, 2: 500, 3: 1500, 4: 4000, 5: 10000, 
+            6: 25000, 7: 60000, 8: 150000, 9: 500000
         },
         storagePrices: {
             1: 500, 2: 2500, 3: 8000, 4: 20000, 5: 50000,
@@ -63,14 +66,17 @@
             for (let i = 1; i <= 9; i++) {
                 let count = (pData.upgrades && pData.upgrades[`lvl${i}`]) || 0;
                 let price = SHOP_CONFIG.miningPrices[i];
+                let speed = SHOP_CONFIG.miningRates[i]; // السرعة الحالية
                 let isMax = count >= SHOP_CONFIG.maxMiningUpgrades;
                 let canAfford = pData.balance >= price;
 
+                // تم إضافة سطر السرعة هنا باللون الأخضر
                 html += `
                     <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 10px; padding: 12px; text-align: center; position: relative; overflow: hidden;">
                         ${isMax ? `<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; font-size: 16px; z-index: 10; transform: rotate(-10deg);">MAX</div>` : ''}
                         <div style="font-size: 24px; margin-bottom: 5px;">🏛️</div>
                         <div style="color: #fff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
+                        <div style="color: #28a745; font-size: 11px; margin-bottom: 3px;">⚡ السرعة: +${speed.toLocaleString()}/س</div>
                         <div style="color: #0088cc; font-size: 12px; margin-bottom: 10px;">تم الشراء: ${count} / ${SHOP_CONFIG.maxMiningUpgrades}</div>
                         <button onclick="buyShopItem('speed', ${i}, ${price})" 
                             style="width: 100%; padding: 8px; background: ${canAfford && !isMax ? '#ffcc00' : '#444'}; color: ${canAfford && !isMax ? '#000' : '#888'}; border: none; border-radius: 6px; font-weight: bold; cursor: ${canAfford && !isMax ? 'pointer' : 'not-allowed'};" ${isMax ? 'disabled' : ''}>
@@ -120,6 +126,20 @@
         let apiType = (type === 'speed') ? 'mining' : 'storage';
 
         try {
+            // حل مشكلة الامتلاء المفاجئ: اللعبة بتجمع الرصيد المعلق الأول قبل ما تحدث السرعة 
+            if (pData.unclaimed > 0) {
+                try {
+                    await fetch('/api/claim', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ telegramId: TELEGRAM_ID, addedAmount: pData.unclaimed })
+                    });
+                } catch(e) {
+                    console.error("Auto-claim failed", e);
+                }
+            }
+
+            // تنفيذ عملية الشراء
             let response = await fetch('/api/upgrade', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -131,7 +151,6 @@
             });
 
             if (response.ok) {
-                // استدعاء الفايربيس لتأكيد الخصم والشراء
                 if (typeof window.fetchPlayerData === 'function') {
                     await window.fetchPlayerData(); 
                 }
@@ -146,6 +165,5 @@
         }
     };
 
-    // تحديث مبدئي للمتجر
     setTimeout(window.updateShopUI, 1000);
 })();
