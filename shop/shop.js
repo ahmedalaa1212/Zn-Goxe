@@ -27,7 +27,7 @@
         walletDepositLink: "https://t.me/wallet" 
     };
 
-    let isBuying = false; // قفل عام لمنع الشراء السريع المتكرر
+    let isBuying = false;
 
     window.switchShopTab = function(tab) {
         const miningSec = document.getElementById('shop-mining-section');
@@ -57,8 +57,11 @@
         const pData = window.PlayerData;
         if (!pData) return;
 
-        document.getElementById('shop-balance').innerText = `ZN: ${Math.floor(pData.balance || 0).toLocaleString()}`;
-        document.getElementById('shop-rate').innerText = `⚡ ${(pData.hourly_rate || 0).toLocaleString()}/س`;
+        let bal = parseFloat(pData.balance || 0);
+        let hRate = parseFloat(pData.hourly_rate || 0);
+
+        document.getElementById('shop-balance').innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
+        document.getElementById('shop-rate').innerText = `⚡ ${hRate.toLocaleString()}/س`;
 
         const miningSec = document.getElementById('shop-mining-section');
         const storageSec = document.getElementById('shop-storage-section');
@@ -66,11 +69,11 @@
         if (miningSec) {
             let html = '';
             for (let i = 1; i <= 9; i++) {
-                let count = (pData.upgrades && pData.upgrades[`lvl${i}`]) || 0;
-                let price = SHOP_CONFIG.miningPrices[i];
-                let speed = SHOP_CONFIG.miningRates[i]; 
+                let count = parseInt((pData.upgrades && pData.upgrades[`lvl${i}`]) || 0);
+                let price = parseFloat(SHOP_CONFIG.miningPrices[i]);
+                let speed = parseFloat(SHOP_CONFIG.miningRates[i]); 
                 let isMax = count >= SHOP_CONFIG.maxMiningUpgrades;
-                let canAfford = pData.balance >= price;
+                let canAfford = bal >= price;
 
                 html += `
                     <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 10px; padding: 12px; text-align: center; position: relative; overflow: hidden;">
@@ -91,14 +94,14 @@
 
         if (storageSec) {
             let html = '';
-            let currentStorageLvl = pData.storage_level || 0; 
+            let currentStorageLvl = parseInt(pData.storage_level || 0); 
 
             for (let i = 1; i <= 10; i++) {
-                let price = SHOP_CONFIG.storagePrices[i];
-                let capacity = SHOP_CONFIG.storageCapacities[i];
+                let price = parseFloat(SHOP_CONFIG.storagePrices[i]);
+                let capacity = parseFloat(SHOP_CONFIG.storageCapacities[i]);
                 
                 let isPassedOrMax = i <= currentStorageLvl;
-                let canAfford = pData.balance >= price;
+                let canAfford = bal >= price;
 
                 html += `
                     <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 10px; padding: 12px; text-align: center; position: relative; overflow: hidden;">
@@ -119,12 +122,14 @@
 
     window.buyShopItem = async function(type, level, price) {
         const pData = window.PlayerData;
-        if (!pData || pData.balance < price || isBuying) {
-            if (pData && pData.balance < price) alert("الرصيد غير كافي!");
+        let bal = parseFloat((pData && pData.balance) || 0);
+        let numPrice = parseFloat(price);
+
+        if (!pData || bal < numPrice || isBuying) {
+            if (pData && bal < numPrice) alert("الرصيد غير كافي!");
             return; 
         }
 
-        // قفل الزرار وتغيير النص فوراً لمنع الدبل كليك
         isBuying = true;
         const btnId = `btn-${type}-${level}`;
         const btnEl = document.getElementById(btnId);
@@ -150,7 +155,6 @@
             let resData = await response.json();
 
             if (response.ok && resData.success) {
-                // تحديث البيانات في كل اللعبة لحظياً
                 if (typeof window.fetchPlayerData === 'function') {
                     await window.fetchPlayerData(); 
                 }
@@ -164,7 +168,7 @@
             console.error(e);
             alert("فشل الاتصال بالسيرفر.");
         } finally {
-            isBuying = false; // فك القفل بعد انتهاء العملية
+            isBuying = false; 
         }
     };
 
