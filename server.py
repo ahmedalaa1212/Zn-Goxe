@@ -39,37 +39,44 @@ SHOP_CONFIG = {
     }
 }
 
+# دوال حماية لتحويل الأرقام ومنع تعطل السيرفر
+def safe_float(val):
+    try: return float(val)
+    except (TypeError, ValueError): return 0.0
+
+def safe_int(val):
+    try: return int(val)
+    except (TypeError, ValueError): return 0
+
 def get_user_ref(tg_id):
     return db.collection('users').document(str(tg_id))
 
 def calculate_user_harvest(user_data):
-    """حساب الأرباح المعلقة بأمان تام داخل السيرفر فقط"""
     last_claim_str = user_data.get('last_claim_time')
-    if not last_claim_str:
+    if not last_claim_str: return 0.0
+    try:
+        last_claim = datetime.fromisoformat(str(last_claim_str))
+    except ValueError:
         return 0.0
-    
-    last_claim = datetime.fromisoformat(last_claim_str)
     now = datetime.now(timezone.utc)
     diff_hours = max(0.0, (now - last_claim).total_seconds() / 3600.0)
     
     hourly_rate = 0.0
     for i in range(1, 10):
-        count = float(user_data.get(f'lvl{i}_count', 0))
-        hourly_rate += count * float(GAME_CONFIG['miningRates'].get(i, 0))
+        count = safe_int(user_data.get(f'lvl{i}_count', 0))
+        hourly_rate += count * GAME_CONFIG['miningRates'].get(i, 0)
         
-    storage_lvl = int(user_data.get('storage_level', 0))
-    max_cap = float(GAME_CONFIG['capacities'].get(storage_lvl, 10000))
+    storage_lvl = safe_int(user_data.get('storage_level', 0))
+    max_cap = GAME_CONFIG['capacities'].get(storage_lvl, 10000)
     
     unclaimed = diff_hours * hourly_rate
-    return min(unclaimed, max_cap)
+    return min(unclaimed, float(max_cap))
 
 @app.route('/')
-def index():
-    return send_from_directory('.', 'index.html')
+def index(): return send_from_directory('.', 'index.html')
 
 @app.route('/<path:filename>')
-def serve_static(filename):
-    return send_from_directory('.', filename)
+def serve_static(filename): return send_from_directory('.', filename)
 
 @app.route('/api/user_data', methods=['GET'])
 def get_user_data():
@@ -78,8 +85,8 @@ def get_user_data():
         return jsonify({'success': False, 'error': 'Missing ID'}), 400
     
     doc = get_user_ref(telegram_id).get()
+    now_iso = datetime.now(timezone.utc).isoformat()
     if not doc.exists:
-        now_iso = datetime.now(timezone.utc).isoformat()
         new_user = {
             "telegram_id": str(telegram_id),
             "balance": 0.0,
@@ -87,53 +94,36 @@ def get_user_data():
             "last_claim_time": now_iso,
             "storage_level": 0,
             "daily_day": 1,
-            "last_daily_claim_time": "2000-01-01T00:00:00+00:00"
+            "last_daily_claim_time": "2000-01-01T00:00:00+00:00" 
         }
-        for i in range(1, 10):
-            new_user[f"lvl{i}_count"] = 0
-            
+        for i in range(1, 10): new_user[f"lvl{i}_count"] = 0
         get_user_ref(telegram_id).set(new_user)
         user_data = new_user
     else:
         user_data = doc.to_dict()
         
-    # حساب الأرقام في السيرفر وإرسالها جاهزة لتجنب أي تضارب في المتصفح
-    unclaimed = calculate_user_harvest(user_data)
-    hourly_rate = 0.0
-    for i in range(1, 10):
-        count = float(user_data.get(f'lvl{i}_count', 0))
-        hourly_rate += count * float(GAME_CONFIG['miningRates'].get(i, 0))
-    storage_lvl = int(user_data.get('storage_level', 0))
-    max_cap = float(GAME_CONFIG['capacities'].get(storage_lvl, 10000))
-    
     response_data = user_data.copy()
-    response_data['calculated_unclaimed'] = unclaimed
-    response_data['calculated_hourly_rate'] = hourly_rate
-    response_data['calculated_max_cap'] = max_cap
-    
+    response_data['server_time'] = now_iso # لإرسال توقيت السيرفر للمزرعة لحل مشكلة الخزان
     return jsonify({'success': True, 'data': response_data}), 200
 
 @app.route('/api/claim', methods=['POST'])
 def claim():
     data = request.get_json()
     telegram_id = str(data.get('telegramId'))
-    if not telegram_id:
-        return jsonify({'success': False}), 400
+    if not telegram_id: return jsonify({'success': False}), 400
 
     try:
         user_ref = get_user_ref(telegram_id)
         doc = user_ref.get()
-        if not doc.exists:
-            return jsonify({'success': False, 'error': 'User not found'}), 404
+        if not doc.exists: return jsonify({'success': False, 'error': 'User not found'}), 404
         
         user_data = doc.to_dict()
         unclaimed = calculate_user_harvest(user_data)
         
-        if unclaimed <= 0:
-            return jsonify({'success': False, 'error': 'لا يوجد رصيد للتجميع'}), 400
+        if unclaimed <= 0: return jsonify({'success': False, 'error': 'لا يوجد رصيد للتجميع'}), 400
 
         now_iso = datetime.now(timezone.utc).isoformat()
-        current_balance = float(user_data.get('balance', 0))
+        current_balance = safe_float(user_data.get('balance', 0))
         
         user_ref.update({
             'balance': current_balance + unclaimed,
@@ -147,28 +137,28 @@ def claim():
 def daily_claim():
     data = request.get_json()
     telegram_id = str(data.get('telegramId'))
-    if not telegram_id:
-        return jsonify({'success': False}), 400
+    if not telegram_id: return jsonify({'success': False}), 400
 
     try:
         user_ref = get_user_ref(telegram_id)
         doc = user_ref.get()
-        if not doc.exists:
-            return jsonify({'success': False, 'error': 'User not found'}), 404
+        if not doc.exists: return jsonify({'success': False, 'error': 'User not found'}), 404
             
         user_data = doc.to_dict()
         last_daily_str = user_data.get('last_daily_claim_time', "2000-01-01T00:00:00+00:00")
-        last_daily = datetime.fromisoformat(last_daily_str)
+        try: last_daily = datetime.fromisoformat(str(last_daily_str))
+        except ValueError: last_daily = datetime.fromisoformat("2000-01-01T00:00:00+00:00")
+            
         now = datetime.now(timezone.utc)
         
         if (now - last_daily).total_seconds() < 86400:
             return jsonify({'success': False, 'error': 'لم تمر 24 ساعة بعد!'}), 400
             
-        current_day = int(user_data.get('daily_day', 1))
-        reward = float(GAME_CONFIG['dailyRewards'].get(current_day, 3000))
+        current_day = safe_int(user_data.get('daily_day', 1))
+        reward = safe_float(GAME_CONFIG['dailyRewards'].get(current_day, 3000))
         
         next_day = current_day + 1 if current_day < 7 else 1
-        current_balance = float(user_data.get('balance', 0))
+        current_balance = safe_float(user_data.get('balance', 0))
         
         user_ref.update({
             'balance': current_balance + reward,
@@ -182,17 +172,14 @@ def daily_claim():
 @firestore.transactional
 def execute_upgrade_transaction(transaction, user_ref, upg_type, level_num):
     doc = user_ref.get(transaction=transaction)
-    if not doc.exists:
-        return False, 'المستخدم غير موجود'
+    if not doc.exists: return False, 'المستخدم غير موجود'
         
     user_data = doc.to_dict()
-    
     unclaimed = calculate_user_harvest(user_data)
-    current_balance = float(user_data.get('balance', 0)) + unclaimed
+    current_balance = safe_float(user_data.get('balance', 0)) + unclaimed
     
     price = SHOP_CONFIG.get(upg_type, {}).get(level_num)
-    if price is None:
-        return False, 'مستوى غير صالح'
+    if price is None: return False, 'مستوى غير صالح'
     price = float(price)
         
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -208,12 +195,11 @@ def execute_upgrade_transaction(transaction, user_ref, upg_type, level_num):
     
     if upg_type == 'mining':
         field_name = f'lvl{level_num}_count'
-        current_count = int(user_data.get(field_name, 0))
-        if current_count >= 15:
-            return False, 'وصلت للحد الأقصى لهذا المستوى'
+        current_count = safe_int(user_data.get(field_name, 0))
+        if current_count >= 15: return False, 'وصلت للحد الأقصى'
         updates[field_name] = current_count + 1
     elif upg_type == 'storage':
-        if level_num <= int(user_data.get('storage_level', 0)):
+        if level_num <= safe_int(user_data.get('storage_level', 0)):
             return False, 'تم شراء هذا المخزن مسبقاً'
         updates['storage_level'] = level_num
         
@@ -225,7 +211,7 @@ def upgrade():
     data = request.get_json()
     telegram_id = str(data.get('telegramId') or data.get('tg_id'))
     upg_type = data.get('type') 
-    level_num = int(data.get('level_num'))
+    level_num = safe_int(data.get('level_num'))
 
     if not telegram_id or not upg_type or not level_num:
         return jsonify({'success': False, 'error': 'بيانات ناقصة'}), 400
@@ -235,10 +221,8 @@ def upgrade():
         user_ref = get_user_ref(telegram_id)
         success, message = execute_upgrade_transaction(transaction, user_ref, upg_type, level_num)
         
-        if success:
-            return jsonify({'success': True}), 200
-        else:
-            return jsonify({'success': False, 'error': message}), 400
+        if success: return jsonify({'success': True}), 200
+        else: return jsonify({'success': False, 'error': message}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
