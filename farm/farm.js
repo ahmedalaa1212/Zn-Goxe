@@ -1,6 +1,9 @@
 (function initFarm() {
     
-    // حماية اللعبة: تعمل من داخل تليجرام فقط
+    // تنظيف ذاكرة المتصفح من أي تواريخ قديمة فوراً
+    localStorage.removeItem('zn_daily_day');
+    localStorage.removeItem('zn_daily_time');
+    
     if (typeof window.Telegram === 'undefined' || !window.Telegram.WebApp.initDataUnsafe || !window.Telegram.WebApp.initDataUnsafe.user) {
         document.body.innerHTML = `
             <div style='color:#ff4444; text-align:center; padding:60px 20px; font-size:22px; font-weight:bold; background:#121212; height:100vh; display:flex; align-items:center; justify-content:center; flex-direction:column;'>
@@ -21,7 +24,7 @@
     };
 
     let claimCooldown = 0; 
-    let isClaimingDaily = false; // لمنع ثغرة الدبل كليك على زر المكافأة
+    let isClaimingDaily = false;
 
     window.fetchPlayerData = async function() {
         try {
@@ -31,38 +34,28 @@
             if (result.success) {
                 const dbData = result.data;
                 
-                let hRate = 0;
+                let hRate = parseFloat(dbData.calculated_hourly_rate || 0);
+                let maxCap = parseFloat(dbData.calculated_max_cap || 10000);
+                let unclaimed = parseFloat(dbData.calculated_unclaimed || 0);
+                let bal = parseFloat(dbData.balance || 0);
+                
                 let upgs = {};
                 for(let i = 1; i <= 9; i++) {
-                    let count = dbData[`lvl${i}_count`] || 0;
-                    upgs[`lvl${i}`] = count;
-                    hRate += count * GAME_CONFIG.miningRates[i];
-                }
-                
-                let maxCap = GAME_CONFIG.capacities[dbData.storage_level || 0] || 10000;
-                
-                let unclaimed = 0;
-                if (dbData.last_claim_time) {
-                    let lastClaim = new Date(dbData.last_claim_time).getTime();
-                    let now = Date.now();
-                    let diffHours = Math.max(0, (now - lastClaim) / (1000 * 60 * 60)); 
-                    unclaimed = diffHours * hRate;
-                    if (unclaimed > maxCap) unclaimed = maxCap;
+                    upgs[`lvl${i}`] = parseInt(dbData[`lvl${i}_count`] || 0);
                 }
 
                 window.PlayerData = {
                     tg_id: dbData.telegram_id,
-                    balance: dbData.balance || 0,
+                    balance: bal,
                     hourly_rate: hRate,
                     max_cap: maxCap,
                     unclaimed: unclaimed,
                     upgrades: upgs,
-                    storage_level: dbData.storage_level || 0,
-                    daily_day: dbData.daily_day || 1,
+                    storage_level: parseInt(dbData.storage_level || 0),
+                    daily_day: parseInt(dbData.daily_day || 1),
                     last_daily_claim_time: dbData.last_daily_claim_time || "2000-01-01T00:00:00+00:00"
                 };
                 
-                // تحديث جميع الشاشات فوراً لضمان عدم حدوث أي تأخير
                 window.updateFarmUI();
                 if (typeof window.updateShopUI === 'function') window.updateShopUI();
             }
@@ -75,14 +68,19 @@
         const pData = window.PlayerData;
         if (!pData) return;
         
-        document.getElementById('farm-balance').innerText = `ZN: ${Math.floor(pData.balance).toLocaleString()}`;
-        document.getElementById('farm-rate').innerText = `⚡ ${pData.hourly_rate.toLocaleString()}/س`;
+        let bal = parseFloat(pData.balance || 0);
+        let hRate = parseFloat(pData.hourly_rate || 0);
+        let unclaim = parseFloat(pData.unclaimed || 0);
+        let maxC = parseFloat(pData.max_cap || 10000);
+
+        document.getElementById('farm-balance').innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
+        document.getElementById('farm-rate').innerText = `⚡ ${hRate.toLocaleString()}/س`;
         
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
         
         if (progressEl && storageTextEl) {
-            let pct = (pData.unclaimed / pData.max_cap) * 100;
+            let pct = (unclaim / maxC) * 100;
             pct = Math.max(0, Math.min(pct, 100));
             progressEl.style.width = `${pct}%`;
             if (pct >= 100) {
@@ -90,15 +88,15 @@
             } else {
                 progressEl.style.background = 'linear-gradient(90deg, #0088cc, #00bfff)'; 
             }
-            storageTextEl.innerText = `${Math.floor(pData.unclaimed).toLocaleString()} / ${pData.max_cap.toLocaleString()}`;
+            storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
         }
         
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
             let fieldsHTML = '';
             for (let i = 1; i <= 9; i++) {
-                let count = (pData.upgrades && pData.upgrades[`lvl${i}`]) || 0;
-                let isUnlocked = (i === 1) || (((pData.upgrades && pData.upgrades[`lvl${i-1}`]) || 0) > 0);
+                let count = parseInt((pData.upgrades && pData.upgrades[`lvl${i}`]) || 0);
+                let isUnlocked = (i === 1) || (parseInt((pData.upgrades && pData.upgrades[`lvl${i-1}`]) || 0) > 0);
                 let isMax = count >= GAME_CONFIG.maxUpgradesPerLevel;
                 
                 if (isMax) {
@@ -150,7 +148,7 @@
         const lastClaim = new Date(pData.last_daily_claim_time).getTime();
         const timePassed = now - lastClaim;
         const canClaim = timePassed >= (24 * 60 * 60 * 1000); 
-        const currentDailyDay = pData.daily_day || 1;
+        const currentDailyDay = parseInt(pData.daily_day || 1);
 
         for (let i = 0; i < 7; i++) {
             let dayNum = i + 1;
@@ -199,20 +197,25 @@
         const pData = window.PlayerData;
         if (!pData) return;
         
-        pData.unclaimed = Math.max(0, Math.min(pData.unclaimed, pData.max_cap));
+        let unclaim = parseFloat(pData.unclaimed || 0);
+        let maxC = parseFloat(pData.max_cap || 10000);
+        let hRate = parseFloat(pData.hourly_rate || 0);
+        
+        unclaim = Math.max(0, Math.min(unclaim, maxC));
 
-        if (pData.unclaimed < pData.max_cap) {
-            pData.unclaimed += pData.hourly_rate / 3600;
-            if (pData.unclaimed >= pData.max_cap) {
-                pData.unclaimed = pData.max_cap;
+        if (unclaim < maxC) {
+            unclaim += hRate / 3600;
+            if (unclaim >= maxC) {
+                unclaim = maxC;
             }
         }
+        pData.unclaimed = unclaim;
 
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
         
         if (progressEl && storageTextEl) {
-            let pct = (pData.unclaimed / pData.max_cap) * 100;
+            let pct = (unclaim / maxC) * 100;
             pct = Math.max(0, Math.min(pct, 100)); 
             
             progressEl.style.width = `${pct}%`;
@@ -221,7 +224,7 @@
             } else {
                 progressEl.style.background = 'linear-gradient(90deg, #0088cc, #00bfff)'; 
             }
-            storageTextEl.innerText = `${Math.floor(pData.unclaimed).toLocaleString()} / ${pData.max_cap.toLocaleString()}`;
+            storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
         }
 
         const claimBtn = document.getElementById('claim-btn');
@@ -233,8 +236,8 @@
                 claimBtn.disabled = true;
             } else {
                 claimBtn.innerText = "تجميع الرصيد 📺";
-                claimBtn.className = pData.unclaimed > 0 ? "btn-ready" : "";
-                claimBtn.disabled = pData.unclaimed <= 0;
+                claimBtn.className = unclaim > 0 ? "btn-ready" : "";
+                claimBtn.disabled = unclaim <= 0;
             }
         }
 
@@ -305,7 +308,7 @@
 
     window.handleClaim = async function() {
         const pData = window.PlayerData;
-        if (!pData || pData.unclaimed <= 0 || claimCooldown > 0) return;
+        if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0) return;
         
         const adWatched = await showTelegramAd();
         if (adWatched) {
