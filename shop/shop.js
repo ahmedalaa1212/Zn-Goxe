@@ -27,7 +27,7 @@
         walletDepositLink: "https://t.me/wallet" 
     };
 
-    let isBuying = false;
+    let isBuying = false; 
 
     window.switchShopTab = function(tab) {
         const miningSec = document.getElementById('shop-mining-section');
@@ -57,11 +57,11 @@
         const pData = window.PlayerData;
         if (!pData) return;
 
-        let bal = parseFloat(pData.balance || 0);
-        let hRate = parseFloat(pData.hourly_rate || 0);
+        // مجموع رصيدك في البنك مع اللي لسه ما جمعتوش
+        let totalBal = parseFloat(pData.balance || 0) + parseFloat(pData.unclaimed || 0);
 
-        document.getElementById('shop-balance').innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
-        document.getElementById('shop-rate').innerText = `⚡ ${hRate.toLocaleString()}/س`;
+        document.getElementById('shop-balance').innerText = `ZN: ${Math.floor(pData.balance || 0).toLocaleString()}`;
+        document.getElementById('shop-rate').innerText = `⚡ ${(pData.hourly_rate || 0).toLocaleString()}/س`;
 
         const miningSec = document.getElementById('shop-mining-section');
         const storageSec = document.getElementById('shop-storage-section');
@@ -73,7 +73,7 @@
                 let price = parseFloat(SHOP_CONFIG.miningPrices[i]);
                 let speed = parseFloat(SHOP_CONFIG.miningRates[i]); 
                 let isMax = count >= SHOP_CONFIG.maxMiningUpgrades;
-                let canAfford = bal >= price;
+                let canAfford = totalBal >= price;
 
                 html += `
                     <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 10px; padding: 12px; text-align: center; position: relative; overflow: hidden;">
@@ -101,7 +101,7 @@
                 let capacity = parseFloat(SHOP_CONFIG.storageCapacities[i]);
                 
                 let isPassedOrMax = i <= currentStorageLvl;
-                let canAfford = bal >= price;
+                let canAfford = totalBal >= price;
 
                 html += `
                     <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 10px; padding: 12px; text-align: center; position: relative; overflow: hidden;">
@@ -122,11 +122,11 @@
 
     window.buyShopItem = async function(type, level, price) {
         const pData = window.PlayerData;
-        let bal = parseFloat((pData && pData.balance) || 0);
         let numPrice = parseFloat(price);
+        let totalBal = parseFloat((pData && pData.balance) || 0) + parseFloat((pData && pData.unclaimed) || 0);
 
-        if (!pData || bal < numPrice || isBuying) {
-            if (pData && bal < numPrice) alert("الرصيد غير كافي!");
+        if (!pData || totalBal < numPrice || isBuying) {
+            if (pData && totalBal < numPrice) alert("الرصيد غير كافي!");
             return; 
         }
 
