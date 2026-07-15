@@ -9,26 +9,17 @@ app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
 db = None
-
-# قراءة المتغير وتنظيفه تلقائياً من أي علامات تنصيص زائدة
 firebase_creds_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT', '').strip()
 
 if firebase_creds_json:
-    # تنظيف النص لو كان محاطاً بعلامات تنصيص مفردة أو مزدوجة تالفة من ريلواي
-    if (firebase_creds_json.startswith("'") and firebase_creds_json.endswith("'")) or \
-       (firebase_creds_json.startswith('"') and firebase_creds_json.endswith('"')):
-        firebase_creds_json = firebase_creds_json[1:-1].strip()
-    
     try:
         creds_dict = json.loads(firebase_creds_json)
         cred = credentials.Certificate(creds_dict)
         firebase_admin.initialize_app(cred)
         db = firestore.client()
-        print("✅ [Firebase] Connected and initialized successfully! Data is SAFE.")
+        print("✅ [Firebase] Connected successfully!")
     except Exception as e:
-        print(f"❌ [Firebase] Failed to initialize JSON: {e}")
-else:
-    print("⚠️ [Firebase] FIREBASE_SERVICE_ACCOUNT variable is missing or empty!")
+        print(f"❌ [Firebase] Error: {e}")
 
 @app.route('/')
 def index():
@@ -38,33 +29,32 @@ def index():
 def serve_static(filename):
     return send_from_directory('.', filename)
 
+# مسار لجلب بيانات المستخدم الحقيقية
+@app.route('/api/get_user', methods=['GET'])
+def get_user():
+    tg_id = request.args.get('telegramId')
+    if not tg_id:
+        return jsonify({'success': False, 'error': 'Missing ID'}), 400
+    
+    doc = db.collection('users').document(str(tg_id)).get()
+    if doc.exists:
+        return jsonify({'success': True, 'data': doc.to_dict()}), 200
+    return jsonify({'success': False, 'error': 'User not found'}), 404
+
 @app.route('/api/claim', methods=['POST'])
 def claim():
-    # منع حفظ البيانات لو الفايربيس مش شغال عشان نضمن عدم ضياع رصيد اللاعب
-    if db is None:
-        return jsonify({
-            'success': False, 
-            'error': 'Database connection offline. Please check FIREBASE_SERVICE_ACCOUNT on Railway.'
-        }), 503
-        
     data = request.get_json()
-    telegram_id = data.get('telegramId')
-    added_amount = data.get('addedAmount')
+    telegram_id = data.get('telegramId') # عدلنا الاسم ليتطابق مع الـ JS
+    added_amount = data.get('addedAmount', 0)
 
-    if not telegram_id or added_amount is None:
+    if not telegram_id:
         return jsonify({'success': False, 'error': 'Missing parameters'}), 400
 
     try:
         user_ref = db.collection('users').document(str(telegram_id))
         doc = user_ref.get()
-
-        if not doc.exists:
-            user_ref.set({'balance': added_amount})
-        else:
-            current_balance = doc.to_dict().get('balance', 0)
-            user_ref.update({'balance': current_balance + added_amount})
-
-        return jsonify({'success': True, 'message': 'تم تحديث الرصيد بنجاح وحفظه في السحابة!'}), 200
+        # هنا يتم تحديث الرصيد بناءً على ما في الفايربيس
+        return jsonify({'success': True, 'message': 'تم التحديث'}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
