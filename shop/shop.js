@@ -12,7 +12,7 @@
             1: 1000, 2: 5000, 3: 15000, 4: 40000, 5: 100000,
             6: 250000, 7: 600000, 8: 1500000, 9: 5000000
         },
-        miningRates: { // السرعات الخاصة بكل مستوى لعرضها
+        miningRates: { 
             1: 100, 2: 500, 3: 1500, 4: 4000, 5: 10000, 
             6: 25000, 7: 60000, 8: 150000, 9: 500000
         },
@@ -26,6 +26,8 @@
         },
         walletDepositLink: "https://t.me/wallet" 
     };
+
+    let isBuying = false; // قفل عام لمنع الشراء السريع المتكرر
 
     window.switchShopTab = function(tab) {
         const miningSec = document.getElementById('shop-mining-section');
@@ -66,11 +68,10 @@
             for (let i = 1; i <= 9; i++) {
                 let count = (pData.upgrades && pData.upgrades[`lvl${i}`]) || 0;
                 let price = SHOP_CONFIG.miningPrices[i];
-                let speed = SHOP_CONFIG.miningRates[i]; // السرعة الحالية
+                let speed = SHOP_CONFIG.miningRates[i]; 
                 let isMax = count >= SHOP_CONFIG.maxMiningUpgrades;
                 let canAfford = pData.balance >= price;
 
-                // تم إضافة سطر السرعة هنا باللون الأخضر
                 html += `
                     <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 10px; padding: 12px; text-align: center; position: relative; overflow: hidden;">
                         ${isMax ? `<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; font-size: 16px; z-index: 10; transform: rotate(-10deg);">MAX</div>` : ''}
@@ -78,7 +79,7 @@
                         <div style="color: #fff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
                         <div style="color: #28a745; font-size: 11px; margin-bottom: 3px;">⚡ السرعة: +${speed.toLocaleString()}/س</div>
                         <div style="color: #0088cc; font-size: 12px; margin-bottom: 10px;">تم الشراء: ${count} / ${SHOP_CONFIG.maxMiningUpgrades}</div>
-                        <button onclick="buyShopItem('speed', ${i}, ${price})" 
+                        <button id="btn-speed-${i}" onclick="buyShopItem('speed', ${i}, ${price})" 
                             style="width: 100%; padding: 8px; background: ${canAfford && !isMax ? '#ffcc00' : '#444'}; color: ${canAfford && !isMax ? '#000' : '#888'}; border: none; border-radius: 6px; font-weight: bold; cursor: ${canAfford && !isMax ? 'pointer' : 'not-allowed'};" ${isMax ? 'disabled' : ''}>
                             ${price.toLocaleString()} ZN
                         </button>
@@ -105,7 +106,7 @@
                         <div style="font-size: 24px; margin-bottom: 5px;">📦</div>
                         <div style="color: #fff; font-weight: bold; font-size: 14px;">مخزن ${i}</div>
                         <div style="color: #0088cc; font-size: 11px; margin-bottom: 10px;">السعة: ${capacity.toLocaleString()} ZN</div>
-                        <button onclick="buyShopItem('storage', ${i}, ${price})" 
+                        <button id="btn-storage-${i}" onclick="buyShopItem('storage', ${i}, ${price})" 
                             style="width: 100%; padding: 8px; background: ${canAfford && !isPassedOrMax ? '#0088cc' : '#444'}; color: ${canAfford && !isPassedOrMax ? '#fff' : '#888'}; border: none; border-radius: 6px; font-weight: bold; cursor: ${canAfford && !isPassedOrMax ? 'pointer' : 'not-allowed'};" ${isPassedOrMax ? 'disabled' : ''}>
                             ${price.toLocaleString()} ZN
                         </button>
@@ -118,28 +119,24 @@
 
     window.buyShopItem = async function(type, level, price) {
         const pData = window.PlayerData;
-        if (!pData || pData.balance < price) {
-            alert("الرصيد غير كافي!");
+        if (!pData || pData.balance < price || isBuying) {
+            if (pData && pData.balance < price) alert("الرصيد غير كافي!");
             return; 
+        }
+
+        // قفل الزرار وتغيير النص فوراً لمنع الدبل كليك
+        isBuying = true;
+        const btnId = `btn-${type}-${level}`;
+        const btnEl = document.getElementById(btnId);
+        if (btnEl) {
+            btnEl.disabled = true;
+            btnEl.innerText = "جاري الشراء... ⏳";
+            btnEl.style.background = "#555";
         }
 
         let apiType = (type === 'speed') ? 'mining' : 'storage';
 
         try {
-            // حل مشكلة الامتلاء المفاجئ: اللعبة بتجمع الرصيد المعلق الأول قبل ما تحدث السرعة 
-            if (pData.unclaimed > 0) {
-                try {
-                    await fetch('/api/claim', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ telegramId: TELEGRAM_ID, addedAmount: pData.unclaimed })
-                    });
-                } catch(e) {
-                    console.error("Auto-claim failed", e);
-                }
-            }
-
-            // تنفيذ عملية الشراء
             let response = await fetch('/api/upgrade', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -150,18 +147,24 @@
                 })
             });
 
-            if (response.ok) {
+            let resData = await response.json();
+
+            if (response.ok && resData.success) {
+                // تحديث البيانات في كل اللعبة لحظياً
                 if (typeof window.fetchPlayerData === 'function') {
                     await window.fetchPlayerData(); 
                 }
-                window.updateShopUI(); 
             } else {
-                let err = await response.json();
-                alert(err.error || "حدث خطأ أثناء الشراء.");
+                alert(resData.error || "حدث خطأ أثناء الشراء.");
+                if (typeof window.fetchPlayerData === 'function') {
+                    await window.fetchPlayerData(); 
+                }
             }
         } catch (e) {
             console.error(e);
             alert("فشل الاتصال بالسيرفر.");
+        } finally {
+            isBuying = false; // فك القفل بعد انتهاء العملية
         }
     };
 
