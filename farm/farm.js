@@ -16,9 +16,6 @@
 
     const TELEGRAM_ID = window.Telegram.WebApp.initDataUnsafe.user.id.toString();
 
-    // 🔴 معرف كتلة الإعلانات (Block ID) الخاص بك من Adsgram 🔴
-    const ADSGRAM_BLOCK_ID = "bot-38541"; 
-
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 15,
         dailyRewards: [3000, 6000, 10000, 15000, 25000, 40000, 100000],
@@ -271,12 +268,12 @@
         }
     }, 1000);
 
-    // 🔴 تحديث دالة الـ Adsgram بالكامل لمعالجة حظر الإعلانات والـ VPN بذكاء 🔴
+    // 🟢 دالة عرض إعلانات Monetag (تم استبدال Adsgram بالكامل مع الحفاظ على حماية AdBlock/VPN) 🟢
     function showTelegramAd() {
         return new Promise((resolve) => {
-            // فحص إذا كان المتصفح أو تطبيق حظر الإعلانات قد منع تحميل المكتبة
-            if (typeof window.Adsgram === 'undefined') {
-                console.warn("[Adsgram] مكتبة الإعلانات محظورة بواسطة الجهاز (AdBlocker أو VPN).");
+            // فحص إذا كان المتصفح أو تطبيق حظر الإعلانات قد منع تحميل دالة Monetag
+            if (typeof window.show_11322720 !== 'function') {
+                console.warn("[Monetag] مكتبة الإعلانات محظورة بواسطة الجهاز (AdBlocker أو VPN).");
                 if (window.Telegram && window.Telegram.WebApp) {
                     window.Telegram.WebApp.showAlert("⚠️ يبدو أنك تستخدم مانع إعلانات (AdBlocker) أو تطبيق VPN يحظر الإعلانات. يرجى إيقافه لتتمكن من مشاهدة الإعلان والحصول على المكافأة!");
                 } else {
@@ -287,24 +284,21 @@
             }
 
             try {
-                const AdController = window.Adsgram.init({ blockId: ADSGRAM_BLOCK_ID });
-                
-                AdController.show()
-                    .then((result) => {
-                        console.log("[Adsgram] تمت المشاهدة بنجاح وطبق السيرفر المكافأة", result);
-                        resolve(true); 
-                    })
-                    .catch((error) => {
-                        console.error("[Adsgram] خطأ أو تم إغلاق الإعلان قبل الاكتمال", error);
-                        if (window.Telegram && window.Telegram.WebApp) {
-                            window.Telegram.WebApp.showAlert("⚠️ يجب عليك مشاهدة الإعلان كاملاً وبدون تخطي للحصول على المكافأة!");
-                        } else {
-                            alert("⚠️ يجب عليك مشاهدة الإعلان كاملاً وبدون تخطي للحصول على المكافأة!");
-                        }
-                        resolve(false); 
-                    });
+                // استدعاء إعلان Monetag Rewarded Interstitial
+                window.show_11322720('pop').then(() => {
+                    console.log("[Monetag] شاهد المستخدم الإعلان بنجاح للنهاية");
+                    resolve(true); 
+                }).catch((e) => {
+                    console.error("[Monetag] خطأ أو تم إغلاق الإعلان قبل الاكتمال", e);
+                    if (window.Telegram && window.Telegram.WebApp) {
+                        window.Telegram.WebApp.showAlert("⚠️ يجب عليك مشاهدة الإعلان كاملاً وبدون تخطي للحصول على المكافأة!");
+                    } else {
+                        alert("⚠️ يجب عليك مشاهدة الإعلان كاملاً وبدون تخطي للحصول على المكافأة!");
+                    }
+                    resolve(false); 
+                });
             } catch (err) {
-                console.error("[Adsgram] Init Error:", err);
+                console.error("[Monetag] Execution Error:", err);
                 resolve(false);
             }
         });
