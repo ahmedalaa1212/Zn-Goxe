@@ -16,6 +16,9 @@
 
     const TELEGRAM_ID = window.Telegram.WebApp.initDataUnsafe.user.id.toString();
 
+    // ضع هنا معرف كتلة الإعلانات (Block ID) الخاص بك بعد الحصول عليه من Adsgram
+    const ADSGRAM_BLOCK_ID = "YOUR_ADSGRAM_BLOCK_ID"; 
+
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 15,
         dailyRewards: [3000, 6000, 10000, 15000, 25000, 40000, 100000],
@@ -243,10 +246,40 @@
         }
     }, 1000);
 
+    // دالة استدعاء إعلان Adsgram الحقيقي
     function showTelegramAd() {
         return new Promise((resolve) => {
-            console.log("جارِ عرض الإعلان...");
-            setTimeout(() => resolve(true), 2000); 
+            // التحقق من وجود سكريبت Adsgram في الصفحة لتجنب كراش اللعبة محلياً
+            if (typeof window.Adsgram === 'undefined') {
+                console.warn("[Adsgram] لم يتم العثور على مكتبة الإعلانات. سيتم تخطي الإعلان للتجربة المحلية.");
+                setTimeout(() => resolve(true), 1500); 
+                return;
+            }
+
+            // التحقق من تعيين الـ Block ID الخاص بك
+            if (ADSGRAM_BLOCK_ID === "YOUR_ADSGRAM_BLOCK_ID") {
+                console.warn("[Adsgram] يرجى استبدال YOUR_ADSGRAM_BLOCK_ID بمعرفك الخاص من لوحة Adsgram.");
+                setTimeout(() => resolve(true), 1500);
+                return;
+            }
+
+            // بدء تهيئة الإعلان
+            const AdController = window.Adsgram.init({ blockId: ADSGRAM_BLOCK_ID });
+
+            AdController.show()
+                .then((result) => {
+                    console.log("[Adsgram] تمت مشاهدة الإعلان بالكامل بنجاح:", result);
+                    resolve(true); // تعيد true للحصول على المكافأة
+                })
+                .catch((error) => {
+                    console.error("[Adsgram] خطأ أو إغلاق مبكر للإعلان:", error);
+                    if (window.Telegram && window.Telegram.WebApp) {
+                        window.Telegram.WebApp.showAlert("⚠️ يجب عليك مشاهدة الإعلان كاملاً للحصول على المكافأة المخصصة!");
+                    } else {
+                        alert("⚠️ يجب عليك مشاهدة الإعلان كاملاً للحصول على المكافأة المخصصة!");
+                    }
+                    resolve(false); // تعيد false لعدم تنفيذ العملية
+                });
         });
     }
 
@@ -255,12 +288,13 @@
         const btn = document.getElementById(`daily-btn-${day}`);
         if (btn) {
             btn.disabled = true;
-            btn.innerText = "جاري الاستلام... ⏳";
+            btn.innerText = "جاري فتح الإعلان... ⏳";
         }
         
         isClaimingDaily = true;
         const adWatched = await showTelegramAd();
         if (adWatched) {
+            if (btn) btn.innerText = "جاري الاستلام... ⏳";
             try {
                 let response = await fetch('/api/daily_claim', {
                     method: 'POST',
@@ -270,10 +304,20 @@
 
                 let resData = await response.json();
                 if (response.ok && resData.success) {
-                    alert(`🎉 مبروك! استلمت ${resData.reward.toLocaleString()} ZN بنجاح.`);
+                    const successMsg = `🎉 مبروك! لقد استلمت ${resData.reward.toLocaleString()} ZN بنجاح اليوم!`;
+                    if (window.Telegram && window.Telegram.WebApp) {
+                        window.Telegram.WebApp.showAlert(successMsg);
+                    } else {
+                        alert(successMsg);
+                    }
                     await window.fetchPlayerData(); 
                 } else {
-                    alert(resData.error || "عفواً، لا يمكنك استلام المكافأة الآن.");
+                    const errMsg = resData.error || "عفواً، لا يمكنك استلام المكافأة الآن.";
+                    if (window.Telegram && window.Telegram.WebApp) {
+                        window.Telegram.WebApp.showAlert(errMsg);
+                    } else {
+                        alert(errMsg);
+                    }
                     if (btn) {
                         btn.disabled = false;
                         btn.innerText = "استلام 📺";
@@ -281,6 +325,12 @@
                 }
             } catch (e) {
                 console.error("خطأ في المكافأة اليومية", e);
+            }
+        } else {
+            // في حالة عدم اكتمال الإعلان، نرجع الزر للوضع الطبيعي للاستلام مجدداً
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = "استلام 📺";
             }
         }
         isClaimingDaily = false;
@@ -290,6 +340,12 @@
         const pData = window.PlayerData;
         if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0) return;
         
+        const claimBtn = document.getElementById('claim-btn');
+        if (claimBtn) {
+            claimBtn.disabled = true;
+            claimBtn.innerText = "جاري فتح الإعلان... ⏳";
+        }
+
         const adWatched = await showTelegramAd();
         if (adWatched) {
             try {
@@ -301,10 +357,25 @@
                 
                 if (response.ok) {
                     await window.fetchPlayerData(); 
-                    claimCooldown = 60; 
+                    claimCooldown = 60; // وقت الانتظار دقيقة واحدة بعد السحب الناجح
+                } else {
+                    if (claimBtn) {
+                        claimBtn.disabled = false;
+                        claimBtn.innerText = "تجميع الرصيد 📺";
+                    }
                 }
             } catch (e) {
                 console.error("خطأ في التجميع", e);
+                if (claimBtn) {
+                    claimBtn.disabled = false;
+                    claimBtn.innerText = "تجميع الرصيد 📺";
+                }
+            }
+        } else {
+            // إذا لم يتم مشاهدة الإعلان بالكامل، نترك الزر جاهز للضغط مجدداً
+            if (claimBtn) {
+                claimBtn.disabled = false;
+                claimBtn.innerText = "تجميع الرصيد 📺";
             }
         }
     };
