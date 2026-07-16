@@ -16,7 +16,7 @@
 
     const TELEGRAM_ID = window.Telegram.WebApp.initDataUnsafe.user.id.toString();
 
-    // ضع هنا معرف كتلة الإعلانات (Block ID) الخاص بك بعد الحصول عليه من Adsgram
+    // 🔴 ضع هنا معرف كتلة الإعلانات (Block ID) الخاص بك من Adsgram 🔴
     const ADSGRAM_BLOCK_ID = "YOUR_ADSGRAM_BLOCK_ID"; 
 
     const GAME_CONFIG = {
@@ -37,32 +37,31 @@
             if (result.success) {
                 const dbData = result.data;
                 
-                // حساب دقيق لفرق توقيت السيرفر لحل مشكلة الخزان نهائياً
                 let serverTime = new Date(dbData.server_time).getTime();
                 let clientTime = Date.now();
                 window.timeOffset = serverTime - clientTime; 
                 
-                let hRate = 0;
+                let hRate = parseFloat(dbData.calculated_hourly_rate || 0);
+                let maxCap = parseFloat(dbData.calculated_max_cap || 10000);
+                let unclaimed = parseFloat(dbData.calculated_unclaimed || 0);
+                let bal = parseFloat(dbData.balance || 0);
+                
                 let upgs = {};
                 for(let i = 1; i <= 9; i++) {
-                    let count = parseInt(dbData[`lvl${i}_count`]) || 0;
-                    upgs[`lvl${i}`] = count;
-                    hRate += count * GAME_CONFIG.miningRates[i];
+                    upgs[`lvl${i}`] = parseInt(dbData[`lvl${i}_count`] || 0);
                 }
-                
-                let maxCap = GAME_CONFIG.capacities[parseInt(dbData.storage_level) || 0] || 10000;
-                
+
                 window.PlayerData = {
                     tg_id: dbData.telegram_id,
-                    balance: parseFloat(dbData.balance) || 0,
+                    balance: bal,
                     hourly_rate: hRate,
                     max_cap: maxCap,
+                    unclaimed: unclaimed,
                     upgrades: upgs,
-                    storage_level: parseInt(dbData.storage_level) || 0,
-                    daily_day: parseInt(dbData.daily_day) || 1,
+                    storage_level: parseInt(dbData.storage_level || 0),
+                    daily_day: parseInt(dbData.daily_day || 1),
                     last_daily_claim_time: dbData.last_daily_claim_time || "2000-01-01T00:00:00+00:00",
-                    last_claim_time: dbData.last_claim_time || new Date(serverTime).toISOString(),
-                    unclaimed: 0 
+                    last_claim_time: dbData.last_claim_time || new Date(serverTime).toISOString()
                 };
                 
                 window.updateFarmUI();
@@ -77,8 +76,28 @@
         const pData = window.PlayerData;
         if (!pData) return;
         
-        document.getElementById('farm-balance').innerText = `ZN: ${Math.floor(pData.balance).toLocaleString()}`;
-        document.getElementById('farm-rate').innerText = `⚡ ${pData.hourly_rate.toLocaleString()}/س`;
+        let bal = parseFloat(pData.balance || 0);
+        let hRate = parseFloat(pData.hourly_rate || 0);
+        let unclaim = parseFloat(pData.unclaimed || 0);
+        let maxC = parseFloat(pData.max_cap || 10000);
+
+        document.getElementById('farm-balance').innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
+        document.getElementById('farm-rate').innerText = `⚡ ${hRate.toLocaleString()}/س`;
+        
+        const progressEl = document.getElementById('storage-progress');
+        const storageTextEl = document.getElementById('storage-text');
+        
+        if (progressEl && storageTextEl) {
+            let pct = (unclaim / maxC) * 100;
+            pct = Math.max(0, Math.min(pct, 100));
+            progressEl.style.width = `${pct}%`;
+            if (pct >= 100) {
+                progressEl.style.background = 'linear-gradient(90deg, #ff4444, #cc0000)'; 
+            } else {
+                progressEl.style.background = 'linear-gradient(90deg, #0088cc, #00bfff)'; 
+            }
+            storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
+        }
         
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
@@ -137,7 +156,7 @@
         const lastClaim = new Date(pData.last_daily_claim_time).getTime();
         const timePassed = nowOffset - lastClaim;
         const canClaim = timePassed >= (24 * 60 * 60 * 1000); 
-        const currentDailyDay = pData.daily_day || 1;
+        const currentDailyDay = parseInt(pData.daily_day || 1);
 
         for (let i = 0; i < 7; i++) {
             let dayNum = i + 1;
@@ -186,20 +205,25 @@
         const pData = window.PlayerData;
         if (!pData) return;
         
-        let nowOffset = Date.now() + (window.timeOffset || 0);
-        let lastClaim = new Date(pData.last_claim_time).getTime();
-        let diffHours = Math.max(0, (nowOffset - lastClaim) / (1000 * 60 * 60));
+        let unclaim = parseFloat(pData.unclaimed || 0);
+        let maxC = parseFloat(pData.max_cap || 10000);
+        let hRate = parseFloat(pData.hourly_rate || 0);
         
-        let unclaim = diffHours * pData.hourly_rate;
-        unclaim = Math.max(0, Math.min(unclaim, pData.max_cap));
-        
+        unclaim = Math.max(0, Math.min(unclaim, maxC));
+
+        if (unclaim < maxC) {
+            unclaim += hRate / 3600;
+            if (unclaim >= maxC) {
+                unclaim = maxC;
+            }
+        }
         pData.unclaimed = unclaim;
 
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
         
         if (progressEl && storageTextEl) {
-            let pct = (unclaim / pData.max_cap) * 100;
+            let pct = (unclaim / maxC) * 100;
             pct = Math.max(0, Math.min(pct, 100)); 
             
             progressEl.style.width = `${pct}%`;
@@ -208,7 +232,7 @@
             } else {
                 progressEl.style.background = 'linear-gradient(90deg, #0088cc, #00bfff)'; 
             }
-            storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${pData.max_cap.toLocaleString()}`;
+            storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
         }
 
         const claimBtn = document.getElementById('claim-btn');
@@ -227,6 +251,7 @@
 
         const timerEl = document.getElementById('daily-timer');
         if (timerEl && pData.last_daily_claim_time) {
+            let nowOffset = Date.now() + (window.timeOffset || 0);
             const lastDaily = new Date(pData.last_daily_claim_time).getTime();
             const timePassed = nowOffset - lastDaily;
             const timeLeft = (24 * 60 * 60 * 1000) - timePassed;
@@ -246,39 +271,38 @@
         }
     }, 1000);
 
-    // دالة استدعاء إعلان Adsgram الحقيقي
+    // ==========================================
+    // 🔴 دالة عرض الإعلانات الحقيقية (Adsgram) 🔴
+    // ==========================================
     function showTelegramAd() {
         return new Promise((resolve) => {
-            // التحقق من وجود سكريبت Adsgram في الصفحة لتجنب كراش اللعبة محلياً
             if (typeof window.Adsgram === 'undefined') {
-                console.warn("[Adsgram] لم يتم العثور على مكتبة الإعلانات. سيتم تخطي الإعلان للتجربة المحلية.");
+                console.warn("[Adsgram] لم يتم العثور على مكتبة الإعلانات. سيتم التخطي للتجربة المحلية.");
                 setTimeout(() => resolve(true), 1500); 
                 return;
             }
 
-            // التحقق من تعيين الـ Block ID الخاص بك
             if (ADSGRAM_BLOCK_ID === "YOUR_ADSGRAM_BLOCK_ID") {
-                console.warn("[Adsgram] يرجى استبدال YOUR_ADSGRAM_BLOCK_ID بمعرفك الخاص من لوحة Adsgram.");
+                console.warn("[Adsgram] يرجى إضافة الـ Block ID الحقيقي.");
                 setTimeout(() => resolve(true), 1500);
                 return;
             }
 
-            // بدء تهيئة الإعلان
             const AdController = window.Adsgram.init({ blockId: ADSGRAM_BLOCK_ID });
 
             AdController.show()
                 .then((result) => {
-                    console.log("[Adsgram] تمت مشاهدة الإعلان بالكامل بنجاح:", result);
-                    resolve(true); // تعيد true للحصول على المكافأة
+                    console.log("[Adsgram] تمت المشاهدة", result);
+                    resolve(true); 
                 })
                 .catch((error) => {
-                    console.error("[Adsgram] خطأ أو إغلاق مبكر للإعلان:", error);
+                    console.error("[Adsgram] فشل أو تم إغلاق الإعلان", error);
                     if (window.Telegram && window.Telegram.WebApp) {
-                        window.Telegram.WebApp.showAlert("⚠️ يجب عليك مشاهدة الإعلان كاملاً للحصول على المكافأة المخصصة!");
+                        window.Telegram.WebApp.showAlert("⚠️ يجب عليك مشاهدة الإعلان كاملاً للحصول على المكافأة!");
                     } else {
-                        alert("⚠️ يجب عليك مشاهدة الإعلان كاملاً للحصول على المكافأة المخصصة!");
+                        alert("⚠️ يجب عليك مشاهدة الإعلان كاملاً للحصول على المكافأة!");
                     }
-                    resolve(false); // تعيد false لعدم تنفيذ العملية
+                    resolve(false); 
                 });
         });
     }
@@ -293,6 +317,7 @@
         
         isClaimingDaily = true;
         const adWatched = await showTelegramAd();
+        
         if (adWatched) {
             if (btn) btn.innerText = "جاري الاستلام... ⏳";
             try {
@@ -304,20 +329,14 @@
 
                 let resData = await response.json();
                 if (response.ok && resData.success) {
-                    const successMsg = `🎉 مبروك! لقد استلمت ${resData.reward.toLocaleString()} ZN بنجاح اليوم!`;
-                    if (window.Telegram && window.Telegram.WebApp) {
-                        window.Telegram.WebApp.showAlert(successMsg);
-                    } else {
-                        alert(successMsg);
-                    }
+                    const successMsg = `🎉 مبروك! لقد استلمت ${resData.reward.toLocaleString()} ZN بنجاح!`;
+                    if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(successMsg);
+                    else alert(successMsg);
                     await window.fetchPlayerData(); 
                 } else {
                     const errMsg = resData.error || "عفواً، لا يمكنك استلام المكافأة الآن.";
-                    if (window.Telegram && window.Telegram.WebApp) {
-                        window.Telegram.WebApp.showAlert(errMsg);
-                    } else {
-                        alert(errMsg);
-                    }
+                    if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(errMsg);
+                    else alert(errMsg);
                     if (btn) {
                         btn.disabled = false;
                         btn.innerText = "استلام 📺";
@@ -325,9 +344,12 @@
                 }
             } catch (e) {
                 console.error("خطأ في المكافأة اليومية", e);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = "استلام 📺";
+                }
             }
         } else {
-            // في حالة عدم اكتمال الإعلان، نرجع الزر للوضع الطبيعي للاستلام مجدداً
             if (btn) {
                 btn.disabled = false;
                 btn.innerText = "استلام 📺";
@@ -347,6 +369,7 @@
         }
 
         const adWatched = await showTelegramAd();
+        
         if (adWatched) {
             try {
                 let response = await fetch('/api/claim', {
@@ -357,7 +380,7 @@
                 
                 if (response.ok) {
                     await window.fetchPlayerData(); 
-                    claimCooldown = 60; // وقت الانتظار دقيقة واحدة بعد السحب الناجح
+                    claimCooldown = 60; 
                 } else {
                     if (claimBtn) {
                         claimBtn.disabled = false;
@@ -372,7 +395,6 @@
                 }
             }
         } else {
-            // إذا لم يتم مشاهدة الإعلان بالكامل، نترك الزر جاهز للضغط مجدداً
             if (claimBtn) {
                 claimBtn.disabled = false;
                 claimBtn.innerText = "تجميع الرصيد 📺";
