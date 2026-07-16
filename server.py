@@ -112,7 +112,6 @@ def get_user_data():
         
     response_data = user_data.copy()
     
-    # 🔴 هنا الحل السحري: حساب وإرسال القيم المفقودة للفرونت إند بدقة 🔴
     calculated_rate = get_user_mining_rate(user_data)
     storage_lvl = safe_int(user_data.get('storage_level', 0))
     calculated_cap = GAME_CONFIG['capacities'].get(storage_lvl, 10000)
