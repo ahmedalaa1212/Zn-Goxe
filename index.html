@@ -10,6 +10,7 @@
     <script src='//libtl.com/sdk.js' data-zone='11322720' data-sdk='show_11322720'></script>
     
     <link rel="stylesheet" href="farm/farm.css">
+    <link rel="stylesheet" href="style.css">
     <style>
         body {
             margin: 0; padding: 0;
@@ -22,32 +23,22 @@
         .game-view { display: none !important; }
         .game-view.active { display: block !important; animation: fadeIn 0.3s; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-
-        /* شريط التنقل السفلي */
-        .bottom-nav {
-            position: fixed; bottom: 0; left: 0; width: 100%;
-            background: #1a1a1a; display: flex; justify-content: space-around;
-            padding: 10px 0; border-top: 1px solid #333; z-index: 1000;
-        }
-        .nav-item {
-            background: none; border: none; color: #777;
-            display: flex; flex-direction: column; align-items: center;
-            font-size: 12px; cursor: pointer; transition: 0.2s;
-        }
-        .nav-item i { font-size: 20px; margin-bottom: 4px; }
-        .nav-item.active { color: #0088cc; }
     </style>
 </head>
 <body>
 
     <div id="app">
-        <div id="view-farm" class="game-view active"></div>
-        <div id="view-shop" class="game-view"></div>
+        <!-- تم إضافة الأقسام الجديدة هنا -->
         <div id="view-friends" class="game-view"></div>
         <div id="view-wallet" class="game-view"></div>
+        <div id="view-tasks" class="game-view"></div>
+        <div id="view-farm" class="game-view active"></div>
+        <div id="view-games" class="game-view"></div>
+        <div id="view-shop" class="game-view"></div>
         <div id="view-settings" class="game-view"></div>
     </div>
 
+    <!-- شريط التنقل السفلي المعدل (7 قوائم والمزرعة في المنتصف) -->
     <nav class="bottom-nav">
         <button class="nav-item" onclick="switchView('friends')" id="nav-friends">
             <i class="fas fa-users"></i><span>الأصدقاء</span>
@@ -55,8 +46,14 @@
         <button class="nav-item" onclick="switchView('wallet')" id="nav-wallet">
             <i class="fas fa-wallet"></i><span>المحفظة</span>
         </button>
+        <button class="nav-item" onclick="switchView('tasks')" id="nav-tasks">
+            <i class="fas fa-list-check"></i><span>المهام</span>
+        </button>
         <button class="nav-item active" onclick="switchView('farm')" id="nav-farm">
             <i class="fas fa-screwdriver-wrench"></i><span>المزرعة</span>
+        </button>
+        <button class="nav-item" onclick="switchView('games')" id="nav-games">
+            <i class="fas fa-gamepad"></i><span>الألعاب</span>
         </button>
         <button class="nav-item" onclick="switchView('shop')" id="nav-shop">
             <i class="fas fa-store"></i><span>المتجر</span>
@@ -72,10 +69,12 @@
         // هذه الدالة ستقوم بسحب تصميمات الـ HTML من مجلداتك وعرضها
         async function loadAllViews() {
             const views = [
-                { id: 'view-farm', path: 'farm/farm.html' },
-                { id: 'view-shop', path: 'shop/shop.html' },
                 { id: 'view-friends', path: 'friends/friends.html' },
                 { id: 'view-wallet', path: 'wallet/wallet.html' },
+                { id: 'view-tasks', path: 'tasks/tasks.html' },
+                { id: 'view-farm', path: 'farm/farm.html' },
+                { id: 'view-games', path: 'games/games.html' },
+                { id: 'view-shop', path: 'shop/shop.html' },
                 { id: 'view-settings', path: 'settings/settings.html' }
             ];
 
@@ -97,11 +96,13 @@
             // 2. بعد ظهور التصميمات بالكامل، نقوم بتحميل ملفات الـ JS لتعمل الأزرار والبيانات
             const scripts = [
                 'game.js',
-                'farm/farm.js',
-                'shop/shop.js',
                 'friends/friends.js',
-                'settings/settings.js',
-                'wallet/wallet.js'
+                'wallet/wallet.js',
+                'tasks/tasks.js',
+                'farm/farm.js',
+                'games/games.js',
+                'shop/shop.js',
+                'settings/settings.js'
             ];
 
             for (let jsPath of scripts) {
@@ -114,7 +115,7 @@
         // تشغيل كل شيء بمجرد فتح التطبيق
         document.addEventListener('DOMContentLoaded', loadAllViews);
 
-        // دالة التنقل (مدمجة هنا لضمان عمل الأزرار السفلية فوراً)
+        // دالة التنقل
         function switchView(viewName) {
             document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
             document.getElementById(`view-${viewName}`).classList.add('active');
