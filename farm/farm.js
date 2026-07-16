@@ -268,7 +268,7 @@
         }
     }, 1000);
 
-    // 🟢 دالة عرض إعلانات Monetag (تم استبدال Adsgram بالكامل مع الحفاظ على حماية AdBlock/VPN) 🟢
+    // 🟢 دالة عرض إعلانات Monetag (تعديل كود Rewarded Interstitial الصحيح) 🟢
     function showTelegramAd() {
         return new Promise((resolve) => {
             // فحص إذا كان المتصفح أو تطبيق حظر الإعلانات قد منع تحميل دالة Monetag
@@ -284,8 +284,8 @@
             }
 
             try {
-                // استدعاء إعلان Monetag Rewarded Interstitial
-                window.show_11322720('pop').then(() => {
+                // استدعاء إعلان Monetag Rewarded Interstitial بالكود الصحيح
+                window.show_11322720().then(() => {
                     console.log("[Monetag] شاهد المستخدم الإعلان بنجاح للنهاية");
                     resolve(true); 
                 }).catch((e) => {
