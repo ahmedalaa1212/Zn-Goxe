@@ -271,14 +271,16 @@
         }
     }, 1000);
 
-    // 🔴 تحديث دالة الـ Adsgram بالكامل لضمان التشغيل الصحيح وعدم الكراش 🔴
+    // 🔴 تحديث دالة الـ Adsgram بالكامل لمعالجة حظر الإعلانات والـ VPN بذكاء 🔴
     function showTelegramAd() {
         return new Promise((resolve) => {
-            // للتأكد إن منصة تيليجرام مهيأة والـ Adsgram موجود
+            // فحص إذا كان المتصفح أو تطبيق حظر الإعلانات قد منع تحميل المكتبة
             if (typeof window.Adsgram === 'undefined') {
-                console.warn("[Adsgram] لم يتم العثور على مكتبة الإعلانات.");
+                console.warn("[Adsgram] مكتبة الإعلانات محظورة بواسطة الجهاز (AdBlocker أو VPN).");
                 if (window.Telegram && window.Telegram.WebApp) {
-                    window.Telegram.WebApp.showAlert("⚠️ عذراً، لم يتم تحميل مكتبة الإعلانات بشكل صحيح، يرجى إعادة المحاولة.");
+                    window.Telegram.WebApp.showAlert("⚠️ يبدو أنك تستخدم مانع إعلانات (AdBlocker) أو تطبيق VPN يحظر الإعلانات. يرجى إيقافه لتتمكن من مشاهدة الإعلان والحصول على المكافأة!");
+                } else {
+                    alert("⚠️ يرجى إيقاف مانع الإعلانات بالجهاز للحصول على المكافأة!");
                 }
                 resolve(false); 
                 return;
