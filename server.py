@@ -48,7 +48,6 @@ def safe_int(val):
     except (TypeError, ValueError): return 0
 
 def make_aware(dt):
-    """دالة هامة جداً لحل مشكلة التوقيت: تجعل أي توقيت متوافقاً مع UTC لمنع الكراش"""
     if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt
@@ -56,22 +55,25 @@ def make_aware(dt):
 def get_user_ref(tg_id):
     return db.collection('users').document(str(tg_id))
 
+def get_user_mining_rate(user_data):
+    hourly_rate = 0.0
+    for i in range(1, 10):
+        count = safe_int(user_data.get(f'lvl{i}_count', 0))
+        hourly_rate += count * GAME_CONFIG['miningRates'].get(i, 0)
+    return hourly_rate
+
 def calculate_user_harvest(user_data):
     last_claim_str = user_data.get('last_claim_time')
     if not last_claim_str: return 0.0
     try:
         last_claim = datetime.fromisoformat(str(last_claim_str))
-        last_claim = make_aware(last_claim) # تأمين التوقيت
+        last_claim = make_aware(last_claim)
     except ValueError:
         return 0.0
     now = datetime.now(timezone.utc)
     diff_hours = max(0.0, (now - last_claim).total_seconds() / 3600.0)
     
-    hourly_rate = 0.0
-    for i in range(1, 10):
-        count = safe_int(user_data.get(f'lvl{i}_count', 0))
-        hourly_rate += count * GAME_CONFIG['miningRates'].get(i, 0)
-        
+    hourly_rate = get_user_mining_rate(user_data)
     storage_lvl = safe_int(user_data.get('storage_level', 0))
     max_cap = GAME_CONFIG['capacities'].get(storage_lvl, 10000)
     
@@ -109,7 +111,18 @@ def get_user_data():
         user_data = doc.to_dict()
         
     response_data = user_data.copy()
+    
+    # 🔴 هنا الحل السحري: حساب وإرسال القيم المفقودة للفرونت إند بدقة 🔴
+    calculated_rate = get_user_mining_rate(user_data)
+    storage_lvl = safe_int(user_data.get('storage_level', 0))
+    calculated_cap = GAME_CONFIG['capacities'].get(storage_lvl, 10000)
+    calculated_uncl = calculate_user_harvest(user_data)
+    
+    response_data['calculated_hourly_rate'] = calculated_rate
+    response_data['calculated_max_cap'] = calculated_cap
+    response_data['calculated_unclaimed'] = calculated_uncl
     response_data['server_time'] = now_iso
+    
     return jsonify({'success': True, 'data': response_data}), 200
 
 @app.route('/api/claim', methods=['POST'])
@@ -155,7 +168,7 @@ def daily_claim():
         last_daily_str = user_data.get('last_daily_claim_time', "2000-01-01T00:00:00+00:00")
         try: 
             last_daily = datetime.fromisoformat(str(last_daily_str))
-            last_daily = make_aware(last_daily) # تأمين التوقيت
+            last_daily = make_aware(last_daily)
         except ValueError: 
             last_daily = make_aware(datetime.fromisoformat("2000-01-01T00:00:00+00:00"))
             
@@ -187,7 +200,6 @@ def execute_upgrade_transaction(transaction, user_ref, upg_type, level_num):
         
     user_data = doc.to_dict()
     unclaimed = calculate_user_harvest(user_data)
-    # التأكد من جمع الرصيد الفعلي بأمان
     current_balance = safe_float(user_data.get('balance', 0)) + unclaimed
     
     price = SHOP_CONFIG.get(upg_type, {}).get(level_num)
@@ -197,7 +209,6 @@ def execute_upgrade_transaction(transaction, user_ref, upg_type, level_num):
     now_iso = datetime.now(timezone.utc).isoformat()
     
     if current_balance < price:
-        # إذا لم يكف الرصيد، نحفظ ما تم تجميعه فقط
         transaction.update(user_ref, {'balance': current_balance, 'last_claim_time': now_iso})
         return False, 'الرصيد غير كافي!'
         
@@ -240,12 +251,8 @@ def upgrade():
         print(f"Upgrade Error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# ==========================================
-# مسار استقبال المكافآت من منصة Adsgram
-# ==========================================
 @app.route('/api/adsgram-reward', methods=['GET'])
 def adsgram_reward():
-    # Adsgram تقوم بإرسال البيانات في الرابط
     userid = request.args.get('userid') or request.args.get('userId')
     reward = request.args.get('reward')
     
@@ -258,24 +265,17 @@ def adsgram_reward():
         
         if doc.exists:
             user_data = doc.to_dict()
-            
-            # حساب الرصيد الحالي للمستخدم + المكافأة القادمة من الإعلان
             current_balance = safe_float(user_data.get('balance', 0))
             added_reward = safe_float(reward)
             
-            # تحديث الرصيد في قاعدة البيانات
             user_ref.update({
                 'balance': current_balance + added_reward
             })
-            
             print(f"✅ [Adsgram] Successfully added {added_reward} to user {userid}")
-            
-            # الرد بـ 200 حتى تعلم منصة Adsgram بنجاح العملية
             return "Success", 200 
         else:
             print(f"❌ [Adsgram] User {userid} not found")
             return "User not found", 404
-            
     except Exception as e:
         print(f"❌ [Adsgram] Error: {e}")
         return "Internal Server Error", 500
