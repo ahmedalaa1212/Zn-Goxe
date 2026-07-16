@@ -57,7 +57,6 @@
         const pData = window.PlayerData;
         if (!pData) return;
 
-        // مجموع رصيدك في البنك مع اللي لسه ما جمعتوش
         let totalBal = parseFloat(pData.balance || 0) + parseFloat(pData.unclaimed || 0);
 
         document.getElementById('shop-balance').innerText = `ZN: ${Math.floor(pData.balance || 0).toLocaleString()}`;
