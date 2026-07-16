@@ -1,5 +1,6 @@
 (function initFarm() {
     
+    // تصفير ذاكرة المتصفح لتجنب أي أرقام وهمية
     localStorage.removeItem('zn_daily_day');
     localStorage.removeItem('zn_daily_time');
     
@@ -14,6 +15,8 @@
     }
 
     const TELEGRAM_ID = window.Telegram.WebApp.initDataUnsafe.user.id.toString();
+
+    // 🔴 معرف كتلة الإعلانات (Block ID) الخاص بك من Adsgram 🔴
     const ADSGRAM_BLOCK_ID = "bot-38541"; 
 
     const GAME_CONFIG = {
@@ -268,36 +271,40 @@
         }
     }, 1000);
 
+    // 🔴 تحديث دالة الـ Adsgram بالكامل لضمان التشغيل الصحيح وعدم الكراش 🔴
     function showTelegramAd() {
         return new Promise((resolve) => {
+            // للتأكد إن منصة تيليجرام مهيأة والـ Adsgram موجود
             if (typeof window.Adsgram === 'undefined') {
-                console.warn("[Adsgram] لم يتم العثور على مكتبة الإعلانات. سيتم التخطي للتجربة المحلية.");
-                setTimeout(() => resolve(true), 1500); 
+                console.warn("[Adsgram] لم يتم العثور على مكتبة الإعلانات.");
+                if (window.Telegram && window.Telegram.WebApp) {
+                    window.Telegram.WebApp.showAlert("⚠️ عذراً، لم يتم تحميل مكتبة الإعلانات بشكل صحيح، يرجى إعادة المحاولة.");
+                }
+                resolve(false); 
                 return;
             }
 
-            if (ADSGRAM_BLOCK_ID === "YOUR_ADSGRAM_BLOCK_ID" || ADSGRAM_BLOCK_ID === "") {
-                console.warn("[Adsgram] يرجى إضافة الـ Block ID الحقيقي.");
-                setTimeout(() => resolve(true), 1500);
-                return;
+            try {
+                const AdController = window.Adsgram.init({ blockId: ADSGRAM_BLOCK_ID });
+                
+                AdController.show()
+                    .then((result) => {
+                        console.log("[Adsgram] تمت المشاهدة بنجاح وطبق السيرفر المكافأة", result);
+                        resolve(true); 
+                    })
+                    .catch((error) => {
+                        console.error("[Adsgram] خطأ أو تم إغلاق الإعلان قبل الاكتمال", error);
+                        if (window.Telegram && window.Telegram.WebApp) {
+                            window.Telegram.WebApp.showAlert("⚠️ يجب عليك مشاهدة الإعلان كاملاً وبدون تخطي للحصول على المكافأة!");
+                        } else {
+                            alert("⚠️ يجب عليك مشاهدة الإعلان كاملاً وبدون تخطي للحصول على المكافأة!");
+                        }
+                        resolve(false); 
+                    });
+            } catch (err) {
+                console.error("[Adsgram] Init Error:", err);
+                resolve(false);
             }
-
-            const AdController = window.Adsgram.init({ blockId: ADSGRAM_BLOCK_ID });
-
-            AdController.show()
-                .then((result) => {
-                    console.log("[Adsgram] تمت المشاهدة بنجاح", result);
-                    resolve(true); 
-                })
-                .catch((error) => {
-                    console.error("[Adsgram] فشل أو تم إغلاق الإعلان", error);
-                    if (window.Telegram && window.Telegram.WebApp) {
-                        window.Telegram.WebApp.showAlert("⚠️ يجب عليك مشاهدة الإعلان كاملاً للحصول على المكافأة!");
-                    } else {
-                        alert("⚠️ يجب عليك مشاهدة الإعلان كاملاً للحصول على المكافأة!");
-                    }
-                    resolve(false); 
-                });
         });
     }
 
