@@ -4,13 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Zn Goxe - Crypto Mining</title>
-    <!-- أيقونات FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- استدعاء ملفات الـ CSS الخاصة بك بناءً على صورة المجلدات -->
     <link rel="stylesheet" href="farm/farm.css">
-    <!-- يمكنك إضافة المزيد من روابط الـ css هنا إذا كان لكل مجلد ستايل خاص -->
-
     <style>
         body {
             margin: 0; padding: 0;
@@ -41,7 +37,6 @@
 </head>
 <body>
 
-    <!-- الحاويات الفارغة التي سيمتلئ بداخلها تصميماتك من المجلدات الأخرى -->
     <div id="app">
         <div id="view-farm" class="game-view active"></div>
         <div id="view-shop" class="game-view"></div>
@@ -50,7 +45,6 @@
         <div id="view-settings" class="game-view"></div>
     </div>
 
-    <!-- شريط التنقل السفلي الخاص بك -->
     <nav class="bottom-nav">
         <button class="nav-item" onclick="switchView('friends')" id="nav-friends">
             <i class="fas fa-users"></i><span>الأصدقاء</span>
@@ -69,10 +63,10 @@
         </button>
     </nav>
 
-    <!-- استدعاء مكتبة تليجرام -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     
-    <!-- السكريبت السحري لجلب الملفات وتشغيلها -->
+    <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
+    
     <script>
         // هذه الدالة ستقوم بسحب تصميمات الـ HTML من مجلداتك وعرضها
         async function loadAllViews() {
