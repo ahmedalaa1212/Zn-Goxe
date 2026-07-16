@@ -240,6 +240,46 @@ def upgrade():
         print(f"Upgrade Error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+# ==========================================
+# مسار استقبال المكافآت من منصة Adsgram
+# ==========================================
+@app.route('/api/adsgram-reward', methods=['GET'])
+def adsgram_reward():
+    # Adsgram تقوم بإرسال البيانات في الرابط
+    userid = request.args.get('userid') or request.args.get('userId')
+    reward = request.args.get('reward')
+    
+    if not userid or not reward:
+        return "Missing parameters", 400
+
+    try:
+        user_ref = get_user_ref(userid)
+        doc = user_ref.get()
+        
+        if doc.exists:
+            user_data = doc.to_dict()
+            
+            # حساب الرصيد الحالي للمستخدم + المكافأة القادمة من الإعلان
+            current_balance = safe_float(user_data.get('balance', 0))
+            added_reward = safe_float(reward)
+            
+            # تحديث الرصيد في قاعدة البيانات
+            user_ref.update({
+                'balance': current_balance + added_reward
+            })
+            
+            print(f"✅ [Adsgram] Successfully added {added_reward} to user {userid}")
+            
+            # الرد بـ 200 حتى تعلم منصة Adsgram بنجاح العملية
+            return "Success", 200 
+        else:
+            print(f"❌ [Adsgram] User {userid} not found")
+            return "User not found", 404
+            
+    except Exception as e:
+        print(f"❌ [Adsgram] Error: {e}")
+        return "Internal Server Error", 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
