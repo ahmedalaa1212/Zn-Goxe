@@ -1,6 +1,5 @@
 (function initFarm() {
     
-    // تصفير ذاكرة المتصفح لتجنب أي أرقام وهمية
     localStorage.removeItem('zn_daily_day');
     localStorage.removeItem('zn_daily_time');
     
@@ -15,8 +14,6 @@
     }
 
     const TELEGRAM_ID = window.Telegram.WebApp.initDataUnsafe.user.id.toString();
-
-    // 🔴 ضع هنا معرف كتلة الإعلانات (Block ID) الخاص بك من Adsgram 🔴
     const ADSGRAM_BLOCK_ID = "bot-38541"; 
 
     const GAME_CONFIG = {
@@ -271,9 +268,6 @@
         }
     }, 1000);
 
-    // ==========================================
-    // 🔴 دالة عرض الإعلانات الحقيقية (Adsgram) 🔴
-    // ==========================================
     function showTelegramAd() {
         return new Promise((resolve) => {
             if (typeof window.Adsgram === 'undefined') {
@@ -282,7 +276,7 @@
                 return;
             }
 
-            if (ADSGRAM_BLOCK_ID === "YOUR_ADSGRAM_BLOCK_ID") {
+            if (ADSGRAM_BLOCK_ID === "YOUR_ADSGRAM_BLOCK_ID" || ADSGRAM_BLOCK_ID === "") {
                 console.warn("[Adsgram] يرجى إضافة الـ Block ID الحقيقي.");
                 setTimeout(() => resolve(true), 1500);
                 return;
@@ -292,7 +286,7 @@
 
             AdController.show()
                 .then((result) => {
-                    console.log("[Adsgram] تمت المشاهدة", result);
+                    console.log("[Adsgram] تمت المشاهدة بنجاح", result);
                     resolve(true); 
                 })
                 .catch((error) => {
