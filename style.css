@@ -33,7 +33,7 @@ body {
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* تصميم شريط التنقل السفلي */
+/* تصميم شريط التنقل السفلي المعدل للـ 7 قوائم */
 .bottom-nav {
     position: fixed;
     bottom: 0;
@@ -41,9 +41,10 @@ body {
     height: 70px;
     background-color: #1c1c1c;
     display: flex;
-    justify-content: space-around;
+    justify-content: space-between; /* توزيع متساوي المساحات */
     align-items: center;
     border-top: 1px solid #333;
+    padding: 0 5px; /* مسافة صغيرة من الأطراف */
 }
 
 .nav-item {
@@ -53,10 +54,12 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 5px;
+    justify-content: center;
+    gap: 3px; /* تقليل المسافة بين الأيقونة والنص */
     cursor: pointer;
-    font-size: 12px;
+    font-size: 10px; /* تصغير الخط قليلاً ليناسب 7 قوائم */
     transition: 0.3s;
+    flex: 1; /* لجعل كل زر يأخذ نفس المساحة بالضبط */
 }
 
 .nav-item.active {
@@ -64,5 +67,5 @@ body {
 }
 
 .nav-item i {
-    font-size: 20px;
+    font-size: 18px; /* تصغير الأيقونة درجة لعدم التداخل */
 }
