@@ -17,7 +17,7 @@
     const TELEGRAM_ID = window.Telegram.WebApp.initDataUnsafe.user.id.toString();
 
     // 🔴 ضع هنا معرف كتلة الإعلانات (Block ID) الخاص بك من Adsgram 🔴
-    const ADSGRAM_BLOCK_ID = "YOUR_ADSGRAM_BLOCK_ID"; 
+    const ADSGRAM_BLOCK_ID = "bot-38541"; 
 
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 15,
