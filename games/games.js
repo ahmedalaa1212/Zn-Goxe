@@ -6,40 +6,28 @@ const wheelColors = ['#ff4d4d', '#ff9933', '#ffcc00', '#33cc33', '#3399ff', '#cc
 let pendingReward = 0; 
 let cooldownMinutes = 3; 
 
-// جلب ID المستخدم من تليجرام
+// جلب ID المستخدم من تليجرام بشكل سليم
 function getTelegramId() {
     if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
-        return window.Telegram.WebApp.initDataUnsafe.user.id;
+        return window.Telegram.WebApp.initDataUnsafe.user.id.toString();
     }
-    return "test_user_123"; 
+    return window.PlayerData?.tg_id || "5102387551"; 
 }
 
-// 🟢 دالة جديدة: تحديث الرصيد في كل مكان في البوت (المزرعة، المتجر، الألعاب)
-function updateAllUIBalances(balance) {
-    const formattedBalance = Math.floor(balance).toLocaleString();
+// دالة تحديث الواجهة الخاصة بالألعاب (يتم استدعاؤها من الكود المركزي في game.js)
+window.updateGamesUI = function() {
+    const pData = window.PlayerData;
+    if (!pData) return;
     
-    // نحدث كل الـ IDs المحتملة للرصيد في كل الصفحات
-    const balanceIds = ['top-balance-games', 'top-balance-farm', 'top-balance-shop', 'main-balance', 'user-balance'];
-    
-    balanceIds.forEach(id => {
-        let el = document.getElementById(id);
-        if (el) {
-            // التأكد من الحفاظ على تنسيق النص سواء كان "ZN 1000" أو "ZN: 1000"
-            if (el.innerText.includes('ZN:')) {
-                el.innerText = `ZN: ${formattedBalance}`;
-            } else {
-                el.innerText = `ZN ${formattedBalance}`;
-            }
-        }
-    });
+    // تحديث الرصيد في أعلى شاشة الألعاب
+    const gameBalEl = document.getElementById('top-balance-games');
+    if (gameBalEl) {
+        const formattedBalance = Math.floor(pData.balance).toLocaleString();
+        gameBalEl.innerText = gameBalEl.innerText.includes('ZN:') ? `ZN: ${formattedBalance}` : `ZN ${formattedBalance}`;
+    }
+};
 
-    // كخطوة أمان إضافية: لو إنت مدي الرصيد class معين في الـ HTML
-    document.querySelectorAll('.balance-display').forEach(el => {
-        el.innerText = formattedBalance;
-    });
-}
-
-// إرسال المكافأة للسيرفر وتحديث الرصيد الفعلي
+// إرسال المكافأة للسيرفر وتحديث الرصيد الفعلي في البوت بالكامل
 async function sendRewardToServer(tgId, amount) {
     try {
         const response = await fetch('/api/game_reward', {
@@ -49,13 +37,15 @@ async function sendRewardToServer(tgId, amount) {
         });
         const result = await response.json();
         if (result.success) {
-            window.userBalance = result.new_balance;
-            updateAllUIBalances(window.userBalance); // 🚀 تحديث كل الصفحات فوراً
+            // استدعاء جلب البيانات الموحد لتحديث كل الصفحات بنفس اللحظة
+            if (typeof window.fetchPlayerDataFromServer === 'function') {
+                await window.fetchPlayerDataFromServer();
+            }
             return true;
         }
         return false;
     } catch (error) {
-        console.error("خطأ في الاتصال بالسيرفر:", error);
+        console.error("خطأ في الاتصال بالسيرفر وإرسال المكافأة:", error);
         return false;
     }
 }
@@ -64,6 +54,9 @@ async function sendRewardToServer(tgId, amount) {
 function initWheel() {
     const wheel = document.getElementById('spin-wheel');
     if (!wheel) return;
+    
+    // تصفير المحتوى للتأكد من عدم التكرار عند إعادة الفتح
+    wheel.innerHTML = '';
     
     let gradientParts = [];
     for (let i = 0; i < 12; i++) {
@@ -112,6 +105,7 @@ window.playGame = async function(gameType) {
     const btn = document.getElementById(btnId);
     let originalText = gameType === 'box' ? 'افتح الصندوق الآن (إعلان 📺)' : 'لف العجلة الآن (إعلان 📺)';
 
+    if (!btn) return;
     btn.disabled = true;
     btn.innerText = "جاري تحميل الإعلان... ⏳";
 
@@ -126,7 +120,7 @@ window.playGame = async function(gameType) {
             console.error("لم يكتمل الإعلان", e);
         }
     } else {
-        alert("⚠️ يرجى إيقاف مانع الإعلانات للعب!");
+        alert("⚠️ يرجى إيقاف مانع الإعلانات لتتمكن من اللعب!");
         btn.disabled = false;
         btn.innerText = originalText;
         return;
@@ -144,6 +138,7 @@ window.playGame = async function(gameType) {
         else if (gameType === 'spin') {
             btn.innerText = "جاري لف العجلة... 🎡";
             const wheel = document.getElementById('spin-wheel');
+            if (!wheel) return;
             
             let prizeIndex = Math.floor(Math.random() * 12);
             let prize = wheelPrizes[prizeIndex];
@@ -200,6 +195,7 @@ window.claimReward = async function(type) {
     } 
     else if (type === 'double') {
         const btnX2 = document.getElementById('btn-claim-x2');
+        if (!btnX2) return;
         btnX2.disabled = true;
         btnX2.innerText = "جاري تحميل الإعلان... ⏳";
         
@@ -282,22 +278,5 @@ function startTimerIfActive(gameType, btnId, originalText) {
     }
 }
 
-// مزامنة مستمرة للرصيد من السيرفر لضمان دقة البيانات
-async function syncUserBalance() {
-    const tgId = getTelegramId();
-    if (!tgId) return;
-
-    try {
-        const response = await fetch(`/api/user_data?telegramId=${tgId}`);
-        const result = await response.json();
-        if (result.success && result.data) {
-            window.userBalance = parseFloat(result.data.balance || 0);
-            updateAllUIBalances(window.userBalance); // مزامنة مع كل أجزاء البوت
-        }
-    } catch (e) {
-        console.error("فشل مزامنة الرصيد من السيرفر", e);
-    }
-}
-
-setTimeout(syncUserBalance, 1000);
-setInterval(syncUserBalance, 5000);
+// تشغيل المزامنة الفورية عند التحميل
+window.updateGamesUI();
