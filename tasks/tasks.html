@@ -1,83 +1,63 @@
-<!-- شريط الرصيد العلوي -->
-<div style="position: fixed; top: 15px; left: 50%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.8); border: 1px solid #333; padding: 8px 20px; border-radius: 20px; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5); display: flex; align-items: center; gap: 8px;">
-    <i class="fas fa-coins" style="color: #ffcc00; font-size: 16px;"></i>
-    <span id="top-balance-tasks" style="color: #fff; font-weight: bold; font-size: 16px;">0 ZN</span>
-</div>
-
-<div class="tasks-container" style="padding: 10px; padding-top: 60px; padding-bottom: 20px;">
+<div style="padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding-bottom: 80px;">
     
-    <!-- التبديل بين اكسب وروّج -->
-    <div style="display: flex; background: #1c1c1c; border-radius: 10px; margin-bottom: 20px; padding: 5px; border: 1px solid #333;">
-        <button id="btn-tab-earn" onclick="switchTaskTab('earn')" style="flex: 1; padding: 10px; background: #0088cc; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 14px; cursor: pointer; transition: 0.3s;">اكسب ZN 💰</button>
-        <button id="btn-tab-promote" onclick="switchTaskTab('promote')" style="flex: 1; padding: 10px; background: transparent; color: #888; border: none; font-weight: bold; font-size: 14px; cursor: pointer; transition: 0.3s;">روّج لقناتك 📢</button>
+    <!-- الرصيد الموحد أعلى الشاشة -->
+    <div style="text-align: center; margin-bottom: 25px;">
+        <div style="background: #111; border: 1px solid #333; border-radius: 20px; padding: 5px 20px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
+            <span id="top-balance-tasks" class="sync-balance" style="color: #ffcc00; font-weight: bold; font-size: 18px;">ZN 0</span>
+            <span>🪙</span>
+        </div>
     </div>
 
-    <!-- قسم: اكسب ZN -->
+    <!-- أزرار التبديل (اكسب / روّج) -->
+    <div style="display: flex; background: #1a1a2e; border-radius: 12px; overflow: hidden; margin-bottom: 25px; border: 1px solid #2a2a4a;">
+        <button id="btn-tab-promote" onclick="switchTasksTab('promote')" style="flex: 1; padding: 15px; background: transparent; color: #888; border: none; font-weight: bold; font-family: inherit; cursor: pointer; transition: 0.3s;">📢 روّج لقناتك</button>
+        <button id="btn-tab-earn" onclick="switchTasksTab('earn')" style="flex: 1; padding: 15px; background: #0088cc; color: #fff; border: none; font-weight: bold; font-family: inherit; cursor: pointer; transition: 0.3s;">💰 اكسب ZN</button>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 🟢 قسم: اكسب ZN (المهام) 🟢 -->
+    <!-- ========================================== -->
     <div id="section-earn">
-        <h3 style="color: #ffcc00; margin-bottom: 15px; font-size: 16px;">المهمات المتاحة</h3>
-        <div id="tasks-list">
-            <div style="text-align: center; color: #888; padding: 20px; font-size: 14px;">جاري تحميل المهام... ⏳</div>
+        <h4 style="color: #ffcc00; margin-bottom: 15px; text-align: right; border-bottom: 1px solid #333; padding-bottom: 10px;">المهمات المتاحة</h4>
+        <!-- حاوية المهام اللي هتتحمل من الجافاسكريبت -->
+        <div id="tasks-list-container">
+            <div style="text-align: center; color: #888; margin-top: 50px;">جاري تحميل المهام... ⏳</div>
         </div>
     </div>
 
-    <!-- قسم: روّج لقناتك (النسخة الاحترافية) -->
+    <!-- ========================================== -->
+    <!-- 🔵 قسم: روّج لقناتك (الإعلانات) 🔵 -->
+    <!-- ========================================== -->
     <div id="section-promote" style="display: none;">
-        <!-- رصيد الإعلانات -->
-        <div style="background: linear-gradient(135deg, #1a1a2e, #16213e); border: 1px solid #0f3460; border-radius: 10px; padding: 15px; margin-bottom: 20px; text-align: center; box-shadow: 0 0 15px rgba(15, 52, 96, 0.4);">
-            <div style="color: #aaa; font-size: 12px; margin-bottom: 5px;">رصيد الإعلانات الخاص بك</div>
-            <div id="ad-balance-display" style="color: #00d2ff; font-size: 26px; font-weight: bold; margin-bottom: 10px; text-shadow: 0 0 10px rgba(0, 210, 255, 0.3);">0 AdZN</div>
-            <button onclick="openConvertModal()" style="background: #0f3460; color: white; border: 1px solid #00d2ff; border-radius: 5px; padding: 8px 15px; font-size: 12px; font-weight: bold; cursor: pointer; transition: 0.3s;">شحن رصيد الإعلانات 🔄</button>
-        </div>
-
-        <h3 style="color: #fff; margin-bottom: 15px; font-size: 16px; text-align: center;">اختر نوع الحملة الإعلانية</h3>
         
-        <!-- شبكة اختيار نوع الإعلان -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
-            <button class="platform-btn" onclick="selectPlatform('telegram', 'تليجرام', 'fa-telegram', '#0088cc')" id="plat-telegram" style="background: #1c1c1c; border: 1px solid #333; border-radius: 10px; padding: 15px; display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer; transition: 0.3s;">
-                <i class="fab fa-telegram" style="font-size: 24px; color: #0088cc;"></i>
-                <span style="color: #fff; font-size: 12px; font-weight: bold;">قناة / جروب</span>
-            </button>
-            <button class="platform-btn" onclick="selectPlatform('youtube', 'يوتيوب', 'fa-youtube', '#ff0000')" id="plat-youtube" style="background: #1c1c1c; border: 1px solid #333; border-radius: 10px; padding: 15px; display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer; transition: 0.3s;">
-                <i class="fab fa-youtube" style="font-size: 24px; color: #ff0000;"></i>
-                <span style="color: #fff; font-size: 12px; font-weight: bold;">فيديو / قناة</span>
-            </button>
-            <button class="platform-btn" onclick="selectPlatform('instagram', 'انستجرام', 'fa-instagram', '#E1306C')" id="plat-instagram" style="background: #1c1c1c; border: 1px solid #333; border-radius: 10px; padding: 15px; display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer; transition: 0.3s;">
-                <i class="fab fa-instagram" style="font-size: 24px; color: #E1306C;"></i>
-                <span style="color: #fff; font-size: 12px; font-weight: bold;">متابعة / لايك</span>
-            </button>
-            <button class="platform-btn" onclick="selectPlatform('website', 'موقع إلكتروني', 'fa-globe', '#28a745')" id="plat-website" style="background: #1c1c1c; border: 1px solid #333; border-radius: 10px; padding: 15px; display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer; transition: 0.3s;">
-                <i class="fas fa-globe" style="font-size: 24px; color: #28a745;"></i>
-                <span style="color: #fff; font-size: 12px; font-weight: bold;">زيارة موقع</span>
-            </button>
+        <!-- كارت رصيد الإعلانات -->
+        <div style="background: linear-gradient(145deg, #0f172a, #1e293b); border: 1px solid #334155; border-radius: 15px; padding: 25px; margin-bottom: 25px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.3);">
+            <div style="color: #94a3b8; font-size: 13px; margin-bottom: 10px;">رصيد الإعلانات الخاص بك</div>
+            <div id="ad-balance-display" style="color: #38bdf8; font-size: 32px; font-weight: bold; margin-bottom: 20px; text-shadow: 0 0 10px rgba(56,189,248,0.3);">AdZN 0</div>
+            <button onclick="convertZnToAdZn()" style="background: rgba(56,189,248,0.1); border: 1px solid #38bdf8; color: #38bdf8; padding: 10px 25px; border-radius: 8px; cursor: pointer; font-family: inherit; font-weight: bold; transition: 0.2s;">🔄 شحن رصيد الإعلانات</button>
         </div>
 
-        <!-- فورم إنشاء الحملة (يظهر بعد اختيار المنصة) -->
-        <div id="campaign-form" style="display: none; background: #1c1c1c; border: 1px solid #333; border-radius: 10px; padding: 15px; animation: fadeIn 0.3s;">
-            <div id="campaign-header" style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #333;">
-                <i id="form-icon" class="fab fa-telegram" style="font-size: 20px;"></i>
-                <span id="form-title" style="color: #fff; font-weight: bold; font-size: 14px;">إعداد حملة</span>
+        <h4 style="color: #fff; margin-bottom: 15px; text-align: center;">اختر نوع الحملة الإعلانية</h4>
+        
+        <!-- أزرار الحملات الأربعة -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div onclick="alert('قريباً: إضافة حملة تيليجرام')" style="background: #1a1a1a; border: 1px solid #333; padding: 20px; border-radius: 12px; text-align: center; cursor: pointer;">
+                <i class="fab fa-telegram" style="color: #38bdf8; font-size: 28px; margin-bottom: 12px;"></i>
+                <div style="color: #fff; font-size: 13px; font-weight: bold;">قناة / جروب</div>
             </div>
-
-            <label id="url-label" style="color: #888; font-size: 12px;">الرابط المطلوب:</label>
-            <input type="text" id="task-url" style="width: 100%; background: #121212; border: 1px solid #444; color: white; padding: 10px; border-radius: 5px; margin-top: 5px; margin-bottom: 15px;" dir="ltr">
-
-            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                <div style="flex: 1;">
-                    <label style="color: #888; font-size: 12px;">مكافأة الفرد (AdZN):</label>
-                    <input type="number" id="task-reward" placeholder="مثال: 50" oninput="calculateTaskCost()" style="width: 100%; background: #121212; border: 1px solid #444; color: white; padding: 10px; border-radius: 5px; margin-top: 5px;">
-                </div>
-                <div style="flex: 1;">
-                    <label style="color: #888; font-size: 12px;">العدد المطلوب:</label>
-                    <input type="number" id="task-users" placeholder="مثال: 100" oninput="calculateTaskCost()" style="width: 100%; background: #121212; border: 1px solid #444; color: white; padding: 10px; border-radius: 5px; margin-top: 5px;">
-                </div>
+            <div onclick="alert('قريباً: إضافة حملة يوتيوب')" style="background: #1a1a1a; border: 1px solid #333; padding: 20px; border-radius: 12px; text-align: center; cursor: pointer;">
+                <i class="fab fa-youtube" style="color: #ef4444; font-size: 28px; margin-bottom: 12px;"></i>
+                <div style="color: #fff; font-size: 13px; font-weight: bold;">فيديو / قناة</div>
             </div>
-
-            <div style="background: rgba(0, 210, 255, 0.1); border: 1px solid rgba(0, 210, 255, 0.3); padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 15px;">
-                <span style="color: #888; font-size: 12px;">إجمالي التكلفة: </span>
-                <span id="task-total-cost" style="color: #00d2ff; font-weight: bold; font-size: 18px;">0 AdZN</span>
+            <div onclick="alert('قريباً: إضافة حملة انستجرام')" style="background: #1a1a1a; border: 1px solid #333; padding: 20px; border-radius: 12px; text-align: center; cursor: pointer;">
+                <i class="fab fa-instagram" style="color: #ec4899; font-size: 28px; margin-bottom: 12px;"></i>
+                <div style="color: #fff; font-size: 13px; font-weight: bold;">متابعة / لايك</div>
             </div>
-
-            <button onclick="createNewTask()" style="width: 100%; padding: 12px; background: linear-gradient(90deg, #0f3460, #00d2ff); color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 14px; cursor: pointer;">إطلاق الحملة 🚀</button>
+            <div onclick="alert('قريباً: إضافة حملة مواقع')" style="background: #1a1a1a; border: 1px solid #333; padding: 20px; border-radius: 12px; text-align: center; cursor: pointer;">
+                <i class="fas fa-globe" style="color: #22c55e; font-size: 28px; margin-bottom: 12px;"></i>
+                <div style="color: #fff; font-size: 13px; font-weight: bold;">زيارة موقع</div>
+            </div>
         </div>
     </div>
+
 </div>
