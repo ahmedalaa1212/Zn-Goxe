@@ -98,7 +98,7 @@ def get_user_data():
         new_user = {
             "telegram_id": str(telegram_id),
             "balance": 0.0,
-            "ad_balance": 0.0, # رصيد الإعلانات AdZN الجديد
+            "ad_balance": 0.0, 
             "is_banned": False,
             "last_claim_time": now_iso,
             "storage_level": 0,
@@ -110,7 +110,6 @@ def get_user_data():
         user_data = new_user
     else:
         user_data = doc.to_dict()
-        # التأكد من وجود رصيد الإعلانات للمستخدمين القدامى
         if 'ad_balance' not in user_data:
             user_data['ad_balance'] = 0.0
             get_user_ref(telegram_id).update({'ad_balance': 0.0})
@@ -255,8 +254,6 @@ def upgrade():
         print(f"Upgrade Error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# ----------------- أجزاء الألعاب والمهام الجديدة ----------------- #
-
 @app.route('/api/game_reward', methods=['POST'])
 def game_reward():
     data = request.get_json()
@@ -274,9 +271,10 @@ def game_reward():
         user_data = doc.to_dict()
         current_balance = safe_float(user_data.get('balance', 0))
         
-        # إضافة المكافأة مباشرة للرصيد الفعلي في قاعدة البيانات
+        # التحديث في الداتابيز
         new_balance = current_balance + reward
         user_ref.update({'balance': new_balance})
+        
         return jsonify({'success': True, 'new_balance': new_balance}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -285,7 +283,7 @@ def game_reward():
 def convert_adzn():
     data = request.get_json()
     tg_id = str(data.get('telegramId'))
-    amount = safe_float(data.get('amount')) # المبلغ المراد تحويله من ZN
+    amount = safe_float(data.get('amount'))
 
     if amount <= 0: return jsonify({'success': False, 'error': 'مبلغ غير صالح'}), 400
 
@@ -307,7 +305,7 @@ def convert_adzn():
                 return False, 'رصيد ZN غير كافي للتحويل'
 
             new_balance = current_balance - amount
-            received_adzn = amount * 0.90  # خصم عمولة 10%
+            received_adzn = amount * 0.90
             new_ad_balance = current_ad_balance + received_adzn
 
             transaction.update(user_ref, {
@@ -359,7 +357,6 @@ def create_campaign():
         if not success:
             return jsonify({'success': False, 'error': error_msg}), 400
 
-        # تسجيل الحملة في قاعدة البيانات
         camp_ref = db.collection('campaigns').document()
         camp_ref.set({
             'creator_id': tg_id,
@@ -381,14 +378,12 @@ def create_campaign():
 def get_campaigns():
     tg_id = request.args.get('telegramId')
     try:
-        # نجلب الحملات النشطة فقط
         camps = db.collection('campaigns').where('active', '==', True).get()
         results = []
         for c in camps:
             c_data = c.to_dict()
             completed_by = c_data.get('completed_by', [])
             
-            # لا تظهر الحملة إذا كان المستخدم هو صانعها أو قام بتنفيذها مسبقاً
             if tg_id not in completed_by and c_data.get('creator_id') != tg_id:
                 results.append({
                     'id': c.id,
@@ -433,18 +428,16 @@ def complete_task():
 
             reward = safe_float(task_data.get('reward', 0))
             
-            # تحديث بيانات الحملة
             completed_by.append(tg_id)
             task_updates = {
                 'completed_by': completed_by,
                 'users_completed': users_completed + 1
             }
             if users_completed + 1 >= users_needed:
-                task_updates['active'] = False # إغلاق الحملة عند اكتمال العدد
+                task_updates['active'] = False
             
             transaction.update(task_ref, task_updates)
 
-            # إضافة المكافأة للمستخدم (ZN)
             current_balance = safe_float(user_doc.to_dict().get('balance', 0))
             transaction.update(user_ref, {'balance': current_balance + reward})
             
@@ -457,35 +450,6 @@ def complete_task():
             return jsonify({'success': False, 'error': result}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/adsgram-reward', methods=['GET'])
-def adsgram_reward():
-    userid = request.args.get('userid') or request.args.get('userId')
-    reward = request.args.get('reward')
-    
-    if not userid or not reward:
-        return "Missing parameters", 400
-
-    try:
-        user_ref = get_user_ref(userid)
-        doc = user_ref.get()
-        
-        if doc.exists:
-            user_data = doc.to_dict()
-            current_balance = safe_float(user_data.get('balance', 0))
-            added_reward = safe_float(reward)
-            
-            user_ref.update({
-                'balance': current_balance + added_reward
-            })
-            print(f"✅ [Adsgram] Successfully added {added_reward} to user {userid}")
-            return "Success", 200 
-        else:
-            print(f"❌ [Adsgram] User {userid} not found")
-            return "User not found", 404
-    except Exception as e:
-        print(f"❌ [Adsgram] Error: {e}")
-        return "Internal Server Error", 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
