@@ -36,15 +36,15 @@
         const btnStorage = document.getElementById('tab-storage');
 
         if (tab === 'mining') {
-            miningSec.style.display = 'grid';
-            storageSec.style.display = 'none';
-            btnMining.style.background = '#0088cc';
-            btnStorage.style.background = '#333';
+            if (miningSec) miningSec.style.display = 'grid';
+            if (storageSec) storageSec.style.display = 'none';
+            if (btnMining) btnMining.style.background = '#0088cc';
+            if (btnStorage) btnStorage.style.background = '#333';
         } else {
-            miningSec.style.display = 'none';
-            storageSec.style.display = 'grid';
-            btnMining.style.background = '#333';
-            btnStorage.style.background = '#0088cc';
+            if (miningSec) miningSec.style.display = 'none';
+            if (storageSec) storageSec.style.display = 'grid';
+            if (btnMining) btnMining.style.background = '#333';
+            if (btnStorage) btnStorage.style.background = '#0088cc';
         }
     };
 
@@ -57,10 +57,13 @@
         const pData = window.PlayerData;
         if (!pData) return;
 
-        let totalBal = parseFloat(pData.balance || 0) + parseFloat(pData.unclaimed || 0);
+        let totalBal = parseFloat(pData.balance || 0);
 
-        document.getElementById('shop-balance').innerText = `ZN: ${Math.floor(pData.balance || 0).toLocaleString()}`;
-        document.getElementById('shop-rate').innerText = `⚡ ${(pData.hourly_rate || 0).toLocaleString()}/س`;
+        const shopBalEl = document.getElementById('shop-balance');
+        const shopRateEl = document.getElementById('shop-rate');
+
+        if (shopBalEl) shopBalEl.innerText = `ZN: ${Math.floor(pData.balance || 0).toLocaleString()}`;
+        if (shopRateEl) shopRateEl.innerText = `⚡ ${(pData.hourly_rate || 0).toLocaleString()}/س`;
 
         const miningSec = document.getElementById('shop-mining-section');
         const storageSec = document.getElementById('shop-storage-section');
@@ -122,10 +125,10 @@
     window.buyShopItem = async function(type, level, price) {
         const pData = window.PlayerData;
         let numPrice = parseFloat(price);
-        let totalBal = parseFloat((pData && pData.balance) || 0) + parseFloat((pData && pData.unclaimed) || 0);
+        let totalBal = parseFloat((pData && pData.balance) || 0);
 
         if (!pData || totalBal < numPrice || isBuying) {
-            if (pData && totalBal < numPrice) alert("الرصيد غير كافي!");
+            if (pData && totalBal < numPrice) alert("الرصيد غير كافي لشراء هذا التطوير!");
             return; 
         }
 
@@ -154,13 +157,14 @@
             let resData = await response.json();
 
             if (response.ok && resData.success) {
-                if (typeof window.fetchPlayerData === 'function') {
-                    await window.fetchPlayerData(); 
+                // فور استلام رد النجاح نقوم بطلب جلب البيانات المركزي الجديد
+                if (typeof window.fetchPlayerDataFromServer === 'function') {
+                    await window.fetchPlayerDataFromServer(); 
                 }
             } else {
                 alert(resData.error || "حدث خطأ أثناء الشراء.");
-                if (typeof window.fetchPlayerData === 'function') {
-                    await window.fetchPlayerData(); 
+                if (typeof window.fetchPlayerDataFromServer === 'function') {
+                    await window.fetchPlayerDataFromServer(); 
                 }
             }
         } catch (e) {
@@ -171,5 +175,6 @@
         }
     };
 
-    setTimeout(window.updateShopUI, 1000);
+    // مزامنة مبدئية بعد التحميل
+    window.updateShopUI();
 })();
