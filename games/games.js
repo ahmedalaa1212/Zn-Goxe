@@ -6,6 +6,35 @@ const wheelColors = ['#ff4d4d', '#ff9933', '#ffcc00', '#33cc33', '#3399ff', '#cc
 let pendingReward = 0; // متغير لحفظ الجائزة قبل الاستلام
 let cooldownMinutes = 3; // مدة الانتظار بالدقائق
 
+// دالة لجلب ID المستخدم من تليجرام أو استخدام معرف تجريبي
+function getTelegramId() {
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+        return window.Telegram.WebApp.initDataUnsafe.user.id;
+    }
+    return "test_user_123"; // معرف افتراضي للتجربة المحلية خارج التليجرام
+}
+
+// دالة إرسال المكافأة للسيرفر لضمان إضافتها للرصيد الحقيقي في قاعدة البيانات
+async function sendRewardToServer(tgId, amount) {
+    try {
+        const response = await fetch('/api/game_reward', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ telegramId: tgId, reward: amount })
+        });
+        const result = await response.json();
+        if (result.success) {
+            // تحديث الرصيد محلياً فوراً بالقيمة القادمة من السيرفر
+            window.userBalance = result.new_balance;
+            return true;
+        }
+        return false;
+    } catch (error) {
+        console.error("خطأ في الاتصال بالسيرفر لإرسال المكافأة:", error);
+        return false;
+    }
+}
+
 // دالة تهيئة العجلة ورسم الـ 12 قسم بالأرقام
 function initWheel() {
     const wheel = document.getElementById('spin-wheel');
@@ -100,8 +129,7 @@ window.playGame = async function(gameType) {
             let prizeIndex = Math.floor(Math.random() * 12);
             let prize = wheelPrizes[prizeIndex];
             
-            // حساب درجة الدوران لتقف العجلة عند القسم الفائز
-            // المعادلة: 360 درجة - الزاوية المركزية للقسم المختار + لفات عشوائية كثيرة (مثلا 5 لفات = 1800 درجة)
+            // حساب درجة الدوران لتقف العجلة عند القسم المختار
             let stopAngle = 360 - ((prizeIndex * 30) + 15); 
             let totalRotation = stopAngle + 1800; // 5 لفات كاملة + زاوية الوقوف
 
@@ -140,14 +168,20 @@ function showWinModal(reward) {
     document.getElementById('win-modal').style.display = "flex";
 }
 
-// دالة استلام الجائزة (عادي أو مضاعفة)
+// دالة استلام الجائزة (عادي أو مضاعفة) بالربط مع السيرفر
 window.claimReward = async function(type) {
     const modal = document.getElementById('win-modal');
+    const tgId = getTelegramId();
     
     if (type === 'normal') {
-        // في المرحلة القادمة سيتم إرسال (pendingReward) للسيرفر
-        alert(`✅ تم استلام ${pendingReward.toLocaleString()} ZN بنجاح!`);
-        modal.style.display = "none";
+        // إرسال المكافأة العادية إلى السيرفر
+        const success = await sendRewardToServer(tgId, pendingReward);
+        if (success) {
+            alert(`✅ تم استلام ${pendingReward.toLocaleString()} ZN بنجاح!`);
+            modal.style.display = "none";
+        } else {
+            alert("⚠️ حدث خطأ أثناء الاتصال بالسيرفر، يرجى المحاولة لاحقاً.");
+        }
     } 
     else if (type === 'double') {
         const btnX2 = document.getElementById('btn-claim-x2');
@@ -159,21 +193,32 @@ window.claimReward = async function(type) {
             try {
                 await window.show_11322720();
                 adWatched = true;
-            } catch(e) {}
+            } catch(e) {
+                console.error("خطأ أثناء تشغيل إعلان المضاعفة:", e);
+            }
         }
         
         if (adWatched) {
             let doubledReward = pendingReward * 2;
-            document.getElementById('win-amount').innerText = doubledReward.toLocaleString() + " ZN";
-            document.getElementById('win-amount').style.color = "#00ff00"; // تغيير اللون للأخضر كدليل ع المضاعفة
+            // إرسال المكافأة المضاعفة إلى السيرفر
+            const success = await sendRewardToServer(tgId, doubledReward);
             
-            btnX2.innerText = "✅ تمت المضاعفة بنجاح!";
-            document.getElementById('btn-claim-normal').style.display = "none";
-            
-            setTimeout(() => {
-                alert(`🎉 مبروك! تم إضافة ${doubledReward.toLocaleString()} ZN لرصيدك!`);
-                modal.style.display = "none";
-            }, 1000);
+            if (success) {
+                document.getElementById('win-amount').innerText = doubledReward.toLocaleString() + " ZN";
+                document.getElementById('win-amount').style.color = "#00ff00"; // تغيير اللون للأخضر كدليل ع المضاعفة
+                
+                btnX2.innerText = "✅ تمت المضاعفة بنجاح!";
+                document.getElementById('btn-claim-normal').style.display = "none";
+                
+                setTimeout(() => {
+                    alert(`🎉 مبروك! تم إضافة ${doubledReward.toLocaleString()} ZN لرصيدك!`);
+                    modal.style.display = "none";
+                }, 1000);
+            } else {
+                alert("⚠️ حدث خطأ أثناء إضافة المكافأة المضاعفة في السيرفر.");
+                btnX2.disabled = false;
+                btnX2.innerText = "ضاعفها x2 (إعلان 📺)";
+            }
         } else {
             alert("⚠️ لم يكتمل الإعلان، لم يتم مضاعفة المكافأة.");
             btnX2.disabled = false;
@@ -226,10 +271,31 @@ function startTimerIfActive(gameType, btnId, originalText) {
     }
 }
 
-// تحديث الرصيد العلوي
-setInterval(() => {
+// دالة لمزامنة الرصيد من السيرفر بشكل فوري ومستمر
+async function syncUserBalance() {
     const balanceElem = document.getElementById('top-balance-games');
-    if(balanceElem && window.userBalance) {
-        balanceElem.innerText = Math.floor(window.userBalance).toLocaleString() + " ZN";
+    if (!balanceElem) return;
+
+    const tgId = getTelegramId();
+    if (!tgId) return;
+
+    try {
+        const response = await fetch(`/api/user_data?telegramId=${tgId}`);
+        const result = await response.json();
+        if (result.success && result.data) {
+            // تحديث الرصيد الفعلي من قاعدة البيانات
+            window.userBalance = parseFloat(result.data.balance || 0);
+            balanceElem.innerText = Math.floor(window.userBalance).toLocaleString() + " ZN";
+        }
+    } catch (e) {
+        console.error("فشل مزامنة الرصيد:", e);
+        // في حال فشل السيرفر، نعرض الرصيد المحلي المتوفر كخطة بديلة
+        if (typeof window.userBalance !== 'undefined') {
+            balanceElem.innerText = Math.floor(window.userBalance).toLocaleString() + " ZN";
+        }
     }
-}, 2000);
+}
+
+// مزامنة الرصيد فور فتح الصفحة وكل 5 ثوانٍ تلقائياً
+setTimeout(syncUserBalance, 1000);
+setInterval(syncUserBalance, 5000);
