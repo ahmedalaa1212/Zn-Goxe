@@ -11,15 +11,12 @@ def initialize_firebase():
     if db is not None:
         return db
     
-    # جلب المتغير
     firebase_creds_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT')
-    
     if not firebase_creds_json:
         print("❌ [ERROR] FIREBASE_SERVICE_ACCOUNT is NOT SET in environment variables!")
         return None
 
     try:
-        # تنظيف محتمل لعلامات التنصيص
         creds_data = firebase_creds_json.strip()
         if (creds_data.startswith("'") and creds_data.endswith("'")) or \
            (creds_data.startswith('"') and creds_data.endswith('"')):
@@ -38,7 +35,6 @@ def initialize_firebase():
     
     return db
 
-# تشغيل التهيئة
 initialize_firebase()
 
 def create_tables():
@@ -49,14 +45,15 @@ def init_user(telegram_id):
     if db is None: initialize_firebase()
     if db is None: return
     
-    user_ref = db.collection('users').document(str(telegram_id))
+    telegram_id = str(telegram_id).strip()
+    user_ref = db.collection('users').document(telegram_id)
     try:
         doc = user_ref.get()
         if not doc.exists:
             user_data = {
-                'telegram_id': int(telegram_id),
+                'telegram_id': telegram_id,
                 'balance': 0.0,
-                'ad_balance': 0.0, # تم إضافة رصيد الإعلانات هنا أيضاً
+                'ad_balance': 0.0, 
                 'is_banned': False,
                 'last_claim_time': datetime.utcnow().isoformat(),
                 'storage_level': 0 
@@ -65,6 +62,11 @@ def init_user(telegram_id):
                 user_data[f'lvl{i}_count'] = 0
             user_ref.set(user_data)
             print(f"🚀 New user created in Firebase: {telegram_id}")
+        else:
+            # 🔥 حماية وتأكيد: لو الحساب موجود مش بنصفر الرصيد الإعلاني أبداً 🔥
+            data = doc.to_dict()
+            if 'ad_balance' not in data:
+                user_ref.update({'ad_balance': 0.0})
     except Exception as e:
         print(f"❌ Error in init_user: {e}")
 
@@ -73,10 +75,10 @@ def get_user_data(telegram_id):
     if db is None: initialize_firebase()
     if db is None: return None
     
-    # التأكد من وجود المستخدم قبل جلب البيانات
+    telegram_id = str(telegram_id).strip()
     init_user(telegram_id)
     try:
-        user_ref = db.collection('users').document(str(telegram_id))
+        user_ref = db.collection('users').document(telegram_id)
         doc = user_ref.get()
         if doc.exists:
             return doc.to_dict()
@@ -89,7 +91,8 @@ def update_balance(telegram_id, new_balance):
     global db
     if db is None: initialize_firebase()
     try:
-        db.collection('users').document(str(telegram_id)).update({'balance': float(new_balance)})
+        telegram_id = str(telegram_id).strip()
+        db.collection('users').document(telegram_id).update({'balance': float(new_balance)})
     except Exception as e:
         print(f"❌ Error in update_balance: {e}")
 
@@ -97,7 +100,8 @@ def update_upgrade_level(telegram_id, lvl_column, new_level):
     global db
     if db is None: initialize_firebase()
     try:
-        db.collection('users').document(str(telegram_id)).update({lvl_column: int(new_level)})
+        telegram_id = str(telegram_id).strip()
+        db.collection('users').document(telegram_id).update({lvl_column: int(new_level)})
     except Exception as e:
         print(f"❌ Error in update_upgrade_level: {e}")
 
@@ -105,6 +109,7 @@ def update_claim_time(telegram_id):
     global db
     if db is None: initialize_firebase()
     try:
-        db.collection('users').document(str(telegram_id)).update({'last_claim_time': datetime.utcnow().isoformat()})
+        telegram_id = str(telegram_id).strip()
+        db.collection('users').document(telegram_id).update({'last_claim_time': datetime.utcnow().isoformat()})
     except Exception as e:
         print(f"❌ Error in update_claim_time: {e}")
