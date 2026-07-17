@@ -1,6 +1,5 @@
 (function initFarm() {
     
-    // تصفير ذاكرة المتصفح لتجنب أي أرقام وهمية
     localStorage.removeItem('zn_daily_day');
     localStorage.removeItem('zn_daily_time');
     
@@ -26,46 +25,10 @@
     let claimCooldown = 0; 
     let isClaimingDaily = false;
 
+    // تم تغييرها لتعمل مع نظام المزامنة الموحد لمنع تعارض جلب البيانات
     window.fetchPlayerData = async function() {
-        try {
-            const response = await fetch(`/api/user_data?telegramId=${TELEGRAM_ID}`);
-            const result = await response.json();
-            
-            if (result.success) {
-                const dbData = result.data;
-                
-                let serverTime = new Date(dbData.server_time).getTime();
-                let clientTime = Date.now();
-                window.timeOffset = serverTime - clientTime; 
-                
-                let hRate = parseFloat(dbData.calculated_hourly_rate || 0);
-                let maxCap = parseFloat(dbData.calculated_max_cap || 10000);
-                let unclaimed = parseFloat(dbData.calculated_unclaimed || 0);
-                let bal = parseFloat(dbData.balance || 0);
-                
-                let upgs = {};
-                for(let i = 1; i <= 9; i++) {
-                    upgs[`lvl${i}`] = parseInt(dbData[`lvl${i}_count`] || 0);
-                }
-
-                window.PlayerData = {
-                    tg_id: dbData.telegram_id,
-                    balance: bal,
-                    hourly_rate: hRate,
-                    max_cap: maxCap,
-                    unclaimed: unclaimed,
-                    upgrades: upgs,
-                    storage_level: parseInt(dbData.storage_level || 0),
-                    daily_day: parseInt(dbData.daily_day || 1),
-                    last_daily_claim_time: dbData.last_daily_claim_time || "2000-01-01T00:00:00+00:00",
-                    last_claim_time: dbData.last_claim_time || new Date(serverTime).toISOString()
-                };
-                
-                window.updateFarmUI();
-                if (typeof window.updateShopUI === 'function') window.updateShopUI();
-            }
-        } catch (e) {
-            console.error("خطأ في الاتصال بالخادم:", e);
+        if (typeof window.fetchPlayerDataFromServer === 'function') {
+            await window.fetchPlayerDataFromServer();
         }
     };
 
@@ -78,8 +41,12 @@
         let unclaim = parseFloat(pData.unclaimed || 0);
         let maxC = parseFloat(pData.max_cap || 10000);
 
-        document.getElementById('farm-balance').innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
-        document.getElementById('farm-rate').innerText = `⚡ ${hRate.toLocaleString()}/س`;
+        // تحديث النصوص في شاشة المزرعة
+        const farmBalEl = document.getElementById('farm-balance');
+        const farmRateEl = document.getElementById('farm-rate');
+        
+        if (farmBalEl) farmBalEl.innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
+        if (farmRateEl) farmRateEl.innerText = `⚡ ${hRate.toLocaleString()}/س`;
         
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
@@ -198,6 +165,7 @@
         container.innerHTML = html;
     }
 
+    // عداد التعدين بالثانية المحلي
     setInterval(() => {
         const pData = window.PlayerData;
         if (!pData) return;
@@ -268,14 +236,13 @@
         }
     }, 1000);
 
-    // 🟢 دالة عرض إعلانات Monetag (تعديل كود Rewarded Interstitial الصحيح) 🟢
+    // دالة عرض إعلانات Monetag (Rewarded Interstitial)
     function showTelegramAd() {
         return new Promise((resolve) => {
-            // فحص إذا كان المتصفح أو تطبيق حظر الإعلانات قد منع تحميل دالة Monetag
             if (typeof window.show_11322720 !== 'function') {
-                console.warn("[Monetag] مكتبة الإعلانات محظورة بواسطة الجهاز (AdBlocker أو VPN).");
+                console.warn("[Monetag] الإعلانات محجوبة بواسطة مانع الإعلانات.");
                 if (window.Telegram && window.Telegram.WebApp) {
-                    window.Telegram.WebApp.showAlert("⚠️ يبدو أنك تستخدم مانع إعلانات (AdBlocker) أو تطبيق VPN يحظر الإعلانات. يرجى إيقافه لتتمكن من مشاهدة الإعلان والحصول على المكافأة!");
+                    window.Telegram.WebApp.showAlert("⚠️ يرجى إيقاف مانع الإعلانات (AdBlocker) أو الـ VPN لمشاهدة الإعلان والحصول على المكافأة!");
                 } else {
                     alert("⚠️ يرجى إيقاف مانع الإعلانات بالجهاز للحصول على المكافأة!");
                 }
@@ -284,21 +251,18 @@
             }
 
             try {
-                // استدعاء إعلان Monetag Rewarded Interstitial بالكود الصحيح
                 window.show_11322720().then(() => {
-                    console.log("[Monetag] شاهد المستخدم الإعلان بنجاح للنهاية");
                     resolve(true); 
                 }).catch((e) => {
-                    console.error("[Monetag] خطأ أو تم إغلاق الإعلان قبل الاكتمال", e);
                     if (window.Telegram && window.Telegram.WebApp) {
-                        window.Telegram.WebApp.showAlert("⚠️ يجب عليك مشاهدة الإعلان كاملاً وبدون تخطي للحصول على المكافأة!");
+                        window.Telegram.WebApp.showAlert("⚠️ يجب مشاهدة الإعلان بالكامل دون تخطي للحصول على المكافأة!");
                     } else {
-                        alert("⚠️ يجب عليك مشاهدة الإعلان كاملاً وبدون تخطي للحصول على المكافأة!");
+                        alert("⚠️ يجب مشاهدة الإعلان بالكامل للحصول على المكافأة!");
                     }
                     resolve(false); 
                 });
             } catch (err) {
-                console.error("[Monetag] Execution Error:", err);
+                console.error("[Monetag] Error:", err);
                 resolve(false);
             }
         });
@@ -329,7 +293,9 @@
                     const successMsg = `🎉 مبروك! لقد استلمت ${resData.reward.toLocaleString()} ZN بنجاح!`;
                     if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(successMsg);
                     else alert(successMsg);
-                    await window.fetchPlayerData(); 
+                    
+                    // استدعاء جلب البيانات المركزي والموحد فوراً
+                    await window.fetchPlayerDataFromServer(); 
                 } else {
                     const errMsg = resData.error || "عفواً، لا يمكنك استلام المكافأة الآن.";
                     if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(errMsg);
@@ -376,7 +342,8 @@
                 });
                 
                 if (response.ok) {
-                    await window.fetchPlayerData(); 
+                    // استدعاء جلب البيانات المركزي فوراً بعد التجميع
+                    await window.fetchPlayerDataFromServer(); 
                     claimCooldown = 60; 
                 } else {
                     if (claimBtn) {
@@ -399,5 +366,6 @@
         }
     };
 
-    window.fetchPlayerData();
+    // تشغيل التحديث فور قراءة المودول
+    window.updateFarmUI();
 })();
