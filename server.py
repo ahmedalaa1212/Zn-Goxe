@@ -53,7 +53,7 @@ def make_aware(dt):
     return dt
 
 def get_user_ref(tg_id):
-    return db.collection('users').document(str(tg_id))
+    return db.collection('users').document(str(tg_id).strip())
 
 def get_user_mining_rate(user_data):
     hourly_rate = 0.0
@@ -92,11 +92,13 @@ def get_user_data():
     if not telegram_id or not db:
         return jsonify({'success': False, 'error': 'Missing ID'}), 400
     
+    telegram_id = str(telegram_id).strip()
     doc = get_user_ref(telegram_id).get()
     now_iso = datetime.now(timezone.utc).isoformat()
+    
     if not doc.exists:
         new_user = {
-            "telegram_id": str(telegram_id),
+            "telegram_id": telegram_id,
             "balance": 0.0,
             "ad_balance": 0.0, 
             "is_banned": False,
@@ -113,6 +115,8 @@ def get_user_data():
         if 'ad_balance' not in user_data:
             user_data['ad_balance'] = 0.0
             get_user_ref(telegram_id).update({'ad_balance': 0.0})
+        else:
+            user_data['ad_balance'] = safe_float(user_data.get('ad_balance', 0.0))
         
     response_data = user_data.copy()
     
@@ -130,9 +134,11 @@ def get_user_data():
 
 @app.route('/api/claim', methods=['POST'])
 def claim():
-    data = request.get_json()
-    telegram_id = str(data.get('telegramId'))
+    data = request.get_json() or {}
+    telegram_id = data.get('telegramId')
     if not telegram_id: return jsonify({'success': False}), 400
+    
+    telegram_id = str(telegram_id).strip()
 
     try:
         user_ref = get_user_ref(telegram_id)
@@ -158,9 +164,11 @@ def claim():
 
 @app.route('/api/daily_claim', methods=['POST'])
 def daily_claim():
-    data = request.get_json()
-    telegram_id = str(data.get('telegramId'))
+    data = request.get_json() or {}
+    telegram_id = data.get('telegramId')
     if not telegram_id: return jsonify({'success': False}), 400
+    
+    telegram_id = str(telegram_id).strip()
 
     try:
         user_ref = get_user_ref(telegram_id)
@@ -202,23 +210,18 @@ def execute_upgrade_transaction(transaction, user_ref, upg_type, level_num):
     if not doc.exists: return False, 'المستخدم غير موجود'
         
     user_data = doc.to_dict()
-    
-    # 🔴 التعديل الأول: سحب الرصيد الفعلي فقط لعدم المساس بالرصيد المتخزن في التعدين
     current_balance = safe_float(user_data.get('balance', 0))
     
     price = SHOP_CONFIG.get(upg_type, {}).get(level_num)
     if price is None: return False, 'مستوى غير صالح'
     price = float(price)
-        
-    now_iso = datetime.now(timezone.utc).isoformat()
     
     if current_balance < price:
-        transaction.update(user_ref, {'balance': current_balance, 'last_claim_time': now_iso})
         return False, 'الرصيد غير كافي!'
         
+    # 🔴 تعديل: تم إلغاء تحديث last_claim_time نهائياً لعدم المساس بالمخزن
     updates = {
-        'balance': current_balance - price,
-        'last_claim_time': now_iso
+        'balance': current_balance - price
     }
     
     if upg_type == 'mining':
@@ -236,13 +239,15 @@ def execute_upgrade_transaction(transaction, user_ref, upg_type, level_num):
 
 @app.route('/api/upgrade', methods=['POST'])
 def upgrade():
-    data = request.get_json()
-    telegram_id = str(data.get('telegramId') or data.get('tg_id'))
+    data = request.get_json() or {}
+    telegram_id = data.get('telegramId') or data.get('tg_id')
     upg_type = data.get('type') 
     level_num = safe_int(data.get('level_num'))
 
     if not telegram_id or not upg_type or not level_num:
         return jsonify({'success': False, 'error': 'بيانات ناقصة'}), 400
+        
+    telegram_id = str(telegram_id).strip()
 
     try:
         transaction = db.transaction()
@@ -257,12 +262,14 @@ def upgrade():
 
 @app.route('/api/game_reward', methods=['POST'])
 def game_reward():
-    data = request.get_json()
-    telegram_id = str(data.get('telegramId'))
+    data = request.get_json() or {}
+    telegram_id = data.get('telegramId')
     reward = safe_float(data.get('reward'))
 
     if not telegram_id or reward <= 0:
         return jsonify({'success': False, 'error': 'بيانات غير صالحة'}), 400
+        
+    telegram_id = str(telegram_id).strip()
 
     try:
         user_ref = get_user_ref(telegram_id)
@@ -272,7 +279,6 @@ def game_reward():
         user_data = doc.to_dict()
         current_balance = safe_float(user_data.get('balance', 0))
         
-        # التحديث في الداتابيز
         new_balance = current_balance + reward
         user_ref.update({'balance': new_balance})
         
@@ -282,11 +288,13 @@ def game_reward():
 
 @app.route('/api/convert_adzn', methods=['POST'])
 def convert_adzn():
-    data = request.get_json()
-    tg_id = str(data.get('telegramId'))
+    data = request.get_json() or {}
+    tg_id = data.get('telegramId')
     amount = safe_float(data.get('amount'))
 
-    if amount <= 0: return jsonify({'success': False, 'error': 'مبلغ غير صالح'}), 400
+    if not tg_id or amount <= 0: return jsonify({'success': False, 'error': 'مبلغ غير صالح'}), 400
+    
+    tg_id = str(tg_id).strip()
 
     try:
         transaction = db.transaction()
@@ -298,23 +306,20 @@ def convert_adzn():
             if not doc.exists: return False, 'المستخدم غير موجود'
             
             user_data = doc.to_dict()
-            
-            # 🔴 التعديل الثاني: منع سحب رصيد التعدين أثناء التحويل
             current_balance = safe_float(user_data.get('balance', 0))
-            
             current_ad_balance = safe_float(user_data.get('ad_balance', 0))
 
             if current_balance < amount:
-                return False, 'رصيد ZN غير كافي للتحويل (يجب تجميع التعدين أولاً)'
+                return False, 'رصيد ZN غير كافي للتحويل'
 
             new_balance = current_balance - amount
             received_adzn = amount * 0.90
             new_ad_balance = current_ad_balance + received_adzn
 
+            # 🔴 تعديل: تم حذف تحديث last_claim_time لضمان بقاء رصيد المزرعة كما هو دون تصفير
             transaction.update(user_ref, {
                 'balance': new_balance,
-                'ad_balance': new_ad_balance,
-                'last_claim_time': datetime.now(timezone.utc).isoformat()
+                'ad_balance': new_ad_balance
             })
             return True, received_adzn
 
@@ -328,8 +333,8 @@ def convert_adzn():
 
 @app.route('/api/create_campaign', methods=['POST'])
 def create_campaign():
-    data = request.get_json()
-    tg_id = str(data.get('telegramId'))
+    data = request.get_json() or {}
+    tg_id = data.get('telegramId')
     platform = data.get('platform')
     url = data.get('url')
     reward = safe_float(data.get('reward'))
@@ -337,8 +342,10 @@ def create_campaign():
 
     total_cost = reward * users_needed
 
-    if total_cost <= 0 or not url:
+    if not tg_id or total_cost <= 0 or not url:
         return jsonify({'success': False, 'error': 'بيانات الحملة غير مكتملة'}), 400
+        
+    tg_id = str(tg_id).strip()
 
     try:
         transaction = db.transaction()
@@ -383,11 +390,15 @@ def get_campaigns():
     try:
         camps = db.collection('campaigns').where('active', '==', True).get()
         results = []
+        
+        telegram_id = str(tg_id).strip() if tg_id else ""
+        
         for c in camps:
             c_data = c.to_dict()
             completed_by = c_data.get('completed_by', [])
             
-            if tg_id not in completed_by and c_data.get('creator_id') != tg_id:
+            # 🔴 تعديل: قمنا بحذف شرط حجب صاحب الإعلان ليظهر لك إعلانك في قائمة المهام عند تجربة الحساب
+            if telegram_id not in completed_by:
                 results.append({
                     'id': c.id,
                     'platform': c_data.get('platform'),
@@ -395,18 +406,19 @@ def get_campaigns():
                     'reward': c_data.get('reward')
                 })
         
-        # 🔴 التعديل الثالث: ترتيب الإعلانات تنازلياً حسب المكافأة (الأغلى يظهر أولاً)
         results.sort(key=lambda x: x['reward'], reverse=True)
-        
         return jsonify({'success': True, 'campaigns': results}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/complete_task', methods=['POST'])
 def complete_task():
-    data = request.get_json()
-    tg_id = str(data.get('telegramId'))
+    data = request.get_json() or {}
+    tg_id = data.get('telegramId')
     task_id = data.get('taskId')
+
+    if not tg_id or not task_id: return jsonify({'success': False, 'error': 'بيانات ناقصة'}), 400
+    tg_id = str(tg_id).strip()
 
     try:
         transaction = db.transaction()
