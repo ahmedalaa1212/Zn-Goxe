@@ -81,10 +81,12 @@ def calculate_user_harvest(user_data):
     return min(unclaimed, float(max_cap))
 
 @app.route('/')
-def index(): return send_from_directory('.', 'index.html')
+def index(): 
+    return send_from_directory('.', 'index.html')
 
 @app.route('/<path:filename>')
-def serve_static(filename): return send_from_directory('.', filename)
+def serve_static(filename): 
+    return send_from_directory('.', filename)
 
 @app.route('/api/user_data', methods=['GET'])
 def get_user_data():
@@ -156,6 +158,124 @@ def claim():
             'last_claim_time': now_iso
         })
         return jsonify({'success': True, 'claimed': unclaimed}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/daily_claim', methods=['POST'])
+def daily_claim():
+    data = request.get_json() or {}
+    telegram_id = data.get('telegramId')
+    if not telegram_id: return jsonify({'success': False}), 400
+    
+    telegram_id = str(telegram_id).strip()
+    try:
+        user_ref = get_user_ref(telegram_id)
+        doc = user_ref.get()
+        if not doc.exists: return jsonify({'success': False, 'error': 'User not found'}), 404
+            
+        user_data = doc.to_dict()
+        last_daily_str = user_data.get('last_daily_claim_time', "2000-01-01T00:00:00+00:00")
+        try: 
+            last_daily = datetime.fromisoformat(str(last_daily_str))
+            last_daily = make_aware(last_daily)
+        except ValueError: 
+            last_daily = make_aware(datetime.fromisoformat("2000-01-01T00:00:00+00:00"))
+            
+        now = datetime.now(timezone.utc)
+        
+        if (now - last_daily).total_seconds() < 86400:
+            return jsonify({'success': False, 'error': 'لم تمر 24 ساعة بعد!'}), 400
+            
+        current_day = safe_int(user_data.get('daily_day', 1))
+        reward = safe_float(GAME_CONFIG['dailyRewards'].get(current_day, 3000))
+        
+        next_day = current_day + 1 if current_day < 7 else 1
+        current_balance = safe_float(user_data.get('balance', 0))
+        
+        user_ref.update({
+            'balance': current_balance + reward,
+            'daily_day': next_day,
+            'last_daily_claim_time': now.isoformat()
+        })
+        return jsonify({'success': True, 'reward': reward}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@firestore.transactional
+def execute_upgrade_transaction(transaction, user_ref, upg_type, level_num):
+    doc = user_ref.get(transaction=transaction)
+    if not doc.exists: return False, 'المستخدم غير موجود'
+        
+    user_data = doc.to_dict()
+    current_balance = safe_float(user_data.get('balance', 0))
+    
+    price = SHOP_CONFIG.get(upg_type, {}).get(level_num)
+    if price is None: return False, 'مستوى غير صالح'
+    price = float(price)
+    
+    if current_balance < price:
+        return False, 'الرصيد غير كافي!'
+        
+    updates = {
+        'balance': current_balance - price
+    }
+    
+    if upg_type == 'mining':
+        field_name = f'lvl{level_num}_count'
+        current_count = safe_int(user_data.get(field_name, 0))
+        if current_count >= 15: return False, 'وصلت للحد الأقصى'
+        updates[field_name] = current_count + 1
+    elif upg_type == 'storage':
+        if level_num <= safe_int(user_data.get('storage_level', 0)):
+            return False, 'تم شراء هذا المخزن مسبقاً'
+        updates['storage_level'] = level_num
+        
+    transaction.update(user_ref, updates)
+    return True, 'تم الشراء بنجاح'
+
+@app.route('/api/upgrade', methods=['POST'])
+def upgrade():
+    data = request.get_json() or {}
+    telegram_id = data.get('telegramId') or data.get('tg_id')
+    upg_type = data.get('type') 
+    level_num = safe_int(data.get('level_num'))
+
+    if not telegram_id or not upg_type or not level_num:
+        return jsonify({'success': False, 'error': 'بيانات ناقصة'}), 400
+        
+    telegram_id = str(telegram_id).strip()
+    try:
+        transaction = db.transaction()
+        user_ref = get_user_ref(telegram_id)
+        success, message = execute_upgrade_transaction(transaction, user_ref, upg_type, level_num)
+        
+        if success: return jsonify({'success': True}), 200
+        else: return jsonify({'success': False, 'error': message}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/game_reward', methods=['POST'])
+def game_reward():
+    data = request.get_json() or {}
+    telegram_id = data.get('telegramId')
+    reward = safe_float(data.get('reward'))
+
+    if not telegram_id or reward <= 0:
+        return jsonify({'success': False, 'error': 'بيانات غير صالحة'}), 400
+        
+    telegram_id = str(telegram_id).strip()
+    try:
+        user_ref = get_user_ref(telegram_id)
+        doc = user_ref.get()
+        if not doc.exists: return jsonify({'success': False, 'error': 'المستخدم غير موجود'}), 404
+
+        user_data = doc.to_dict()
+        current_balance = safe_float(user_data.get('balance', 0))
+        
+        new_balance = current_balance + reward
+        user_ref.update({'balance': new_balance})
+        
+        return jsonify({'success': True, 'new_balance': new_balance}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -299,15 +419,13 @@ def cancel_campaign():
         if not camp_data.get('active', False):
             return jsonify({'success': False, 'error': 'الحملة غير نشطة بالفعل'}), 400
 
-        # احتساب المتبقي لاسترداده
         users_needed = safe_int(camp_data.get('users_needed', 0))
         users_completed = safe_int(camp_data.get('users_completed', 0))
         remaining_users = max(0, users_needed - users_completed)
         reward = safe_float(camp_data.get('reward', 0))
         
-        refund_amount = (remaining_users * reward) * 0.90 # خصم 10% عمولة إلغاء
+        refund_amount = (remaining_users * reward) * 0.90 
 
-        # استرداد وإغلاق الحملة
         user_ref = get_user_ref(tg_id)
         user_doc = user_ref.get()
         if user_doc.exists:
