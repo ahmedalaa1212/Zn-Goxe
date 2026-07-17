@@ -98,6 +98,7 @@ def get_user_data():
         new_user = {
             "telegram_id": str(telegram_id),
             "balance": 0.0,
+            "ad_balance": 0.0, # رصيد الإعلانات AdZN الجديد
             "is_banned": False,
             "last_claim_time": now_iso,
             "storage_level": 0,
@@ -109,6 +110,10 @@ def get_user_data():
         user_data = new_user
     else:
         user_data = doc.to_dict()
+        # التأكد من وجود رصيد الإعلانات للمستخدمين القدامى
+        if 'ad_balance' not in user_data:
+            user_data['ad_balance'] = 0.0
+            get_user_ref(telegram_id).update({'ad_balance': 0.0})
         
     response_data = user_data.copy()
     
@@ -248,6 +253,207 @@ def upgrade():
         else: return jsonify({'success': False, 'error': message}), 400
     except Exception as e:
         print(f"Upgrade Error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ----------------- أجزاء الألعاب والمهام الجديدة ----------------- #
+
+@app.route('/api/game_reward', methods=['POST'])
+def game_reward():
+    data = request.get_json()
+    telegram_id = str(data.get('telegramId'))
+    reward = safe_float(data.get('reward'))
+
+    if not telegram_id or reward <= 0:
+        return jsonify({'success': False, 'error': 'بيانات غير صالحة'}), 400
+
+    try:
+        user_ref = get_user_ref(telegram_id)
+        doc = user_ref.get()
+        if not doc.exists: return jsonify({'success': False, 'error': 'المستخدم غير موجود'}), 404
+
+        user_data = doc.to_dict()
+        current_balance = safe_float(user_data.get('balance', 0))
+        
+        user_ref.update({'balance': current_balance + reward})
+        return jsonify({'success': True, 'new_balance': current_balance + reward}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/convert_adzn', methods=['POST'])
+def convert_adzn():
+    data = request.get_json()
+    tg_id = str(data.get('telegramId'))
+    amount = safe_float(data.get('amount')) # المبلغ المراد تحويله من ZN
+
+    if amount <= 0: return jsonify({'success': False, 'error': 'مبلغ غير صالح'}), 400
+
+    try:
+        transaction = db.transaction()
+        user_ref = get_user_ref(tg_id)
+        
+        @firestore.transactional
+        def process_conversion(transaction, user_ref):
+            doc = user_ref.get(transaction=transaction)
+            if not doc.exists: return False, 'المستخدم غير موجود'
+            
+            user_data = doc.to_dict()
+            unclaimed = calculate_user_harvest(user_data)
+            current_balance = safe_float(user_data.get('balance', 0)) + unclaimed
+            current_ad_balance = safe_float(user_data.get('ad_balance', 0))
+
+            if current_balance < amount:
+                return False, 'رصيد ZN غير كافي للتحويل'
+
+            new_balance = current_balance - amount
+            received_adzn = amount * 0.90  # خصم عمولة 10%
+            new_ad_balance = current_ad_balance + received_adzn
+
+            transaction.update(user_ref, {
+                'balance': new_balance,
+                'ad_balance': new_ad_balance,
+                'last_claim_time': datetime.now(timezone.utc).isoformat()
+            })
+            return True, received_adzn
+
+        success, result = process_conversion(transaction, user_ref)
+        if success:
+            return jsonify({'success': True, 'received': result})
+        else:
+            return jsonify({'success': False, 'error': result}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/create_campaign', methods=['POST'])
+def create_campaign():
+    data = request.get_json()
+    tg_id = str(data.get('telegramId'))
+    platform = data.get('platform')
+    url = data.get('url')
+    reward = safe_float(data.get('reward'))
+    users_needed = safe_int(data.get('users_needed'))
+
+    total_cost = reward * users_needed
+
+    if total_cost <= 0 or not url:
+        return jsonify({'success': False, 'error': 'بيانات الحملة غير مكتملة'}), 400
+
+    try:
+        transaction = db.transaction()
+        user_ref = get_user_ref(tg_id)
+
+        @firestore.transactional
+        def process_campaign(transaction, user_ref):
+            doc = user_ref.get(transaction=transaction)
+            if not doc.exists: return False, 'المستخدم غير موجود'
+            
+            ad_balance = safe_float(doc.to_dict().get('ad_balance', 0))
+            if ad_balance < total_cost:
+                return False, 'رصيد الإعلانات AdZN غير كافي'
+            
+            transaction.update(user_ref, {'ad_balance': ad_balance - total_cost})
+            return True, None
+
+        success, error_msg = process_campaign(transaction, user_ref)
+        if not success:
+            return jsonify({'success': False, 'error': error_msg}), 400
+
+        # تسجيل الحملة في قاعدة البيانات
+        camp_ref = db.collection('campaigns').document()
+        camp_ref.set({
+            'creator_id': tg_id,
+            'platform': platform,
+            'url': url,
+            'reward': reward,
+            'users_needed': users_needed,
+            'users_completed': 0,
+            'completed_by': [],
+            'active': True,
+            'created_at': datetime.now(timezone.utc).isoformat()
+        })
+
+        return jsonify({'success': True, 'message': 'تم إطلاق الحملة بنجاح 🚀'}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/get_campaigns', methods=['GET'])
+def get_campaigns():
+    tg_id = request.args.get('telegramId')
+    try:
+        # نجلب الحملات النشطة فقط
+        camps = db.collection('campaigns').where('active', '==', True).get()
+        results = []
+        for c in camps:
+            c_data = c.to_dict()
+            completed_by = c_data.get('completed_by', [])
+            
+            # لا تظهر الحملة إذا كان المستخدم هو صانعها أو قام بتنفيذها مسبقاً
+            if tg_id not in completed_by and c_data.get('creator_id') != tg_id:
+                results.append({
+                    'id': c.id,
+                    'platform': c_data.get('platform'),
+                    'url': c_data.get('url'),
+                    'reward': c_data.get('reward')
+                })
+        return jsonify({'success': True, 'campaigns': results}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/complete_task', methods=['POST'])
+def complete_task():
+    data = request.get_json()
+    tg_id = str(data.get('telegramId'))
+    task_id = data.get('taskId')
+
+    try:
+        transaction = db.transaction()
+        user_ref = get_user_ref(tg_id)
+        task_ref = db.collection('campaigns').document(task_id)
+
+        @firestore.transactional
+        def complete_task_txn(transaction, user_ref, task_ref):
+            user_doc = user_ref.get(transaction=transaction)
+            task_doc = task_ref.get(transaction=transaction)
+
+            if not user_doc.exists or not task_doc.exists:
+                return False, 'بيانات غير موجودة'
+
+            task_data = task_doc.to_dict()
+            completed_by = task_data.get('completed_by', [])
+            
+            if tg_id in completed_by:
+                return False, 'لقد قمت بتنفيذ هذه المهمة مسبقاً'
+            
+            users_completed = safe_int(task_data.get('users_completed', 0))
+            users_needed = safe_int(task_data.get('users_needed', 0))
+
+            if users_completed >= users_needed or not task_data.get('active', False):
+                return False, 'عذراً، انتهت هذه الحملة'
+
+            reward = safe_float(task_data.get('reward', 0))
+            
+            # تحديث بيانات الحملة
+            completed_by.append(tg_id)
+            task_updates = {
+                'completed_by': completed_by,
+                'users_completed': users_completed + 1
+            }
+            if users_completed + 1 >= users_needed:
+                task_updates['active'] = False # إغلاق الحملة عند اكتمال العدد
+            
+            transaction.update(task_ref, task_updates)
+
+            # إضافة المكافأة للمستخدم (ZN)
+            current_balance = safe_float(user_doc.to_dict().get('balance', 0))
+            transaction.update(user_ref, {'balance': current_balance + reward})
+            
+            return True, reward
+
+        success, result = complete_task_txn(transaction, user_ref, task_ref)
+        if success:
+            return jsonify({'success': True, 'reward': result}), 200
+        else:
+            return jsonify({'success': False, 'error': result}), 400
+    except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/adsgram-reward', methods=['GET'])
