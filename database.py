@@ -55,10 +55,11 @@ def init_user(telegram_id):
         if not doc.exists:
             user_data = {
                 'telegram_id': int(telegram_id),
-                'balance': 0,
+                'balance': 0.0,
+                'ad_balance': 0.0, # تم إضافة رصيد الإعلانات هنا أيضاً
                 'is_banned': False,
                 'last_claim_time': datetime.utcnow().isoformat(),
-                'storage_level': 0  # أضفتها عشان نتجنب الخطأ في السيرفر
+                'storage_level': 0 
             }
             for i in range(1, 11):
                 user_data[f'lvl{i}_count'] = 0
@@ -88,7 +89,7 @@ def update_balance(telegram_id, new_balance):
     global db
     if db is None: initialize_firebase()
     try:
-        db.collection('users').document(str(telegram_id)).update({'balance': int(new_balance)})
+        db.collection('users').document(str(telegram_id)).update({'balance': float(new_balance)})
     except Exception as e:
         print(f"❌ Error in update_balance: {e}")
 
