@@ -28,7 +28,7 @@
 <body>
 
     <div id="app">
-        <!-- تم إضافة الأقسام الجديدة هنا -->
+        <!-- الأقسام المختلفة للبوت -->
         <div id="view-friends" class="game-view"></div>
         <div id="view-wallet" class="game-view"></div>
         <div id="view-tasks" class="game-view"></div>
@@ -66,7 +66,7 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     
     <script>
-        // هذه الدالة ستقوم بسحب تصميمات الـ HTML من مجلداتك وعرضها
+        // دالة سحب وتحميل ملفات الـ HTML والـ JS وتجهيز المزامنة
         async function loadAllViews() {
             const views = [
                 { id: 'view-friends', path: 'friends/friends.html' },
@@ -78,7 +78,7 @@
                 { id: 'view-settings', path: 'settings/settings.html' }
             ];
 
-            // 1. جلب محتوى التصميمات (HTML) أولاً
+            // 1. جلب محتوى التصميمات (HTML) وتثبيتها في الصفحة
             for (let view of views) {
                 try {
                     let response = await fetch(view.path);
@@ -93,35 +93,45 @@
                 }
             }
 
-            // 2. بعد ظهور التصميمات بالكامل، نقوم بتحميل ملفات الـ JS لتعمل الأزرار والبيانات
-            const scripts = [
-                'game.js',
-                'friends/friends.js',
-                'wallet/wallet.js',
-                'tasks/tasks.js',
-                'farm/farm.js',
-                'games/games.js',
-                'shop/shop.js',
-                'settings/settings.js'
-            ];
+            // 2. تحميل ملف game.js الرئيسي أولاً لإنشاء كائن PlayerData المركزي
+            let mainScript = document.createElement('script');
+            mainScript.src = 'game.js';
+            mainScript.onload = () => {
+                // بعد اكتمال تحميل game.js الرئيسي، نقوم بتحميل باقي الملفات الفرعية
+                const scripts = [
+                    'friends/friends.js',
+                    'wallet/wallet.js',
+                    'tasks/tasks.js',
+                    'farm/farm.js',
+                    'games/games.js',
+                    'shop/shop.js',
+                    'settings/settings.js'
+                ];
 
-            for (let jsPath of scripts) {
-                let script = document.createElement('script');
-                script.src = jsPath;
-                document.body.appendChild(script);
-            }
+                scripts.forEach(jsPath => {
+                    let script = document.createElement('script');
+                    script.src = jsPath;
+                    document.body.appendChild(script);
+                });
+            };
+            document.body.appendChild(mainScript);
         }
 
-        // تشغيل كل شيء بمجرد فتح التطبيق
+        // تشغيل البوت بمجرد فتح التطبيق
         document.addEventListener('DOMContentLoaded', loadAllViews);
 
-        // دالة التنقل
+        // دالة التنقل السلس بين الأقسام
         function switchView(viewName) {
             document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
             document.getElementById(`view-${viewName}`).classList.add('active');
             
             document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
             document.getElementById(`nav-${viewName}`).classList.add('active');
+
+            // عند التنقل يتم إجبار الواجهة على التحديث طبقاً للبيانات المركزية الحالية
+            if (typeof window.triggerAllUIUpdates === 'function') {
+                window.triggerAllUIUpdates();
+            }
         }
     </script>
 </body>
