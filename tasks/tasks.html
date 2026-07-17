@@ -1,1 +1,54 @@
+<div class="tasks-container" style="padding: 10px; padding-bottom: 20px;">
+    
+    <!-- التبديل بين اكسب وروّج -->
+    <div style="display: flex; background: #1c1c1c; border-radius: 10px; margin-bottom: 20px; padding: 5px; border: 1px solid #333;">
+        <button id="btn-tab-earn" onclick="switchTaskTab('earn')" style="flex: 1; padding: 10px; background: #0088cc; color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 14px; cursor: pointer; transition: 0.3s;">اكسب ZN 💰</button>
+        <button id="btn-tab-promote" onclick="switchTaskTab('promote')" style="flex: 1; padding: 10px; background: transparent; color: #888; border: none; font-weight: bold; font-size: 14px; cursor: pointer; transition: 0.3s;">روّج لقناتك 📢</button>
+    </div>
+
+    <!-- قسم: اكسب ZN -->
+    <div id="section-earn">
+        <h3 style="color: #ffcc00; margin-bottom: 15px; font-size: 16px;">المهمات المتاحة</h3>
+        <div id="tasks-list">
+            <!-- سيتم إضافة المهام هنا برمجياً -->
+            <div style="text-align: center; color: #888; padding: 20px; font-size: 14px;">جاري تحميل المهام... ⏳</div>
+        </div>
+    </div>
+
+    <!-- قسم: روّج لقناتك -->
+    <div id="section-promote" style="display: none;">
+        <!-- رصيد الإعلانات -->
+        <div style="background: linear-gradient(135deg, #1e1e1e, #2a2a2a); border: 1px solid #0088cc; border-radius: 10px; padding: 15px; margin-bottom: 20px; text-align: center; box-shadow: 0 0 10px rgba(0, 136, 204, 0.2);">
+            <div style="color: #aaa; font-size: 12px; margin-bottom: 5px;">رصيد الإعلانات الخاص بك (Ad Balance)</div>
+            <div id="ad-balance-display" style="color: #fff; font-size: 24px; font-weight: bold; margin-bottom: 10px;">0 ZN</div>
+            <button onclick="openConvertModal()" style="background: #0088cc; color: white; border: none; border-radius: 5px; padding: 8px 15px; font-size: 12px; font-weight: bold; cursor: pointer;">تحويل من رصيد التعدين 🔄</button>
+            <div style="color: #ff4444; font-size: 10px; margin-top: 5px;">*عمولة التحويل 10% لضمان اقتصاد اللعبة</div>
+        </div>
+
+        <h3 style="color: #ffcc00; margin-bottom: 15px; font-size: 16px;">إنشاء حملة جديدة</h3>
+        
+        <div style="background: #1c1c1c; border: 1px solid #333; border-radius: 10px; padding: 15px;">
+            <label style="color: #888; font-size: 12px;">رابط قناتك أو جروبك:</label>
+            <input type="text" id="task-url" placeholder="https://t.me/yourchannel" style="width: 100%; background: #121212; border: 1px solid #444; color: white; padding: 10px; border-radius: 5px; margin-top: 5px; margin-bottom: 15px;" dir="ltr">
+
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <div style="flex: 1;">
+                    <label style="color: #888; font-size: 12px;">مكافأة كل شخص (ZN):</label>
+                    <input type="number" id="task-reward" placeholder="مثال: 1000" oninput="calculateTaskCost()" style="width: 100%; background: #121212; border: 1px solid #444; color: white; padding: 10px; border-radius: 5px; margin-top: 5px;">
+                </div>
+                <div style="flex: 1;">
+                    <label style="color: #888; font-size: 12px;">عدد الأشخاص المطلوب:</label>
+                    <input type="number" id="task-users" placeholder="مثال: 50" oninput="calculateTaskCost()" style="width: 100%; background: #121212; border: 1px solid #444; color: white; padding: 10px; border-radius: 5px; margin-top: 5px;">
+                </div>
+            </div>
+
+            <div style="background: #222; padding: 10px; border-radius: 5px; text-align: center; margin-bottom: 15px;">
+                <span style="color: #888; font-size: 12px;">التكلفة الإجمالية: </span>
+                <span id="task-total-cost" style="color: #ffcc00; font-weight: bold; font-size: 16px;">0 ZN</span>
+            </div>
+
+            <button onclick="createNewTask()" style="width: 100%; padding: 12px; background: linear-gradient(90deg, #28a745, #218838); color: white; border: none; border-radius: 8px; font-weight: bold; font-size: 14px; cursor: pointer;">إطلاق الحملة 🚀</button>
+        </div>
+    </div>
+</div>
 
