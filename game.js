@@ -4,6 +4,7 @@
 window.PlayerData = {
     tg_id: null,
     balance: 0,
+    ad_balance: 0, // 🔥 تم إضافة رصيد الإعلانات هنا لتتبعه
     hourly_rate: 0,
     max_cap: 10000,
     unclaimed: 0,
@@ -35,6 +36,8 @@ window.fetchPlayerDataFromServer = async function() {
                 }
 
                 window.PlayerData.balance = parseFloat(dbData.balance || 0);
+                // 🔥 السطر السحري اللي كان ناقص: قراءة رصيد الإعلانات من الداتابيز
+                window.PlayerData.ad_balance = parseFloat(dbData.ad_balance || 0); 
                 window.PlayerData.hourly_rate = parseFloat(dbData.calculated_hourly_rate || dbData.hourly_rate || 0);
                 window.PlayerData.max_cap = parseFloat(dbData.calculated_max_cap || dbData.max_cap || 10000);
                 window.PlayerData.unclaimed = parseFloat(dbData.calculated_unclaimed || dbData.unclaimed || 0);
@@ -66,12 +69,14 @@ window.triggerAllUIUpdates = function() {
     if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
     if (typeof window.updateShopUI === 'function') window.updateShopUI();
     if (typeof window.updateGamesUI === 'function') window.updateGamesUI();
+    // 🔥 ربط شاشة المهام بالتحديث المركزي
+    if (typeof window.updateTasksUI === 'function') window.updateTasksUI(); 
 
     const formattedBalance = Math.floor(pData.balance).toLocaleString();
     
     const possibleBalanceIds = [
         'farm-balance', 'shop-balance', 'top-balance-games', 
-        'top-balance-farm', 'top-balance-shop', 'main-balance', 'user-balance'
+        'top-balance-farm', 'top-balance-shop', 'main-balance', 'user-balance', 'top-balance-tasks'
     ];
 
     possibleBalanceIds.forEach(id => {
@@ -96,6 +101,13 @@ window.triggerAllUIUpdates = function() {
             el.innerText = formattedBalance;
         }
     });
+
+    // 🔥 تحديث رصيد الإعلانات بشكل قسري في أي مكان بيظهر فيه
+    const formattedAdBalance = Math.floor(pData.ad_balance || 0).toLocaleString();
+    const adBalDisplay = document.getElementById('ad-balance-display');
+    if (adBalDisplay) {
+        adBalDisplay.innerText = `AdZN ${formattedAdBalance}`;
+    }
 };
 
 // دالة التهيئة والتشغيل الفوري (تم حل مشكلة التوقيت هنا)
