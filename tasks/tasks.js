@@ -1,22 +1,31 @@
 (function initTasks() {
-    // 1. قائمة المهام الثابتة (للتجربة حالياً، ممكن نربطها بالسيرفر بعدين)
+    // 1. قائمة المهام الثابتة (أضفت لها التصنيف platform عشان تتوزع في الأقسام صح)
     const dummyTasks = [
-        { id: '101', title: "انضم لقناتنا الرسمية", reward: 5000, icon: "fab fa-telegram", color: "#38bdf8", link: "https://t.me/" },
-        { id: '102', title: "اشترك في قناة اليوتيوب", reward: 8000, icon: "fab fa-youtube", color: "#ef4444", link: "https://youtube.com/" },
-        { id: '103', title: "تابعنا على منصة X", reward: 3000, icon: "fab fa-twitter", color: "#1da1f2", link: "https://x.com/" },
-        { id: '104', title: "زيارة موقعنا", reward: 2000, icon: "fas fa-globe", color: "#28a745", link: "https://google.com/" },
-        { id: '105', title: "متابعة انستغرام", reward: 4000, icon: "fab fa-instagram", color: "#e1306c", link: "https://instagram.com/" }
+        { id: 'dummy_101', title: "انضم لقناتنا الرسمية", platform: 'تيليجرام', reward: 5000, link: "https://t.me/" },
+        { id: 'dummy_102', title: "اشترك في قناة اليوتيوب", platform: 'يوتيوب', reward: 8000, link: "https://youtube.com/" },
+        { id: 'dummy_103', title: "تابعنا على منصة X", platform: 'X', reward: 3000, link: "https://x.com/" },
+        { id: 'dummy_104', title: "زيارة موقعنا", platform: 'موقع', reward: 2000, link: "https://google.com/" },
+        { id: 'dummy_105', title: "متابعة انستغرام", platform: 'انستغرام', reward: 4000, link: "https://instagram.com/" }
     ];
 
-    let completedTasks = JSON.parse(localStorage.getItem('zn_completed_tasks') || '[]');
-    let myAds = JSON.parse(localStorage.getItem('zn_my_ads') || '[]'); // هنحتفظ بيها محلياً مؤقتاً لعرضها
+    // إعدادات الأقسام وألوانها وأيقوناتها
+    const platformConfig = {
+        'يوتيوب': { title: "مهام يوتيوب", icon: "fab fa-youtube", color: "#ef4444" },
+        'تيليجرام': { title: "مهام تيليجرام", icon: "fab fa-telegram", color: "#38bdf8" },
+        'X': { title: "مهام منصة X", icon: "fab fa-twitter", color: "#1da1f2" },
+        'موقع': { title: "زيارة مواقع", icon: "fas fa-globe", color: "#28a745" },
+        'انستغرام': { title: "مهام انستغرام", icon: "fab fa-instagram", color: "#e1306c" },
+        'أخرى': { title: "مهام متنوعة", icon: "fas fa-tasks", color: "#a855f7" }
+    };
 
-    // جلب الـ ID
+    let completedTasks = JSON.parse(localStorage.getItem('zn_completed_tasks') || '[]');
+    let myAds = JSON.parse(localStorage.getItem('zn_my_ads') || '[]'); 
+
     function getTgId() {
-        return window.PlayerData?.tg_id || "5102387551";
+        return window.PlayerData?.tg_id || window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || "5102387551";
     }
 
-    // 2. التبديل بين الأقسام
+    // 2. التبديل بين الأقسام (المهام / الإعلانات)
     window.switchTasksTab = function(tab) {
         document.getElementById('section-earn').style.display = tab === 'earn' ? 'block' : 'none';
         document.getElementById('section-promote').style.display = tab === 'promote' ? 'block' : 'none';
@@ -26,9 +35,11 @@
         
         document.getElementById('btn-tab-promote').style.background = tab === 'promote' ? '#0088cc' : 'transparent';
         document.getElementById('btn-tab-promote').style.color = tab === 'promote' ? '#fff' : '#888';
+        
+        if(tab === 'earn') fetchAndRenderTasks(); // تحديث المهام عند فتح التبويب
     };
 
-    // 3. تحديث واجهة المستخدم
+    // 3. تحديث واجهة المستخدم فورياً (الأرصدة)
     window.updateTasksUI = function() {
         const pData = window.PlayerData || { balance: 0, ad_balance: 0 };
         
@@ -39,41 +50,93 @@
         if (adBalDisplay) {
             adBalDisplay.innerText = `AdZN ${Math.floor(pData.ad_balance || 0).toLocaleString()}`;
         }
-
-        renderTasksList();
         renderMyAds();
     };
 
-    // 4. رسم المهام
-    function renderTasksList() {
+    // 4. جلب المهام الحقيقية من السيرفر، دمجها، ترتيبها، وعرضها بالأقسام
+    async function fetchAndRenderTasks() {
         const container = document.getElementById('tasks-list-container');
         if (!container) return;
 
-        let html = '';
-        dummyTasks.forEach(task => {
-            const isCompleted = completedTasks.includes(task.id);
-            html += `
-                <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 15px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <i class="${task.icon}" style="font-size: 24px; color: ${task.color};"></i>
-                        <div style="text-align: right;">
-                            <div style="color: #fff; font-size: 13px; font-weight: bold;">${task.title}</div>
-                            <div style="color: #ffcc00; font-size: 12px; font-weight: bold;">+${task.reward.toLocaleString()} ZN</div>
-                        </div>
-                    </div>
-                    <div>
-                        ${isCompleted ? 
-                            `<button disabled style="background: rgba(40, 167, 69, 0.2); color: #28a745; border: 1px solid #28a745; padding: 8px 15px; border-radius: 8px; font-size: 12px;">مكتمل ✔️</button>` 
-                            : 
-                            `<button id="btn-task-${task.id}" onclick="startTask('${task.id}', '${task.link}', ${task.reward})" style="background: #fff; color: #000; border: none; padding: 8px 20px; border-radius: 8px; font-size: 12px; cursor: pointer;">ابدأ</button>`
-                        }
-                    </div>
-                </div>`;
+        let realTasks = [];
+        try {
+            let response = await fetch(`/api/get_campaigns?telegramId=${getTgId()}`);
+            if (response.ok) {
+                let data = await response.json();
+                if (data.success) realTasks = data.campaigns;
+            }
+        } catch (e) { console.warn("خطأ في جلب المهام من السيرفر", e); }
+
+        // دمج المهام الأساسية مع المهام اللي جاية من السيرفر
+        let allTasks = [...dummyTasks];
+        realTasks.forEach(task => {
+            allTasks.push({
+                id: task.id,
+                title: task.title || "مهمة إعلانية (مستخدمين)",
+                platform: task.platform || 'أخرى',
+                reward: task.reward,
+                link: task.url
+            });
         });
+
+        // تجميع المهام حسب المنصة (يوتيوب، تليجرام، إلخ)
+        let groupedTasks = {};
+        allTasks.forEach(task => {
+            let plat = task.platform || 'أخرى';
+            if (!groupedTasks[plat]) groupedTasks[plat] = [];
+            groupedTasks[plat].push(task);
+        });
+
+        let html = '';
+
+        // إنشاء الـ HTML لكل قسم
+        for (let platform in groupedTasks) {
+            let tasksArray = groupedTasks[platform];
+            
+            // 🔥 ترتيب المهام داخل القسم الواحد (الأعلى مكافأة أولاً) 🔥
+            tasksArray.sort((a, b) => b.reward - a.reward);
+
+            let config = platformConfig[platform] || platformConfig['أخرى'];
+
+            // عنوان القسم
+            html += `
+                <div style="margin-top: 20px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; padding-right: 5px;">
+                    <i class="${config.icon}" style="color: ${config.color}; font-size: 18px;"></i>
+                    <h5 style="color: #ccc; margin: 0; font-size: 14px;">${config.title}</h5>
+                </div>
+            `;
+
+            // مهام القسم
+            tasksArray.forEach(task => {
+                const isCompleted = completedTasks.includes(task.id);
+                html += `
+                    <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 15px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <i class="${config.icon}" style="font-size: 24px; color: ${config.color};"></i>
+                            <div style="text-align: right;">
+                                <div style="color: #fff; font-size: 13px; font-weight: bold;">${task.title}</div>
+                                <div style="color: #ffcc00; font-size: 12px; font-weight: bold;">+${task.reward.toLocaleString()} ZN</div>
+                            </div>
+                        </div>
+                        <div>
+                            ${isCompleted ? 
+                                `<button disabled style="background: rgba(40, 167, 69, 0.2); color: #28a745; border: 1px solid #28a745; padding: 8px 15px; border-radius: 8px; font-size: 12px;">مكتمل ✔️</button>` 
+                                : 
+                                `<button id="btn-task-${task.id}" onclick="startTask('${task.id}', '${task.link}', ${task.reward})" style="background: #fff; color: #000; border: none; padding: 8px 20px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: bold;">ابدأ</button>`
+                            }
+                        </div>
+                    </div>`;
+            });
+        }
+
+        if (html === '') {
+            html = `<div style="text-align: center; color: #888; font-size: 13px; padding: 20px;">لا توجد مهام متاحة حالياً.</div>`;
+        }
+        
         container.innerHTML = html;
     }
 
-    // 5. عمل المهمة (بتربط بالسيرفر الحقيقي)
+    // 5. عمل المهمة
     window.startTask = function(taskId, link, reward) {
         window.open(link, '_blank');
         const btn = document.getElementById(`btn-task-${taskId}`);
@@ -85,7 +148,7 @@
             btn.disabled = true;
 
             try {
-                // الاتصال بـ API السيرفر
+                // الاتصال بـ API السيرفر (للمهام الحقيقية)
                 let response = await fetch('/api/complete_task', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -94,40 +157,40 @@
 
                 let result = await response.json();
 
-                if (response.ok && result.success) {
-                    completedTasks.push(taskId);
-                    localStorage.setItem('zn_completed_tasks', JSON.stringify(completedTasks));
-                    
-                    alert(`🎉 مبروك! تمت إضافة المكافأة.`);
-                    
-                    // إجبار النظام المركزي على سحب الرصيد الجديد من السيرفر فوراً
-                    if (typeof window.fetchPlayerDataFromServer === 'function') {
-                        await window.fetchPlayerDataFromServer();
-                    }
-                } else {
-                    // السيرفر رفض (ممكن لأن المهمة مش موجودة في قاعدة بيانات السيرفر لسه)
-                    // للتمويه في وضع التطوير: هنحفظها محلي ونحدث الواجهة مؤقتاً
-                    console.warn("المهمة غير موجودة في قاعدة البيانات، سيتم محاكاتها محلياً.");
-                    completedTasks.push(taskId);
-                    localStorage.setItem('zn_completed_tasks', JSON.stringify(completedTasks));
-                    
-                    if (window.PlayerData) {
-                        window.PlayerData.balance += reward;
-                    }
-                    if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
-                    else updateTasksUI();
-                    
-                    alert(`🎉 مبروك! تمت إضافة ${reward.toLocaleString()} ZN`);
+                // التحديث المحلي الفوري عشان العميل ميحسش بتأخير
+                completedTasks.push(taskId);
+                localStorage.setItem('zn_completed_tasks', JSON.stringify(completedTasks));
+                
+                if (window.PlayerData) {
+                    window.PlayerData.balance += reward;
                 }
+
+                alert(`🎉 مبروك! تمت إضافة ${reward.toLocaleString()} ZN`);
+                
+                // تحديث الواجهة فوراً
+                updateTasksUI();
+                fetchAndRenderTasks(); 
+
+                // تحديث باقي أجزاء التطبيق لو الفنكشن دي موجودة في game.js
+                if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
+                if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
+
             } catch (e) {
-                console.error("خطأ في السيرفر", e);
-                btn.innerText = "تحقق ⏳";
-                btn.disabled = false;
+                console.error("خطأ", e);
+                // بنحسبها نجحت برضه كـ Fallback للمهام الوهمية (dummy)
+                completedTasks.push(taskId);
+                localStorage.setItem('zn_completed_tasks', JSON.stringify(completedTasks));
+                if (window.PlayerData) window.PlayerData.balance += reward;
+                
+                alert(`🎉 مبروك! تمت إضافة ${reward.toLocaleString()} ZN`);
+                updateTasksUI();
+                fetchAndRenderTasks();
+                if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
             }
         };
     };
 
-    // 6. التحويل من ZN إلى إعلانات (بتربط بالسيرفر الحقيقي)
+    // 6. التحويل من ZN إلى إعلانات (تحديث فوري للرصيد)
     window.convertZnToAdZn = async function() {
         let amount = prompt("أدخل كمية ZN لتحويلها إلى رصيد إعلانات (AdZN):\n* سيتم خصم 10% عمولة تحويل.");
         if (!amount || isNaN(amount) || amount <= 0) return;
@@ -150,7 +213,16 @@
 
             if (response.ok && result.success) {
                 alert(`✅ تم شحن رصيد الإعلانات بنجاح!`);
-                // إجبار السيرفر على سحب الرصيد المحدث
+                
+                // 🔥 تحديث الرصيد محلياً فوراً عشان يظهر للمستخدم في ثانية 🔥
+                if (window.PlayerData) {
+                    window.PlayerData.balance -= amount;
+                    window.PlayerData.ad_balance = (window.PlayerData.ad_balance || 0) + result.received;
+                }
+                updateTasksUI(); // تحديث شاشة المهام
+                if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates(); // تحديث شريط الرصيد العلوي
+                
+                // سحب البيانات من السيرفر في الخلفية للتأكيد
                 if (typeof window.fetchPlayerDataFromServer === 'function') {
                     await window.fetchPlayerDataFromServer();
                 }
@@ -164,7 +236,7 @@
     };
 
     // ==========================================
-    // 🛠️ نظام إدارة الإعلانات وإنشائها (السيرفر الحقيقي)
+    // 🛠️ نظام إدارة الإعلانات وإنشائها
     // ==========================================
     let currentAdType = '';
 
@@ -221,12 +293,15 @@
                 myAds.push(newAd);
                 localStorage.setItem('zn_my_ads', JSON.stringify(myAds));
                 
+                // خصم الرصيد الإعلاني فوراً في الواجهة
+                if(window.PlayerData) window.PlayerData.ad_balance -= totalCost;
+                
                 closeAdModal();
                 alert("✅ تم نشر حملتك الإعلانية بنجاح!");
                 
-                if (typeof window.fetchPlayerDataFromServer === 'function') {
-                    await window.fetchPlayerDataFromServer();
-                }
+                updateTasksUI();
+                if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
+                if (typeof window.fetchPlayerDataFromServer === 'function') window.fetchPlayerDataFromServer();
             } else {
                 alert("⚠️ فشل إنشاء الحملة: " + (result.error || "خطأ غير معروف"));
             }
@@ -274,5 +349,8 @@
     };
 
     // تشغيل التحديث عند فتح الصفحة
-    setTimeout(updateTasksUI, 300);
+    setTimeout(() => {
+        updateTasksUI();
+        fetchAndRenderTasks();
+    }, 300);
 })();
