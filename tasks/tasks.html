@@ -69,10 +69,13 @@
             <h3 id="ad-modal-title" style="color: #38bdf8; margin-top: 0;">إنشاء حملة</h3>
             
             <label style="color: #aaa; font-size: 12px;">رابط الحملة:</label>
-            <input type="text" id="ad-link" placeholder="https://..." style="width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 15px; background: #111; border: 1px solid #444; color: #fff; border-radius: 8px;" dir="ltr">
+            <input type="text" id="ad-link" placeholder="https://..." style="width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 10px; background: #111; border: 1px solid #444; color: #fff; border-radius: 8px;" dir="ltr">
             
-            <label style="color: #aaa; font-size: 12px;">ميزانية الحملة (AdZN):</label>
-            <input type="number" id="ad-budget" placeholder="أقل مبلغ 1000" style="width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 20px; background: #111; border: 1px solid #444; color: #fff; border-radius: 8px;">
+            <label style="color: #aaa; font-size: 12px;">مكافأة الفرد (AdZN):</label>
+            <input type="number" id="ad-reward" placeholder="مثال: 1000" style="width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 10px; background: #111; border: 1px solid #444; color: #fff; border-radius: 8px;">
+
+            <label style="color: #aaa; font-size: 12px;">عدد الأشخاص المطلوب:</label>
+            <input type="number" id="ad-users" placeholder="مثال: 50" style="width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 20px; background: #111; border: 1px solid #444; color: #fff; border-radius: 8px;">
             
             <div style="display: flex; gap: 10px;">
                 <button onclick="submitAdCampaign()" style="flex: 1; padding: 10px; background: #38bdf8; color: #000; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">نشر الإعلان</button>
@@ -80,4 +83,3 @@
             </div>
         </div>
     </div>
-</div>
