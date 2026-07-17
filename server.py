@@ -202,8 +202,9 @@ def execute_upgrade_transaction(transaction, user_ref, upg_type, level_num):
     if not doc.exists: return False, 'المستخدم غير موجود'
         
     user_data = doc.to_dict()
-    unclaimed = calculate_user_harvest(user_data)
-    current_balance = safe_float(user_data.get('balance', 0)) + unclaimed
+    
+    # 🔴 التعديل الأول: سحب الرصيد الفعلي فقط لعدم المساس بالرصيد المتخزن في التعدين
+    current_balance = safe_float(user_data.get('balance', 0))
     
     price = SHOP_CONFIG.get(upg_type, {}).get(level_num)
     if price is None: return False, 'مستوى غير صالح'
@@ -297,12 +298,14 @@ def convert_adzn():
             if not doc.exists: return False, 'المستخدم غير موجود'
             
             user_data = doc.to_dict()
-            unclaimed = calculate_user_harvest(user_data)
-            current_balance = safe_float(user_data.get('balance', 0)) + unclaimed
+            
+            # 🔴 التعديل الثاني: منع سحب رصيد التعدين أثناء التحويل
+            current_balance = safe_float(user_data.get('balance', 0))
+            
             current_ad_balance = safe_float(user_data.get('ad_balance', 0))
 
             if current_balance < amount:
-                return False, 'رصيد ZN غير كافي للتحويل'
+                return False, 'رصيد ZN غير كافي للتحويل (يجب تجميع التعدين أولاً)'
 
             new_balance = current_balance - amount
             received_adzn = amount * 0.90
@@ -391,6 +394,10 @@ def get_campaigns():
                     'url': c_data.get('url'),
                     'reward': c_data.get('reward')
                 })
+        
+        # 🔴 التعديل الثالث: ترتيب الإعلانات تنازلياً حسب المكافأة (الأغلى يظهر أولاً)
+        results.sort(key=lambda x: x['reward'], reverse=True)
+        
         return jsonify({'success': True, 'campaigns': results}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
