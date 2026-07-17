@@ -20,7 +20,7 @@
     <div id="section-earn">
         <h4 style="color: #ffcc00; margin-bottom: 15px; text-align: right; border-bottom: 1px solid #333; padding-bottom: 10px;">المهمات المتاحة</h4>
         <div id="tasks-list-container">
-            <div style="text-align: center; color: #888; margin-top: 50px;">جاري تحميل المهام... ⏳</div>
+            <!-- سيتم إضافة المهام هنا برمجياً -->
         </div>
     </div>
 
@@ -33,19 +33,27 @@
         <div style="background: linear-gradient(145deg, #0f172a, #1e293b); border: 1px solid #334155; border-radius: 15px; padding: 25px; margin-bottom: 25px; text-align: center;">
             <div style="color: #94a3b8; font-size: 13px; margin-bottom: 10px;">رصيد الإعلانات الخاص بك</div>
             <div id="ad-balance-display" style="color: #38bdf8; font-size: 32px; font-weight: bold; margin-bottom: 20px;">AdZN 0</div>
-            <button onclick="convertZnToAdZn()" style="background: rgba(56,189,248,0.1); border: 1px solid #38bdf8; color: #38bdf8; padding: 10px 25px; border-radius: 8px; cursor: pointer; font-weight: bold;">🔄 شحن رصيد الإعلانات (من ZN)</button>
+            <button onclick="convertZnToAdZn()" style="background: rgba(56,189,248,0.1); border: 1px solid #38bdf8; color: #38bdf8; padding: 10px 25px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%;">🔄 شحن رصيد الإعلانات (من ZN)</button>
             <div style="color: #ef4444; font-size: 11px; margin-top: 10px;">* لا يمكن تحويل رصيد الإعلانات إلى ZN مرة أخرى</div>
         </div>
 
         <h4 style="color: #fff; margin-bottom: 15px; text-align: right;">إنشاء حملة جديدة</h4>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 30px;">
+            <div onclick="openAdModal('يوتيوب')" style="background: #1a1a1a; border: 1px solid #333; padding: 20px; border-radius: 12px; text-align: center; cursor: pointer;">
+                <i class="fab fa-youtube" style="color: #ef4444; font-size: 28px; margin-bottom: 12px;"></i>
+                <div style="color: #fff; font-size: 13px; font-weight: bold;">فيديو / قناة</div>
+            </div>
             <div onclick="openAdModal('تيليجرام')" style="background: #1a1a1a; border: 1px solid #333; padding: 20px; border-radius: 12px; text-align: center; cursor: pointer;">
                 <i class="fab fa-telegram" style="color: #38bdf8; font-size: 28px; margin-bottom: 12px;"></i>
                 <div style="color: #fff; font-size: 13px; font-weight: bold;">قناة / جروب</div>
             </div>
-            <div onclick="openAdModal('يوتيوب')" style="background: #1a1a1a; border: 1px solid #333; padding: 20px; border-radius: 12px; text-align: center; cursor: pointer;">
-                <i class="fab fa-youtube" style="color: #ef4444; font-size: 28px; margin-bottom: 12px;"></i>
-                <div style="color: #fff; font-size: 13px; font-weight: bold;">فيديو / قناة</div>
+            <div onclick="openAdModal('موقع')" style="background: #1a1a1a; border: 1px solid #333; padding: 20px; border-radius: 12px; text-align: center; cursor: pointer;">
+                <i class="fas fa-globe" style="color: #28a745; font-size: 28px; margin-bottom: 12px;"></i>
+                <div style="color: #fff; font-size: 13px; font-weight: bold;">زيارة موقع</div>
+            </div>
+            <div onclick="openAdModal('انستغرام')" style="background: #1a1a1a; border: 1px solid #333; padding: 20px; border-radius: 12px; text-align: center; cursor: pointer;">
+                <i class="fab fa-instagram" style="color: #e1306c; font-size: 28px; margin-bottom: 12px;"></i>
+                <div style="color: #fff; font-size: 13px; font-weight: bold;">متابعة / لايك</div>
             </div>
         </div>
 
@@ -56,7 +64,7 @@
     </div>
 
     <!-- نافذة منبثقة لإنشاء الإعلان -->
-    <div id="ad-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center;">
+    <div id="ad-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 1000; align-items: center; justify-content: center;">
         <div style="background: #1e1e2f; border: 1px solid #333; border-radius: 15px; padding: 25px; width: 90%; max-width: 400px; text-align: right;">
             <h3 id="ad-modal-title" style="color: #38bdf8; margin-top: 0;">إنشاء حملة</h3>
             
@@ -64,7 +72,7 @@
             <input type="text" id="ad-link" placeholder="https://..." style="width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 15px; background: #111; border: 1px solid #444; color: #fff; border-radius: 8px;" dir="ltr">
             
             <label style="color: #aaa; font-size: 12px;">ميزانية الحملة (AdZN):</label>
-            <input type="number" id="ad-budget" placeholder="مثال: 5000" style="width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 20px; background: #111; border: 1px solid #444; color: #fff; border-radius: 8px;">
+            <input type="number" id="ad-budget" placeholder="أقل مبلغ 1000" style="width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 20px; background: #111; border: 1px solid #444; color: #fff; border-radius: 8px;">
             
             <div style="display: flex; gap: 10px;">
                 <button onclick="submitAdCampaign()" style="flex: 1; padding: 10px; background: #38bdf8; color: #000; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">نشر الإعلان</button>
