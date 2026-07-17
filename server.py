@@ -274,8 +274,10 @@ def game_reward():
         user_data = doc.to_dict()
         current_balance = safe_float(user_data.get('balance', 0))
         
-        user_ref.update({'balance': current_balance + reward})
-        return jsonify({'success': True, 'new_balance': current_balance + reward}), 200
+        # إضافة المكافأة مباشرة للرصيد الفعلي في قاعدة البيانات
+        new_balance = current_balance + reward
+        user_ref.update({'balance': new_balance})
+        return jsonify({'success': True, 'new_balance': new_balance}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
