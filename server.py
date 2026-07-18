@@ -91,6 +91,8 @@ def serve_static(filename):
 @app.route('/api/user_data', methods=['GET'])
 def get_user_data():
     telegram_id = request.args.get('telegramId')
+    ref_id = request.args.get('ref_id')
+    
     if not telegram_id or not db:
         return jsonify({'success': False, 'error': 'Missing ID'}), 400
     
@@ -107,18 +109,33 @@ def get_user_data():
             "last_claim_time": now_iso,
             "storage_level": 0,
             "daily_day": 1,
-            "last_daily_claim_time": "2000-01-01T00:00:00+00:00" 
+            "last_daily_claim_time": "2000-01-01T00:00:00+00:00",
+            "referred_by": ref_id if (ref_id and ref_id != telegram_id) else None,
+            "pending_ref_earnings": 0.0,
+            "invited_friends_count": 0,
+            "claimed_ref_tasks": []
         }
         for i in range(1, 11): new_user[f"lvl{i}_count"] = 0
         get_user_ref(telegram_id).set(new_user)
         user_data = new_user
+        
+        # زيادة عداد الأصدقاء للشخص الذي أرسل الدعوة
+        if new_user['referred_by']:
+            ref_user_doc = get_user_ref(new_user['referred_by']).get()
+            if ref_user_doc.exists:
+                ref_count = safe_int(ref_user_doc.to_dict().get('invited_friends_count', 0))
+                get_user_ref(new_user['referred_by']).update({'invited_friends_count': ref_count + 1})
     else:
         user_data = doc.to_dict()
-        if 'ad_balance' not in user_data:
-            user_data['ad_balance'] = 0.0
-            get_user_ref(telegram_id).update({'ad_balance': 0.0})
-        else:
-            user_data['ad_balance'] = safe_float(user_data.get('ad_balance', 0.0))
+        updates = {}
+        if 'ad_balance' not in user_data: updates['ad_balance'] = 0.0
+        if 'pending_ref_earnings' not in user_data: updates['pending_ref_earnings'] = 0.0
+        if 'invited_friends_count' not in user_data: updates['invited_friends_count'] = 0
+        if 'claimed_ref_tasks' not in user_data: updates['claimed_ref_tasks'] = []
+        
+        if updates:
+            get_user_ref(telegram_id).update(updates)
+            user_data.update(updates)
         
     response_data = user_data.copy()
     
@@ -157,7 +174,84 @@ def claim():
             'balance': current_balance + unclaimed,
             'last_claim_time': now_iso
         })
+        
+        # نظام مكافأة الأصدقاء من التعدين (10%)
+        referred_by = user_data.get('referred_by')
+        if referred_by:
+            referrer_ref = get_user_ref(referred_by)
+            referrer_doc = referrer_ref.get()
+            if referrer_doc.exists:
+                ref_data = referrer_doc.to_dict()
+                current_pending = safe_float(ref_data.get('pending_ref_earnings', 0))
+                bonus = unclaimed * 0.10
+                referrer_ref.update({'pending_ref_earnings': current_pending + bonus})
+
         return jsonify({'success': True, 'claimed': unclaimed}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/claim_ref_earnings', methods=['POST'])
+def claim_ref_earnings():
+    data = request.get_json() or {}
+    telegram_id = data.get('telegramId')
+    if not telegram_id: return jsonify({'success': False}), 400
+    
+    try:
+        user_ref = get_user_ref(telegram_id)
+        doc = user_ref.get()
+        if not doc.exists: return jsonify({'success': False}), 404
+        
+        user_data = doc.to_dict()
+        pending = safe_float(user_data.get('pending_ref_earnings', 0))
+        if pending <= 0: return jsonify({'success': False, 'error': 'لا توجد أرباح للتجميع'}), 400
+        
+        fee = pending * 0.03 # خصم 3%
+        net_amount = pending - fee
+        current_balance = safe_float(user_data.get('balance', 0))
+        
+        user_ref.update({
+            'balance': current_balance + net_amount,
+            'pending_ref_earnings': 0.0
+        })
+        
+        return jsonify({'success': True, 'net_amount': net_amount, 'fee': fee}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/claim_ref_task', methods=['POST'])
+def claim_ref_task():
+    data = request.get_json() or {}
+    telegram_id = data.get('telegramId')
+    task_id = safe_int(data.get('taskId'))
+    reward = safe_float(data.get('reward'))
+    req_friends = safe_int(data.get('reqFriends'))
+    
+    if not telegram_id or not task_id: return jsonify({'success': False}), 400
+    
+    try:
+        user_ref = get_user_ref(telegram_id)
+        doc = user_ref.get()
+        if not doc.exists: return jsonify({'success': False}), 404
+        
+        user_data = doc.to_dict()
+        friends_count = safe_int(user_data.get('invited_friends_count', 0))
+        claimed_tasks = user_data.get('claimed_ref_tasks', [])
+        
+        if task_id in claimed_tasks:
+            return jsonify({'success': False, 'error': 'تم استلام المكافأة مسبقاً'}), 400
+            
+        if friends_count < req_friends:
+            return jsonify({'success': False, 'error': 'عدد الأصدقاء غير كافي'}), 400
+            
+        current_balance = safe_float(user_data.get('balance', 0))
+        claimed_tasks.append(task_id)
+        
+        user_ref.update({
+            'balance': current_balance + reward,
+            'claimed_ref_tasks': claimed_tasks
+        })
+        
+        return jsonify({'success': True, 'reward': reward}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
