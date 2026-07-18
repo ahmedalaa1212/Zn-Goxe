@@ -1,103 +1,147 @@
-// قيم تكميلية افتراضية في حال عدم ربطها بملف الـ Core الرئيسي بعد
-let tgUser = { id: 541982736, first_name: "اللاعب المحترف" }; 
-
-// محاولة جلب بيانات المستخدم الحقيقية من بيئة تليجرام المتاحة بالـ WebApp
-if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
-    const webAppUser = window.Telegram.WebApp.initDataUnsafe.user;
-    if (webAppUser) {
-        tgUser = webAppUser;
-    }
-}
-
-// دالة العرض الأساسية لبيانات الإعدادات
-function renderSettingsPage() {
-    const usernameEl = document.getElementById('player-username');
-    const telegramIdEl = document.getElementById('player-telegram-id');
-    const avatarEl = document.getElementById('player-avatar');
-
-    if (usernameEl) usernameEl.innerText = tgUser.first_name || tgUser.username || "لاعب Zn Goxe";
-    if (telegramIdEl) telegramIdEl.innerText = tgUser.id || "00000000";
-    
-    // إذا كان للمستخدم صورة حقيقية في تليجرام، يمكنك استبدال الأيقونة بها لاحقاً
-    if (tgUser.photo_url && avatarEl) {
-        avatarEl.innerHTML = `<img src="${tgUser.photo_url}" style="width:100%; height:100%; object-fit:cover;">`;
+(function initSettingsSystem() {
+    // جلب الـ ID الحقيقي من النظام أو من تليجرام مباشرة
+    function getTgId() {
+        if (window.PlayerData && window.PlayerData.telegram_id) {
+            return window.PlayerData.telegram_id;
+        }
+        if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
+            const webAppUser = window.Telegram.WebApp.initDataUnsafe.user;
+            if (webAppUser) return String(webAppUser.id);
+        }
+        return "5102387551"; // معرف افتراضي للاختبار في حال عدم توفر البيئة
     }
 
-    // حساب وعرض الإحصائيات الحسابية التكميلية لرفع الاحترافية
-    updateStatsDisplay();
-}
+    // جلب اسم المستخدم الحقيقي
+    function getPlayerName() {
+        if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
+            const webAppUser = window.Telegram.WebApp.initDataUnsafe.user;
+            if (webAppUser) {
+                return webAppUser.first_name + (webAppUser.last_name ? " " + webAppUser.last_name : "");
+            }
+        }
+        return "اللاعب المحترف";
+    }
 
-// دالة حساب الإحصائيات من الـ LocalStorage المحدث من المتجر والمزرعة
-function updateStatsDisplay() {
-    const totalMiningEl = document.getElementById('stat-total-mining');
-    const storageLevelEl = document.getElementById('stat-storage-level');
+    // دالة العرض الأساسية لبيانات الإعدادات
+    window.renderSettingsPage = function() {
+        const usernameEl = document.getElementById('player-username');
+        const telegramIdEl = document.getElementById('player-telegram-id');
+        const avatarEl = document.getElementById('player-avatar');
 
-    // افتراض وجود بيانات المتجر المخزنة مسبقاً، وإلا نضع صفر
-    let currentStorage = typeof currentStorageLevel !== 'undefined' ? currentStorageLevel : 0;
-    let totalUpgradesCount = 0;
-    
-    if (typeof miningUpgrades !== 'undefined') {
-        Object.keys(miningUpgrades).forEach(lvl => {
-            totalUpgradesCount += miningUpgrades[lvl];
+        if (usernameEl) usernameEl.innerText = getPlayerName();
+        if (telegramIdEl) telegramIdEl.innerText = getTgId();
+        
+        // محاولة جلب الصورة الشخصية من تليجرام لو متاحة
+        if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
+            const webAppUser = window.Telegram.WebApp.initDataUnsafe.user;
+            if (webAppUser && webAppUser.photo_url && avatarEl) {
+                avatarEl.innerHTML = `<img src="${webAppUser.photo_url}" style="width:100%; height:100%; object-fit:cover;">`;
+            }
+        }
+
+        // حساب وعرض الإحصائيات الحقيقية القادمة من السيرفر
+        updateStatsDisplay();
+    };
+
+    // دالة حساب الإحصائيات من البيانات الحقيقية لـ PlayerData المربوطة بالسيرفر
+    function updateStatsDisplay() {
+        const totalMiningEl = document.getElementById('stat-total-mining');
+        const storageLevelEl = document.getElementById('stat-storage-level');
+
+        // قراءة البيانات الحقيقية المسحوبة من الـ Firebase
+        const data = window.PlayerData || {};
+        
+        // حساب إجمالي مستويات ترقيات التعدين من lvl1 لـ lvl10
+        let totalUpgradesCount = 0;
+        for (let i = 1; i <= 10; i++) {
+            totalUpgradesCount += parseInt(data[`lvl${i}_count`] || 0);
+        }
+
+        let currentStorage = parseInt(data.storage_level || 0);
+
+        if (totalMiningEl) totalMiningEl.innerText = `${totalUpgradesCount} / 150`; // الحد الأقصى 15 لكل لفل * 10 لفلات = 150
+        if (storageLevelEl) storageLevelEl.innerText = `مستوى ${currentStorage}`;
+    }
+
+    // دالة نسخ الـ ID الشيك والاحترافية مع إظهار توست تأكيدي
+    window.copyPlayerId = function() {
+        const idText = document.getElementById('player-telegram-id').innerText;
+        navigator.clipboard.writeText(idText).then(() => {
+            showToast("تم نسخ الـ ID بنجاح! 📋");
+        }).catch(err => {
+            console.error('فشل في نسخ النص: ', err);
         });
-    }
+    };
 
-    if (totalMiningEl) totalMiningEl.innerText = `${totalUpgradesCount} / 200`;
-    if (storageLevelEl) storageLevelEl.innerText = `مستوى ${currentStorage}`;
-}
+    // دوال التحكم في النوافذ المنبثقة للسياسات والشروط
+    window.showPrivacyModal = function() {
+        const modal = document.getElementById('settings-modal');
+        if (modal) modal.style.display = 'flex';
+    };
 
-// دالة نسخ الـ ID الشيك والاحترافية مع إظهار توست تأكيدي سيعجب اللاعب
-function copyPlayerId() {
-    const idText = document.getElementById('player-telegram-id').innerText;
-    navigator.clipboard.writeText(idText).then(() => {
+    window.closeSettingsModal = function() {
+        const modal = document.getElementById('settings-modal');
+        if (modal) modal.style.display = 'none';
+    };
+
+    // دالة إظهار التوست بشكل مرن
+    function showToast(text) {
         const toast = document.getElementById('toast-msg');
         if (toast) {
+            toast.innerText = text;
             toast.style.display = 'block';
             setTimeout(() => {
                 toast.style.display = 'none';
-            }, 2000); // تختفي الرسالة تلقائياً بعد ثانيتين
-        }
-    }).catch(err => {
-        console.error('فشل في نسخ النص: ', err);
-    });
-}
-
-// دوال التحكم في النوافذ المنبثقة للسياسات والشروط
-function showPrivacyModal() {
-    const modal = document.getElementById('settings-modal');
-    if (modal) modal.style.display = 'flex';
-}
-
-function closeSettingsModal() {
-    const modal = document.getElementById('settings-modal');
-    if (modal) modal.style.display = 'none';
-}
-
-// ميزة احترافية: إعادة تحميل البيانات ومزامنتها الفورية دون الخروج من البوت
-function refreshGameData() {
-    // تحديث الأرقام والبيانات
-    renderSettingsPage();
-    
-    // إظهار توست سريع لتأكيد التحديث للاعب بنجاح
-    const toast = document.getElementById('toast-msg');
-    if (toast) {
-        toast.innerText = "🎮 تم تحديث البيانات بنجاح!";
-        toast.style.display = 'block';
-        setTimeout(() => {
-            toast.innerText = "تم نسخ الـ ID بنجاح!";
-            toast.style.display = 'none';
-        }, 1500);
-    }
-}
-
-// الحارس الصامت لضمان ملء الصفحة بمجرد انتقال المستخدم إليها في الـ Single Page App
-setInterval(() => {
-    const settingsSection = document.getElementById('main-settings-section');
-    const usernameEl = document.getElementById('player-username');
-    
-    if (settingsSection && usernameEl) {
-        if (settingsSection.style.display !== 'none' && window.getComputedStyle(settingsSection).display !== 'none' && usernameEl.innerText === "جاري التحميل...") {
-            renderSettingsPage();
+            }, 2000);
         }
     }
-}, 300);
+
+    // ميزة احترافية: إعادة تحميل البيانات ومزامنتها الفورية من السيرفر مباشرة دون الخروج من البوت
+    window.refreshGameData = async function() {
+        showToast("🔄 جاري تحديث البيانات من السيرفر...");
+        
+        try {
+            // عمل طلب Fetch حقيقي للسيرفر لجلب أحدث البيانات المسجلة في Firebase
+            let response = await fetch(`/api/user_data?telegramId=${getTgId()}`);
+            let result = await response.json();
+
+            if (result.success && result.data) {
+                // تحديث البيانات على مستوى اللعبة بالكامل
+                window.PlayerData = result.data;
+                
+                // إعادة رسم بيانات صفحة الإعدادات
+                window.renderSettingsPage();
+                
+                // تحديث واجهة الرصيد الأساسية باللعبة لو كانت الدالة متوفرة
+                if (typeof window.triggerAllUIUpdates === 'function') {
+                    window.triggerAllUIUpdates();
+                }
+                
+                showToast("🎮 تم تحديث البيانات بنجاح!");
+            } else {
+                showToast("⚠️ فشل تحديث البيانات من السيرفر");
+            }
+        } catch (e) {
+            console.error("Error refreshing data:", e);
+            showToast("❌ خطأ في الاتصال بالسيرفر!");
+        }
+    };
+
+    // نظام المراقبة التلقائي للتأكد من تعبئة البيانات فور فتح القسم
+    setInterval(() => {
+        const settingsSection = document.getElementById('main-settings-section');
+        const usernameEl = document.getElementById('player-username');
+        
+        if (settingsSection && usernameEl) {
+            // لو القسم معروض ومكتوب جاري التحميل، نقوم بالرسم فوراً
+            if (settingsSection.style.display !== 'none' && 
+                window.getComputedStyle(settingsSection).display !== 'none' && 
+                usernameEl.innerText === "جاري التحميل...") {
+                window.renderSettingsPage();
+            }
+        }
+    }, 300);
+
+    // تشغيل مبدئي سريع
+    setTimeout(window.renderSettingsPage, 500);
+})();
