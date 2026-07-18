@@ -1,23 +1,38 @@
-<div class="friends-container" style="padding: 20px; color: #fff; text-align: center;">
-    <h2 style="margin-bottom: 20px;">دعوة الأصدقاء</h2>
-
-    <!-- رابط الإحالة -->
-    <div style="background: #1c1c1c; padding: 15px; border-radius: 10px; border: 1px solid #333; margin-bottom: 20px;">
-        <p style="font-size: 14px; margin-bottom: 10px;">رابط الدعوة الخاص بك:</p>
-        <div style="background: #000; padding: 10px; border-radius: 5px; font-family: monospace; font-size: 12px; margin-bottom: 10px;">zn-goxe.com/ref/user123</div>
-        <button style="background: #0088cc; border: none; color: white; padding: 8px 20px; border-radius: 5px; cursor: pointer;">نسخ الرابط</button>
+<div class="friends-page">
+    <!-- الرصيد الحالي للمستخدم (يتم تحديثه بالـ JS) -->
+    <div class="header-balance">
+        <img src="assets/zn-coin.png" alt="ZN" class="coin-icon" onerror="this.style.display='none'"> 
+        <span id="friends-current-balance">0</span>
     </div>
 
-    <!-- زر تجميع أرباح الإحالات -->
-    <div style="margin-bottom: 30px;">
-        <p style="font-size: 13px; color: #aaa; margin-bottom: 10px;">الأرباح المجمعة من الأصدقاء (10%):</p>
-        <div style="font-size: 24px; font-weight: bold; color: #ffcc00; margin-bottom: 10px;">1,250 ZN</div>
-        <button style="width: 100%; padding: 12px; background: #00cc66; border: none; color: white; border-radius: 8px; font-weight: bold;">تجميع أرباح الأصدقاء</button>
+    <h2 class="page-title">دعوة الأصدقاء</h2>
+
+    <!-- قسم رابط الإحالة -->
+    <div class="referral-card">
+        <p class="card-label">رابط الدعوة الخاص بك:</p>
+        <div class="invite-link-container">
+            <input type="text" id="invite-link-input" readonly value="جاري إنشاء الرابط...">
+            <button id="copy-link-btn" onclick="copyInviteLink()">نسخ الرابط</button>
+        </div>
     </div>
 
-    <!-- قائمة الـ 10 مهام -->
-    <div id="tasks-list" style="text-align: right;">
-        <h3 style="margin-bottom: 15px;">مهام الدعوة:</h3>
-        <!-- سيتم توليدها بالـ JS -->
+    <!-- قسم تجميع أرباح الأصدقاء -->
+    <div class="earnings-card">
+        <p class="card-label">الأرباح المجمعة من الأصدقاء (10%):</p>
+        <div class="earnings-amount">
+            <span class="currency">ZN</span> <span id="pending-referral-earnings">0</span>
+        </div>
+        <p class="fee-note">سيتم خصم 3% رسوم تحويل عند التجميع</p>
+        <button id="claim-earnings-btn" onclick="claimReferralEarnings()">تجميع أرباح الأصدقاء</button>
+    </div>
+
+    <!-- قسم إحصائيات الأصدقاء -->
+    <div class="stats-card">
+        <p>إجمالي الأصدقاء المدعوين: <span id="total-invited-friends" style="color: #ffcc00; font-weight: bold;">0</span></p>
+    </div>
+
+    <!-- قائمة المهام -->
+    <div id="friends-tasks-list" class="tasks-container">
+        <!-- سيتم توليد المهام هنا عبر الجافاسكربت -->
     </div>
 </div>
