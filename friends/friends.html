@@ -1,38 +1,39 @@
-<div class="friends-page">
-    <!-- الرصيد الحالي للمستخدم (يتم تحديثه بالـ JS) -->
-    <div class="header-balance">
-        <img src="assets/zn-coin.png" alt="ZN" class="coin-icon" onerror="this.style.display='none'"> 
-        <span id="friends-current-balance">0</span>
+<div style="padding: 20px; color: #fff; text-align: center; font-family: sans-serif; padding-bottom: 80px;">
+    
+    <!-- الرصيد في الأعلى -->
+    <div style="display: flex; justify-content: center; align-items: center; gap: 10px; font-size: 26px; font-weight: bold; margin-bottom: 25px;">
+        <span id="friends-current-balance" style="color: #ffffff;">0</span> 
+        <span style="color: #ffcc00;">ZN</span>
     </div>
 
-    <h2 class="page-title">دعوة الأصدقاء</h2>
+    <h2 style="margin-bottom: 20px; font-size: 22px;">دعوة الأصدقاء</h2>
 
-    <!-- قسم رابط الإحالة -->
-    <div class="referral-card">
-        <p class="card-label">رابط الدعوة الخاص بك:</p>
-        <div class="invite-link-container">
-            <input type="text" id="invite-link-input" readonly value="جاري إنشاء الرابط...">
-            <button id="copy-link-btn" onclick="copyInviteLink()">نسخ الرابط</button>
+    <!-- رابط الدعوة -->
+    <div style="background: #1c1c1c; padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px;">
+        <p style="font-size: 14px; color: #aaa; margin-bottom: 15px;">رابط الدعوة الخاص بك:</p>
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+            <input type="text" id="invite-link-input" readonly value="جاري إنشاء الرابط..." style="background: #000; color: #fff; border: 1px solid #333; padding: 12px; border-radius: 8px; text-align: center; font-family: monospace; font-size: 14px; width: 100%; outline: none; box-sizing: border-box;">
+            <button id="copy-link-btn" onclick="copyInviteLink()" style="background: #0088cc; color: white; border: none; padding: 12px; border-radius: 8px; font-weight: bold; font-size: 15px; cursor: pointer; width: 100%; transition: 0.2s;">نسخ الرابط</button>
         </div>
     </div>
 
-    <!-- قسم تجميع أرباح الأصدقاء -->
-    <div class="earnings-card">
-        <p class="card-label">الأرباح المجمعة من الأصدقاء (10%):</p>
-        <div class="earnings-amount">
-            <span class="currency">ZN</span> <span id="pending-referral-earnings">0</span>
+    <!-- أرباح الأصدقاء -->
+    <div style="background: #1c1c1c; padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px;">
+        <p style="font-size: 14px; color: #aaa; margin-bottom: 10px;">الأرباح المجمعة من الأصدقاء (10%):</p>
+        <div style="font-size: 32px; font-weight: bold; color: #ffcc00; margin-bottom: 5px;">
+            <span style="font-size: 20px;">ZN</span> <span id="pending-referral-earnings">0</span>
         </div>
-        <p class="fee-note">سيتم خصم 3% رسوم تحويل عند التجميع</p>
-        <button id="claim-earnings-btn" onclick="claimReferralEarnings()">تجميع أرباح الأصدقاء</button>
+        <p style="font-size: 12px; color: #ff6b6b; margin-bottom: 15px;">سيتم خصم 3% رسوم تحويل عند التجميع</p>
+        <button id="claim-earnings-btn" onclick="claimReferralEarnings()" style="width: 100%; background: #00cc66; color: white; border: none; padding: 15px; border-radius: 10px; font-weight: bold; font-size: 16px; cursor: pointer;">تجميع أرباح الأصدقاء</button>
     </div>
 
-    <!-- قسم إحصائيات الأصدقاء -->
-    <div class="stats-card">
-        <p>إجمالي الأصدقاء المدعوين: <span id="total-invited-friends" style="color: #ffcc00; font-weight: bold;">0</span></p>
+    <!-- إحصائيات -->
+    <div style="background: #1c1c1c; padding: 15px; border-radius: 15px; border: 1px solid #333; margin-bottom: 25px;">
+        <p style="margin: 0; font-size: 15px;">إجمالي الأصدقاء المدعوين: <span id="total-invited-friends" style="color: #ffcc00; font-weight: bold;">0</span></p>
     </div>
 
-    <!-- قائمة المهام -->
-    <div id="friends-tasks-list" class="tasks-container">
-        <!-- سيتم توليد المهام هنا عبر الجافاسكربت -->
+    <!-- المهام -->
+    <div id="friends-tasks-list" style="display: flex; flex-direction: column; gap: 12px;">
+        <!-- سيتم توليدها بالـ JS -->
     </div>
 </div>
