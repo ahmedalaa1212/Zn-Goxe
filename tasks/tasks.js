@@ -2,11 +2,13 @@
     window.activeTasksState = window.activeTasksState || {};
     window.taskTimers = window.taskTimers || {};
     
+    // متغير لحفظ الـ ID للمهمة التي ينفذها العضو حالياً لمحاربة النصب
+    window.currentlyRunningTaskId = window.currentlyRunningTaskId || null;
+
     let isSubmittingCampaign = false;
     let isConvertingBalance = false;
     let isCancelingCampaign = false;
 
-    // بنية الأوصاف والخيارات المحددة مسبقاً لكل منصة لمنع تخطي السبام والشتائم
     const preDefinedDescriptions = {
         'يوتيوب': [
             "اشترك بالقناة وفعّل جرس التنبيهات 🔔",
@@ -73,7 +75,6 @@
         window.fetchAndRenderTasks();
     };
 
-    // جلب المهام وعرضها للمستخدمين (مع تفعيل إظهار خيار توجيهات المهمة المكتملة)
     window.fetchAndRenderTasks = async function() {
         const container = document.getElementById('tasks-list-container');
         const activeAdsContainer = document.getElementById('active-ads-container');
@@ -85,9 +86,7 @@
             let response = await fetch(`/api/get_campaigns?telegramId=${myId}`);
             if (response.ok) {
                 let data = await response.json();
-                if (data.success) {
-                    realTasks = data.campaigns;
-                }
+                if (data.success) { realTasks = data.campaigns; }
             }
         } catch (e) { console.warn("خطأ جلب المهام", e); }
 
@@ -140,7 +139,7 @@
                         if (state === 'idle') {
                             actionHtml = `<button id="btn-task-${task.id}" onclick="startTask('${task.id}', '${task.link}', ${task.reward})" style="background: #fff; color: #000; border: none; padding: 8px 22px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; transition: 0.2s;">ابدأ</button>`;
                         } else if (state === 'running') {
-                            actionHtml = `<button id="btn-task-${task.id}" disabled style="background: #222; color: #666; border: 1px solid #333; padding: 8px 14px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">انتظر ${window.taskTimers[task.id]}⏳</button>`;
+                            actionHtml = `<button id="btn-task-${task.id}" disabled style="background: #222; color: #ffaa00; border: 1px solid #333; padding: 8px 14px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">نفذ.. ${window.taskTimers[task.id]}⏳</button>`;
                         } else if (state === 'ready') {
                             actionHtml = `<button id="btn-task-${task.id}" onclick="verifyTask('${task.id}', ${task.reward})" style="background: #ffcc00; color: #000; border: none; padding: 8px 18px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">تحقق ✅</button>`;
                         }
@@ -169,10 +168,8 @@
             container.innerHTML = html || `<div style="text-align: center; color: #64748b; font-size: 13px; padding: 40px; background: #11111e; border-radius: 16px; border: 1px dashed #222235;">لا توجد حملات ترويجية نشطة حالياً.</div>`;
         }
 
-        // إحصائيات حملاتي الإعلانية النشطة
         if (activeAdsContainer) {
             let myCreatedCampaigns = realTasks.filter(task => String(task.creator_id).trim() === myId);
-
             if (myCreatedCampaigns.length === 0) {
                 activeAdsContainer.innerHTML = `<div style="text-align: center; color: #64748b; font-size: 12px; padding: 30px; background: #11111e; border-radius: 16px;">ليس لديك أي حملات ترويجية قائمة حالياً.</div>`;
                 return;
@@ -183,12 +180,10 @@
                 let comp = ad.users_completed || 0;
                 let need = ad.users_needed || 1;
                 let pct = Math.min(100, Math.floor((comp / need) * 100));
-                
                 let costPerClick = ad.reward || 0;
                 let totalBudget = costPerClick * need;
                 let consumedBudget = costPerClick * comp;
                 let remainingBudget = totalBudget - consumedBudget;
-
                 let config = platformConfig[ad.platform] || platformConfig['أخرى'];
 
                 adsHtml += `
@@ -235,7 +230,6 @@
                                 <div style="width: ${pct}%; height: 100%; background: linear-gradient(90deg, #0088cc, #38bdf8); border-radius: 10px; transition: width 0.4s ease;"></div>
                             </div>
                         </div>
-
                         <div style="color: #475569; font-size: 11px; margin-bottom: 12px; word-break: break-all; text-align: left; background: #090911; padding: 8px; border-radius: 8px; font-family: monospace;" dir="ltr">${ad.url}</div>
                         <button id="btn-cancel-${ad.id}" onclick="cancelServerCampaign('${ad.id}')" style="width: 100%; background: rgba(239,68,68,0.05); border: 1px solid rgba(239,68,68,0.25); color: #ef4444; padding: 11px; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 12px; transition: 0.2s;">إلغاء الإعلان فوراً وسحب المتبقي لحسابك</button>
                     </div>`;
@@ -244,26 +238,65 @@
         }
     };
 
+    // 🔥 زر ابدأ المهمة + تشغيل نظام منع النصب الذكي عن طريق تتبع مغادرة الصفحة 🔥
     window.startTask = function(taskId, link, reward) {
+        window.currentlyRunningTaskId = taskId; // تسجيل معرف المهمة المفتوحة حالياً
+
         if (window.Telegram?.WebApp) { window.Telegram.WebApp.openLink(link); } 
         else { window.open(link, '_blank'); }
         
         window.activeTasksState[taskId] = 'running';
-        window.taskTimers[taskId] = 10; 
+        window.taskTimers[taskId] = 10; // 10 ثوانٍ إلزامية داخل المنصة
         window.fetchAndRenderTasks();
         
-        let interval = setInterval(() => {
+        // مسح أي مؤقت قديم لتفادي التداخل البنائي
+        if (window.taskIntervals && window.taskIntervals[taskId]) {
+            clearInterval(window.taskIntervals[taskId]);
+        }
+        window.taskIntervals = window.taskIntervals || {};
+
+        window.taskIntervals[taskId] = setInterval(() => {
+            // 🛡️ فحص ذكي: لو المستخدم رجع للبوت وفتح الصفحة (يعني مش برة بينفذ المهمة) يتم تجميد العداد فوراً!
+            if (document.visibilityState === 'visible' || document.hasFocus()) {
+                let btn = document.getElementById(`btn-task-${taskId}`);
+                if (btn) {
+                    btn.innerText = `تابع العمل.. ⏳`;
+                    btn.style.color = "#ff4444"; // تلوين الزر لتنبيهه بالعودة السريعة
+                }
+                return; // إيقاف الخصم الزمني وتجميد الثانية لحين المغادرة الفعلية
+            }
+
+            // إذا كان المستخدم برة التطبيق والصفحة مخفية (ينفذ المهمة بصدق) يخصم الوقت طبيعي
             if (window.taskTimers[taskId] > 1) {
                 window.taskTimers[taskId]--;
                 let btn = document.getElementById(`btn-task-${taskId}`);
-                if (btn) btn.innerText = `انتظر ${window.taskTimers[taskId]}⏳`;
+                if (btn) {
+                    btn.innerText = `نفذ.. ${window.taskTimers[taskId]}⏳`;
+                    btn.style.color = "#ffaa00";
+                }
             } else {
-                clearInterval(interval);
+                clearInterval(window.taskIntervals[taskId]);
                 window.activeTasksState[taskId] = 'ready';
+                window.currentlyRunningTaskId = null; // تصفير الحماية بنجاح
                 window.fetchAndRenderTasks();
             }
         }, 1000);
     };
+
+    // مضافة حماية إضافية للـ visibility change العامة للتأكيد الفوري
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && window.currentlyRunningTaskId) {
+            let tId = window.currentlyRunningTaskId;
+            if (window.activeTasksState[tId] === 'running') {
+                let btn = document.getElementById(`btn-task-${tId}`);
+                if (btn) {
+                    btn.innerText = `تابع التنفيذ بالخارج 🛑`;
+                    btn.style.background = "rgba(239,68,68,0.2)";
+                    btn.style.color = "#ef4444";
+                }
+            }
+        }
+    });
 
     window.verifyTask = async function(taskId, reward) {
         const btn = document.getElementById(`btn-task-${taskId}`);
@@ -351,9 +384,6 @@
         finally { isConvertingBalance = false; }
     };
 
-    // ==========================================================
-    // 🛡️ نظام فتح الإعلانات بالخيارات الثابتة وفلاتر المراجعة الآمنة 
-    // ==========================================================
     window.openAdModal = function(type) {
         currentAdType = type;
         document.getElementById('ad-modal-title').innerText = `إطلاق حملة ${type} حقيقية`;
@@ -361,7 +391,6 @@
         document.getElementById('ad-reward').value = '';
         document.getElementById('ad-users').value = '';
         
-        // جلب خيارات الوصف وحقنها تلقائياً بالكامل لمنع الكتابة اليدوية الخاطئة
         const selectContainer = document.getElementById('ad-desc-select');
         selectContainer.innerHTML = '';
         
@@ -390,7 +419,7 @@
         if (isSubmittingCampaign) return;
 
         let link = document.getElementById('ad-link').value.trim();
-        let desc = document.getElementById('ad-desc-select').value; // جلب الوصف المختار الجاهز الآمن
+        let desc = document.getElementById('ad-desc-select').value; 
         let reward = parseFloat(document.getElementById('ad-reward').value);
         let users = parseInt(document.getElementById('ad-users').value);
 
@@ -399,7 +428,6 @@
             return;
         }
 
-        // 1️⃣ حماية التحقق من الرابط ومطابقته لكل منصة إجبارياً
         let linkLower = link.toLowerCase();
         if (currentAdType === 'يوتيوب' && !linkLower.includes("youtube.com") && !linkLower.includes("youtu.be")) {
             alert("⚠️ خطأ أمني: يجب إدخال رابط فيديو أو قناة يوتيوب صحيح يبدأ بـ youtube.com أو youtu.be");
@@ -418,12 +446,11 @@
             return;
         }
 
-        // 2️⃣ فحص روابط قسم "زيارة موقع" من المحتوى المشبوه والجنسي (Anti-NSFW / Anti-Scam Filter)
         if (currentAdType === 'موقع') {
             const forbiddenKeywords = ['porn', 'sexy', 'xnx', 'adult', 'gambling', 'casino', 'bet365', '1xbet', 'sex', 'إباحي', 'جنس', 'قمار'];
             let foundViolation = forbiddenKeywords.some(word => linkLower.includes(word));
             if (foundViolation) {
-                alert("🚨 نظام الأمان التلقائي 🚨\nتم حظر الرابط فوراً لاحتوائه على كلمات مشبوهة أو جنسية أو احتيالية مجهولة ومخالفة لسياسة بوت التداول والربح! الرجاء الحذر حتى لا يتم حظر حسابك بالكامل.");
+                alert("🚨 نظام الأمان التلقائي 🚨\nتم حظر الرابط فوراً لاحتوائه على محتوى مخالف لسياسة البوت!");
                 return;
             }
         }
@@ -436,13 +463,12 @@
             return;
         }
 
-        // 🔒 تفعيل شاشة العداد التنازلي التلقائي للمراجعة (15 ثانية) قبل الرفع النهائي
         document.getElementById('review-modal').style.display = 'flex';
         let remainingSeconds = 15;
         const countdownTimerDisplay = document.getElementById('review-countdown-timer');
         
         isSubmittingCampaign = true;
-        closeAdModal(); // إخفاء مودال الإدخال والتركيز على شاشة الفحص
+        closeAdModal(); 
 
         let reviewInterval = setInterval(async () => {
             remainingSeconds--;
@@ -451,7 +477,6 @@
             if (remainingSeconds <= 0) {
                 clearInterval(reviewInterval);
                 
-                // انتهت الـ 15 ثانية مراجعة بنجاح.. يتم الإرسال للسيرفر الآن والخصم الفعلي
                 try {
                     let response = await fetch('/api/create_campaign', {
                         method: 'POST',
@@ -467,15 +492,15 @@
                     });
                     let result = await response.json();
                     
-                    document.getElementById('review-modal').style.display = 'none'; // إخفاء نافذة الفحص
-                    isSubmittingCampaign = false;
+                    document.getElementById('review-modal').style.display = 'none'; 
 
                     if (response.ok && result.success) {
-                        alert("✅ اجتاز الإعلان المراجعة الفنية والأمنية التلقائية بنجاح، وتم الخصم والنشـر للجميع!");
                         if(window.PlayerData) window.PlayerData.ad_balance -= totalCost;
-                        window.updateTasksUI();
-                        if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
+                        
+                        // 🔥 تفعيل مودال النجاح الزجاجي الجديد الاحترافي بدل الـ alert القديم 🔥
+                        document.getElementById('success-modal').style.display = 'flex';
                     } else {
+                        isSubmittingCampaign = false;
                         alert("⚠️ رفض السيرفر إنشاء الحملة: " + (result.error || "تأكد من سلامة الحساب"));
                     }
                 } catch (e) {
@@ -485,6 +510,29 @@
                 }
             }
         }, 1000);
+    };
+
+    // 🔥 دالة التوجيه التلقائي الذكي والإغلاق الفوري بعد ضغط "متابعة الحملات" 🔥
+    window.handleSuccessRedirect = function() {
+        // 1. إخفاء مودال النجاح
+        document.getElementById('success-modal').style.display = 'none';
+        
+        // 2. إعادة متغير الحماية للوضع الطبيعي تمهيداً لأي حملات قادمة
+        isSubmittingCampaign = false;
+
+        // 3. التحويل التلقائي لقسم حملات الترويج
+        window.switchTasksTab('promote');
+
+        // 4. تحديث البيانات بالكامل من السيرفر لرسم الإعلان الجديد بالأسفل
+        window.updateTasksUI();
+
+        // 5. عمل سكرول سلس لأسفل الصفحة (مكان ظهور الإعلانات) لتجربة مستخدم خرافية
+        setTimeout(() => {
+            const container = document.getElementById('active-ads-container');
+            if (container) {
+                container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 300);
     };
 
     setTimeout(() => {
