@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>الإعدادات</title>
 </head>
-<body style="background:#0f0f0f; margin:0; font-family: sans-serif;">
+<body style="background:#0f0f0f; margin:0; font-family: sans-serif; -webkit-user-select: none; user-select: none;">
 
 <div id="main-settings-section" class="settings-container" style="padding:20px; color:#fff; max-width:400px; margin:0 auto; background:#0f0f0f; min-height:100vh; box-sizing: border-box;">
     
@@ -51,7 +51,7 @@
 
     <div style="display:flex; gap:10px;">
         <button onclick="refreshGameData()" style="flex:1; padding:12px; background:#1c1c1c; border:1px solid #333; color:#fff; border-radius:10px; font-weight:bold; font-size:13px; display:flex; align-items:center; justify-content:center; gap:5px; cursor:pointer;">
-            🔄 تحديث البيانات
+            🔄 تحديث اللعبة بالكامل
         </button>
         <button onclick="showPrivacyModal()" style="flex:1; padding:12px; background:#1c1c1c; border:1px solid #333; color:#aaa; border-radius:10px; font-weight:bold; font-size:13px; cursor:pointer;">
             ⚖️ سياسة الاستخدام
@@ -73,7 +73,7 @@
     </div>
 </div>
 
-<div id="toast-msg" style="display:none; position:fixed; bottom:80px; left:50%; transform:translateX(-50%); background:#00cc66; color:#fff; padding:8px 16px; border-radius:20px; font-size:12px; font-weight:bold; z-index:10000; box-shadow:0 4px 10px rgba(0,0,0,0.5); text-align:center; min-width:200px;">
+<div id="toast-msg" style="display:none; position:fixed; bottom:80px; left:50%; transform:translateX(-50%); background:#00cc66; color:#fff; padding:8px 16px; border-radius:20px; font-size:12px; font-weight:bold; z-index:10000; box-shadow:0 4px 10px rgba(0,0,0,0.5); text-align:center; min-width:220px;">
     تم نسخ الـ ID بنجاح!
 </div>
 
