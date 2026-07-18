@@ -3,16 +3,7 @@
     window.activeTasksState = window.activeTasksState || {};
     window.taskTimers = window.taskTimers || {};
 
-    // 1. قائمة المهام الثابتة (للتجربة)
-    const dummyTasks = [
-        { id: 'dummy_101', title: "انضم لقناتنا الرسمية", platform: 'تيليجرام', reward: 5000, link: "https://t.me/" },
-        { id: 'dummy_102', title: "اشترك في قناة اليوتيوب", platform: 'يوتيوب', reward: 8000, link: "https://youtube.com/" },
-        { id: 'dummy_103', title: "تابعنا على منصة X", platform: 'X', reward: 3000, link: "https://x.com/" },
-        { id: 'dummy_104', title: "زيارة موقعنا", platform: 'موقع', reward: 2000, link: "https://google.com/" },
-        { id: 'dummy_105', title: "متابعة انستغرام", platform: 'انستغرام', reward: 4000, link: "https://instagram.com/" }
-    ];
-
-    // إعدادات الأقسام وألوانها وأيقوناتها لتنظيم المهام
+    // إعدادات الأقسام وألوانها وأيقوناتها لتنظيم المهام الحقيقية
     const platformConfig = {
         'يوتيوب': { title: "مهام يوتيوب", icon: "fab fa-youtube", color: "#ef4444" },
         'تيليجرام': { title: "مهام تيليجرام", icon: "fab fa-telegram", color: "#38bdf8" },
@@ -26,7 +17,7 @@
         return window.PlayerData?.tg_id || window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || "5102387551";
     }
 
-    // 2. التبديل بين قسم (اكسب ZN) وقسم (روّج لقناتك)
+    // التبديل بين قسم (اكسب ZN) وقسم (روّج لقناتك)
     window.switchTasksTab = function(tab) {
         document.getElementById('section-earn').style.display = tab === 'earn' ? 'block' : 'none';
         document.getElementById('section-promote').style.display = tab === 'promote' ? 'block' : 'none';
@@ -42,7 +33,7 @@
         }
     };
 
-    // 3. تحديث واجهة المستخدم فورياً (الأرصدة)
+    // تحديث واجهة المستخدم فورياً (الأرصدة)
     window.updateTasksUI = function() {
         const pData = window.PlayerData || { balance: 0, ad_balance: 0 };
         const tasksTopBalance = document.getElementById('top-balance-tasks');
@@ -56,7 +47,7 @@
         window.fetchAndRenderTasks();
     };
 
-    // 4. جلب المهام والإعلانات من السيرفر ورسمها للمستخدمين
+    // جلب المهام والإعلانات الحقيقية فقط من السيرفر ورسمها للمستخدمين
     window.fetchAndRenderTasks = async function() {
         const container = document.getElementById('tasks-list-container');
         const activeAdsContainer = document.getElementById('active-ads-container');
@@ -76,20 +67,23 @@
         }
 
         // ==========================================
-        // 🟢 قسم: اكسب ZN (عرض المهام المتاحة للجميع)
+        // 🟢 قسم: اكسب ZN (عرض المهام المتاحة المضافة من المستخدمين)
         // ==========================================
         if (container) {
-            let allTasks = [...dummyTasks];
+            let allTasks = [];
             realTasks.forEach(task => {
-                allTasks.push({
-                    id: task.id,
-                    title: `مهمة زيادة تفاعل (${task.platform})`,
-                    platform: task.platform || 'أخرى',
-                    reward: task.reward,
-                    link: task.url,
-                    is_completed: task.is_completed,
-                    creator_id: task.creator_id
-                });
+                // تصفية للتأكد من عدم ظهور إعلان المستخدم لنفسه في قائمة التكسب
+                if (String(task.creator_id).trim() !== String(getTgId()).trim()) {
+                    allTasks.push({
+                        id: task.id,
+                        title: task.description || `مهمة دعم وتفاعل عبر (${task.platform})`,
+                        platform: task.platform || 'أخرى',
+                        reward: task.reward,
+                        link: task.url,
+                        is_completed: task.is_completed,
+                        creator_id: task.creator_id
+                    });
+                }
             });
 
             let groupedTasks = {};
@@ -102,15 +96,13 @@
             let html = '';
             for (let plat in groupedTasks) {
                 let tasksArray = groupedTasks[plat];
-                
-                // الترتيب التنازلي: الأغلى يظهر فوق
-                tasksArray.sort((a, b) => b.reward - a.reward);
+                tasksArray.sort((a, b) => b.reward - a.reward); // الأغلى أولاً
                 let config = platformConfig[plat] || platformConfig['أخرى'];
 
                 html += `
-                    <div style="margin-top: 20px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+                    <div style="margin-top: 25px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
                         <i class="${config.icon}" style="color: ${config.color}; font-size: 16px;"></i>
-                        <h5 style="color: #ccc; margin: 0; font-size: 13px;">${config.title}</h5>
+                        <h5 style="color: #ccc; margin: 0; font-size: 14px; font-weight: 600;">${config.title}</h5>
                     </div>
                 `;
 
@@ -119,71 +111,130 @@
                     let actionHtml = '';
 
                     if (isCompleted) {
-                        actionHtml = `<button disabled style="background: rgba(40, 167, 69, 0.2); color: #28a745; border: 1px solid #28a745; padding: 8px 15px; border-radius: 8px; font-size: 12px; font-weight: bold;">مكتمل ✔️</button>`;
+                        actionHtml = `<button disabled style="background: rgba(40, 167, 69, 0.15); color: #28a745; border: 1px solid rgba(40, 167, 69, 0.4); padding: 8px 14px; border-radius: 8px; font-size: 12px; font-weight: bold;">مكتمل ✔️</button>`;
                     } else {
                         let state = window.activeTasksState[task.id] || 'idle';
                         if (state === 'idle') {
-                            actionHtml = `<button id="btn-task-${task.id}" onclick="startTask('${task.id}', '${task.link}', ${task.reward})" style="background: #fff; color: #000; border: none; padding: 8px 20px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: bold;">ابدأ</button>`;
+                            actionHtml = `<button id="btn-task-${task.id}" onclick="startTask('${task.id}', '${task.link}', ${task.reward})" style="background: #fff; color: #000; border: none; padding: 8px 22px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: bold; transition: 0.2s;">ابدأ</button>`;
                         } else if (state === 'running') {
-                            actionHtml = `<button id="btn-task-${task.id}" disabled style="background: #555; color: #ccc; border: 1px solid #777; padding: 8px 15px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">انتظر ${window.taskTimers[task.id]}⏳</button>`;
+                            actionHtml = `<button id="btn-task-${task.id}" disabled style="background: #333; color: #888; border: 1px solid #444; padding: 8px 14px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">انتظر ${window.taskTimers[task.id]}⏳</button>`;
                         } else if (state === 'ready') {
-                            actionHtml = `<button id="btn-task-${task.id}" onclick="verifyTask('${task.id}', ${task.reward})" style="background: #ffcc00; color: #000; border: none; padding: 8px 20px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: bold; box-shadow: 0 0 8px rgba(255, 204, 0, 0.6);">تحقق ✅</button>`;
+                            actionHtml = `<button id="btn-task-${task.id}" onclick="verifyTask('${task.id}', ${task.reward})" style="background: #ffcc00; color: #000; border: none; padding: 8px 18px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: bold; box-shadow: 0 0 10px rgba(255, 204, 0, 0.4);">تحقق ✅</button>`;
                         }
                     }
 
                     html += `
-                        <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 15px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
-                            <div style="display: flex; align-items: center; gap: 12px;">
-                                <i class="${config.icon}" style="font-size: 22px; color: ${config.color};"></i>
-                                <div style="text-align: right;">
-                                    <div style="color: #fff; font-size: 13px; font-weight: bold;">${task.title}</div>
-                                    <div style="color: #ffcc00; font-size: 12px; font-weight: bold;">+${task.reward.toLocaleString()} ZN</div>
+                        <div style="background: #141414; border: 1px solid #262626; border-radius: 14px; padding: 16px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                            <div style="display: flex; align-items: center; gap: 14px; flex: 1;">
+                                <div style="background: rgba(255,255,255,0.03); width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; border: 1px solid #2d2d2d;">
+                                    <i class="${config.icon}" style="font-size: 20px; color: ${config.color};"></i>
+                                </div>
+                                <div style="text-align: right; flex: 1;">
+                                    <div style="color: #ffffff; font-size: 13px; font-weight: 600; line-height: 1.4; margin-bottom: 4px;">${task.title}</div>
+                                    <div style="color: #ffcc00; font-size: 12px; font-weight: bold; display: flex; align-items: center; gap: 4px;">
+                                        <span>+${task.reward.toLocaleString()}</span> <span style="font-size: 10px; color: #888;">ZN</span>
+                                    </div>
                                 </div>
                             </div>
-                            <div>
+                            <div style="margin-right: auto;">
                                 ${actionHtml}
                             </div>
                         </div>`;
                 });
             }
-            container.innerHTML = html || `<div style="text-align: center; color: #888; font-size: 12px; padding: 20px;">لا توجد مهام متاحة حالياً.</div>`;
+            container.innerHTML = html || `<div style="text-align: center; color: #666; font-size: 13px; padding: 30px; background: #111; border-radius: 12px; border: 1px dashed #222;">لا توجد مهام حقيقية نشطة حالياً من مستخدمين آخرين.</div>`;
         }
 
         // ==========================================
-        // 🔵 قسم: روّج لقناتك (حماية الإعلانات النشطة)
+        // 🔵 قسم: روّج لقناتك (تفاصيل شيك وموسعة للحملات النشطة)
         // ==========================================
         if (activeAdsContainer) {
             let myId = String(getTgId()).trim();
             let myCreatedCampaigns = realTasks.filter(task => String(task.creator_id).trim() === myId);
 
             if (myCreatedCampaigns.length === 0) {
-                activeAdsContainer.innerHTML = `<div style="text-align: center; color: #888; font-size: 12px; margin-top: 20px;">ليس لديك حملات إعلانية نشطة.</div>`;
+                activeAdsContainer.innerHTML = `<div style="text-align: center; color: #666; font-size: 12px; padding: 25px; background: #111; border-radius: 12px;">ليس لديك حملات إعلانية نشطة حالياً.</div>`;
                 return;
             }
 
             let adsHtml = '';
             myCreatedCampaigns.forEach(ad => {
+                let comp = ad.users_completed || 0;
+                let need = ad.users_needed || 1;
+                let pct = Math.min(100, Math.floor((comp / need) * 100));
+                
+                let costPerClick = ad.reward || 0;
+                let totalBudget = costPerClick * need;
+                let consumedBudget = costPerClick * comp;
+                let remainingBudget = totalBudget - consumedBudget;
+
+                let config = platformConfig[ad.platform] || platformConfig['أخرى'];
+
                 adsHtml += `
-                    <div style="background: #111; border: 1px solid #333; border-radius: 12px; padding: 15px; margin-bottom: 12px;">
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                            <span style="color: #fff; font-size: 13px; font-weight: bold;">حملة ${ad.platform}</span>
-                            <span style="color: #38bdf8; font-size: 12px;">مكتمل: ${ad.users_completed || 0}/${ad.users_needed || 0}</span>
+                    <div style="background: #161622; border: 1px solid #2a2a3a; border-radius: 16px; padding: 18px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <i class="${config.icon}" style="color: ${config.color}; font-size: 16px;"></i>
+                                <span style="color: #fff; font-size: 14px; font-weight: bold;">حملة دقيقة لـ ${ad.platform}</span>
+                            </div>
+                            <span style="background: rgba(56,189,248,0.1); color: #38bdf8; font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: bold;">
+                                التفاعل: ${comp} / ${need}
+                            </span>
                         </div>
-                        <div style="color: #888; font-size: 11px; margin-bottom: 12px; word-break: break-all; text-align: left;" dir="ltr">${ad.url}</div>
-                        <button onclick="cancelServerCampaign('${ad.id}')" style="width: 100%; background: rgba(239,68,68,0.1); border: 1px solid #ef4444; color: #ef4444; padding: 8px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 12px;">إلغاء واسترداد المتبقي (يخصم 10%)</button>
+                        
+                        <div style="background: #0d0d16; border-radius: 10px; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; border: 1px solid #1f1f2e;">
+                            <div style="text-align: right;">
+                                <span style="color: #777; font-size: 11px; display: block;">تكلفة الفرد:</span>
+                                <span style="color: #fff; font-size: 12px; font-weight: bold;">${costPerClick.toLocaleString()} AdZN</span>
+                            </div>
+                            <div style="text-align: right;">
+                                <span style="color: #777; font-size: 11px; display: block;">الميزانية الكلية:</span>
+                                <span style="color: #ffcc00; font-size: 12px; font-weight: bold;">${totalBudget.toLocaleString()} AdZN</span>
+                            </div>
+                            <div style="text-align: right; border-top: 1px solid #1a1a26; padding-top: 5px;">
+                                <span style="color: #777; font-size: 11px; display: block;">المستهلك:</span>
+                                <span style="color: #ef4444; font-size: 12px; font-weight: bold;">${consumedBudget.toLocaleString()} AdZN</span>
+                            </div>
+                            <div style="text-align: right; border-top: 1px solid #1a1a26; padding-top: 5px;">
+                                <span style="color: #777; font-size: 11px; display: block;">المتبقي المسترد:</span>
+                                <span style="color: #28a745; font-size: 12px; font-weight: bold;">${remainingBudget.toLocaleString()} AdZN</span>
+                            </div>
+                        </div>
+
+                        ${ad.description ? `
+                        <div style="background: rgba(255,255,255,0.02); border-right: 3px solid #38bdf8; padding: 6px 10px; font-size: 11px; color: #bbb; margin-bottom: 12px; text-align: right; border-radius: 4px;">
+                            <strong>التوجيهات المرفقة:</strong> ${ad.description}
+                        </div>` : ''}
+
+                        <div style="margin-bottom: 14px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #888; margin-bottom: 4px;">
+                                <span>نسبة الإنجاز</span>
+                                <span style="color: #38bdf8; font-weight: bold;">${pct}%</span>
+                            </div>
+                            <div style="width: 100%; height: 6px; background: #222; border-radius: 10px; overflow: hidden;">
+                                <div style="width: ${pct}%; height: 100%; background: linear-gradient(90deg, #0088cc, #38bdf8); border-radius: 10px; transition: width 0.4s ease;"></div>
+                            </div>
+                        </div>
+
+                        <div style="color: #555; font-size: 10px; margin-bottom: 12px; word-break: break-all; text-align: left; background: #0b0b11; padding: 6px; border-radius: 6px;" dir="ltr">${ad.url}</div>
+                        <button onclick="cancelServerCampaign('${ad.id}')" style="width: 100%; background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; padding: 10px; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 12px; transition: 0.2s;">إلغاء واسترداد المتبقي (يخصم 10%)</button>
                     </div>`;
             });
             activeAdsContainer.innerHTML = adsHtml;
         }
     };
 
-    // 5. زر ابدأ المهمة (يشغل العداد التنازلي)
+    // زر ابدأ المهمة (يشغل العداد التنازلي)
     window.startTask = function(taskId, link, reward) {
-        window.open(link, '_blank');
+        if (window.Telegram?.WebApp) {
+            window.Telegram.WebApp.openLink(link);
+        } else {
+            window.open(link, '_blank');
+        }
         
         window.activeTasksState[taskId] = 'running';
         window.taskTimers[taskId] = 10; // 10 ثواني انتظار للتأكد من الزيارة
-        window.fetchAndRenderTasks(); // تحديث عشان الزرار يقلب رمادي
+        window.fetchAndRenderTasks();
         
         let interval = setInterval(() => {
             if (window.taskTimers[taskId] > 1) {
@@ -193,12 +244,12 @@
             } else {
                 clearInterval(interval);
                 window.activeTasksState[taskId] = 'ready';
-                window.fetchAndRenderTasks(); // تحديث عشان الزرار يقلب أصفر للتحقق
+                window.fetchAndRenderTasks();
             }
         }, 1000);
     };
 
-    // دالة التحقق (مربوطة بالسيرفر للـ التأكيد)
+    // دالة التحقق المرتبطة بالسيرفر والـ API للتأكيد الفعلي وحفظ البيانات
     window.verifyTask = async function(taskId, reward) {
         const btn = document.getElementById(`btn-task-${taskId}`);
         if(btn) {
@@ -219,18 +270,14 @@
                 completedTasks.push(taskId);
                 localStorage.setItem('zn_completed_tasks', JSON.stringify(completedTasks));
                 if (window.PlayerData) window.PlayerData.balance += reward;
-                alert(`🎉 مبروك! تمت إضافة ${reward.toLocaleString()} ZN`);
+                alert(`🎉 مبروك! تمت إضافة ${reward.toLocaleString()} ZN ورصيدك المحدث جاهز!`);
             } else {
                 alert("⚠️ فشل التحقق: " + (result.error || "تأكد من إتمام المهمة أولاً"));
-                window.activeTasksState[taskId] = 'ready'; // يرجع يخليه يقدر يدوس تاني لو فشل
+                window.activeTasksState[taskId] = 'ready';
             }
         } catch (e) {
-            // وضع احتياطي لو السيرفر فيه مشكلة (للمهام الوهمية)
-            let completedTasks = JSON.parse(localStorage.getItem('zn_completed_tasks') || '[]');
-            completedTasks.push(taskId);
-            localStorage.setItem('zn_completed_tasks', JSON.stringify(completedTasks));
-            if (window.PlayerData) window.PlayerData.balance += reward;
-            alert(`🎉 مبروك! تمت إضافة ${reward.toLocaleString()} ZN`);
+            alert("حدث خطأ في الاتصال بالسيرفر أثناء المراجعة الفنية.");
+            window.activeTasksState[taskId] = 'ready';
         }
         
         window.fetchAndRenderTasks();
@@ -243,7 +290,7 @@
         }
     };
 
-    // 6. زر الإلغاء
+    // زر الإلغاء
     window.cancelServerCampaign = async function(campId) {
         if (!confirm("هل أنت متأكد من إلغاء الحملة واستعادة قيمة النقرات المتبقية إلى رصيدك الإعلاني بعد خصم العمولة (10%)؟")) return;
         
@@ -256,7 +303,7 @@
             let result = await response.json();
             
             if (response.ok && result.success) {
-                alert(`✅ تم إلغاء الحملة بنجاح واسترداد ${Math.floor(result.refund)} AdZN!`);
+                alert(`✅ تم إلغاء الحملة بنجاح واسترداد المتبقي لـ حسابك!`);
                 if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
                 window.fetchAndRenderTasks();
             } else {
@@ -267,7 +314,7 @@
         }
     };
 
-    // 7. تحويل ZN إلى رصيد إعلانات AdZN
+    // تحويل ZN إلى رصيد إعلانات AdZN
     window.convertZnToAdZn = async function() {
         let amount = prompt("أدخل كمية ZN لتحويلها إلى رصيد إعلانات (AdZN):\n* سيتم خصم 10% عمولة تحويل.");
         if (!amount || isNaN(amount) || amount <= 0) return;
@@ -321,6 +368,7 @@
         currentAdType = type;
         document.getElementById('ad-modal-title').innerText = `حملة ${type} جديدة`;
         document.getElementById('ad-link').value = '';
+        document.getElementById('ad-desc').value = ''; // تصفير الحقل الجديد المضاف
         document.getElementById('ad-reward').value = '';
         document.getElementById('ad-users').value = '';
         document.getElementById('ad-modal').style.display = 'flex';
@@ -332,11 +380,12 @@
 
     window.submitAdCampaign = async function() {
         let link = document.getElementById('ad-link').value;
+        let desc = document.getElementById('ad-desc').value; // جلب تفاصيل المهمة
         let reward = parseFloat(document.getElementById('ad-reward').value);
         let users = parseInt(document.getElementById('ad-users').value);
 
-        if (!link || isNaN(reward) || reward <= 0 || isNaN(users) || users <= 0) {
-            alert("⚠️ يرجى إدخال البيانات بشكل صحيح!");
+        if (!link || !desc || isNaN(reward) || reward <= 0 || isNaN(users) || users <= 0) {
+            alert("⚠️ يرجى إدخال جميع البيانات والوصف التوضيحي بشكل صحيح!");
             return;
         }
 
@@ -356,6 +405,7 @@
                     telegramId: getTgId(), 
                     platform: currentAdType,
                     url: link,
+                    description: desc, // إرسال تفاصيل المهمة للسيرفر ليحفظها بـ Firebase
                     reward: reward,
                     users_needed: users
                 })
@@ -364,9 +414,8 @@
             
             if (response.ok && result.success) {
                 closeAdModal();
-                alert("✅ تم نشر حملتك الإعلانية بنجاح!");
+                alert("✅ تم نشر حملتك الإعلانية بنجاح على السيرفر ومتاحة للجميع!");
                 
-                // تحديث سريع للواجهة الأمامية
                 if(window.PlayerData) window.PlayerData.ad_balance -= totalCost;
                 const adBalDisplay = document.getElementById('ad-balance-display');
                 if (adBalDisplay) adBalDisplay.innerText = `AdZN ${Math.floor(window.PlayerData.ad_balance || 0).toLocaleString()}`;
