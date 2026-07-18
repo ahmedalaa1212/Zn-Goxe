@@ -1,4 +1,8 @@
 (function initTasks() {
+    // حالة المهام لتشغيل العداد والتحقق
+    window.activeTasksState = window.activeTasksState || {};
+    window.taskTimers = window.taskTimers || {};
+
     // 1. قائمة المهام الثابتة (للتجربة)
     const dummyTasks = [
         { id: 'dummy_101', title: "انضم لقناتنا الرسمية", platform: 'تيليجرام', reward: 5000, link: "https://t.me/" },
@@ -17,8 +21,6 @@
         'انستغرام': { title: "مهام انستغرام", icon: "fab fa-instagram", color: "#e1306c" },
         'أخرى': { title: "مهام متنوعة", icon: "fas fa-tasks", color: "#a855f7" }
     };
-
-    let completedTasks = JSON.parse(localStorage.getItem('zn_completed_tasks') || '[]');
 
     function getTgId() {
         return window.PlayerData?.tg_id || window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || "5102387551";
@@ -58,6 +60,7 @@
     window.fetchAndRenderTasks = async function() {
         const container = document.getElementById('tasks-list-container');
         const activeAdsContainer = document.getElementById('active-ads-container');
+        let completedTasks = JSON.parse(localStorage.getItem('zn_completed_tasks') || '[]');
         
         let realTasks = [];
         try {
@@ -102,7 +105,6 @@
                 
                 // الترتيب التنازلي: الأغلى يظهر فوق
                 tasksArray.sort((a, b) => b.reward - a.reward);
-                
                 let config = platformConfig[plat] || platformConfig['أخرى'];
 
                 html += `
@@ -114,6 +116,21 @@
 
                 tasksArray.forEach(task => {
                     const isCompleted = task.is_completed || completedTasks.includes(task.id);
+                    let actionHtml = '';
+
+                    if (isCompleted) {
+                        actionHtml = `<button disabled style="background: rgba(40, 167, 69, 0.2); color: #28a745; border: 1px solid #28a745; padding: 8px 15px; border-radius: 8px; font-size: 12px; font-weight: bold;">مكتمل ✔️</button>`;
+                    } else {
+                        let state = window.activeTasksState[task.id] || 'idle';
+                        if (state === 'idle') {
+                            actionHtml = `<button id="btn-task-${task.id}" onclick="startTask('${task.id}', '${task.link}', ${task.reward})" style="background: #fff; color: #000; border: none; padding: 8px 20px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: bold;">ابدأ</button>`;
+                        } else if (state === 'running') {
+                            actionHtml = `<button id="btn-task-${task.id}" disabled style="background: #555; color: #ccc; border: 1px solid #777; padding: 8px 15px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">انتظر ${window.taskTimers[task.id]}⏳</button>`;
+                        } else if (state === 'ready') {
+                            actionHtml = `<button id="btn-task-${task.id}" onclick="verifyTask('${task.id}', ${task.reward})" style="background: #ffcc00; color: #000; border: none; padding: 8px 20px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: bold; box-shadow: 0 0 8px rgba(255, 204, 0, 0.6);">تحقق ✅</button>`;
+                        }
+                    }
+
                     html += `
                         <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 15px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;">
                             <div style="display: flex; align-items: center; gap: 12px;">
@@ -124,10 +141,7 @@
                                 </div>
                             </div>
                             <div>
-                                ${isCompleted ? 
-                                    `<button disabled style="background: rgba(40, 167, 69, 0.2); color: #28a745; border: 1px solid #28a745; padding: 8px 15px; border-radius: 8px; font-size: 12px;">مكتمل ✔️</button>` : 
-                                    `<button id="btn-task-${task.id}" onclick="startTask('${task.id}', '${task.link}', ${task.reward})" style="background: #fff; color: #000; border: none; padding: 8px 20px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: bold;">ابدأ</button>`
-                                }
+                                ${actionHtml}
                             </div>
                         </div>`;
                 });
@@ -140,7 +154,6 @@
         // ==========================================
         if (activeAdsContainer) {
             let myId = String(getTgId()).trim();
-            // هنا الفلترة بتضمن إن مفيش مستخدم هيشوف إعلانات غيره في القسم ده
             let myCreatedCampaigns = realTasks.filter(task => String(task.creator_id).trim() === myId);
 
             if (myCreatedCampaigns.length === 0) {
@@ -164,54 +177,73 @@
         }
     };
 
-    // 5. تنفيذ المهمة (للمستخدمين)
+    // 5. زر ابدأ المهمة (يشغل العداد التنازلي)
     window.startTask = function(taskId, link, reward) {
         window.open(link, '_blank');
+        
+        window.activeTasksState[taskId] = 'running';
+        window.taskTimers[taskId] = 10; // 10 ثواني انتظار للتأكد من الزيارة
+        window.fetchAndRenderTasks(); // تحديث عشان الزرار يقلب رمادي
+        
+        let interval = setInterval(() => {
+            if (window.taskTimers[taskId] > 1) {
+                window.taskTimers[taskId]--;
+                let btn = document.getElementById(`btn-task-${taskId}`);
+                if (btn) btn.innerText = `انتظر ${window.taskTimers[taskId]}⏳`;
+            } else {
+                clearInterval(interval);
+                window.activeTasksState[taskId] = 'ready';
+                window.fetchAndRenderTasks(); // تحديث عشان الزرار يقلب أصفر للتحقق
+            }
+        }, 1000);
+    };
+
+    // دالة التحقق (مربوطة بالسيرفر للـ التأكيد)
+    window.verifyTask = async function(taskId, reward) {
         const btn = document.getElementById(`btn-task-${taskId}`);
-        if (!btn) return;
-        
-        btn.innerText = "تحقق ⏳";
-        btn.style.background = "#ffcc00";
-        
-        btn.onclick = async function() {
+        if(btn) {
             btn.innerText = "جاري التأكيد...";
             btn.disabled = true;
-            try {
-                let response = await fetch('/api/complete_task', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ telegramId: getTgId(), taskId: taskId })
-                });
-                let result = await response.json();
-                
-                if (response.ok && result.success) {
-                    completedTasks.push(taskId);
-                    localStorage.setItem('zn_completed_tasks', JSON.stringify(completedTasks));
-                    if (window.PlayerData) window.PlayerData.balance += reward;
-                    alert(`🎉 مبروك! تمت إضافة ${reward.toLocaleString()} ZN`);
-                } else {
-                    alert("⚠️ فشل التحقق: " + (result.error || "تأكد من إتمام المهمة أولاً"));
-                }
-            } catch (e) {
-                // وضع احتياطي للمهام الثابتة (للتجربة)
+        }
+
+        try {
+            let response = await fetch('/api/complete_task', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ telegramId: getTgId(), taskId: taskId })
+            });
+            let result = await response.json();
+            
+            if (response.ok && result.success) {
+                let completedTasks = JSON.parse(localStorage.getItem('zn_completed_tasks') || '[]');
                 completedTasks.push(taskId);
                 localStorage.setItem('zn_completed_tasks', JSON.stringify(completedTasks));
                 if (window.PlayerData) window.PlayerData.balance += reward;
                 alert(`🎉 مبروك! تمت إضافة ${reward.toLocaleString()} ZN`);
-            }
-            
-            window.fetchAndRenderTasks();
-            if (typeof window.triggerAllUIUpdates === 'function') {
-                window.triggerAllUIUpdates();
             } else {
-                const pData = window.PlayerData || {};
-                const topBal = document.getElementById('top-balance-tasks');
-                if (topBal) topBal.innerText = `ZN ${Math.floor(pData.balance || 0).toLocaleString()}`;
+                alert("⚠️ فشل التحقق: " + (result.error || "تأكد من إتمام المهمة أولاً"));
+                window.activeTasksState[taskId] = 'ready'; // يرجع يخليه يقدر يدوس تاني لو فشل
             }
-        };
+        } catch (e) {
+            // وضع احتياطي لو السيرفر فيه مشكلة (للمهام الوهمية)
+            let completedTasks = JSON.parse(localStorage.getItem('zn_completed_tasks') || '[]');
+            completedTasks.push(taskId);
+            localStorage.setItem('zn_completed_tasks', JSON.stringify(completedTasks));
+            if (window.PlayerData) window.PlayerData.balance += reward;
+            alert(`🎉 مبروك! تمت إضافة ${reward.toLocaleString()} ZN`);
+        }
+        
+        window.fetchAndRenderTasks();
+        if (typeof window.triggerAllUIUpdates === 'function') {
+            window.triggerAllUIUpdates();
+        } else {
+            const pData = window.PlayerData || {};
+            const topBal = document.getElementById('top-balance-tasks');
+            if (topBal) topBal.innerText = `ZN ${Math.floor(pData.balance || 0).toLocaleString()}`;
+        }
     };
 
-    // 6. زر الإلغاء (مرتبط بالسيرفر ومحمي)
+    // 6. زر الإلغاء
     window.cancelServerCampaign = async function(campId) {
         if (!confirm("هل أنت متأكد من إلغاء الحملة واستعادة قيمة النقرات المتبقية إلى رصيدك الإعلاني بعد خصم العمولة (10%)؟")) return;
         
@@ -332,7 +364,7 @@
             
             if (response.ok && result.success) {
                 closeAdModal();
-                alert("✅ تم نشر حملتك الإعلانية بنجاح على السيرفر!");
+                alert("✅ تم نشر حملتك الإعلانية بنجاح!");
                 
                 // تحديث سريع للواجهة الأمامية
                 if(window.PlayerData) window.PlayerData.ad_balance -= totalCost;
