@@ -15,7 +15,7 @@
     <div id="section-earn">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 10px;">
             <h4 style="color: #ffcc00; margin: 0; font-size: 15px; font-weight: 700;">المهمات المدعومة النشطة الآن</h4>
-            <span style="font-size: 11px; color: #64748b; background: rgba(255,255,255,0.05); padding: 3px 8px; border-radius: 20px;">تحديث تلقائي مأمن 🛡️</span>
+            <span style="font-size: 11px; color: #64748b; background: rgba(255,255,255,0.05); padding: 3px 8px; border-radius: 20px;">حماية ذكية ضد الغش 🛡️</span>
         </div>
         <div id="tasks-list-container">
             <div style="text-align: center; color: #64748b; font-size: 13px; padding: 40px;">جاري فحص وجلب المهام الحقيقية... ⏳</div>
@@ -23,33 +23,31 @@
     </div>
 
     <div id="section-promote" style="display: none;">
-        
         <div style="background: linear-gradient(145deg, #0f172a, #1e293b); border: 1px solid #334155; border-radius: 18px; padding: 25px; margin-bottom: 25px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.3);">
             <div style="color: #94a3b8; font-size: 13px; margin-bottom: 6px; font-weight: 500;">رصيدك المخصص للإعلانات والحملات</div>
             <div id="ad-balance-display" style="color: #38bdf8; font-size: 34px; font-weight: 800; margin-bottom: 20px; text-shadow: 0 0 15px rgba(56,189,248,0.2);">AdZN 0</div>
             <button onclick="convertZnToAdZn()" style="background: linear-gradient(90deg, #0284c7, #0369a1); border: none; color: #fff; padding: 12px 25px; border-radius: 10px; cursor: pointer; font-weight: 700; width: 100%; box-shadow: 0 4px 12px rgba(2,132,199,0.2); transition: 0.2s;">🔄 شحن محفظة الإعلانات (من رصيد ZN)</button>
-            <div style="color: #ef4444; font-size: 11px; margin-top: 10px; font-weight: 500;">* تنبيه: لا يمكن إعادة رصيد الإعلانات إلى الحساب الرئيسي بعد تحويله.</div>
         </div>
 
-        <h4 style="color: #fff; margin-bottom: 15px; text-align: right; font-size: 14px; font-weight: 700;">إطلاق حملة ترويجية جديدة</h4>
+        <h4 style="color: #fff; margin-bottom: 15px; text-align: right; font-size: 14px; font-weight: 700;">إطلاق حملة ترويجيّة جديدة</h4>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 30px;">
-            <div onclick="openAdModal('يوتيوب')" style="background: #131322; border: 1px solid #222235; padding: 20px; border-radius: 16px; text-align: center; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 10px rgba(0,0,0,0.15);">
-                <i class="fab fa-youtube" style="color: #ef4444; font-size: 30px; margin-bottom: 10px; filter: drop-shadow(0 4px 8px rgba(239,68,68,0.2));"></i>
+            <div onclick="openAdModal('يوتيوب')" style="background: #131322; border: 1px solid #222235; padding: 20px; border-radius: 16px; text-align: center; cursor: pointer;">
+                <i class="fab fa-youtube" style="color: #ef4444; font-size: 30px; margin-bottom: 10px;"></i>
                 <div style="color: #fff; font-size: 13px; font-weight: 700;">مشاهدة / اشتراك</div>
             </div>
-            <div onclick="openAdModal('تيليجرام')" style="background: #131322; border: 1px solid #222235; padding: 20px; border-radius: 16px; text-align: center; cursor: pointer; transition: 0.2s;">
-                <i class="fab fa-telegram" style="color: #38bdf8; font-size: 30px; margin-bottom: 10px; filter: drop-shadow(0 4px 8px rgba(56,189,248,0.2));"></i>
+            <div onclick="openAdModal('تيليجرام')" style="background: #131322; border: 1px solid #222235; padding: 20px; border-radius: 16px; text-align: center; cursor: pointer;">
+                <i class="fab fa-telegram" style="color: #38bdf8; font-size: 30px; margin-bottom: 10px;"></i>
                 <div style="color: #fff; font-size: 13px; font-weight: 700;">قناة / جروب ربحي</div>
             </div>
-            <div onclick="openAdModal('موقع')" style="background: #131322; border: 1px solid #222235; padding: 20px; border-radius: 16px; text-align: center; cursor: pointer; transition: 0.2s;">
-                <i class="fas fa-globe" style="color: #28a745; font-size: 30px; margin-bottom: 10px; filter: drop-shadow(0 4px 8px rgba(40,167,69,0.2));"></i>
+            <div onclick="openAdModal('موقع')" style="background: #131322; border: 1px solid #222235; padding: 20px; border-radius: 16px; text-align: center; cursor: pointer;">
+                <i class="fas fa-globe" style="color: #28a745; font-size: 30px; margin-bottom: 10px;"></i>
                 <div style="color: #fff; font-size: 13px; font-weight: 700;">زيارة موقع وفحص آمن</div>
             </div>
-            <div onclick="openAdModal('انستغرام')" style="background: #131322; border: 1px solid #222235; padding: 20px; border-radius: 16px; text-align: center; cursor: pointer; transition: 0.2s;">
-                <i class="fab fa-instagram" style="color: #e1306c; font-size: 30px; margin-bottom: 10px; filter: drop-shadow(0 4px 8px rgba(225,48,108,0.2));"></i>
+            <div onclick="openAdModal('انستغرام')" style="background: #131322; border: 1px solid #222235; padding: 20px; border-radius: 16px; text-align: center; cursor: pointer;">
+                <i class="fab fa-instagram" style="color: #e1306c; font-size: 30px; margin-bottom: 10px;"></i>
                 <div style="color: #fff; font-size: 13px; font-weight: 700;">متابعة حساب / لايك</div>
             </div>
-            <div onclick="openAdModal('X')" style="background: #131322; border: 1px solid #222235; padding: 20px; border-radius: 16px; text-align: center; cursor: pointer; grid-column: span 2; transition: 0.2s;">
+            <div onclick="openAdModal('X')" style="background: #131322; border: 1px solid #222235; padding: 20px; border-radius: 16px; text-align: center; cursor: pointer; grid-column: span 2;">
                 <i class="fab fa-twitter" style="color: #fff; font-size: 26px; margin-bottom: 10px;"></i>
                 <div style="color: #fff; font-size: 13px; font-weight: 700;">متابعة وتفاعل منصة X</div>
             </div>
@@ -63,12 +61,12 @@
         <div style="background: #161626; border: 1px solid #2a2a40; border-radius: 20px; padding: 25px; width: 90%; max-width: 420px; text-align: right; box-shadow: 0 15px 40px rgba(0,0,0,0.6); box-sizing: border-box;">
             <h3 id="ad-modal-title" style="color: #38bdf8; margin-top: 0; font-size: 18px; font-weight: 700; margin-bottom: 18px;">إنشاء حملة</h3>
             
-            <label style="color: #94a3b8; font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">رابط الحملة (يتم التحقق منه تلقائياً):</label>
+            <label style="color: #94a3b8; font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">رابط الحملة:</label>
             <input type="text" id="ad-link" placeholder="https://..." style="width: 100%; padding: 12px; margin-bottom: 14px; background: #0b0b12; border: 1px solid #2c2c3e; color: #fff; border-radius: 10px; box-sizing: border-box; font-size: 13px;" dir="ltr">
             
             <label style="color: #94a3b8; font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">توجيهات المهمة المطلوبة من العضو:</label>
-            <select id="ad-desc-select" style="width: 100%; padding: 12px; margin-bottom: 14px; background: #0b0b12; border: 1px solid #2c2c3e; color: #fff; border-radius: 10px; box-sizing: border-box; font-size: 13px; font-family: inherit; cursor: pointer;">
-                </select>
+            <select id="ad-desc-select" style="width: 100%; padding: 12px; margin-bottom: 14px; background: #0b0b12; border: 1px solid #2c2c3e; color: #fff; border-radius: 10px; box-sizing: border-box; font-size: 13px; font-family: inherit;">
+            </select>
 
             <label style="color: #94a3b8; font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">مكافأة العضو لكل تفاعل صحيح (AdZN):</label>
             <input type="number" id="ad-reward" placeholder="مثال: 500" style="width: 100%; padding: 12px; margin-bottom: 14px; background: #0b0b12; border: 1px solid #2c2c3e; color: #fff; border-radius: 10px; box-sizing: border-box; font-size: 13px;">
@@ -77,7 +75,7 @@
             <input type="number" id="ad-users" placeholder="مثال: 100" style="width: 100%; padding: 12px; margin-bottom: 22px; background: #0b0b12; border: 1px solid #2c2c3e; color: #fff; border-radius: 10px; box-sizing: border-box; font-size: 13px;">
             
             <div style="display: flex; gap: 12px;">
-                <button id="btn-submit-campaign-action" onclick="submitAdCampaign()" style="flex: 2; padding: 12px; background: linear-gradient(90deg, #38bdf8, #0284c7); color: #fff; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 13px; box-shadow: 0 4px 12px rgba(56,189,248,0.25);">نشر الحملة</button>
+                <button id="btn-submit-campaign-action" onclick="submitAdCampaign()" style="flex: 2; padding: 12px; background: linear-gradient(90deg, #38bdf8, #0284c7); color: #fff; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 13px;">نشر الحملة</button>
                 <button onclick="closeAdModal()" style="flex: 1; padding: 12px; background: #27273a; color: #a0a5b5; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 13px;">إلغاء</button>
             </div>
         </div>
@@ -87,14 +85,24 @@
         <div style="padding: 30px; max-width: 400px; width: 90%; background: #11111e; border: 1px solid #222235; border-radius: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.7);">
             <div style="font-size: 40px; margin-bottom: 15px; filter: drop-shadow(0 0 8px #38bdf8);">🛡️</div>
             <h3 style="color: #fff; margin: 0 0 10px 0; font-size: 18px; font-weight: 700;">نظام الفحص الأمني التلقائي</h3>
-            <p style="color: #94a3b8; font-size: 13px; line-height: 1.6; margin-bottom: 25px;">جاري مراجعة الرابط والتأكد من سلامة المحتوى وخلوه من المخالفات البرمجية أو الأخلاقية لحماية سلامة المجتمع البوت الفنية...</p>
+            <p style="color: #94a3b8; font-size: 13px; line-height: 1.6; margin-bottom: 25px;">جاري مراجعة الرابط والتأكد من سلامة المحتوى وخلوه من المخالفات البرمجية أو الأخلاقية لحماية المجتمع...</p>
             
             <div style="position: relative; width: 80px; height: 80px; margin: 0 auto 25px auto; display: flex; align-items: center; justify-content: center; background: rgba(56,189,248,0.05); border-radius: 50%; border: 2px dashed #38bdf8;">
                 <span id="review-countdown-timer" style="color: #38bdf8; font-size: 26px; font-weight: 800;">15</span>
                 <span style="font-size: 11px; color: #64748b; position: absolute; bottom: 8px;">ثانية</span>
             </div>
-            
             <div style="color: #64748b; font-size: 11px; font-weight: 500;">يرجى الانتظار، لا تغلق التطبيق أو تخرج من الصفحة.</div>
+        </div>
+    </div>
+
+    <div id="success-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(3, 3, 7, 0.96); backdrop-filter: blur(15px); z-index: 3000; align-items: center; justify-content: center; text-align: center;">
+        <div style="padding: 35px 25px; max-width: 380px; width: 88%; background: linear-gradient(145deg, #121225, #18182c); border: 1px solid rgba(40, 167, 69, 0.3); border-radius: 28px; box-shadow: 0 25px 60px rgba(0,0,0,0.8);">
+            <div style="width: 70px; height: 70px; background: rgba(40,167,69,0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px auto; border: 2px solid #28a745; box-shadow: 0 0 20px rgba(40,167,69,0.2);">
+                <i class="fas fa-check" style="color: #28a745; font-size: 32px;"></i>
+            </div>
+            <h3 style="color: #fff; margin: 0 0 12px 0; font-size: 20px; font-weight: 800; letter-spacing: 0.3px;">تم اجتياز الفحص بنجاح!</h3>
+            <p style="color: #a0a5b8; font-size: 13px; line-height: 1.6; margin-bottom: 25px; padding: 0 10px;">تهانينا! تم فحص الرابط والتأكد من سلامته، الحملة الآن نشطة ومتاحة لجميع الأعضاء، وتم خصم الميزانية من محفظتك بنجاح.</p>
+            <button onclick="handleSuccessRedirect()" style="width: 100%; padding: 14px; background: linear-gradient(90deg, #28a745, #1e7e34); color: #fff; border: none; border-radius: 12px; font-weight: 700; font-size: 14px; cursor: pointer; box-shadow: 0 5px 15px rgba(40,167,69,0.3); transition: 0.2s;">متابعة الحملات 📢</button>
         </div>
     </div>
 
