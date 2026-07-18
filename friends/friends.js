@@ -1,154 +1,195 @@
-(function initFriends() {
-    const tg = window.Telegram.WebApp;
-    // الحصول على أيدي المستخدم
-    const userId = tg.initDataUnsafe?.user?.id || '123456789'; 
-    const botUsername = 'ZnGoxe_Bot'; // تأكد من تغيير هذا ليوزرنيم البوت الخاص بك
-    
-    // رابط الإحالة
-    const referralLink = `https://t.me/${botUsername}/start?startapp=ref_${userId}`;
-    
-    // مهلة بسيطة لضمان تحميل الـ HTML قبل وضع الرابط
-    setTimeout(() => {
-        const linkInput = document.getElementById('invite-link-input');
-        if(linkInput) linkInput.value = referralLink;
-    }, 100);
+// ==========================================
+// إعدادات مهام الأصدقاء والمكافآت
+// ==========================================
+const REF_TASKS = [
+    { id: 1, reqFriends: 1, reward: 5000 },
+    { id: 2, reqFriends: 5, reward: 30000 },
+    { id: 3, reqFriends: 10, reward: 75000 },
+    { id: 4, reqFriends: 25, reward: 200000 },
+    { id: 5, reqFriends: 50, reward: 500000 },
+    { id: 6, reqFriends: 100, reward: 1500000 },
+    { id: 7, reqFriends: 500, reward: 10000000 }
+];
 
-    // بيانات وهمية مؤقتة للتجربة (سيتم استبدالها لاحقاً ببيانات السيرفر)
-    let userData = {
-        balance: 50000, 
-        pendingReferralEarnings: 1250, 
-        invitedFriendsCount: 4, 
-        claimedTasks: [] 
-    };
+// 🔥 تم إضافة يوزرنيم البوت الخاص بك بنجاح
+const BOT_USERNAME = "zngoxe_bot"; 
+const APP_SHORT_NAME = "app"; // غيره لو الميني آب بتاعك اسمه حاجة تانية في البوت فازر (BotFather)
 
-    const tasks = [
-        { id: 1, friendsReq: 1, reward: 500 },
-        { id: 2, friendsReq: 3, reward: 1500 },
-        { id: 3, friendsReq: 5, reward: 3000 },
-        { id: 4, friendsReq: 10, reward: 7000 },
-        { id: 5, friendsReq: 15, reward: 12000 },
-        { id: 6, friendsReq: 20, reward: 20000 },
-        { id: 7, friendsReq: 30, reward: 35000 },
-        { id: 8, friendsReq: 50, reward: 60000 },
-        { id: 9, friendsReq: 75, reward: 100000 },
-        { id: 10, friendsReq: 100, reward: 200000 }
-    ];
+// ==========================================
+// تحديث الواجهة (مربوط بالـ game.js)
+// ==========================================
+window.updateFriendsUI = function() {
+    const pData = window.PlayerData;
+    if (!pData) return;
 
-    // رسم قائمة المهام
-    function renderTasks() {
-        const tasksList = document.getElementById('friends-tasks-list');
-        if(!tasksList) return;
-        
-        tasksList.innerHTML = tasks.map(task => {
-            const isClaimed = userData.claimedTasks.includes(task.id);
-            const isEligible = userData.invitedFriendsCount >= task.friendsReq;
-            
-            // تنسيق الزر الافتراضي
-            let btnStyle = `border: none; padding: 10px 15px; border-radius: 8px; font-size: 13px; font-weight: bold; cursor: pointer;`;
-            let btnText = 'استلام';
-            let onclickAttr = '';
+    // 1. تحديث أرباح التعدين المعلقة
+    const pendingEl = document.getElementById('pending-ref-earnings');
+    if (pendingEl) pendingEl.innerText = Math.floor(pData.pending_ref_earnings || 0).toLocaleString();
 
-            if (isClaimed) {
-                btnStyle += ` background: #2a2a2a; color: #555; cursor: not-allowed;`;
-                btnText = 'تم الاستلام';
-            } else if (isEligible) {
-                btnStyle += ` background: #0088cc; color: #fff;`; // أزرق عند القابلية للاستلام
-                onclickAttr = `onclick="claimTask(${task.id}, ${task.reward})"`;
-            } else {
-                btnStyle += ` background: #444; color: #fff;`; // رمادي إذا لم يكمل العدد
-                onclickAttr = `onclick="showTaskError(${task.friendsReq})"`;
-            }
+    // 2. تحديث عدد الأصدقاء
+    const countEl = document.getElementById('invited-friends-count');
+    if (countEl) countEl.innerText = parseInt(pData.invited_friends_count || 0).toLocaleString();
 
-            return `
-                <div style="background: #1c1c1c; padding: 15px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #333; text-align: right;">
-                    <div>
-                        <div style="font-weight: bold; font-size: 16px; margin-bottom: 5px; color: #fff;">دعوة ${task.friendsReq} صديق</div>
-                        <div style="font-size: 13px; color: #ffcc00;">المكافأة: ZN ${task.reward.toLocaleString()}</div>
-                    </div>
-                    <button style="${btnStyle}" ${onclickAttr}>${btnText}</button>
-                </div>
-            `;
-        }).join('');
+    // 3. تحديث حالة زر سحب الأرباح (تعطيله لو الرصيد 0)
+    const btnClaim = document.getElementById('btn-claim-ref');
+    if (btnClaim) {
+        btnClaim.disabled = (pData.pending_ref_earnings <= 0);
     }
 
-    // تحديث الأرقام في الواجهة
-    function updateUI() {
-        const balEl = document.getElementById('friends-current-balance');
-        if(balEl) balEl.innerText = userData.balance.toLocaleString();
+    // 4. إنشاء وتحديث رابط الإحالة
+    const linkInput = document.getElementById('ref-link-input');
+    if (linkInput && pData.tg_id) {
+        linkInput.value = `https://t.me/${BOT_USERNAME}/${APP_SHORT_NAME}?startapp=ref_${pData.tg_id}`;
+    }
+
+    // 5. رسم قائمة مهام الأصدقاء
+    renderRefTasks();
+};
+
+// ==========================================
+// رسم قائمة المهام بناءً على حالة المستخدم
+// ==========================================
+function renderRefTasks() {
+    const listEl = document.getElementById('ref-tasks-list');
+    if (!listEl) return;
+
+    const pData = window.PlayerData;
+    const currentFriends = parseInt(pData.invited_friends_count || 0);
+    const claimedTasks = pData.claimed_ref_tasks || [];
+    
+    let html = '';
+
+    REF_TASKS.forEach(task => {
+        const isClaimed = claimedTasks.includes(task.id);
+        const isReady = currentFriends >= task.reqFriends;
         
-        const earnEl = document.getElementById('pending-referral-earnings');
-        if(earnEl) earnEl.innerText = userData.pendingReferralEarnings.toLocaleString();
-        
-        const claimBtn = document.getElementById('claim-earnings-btn');
-        if(claimBtn) {
-            if (userData.pendingReferralEarnings <= 0) {
-                claimBtn.disabled = true;
-                claimBtn.innerText = "لا توجد أرباح للتجميع";
-                claimBtn.style.background = "#333";
-                claimBtn.style.color = "#777";
-                claimBtn.style.cursor = "not-allowed";
-            } else {
-                claimBtn.disabled = false;
-                claimBtn.innerText = "تجميع أرباح الأصدقاء";
-                claimBtn.style.background = "#00cc66";
-                claimBtn.style.color = "white";
-                claimBtn.style.cursor = "pointer";
-            }
+        let btnHtml = '';
+        if (isClaimed) {
+            btnHtml = `<button disabled class="claimed-btn">تم الاستلام</button>`;
+        } else if (isReady) {
+            btnHtml = `<button onclick="claimRefTask(${task.id}, ${task.reward}, ${task.reqFriends})" class="claim-btn">استلام</button>`;
+        } else {
+            let remaining = task.reqFriends - currentFriends;
+            btnHtml = `<button disabled class="locked-btn">باقي ${remaining}</button>`;
         }
 
-        const invEl = document.getElementById('total-invited-friends');
-        if(invEl) invEl.innerText = userData.invitedFriendsCount;
+        html += `
+            <li class="task-item">
+                <div class="task-info">
+                    <h4>دعوة ${task.reqFriends} أصدقاء</h4>
+                    <p>مكافأة: ${task.reward.toLocaleString()} ZN</p>
+                </div>
+                <div class="task-action">
+                    ${btnHtml}
+                </div>
+            </li>
+        `;
+    });
 
-        renderTasks();
-    }
+    listEl.innerHTML = html;
+}
 
-    // نسخ الرابط
-    window.copyInviteLink = function() {
-        navigator.clipboard.writeText(referralLink).then(() => {
-            const btn = document.getElementById('copy-link-btn');
-            btn.innerText = "تم النسخ! ✓";
-            btn.style.background = "#00cc66";
-            setTimeout(() => {
-                btn.innerText = "نسخ الرابط";
-                btn.style.background = "#0088cc";
-            }, 2000);
-            if(tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+// ==========================================
+// دالة نسخ رابط الإحالة
+// ==========================================
+window.copyRefLink = function() {
+    const linkInput = document.getElementById('ref-link-input');
+    if (!linkInput || !linkInput.value) return;
+    
+    navigator.clipboard.writeText(linkInput.value).then(() => {
+        const tele = window.Telegram?.WebApp;
+        if (tele && tele.showAlert) {
+            tele.showAlert("تم نسخ رابط الدعوة بنجاح! شاركه مع أصدقائك لزيادة أرباحك.");
+        } else {
+            alert("تم نسخ رابط الدعوة بنجاح!");
+        }
+    }).catch(err => {
+        console.error('Failed to copy: ', err);
+    });
+};
+
+// ==========================================
+// دالة سحب أرباح تعدين الأصدقاء (الـ 10%)
+// ==========================================
+window.claimRefEarnings = async function() {
+    const pData = window.PlayerData;
+    if (!pData || !pData.tg_id || pData.pending_ref_earnings <= 0) return;
+
+    try {
+        const btn = document.getElementById('btn-claim-ref');
+        if(btn) { btn.disabled = true; btn.innerText = "جاري السحب..."; }
+
+        const res = await fetch('/api/claim_ref_earnings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ telegramId: pData.tg_id })
         });
-    };
-
-    // تجميع أرباح الأصدقاء (بخصم 3%)
-    window.claimReferralEarnings = function() {
-        if (userData.pendingReferralEarnings <= 0) return;
         
-        const amount = userData.pendingReferralEarnings;
-        const fee = amount * 0.03; // خصم 3%
-        const netAmount = amount - fee; // الصافي
-
-        userData.balance += netAmount;
-        userData.pendingReferralEarnings = 0;
-
-        if(tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-        updateUI();
-        tg.showAlert(`تم تجميع ${netAmount.toLocaleString()} ZN بنجاح بعد خصم رسوم التحويل 3% (${fee} ZN).`);
-    };
-
-    // استلام المهام
-    window.claimTask = function(taskId, reward) {
-        if (userData.claimedTasks.includes(taskId)) return;
+        const data = await res.json();
         
-        userData.balance += reward;
-        userData.claimedTasks.push(taskId);
+        if (data.success) {
+            const tele = window.Telegram?.WebApp;
+            const msg = `تم سحب ${Math.floor(data.net_amount).toLocaleString()} ZN بنجاح إلى رصيدك! (تم خصم 3% رسوم).`;
+            if (tele && tele.showAlert) {
+                tele.showAlert(msg);
+            } else {
+                alert(msg);
+            }
+            // إجبار التحديث اللحظي للبيانات المركزية لتسميع الرصيد الجديد
+            if(window.fetchPlayerDataFromServer) window.fetchPlayerDataFromServer();
+        } else {
+            alert(data.error || 'حدث خطأ أثناء السحب');
+            if(btn) { btn.disabled = false; btn.innerText = "سحب الأرباح الآن"; }
+        }
+    } catch (e) {
+        console.error(e);
+        alert('خطأ في الاتصال بالخادم');
+        const btn = document.getElementById('btn-claim-ref');
+        if(btn) { btn.disabled = false; btn.innerText = "سحب الأرباح الآن"; }
+    }
+};
+
+// ==========================================
+// دالة استلام مكافأة مهمة الإحالة
+// ==========================================
+window.claimRefTask = async function(taskId, reward, reqFriends) {
+    const pData = window.PlayerData;
+    if (!pData || !pData.tg_id) return;
+
+    try {
+        const res = await fetch('/api/claim_ref_task', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                telegramId: pData.tg_id,
+                taskId: taskId,
+                reward: reward,
+                reqFriends: reqFriends
+            })
+        });
         
-        if(tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-        updateUI();
-    };
+        const data = await res.json();
+        
+        if (data.success) {
+            const tele = window.Telegram?.WebApp;
+            const msg = `مبروك! تم استلام مكافأة ${reward.toLocaleString()} ZN بنجاح.`;
+            if (tele && tele.showAlert) {
+                tele.showAlert(msg);
+            } else {
+                alert(msg);
+            }
+            // إجبار التحديث اللحظي للبيانات المركزية لتسميع الرصيد والمهمة المغلقة
+            if(window.fetchPlayerDataFromServer) window.fetchPlayerDataFromServer();
+        } else {
+            alert(data.error || 'حدث خطأ أثناء الاستلام');
+        }
+    } catch (e) {
+        console.error(e);
+        alert('خطأ في الاتصال بالخادم');
+    }
+};
 
-    // تنبيه الخطأ
-    window.showTaskError = function(req) {
-        if(tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
-        tg.showAlert(`عذراً، يجب عليك دعوة ${req} أصدقاء أولاً لاستلام هذه المكافأة. لديك الآن ${userData.invitedFriendsCount} صديق.`);
-    };
-
-    // تشغيل التحديث الأولي بعد 100 ملي ثانية لضمان ظهور العناصر
-    setTimeout(updateUI, 100);
-})();
+// تشغيل التحديث المبدئي إذا كانت البيانات محملة مسبقاً
+if (window.PlayerData && window.PlayerData.tg_id) {
+    window.updateFriendsUI();
+}
