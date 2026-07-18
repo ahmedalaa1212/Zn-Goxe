@@ -2,6 +2,11 @@
     // حالة المهام لتشغيل العداد والتحقق
     window.activeTasksState = window.activeTasksState || {};
     window.taskTimers = window.taskTimers || {};
+    
+    // متغيرات لمنع الضغط المتكرر على الأزرار العامة
+    let isSubmittingCampaign = false;
+    let isConvertingBalance = false;
+    let isCancelingCampaign = false;
 
     // إعدادات الأقسام وألوانها وأيقوناتها لتنظيم المهام الحقيقية
     const platformConfig = {
@@ -73,7 +78,6 @@
         if (container) {
             let allTasks = [];
             realTasks.forEach(task => {
-                // تم إزالة فلتر الحجب، الآن تظهر كل المهام
                 allTasks.push({
                     id: task.id,
                     title: task.description || `مهمة دعم وتفاعل عبر (${task.platform})`,
@@ -95,7 +99,7 @@
             let html = '';
             for (let plat in groupedTasks) {
                 let tasksArray = groupedTasks[plat];
-                tasksArray.sort((a, b) => b.reward - a.reward); // الأغلى أولاً
+                tasksArray.sort((a, b) => b.reward - a.reward);
                 let config = platformConfig[plat] || platformConfig['أخرى'];
 
                 html += `
@@ -106,18 +110,15 @@
                 `;
 
                 tasksArray.forEach(task => {
-                    const isMyAd = (task.creator_id === myId); // التحقق هل هذا إعلاني الشخصي؟
+                    const isMyAd = (task.creator_id === myId);
                     const isCompleted = task.is_completed || completedTasks.includes(task.id);
                     let actionHtml = '';
 
                     if (isMyAd) {
-                        // 1. لو الإعلان بتاعي يظهر كإعلان خاص غير قابل للضغط
                         actionHtml = `<button disabled style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); padding: 8px 14px; border-radius: 8px; font-size: 11px; font-weight: bold; cursor: not-allowed;">إعلانك الخاص 📢</button>`;
                     } else if (isCompleted) {
-                        // 2. لو المهمة اتعملت قبل كده تظهر مكتملة ولا تتكرر
                         actionHtml = `<button disabled style="background: rgba(40, 167, 69, 0.15); color: #28a745; border: 1px solid rgba(40, 167, 69, 0.4); padding: 8px 14px; border-radius: 8px; font-size: 12px; font-weight: bold; cursor: not-allowed;">مكتمل ✔️</button>`;
                     } else {
-                        // 3. لو المهمة متاحة وجديدة للمستخدم
                         let state = window.activeTasksState[task.id] || 'idle';
                         if (state === 'idle') {
                             actionHtml = `<button id="btn-task-${task.id}" onclick="startTask('${task.id}', '${task.link}', ${task.reward})" style="background: #fff; color: #000; border: none; padding: 8px 22px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: bold; transition: 0.2s;">ابدأ</button>`;
@@ -151,7 +152,7 @@
         }
 
         // ==========================================
-        // 🔵 قسم: روّج لقناتك (تفاصيل شيك وموسعة للحملات النشطة)
+        // 🔵 قسم: روّج لقناتك (تفاصيل وحملات المعلن)
         // ==========================================
         if (activeAdsContainer) {
             let myCreatedCampaigns = realTasks.filter(task => String(task.creator_id).trim() === myId);
@@ -221,14 +222,14 @@
                         </div>
 
                         <div style="color: #555; font-size: 10px; margin-bottom: 12px; word-break: break-all; text-align: left; background: #0b0b11; padding: 6px; border-radius: 6px;" dir="ltr">${ad.url}</div>
-                        <button onclick="cancelServerCampaign('${ad.id}')" style="width: 100%; background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; padding: 10px; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 12px; transition: 0.2s;">إلغاء واسترداد المتبقي (يخصم 10%)</button>
+                        <button id="btn-cancel-${ad.id}" onclick="cancelServerCampaign('${ad.id}')" style="width: 100%; background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; padding: 10px; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 12px; transition: 0.2s;">إلغاء واسترداد المتبقي (يخصم 10%)</button>
                     </div>`;
             });
             activeAdsContainer.innerHTML = adsHtml;
         }
     };
 
-    // زر ابدأ المهمة (يشغل العداد التنازلي)
+    // زر ابدأ المهمة
     window.startTask = function(taskId, link, reward) {
         if (window.Telegram?.WebApp) {
             window.Telegram.WebApp.openLink(link);
@@ -237,7 +238,7 @@
         }
         
         window.activeTasksState[taskId] = 'running';
-        window.taskTimers[taskId] = 10; // 10 ثواني انتظار للتأكد من الزيارة
+        window.taskTimers[taskId] = 10; 
         window.fetchAndRenderTasks();
         
         let interval = setInterval(() => {
@@ -253,12 +254,14 @@
         }, 1000);
     };
 
-    // دالة التحقق المرتبطة بالسيرفر والـ API للتأكيد الفعلي
+    // دالة التحقق (محمية بالكامل ضد السبام والضغط المتكرر)
     window.verifyTask = async function(taskId, reward) {
         const btn = document.getElementById(`btn-task-${taskId}`);
         if(btn) {
             btn.innerText = "جاري التأكيد...";
             btn.disabled = true;
+            btn.style.opacity = "0.6";
+            btn.style.cursor = "not-allowed";
         }
 
         try {
@@ -294,10 +297,15 @@
         }
     };
 
-    // زر الإلغاء
+    // زر الإلغاء (محمي ضد الضغط المتكرر)
     window.cancelServerCampaign = async function(campId) {
-        if (!confirm("هل أنت متأكد من إلغاء الحملة واستعادة قيمة النقرات المتبقية إلى رصيدك الإعلاني بعد خصم العمولة (10%)؟")) return;
+        if (isCancelingCampaign) return;
+        if (!confirm("هل أنت متأكد من إلغاء الحملة واستعادة قيمة النقرات المتبقية؟")) return;
         
+        isCancelingCampaign = true;
+        const btn = document.getElementById(`btn-cancel-${campId}`);
+        if(btn) { btn.innerText = "جاري الإلغاء..."; btn.disabled = true; }
+
         try {
             let response = await fetch('/api/cancel_campaign', {
                 method: 'POST',
@@ -307,19 +315,22 @@
             let result = await response.json();
             
             if (response.ok && result.success) {
-                alert(`✅ تم إلغاء الحملة بنجاح واسترداد المتبقي لـ حسابك!`);
+                alert(`✅ تم إلغاء الحملة بنجاح واسترداد المتبقي!`);
                 if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
                 window.fetchAndRenderTasks();
             } else {
                 alert("⚠️ فشل الإلغاء: " + (result.error || "خطأ غير معروف"));
             }
         } catch (e) {
-            alert("حدث خطأ في الاتصال بالسيرفر أثناء الإلغاء.");
+            alert("حدث خطأ أثناء الإلغاء.");
+        } finally {
+            isCancelingCampaign = false;
         }
     };
 
-    // تحويل ZN إلى رصيد إعلانات AdZN
+    // تحويل ZN إلى رصيد إعلانات (محمي ضد الضغط المتكرر)
     window.convertZnToAdZn = async function() {
+        if (isConvertingBalance) return;
         let amount = prompt("أدخل كمية ZN لتحويلها إلى رصيد إعلانات (AdZN):\n* سيتم خصم 10% عمولة تحويل.");
         if (!amount || isNaN(amount) || amount <= 0) return;
         amount = parseFloat(amount);
@@ -330,6 +341,7 @@
             return;
         }
 
+        isConvertingBalance = true;
         try {
             let response = await fetch('/api/convert_adzn', {
                 method: 'POST',
@@ -345,26 +357,21 @@
                     window.PlayerData.balance -= amount;
                     window.PlayerData.ad_balance = (window.PlayerData.ad_balance || 0) + result.received;
                 }
-                
-                const pData = window.PlayerData;
-                const tasksTopBalance = document.getElementById('top-balance-tasks');
-                if (tasksTopBalance) tasksTopBalance.innerText = `ZN ${Math.floor(pData.balance || 0).toLocaleString()}`;
-
-                const adBalDisplay = document.getElementById('ad-balance-display');
-                if (adBalDisplay) adBalDisplay.innerText = `AdZN ${Math.floor(pData.ad_balance || 0).toLocaleString()}`;
-                
+                window.updateTasksUI();
                 if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
                 if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
             } else {
-                alert("⚠️ فشل التحويل: " + (result.error || "تأكد من تجميع الرصيد أولاً"));
+                alert("⚠️ فشل التحويل: " + (result.error || "خطأ"));
             }
         } catch (e) { 
-            alert("حدث خطأ في الاتصال بالسيرفر أثناء التحويل."); 
+            alert("حدث خطأ أثناء التحويل."); 
+        } finally {
+            isConvertingBalance = false;
         }
     };
 
     // ==========================================
-    // 🛠️ نظام إنشاء الإعلانات والنوافذ المنبثقة
+    // 🛠️ نظام إنشاء الإعلانات (الحماية القصوى ضد الدبل كليك)
     // ==========================================
     let currentAdType = '';
     
@@ -375,14 +382,28 @@
         document.getElementById('ad-desc').value = ''; 
         document.getElementById('ad-reward').value = '';
         document.getElementById('ad-users').value = '';
+        
+        // إعادة تهيئة الزر لوضع الطبيعي عند فتح المودال
+        const submitBtn = document.getElementById('btn-submit-campaign-action');
+        if (submitBtn) {
+            submitBtn.innerText = "نشر الإعلان";
+            submitBtn.disabled = false;
+            submitBtn.style.opacity = "1";
+            submitBtn.style.cursor = "pointer";
+        }
+        
         document.getElementById('ad-modal').style.display = 'flex';
     };
 
     window.closeAdModal = function() {
+        if (isSubmittingCampaign) return; // منع إغلاق النافذة أثناء معالجة الطلب على السيرفر
         document.getElementById('ad-modal').style.display = 'none';
     };
 
     window.submitAdCampaign = async function() {
+        // إذا كان هناك طلب قيد التنفيذ، يتم تجاهل الضغطة فوراً لحمايتك من الخسارة المكررة
+        if (isSubmittingCampaign) return;
+
         let link = document.getElementById('ad-link').value;
         let desc = document.getElementById('ad-desc').value; 
         let reward = parseFloat(document.getElementById('ad-reward').value);
@@ -401,6 +422,16 @@
             return;
         }
 
+        // 🛡️ تفعيل وضع الحماية وتعطيل زر الإرسال فوراً
+        isSubmittingCampaign = true;
+        const submitBtn = document.getElementById('btn-submit-campaign-action');
+        if (submitBtn) {
+            submitBtn.innerText = "جاري النشر والخصم... ⏳";
+            submitBtn.disabled = true;
+            submitBtn.style.opacity = "0.6";
+            submitBtn.style.cursor = "not-allowed";
+        }
+
         try {
             let response = await fetch('/api/create_campaign', {
                 method: 'POST',
@@ -417,24 +448,37 @@
             let result = await response.json();
             
             if (response.ok && result.success) {
+                // فك الحماية فقط بعد النجاح التام وإغلاق الشاشة
+                isSubmittingCampaign = false;
                 closeAdModal();
                 alert("✅ تم نشر حملتك الإعلانية بنجاح على السيرفر ومتاحة للجميع!");
                 
                 if(window.PlayerData) window.PlayerData.ad_balance -= totalCost;
-                const adBalDisplay = document.getElementById('ad-balance-display');
-                if (adBalDisplay) adBalDisplay.innerText = `AdZN ${Math.floor(window.PlayerData.ad_balance || 0).toLocaleString()}`;
-                
+                window.updateTasksUI();
                 if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
-                window.fetchAndRenderTasks();
             } else {
                 alert("⚠️ فشل إنشاء الحملة: " + (result.error || "خطأ غير معروف"));
+                // في حالة فشل السيرفر، نعيد إتاحة الزر للمحاولة مجدداً
+                isSubmittingCampaign = false;
+                if (submitBtn) {
+                    submitBtn.innerText = "نشر الإعلان";
+                    submitBtn.disabled = false;
+                    submitBtn.style.opacity = "1";
+                    submitBtn.style.cursor = "pointer";
+                }
             }
         } catch (e) { 
-            alert("حدث خطأ في الاتصال بالسيرفر أثناء نشر الإعلان."); 
+            alert("حدث خطأ في الاتصال بالسيرفر أثناء نشر الإعلان.");
+            isSubmittingCampaign = false;
+            if (submitBtn) {
+                submitBtn.innerText = "نشر الإعلان";
+                submitBtn.disabled = false;
+                submitBtn.style.opacity = "1";
+                submitBtn.style.cursor = "pointer";
+            }
         }
     };
 
-    // تشغيل مبدئي لتحديث الشاشة بمجرد تحميل الصفحة
     setTimeout(() => {
         if(typeof window.updateTasksUI === 'function') window.updateTasksUI();
     }, 400);
