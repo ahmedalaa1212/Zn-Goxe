@@ -1,39 +1,175 @@
-<div style="padding: 20px; color: #fff; text-align: center; font-family: sans-serif; padding-bottom: 80px;">
-    
-    <!-- الرصيد في الأعلى -->
-    <div style="display: flex; justify-content: center; align-items: center; gap: 10px; font-size: 26px; font-weight: bold; margin-bottom: 25px;">
-        <span id="friends-current-balance" style="color: #ffffff;">0</span> 
-        <span style="color: #ffcc00;">ZN</span>
-    </div>
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>الأصدقاء - Zngoxe</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --primary: #f39c12;
+            --text-main: #ffffff;
+            --text-muted: #aaaaaa;
+            --btn-disabled: #555555;
+            --success: #2ecc71;
+        }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            padding-bottom: 70px; /* مساحة للقائمة السفلية */
+        }
+        .container {
+            padding: 15px;
+            max-width: 600px;
+            margin: auto;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        h2 { margin: 0 0 10px 0; color: var(--primary); }
+        .balance-display {
+            font-size: 1.2rem;
+            font-weight: bold;
+            background: #2a2a2a;
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            color: var(--primary);
+        }
+        .card {
+            background-color: var(--card-bg);
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .card h3 { margin-top: 0; border-bottom: 1px solid #333; padding-bottom: 8px; font-size: 1.1rem; }
+        .card p { margin: 10px 0; font-size: 0.95rem; }
+        .copy-box {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .copy-box input {
+            flex: 1;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            background: #222;
+            color: #fff;
+            direction: ltr;
+        }
+        button {
+            background-color: var(--primary);
+            color: #000;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        button:active { transform: scale(0.95); }
+        button:disabled {
+            background-color: var(--btn-disabled);
+            color: #888;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .ref-tasks-card ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .task-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #2a2a2a;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        .task-info h4 { margin: 0 0 5px 0; font-size: 1rem; }
+        .task-info p { margin: 0; color: var(--primary); font-size: 0.9rem; font-weight: bold; }
+        .task-action button { padding: 8px 12px; font-size: 0.85rem; }
+        .claimed-btn { background-color: var(--success) !important; color: white !important; }
+        
+        /* القائمة السفلية */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: #1e1e1e;
+            display: flex;
+            justify-content: space-around;
+            padding: 12px 0;
+            border-top: 2px solid #333;
+            z-index: 1000;
+        }
+        .bottom-nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 0.9rem;
+            transition: 0.2s;
+        }
+        .bottom-nav a.active { color: var(--primary); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h2>نظام الأصدقاء</h2>
+            <div id="top-balance-friends" class="balance-display">ZN: 0</div>
+        </header>
 
-    <h2 style="margin-bottom: 20px; font-size: 22px;">دعوة الأصدقاء</h2>
+        <div class="card ref-link-card">
+            <h3>رابط الدعوة الخاص بك</h3>
+            <p>احصل على 10% من أرباح تعدين أصدقائك للأبد!</p>
+            <div class="copy-box">
+                <input type="text" id="ref-link-input" readonly>
+                <button onclick="copyRefLink()">نسخ</button>
+            </div>
+        </div>
 
-    <!-- رابط الدعوة -->
-    <div style="background: #1c1c1c; padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px;">
-        <p style="font-size: 14px; color: #aaa; margin-bottom: 15px;">رابط الدعوة الخاص بك:</p>
-        <div style="display: flex; flex-direction: column; gap: 12px;">
-            <input type="text" id="invite-link-input" readonly value="جاري إنشاء الرابط..." style="background: #000; color: #fff; border: 1px solid #333; padding: 12px; border-radius: 8px; text-align: center; font-family: monospace; font-size: 14px; width: 100%; outline: none; box-sizing: border-box;">
-            <button id="copy-link-btn" onclick="copyInviteLink()" style="background: #0088cc; color: white; border: none; padding: 12px; border-radius: 8px; font-weight: bold; font-size: 15px; cursor: pointer; width: 100%; transition: 0.2s;">نسخ الرابط</button>
+        <div class="card ref-earnings-card">
+            <h3>أرباح التعدين من الأصدقاء</h3>
+            <p>رصيد متاح للسحب: <span id="pending-ref-earnings" style="color: var(--primary); font-weight: bold;">0</span> ZN</p>
+            <small style="color: var(--text-muted); display: block; margin-bottom: 10px;">يتم خصم 3% رسوم تحويل عند السحب</small>
+            <button onclick="claimRefEarnings()" id="btn-claim-ref" style="width: 100%;">سحب الأرباح الآن</button>
+        </div>
+
+        <div class="card ref-stats-card">
+            <h3>إحصائياتك</h3>
+            <p>عدد الأصدقاء المدعوين: <span id="invited-friends-count" style="font-weight: bold; color: var(--primary);">0</span> صديق</p>
+        </div>
+
+        <div class="card ref-tasks-card">
+            <h3>مكافآت الدعوات</h3>
+            <ul id="ref-tasks-list">
+                <!-- يتم توليد المهام هنا عبر الجافاسكريبت -->
+            </ul>
         </div>
     </div>
 
-    <!-- أرباح الأصدقاء -->
-    <div style="background: #1c1c1c; padding: 20px; border-radius: 15px; border: 1px solid #333; margin-bottom: 20px;">
-        <p style="font-size: 14px; color: #aaa; margin-bottom: 10px;">الأرباح المجمعة من الأصدقاء (10%):</p>
-        <div style="font-size: 32px; font-weight: bold; color: #ffcc00; margin-bottom: 5px;">
-            <span style="font-size: 20px;">ZN</span> <span id="pending-referral-earnings">0</span>
-        </div>
-        <p style="font-size: 12px; color: #ff6b6b; margin-bottom: 15px;">سيتم خصم 3% رسوم تحويل عند التجميع</p>
-        <button id="claim-earnings-btn" onclick="claimReferralEarnings()" style="width: 100%; background: #00cc66; color: white; border: none; padding: 15px; border-radius: 10px; font-weight: bold; font-size: 16px; cursor: pointer;">تجميع أرباح الأصدقاء</button>
-    </div>
+    <!-- القائمة السفلية (الروابط يجب أن تتطابق مع أسماء ملفاتك) -->
+    <nav class="bottom-nav">
+        <a href="index.html">المزرعة</a>
+        <a href="shop.html">التطوير</a>
+        <a href="games.html">الألعاب</a>
+        <a href="friends.html" class="active">الأصدقاء</a>
+    </nav>
 
-    <!-- إحصائيات -->
-    <div style="background: #1c1c1c; padding: 15px; border-radius: 15px; border: 1px solid #333; margin-bottom: 25px;">
-        <p style="margin: 0; font-size: 15px;">إجمالي الأصدقاء المدعوين: <span id="total-invited-friends" style="color: #ffcc00; font-weight: bold;">0</span></p>
-    </div>
-
-    <!-- المهام -->
-    <div id="friends-tasks-list" style="display: flex; flex-direction: column; gap: 12px;">
-        <!-- سيتم توليدها بالـ JS -->
-    </div>
-</div>
+    <!-- الملفات البرمجية المركزية والخاصة بالصفحة -->
+    <script src="game.js"></script>
+    <script src="friends.js"></script>
+</body>
+</html>
