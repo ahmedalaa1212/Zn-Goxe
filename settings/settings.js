@@ -6,7 +6,7 @@
             const webAppUser = window.Telegram.WebApp.initDataUnsafe.user;
             if (webAppUser) return String(webAppUser.id);
         }
-        // معرف افتراضي للاختبار محلياً فقط في حال عدم وجود بيئة التليجرام
+        // معرف افتراضي للاختبار محلياً في حال عدم وجود بيئة تليجرام حية
         return "5102387551"; 
     }
 
@@ -21,11 +21,11 @@
         return "اللاعب المحترف";
     }
 
-    // الدالة الأساسية: تذهب للسيرفر وتجلب أرقام الـ Firebase الحقيقية وتعرضها فوراً
+    // الدالة الأساسية: تجلب البيانات وتجمع مستويات الترقيات فقط وتعرضها
     async function fetchAndRenderData() {
         const telegramId = getTgId();
         
-        // تعبئة البيانات المبدئية المتاحة من التليجرام قبل رد السيرفر
+        // تعبئة البيانات المبدئية المتاحة من التليجرام فوراً
         const usernameEl = document.getElementById('player-username');
         const telegramIdEl = document.getElementById('player-telegram-id');
         const avatarEl = document.getElementById('player-avatar');
@@ -41,36 +41,31 @@
         }
 
         try {
-            // عمل طلب Fetch مباشر للسيرفر لقراءة حقول الفايربيس
+            // طلب fetch مباشر للسيرفر لقراءة حقول الفايربيس
             let response = await fetch(`/api/user_data?telegramId=${telegramId}`);
             let result = await response.json();
 
             if (result.success && result.data) {
                 const userData = result.data;
 
-                // حفظ نسخة احتياطية في كائن اللعبة العام
+                // حفظ البيانات في الكائن العام للاحتياط
                 window.PlayerData = userData;
 
-                // 🔥 الإصلاح السحري: جمع كافة مستويات الكروت المفتوحة الفردية (lvl1_count إلى lvl10_count)
+                // حساب إجمالي مستويات الكروت والترقيات المفتوحة (من لفل 1 لـ لفل 10)
                 let totalUpgradesCount = 0;
                 for (let i = 1; i <= 10; i++) {
                     totalUpgradesCount += parseInt(userData[`lvl${i}_count`] || 0);
                 }
 
-                // قراءة مستوى المخزن الفعلي بشكل منفصل وخاص به
-                let currentStorage = parseInt(userData.storage_level || 0);
-
-                // ربط الأرقام الحقيقية المجمعة بعناصر واجهة الإعدادات
+                // ربط الرقم الحقيقي المجمع بعنصر الواجهة
                 const totalMiningEl = document.getElementById('stat-total-mining');
-                const storageLevelEl = document.getElementById('stat-storage-level');
-
-                // الآن ستعرض عدد الترقيات الفعلي (مثال: 5) بدلاً من مستوى المخزن
-                if (totalMiningEl) totalMiningEl.innerText = `${totalUpgradesCount} ترقيات`;
-                if (storageLevelEl) storageLevelEl.innerText = `مستوى ${currentStorage}`;
+                if (totalMiningEl) {
+                    totalMiningEl.innerText = `${totalUpgradesCount} مستويات`;
+                }
                 
-                console.log(`✅ المزامنة تمت بنجاح! إجمالي الترقيات: ${totalUpgradesCount} | المخزن: ${currentStorage}`);
+                console.log(`✅ تمت المزامنة! إجمالي المستويات والترقيات الفعلي: ${totalUpgradesCount}`);
             } else {
-                console.error("⚠️ فشل في قراءة استجابة السيرفر");
+                console.error("⚠️ فشل في قراءة استجابة السيرفر أو البيانات ناقصة");
             }
         } catch (error) {
             console.error("❌ خطأ أثناء جلب البيانات من الفايربيس:", error);
@@ -110,7 +105,7 @@
         }
     }
 
-    // زر تحديث اللعبة: يقوم بعمل ريفرش كامل وإعادة تحميل لحل مشاكل ضعف النت والتهنيج
+    // زر التحديث: يعمل ريفرش كامل للبوت لحل مشاكل تهنيج وبطء النت
     window.refreshGameData = function() {
         showToast("🔄 جاري إعادة تحميل وتحديث اللعبة بالكامل...");
         setTimeout(() => {
@@ -125,10 +120,10 @@
         document.addEventListener('DOMContentLoaded', fetchAndRenderData);
     }
 
-    // فاحص صامت لتحديث الصفحة بشكل دوري لتفادي أي بطء في الشبكة عند الفتح لأول مرة
+    // فاحص صامت لتحديث الصفحة بشكل دوري في حال تأخر السيرفر
     setInterval(() => {
         const totalMiningEl = document.getElementById('stat-total-mining');
-        if (totalMiningEl && totalMiningEl.innerText === "0 ترقيات") {
+        if (totalMiningEl && totalMiningEl.innerText === "0 مستويات") {
             fetchAndRenderData();
         }
     }, 2000);
