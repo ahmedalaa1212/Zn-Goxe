@@ -1,13 +1,14 @@
 (function initTasks() {
-    window.activeTasksState = window.activeTasksState || {};
-    window.taskTimers = window.taskTimers || {};
+    // كائنات ومصفوفات تتبع الطوابع الزمنية المطلقة لمنع التجميد والغش نهائياً
+    window.taskStates = window.taskStates || {};
+    window.accumulatedOutsideTime = window.accumulatedOutsideTime || {};
+    window.lastGoOutside = window.lastGoOutside || {};
+    window.taskIntervals = window.taskIntervals || {};
     
-    // متغير لحفظ الـ ID للمهمة التي ينفذها العضو حالياً لمحاربة النصب
-    window.currentlyRunningTaskId = window.currentlyRunningTaskId || null;
-
     let isSubmittingCampaign = false;
     let isConvertingBalance = false;
     let isCancelingCampaign = false;
+    let currentAdType = 'يوتيوب';
 
     const preDefinedDescriptions = {
         'يوتيوب': [
@@ -135,11 +136,21 @@
                     } else if (isCompleted) {
                         actionHtml = `<button disabled style="background: rgba(40, 167, 69, 0.12); color: #28a745; border: 1px solid rgba(40, 167, 69, 0.25); padding: 8px 14px; border-radius: 8px; font-size: 11px; font-weight: bold; cursor: not-allowed;">مكتمل ✔️</button>`;
                     } else {
-                        let state = window.activeTasksState[task.id] || 'idle';
+                        let state = window.taskStates[task.id] || 'idle';
                         if (state === 'idle') {
                             actionHtml = `<button id="btn-task-${task.id}" onclick="startTask('${task.id}', '${task.link}', ${task.reward})" style="background: #fff; color: #000; border: none; padding: 8px 22px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; transition: 0.2s;">ابدأ</button>`;
                         } else if (state === 'running') {
-                            actionHtml = `<button id="btn-task-${task.id}" disabled style="background: #222; color: #ffaa00; border: 1px solid #333; padding: 8px 14px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">نفذ.. ${window.taskTimers[task.id]}⏳</button>`;
+                            let currentTotalOutside = window.accumulatedOutsideTime[task.id] || 0;
+                            if (document.visibilityState === 'hidden') {
+                                currentTotalOutside += (Date.now() - (window.lastGoOutside[task.id] || Date.now())) / 1000;
+                            }
+                            let remaining = Math.max(1, 15 - Math.floor(currentTotalOutside));
+                            
+                            if (document.visibilityState === 'visible') {
+                                actionHtml = `<button id="btn-task-${task.id}" disabled style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); padding: 8px 14px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">عُد للمهمة.. ${remaining}ث⏳</button>`;
+                            } else {
+                                actionHtml = `<button id="btn-task-${task.id}" disabled style="background: #222; color: #ffaa00; border: 1px solid #333; padding: 8px 14px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">جاري التنفيذ.. ${remaining}ث⏳</button>`;
+                            }
                         } else if (state === 'ready') {
                             actionHtml = `<button id="btn-task-${task.id}" onclick="verifyTask('${task.id}', ${task.reward})" style="background: #ffcc00; color: #000; border: none; padding: 8px 18px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">تحقق ✅</button>`;
                         }
@@ -238,69 +249,73 @@
         }
     };
 
-    // 🔥 زر ابدأ المهمة + تشغيل نظام منع النصب الذكي عن طريق تتبع مغادرة الصفحة 🔥
+    // 🔥 زر بدء المهمة بنظام حساب الوقت المطلق المحمي ضد أي تجمد أو محاولات غش
     window.startTask = function(taskId, link, reward) {
-        window.currentlyRunningTaskId = taskId; // تسجيل معرف المهمة المفتوحة حالياً
+        window.taskStates[taskId] = 'running';
+        window.accumulatedOutsideTime[taskId] = 0;
+        window.lastGoOutside[taskId] = Date.now();
 
         if (window.Telegram?.WebApp) { window.Telegram.WebApp.openLink(link); } 
         else { window.open(link, '_blank'); }
         
-        window.activeTasksState[taskId] = 'running';
-        window.taskTimers[taskId] = 10; // 10 ثوانٍ إلزامية داخل المنصة
         window.fetchAndRenderTasks();
         
-        // مسح أي مؤقت قديم لتفادي التداخل البنائي
-        if (window.taskIntervals && window.taskIntervals[taskId]) {
-            clearInterval(window.taskIntervals[taskId]);
-        }
-        window.taskIntervals = window.taskIntervals || {};
+        if (window.taskIntervals[taskId]) clearInterval(window.taskIntervals[taskId]);
 
         window.taskIntervals[taskId] = setInterval(() => {
-            // 🛡️ فحص ذكي: لو المستخدم رجع للبوت وفتح الصفحة (يعني مش برة بينفذ المهمة) يتم تجميد العداد فوراً!
-            if (document.visibilityState === 'visible' || document.hasFocus()) {
-                let btn = document.getElementById(`btn-task-${taskId}`);
-                if (btn) {
-                    btn.innerText = `تابع العمل.. ⏳`;
-                    btn.style.color = "#ff4444"; // تلوين الزر لتنبيهه بالعودة السريعة
-                }
-                return; // إيقاف الخصم الزمني وتجميد الثانية لحين المغادرة الفعلية
+            let currentTotalOutside = window.accumulatedOutsideTime[taskId] || 0;
+            // إذا كان المستخدم خارج التطبيق حالياً، نضيف فارق الوقت الحقيقي للعداد
+            if (document.visibilityState === 'hidden') {
+                currentTotalOutside += (Date.now() - (window.lastGoOutside[taskId] || Date.now())) / 1000;
             }
-
-            // إذا كان المستخدم برة التطبيق والصفحة مخفية (ينفذ المهمة بصدق) يخصم الوقت طبيعي
-            if (window.taskTimers[taskId] > 1) {
-                window.taskTimers[taskId]--;
-                let btn = document.getElementById(`btn-task-${taskId}`);
-                if (btn) {
-                    btn.innerText = `نفذ.. ${window.taskTimers[taskId]}⏳`;
-                    btn.style.color = "#ffaa00";
-                }
-            } else {
+            
+            let remaining = 15 - Math.floor(currentTotalOutside);
+            let btn = document.getElementById(`btn-task-${taskId}`);
+            
+            if (remaining <= 0) {
                 clearInterval(window.taskIntervals[taskId]);
-                window.activeTasksState[taskId] = 'ready';
-                window.currentlyRunningTaskId = null; // تصفير الحماية بنجاح
+                window.taskStates[taskId] = 'ready';
                 window.fetchAndRenderTasks();
+            } else {
+                if (btn) {
+                    if (document.visibilityState === 'visible') {
+                        // إذا رجع للبوت بدري، العداد بيتجمد فوراً ويتحول للون تنبيه أحمر
+                        btn.innerText = `عُد للمهمة.. ${remaining}ث⏳`;
+                        btn.style.background = "rgba(239,68,68,0.15)";
+                        btn.style.color = "#ef4444";
+                        btn.style.border = "1px solid rgba(239,68,68,0.3)";
+                    } else {
+                        btn.innerText = `جاري التنفيذ.. ${remaining}ث⏳`;
+                    }
+                }
             }
         }, 1000);
     };
 
-    // مضافة حماية إضافية للـ visibility change العامة للتأكيد الفوري
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && window.currentlyRunningTaskId) {
-            let tId = window.currentlyRunningTaskId;
-            if (window.activeTasksState[tId] === 'running') {
-                let btn = document.getElementById(`btn-task-${tId}`);
-                if (btn) {
-                    btn.innerText = `تابع التنفيذ بالخارج 🛑`;
-                    btn.style.background = "rgba(239,68,68,0.2)";
-                    btn.style.color = "#ef4444";
+    // مستمع عام وآمن يقوم برصد خروج ودخول العضو لحساب فارق التوقيت بالملي ثانية
+    if (!window.visibilityListenerAdded) {
+        document.addEventListener('visibilitychange', () => {
+            const now = Date.now();
+            for (let taskId in window.taskStates) {
+                if (window.taskStates[taskId] === 'running') {
+                    if (document.visibilityState === 'visible') {
+                        // العضو رجع للبوت: نحسب المدة الحقيقية التي قضاها في الخارج ونضيفها لرصيده الزمني للمهمة
+                        let timeSpentOutside = (now - (window.lastGoOutside[taskId] || now)) / 1000;
+                        window.accumulatedOutsideTime[taskId] = (window.accumulatedOutsideTime[taskId] || 0) + timeSpentOutside;
+                        window.lastGoOutside[taskId] = now;
+                    } else if (document.visibilityState === 'hidden') {
+                        // العضو غادر البوت الآن متوجهاً للمنصة المحددة
+                        window.lastGoOutside[taskId] = now;
+                    }
                 }
             }
-        }
-    });
+        });
+        window.visibilityListenerAdded = true;
+    }
 
     window.verifyTask = async function(taskId, reward) {
         const btn = document.getElementById(`btn-task-${taskId}`);
-        if(btn) { btn.innerText = "فحص الفني..."; btn.disabled = true; btn.style.opacity = "0.5"; }
+        if(btn) { btn.innerText = "فحص التفاعل..."; btn.disabled = true; btn.style.opacity = "0.5"; }
 
         try {
             let response = await fetch('/api/complete_task', {
@@ -315,14 +330,20 @@
                 completedTasks.push(taskId);
                 localStorage.setItem('zn_completed_tasks', JSON.stringify(completedTasks));
                 if (window.PlayerData) window.PlayerData.balance += reward;
-                alert(`🎉 مبارك! تم تأكيد المهمة وإضافة رصيد بقيمة ${reward.toLocaleString()} ZN`);
+                
+                // تنظيف طوابع الأمان للمهمة المكتملة بنجاح
+                delete window.taskStates[taskId];
+                delete window.accumulatedOutsideTime[taskId];
+                delete window.lastGoOutside[taskId];
+                
+                alert(`🎉 مبارك! تم تأكيد التفاعل وإضافة رصيد بقيمة ${reward.toLocaleString()} ZN`);
             } else {
-                alert("⚠️ لم يكتمل الفحص بعد: " + (result.error || "تأكد من المتابعة الفعلية"));
-                window.activeTasksState[taskId] = 'ready';
+                alert("⚠️ فشل التحقق: " + (result.error || "تأكد من إتمام التفاعل الفعلي أولاً"));
+                window.taskStates[taskId] = 'ready';
             }
         } catch (e) {
-            alert("خطأ في الاتصال بالشبكة.");
-            window.activeTasksState[taskId] = 'ready';
+            alert("خطأ في الاتصال بالسيرفر الرئيسي.");
+            window.taskStates[taskId] = 'ready';
         }
         window.fetchAndRenderTasks();
         if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
@@ -330,7 +351,7 @@
 
     window.cancelServerCampaign = async function(campId) {
         if (isCancelingCampaign) return;
-        if (!confirm("هل أنت متأكد من إلغاء الحملة؟ سيتم خصم عمولة الإلغاء 10%.")) return;
+        if (!confirm("هل أنت متأكد من إلغاء الحملة؟ سيتم إرجاع رصيد النقاط غير المستهلكة فوراً.")) return;
         
         isCancelingCampaign = true;
         const btn = document.getElementById(`btn-cancel-${campId}`);
@@ -344,7 +365,7 @@
             });
             let result = await response.json();
             if (response.ok && result.success) {
-                alert(`✅ تم إلغاء حملتك بنجاح وإرجاع الرصيد المتبقي لـ محفظتك الإعلانية!`);
+                alert(`✅ تم إلغاء حملتك بنجاح وإرجاع الميزانية المتبقية لمحفظتك!`);
                 if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
                 window.fetchAndRenderTasks();
             } else { alert("⚠️ خطأ بالإلغاء: " + result.error); }
@@ -463,9 +484,11 @@
             return;
         }
 
+        // إطلاق الفحص الأمني السريع (تم التعديل لـ 10 ثوانٍ)
         document.getElementById('review-modal').style.display = 'flex';
-        let remainingSeconds = 15;
+        let remainingSeconds = 10;
         const countdownTimerDisplay = document.getElementById('review-countdown-timer');
+        if (countdownTimerDisplay) countdownTimerDisplay.innerText = remainingSeconds;
         
         isSubmittingCampaign = true;
         closeAdModal(); 
@@ -496,8 +519,7 @@
 
                     if (response.ok && result.success) {
                         if(window.PlayerData) window.PlayerData.ad_balance -= totalCost;
-                        
-                        // 🔥 تفعيل مودال النجاح الزجاجي الجديد الاحترافي بدل الـ alert القديم 🔥
+                        // إظهار نافذة النجاح الزجاجية المخصصة
                         document.getElementById('success-modal').style.display = 'flex';
                     } else {
                         isSubmittingCampaign = false;
@@ -512,21 +534,20 @@
         }, 1000);
     };
 
-    // 🔥 دالة التوجيه التلقائي الذكي والإغلاق الفوري بعد ضغط "متابعة الحملات" 🔥
+    // 🔥 زر التوجيه التلقائي مع إغلاق كافة النوافذ بشكل قاطع دون أي أثر
     window.handleSuccessRedirect = function() {
-        // 1. إخفاء مودال النجاح
+        // إغلاق كلي وحاسم لجميع النوافذ المنبثقة دفعة واحدة لضمان عدم بقائها
         document.getElementById('success-modal').style.display = 'none';
+        document.getElementById('review-modal').style.display = 'none';
+        document.getElementById('ad-modal').style.display = 'none';
         
-        // 2. إعادة متغير الحماية للوضع الطبيعي تمهيداً لأي حملات قادمة
         isSubmittingCampaign = false;
 
-        // 3. التحويل التلقائي لقسم حملات الترويج
+        // التحويل لقسم حملات الترويج
         window.switchTasksTab('promote');
-
-        // 4. تحديث البيانات بالكامل من السيرفر لرسم الإعلان الجديد بالأسفل
         window.updateTasksUI();
 
-        // 5. عمل سكرول سلس لأسفل الصفحة (مكان ظهور الإعلانات) لتجربة مستخدم خرافية
+        // سكرول سلس لمكان ظهور الإعلان
         setTimeout(() => {
             const container = document.getElementById('active-ads-container');
             if (container) {
