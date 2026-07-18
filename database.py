@@ -2,7 +2,7 @@ import os
 import json
 import firebase_admin
 from firebase_admin import credentials, firestore
-from datetime import datetime, timezone
+from datetime import datetime
 
 db = None
 
@@ -55,31 +55,18 @@ def init_user(telegram_id):
                 'balance': 0.0,
                 'ad_balance': 0.0, 
                 'is_banned': False,
-                'last_claim_time': datetime.now(timezone.utc).isoformat(),
-                'storage_level': 0,
-                'daily_day': 1,
-                'last_daily_claim_time': "2000-01-01T00:00:00+00:00",
-                # حقول الأصدقاء
-                'referred_by': None, 
-                'pending_ref_earnings': 0.0,
-                'invited_friends_count': 0,
-                'claimed_ref_tasks': []
+                'last_claim_time': datetime.utcnow().isoformat(),
+                'storage_level': 0 
             }
-            # حقول سرعة التعدين لعملة ZN
             for i in range(1, 11):
                 user_data[f'lvl{i}_count'] = 0
             user_ref.set(user_data)
             print(f"🚀 New user created in Firebase: {telegram_id}")
         else:
+            # 🔥 حماية وتأكيد: لو الحساب موجود مش بنصفر الرصيد الإعلاني أبداً 🔥
             data = doc.to_dict()
-            updates = {}
-            if 'ad_balance' not in data: updates['ad_balance'] = 0.0
-            if 'pending_ref_earnings' not in data: updates['pending_ref_earnings'] = 0.0
-            if 'invited_friends_count' not in data: updates['invited_friends_count'] = 0
-            if 'claimed_ref_tasks' not in data: updates['claimed_ref_tasks'] = []
-            
-            if updates:
-                user_ref.update(updates)
+            if 'ad_balance' not in data:
+                user_ref.update({'ad_balance': 0.0})
     except Exception as e:
         print(f"❌ Error in init_user: {e}")
 
@@ -99,3 +86,30 @@ def get_user_data(telegram_id):
     except Exception as e:
         print(f"❌ Error in get_user_data: {e}")
         return None
+
+def update_balance(telegram_id, new_balance):
+    global db
+    if db is None: initialize_firebase()
+    try:
+        telegram_id = str(telegram_id).strip()
+        db.collection('users').document(telegram_id).update({'balance': float(new_balance)})
+    except Exception as e:
+        print(f"❌ Error in update_balance: {e}")
+
+def update_upgrade_level(telegram_id, lvl_column, new_level):
+    global db
+    if db is None: initialize_firebase()
+    try:
+        telegram_id = str(telegram_id).strip()
+        db.collection('users').document(telegram_id).update({lvl_column: int(new_level)})
+    except Exception as e:
+        print(f"❌ Error in update_upgrade_level: {e}")
+
+def update_claim_time(telegram_id):
+    global db
+    if db is None: initialize_firebase()
+    try:
+        telegram_id = str(telegram_id).strip()
+        db.collection('users').document(telegram_id).update({'last_claim_time': datetime.utcnow().isoformat()})
+    except Exception as e:
+        print(f"❌ Error in update_claim_time: {e}")
