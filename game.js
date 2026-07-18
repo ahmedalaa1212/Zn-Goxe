@@ -14,14 +14,25 @@ window.PlayerData = {
     last_daily_claim_time: "2000-01-01T00:00:00+00:00",
     last_claim_time: "2000-01-01T00:00:00+00:00",
     server_time: null,
-    timeOffset: 0
+    timeOffset: 0,
+    // حقول الأصدقاء
+    pending_ref_earnings: 0,
+    invited_friends_count: 0,
+    claimed_ref_tasks: []
 };
 
 // دالة جلب البيانات المركزية من السيرفر (تخدم كل الشاشات)
 window.fetchPlayerDataFromServer = async function() {
     if (!window.PlayerData.tg_id) return;
     try {
-        let response = await fetch(`/api/user_data?telegramId=${window.PlayerData.tg_id}&tg_id=${window.PlayerData.tg_id}`);
+        const tele = window.Telegram?.WebApp;
+        let startParam = tele?.initDataUnsafe?.start_param || "";
+        let ref_id = startParam.replace('ref_', '');
+
+        let url = `/api/user_data?telegramId=${window.PlayerData.tg_id}&tg_id=${window.PlayerData.tg_id}`;
+        if(ref_id) url += `&ref_id=${ref_id}`;
+
+        let response = await fetch(url);
         if (response.ok) {
             let result = await response.json();
             
@@ -45,6 +56,11 @@ window.fetchPlayerDataFromServer = async function() {
                 window.PlayerData.daily_day = parseInt(dbData.daily_day || 1);
                 window.PlayerData.last_daily_claim_time = dbData.last_daily_claim_time || "2000-01-01T00:00:00+00:00";
                 window.PlayerData.last_claim_time = dbData.last_claim_time || new Date().toISOString();
+
+                // حقول الأصدقاء
+                window.PlayerData.pending_ref_earnings = parseFloat(dbData.pending_ref_earnings || 0);
+                window.PlayerData.invited_friends_count = parseInt(dbData.invited_friends_count || 0);
+                window.PlayerData.claimed_ref_tasks = dbData.claimed_ref_tasks || [];
 
                 let upgs = {};
                 for (let i = 1; i <= 9; i++) {
@@ -71,12 +87,14 @@ window.triggerAllUIUpdates = function() {
     if (typeof window.updateGamesUI === 'function') window.updateGamesUI();
     // 🔥 ربط شاشة المهام بالتحديث المركزي
     if (typeof window.updateTasksUI === 'function') window.updateTasksUI(); 
+    // ربط شاشة الأصدقاء
+    if (typeof window.updateFriendsUI === 'function') window.updateFriendsUI();
 
     const formattedBalance = Math.floor(pData.balance).toLocaleString();
     
     const possibleBalanceIds = [
         'farm-balance', 'shop-balance', 'top-balance-games', 
-        'top-balance-farm', 'top-balance-shop', 'main-balance', 'user-balance', 'top-balance-tasks'
+        'top-balance-farm', 'top-balance-shop', 'main-balance', 'user-balance', 'top-balance-tasks', 'top-balance-friends'
     ];
 
     possibleBalanceIds.forEach(id => {
