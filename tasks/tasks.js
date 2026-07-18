@@ -52,10 +52,11 @@
         const container = document.getElementById('tasks-list-container');
         const activeAdsContainer = document.getElementById('active-ads-container');
         let completedTasks = JSON.parse(localStorage.getItem('zn_completed_tasks') || '[]');
+        let myId = String(getTgId()).trim();
         
         let realTasks = [];
         try {
-            let response = await fetch(`/api/get_campaigns?telegramId=${getTgId()}`);
+            let response = await fetch(`/api/get_campaigns?telegramId=${myId}`);
             if (response.ok) {
                 let data = await response.json();
                 if (data.success) {
@@ -67,23 +68,21 @@
         }
 
         // ==========================================
-        // 🟢 قسم: اكسب ZN (عرض المهام المتاحة المضافة من المستخدمين)
+        // 🟢 قسم: اكسب ZN (عرض المهام للجميع بما فيهم صاحب الإعلان)
         // ==========================================
         if (container) {
             let allTasks = [];
             realTasks.forEach(task => {
-                // تصفية للتأكد من عدم ظهور إعلان المستخدم لنفسه في قائمة التكسب
-                if (String(task.creator_id).trim() !== String(getTgId()).trim()) {
-                    allTasks.push({
-                        id: task.id,
-                        title: task.description || `مهمة دعم وتفاعل عبر (${task.platform})`,
-                        platform: task.platform || 'أخرى',
-                        reward: task.reward,
-                        link: task.url,
-                        is_completed: task.is_completed,
-                        creator_id: task.creator_id
-                    });
-                }
+                // تم إزالة فلتر الحجب، الآن تظهر كل المهام
+                allTasks.push({
+                    id: task.id,
+                    title: task.description || `مهمة دعم وتفاعل عبر (${task.platform})`,
+                    platform: task.platform || 'أخرى',
+                    reward: task.reward,
+                    link: task.url,
+                    is_completed: task.is_completed,
+                    creator_id: String(task.creator_id).trim()
+                });
             });
 
             let groupedTasks = {};
@@ -107,12 +106,18 @@
                 `;
 
                 tasksArray.forEach(task => {
+                    const isMyAd = (task.creator_id === myId); // التحقق هل هذا إعلاني الشخصي؟
                     const isCompleted = task.is_completed || completedTasks.includes(task.id);
                     let actionHtml = '';
 
-                    if (isCompleted) {
-                        actionHtml = `<button disabled style="background: rgba(40, 167, 69, 0.15); color: #28a745; border: 1px solid rgba(40, 167, 69, 0.4); padding: 8px 14px; border-radius: 8px; font-size: 12px; font-weight: bold;">مكتمل ✔️</button>`;
+                    if (isMyAd) {
+                        // 1. لو الإعلان بتاعي يظهر كإعلان خاص غير قابل للضغط
+                        actionHtml = `<button disabled style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); padding: 8px 14px; border-radius: 8px; font-size: 11px; font-weight: bold; cursor: not-allowed;">إعلانك الخاص 📢</button>`;
+                    } else if (isCompleted) {
+                        // 2. لو المهمة اتعملت قبل كده تظهر مكتملة ولا تتكرر
+                        actionHtml = `<button disabled style="background: rgba(40, 167, 69, 0.15); color: #28a745; border: 1px solid rgba(40, 167, 69, 0.4); padding: 8px 14px; border-radius: 8px; font-size: 12px; font-weight: bold; cursor: not-allowed;">مكتمل ✔️</button>`;
                     } else {
+                        // 3. لو المهمة متاحة وجديدة للمستخدم
                         let state = window.activeTasksState[task.id] || 'idle';
                         if (state === 'idle') {
                             actionHtml = `<button id="btn-task-${task.id}" onclick="startTask('${task.id}', '${task.link}', ${task.reward})" style="background: #fff; color: #000; border: none; padding: 8px 22px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: bold; transition: 0.2s;">ابدأ</button>`;
@@ -142,14 +147,13 @@
                         </div>`;
                 });
             }
-            container.innerHTML = html || `<div style="text-align: center; color: #666; font-size: 13px; padding: 30px; background: #111; border-radius: 12px; border: 1px dashed #222;">لا توجد مهام حقيقية نشطة حالياً من مستخدمين آخرين.</div>`;
+            container.innerHTML = html || `<div style="text-align: center; color: #666; font-size: 13px; padding: 30px; background: #111; border-radius: 12px; border: 1px dashed #222;">لا توجد مهام حقيقية نشطة حالياً.</div>`;
         }
 
         // ==========================================
         // 🔵 قسم: روّج لقناتك (تفاصيل شيك وموسعة للحملات النشطة)
         // ==========================================
         if (activeAdsContainer) {
-            let myId = String(getTgId()).trim();
             let myCreatedCampaigns = realTasks.filter(task => String(task.creator_id).trim() === myId);
 
             if (myCreatedCampaigns.length === 0) {
@@ -249,7 +253,7 @@
         }, 1000);
     };
 
-    // دالة التحقق المرتبطة بالسيرفر والـ API للتأكيد الفعلي وحفظ البيانات
+    // دالة التحقق المرتبطة بالسيرفر والـ API للتأكيد الفعلي
     window.verifyTask = async function(taskId, reward) {
         const btn = document.getElementById(`btn-task-${taskId}`);
         if(btn) {
@@ -368,7 +372,7 @@
         currentAdType = type;
         document.getElementById('ad-modal-title').innerText = `حملة ${type} جديدة`;
         document.getElementById('ad-link').value = '';
-        document.getElementById('ad-desc').value = ''; // تصفير الحقل الجديد المضاف
+        document.getElementById('ad-desc').value = ''; 
         document.getElementById('ad-reward').value = '';
         document.getElementById('ad-users').value = '';
         document.getElementById('ad-modal').style.display = 'flex';
@@ -380,7 +384,7 @@
 
     window.submitAdCampaign = async function() {
         let link = document.getElementById('ad-link').value;
-        let desc = document.getElementById('ad-desc').value; // جلب تفاصيل المهمة
+        let desc = document.getElementById('ad-desc').value; 
         let reward = parseFloat(document.getElementById('ad-reward').value);
         let users = parseInt(document.getElementById('ad-users').value);
 
@@ -405,7 +409,7 @@
                     telegramId: getTgId(), 
                     platform: currentAdType,
                     url: link,
-                    description: desc, // إرسال تفاصيل المهمة للسيرفر ليحفظها بـ Firebase
+                    description: desc, 
                     reward: reward,
                     users_needed: users
                 })
