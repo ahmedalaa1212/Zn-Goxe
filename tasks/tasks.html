@@ -13,7 +13,7 @@
     </div>
 
     <div id="section-earn">
-        <h4 style="color: #ffcc00; margin-bottom: 15px; text-align: right; border-bottom: 1px solid #333; padding-bottom: 10px;">المهمات والإعلانات المتاحة</h4>
+        <h4 style="color: #ffcc00; margin-bottom: 15px; text-align: right; border-bottom: 1px solid #333; padding-bottom: 10px; font-size: 14px;">المهمات والإعلانات الحقيقية المتاحة</h4>
         <div id="tasks-list-container">
             <div style="text-align: center; color: #888; font-size: 13px; padding: 20px;">جاري تحميل المهام... ⏳</div>
         </div>
@@ -28,7 +28,7 @@
             <div style="color: #ef4444; font-size: 11px; margin-top: 10px;">* لا يمكن تحويل رصيد الإعلانات إلى ZN مرة أخرى</div>
         </div>
 
-        <h4 style="color: #fff; margin-bottom: 15px; text-align: right;">إنشاء حملة جديدة</h4>
+        <h4 style="color: #fff; margin-bottom: 15px; text-align: right; font-size: 14px;">إنشاء حملة مستخدم جديدة</h4>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 30px;">
             <div onclick="openAdModal('يوتيوب')" style="background: #1a1a1a; border: 1px solid #333; padding: 20px; border-radius: 12px; text-align: center; cursor: pointer;">
                 <i class="fab fa-youtube" style="color: #ef4444; font-size: 28px; margin-bottom: 12px;"></i>
@@ -46,33 +46,35 @@
                 <i class="fab fa-instagram" style="color: #e1306c; font-size: 28px; margin-bottom: 12px;"></i>
                 <div style="color: #fff; font-size: 13px; font-weight: bold;">متابعة / لايك</div>
             </div>
-            <div onclick="openAdModal('X')" style="background: #1a1a1a; border: 1px solid #333; padding: 20px; border-radius: 12px; text-align: center; cursor: pointer;">
+            <div onclick="openAdModal('X')" style="background: #1a1a1a; border: 1px solid #333; padding: 20px; border-radius: 12px; text-align: center; cursor: pointer; grid-column: span 2;">
                 <i class="fab fa-twitter" style="color: #1da1f2; font-size: 28px; margin-bottom: 12px;"></i>
                 <div style="color: #fff; font-size: 13px; font-weight: bold;">متابعة / ريتويت (X)</div>
             </div>
         </div>
 
-        <h4 style="color: #fff; margin-bottom: 15px; text-align: right; border-bottom: 1px solid #333; padding-bottom: 10px;">حملاتي الإعلانية النشطة</h4>
-        <div id="active-ads-container">
-            </div>
+        <h4 style="color: #fff; margin-bottom: 15px; text-align: right; border-bottom: 1px solid #333; padding-bottom: 10px; font-size: 14px;">إحصائيات وحملاتي الإعلانية النشطة والمفصلة</h4>
+        <div id="active-ads-container"></div>
     </div>
 
     <div id="ad-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 1000; align-items: center; justify-content: center;">
-        <div style="background: #1e1e2f; border: 1px solid #333; border-radius: 15px; padding: 25px; width: 90%; max-width: 400px; text-align: right;">
-            <h3 id="ad-modal-title" style="color: #38bdf8; margin-top: 0;">إنشاء حملة</h3>
+        <div style="background: #1e1e2f; border: 1px solid #333; border-radius: 15px; padding: 25px; width: 90%; max-width: 400px; text-align: right; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <h3 id="ad-modal-title" style="color: #38bdf8; margin-top: 0; font-size: 18px;">إنشاء حملة</h3>
             
-            <label style="color: #aaa; font-size: 12px;">رابط الحملة:</label>
-            <input type="text" id="ad-link" placeholder="https://..." style="width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 10px; background: #111; border: 1px solid #444; color: #fff; border-radius: 8px;" dir="ltr">
+            <label style="color: #aaa; font-size: 12px;">رابط الحملة المستهدف:</label>
+            <input type="text" id="ad-link" placeholder="https://..." style="width: 100%; padding: 11px; margin-top: 5px; margin-bottom: 12px; background: #111; border: 1px solid #444; color: #fff; border-radius: 8px; box-sizing: border-box;" dir="ltr">
             
-            <label style="color: #aaa; font-size: 12px;">مكافأة الفرد (AdZN):</label>
-            <input type="number" id="ad-reward" placeholder="مثال: 1000" style="width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 10px; background: #111; border: 1px solid #444; color: #fff; border-radius: 8px;">
+            <label style="color: #aaa; font-size: 12px;">توجيهات وتفاصيل المهمة (ماذا يفعل المستخدم؟):</label>
+            <input type="text" id="ad-desc" placeholder="مثال: اشترك بالقناة أو ضع لايك للفيديو" style="width: 100%; padding: 11px; margin-top: 5px; margin-bottom: 12px; background: #111; border: 1px solid #444; color: #fff; border-radius: 8px; box-sizing: border-box;">
 
-            <label style="color: #aaa; font-size: 12px;">عدد الأشخاص المطلوب:</label>
-            <input type="number" id="ad-users" placeholder="مثال: 50" style="width: 100%; padding: 10px; margin-top: 5px; margin-bottom: 20px; background: #111; border: 1px solid #444; color: #fff; border-radius: 8px;">
+            <label style="color: #aaa; font-size: 12px;">مكافأة الفرد عند المراجعة الفنية (AdZN):</label>
+            <input type="number" id="ad-reward" placeholder="مثال: 1000" style="width: 100%; padding: 11px; margin-top: 5px; margin-bottom: 12px; background: #111; border: 1px solid #444; color: #fff; border-radius: 8px; box-sizing: border-box;">
+
+            <label style="color: #aaa; font-size: 12px;">عدد التفاعلات والأشخاص المطلوب:</label>
+            <input type="number" id="ad-users" placeholder="مثال: 50" style="width: 100%; padding: 11px; margin-top: 5px; margin-bottom: 22px; background: #111; border: 1px solid #444; color: #fff; border-radius: 8px; box-sizing: border-box;">
             
             <div style="display: flex; gap: 10px;">
-                <button onclick="submitAdCampaign()" style="flex: 1; padding: 10px; background: #38bdf8; color: #000; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">نشر الإعلان</button>
-                <button onclick="closeAdModal()" style="flex: 1; padding: 10px; background: #333; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">إلغاء</button>
+                <button onclick="submitAdCampaign()" style="flex: 1; padding: 12px; background: #38bdf8; color: #000; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 13px;">نشر الإعلان</button>
+                <button onclick="closeAdModal()" style="flex: 1; padding: 12px; background: #333; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 13px;">إلغاء</button>
             </div>
         </div>
     </div>
