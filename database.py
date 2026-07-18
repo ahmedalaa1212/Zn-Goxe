@@ -56,17 +56,28 @@ def init_user(telegram_id):
                 'ad_balance': 0.0, 
                 'is_banned': False,
                 'last_claim_time': datetime.utcnow().isoformat(),
-                'storage_level': 0 
+                'storage_level': 0,
+                # حقول الأصدقاء
+                'referred_by': None,
+                'pending_ref_earnings': 0.0,
+                'invited_friends_count': 0,
+                'claimed_ref_tasks': []
             }
             for i in range(1, 11):
                 user_data[f'lvl{i}_count'] = 0
             user_ref.set(user_data)
             print(f"🚀 New user created in Firebase: {telegram_id}")
         else:
-            # 🔥 حماية وتأكيد: لو الحساب موجود مش بنصفر الرصيد الإعلاني أبداً 🔥
+            # 🔥 حماية وتأكيد: إضافة الحقول الناقصة وتحديثها بدون تصفير الرصيد 🔥
             data = doc.to_dict()
-            if 'ad_balance' not in data:
-                user_ref.update({'ad_balance': 0.0})
+            updates = {}
+            if 'ad_balance' not in data: updates['ad_balance'] = 0.0
+            if 'pending_ref_earnings' not in data: updates['pending_ref_earnings'] = 0.0
+            if 'invited_friends_count' not in data: updates['invited_friends_count'] = 0
+            if 'claimed_ref_tasks' not in data: updates['claimed_ref_tasks'] = []
+            
+            if updates:
+                user_ref.update(updates)
     except Exception as e:
         print(f"❌ Error in init_user: {e}")
 
