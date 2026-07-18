@@ -1,18 +1,40 @@
 (function initTasks() {
-    // حالة المهام لتشغيل العداد والتحقق
     window.activeTasksState = window.activeTasksState || {};
     window.taskTimers = window.taskTimers || {};
     
-    // متغيرات لمنع الضغط المتكرر على الأزرار العامة
     let isSubmittingCampaign = false;
     let isConvertingBalance = false;
     let isCancelingCampaign = false;
 
-    // إعدادات الأقسام وألوانها وأيقوناتها لتنظيم المهام الحقيقية
+    // بنية الأوصاف والخيارات المحددة مسبقاً لكل منصة لمنع تخطي السبام والشتائم
+    const preDefinedDescriptions = {
+        'يوتيوب': [
+            "اشترك بالقناة وفعّل جرس التنبيهات 🔔",
+            "ضع لايك حقيقي للفيديو المرفق 👍",
+            "اكتب تعليق إيجابي يخص محتوى الفيديو 💬"
+        ],
+        'تيليجرام': [
+            "انضم إلى القناة وقم بزيارة آخر 3 منشورات 📢",
+            "انضم إلى الجروب وشارك في النقاشات بأدب 👥"
+        ],
+        'موقع': [
+            "قم بتصفح الموقع والبقاء داخله لمدة دقيقة كاملة 🌐",
+            "تصفح المقالات وتفاعل مع الإعلانات داخل الموقع 📄"
+        ],
+        'انستغرام': [
+            "تابع الحساب الرسمي وتفاعل باللايكات 📸",
+            "ضع لايك على المنشور الأخير واكتب تعليق ❤️"
+        ],
+        'X': [
+            "تابع الحساب الرسمي وقم بعمل ريتويت للتغريدة المثبتة 🔁",
+            "ضع إعجاب على التغريدة الأخيرة المنشورة 🤍"
+        ]
+    };
+
     const platformConfig = {
         'يوتيوب': { title: "مهام يوتيوب", icon: "fab fa-youtube", color: "#ef4444" },
         'تيليجرام': { title: "مهام تيليجرام", icon: "fab fa-telegram", color: "#38bdf8" },
-        'X': { title: "مهام منصة X", icon: "fab fa-twitter", color: "#1da1f2" },
+        'X': { title: "مهام منصة X", icon: "fab fa-twitter", color: "#ffffff" },
         'موقع': { title: "زيارة مواقع", icon: "fas fa-globe", color: "#28a745" },
         'انستغرام': { title: "مهام انستغرام", icon: "fab fa-instagram", color: "#e1306c" },
         'أخرى': { title: "مهام متنوعة", icon: "fas fa-tasks", color: "#a855f7" }
@@ -22,23 +44,23 @@
         return window.PlayerData?.tg_id || window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || "5102387551";
     }
 
-    // التبديل بين قسم (اكسب ZN) وقسم (روّج لقناتك)
     window.switchTasksTab = function(tab) {
         document.getElementById('section-earn').style.display = tab === 'earn' ? 'block' : 'none';
         document.getElementById('section-promote').style.display = tab === 'promote' ? 'block' : 'none';
         
         document.getElementById('btn-tab-earn').style.background = tab === 'earn' ? '#0088cc' : 'transparent';
-        document.getElementById('btn-tab-earn').style.color = tab === 'earn' ? '#fff' : '#888';
+        document.getElementById('btn-tab-earn').style.color = tab === 'earn' ? '#fff' : '#8e92a2';
+        document.getElementById('btn-tab-earn').style.boxShadow = tab === 'earn' ? '0 4px 12px rgba(0, 136, 204, 0.3)' : 'none';
         
         document.getElementById('btn-tab-promote').style.background = tab === 'promote' ? '#0088cc' : 'transparent';
-        document.getElementById('btn-tab-promote').style.color = tab === 'promote' ? '#fff' : '#888';
+        document.getElementById('btn-tab-promote').style.color = tab === 'promote' ? '#fff' : '#8e92a2';
+        document.getElementById('btn-tab-promote').style.boxShadow = tab === 'promote' ? '0 4px 12px rgba(0, 136, 204, 0.3)' : 'none';
         
         if(tab === 'earn' || tab === 'promote') {
             window.fetchAndRenderTasks(); 
         }
     };
 
-    // تحديث واجهة المستخدم فورياً (الأرصدة)
     window.updateTasksUI = function() {
         const pData = window.PlayerData || { balance: 0, ad_balance: 0 };
         const tasksTopBalance = document.getElementById('top-balance-tasks');
@@ -48,11 +70,10 @@
         if (adBalDisplay) {
             adBalDisplay.innerText = `AdZN ${Math.floor(pData.ad_balance || 0).toLocaleString()}`;
         }
-        
         window.fetchAndRenderTasks();
     };
 
-    // جلب المهام والإعلانات الحقيقية فقط من السيرفر ورسمها للمستخدمين
+    // جلب المهام وعرضها للمستخدمين (مع تفعيل إظهار خيار توجيهات المهمة المكتملة)
     window.fetchAndRenderTasks = async function() {
         const container = document.getElementById('tasks-list-container');
         const activeAdsContainer = document.getElementById('active-ads-container');
@@ -68,19 +89,15 @@
                     realTasks = data.campaigns;
                 }
             }
-        } catch (e) { 
-            console.warn("خطأ في جلب المهام من السيرفر", e); 
-        }
+        } catch (e) { console.warn("خطأ جلب المهام", e); }
 
-        // ==========================================
-        // 🟢 قسم: اكسب ZN (عرض المهام للجميع بما فيهم صاحب الإعلان)
-        // ==========================================
         if (container) {
             let allTasks = [];
             realTasks.forEach(task => {
                 allTasks.push({
                     id: task.id,
-                    title: task.description || `مهمة دعم وتفاعل عبر (${task.platform})`,
+                    title: `دعم وتفاعل منصة (${task.platform})`,
+                    description: task.description || "برجاء اتباع الرابط لإكمال المهمة المطلوبة بنجاح التام.",
                     platform: task.platform || 'أخرى',
                     reward: task.reward,
                     link: task.url,
@@ -104,8 +121,8 @@
 
                 html += `
                     <div style="margin-top: 25px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-                        <i class="${config.icon}" style="color: ${config.color}; font-size: 16px;"></i>
-                        <h5 style="color: #ccc; margin: 0; font-size: 14px; font-weight: 600;">${config.title}</h5>
+                        <i class="${config.icon}" style="color: ${config.color}; font-size: 15px;"></i>
+                        <h5 style="color: #94a3b8; margin: 0; font-size: 13px; font-weight: 700;">${config.title}</h5>
                     </div>
                 `;
 
@@ -115,30 +132,31 @@
                     let actionHtml = '';
 
                     if (isMyAd) {
-                        actionHtml = `<button disabled style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); padding: 8px 14px; border-radius: 8px; font-size: 11px; font-weight: bold; cursor: not-allowed;">إعلانك الخاص 📢</button>`;
+                        actionHtml = `<button disabled style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.25); padding: 8px 14px; border-radius: 8px; font-size: 11px; font-weight: bold; cursor: not-allowed;">إعلانك الخاص 📢</button>`;
                     } else if (isCompleted) {
-                        actionHtml = `<button disabled style="background: rgba(40, 167, 69, 0.15); color: #28a745; border: 1px solid rgba(40, 167, 69, 0.4); padding: 8px 14px; border-radius: 8px; font-size: 12px; font-weight: bold; cursor: not-allowed;">مكتمل ✔️</button>`;
+                        actionHtml = `<button disabled style="background: rgba(40, 167, 69, 0.12); color: #28a745; border: 1px solid rgba(40, 167, 69, 0.25); padding: 8px 14px; border-radius: 8px; font-size: 11px; font-weight: bold; cursor: not-allowed;">مكتمل ✔️</button>`;
                     } else {
                         let state = window.activeTasksState[task.id] || 'idle';
                         if (state === 'idle') {
-                            actionHtml = `<button id="btn-task-${task.id}" onclick="startTask('${task.id}', '${task.link}', ${task.reward})" style="background: #fff; color: #000; border: none; padding: 8px 22px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: bold; transition: 0.2s;">ابدأ</button>`;
+                            actionHtml = `<button id="btn-task-${task.id}" onclick="startTask('${task.id}', '${task.link}', ${task.reward})" style="background: #fff; color: #000; border: none; padding: 8px 22px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; transition: 0.2s;">ابدأ</button>`;
                         } else if (state === 'running') {
-                            actionHtml = `<button id="btn-task-${task.id}" disabled style="background: #333; color: #888; border: 1px solid #444; padding: 8px 14px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">انتظر ${window.taskTimers[task.id]}⏳</button>`;
+                            actionHtml = `<button id="btn-task-${task.id}" disabled style="background: #222; color: #666; border: 1px solid #333; padding: 8px 14px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">انتظر ${window.taskTimers[task.id]}⏳</button>`;
                         } else if (state === 'ready') {
-                            actionHtml = `<button id="btn-task-${task.id}" onclick="verifyTask('${task.id}', ${task.reward})" style="background: #ffcc00; color: #000; border: none; padding: 8px 18px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: bold; box-shadow: 0 0 10px rgba(255, 204, 0, 0.4);">تحقق ✅</button>`;
+                            actionHtml = `<button id="btn-task-${task.id}" onclick="verifyTask('${task.id}', ${task.reward})" style="background: #ffcc00; color: #000; border: none; padding: 8px 18px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">تحقق ✅</button>`;
                         }
                     }
 
                     html += `
-                        <div style="background: #141414; border: 1px solid #262626; border-radius: 14px; padding: 16px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
-                            <div style="display: flex; align-items: center; gap: 14px; flex: 1;">
-                                <div style="background: rgba(255,255,255,0.03); width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; border: 1px solid #2d2d2d;">
-                                    <i class="${config.icon}" style="font-size: 20px; color: ${config.color};"></i>
+                        <div style="background: linear-gradient(135deg, #11111e, #141424); border: 1px solid #222235; border-radius: 16px; padding: 15px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+                            <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
+                                <div style="background: rgba(255,255,255,0.02); width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.05);">
+                                    <i class="${config.icon}" style="font-size: 18px; color: ${config.color};"></i>
                                 </div>
                                 <div style="text-align: right; flex: 1;">
-                                    <div style="color: #ffffff; font-size: 13px; font-weight: 600; line-height: 1.4; margin-bottom: 4px;">${task.title}</div>
-                                    <div style="color: #ffcc00; font-size: 12px; font-weight: bold; display: flex; align-items: center; gap: 4px;">
-                                        <span>+${task.reward.toLocaleString()}</span> <span style="font-size: 10px; color: #888;">ZN</span>
+                                    <div style="color: #ffffff; font-size: 13px; font-weight: 700; line-height: 1.4; margin-bottom: 2px;">${task.title}</div>
+                                    <div style="color: #94a3b8; font-size: 11px; margin-bottom: 4px; font-weight: 500; line-height: 1.3;">${task.description}</div>
+                                    <div style="color: #ffcc00; font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 4px;">
+                                        <span>+${task.reward.toLocaleString()}</span> <span style="font-size: 10px; color: #64748b; font-weight: 500;">ZN</span>
                                     </div>
                                 </div>
                             </div>
@@ -148,17 +166,15 @@
                         </div>`;
                 });
             }
-            container.innerHTML = html || `<div style="text-align: center; color: #666; font-size: 13px; padding: 30px; background: #111; border-radius: 12px; border: 1px dashed #222;">لا توجد مهام حقيقية نشطة حالياً.</div>`;
+            container.innerHTML = html || `<div style="text-align: center; color: #64748b; font-size: 13px; padding: 40px; background: #11111e; border-radius: 16px; border: 1px dashed #222235;">لا توجد حملات ترويجية نشطة حالياً.</div>`;
         }
 
-        // ==========================================
-        // 🔵 قسم: روّج لقناتك (تفاصيل وحملات المعلن)
-        // ==========================================
+        // إحصائيات حملاتي الإعلانية النشطة
         if (activeAdsContainer) {
             let myCreatedCampaigns = realTasks.filter(task => String(task.creator_id).trim() === myId);
 
             if (myCreatedCampaigns.length === 0) {
-                activeAdsContainer.innerHTML = `<div style="text-align: center; color: #666; font-size: 12px; padding: 25px; background: #111; border-radius: 12px;">ليس لديك حملات إعلانية نشطة حالياً.</div>`;
+                activeAdsContainer.innerHTML = `<div style="text-align: center; color: #64748b; font-size: 12px; padding: 30px; background: #11111e; border-radius: 16px;">ليس لديك أي حملات ترويجية قائمة حالياً.</div>`;
                 return;
             }
 
@@ -176,66 +192,61 @@
                 let config = platformConfig[ad.platform] || platformConfig['أخرى'];
 
                 adsHtml += `
-                    <div style="background: #161622; border: 1px solid #2a2a3a; border-radius: 16px; padding: 18px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+                    <div style="background: #131324; border: 1px solid #24243a; border-radius: 16px; padding: 18px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <i class="${config.icon}" style="color: ${config.color}; font-size: 16px;"></i>
-                                <span style="color: #fff; font-size: 14px; font-weight: bold;">حملة دقيقة لـ ${ad.platform}</span>
+                                <i class="${config.icon}" style="color: ${config.color}; font-size: 15px;"></i>
+                                <span style="color: #fff; font-size: 13px; font-weight: 700;">حملة ممولة لـ ${ad.platform}</span>
                             </div>
-                            <span style="background: rgba(56,189,248,0.1); color: #38bdf8; font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: bold;">
-                                التفاعل: ${comp} / ${need}
+                            <span style="background: rgba(56,189,248,0.1); color: #38bdf8; font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: 700;">
+                                الإنجاز: ${comp} / ${need}
                             </span>
                         </div>
                         
-                        <div style="background: #0d0d16; border-radius: 10px; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; border: 1px solid #1f1f2e;">
+                        <div style="background: #090911; border-radius: 12px; padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; border: 1px solid #1c1c2e;">
                             <div style="text-align: right;">
-                                <span style="color: #777; font-size: 11px; display: block;">تكلفة الفرد:</span>
-                                <span style="color: #fff; font-size: 12px; font-weight: bold;">${costPerClick.toLocaleString()} AdZN</span>
+                                <span style="color: #64748b; font-size: 11px; display: block;">تكلفة الضغطة:</span>
+                                <span style="color: #fff; font-size: 12px; font-weight: 700;">${costPerClick.toLocaleString()} AdZN</span>
                             </div>
                             <div style="text-align: right;">
-                                <span style="color: #777; font-size: 11px; display: block;">الميزانية الكلية:</span>
-                                <span style="color: #ffcc00; font-size: 12px; font-weight: bold;">${totalBudget.toLocaleString()} AdZN</span>
+                                <span style="color: #64748b; font-size: 11px; display: block;">ميزانية الإعلان:</span>
+                                <span style="color: #ffcc00; font-size: 12px; font-weight: 700;">${totalBudget.toLocaleString()} AdZN</span>
                             </div>
-                            <div style="text-align: right; border-top: 1px solid #1a1a26; padding-top: 5px;">
-                                <span style="color: #777; font-size: 11px; display: block;">المستهلك:</span>
-                                <span style="color: #ef4444; font-size: 12px; font-weight: bold;">${consumedBudget.toLocaleString()} AdZN</span>
+                            <div style="text-align: right; border-top: 1px solid #1a1a2e; padding-top: 5px;">
+                                <span style="color: #64748b; font-size: 11px; display: block;">مستهلك حتى الآن:</span>
+                                <span style="color: #ef4444; font-size: 12px; font-weight: 700;">${consumedBudget.toLocaleString()} AdZN</span>
                             </div>
-                            <div style="text-align: right; border-top: 1px solid #1a1a26; padding-top: 5px;">
-                                <span style="color: #777; font-size: 11px; display: block;">المتبقي المسترد:</span>
-                                <span style="color: #28a745; font-size: 12px; font-weight: bold;">${remainingBudget.toLocaleString()} AdZN</span>
+                            <div style="text-align: right; border-top: 1px solid #1a1a2e; padding-top: 5px;">
+                                <span style="color: #64748b; font-size: 11px; display: block;">المتبقي القابل للاسترداد:</span>
+                                <span style="color: #28a745; font-size: 12px; font-weight: 700;">${remainingBudget.toLocaleString()} AdZN</span>
                             </div>
                         </div>
 
-                        ${ad.description ? `
-                        <div style="background: rgba(255,255,255,0.02); border-right: 3px solid #38bdf8; padding: 6px 10px; font-size: 11px; color: #bbb; margin-bottom: 12px; text-align: right; border-radius: 4px;">
-                            <strong>التوجيهات المرفقة:</strong> ${ad.description}
-                        </div>` : ''}
+                        <div style="background: rgba(255,255,255,0.02); border-right: 3px solid #38bdf8; padding: 6px 10px; font-size: 11px; color: #b4b9c8; margin-bottom: 12px; text-align: right; border-radius: 4px; font-weight: 500;">
+                            <strong>التوجيه الفعلي للزوار:</strong> ${ad.description}
+                        </div>
 
                         <div style="margin-bottom: 14px;">
-                            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #888; margin-bottom: 4px;">
-                                <span>نسبة الإنجاز</span>
-                                <span style="color: #38bdf8; font-weight: bold;">${pct}%</span>
+                            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #64748b; margin-bottom: 4px;">
+                                <span>التقدم الإجمالي للنسبة</span>
+                                <span style="color: #38bdf8; font-weight: 700;">${pct}%</span>
                             </div>
-                            <div style="width: 100%; height: 6px; background: #222; border-radius: 10px; overflow: hidden;">
+                            <div style="width: 100%; height: 6px; background: #0b0b12; border-radius: 10px; overflow: hidden; border: 1px solid #1f1f2e;">
                                 <div style="width: ${pct}%; height: 100%; background: linear-gradient(90deg, #0088cc, #38bdf8); border-radius: 10px; transition: width 0.4s ease;"></div>
                             </div>
                         </div>
 
-                        <div style="color: #555; font-size: 10px; margin-bottom: 12px; word-break: break-all; text-align: left; background: #0b0b11; padding: 6px; border-radius: 6px;" dir="ltr">${ad.url}</div>
-                        <button id="btn-cancel-${ad.id}" onclick="cancelServerCampaign('${ad.id}')" style="width: 100%; background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; padding: 10px; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 12px; transition: 0.2s;">إلغاء واسترداد المتبقي (يخصم 10%)</button>
+                        <div style="color: #475569; font-size: 11px; margin-bottom: 12px; word-break: break-all; text-align: left; background: #090911; padding: 8px; border-radius: 8px; font-family: monospace;" dir="ltr">${ad.url}</div>
+                        <button id="btn-cancel-${ad.id}" onclick="cancelServerCampaign('${ad.id}')" style="width: 100%; background: rgba(239,68,68,0.05); border: 1px solid rgba(239,68,68,0.25); color: #ef4444; padding: 11px; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 12px; transition: 0.2s;">إلغاء الإعلان فوراً وسحب المتبقي لحسابك</button>
                     </div>`;
             });
             activeAdsContainer.innerHTML = adsHtml;
         }
     };
 
-    // زر ابدأ المهمة
     window.startTask = function(taskId, link, reward) {
-        if (window.Telegram?.WebApp) {
-            window.Telegram.WebApp.openLink(link);
-        } else {
-            window.open(link, '_blank');
-        }
+        if (window.Telegram?.WebApp) { window.Telegram.WebApp.openLink(link); } 
+        else { window.open(link, '_blank'); }
         
         window.activeTasksState[taskId] = 'running';
         window.taskTimers[taskId] = 10; 
@@ -254,15 +265,9 @@
         }, 1000);
     };
 
-    // دالة التحقق (محمية بالكامل ضد السبام والضغط المتكرر)
     window.verifyTask = async function(taskId, reward) {
         const btn = document.getElementById(`btn-task-${taskId}`);
-        if(btn) {
-            btn.innerText = "جاري التأكيد...";
-            btn.disabled = true;
-            btn.style.opacity = "0.6";
-            btn.style.cursor = "not-allowed";
-        }
+        if(btn) { btn.innerText = "فحص الفني..."; btn.disabled = true; btn.style.opacity = "0.5"; }
 
         try {
             let response = await fetch('/api/complete_task', {
@@ -277,34 +282,26 @@
                 completedTasks.push(taskId);
                 localStorage.setItem('zn_completed_tasks', JSON.stringify(completedTasks));
                 if (window.PlayerData) window.PlayerData.balance += reward;
-                alert(`🎉 مبروك! تمت إضافة ${reward.toLocaleString()} ZN ورصيدك المحدث جاهز!`);
+                alert(`🎉 مبارك! تم تأكيد المهمة وإضافة رصيد بقيمة ${reward.toLocaleString()} ZN`);
             } else {
-                alert("⚠️ فشل التحقق: " + (result.error || "تأكد من إتمام المهمة أولاً"));
+                alert("⚠️ لم يكتمل الفحص بعد: " + (result.error || "تأكد من المتابعة الفعلية"));
                 window.activeTasksState[taskId] = 'ready';
             }
         } catch (e) {
-            alert("حدث خطأ في الاتصال بالسيرفر أثناء المراجعة الفنية.");
+            alert("خطأ في الاتصال بالشبكة.");
             window.activeTasksState[taskId] = 'ready';
         }
-        
         window.fetchAndRenderTasks();
-        if (typeof window.triggerAllUIUpdates === 'function') {
-            window.triggerAllUIUpdates();
-        } else {
-            const pData = window.PlayerData || {};
-            const topBal = document.getElementById('top-balance-tasks');
-            if (topBal) topBal.innerText = `ZN ${Math.floor(pData.balance || 0).toLocaleString()}`;
-        }
+        if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
     };
 
-    // زر الإلغاء (محمي ضد الضغط المتكرر)
     window.cancelServerCampaign = async function(campId) {
         if (isCancelingCampaign) return;
-        if (!confirm("هل أنت متأكد من إلغاء الحملة واستعادة قيمة النقرات المتبقية؟")) return;
+        if (!confirm("هل أنت متأكد من إلغاء الحملة؟ سيتم خصم عمولة الإلغاء 10%.")) return;
         
         isCancelingCampaign = true;
         const btn = document.getElementById(`btn-cancel-${campId}`);
-        if(btn) { btn.innerText = "جاري الإلغاء..."; btn.disabled = true; }
+        if(btn) { btn.innerText = "جاري الحذف والرد..."; btn.disabled = true; }
 
         try {
             let response = await fetch('/api/cancel_campaign', {
@@ -313,31 +310,23 @@
                 body: JSON.stringify({ telegramId: getTgId(), campaignId: campId })
             });
             let result = await response.json();
-            
             if (response.ok && result.success) {
-                alert(`✅ تم إلغاء الحملة بنجاح واسترداد المتبقي!`);
+                alert(`✅ تم إلغاء حملتك بنجاح وإرجاع الرصيد المتبقي لـ محفظتك الإعلانية!`);
                 if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
                 window.fetchAndRenderTasks();
-            } else {
-                alert("⚠️ فشل الإلغاء: " + (result.error || "خطأ غير معروف"));
-            }
-        } catch (e) {
-            alert("حدث خطأ أثناء الإلغاء.");
-        } finally {
-            isCancelingCampaign = false;
-        }
+            } else { alert("⚠️ خطأ بالإلغاء: " + result.error); }
+        } catch (e) { alert("حدث خطأ."); }
+        finally { isCancelingCampaign = false; }
     };
 
-    // تحويل ZN إلى رصيد إعلانات (محمي ضد الضغط المتكرر)
     window.convertZnToAdZn = async function() {
         if (isConvertingBalance) return;
-        let amount = prompt("أدخل كمية ZN لتحويلها إلى رصيد إعلانات (AdZN):\n* سيتم خصم 10% عمولة تحويل.");
+        let amount = prompt("أدخل رصيد ZN المراد تحويله لرصيد الإعلانات:\n* سيتم تطبيق عمولة تداول 10%.");
         if (!amount || isNaN(amount) || amount <= 0) return;
         amount = parseFloat(amount);
 
-        let currentBalance = parseFloat(window.PlayerData?.balance || 0);
-        if (currentBalance < amount) {
-            alert("⚠️ رصيدك من ZN غير كافٍ!");
+        if (parseFloat(window.PlayerData?.balance || 0) < amount) {
+            alert("⚠️ رصيد ZN الحالي غير كافٍ للعملية!");
             return;
         }
 
@@ -349,134 +338,153 @@
                 body: JSON.stringify({ telegramId: getTgId(), amount: amount })
             });
             let result = await response.json();
-            
             if (response.ok && result.success) {
-                alert(`✅ تم شحن رصيد الإعلانات بنجاح!`);
-                
+                alert(`✅ شحن ناجح! تمت عملية التحويل لمحفظتك بنجاح.`);
                 if (window.PlayerData) {
                     window.PlayerData.balance -= amount;
                     window.PlayerData.ad_balance = (window.PlayerData.ad_balance || 0) + result.received;
                 }
                 window.updateTasksUI();
                 if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
-                if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
-            } else {
-                alert("⚠️ فشل التحويل: " + (result.error || "خطأ"));
-            }
-        } catch (e) { 
-            alert("حدث خطأ أثناء التحويل."); 
-        } finally {
-            isConvertingBalance = false;
-        }
+            } else { alert("⚠️ فشل: " + result.error); }
+        } catch (e) { alert("خطأ شبكة."); }
+        finally { isConvertingBalance = false; }
     };
 
-    // ==========================================
-    // 🛠️ نظام إنشاء الإعلانات (الحماية القصوى ضد الدبل كليك)
-    // ==========================================
-    let currentAdType = '';
-    
+    // ==========================================================
+    // 🛡️ نظام فتح الإعلانات بالخيارات الثابتة وفلاتر المراجعة الآمنة 
+    // ==========================================================
     window.openAdModal = function(type) {
         currentAdType = type;
-        document.getElementById('ad-modal-title').innerText = `حملة ${type} جديدة`;
+        document.getElementById('ad-modal-title').innerText = `إطلاق حملة ${type} حقيقية`;
         document.getElementById('ad-link').value = '';
-        document.getElementById('ad-desc').value = ''; 
         document.getElementById('ad-reward').value = '';
         document.getElementById('ad-users').value = '';
         
-        // إعادة تهيئة الزر لوضع الطبيعي عند فتح المودال
+        // جلب خيارات الوصف وحقنها تلقائياً بالكامل لمنع الكتابة اليدوية الخاطئة
+        const selectContainer = document.getElementById('ad-desc-select');
+        selectContainer.innerHTML = '';
+        
+        let optionsHtml = '';
+        let optionsList = preDefinedDescriptions[type] || ["برجاء اتباع الرابط لإكمال التفاعل الإعلاني."];
+        optionsList.forEach(descText => {
+            optionsHtml += `<option value="${descText}">${descText}</option>`;
+        });
+        selectContainer.innerHTML = optionsHtml;
+
         const submitBtn = document.getElementById('btn-submit-campaign-action');
         if (submitBtn) {
-            submitBtn.innerText = "نشر الإعلان";
+            submitBtn.innerText = "نشر الحملة";
             submitBtn.disabled = false;
             submitBtn.style.opacity = "1";
-            submitBtn.style.cursor = "pointer";
         }
-        
         document.getElementById('ad-modal').style.display = 'flex';
     };
 
     window.closeAdModal = function() {
-        if (isSubmittingCampaign) return; // منع إغلاق النافذة أثناء معالجة الطلب على السيرفر
+        if (isSubmittingCampaign) return;
         document.getElementById('ad-modal').style.display = 'none';
     };
 
     window.submitAdCampaign = async function() {
-        // إذا كان هناك طلب قيد التنفيذ، يتم تجاهل الضغطة فوراً لحمايتك من الخسارة المكررة
         if (isSubmittingCampaign) return;
 
-        let link = document.getElementById('ad-link').value;
-        let desc = document.getElementById('ad-desc').value; 
+        let link = document.getElementById('ad-link').value.trim();
+        let desc = document.getElementById('ad-desc-select').value; // جلب الوصف المختار الجاهز الآمن
         let reward = parseFloat(document.getElementById('ad-reward').value);
         let users = parseInt(document.getElementById('ad-users').value);
 
         if (!link || !desc || isNaN(reward) || reward <= 0 || isNaN(users) || users <= 0) {
-            alert("⚠️ يرجى إدخال جميع البيانات والوصف التوضيحي بشكل صحيح!");
+            alert("⚠️ يرجى ملء كافة الخانات المالية وبينات الرابط بشكل سليم.");
             return;
+        }
+
+        // 1️⃣ حماية التحقق من الرابط ومطابقته لكل منصة إجبارياً
+        let linkLower = link.toLowerCase();
+        if (currentAdType === 'يوتيوب' && !linkLower.includes("youtube.com") && !linkLower.includes("youtu.be")) {
+            alert("⚠️ خطأ أمني: يجب إدخال رابط فيديو أو قناة يوتيوب صحيح يبدأ بـ youtube.com أو youtu.be");
+            return;
+        }
+        if (currentAdType === 'تيليجرام' && !linkLower.includes("t.me")) {
+            alert("⚠️ خطأ أمني: يجب إدخال رابط قناة أو جروب تيليجرام صحيح يبدأ بـ t.me");
+            return;
+        }
+        if (currentAdType === 'انستغرام' && !linkLower.includes("instagram.com")) {
+            alert("⚠️ خطأ أمني: يجب إدخال رابط حساب أو منشور انستغرام صحيح يبدأ بـ instagram.com");
+            return;
+        }
+        if (currentAdType === 'X' && !linkLower.includes("twitter.com") && !linkLower.includes("x.com")) {
+            alert("⚠️ خطأ أمني: يجب إدخال رابط تفاعل لمنصة X يبدأ بـ x.com أو twitter.com");
+            return;
+        }
+
+        // 2️⃣ فحص روابط قسم "زيارة موقع" من المحتوى المشبوه والجنسي (Anti-NSFW / Anti-Scam Filter)
+        if (currentAdType === 'موقع') {
+            const forbiddenKeywords = ['porn', 'sexy', 'xnx', 'adult', 'gambling', 'casino', 'bet365', '1xbet', 'sex', 'إباحي', 'جنس', 'قمار'];
+            let foundViolation = forbiddenKeywords.some(word => linkLower.includes(word));
+            if (foundViolation) {
+                alert("🚨 نظام الأمان التلقائي 🚨\nتم حظر الرابط فوراً لاحتوائه على كلمات مشبوهة أو جنسية أو احتيالية مجهولة ومخالفة لسياسة بوت التداول والربح! الرجاء الحذر حتى لا يتم حظر حسابك بالكامل.");
+                return;
+            }
         }
 
         let totalCost = reward * users;
         let currentAdBalance = parseFloat(window.PlayerData?.ad_balance || 0);
 
         if (currentAdBalance < totalCost) {
-            alert(`⚠️ رصيد الإعلانات غير كافٍ! التكلفة: ${totalCost} AdZN`);
+            alert(`⚠️ رصيدك الإعلاني غير كافٍ! التكلفة المطلوبة: ${totalCost} AdZN`);
             return;
         }
 
-        // 🛡️ تفعيل وضع الحماية وتعطيل زر الإرسال فوراً
+        // 🔒 تفعيل شاشة العداد التنازلي التلقائي للمراجعة (15 ثانية) قبل الرفع النهائي
+        document.getElementById('review-modal').style.display = 'flex';
+        let remainingSeconds = 15;
+        const countdownTimerDisplay = document.getElementById('review-countdown-timer');
+        
         isSubmittingCampaign = true;
-        const submitBtn = document.getElementById('btn-submit-campaign-action');
-        if (submitBtn) {
-            submitBtn.innerText = "جاري النشر والخصم... ⏳";
-            submitBtn.disabled = true;
-            submitBtn.style.opacity = "0.6";
-            submitBtn.style.cursor = "not-allowed";
-        }
+        closeAdModal(); // إخفاء مودال الإدخال والتركيز على شاشة الفحص
 
-        try {
-            let response = await fetch('/api/create_campaign', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    telegramId: getTgId(), 
-                    platform: currentAdType,
-                    url: link,
-                    description: desc, 
-                    reward: reward,
-                    users_needed: users
-                })
-            });
-            let result = await response.json();
+        let reviewInterval = setInterval(async () => {
+            remainingSeconds--;
+            if (countdownTimerDisplay) countdownTimerDisplay.innerText = remainingSeconds;
             
-            if (response.ok && result.success) {
-                // فك الحماية فقط بعد النجاح التام وإغلاق الشاشة
-                isSubmittingCampaign = false;
-                closeAdModal();
-                alert("✅ تم نشر حملتك الإعلانية بنجاح على السيرفر ومتاحة للجميع!");
+            if (remainingSeconds <= 0) {
+                clearInterval(reviewInterval);
                 
-                if(window.PlayerData) window.PlayerData.ad_balance -= totalCost;
-                window.updateTasksUI();
-                if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
-            } else {
-                alert("⚠️ فشل إنشاء الحملة: " + (result.error || "خطأ غير معروف"));
-                // في حالة فشل السيرفر، نعيد إتاحة الزر للمحاولة مجدداً
-                isSubmittingCampaign = false;
-                if (submitBtn) {
-                    submitBtn.innerText = "نشر الإعلان";
-                    submitBtn.disabled = false;
-                    submitBtn.style.opacity = "1";
-                    submitBtn.style.cursor = "pointer";
+                // انتهت الـ 15 ثانية مراجعة بنجاح.. يتم الإرسال للسيرفر الآن والخصم الفعلي
+                try {
+                    let response = await fetch('/api/create_campaign', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            telegramId: getTgId(), 
+                            platform: currentAdType,
+                            url: link,
+                            description: desc, 
+                            reward: reward,
+                            users_needed: users
+                        })
+                    });
+                    let result = await response.json();
+                    
+                    document.getElementById('review-modal').style.display = 'none'; // إخفاء نافذة الفحص
+                    isSubmittingCampaign = false;
+
+                    if (response.ok && result.success) {
+                        alert("✅ اجتاز الإعلان المراجعة الفنية والأمنية التلقائية بنجاح، وتم الخصم والنشـر للجميع!");
+                        if(window.PlayerData) window.PlayerData.ad_balance -= totalCost;
+                        window.updateTasksUI();
+                        if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
+                    } else {
+                        alert("⚠️ رفض السيرفر إنشاء الحملة: " + (result.error || "تأكد من سلامة الحساب"));
+                    }
+                } catch (e) {
+                    document.getElementById('review-modal').style.display = 'none';
+                    isSubmittingCampaign = false;
+                    alert("حدث خطأ أثناء رفع الحملة للسيرفر الرئيسي.");
                 }
             }
-        } catch (e) { 
-            alert("حدث خطأ في الاتصال بالسيرفر أثناء نشر الإعلان.");
-            isSubmittingCampaign = false;
-            if (submitBtn) {
-                submitBtn.innerText = "نشر الإعلان";
-                submitBtn.disabled = false;
-                submitBtn.style.opacity = "1";
-                submitBtn.style.cursor = "pointer";
-            }
-        }
+        }, 1000);
     };
 
     setTimeout(() => {
