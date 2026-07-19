@@ -4,6 +4,7 @@
     padding: 0;
     box-sizing: border-box;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    -webkit-tap-highlight-color: transparent; /* منع ظهور مربع أزرق عند الضغط في الموبايل */
 }
 
 body {
@@ -13,59 +14,131 @@ body {
     overflow: hidden;
 }
 
+/* تخصيص مساحة المحتوى لتناسب القائمة الجديدة */
 #app {
-    height: calc(100vh - 70px); /* نترك مكان للشريط السفلي */
+    height: calc(100vh - 80px); /* نترك مكان للشريط السفلي */
     padding: 20px;
+    padding-bottom: 40px; /* مساحة إضافية للزرار الكبير */
     overflow-y: auto;
+    overflow-x: hidden;
 }
 
+/* تجميل شريط التمرير (Scrollbar) */
+::-webkit-scrollbar {
+    width: 6px;
+}
+::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 10px;
+}
+
+/* إخفاء وإظهار القوائم بحركة ناعمة */
 .game-view {
-    display: none; /* إخفاء كل القوائم افتراضياً */
+    display: none !important;
 }
 
 .game-view.active {
-    display: block; /* إظهار القائمة النشطة فقط */
-    animation: fadeIn 0.3s ease; /* تأثير ظهور ناعم */
+    display: block !important;
+    animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
+    from { opacity: 0; transform: translateY(15px); }
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* تصميم شريط التنقل السفلي المعدل للـ 7 قوائم */
+/* =========================================
+   تصميم شريط التنقل السفلي الاحترافي (7 قوائم)
+   ========================================= */
 .bottom-nav {
     position: fixed;
     bottom: 0;
+    left: 0;
     width: 100%;
-    height: 70px;
-    background-color: #1c1c1c;
+    height: 75px;
+    background-color: rgba(26, 26, 26, 0.98);
+    backdrop-filter: blur(15px); /* تأثير زجاجي فخم */
     display: flex;
-    justify-content: space-between; /* توزيع متساوي المساحات */
+    justify-content: space-between;
     align-items: center;
-    border-top: 1px solid #333;
-    padding: 0 5px; /* مسافة صغيرة من الأطراف */
+    border-top: 1px solid #2a2a2a;
+    padding: 0 5px;
+    z-index: 1000;
+    box-shadow: 0 -5px 20px rgba(0,0,0,0.4);
 }
 
+/* الأزرار العادية (6 أزرار) */
 .nav-item {
     background: none;
     border: none;
-    color: #888;
+    color: #777; /* لون باهت للأزرار غير النشطة */
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 3px; /* تقليل المسافة بين الأيقونة والنص */
+    gap: 5px;
     cursor: pointer;
-    font-size: 10px; /* تصغير الخط قليلاً ليناسب 7 قوائم */
-    transition: 0.3s;
-    flex: 1; /* لجعل كل زر يأخذ نفس المساحة بالضبط */
-}
-
-.nav-item.active {
-    color: #0088cc; /* لون أزرق تليجرام */
+    font-size: 0.65rem; /* خط صغير جداً عشان الشاشة تشيل الـ 7 مرتاح */
+    font-weight: bold;
+    transition: all 0.3s ease;
+    flex: 1; /* كل زرار ياخد نفس المساحة بالضبط */
+    outline: none;
 }
 
 .nav-item i {
-    font-size: 18px; /* تصغير الأيقونة درجة لعدم التداخل */
+    font-size: 1.2rem;
+    transition: all 0.3s ease;
+}
+
+/* تأثير التفعيل (Active & Hover) */
+.nav-item:hover, .nav-item.active {
+    color: #f39c12; /* اللون البرتقالي الذهبي المميز للعبتك */
+}
+
+.nav-item.active i {
+    transform: scale(1.15) translateY(-2px);
+    filter: drop-shadow(0 0 8px rgba(243, 156, 18, 0.5));
+}
+
+/* =========================================
+   زر المزرعة المركزي العائم (Floating Button)
+   ========================================= */
+.nav-center-btn {
+    position: relative;
+    top: -25px; /* رفعه لأعلى الشريط */
+    background: linear-gradient(135deg, #f39c12, #f1c40f);
+    color: #111 !important;
+    width: 65px;
+    height: 65px;
+    border-radius: 50%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 8px 20px rgba(243, 156, 18, 0.4);
+    border: 5px solid #0f0f0f; /* إطار بنفس لون خلفية التطبيق عشان يبان مقطوع من الشريط */
+    flex: none; /* مهم جداً: عشان مينضغطش مع الـ 6 أزرار التانية */
+    z-index: 1001;
+    gap: 2px;
+}
+
+.nav-center-btn i {
+    font-size: 1.6rem !important;
+    color: #111 !important;
+    filter: none !important;
+    transform: none !important;
+}
+
+.nav-center-btn span {
+    position: absolute;
+    bottom: -24px; /* النص تحت الدائرة */
+    color: #ffffff;
+    font-size: 0.75rem;
+    font-weight: bold;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+}
+
+.nav-center-btn.active {
+    box-shadow: 0 8px 25px rgba(243, 156, 18, 0.8);
+    transform: translateY(-3px); /* حركة بسيطة لفوق عند الضغط */
 }
