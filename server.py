@@ -92,6 +92,7 @@ def serve_static(filename):
 def get_user_data():
     telegram_id = request.args.get('telegramId')
     ref_id = request.args.get('ref_id')
+    user_name = request.args.get('name', 'صديق') # 🔥 سحب الاسم الحقيقي
     
     if not telegram_id or not db:
         return jsonify({'success': False, 'error': 'Missing ID'}), 400
@@ -103,7 +104,7 @@ def get_user_data():
     if not doc.exists:
         new_user = {
             "telegram_id": telegram_id,
-            "first_name": "صديق",
+            "first_name": user_name,
             "balance": 0.0,
             "ad_balance": 0.0, 
             "is_banned": False,
@@ -127,7 +128,7 @@ def get_user_data():
             if ref_doc.exists:
                 ref_user_ref.update({
                     'invited_friends_count': firestore.Increment(1),
-                    f'referral_details.{telegram_id}': {'name': 'صديق', 'earned': 0.0}
+                    f'referral_details.{telegram_id}': {'name': user_name, 'earned': 0.0}
                 })
     else:
         user_data = doc.to_dict()
@@ -156,7 +157,6 @@ def get_user_data():
     
     return jsonify({'success': True, 'data': response_data}), 200
 
-# 🔥 واجهة جديدة لجلب قائمة الأصدقاء وأرباحهم الفردية 🔥
 @app.route('/api/get_friends_list', methods=['GET'])
 def get_friends_list():
     telegram_id = request.args.get('telegramId')
@@ -177,7 +177,6 @@ def get_friends_list():
                 'earned': safe_float(details.get('earned', 0))
             })
             
-        # ترتيب الأصدقاء حسب الأكثر ربحاً
         friends_list.sort(key=lambda x: x['earned'], reverse=True)
         return jsonify({'success': True, 'friends': friends_list}), 200
     except Exception as e:
@@ -207,14 +206,12 @@ def claim():
             'last_claim_time': now_iso
         })
         
-        # 🔥 نظام مكافأة الأصدقاء وتحديث أرباح كل شخص بشكل منفصل 🔥
         referred_by = user_data.get('referred_by')
         if referred_by:
             referrer_ref = get_user_ref(referred_by)
             referrer_doc = referrer_ref.get()
             if referrer_doc.exists:
                 bonus = unclaimed * 0.10
-                # التحديث في رصيد الإحالة العام وفي ملف الصديق الفردي
                 referrer_ref.update({
                     'pending_ref_earnings': firestore.Increment(bonus),
                     f'referral_details.{telegram_id}.earned': firestore.Increment(bonus)
