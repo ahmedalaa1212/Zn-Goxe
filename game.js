@@ -1,5 +1,5 @@
 // ==========================================
-// الكائن العالمي الموحد لإدارة بيانات اللاعب (مصدر الحقيقة الوحيد)
+// الكائن العالمي الموحد لإدارة بيانات اللاعب
 // ==========================================
 window.PlayerData = {
     tg_id: null,
@@ -15,26 +15,19 @@ window.PlayerData = {
     last_claim_time: "2000-01-01T00:00:00+00:00",
     server_time: null,
     timeOffset: 0,
-    // حقول الأصدقاء
     pending_ref_earnings: 0,
     invited_friends_count: 0,
-    claimed_ref_tasks: [],
-    referred_users_list: [] // القائمة اللي هتعرض أسامي الصحاب
+    claimed_ref_tasks: []
 };
 
-// دالة جلب البيانات المركزية من السيرفر (تخدم كل الشاشات)
 window.fetchPlayerDataFromServer = async function() {
     if (!window.PlayerData.tg_id) return;
     try {
         const tele = window.Telegram?.WebApp;
         let startParam = tele?.initDataUnsafe?.start_param || "";
         let ref_id = startParam.replace('ref_', '');
-        
-        // استخراج اسم المستخدم لإرساله للسيرفر
-        let teleUser = tele?.initDataUnsafe?.user;
-        let userName = teleUser ? (teleUser.first_name + (teleUser.last_name ? " " + teleUser.last_name : "")) : "مستخدم";
 
-        let url = `/api/user_data?telegramId=${window.PlayerData.tg_id}&tg_id=${window.PlayerData.tg_id}&user_name=${encodeURIComponent(userName)}`;
+        let url = `/api/user_data?telegramId=${window.PlayerData.tg_id}&tg_id=${window.PlayerData.tg_id}`;
         if(ref_id) url += `&ref_id=${ref_id}`;
 
         let response = await fetch(url);
@@ -60,11 +53,9 @@ window.fetchPlayerDataFromServer = async function() {
                 window.PlayerData.last_daily_claim_time = dbData.last_daily_claim_time || "2000-01-01T00:00:00+00:00";
                 window.PlayerData.last_claim_time = dbData.last_claim_time || new Date().toISOString();
 
-                // حقول الأصدقاء
                 window.PlayerData.pending_ref_earnings = parseFloat(dbData.pending_ref_earnings || 0);
                 window.PlayerData.invited_friends_count = parseInt(dbData.invited_friends_count || 0);
                 window.PlayerData.claimed_ref_tasks = dbData.claimed_ref_tasks || [];
-                window.PlayerData.referred_users_list = dbData.referred_users_list || [];
 
                 let upgs = {};
                 for (let i = 1; i <= 9; i++) {
@@ -72,7 +63,6 @@ window.fetchPlayerDataFromServer = async function() {
                 }
                 window.PlayerData.upgrades = upgs;
 
-                // تحديث الواجهات فوراً في كل الشاشات
                 window.triggerAllUIUpdates();
             }
         }
@@ -81,7 +71,53 @@ window.fetchPlayerDataFromServer = async function() {
     }
 };
 
-// دالة تحديث شاشات العرض كلها
+// 🔥 دالة جديدة لجلب وعرض قائمة الأصدقاء وأرباح كل واحد 🔥
+window.fetchAndRenderFriendsList = async function() {
+    if (!window.PlayerData.tg_id) return;
+    try {
+        let response = await fetch(`/api/get_friends_list?telegramId=${window.PlayerData.tg_id}`);
+        if (response.ok) {
+            let result = await response.json();
+            if (result.success && result.friends) {
+                // افترضت إن عندك ديف في صفحة الأصدقاء واخد الـ ID ده
+                let container = document.getElementById('friends-list-container');
+                if (!container) return; 
+                
+                container.innerHTML = ''; // تفريغ القائمة القديمة
+                if (result.friends.length === 0) {
+                    container.innerHTML = '<p style="text-align:center; color:#888; padding: 10px;">لم تقم بدعوة أحد بعد</p>';
+                    return;
+                }
+
+                result.friends.forEach(friend => {
+                    let friendDiv = document.createElement('div');
+                    friendDiv.style.cssText = "display: flex; justify-content: space-between; align-items: center; background: #2c2c2e; padding: 10px; border-radius: 8px; margin-bottom: 8px; color: white;";
+                    
+                    friendDiv.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="background: #ffa500; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: black;">
+                                ${friend.name.charAt(0)}
+                            </div>
+                            <div>
+                                <h4 style="margin: 0; font-size: 16px;">${friend.name}</h4>
+                                <small style="color: #aaa;">ID: ${friend.id}</small>
+                            </div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="color: #ffa500; font-weight: bold;">+${Math.floor(friend.earned).toLocaleString()} ZN</div>
+                            <small style="color: #888;">أرباحك منه</small>
+                        </div>
+                    `;
+                    container.appendChild(friendDiv);
+                });
+            }
+        }
+    } catch (e) {
+        console.error("خطأ في جلب قائمة الأصدقاء:", e);
+    }
+};
+
+
 window.triggerAllUIUpdates = function() {
     const pData = window.PlayerData;
     if (!pData) return;
@@ -90,7 +126,15 @@ window.triggerAllUIUpdates = function() {
     if (typeof window.updateShopUI === 'function') window.updateShopUI();
     if (typeof window.updateGamesUI === 'function') window.updateGamesUI();
     if (typeof window.updateTasksUI === 'function') window.updateTasksUI(); 
+    
+    // تحديث الإحصائيات في صفحة الأصدقاء
     if (typeof window.updateFriendsUI === 'function') window.updateFriendsUI();
+    
+    let pendingEarnEl = document.getElementById('pending-ref-earnings');
+    if(pendingEarnEl) pendingEarnEl.innerText = `ZN ${Math.floor(pData.pending_ref_earnings).toLocaleString()}`;
+    
+    let friendsCountEl = document.getElementById('invited-friends-count');
+    if(friendsCountEl) friendsCountEl.innerText = `${pData.invited_friends_count} صديق`;
 
     const formattedBalance = Math.floor(pData.balance).toLocaleString();
     
@@ -129,7 +173,6 @@ window.triggerAllUIUpdates = function() {
     }
 };
 
-// دالة التهيئة والتشغيل الفوري
 window.initCentralSystem = function() {
     function assignIdAndFetch() {
         const tele = window.Telegram?.WebApp;
@@ -145,6 +188,8 @@ window.initCentralSystem = function() {
         }
 
         window.fetchPlayerDataFromServer();
+        // جلب قائمة الأصدقاء مرة واحدة في البداية
+        window.fetchAndRenderFriendsList(); 
     }
 
     assignIdAndFetch();
