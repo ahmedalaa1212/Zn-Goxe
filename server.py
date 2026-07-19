@@ -29,14 +29,8 @@ GAME_CONFIG = {
 }
 
 SHOP_CONFIG = {
-    'mining': {
-        1: 1000, 2: 5000, 3: 15000, 4: 40000, 5: 100000,
-        6: 250000, 7: 600000, 8: 1500000, 9: 5000000
-    },
-    'storage': {
-        1: 500, 2: 2500, 3: 8000, 4: 20000, 5: 50000,
-        6: 120000, 7: 300000, 8: 750000, 9: 2000000, 10: 5000000
-    }
+    'mining': {1: 1000, 2: 5000, 3: 15000, 4: 40000, 5: 100000, 6: 250000, 7: 600000, 8: 1500000, 9: 5000000},
+    'storage': {1: 500, 2: 2500, 3: 8000, 4: 20000, 5: 50000, 6: 120000, 7: 300000, 8: 750000, 9: 2000000, 10: 5000000}
 }
 
 def safe_float(val):
@@ -92,7 +86,7 @@ def serve_static(filename):
 def get_user_data():
     telegram_id = request.args.get('telegramId')
     ref_id = request.args.get('ref_id')
-    user_name = request.args.get('name', 'صديق') # 🔥 سحب الاسم الحقيقي
+    user_name = request.args.get('name', 'صديق')
     
     if not telegram_id or not db:
         return jsonify({'success': False, 'error': 'Missing ID'}), 400
@@ -100,6 +94,11 @@ def get_user_data():
     telegram_id = str(telegram_id).strip()
     doc = get_user_ref(telegram_id).get()
     now_iso = datetime.now(timezone.utc).isoformat()
+    
+    # تنظيف كود الإحالة
+    clean_ref_id = str(ref_id).replace('ref_', '').strip() if ref_id else None
+    if clean_ref_id == telegram_id:
+        clean_ref_id = None
     
     if not doc.exists:
         new_user = {
@@ -112,7 +111,7 @@ def get_user_data():
             "storage_level": 0,
             "daily_day": 1,
             "last_daily_claim_time": "2000-01-01T00:00:00+00:00",
-            "referred_by": ref_id if (ref_id and ref_id != telegram_id) else None,
+            "referred_by": clean_ref_id,
             "pending_ref_earnings": 0.0,
             "invited_friends_count": 0,
             "claimed_ref_tasks": [],
@@ -122,14 +121,16 @@ def get_user_data():
         get_user_ref(telegram_id).set(new_user)
         user_data = new_user
         
-        if new_user['referred_by']:
-            ref_user_ref = get_user_ref(new_user['referred_by'])
-            ref_doc = ref_user_ref.get()
-            if ref_doc.exists:
-                ref_user_ref.update({
+        # إضافة الصديق بقوة (merge=True) عشان يتجنب مشاكل الفايربيز
+        if clean_ref_id:
+            ref_user_ref = get_user_ref(clean_ref_id)
+            if ref_user_ref.get().exists:
+                ref_user_ref.set({
                     'invited_friends_count': firestore.Increment(1),
-                    f'referral_details.{telegram_id}': {'name': user_name, 'earned': 0.0}
-                })
+                    'referral_details': {
+                        telegram_id: {'name': user_name, 'earned': 0.0}
+                    }
+                }, merge=True)
     else:
         user_data = doc.to_dict()
         updates = {}
@@ -145,14 +146,10 @@ def get_user_data():
         
     response_data = user_data.copy()
     
-    calculated_rate = get_user_mining_rate(user_data)
+    response_data['calculated_hourly_rate'] = get_user_mining_rate(user_data)
     storage_lvl = safe_int(user_data.get('storage_level', 0))
-    calculated_cap = GAME_CONFIG['capacities'].get(storage_lvl, 10000)
-    calculated_uncl = calculate_user_harvest(user_data)
-    
-    response_data['calculated_hourly_rate'] = calculated_rate
-    response_data['calculated_max_cap'] = calculated_cap
-    response_data['calculated_unclaimed'] = calculated_uncl
+    response_data['calculated_max_cap'] = GAME_CONFIG['capacities'].get(storage_lvl, 10000)
+    response_data['calculated_unclaimed'] = calculate_user_harvest(user_data)
     response_data['server_time'] = now_iso
     
     return jsonify({'success': True, 'data': response_data}), 200
@@ -206,16 +203,18 @@ def claim():
             'last_claim_time': now_iso
         })
         
+        # 🔥 حل مشكلة الـ 10% جذرياً باستخدام merge=True
         referred_by = user_data.get('referred_by')
         if referred_by:
             referrer_ref = get_user_ref(referred_by)
-            referrer_doc = referrer_ref.get()
-            if referrer_doc.exists:
+            if referrer_ref.get().exists:
                 bonus = unclaimed * 0.10
-                referrer_ref.update({
+                referrer_ref.set({
                     'pending_ref_earnings': firestore.Increment(bonus),
-                    f'referral_details.{telegram_id}.earned': firestore.Increment(bonus)
-                })
+                    'referral_details': {
+                        telegram_id: {'earned': firestore.Increment(bonus)}
+                    }
+                }, merge=True)
 
         return jsonify({'success': True, 'claimed': unclaimed}), 200
     except Exception as e:
@@ -348,7 +347,7 @@ def execute_upgrade_transaction(transaction, user_ref, upg_type, level_num):
     if upg_type == 'mining':
         field_name = f'lvl{level_num}_count'
         current_count = safe_int(user_data.get(field_name, 0))
-        if current_count >= 15: return False, 'وصلت للحد الأقصى'
+        if current_count >= 20: return False, 'وصلت للحد الأقصى'
         updates[field_name] = current_count + 1
     elif upg_type == 'storage':
         if level_num <= safe_int(user_data.get('storage_level', 0)):
