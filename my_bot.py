@@ -18,8 +18,19 @@ def start_command(message):
     if len(text_parts) > 1 and text_parts[1].startswith('ref_'):
         ref_id = text_parts[1].replace('ref_', '')
         
-    # تسجيل اليوزر في قاعدة البيانات
-    database.init_user(str(tg_id), ref_id, first_name)
+    # تسجيل اليوزر في الداتا بيز ومعرفة لو هو إحالة جديدة ولا لأ
+    is_new_referral = database.init_user(str(tg_id), ref_id, first_name)
+    
+    # إرسال رسالة لصاحب الرابط لو حد جديد دخل عن طريقه
+    if is_new_referral and ref_id:
+        try:
+            bot.send_message(
+                chat_id=ref_id,
+                text=f"🎉 **خبر مفرح!**\n\nلقد انضم صديقك [{first_name}] إلى اللعبة عن طريق رابط الإحالة الخاص بك.\nستحصل الآن على 10% من أرباح تعدينه للأبد! 💸",
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            print(f"Could not send message to referrer: {e}")
     
     markup = InlineKeyboardMarkup()
     clean_web_url = WEB_URL.lower().strip()
