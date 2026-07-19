@@ -154,7 +154,6 @@ def handle_upgrade():
             return jsonify({'error': 'Not enough balance'}), 400
             
         database.update_balance(tg_id, current_balance - cost)
-        # استخدام كائن الـ db الموجود بالفعل في database.py لتجنب التعارض
         database.db.collection('users').document(tg_id).update({'storage_level': level_num})
         
     return jsonify({'success': True})
@@ -162,11 +161,21 @@ def handle_upgrade():
 @bot.message_handler(commands=['start'])
 def start_command(message):
     tg_id = message.from_user.id
+    
+    # التقاط الـ Payload لو الشخص داخل من رابط إحالة زي /start ref_12345
+    ref_payload = message.text.replace("/start", "").strip()
+    
     database.init_user(str(tg_id))
     
     markup = InlineKeyboardMarkup()
     clean_web_url = WEB_URL.lower().strip()
-    web_app_url = f"{clean_web_url}?tg_id={tg_id}"
+    
+    # تمرير الريفرال داخل الويب آب
+    if ref_payload.startswith("ref_"):
+        web_app_url = f"{clean_web_url}?startapp={ref_payload}&tg_id={tg_id}"
+    else:
+        web_app_url = f"{clean_web_url}?tg_id={tg_id}"
+        
     btn_game = InlineKeyboardButton("🎮 دخول اللعبة وابدأ التجميع الآن", web_app=WebAppInfo(url=web_app_url))
     btn_channel = InlineKeyboardButton("📢 تابع قناة اللعبة الرسمية", url="https://t.me/zngoxe")
     markup.add(btn_game)
