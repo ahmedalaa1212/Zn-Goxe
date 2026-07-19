@@ -36,7 +36,8 @@ def initialize_firebase():
     return db
 
 def create_tables():
-    pass # No SQL tables needed
+    # دالة فارغة لأن Firebase NoSQL ولا تحتاج جداول، لكنها موجودة لتجنب أي خطأ في الاستدعاء
+    pass
 
 def init_user(telegram_id, referred_by=None, first_name="صديق"):
     global db
@@ -49,7 +50,7 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
     try:
         doc = user_ref.get()
         if not doc.exists:
-            # تنظيف الـ referred_by عشان لو جي بكلمة startapp أو ref
+            # تنظيف رابط الدعوة لضمان التسجيل الصحيح
             if referred_by:
                 referred_by = str(referred_by).replace('ref_', '').strip()
                 if referred_by == telegram_id:
@@ -74,7 +75,6 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
             for i in range(1, 11):
                 user_data[f'lvl{i}_count'] = 0
                 
-            # حفظ المستخدم الجديد
             user_ref.set(user_data)
             print(f"🚀 New user created: {telegram_id} | Referred by: {referred_by}")
             
@@ -87,7 +87,7 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
                         f'referral_details.{telegram_id}': {'name': first_name, 'earned': 0.0}
                     })
         else:
-            # لو المستخدم موجود، نتأكد إن الحقول الجديدة موجودة
+            # ضمان وجود حقول الإحالة للمستخدمين القدامى
             data = doc.to_dict()
             updates = {}
             if 'pending_ref_earnings' not in data: updates['pending_ref_earnings'] = 0.0
@@ -131,7 +131,6 @@ def update_claim_time(telegram_id):
     except Exception as e:
         pass
 
-# الدالة السحرية لإضافة الـ 10%
 def add_referral_bonus(telegram_id, claimed_amount):
     global db
     if db is None: initialize_firebase()
@@ -157,3 +156,57 @@ def add_referral_bonus(telegram_id, claimed_amount):
                     print(f"💰 10% Bonus ({bonus} ZN) added to referrer {referred_by}")
     except Exception as e:
         print(f"❌ Error adding referral bonus: {e}")
+
+def get_friends_list(telegram_id):
+    global db
+    if db is None: initialize_firebase()
+    try:
+        doc = db.collection('users').document(str(telegram_id).strip()).get()
+        if doc.exists:
+            data = doc.to_dict()
+            referral_details = data.get('referral_details', {})
+            friends_list = []
+            for f_id, f_data in referral_details.items():
+                friends_list.append({
+                    'id': f_id,
+                    'name': f_data.get('name', 'صديق'),
+                    'earned': f_data.get('earned', 0.0)
+                })
+            return friends_list
+        return []
+    except Exception as e:
+        print(f"❌ Error in get_friends_list: {e}")
+        return []
+
+def claim_referral_earnings(telegram_id):
+    global db
+    if db is None: initialize_firebase()
+    try:
+        user_ref = db.collection('users').document(str(telegram_id).strip())
+        doc = user_ref.get()
+        if doc.exists:
+            data = doc.to_dict()
+            pending = data.get('pending_ref_earnings', 0.0)
+            if pending > 0:
+                fee = pending * 0.03
+                net_amount = pending - fee
+                new_balance = data.get('balance', 0.0) + net_amount
+                user_ref.update({
+                    'balance': new_balance,
+                    'pending_ref_earnings': 0.0
+                })
+                return True, net_amount
+        return False, 0.0
+    except Exception as e:
+        print(f"❌ Error in claim_referral_earnings: {e}")
+        return False, 0.0
+
+def update_user_fields(telegram_id, fields_dict):
+    global db
+    if db is None: initialize_firebase()
+    try:
+        db.collection('users').document(str(telegram_id).strip()).update(fields_dict)
+        return True
+    except Exception as e:
+        print(f"❌ Error updating fields: {e}")
+        return False
