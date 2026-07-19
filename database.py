@@ -62,19 +62,18 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
                 'pending_ref_earnings': 0.0,
                 'invited_friends_count': 0,
                 'claimed_ref_tasks': [],
-                'referral_details': {} # 🔥 خريطة لتسجيل أرباح كل صديق بالـ ID
+                'referral_details': {} 
             }
             for i in range(1, 11):
                 user_data[f'lvl{i}_count'] = 0
             user_ref.set(user_data)
             print(f"🚀 New user created in Firebase: {telegram_id}")
             
-            # 🔥 لو فيه شخص دعاه، نزود عدد أصدقاء الشخص ده ونسجل بياناته
+            # تحديث الداعي
             if user_data['referred_by']:
                 ref_user_ref = db.collection('users').document(user_data['referred_by'])
                 ref_doc = ref_user_ref.get()
                 if ref_doc.exists:
-                    # إضافة الصديق الجديد بصفر أرباح كبداية عشان يظهر في القائمة
                     ref_user_ref.update({
                         'invited_friends_count': firestore.Increment(1),
                         f'referral_details.{telegram_id}': {'name': first_name, 'earned': 0.0}
@@ -87,7 +86,6 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
             if 'invited_friends_count' not in data: updates['invited_friends_count'] = 0
             if 'claimed_ref_tasks' not in data: updates['claimed_ref_tasks'] = []
             if 'referral_details' not in data: updates['referral_details'] = {}
-            if 'first_name' not in data: updates['first_name'] = first_name
             
             if updates:
                 user_ref.update(updates)
@@ -137,3 +135,27 @@ def update_claim_time(telegram_id):
         db.collection('users').document(telegram_id).update({'last_claim_time': datetime.utcnow().isoformat()})
     except Exception as e:
         print(f"❌ Error in update_claim_time: {e}")
+
+# 🔥 إضافة دالة مسؤولة عن توزيع أرباح الأصدقاء (10%)
+def add_referral_bonus(telegram_id, claimed_amount):
+    global db
+    if db is None: initialize_firebase()
+    if db is None or claimed_amount <= 0: return
+    
+    try:
+        telegram_id = str(telegram_id).strip()
+        user_ref = db.collection('users').document(telegram_id)
+        doc = user_ref.get()
+        if doc.exists:
+            user_data = doc.to_dict()
+            referred_by = user_data.get('referred_by')
+            if referred_by:
+                bonus = claimed_amount * 0.10
+                referrer_ref = db.collection('users').document(referred_by)
+                if referrer_ref.get().exists:
+                    referrer_ref.update({
+                        'pending_ref_earnings': firestore.Increment(bonus),
+                        f'referral_details.{telegram_id}.earned': firestore.Increment(bonus)
+                    })
+    except Exception as e:
+        print(f"❌ Error adding referral bonus: {e}")
