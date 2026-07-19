@@ -92,6 +92,7 @@ def serve_static(filename):
 def get_user_data():
     telegram_id = request.args.get('telegramId')
     ref_id = request.args.get('ref_id')
+    user_name = request.args.get('user_name', 'مستخدم')
     
     if not telegram_id or not db:
         return jsonify({'success': False, 'error': 'Missing ID'}), 400
@@ -103,6 +104,7 @@ def get_user_data():
     if not doc.exists:
         new_user = {
             "telegram_id": telegram_id,
+            "user_name": user_name,
             "balance": 0.0,
             "ad_balance": 0.0, 
             "is_banned": False,
@@ -113,7 +115,8 @@ def get_user_data():
             "referred_by": ref_id if (ref_id and ref_id != telegram_id) else None,
             "pending_ref_earnings": 0.0,
             "invited_friends_count": 0,
-            "claimed_ref_tasks": []
+            "claimed_ref_tasks": [],
+            "contributed_to_referrer": 0.0
         }
         for i in range(1, 11): new_user[f"lvl{i}_count"] = 0
         get_user_ref(telegram_id).set(new_user)
@@ -132,12 +135,29 @@ def get_user_data():
         if 'pending_ref_earnings' not in user_data: updates['pending_ref_earnings'] = 0.0
         if 'invited_friends_count' not in user_data: updates['invited_friends_count'] = 0
         if 'claimed_ref_tasks' not in user_data: updates['claimed_ref_tasks'] = []
+        if 'contributed_to_referrer' not in user_data: updates['contributed_to_referrer'] = 0.0
         
+        # تحديث الاسم دائمًا للحصول على أحدث اسم
+        if user_data.get('user_name') != user_name:
+            updates['user_name'] = user_name
+            
         if updates:
             get_user_ref(telegram_id).update(updates)
             user_data.update(updates)
         
     response_data = user_data.copy()
+    
+    # 🔴 جلب قائمة الأصدقاء الذين دعاهم هذا الشخص
+    friends_query = db.collection('users').where('referred_by', '==', telegram_id).get()
+    referred_users_list = []
+    for f in friends_query:
+        f_dict = f.to_dict()
+        referred_users_list.append({
+            'id': f_dict.get('telegram_id', '000'),
+            'name': f_dict.get('user_name', 'مستخدم'),
+            'earned': f_dict.get('contributed_to_referrer', 0.0)
+        })
+    response_data['referred_users_list'] = referred_users_list
     
     calculated_rate = get_user_mining_rate(user_data)
     storage_lvl = safe_int(user_data.get('storage_level', 0))
@@ -175,7 +195,7 @@ def claim():
             'last_claim_time': now_iso
         })
         
-        # نظام مكافأة الأصدقاء من التعدين (10%)
+        # 🔴 نظام مكافأة الأصدقاء من التعدين (10%) وحفظ مساهمة الشخص
         referred_by = user_data.get('referred_by')
         if referred_by:
             referrer_ref = get_user_ref(referred_by)
@@ -184,7 +204,13 @@ def claim():
                 ref_data = referrer_doc.to_dict()
                 current_pending = safe_float(ref_data.get('pending_ref_earnings', 0))
                 bonus = unclaimed * 0.10
+                
+                # إضافة المكافأة للي جاب الإحالة
                 referrer_ref.update({'pending_ref_earnings': current_pending + bonus})
+                
+                # تحديث عداد مساهمة هذا الشخص تحديداً ليظهر في قائمة الأصدقاء
+                curr_contrib = safe_float(user_data.get('contributed_to_referrer', 0))
+                user_ref.update({'contributed_to_referrer': curr_contrib + bonus})
 
         return jsonify({'success': True, 'claimed': unclaimed}), 200
     except Exception as e:
