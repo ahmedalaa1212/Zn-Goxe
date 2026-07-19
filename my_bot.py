@@ -16,17 +16,17 @@ def start_command(message):
     text_parts = message.text.split()
     ref_id = None
     if len(text_parts) > 1 and text_parts[1].startswith('ref_'):
-        ref_id = text_parts[1].replace('ref_', '')
+        ref_id = text_parts[1].replace('ref_', '').strip()
         
-    # تسجيل اليوزر في الداتا بيز ومعرفة لو هو إحالة جديدة ولا لأ
+    # تسجيل اليوزر في الداتا بيز ومعرفة لو هو إحالة صالحة وجديدة فعلياً
     is_new_referral = database.init_user(str(tg_id), ref_id, first_name)
     
-    # إرسال رسالة لصاحب الرابط لو حد جديد دخل عن طريقه
+    # إرسال رسالة فورية ومباشرة لصاحب الرابط عند دخول الشخص بنجاح
     if is_new_referral and ref_id:
         try:
             bot.send_message(
                 chat_id=ref_id,
-                text=f"🎉 **خبر مفرح!**\n\nلقد انضم صديقك [{first_name}] إلى اللعبة عن طريق رابط الإحالة الخاص بك.\nستحصل الآن على 10% من أرباح تعدينه للأبد! 💸",
+                text=f"🎉 **خبر مفرح جداً!**\n\nلقد انضم صديقك [{first_name}] إلى اللعبة عن طريق رابط الإحالة الخاص بك.\nستحصل الآن على 10% من أرباح تعدينه مدى الحياة! 💸🚀",
                 parse_mode='Markdown'
             )
         except Exception as e:
