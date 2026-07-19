@@ -4,141 +4,120 @@
     padding: 0;
     box-sizing: border-box;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    -webkit-tap-highlight-color: transparent; /* منع ظهور مربع أزرق عند الضغط في الموبايل */
+    -webkit-tap-highlight-color: transparent;
 }
 
 body {
-    background-color: #0f0f0f; /* لون خلفية مظلم وفخم */
+    background-color: #121212; /* لون خلفية هادي */
     color: #ffffff;
     height: 100vh;
     overflow: hidden;
 }
 
-/* تخصيص مساحة المحتوى لتناسب القائمة الجديدة */
 #app {
-    height: calc(100vh - 80px); /* نترك مكان للشريط السفلي */
-    padding: 20px;
-    padding-bottom: 40px; /* مساحة إضافية للزرار الكبير */
+    height: calc(100vh - 75px);
+    padding: 15px;
+    padding-bottom: 25px; 
     overflow-y: auto;
     overflow-x: hidden;
 }
 
-/* تجميل شريط التمرير (Scrollbar) */
 ::-webkit-scrollbar {
-    width: 6px;
+    width: 4px;
 }
 ::-webkit-scrollbar-thumb {
     background: #333;
     border-radius: 10px;
 }
 
-/* إخفاء وإظهار القوائم بحركة ناعمة */
 .game-view {
     display: none !important;
 }
 
 .game-view.active {
     display: block !important;
-    animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: fadeIn 0.3s ease;
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(15px); }
+    from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
 }
 
 /* =========================================
-   تصميم شريط التنقل السفلي الاحترافي (7 قوائم)
+   شريط التنقل السفلي البسيط والعملي
    ========================================= */
 .bottom-nav {
     position: fixed;
     bottom: 0;
     left: 0;
     width: 100%;
-    height: 75px;
-    background-color: rgba(26, 26, 26, 0.98);
-    backdrop-filter: blur(15px); /* تأثير زجاجي فخم */
+    height: 65px; /* ارتفاع مناسب مش كبير أوي */
+    background-color: #1a1a1a;
     display: flex;
     justify-content: space-between;
     align-items: center;
     border-top: 1px solid #2a2a2a;
-    padding: 0 5px;
+    padding: 0 2px; /* مسافة بسيطة جداً عشان الزحمة */
     z-index: 1000;
-    box-shadow: 0 -5px 20px rgba(0,0,0,0.4);
 }
 
-/* الأزرار العادية (6 أزرار) */
 .nav-item {
     background: none;
     border: none;
-    color: #777; /* لون باهت للأزرار غير النشطة */
+    color: #888888;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 5px;
     cursor: pointer;
-    font-size: 0.65rem; /* خط صغير جداً عشان الشاشة تشيل الـ 7 مرتاح */
-    font-weight: bold;
-    transition: all 0.3s ease;
-    flex: 1; /* كل زرار ياخد نفس المساحة بالضبط */
-    outline: none;
+    flex: 1; /* التوزيع بالتساوي على الـ 7 أزرار */
+    min-width: 0; /* منع خروج العناصر بره الشاشة */
 }
 
 .nav-item i {
-    font-size: 1.2rem;
-    transition: all 0.3s ease;
+    font-size: 18px;
+    margin-bottom: 4px;
+    transition: color 0.2s;
 }
 
-/* تأثير التفعيل (Active & Hover) */
-.nav-item:hover, .nav-item.active {
-    color: #f39c12; /* اللون البرتقالي الذهبي المميز للعبتك */
+.nav-item span {
+    font-size: 9px; /* مقاس خط مثالي لـ 7 كلمات */
+    white-space: nowrap; /* يمنع الكلمة تنزل سطرين */
 }
 
-.nav-item.active i {
-    transform: scale(1.15) translateY(-2px);
-    filter: drop-shadow(0 0 8px rgba(243, 156, 18, 0.5));
+/* اللون عند التفعيل (لون هادي وبسيط) */
+.nav-item.active, .nav-item.active i {
+    color: #f39c12; /* برتقالي/ذهبي مطفي شيك */
 }
 
 /* =========================================
-   زر المزرعة المركزي العائم (Floating Button)
+   زر المزرعة المركزي (حجم معقول ومضبوط)
    ========================================= */
 .nav-center-btn {
     position: relative;
-    top: -25px; /* رفعه لأعلى الشريط */
-    background: linear-gradient(135deg, #f39c12, #f1c40f);
-    color: #111 !important;
-    width: 65px;
-    height: 65px;
+    top: -12px; /* ارتفاع بسيط عن باقي الأزرار */
+    background-color: #f39c12; /* خلفية صلبة بدون تدريج ألوان */
+    color: #121212 !important;
+    width: 52px; /* عرض مناسب ميضغطش باقي القوائم */
+    height: 52px;
     border-radius: 50%;
+    border: 4px solid #121212; /* عشان يعمل شكل الفراغ حواليه */
+    flex: none; /* عشان ميصغرش أو يكبر مع باقي القوائم */
     display: flex;
-    flex-direction: column;
     justify-content: center;
     align-items: center;
-    box-shadow: 0 8px 20px rgba(243, 156, 18, 0.4);
-    border: 5px solid #0f0f0f; /* إطار بنفس لون خلفية التطبيق عشان يبان مقطوع من الشريط */
-    flex: none; /* مهم جداً: عشان مينضغطش مع الـ 6 أزرار التانية */
-    z-index: 1001;
-    gap: 2px;
 }
 
 .nav-center-btn i {
-    font-size: 1.6rem !important;
-    color: #111 !important;
-    filter: none !important;
-    transform: none !important;
+    font-size: 20px !important;
+    color: #121212 !important;
+    margin-bottom: 0;
 }
 
-.nav-center-btn span {
+.nav-center-text {
     position: absolute;
-    bottom: -24px; /* النص تحت الدائرة */
-    color: #ffffff;
-    font-size: 0.75rem;
-    font-weight: bold;
-    text-shadow: 0 2px 4px rgba(0,0,0,0.8);
-}
-
-.nav-center-btn.active {
-    box-shadow: 0 8px 25px rgba(243, 156, 18, 0.8);
-    transform: translateY(-3px); /* حركة بسيطة لفوق عند الضغط */
+    bottom: -18px;
+    color: #ffffff !important;
+    font-size: 9px;
 }
