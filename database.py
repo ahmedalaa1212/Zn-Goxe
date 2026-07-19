@@ -36,7 +36,6 @@ def initialize_firebase():
     return db
 
 def create_tables():
-    # دالة فارغة لأن Firebase NoSQL ولا تحتاج جداول، لكنها موجودة لتجنب أي خطأ في الاستدعاء
     pass
 
 def init_user(telegram_id, referred_by=None, first_name="صديق"):
@@ -50,7 +49,6 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
     try:
         doc = user_ref.get()
         if not doc.exists:
-            # تنظيف رابط الدعوة لضمان التسجيل الصحيح
             if referred_by:
                 referred_by = str(referred_by).replace('ref_', '').strip()
                 if referred_by == telegram_id:
@@ -76,9 +74,7 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
                 user_data[f'lvl{i}_count'] = 0
                 
             user_ref.set(user_data)
-            print(f"🚀 New user created: {telegram_id} | Referred by: {referred_by}")
             
-            # تحديث بيانات الداعي فوراً
             if referred_by:
                 ref_user_ref = db.collection('users').document(referred_by)
                 if ref_user_ref.get().exists:
@@ -87,11 +83,11 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
                         f'referral_details.{telegram_id}': {'name': first_name, 'earned': 0.0}
                     })
         else:
-            # ضمان وجود حقول الإحالة للمستخدمين القدامى
             data = doc.to_dict()
             updates = {}
             if 'pending_ref_earnings' not in data: updates['pending_ref_earnings'] = 0.0
             if 'invited_friends_count' not in data: updates['invited_friends_count'] = 0
+            if 'claimed_ref_tasks' not in data: updates['claimed_ref_tasks'] = []
             if 'referral_details' not in data: updates['referral_details'] = {}
             if updates:
                 user_ref.update(updates)
@@ -103,16 +99,10 @@ def get_user_data(telegram_id):
     global db
     if db is None: initialize_firebase()
     if db is None: return None
-    
-    telegram_id = str(telegram_id).strip()
     try:
-        user_ref = db.collection('users').document(telegram_id)
-        doc = user_ref.get()
-        if doc.exists:
-            return doc.to_dict()
-        return None
+        doc = db.collection('users').document(str(telegram_id).strip()).get()
+        return doc.to_dict() if doc.exists else None
     except Exception as e:
-        print(f"❌ Error in get_user_data: {e}")
         return None
 
 def update_balance(telegram_id, new_balance):
@@ -131,11 +121,18 @@ def update_claim_time(telegram_id):
     except Exception as e:
         pass
 
+def update_upgrade_level(telegram_id, lvl_column, count):
+    global db
+    if db is None: initialize_firebase()
+    try:
+        db.collection('users').document(str(telegram_id).strip()).update({lvl_column: int(count)})
+    except Exception as e:
+        pass
+
 def add_referral_bonus(telegram_id, claimed_amount):
     global db
     if db is None: initialize_firebase()
     if db is None or claimed_amount <= 0: return
-    
     try:
         telegram_id = str(telegram_id).strip()
         user_ref = db.collection('users').document(telegram_id)
@@ -143,19 +140,16 @@ def add_referral_bonus(telegram_id, claimed_amount):
         if doc.exists:
             user_data = doc.to_dict()
             referred_by = user_data.get('referred_by')
-            
             if referred_by:
                 bonus = float(claimed_amount) * 0.10
                 referrer_ref = db.collection('users').document(str(referred_by))
-                
                 if referrer_ref.get().exists:
                     referrer_ref.update({
                         'pending_ref_earnings': firestore.Increment(bonus),
                         f'referral_details.{telegram_id}.earned': firestore.Increment(bonus)
                     })
-                    print(f"💰 10% Bonus ({bonus} ZN) added to referrer {referred_by}")
     except Exception as e:
-        print(f"❌ Error adding referral bonus: {e}")
+        pass
 
 def get_friends_list(telegram_id):
     global db
@@ -165,17 +159,10 @@ def get_friends_list(telegram_id):
         if doc.exists:
             data = doc.to_dict()
             referral_details = data.get('referral_details', {})
-            friends_list = []
-            for f_id, f_data in referral_details.items():
-                friends_list.append({
-                    'id': f_id,
-                    'name': f_data.get('name', 'صديق'),
-                    'earned': f_data.get('earned', 0.0)
-                })
+            friends_list = [{'id': f_id, 'name': f_data.get('name', 'صديق'), 'earned': f_data.get('earned', 0.0)} for f_id, f_data in referral_details.items()]
             return friends_list
         return []
     except Exception as e:
-        print(f"❌ Error in get_friends_list: {e}")
         return []
 
 def claim_referral_earnings(telegram_id):
@@ -191,22 +178,28 @@ def claim_referral_earnings(telegram_id):
                 fee = pending * 0.03
                 net_amount = pending - fee
                 new_balance = data.get('balance', 0.0) + net_amount
-                user_ref.update({
-                    'balance': new_balance,
-                    'pending_ref_earnings': 0.0
-                })
+                user_ref.update({'balance': new_balance, 'pending_ref_earnings': 0.0})
                 return True, net_amount
         return False, 0.0
     except Exception as e:
-        print(f"❌ Error in claim_referral_earnings: {e}")
         return False, 0.0
 
-def update_user_fields(telegram_id, fields_dict):
+def claim_referral_task(telegram_id, task_id, reward, req_friends):
     global db
     if db is None: initialize_firebase()
     try:
-        db.collection('users').document(str(telegram_id).strip()).update(fields_dict)
-        return True
+        user_ref = db.collection('users').document(str(telegram_id).strip())
+        doc = user_ref.get()
+        if doc.exists:
+            data = doc.to_dict()
+            friends_count = data.get('invited_friends_count', 0)
+            claimed_tasks = data.get('claimed_ref_tasks', [])
+            
+            if friends_count >= req_friends and task_id not in claimed_tasks:
+                claimed_tasks.append(task_id)
+                new_balance = data.get('balance', 0.0) + reward
+                user_ref.update({'balance': new_balance, 'claimed_ref_tasks': claimed_tasks})
+                return True, new_balance
+        return False, 0.0
     except Exception as e:
-        print(f"❌ Error updating fields: {e}")
-        return False
+        return False, 0.0
