@@ -1,13 +1,12 @@
 import os
 import threading
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 import database
-import requests
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app')
@@ -16,7 +15,8 @@ bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
-BASE_MINING_RATE = 20  
+# القوانين والثوابت الخاصة بباقات التعدين وسعة التخزين
+BASE_MINING_RATE = 20  # عملة في الساعة مجاناً كبداية
 BASE_STORAGE_CAP = 10000
 
 MINING_PACKAGES = {
@@ -35,25 +35,31 @@ STORAGE_PACKAGES = {
 }
 
 def calculate_unclaimed(user):
+    """حساب الأرباح التي تم تعدينها بأمان في السيرفر بناءً على الوقت المنقضي"""
     try:
+        # استخدام الوقت الحالي كقيمة افتراضية إذا لم يوجد وقت سابق
         last_claim_str = user.get('last_claim_time', datetime.utcnow().isoformat())
         last_claim = datetime.fromisoformat(last_claim_str)
-        if last_claim.tzinfo is None:
-            last_claim = last_claim.replace(tzinfo=timezone.utc)
-            
-        seconds_passed = (datetime.now(timezone.utc) - last_claim).total_seconds()
-        if seconds_passed < 0: seconds_passed = 0
+        seconds_passed = (datetime.utcnow() - last_claim).total_seconds()
+        if seconds_passed < 0:
+            seconds_passed = 0
 
+        # حساب سرعة التعدين في الساعة
         hourly_rate = BASE_MINING_RATE
         for i in range(1, 11):
             count = user.get(f'lvl{i}_count', 0)
-            hourly_rate += count * MINING_PACKAGES.get(i, {}).get("boost", 0)
+            hourly_rate += count * MINING_PACKAGES[i]["boost"]
 
+        # حساب السعة القصوى للتخزين
         storage_lvl = user.get('storage_level', 0)
         max_cap = STORAGE_PACKAGES.get(storage_lvl, {}).get("cap", BASE_STORAGE_CAP)
 
+        # الأرباح المستحقة = الوقت بالثواني * الأرباح في الثانية
         unclaimed = seconds_passed * (hourly_rate / 3600.0)
-        if unclaimed > max_cap: unclaimed = max_cap
+        
+        # حجز الأرباح بحيث لا تتخطى سعة المخزن
+        if unclaimed > max_cap:
+            unclaimed = max_cap
             
         return int(unclaimed), hourly_rate, max_cap
     except Exception as e:
@@ -64,78 +70,119 @@ def calculate_unclaimed(user):
 def serve_index():
     return send_from_directory('.', 'index.html')
 
-# (لقد تم حذف الـ Routes المكررة من هنا لأنه يجب أن يعمل server.py كخادم API)
-# لو كنت تستخدم my_bot.py كخادم أساسي، يمكنك تركها كما هي. هنا نركز على البوت نفسه:
+@app.route('/api/user_data', methods=['GET'])
+def get_user_data():
+    tg_id = request.args.get('tg_id')
+    if not tg_id:
+        return jsonify({'error': 'Missing telegram ID'}), 400
+    
+    user = database.get_user_data(str(tg_id))
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+        
+    unclaimed, hourly_rate, max_cap = calculate_unclaimed(user)
+    
+    return jsonify({
+        'telegram_id': user.get('telegram_id'),
+        'balance': user.get('balance', 0),
+        'storage_level': user.get('storage_level', 0),
+        'hourly_rate': hourly_rate,
+        'max_cap': max_cap,
+        'unclaimed': unclaimed,
+        'upgrades': {f'lvl{i}': user.get(f'lvl{i}_count', 0) for i in range(1, 11)}
+    })
+
+@app.route('/api/claim', methods=['POST'])
+def handle_claim():
+    data = request.json or {}
+    tg_id = data.get('tg_id')
+    if not tg_id:
+        return jsonify({'error': 'Missing telegram ID'}), 400
+        
+    user = database.get_user_data(str(tg_id))
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+        
+    unclaimed, _, _ = calculate_unclaimed(user)
+    if unclaimed <= 0:
+        return jsonify({'success': False, 'error': 'No rewards to claim yet'}), 400
+        
+    new_balance = user.get('balance', 0) + unclaimed
+    database.update_balance(str(tg_id), new_balance)
+    database.update_claim_time(str(tg_id))
+    
+    return jsonify({'success': True, 'new_balance': new_balance, 'unclaimed': 0})
+
+@app.route('/api/upgrade', methods=['POST'])
+def handle_upgrade():
+    data = request.json or {}
+    tg_id = str(data.get('tg_id'))
+    upgrade_type = data.get('type')  # 'mining' أو 'storage'
+    level_num = int(data.get('level_num', 0))
+    
+    if not tg_id or not upgrade_type or not level_num:
+        return jsonify({'error': 'Missing data'}), 400
+        
+    user = database.get_user_data(tg_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    current_balance = user.get('balance', 0)
+    
+    if upgrade_type == 'mining':
+        lvl_column = f"lvl{level_num}_count"
+        current_count = user.get(lvl_column, 0)
+        if current_count >= 20:
+            return jsonify({'error': 'Max level reached'}), 400
+            
+        cost = MINING_PACKAGES[level_num]["price"]
+        if current_balance < cost:
+            return jsonify({'error': 'Not enough balance'}), 400
+            
+        database.update_balance(tg_id, current_balance - cost)
+        database.update_upgrade_level(tg_id, lvl_column, current_count + 1)
+        
+    elif upgrade_type == 'storage':
+        current_storage_lvl = user.get('storage_level', 0)
+        if level_num != current_storage_lvl + 1:
+            return jsonify({'error': 'Must upgrade sequentially'}), 400
+        if level_num not in STORAGE_PACKAGES:
+            return jsonify({'error': 'Max storage level reached'}), 400
+            
+        cost = STORAGE_PACKAGES[level_num]["price"]
+        if current_balance < cost:
+            return jsonify({'error': 'Not enough balance'}), 400
+            
+        database.update_balance(tg_id, current_balance - cost)
+        database.db.collection('users').document(tg_id).update({'storage_level': level_num})
+        
+    return jsonify({'success': True})
 
 @bot.message_handler(commands=['start'])
 def start_command(message):
-    tg_id = str(message.from_user.id).strip()
-    user_name = message.from_user.first_name
+    tg_id = message.from_user.id
     
-    # 1. استخراج كود الإحالة لو دخل من رابط صديق
+    # التقاط الـ Payload لو الشخص داخل من رابط إحالة زي /start ref_12345
     ref_payload = message.text.replace("/start", "").strip()
-    ref_id = ref_payload.replace("ref_", "") if ref_payload.startswith("ref_") else None
     
-    # 2. إنشاء الحساب مع نظام الإحالة وتسجيل الصديق وإرسال الإشعار
-    if database.db is None: database.initialize_firebase()
-    user_ref = database.db.collection('users').document(tg_id)
-    doc = user_ref.get()
+    database.init_user(str(tg_id))
     
-    if not doc.exists:
-        new_user = {
-            'telegram_id': tg_id,
-            'user_name': user_name,
-            'balance': 0.0,
-            'ad_balance': 0.0,
-            'is_banned': False,
-            'last_claim_time': datetime.utcnow().isoformat(),
-            'storage_level': 0,
-            'referred_by': ref_id if (ref_id and ref_id != tg_id) else None,
-            'pending_ref_earnings': 0.0,
-            'invited_friends_count': 0,
-            'claimed_ref_tasks': [],
-            'contributed_to_referrer': 0.0
-        }
-        for i in range(1, 11): new_user[f'lvl{i}_count'] = 0
-        user_ref.set(new_user)
-        
-        # إذا دخل من رابط صديق، نزود العداد للصديق ونبعتله إشعار!
-        if new_user['referred_by']:
-            referrer_ref = database.db.collection('users').document(new_user['referred_by'])
-            ref_doc = referrer_ref.get()
-            if ref_doc.exists:
-                r_data = ref_doc.to_dict()
-                ref_count = r_data.get('invited_friends_count', 0)
-                referrer_ref.update({'invited_friends_count': ref_count + 1})
-                
-                # 🔥 إرسال الإشعار الاحترافي 🔥
-                try:
-                    notify_text = (
-                        f"🎉 <b>أخبار رائعة!</b>\n\n"
-                        f"لقد انضم <b>{user_name}</b> للتو إلى اللعبة باستخدام رابط الإحالة الخاص بك!\n\n"
-                        f"💰 ستحصل الآن على 10% من أرباح التعدين الخاصة به مدى الحياة. استمر في دعوة المزيد لمضاعفة أرباحك! 🚀"
-                    )
-                    bot.send_message(new_user['referred_by'], notify_text, parse_mode="HTML")
-                except Exception as e:
-                    print("Error sending notification:", e)
-    else:
-        # لو الحساب موجود، نحدث اسمه بس لو اتغير
-        user_ref.update({'user_name': user_name})
-
-    # 3. إرسال أزرار الدخول
     markup = InlineKeyboardMarkup()
     clean_web_url = WEB_URL.lower().strip()
     
-    # تمرير الـ ref_id داخل الويب آب لزيادة الأمان
-    web_app_url = f"{clean_web_url}?tg_id={tg_id}&ref_id={ref_id}" if ref_id else f"{clean_web_url}?tg_id={tg_id}"
-    
+    # تمرير الريفرال داخل الويب آب
+    if ref_payload.startswith("ref_"):
+        web_app_url = f"{clean_web_url}?startapp={ref_payload}&tg_id={tg_id}"
+    else:
+        web_app_url = f"{clean_web_url}?tg_id={tg_id}"
+        
     btn_game = InlineKeyboardButton("🎮 دخول اللعبة وابدأ التجميع الآن", web_app=WebAppInfo(url=web_app_url))
     btn_channel = InlineKeyboardButton("📢 تابع قناة اللعبة الرسمية", url="https://t.me/zngoxe")
     markup.add(btn_game)
     markup.add(btn_channel)
     
     motivational_text = (
-        f"🔥 أهلاً بك يا {user_name} في عالم الـ Zn Goxe المثير! 🔥\n\n"
+        f"🔥 أهلاً بك يا {message.from_user.first_name} في عالم الـ Zn Goxe المثير! 🔥\n\n"
         f"🚀 فرصة ذهبية مستنياك لتجميع العملات وتطوير إمبراطوريتك الرقمية من الصفر! "
         f"جهاز التعدين الخاص بك يعمل الآن في السحاب ويجمع لك الأرباح ثانية بثانية حتى وأنت مغلق للتطبيق!\n\n"
         f"👇 اضغط على الأزرار بالأسفل وانطلق فوراً!"
