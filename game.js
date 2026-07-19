@@ -4,7 +4,7 @@
 window.PlayerData = {
     tg_id: null,
     balance: 0,
-    ad_balance: 0, // 🔥 تم إضافة رصيد الإعلانات هنا لتتبعه
+    ad_balance: 0, 
     hourly_rate: 0,
     max_cap: 10000,
     unclaimed: 0,
@@ -18,7 +18,8 @@ window.PlayerData = {
     // حقول الأصدقاء
     pending_ref_earnings: 0,
     invited_friends_count: 0,
-    claimed_ref_tasks: []
+    claimed_ref_tasks: [],
+    referred_users_list: [] // القائمة اللي هتعرض أسامي الصحاب
 };
 
 // دالة جلب البيانات المركزية من السيرفر (تخدم كل الشاشات)
@@ -28,14 +29,17 @@ window.fetchPlayerDataFromServer = async function() {
         const tele = window.Telegram?.WebApp;
         let startParam = tele?.initDataUnsafe?.start_param || "";
         let ref_id = startParam.replace('ref_', '');
+        
+        // استخراج اسم المستخدم لإرساله للسيرفر
+        let teleUser = tele?.initDataUnsafe?.user;
+        let userName = teleUser ? (teleUser.first_name + (teleUser.last_name ? " " + teleUser.last_name : "")) : "مستخدم";
 
-        let url = `/api/user_data?telegramId=${window.PlayerData.tg_id}&tg_id=${window.PlayerData.tg_id}`;
+        let url = `/api/user_data?telegramId=${window.PlayerData.tg_id}&tg_id=${window.PlayerData.tg_id}&user_name=${encodeURIComponent(userName)}`;
         if(ref_id) url += `&ref_id=${ref_id}`;
 
         let response = await fetch(url);
         if (response.ok) {
             let result = await response.json();
-            
             let dbData = result.success ? result.data : result;
             
             if (dbData) {
@@ -47,7 +51,6 @@ window.fetchPlayerDataFromServer = async function() {
                 }
 
                 window.PlayerData.balance = parseFloat(dbData.balance || 0);
-                // 🔥 السطر السحري اللي كان ناقص: قراءة رصيد الإعلانات من الداتابيز
                 window.PlayerData.ad_balance = parseFloat(dbData.ad_balance || 0); 
                 window.PlayerData.hourly_rate = parseFloat(dbData.calculated_hourly_rate || dbData.hourly_rate || 0);
                 window.PlayerData.max_cap = parseFloat(dbData.calculated_max_cap || dbData.max_cap || 10000);
@@ -61,6 +64,7 @@ window.fetchPlayerDataFromServer = async function() {
                 window.PlayerData.pending_ref_earnings = parseFloat(dbData.pending_ref_earnings || 0);
                 window.PlayerData.invited_friends_count = parseInt(dbData.invited_friends_count || 0);
                 window.PlayerData.claimed_ref_tasks = dbData.claimed_ref_tasks || [];
+                window.PlayerData.referred_users_list = dbData.referred_users_list || [];
 
                 let upgs = {};
                 for (let i = 1; i <= 9; i++) {
@@ -85,9 +89,7 @@ window.triggerAllUIUpdates = function() {
     if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
     if (typeof window.updateShopUI === 'function') window.updateShopUI();
     if (typeof window.updateGamesUI === 'function') window.updateGamesUI();
-    // 🔥 ربط شاشة المهام بالتحديث المركزي
     if (typeof window.updateTasksUI === 'function') window.updateTasksUI(); 
-    // ربط شاشة الأصدقاء
     if (typeof window.updateFriendsUI === 'function') window.updateFriendsUI();
 
     const formattedBalance = Math.floor(pData.balance).toLocaleString();
@@ -120,7 +122,6 @@ window.triggerAllUIUpdates = function() {
         }
     });
 
-    // 🔥 تحديث رصيد الإعلانات بشكل قسري في أي مكان بيظهر فيه
     const formattedAdBalance = Math.floor(pData.ad_balance || 0).toLocaleString();
     const adBalDisplay = document.getElementById('ad-balance-display');
     if (adBalDisplay) {
@@ -128,7 +129,7 @@ window.triggerAllUIUpdates = function() {
     }
 };
 
-// دالة التهيئة والتشغيل الفوري (تم حل مشكلة التوقيت هنا)
+// دالة التهيئة والتشغيل الفوري
 window.initCentralSystem = function() {
     function assignIdAndFetch() {
         const tele = window.Telegram?.WebApp;
@@ -140,21 +141,18 @@ window.initCentralSystem = function() {
         if (id) {
             window.PlayerData.tg_id = id;
         } else if (!window.PlayerData.tg_id) {
-            window.PlayerData.tg_id = "5102387551"; // آي دي افتراضي للتجربة بره التليجرام
+            window.PlayerData.tg_id = "5102387551"; 
         }
 
         window.fetchPlayerDataFromServer();
     }
 
-    // جلب البيانات فوراً بمجرد قراءة الملف
     assignIdAndFetch();
     
-    // تشغيل المزامنة اللحظية الحية كل 3 ثواني
     if (window.globalSyncInterval) clearInterval(window.globalSyncInterval);
     window.globalSyncInterval = setInterval(() => {
         assignIdAndFetch();
     }, 3000);
 };
 
-// تشغيل النظام فوراً
 window.initCentralSystem();
