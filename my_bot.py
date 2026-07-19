@@ -1,5 +1,6 @@
 import os
 import threading
+import json
 from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -8,8 +9,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 import database
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
-BOT_USERNAME = "zngoxe_bot"
-APP_SHORT_NAME = "app"
+WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app')
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__, static_folder='.', static_url_path='')
@@ -50,45 +50,40 @@ def calculate_unclaimed(user):
         max_cap = STORAGE_PACKAGES.get(storage_lvl, {}).get("cap", BASE_STORAGE_CAP)
 
         unclaimed = seconds_passed * (hourly_rate / 3600.0)
+        
         if unclaimed > max_cap:
             unclaimed = max_cap
             
         return int(unclaimed), hourly_rate, max_cap
     except Exception as e:
+        print(f"Error calculating unclaimed: {e}")
         return 0, BASE_MINING_RATE, BASE_STORAGE_CAP
 
 @app.route('/')
 def serve_index():
     return send_from_directory('.', 'index.html')
 
-@app.route('/<path:filename>')
-def serve_static(filename):
-    return send_from_directory('.', filename)
-
 @app.route('/api/user_data', methods=['GET'])
 def get_user_data():
-    tg_id = request.args.get('tg_id') or request.args.get('telegramId')
-    ref_id = request.args.get('ref_id')
-    user_name = request.args.get('name', 'صديق')
-    
+    tg_id = request.args.get('tg_id')
     if not tg_id:
         return jsonify({'error': 'Missing telegram ID'}), 400
     
-    database.init_user(tg_id, ref_id, user_name)
     user = database.get_user_data(str(tg_id))
-    
     if not user:
         return jsonify({'error': 'User not found'}), 404
         
     unclaimed, hourly_rate, max_cap = calculate_unclaimed(user)
     
-    response_data = user.copy()
-    response_data['calculated_hourly_rate'] = hourly_rate
-    response_data['calculated_max_cap'] = max_cap
-    response_data['calculated_unclaimed'] = unclaimed
-    response_data['server_time'] = datetime.utcnow().isoformat()
-    
-    return jsonify({'success': True, 'data': response_data})
+    return jsonify({
+        'telegram_id': user.get('telegram_id'),
+        'balance': user.get('balance', 0),
+        'storage_level': user.get('storage_level', 0),
+        'hourly_rate': hourly_rate,
+        'max_cap': max_cap,
+        'unclaimed': unclaimed,
+        'upgrades': {f'lvl{i}': user.get(f'lvl{i}_count', 0) for i in range(1, 11)}
+    })
 
 @app.route('/api/claim', methods=['POST'])
 def handle_claim():
@@ -108,9 +103,11 @@ def handle_claim():
     new_balance = user.get('balance', 0) + unclaimed
     database.update_balance(str(tg_id), new_balance)
     database.update_claim_time(str(tg_id))
+    
+    # 🔥 هنا مربط الفرس: إضافة نسبة الـ 10% للداعي عند السحب
     database.add_referral_bonus(str(tg_id), unclaimed)
     
-    return jsonify({'success': True, 'new_balance': new_balance, 'claimed': unclaimed})
+    return jsonify({'success': True, 'new_balance': new_balance, 'unclaimed': 0})
 
 @app.route('/api/upgrade', methods=['POST'])
 def handle_upgrade():
@@ -157,44 +154,9 @@ def handle_upgrade():
         
     return jsonify({'success': True})
 
-@app.route('/api/get_friends_list', methods=['GET'])
-def fetch_friends():
-    tg_id = request.args.get('tg_id') or request.args.get('telegramId')
-    if not tg_id:
-        return jsonify({'error': 'Missing telegram ID'}), 400
-    friends = database.get_friends_list(str(tg_id))
-    return jsonify({'success': True, 'friends': friends})
-
-@app.route('/api/claim_ref_earnings', methods=['POST'])
-def handle_claim_ref():
-    data = request.json or {}
-    tg_id = data.get('tg_id') or data.get('telegramId')
-    if not tg_id:
-        return jsonify({'error': 'Missing telegram ID'}), 400
-    success, amount = database.claim_referral_earnings(str(tg_id))
-    if success:
-        return jsonify({'success': True, 'net_amount': amount})
-    return jsonify({'success': False, 'error': 'No pending earnings or error occurred'}), 400
-
-@app.route('/api/claim_ref_task', methods=['POST'])
-def handle_claim_ref_task():
-    data = request.json or {}
-    tg_id = data.get('telegramId')
-    task_id = data.get('taskId')
-    reward = data.get('reward')
-    req_friends = data.get('reqFriends')
-
-    if not all([tg_id, task_id, reward, req_friends]):
-        return jsonify({'error': 'Missing data'}), 400
-
-    success, new_balance = database.claim_referral_task(str(tg_id), int(task_id), float(reward), int(req_friends))
-    if success:
-        return jsonify({'success': True, 'new_balance': new_balance})
-    return jsonify({'success': False, 'error': 'Cannot claim task yet'}), 400
-
 @bot.message_handler(commands=['start'])
 def start_command(message):
-    tg_id = str(message.from_user.id)
+    tg_id = message.from_user.id
     first_name = message.from_user.first_name or "صديقي"
     
     text_parts = message.text.split()
@@ -202,12 +164,14 @@ def start_command(message):
     if len(text_parts) > 1 and text_parts[1].startswith('ref_'):
         ref_id = text_parts[1].replace('ref_', '')
         
-    database.init_user(tg_id, ref_id, first_name)
+    database.init_user(str(tg_id), ref_id, first_name)
     
     markup = InlineKeyboardMarkup()
-    web_app_url = f"https://t.me/{BOT_USERNAME}/{APP_SHORT_NAME}"
+    clean_web_url = WEB_URL.lower().strip()
+    
+    web_app_url = f"{clean_web_url}?tg_id={tg_id}"
     if ref_id:
-        web_app_url += f"?startapp=ref_{ref_id}"
+        web_app_url += f"&start_param=ref_{ref_id}"
         
     btn_game = InlineKeyboardButton("🎮 دخول اللعبة وابدأ التجميع الآن", web_app=WebAppInfo(url=web_app_url))
     btn_channel = InlineKeyboardButton("📢 تابع قناة اللعبة الرسمية", url="https://t.me/zngoxe")
