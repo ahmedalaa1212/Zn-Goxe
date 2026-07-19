@@ -14,6 +14,7 @@
             --text-muted: #aaaaaa;
             --btn-disabled: #555555;
             --success: #2ecc71;
+            --border-color: #333333;
         }
         body {
             background-color: var(--bg-color);
@@ -21,7 +22,7 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
             padding: 0;
-            padding-bottom: 70px; /* مساحة للقائمة السفلية */
+            padding-bottom: 70px;
         }
         .container {
             padding: 15px;
@@ -49,7 +50,7 @@
             margin-bottom: 15px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         }
-        .card h3 { margin-top: 0; border-bottom: 1px solid #333; padding-bottom: 8px; font-size: 1.1rem; }
+        .card h3 { margin-top: 0; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; font-size: 1.1rem; }
         .card p { margin: 10px 0; font-size: 0.95rem; }
         .copy-box {
             display: flex;
@@ -82,11 +83,31 @@
             cursor: not-allowed;
             transform: none;
         }
-        .ref-tasks-card ul {
+        
+        /* تنسيقات قائمة الأصدقاء الجديدة */
+        .friends-list {
             list-style: none;
             padding: 0;
             margin: 0;
+            max-height: 200px;
+            overflow-y: auto;
         }
+        .friend-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .friend-item:last-child { border-bottom: none; }
+        .friend-info { display: flex; flex-direction: column; }
+        .friend-name { font-weight: bold; font-size: 0.95rem; }
+        .friend-id { font-size: 0.8rem; color: var(--text-muted); }
+        .friend-earn { color: var(--success); font-weight: bold; font-size: 0.9rem; }
+        .empty-state { text-align: center; color: var(--text-muted); padding: 15px 0; font-size: 0.9rem; }
+
+        /* تنسيقات المهام */
+        .ref-tasks-card ul { list-style: none; padding: 0; margin: 0; }
         .task-item {
             display: flex;
             justify-content: space-between;
@@ -107,11 +128,11 @@
             bottom: 0;
             left: 0;
             right: 0;
-            background-color: #1e1e1e;
+            background-color: var(--card-bg);
             display: flex;
             justify-content: space-around;
             padding: 12px 0;
-            border-top: 2px solid #333;
+            border-top: 2px solid var(--border-color);
             z-index: 1000;
         }
         .bottom-nav a {
@@ -152,6 +173,15 @@
             <p>عدد الأصدقاء المدعوين: <span id="invited-friends-count" style="font-weight: bold; color: var(--primary);">0</span> صديق</p>
         </div>
 
+        <!-- القسم الجديد: سجل الأصدقاء -->
+        <div class="card friends-history-card">
+            <h3>سجل الأصدقاء</h3>
+            <div id="friends-list-container">
+                <!-- سيتم ملء هذا الجزء عبر الجافاسكريبت -->
+                <div class="empty-state">جاري التحميل...</div>
+            </div>
+        </div>
+
         <div class="card ref-tasks-card">
             <h3>مكافآت الدعوات</h3>
             <ul id="ref-tasks-list">
@@ -160,7 +190,6 @@
         </div>
     </div>
 
-    <!-- القائمة السفلية (الروابط يجب أن تتطابق مع أسماء ملفاتك) -->
     <nav class="bottom-nav">
         <a href="index.html">المزرعة</a>
         <a href="shop.html">التطوير</a>
@@ -168,7 +197,6 @@
         <a href="friends.html" class="active">الأصدقاء</a>
     </nav>
 
-    <!-- الملفات البرمجية المركزية والخاصة بالصفحة -->
     <script src="game.js"></script>
     <script src="friends.js"></script>
 </body>
