@@ -35,19 +35,18 @@ def initialize_firebase():
     
     return db
 
-def create_tables():
-    pass
-
 def init_user(telegram_id, referred_by=None, first_name="صديق"):
     global db
     if db is None: initialize_firebase()
-    if db is None: return
+    if db is None: return False
     
     telegram_id = str(telegram_id).strip()
     user_ref = db.collection('users').document(telegram_id)
+    is_new_referral = False
     
     try:
         doc = user_ref.get()
+        # لو المستخدم مش موجود (أو تم حذفه من الفايربيز هيدخل هنا كأنه جديد)
         if not doc.exists:
             if referred_by:
                 referred_by = str(referred_by).replace('ref_', '').strip()
@@ -75,17 +74,19 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
                 
             user_ref.set(user_data)
             
-            # 🔥 التعديل هنا لضمان إضافة الصديق بقوة
+            # إضافة الصديق لصاحب الرابط
             if referred_by:
                 ref_user_ref = db.collection('users').document(referred_by)
                 if ref_user_ref.get().exists:
-                    ref_user_ref.set({
+                    # استخدام الطريقة الصحيحة لتحديث البيانات المتداخلة
+                    ref_user_ref.update({
                         'invited_friends_count': firestore.Increment(1),
-                        'referral_details': {
-                            telegram_id: {'name': first_name, 'earned': 0.0}
-                        }
-                    }, merge=True)
+                        f'referral_details.{telegram_id}.name': first_name,
+                        f'referral_details.{telegram_id}.earned': 0.0
+                    })
+                    is_new_referral = True # عشان نبعت رسالة في البوت
         else:
+            # لو المستخدم موجود بنعمل تحديث للبيانات الناقصة فقط
             data = doc.to_dict()
             updates = {}
             if 'pending_ref_earnings' not in data: updates['pending_ref_earnings'] = 0.0
@@ -95,16 +96,7 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
             if updates:
                 user_ref.update(updates)
                 
+        return is_new_referral
     except Exception as e:
         print(f"❌ Error in init_user: {e}")
-
-# الدوال دي موجودة للاحتياط لو البوت احتاجها مستقبلاً
-def get_user_data(telegram_id):
-    global db
-    if db is None: initialize_firebase()
-    if db is None: return None
-    try:
-        doc = db.collection('users').document(str(telegram_id).strip()).get()
-        return doc.to_dict() if doc.exists else None
-    except Exception as e:
-        return None
+        return False
