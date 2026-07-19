@@ -52,6 +52,7 @@ def init_user(telegram_id):
         if not doc.exists:
             user_data = {
                 'telegram_id': telegram_id,
+                'user_name': 'مستخدم جديد',
                 'balance': 0.0,
                 'ad_balance': 0.0, 
                 'is_banned': False,
@@ -61,20 +62,23 @@ def init_user(telegram_id):
                 'referred_by': None,
                 'pending_ref_earnings': 0.0,
                 'invited_friends_count': 0,
-                'claimed_ref_tasks': []
+                'claimed_ref_tasks': [],
+                'contributed_to_referrer': 0.0 # تتبع ما أسهمه هذا المستخدم لصديقه
             }
             for i in range(1, 11):
                 user_data[f'lvl{i}_count'] = 0
             user_ref.set(user_data)
             print(f"🚀 New user created in Firebase: {telegram_id}")
         else:
-            # 🔥 حماية وتأكيد: إضافة الحقول الناقصة وتحديثها بدون تصفير الرصيد 🔥
+            # تحديث حقول الأصدقاء إن كانت ناقصة دون المساس بالرصيد
             data = doc.to_dict()
             updates = {}
             if 'ad_balance' not in data: updates['ad_balance'] = 0.0
             if 'pending_ref_earnings' not in data: updates['pending_ref_earnings'] = 0.0
             if 'invited_friends_count' not in data: updates['invited_friends_count'] = 0
             if 'claimed_ref_tasks' not in data: updates['claimed_ref_tasks'] = []
+            if 'contributed_to_referrer' not in data: updates['contributed_to_referrer'] = 0.0
+            if 'user_name' not in data: updates['user_name'] = 'مستخدم'
             
             if updates:
                 user_ref.update(updates)
