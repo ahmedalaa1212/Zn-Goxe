@@ -1,7 +1,7 @@
 import os
 import json
 from datetime import datetime, timezone
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, make_response
 from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -9,13 +9,12 @@ from firebase_admin import credentials, firestore
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
-# منع المتصفح وتليجرام من عمل كاش للبيانات نهائياً لضمان التحديث اللحظي
+# 🚀 هذا الكود يمنع متصفح تليجرام من حفظ البيانات القديمة (يحل مشكلة عدم تحديث الرصيد)
 @app.after_request
 def add_header(response):
-    if request.path.startswith('/api/'):
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, public, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
     return response
 
 db = None
@@ -25,8 +24,7 @@ if firebase_creds_json:
     try:
         creds_dict = json.loads(firebase_creds_json)
         cred = credentials.Certificate(creds_dict)
-        if not firebase_admin._apps:
-            firebase_admin.initialize_app(cred)
+        firebase_admin.initialize_app(cred)
         db = firestore.client()
         print("✅ [Firebase] Connected successfully!")
     except Exception as e:
@@ -102,8 +100,7 @@ def get_user_data():
         return jsonify({'success': False, 'error': 'Missing ID'}), 400
     
     telegram_id = str(telegram_id).strip()
-    user_ref = get_user_ref(telegram_id)
-    doc = user_ref.get()
+    doc = get_user_ref(telegram_id).get()
     now_iso = datetime.now(timezone.utc).isoformat()
     
     clean_ref_id = str(ref_id).replace('ref_', '').strip() if ref_id else None
@@ -128,7 +125,7 @@ def get_user_data():
             "referral_details": {}
         }
         for i in range(1, 11): new_user[f"lvl{i}_count"] = 0
-        user_ref.set(new_user)
+        get_user_ref(telegram_id).set(new_user)
         user_data = new_user
         
         if clean_ref_id:
@@ -143,7 +140,6 @@ def get_user_data():
         user_data = doc.to_dict()
         updates = {}
         
-        # ربط إحالة ذكي حتى لو المستخدم مسجل قديماً لكن ليس لديه مُحيل
         if not user_data.get('referred_by') and clean_ref_id:
             updates['referred_by'] = clean_ref_id
             ref_user_ref = get_user_ref(clean_ref_id)
@@ -161,7 +157,7 @@ def get_user_data():
         if 'referral_details' not in user_data: updates['referral_details'] = {}
         
         if updates:
-            user_ref.update(updates)
+            get_user_ref(telegram_id).update(updates)
             user_data.update(updates)
         
     response_data = user_data.copy()
@@ -222,6 +218,7 @@ def claim():
             'last_claim_time': now_iso
         })
         
+        # 🔥 هنا سر الإحالة: احتساب 10% لصاحب الرابط وإضافتها مباشرة
         referred_by = user_data.get('referred_by')
         if referred_by:
             referrer_ref = get_user_ref(referred_by)
