@@ -13,20 +13,21 @@ def start_command(message):
     tg_id = message.from_user.id
     first_name = message.from_user.first_name or "صديقي"
     
+    # لقط كود الإحالة من التليجرام
     text_parts = message.text.split()
     ref_id = None
-    if len(text_parts) > 1 and text_parts[1].startswith('ref_'):
+    if len(text_parts) > 1:
         ref_id = text_parts[1].replace('ref_', '').strip()
         
-    # تسجيل اليوزر في الداتا بيز ومعرفة لو هو إحالة صالحة وجديدة فعلياً
+    # تسجيل الحساب في الداتابيز
     is_new_referral = database.init_user(str(tg_id), ref_id, first_name)
     
-    # إرسال رسالة فورية ومباشرة لصاحب الرابط عند دخول الشخص بنجاح
+    # إرسال إشعار لصاحب الرابط
     if is_new_referral and ref_id:
         try:
             bot.send_message(
                 chat_id=ref_id,
-                text=f"🎉 **خبر مفرح جداً!**\n\nلقد انضم صديقك [{first_name}] إلى اللعبة عن طريق رابط الإحالة الخاص بك.\nستحصل الآن على 10% من أرباح تعدينه مدى الحياة! 💸🚀",
+                text=f"🎉 **خبر مفرح!**\n\nلقد انضم صديقك [{first_name}] إلى اللعبة عن طريق رابط الإحالة الخاص بك.\nستحصل الآن على 10% من أرباح تعدينه للأبد! 💸",
                 parse_mode='Markdown'
             )
         except Exception as e:
@@ -35,6 +36,7 @@ def start_command(message):
     markup = InlineKeyboardMarkup()
     clean_web_url = WEB_URL.lower().strip()
     
+    # تمرير البيانات للويب آب
     web_app_url = f"{clean_web_url}?tg_id={tg_id}"
     if ref_id:
         web_app_url += f"&start_param=ref_{ref_id}"
