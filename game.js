@@ -1,6 +1,3 @@
-// ==========================================
-// الكائن العالمي الموحد لإدارة بيانات اللاعب
-// ==========================================
 window.PlayerData = {
     tg_id: null,
     balance: 0,
@@ -25,9 +22,10 @@ window.fetchPlayerDataFromServer = async function() {
     try {
         const tele = window.Telegram?.WebApp;
         let startParam = tele?.initDataUnsafe?.start_param || "";
-        let ref_id = startParam.replace('ref_', '');
+        let ref_id = startParam ? startParam.replace('ref_', '') : "";
+        let firstName = tele?.initDataUnsafe?.user?.first_name || "صديق";
 
-        let url = `/api/user_data?telegramId=${window.PlayerData.tg_id}&tg_id=${window.PlayerData.tg_id}`;
+        let url = `/api/user_data?telegramId=${window.PlayerData.tg_id}&tg_id=${window.PlayerData.tg_id}&name=${encodeURIComponent(firstName)}`;
         if(ref_id) url += `&ref_id=${ref_id}`;
 
         let response = await fetch(url);
@@ -71,7 +69,7 @@ window.fetchPlayerDataFromServer = async function() {
     }
 };
 
-// 🔥 دالة جديدة لجلب وعرض قائمة الأصدقاء وأرباح كل واحد 🔥
+// 🔥 دالة رسم الأصدقاء الاحترافية
 window.fetchAndRenderFriendsList = async function() {
     if (!window.PlayerData.tg_id) return;
     try {
@@ -79,44 +77,44 @@ window.fetchAndRenderFriendsList = async function() {
         if (response.ok) {
             let result = await response.json();
             if (result.success && result.friends) {
-                // افترضت إن عندك ديف في صفحة الأصدقاء واخد الـ ID ده
                 let container = document.getElementById('friends-list-container');
                 if (!container) return; 
                 
-                container.innerHTML = ''; // تفريغ القائمة القديمة
                 if (result.friends.length === 0) {
-                    container.innerHTML = '<p style="text-align:center; color:#888; padding: 10px;">لم تقم بدعوة أحد بعد</p>';
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <span style="font-size: 3rem; display: block; margin-bottom: 10px;">📭</span>
+                            لم تقم بدعوة أي صديق حتى الآن.<br>شارك رابطك لتبدأ في كسب الأرباح!
+                        </div>`;
                     return;
                 }
 
+                let html = '<ul class="friends-list">';
                 result.friends.forEach(friend => {
-                    let friendDiv = document.createElement('div');
-                    friendDiv.style.cssText = "display: flex; justify-content: space-between; align-items: center; background: #2c2c2e; padding: 10px; border-radius: 8px; margin-bottom: 8px; color: white;";
+                    let friendName = friend.name || "مستخدم";
+                    let firstLetter = friendName.charAt(0).toUpperCase();
                     
-                    friendDiv.innerHTML = `
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <div style="background: #ffa500; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: black;">
-                                ${friend.name.charAt(0)}
+                    html += `
+                        <li class="friend-item">
+                            <div class="friend-avatar">${firstLetter}</div>
+                            <div class="friend-info">
+                                <span class="friend-name">${friendName}</span>
+                                <span class="friend-id">ID: ${friend.id}</span>
                             </div>
-                            <div>
-                                <h4 style="margin: 0; font-size: 16px;">${friend.name}</h4>
-                                <small style="color: #aaa;">ID: ${friend.id}</small>
+                            <div class="friend-earn">
+                                +${Math.floor(friend.earned).toLocaleString()} ZN
                             </div>
-                        </div>
-                        <div style="text-align: right;">
-                            <div style="color: #ffa500; font-weight: bold;">+${Math.floor(friend.earned).toLocaleString()} ZN</div>
-                            <small style="color: #888;">أرباحك منه</small>
-                        </div>
+                        </li>
                     `;
-                    container.appendChild(friendDiv);
                 });
+                html += '</ul>';
+                container.innerHTML = html;
             }
         }
     } catch (e) {
         console.error("خطأ في جلب قائمة الأصدقاء:", e);
     }
 };
-
 
 window.triggerAllUIUpdates = function() {
     const pData = window.PlayerData;
@@ -126,8 +124,6 @@ window.triggerAllUIUpdates = function() {
     if (typeof window.updateShopUI === 'function') window.updateShopUI();
     if (typeof window.updateGamesUI === 'function') window.updateGamesUI();
     if (typeof window.updateTasksUI === 'function') window.updateTasksUI(); 
-    
-    // تحديث الإحصائيات في صفحة الأصدقاء
     if (typeof window.updateFriendsUI === 'function') window.updateFriendsUI();
     
     let pendingEarnEl = document.getElementById('pending-ref-earnings');
@@ -188,7 +184,6 @@ window.initCentralSystem = function() {
         }
 
         window.fetchPlayerDataFromServer();
-        // جلب قائمة الأصدقاء مرة واحدة في البداية
         window.fetchAndRenderFriendsList(); 
     }
 
