@@ -46,6 +46,7 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
     
     try:
         doc = user_ref.get()
+        # تنظيف كود الإحالة
         if referred_by:
             referred_by = str(referred_by).replace('ref_', '').strip()
             if referred_by == telegram_id:
@@ -73,6 +74,7 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
                 
             user_ref.set(user_data)
             
+            # تسجيل الصديق عند صاحب الرابط
             if referred_by:
                 ref_user_ref = db.collection('users').document(referred_by)
                 if ref_user_ref.get().exists:
@@ -81,12 +83,11 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
                         f'referral_details.{telegram_id}.name': first_name,
                         f'referral_details.{telegram_id}.earned': 0.0
                     })
-                    is_new_referral = True
+                    is_new_referral = True 
         else:
+            # لو الحساب موجود بس مكنش عنده مُحيل، ودخل من رابط دلوقتي
             data = doc.to_dict()
             updates = {}
-            
-            # ربط ذكي لمنع الفشل عند إعادة تجربة حساب تم إنشاؤه مسبقاً بدون دعوة
             if not data.get('referred_by') and referred_by:
                 updates['referred_by'] = referred_by
                 ref_user_ref = db.collection('users').document(referred_by)
@@ -97,11 +98,12 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
                         f'referral_details.{telegram_id}.earned': 0.0
                     })
                     is_new_referral = True
-                    
+
             if 'pending_ref_earnings' not in data: updates['pending_ref_earnings'] = 0.0
             if 'invited_friends_count' not in data: updates['invited_friends_count'] = 0
             if 'claimed_ref_tasks' not in data: updates['claimed_ref_tasks'] = []
             if 'referral_details' not in data: updates['referral_details'] = {}
+            
             if updates:
                 user_ref.update(updates)
                 
