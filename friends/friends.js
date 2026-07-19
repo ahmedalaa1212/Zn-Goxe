@@ -1,6 +1,3 @@
-// ==========================================
-// إعدادات مهام الأصدقاء والمكافآت
-// ==========================================
 const REF_TASKS = [
     { id: 1, reqFriends: 1, reward: 5000 },
     { id: 2, reqFriends: 5, reward: 30000 },
@@ -14,9 +11,6 @@ const REF_TASKS = [
 const BOT_USERNAME = "zngoxe_bot"; 
 const APP_SHORT_NAME = "app"; 
 
-// ==========================================
-// تحديث الواجهة (الرئيسية)
-// ==========================================
 window.updateFriendsUI = function() {
     const pData = window.PlayerData;
     if (!pData) return;
@@ -47,15 +41,11 @@ window.updateFriendsUI = function() {
     }
 
     renderRefTasks();
-    // استدعاء دالة رسم الأصدقاء من game.js حتى لا يحدث تضارب
     if(typeof window.fetchAndRenderFriendsList === 'function') {
         window.fetchAndRenderFriendsList();
     }
 };
 
-// ==========================================
-// رسم قائمة المهام
-// ==========================================
 function renderRefTasks() {
     const listEl = document.getElementById('ref-tasks-list');
     if (!listEl) return;
@@ -110,9 +100,6 @@ function renderRefTasks() {
     listEl.innerHTML = html;
 }
 
-// ==========================================
-// النسخ والسحب
-// ==========================================
 window.copyRefLink = function() {
     const linkInput = document.getElementById('ref-link-input');
     if (!linkInput || !linkInput.value || linkInput.value === "جاري التحميل...") return;
