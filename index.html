@@ -28,9 +28,8 @@
         <div id="view-settings" class="game-view"></div>
     </div>
 
-    <!-- شريط التنقل السفلي الاحترافي (7 قوائم والمزرعة بارزة في المنتصف) -->
+    <!-- شريط التنقل السفلي البسيط (7 قوائم مرتاحة) -->
     <nav class="bottom-nav">
-        <!-- 3 أزرار على اليمين -->
         <button class="nav-item" onclick="switchView('friends')" id="nav-friends">
             <i class="fas fa-users"></i><span>الأصدقاء</span>
         </button>
@@ -41,12 +40,12 @@
             <i class="fas fa-list-check"></i><span>المهام</span>
         </button>
 
-        <!-- زر المزرعة المركزي (الزر العائم) -->
+        <!-- زر المزرعة المركزي العادي والمضبوط -->
         <button class="nav-item nav-center-btn active" onclick="switchView('farm')" id="nav-farm">
-            <i class="fas fa-screwdriver-wrench"></i><span>المزرعة</span>
+            <i class="fas fa-screwdriver-wrench"></i>
+            <span class="nav-center-text">المزرعة</span>
         </button>
 
-        <!-- 3 أزرار على اليسار -->
         <button class="nav-item" onclick="switchView('games')" id="nav-games">
             <i class="fas fa-gamepad"></i><span>الألعاب</span>
         </button>
@@ -73,7 +72,6 @@
                 { id: 'view-settings', path: 'settings/settings.html' }
             ];
 
-            // 1. جلب محتوى التصميمات (HTML) وتثبيتها في الصفحة
             for (let view of views) {
                 try {
                     let response = await fetch(view.path);
@@ -88,11 +86,9 @@
                 }
             }
 
-            // 2. تحميل ملف game.js الرئيسي أولاً لإنشاء كائن PlayerData المركزي
             let mainScript = document.createElement('script');
             mainScript.src = 'game.js';
             mainScript.onload = () => {
-                // بعد اكتمال تحميل game.js الرئيسي، نقوم بتحميل باقي الملفات الفرعية
                 const scripts = [
                     'friends/friends.js',
                     'wallet/wallet.js',
@@ -112,20 +108,15 @@
             document.body.appendChild(mainScript);
         }
 
-        // تشغيل البوت بمجرد فتح التطبيق
         document.addEventListener('DOMContentLoaded', loadAllViews);
 
-        // دالة التنقل السلس بين الأقسام
         function switchView(viewName) {
-            // إخفاء كل الأقسام وإظهار القسم المطلوب
             document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
             document.getElementById(`view-${viewName}`).classList.add('active');
             
-            // إزالة التفعيل من كل الأزرار وتفعيل الزر المضغوط
             document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
             document.getElementById(`nav-${viewName}`).classList.add('active');
 
-            // عند التنقل يتم إجبار الواجهة على التحديث طبقاً للبيانات المركزية الحالية
             if (typeof window.triggerAllUIUpdates === 'function') {
                 window.triggerAllUIUpdates();
             }
