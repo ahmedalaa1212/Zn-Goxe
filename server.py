@@ -92,7 +92,6 @@ def serve_static(filename):
 def get_user_data():
     telegram_id = request.args.get('telegramId')
     ref_id = request.args.get('ref_id')
-    user_name = request.args.get('user_name', 'مستخدم')
     
     if not telegram_id or not db:
         return jsonify({'success': False, 'error': 'Missing ID'}), 400
@@ -104,7 +103,7 @@ def get_user_data():
     if not doc.exists:
         new_user = {
             "telegram_id": telegram_id,
-            "user_name": user_name,
+            "first_name": "صديق",
             "balance": 0.0,
             "ad_balance": 0.0, 
             "is_banned": False,
@@ -116,18 +115,20 @@ def get_user_data():
             "pending_ref_earnings": 0.0,
             "invited_friends_count": 0,
             "claimed_ref_tasks": [],
-            "contributed_to_referrer": 0.0
+            "referral_details": {}
         }
         for i in range(1, 11): new_user[f"lvl{i}_count"] = 0
         get_user_ref(telegram_id).set(new_user)
         user_data = new_user
         
-        # زيادة عداد الأصدقاء للشخص الذي أرسل الدعوة
         if new_user['referred_by']:
-            ref_user_doc = get_user_ref(new_user['referred_by']).get()
-            if ref_user_doc.exists:
-                ref_count = safe_int(ref_user_doc.to_dict().get('invited_friends_count', 0))
-                get_user_ref(new_user['referred_by']).update({'invited_friends_count': ref_count + 1})
+            ref_user_ref = get_user_ref(new_user['referred_by'])
+            ref_doc = ref_user_ref.get()
+            if ref_doc.exists:
+                ref_user_ref.update({
+                    'invited_friends_count': firestore.Increment(1),
+                    f'referral_details.{telegram_id}': {'name': 'صديق', 'earned': 0.0}
+                })
     else:
         user_data = doc.to_dict()
         updates = {}
@@ -135,29 +136,13 @@ def get_user_data():
         if 'pending_ref_earnings' not in user_data: updates['pending_ref_earnings'] = 0.0
         if 'invited_friends_count' not in user_data: updates['invited_friends_count'] = 0
         if 'claimed_ref_tasks' not in user_data: updates['claimed_ref_tasks'] = []
-        if 'contributed_to_referrer' not in user_data: updates['contributed_to_referrer'] = 0.0
+        if 'referral_details' not in user_data: updates['referral_details'] = {}
         
-        # تحديث الاسم دائمًا للحصول على أحدث اسم
-        if user_data.get('user_name') != user_name:
-            updates['user_name'] = user_name
-            
         if updates:
             get_user_ref(telegram_id).update(updates)
             user_data.update(updates)
         
     response_data = user_data.copy()
-    
-    # 🔴 جلب قائمة الأصدقاء الذين دعاهم هذا الشخص
-    friends_query = db.collection('users').where('referred_by', '==', telegram_id).get()
-    referred_users_list = []
-    for f in friends_query:
-        f_dict = f.to_dict()
-        referred_users_list.append({
-            'id': f_dict.get('telegram_id', '000'),
-            'name': f_dict.get('user_name', 'مستخدم'),
-            'earned': f_dict.get('contributed_to_referrer', 0.0)
-        })
-    response_data['referred_users_list'] = referred_users_list
     
     calculated_rate = get_user_mining_rate(user_data)
     storage_lvl = safe_int(user_data.get('storage_level', 0))
@@ -170,6 +155,33 @@ def get_user_data():
     response_data['server_time'] = now_iso
     
     return jsonify({'success': True, 'data': response_data}), 200
+
+# 🔥 واجهة جديدة لجلب قائمة الأصدقاء وأرباحهم الفردية 🔥
+@app.route('/api/get_friends_list', methods=['GET'])
+def get_friends_list():
+    telegram_id = request.args.get('telegramId')
+    if not telegram_id: return jsonify({'success': False}), 400
+    
+    try:
+        doc = get_user_ref(telegram_id).get()
+        if not doc.exists: return jsonify({'success': False, 'friends': []}), 200
+        
+        user_data = doc.to_dict()
+        referral_details = user_data.get('referral_details', {})
+        
+        friends_list = []
+        for f_id, details in referral_details.items():
+            friends_list.append({
+                'id': f_id,
+                'name': details.get('name', f'User {f_id}'),
+                'earned': safe_float(details.get('earned', 0))
+            })
+            
+        # ترتيب الأصدقاء حسب الأكثر ربحاً
+        friends_list.sort(key=lambda x: x['earned'], reverse=True)
+        return jsonify({'success': True, 'friends': friends_list}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/claim', methods=['POST'])
 def claim():
@@ -195,22 +207,18 @@ def claim():
             'last_claim_time': now_iso
         })
         
-        # 🔴 نظام مكافأة الأصدقاء من التعدين (10%) وحفظ مساهمة الشخص
+        # 🔥 نظام مكافأة الأصدقاء وتحديث أرباح كل شخص بشكل منفصل 🔥
         referred_by = user_data.get('referred_by')
         if referred_by:
             referrer_ref = get_user_ref(referred_by)
             referrer_doc = referrer_ref.get()
             if referrer_doc.exists:
-                ref_data = referrer_doc.to_dict()
-                current_pending = safe_float(ref_data.get('pending_ref_earnings', 0))
                 bonus = unclaimed * 0.10
-                
-                # إضافة المكافأة للي جاب الإحالة
-                referrer_ref.update({'pending_ref_earnings': current_pending + bonus})
-                
-                # تحديث عداد مساهمة هذا الشخص تحديداً ليظهر في قائمة الأصدقاء
-                curr_contrib = safe_float(user_data.get('contributed_to_referrer', 0))
-                user_ref.update({'contributed_to_referrer': curr_contrib + bonus})
+                # التحديث في رصيد الإحالة العام وفي ملف الصديق الفردي
+                referrer_ref.update({
+                    'pending_ref_earnings': firestore.Increment(bonus),
+                    f'referral_details.{telegram_id}.earned': firestore.Increment(bonus)
+                })
 
         return jsonify({'success': True, 'claimed': unclaimed}), 200
     except Exception as e:
@@ -231,7 +239,7 @@ def claim_ref_earnings():
         pending = safe_float(user_data.get('pending_ref_earnings', 0))
         if pending <= 0: return jsonify({'success': False, 'error': 'لا توجد أرباح للتجميع'}), 400
         
-        fee = pending * 0.03 # خصم 3%
+        fee = pending * 0.03 
         net_amount = pending - fee
         current_balance = safe_float(user_data.get('balance', 0))
         
