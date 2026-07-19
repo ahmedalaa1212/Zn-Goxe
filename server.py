@@ -95,7 +95,6 @@ def get_user_data():
     doc = get_user_ref(telegram_id).get()
     now_iso = datetime.now(timezone.utc).isoformat()
     
-    # تنظيف كود الإحالة
     clean_ref_id = str(ref_id).replace('ref_', '').strip() if ref_id else None
     if clean_ref_id == telegram_id:
         clean_ref_id = None
@@ -103,7 +102,7 @@ def get_user_data():
     if not doc.exists:
         new_user = {
             "telegram_id": telegram_id,
-            "first_name": user_name,
+            "user_name": user_name,
             "balance": 0.0,
             "ad_balance": 0.0, 
             "is_banned": False,
@@ -121,16 +120,15 @@ def get_user_data():
         get_user_ref(telegram_id).set(new_user)
         user_data = new_user
         
-        # إضافة الصديق بقوة (merge=True) عشان يتجنب مشاكل الفايربيز
+        # إضافة الصديق لو دخل من الويب مباشرة
         if clean_ref_id:
             ref_user_ref = get_user_ref(clean_ref_id)
             if ref_user_ref.get().exists:
-                ref_user_ref.set({
+                ref_user_ref.update({
                     'invited_friends_count': firestore.Increment(1),
-                    'referral_details': {
-                        telegram_id: {'name': user_name, 'earned': 0.0}
-                    }
-                }, merge=True)
+                    f'referral_details.{telegram_id}.name': user_name,
+                    f'referral_details.{telegram_id}.earned': 0.0
+                })
     else:
         user_data = doc.to_dict()
         updates = {}
@@ -145,7 +143,6 @@ def get_user_data():
             user_data.update(updates)
         
     response_data = user_data.copy()
-    
     response_data['calculated_hourly_rate'] = get_user_mining_rate(user_data)
     storage_lvl = safe_int(user_data.get('storage_level', 0))
     response_data['calculated_max_cap'] = GAME_CONFIG['capacities'].get(storage_lvl, 10000)
@@ -203,18 +200,19 @@ def claim():
             'last_claim_time': now_iso
         })
         
-        # 🔥 حل مشكلة الـ 10% جذرياً باستخدام merge=True
+        # 🔥 الحل النهائي لمشكلة الـ 10% باستخدام (Dot Notation) عشان الفايربيز يقراها صح
         referred_by = user_data.get('referred_by')
         if referred_by:
             referrer_ref = get_user_ref(referred_by)
             if referrer_ref.get().exists:
                 bonus = unclaimed * 0.10
-                referrer_ref.set({
-                    'pending_ref_earnings': firestore.Increment(bonus),
-                    'referral_details': {
-                        telegram_id: {'earned': firestore.Increment(bonus)}
-                    }
-                }, merge=True)
+                try:
+                    referrer_ref.update({
+                        'pending_ref_earnings': firestore.Increment(bonus),
+                        f'referral_details.{telegram_id}.earned': firestore.Increment(bonus)
+                    })
+                except Exception as update_err:
+                    print(f"Error updating referrer: {update_err}")
 
         return jsonify({'success': True, 'claimed': unclaimed}), 200
     except Exception as e:
