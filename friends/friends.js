@@ -21,7 +21,6 @@ window.updateFriendsUI = function() {
     const pData = window.PlayerData;
     if (!pData) return;
 
-    // 1. تحديث الأرصدة والعدادات في المربعات العلوية
     const pendingEl = document.getElementById('pending-ref-earnings');
     if (pendingEl) pendingEl.innerText = Math.floor(pData.pending_ref_earnings || 0).toLocaleString();
 
@@ -31,7 +30,6 @@ window.updateFriendsUI = function() {
     const topBalance = document.getElementById('top-balance-friends');
     if (topBalance) topBalance.innerText = `ZN: ${Math.floor(pData.balance || 0).toLocaleString()}`;
 
-    // تفعيل/تعطيل زر السحب
     const btnClaim = document.getElementById('btn-claim-ref');
     if (btnClaim) {
         if (pData.pending_ref_earnings <= 0) {
@@ -43,65 +41,20 @@ window.updateFriendsUI = function() {
         }
     }
 
-    // 2. تحديث رابط الدعوة
     const linkInput = document.getElementById('ref-link-input');
     if (linkInput && pData.tg_id) {
         linkInput.value = `https://t.me/${BOT_USERNAME}/${APP_SHORT_NAME}?startapp=ref_${pData.tg_id}`;
     }
 
-    // 3. استدعاء دوال الرسم
     renderRefTasks();
-    renderFriendsHistory(); 
+    // استدعاء دالة رسم الأصدقاء من game.js حتى لا يحدث تضارب
+    if(typeof window.fetchAndRenderFriendsList === 'function') {
+        window.fetchAndRenderFriendsList();
+    }
 };
 
 // ==========================================
-// رسم سجل الأصدقاء (بشكل احترافي مع Avatar)
-// ==========================================
-function renderFriendsHistory() {
-    const container = document.getElementById('friends-list-container');
-    if (!container) return;
-
-    const pData = window.PlayerData;
-    const friendsList = pData.referred_users_list || [];
-
-    if (friendsList.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <span style="font-size: 3rem; display: block; margin-bottom: 10px;">📭</span>
-                لم تقم بدعوة أي صديق حتى الآن.<br>شارك رابطك لتبدأ في كسب الأرباح!
-            </div>`;
-        return;
-    }
-
-    let html = '<ul class="friends-list">';
-    friendsList.forEach(friend => {
-        const friendName = friend.name || "مستخدم";
-        const friendId = friend.id || "---";
-        const earnedFromHim = friend.earned || 0;
-        
-        // أخذ أول حرف من اسم الصديق للصورة الرمزية
-        const firstLetter = friendName.charAt(0).toUpperCase();
-
-        html += `
-            <li class="friend-item">
-                <div class="friend-avatar">${firstLetter}</div>
-                <div class="friend-info">
-                    <span class="friend-name">${friendName}</span>
-                    <span class="friend-id">ID: ${friendId}</span>
-                </div>
-                <div class="friend-earn">
-                    +${Math.floor(earnedFromHim).toLocaleString()} ZN
-                </div>
-            </li>
-        `;
-    });
-    html += '</ul>';
-    
-    container.innerHTML = html;
-}
-
-// ==========================================
-// رسم قائمة المهام (مع شريط التقدم Progress Bar)
+// رسم قائمة المهام
 // ==========================================
 function renderRefTasks() {
     const listEl = document.getElementById('ref-tasks-list');
@@ -117,9 +70,8 @@ function renderRefTasks() {
         const isClaimed = claimedTasks.includes(task.id);
         const isReady = currentFriends >= task.reqFriends;
         
-        // حساب نسبة شريط التقدم المئوية
         let progressPercent = (currentFriends / task.reqFriends) * 100;
-        if (progressPercent > 100) progressPercent = 100; // الحد الأقصى 100%
+        if (progressPercent > 100) progressPercent = 100; 
 
         let btnHtml = '';
         if (isClaimed) {
@@ -143,7 +95,6 @@ function renderRefTasks() {
                     </div>
                 </div>
                 
-                <!-- شريط التقدم -->
                 <div class="progress-container">
                     <div class="progress-bar" style="width: ${progressPercent}%;"></div>
                 </div>
@@ -160,7 +111,7 @@ function renderRefTasks() {
 }
 
 // ==========================================
-// دالة النسخ
+// النسخ والسحب
 // ==========================================
 window.copyRefLink = function() {
     const linkInput = document.getElementById('ref-link-input');
@@ -176,9 +127,6 @@ window.copyRefLink = function() {
     }).catch(err => console.error('Error:', err));
 };
 
-// ==========================================
-// دوال السحب والاستلام (تتصل بالخادم)
-// ==========================================
 window.claimRefEarnings = async function() {
     const pData = window.PlayerData;
     if (!pData || !pData.tg_id || pData.pending_ref_earnings <= 0) return;
@@ -201,7 +149,6 @@ window.claimRefEarnings = async function() {
             if (tele && tele.showAlert) tele.showAlert(msg);
             else alert(msg);
             
-            // تحديث البيانات من الخادم
             if(window.fetchPlayerDataFromServer) window.fetchPlayerDataFromServer();
         } else {
             alert(data.error || 'حدث خطأ أثناء السحب.');
@@ -232,7 +179,6 @@ window.claimRefTask = async function(taskId, reward, reqFriends) {
             if (tele && tele.showAlert) tele.showAlert(msg);
             else alert(msg);
             
-            // تحديث البيانات من الخادم
             if(window.fetchPlayerDataFromServer) window.fetchPlayerDataFromServer();
         } else {
             alert(data.error || 'عذراً، لم تتمكن من استلام المكافأة.');
@@ -242,7 +188,6 @@ window.claimRefTask = async function(taskId, reward, reqFriends) {
     }
 };
 
-// تهيئة الصفحة عند التحميل
 if (window.PlayerData && window.PlayerData.tg_id) {
     window.updateFriendsUI();
 }
