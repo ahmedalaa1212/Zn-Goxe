@@ -21,8 +21,17 @@ window.fetchPlayerDataFromServer = async function() {
     if (!window.PlayerData.tg_id) return;
     try {
         const tele = window.Telegram?.WebApp;
+        
+        // 🔥 تحسين استخراج كود الإحالة عشان يلقطه في كل الحالات
         let startParam = tele?.initDataUnsafe?.start_param || "";
         let ref_id = startParam ? startParam.replace('ref_', '') : "";
+        
+        if (!ref_id) {
+            const urlParams = new URLSearchParams(window.location.search);
+            const sp = urlParams.get('tgWebAppStartParam') || urlParams.get('start_param') || urlParams.get('startapp') || "";
+            if (sp) ref_id = sp.replace('ref_', '');
+        }
+
         let firstName = tele?.initDataUnsafe?.user?.first_name || "صديق";
 
         let url = `/api/user_data?telegramId=${window.PlayerData.tg_id}&tg_id=${window.PlayerData.tg_id}&name=${encodeURIComponent(firstName)}`;
@@ -56,7 +65,7 @@ window.fetchPlayerDataFromServer = async function() {
                 window.PlayerData.claimed_ref_tasks = dbData.claimed_ref_tasks || [];
 
                 let upgs = {};
-                for (let i = 1; i <= 9; i++) {
+                for (let i = 1; i <= 10; i++) {
                     upgs[`lvl${i}`] = parseInt(dbData[`lvl${i}_count`] || (dbData.upgrades && dbData.upgrades[`lvl${i}`]) || 0);
                 }
                 window.PlayerData.upgrades = upgs;
@@ -126,7 +135,7 @@ window.triggerAllUIUpdates = function() {
     if (typeof window.updateFriendsUI === 'function') window.updateFriendsUI();
     
     let pendingEarnEl = document.getElementById('pending-ref-earnings');
-    if(pendingEarnEl) pendingEarnEl.innerText = `ZN ${Math.floor(pData.pending_ref_earnings).toLocaleString()}`;
+    if(pendingEarnEl) pendingEarnEl.innerText = `${Math.floor(pData.pending_ref_earnings).toLocaleString()}`;
     
     let friendsCountEl = document.getElementById('invited-friends-count');
     if(friendsCountEl) friendsCountEl.innerText = `${pData.invited_friends_count} صديق`;
@@ -179,7 +188,7 @@ window.initCentralSystem = function() {
         if (id) {
             window.PlayerData.tg_id = id;
         } else if (!window.PlayerData.tg_id) {
-            window.PlayerData.tg_id = "5102387551"; 
+            window.PlayerData.tg_id = "5102387551"; // حساب التجربة
         }
 
         window.fetchPlayerDataFromServer();
