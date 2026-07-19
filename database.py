@@ -40,7 +40,7 @@ initialize_firebase()
 def create_tables():
     print("Firestore is ready! No SQL tables needed.")
 
-def init_user(telegram_id):
+def init_user(telegram_id, referred_by=None, first_name="صديق"):
     global db
     if db is None: initialize_firebase()
     if db is None: return
@@ -52,33 +52,42 @@ def init_user(telegram_id):
         if not doc.exists:
             user_data = {
                 'telegram_id': telegram_id,
-                'user_name': 'مستخدم جديد',
+                'first_name': first_name,
                 'balance': 0.0,
                 'ad_balance': 0.0, 
                 'is_banned': False,
                 'last_claim_time': datetime.utcnow().isoformat(),
                 'storage_level': 0,
-                # حقول الأصدقاء
-                'referred_by': None,
+                'referred_by': referred_by if referred_by and referred_by != telegram_id else None,
                 'pending_ref_earnings': 0.0,
                 'invited_friends_count': 0,
                 'claimed_ref_tasks': [],
-                'contributed_to_referrer': 0.0 # تتبع ما أسهمه هذا المستخدم لصديقه
+                'referral_details': {} # 🔥 خريطة لتسجيل أرباح كل صديق بالـ ID
             }
             for i in range(1, 11):
                 user_data[f'lvl{i}_count'] = 0
             user_ref.set(user_data)
             print(f"🚀 New user created in Firebase: {telegram_id}")
+            
+            # 🔥 لو فيه شخص دعاه، نزود عدد أصدقاء الشخص ده ونسجل بياناته
+            if user_data['referred_by']:
+                ref_user_ref = db.collection('users').document(user_data['referred_by'])
+                ref_doc = ref_user_ref.get()
+                if ref_doc.exists:
+                    # إضافة الصديق الجديد بصفر أرباح كبداية عشان يظهر في القائمة
+                    ref_user_ref.update({
+                        'invited_friends_count': firestore.Increment(1),
+                        f'referral_details.{telegram_id}': {'name': first_name, 'earned': 0.0}
+                    })
         else:
-            # تحديث حقول الأصدقاء إن كانت ناقصة دون المساس بالرصيد
             data = doc.to_dict()
             updates = {}
             if 'ad_balance' not in data: updates['ad_balance'] = 0.0
             if 'pending_ref_earnings' not in data: updates['pending_ref_earnings'] = 0.0
             if 'invited_friends_count' not in data: updates['invited_friends_count'] = 0
             if 'claimed_ref_tasks' not in data: updates['claimed_ref_tasks'] = []
-            if 'contributed_to_referrer' not in data: updates['contributed_to_referrer'] = 0.0
-            if 'user_name' not in data: updates['user_name'] = 'مستخدم'
+            if 'referral_details' not in data: updates['referral_details'] = {}
+            if 'first_name' not in data: updates['first_name'] = first_name
             
             if updates:
                 user_ref.update(updates)
