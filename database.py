@@ -46,13 +46,12 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
     
     try:
         doc = user_ref.get()
-        # لو المستخدم مش موجود (أو تم حذفه من الفايربيز هيدخل هنا كأنه جديد)
+        if referred_by:
+            referred_by = str(referred_by).replace('ref_', '').strip()
+            if referred_by == telegram_id:
+                referred_by = None
+                
         if not doc.exists:
-            if referred_by:
-                referred_by = str(referred_by).replace('ref_', '').strip()
-                if referred_by == telegram_id:
-                    referred_by = None
-                    
             user_data = {
                 'telegram_id': telegram_id,
                 'user_name': first_name,
@@ -74,21 +73,31 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
                 
             user_ref.set(user_data)
             
-            # إضافة الصديق لصاحب الرابط
             if referred_by:
                 ref_user_ref = db.collection('users').document(referred_by)
                 if ref_user_ref.get().exists:
-                    # استخدام الطريقة الصحيحة لتحديث البيانات المتداخلة
                     ref_user_ref.update({
                         'invited_friends_count': firestore.Increment(1),
                         f'referral_details.{telegram_id}.name': first_name,
                         f'referral_details.{telegram_id}.earned': 0.0
                     })
-                    is_new_referral = True # عشان نبعت رسالة في البوت
+                    is_new_referral = True
         else:
-            # لو المستخدم موجود بنعمل تحديث للبيانات الناقصة فقط
             data = doc.to_dict()
             updates = {}
+            
+            # ربط ذكي لمنع الفشل عند إعادة تجربة حساب تم إنشاؤه مسبقاً بدون دعوة
+            if not data.get('referred_by') and referred_by:
+                updates['referred_by'] = referred_by
+                ref_user_ref = db.collection('users').document(referred_by)
+                if ref_user_ref.get().exists:
+                    ref_user_ref.update({
+                        'invited_friends_count': firestore.Increment(1),
+                        f'referral_details.{telegram_id}.name': data.get('user_name', first_name),
+                        f'referral_details.{telegram_id}.earned': 0.0
+                    })
+                    is_new_referral = True
+                    
             if 'pending_ref_earnings' not in data: updates['pending_ref_earnings'] = 0.0
             if 'invited_friends_count' not in data: updates['invited_friends_count'] = 0
             if 'claimed_ref_tasks' not in data: updates['claimed_ref_tasks'] = []
