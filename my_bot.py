@@ -15,8 +15,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
-# القوانين والثوابت الخاصة بباقات التعدين وسعة التخزين
-BASE_MINING_RATE = 20  # عملة في الساعة مجاناً كبداية
+BASE_MINING_RATE = 20  
 BASE_STORAGE_CAP = 10000
 
 MINING_PACKAGES = {
@@ -35,7 +34,6 @@ STORAGE_PACKAGES = {
 }
 
 def calculate_unclaimed(user):
-    """حساب الأرباح التي تم تعدينها بأمان في السيرفر بناءً على الوقت المنقضي"""
     try:
         last_claim_str = user.get('last_claim_time', datetime.utcnow().isoformat())
         last_claim = datetime.fromisoformat(last_claim_str)
@@ -90,7 +88,7 @@ def get_user_data():
 @app.route('/api/claim', methods=['POST'])
 def handle_claim():
     data = request.json or {}
-    tg_id = data.get('tg_id')
+    tg_id = data.get('tg_id') or data.get('telegramId')
     if not tg_id:
         return jsonify({'error': 'Missing telegram ID'}), 400
         
@@ -105,6 +103,9 @@ def handle_claim():
     new_balance = user.get('balance', 0) + unclaimed
     database.update_balance(str(tg_id), new_balance)
     database.update_claim_time(str(tg_id))
+    
+    # 🔥 هنا مربط الفرس: إضافة نسبة الـ 10% للداعي عند السحب
+    database.add_referral_bonus(str(tg_id), unclaimed)
     
     return jsonify({'success': True, 'new_balance': new_balance, 'unclaimed': 0})
 
@@ -158,18 +159,16 @@ def start_command(message):
     tg_id = message.from_user.id
     first_name = message.from_user.first_name or "صديقي"
     
-    # 🔥 سحب كود الإحالة من رابط الدخول
     text_parts = message.text.split()
     ref_id = None
     if len(text_parts) > 1 and text_parts[1].startswith('ref_'):
         ref_id = text_parts[1].replace('ref_', '')
         
-    # تسجيل المستخدم مع كود الإحالة
     database.init_user(str(tg_id), ref_id, first_name)
     
     markup = InlineKeyboardMarkup()
     clean_web_url = WEB_URL.lower().strip()
-    # تمرير بيانات الدخول للويب اب
+    
     web_app_url = f"{clean_web_url}?tg_id={tg_id}"
     if ref_id:
         web_app_url += f"&start_param=ref_{ref_id}"
