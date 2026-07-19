@@ -22,7 +22,6 @@ window.fetchPlayerDataFromServer = async function() {
     try {
         const tele = window.Telegram?.WebApp;
         
-        // 🔥 تحسين استخراج كود الإحالة عشان يلقطه في كل الحالات
         let startParam = tele?.initDataUnsafe?.start_param || "";
         let ref_id = startParam ? startParam.replace('ref_', '') : "";
         
@@ -188,7 +187,7 @@ window.initCentralSystem = function() {
         if (id) {
             window.PlayerData.tg_id = id;
         } else if (!window.PlayerData.tg_id) {
-            window.PlayerData.tg_id = "5102387551"; // حساب التجربة
+            window.PlayerData.tg_id = "5102387551"; 
         }
 
         window.fetchPlayerDataFromServer();
