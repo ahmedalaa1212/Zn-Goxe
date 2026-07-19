@@ -9,6 +9,15 @@ from firebase_admin import credentials, firestore
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
+# منع المتصفح وتليجرام من عمل كاش للبيانات نهائياً لضمان التحديث اللحظي
+@app.after_request
+def add_header(response):
+    if request.path.startswith('/api/'):
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
 db = None
 firebase_creds_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT', '').strip()
 
@@ -16,7 +25,8 @@ if firebase_creds_json:
     try:
         creds_dict = json.loads(firebase_creds_json)
         cred = credentials.Certificate(creds_dict)
-        firebase_admin.initialize_app(cred)
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(cred)
         db = firestore.client()
         print("✅ [Firebase] Connected successfully!")
     except Exception as e:
@@ -92,7 +102,8 @@ def get_user_data():
         return jsonify({'success': False, 'error': 'Missing ID'}), 400
     
     telegram_id = str(telegram_id).strip()
-    doc = get_user_ref(telegram_id).get()
+    user_ref = get_user_ref(telegram_id)
+    doc = user_ref.get()
     now_iso = datetime.now(timezone.utc).isoformat()
     
     clean_ref_id = str(ref_id).replace('ref_', '').strip() if ref_id else None
@@ -117,10 +128,9 @@ def get_user_data():
             "referral_details": {}
         }
         for i in range(1, 11): new_user[f"lvl{i}_count"] = 0
-        get_user_ref(telegram_id).set(new_user)
+        user_ref.set(new_user)
         user_data = new_user
         
-        # إضافة الصديق لو دخل من الويب مباشرة
         if clean_ref_id:
             ref_user_ref = get_user_ref(clean_ref_id)
             if ref_user_ref.get().exists:
@@ -132,6 +142,18 @@ def get_user_data():
     else:
         user_data = doc.to_dict()
         updates = {}
+        
+        # ربط إحالة ذكي حتى لو المستخدم مسجل قديماً لكن ليس لديه مُحيل
+        if not user_data.get('referred_by') and clean_ref_id:
+            updates['referred_by'] = clean_ref_id
+            ref_user_ref = get_user_ref(clean_ref_id)
+            if ref_user_ref.get().exists:
+                ref_user_ref.update({
+                    'invited_friends_count': firestore.Increment(1),
+                    f'referral_details.{telegram_id}.name': user_data.get('user_name', user_name),
+                    f'referral_details.{telegram_id}.earned': 0.0
+                })
+
         if 'ad_balance' not in user_data: updates['ad_balance'] = 0.0
         if 'pending_ref_earnings' not in user_data: updates['pending_ref_earnings'] = 0.0
         if 'invited_friends_count' not in user_data: updates['invited_friends_count'] = 0
@@ -139,7 +161,7 @@ def get_user_data():
         if 'referral_details' not in user_data: updates['referral_details'] = {}
         
         if updates:
-            get_user_ref(telegram_id).update(updates)
+            user_ref.update(updates)
             user_data.update(updates)
         
     response_data = user_data.copy()
@@ -200,7 +222,6 @@ def claim():
             'last_claim_time': now_iso
         })
         
-        # 🔥 الحل النهائي لمشكلة الـ 10% باستخدام (Dot Notation) عشان الفايربيز يقراها صح
         referred_by = user_data.get('referred_by')
         if referred_by:
             referrer_ref = get_user_ref(referred_by)
