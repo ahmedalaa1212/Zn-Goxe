@@ -37,27 +37,22 @@ STORAGE_PACKAGES = {
 def calculate_unclaimed(user):
     """حساب الأرباح التي تم تعدينها بأمان في السيرفر بناءً على الوقت المنقضي"""
     try:
-        # استخدام الوقت الحالي كقيمة افتراضية إذا لم يوجد وقت سابق
         last_claim_str = user.get('last_claim_time', datetime.utcnow().isoformat())
         last_claim = datetime.fromisoformat(last_claim_str)
         seconds_passed = (datetime.utcnow() - last_claim).total_seconds()
         if seconds_passed < 0:
             seconds_passed = 0
 
-        # حساب سرعة التعدين في الساعة
         hourly_rate = BASE_MINING_RATE
         for i in range(1, 11):
             count = user.get(f'lvl{i}_count', 0)
             hourly_rate += count * MINING_PACKAGES[i]["boost"]
 
-        # حساب السعة القصوى للتخزين
         storage_lvl = user.get('storage_level', 0)
         max_cap = STORAGE_PACKAGES.get(storage_lvl, {}).get("cap", BASE_STORAGE_CAP)
 
-        # الأرباح المستحقة = الوقت بالثواني * الأرباح في الثانية
         unclaimed = seconds_passed * (hourly_rate / 3600.0)
         
-        # حجز الأرباح بحيث لا تتخطى سعة المخزن
         if unclaimed > max_cap:
             unclaimed = max_cap
             
@@ -117,7 +112,7 @@ def handle_claim():
 def handle_upgrade():
     data = request.json or {}
     tg_id = str(data.get('tg_id'))
-    upgrade_type = data.get('type')  # 'mining' أو 'storage'
+    upgrade_type = data.get('type') 
     level_num = int(data.get('level_num', 0))
     
     if not tg_id or not upgrade_type or not level_num:
@@ -161,20 +156,23 @@ def handle_upgrade():
 @bot.message_handler(commands=['start'])
 def start_command(message):
     tg_id = message.from_user.id
+    first_name = message.from_user.first_name or "صديقي"
     
-    # التقاط الـ Payload لو الشخص داخل من رابط إحالة زي /start ref_12345
-    ref_payload = message.text.replace("/start", "").strip()
-    
-    database.init_user(str(tg_id))
+    # 🔥 سحب كود الإحالة من رابط الدخول
+    text_parts = message.text.split()
+    ref_id = None
+    if len(text_parts) > 1 and text_parts[1].startswith('ref_'):
+        ref_id = text_parts[1].replace('ref_', '')
+        
+    # تسجيل المستخدم مع كود الإحالة
+    database.init_user(str(tg_id), ref_id, first_name)
     
     markup = InlineKeyboardMarkup()
     clean_web_url = WEB_URL.lower().strip()
-    
-    # تمرير الريفرال داخل الويب آب
-    if ref_payload.startswith("ref_"):
-        web_app_url = f"{clean_web_url}?startapp={ref_payload}&tg_id={tg_id}"
-    else:
-        web_app_url = f"{clean_web_url}?tg_id={tg_id}"
+    # تمرير بيانات الدخول للويب اب
+    web_app_url = f"{clean_web_url}?tg_id={tg_id}"
+    if ref_id:
+        web_app_url += f"&start_param=ref_{ref_id}"
         
     btn_game = InlineKeyboardButton("🎮 دخول اللعبة وابدأ التجميع الآن", web_app=WebAppInfo(url=web_app_url))
     btn_channel = InlineKeyboardButton("📢 تابع قناة اللعبة الرسمية", url="https://t.me/zngoxe")
@@ -182,7 +180,7 @@ def start_command(message):
     markup.add(btn_channel)
     
     motivational_text = (
-        f"🔥 أهلاً بك يا {message.from_user.first_name} في عالم الـ Zn Goxe المثير! 🔥\n\n"
+        f"🔥 أهلاً بك يا {first_name} في عالم الـ Zn Goxe المثير! 🔥\n\n"
         f"🚀 فرصة ذهبية مستنياك لتجميع العملات وتطوير إمبراطوريتك الرقمية من الصفر! "
         f"جهاز التعدين الخاص بك يعمل الآن في السحاب ويجمع لك الأرباح ثانية بثانية حتى وأنت مغلق للتطبيق!\n\n"
         f"👇 اضغط على الأزرار بالأسفل وانطلق فوراً!"
