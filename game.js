@@ -27,13 +27,14 @@ window.fetchPlayerDataFromServer = async function() {
         
         if (!ref_id) {
             const urlParams = new URLSearchParams(window.location.search);
-            const sp = urlParams.get('tgWebAppStartParam') || urlParams.get('start_param') || urlParams.get('startapp') || "";
+            const sp = urlParams.get('start_param') || urlParams.get('tgWebAppStartParam') || urlParams.get('startapp') || "";
             if (sp) ref_id = sp.replace('ref_', '');
         }
 
         let firstName = tele?.initDataUnsafe?.user?.first_name || "صديق";
 
-        let url = `/api/user_data?telegramId=${window.PlayerData.tg_id}&tg_id=${window.PlayerData.tg_id}&name=${encodeURIComponent(firstName)}`;
+        // استخدام طابع زمني دائم لكسر وعطل كاش تليجرام الداخلي ليعمل التحديث اللحظي
+        let url = `/api/user_data?telegramId=${window.PlayerData.tg_id}&tg_id=${window.PlayerData.tg_id}&name=${encodeURIComponent(firstName)}&_=${Date.now()}`;
         if(ref_id) url += `&ref_id=${ref_id}`;
 
         let response = await fetch(url);
@@ -80,7 +81,7 @@ window.fetchPlayerDataFromServer = async function() {
 window.fetchAndRenderFriendsList = async function() {
     if (!window.PlayerData.tg_id) return;
     try {
-        let response = await fetch(`/api/get_friends_list?telegramId=${window.PlayerData.tg_id}`);
+        let response = await fetch(`/api/get_friends_list?telegramId=${window.PlayerData.tg_id}&_=${Date.now()}`);
         if (response.ok) {
             let result = await response.json();
             if (result.success && result.friends) {
@@ -191,7 +192,6 @@ window.initCentralSystem = function() {
         }
 
         window.fetchPlayerDataFromServer();
-        window.fetchAndRenderFriendsList(); 
     }
 
     assignIdAndFetch();
