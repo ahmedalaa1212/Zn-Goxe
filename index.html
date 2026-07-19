@@ -4,31 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Zn Goxe - Crypto Mining</title>
+    
+    <!-- مكتبة الأيقونات -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <!-- 🟢 كود Monetag SDK الرسمي 🟢 -->
     <script src='//libtl.com/sdk.js' data-zone='11322720' data-sdk='show_11322720'></script>
     
+    <!-- ملفات التنسيق -->
     <link rel="stylesheet" href="farm/farm.css">
     <link rel="stylesheet" href="style.css">
-    <style>
-        body {
-            margin: 0; padding: 0;
-            background-color: #121212; color: #fff;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            padding-bottom: 70px;
-        }
-
-        /* التحكم في إخفاء وإظهار القوائم */
-        .game-view { display: none !important; }
-        .game-view.active { display: block !important; animation: fadeIn 0.3s; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    </style>
 </head>
 <body>
 
     <div id="app">
-        <!-- الأقسام المختلفة للبوت -->
+        <!-- الأقسام المختلفة للبوت التي سيتم تحميل المحتوى بداخلها -->
         <div id="view-friends" class="game-view"></div>
         <div id="view-wallet" class="game-view"></div>
         <div id="view-tasks" class="game-view"></div>
@@ -38,8 +28,9 @@
         <div id="view-settings" class="game-view"></div>
     </div>
 
-    <!-- شريط التنقل السفلي المعدل (7 قوائم والمزرعة في المنتصف) -->
+    <!-- شريط التنقل السفلي الاحترافي (7 قوائم والمزرعة بارزة في المنتصف) -->
     <nav class="bottom-nav">
+        <!-- 3 أزرار على اليمين -->
         <button class="nav-item" onclick="switchView('friends')" id="nav-friends">
             <i class="fas fa-users"></i><span>الأصدقاء</span>
         </button>
@@ -49,9 +40,13 @@
         <button class="nav-item" onclick="switchView('tasks')" id="nav-tasks">
             <i class="fas fa-list-check"></i><span>المهام</span>
         </button>
-        <button class="nav-item active" onclick="switchView('farm')" id="nav-farm">
+
+        <!-- زر المزرعة المركزي (الزر العائم) -->
+        <button class="nav-item nav-center-btn active" onclick="switchView('farm')" id="nav-farm">
             <i class="fas fa-screwdriver-wrench"></i><span>المزرعة</span>
         </button>
+
+        <!-- 3 أزرار على اليسار -->
         <button class="nav-item" onclick="switchView('games')" id="nav-games">
             <i class="fas fa-gamepad"></i><span>الألعاب</span>
         </button>
@@ -122,9 +117,11 @@
 
         // دالة التنقل السلس بين الأقسام
         function switchView(viewName) {
+            // إخفاء كل الأقسام وإظهار القسم المطلوب
             document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
             document.getElementById(`view-${viewName}`).classList.add('active');
             
+            // إزالة التفعيل من كل الأزرار وتفعيل الزر المضغوط
             document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
             document.getElementById(`nav-${viewName}`).classList.add('active');
 
