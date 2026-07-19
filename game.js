@@ -69,7 +69,6 @@ window.fetchPlayerDataFromServer = async function() {
     }
 };
 
-// 🔥 دالة رسم الأصدقاء الاحترافية
 window.fetchAndRenderFriendsList = async function() {
     if (!window.PlayerData.tg_id) return;
     try {
