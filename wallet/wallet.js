@@ -12,15 +12,23 @@ let currentTonPriceUSD = 5.00;
 let currentWalletTab = localStorage.getItem('lastWalletTab') || 'deposit';
 let tonConnectUI = null;
 
-// 1. تهيئة المحفظة مرة واحدة فقط عند تحميل الصفحة
+// 1. تهيئة المحفظة بذكاء (مع عنصر مخفي)
 async function initTonConnect() {
+    // بناء عنصر مخفي في الصفحة عشان المكتبة تشتغل عليه بدون ما تبوظ شكل الواجهة
+    if (!document.getElementById('hidden-ton-root')) {
+        let hiddenDiv = document.createElement('div');
+        hiddenDiv.id = 'hidden-ton-root';
+        hiddenDiv.style.display = 'none';
+        document.body.appendChild(hiddenDiv);
+    }
+
     try {
         tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
-            manifestUrl: 'https://raw.githubusercontent.com/ton-community/tutorials/main/03-client/test/public/tonconnect-manifest.json'
-            // شلنا الـ buttonRootId عشان هنتحكم في الفتح والقفل برمجياً
+            manifestUrl: 'https://raw.githubusercontent.com/ton-community/tutorials/main/03-client/test/public/tonconnect-manifest.json',
+            buttonRootId: 'hidden-ton-root' // بنربطها بالعنصر المخفي
         });
 
-        // المستمع اللحظي لحالة المحفظة (بيطبق على البوت كله)
+        // المستمع اللحظي لحالة المحفظة
         tonConnectUI.onStatusChange(wallet => {
             if (wallet) {
                 isWalletConnected = true;
@@ -29,7 +37,7 @@ async function initTonConnect() {
                 isWalletConnected = false;
                 userWalletAddress = null;
             }
-            // إعادة رسم الواجهة فوراً لتحديث الأزرار والمدخلات
+            // إعادة رسم الواجهة فوراً
             renderWalletTab(currentWalletTab); 
         });
     } catch (e) {
@@ -39,13 +47,25 @@ async function initTonConnect() {
 initTonConnect(); // تشغيل فوري
 
 // 2. دوال التحكم اليدوي في المحفظة
-window.connectCustomWallet = function() {
-    if (tonConnectUI) tonConnectUI.openModal();
+window.connectCustomWallet = async function() {
+    if (!tonConnectUI) {
+        alert("⏳ جاري تحميل المحفظة، يرجى الانتظار ثانية والمحاولة مرة أخرى...");
+        return;
+    }
+    try {
+        await tonConnectUI.connectWallet(); // أمر الفتح الرسمي
+    } catch (e) {
+        console.log("تم إلغاء الفتح أو حدث خطأ:", e);
+    }
 }
+
 window.disconnectCustomWallet = async function() {
     if (tonConnectUI) {
-        await tonConnectUI.disconnect();
-        // الـ onStatusChange فوق هتلقط الفصل وتخفي الواجهة لوحدها
+        try {
+            await tonConnectUI.disconnect();
+        } catch (e) {
+            console.error("خطأ أثناء الإلغاء:", e);
+        }
     }
 }
 
@@ -79,14 +99,12 @@ window.renderWalletTab = function(tab) {
     // --- قسم الإيداع ---
     if (tab === 'deposit') {
         if (!isWalletConnected) {
-            // حالة عدم الربط: الواجهة مخفية وزر الربط فقط موجود
             content.innerHTML = `
                 <div class="card locked-state">
                     <p>يجب ربط محفظة التليجرام أولاً لتتمكن من الإيداع</p>
                     <button onclick="connectCustomWallet()" class="action-btn btn-blue">ربط المحفظة الآن</button>
                 </div>`;
         } else {
-            // حالة الربط: إظهار خانة الإيداع
             content.innerHTML = `
                 <div class="card">
                     <div class="connected-state">
@@ -118,7 +136,6 @@ window.renderWalletTab = function(tab) {
     }
     // --- قسم السحب ---
     else if (tab === 'withdraw') {
-        // قسم تحويل ZN إلى USD (داخلي فـ بيكون ظاهر دايماً ملوش علاقة بالمحفظة)
         let withdrawHtml = `
             <div class="card">
                 <label class="input-label">تحويل ZN إلى USD</label>
@@ -126,16 +143,13 @@ window.renderWalletTab = function(tab) {
                 <button onclick="convertManualPoints()" class="action-btn btn-green">تحويل النقاط</button>
             </div>`;
 
-        // قسم سحب الأرباح الفعلي
         if (!isWalletConnected) {
-            // مخفي لو مش مربوط
             withdrawHtml += `
                 <div class="card locked-state">
                     <p>يجب ربط محفظة التليجرام أولاً لتتمكن من السحب</p>
                     <button onclick="connectCustomWallet()" class="action-btn btn-blue">ربط المحفظة الآن</button>
                 </div>`;
         } else {
-            // ظاهر لو مربوط
             withdrawHtml += `
                 <div class="card">
                     <div class="connected-state">
@@ -159,7 +173,7 @@ window.renderWalletTab = function(tab) {
     }
 }
 
-// دوال الحساب اللحظية أثناء الكتابة
+// دوال الحساب اللحظية
 window.calculateDepositTon = function() {
     let usd = document.getElementById('deposit-usd-input').value;
     let infoDiv = document.getElementById('deposit-calc-info');
@@ -189,7 +203,7 @@ window.executeDeposit = async function() {
 
     let tonAmount = usdAmount / currentTonPriceUSD;
     let nanoTon = Math.floor(tonAmount * 1e9).toString(); 
-    let projectWallet = "UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ"; // محفظتك
+    let projectWallet = "UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ"; 
 
     const transaction = {
         validUntil: Math.floor(Date.now() / 1000) + 360,
@@ -236,6 +250,6 @@ window.submitWithdrawal = function() {
     document.getElementById('withdraw-calc-info').style.display = 'none';
 }
 
-// تشغيل الواجهة المبدئية
+// تشغيل الواجهة 
 updateHeaderBalances();
 setTimeout(() => { renderWalletTab(currentWalletTab); }, 100);
