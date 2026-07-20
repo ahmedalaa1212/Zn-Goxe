@@ -18,10 +18,16 @@ window.PlayerData = {
 };
 
 window.fetchPlayerDataFromServer = async function() {
-    if (!window.PlayerData.tg_id) return;
+    const tele = window.Telegram?.WebApp;
+    const initData = tele?.initData || ""; 
+    
+    // لو مفيش بيانات مشفرة (يعني فاتح من برا تليجرام)، مش هنبعت الطلب
+    if (!initData) {
+        console.warn("⚠️ لم يتم العثور على initData. يرجى فتح التطبيق من تليجرام.");
+        return; 
+    }
+
     try {
-        const tele = window.Telegram?.WebApp;
-        
         let startParam = tele?.initDataUnsafe?.start_param || "";
         let ref_id = startParam ? startParam.replace('ref_', '') : "";
         
@@ -33,8 +39,8 @@ window.fetchPlayerDataFromServer = async function() {
 
         let firstName = tele?.initDataUnsafe?.user?.first_name || "صديق";
 
-        // 🔥 تم إضافة &_t=Date.now() لكسر الكاش عشان الرصيد يتحدث لحظياً
-        let url = `/api/user_data?telegramId=${window.PlayerData.tg_id}&tg_id=${window.PlayerData.tg_id}&name=${encodeURIComponent(firstName)}&_t=${Date.now()}`;
+        // 🔥 تم استبدال telegramId بـ initData
+        let url = `/api/user_data?initData=${encodeURIComponent(initData)}&name=${encodeURIComponent(firstName)}&_t=${Date.now()}`;
         if(ref_id) url += `&ref_id=${ref_id}`;
 
         let response = await fetch(url, { cache: "no-store" });
@@ -79,9 +85,12 @@ window.fetchPlayerDataFromServer = async function() {
 };
 
 window.fetchAndRenderFriendsList = async function() {
-    if (!window.PlayerData.tg_id) return;
+    const initData = window.Telegram?.WebApp?.initData || "";
+    if (!initData) return;
+
     try {
-        let response = await fetch(`/api/get_friends_list?telegramId=${window.PlayerData.tg_id}&_t=${Date.now()}`, { cache: "no-store" });
+        // 🔥 تم استبدال telegramId بـ initData
+        let response = await fetch(`/api/get_friends_list?initData=${encodeURIComponent(initData)}&_t=${Date.now()}`, { cache: "no-store" });
         if (response.ok) {
             let result = await response.json();
             if (result.success && result.friends) {
@@ -133,13 +142,13 @@ window.triggerAllUIUpdates = function() {
     if (typeof window.updateGamesUI === 'function') window.updateGamesUI();
     if (typeof window.updateTasksUI === 'function') window.updateTasksUI(); 
     if (typeof window.updateFriendsUI === 'function') window.updateFriendsUI();
-    if (typeof window.renderSettingsPage === 'function') window.renderSettingsPage(); // تحديث الإعدادات
+    if (typeof window.renderSettingsPage === 'function') window.renderSettingsPage();
     
     let pendingEarnEl = document.getElementById('pending-ref-earnings');
     if(pendingEarnEl) pendingEarnEl.innerText = `${Math.floor(pData.pending_ref_earnings).toLocaleString()}`;
     
     let friendsCountEl = document.getElementById('invited-friends-count');
-    if(friendsCountEl) friendsCountEl.innerText = `${pData.invited_friends_count}`; // شيلت كلمة صديق عشان الواجهة متضربش
+    if(friendsCountEl) friendsCountEl.innerText = `${pData.invited_friends_count}`;
 
     const formattedBalance = Math.floor(pData.balance).toLocaleString();
     
@@ -186,10 +195,9 @@ window.initCentralSystem = function() {
         const urlParams = new URLSearchParams(window.location.search);
         let id = tele?.initDataUnsafe?.user?.id?.toString() || urlParams.get('tg_id');
         
+        // ما زلنا نحتفظ بالـ tg_id عشان الواجهة وإنشاء رابط الإحالة
         if (id) {
             window.PlayerData.tg_id = id;
-        } else if (!window.PlayerData.tg_id) {
-            window.PlayerData.tg_id = "5102387551"; 
         }
 
         window.fetchPlayerDataFromServer();
