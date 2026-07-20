@@ -10,6 +10,9 @@
     
     <!-- 🟢 كود Monetag SDK الرسمي 🟢 -->
     <script src='//libtl.com/sdk.js' data-zone='11322720' data-sdk='show_11322720'></script>
+
+    <!-- 🟢 مكتبة TonConnect لربط محفظة التليجرام 🟢 -->
+    <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     
     <!-- ملفات التنسيق -->
     <link rel="stylesheet" href="farm/farm.css">
@@ -28,7 +31,7 @@
         <div id="view-settings" class="game-view"></div>
     </div>
 
-    <!-- شريط التنقل السفلي البسيط (7 قوائم مرتاحة) -->
+    <!-- شريط التنقل السفلي البسيط -->
     <nav class="bottom-nav">
         <button class="nav-item" onclick="switchView('friends')" id="nav-friends">
             <i class="fas fa-users"></i><span>الأصدقاء</span>
@@ -40,7 +43,7 @@
             <i class="fas fa-list-check"></i><span>المهام</span>
         </button>
 
-        <!-- زر المزرعة المركزي العادي والمضبوط -->
+        <!-- زر المزرعة المركزي -->
         <button class="nav-item nav-center-btn active" onclick="switchView('farm')" id="nav-farm">
             <i class="fas fa-screwdriver-wrench"></i>
             <span class="nav-center-text">المزرعة</span>
@@ -61,13 +64,11 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     
     <script>
-        // تهيئة بيئة تليجرام لضمان التقاط بيانات الأمان وتوسيع الشاشة
         if (window.Telegram && window.Telegram.WebApp) {
-            window.Telegram.WebApp.ready(); // يخبر تليجرام أن التطبيق جاهز
-            window.Telegram.WebApp.expand(); // يجعل التطبيق يملأ الشاشة
+            window.Telegram.WebApp.ready(); 
+            window.Telegram.WebApp.expand(); 
         }
 
-        // دالة سحب وتحميل ملفات الـ HTML والـ JS وتجهيز المزامنة
         async function loadAllViews() {
             const views = [
                 { id: 'view-friends', path: 'friends/friends.html' },
