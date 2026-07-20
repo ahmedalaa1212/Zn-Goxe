@@ -3,7 +3,8 @@
     localStorage.removeItem('zn_daily_day');
     localStorage.removeItem('zn_daily_time');
     
-    if (typeof window.Telegram === 'undefined' || !window.Telegram.WebApp.initDataUnsafe || !window.Telegram.WebApp.initDataUnsafe.user) {
+    // التأكد من أن اللعبة تفتح داخل التليجرام فقط
+    if (typeof window.Telegram === 'undefined' || !window.Telegram.WebApp.initData || !window.Telegram.WebApp.initDataUnsafe.user) {
         document.body.innerHTML = `
             <div style='color:#ff4444; text-align:center; padding:60px 20px; font-size:22px; font-weight:bold; background:#121212; height:100vh; display:flex; align-items:center; justify-content:center; flex-direction:column;'>
                 <div style='font-size: 50px; margin-bottom: 20px;'>🚫</div>
@@ -13,7 +14,8 @@
         return; 
     }
 
-    const TELEGRAM_ID = window.Telegram.WebApp.initDataUnsafe.user.id.toString();
+    // 🔒 جلب بيانات التوثيق المشفرة بالكامل لحماية الطلبات
+    const INIT_DATA = window.Telegram.WebApp.initData;
 
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 15,
@@ -282,10 +284,11 @@
         if (adWatched) {
             if (btn) btn.innerText = "جاري الاستلام... ⏳";
             try {
+                // 🔒 تم التعديل لإرسال initData المشفرة بدلاً من الـ ID المكشوف
                 let response = await fetch('/api/daily_claim', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ telegramId: TELEGRAM_ID })
+                    body: JSON.stringify({ initData: INIT_DATA })
                 });
 
                 let resData = await response.json();
@@ -335,10 +338,11 @@
         
         if (adWatched) {
             try {
+                // 🔒 تم التعديل لإرسال initData المشفرة بدلاً من الـ ID المكشوف
                 let response = await fetch('/api/claim', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ telegramId: pData.tg_id })
+                    body: JSON.stringify({ initData: INIT_DATA })
                 });
                 
                 if (response.ok) {
