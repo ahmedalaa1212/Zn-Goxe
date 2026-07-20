@@ -21,9 +21,9 @@ window.fetchPlayerDataFromServer = async function() {
     const tele = window.Telegram?.WebApp;
     const initData = tele?.initData || ""; 
     
-    // لو مفيش بيانات مشفرة (يعني فاتح من برا تليجرام)، مش هنبعت الطلب
+    // حماية الواجهة: لو مفيش بيانات مشفرة، نوقف التنفيذ
     if (!initData) {
-        console.warn("⚠️ لم يتم العثور على initData. يرجى فتح التطبيق من تليجرام.");
+        console.warn("⚠️ لم يتم العثور على initData. يرجى فتح التطبيق من تليجرام حصرياً.");
         return; 
     }
 
@@ -39,7 +39,7 @@ window.fetchPlayerDataFromServer = async function() {
 
         let firstName = tele?.initDataUnsafe?.user?.first_name || "صديق";
 
-        // 🔥 تم استبدال telegramId بـ initData
+        // 🔥 الاعتماد الكلي على initData
         let url = `/api/user_data?initData=${encodeURIComponent(initData)}&name=${encodeURIComponent(firstName)}&_t=${Date.now()}`;
         if(ref_id) url += `&ref_id=${ref_id}`;
 
@@ -78,9 +78,11 @@ window.fetchPlayerDataFromServer = async function() {
 
                 window.triggerAllUIUpdates();
             }
+        } else {
+            console.error("❌ السيرفر رفض الطلب، تأكد من صحة التوكن والبيانات.");
         }
     } catch (e) {
-        console.error("خطأ في مزامنة البيانات المركزية:", e);
+        console.error("❌ خطأ في مزامنة البيانات المركزية مع فايربيس:", e);
     }
 };
 
@@ -89,7 +91,6 @@ window.fetchAndRenderFriendsList = async function() {
     if (!initData) return;
 
     try {
-        // 🔥 تم استبدال telegramId بـ initData
         let response = await fetch(`/api/get_friends_list?initData=${encodeURIComponent(initData)}&_t=${Date.now()}`, { cache: "no-store" });
         if (response.ok) {
             let result = await response.json();
@@ -129,7 +130,7 @@ window.fetchAndRenderFriendsList = async function() {
             }
         }
     } catch (e) {
-        console.error("خطأ في جلب قائمة الأصدقاء:", e);
+        console.error("❌ خطأ في جلب قائمة الأصدقاء:", e);
     }
 };
 
@@ -195,7 +196,7 @@ window.initCentralSystem = function() {
         const urlParams = new URLSearchParams(window.location.search);
         let id = tele?.initDataUnsafe?.user?.id?.toString() || urlParams.get('tg_id');
         
-        // ما زلنا نحتفظ بالـ tg_id عشان الواجهة وإنشاء رابط الإحالة
+        // الاحتفاظ بـ tg_id من أجل رابط الإحالة فقط (ليس للمصادقة)
         if (id) {
             window.PlayerData.tg_id = id;
         }
