@@ -1,7 +1,10 @@
 import os
 import json
+import hashlib
+import hmac
+import urllib.parse
 from datetime import datetime, timezone
-from flask import Flask, request, jsonify, send_from_directory, make_response
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -18,6 +21,8 @@ def add_header(response):
 
 db = None
 firebase_creds_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT', '').strip()
+# 🔥 توكن البوت بتاعك اللي متسجل في Variables على Railway
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '').strip()
 
 if firebase_creds_json:
     try:
@@ -40,6 +45,34 @@ SHOP_CONFIG = {
     'storage': {1: 500, 2: 2500, 3: 8000, 4: 20000, 5: 50000, 6: 120000, 7: 300000, 8: 750000, 9: 2000000, 10: 5000000}
 }
 
+# ==========================================
+# 🛡️ نظام الحماية: التحقق من صحة بيانات تليجرام
+# ==========================================
+def validate_telegram_data(init_data: str):
+    if not init_data or not BOT_TOKEN:
+        return None
+    try:
+        parsed_data = dict(urllib.parse.parse_qsl(init_data))
+        if 'hash' not in parsed_data:
+            return None
+        
+        hash_val = parsed_data.pop('hash')
+        data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed_data.items()))
+        
+        secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+        calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+        
+        if calculated_hash == hash_val:
+            user_str = parsed_data.get('user', '{}')
+            return json.loads(user_str)
+        return None
+    except Exception as e:
+        print(f"❌ Auth Error: {e}")
+        return None
+
+# ==========================================
+# الدوال المساعدة
+# ==========================================
 def safe_float(val):
     try: return float(val)
     except (TypeError, ValueError): return 0.0
@@ -81,6 +114,9 @@ def calculate_user_harvest(user_data):
     unclaimed = diff_hours * hourly_rate
     return min(unclaimed, float(max_cap))
 
+# ==========================================
+# المسارات (Routes)
+# ==========================================
 @app.route('/')
 def index(): 
     return send_from_directory('.', 'index.html')
@@ -91,14 +127,23 @@ def serve_static(filename):
 
 @app.route('/api/user_data', methods=['GET'])
 def get_user_data():
-    telegram_id = request.args.get('telegramId')
+    init_data = request.args.get('initData') # نستقبل التوكن المشفر
     ref_id = request.args.get('ref_id')
-    user_name = request.args.get('name', 'صديق')
     
-    if not telegram_id or not db:
-        return jsonify({'success': False, 'error': 'Missing ID'}), 400
+    # 🔒 التحقق من التشفير
+    user = validate_telegram_data(init_data)
+    if not user:
+         return jsonify({'success': False, 'error': 'محاولة غير مصرح بها. افتح اللعبة من تليجرام.'}), 401
+
+    telegram_id = str(user.get('id')).strip()
+    # نجيب الاسم الحقيقي من تليجرام بدل ما نعتمد على الفرونت اند
+    user_name = user.get('first_name', 'صديق') 
+    if user.get('last_name'):
+        user_name += f" {user.get('last_name')}"
     
-    telegram_id = str(telegram_id).strip()
+    if not db:
+        return jsonify({'success': False, 'error': 'Database error'}), 500
+    
     doc = get_user_ref(telegram_id).get()
     now_iso = datetime.now(timezone.utc).isoformat()
     
@@ -149,6 +194,7 @@ def get_user_data():
                     f'referral_details.{telegram_id}.earned': 0.0
                 })
 
+        # التأكد من وجود الحقول الجديدة
         if 'ad_balance' not in user_data: updates['ad_balance'] = 0.0
         if 'pending_ref_earnings' not in user_data: updates['pending_ref_earnings'] = 0.0
         if 'invited_friends_count' not in user_data: updates['invited_friends_count'] = 0
@@ -170,9 +216,11 @@ def get_user_data():
 
 @app.route('/api/get_friends_list', methods=['GET'])
 def get_friends_list():
-    telegram_id = request.args.get('telegramId')
-    if not telegram_id: return jsonify({'success': False}), 400
+    init_data = request.args.get('initData')
+    user = validate_telegram_data(init_data)
+    if not user: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
     
+    telegram_id = str(user.get('id')).strip()
     try:
         doc = get_user_ref(telegram_id).get()
         if not doc.exists: return jsonify({'success': False, 'friends': []}), 200
@@ -196,10 +244,11 @@ def get_friends_list():
 @app.route('/api/claim', methods=['POST'])
 def claim():
     data = request.get_json() or {}
-    telegram_id = data.get('telegramId')
-    if not telegram_id: return jsonify({'success': False}), 400
+    init_data = data.get('initData')
+    user = validate_telegram_data(init_data)
+    if not user: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
     
-    telegram_id = str(telegram_id).strip()
+    telegram_id = str(user.get('id')).strip()
     try:
         user_ref = get_user_ref(telegram_id)
         doc = user_ref.get()
@@ -217,7 +266,6 @@ def claim():
             'last_claim_time': now_iso
         })
         
-        # 🔥 الإحالة والـ 10% شغالة هنا بامتياز 
         referred_by = user_data.get('referred_by')
         if referred_by:
             referrer_ref = get_user_ref(referred_by)
@@ -238,9 +286,11 @@ def claim():
 @app.route('/api/claim_ref_earnings', methods=['POST'])
 def claim_ref_earnings():
     data = request.get_json() or {}
-    telegram_id = data.get('telegramId')
-    if not telegram_id: return jsonify({'success': False}), 400
+    init_data = data.get('initData')
+    user = validate_telegram_data(init_data)
+    if not user: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
     
+    telegram_id = str(user.get('id')).strip()
     try:
         user_ref = get_user_ref(telegram_id)
         doc = user_ref.get()
@@ -266,12 +316,16 @@ def claim_ref_earnings():
 @app.route('/api/claim_ref_task', methods=['POST'])
 def claim_ref_task():
     data = request.get_json() or {}
-    telegram_id = data.get('telegramId')
+    init_data = data.get('initData')
+    user = validate_telegram_data(init_data)
+    if not user: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    telegram_id = str(user.get('id')).strip()
     task_id = safe_int(data.get('taskId'))
     reward = safe_float(data.get('reward'))
     req_friends = safe_int(data.get('reqFriends'))
     
-    if not telegram_id or not task_id: return jsonify({'success': False}), 400
+    if not task_id: return jsonify({'success': False}), 400
     
     try:
         user_ref = get_user_ref(telegram_id)
@@ -303,10 +357,11 @@ def claim_ref_task():
 @app.route('/api/daily_claim', methods=['POST'])
 def daily_claim():
     data = request.get_json() or {}
-    telegram_id = data.get('telegramId')
-    if not telegram_id: return jsonify({'success': False}), 400
+    init_data = data.get('initData')
+    user = validate_telegram_data(init_data)
+    if not user: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
     
-    telegram_id = str(telegram_id).strip()
+    telegram_id = str(user.get('id')).strip()
     try:
         user_ref = get_user_ref(telegram_id)
         doc = user_ref.get()
@@ -375,14 +430,17 @@ def execute_upgrade_transaction(transaction, user_ref, upg_type, level_num):
 @app.route('/api/upgrade', methods=['POST'])
 def upgrade():
     data = request.get_json() or {}
-    telegram_id = data.get('telegramId') or data.get('tg_id')
+    init_data = data.get('initData')
+    user = validate_telegram_data(init_data)
+    if not user: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    telegram_id = str(user.get('id')).strip()
     upg_type = data.get('type') 
     level_num = safe_int(data.get('level_num'))
 
-    if not telegram_id or not upg_type or not level_num:
+    if not upg_type or not level_num:
         return jsonify({'success': False, 'error': 'بيانات ناقصة'}), 400
         
-    telegram_id = str(telegram_id).strip()
     try:
         transaction = db.transaction()
         user_ref = get_user_ref(telegram_id)
@@ -396,13 +454,16 @@ def upgrade():
 @app.route('/api/game_reward', methods=['POST'])
 def game_reward():
     data = request.get_json() or {}
-    telegram_id = data.get('telegramId')
+    init_data = data.get('initData')
+    user = validate_telegram_data(init_data)
+    if not user: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    telegram_id = str(user.get('id')).strip()
     reward = safe_float(data.get('reward'))
 
-    if not telegram_id or reward <= 0:
+    if reward <= 0:
         return jsonify({'success': False, 'error': 'بيانات غير صالحة'}), 400
         
-    telegram_id = str(telegram_id).strip()
     try:
         user_ref = get_user_ref(telegram_id)
         doc = user_ref.get()
@@ -421,15 +482,18 @@ def game_reward():
 @app.route('/api/convert_adzn', methods=['POST'])
 def convert_adzn():
     data = request.get_json() or {}
-    tg_id = data.get('telegramId')
+    init_data = data.get('initData')
+    user = validate_telegram_data(init_data)
+    if not user: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    telegram_id = str(user.get('id')).strip()
     amount = safe_float(data.get('amount'))
 
-    if not tg_id or amount <= 0: return jsonify({'success': False, 'error': 'مبلغ غير صالح'}), 400
-    tg_id = str(tg_id).strip()
+    if amount <= 0: return jsonify({'success': False, 'error': 'مبلغ غير صالح'}), 400
 
     try:
         transaction = db.transaction()
-        user_ref = get_user_ref(tg_id)
+        user_ref = get_user_ref(telegram_id)
         
         @firestore.transactional
         def process_conversion(transaction, user_ref):
@@ -462,21 +526,23 @@ def convert_adzn():
 @app.route('/api/create_campaign', methods=['POST'])
 def create_campaign():
     data = request.get_json() or {}
-    tg_id = data.get('telegramId')
+    init_data = data.get('initData')
+    user = validate_telegram_data(init_data)
+    if not user: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    telegram_id = str(user.get('id')).strip()
     platform = data.get('platform')
     url = data.get('url')
     reward = safe_float(data.get('reward'))
     users_needed = safe_int(data.get('users_needed'))
 
     total_cost = reward * users_needed
-    if not tg_id or total_cost <= 0 or not url:
+    if total_cost <= 0 or not url:
         return jsonify({'success': False, 'error': 'بيانات الحملة غير مكتملة'}), 400
-        
-    tg_id = str(tg_id).strip()
 
     try:
         transaction = db.transaction()
-        user_ref = get_user_ref(tg_id)
+        user_ref = get_user_ref(telegram_id)
 
         @firestore.transactional
         def process_campaign(transaction, user_ref):
@@ -494,7 +560,7 @@ def create_campaign():
 
         camp_ref = db.collection('campaigns').document()
         camp_ref.set({
-            'creator_id': tg_id,
+            'creator_id': telegram_id,
             'platform': platform,
             'url': url,
             'reward': reward,
@@ -510,11 +576,14 @@ def create_campaign():
 
 @app.route('/api/get_campaigns', methods=['GET'])
 def get_campaigns():
-    tg_id = request.args.get('telegramId')
+    init_data = request.args.get('initData')
+    user = validate_telegram_data(init_data)
+    if not user: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    telegram_id = str(user.get('id')).strip()
     try:
         camps = db.collection('campaigns').where('active', '==', True).get()
         results = []
-        telegram_id = str(tg_id).strip() if tg_id else ""
         
         for c in camps:
             c_data = c.to_dict()
@@ -539,10 +608,14 @@ def get_campaigns():
 @app.route('/api/cancel_campaign', methods=['POST'])
 def cancel_campaign():
     data = request.get_json() or {}
-    tg_id = str(data.get('telegramId', '')).strip()
+    init_data = data.get('initData')
+    user = validate_telegram_data(init_data)
+    if not user: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    telegram_id = str(user.get('id')).strip()
     camp_id = data.get('campaignId')
 
-    if not tg_id or not camp_id:
+    if not camp_id:
         return jsonify({'success': False, 'error': 'بيانات ناقصة'}), 400
 
     try:
@@ -552,7 +625,7 @@ def cancel_campaign():
             return jsonify({'success': False, 'error': 'الحملة غير موجودة'}), 404
 
         camp_data = camp_doc.to_dict()
-        if camp_data.get('creator_id') != tg_id:
+        if camp_data.get('creator_id') != telegram_id:
             return jsonify({'success': False, 'error': 'غير مصرح لك بإلغاء هذا الإعلان!'}), 403
 
         if not camp_data.get('active', False):
@@ -565,7 +638,7 @@ def cancel_campaign():
         
         refund_amount = (remaining_users * reward) * 0.90 
 
-        user_ref = get_user_ref(tg_id)
+        user_ref = get_user_ref(telegram_id)
         user_doc = user_ref.get()
         if user_doc.exists:
             current_ad_bal = safe_float(user_doc.to_dict().get('ad_balance', 0))
@@ -579,14 +652,18 @@ def cancel_campaign():
 @app.route('/api/complete_task', methods=['POST'])
 def complete_task():
     data = request.get_json() or {}
-    tg_id = str(data.get('telegramId', '')).strip()
+    init_data = data.get('initData')
+    user = validate_telegram_data(init_data)
+    if not user: return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    telegram_id = str(user.get('id')).strip()
     task_id = data.get('taskId')
 
-    if not tg_id or not task_id: return jsonify({'success': False, 'error': 'بيانات ناقصة'}), 400
+    if not task_id: return jsonify({'success': False, 'error': 'بيانات ناقصة'}), 400
 
     try:
         transaction = db.transaction()
-        user_ref = get_user_ref(tg_id)
+        user_ref = get_user_ref(telegram_id)
         task_ref = db.collection('campaigns').document(task_id)
 
         @firestore.transactional
@@ -598,7 +675,7 @@ def complete_task():
 
             task_data = task_doc.to_dict()
             completed_by = task_data.get('completed_by', [])
-            if tg_id in completed_by: return False, 'لقد قمت بتنفيذ هذه المهمة مسبقاً'
+            if telegram_id in completed_by: return False, 'لقد قمت بتنفيذ هذه المهمة مسبقاً'
             
             users_completed = safe_int(task_data.get('users_completed', 0))
             users_needed = safe_int(task_data.get('users_needed', 0))
@@ -607,7 +684,7 @@ def complete_task():
                 return False, 'عذراً، انتهت هذه الحملة'
 
             reward = safe_float(task_data.get('reward', 0))
-            completed_by.append(tg_id)
+            completed_by.append(telegram_id)
             
             task_updates = {'completed_by': completed_by, 'users_completed': users_completed + 1}
             if users_completed + 1 >= users_needed: task_updates['active'] = False
