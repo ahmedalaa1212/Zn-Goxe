@@ -21,7 +21,9 @@ def add_header(response):
 
 db = None
 firebase_creds_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT', '').strip()
-BOT_TOKEN = os.environ.get('BOT_TOKEN', '').strip()
+
+# 🚨🚨 ضع توكن البوت الخاص بك هنا بين علامات التنصيص بدلاً من YOUR_BOT_TOKEN_HERE 🚨🚨
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '8593282260:AAHdQKfiF3lmvvHlUsvZo0mHbVh62Rj3fFw').strip()
 
 if firebase_creds_json:
     try:
@@ -48,11 +50,17 @@ SHOP_CONFIG = {
 # 🛡️ نظام الحماية: التحقق من صحة بيانات تليجرام
 # ==========================================
 def validate_telegram_data(init_data: str):
-    if not init_data or not BOT_TOKEN:
+    if not init_data:
+        print("❌ [Auth] بيانات initData غير موجودة!")
         return None
+    if not BOT_TOKEN or BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
+        print("❌ [Auth] توكن البوت مفقود! يرجى إضافة BOT_TOKEN في الكود أو كمتغير بيئة.")
+        return None
+        
     try:
-        parsed_data = dict(urllib.parse.parse_qsl(init_data))
+        parsed_data = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
         if 'hash' not in parsed_data:
+            print("❌ [Auth] التشفير (hash) غير موجود في البيانات.")
             return None
         
         hash_val = parsed_data.pop('hash')
@@ -64,13 +72,15 @@ def validate_telegram_data(init_data: str):
         if calculated_hash == hash_val:
             user_str = parsed_data.get('user', '{}')
             return json.loads(user_str)
-        return None
+        else:
+            print("❌ [Auth] محاولة اختراق: التشفير غير متطابق! تأكد أن توكن البوت صحيح.")
+            return None
     except Exception as e:
-        print(f"❌ Auth Error: {e}")
+        print(f"❌ [Auth] خطأ أثناء المصادقة: {e}")
         return None
 
 # ==========================================
-# 🛡️ دالة المصادقة الحديدية (بدون الباب الخلفي)
+# 🛡️ دالة المصادقة الحديدية
 # ==========================================
 def get_authenticated_user(req, is_post=False):
     if is_post:
@@ -80,7 +90,6 @@ def get_authenticated_user(req, is_post=False):
         init_data = req.args.get('initData')
         
     if not init_data:
-        # لو مفيش initData، هنرفض الطلب فوراً ومفيش حاجة اسمها الدخول بـ telegramId العادي بعد كدة
         return False, None, None, (jsonify({'success': False, 'error': 'بيانات المصادقة مفقودة. افتح اللعبة من تليجرام فقط.'}), 401)
         
     user = validate_telegram_data(init_data)
