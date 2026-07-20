@@ -1,126 +1,221 @@
-// الأرصدة الوهمية للتجربة
-let znBalance = 15400; 
-let isWalletConnected = false; // حالة ربط المحفظة
+// بيانات افتراضية للتجربة (هتتغير بعدين من الداتا بيز بتاعتك)
+let playerData = {
+    znBalance: 15400,
+    usdBalance: 0.03080,
+    tgId: 123456789 
+};
 
-// استرجاع آخر صفحة كان فاتحها اللاعب عشان متتمسحش
+// متغيرات النظام
+let isWalletConnected = false;
+let userWalletAddress = null;
+let currentTonPriceUSD = 5.00; // سعر الـ TON بالدولار 
 let currentWalletTab = localStorage.getItem('lastWalletTab') || 'deposit';
+let tonConnectUI = null;
 
-// الدالة الرئيسية لعرض المحتوى (تم الاحتفاظ بنظامك وتصميمك تماماً)
+// 1. دالة تهيئة مكتبة TON Connect
+function initTonConnect() {
+    if (!tonConnectUI) {
+        try {
+            tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
+                manifestUrl: 'https://raw.githubusercontent.com/ton-community/tutorials/main/03-client/test/public/tonconnect-manifest.json',
+                buttonRootId: 'ton-connect-wrapper'
+            });
+
+            // مراقبة حالة المحفظة (اتربطت ولا اتلغت)
+            tonConnectUI.onStatusChange(wallet => {
+                if (wallet) {
+                    isWalletConnected = true;
+                    userWalletAddress = TON_CONNECT_UI.toUserFriendlyAddress(wallet.account.address);
+                    renderWalletTab(currentWalletTab); // تحديث الشاشة
+                } else {
+                    isWalletConnected = false;
+                    userWalletAddress = null;
+                    renderWalletTab(currentWalletTab);
+                }
+            });
+        } catch (e) {
+            console.error("خطأ في تهيئة TonConnect:", e);
+        }
+    }
+}
+
+// 2. تحديث أرصدة الشاشة الرئيسية
+function updateHeaderBalances() {
+    document.getElementById('wallet-zn-balance').innerText = playerData.znBalance.toLocaleString();
+    document.getElementById('wallet-usd-balance').innerText = playerData.usdBalance.toFixed(5) + " $";
+    
+    let estimateTon = playerData.usdBalance / currentTonPriceUSD;
+    document.getElementById('wallet-ton-estimate').innerText = "≈ " + estimateTon.toFixed(4) + " TON";
+}
+
+// 3. الدالة الرئيسية لعرض التبويبات
 function renderWalletTab(tab) {
     currentWalletTab = tab;
-    localStorage.setItem('lastWalletTab', tab); // حفظ الاختيار
+    localStorage.setItem('lastWalletTab', tab);
 
     const content = document.getElementById('wallet-content');
-    if (!content) return; // حماية لو العنصر لسه محملش
+    if (!content) return;
     
-    // تظبيط ألوان الأزرار
+    // تظبيط ألوان الأزرار العلوية
     const tabs = ['deposit', 'history', 'withdraw'];
     tabs.forEach(t => {
         const btn = document.getElementById(`btn-${t}`);
         if(btn) {
-            btn.style.background = (t === tab) ? '#0088cc' : '#222';
+            if(t === tab) btn.classList.add('active');
+            else btn.classList.remove('active');
         }
     });
 
-    // 1. قسم الإيداع
+    // قسم الإيداع
     if (tab === 'deposit') {
         content.innerHTML = `
-            <div style="text-align:center; padding:25px 20px; background:#1c1c1c; border-radius:10px; border:1px solid #333;">
-                <p style="margin-bottom:15px; font-size:16px;">إيداع <b>USDT</b> مباشر</p>
-                <button onclick="connectTonWallet()" style="width:100%; padding:15px; background:#0088cc; border:none; color:white; border-radius:8px; font-weight:bold; font-size:15px; cursor:pointer;">اتصال بمحفظة التليجرام (TonConnect)</button>
+            <div class="card">
+                <h3 style="margin-top:0; color:#fff; text-align:center;">إيداع (شراء ZN)</h3>
+                <p style="color:#aaa; font-size:13px; text-align:center; margin-bottom:20px;">
+                    أدخل المبلغ الذي تريد إيداعه بالدولار، وسنحسب لك ما يعادله بعُملة TON.
+                </p>
+                <div class="input-group">
+                    <label class="input-label">المبلغ المطلوب إيداعه ($)</label>
+                    <input type="number" id="deposit-usd-input" class="input-field" placeholder="مثال: 5" oninput="calculateDepositTon()">
+                </div>
+                <!-- حساب الـ TON اللحظي بيظهر هنا -->
+                <div id="deposit-calc-info" style="display:none; padding:10px; margin-bottom:15px; border-radius:8px; text-align:center; background:rgba(0, 136, 204, 0.1); border:1px solid #0088cc;">
+                    مطلوب إرسال: <b id="required-ton-amount" style="color:#88ccff;">0</b> TON
+                </div>
+                ${!isWalletConnected ? `
+                    <div style="padding:10px; margin-bottom:15px; border-radius:8px; text-align:center; background:rgba(255, 68, 68, 0.1); border:1px solid #ff4444; color:#ff4444;">يجب ربط محفظتك أولاً</div>
+                    <div id="ton-connect-wrapper"></div>
+                ` : `
+                    <div style="padding:10px; margin-bottom:15px; border-radius:8px; text-align:center; background:rgba(0, 204, 102, 0.1); border:1px solid #00cc66; color:#00cc66;">المحفظة متصلة ✅</div>
+                    <button onclick="executeDeposit()" class="action-btn btn-blue">متابعة الدفع بواسطة TON</button>
+                `}
             </div>`;
+            if (!isWalletConnected) setTimeout(initTonConnect, 100);
     } 
-    // 2. قسم السجلات
+    // قسم السجلات
     else if (tab === 'history') {
         content.innerHTML = `
-            <div style="text-align:center; padding:30px 20px; background:#1c1c1c; border-radius:10px; border:1px solid #333; color:#777;">
-                لا توجد سجلات حالياً
+            <div class="card" style="text-align:center; color:#777; padding:40px 20px;">
+                <div style="font-size:40px; margin-bottom:10px;">📋</div>
+                لا توجد سجلات سحب أو إيداع حالياً
             </div>`;
     }
-    // 3. قسم السحب (فيه التحويل + ربط المحفظة)
+    // قسم السحب
     else if (tab === 'withdraw') {
         content.innerHTML = `
             <div>
                 <!-- أداة التحويل -->
-                <div style="background:#1c1c1c; padding:20px; border-radius:10px; margin-bottom:15px; border:1px solid #333;">
-                    <p style="font-size:14px; color:#aaa; margin-bottom:10px; text-align:right;">تحويل ZN إلى USD</p>
-                    <input type="number" id="zn-input" placeholder="كمية ZN" style="width:100%; padding:12px; margin-bottom:15px; border-radius:8px; border:none; background:#000; color:#fff; box-sizing:border-box; outline:none;">
-                    <button onclick="convertManualPoints()" style="width:100%; padding:12px; background:#00cc66; color:white; border:none; border-radius:8px; font-weight:bold; font-size:15px; cursor:pointer;">تحويل النقاط</button>
+                <div class="card">
+                    <label class="input-label">تحويل ZN إلى USD</label>
+                    <input type="number" id="zn-input" class="input-field" placeholder="كمية ZN" style="margin-bottom:15px;">
+                    <button onclick="convertManualPoints()" class="action-btn btn-green">تحويل النقاط</button>
                 </div>
 
                 <!-- أداة السحب -->
-                <div style="background:#1c1c1c; padding:20px; border-radius:10px; border:1px solid #333;">
-                    <p style="font-size:14px; color:#aaa; margin-bottom:15px; text-align:right;">سحب الأرباح</p>
-                    
-                    <!-- التحقق من ربط المحفظة -->
+                <div class="card">
+                    <label class="input-label">سحب الأرباح</label>
                     ${!isWalletConnected ? `
-                        <div style="text-align:center; margin-bottom:15px; padding:10px; background:#2a1111; border-radius:8px;">
-                            <p style="color:#ff4444; font-size:13px; margin-bottom:10px;">يجب ربط محفظة التليجرام لتتمكن من السحب</p>
-                            <button onclick="connectTonWallet()" style="width:100%; padding:10px; background:#0088cc; border:none; color:white; border-radius:8px; font-weight:bold; cursor:pointer;">ربط المحفظة الآن</button>
-                        </div>
+                        <div style="padding:10px; margin-bottom:15px; border-radius:8px; text-align:center; background:rgba(255, 68, 68, 0.1); border:1px solid #ff4444; color:#ff4444;">يجب ربط محفظة التليجرام أولاً</div>
+                        <div id="ton-connect-wrapper"></div>
                     ` : `
-                        <div style="text-align:center; margin-bottom:15px; color:#00cc66; font-size:14px; font-weight:bold;">
-                            ✅ المحفظة مربوطة وجاهزة للسحب
+                        <div style="padding:10px; margin-bottom:15px; border-radius:8px; text-align:center; background:rgba(0, 204, 102, 0.1); border:1px solid #00cc66; color:#00cc66; font-size:12px; word-break:break-all;">
+                            ✅ مربوطة:<br>${userWalletAddress}
                         </div>
                     `}
-
-                    <input type="number" id="usd-withdraw" placeholder="المبلغ للسحب ($)" style="width:100%; padding:12px; margin-bottom:15px; border-radius:8px; border:none; background:#000; color:#fff; box-sizing:border-box; outline:none;">
-                    
-                    <!-- زر السحب (يُغلق إذا لم تكن المحفظة مربوطة) -->
-                    <button onclick="submitWithdrawal()" style="width:100%; padding:12px; background:${isWalletConnected ? '#ff4444' : '#555'}; border:none; color:white; border-radius:8px; font-weight:bold; font-size:15px; cursor:pointer;" ${!isWalletConnected ? 'disabled' : ''}>
+                    <div class="input-group">
+                        <input type="number" id="usd-withdraw" class="input-field" placeholder="المبلغ للسحب ($)" oninput="calculateWithdrawTon()" ${!isWalletConnected ? 'disabled' : ''}>
+                    </div>
+                    <!-- حساب الـ TON اللحظي للسحب بيظهر هنا -->
+                    <div id="withdraw-calc-info" style="display:none; padding:10px; margin-bottom:15px; text-align:center; color:#aaa; font-size:13px;">
+                        ستستلم على محفظتك: <b id="receive-ton-amount" style="color:#0088cc;">0</b> TON
+                    </div>
+                    <button onclick="submitWithdrawal()" class="action-btn ${isWalletConnected ? 'btn-blue' : 'btn-disabled'}" ${!isWalletConnected ? 'disabled' : ''}>
                         تقديم طلب سحب
                     </button>
                 </div>
             </div>`;
+            if (!isWalletConnected) setTimeout(initTonConnect, 100);
     }
 }
 
-// دالة التحويل 
-function convertManualPoints() {
+// 4. حساب الـ TON المطلوب للإيداع أثناء الكتابة
+window.calculateDepositTon = function() {
+    let usd = document.getElementById('deposit-usd-input').value;
+    let infoDiv = document.getElementById('deposit-calc-info');
+    if (usd > 0) {
+        document.getElementById('required-ton-amount').innerText = (usd / currentTonPriceUSD).toFixed(4);
+        infoDiv.style.display = 'block';
+    } else {
+        infoDiv.style.display = 'none';
+    }
+}
+
+// 5. حساب الـ TON المستلم للسحب أثناء الكتابة
+window.calculateWithdrawTon = function() {
+    let usd = document.getElementById('usd-withdraw').value;
+    let infoDiv = document.getElementById('withdraw-calc-info');
+    if (usd > 0) {
+        document.getElementById('receive-ton-amount').innerText = (usd / currentTonPriceUSD).toFixed(4);
+        infoDiv.style.display = 'block';
+    } else {
+        infoDiv.style.display = 'none';
+    }
+}
+
+// 6. تنفيذ الإيداع عبر محفظة تليجرام
+window.executeDeposit = async function() {
+    let usdAmount = document.getElementById('deposit-usd-input').value;
+    if (!usdAmount || usdAmount <= 0) return alert("يرجى إدخال مبلغ صحيح للإيداع");
+
+    let tonAmount = usdAmount / currentTonPriceUSD;
+    let nanoTon = Math.floor(tonAmount * 1e9).toString(); 
+    let projectWallet = "UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ"; // حط عنوان محفظتك هنا
+
+    const transaction = {
+        validUntil: Math.floor(Date.now() / 1000) + 360,
+        messages: [{
+            address: projectWallet,
+            amount: nanoTon,
+            payload: TON_CONNECT_UI.getPayloadString(playerData.tgId.toString()) 
+        }]
+    };
+
+    try {
+        await tonConnectUI.sendTransaction(transaction);
+        alert(`✅ تم الإيداع بنجاح!\nسيتم إضافة ${usdAmount}$ لرصيدك.`);
+    } catch (e) {
+        if(e.message !== "User rejected the transaction") alert("حدث خطأ أثناء الدفع");
+    }
+}
+
+// 7. دالة تحويل النقاط (أصلية)
+window.convertManualPoints = function() {
     let amount = document.getElementById('zn-input').value;
-    if (!amount || amount < 5000) {
-        alert("الحد الأدنى للتحويل هو 5000 ZN");
-        return;
-    }
-    let usd = (amount / 5000) * 0.01;
-    alert("تم تحويل " + amount + " ZN بنجاح إلى " + usd.toFixed(5) + " $");
-}
-
-// دالة ربط المحفظة
-function connectTonWallet() {
-    alert("جارِ فتح محفظة التليجرام (TonConnect)...");
-    isWalletConnected = true; 
-    renderWalletTab(currentWalletTab); // تحديث الواجهة لفتح زر السحب
-}
-
-// دالة السحب
-function submitWithdrawal() {
-    if (!isWalletConnected) {
-        alert("يرجى ربط المحفظة أولاً");
-        return;
-    }
-    let amount = document.getElementById('usd-withdraw').value;
-    if (!amount || amount <= 0) {
-         alert("يرجى إدخال مبلغ صحيح");
-         return;
-    }
-    alert('تم إرسال طلب سحب بقيمة ' + amount + '$ للمراجعة');
-}
-
-// حل مشكلة الشاشة البيضاء - تشغيل الدالة فور تحميل الملف لأول مرة
-setTimeout(() => {
-    renderWalletTab(currentWalletTab);
-}, 100);
-
-// ⚡ التحسين السحري الفائق السرعة لبوت التليجرام (Single Page App) ⚡
-// يفحص كل 100 ملي ثانية (10 مرات في الثانية) إذا كانت شاشة المحفظة ظاهرة للمستخدم ومحتواها فارغ، يعمر البيانات فوراً وبسرعة البرق!
-setInterval(() => {
-    const walletSection = document.getElementById('main-wallet-section');
-    const walletContent = document.getElementById('wallet-content');
+    if (!amount || amount < 5000) return alert("الحد الأدنى للتحويل هو 5000 ZN");
+    if (amount > playerData.znBalance) return alert("رصيدك من ZN لا يكفي");
     
-    if (walletSection && walletContent) {
-        if (walletSection.style.display !== 'none' && window.getComputedStyle(walletSection).display !== 'none' && walletContent.innerHTML === '') {
-            renderWalletTab(currentWalletTab);
-        }
-    }
-}, 100); 
+    let usd = (amount / 5000) * 0.01;
+    playerData.znBalance -= amount;
+    playerData.usdBalance += usd;
+    updateHeaderBalances();
+    alert(`✅ تم تحويل ${amount} ZN بنجاح إلى ${usd.toFixed(5)} $`);
+    document.getElementById('zn-input').value = '';
+}
+
+// 8. طلب السحب
+window.submitWithdrawal = function() {
+    let usdAmount = document.getElementById('usd-withdraw').value;
+    if (!usdAmount || usdAmount <= 0) return alert("يرجى إدخال مبلغ صحيح للسحب");
+    if (usdAmount > playerData.usdBalance) return alert("رصيدك بالدولار لا يكفي");
+
+    let expectedTon = (usdAmount / currentTonPriceUSD).toFixed(4);
+    playerData.usdBalance -= usdAmount;
+    updateHeaderBalances();
+    alert(`✅ تم إرسال طلب سحب بقيمة ${usdAmount}$.\nستصلك ≈ ${expectedTon} TON على محفظتك.`);
+    document.getElementById('usd-withdraw').value = '';
+    document.getElementById('withdraw-calc-info').style.display = 'none';
+}
+
+// تشغيل الواجهة
+updateHeaderBalances();
+setTimeout(() => { renderWalletTab(currentWalletTab); }, 100);
