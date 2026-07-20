@@ -24,6 +24,8 @@ firebase_creds_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT', '').strip()
 
 # 🚨🚨 ضع توكن البوت الخاص بك هنا بين علامات التنصيص بدلاً من YOUR_BOT_TOKEN_HERE 🚨🚨
 
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '').strip()
+
 if firebase_creds_json:
     try:
         creds_dict = json.loads(firebase_creds_json)
