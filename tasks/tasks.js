@@ -82,9 +82,18 @@
         let completedTasks = JSON.parse(localStorage.getItem('zn_completed_tasks') || '[]');
         let myId = String(getTgId()).trim();
         
+        // 🔒 جلب آمن للمهام باستخدام التشفير
+        const initData = window.Telegram?.WebApp?.initData;
         let realTasks = [];
         try {
-            let response = await fetch(`/api/get_campaigns?telegramId=${myId}`);
+            let url = `/api/get_campaigns`;
+            if (initData) {
+                url += `?initData=${encodeURIComponent(initData)}`;
+            } else {
+                url += `?telegramId=${myId}`;
+            }
+            
+            let response = await fetch(url);
             if (response.ok) {
                 let data = await response.json();
                 if (data.success) { realTasks = data.campaigns; }
@@ -249,7 +258,6 @@
         }
     };
 
-    // 🔥 زر بدء المهمة بنظام حساب الوقت المطلق المحمي ضد أي تجمد أو محاولات غش
     window.startTask = function(taskId, link, reward) {
         window.taskStates[taskId] = 'running';
         window.accumulatedOutsideTime[taskId] = 0;
@@ -264,7 +272,6 @@
 
         window.taskIntervals[taskId] = setInterval(() => {
             let currentTotalOutside = window.accumulatedOutsideTime[taskId] || 0;
-            // إذا كان المستخدم خارج التطبيق حالياً، نضيف فارق الوقت الحقيقي للعداد
             if (document.visibilityState === 'hidden') {
                 currentTotalOutside += (Date.now() - (window.lastGoOutside[taskId] || Date.now())) / 1000;
             }
@@ -279,7 +286,6 @@
             } else {
                 if (btn) {
                     if (document.visibilityState === 'visible') {
-                        // إذا رجع للبوت بدري، العداد بيتجمد فوراً ويتحول للون تنبيه أحمر
                         btn.innerText = `عُد للمهمة.. ${remaining}ث⏳`;
                         btn.style.background = "rgba(239,68,68,0.15)";
                         btn.style.color = "#ef4444";
@@ -292,19 +298,16 @@
         }, 1000);
     };
 
-    // مستمع عام وآمن يقوم برصد خروج ودخول العضو لحساب فارق التوقيت بالملي ثانية
     if (!window.visibilityListenerAdded) {
         document.addEventListener('visibilitychange', () => {
             const now = Date.now();
             for (let taskId in window.taskStates) {
                 if (window.taskStates[taskId] === 'running') {
                     if (document.visibilityState === 'visible') {
-                        // العضو رجع للبوت: نحسب المدة الحقيقية التي قضاها في الخارج ونضيفها لرصيده الزمني للمهمة
                         let timeSpentOutside = (now - (window.lastGoOutside[taskId] || now)) / 1000;
                         window.accumulatedOutsideTime[taskId] = (window.accumulatedOutsideTime[taskId] || 0) + timeSpentOutside;
                         window.lastGoOutside[taskId] = now;
                     } else if (document.visibilityState === 'hidden') {
-                        // العضو غادر البوت الآن متوجهاً للمنصة المحددة
                         window.lastGoOutside[taskId] = now;
                     }
                 }
@@ -313,7 +316,14 @@
         window.visibilityListenerAdded = true;
     }
 
+    // 🔒 التحقق المحمي عبر التليجرام داتا
     window.verifyTask = async function(taskId, reward) {
+        const initData = window.Telegram?.WebApp?.initData;
+        if (!initData) {
+            alert("⚠️ يجب فتح البوت من تليجرام للتحقق الحقيقي.");
+            return;
+        }
+
         const btn = document.getElementById(`btn-task-${taskId}`);
         if(btn) { btn.innerText = "فحص التفاعل..."; btn.disabled = true; btn.style.opacity = "0.5"; }
 
@@ -321,7 +331,7 @@
             let response = await fetch('/api/complete_task', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ telegramId: getTgId(), taskId: taskId })
+                body: JSON.stringify({ initData: initData, taskId: taskId }) // 🔒
             });
             let result = await response.json();
             
@@ -331,7 +341,6 @@
                 localStorage.setItem('zn_completed_tasks', JSON.stringify(completedTasks));
                 if (window.PlayerData) window.PlayerData.balance += reward;
                 
-                // تنظيف طوابع الأمان للمهمة المكتملة بنجاح
                 delete window.taskStates[taskId];
                 delete window.accumulatedOutsideTime[taskId];
                 delete window.lastGoOutside[taskId];
@@ -349,7 +358,11 @@
         if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
     };
 
+    // 🔒 إلغاء الحملة بأمان لمنع سحب رصيد الغير
     window.cancelServerCampaign = async function(campId) {
+        const initData = window.Telegram?.WebApp?.initData;
+        if (!initData) return alert("⚠️ غير مصرح بالعملية خارج التليجرام.");
+
         if (isCancelingCampaign) return;
         if (!confirm("هل أنت متأكد من إلغاء الحملة؟ سيتم إرجاع رصيد النقاط غير المستهلكة فوراً.")) return;
         
@@ -361,7 +374,7 @@
             let response = await fetch('/api/cancel_campaign', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ telegramId: getTgId(), campaignId: campId })
+                body: JSON.stringify({ initData: initData, campaignId: campId }) // 🔒
             });
             let result = await response.json();
             if (response.ok && result.success) {
@@ -373,7 +386,11 @@
         finally { isCancelingCampaign = false; }
     };
 
+    // 🔒 تحويل الرصيد الإعلاني بشكل مؤمن ومحمي بالسيرفر
     window.convertZnToAdZn = async function() {
+        const initData = window.Telegram?.WebApp?.initData;
+        if (!initData) return alert("⚠️ يجب فتح اللعبة من داخل التليجرام أولاً.");
+
         if (isConvertingBalance) return;
         let amount = prompt("أدخل رصيد ZN المراد تحويله لرصيد الإعلانات:\n* سيتم تطبيق عمولة تداول 10%.");
         if (!amount || isNaN(amount) || amount <= 0) return;
@@ -389,7 +406,7 @@
             let response = await fetch('/api/convert_adzn', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ telegramId: getTgId(), amount: amount })
+                body: JSON.stringify({ initData: initData, amount: amount }) // 🔒
             });
             let result = await response.json();
             if (response.ok && result.success) {
@@ -436,7 +453,11 @@
         document.getElementById('ad-modal').style.display = 'none';
     };
 
+    // 🔒 رفع الحملة الإعلانية بالسيرفر بنظام التشفير التام
     window.submitAdCampaign = async function() {
+        const initData = window.Telegram?.WebApp?.initData;
+        if (!initData) return alert("⚠️ عذراً لا يمكن إنتاج حملات إعلانية خارج تطبيق تليجرام الأصلي.");
+
         if (isSubmittingCampaign) return;
 
         let link = document.getElementById('ad-link').value.trim();
@@ -484,7 +505,6 @@
             return;
         }
 
-        // إطلاق الفحص الأمني السريع (تم التعديل لـ 10 ثوانٍ)
         document.getElementById('review-modal').style.display = 'flex';
         let remainingSeconds = 10;
         const countdownTimerDisplay = document.getElementById('review-countdown-timer');
@@ -505,7 +525,7 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
-                            telegramId: getTgId(), 
+                            initData: initData, // 🔒
                             platform: currentAdType,
                             url: link,
                             description: desc, 
@@ -519,7 +539,6 @@
 
                     if (response.ok && result.success) {
                         if(window.PlayerData) window.PlayerData.ad_balance -= totalCost;
-                        // إظهار نافذة النجاح الزجاجية المخصصة
                         document.getElementById('success-modal').style.display = 'flex';
                     } else {
                         isSubmittingCampaign = false;
@@ -534,20 +553,16 @@
         }, 1000);
     };
 
-    // 🔥 زر التوجيه التلقائي مع إغلاق كافة النوافذ بشكل قاطع دون أي أثر
     window.handleSuccessRedirect = function() {
-        // إغلاق كلي وحاسم لجميع النوافذ المنبثقة دفعة واحدة لضمان عدم بقائها
         document.getElementById('success-modal').style.display = 'none';
         document.getElementById('review-modal').style.display = 'none';
         document.getElementById('ad-modal').style.display = 'none';
         
         isSubmittingCampaign = false;
 
-        // التحويل لقسم حملات الترويج
         window.switchTasksTab('promote');
         window.updateTasksUI();
 
-        // سكرول سلس لمكان ظهور الإعلان
         setTimeout(() => {
             const container = document.getElementById('active-ads-container');
             if (container) {
