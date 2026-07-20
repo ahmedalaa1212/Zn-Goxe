@@ -21,7 +21,6 @@ def add_header(response):
 
 db = None
 firebase_creds_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT', '').strip()
-# 🔥 توكن البوت بتاعك اللي متسجل في Variables على Railway
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '').strip()
 
 if firebase_creds_json:
@@ -71,30 +70,28 @@ def validate_telegram_data(init_data: str):
         return None
 
 # ==========================================
-# 🛡️ دالة المصادقة الذكية (لدمج النظام القديم والجديد)
+# 🛡️ دالة المصادقة الحديدية (بدون الباب الخلفي)
 # ==========================================
 def get_authenticated_user(req, is_post=False):
     if is_post:
         data = req.get_json() or {}
         init_data = data.get('initData')
-        tg_id_fallback = data.get('telegramId')
     else:
         init_data = req.args.get('initData')
-        tg_id_fallback = req.args.get('telegramId')
         
-    if init_data:
-        user = validate_telegram_data(init_data)
-        if not user:
-            return False, None, None, (jsonify({'success': False, 'error': 'محاولة غير مصرح بها. افتح اللعبة من تليجرام.'}), 401)
-        telegram_id = str(user.get('id')).strip()
-        user_name = user.get('first_name', 'صديق')
-        if user.get('last_name'):
-            user_name += f" {user.get('last_name')}"
-        return True, telegram_id, user_name, None
-    elif tg_id_fallback:
-        return True, str(tg_id_fallback).strip(), "صديق", None
-    else:
-        return False, None, None, (jsonify({'success': False, 'error': 'بيانات المصادقة مفقودة'}), 401)
+    if not init_data:
+        # لو مفيش initData، هنرفض الطلب فوراً ومفيش حاجة اسمها الدخول بـ telegramId العادي بعد كدة
+        return False, None, None, (jsonify({'success': False, 'error': 'بيانات المصادقة مفقودة. افتح اللعبة من تليجرام فقط.'}), 401)
+        
+    user = validate_telegram_data(init_data)
+    if not user:
+        return False, None, None, (jsonify({'success': False, 'error': 'محاولة اختراق أو بيانات غير صالحة.'}), 401)
+        
+    telegram_id = str(user.get('id')).strip()
+    user_name = user.get('first_name', 'صديق')
+    if user.get('last_name'):
+        user_name += f" {user.get('last_name')}"
+    return True, telegram_id, user_name, None
 
 # ==========================================
 # الدوال المساعدة
