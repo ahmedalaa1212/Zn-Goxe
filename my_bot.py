@@ -22,13 +22,13 @@ def start_command(message):
     # تسجيل الحساب في الداتابيز
     is_new_referral = database.init_user(str(tg_id), ref_id, first_name)
     
-    # إرسال إشعار لصاحب الرابط
+    # إرسال إشعار لصاحب الرابط (تم التعديل لـ HTML لتجنب مشاكل الأسماء)
     if is_new_referral and ref_id:
         try:
             bot.send_message(
-                chat_id=ref_id,
-                text=f"🎉 **خبر مفرح!**\n\nلقد انضم صديقك [{first_name}] إلى اللعبة عن طريق رابط الإحالة الخاص بك.\nستحصل الآن على 10% من أرباح تعدينه للأبد! 💸",
-                parse_mode='Markdown'
+                chat_id=int(ref_id), 
+                text=f"🎉 <b>خبر مفرح!</b>\n\nلقد انضم صديقك <b>[{first_name}]</b> إلى اللعبة عن طريق رابط الإحالة الخاص بك.\nستحصل الآن على 10% من أرباح تعدينه للأبد! 💸",
+                parse_mode='HTML'
             )
         except Exception as e:
             print(f"Could not send message to referrer: {e}")
