@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- مكتبة TON Connect الرسمية لربط المحفظة -->
+    <!-- مكتبة TON Connect الرسمية -->
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     <style>
         body { background:#0f0f0f; margin:0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #fff; }
@@ -23,9 +23,15 @@
         .action-btn:active { transform: scale(0.98); }
         .btn-green { background:#00cc66; color:white; }
         .btn-blue { background:#0088cc; color:white; }
-        .btn-disabled { background:#333; color:#777; cursor:not-allowed; }
-        #ton-connect-wrapper { display: flex; justify-content: center; margin-top: 10px; }
+        .btn-red { background:#ff4444; color:white; }
         .ton-price-ticker { font-size: 12px; color: #777; text-align: center; margin-top: 10px; }
+        
+        /* تنسيقات حالات الربط */
+        .locked-state { padding: 20px; text-align: center; background: rgba(255, 68, 68, 0.05); border: 1px solid #ff4444; border-radius: 10px; }
+        .locked-state p { color: #ff4444; font-size: 14px; margin-top: 0; margin-bottom: 15px; font-weight: bold; }
+        .connected-state { padding: 10px; margin-bottom: 15px; background: rgba(0, 204, 102, 0.1); border: 1px solid #00cc66; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .wallet-address-text { color: #00cc66; font-size: 12px; word-break: break-all; text-align: right; flex: 1; }
+        .disconnect-btn { background: transparent; border: 1px solid #ff4444; color: #ff4444; padding: 5px 10px; border-radius: 5px; font-size: 11px; cursor: pointer; margin-right: 10px; }
     </style>
 </head>
 <body>
@@ -39,7 +45,7 @@
             <b id="wallet-zn-balance" style="color:#fff;">15,400</b>
         </div>
         <div id="wallet-usd-balance" class="usd-balance">0.03080 $</div>
-        <!-- التقدير اللحظي بالـ TON عشان المستخدم يكون فاهم -->
+        <!-- التقدير اللحظي بالـ TON -->
         <div id="wallet-ton-estimate" class="ton-estimate">≈ 0.0061 TON</div>
     </div>
 
@@ -53,7 +59,7 @@
     <!-- وعاء عرض محتوى القسم النشط -->
     <div id="wallet-content"></div>
 
-    <!-- سعر الـ TON اللحظي للإيضاح -->
+    <!-- سعر الـ TON اللحظي -->
     <div class="ton-price-ticker">
         سعر 1 TON حالياً = <span id="current-ton-price">5.00</span>$
     </div>
