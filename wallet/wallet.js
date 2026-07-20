@@ -1,20 +1,17 @@
-// بيانات افتراضية
+// بيانات افتراضية (تتحول ديناميكياً لتطابق رصيد قاعدة البيانات)
 let playerData = {
-    znBalance: 15400,
-    usdBalance: 0.03080,
-    tgId: 123456789 
+    znBalance: 0,
+    usdBalance: 0.00000,
+    tgId: 5102387551 
 };
 
-// متغيرات النظام
 let isWalletConnected = false;
 let userWalletAddress = null;
 let currentTonPriceUSD = 5.00; 
 let currentWalletTab = localStorage.getItem('lastWalletTab') || 'deposit';
 let tonConnectUI = null;
 
-// 1. تهيئة المحفظة بذكاء (مع عنصر مخفي)
 async function initTonConnect() {
-    // بناء عنصر مخفي في الصفحة عشان المكتبة تشتغل عليه بدون ما تبوظ شكل الواجهة
     if (!document.getElementById('hidden-ton-root')) {
         let hiddenDiv = document.createElement('div');
         hiddenDiv.id = 'hidden-ton-root';
@@ -25,10 +22,9 @@ async function initTonConnect() {
     try {
         tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
             manifestUrl: 'https://raw.githubusercontent.com/ton-community/tutorials/main/03-client/test/public/tonconnect-manifest.json',
-            buttonRootId: 'hidden-ton-root' // بنربطها بالعنصر المخفي
+            buttonRootId: 'hidden-ton-root' 
         });
 
-        // المستمع اللحظي لحالة المحفظة
         tonConnectUI.onStatusChange(wallet => {
             if (wallet) {
                 isWalletConnected = true;
@@ -37,48 +33,43 @@ async function initTonConnect() {
                 isWalletConnected = false;
                 userWalletAddress = null;
             }
-            // إعادة رسم الواجهة فوراً
             renderWalletTab(currentWalletTab); 
         });
     } catch (e) {
         console.error("خطأ في تهيئة TonConnect:", e);
     }
 }
-initTonConnect(); // تشغيل فوري
+initTonConnect(); 
 
-// 2. دوال التحكم اليدوي في المحفظة
 window.connectCustomWallet = async function() {
     if (!tonConnectUI) {
         alert("⏳ جاري تحميل المحفظة، يرجى الانتظار ثانية والمحاولة مرة أخرى...");
         return;
     }
-    try {
-        await tonConnectUI.connectWallet(); // أمر الفتح الرسمي
-    } catch (e) {
-        console.log("تم إلغاء الفتح أو حدث خطأ:", e);
-    }
+    try { await tonConnectUI.connectWallet(); } catch (e) { console.log("تم إلغاء الفتح:", e); }
 }
 
 window.disconnectCustomWallet = async function() {
     if (tonConnectUI) {
-        try {
-            await tonConnectUI.disconnect();
-        } catch (e) {
-            console.error("خطأ أثناء الإلغاء:", e);
-        }
+        try { await tonConnectUI.disconnect(); } catch (e) { console.error("خطأ أثناء الإلغاء:", e); }
     }
 }
 
-// 3. تحديث أرصدة الشاشة الرئيسية
+// 🔒 مزامنة الأرصدة الحقيقية المجلوبة من الخادم
 function updateHeaderBalances() {
-    document.getElementById('wallet-zn-balance').innerText = playerData.znBalance.toLocaleString();
-    document.getElementById('wallet-usd-balance').innerText = playerData.usdBalance.toFixed(5) + " $";
+    const pData = window.PlayerData || playerData;
     
-    let estimateTon = playerData.usdBalance / currentTonPriceUSD;
+    // المزامنة مع حقول الفايربيس (balance و usd_balance)
+    const zn = pData.balance !== undefined ? pData.balance : pData.znBalance;
+    const usd = pData.usd_balance !== undefined ? pData.usd_balance : pData.usdBalance;
+
+    document.getElementById('wallet-zn-balance').innerText = Math.floor(zn).toLocaleString();
+    document.getElementById('wallet-usd-balance').innerText = parseFloat(usd).toFixed(5) + " $";
+    
+    let estimateTon = usd / currentTonPriceUSD;
     document.getElementById('wallet-ton-estimate').innerText = "≈ " + estimateTon.toFixed(4) + " TON";
 }
 
-// 4. رسم الواجهة بناءً على حالة الربط
 window.renderWalletTab = function(tab) {
     currentWalletTab = tab;
     localStorage.setItem('lastWalletTab', tab);
@@ -86,7 +77,6 @@ window.renderWalletTab = function(tab) {
     const content = document.getElementById('wallet-content');
     if (!content) return;
     
-    // تظبيط ألوان الأزرار
     const tabs = ['deposit', 'history', 'withdraw'];
     tabs.forEach(t => {
         const btn = document.getElementById(`btn-${t}`);
@@ -96,7 +86,6 @@ window.renderWalletTab = function(tab) {
         }
     });
 
-    // --- قسم الإيداع ---
     if (tab === 'deposit') {
         if (!isWalletConnected) {
             content.innerHTML = `
@@ -126,7 +115,6 @@ window.renderWalletTab = function(tab) {
                 </div>`;
         }
     } 
-    // --- قسم السجلات ---
     else if (tab === 'history') {
         content.innerHTML = `
             <div class="card" style="text-align:center; color:#777; padding:40px 20px;">
@@ -134,7 +122,6 @@ window.renderWalletTab = function(tab) {
                 لا توجد سجلات سحب أو إيداع حالياً
             </div>`;
     }
-    // --- قسم السحب ---
     else if (tab === 'withdraw') {
         let withdrawHtml = `
             <div class="card">
@@ -173,16 +160,13 @@ window.renderWalletTab = function(tab) {
     }
 }
 
-// دوال الحساب اللحظية
 window.calculateDepositTon = function() {
     let usd = document.getElementById('deposit-usd-input').value;
     let infoDiv = document.getElementById('deposit-calc-info');
     if (usd > 0) {
         document.getElementById('required-ton-amount').innerText = (usd / currentTonPriceUSD).toFixed(4);
         infoDiv.style.display = 'block';
-    } else {
-        infoDiv.style.display = 'none';
-    }
+    } else { infoDiv.style.display = 'none'; }
 }
 
 window.calculateWithdrawTon = function() {
@@ -191,12 +175,10 @@ window.calculateWithdrawTon = function() {
     if (usd > 0) {
         document.getElementById('receive-ton-amount').innerText = (usd / currentTonPriceUSD).toFixed(4);
         infoDiv.style.display = 'block';
-    } else {
-        infoDiv.style.display = 'none';
-    }
+    } else { infoDiv.style.display = 'none'; }
 }
 
-// تنفيذ الإيداع عبر محفظة تليجرام
+// 🔒 تنفيذ الإيداع المالي ورفع بلاغ فوري مشفر للبايثون لتأكيد المعاملة
 window.executeDeposit = async function() {
     let usdAmount = document.getElementById('deposit-usd-input').value;
     if (!usdAmount || usdAmount <= 0) return alert("يرجى إدخال مبلغ صحيح للإيداع");
@@ -204,52 +186,110 @@ window.executeDeposit = async function() {
     let tonAmount = usdAmount / currentTonPriceUSD;
     let nanoTon = Math.floor(tonAmount * 1e9).toString(); 
     let projectWallet = "UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ"; 
+    
+    const pData = window.PlayerData || playerData;
+    const myId = pData.tg_id || pData.tgId.toString();
 
     const transaction = {
         validUntil: Math.floor(Date.now() / 1000) + 360,
         messages: [{
             address: projectWallet,
             amount: nanoTon,
-            payload: TON_CONNECT_UI.getPayloadString(playerData.tgId.toString()) 
+            payload: TON_CONNECT_UI.getPayloadString(myId) 
         }]
     };
 
     try {
-        await tonConnectUI.sendTransaction(transaction);
-        alert(`✅ تم الإيداع بنجاح!\nسيتم إضافة ${usdAmount}$ لرصيدك.`);
+        const txResult = await tonConnectUI.sendTransaction(transaction);
+        
+        // رفع المعاملة فوراً للبايثون بطريقة آمنة جداً للمطابقة والتأكيد الفوري
+        const initData = window.Telegram?.WebApp?.initData;
+        if (initData) {
+            await fetch('/api/wallet_deposit_report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    initData: initData,
+                    usdAmount: parseFloat(usdAmount),
+                    tonAmount: tonAmount,
+                    boc: txResult.boc 
+                })
+            });
+        }
+        
+        alert(`✅ تم إرسال المعاملة بنجاح للشبكة!\nسيتم إضافة ${usdAmount}$ لرصيدك بعد التأكيد التلقائي.`);
     } catch (e) {
-        if(e.message !== "User rejected the transaction") alert("حدث خطأ أثناء الدفع");
+        if(e.message !== "User rejected the transaction") alert("حدث خطأ أثناء الدفع أو تم إلغاء العملية.");
     }
 }
 
-// تحويل النقاط
-window.convertManualPoints = function() {
+// 🔒 تحويل النقاط بشكل حقيقي ومحمي على السيرفر
+window.convertManualPoints = async function() {
     let amount = document.getElementById('zn-input').value;
     if (!amount || amount < 5000) return alert("الحد الأدنى للتحويل هو 5000 ZN");
-    if (amount > playerData.znBalance) return alert("رصيدك من ZN لا يكفي");
     
-    let usd = (amount / 5000) * 0.01;
-    playerData.znBalance -= amount;
-    playerData.usdBalance += usd;
-    updateHeaderBalances();
-    alert(`✅ تم تحويل ${amount} ZN بنجاح إلى ${usd.toFixed(5)} $`);
-    document.getElementById('zn-input').value = '';
+    const initData = window.Telegram?.WebApp?.initData;
+    if (!initData) return alert("⚠️ يجب فتح اللعبة من تليجرام لحماية معاملتك.");
+
+    try {
+        let response = await fetch('/api/wallet_convert', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ initData: initData, amount: parseFloat(amount) })
+        });
+        let result = await response.json();
+        
+        if (result.success) {
+            if (typeof window.fetchPlayerDataFromServer === 'function') {
+                await window.fetchPlayerDataFromServer();
+            }
+            updateHeaderBalances();
+            alert(`✅ تم تحويل ${amount} ZN بنجاح إلى دولارات في حسابك!`);
+            document.getElementById('zn-input').value = '';
+        } else {
+            alert("⚠️ فشل التحويل من السيرفر: " + result.error);
+        }
+    } catch (e) { alert("خطأ في الاتصال بالخادم."); }
 }
 
-// طلب السحب
-window.submitWithdrawal = function() {
+// 🔒 تقديم طلب سحب أرباح حقيقي وآمن بنسبة 100%
+window.submitWithdrawal = async function() {
     let usdAmount = document.getElementById('usd-withdraw').value;
     if (!usdAmount || usdAmount <= 0) return alert("يرجى إدخال مبلغ صحيح للسحب");
-    if (usdAmount > playerData.usdBalance) return alert("رصيدك بالدولار لا يكفي");
+    if (!userWalletAddress) return alert("الرجاء ربط المحفظة أولاً لتحديد عنوان السحب.");
 
-    let expectedTon = (usdAmount / currentTonPriceUSD).toFixed(4);
-    playerData.usdBalance -= usdAmount;
-    updateHeaderBalances();
-    alert(`✅ تم إرسال طلب سحب بقيمة ${usdAmount}$.\nستصلك ≈ ${expectedTon} TON على محفظتك.`);
-    document.getElementById('usd-withdraw').value = '';
-    document.getElementById('withdraw-calc-info').style.display = 'none';
+    const initData = window.Telegram?.WebApp?.initData;
+    if (!initData) return alert("⚠️ غير مصرح بالعملية خارج التليجرام.");
+
+    try {
+        let response = await fetch('/api/wallet_withdraw', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                initData: initData, 
+                amount: parseFloat(usdAmount),
+                walletAddress: userWalletAddress 
+            })
+        });
+        let result = await response.json();
+        
+        if (result.success) {
+            if (typeof window.fetchPlayerDataFromServer === 'function') {
+                await window.fetchPlayerDataFromServer();
+            }
+            let expectedTon = (usdAmount / currentTonPriceUSD).toFixed(4);
+            updateHeaderBalances();
+            alert(`✅ تم تقديم طلب السحب بنجاح بقيمة ${usdAmount}$.\nستصلك المعاملة (≈ ${expectedTon} TON) بعد فحص الإدارة.`);
+            document.getElementById('usd-withdraw').value = '';
+            document.getElementById('withdraw-calc-info').style.display = 'none';
+        } else {
+            alert("⚠️ رفض السيرفر طلب السحب: " + result.error);
+        }
+    } catch (e) { alert("خطأ في معالجة طلب السحب."); }
 }
 
-// تشغيل الواجهة 
-updateHeaderBalances();
-setTimeout(() => { renderWalletTab(currentWalletTab); }, 100);
+// تشغيل وتغذية البيانات اللحظية
+setTimeout(() => {
+    updateHeaderBalances();
+    renderWalletTab(currentWalletTab);
+}, 300);
