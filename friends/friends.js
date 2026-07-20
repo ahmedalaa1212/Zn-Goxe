@@ -34,10 +34,14 @@ window.updateFriendsUI = function() {
         }
     }
 
+    // تأمين إنشاء الرابط 
     const linkInput = document.getElementById('ref-link-input');
-    if (linkInput && pData.tg_id) {
-        // تم التعديل لتوجيه الدعوة للبوت الأساسي أولاً لتسجيل الإحالة
-        linkInput.value = `https://t.me/${BOT_USERNAME}?start=ref_${pData.tg_id}`;
+    if (linkInput) {
+        if (pData.tg_id) {
+            linkInput.value = `https://t.me/${BOT_USERNAME}?start=ref_${pData.tg_id}`;
+        } else {
+            linkInput.value = "جاري التحميل...";
+        }
     }
 
     renderRefTasks();
@@ -101,10 +105,22 @@ function renderRefTasks() {
 }
 
 window.copyRefLink = function() {
-    const linkInput = document.getElementById('ref-link-input');
-    if (!linkInput || !linkInput.value || linkInput.value === "جاري التحميل...") return;
+    const pData = window.PlayerData;
+    let finalLink = "";
     
-    navigator.clipboard.writeText(linkInput.value).then(() => {
+    // تأمين النسخ حتى لو مربع النص فيه مشكلة
+    if (pData && pData.tg_id) {
+        finalLink = `https://t.me/${BOT_USERNAME}?start=ref_${pData.tg_id}`;
+    } else {
+        const linkInput = document.getElementById('ref-link-input');
+        if (!linkInput || !linkInput.value || linkInput.value.includes("جاري")) {
+            alert("يرجى الانتظار حتى يتم تحميل الرابط الخاص بك.");
+            return;
+        }
+        finalLink = linkInput.value;
+    }
+    
+    navigator.clipboard.writeText(finalLink).then(() => {
         const tele = window.Telegram?.WebApp;
         if (tele && tele.showAlert) {
             tele.showAlert("تم نسخ الرابط بنجاح! 🚀 شاركه الآن.");
