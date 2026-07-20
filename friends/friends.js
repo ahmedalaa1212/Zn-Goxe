@@ -34,7 +34,6 @@ window.updateFriendsUI = function() {
         }
     }
 
-    // تأمين إنشاء الرابط (بنستخدم tg_id هنا عادي عشان ده رابط الدعوة مش حماية السيرفر)
     const linkInput = document.getElementById('ref-link-input');
     if (linkInput) {
         if (pData.tg_id) {
@@ -129,7 +128,7 @@ window.copyRefLink = function() {
     }).catch(err => console.error('Error:', err));
 };
 
-// 🔥 تم تعديل هذه الدالة لاستخدام initData
+// 🔒 استخدام initData لتأمين سحب الأرباح
 window.claimRefEarnings = async function() {
     const pData = window.PlayerData;
     const tele = window.Telegram?.WebApp;
@@ -149,8 +148,7 @@ window.claimRefEarnings = async function() {
         const res = await fetch('/api/claim_ref_earnings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            // ارسال initData بدلاً من telegramId
-            body: JSON.stringify({ initData: initData })
+            body: JSON.stringify({ initData: initData }) // 🔒
         });
         
         const data = await res.json();
@@ -175,7 +173,7 @@ window.claimRefEarnings = async function() {
     }
 };
 
-// 🔥 تم تعديل هذه الدالة لاستخدام initData
+// 🔒 استخدام initData لتأمين استلام مهام الإحالة
 window.claimRefTask = async function(taskId, reward, reqFriends) {
     const tele = window.Telegram?.WebApp;
     const initData = tele?.initData;
@@ -189,9 +187,8 @@ window.claimRefTask = async function(taskId, reward, reqFriends) {
         const res = await fetch('/api/claim_ref_task', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            // ارسال initData بدلاً من telegramId
             body: JSON.stringify({ 
-                initData: initData, 
+                initData: initData, // 🔒
                 taskId: taskId, 
                 reward: reward, 
                 reqFriends: reqFriends 
