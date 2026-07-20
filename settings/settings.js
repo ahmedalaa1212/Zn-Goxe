@@ -1,16 +1,13 @@
 (function initSettingsSystem() {
     
-    // دالة آمنة لجلب المعرف الحقيقي من تليجرام WebApp
     function getTgId() {
         if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
             const webAppUser = window.Telegram.WebApp.initDataUnsafe.user;
             if (webAppUser) return String(webAppUser.id);
         }
-        // معرف افتراضي للاختبار محلياً في حال عدم وجود بيئة تليجرام حية
         return "5102387551"; 
     }
 
-    // دالة لجلب اسم اللاعب الحقيقي من تليجرام
     function getPlayerName() {
         if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
             const webAppUser = window.Telegram.WebApp.initDataUnsafe.user;
@@ -21,11 +18,11 @@
         return "اللاعب المحترف";
     }
 
-    // الدالة الأساسية: تجلب البيانات وتجمع مستويات الترقيات فقط وتعرضها
+    // 🔒 تحديث الدالة لترسل وتستعلم بالبيانات المشفرة حتماً
     async function fetchAndRenderData() {
         const telegramId = getTgId();
+        const initData = window.Telegram?.WebApp?.initData; // 🔒
         
-        // تعبئة البيانات المبدئية المتاحة من التليجرام فوراً
         const usernameEl = document.getElementById('player-username');
         const telegramIdEl = document.getElementById('player-telegram-id');
         const avatarEl = document.getElementById('player-avatar');
@@ -41,29 +38,31 @@
         }
 
         try {
-            // طلب fetch مباشر للسيرفر لقراءة حقول الفايربيس
-            let response = await fetch(`/api/user_data?telegramId=${telegramId}`);
+            let url = `/api/user_data`;
+            if (initData) {
+                url += `?initData=${encodeURIComponent(initData)}`;
+            } else {
+                url += `?telegramId=${telegramId}`; // فحص محلي
+            }
+
+            let response = await fetch(url);
             let result = await response.json();
 
             if (result.success && result.data) {
                 const userData = result.data;
-
-                // حفظ البيانات في الكائن العام للاحتياط
                 window.PlayerData = userData;
 
-                // حساب إجمالي مستويات الكروت والترقيات المفتوحة (من لفل 1 لـ لفل 10)
                 let totalUpgradesCount = 0;
                 for (let i = 1; i <= 10; i++) {
                     totalUpgradesCount += parseInt(userData[`lvl${i}_count`] || 0);
                 }
 
-                // ربط الرقم الحقيقي المجمع بعنصر الواجهة
                 const totalMiningEl = document.getElementById('stat-total-mining');
                 if (totalMiningEl) {
                     totalMiningEl.innerText = `${totalUpgradesCount} مستويات`;
                 }
                 
-                console.log(`✅ تمت المزامنة! إجمالي المستويات والترقيات الفعلي: ${totalUpgradesCount}`);
+                console.log(`✅ تمت المزامنة الآمنة! إجمالي مستويات الترقيات: ${totalUpgradesCount}`);
             } else {
                 console.error("⚠️ فشل في قراءة استجابة السيرفر أو البيانات ناقصة");
             }
@@ -72,7 +71,6 @@
         }
     }
 
-    // دالة نسخ الـ ID وإظهار رسالة توست تأكيدية
     window.copyPlayerId = function() {
         const idText = document.getElementById('player-telegram-id').innerText;
         navigator.clipboard.writeText(idText).then(() => {
@@ -82,7 +80,6 @@
         });
     };
 
-    // دوال النوافذ المنبثقة لشروط الاستخدام
     window.showPrivacyModal = function() {
         const modal = document.getElementById('settings-modal');
         if (modal) modal.style.display = 'flex';
@@ -93,7 +90,6 @@
         if (modal) modal.style.display = 'none';
     };
 
-    // دالة إظهار رسائل التوست المنبثقة
     function showToast(text) {
         const toast = document.getElementById('toast-msg');
         if (toast) {
@@ -105,7 +101,6 @@
         }
     }
 
-    // زر التحديث: يعمل ريفرش كامل للبوت لحل مشاكل تهنيج وبطء النت
     window.refreshGameData = function() {
         showToast("🔄 جاري إعادة تحميل وتحديث اللعبة بالكامل...");
         setTimeout(() => {
@@ -113,14 +108,12 @@
         }, 800);
     };
 
-    // التشغيل التلقائي والمباشر فور تحميل الصفحة لضمان سحب البيانات فوراً
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
         fetchAndRenderData();
     } else {
         document.addEventListener('DOMContentLoaded', fetchAndRenderData);
     }
 
-    // فاحص صامت لتحديث الصفحة بشكل دوري في حال تأخر السيرفر
     setInterval(() => {
         const totalMiningEl = document.getElementById('stat-total-mining');
         if (totalMiningEl && totalMiningEl.innerText === "0 مستويات") {
