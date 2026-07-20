@@ -34,7 +34,7 @@ window.updateFriendsUI = function() {
         }
     }
 
-    // تأمين إنشاء الرابط 
+    // تأمين إنشاء الرابط (بنستخدم tg_id هنا عادي عشان ده رابط الدعوة مش حماية السيرفر)
     const linkInput = document.getElementById('ref-link-input');
     if (linkInput) {
         if (pData.tg_id) {
@@ -108,7 +108,6 @@ window.copyRefLink = function() {
     const pData = window.PlayerData;
     let finalLink = "";
     
-    // تأمين النسخ حتى لو مربع النص فيه مشكلة
     if (pData && pData.tg_id) {
         finalLink = `https://t.me/${BOT_USERNAME}?start=ref_${pData.tg_id}`;
     } else {
@@ -130,9 +129,18 @@ window.copyRefLink = function() {
     }).catch(err => console.error('Error:', err));
 };
 
+// 🔥 تم تعديل هذه الدالة لاستخدام initData
 window.claimRefEarnings = async function() {
     const pData = window.PlayerData;
-    if (!pData || !pData.tg_id || pData.pending_ref_earnings <= 0) return;
+    const tele = window.Telegram?.WebApp;
+    const initData = tele?.initData;
+
+    if (!initData) {
+        if (tele && tele.showAlert) tele.showAlert("⚠️ عذراً، يجب فتح اللعبة من داخل تليجرام.");
+        return;
+    }
+
+    if (!pData || pData.pending_ref_earnings <= 0) return;
 
     const btn = document.getElementById('btn-claim-ref');
     try {
@@ -141,53 +149,72 @@ window.claimRefEarnings = async function() {
         const res = await fetch('/api/claim_ref_earnings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ telegramId: pData.tg_id })
+            // ارسال initData بدلاً من telegramId
+            body: JSON.stringify({ initData: initData })
         });
         
         const data = await res.json();
         
         if (data.success) {
-            const tele = window.Telegram?.WebApp;
             const msg = `🎉 تم السحب بنجاح!\nأضيف ${Math.floor(data.net_amount).toLocaleString()} ZN إلى رصيدك.`;
             if (tele && tele.showAlert) tele.showAlert(msg);
             else alert(msg);
             
             if(window.fetchPlayerDataFromServer) window.fetchPlayerDataFromServer();
         } else {
-            alert(data.error || 'حدث خطأ أثناء السحب.');
+            const errMsg = data.error || 'حدث خطأ أثناء السحب.';
+            if (tele && tele.showAlert) tele.showAlert(errMsg);
+            else alert(errMsg);
             if(btn) { btn.disabled = false; btn.innerText = "سحب الأرباح الآن"; }
         }
     } catch (e) {
-        alert('خطأ في الاتصال بالخادم. يرجى المحاولة لاحقاً.');
+        const errMsg = 'خطأ في الاتصال بالخادم. يرجى المحاولة لاحقاً.';
+        if (tele && tele.showAlert) tele.showAlert(errMsg);
+        else alert(errMsg);
         if(btn) { btn.disabled = false; btn.innerText = "سحب الأرباح الآن"; }
     }
 };
 
+// 🔥 تم تعديل هذه الدالة لاستخدام initData
 window.claimRefTask = async function(taskId, reward, reqFriends) {
-    const pData = window.PlayerData;
-    if (!pData || !pData.tg_id) return;
+    const tele = window.Telegram?.WebApp;
+    const initData = tele?.initData;
+
+    if (!initData) {
+        if (tele && tele.showAlert) tele.showAlert("⚠️ عذراً، يجب فتح اللعبة من داخل تليجرام.");
+        return;
+    }
 
     try {
         const res = await fetch('/api/claim_ref_task', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ telegramId: pData.tg_id, taskId: taskId, reward: reward, reqFriends: reqFriends })
+            // ارسال initData بدلاً من telegramId
+            body: JSON.stringify({ 
+                initData: initData, 
+                taskId: taskId, 
+                reward: reward, 
+                reqFriends: reqFriends 
+            })
         });
         
         const data = await res.json();
         
         if (data.success) {
-            const tele = window.Telegram?.WebApp;
             const msg = `🎊 مبروك! لقد أتممت المهمة واستلمت ${reward.toLocaleString()} ZN.`;
             if (tele && tele.showAlert) tele.showAlert(msg);
             else alert(msg);
             
             if(window.fetchPlayerDataFromServer) window.fetchPlayerDataFromServer();
         } else {
-            alert(data.error || 'عذراً، لم تتمكن من استلام المكافأة.');
+            const errMsg = data.error || 'عذراً، لم تتمكن من استلام المكافأة.';
+            if (tele && tele.showAlert) tele.showAlert(errMsg);
+            else alert(errMsg);
         }
     } catch (e) {
-        alert('خطأ في الاتصال بالخادم.');
+        const errMsg = 'خطأ في الاتصال بالخادم.';
+        if (tele && tele.showAlert) tele.showAlert(errMsg);
+        else alert(errMsg);
     }
 };
 
