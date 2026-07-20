@@ -111,30 +111,3 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
     except Exception as e:
         print(f"❌ Error in init_user: {e}")
         return False
-
-# ================= الدالة الجديدة المسؤولة عن الـ 10% =================
-def add_referral_commission(telegram_id, claimed_amount):
-    global db
-    if db is None: initialize_firebase()
-    if db is None: return
-    
-    try:
-        telegram_id = str(telegram_id).strip()
-        user_ref = db.collection('users').document(telegram_id)
-        user_doc = user_ref.get()
-        
-        if user_doc.exists:
-            data = user_doc.to_dict()
-            referred_by = data.get('referred_by')
-            
-            if referred_by:
-                commission = float(claimed_amount) * 0.10 # حساب 10% من المجمع
-                ref_user_ref = db.collection('users').document(referred_by)
-                
-                if ref_user_ref.get().exists:
-                    ref_user_ref.update({
-                        'pending_ref_earnings': firestore.Increment(commission),
-                        f'referral_details.{telegram_id}.earned': firestore.Increment(commission)
-                    })
-    except Exception as e:
-        print(f"❌ Error in add_referral_commission: {e}")
