@@ -6,20 +6,11 @@ const wheelColors = ['#ff4d4d', '#ff9933', '#ffcc00', '#33cc33', '#3399ff', '#cc
 let pendingReward = 0; 
 let cooldownMinutes = 3; 
 
-// جلب ID المستخدم من تليجرام بشكل سليم
-function getTelegramId() {
-    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
-        return window.Telegram.WebApp.initDataUnsafe.user.id.toString();
-    }
-    return window.PlayerData?.tg_id || "5102387551"; 
-}
-
-// دالة تحديث الواجهة الخاصة بالألعاب (يتم استدعاؤها من الكود المركزي في game.js)
+// دالة تحديث الواجهة
 window.updateGamesUI = function() {
     const pData = window.PlayerData;
     if (!pData) return;
     
-    // تحديث الرصيد في أعلى شاشة الألعاب
     const gameBalEl = document.getElementById('top-balance-games');
     if (gameBalEl) {
         const formattedBalance = Math.floor(pData.balance).toLocaleString();
@@ -27,17 +18,16 @@ window.updateGamesUI = function() {
     }
 };
 
-// إرسال المكافأة للسيرفر وتحديث الرصيد الفعلي في البوت بالكامل
-async function sendRewardToServer(tgId, amount) {
+// 🔒 إرسال المكافأة للسيرفر باستخدام بيانات تليجرام المشفرة (initData)
+async function sendRewardToServer(initData, amount) {
     try {
         const response = await fetch('/api/game_reward', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ telegramId: tgId, reward: amount })
+            body: JSON.stringify({ initData: initData, reward: amount }) // 🔒 الحماية طبقت هنا
         });
         const result = await response.json();
         if (result.success) {
-            // استدعاء جلب البيانات الموحد لتحديث كل الصفحات بنفس اللحظة
             if (typeof window.fetchPlayerDataFromServer === 'function') {
                 await window.fetchPlayerDataFromServer();
             }
@@ -55,7 +45,6 @@ function initWheel() {
     const wheel = document.getElementById('spin-wheel');
     if (!wheel) return;
     
-    // تصفير المحتوى للتأكد من عدم التكرار عند إعادة الفتح
     wheel.innerHTML = '';
     
     let gradientParts = [];
@@ -111,7 +100,6 @@ window.playGame = async function(gameType) {
 
     let adWatched = false;
     
-    // استدعاء Monetag
     if (typeof window.show_11322720 === 'function') {
         try {
             await window.show_11322720();
@@ -179,13 +167,19 @@ function showWinModal(reward) {
     document.getElementById('win-modal').style.display = "flex";
 }
 
-// الاستلام العادي والمضاعف
+// 🔒 الاستلام العادي والمضاعف (مؤمن)
 window.claimReward = async function(type) {
     const modal = document.getElementById('win-modal');
-    const tgId = getTelegramId();
+    
+    // استخراج بيانات تليجرام للحماية
+    const initData = window.Telegram?.WebApp?.initData;
+    if (!initData) {
+        alert("⚠️ عذراً، يجب فتح اللعبة من داخل تليجرام لضمان حماية حسابك.");
+        return;
+    }
     
     if (type === 'normal') {
-        const success = await sendRewardToServer(tgId, pendingReward);
+        const success = await sendRewardToServer(initData, pendingReward); // 🔒 تمرير initData
         if (success) {
             alert(`✅ تم استلام ${pendingReward.toLocaleString()} ZN بنجاح!`);
             modal.style.display = "none";
@@ -209,7 +203,7 @@ window.claimReward = async function(type) {
         
         if (adWatched) {
             let doubledReward = pendingReward * 2;
-            const success = await sendRewardToServer(tgId, doubledReward);
+            const success = await sendRewardToServer(initData, doubledReward); // 🔒 تمرير initData
             
             if (success) {
                 document.getElementById('win-amount').innerText = doubledReward.toLocaleString() + " ZN";
