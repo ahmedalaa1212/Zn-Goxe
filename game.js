@@ -21,9 +21,15 @@ window.fetchPlayerDataFromServer = async function() {
     const tele = window.Telegram?.WebApp;
     const initData = tele?.initData || ""; 
     
-    // حماية الواجهة: لو مفيش بيانات مشفرة، نوقف التنفيذ
+    // حماية الواجهة: لو مفيش بيانات مشفرة، نوقف التنفيذ ونظهر رسالة تحذير
     if (!initData) {
         console.warn("⚠️ لم يتم العثور على initData. يرجى فتح التطبيق من تليجرام حصرياً.");
+        document.body.innerHTML = `
+            <div style='color:#ff4444; text-align:center; padding:60px 20px; font-size:22px; font-weight:bold; background:#121212; height:100vh; display:flex; align-items:center; justify-content:center; flex-direction:column;'>
+                <div style='font-size: 50px; margin-bottom: 20px;'>🚫</div>
+                البيانات مفقودة. يجب الدخول للعبة من داخل بوت التيليجرام الرسمي فقط!
+            </div>
+        `;
         return; 
     }
 
