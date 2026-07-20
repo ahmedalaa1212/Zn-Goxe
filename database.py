@@ -57,7 +57,7 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
                 'user_name': first_name,
                 'balance': 0.0,
                 'ad_balance': 0.0,
-                'usd_balance': 0.0,  # 🔥 تم إضافة رصيد الدولار هنا
+                'usd_balance': 0.0,
                 'is_banned': False,
                 'last_claim_time': datetime.now(timezone.utc).isoformat(),
                 'storage_level': 0,
@@ -101,7 +101,7 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
             if 'invited_friends_count' not in data: updates['invited_friends_count'] = 0
             if 'claimed_ref_tasks' not in data: updates['claimed_ref_tasks'] = []
             if 'referral_details' not in data: updates['referral_details'] = {}
-            if 'usd_balance' not in data: updates['usd_balance'] = 0.0 # 🔥 تحديث القدامى
+            if 'usd_balance' not in data: updates['usd_balance'] = 0.0
             
             if updates:
                 user_ref.update(updates)
