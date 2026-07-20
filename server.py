@@ -9,7 +9,6 @@ from firebase_admin import credentials, firestore
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
-# 🚀 هذا الكود يمنع متصفح تليجرام من حفظ البيانات القديمة (يحل مشكلة عدم تحديث الرصيد)
 @app.after_request
 def add_header(response):
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, public, max-age=0'
@@ -218,7 +217,7 @@ def claim():
             'last_claim_time': now_iso
         })
         
-        # 🔥 هنا سر الإحالة: احتساب 10% لصاحب الرابط وإضافتها مباشرة
+        # 🔥 الإحالة والـ 10% شغالة هنا بامتياز 
         referred_by = user_data.get('referred_by')
         if referred_by:
             referrer_ref = get_user_ref(referred_by)
