@@ -57,9 +57,16 @@
         </button>
     </nav>
 
+    <!-- سكربت تليجرام الرسمي -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     
     <script>
+        // تهيئة بيئة تليجرام لضمان التقاط بيانات الأمان وتوسيع الشاشة
+        if (window.Telegram && window.Telegram.WebApp) {
+            window.Telegram.WebApp.ready(); // يخبر تليجرام أن التطبيق جاهز
+            window.Telegram.WebApp.expand(); // يجعل التطبيق يملأ الشاشة
+        }
+
         // دالة سحب وتحميل ملفات الـ HTML والـ JS وتجهيز المزامنة
         async function loadAllViews() {
             const views = [
