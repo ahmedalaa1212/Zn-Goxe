@@ -1,10 +1,8 @@
 (function initShop() {
     
-    if (typeof window.Telegram === 'undefined' || !window.Telegram.WebApp.initDataUnsafe || !window.Telegram.WebApp.initDataUnsafe.user) {
+    if (typeof window.Telegram === 'undefined' || !window.Telegram.WebApp.initData) {
         return; 
     }
-
-    const TELEGRAM_ID = window.Telegram.WebApp.initDataUnsafe.user.id.toString();
 
     const SHOP_CONFIG = {
         maxMiningUpgrades: 15, 
@@ -124,6 +122,13 @@
 
     window.buyShopItem = async function(type, level, price) {
         const pData = window.PlayerData;
+        const initData = window.Telegram?.WebApp?.initData; // 🔒 استخراج بيانات الحماية
+
+        if (!initData) {
+            alert("⚠️ عذراً، يجب فتح اللعبة من داخل تليجرام.");
+            return;
+        }
+
         let numPrice = parseFloat(price);
         let totalBal = parseFloat((pData && pData.balance) || 0);
 
@@ -148,7 +153,7 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ 
-                    telegramId: TELEGRAM_ID,
+                    initData: initData, // 🔒 إرسال initData بدلاً من ID السهل تزويره
                     type: apiType, 
                     level_num: level 
                 })
@@ -157,7 +162,6 @@
             let resData = await response.json();
 
             if (response.ok && resData.success) {
-                // فور استلام رد النجاح نقوم بطلب جلب البيانات المركزي الجديد
                 if (typeof window.fetchPlayerDataFromServer === 'function') {
                     await window.fetchPlayerDataFromServer(); 
                 }
@@ -175,6 +179,5 @@
         }
     };
 
-    // مزامنة مبدئية بعد التحميل
     window.updateShopUI();
 })();
