@@ -9,7 +9,6 @@ const REF_TASKS = [
 ];
 
 const BOT_USERNAME = "zngoxe_bot"; 
-const APP_SHORT_NAME = "app"; 
 
 window.updateFriendsUI = function() {
     const pData = window.PlayerData;
@@ -37,7 +36,8 @@ window.updateFriendsUI = function() {
 
     const linkInput = document.getElementById('ref-link-input');
     if (linkInput && pData.tg_id) {
-        linkInput.value = `https://t.me/${BOT_USERNAME}/${APP_SHORT_NAME}?startapp=ref_${pData.tg_id}`;
+        // تم التعديل لتوجيه الدعوة للبوت الأساسي أولاً لتسجيل الإحالة
+        linkInput.value = `https://t.me/${BOT_USERNAME}?start=ref_${pData.tg_id}`;
     }
 
     renderRefTasks();
