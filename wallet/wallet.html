@@ -3,28 +3,60 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- مكتبة TON Connect الرسمية لربط المحفظة -->
+    <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
+    <style>
+        body { background:#0f0f0f; margin:0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #fff; }
+        .wallet-container { padding:20px; max-width:400px; margin:0 auto; background:#0f0f0f; min-height:100vh; box-sizing: border-box; }
+        .card { background:#1c1c1c; padding:20px; border-radius:15px; border:1px solid #2a2a2a; margin-bottom:20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .balance-title { color:#aaa; font-size:14px; margin-bottom:8px; display: flex; justify-content: center; align-items: center; gap: 5px; }
+        .usd-balance { color:#00cc66; font-size:36px; font-weight:bold; font-family:monospace; text-shadow: 0 0 10px rgba(0, 204, 102, 0.2); }
+        .ton-estimate { color: #0088cc; font-size: 14px; margin-top: 5px; font-weight: bold; }
+        .tabs { display:flex; gap:10px; margin-bottom:20px; background: #151515; padding: 5px; border-radius: 12px; }
+        .tab-btn { flex:1; padding:12px; border:none; color:#888; border-radius:8px; background:transparent; font-weight:bold; font-size:15px; transition: all 0.3s ease; cursor:pointer; }
+        .tab-btn.active { background:#0088cc; color:white; box-shadow: 0 2px 8px rgba(0, 136, 204, 0.4); }
+        .input-group { margin-bottom: 15px; }
+        .input-label { font-size:14px; color:#aaa; margin-bottom:8px; display: block; text-align: right; }
+        .input-field { width:100%; padding:14px; border-radius:10px; border:1px solid #333; background:#0a0a0a; color:#fff; box-sizing:border-box; outline:none; font-size: 16px; transition: border-color 0.3s; }
+        .input-field:focus { border-color: #0088cc; }
+        .action-btn { width:100%; padding:14px; border:none; border-radius:10px; font-weight:bold; font-size:16px; cursor:pointer; transition: transform 0.1s, opacity 0.2s; }
+        .action-btn:active { transform: scale(0.98); }
+        .btn-green { background:#00cc66; color:white; }
+        .btn-blue { background:#0088cc; color:white; }
+        .btn-disabled { background:#333; color:#777; cursor:not-allowed; }
+        #ton-connect-wrapper { display: flex; justify-content: center; margin-top: 10px; }
+        .ton-price-ticker { font-size: 12px; color: #777; text-align: center; margin-top: 10px; }
+    </style>
 </head>
-<body style="background:#0f0f0f; margin:0; font-family: sans-serif;">
+<body>
 
-<!-- القسم الرئيسي للمحفظة لمراقبته بشكل فوري -->
-<div id="main-wallet-section" class="wallet-container" style="padding:20px; color:#fff; max-width:400px; margin:0 auto; background:#0f0f0f; min-height:100vh; box-sizing: border-box;">
+<div id="main-wallet-section" class="wallet-container">
     
-    <!-- كارت الرصيد والمكافئ بالدولار -->
-    <div style="background:#1c1c1c; padding:20px; border-radius:15px; border:1px solid #222; text-align:center; margin-bottom:20px;">
-        <div style="color:#aaa; font-size:14px; margin-bottom:5px;">رصيد ZN: <b id="wallet-zn-balance" style="color:#fff;">15400</b></div>
-        <div id="wallet-usd-balance" style="color:#00cc66; font-size:32px; font-weight:bold; font-family:monospace;">0.03080 $</div>
+    <!-- كارت الرصيد الكلي -->
+    <div class="card" style="text-align:center;">
+        <div class="balance-title">
+            <span>رصيد ZN:</span>
+            <b id="wallet-zn-balance" style="color:#fff;">15,400</b>
+        </div>
+        <div id="wallet-usd-balance" class="usd-balance">0.03080 $</div>
+        <!-- التقدير اللحظي بالـ TON عشان المستخدم يكون فاهم -->
+        <div id="wallet-ton-estimate" class="ton-estimate">≈ 0.0061 TON</div>
     </div>
 
-    <!-- أزرار التحكم في التبويبات -->
-    <div style="display:flex; gap:10px; margin-bottom:20px;">
-        <button id="btn-deposit" onclick="renderWalletTab('deposit')" style="flex:1; padding:12px; border:none; color:white; border-radius:8px; background:#222; font-weight:bold; font-size:14px; transition: background 0.1s ease; cursor:pointer;">إيداع</button>
-        <button id="btn-history" onclick="renderWalletTab('history')" style="flex:1; padding:12px; border:none; color:white; border-radius:8px; background:#222; font-weight:bold; font-size:14px; transition: background 0.1s ease; cursor:pointer;">سجلات</button>
-        <button id="btn-withdraw" onclick="renderWalletTab('withdraw')" style="flex:1; padding:12px; border:none; color:white; border-radius:8px; background:#222; font-weight:bold; font-size:14px; transition: background 0.1s ease; cursor:pointer;">سحب</button>
+    <!-- أزرار التبويبات -->
+    <div class="tabs">
+        <button id="btn-deposit" onclick="renderWalletTab('deposit')" class="tab-btn">إيداع</button>
+        <button id="btn-history" onclick="renderWalletTab('history')" class="tab-btn">سجلات</button>
+        <button id="btn-withdraw" onclick="renderWalletTab('withdraw')" class="tab-btn">سحب</button>
     </div>
 
     <!-- وعاء عرض محتوى القسم النشط -->
     <div id="wallet-content"></div>
 
+    <!-- سعر الـ TON اللحظي للإيضاح -->
+    <div class="ton-price-ticker">
+        سعر 1 TON حالياً = <span id="current-ton-price">5.00</span>$
+    </div>
 </div>
 
 <script src="wallet.js"></script>
