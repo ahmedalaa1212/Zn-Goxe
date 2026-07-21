@@ -1,36 +1,38 @@
 /* =========================================
-   إعدادات عامة للوحة التحكم
+   إعدادات عامة ومتغيرات الألوان
 ========================================= */
 * {
     box-sizing: border-box;
     margin: 0;
     padding: 0;
+    -webkit-tap-highlight-color: transparent;
 }
 
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background-color: var(--tg-theme-bg-color, #121212);
-    color: var(--tg-theme-text-color, #ffffff);
-    direction: rtl; /* دعم اللغة العربية من اليمين لليسار */
-    overflow: hidden; /* منع التمرير الخارجي للشاشة */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background-color: #0f1117; /* خلفية داكنة فخمة */
+    color: #e2e8f0;
+    direction: rtl;
+    overflow: hidden;
 }
 
 /* =========================================
-   شاشة الحماية (جاري التحقق)
+   شاشة الحماية
 ========================================= */
 .security-screen {
     display: flex;
     justify-content: center;
     align-items: center;
     height: 100vh;
-    background-color: #121212;
-    color: #ff4444;
+    background-color: #0f1117;
+    color: #ef4444;
     text-align: center;
     padding: 20px;
+    font-weight: bold;
 }
 
 /* =========================================
-   الحاوية الرئيسية (الهيكل)
+   الحاوية الرئيسية
 ========================================= */
 .dashboard-container {
     display: flex;
@@ -42,91 +44,112 @@ body {
    القائمة الجانبية (Sidebar)
 ========================================= */
 .sidebar {
-    width: 35%; /* تأخذ 35% من عرض الشاشة */
-    max-width: 150px;
-    background-color: var(--tg-theme-secondary-bg-color, #1e1e1e);
-    padding: 15px 10px;
-    border-left: 1px solid #333;
+    width: 110px; /* عرض ثابت ومتناسق للموبايل */
+    min-width: 110px;
+    background-color: #161922;
+    border-left: 1px solid #232733;
     display: flex;
     flex-direction: column;
-    gap: 12px; /* المسافة بين الأزرار */
-    overflow-y: auto; /* سكرول داخلي للقائمة لو الأزرار زادت */
+    padding: 12px 6px;
+    gap: 10px;
+    overflow-y: auto;
 }
 
-/* عنوان اللوحة في القائمة */
+/* عنوان اللوحة */
 .sidebar .logo {
-    color: #ffcc00;
-    font-size: 16px;
+    color: #f59e0b;
+    font-size: 13px;
+    font-weight: 800;
     text-align: center;
-    margin-bottom: 10px;
-    border-bottom: 1px solid #333;
-    padding-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #232733;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
 }
 
 /* أزرار القائمة الجانبية */
 .sidebar button {
-    background-color: #2a2a2a;
-    color: var(--tg-theme-text-color, #ffffff);
-    border: 1px solid #444;
-    padding: 12px 8px;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: bold;
-    text-align: right;
+    background-color: #1f2330;
+    color: #94a3b8;
+    border: 1px solid #2d3345;
+    padding: 10px 4px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s ease-in-out;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
+    flex-direction: column; /* الأيقونة فوق والكلام تحتها لتوفير المساحة */
     align-items: center;
-    justify-content: flex-start;
+    justify-content: center;
+    gap: 6px;
+    line-height: 1.3;
+    text-align: center;
 }
 
-/* تأثير عند الضغط أو تمرير الماوس على الزر */
-.sidebar button:hover,
+/* شكل الأيقونات داخل الأزرار */
+.sidebar button .icon {
+    font-size: 18px;
+}
+
+/* تأثير التمرير (Hover) */
 .sidebar button:active {
-    background-color: #ffcc00;
-    color: #000;
-    border-color: #ffcc00;
-    transform: scale(0.96); /* تصغير بسيط يعطي إحساس بالضغط */
+    transform: scale(0.94);
+}
+
+/* الزر النشط (المحدد حالياً) */
+.sidebar button.active {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: #000000;
+    border-color: #fbbf24;
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25);
+    font-weight: 700;
 }
 
 /* =========================================
-   مساحة العرض الرئيسية (المحتوى)
+   مساحة العرض الرئيسية
 ========================================= */
 .main-content {
-    flex-grow: 1; /* تأخذ باقي مساحة الشاشة (65%) */
-    padding: 20px;
-    overflow-y: auto; /* سكرول داخلي للمحتوى */
-    background-color: var(--tg-theme-bg-color, #121212);
+    flex: 1;
+    padding: 16px;
+    overflow-y: auto;
+    background-color: #0f1117;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center; /* توسيط المحتوى الترحيبي */
 }
 
-.main-content h2 {
-    color: #ffcc00;
-    margin-bottom: 10px;
-    font-size: 22px;
+/* كارت المحتوى بشياكة */
+.content-card {
+    background-color: #161922;
+    border: 1px solid #232733;
+    border-radius: 16px;
+    padding: 20px;
     text-align: center;
+    margin: auto 0;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
 }
 
-.main-content p {
-    color: #aaaaaa;
-    font-size: 15px;
-    text-align: center;
-    line-height: 1.6;
+/* حركات الدخول (Animation) */
+.animate-fade-in {
+    animation: fadeIn 0.35s ease-in-out forwards;
 }
 
-/* =========================================
-   تجميل شريط التمرير (Scrollbar)
-========================================= */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* شريط التمرير */
 ::-webkit-scrollbar {
-    width: 4px;
-}
-::-webkit-scrollbar-track {
-    background: transparent;
+    width: 3px;
 }
 ::-webkit-scrollbar-thumb {
-    background: #555;
+    background: #2d3345;
     border-radius: 10px;
 }
