@@ -1,0 +1,69 @@
+<div class="super-admin-container animate-fade-in">
+    
+    <!-- عنوان القائمة -->
+    <div class="section-header">
+        <h2>👨‍💻 الإدارة العليا</h2>
+        <p>إدارة المشرفين، تحديد الصلاحيات، ومتابعة السجلات.</p>
+    </div>
+
+    <!-- كارت إضافة مشرف جديد -->
+    <div class="admin-card">
+        <h3>➕ إضافة مشرف جديد</h3>
+        
+        <div class="form-group">
+            <label>Telegram ID للمشرف:</label>
+            <input type="number" id="modTelegramId" placeholder="مثال: 987654321">
+        </div>
+
+        <div class="form-group">
+            <label>اسم المشرف / ملاحظة:</label>
+            <input type="text" id="modName" placeholder="مثال: أحمد (دعم فني)">
+        </div>
+
+        <!-- تحديد الصلاحيات -->
+        <div class="form-group">
+            <label>🔐 الصلاحيات المسموحة:</label>
+            <div class="permissions-grid">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="perm_users" checked> 👥 بيانات المستخدمين
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="perm_support" checked> 💬 الدردشة والدعم
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="perm_settings"> ⚙️ الأسعار والإعدادات
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="perm_transactions"> 💰 سجل التحويلات
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="perm_security"> 🛡️ التحكم والأمان
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="perm_ads"> 📢 الإعلانات
+                </label>
+            </div>
+        </div>
+
+        <button class="btn-primary" onclick="addNewModerator()">تأكيد وإضافة المشرف</button>
+    </div>
+
+    <!-- كارت المشرفين الحاليين -->
+    <div class="admin-card">
+        <h3>👥 قائمة المشرفين الحالية</h3>
+        <div id="moderatorsList" class="moderators-list">
+            <!-- يتم تحميل المشرفين هنا ديناميكياً -->
+            <p class="empty-msg">جاري تحميل قائمة المشرفين...</p>
+        </div>
+    </div>
+
+    <!-- كارت سجل نشاط المشرفين -->
+    <div class="admin-card">
+        <h3>📜 سجل نشاط المشرفين</h3>
+        <div id="adminLogs" class="logs-list">
+            <!-- يتم تحميل السجلات هنا -->
+            <p class="empty-msg">لا توجد تحركات مسجلة حالياً.</p>
+        </div>
+    </div>
+
+</div>
