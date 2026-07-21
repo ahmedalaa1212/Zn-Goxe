@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة تحكم ZN</title>
+    <!-- ربط ملف التصميم الموحد -->
+    <link rel="stylesheet" href="style.css">
+    <!-- استدعاء مكتبة تليجرام -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+
+    <!-- شاشة التحقق من الهوية -->
+    <div id="accessDenied" class="security-screen">
+        <h2>⛔ جاري التحقق من الهوية...</h2>
+    </div>
+
+    <!-- لوحة التحكم الحقيقية (مخفية حتى يتم التحقق) -->
+    <div id="adminPanel" class="dashboard-container" style="display: none;">
+        
+        <!-- القائمة الجانبية (Sidebar) -->
+        <div class="sidebar">
+            <h3 class="logo">👑 إدارة ZN</h3>
+            <button onclick="loadSection('super_admin')">👨‍💻 الإدارة العليا</button>
+            <button onclick="loadSection('users')">👥 بيانات المستخدم</button>
+            <button onclick="loadSection('support')">💬 الدردشة والدعم</button>
+            <button onclick="loadSection('settings')">⚙️ الأسعار والإعدادات</button>
+            <button onclick="loadSection('transactions')">💰 سجل التحويلات</button>
+            <button onclick="loadSection('security')">🛡️ التحكم والأمان</button>
+            <button onclick="loadSection('ads')">📢 الإعلانات</button>
+        </div>
+
+        <!-- مساحة العرض الرئيسية (يتم تحميل الملفات الفرعية بداخلها) -->
+        <div class="main-content" id="contentArea">
+            <h2>مرحباً بك يا مدير 👋</h2>
+            <p>اختر قسماً من القائمة الجانبية للبدء في إدارة النظام.</p>
+        </div>
+
+    </div>
+
+    <!-- ربط ملف الجافاسكريبت المسؤول عن التنقل -->
+    <script src="main.js"></script>
+    
+    <!-- كود الحماية الصارم -->
+    <script>
+        window.Telegram.WebApp.ready();
+        window.Telegram.WebApp.expand();
+        
+        const tg = window.Telegram.WebApp;
+        const MY_ADMIN_ID = 123456789; // ⚠️ ضع الـ ID الخاص بك هنا
+
+        if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+            if (tg.initDataUnsafe.user.id === MY_ADMIN_ID) {
+                document.getElementById('accessDenied').style.display = 'none';
+                document.getElementById('adminPanel').style.display = 'flex';
+            } else {
+                document.getElementById('accessDenied').innerHTML = "<h2>⛔ دخول غير مصرح به! أنت لست الأدمن.</h2>";
+                setTimeout(() => { tg.close(); }, 3000);
+            }
+        } else {
+            document.getElementById('accessDenied').innerHTML = "<h2>⛔ يجب فتح اللوحة من داخل بوت تليجرام فقط.</h2>";
+        }
+    </script>
+</body>
+</html>
