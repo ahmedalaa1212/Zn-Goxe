@@ -60,15 +60,20 @@ def init_firebase():
 init_firebase()
 
 # =========================================
-# 3. مسارات الـ APIs وفتح الواجهة مباشرة
+# 3. مسارات الواجهة والملفات والتصميم
 # =========================================
 
-# فتح لوحة التحكم (admin.html) فوراً عند دخول رابط الموقع الأساسي
+# فتح لوحة التحكم الرئيسية (admin.html)
 @app.route('/', methods=['GET'])
 def serve_admin_panel():
     return send_from_directory('.', 'admin.html')
 
-# مسار فحص حالة السيرفر والفايربيس (خلفي)
+# مسار لجلب ملفات التصميم (CSS, JS, الصور) من المجلد مباشرة
+@app.route('/<path:filename>')
+def serve_static_files(filename):
+    return send_from_directory('.', filename)
+
+# مسار فحص حالة السيرفر
 @app.route('/api/status', methods=['GET'])
 def server_status():
     return jsonify({
