@@ -19,7 +19,7 @@ def start_bot_process():
     try:
         if os.path.exists("admin_bot.py"):
             print("🚀 جاري تشغيل admin_bot.py في عملية منفصلة...")
-            subprocess.Popen(["python", "my_bot.py"])
+            subprocess.Popen(["python", "admin_bot.py"])
         else:
             print("⚠️ تنبيه: ملف admin_bot.py غير موجود في المجلد الرئيسي!")
     except Exception as e:
