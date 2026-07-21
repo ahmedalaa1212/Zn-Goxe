@@ -1,6 +1,11 @@
+// ==========================================
+// 🎮 ZN Goxe - Core Engine & Sync (game.js)
+// ==========================================
+
 window.PlayerData = {
     tg_id: null,
     balance: 0,
+    usd_balance: 0.00000,
     ad_balance: 0, 
     hourly_rate: 0,
     max_cap: 10000,
@@ -45,7 +50,7 @@ window.fetchPlayerDataFromServer = async function() {
 
         let firstName = tele?.initDataUnsafe?.user?.first_name || "صديق";
 
-        // 🔥 الاعتماد الكلي على initData
+        // 🔥 الاعتماد الكلي على initData لحماية البيانات من التلاعب
         let url = `/api/user_data?initData=${encodeURIComponent(initData)}&name=${encodeURIComponent(firstName)}&_t=${Date.now()}`;
         if(ref_id) url += `&ref_id=${ref_id}`;
 
@@ -63,6 +68,7 @@ window.fetchPlayerDataFromServer = async function() {
                 }
 
                 window.PlayerData.balance = parseFloat(dbData.balance || 0);
+                window.PlayerData.usd_balance = parseFloat(dbData.usd_balance || 0);
                 window.PlayerData.ad_balance = parseFloat(dbData.ad_balance || 0); 
                 window.PlayerData.hourly_rate = parseFloat(dbData.calculated_hourly_rate || dbData.hourly_rate || 0);
                 window.PlayerData.max_cap = parseFloat(dbData.calculated_max_cap || dbData.max_cap || 10000);
@@ -88,7 +94,7 @@ window.fetchPlayerDataFromServer = async function() {
             console.error("❌ السيرفر رفض الطلب، تأكد من صحة التوكن والبيانات.");
         }
     } catch (e) {
-        console.error("❌ خطأ في مزامنة البيانات المركزية مع فايربيس:", e);
+        console.error("❌ خطأ في مزامنة البيانات المركزية مع الخادم:", e);
     }
 };
 
@@ -150,6 +156,7 @@ window.triggerAllUIUpdates = function() {
     if (typeof window.updateTasksUI === 'function') window.updateTasksUI(); 
     if (typeof window.updateFriendsUI === 'function') window.updateFriendsUI();
     if (typeof window.renderSettingsPage === 'function') window.renderSettingsPage();
+    if (typeof window.updateHeaderBalances === 'function') window.updateHeaderBalances();
     
     let pendingEarnEl = document.getElementById('pending-ref-earnings');
     if(pendingEarnEl) pendingEarnEl.innerText = `${Math.floor(pData.pending_ref_earnings).toLocaleString()}`;
@@ -202,7 +209,6 @@ window.initCentralSystem = function() {
         const urlParams = new URLSearchParams(window.location.search);
         let id = tele?.initDataUnsafe?.user?.id?.toString() || urlParams.get('tg_id');
         
-        // الاحتفاظ بـ tg_id من أجل رابط الإحالة فقط (ليس للمصادقة)
         if (id) {
             window.PlayerData.tg_id = id;
         }
