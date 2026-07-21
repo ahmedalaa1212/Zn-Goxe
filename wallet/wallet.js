@@ -1,3 +1,7 @@
+// ==========================================
+// 💳 ZN Goxe - Wallet Module (wallet.js)
+// ==========================================
+
 // بيانات افتراضية (تتحول ديناميكياً لتطابق رصيد قاعدة البيانات)
 let playerData = {
     znBalance: 0,
@@ -292,11 +296,11 @@ window.executeDeposit = async function() {
         
         alert(`✅ تم إرسال المعاملة بنجاح للشبكة!\nسيتم إضافة $${usdAmount} لرصيدك بعد التأكيد التلقائي.`);
     } catch (e) {
-        if(e.message !== "User rejected the transaction") alert("حدث خطأ أثناء الدفع أو تم إلغاء العملية.");
+        if(e && e.message !== "User rejected the transaction") alert("حدث خطأ أثناء الدفع أو تم إلغاء العملية.");
     }
 };
 
-// 🔒 تحويل النقاط مع التحديث الفوري للرصيد أعلى الشاشة
+// 🔒 تحويل النقاط مع التحديث الفوري المضمون وإعادة المزامنة من السيرفر
 window.convertManualPoints = async function() {
     let amount = parseFloat(document.getElementById('zn-input').value);
     
@@ -316,20 +320,16 @@ window.convertManualPoints = async function() {
         if (result.success) {
             const usdGained = result.usd_gained || (amount / 1000000);
             
-            // 🔥 تحديث الكائن المحلي فوراً ليظهر في الشاشة فوراً
-            const pData = window.PlayerData || playerData;
-            if (pData.balance !== undefined) pData.balance -= amount;
-            if (pData.znBalance !== undefined) pData.znBalance -= amount;
-            
-            if (pData.usd_balance !== undefined) pData.usd_balance = (pData.usd_balance || 0) + usdGained;
-            if (pData.usdBalance !== undefined) pData.usdBalance = (pData.usdBalance || 0) + usdGained;
-
-            // استدعاء جلب البيانات من الخادم في حال توفر الدالة
+            // 🔥 إعادة جلب أحدث وأدق بيانات من السيرفر لمنع تصفير أو فقدان البيانات عند الرسترة
             if (typeof window.fetchPlayerDataFromServer === 'function') {
                 await window.fetchPlayerDataFromServer();
+            } else {
+                const pData = window.PlayerData || playerData;
+                if (pData.balance !== undefined) pData.balance -= amount;
+                if (pData.usd_balance !== undefined) pData.usd_balance = (pData.usd_balance || 0) + usdGained;
             }
 
-            // تحديث الشاشة فوراً
+            // تحديث الواجهة فوراً
             updateHeaderBalances();
 
             alert(`✅ تم تحويل النقاط بنجاح! كسبت $${usdGained.toFixed(5)}`);
@@ -338,7 +338,7 @@ window.convertManualPoints = async function() {
             const infoDiv = document.getElementById('conversion-calc-info');
             if (infoDiv) infoDiv.style.display = 'none';
         } else {
-            alert("⚠️ فشل التحويل من السيرفر: " + result.error);
+            alert("⚠️ فشل التحويل من السيرفر: " + (result.error || "خطأ غير معروف"));
         }
     } catch (e) { 
         console.error(e);
@@ -378,7 +378,7 @@ window.submitWithdrawal = async function() {
             const infoDiv = document.getElementById('withdraw-calc-info');
             if (infoDiv) infoDiv.style.display = 'none';
         } else {
-            alert("⚠️ رفض السيرفر طلب السحب: " + result.error);
+            alert("⚠️ رفض السيرفر طلب السحب: " + (result.error || "خطأ غير معروف"));
         }
     } catch (e) { alert("خطأ في معالجة طلب السحب."); }
 };
@@ -387,7 +387,7 @@ window.submitWithdrawal = async function() {
 // 🚀 6. بدء التشغيل التلقائي
 // ==========================================
 fetchLiveTonPrice();
-setInterval(fetchLiveTonPrice, 60000); // تحديث سعر الـ TON تلقائياً كل دقيقة
+setInterval(fetchLiveTonPrice, 60000);
 
 setTimeout(() => {
     updateHeaderBalances();
