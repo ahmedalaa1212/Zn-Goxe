@@ -51,11 +51,11 @@
         <div id="wallet-ton-estimate" class="ton-estimate">≈ 0.0000 TON</div>
     </div>
 
-    <!-- أزرار التبويبات -->
+    <!-- أزرار التبويبات (مرتبة لتعطى أزرار سحب ثم سجلات ثم إيداع بالمظهر الصحيح تماماً) -->
     <div class="tabs">
-        <button id="btn-deposit" onclick="renderWalletTab('deposit')" class="tab-btn">إيداع</button>
-        <button id="btn-history" onclick="renderWalletTab('history')" class="tab-btn">سجلات</button>
         <button id="btn-withdraw" onclick="renderWalletTab('withdraw')" class="tab-btn">سحب</button>
+        <button id="btn-history" onclick="renderWalletTab('history')" class="tab-btn">سجلات</button>
+        <button id="btn-deposit" onclick="renderWalletTab('deposit')" class="tab-btn">إيداع</button>
     </div>
 
     <!-- وعاء عرض محتوى القسم النشط -->
@@ -67,6 +67,6 @@
     </div>
 </div>
 
-<script src="wallet.js"></script>
+<script src="../wallet.js"></script>
 </body>
 </html>
