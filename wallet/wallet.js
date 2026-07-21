@@ -11,7 +11,7 @@ let playerData = {
 let isWalletConnected = false;
 let userWalletAddress = null;
 let currentTonPriceUSD = 5.00;
-let currentWalletTab = localStorage.getItem('lastWalletTab') || 'deposit';
+let currentWalletTab = localStorage.getItem('lastWalletTab') || 'withdraw';
 let tonConnectUI = null;
 
 // ==========================================
@@ -38,7 +38,7 @@ async function fetchLiveTonPrice() {
 }
 
 // ==========================================
-// 🔗 1. تهيئة TonConnect
+// 🔗 1. تهيئة TonConnect بأمان تام
 // ==========================================
 async function initTonConnect() {
     if (!document.getElementById('hidden-ton-root')) {
@@ -117,7 +117,7 @@ function updateHeaderBalances() {
 }
 
 // ==========================================
-// 🎨 3. عرض تبويبات المحفظة (مرتبة: إيداع -> سجلات -> سحب)
+// 🎨 3. عرض تبويبات المحفظة (مرتبة بدقة متطابقة مع واجهة التصميم: سحب -> سجلات -> إيداع)
 // ==========================================
 window.renderWalletTab = function(tab) {
     currentWalletTab = tab;
@@ -126,7 +126,7 @@ window.renderWalletTab = function(tab) {
     const content = document.getElementById('wallet-content');
     if (!content) return;
     
-    const tabs = ['deposit', 'history', 'withdraw'];
+    const tabs = ['withdraw', 'history', 'deposit'];
     tabs.forEach(t => {
         const btn = document.getElementById(`btn-${t}`);
         if(btn) {
