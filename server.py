@@ -47,6 +47,11 @@ SHOP_CONFIG = {
     'storage': {1: 500, 2: 2500, 3: 8000, 4: 20000, 5: 50000, 6: 120000, 7: 300000, 8: 750000, 9: 2000000, 10: 5000000}
 }
 
+WALLET_CONFIG = {
+    # معدل التحويل: كل 500,000 ZN يساوون 1 دولار (يمكنك تعديلها كما تشاء)
+    'zn_to_usd_rate': 0.000002 
+}
+
 # ==========================================
 # 🛡️ نظام الحماية: التحقق من صحة بيانات تليجرام
 # ==========================================
@@ -180,6 +185,7 @@ def get_user_data():
             "telegram_id": telegram_id,
             "user_name": user_name,
             "balance": 0.0,
+            "usd_balance": 0.00000, # تمت إضافة حقل الدولار
             "ad_balance": 0.0, 
             "is_banned": False,
             "last_claim_time": now_iso,
@@ -219,6 +225,7 @@ def get_user_data():
                 })
 
         if 'ad_balance' not in user_data: updates['ad_balance'] = 0.0
+        if 'usd_balance' not in user_data: updates['usd_balance'] = 0.00000 # تحديث للمستخدمين القدامى
         if 'pending_ref_earnings' not in user_data: updates['pending_ref_earnings'] = 0.0
         if 'invited_friends_count' not in user_data: updates['invited_friends_count'] = 0
         if 'claimed_ref_tasks' not in user_data: updates['claimed_ref_tasks'] = []
@@ -695,6 +702,132 @@ def complete_task():
         else: return jsonify({'success': False, 'error': result}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+# ==========================================
+# 🚀 المسارات الجديدة الخاصة بالمحفظة (Wallet)
+# ==========================================
+
+@app.route('/api/wallet_convert', methods=['POST'])
+def wallet_convert():
+    success, telegram_id, _, err_resp = get_authenticated_user(request, is_post=True)
+    if not success: return err_resp
+    
+    data = request.get_json() or {}
+    amount = safe_float(data.get('amount'))
+    
+    if amount < 5000:
+        return jsonify({'success': False, 'error': 'الحد الأدنى للتحويل هو 5000 ZN'}), 400
+        
+    try:
+        transaction = db.transaction()
+        user_ref = get_user_ref(telegram_id)
+        
+        @firestore.transactional
+        def process_convert(transaction, user_ref):
+            doc = user_ref.get(transaction=transaction)
+            if not doc.exists: return False, 'المستخدم غير موجود'
+            
+            user_data = doc.to_dict()
+            current_zn = safe_float(user_data.get('balance', 0))
+            current_usd = safe_float(user_data.get('usd_balance', 0))
+            
+            if current_zn < amount: return False, 'رصيد ZN غير كافٍ للتحويل'
+            
+            # تحويل ZN إلى دولار
+            usd_gained = amount * WALLET_CONFIG['zn_to_usd_rate']
+            
+            transaction.update(user_ref, {
+                'balance': current_zn - amount,
+                'usd_balance': current_usd + usd_gained
+            })
+            return True, usd_gained
+
+        tx_success, result = process_convert(transaction, user_ref)
+        if tx_success:
+            return jsonify({'success': True, 'usd_gained': result}), 200
+        else:
+            return jsonify({'success': False, 'error': result}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/wallet_withdraw', methods=['POST'])
+def wallet_withdraw():
+    success, telegram_id, user_name, err_resp = get_authenticated_user(request, is_post=True)
+    if not success: return err_resp
+    
+    data = request.get_json() or {}
+    amount = safe_float(data.get('amount'))
+    wallet_address = data.get('walletAddress')
+    
+    if amount <= 0 or not wallet_address:
+        return jsonify({'success': False, 'error': 'بيانات السحب غير مكتملة'}), 400
+        
+    try:
+        transaction = db.transaction()
+        user_ref = get_user_ref(telegram_id)
+        
+        @firestore.transactional
+        def process_withdraw(transaction, user_ref):
+            doc = user_ref.get(transaction=transaction)
+            if not doc.exists: return False, 'المستخدم غير موجود'
+            
+            user_data = doc.to_dict()
+            current_usd = safe_float(user_data.get('usd_balance', 0))
+            
+            if current_usd < amount: return False, 'رصيد الدولار غير كافٍ للسحب'
+            
+            transaction.update(user_ref, {
+                'usd_balance': current_usd - amount
+            })
+            return True, None
+
+        tx_success, error_msg = process_withdraw(transaction, user_ref)
+        if tx_success:
+            # تسجيل طلب السحب في قاعدة البيانات لتقوم الإدارة بمراجعته
+            db.collection('withdrawals').add({
+                'telegram_id': telegram_id,
+                'user_name': user_name,
+                'amount_usd': amount,
+                'wallet_address': wallet_address,
+                'status': 'pending',
+                'created_at': datetime.now(timezone.utc).isoformat()
+            })
+            return jsonify({'success': True}), 200
+        else:
+            return jsonify({'success': False, 'error': error_msg}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/wallet_deposit_report', methods=['POST'])
+def wallet_deposit_report():
+    success, telegram_id, user_name, err_resp = get_authenticated_user(request, is_post=True)
+    if not success: return err_resp
+    
+    data = request.get_json() or {}
+    usd_amount = safe_float(data.get('usdAmount'))
+    ton_amount = safe_float(data.get('tonAmount'))
+    boc = data.get('boc')
+    
+    if usd_amount <= 0:
+        return jsonify({'success': False, 'error': 'مبلغ غير صالح'}), 400
+        
+    try:
+        # تسجيل بلاغ الدفع للمراجعة والإضافة
+        db.collection('deposits').add({
+            'telegram_id': telegram_id,
+            'user_name': user_name,
+            'amount_usd': usd_amount,
+            'amount_ton': ton_amount,
+            'boc': boc,
+            'status': 'pending_verification',
+            'created_at': datetime.now(timezone.utc).isoformat()
+        })
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
