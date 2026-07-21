@@ -1,5 +1,5 @@
 import os
-import json
+import tempfile
 import subprocess
 import threading
 from datetime import datetime
@@ -27,7 +27,7 @@ def start_bot_process():
 threading.Thread(target=start_bot_process, daemon=True).start()
 
 # =========================================
-# 2. تهيئة الاتصال بـ Firebase Firestore
+# 2. تهيئة الاتصال بـ Firebase Firestore (طريقة آمنة ومضمونة)
 # =========================================
 db = None
 
@@ -35,15 +35,15 @@ def init_firebase():
     global db
     try:
         if not firebase_admin._apps:
-            # البحث عن المفتاح في Railway 
             firebase_env = os.environ.get("FIREBASE_CREDENTIALS") or os.environ.get("FIREBASE_KEY")
             
             if firebase_env:
-                try:
-                    cred_dict = json.loads(firebase_env)
-                    cred = credentials.Certificate(cred_dict)
-                except Exception:
-                    cred = credentials.Certificate(firebase_env)
+                # إنشاء ملف مؤقت في السيرفر يحمل محتوى المفتاح لضمان قراءته بدقة
+                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
+                    temp_file.write(firebase_env)
+                    temp_path = temp_file.name
+                
+                cred = credentials.Certificate(temp_path)
                 firebase_admin.initialize_app(cred)
             elif os.path.exists("firebase.json"):
                 cred = credentials.Certificate("firebase.json")
@@ -55,6 +55,7 @@ def init_firebase():
         print("✅ تم الاتصال بقاعدة بيانات Firestore بنجاح!")
     except Exception as e:
         print(f"❌ خطأ في تهيئة Firebase: {e}")
+        db = None
 
 init_firebase()
 
