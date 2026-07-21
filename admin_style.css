@@ -1,0 +1,132 @@
+/* =========================================
+   إعدادات عامة للوحة التحكم
+========================================= */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--tg-theme-bg-color, #121212);
+    color: var(--tg-theme-text-color, #ffffff);
+    direction: rtl; /* دعم اللغة العربية من اليمين لليسار */
+    overflow: hidden; /* منع التمرير الخارجي للشاشة */
+}
+
+/* =========================================
+   شاشة الحماية (جاري التحقق)
+========================================= */
+.security-screen {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background-color: #121212;
+    color: #ff4444;
+    text-align: center;
+    padding: 20px;
+}
+
+/* =========================================
+   الحاوية الرئيسية (الهيكل)
+========================================= */
+.dashboard-container {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+}
+
+/* =========================================
+   القائمة الجانبية (Sidebar)
+========================================= */
+.sidebar {
+    width: 35%; /* تأخذ 35% من عرض الشاشة */
+    max-width: 150px;
+    background-color: var(--tg-theme-secondary-bg-color, #1e1e1e);
+    padding: 15px 10px;
+    border-left: 1px solid #333;
+    display: flex;
+    flex-direction: column;
+    gap: 12px; /* المسافة بين الأزرار */
+    overflow-y: auto; /* سكرول داخلي للقائمة لو الأزرار زادت */
+}
+
+/* عنوان اللوحة في القائمة */
+.sidebar .logo {
+    color: #ffcc00;
+    font-size: 16px;
+    text-align: center;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #333;
+    padding-bottom: 15px;
+}
+
+/* أزرار القائمة الجانبية */
+.sidebar button {
+    background-color: #2a2a2a;
+    color: var(--tg-theme-text-color, #ffffff);
+    border: 1px solid #444;
+    padding: 12px 8px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: bold;
+    text-align: right;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+/* تأثير عند الضغط أو تمرير الماوس على الزر */
+.sidebar button:hover,
+.sidebar button:active {
+    background-color: #ffcc00;
+    color: #000;
+    border-color: #ffcc00;
+    transform: scale(0.96); /* تصغير بسيط يعطي إحساس بالضغط */
+}
+
+/* =========================================
+   مساحة العرض الرئيسية (المحتوى)
+========================================= */
+.main-content {
+    flex-grow: 1; /* تأخذ باقي مساحة الشاشة (65%) */
+    padding: 20px;
+    overflow-y: auto; /* سكرول داخلي للمحتوى */
+    background-color: var(--tg-theme-bg-color, #121212);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center; /* توسيط المحتوى الترحيبي */
+}
+
+.main-content h2 {
+    color: #ffcc00;
+    margin-bottom: 10px;
+    font-size: 22px;
+    text-align: center;
+}
+
+.main-content p {
+    color: #aaaaaa;
+    font-size: 15px;
+    text-align: center;
+    line-height: 1.6;
+}
+
+/* =========================================
+   تجميل شريط التمرير (Scrollbar)
+========================================= */
+::-webkit-scrollbar {
+    width: 4px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: #555;
+    border-radius: 10px;
+}
