@@ -52,31 +52,47 @@ def init_firebase():
 
 init_firebase()
 
-# دالة التحقق من صلاحيات الأدمن أو المشرفين من قاعدة البيانات
-def check_user_permission(user_id):
+# دالة التحقق من المستخدم وإرجاع بياناته وصلاحياته
+def get_user_data(user_id):
     str_id = str(user_id).strip()
+    
+    # الأدمن الأساسي له كافة الصلاحيات المطلقة
     if str_id == str(ADMIN_ID):
-        return True
+        return {
+            'is_admin': True,
+            'name': 'المدير العام',
+            'permissions': {'users': True, 'support': True, 'settings': True, 'transactions': True, 'security': True, 'ads': True}
+        }
+        
     if not db:
-        return False
+        return None
+        
     try:
         doc_ref = db.collection('moderators').document(str_id)
         doc = doc_ref.get()
-        return doc.exists
+        if doc.exists:
+            data = doc.to_dict()
+            return {
+                'is_admin': False,
+                'name': data.get('name', 'مشرف'),
+                'permissions': data.get('permissions', {})
+            }
     except Exception as e:
-        print(f"❌ خطأ في التحقق من المشرف: {e}")
-        return False
+        print(f"❌ خطأ في جلب بيانات المشرف: {e}")
+        
+    return None
 
 # =========================================
-# 3. إعداد بوت التليجرام ودمجه في الخلفية
+# 3. إعداد بوت التليجرام ودمج التشغيل
 # =========================================
 bot = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.from_user.id
+    user_info = get_user_data(user_id)
     
-    if not check_user_permission(user_id):
+    if not user_info:
         bot.reply_to(message, "⛔ عذراً، هذا البوت مخصص للأدمن والمشرفين المصرح لهم فقط.")
         return
 
@@ -85,12 +101,8 @@ def send_welcome(message):
     btn = InlineKeyboardButton(text="💻 فتح لوحة التحكم", web_app=webapp)
     markup.add(btn)
 
-    bot.send_message(
-        message.chat.id,
-        "👑 **أهلاً بك يا مدير!**\n\nتم التحقق من صلاحياتك بنجاح، اضغط لفتح لوحة التحكم:",
-        reply_markup=markup,
-        parse_mode="Markdown"
-    )
+    greeting = f"👑 أهلاً بك يا {user_info['name']}!\n\nتم التحقق من صلاحياتك بنجاح، اضغط لفتح لوحة التحكم:"
+    bot.send_message(message.chat.id, greeting, reply_markup=markup, parse_mode="Markdown")
 
 def run_telegram_bot():
     if bot:
@@ -123,11 +135,19 @@ def server_status():
         'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     }), 200
 
-# مسار يتحقق من صلاحية المستخدم لفتح لوحة الويب
+# مسار يتحقق من صلاحية المستخدم ويرسل صلاحياته للويب
 @app.route('/api/verify/<user_id>', methods=['GET'])
 def verify_user(user_id):
-    is_allowed = check_user_permission(user_id)
-    return jsonify({'authorized': is_allowed}), 200
+    user_info = get_user_data(user_id)
+    if not user_info:
+        return jsonify({'authorized': False}), 200
+        
+    return jsonify({
+        'authorized': True,
+        'is_admin': user_info['is_admin'],
+        'name': user_info['name'],
+        'permissions': user_info['permissions']
+    }), 200
 
 # أ. جلب قائمة المشرفين
 @app.route('/api/moderators', methods=['GET'])
