@@ -1,4 +1,6 @@
 import os
+import subprocess
+import threading
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import firebase_admin
@@ -6,28 +8,46 @@ from firebase_admin import credentials, firestore
 from datetime import datetime
 
 app = Flask(__name__)
-# السطر ده بيسمح لواجهة الويب بتاعتك إنها تتصل بالسيرفر بدون مشاكل
-CORS(app) 
+CORS(app) # السماح باتصالات الويب
+
+# =========================================
+# 🤖 تشغيل بوت التليجرام تلقائياً في الخلفية
+# =========================================
+def run_telegram_bot():
+    try:
+        print("🚀 جاري تشغيل بوت التليجرام (my_bot.py) في الخلفية...")
+        # بيشغل ملف البوت في عملية منفصلة بدون ما يعطل سيرفر الويب
+        subprocess.Popen(["python", "my_bot.py"])
+    except Exception as e:
+        print(f"❌ خطأ أثناء تشغيل ملف البوت: {e}")
+
+# تشغيل البوت في Thread منفصل عند إقلاع التطبيق
+threading.Thread(target=run_telegram_bot, daemon=True).start()
+
 
 # =========================================
 # 1. الاتصال بقاعدة بيانات Firestore
 # =========================================
-# تأكد إنك حاطط ملف مفتاح الفايربيس (مثلاً firebase.json) 
-# أو معرفه في Railway زي ما أنت عامل في الـ Variables
 if not firebase_admin._apps:
     try:
-        # لو حاطط الملف جوه المشروع
         cred = credentials.Certificate('firebase.json')
         firebase_admin.initialize_app(cred)
-    except:
-        # لو بتستخدم المتغيرات اللي في Railway
+    except Exception as e:
+        print(f"Firebase Init Warning: {e}")
         firebase_admin.initialize_app()
 
 db = firestore.client()
 
+
 # =========================================
-# 2. مسارات (APIs) الإدارة العليا
+# 2. مسارات (APIs) الإدارة العليا واللوحة
 # =========================================
+
+# مسار تجريبي للتأكد إن السيرفر شغال
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({'status': 'online', 'message': 'سيرفر الإدارة وبوت التليجرام شغالين بنجاح! 🚀'}), 200
+
 
 # أ. جلب المشرفين
 @app.route('/api/moderators', methods=['GET'])
@@ -51,6 +71,7 @@ def get_moderators():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
 # ب. إضافة مشرف جديد
 @app.route('/api/moderators', methods=['POST'])
 def add_moderator():
@@ -64,7 +85,6 @@ def add_moderator():
         if not mod_id or not mod_name:
             return jsonify({'success': False, 'message': 'البيانات ناقصة'}), 400
 
-        # حفظ في Firestore
         doc_ref = db.collection('moderators').document(mod_id)
         doc_ref.set({
             'name': mod_name,
@@ -73,7 +93,6 @@ def add_moderator():
             'isMain': False
         })
 
-        # تسجيل الحركة
         log_ref = db.collection('admin_logs').document()
         log_ref.set({
             'admin': admin_who_added,
@@ -84,6 +103,7 @@ def add_moderator():
         return jsonify({'success': True, 'message': 'تم إضافة المشرف بنجاح'}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
 
 # ج. حذف مشرف
 @app.route('/api/moderators/<mod_id>', methods=['DELETE'])
@@ -101,11 +121,8 @@ def delete_moderator(mod_id):
             return jsonify({'success': False, 'message': 'لا يمكن حذف المدير الأساسي'}), 403
 
         mod_name = mod_data.get('name', mod_id)
-        
-        # الحذف من Firestore
         doc_ref.delete()
 
-        # تسجيل الحركة
         log_ref = db.collection('admin_logs').document()
         log_ref.set({
             'admin': admin_who_deleted,
@@ -117,11 +134,11 @@ def delete_moderator(mod_id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
 # د. جلب سجل النشاطات
 @app.route('/api/admin-logs', methods=['GET'])
 def get_admin_logs():
     try:
-        # بنجلب السجلات ونرتبها بالتاريخ (أحدث حاجة الأول) وبنجيب آخر 20 بس
         logs_ref = db.collection('admin_logs').order_by('timestamp', direction=firestore.Query.DESCENDING).limit(20)
         docs = logs_ref.stream()
         
@@ -133,7 +150,10 @@ def get_admin_logs():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+# =========================================
+# تشغيل السيرفر على البورت المحدد من Railway
+# =========================================
 if __name__ == '__main__':
-    # لازم السيرفر يشتغل على البورت اللي Railway بتحدده
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
