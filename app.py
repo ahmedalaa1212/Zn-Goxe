@@ -1,26 +1,46 @@
+import os
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import firebase_admin
-from firebase_admin import credentials, db
+from firebase_admin import credentials, firestore
 from datetime import datetime
 
-# (تأكد أن السيرفر متصل بـ Firebase بالفعل)
+app = Flask(__name__)
+# السطر ده بيسمح لواجهة الويب بتاعتك إنها تتصل بالسيرفر بدون مشاكل
+CORS(app) 
 
-# ================= =========================
-# API الإدارة العليا (Super Admin Endpoints)
+# =========================================
+# 1. الاتصال بقاعدة بيانات Firestore
+# =========================================
+# تأكد إنك حاطط ملف مفتاح الفايربيس (مثلاً firebase.json) 
+# أو معرفه في Railway زي ما أنت عامل في الـ Variables
+if not firebase_admin._apps:
+    try:
+        # لو حاطط الملف جوه المشروع
+        cred = credentials.Certificate('firebase.json')
+        firebase_admin.initialize_app(cred)
+    except:
+        # لو بتستخدم المتغيرات اللي في Railway
+        firebase_admin.initialize_app()
+
+db = firestore.client()
+
+# =========================================
+# 2. مسارات (APIs) الإدارة العليا
 # =========================================
 
-# 1. جلب قائمة المشرفين
+# أ. جلب المشرفين
 @app.route('/api/moderators', methods=['GET'])
 def get_moderators():
     try:
-        ref = db.reference('moderators')
-        mods = ref.get() or {}
+        mods_ref = db.collection('moderators')
+        docs = mods_ref.stream()
         
-        # تحويل البيانات لشكل القائمة
         mods_list = []
-        for mod_id, data in mods.items():
+        for doc in docs:
+            data = doc.to_dict()
             mods_list.append({
-                'id': mod_id,
+                'id': doc.id,
                 'name': data.get('name', ''),
                 'permissions': data.get('permissions', {}),
                 'addedAt': data.get('addedAt', ''),
@@ -31,8 +51,7 @@ def get_moderators():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-
-# 2. إضافة مشرف جديد
+# ب. إضافة مشرف جديد
 @app.route('/api/moderators', methods=['POST'])
 def add_moderator():
     try:
@@ -45,18 +64,17 @@ def add_moderator():
         if not mod_id or not mod_name:
             return jsonify({'success': False, 'message': 'البيانات ناقصة'}), 400
 
-        # حفظ المشرف في Firebase
-        mod_ref = db.reference(f'moderators/{mod_id}')
-        mod_data = {
+        # حفظ في Firestore
+        doc_ref = db.collection('moderators').document(mod_id)
+        doc_ref.set({
             'name': mod_name,
             'permissions': permissions,
             'addedAt': datetime.now().strftime('%Y-%m-%d %H:%M'),
             'isMain': False
-        }
-        mod_ref.set(mod_data)
+        })
 
-        # تسجيل العملية في سجل النشاط (Logs)
-        log_ref = db.reference('admin_logs').push()
+        # تسجيل الحركة
+        log_ref = db.collection('admin_logs').document()
         log_ref.set({
             'admin': admin_who_added,
             'action': f"إضافة المشرف الجديد: {mod_name} (ID: {mod_id})",
@@ -67,29 +85,28 @@ def add_moderator():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-
-# 3. حذف مشرف
+# ج. حذف مشرف
 @app.route('/api/moderators/<mod_id>', methods=['DELETE'])
 def delete_moderator(mod_id):
     try:
         admin_who_deleted = request.args.get('deletedBy', 'المدير العام')
+        doc_ref = db.collection('moderators').document(mod_id)
+        doc = doc_ref.get()
 
-        mod_ref = db.reference(f'moderators/{mod_id}')
-        mod_data = mod_ref.get()
-
-        if not mod_data:
+        if not doc.exists:
             return jsonify({'success': False, 'message': 'المشرف غير موجود'}), 404
 
+        mod_data = doc.to_dict()
         if mod_data.get('isMain'):
             return jsonify({'success': False, 'message': 'لا يمكن حذف المدير الأساسي'}), 403
 
         mod_name = mod_data.get('name', mod_id)
         
-        # حذف من الفايربيس
-        mod_ref.delete()
+        # الحذف من Firestore
+        doc_ref.delete()
 
-        # تسجيل الحذف في السجل
-        log_ref = db.reference('admin_logs').push()
+        # تسجيل الحركة
+        log_ref = db.collection('admin_logs').document()
         log_ref.set({
             'admin': admin_who_deleted,
             'action': f"حذف المشرف: {mod_name} (ID: {mod_id})",
@@ -100,22 +117,23 @@ def delete_moderator(mod_id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-
-# 4. جلب سجل النشاطات (Logs)
+# د. جلب سجل النشاطات
 @app.route('/api/admin-logs', methods=['GET'])
 def get_admin_logs():
     try:
-        ref = db.reference('admin_logs')
-        # جلب أحدث 20 عملية فقط
-        logs_data = ref.order_to_last(20).get() or {}
+        # بنجلب السجلات ونرتبها بالتاريخ (أحدث حاجة الأول) وبنجيب آخر 20 بس
+        logs_ref = db.collection('admin_logs').order_by('timestamp', direction=firestore.Query.DESCENDING).limit(20)
+        docs = logs_ref.stream()
         
         logs_list = []
-        for log_id, data in logs_data.items():
-            logs_list.append(data)
-            
-        # ترتيب السجلات من الأحدث للأقدم
-        logs_list.reverse()
+        for doc in docs:
+            logs_list.append(doc.to_dict())
 
         return jsonify({'success': True, 'logs': logs_list}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+if __name__ == '__main__':
+    # لازم السيرفر يشتغل على البورت اللي Railway بتحدده
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
