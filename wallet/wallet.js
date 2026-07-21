@@ -173,10 +173,69 @@ window.renderWalletTab = function(tab) {
     } 
     else if (tab === 'history') {
         content.innerHTML = `
-            <div class="card" style="text-align:center; color:#777; padding:40px 20px;">
-                <div style="font-size:40px; margin-bottom:10px;">📋</div>
-                لا توجد سجلات سحب أو إيداع حالياً
+            <div class="card" style="text-align:center; color:#777; padding:20px;">
+                <div style="font-size:30px; margin-bottom:10px;">⏳</div>
+                جاري تحميل السجلات...
             </div>`;
+        
+        // جلب السجلات من السيرفر عبر initData
+        const initData = window.Telegram?.WebApp?.initData || '';
+        fetch(`/api/get_history?initData=${encodeURIComponent(initData)}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success && data.history && data.history.length > 0) {
+                    let html = `<div class="card" style="padding: 15px;">
+                        <h3 style="margin-top:0; color:#fff; text-align:center; margin-bottom:15px;">📋 سجل المعاملات</h3>
+                        <div style="display: flex; flex-direction: column; gap: 10px; max-height: 380px; overflow-y: auto;">`;
+                    
+                    data.history.forEach(item => {
+                        const isDeposit = item.type === 'deposit';
+                        const typeText = isDeposit ? '🟢 إيداع' : '🔴 سحب';
+                        
+                        let statusText = 'قيد المراجعة ⏳';
+                        let statusColor = '#f0ad4e';
+                        if (item.status === 'completed') {
+                            statusText = 'مكتمل ✅';
+                            statusColor = '#00cc66';
+                        } else if (item.status === 'rejected') {
+                            statusText = 'مرفوض ❌';
+                            statusColor = '#ff4444';
+                        }
+
+                        const dateStr = item.created_at ? new Date(item.created_at).toLocaleString('ar-EG', {
+                            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                        }) : '';
+                        
+                        html += `
+                            <div style="background: rgba(255,255,255,0.04); padding: 12px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(255,255,255,0.08);">
+                                <div>
+                                    <div style="font-weight: bold; color: #fff; font-size: 14px;">${typeText}</div>
+                                    <div style="font-size: 11px; color: #888; margin-top: 3px;">${dateStr}</div>
+                                </div>
+                                <div style="text-align: left;">
+                                    <div style="color: ${isDeposit ? '#00cc66' : '#ff4444'}; font-weight: bold; font-size: 15px;">$${parseFloat(item.amount_usd || 0).toFixed(2)}</div>
+                                    <div style="font-size: 11px; color: ${statusColor}; margin-top: 3px;">${statusText}</div>
+                                </div>
+                            </div>`;
+                    });
+
+                    html += `</div></div>`;
+                    content.innerHTML = html;
+                } else {
+                    content.innerHTML = `
+                        <div class="card" style="text-align:center; color:#777; padding:40px 20px;">
+                            <div style="font-size:40px; margin-bottom:10px;">📋</div>
+                            لا توجد سجلات سحب أو إيداع حالياً
+                        </div>`;
+                }
+            })
+            .catch(err => {
+                console.error("Error fetching history:", err);
+                content.innerHTML = `
+                    <div class="card" style="text-align:center; color:#ff4444; padding:30px 20px;">
+                        ⚠️ خطأ في تحميل السجلات. تأكد من اتصالك بالإنترنت.
+                    </div>`;
+            });
     }
     else if (tab === 'withdraw') {
         let withdrawHtml = `
