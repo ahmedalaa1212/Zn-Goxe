@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لوحة تحكم ZN</title>
-    <!-- استدعاء مكتبة تليجرام عشان التصميم يظبط جوه البوت -->
+    <title>لوحة تحكم ZN المحمية</title>
+    <!-- مكتبة تليجرام الأساسية -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body {
@@ -13,31 +13,71 @@
             color: var(--tg-theme-text-color, #ffffff);
             text-align: center;
             padding: 20px;
+            margin: 0;
+        }
+        /* هنخفي محتوى اللوحة في البداية لحد ما نتأكد إنه الأدمن */
+        #adminPanel {
+            display: none; 
         }
         .box {
             background-color: var(--tg-theme-secondary-bg-color, #2a2a2a);
             padding: 15px;
             border-radius: 10px;
             margin-top: 20px;
+            border: 1px solid #444;
         }
         h1 { color: #ffcc00; }
+        .error-msg { color: #ff4444; font-weight: bold; margin-top: 50px; font-size: 20px; }
     </style>
 </head>
 <body>
 
-    <h1>👑 لوحة تحكم الأدمن</h1>
-    <p>مرحباً بك في نظام إدارة اللعبة المستقل.</p>
+    <!-- الشاشة دي هتظهر لو حد حاول يخترق أو يفتح من متصفح عادي -->
+    <div id="accessDenied">
+        <h2 class="error-msg">⛔ جاري التحقق من الهوية...</h2>
+    </div>
 
-    <div class="box">
-        <h3>قريباً...</h3>
-        <p>هنا سيتم عرض القوائم الخاصة بـ (المتجر، المهام، المحفظة، إلخ).</p>
+    <!-- لوحة التحكم الحقيقية (مش هتظهر غير ليك) -->
+    <div id="adminPanel">
+        <h1>👑 لوحة تحكم الأدمن</h1>
+        <p>مرحباً بك يا مدير في النظام الآمن.</p>
+
+        <div class="box">
+            <h3>قسم الإدارة السريعة</h3>
+            <p>هنا سيتم إضافة أزرار (البحث عن لاعب، تعديل الرصيد، المهام).</p>
+        </div>
     </div>
 
     <script>
-        // إخبار تليجرام أن التطبيق جاهز
+        // 1. تهيئة تليجرام
         window.Telegram.WebApp.ready();
-        // تكبير الشاشة بالكامل
         window.Telegram.WebApp.expand();
+
+        const tg = window.Telegram.WebApp;
+        
+        // ⚠️ هام جداً: حط الـ ID بتاعك هنا (نفس اللي حطيته في ملف البايثون)
+        const MY_ADMIN_ID = 123456789; 
+
+        // 2. نظام الحماية الصارم
+        // نتأكد الأول إن الصفحة اتفتحت من جوه تليجرام مش من متصفح خارجي
+        if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+            
+            const userId = tg.initDataUnsafe.user.id;
+            
+            // لو الـ ID اللي فتح اللوحة هو الـ ID بتاعك
+            if (userId === MY_ADMIN_ID) {
+                document.getElementById('accessDenied').style.display = 'none'; // نخفي رسالة الرفض
+                document.getElementById('adminPanel').style.display = 'block'; // نظهر اللوحة
+            } else {
+                // لو حد تاني معاه الرابط وفتحه من جوه تليجرام بتاعه
+                document.getElementById('accessDenied').innerHTML = "<h2 class='error-msg'>⛔ دخول غير مصرح به! أنت لست الأدمن.</h2>";
+                setTimeout(() => { tg.close(); }, 3000); // نقفل اللوحة في وشه بعد 3 ثواني
+            }
+
+        } else {
+            // لو الرابط اتفتح من جوجل كروم أو سفاري
+            document.getElementById('accessDenied').innerHTML = "<h2 class='error-msg'>⛔ لا يمكن الوصول! يجب فتح اللوحة من داخل بوت تليجرام فقط.</h2>";
+        }
     </script>
 </body>
 </html>
