@@ -1,57 +1,89 @@
 import os
+import json
 import subprocess
 import threading
+from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore
-from datetime import datetime
 
+# إنشاء تطبيق Flask وتفعيل الـ CORS لتأمين واستقبال طلبات الويب
 app = Flask(__name__)
-CORS(app) # السماح باتصالات الويب
+CORS(app)
 
 # =========================================
-# 🤖 تشغيل بوت التليجرام تلقائياً في الخلفية
+# 1. تشغيل بوت التليجرام (my_bot.py) في الخلفية بأمان
 # =========================================
-def run_telegram_bot():
+def start_bot_process():
     try:
-        print("🚀 جاري تشغيل بوت التليجرام (admin_bot.py) في الخلفية...")
-        # بيشغل ملف البوت في عملية منفصلة بدون ما يعطل سيرفر الويب
-        subprocess.Popen(["python", "admin_bot.py"])
+        if os.path.exists("admin_bot.py"):
+            print("🚀 جاري تشغيل admin_bot.py في عملية منفصلة...")
+            subprocess.Popen(["python", "my_bot.py"])
+        else:
+            print("⚠️ تنبيه: ملف admin_bot.py غير موجود في المجلد الرئيسي!")
     except Exception as e:
         print(f"❌ خطأ أثناء تشغيل ملف البوت: {e}")
 
-# تشغيل البوت في Thread منفصل عند إقلاع التطبيق
-threading.Thread(target=run_telegram_bot, daemon=True).start()
+# تشغيل البوت في Thread منفصل مع بداية إقلاع السيرفر
+threading.Thread(target=start_bot_process, daemon=True).start()
 
 
 # =========================================
-# 1. الاتصال بقاعدة بيانات Firestore
+# 2. تهيئة الاتصال بـ Firebase Firestore مع الحماية
 # =========================================
-if not firebase_admin._apps:
+db = None
+
+def init_firebase():
+    global db
     try:
-        cred = credentials.Certificate('firebase.json')
-        firebase_admin.initialize_app(cred)
+        if not firebase_admin._apps:
+            # 1. جلب المفتاح من متغيرات البيئة في Railway (لحماية البيانات من التسريب)
+            firebase_env = os.environ.get("FIREBASE_CREDENTIALS") or os.environ.get("FIREBASE_KEY")
+            
+            if firebase_env:
+                try:
+                    cred_dict = json.loads(firebase_env)
+                    cred = credentials.Certificate(cred_dict)
+                except Exception:
+                    cred = credentials.Certificate(firebase_env)
+                firebase_admin.initialize_app(cred)
+            elif os.path.exists("firebase.json"):
+                cred = credentials.Certificate("firebase.json")
+                firebase_admin.initialize_app(cred)
+            else:
+                # الاتصال الافتراضي للبيئة
+                firebase_admin.initialize_app()
+                
+        db = firestore.client()
+        print("✅ تم الاتصال بقاعدة بيانات Firestore بنجاح!")
     except Exception as e:
-        print(f"Firebase Init Warning: {e}")
-        firebase_admin.initialize_app()
+        print(f"❌ خطأ في تهيئة Firebase: {e}")
 
-db = firestore.client()
+init_firebase()
 
 
 # =========================================
-# 2. مسارات (APIs) الإدارة العليا واللوحة
+# 3. مسارات الـ APIs الكاملة (لوحة التحكم)
 # =========================================
 
-# مسار تجريبي للتأكد إن السيرفر شغال
+# مسار الفحص السريع لحالة السيرفر
 @app.route('/', methods=['GET'])
-def home():
-    return jsonify({'status': 'online', 'message': 'سيرفر الإدارة وبوت التليجرام شغالين بنجاح! 🚀'}), 200
+def index():
+    return jsonify({
+        'status': 'online',
+        'system': 'Admin ZN Control Server',
+        'firebase_connected': db is not None,
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }), 200
 
 
-# أ. جلب المشرفين
+# أ. جلب قائمة المشرفين
 @app.route('/api/moderators', methods=['GET'])
 def get_moderators():
+    if not db:
+        return jsonify({'success': False, 'message': 'سيرفر قاعدة البيانات غير متصل'}), 500
+    
     try:
         mods_ref = db.collection('moderators')
         docs = mods_ref.stream()
@@ -72,19 +104,27 @@ def get_moderators():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# ب. إضافة مشرف جديد
+# ب. إضافة مشرف جديد (مع فحص الحماية والبيانات)
 @app.route('/api/moderators', methods=['POST'])
 def add_moderator():
+    if not db:
+        return jsonify({'success': False, 'message': 'سيرفر قاعدة البيانات غير متصل'}), 500
+    
     try:
-        data = request.json
-        mod_id = str(data.get('id')).strip()
-        mod_name = data.get('name').strip()
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({'success': False, 'message': 'بيانات الطلب غير صالحة'}), 400
+
+        mod_id = str(data.get('id', '')).strip()
+        mod_name = str(data.get('name', '')).strip()
         permissions = data.get('permissions', {})
         admin_who_added = data.get('addedBy', 'المدير العام')
 
-        if not mod_id or not mod_name:
-            return jsonify({'success': False, 'message': 'البيانات ناقصة'}), 400
+        # فحص الحماية: تأمين البيانات ومنع الإدخال الفارغ أو الأرقام الخاطئة
+        if not mod_id or not mod_name or not mod_id.isdigit():
+            return jsonify({'success': False, 'message': 'يرجى إدخال Telegram ID صحيح (أرقام فقط) واسم للمشرف'}), 400
 
+        # إضافة/تحديث المشرف في Firestore
         doc_ref = db.collection('moderators').document(mod_id)
         doc_ref.set({
             'name': mod_name,
@@ -93,6 +133,7 @@ def add_moderator():
             'isMain': False
         })
 
+        # تسجيل العملية في سجل النشاطات (Admin Logs)
         log_ref = db.collection('admin_logs').document()
         log_ref.set({
             'admin': admin_who_added,
@@ -100,7 +141,8 @@ def add_moderator():
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         })
 
-        return jsonify({'success': True, 'message': 'تم إضافة المشرف بنجاح'}), 200
+        return jsonify({'success': True, 'message': f'تمت إضافة المشرف {mod_name} بنجاح'}), 200
+
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -108,21 +150,31 @@ def add_moderator():
 # ج. حذف مشرف
 @app.route('/api/moderators/<mod_id>', methods=['DELETE'])
 def delete_moderator(mod_id):
+    if not db:
+        return jsonify({'success': False, 'message': 'سيرفر قاعدة البيانات غير متصل'}), 500
+    
     try:
+        mod_id = str(mod_id).strip()
         admin_who_deleted = request.args.get('deletedBy', 'المدير العام')
+        
         doc_ref = db.collection('moderators').document(mod_id)
         doc = doc_ref.get()
 
         if not doc.exists:
-            return jsonify({'success': False, 'message': 'المشرف غير موجود'}), 404
+            return jsonify({'success': False, 'message': 'المشرف غير موجود في قاعدة البيانات'}), 404
 
         mod_data = doc.to_dict()
-        if mod_data.get('isMain'):
-            return jsonify({'success': False, 'message': 'لا يمكن حذف المدير الأساسي'}), 403
+        
+        # حماية حساب المدير الأساسي من الحذف
+        if mod_data.get('isMain') is True:
+            return jsonify({'success': False, 'message': 'خطأ حماية: لا يمكن حذف حساب المدير الرئيسي'}), 403
 
         mod_name = mod_data.get('name', mod_id)
+        
+        # تنفيذ الحذف من الفايربيس
         doc_ref.delete()
 
+        # تسجيل حركة الحذف في السجل
         log_ref = db.collection('admin_logs').document()
         log_ref.set({
             'admin': admin_who_deleted,
@@ -130,7 +182,8 @@ def delete_moderator(mod_id):
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         })
 
-        return jsonify({'success': True, 'message': 'تم حذف المشرف بنجاح'}), 200
+        return jsonify({'success': True, 'message': f'تم حذف المشرف {mod_name} بنجاح'}), 200
+
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -138,8 +191,11 @@ def delete_moderator(mod_id):
 # د. جلب سجل النشاطات
 @app.route('/api/admin-logs', methods=['GET'])
 def get_admin_logs():
+    if not db:
+        return jsonify({'success': False, 'message': 'سيرفر قاعدة البيانات غير متصل'}), 500
+    
     try:
-        logs_ref = db.collection('admin_logs').order_by('timestamp', direction=firestore.Query.DESCENDING).limit(20)
+        logs_ref = db.collection('admin_logs').order_by('timestamp', direction=firestore.Query.DESCENDING).limit(25)
         docs = logs_ref.stream()
         
         logs_list = []
@@ -152,7 +208,7 @@ def get_admin_logs():
 
 
 # =========================================
-# تشغيل السيرفر على البورت المحدد من Railway
+# تشغيل السيرفر المحلي والإنتاج
 # =========================================
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
