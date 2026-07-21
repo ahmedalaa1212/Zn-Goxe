@@ -2,47 +2,73 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>لوحة تحكم ZN</title>
-    <!-- ربط ملف التصميم الموحد -->
     <link rel="stylesheet" href="admin_style.css">
-    <!-- استدعاء مكتبة تليجرام -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
 
-    <!-- شاشة التحقق من الهوية -->
+    <!-- شاشة الحماية -->
     <div id="accessDenied" class="security-screen">
         <h2>⛔ جاري التحقق من الهوية...</h2>
     </div>
 
-    <!-- لوحة التحكم الحقيقية (مخفية حتى يتم التحقق) -->
+    <!-- لوحة التحكم -->
     <div id="adminPanel" class="dashboard-container" style="display: none;">
         
-        <!-- القائمة الجانبية (Sidebar) -->
+        <!-- القائمة الجانبية -->
         <div class="sidebar">
-            <h3 class="logo">👑 إدارة ZN</h3>
-            <button onclick="loadSection('super_admin')">👨‍💻 الإدارة العليا</button>
-            <button onclick="loadSection('users')">👥 بيانات المستخدم</button>
-            <button onclick="loadSection('support')">💬 الدردشة والدعم</button>
-            <button onclick="loadSection('settings')">⚙️ الأسعار والإعدادات</button>
-            <button onclick="loadSection('transactions')">💰 سجل التحويلات</button>
-            <button onclick="loadSection('security')">🛡️ التحكم والأمان</button>
-            <button onclick="loadSection('ads')">📢 الإعلانات</button>
+            <div class="logo">إدارة ZN 👑</div>
+            
+            <button onclick="loadSection('super_admin', this)">
+                <span class="icon">👨‍💻</span>
+                <span>الإدارة العليا</span>
+            </button>
+            
+            <button onclick="loadSection('users', this)">
+                <span class="icon">👥</span>
+                <span>بيانات المستخدم</span>
+            </button>
+            
+            <button onclick="loadSection('support', this)">
+                <span class="icon">💬</span>
+                <span>الدردشة والدعم</span>
+            </button>
+            
+            <button onclick="loadSection('settings', this)">
+                <span class="icon">⚙️</span>
+                <span>الإعدادات</span>
+            </button>
+            
+            <button onclick="loadSection('transactions', this)">
+                <span class="icon">💰</span>
+                <span>سجل التحويلات</span>
+            </button>
+            
+            <button onclick="loadSection('security', this)">
+                <span class="icon">🛡️</span>
+                <span>التحكم والأمان</span>
+            </button>
+            
+            <button onclick="loadSection('ads', this)">
+                <span class="icon">📢</span>
+                <span>الإعلانات</span>
+            </button>
         </div>
 
-        <!-- مساحة العرض الرئيسية (يتم تحميل الملفات الفرعية بداخلها) -->
+        <!-- مساحة العرض الرئيسية -->
         <div class="main-content" id="contentArea">
-            <h2>مرحباً بك يا مدير 👋</h2>
-            <p>اختر قسماً من القائمة الجانبية للبدء في إدارة النظام.</p>
+            <div class="content-card animate-fade-in">
+                <h2 style="color: #f59e0b; margin-bottom: 8px;">مرحباً بك يا مدير 👋</h2>
+                <p style="color: #94a3b8; font-size: 13px;">اختر قسماً من القائمة الجانبية لبدء التحكم في اللعبة.</p>
+            </div>
         </div>
 
     </div>
 
-    <!-- ربط ملف الجافاسكريبت المسؤول عن التنقل -->
     <script src="main.js"></script>
     
-    <!-- كود الحماية الصارم -->
     <script>
         window.Telegram.WebApp.ready();
         window.Telegram.WebApp.expand();
