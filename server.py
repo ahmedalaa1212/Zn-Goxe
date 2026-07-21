@@ -737,8 +737,7 @@ def wallet_convert():
             
             if current_zn < amount: return False, 'رصيد ZN غير كافٍ للتحويل'
             
-            # 🛡️ الحماية هنا: السيرفر هو اللي بيقسم على مليون عشان يطلع الدولار
-            # مهما بعتت الواجهة أرقام مختلفة، السيرفر هينفذ حسبته الخاصة
+            # 🛡️ الحماية: السيرفر يحسب التحويل حتمياً (كل 1,000,000 ZN = $1)
             usd_gained = amount / 1000000.0
             
             transaction.update(user_ref, {
@@ -789,7 +788,6 @@ def wallet_withdraw():
 
         tx_success, error_msg = process_withdraw(transaction, user_ref)
         if tx_success:
-            # تسجيل طلب السحب في قاعدة البيانات لتقوم الإدارة بمراجعته
             db.collection('withdrawals').add({
                 'telegram_id': telegram_id,
                 'user_name': user_name,
@@ -819,7 +817,6 @@ def wallet_deposit_report():
         return jsonify({'success': False, 'error': 'مبلغ غير صالح'}), 400
         
     try:
-        # تسجيل بلاغ الدفع للمراجعة والإضافة
         db.collection('deposits').add({
             'telegram_id': telegram_id,
             'user_name': user_name,
@@ -879,13 +876,7 @@ def admin_update_user():
         if not doc.exists:
              return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
              
-        # إضافة السر للتحديث عشان نمشي مع نفس المنطق بتاع الحماية
-        updates['adminSecret'] = ADMIN_SECRET 
-        
         user_ref.update(updates)
-        
-        # مسح السر من الداتابيز بعد التحديث لزيادة الأمان
-        user_ref.update({'adminSecret': firestore.DELETE_FIELD}) 
 
         return jsonify({"success": True, "message": "تم التحديث بنجاح"}), 200
     except Exception as e:
