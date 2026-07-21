@@ -22,7 +22,7 @@ window.PlayerData = {
     claimed_ref_tasks: []
 };
 
-// منع التداخل في طلبات الشبكة المتكررة
+// منع التداخل في طلبات الشبكة المتكررة والحماية العالية
 let isSyncingPlayerData = false;
 
 window.fetchPlayerDataFromServer = async function() {
@@ -235,4 +235,3 @@ window.initCentralSystem = function() {
 };
 
 window.initCentralSystem();
-
