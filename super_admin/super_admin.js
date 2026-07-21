@@ -1,13 +1,13 @@
 // =========================================
-// super_admin.js - كود العمليات للإدارة العليا
+// super_admin.js - كود الربط الفعلي مع السيرفر
 // =========================================
 
-// تشغيل الدوال بمجرد تحميل القائمة
+// تحميل البيانات فور فتح القائمة
 loadModerators();
 loadAdminLogs();
 
 // 1. دالة إضافة مشرف جديد
-function addNewModerator() {
+async function addNewModerator() {
     const modId = document.getElementById('modTelegramId').value.trim();
     const modName = document.getElementById('modName').value.trim();
 
@@ -25,93 +25,133 @@ function addNewModerator() {
         ads: document.getElementById('perm_ads').checked,
     };
 
-    const newMod = {
+    const payload = {
         id: modId,
         name: modName,
         permissions: permissions,
-        addedAt: new Date().toLocaleDateString('ar-EG')
+        addedBy: "المدير العام"
     };
 
-    console.log("البيانات الجاهزة للإرسال لقاعدة البيانات:", newMod);
-    
-    // محاكاة النجاح
-    alert(`✅ تم إضافة المشرف (${modName}) بنجاح!`);
-    
-    // تصفير الخانات بعد الإضافة
-    document.getElementById('modTelegramId').value = '';
-    document.getElementById('modName').value = '';
-    
-    loadModerators();
+    try {
+        const response = await fetch('/api/moderators', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            alert(`✅ ${result.message}`);
+            // تصفير المدخلات
+            document.getElementById('modTelegramId').value = '';
+            document.getElementById('modName').value = '';
+            // تحديث القوائم والسجل
+            loadModerators();
+            loadAdminLogs();
+        } else {
+            alert(`❌ خطأ: ${result.message || result.error}`);
+        }
+    } catch (error) {
+        console.error("خطأ في الاتصال:", error);
+        alert("⚠️ فشل الاتصال بالسيرفر!");
+    }
 }
 
-// 2. دالة جلب قائمة المشرفين
-function loadModerators() {
+// 2. دالة جلب المشرفين من الفايربيس
+async function loadModerators() {
     const listContainer = document.getElementById('moderatorsList');
-    
-    // داتا مؤقتة للتجربة لحد ما نربط قاعدة البيانات
-    const mockMods = [
-        { id: "123456789", name: "المدير الأساسي", addedAt: "2026-07-20", isMain: true },
-        { id: "987654321", name: "أحمد (دعم فني)", addedAt: "2026-07-21", isMain: false }
-    ];
+    listContainer.innerHTML = `<p class="empty-msg">⏳ جاري التحميل من قاعدة البيانات...</p>`;
 
-    if (mockMods.length === 0) {
-        listContainer.innerHTML = `<p class="empty-msg">لا يوجد مشرفين حالياً.</p>`;
-        return;
-    }
+    try {
+        const response = await fetch('/api/moderators');
+        const result = await response.json();
 
-    let html = '';
-    mockMods.forEach(mod => {
-        const deleteBtn = mod.isMain 
-            ? `<span style="font-size: 10px; color: #f59e0b;">👑 لا يمكن حذفه</span>` 
-            : `<button class="btn-danger-sm" onclick="deleteModerator('${mod.id}', '${mod.name}')">حذف ❌</button>`;
+        if (!result.success || !result.moderators || result.moderators.length === 0) {
+            listContainer.innerHTML = `<p class="empty-msg">لا يوجد مشرفين مضافين حالياً.</p>`;
+            return;
+        }
 
-        html += `
-            <div class="mod-item">
-                <div class="mod-info">
-                    <strong>👤 ${mod.name}</strong>
-                    <span>ID: ${mod.id} | أضيف في: ${mod.addedAt}</span>
+        let html = '';
+        result.moderators.forEach(mod => {
+            const deleteBtn = mod.isMain 
+                ? `<span style="font-size: 10px; color: #f59e0b;">👑 مدير رئيسي</span>` 
+                : `<button class="btn-danger-sm" onclick="deleteModerator('${mod.id}', '${mod.name}')">حذف ❌</button>`;
+
+            html += `
+                <div class="mod-item">
+                    <div class="mod-info">
+                        <strong>👤 ${mod.name}</strong>
+                        <span>ID: ${mod.id} | أضيف في: ${mod.addedAt}</span>
+                    </div>
+                    ${deleteBtn}
                 </div>
-                ${deleteBtn}
-            </div>
-        `;
-    });
+            `;
+        });
 
-    listContainer.innerHTML = html;
+        listContainer.innerHTML = html;
+
+    } catch (error) {
+        console.error("خطأ في جلب البيانات:", error);
+        listContainer.innerHTML = `<p class="empty-msg" style="color:#ef4444;">⚠️ تعذر جلب قائمة المشرفين.</p>`;
+    }
 }
 
 // 3. دالة حذف مشرف
-function deleteModerator(modId, modName) {
-    if (confirm(`⚠️ هل أنت متأكد من حذف المشرف (${modName}) وسحب صلاحياته؟`)) {
-        console.log(`تم إرسال أمر حذف المشرف ID: ${modId}`);
-        alert("✅ تم سحب الصلاحيات بنجاح.");
-        loadModerators();
-    }
-}
-
-// 4. دالة جلب السجلات
-function loadAdminLogs() {
-    const logsContainer = document.getElementById('adminLogs');
-    
-    const mockLogs = [
-        { admin: "أحمد (دعم فني)", action: "رد على تذكرة المستخدم ID: 555444", time: "منذ 15 دقيقة" },
-        { admin: "المدير الأساسي", action: "تعديل إعدادات الأسعار", time: "منذ ساعتين" }
-    ];
-
-    if (mockLogs.length === 0) {
-        logsContainer.innerHTML = `<p class="empty-msg">لا توجد تحركات مسجلة حالياً.</p>`;
+async function deleteModerator(modId, modName) {
+    if (!confirm(`⚠️ هل أنت متأكد من حذف المشرف (${modName}) وسحب جميع صلاحياته؟`)) {
         return;
     }
 
-    let html = '';
-    mockLogs.forEach(log => {
-        html += `
-            <div class="log-item">
-                <span class="log-admin">⚙️ ${log.admin}</span>
-                <span>${log.action}</span>
-                <span class="log-time">${log.time}</span>
-            </div>
-        `;
-    });
+    try {
+        const response = await fetch(`/api/moderators/${modId}?deletedBy=المدير العام`, {
+            method: 'DELETE'
+        });
 
-    logsContainer.innerHTML = html;
+        const result = await response.json();
+
+        if (result.success) {
+            alert(`✅ ${result.message}`);
+            loadModerators();
+            loadAdminLogs();
+        } else {
+            alert(`❌ خطأ: ${result.message || result.error}`);
+        }
+    } catch (error) {
+        console.error("خطأ أثناء الحذف:", error);
+        alert("⚠️ فشل الاتصال بالسيرفر أثناء الحذف!");
+    }
+}
+
+// 4. دالة جلب سجل النشاطات (Logs)
+async function loadAdminLogs() {
+    const logsContainer = document.getElementById('adminLogs');
+    logsContainer.innerHTML = `<p class="empty-msg">⏳ جاري تحميل السجل...</p>`;
+
+    try {
+        const response = await fetch('/api/admin-logs');
+        const result = await response.json();
+
+        if (!result.success || !result.logs || result.logs.length === 0) {
+            logsContainer.innerHTML = `<p class="empty-msg">لا توجد تحركات مسجلة حالياً.</p>`;
+            return;
+        }
+
+        let html = '';
+        result.logs.forEach(log => {
+            html += `
+                <div class="log-item">
+                    <span class="log-admin">⚙️ ${log.admin}</span>
+                    <span style="color:#e2e8f0;">${log.action}</span>
+                    <span class="log-time">${log.timestamp}</span>
+                </div>
+            `;
+        });
+
+        logsContainer.innerHTML = html;
+
+    } catch (error) {
+        console.error("خطأ في جلب السجلات:", error);
+        logsContainer.innerHTML = `<p class="empty-msg" style="color:#ef4444;">⚠️ تعذر تحميل سجل النشاط.</p>`;
+    }
 }
