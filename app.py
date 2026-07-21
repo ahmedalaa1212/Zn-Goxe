@@ -8,12 +8,11 @@ from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# إنشاء تطبيق Flask وتفعيل الـ CORS لتأمين واستقبال طلبات الويب
 app = Flask(__name__)
 CORS(app)
 
 # =========================================
-# 1. تشغيل بوت التليجرام (admin_bot.py) في الخلفية بأمان
+# 1. تشغيل بوت الإدارة (admin_bot.py) في الخلفية
 # =========================================
 def start_bot_process():
     try:
@@ -25,12 +24,10 @@ def start_bot_process():
     except Exception as e:
         print(f"❌ خطأ أثناء تشغيل ملف البوت: {e}")
 
-# تشغيل البوت في Thread منفصل مع بداية إقلاع السيرفر
 threading.Thread(target=start_bot_process, daemon=True).start()
 
-
 # =========================================
-# 2. تهيئة الاتصال بـ Firebase Firestore مع الحماية
+# 2. تهيئة الاتصال بـ Firebase Firestore
 # =========================================
 db = None
 
@@ -38,7 +35,7 @@ def init_firebase():
     global db
     try:
         if not firebase_admin._apps:
-            # 1. جلب المفتاح من متغيرات البيئة في Railway (لحماية البيانات من التسريب)
+            # البحث عن المفتاح في Railway 
             firebase_env = os.environ.get("FIREBASE_CREDENTIALS") or os.environ.get("FIREBASE_KEY")
             
             if firebase_env:
@@ -52,7 +49,6 @@ def init_firebase():
                 cred = credentials.Certificate("firebase.json")
                 firebase_admin.initialize_app(cred)
             else:
-                # الاتصال الافتراضي للبيئة
                 firebase_admin.initialize_app()
                 
         db = firestore.client()
@@ -62,12 +58,10 @@ def init_firebase():
 
 init_firebase()
 
-
 # =========================================
-# 3. مسارات الـ APIs الكاملة (لوحة التحكم)
+# 3. مسارات الـ APIs (لوحة التحكم)
 # =========================================
 
-# مسار الفحص السريع لحالة السيرفر
 @app.route('/', methods=['GET'])
 def index():
     return jsonify({
@@ -76,7 +70,6 @@ def index():
         'firebase_connected': db is not None,
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     }), 200
-
 
 # أ. جلب قائمة المشرفين
 @app.route('/api/moderators', methods=['GET'])
@@ -103,8 +96,7 @@ def get_moderators():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-
-# ب. إضافة مشرف جديد (مع فحص الحماية والبيانات)
+# ب. إضافة مشرف جديد
 @app.route('/api/moderators', methods=['POST'])
 def add_moderator():
     if not db:
@@ -120,11 +112,9 @@ def add_moderator():
         permissions = data.get('permissions', {})
         admin_who_added = data.get('addedBy', 'المدير العام')
 
-        # فحص الحماية: تأمين البيانات ومنع الإدخال الفارغ أو الأرقام الخاطئة
         if not mod_id or not mod_name or not mod_id.isdigit():
-            return jsonify({'success': False, 'message': 'يرجى إدخال Telegram ID صحيح (أرقام فقط) واسم للمشرف'}), 400
+            return jsonify({'success': False, 'message': 'يرجى إدخال Telegram ID صحيح (أرقام فقط)'}), 400
 
-        # إضافة/تحديث المشرف في Firestore
         doc_ref = db.collection('moderators').document(mod_id)
         doc_ref.set({
             'name': mod_name,
@@ -133,7 +123,6 @@ def add_moderator():
             'isMain': False
         })
 
-        # تسجيل العملية في سجل النشاطات (Admin Logs)
         log_ref = db.collection('admin_logs').document()
         log_ref.set({
             'admin': admin_who_added,
@@ -142,10 +131,8 @@ def add_moderator():
         })
 
         return jsonify({'success': True, 'message': f'تمت إضافة المشرف {mod_name} بنجاح'}), 200
-
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
-
 
 # ج. حذف مشرف
 @app.route('/api/moderators/<mod_id>', methods=['DELETE'])
@@ -165,16 +152,12 @@ def delete_moderator(mod_id):
 
         mod_data = doc.to_dict()
         
-        # حماية حساب المدير الأساسي من الحذف
         if mod_data.get('isMain') is True:
             return jsonify({'success': False, 'message': 'خطأ حماية: لا يمكن حذف حساب المدير الرئيسي'}), 403
 
         mod_name = mod_data.get('name', mod_id)
-        
-        # تنفيذ الحذف من الفايربيس
         doc_ref.delete()
 
-        # تسجيل حركة الحذف في السجل
         log_ref = db.collection('admin_logs').document()
         log_ref.set({
             'admin': admin_who_deleted,
@@ -183,10 +166,8 @@ def delete_moderator(mod_id):
         })
 
         return jsonify({'success': True, 'message': f'تم حذف المشرف {mod_name} بنجاح'}), 200
-
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
-
 
 # د. جلب سجل النشاطات
 @app.route('/api/admin-logs', methods=['GET'])
@@ -207,9 +188,6 @@ def get_admin_logs():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# =========================================
-# تشغيل السيرفر المحلي والإنتاج
-# =========================================
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
