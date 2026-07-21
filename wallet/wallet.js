@@ -2,7 +2,6 @@
 // 💳 ZN Goxe - Wallet Module (wallet.js)
 // ==========================================
 
-// بيانات افتراضية (تتحول ديناميكياً لتطابق رصيد قاعدة البيانات)
 let playerData = {
     znBalance: 0,
     usdBalance: 0.00000,
@@ -11,7 +10,7 @@ let playerData = {
 
 let isWalletConnected = false;
 let userWalletAddress = null;
-let currentTonPriceUSD = 5.00; // قيمة افتراضية تتحدث تلقائياً من السوق
+let currentTonPriceUSD = 5.00;
 let currentWalletTab = localStorage.getItem('lastWalletTab') || 'deposit';
 let tonConnectUI = null;
 
@@ -26,13 +25,11 @@ async function fetchLiveTonPrice() {
         if (data && data.price) {
             currentTonPriceUSD = parseFloat(data.price);
             
-            // تحديث عرض السعر في أسفل الشاشة
             const tonPriceElem = document.getElementById('current-ton-price');
             if (tonPriceElem) {
                 tonPriceElem.innerText = currentTonPriceUSD.toFixed(2);
             }
             
-            // تحديث التقديرات والأرصدة
             updateHeaderBalances();
         }
     } catch (error) {
@@ -59,10 +56,7 @@ async function initTonConnect() {
                 theme: TON_CONNECT_UI.THEME.DARK,
                 colorsSet: {
                     [TON_CONNECT_UI.THEME.DARK]: {
-                        connectButton: {
-                            background: '#0088cc', 
-                            foreground: '#ffffff'
-                        },
+                        connectButton: { background: '#0088cc', foreground: '#ffffff' },
                         accent: '#0088cc', 
                         telegramButton: '#0088cc',
                         background: { primary: '#121212', secondary: '#1e1e1e', qr: '#ffffff' },
@@ -108,7 +102,6 @@ window.disconnectCustomWallet = async function() {
 function updateHeaderBalances() {
     const pData = window.PlayerData || playerData;
     
-    // تأمين الأرقام وتحويلها بشكل صحيح
     const zn = parseFloat(pData.balance !== undefined ? pData.balance : pData.znBalance) || 0;
     const usd = parseFloat(pData.usd_balance !== undefined ? pData.usd_balance : pData.usdBalance) || 0;
 
@@ -124,7 +117,7 @@ function updateHeaderBalances() {
 }
 
 // ==========================================
-// 🎨 3. عرض تبويبات المحفظة
+// 🎨 3. عرض تبويبات المحفظة (مرتبة: إيداع -> سجلات -> سحب)
 // ==========================================
 window.renderWalletTab = function(tab) {
     currentWalletTab = tab;
@@ -178,7 +171,6 @@ window.renderWalletTab = function(tab) {
                 جاري تحميل السجلات...
             </div>`;
         
-        // جلب السجلات من السيرفر عبر initData
         const initData = window.Telegram?.WebApp?.initData || '';
         fetch(`/api/get_history?initData=${encodeURIComponent(initData)}`)
             .then(res => res.json())
@@ -359,7 +351,6 @@ window.executeDeposit = async function() {
     }
 };
 
-// 🔒 تحويل النقاط مع التحديث الفوري المضمون وإعادة المزامنة من السيرفر
 window.convertManualPoints = async function() {
     let amount = parseFloat(document.getElementById('zn-input').value);
     
@@ -379,7 +370,6 @@ window.convertManualPoints = async function() {
         if (result.success) {
             const usdGained = result.usd_gained || (amount / 1000000);
             
-            // 🔥 إعادة جلب أحدث وأدق بيانات من السيرفر لمنع تصفير أو فقدان البيانات عند الرسترة
             if (typeof window.fetchPlayerDataFromServer === 'function') {
                 await window.fetchPlayerDataFromServer();
             } else {
@@ -388,7 +378,6 @@ window.convertManualPoints = async function() {
                 if (pData.usd_balance !== undefined) pData.usd_balance = (pData.usd_balance || 0) + usdGained;
             }
 
-            // تحديث الواجهة فوراً
             updateHeaderBalances();
 
             alert(`✅ تم تحويل النقاط بنجاح! كسبت $${usdGained.toFixed(5)}`);
