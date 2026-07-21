@@ -10,8 +10,8 @@
 <body>
 
     <!-- شاشة الحماية -->
-    <div id="accessDenied" class="security-screen">
-        <h2>⛔ جاري التحقق من الهوية...</h2>
+    <div id="accessDenied" class="security-screen" style="display: flex; justify-content: center; align-items: center; height: 100vh; background: #121212; color: #ff4444; font-family: Tahoma; text-align: center; flex-direction: column;">
+        <h2>⛔ جاري التحقق من الهوية والصلاحيات...</h2>
     </div>
 
     <!-- لوحة التحكم -->
@@ -70,23 +70,38 @@
     <script src="main.js"></script>
     
     <script>
-        window.Telegram.WebApp.ready();
-        window.Telegram.WebApp.expand();
-        
         const tg = window.Telegram.WebApp;
-        const MY_ADMIN_ID = 5102387551; // ⚠️ ضع الـ ID الخاص بك هنا
+        tg.ready();
+        tg.expand();
 
-        if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
-            if (tg.initDataUnsafe.user.id === MY_ADMIN_ID) {
-                document.getElementById('accessDenied').style.display = 'none';
-                document.getElementById('adminPanel').style.display = 'flex';
+        async function verifyAccess() {
+            let userId = null;
+
+            if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+                userId = tg.initDataUnsafe.user.id;
             } else {
-                document.getElementById('accessDenied').innerHTML = "<h2>⛔ دخول غير مصرح به! أنت لست الأدمن.</h2>";
-                setTimeout(() => { tg.close(); }, 3000);
+                // للتجربة المحلية في حال فتحت الرابط من المتصفح العادي
+                userId = "5102387551"; 
             }
-        } else {
-            document.getElementById('accessDenied').innerHTML = "<h2>⛔ يجب فتح اللوحة من داخل بوت تليجرام فقط.</h2>";
+
+            try {
+                let response = await fetch(`/api/verify/${userId}`);
+                let data = await response.json();
+
+                if (data.authorized) {
+                    document.getElementById('accessDenied').style.display = 'none';
+                    document.getElementById('adminPanel').style.display = 'flex';
+                } else {
+                    document.getElementById('accessDenied').innerHTML = "<h2>⛔ دخول غير مصرح به! أنت لست أدمن أو مشرفاً معتمداً.</h2>";
+                    setTimeout(() => { tg.close(); }, 4000);
+                }
+            } catch (error) {
+                console.error("خطأ في الاتصال بالخادم:", error);
+                document.getElementById('accessDenied').innerHTML = "<h2>❌ حدث خطأ أثناء الاتصال بسيرفر التحقق.</h2>";
+            }
         }
+
+        verifyAccess();
     </script>
 </body>
 </html>
