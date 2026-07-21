@@ -13,7 +13,7 @@ FIREBASE_JSON = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
 
 # ⚠️ هام جداً: ضع الـ Telegram ID الخاص بك هنا
 # يمكنك معرفته من خلال التحدث مع البوت @userinfobot
-ADMIN_ID = "اكتب_الاي_دي_بتاعك_هنا" 
+ADMIN_ID = "5102387551" 
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
