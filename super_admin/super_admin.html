@@ -1,12 +1,116 @@
-<div class="super-admin-container animate-fade-in">
+<!-- تنسيق مدمج خاص بالقائمة فقط (بدون ملفات خارجية) -->
+<style>
+    .super-admin-container {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        color: #e2e8f0;
+    }
+    .section-header { text-align: center; margin-bottom: 14px; }
+    .section-header h2 { color: #f59e0b; font-size: 17px; margin: 0; }
+    .section-header p { color: #94a3b8; font-size: 11px; margin-top: 4px; }
     
-    <!-- عنوان القائمة -->
+    .admin-card {
+        background-color: #161922;
+        border: 1px solid #232733;
+        border-radius: 12px;
+        padding: 14px;
+        margin-bottom: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+    .admin-card h3 {
+        color: #f3f4f6;
+        font-size: 13px;
+        margin-bottom: 10px;
+        border-bottom: 1px solid #232733;
+        padding-bottom: 6px;
+    }
+    
+    .form-group { margin-bottom: 10px; display: flex; flex-direction: column; gap: 4px; text-align: right; }
+    .form-group label { font-size: 11px; color: #cbd5e1; }
+    .form-group input {
+        background-color: #0f1117;
+        border: 1px solid #2d3345;
+        border-radius: 8px;
+        padding: 10px;
+        color: #ffffff;
+        font-size: 12px;
+        outline: none;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    .form-group input:focus { border-color: #f59e0b; }
+    
+    .permissions-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 6px;
+        background: #0f1117;
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid #232733;
+    }
+    .checkbox-label {
+        font-size: 10px;
+        color: #e2e8f0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+    }
+    .checkbox-label input[type="checkbox"] { accent-color: #f59e0b; width: 14px; height: 14px; }
+    
+    .btn-primary {
+        background: linear-gradient(135deg, #f59e0b, #d97706);
+        color: #000;
+        font-weight: bold;
+        border: none;
+        border-radius: 8px;
+        padding: 11px;
+        width: 100%;
+        cursor: pointer;
+        font-size: 12px;
+        margin-top: 8px;
+    }
+    
+    .mod-item, .log-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: #0f1117;
+        padding: 8px 10px;
+        border-radius: 8px;
+        margin-bottom: 6px;
+        border: 1px solid #232733;
+    }
+    .mod-info { display: flex; flex-direction: column; font-size: 11px; }
+    .mod-info span { font-size: 9px; color: #64748b; margin-top: 2px; }
+    
+    .btn-danger-sm {
+        background-color: #ef4444;
+        color: #fff;
+        border: none;
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: 10px;
+        cursor: pointer;
+    }
+    
+    .log-item { flex-direction: column; align-items: flex-start; gap: 4px; font-size: 10px; }
+    .log-admin { color: #f59e0b; font-weight: bold; }
+    .log-time { color: #64748b; font-size: 9px; align-self: flex-end; }
+    
+    .empty-msg { text-align: center; font-size: 11px; color: #64748b; padding: 10px 0; }
+</style>
+
+<!-- محتوى القائمة -->
+<div class="super-admin-container">
+    
     <div class="section-header">
         <h2>👨‍💻 الإدارة العليا</h2>
         <p>إدارة المشرفين، تحديد الصلاحيات، ومتابعة السجلات.</p>
     </div>
 
-    <!-- كارت إضافة مشرف جديد -->
+    <!-- كارت إضافة مشرف -->
     <div class="admin-card">
         <h3>➕ إضافة مشرف جديد</h3>
         
@@ -20,49 +124,34 @@
             <input type="text" id="modName" placeholder="مثال: أحمد (دعم فني)">
         </div>
 
-        <!-- تحديد الصلاحيات -->
         <div class="form-group">
             <label>🔐 الصلاحيات المسموحة:</label>
             <div class="permissions-grid">
-                <label class="checkbox-label">
-                    <input type="checkbox" id="perm_users" checked> 👥 بيانات المستخدمين
-                </label>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="perm_support" checked> 💬 الدردشة والدعم
-                </label>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="perm_settings"> ⚙️ الأسعار والإعدادات
-                </label>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="perm_transactions"> 💰 سجل التحويلات
-                </label>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="perm_security"> 🛡️ التحكم والأمان
-                </label>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="perm_ads"> 📢 الإعلانات
-                </label>
+                <label class="checkbox-label"><input type="checkbox" id="perm_users" checked> 👥 بيانات المستخدم</label>
+                <label class="checkbox-label"><input type="checkbox" id="perm_support" checked> 💬 الدردشة والدعم</label>
+                <label class="checkbox-label"><input type="checkbox" id="perm_settings"> ⚙️ الإعدادات</label>
+                <label class="checkbox-label"><input type="checkbox" id="perm_transactions"> 💰 سجل التحويلات</label>
+                <label class="checkbox-label"><input type="checkbox" id="perm_security"> 🛡️ التحكم والأمان</label>
+                <label class="checkbox-label"><input type="checkbox" id="perm_ads"> 📢 الإعلانات</label>
             </div>
         </div>
 
         <button class="btn-primary" onclick="addNewModerator()">تأكيد وإضافة المشرف</button>
     </div>
 
-    <!-- كارت المشرفين الحاليين -->
+    <!-- كارت قائمة المشرفين -->
     <div class="admin-card">
         <h3>👥 قائمة المشرفين الحالية</h3>
-        <div id="moderatorsList" class="moderators-list">
-            <!-- يتم تحميل المشرفين هنا ديناميكياً -->
+        <div id="moderatorsList">
             <p class="empty-msg">جاري تحميل قائمة المشرفين...</p>
         </div>
     </div>
 
-    <!-- كارت سجل نشاط المشرفين -->
+    <!-- كارت السجلات -->
     <div class="admin-card">
         <h3>📜 سجل نشاط المشرفين</h3>
-        <div id="adminLogs" class="logs-list">
-            <!-- يتم تحميل السجلات هنا -->
-            <p class="empty-msg">لا توجد تحركات مسجلة حالياً.</p>
+        <div id="adminLogs">
+            <p class="empty-msg">جاري تحميل السجلات...</p>
         </div>
     </div>
 
