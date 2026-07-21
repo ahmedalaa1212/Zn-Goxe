@@ -1,72 +1,60 @@
 // =========================================
-// ملف main.js - محرك التنقل بين الـ 7 قوائم
+// main.js - نظام التنقل الذكي والحركات
 // =========================================
 
-/**
- * دالة جلب وعرض القوائم الفرعية ديناميكياً
- * @param {string} section - اسم القائمة (مثال: 'users', 'super_admin')
- */
-async function loadSection(section) {
+async function loadSection(section, btnElement) {
     const contentArea = document.getElementById('contentArea');
     
-    // 1. عرض مؤشر التحميل حتى يجهز الملف
+    // 1. تحديث شكل الزر النشط في القائمة الجانبية
+    const allButtons = document.querySelectorAll('.sidebar button');
+    allButtons.forEach(btn => btn.classList.remove('active'));
+    
+    if (btnElement) {
+        btnElement.classList.add('active');
+    }
+
+    // 2. مؤشر تحميل شيك ومؤقت
     contentArea.innerHTML = `
-        <div style="text-align: center; margin-top: 50px;">
-            <h3 style="color: #ffcc00; font-family: sans-serif;">⏳ جاري تحميل القائمة...</h3>
+        <div class="content-card animate-fade-in">
+            <h3 style="color: #f59e0b; font-size: 16px;">⏳ جاري التحميل...</h3>
         </div>
     `;
 
     try {
-        // 2. جلب ملف الـ HTML من داخل مجلد القائمة
+        // 3. جلب ملف الـ HTML الخاص بالقائمة
         const response = await fetch(`./${section}/${section}.html`);
         
         if (!response.ok) {
-            throw new Error(`تعذر العثور على الملف: ${section}/${section}.html`);
+            throw new Error(`الملف غير موجود: ${section}/${section}.html`);
         }
         
         const htmlText = await response.text();
         
-        // 3. طباعة محتوى الـ HTML داخل منطقة العرض الرئيسية
-        contentArea.innerHTML = htmlText;
+        // 4. عرض المحتوى مع تأثير حركة الدخول الناعمة
+        contentArea.innerHTML = `<div class="animate-fade-in" style="width: 100%;">${htmlText}</div>`;
 
-        // 4. استدعاء واستشعار ملف الـ JS الخاص بالقائمة ديناميكياً
+        // 5. استدعاء ملف الـ JS الفرعي
         loadSectionScript(`./${section}/${section}.js`);
 
     } catch (error) {
-        console.error("خطأ أثناء التحميل:", error);
         contentArea.innerHTML = `
-            <div style="text-align: center; margin-top: 50px; color: #ff4444; font-family: sans-serif;">
-                <h3>⚠️ القائمة قيد التطوير</h3>
-                <p style="color: #bbb; margin-top: 10px;">تأكد من إنشاء المجلد <b>${section}</b> وبداخله الملف <b>${section}.html</b> في جيت هاب.</p>
+            <div class="content-card animate-fade-in">
+                <span style="font-size: 32px; display: block; margin-bottom: 8px;">⚠️</span>
+                <h3 style="color: #ef4444; font-size: 16px; margin-bottom: 8px;">القائمة قيد التطوير</h3>
+                <p style="color: #94a3b8; font-size: 12px; line-height: 1.5;">
+                    قم بإنشاء مجلد باسم <b style="color:#f59e0b;">${section}</b><br>وبداخله ملف <b style="color:#f59e0b;">${section}.html</b>
+                </p>
             </div>
         `;
     }
 }
 
-/**
- * دالة تشغيل ملفات الـ JS الفرعية تلقائياً عند فتح القائمة
- * @param {string} scriptPath - مسار ملف الجافاسكريبت
- */
 function loadSectionScript(scriptPath) {
-    // إزالة أي سكربت قديم للقائمة السابقة لتجنب تضارب الأكواد
     const oldScript = document.getElementById('activeSectionScript');
-    if (oldScript) {
-        oldScript.remove();
-    }
+    if (oldScript) oldScript.remove();
 
-    // إنشاء عنصر script جديد وتفعيله
     const script = document.createElement('script');
     script.id = 'activeSectionScript';
-    // إضافة متغيرة للوقت لمنع التخزين المؤقت (Cache) عند التعديل
-    script.src = scriptPath + '?v=' + new Date().getTime(); 
-    
-    script.onload = () => {
-        console.log(`✅ تم تحميل الكود بنجاح: ${scriptPath}`);
-    };
-    
-    script.onerror = () => {
-        console.log(`ℹ️ تنبيه: لا يوجد ملف JS منفصل لهذه القائمة بعد (${scriptPath}).`);
-    };
-
+    script.src = scriptPath + '?v=' + new Date().getTime();
     document.body.appendChild(script);
 }
