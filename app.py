@@ -15,9 +15,9 @@ CORS(app) # السماح باتصالات الويب
 # =========================================
 def run_telegram_bot():
     try:
-        print("🚀 جاري تشغيل بوت التليجرام (my_bot.py) في الخلفية...")
+        print("🚀 جاري تشغيل بوت التليجرام (admin_bot.py) في الخلفية...")
         # بيشغل ملف البوت في عملية منفصلة بدون ما يعطل سيرفر الويب
-        subprocess.Popen(["python", "my_bot.py"])
+        subprocess.Popen(["python", "admin_bot.py"])
     except Exception as e:
         print(f"❌ خطأ أثناء تشغيل ملف البوت: {e}")
 
