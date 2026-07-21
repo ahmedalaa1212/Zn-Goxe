@@ -2,7 +2,7 @@
 let playerData = {
     znBalance: 0,
     usdBalance: 0.00000,
-    tgId: 5102387551 
+    tgId: null 
 };
 
 let isWalletConnected = false;
@@ -21,8 +21,25 @@ async function initTonConnect() {
 
     try {
         tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
-            manifestUrl: 'https://raw.githubusercontent.com/ton-community/tutorials/main/03-client/test/public/tonconnect-manifest.json',
-            buttonRootId: 'hidden-ton-root' 
+            // 🚨 الرابط الخاص بمشروعك (هنا السر كله لحل مشكلة البطة)
+            manifestUrl: 'https://zn-goxe-production.up.railway.app/tonconnect-manifest.json',
+            buttonRootId: 'hidden-ton-root',
+            // 🎨 تغيير الألوان للأزرق الداكن بدلاً من الأصفر
+            uiPreferences: {
+                theme: TON_CONNECT_UI.THEME.DARK,
+                colorsSet: {
+                    [TON_CONNECT_UI.THEME.DARK]: {
+                        connectButton: {
+                            background: '#0088cc', 
+                            foreground: '#ffffff'
+                        },
+                        accent: '#0088cc', 
+                        telegramButton: '#0088cc',
+                        background: { primary: '#121212', secondary: '#1e1e1e', qr: '#ffffff' },
+                        text: { primary: '#ffffff', secondary: '#aaaaaa' }
+                    }
+                }
+            }
         });
 
         tonConnectUI.onStatusChange(wallet => {
@@ -55,16 +72,16 @@ window.disconnectCustomWallet = async function() {
     }
 }
 
-// 🔒 مزامنة الأرصدة الحقيقية المجلوبة من الخادم
+// 🔒 مزامنة الأرصدة الحقيقية المجلوبة من الخادم مع الحماية من NaN
 function updateHeaderBalances() {
     const pData = window.PlayerData || playerData;
     
-    // المزامنة مع حقول الفايربيس (balance و usd_balance)
-    const zn = pData.balance !== undefined ? pData.balance : pData.znBalance;
-    const usd = pData.usd_balance !== undefined ? pData.usd_balance : pData.usdBalance;
+    // تأمين الأرقام وتحويلها بشكل صحيح
+    const zn = parseFloat(pData.balance !== undefined ? pData.balance : pData.znBalance) || 0;
+    const usd = parseFloat(pData.usd_balance !== undefined ? pData.usd_balance : pData.usdBalance) || 0;
 
     document.getElementById('wallet-zn-balance').innerText = Math.floor(zn).toLocaleString();
-    document.getElementById('wallet-usd-balance').innerText = parseFloat(usd).toFixed(5) + " $";
+    document.getElementById('wallet-usd-balance').innerText = usd.toFixed(5) + " $";
     
     let estimateTon = usd / currentTonPriceUSD;
     document.getElementById('wallet-ton-estimate').innerText = "≈ " + estimateTon.toFixed(4) + " TON";
@@ -125,8 +142,13 @@ window.renderWalletTab = function(tab) {
     else if (tab === 'withdraw') {
         let withdrawHtml = `
             <div class="card">
-                <label class="input-label">تحويل ZN إلى USD</label>
-                <input type="number" id="zn-input" class="input-field" placeholder="كمية ZN" style="margin-bottom:15px;">
+                <label class="input-label">تحويل ZN إلى USD (كل 1,000,000 ZN = $1)</label>
+                <input type="number" id="zn-input" class="input-field" placeholder="أدخل كمية ZN" style="margin-bottom:15px;" oninput="calculateConversionPreview()">
+                
+                <div id="conversion-calc-info" style="display:none; padding:10px; margin-bottom:15px; text-align:center; color:#00cc66; background:rgba(0, 204, 102, 0.1); border:1px solid #00cc66; border-radius:8px;">
+                    ستحصل على: <b id="expected-usd-amount">0.00000</b> $
+                </div>
+
                 <button onclick="convertManualPoints()" class="action-btn btn-green">تحويل النقاط</button>
             </div>`;
 
@@ -160,6 +182,19 @@ window.renderWalletTab = function(tab) {
     }
 }
 
+// حساب توقعات الدولار أثناء الكتابة بناءً على: 1 مليون نقطة = 1 دولار
+window.calculateConversionPreview = function() {
+    let amount = document.getElementById('zn-input').value;
+    let infoDiv = document.getElementById('conversion-calc-info');
+    if (amount > 0) {
+        let usdExpected = (amount / 1000000).toFixed(5);
+        document.getElementById('expected-usd-amount').innerText = usdExpected;
+        infoDiv.style.display = 'block';
+    } else { 
+        infoDiv.style.display = 'none'; 
+    }
+}
+
 window.calculateDepositTon = function() {
     let usd = document.getElementById('deposit-usd-input').value;
     let infoDiv = document.getElementById('deposit-calc-info');
@@ -188,7 +223,7 @@ window.executeDeposit = async function() {
     let projectWallet = "UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ"; 
     
     const pData = window.PlayerData || playerData;
-    const myId = pData.tg_id || pData.tgId.toString();
+    const myId = pData.tg_id || (pData.tgId ? pData.tgId.toString() : "");
 
     const transaction = {
         validUntil: Math.floor(Date.now() / 1000) + 360,
@@ -202,7 +237,7 @@ window.executeDeposit = async function() {
     try {
         const txResult = await tonConnectUI.sendTransaction(transaction);
         
-        // رفع المعاملة فوراً للبايثون بطريقة آمنة جداً للمطابقة والتأكيد الفوري
+        // رفع المعاملة فوراً للبايثون بطريقة آمنة جداً
         const initData = window.Telegram?.WebApp?.initData;
         if (initData) {
             await fetch('/api/wallet_deposit_report', {
@@ -225,8 +260,10 @@ window.executeDeposit = async function() {
 
 // 🔒 تحويل النقاط بشكل حقيقي ومحمي على السيرفر
 window.convertManualPoints = async function() {
-    let amount = document.getElementById('zn-input').value;
-    if (!amount || amount < 5000) return alert("الحد الأدنى للتحويل هو 5000 ZN");
+    let amount = parseFloat(document.getElementById('zn-input').value);
+    
+    // التأكد من أن المستخدم أدخل رقماً
+    if (!amount || isNaN(amount) || amount <= 0) return alert("الرجاء إدخال كمية صحيحة من النقاط");
     
     const initData = window.Telegram?.WebApp?.initData;
     if (!initData) return alert("⚠️ يجب فتح اللعبة من تليجرام لحماية معاملتك.");
@@ -235,7 +272,7 @@ window.convertManualPoints = async function() {
         let response = await fetch('/api/wallet_convert', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ initData: initData, amount: parseFloat(amount) })
+            body: JSON.stringify({ initData: initData, amount: amount })
         });
         let result = await response.json();
         
@@ -244,8 +281,9 @@ window.convertManualPoints = async function() {
                 await window.fetchPlayerDataFromServer();
             }
             updateHeaderBalances();
-            alert(`✅ تم تحويل ${amount} ZN بنجاح إلى دولارات في حسابك!`);
+            alert(`✅ تم تحويل النقاط بنجاح! كسبت $${result.usd_gained ? result.usd_gained.toFixed(4) : (amount/1000000).toFixed(4)}`);
             document.getElementById('zn-input').value = '';
+            document.getElementById('conversion-calc-info').style.display = 'none';
         } else {
             alert("⚠️ فشل التحويل من السيرفر: " + result.error);
         }
