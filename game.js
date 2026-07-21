@@ -22,7 +22,13 @@ window.PlayerData = {
     claimed_ref_tasks: []
 };
 
+// منع التداخل في طلبات الشبكة المتكررة
+let isSyncingPlayerData = false;
+
 window.fetchPlayerDataFromServer = async function() {
+    if (isSyncingPlayerData) return;
+    isSyncingPlayerData = true;
+
     const tele = window.Telegram?.WebApp;
     const initData = tele?.initData || ""; 
     
@@ -35,6 +41,7 @@ window.fetchPlayerDataFromServer = async function() {
                 البيانات مفقودة. يجب الدخول للعبة من داخل بوت التيليجرام الرسمي فقط!
             </div>
         `;
+        isSyncingPlayerData = false;
         return; 
     }
 
@@ -95,6 +102,8 @@ window.fetchPlayerDataFromServer = async function() {
         }
     } catch (e) {
         console.error("❌ خطأ في مزامنة البيانات المركزية مع الخادم:", e);
+    } finally {
+        isSyncingPlayerData = false;
     }
 };
 
