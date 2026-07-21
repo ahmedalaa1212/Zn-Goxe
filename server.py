@@ -830,6 +830,44 @@ def wallet_deposit_report():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+@app.route('/api/get_history', methods=['GET'])
+def get_history():
+    success, telegram_id, _, err_resp = get_authenticated_user(request, is_post=False)
+    if not success: return err_resp
+
+    try:
+        history = []
+        
+        # جلب السحوبات الخاصة بالمستخدم
+        withdraws = db.collection('withdrawals').where('telegram_id', '==', telegram_id).get()
+        for w in withdraws:
+            d = w.to_dict()
+            history.append({
+                'type': 'withdraw',
+                'amount_usd': d.get('amount_usd'),
+                'status': d.get('status', 'pending'),
+                'created_at': d.get('created_at')
+            })
+
+        # جلب الإيداعات الخاصة بالمستخدم
+        deposits = db.collection('deposits').where('telegram_id', '==', telegram_id).get()
+        for dep in deposits:
+            d = dep.to_dict()
+            history.append({
+                'type': 'deposit',
+                'amount_usd': d.get('amount_usd'),
+                'status': d.get('status', 'pending'),
+                'created_at': d.get('created_at')
+            })
+
+        # ترتيب السجلات حسب الأحدث
+        history.sort(key=lambda x: str(x.get('created_at', '')), reverse=True)
+
+        return jsonify({'success': True, 'history': history}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ==========================================
 # 👑 مسارات لوحة تحكم الإدارة (Admin Panel)
 # ==========================================
