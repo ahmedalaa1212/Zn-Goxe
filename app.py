@@ -1,9 +1,10 @@
 import os
+import json
 import tempfile
 import subprocess
 import threading
 from datetime import datetime
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -27,7 +28,7 @@ def start_bot_process():
 threading.Thread(target=start_bot_process, daemon=True).start()
 
 # =========================================
-# 2. تهيئة الاتصال بـ Firebase Firestore (طريقة آمنة ومضمونة)
+# 2. تهيئة الاتصال بـ Firebase Firestore
 # =========================================
 db = None
 
@@ -38,7 +39,6 @@ def init_firebase():
             firebase_env = os.environ.get("FIREBASE_CREDENTIALS") or os.environ.get("FIREBASE_KEY")
             
             if firebase_env:
-                # إنشاء ملف مؤقت في السيرفر يحمل محتوى المفتاح لضمان قراءته بدقة
                 with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
                     temp_file.write(firebase_env)
                     temp_path = temp_file.name
@@ -60,11 +60,17 @@ def init_firebase():
 init_firebase()
 
 # =========================================
-# 3. مسارات الـ APIs (لوحة التحكم)
+# 3. مسارات الـ APIs وفتح الواجهة مباشرة
 # =========================================
 
+# فتح لوحة التحكم (admin.html) فوراً عند دخول رابط الموقع الأساسي
 @app.route('/', methods=['GET'])
-def index():
+def serve_admin_panel():
+    return send_from_directory('.', 'admin.html')
+
+# مسار فحص حالة السيرفر والفايربيس (خلفي)
+@app.route('/api/status', methods=['GET'])
+def server_status():
     return jsonify({
         'status': 'online',
         'system': 'Admin ZN Control Server',
