@@ -1,6 +1,9 @@
 // =========================================
-// super_admin.js - كود الربط الفعلي مع السيرفر
+// super_admin.js - كود الربط الفعلي مع سيرفرك على Railway
 // =========================================
+
+// ده الرابط الفعلي بتاعك اللي شغال على Railway
+const SERVER_URL = "https://admin-zn-production.up.railway.app"; 
 
 // تحميل البيانات فور فتح القائمة
 loadModerators();
@@ -33,7 +36,7 @@ async function addNewModerator() {
     };
 
     try {
-        const response = await fetch('/api/moderators', {
+        const response = await fetch(`${SERVER_URL}/api/moderators`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -43,10 +46,8 @@ async function addNewModerator() {
 
         if (result.success) {
             alert(`✅ ${result.message}`);
-            // تصفير المدخلات
             document.getElementById('modTelegramId').value = '';
             document.getElementById('modName').value = '';
-            // تحديث القوائم والسجل
             loadModerators();
             loadAdminLogs();
         } else {
@@ -54,17 +55,17 @@ async function addNewModerator() {
         }
     } catch (error) {
         console.error("خطأ في الاتصال:", error);
-        alert("⚠️ فشل الاتصال بالسيرفر!");
+        alert("⚠️ فشل الاتصال بالسيرفر! جاري المحاولة...");
     }
 }
 
-// 2. دالة جلب المشرفين من الفايربيس
+// 2. دالة جلب المشرفين
 async function loadModerators() {
     const listContainer = document.getElementById('moderatorsList');
     listContainer.innerHTML = `<p class="empty-msg">⏳ جاري التحميل من قاعدة البيانات...</p>`;
 
     try {
-        const response = await fetch('/api/moderators');
+        const response = await fetch(`${SERVER_URL}/api/moderators`);
         const result = await response.json();
 
         if (!result.success || !result.moderators || result.moderators.length === 0) {
@@ -104,7 +105,7 @@ async function deleteModerator(modId, modName) {
     }
 
     try {
-        const response = await fetch(`/api/moderators/${modId}?deletedBy=المدير العام`, {
+        const response = await fetch(`${SERVER_URL}/api/moderators/${modId}?deletedBy=المدير العام`, {
             method: 'DELETE'
         });
 
@@ -123,13 +124,13 @@ async function deleteModerator(modId, modName) {
     }
 }
 
-// 4. دالة جلب سجل النشاطات (Logs)
+// 4. دالة جلب سجل النشاطات
 async function loadAdminLogs() {
     const logsContainer = document.getElementById('adminLogs');
     logsContainer.innerHTML = `<p class="empty-msg">⏳ جاري تحميل السجل...</p>`;
 
     try {
-        const response = await fetch('/api/admin-logs');
+        const response = await fetch(`${SERVER_URL}/api/admin-logs`);
         const result = await response.json();
 
         if (!result.success || !result.logs || result.logs.length === 0) {
