@@ -53,6 +53,11 @@ WALLET_CONFIG = {
 }
 
 # ==========================================
+# 🛡️ إعدادات لوحة تحكم الإدارة (Admin)
+# ==========================================
+ADMIN_SECRET = "ZnGoxeAdmin2026!"
+
+# ==========================================
 # 🛡️ نظام الحماية: التحقق من صحة بيانات تليجرام
 # ==========================================
 def validate_telegram_data(init_data: str):
@@ -704,7 +709,7 @@ def complete_task():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # ==========================================
-# 🚀 المسارات الجديدة الخاصة بالمحفظة (Wallet)
+# 🚀 المسارات الخاصة بالمحفظة (Wallet)
 # ==========================================
 
 @app.route('/api/wallet_convert', methods=['POST'])
@@ -827,6 +832,64 @@ def wallet_deposit_report():
         return jsonify({'success': True}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+# ==========================================
+# 👑 مسارات لوحة تحكم الإدارة (Admin Panel)
+# ==========================================
+@app.route('/api/admin/get_user', methods=['POST'])
+def admin_get_user():
+    data = request.get_json() or {}
+    secret = data.get('secret')
+    user_id = str(data.get('user_id', '')).strip()
+
+    if secret != ADMIN_SECRET:
+        return jsonify({"success": False, "error": "غير مصرح لك (كلمة السر خاطئة)"}), 403
+
+    if not user_id:
+        return jsonify({"success": False, "error": "يجب إدخال ID المستخدم"}), 400
+
+    try:
+        user_ref = get_user_ref(user_id)
+        doc = user_ref.get()
+
+        if doc.exists:
+            return jsonify({"success": True, "data": doc.to_dict()}), 200
+        else:
+            return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/admin/update_user', methods=['POST'])
+def admin_update_user():
+    data = request.get_json() or {}
+    secret = data.get('secret')
+    user_id = str(data.get('user_id', '')).strip()
+    updates = data.get('updates', {})
+
+    if secret != ADMIN_SECRET:
+        return jsonify({"success": False, "error": "غير مصرح لك (كلمة السر خاطئة)"}), 403
+
+    if not user_id or not updates:
+        return jsonify({"success": False, "error": "بيانات ناقصة"}), 400
+
+    try:
+        user_ref = get_user_ref(user_id)
+        doc = user_ref.get()
+        
+        if not doc.exists:
+             return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
+             
+        # إضافة السر للتحديث عشان نمشي مع نفس المنطق بتاع الحماية
+        updates['adminSecret'] = ADMIN_SECRET 
+        
+        user_ref.update(updates)
+        
+        # مسح السر من الداتابيز بعد التحديث لزيادة الأمان
+        user_ref.update({'adminSecret': firestore.DELETE_FIELD}) 
+
+        return jsonify({"success": True, "message": "تم التحديث بنجاح"}), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 if __name__ == '__main__':
