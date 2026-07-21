@@ -23,7 +23,6 @@ db = None
 firebase_creds_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT', '').strip()
 
 # 🚨🚨 ضع توكن البوت الخاص بك هنا بين علامات التنصيص بدلاً من YOUR_BOT_TOKEN_HERE 🚨🚨
-
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '').strip()
 
 if firebase_creds_json:
@@ -48,8 +47,8 @@ SHOP_CONFIG = {
 }
 
 WALLET_CONFIG = {
-    # معدل التحويل: كل 500,000 ZN يساوون 1 دولار (يمكنك تعديلها كما تشاء)
-    'zn_to_usd_rate': 0.000002 
+    # معدل التحويل: كل 1,000,000 ZN يساوون 1 دولار
+    'zn_to_usd_rate': 0.000001 
 }
 
 # ==========================================
@@ -190,7 +189,7 @@ def get_user_data():
             "telegram_id": telegram_id,
             "user_name": user_name,
             "balance": 0.0,
-            "usd_balance": 0.00000, # تمت إضافة حقل الدولار
+            "usd_balance": 0.00000,
             "ad_balance": 0.0, 
             "is_banned": False,
             "last_claim_time": now_iso,
@@ -230,7 +229,7 @@ def get_user_data():
                 })
 
         if 'ad_balance' not in user_data: updates['ad_balance'] = 0.0
-        if 'usd_balance' not in user_data: updates['usd_balance'] = 0.00000 # تحديث للمستخدمين القدامى
+        if 'usd_balance' not in user_data: updates['usd_balance'] = 0.00000 
         if 'pending_ref_earnings' not in user_data: updates['pending_ref_earnings'] = 0.0
         if 'invited_friends_count' not in user_data: updates['invited_friends_count'] = 0
         if 'claimed_ref_tasks' not in user_data: updates['claimed_ref_tasks'] = []
@@ -738,8 +737,9 @@ def wallet_convert():
             
             if current_zn < amount: return False, 'رصيد ZN غير كافٍ للتحويل'
             
-            # تحويل ZN إلى دولار
-            usd_gained = amount * WALLET_CONFIG['zn_to_usd_rate']
+            # 🛡️ الحماية هنا: السيرفر هو اللي بيقسم على مليون عشان يطلع الدولار
+            # مهما بعتت الواجهة أرقام مختلفة، السيرفر هينفذ حسبته الخاصة
+            usd_gained = amount / 1000000.0
             
             transaction.update(user_ref, {
                 'balance': current_zn - amount,
