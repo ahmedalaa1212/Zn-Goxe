@@ -1,43 +1,106 @@
 import os
+import json
+import tempfile
+import threading
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-from flask import Flask, send_from_directory
-import threading
+from flask import Flask, send_from_directory, jsonify
+from flask_cors import CORS
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 # ==========================================
-# 1. إعداد المتغيرات
+# 1. إعداد المتغيرات الأساسية
 # ==========================================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-WEBAPP_URL = "https://admin-zn-production.up.railway.app/" 
-ADMIN_ID = "5102387551" # ⚠️ ضع الـ ID الخاص بك
+WEBAPP_URL = os.environ.get("WEB_URL", "https://admin-zn-production.up.railway.app/") 
+ADMIN_ID = "5102387551" # ⚠️ الـ ID الخاص بك (المدير الأساسي)
 
 # ==========================================
-# 2. إعداد سيرفر الويب (لوحة التحكم)
+# 2. تهيئة الاتصال بـ Firebase Firestore
+# ==========================================
+db = None
+try:
+    if not firebase_admin._apps:
+        firebase_env = os.environ.get("FIREBASE_CREDENTIALS") or os.environ.get("FIREBASE_KEY")
+        
+        if firebase_env:
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
+                temp_file.write(firebase_env)
+                temp_path = temp_file.name
+            
+            cred = credentials.Certificate(temp_path)
+            firebase_admin.initialize_app(cred)
+        elif os.path.exists("firebase.json"):
+            cred = credentials.Certificate("firebase.json")
+            firebase_admin.initialize_app(cred)
+        else:
+            firebase_admin.initialize_app()
+            
+    db = firestore.client()
+    print("✅ تم الاتصال بقاعدة بيانات Firestore بنجاح!")
+except Exception as e:
+    print(f"❌ خطأ في الاتصال بـ Firebase: {e}")
+
+# ==========================================
+# 3. إعداد سيرفر الويب (لوحة التحكم)
 # ==========================================
 app = Flask(__name__, static_folder='.')
+CORS(app)
 
 @app.route('/')
 def home():
-    # تم تغيير الاسم هنا إلى admin.html
     return send_from_directory('.', 'admin.html')
 
 @app.route('/<path:filename>')
 def serve_files(filename):
     return send_from_directory('.', filename)
 
+@app.route('/api/status', methods=['GET'])
+def server_status():
+    return jsonify({
+        'status': 'online',
+        'system': 'Admin ZN Control Server',
+        'firebase_connected': db is not None
+    }), 200
+
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 # ==========================================
-# 3. إعداد بوت التليجرام
+# 4. دالة التحقق من صلاحيات الأدمن أو المشرفين
 # ==========================================
-bot = telebot.TeleBot(BOT_TOKEN)
+def is_admin(user_id):
+    str_id = str(user_id)
+    
+    # 1. السماح للمدير الأساسي فوراً
+    if str_id == str(ADMIN_ID):
+        return True
+        
+    # 2. التحقق مما إذا كان مسجلاً كمشرف في قاعدة بيانات Firebase
+    if not db:
+        return False
+    try:
+        doc_ref = db.collection('moderators').document(str_id)
+        doc = doc_ref.get()
+        return doc.exists
+    except Exception as e:
+        print(f"❌ خطأ أثناء التحقق من المشرف في قاعدة البيانات: {e}")
+        return False
+
+# ==========================================
+# 5. إعداد بوت التليجرام
+# ==========================================
+bot = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    if str(message.from_user.id) != str(ADMIN_ID):
-        bot.reply_to(message, "⛔ عذراً، هذا البوت مخصص للأدمن فقط.")
+    user_id = message.from_user.id
+    
+    # التحقق عبر دالة الفحص الشاملة (الأدمن + المشرفين)
+    if not is_admin(user_id):
+        bot.reply_to(message, "⛔ عذراً، هذا البوت مخصص للأدمن والمشرفين المصرح لهم فقط.")
         return
 
     markup = InlineKeyboardMarkup()
@@ -47,14 +110,17 @@ def send_welcome(message):
 
     bot.send_message(
         message.chat.id,
-        "👑 **أهلاً بك يا مدير!**\n\nاضغط لفتح لوحة التحكم الخاصة بك:",
+        "👑 **أهلاً بك يا مدير!**\n\nتم التحقق من صلاحياتك بنجاح، اضغط لفتح لوحة التحكم:",
         reply_markup=markup,
         parse_mode="Markdown"
     )
 
 if __name__ == "__main__":
     print("🌐 جاري تشغيل سيرفر الويب...")
-    threading.Thread(target=run_web_server).start()
+    threading.Thread(target=run_web_server, daemon=True).start()
     
-    print("🤖 بوت الأدمن قيد التشغيل...")
-    bot.infinity_polling()
+    if bot:
+        print("🤖 بوت الأدمن قيد التشغيل...")
+        bot.infinity_polling()
+    else:
+        print("❌ خطأ: يرجى التأكد من ضبط BOT_TOKEN في متغيرات البيئة.")
