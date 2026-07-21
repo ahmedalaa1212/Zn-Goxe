@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة تحكم ZN</title>
+    <!-- استدعاء مكتبة تليجرام عشان التصميم يظبط جوه البوت -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: var(--tg-theme-bg-color, #1e1e1e);
+            color: var(--tg-theme-text-color, #ffffff);
+            text-align: center;
+            padding: 20px;
+        }
+        .box {
+            background-color: var(--tg-theme-secondary-bg-color, #2a2a2a);
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        h1 { color: #ffcc00; }
+    </style>
+</head>
+<body>
+
+    <h1>👑 لوحة تحكم الأدمن</h1>
+    <p>مرحباً بك في نظام إدارة اللعبة المستقل.</p>
+
+    <div class="box">
+        <h3>قريباً...</h3>
+        <p>هنا سيتم عرض القوائم الخاصة بـ (المتجر، المهام، المحفظة، إلخ).</p>
+    </div>
+
+    <script>
+        // إخبار تليجرام أن التطبيق جاهز
+        window.Telegram.WebApp.ready();
+        // تكبير الشاشة بالكامل
+        window.Telegram.WebApp.expand();
+    </script>
+</body>
+</html>
