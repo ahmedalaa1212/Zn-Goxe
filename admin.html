@@ -10,14 +10,14 @@
 <body>
 
     <!-- شاشة الحماية -->
-    <div id="accessDenied" class="security-screen" style="display: flex; justify-content: center; align-items: center; height: 100vh; background: #121212; color: #ff4444; font-family: Tahoma; text-align: center; flex-direction: column;">
+    <div id="accessDenied" class="security-screen">
         <h2>⛔ جاري التحقق من الهوية والصلاحيات...</h2>
     </div>
 
     <!-- لوحة التحكم -->
     <div id="adminPanel" class="dashboard-container" style="display: none;">
         
-        <!-- القائمة الجانبية -->
+        <!-- القائمة السفلية -->
         <div class="sidebar" id="sidebarMenu">
             <div class="logo">إدارة ZN 👑</div>
             
@@ -61,7 +61,7 @@
         <div class="main-content" id="contentArea">
             <div class="content-card animate-fade-in">
                 <h2 style="color: #f59e0b; margin-bottom: 8px;" id="welcomeTitle">مرحباً بك يا مدير 👋</h2>
-                <p style="color: #94a3b8; font-size: 13px;">اختر قسماً من القائمة الجانبية لبدء التحكم في اللعبة.</p>
+                <p style="color: #94a3b8; font-size: 13px;">اختر قسماً من القائمة بالأسفل لبدء التحكم في اللعبة.</p>
             </div>
         </div>
 
@@ -117,7 +117,6 @@
         // دالة حماية قسم الإدارة العليا للمشرفين
         function loadSuperAdminSection() {
             if (currentUserData && !currentUserData.is_admin) {
-                // رسالة من ذوقك تظهر للمشرف لو حاول يدخل الإدارة العليا
                 const contentArea = document.getElementById('contentArea');
                 contentArea.innerHTML = `
                     <div class="content-card animate-fade-in" style="text-align: center; padding: 40px; color: #ff4444;">
@@ -128,7 +127,6 @@
                 `;
                 return;
             }
-            // لو كان الأدمن الأساسي يفتحه عادي
             loadSection('super_admin', document.getElementById('btn_super_admin'));
         }
 
