@@ -22,20 +22,19 @@ window.PlayerData = {
     claimed_ref_tasks: []
 };
 
-// دالة حظر قاطعة تعرض شاشة الحظر وتوقف السكربتات
-function showBanScreen() {
+// دالة حظر قاطعة تعرض شاشة الحظر وتوقف جميع المهام
+function enforcePermanentBan() {
     document.body.innerHTML = `
-        <div style='background-color: #0f172a; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: Tahoma, sans-serif; text-align: center; flex-direction: column; padding: 20px; box-sizing: border-box;'>
+        <div style='background-color: #0f172a; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: Tahoma, sans-serif; text-align: center; flex-direction: column; padding: 20px; box-sizing: border-box; position: fixed; top: 0; left: 0; width: 100%; z-index: 9999999;'>
             <div style="font-size: 80px; margin-bottom: 20px;">🚫</div>
             <h1 style="color: #ef4444; margin-bottom: 15px; font-size: 24px;">تم حظر حسابك نهائياً!</h1>
             <p style="color: #cbd5e1; line-height: 1.6; font-size: 15px; max-width: 400px;">عذراً، لا يمكنك استخدام التطبيق بسبب انتهاك الشروط والأحكام أو اكتشاف نشاط غير مصرح به.</p>
         </div>
     `;
     if (window.globalSyncInterval) clearInterval(window.globalSyncInterval);
-    throw new Error("User is banned.");
+    throw new Error("⛔ تم إيقاف النظام - الحساب محظور.");
 }
 
-// منع التداخل في طلبات الشبكة المتكررة والحماية العالية
 let isSyncingPlayerData = false;
 
 window.fetchPlayerDataFromServer = async function() {
@@ -45,13 +44,11 @@ window.fetchPlayerDataFromServer = async function() {
     const tele = window.Telegram?.WebApp;
     const initData = tele?.initData || ""; 
     
-    // حماية الواجهة
     if (!initData) {
-        console.warn("⚠️ لم يتم العثور على initData. يرجى فتح التطبيق من تليجرام حصرياً.");
         document.body.innerHTML = `
             <div style='color:#ff4444; text-align:center; padding:60px 20px; font-size:22px; font-weight:bold; background:#121212; height:100vh; display:flex; align-items:center; justify-content:center; flex-direction:column;'>
                 <div style='font-size: 50px; margin-bottom: 20px;'>🚫</div>
-                البيانات مفقودة. يجب الدخول للعبة من داخل بوت التيليجرام الرسمي فقط!
+                يجب الدخول للعبة من داخل بوت التيليجرام الرسمي فقط!
             </div>
         `;
         isSyncingPlayerData = false;
@@ -79,9 +76,9 @@ window.fetchPlayerDataFromServer = async function() {
             let dbData = result.success ? result.data : result;
             
             if (dbData) {
-                // 🛑 فحص الحظر المباشر من استجابة بيانات اللعبة
-                if (dbData.is_banned === true || dbData.isBanned === true) {
-                    showBanScreen();
+                // 🛑 فحص الحظر المزدوج من بيانات اللعبة (خط الدفاع الثاني القاتل)
+                if (dbData.is_banned === true || dbData.isBanned === true || String(dbData.is_banned) === 'true' || String(dbData.isBanned) === 'true') {
+                    enforcePermanentBan();
                     return;
                 }
 
@@ -115,12 +112,10 @@ window.fetchPlayerDataFromServer = async function() {
 
                 window.triggerAllUIUpdates();
             }
-        } else {
-            console.error("❌ السيرفر رفض الطلب، تأكد من صحة التوكن والبيانات.");
         }
     } catch (e) {
-        if (e.message !== "User is banned.") {
-            console.error("❌ خطأ في مزامنة البيانات المركزية مع الخادم:", e);
+        if (!e.message.includes("⛔")) {
+            console.error("❌ خطأ في مزامنة البيانات:", e);
         }
     } finally {
         isSyncingPlayerData = false;
@@ -170,9 +165,7 @@ window.fetchAndRenderFriendsList = async function() {
                 container.innerHTML = html;
             }
         }
-    } catch (e) {
-        console.error("❌ خطأ في جلب قائمة الأصدقاء:", e);
-    }
+    } catch (e) {}
 };
 
 window.triggerAllUIUpdates = function() {
@@ -203,24 +196,16 @@ window.triggerAllUIUpdates = function() {
     possibleBalanceIds.forEach(id => {
         let el = document.getElementById(id);
         if (el) {
-            if (el.innerText.includes('ZN:')) {
-                el.innerText = `ZN: ${formattedBalance}`;
-            } else if (el.innerText.includes('ZN')) {
-                el.innerText = `ZN ${formattedBalance}`;
-            } else {
-                el.innerText = formattedBalance;
-            }
+            if (el.innerText.includes('ZN:')) el.innerText = `ZN: ${formattedBalance}`;
+            else if (el.innerText.includes('ZN')) el.innerText = `ZN ${formattedBalance}`;
+            else el.innerText = formattedBalance;
         }
     });
 
     document.querySelectorAll('.sync-balance, .balance-display').forEach(el => {
-        if (el.innerText.includes('ZN:')) {
-            el.innerText = `ZN: ${formattedBalance}`;
-        } else if (el.innerText.includes('ZN')) {
-            el.innerText = `ZN ${formattedBalance}`;
-        } else {
-            el.innerText = formattedBalance;
-        }
+        if (el.innerText.includes('ZN:')) el.innerText = `ZN: ${formattedBalance}`;
+        else if (el.innerText.includes('ZN')) el.innerText = `ZN ${formattedBalance}`;
+        else el.innerText = formattedBalance;
     });
 
     const formattedAdBalance = Math.floor(pData.ad_balance || 0).toLocaleString();
@@ -238,18 +223,7 @@ window.initCentralSystem = function() {
         const urlParams = new URLSearchParams(window.location.search);
         let id = tele?.initDataUnsafe?.user?.id?.toString() || urlParams.get('tg_id');
         
-        if (id) {
-            window.PlayerData.tg_id = id;
-            // فحص فوري وسريع للحظر من سيرفر الأدمن
-            fetch(`https://admin-zn-production.up.railway.app/api/check_ban/${id}`)
-                .then(res => res.json())
-                .then(data => {
-                    if (data && data.banned) {
-                        showBanScreen();
-                    }
-                })
-                .catch(() => {});
-        }
+        if (id) window.PlayerData.tg_id = id;
 
         window.fetchPlayerDataFromServer();
         window.fetchAndRenderFriendsList(); 
