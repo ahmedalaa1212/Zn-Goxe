@@ -36,63 +36,68 @@ body {
 ========================================= */
 .dashboard-container {
     display: flex;
+    flex-direction: column;
     height: 100vh;
     width: 100vw;
 }
 
 /* =========================================
-   القائمة الجانبية (Sidebar)
+   القائمة السفلية (بديل القائمة الجانبية للموبايل)
 ========================================= */
 .sidebar {
-    width: 110px; /* عرض ثابت ومتناسق للموبايل */
-    min-width: 110px;
+    width: 100%;
+    height: 75px;
+    min-height: 75px;
     background-color: #161922;
-    border-left: 1px solid #232733;
+    border-top: 1px solid #232733;
+    border-left: none;
     display: flex;
-    flex-direction: column;
-    padding: 12px 6px;
-    gap: 10px;
-    overflow-y: auto;
+    flex-direction: row; /* الأزرار بجانب بعضها */
+    padding: 8px 10px;
+    gap: 8px;
+    overflow-x: auto; /* سحب أفقياً إذا كانت الأزرار كثيرة */
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    z-index: 1000;
+    align-items: center;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
 }
 
-/* عنوان اللوحة */
+/* إخفاء اللوجو في الشريط السفلي لتوفير مساحة للأزرار */
 .sidebar .logo {
-    color: #f59e0b;
-    font-size: 13px;
-    font-weight: 800;
-    text-align: center;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #232733;
-    margin-bottom: 4px;
-    letter-spacing: 0.5px;
+    display: none;
 }
 
-/* أزرار القائمة الجانبية */
+/* أزرار القائمة السفلية */
 .sidebar button {
     background-color: #1f2330;
     color: #94a3b8;
     border: 1px solid #2d3345;
-    padding: 10px 4px;
+    padding: 8px 12px;
     border-radius: 12px;
     font-size: 11px;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
-    flex-direction: column; /* الأيقونة فوق والكلام تحتها لتوفير المساحة */
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    line-height: 1.3;
+    gap: 4px;
+    line-height: 1.2;
     text-align: center;
+    min-width: 85px; /* عرض أدنى لضمان عدم انكماش الزر */
+    flex: 0 0 auto;
+    height: 100%;
 }
 
 /* شكل الأيقونات داخل الأزرار */
 .sidebar button .icon {
-    font-size: 18px;
+    font-size: 20px;
 }
 
-/* تأثير التمرير (Hover) */
+/* تأثير التمرير (Hover/Touch) */
 .sidebar button:active {
     transform: scale(0.94);
 }
@@ -112,6 +117,7 @@ body {
 .main-content {
     flex: 1;
     padding: 16px;
+    padding-bottom: 90px; /* مساحة سفليّة لمنع تغطية القائمة السفلية للمحتوى */
     overflow-y: auto;
     background-color: #0f1117;
     display: flex;
@@ -148,6 +154,7 @@ body {
 /* شريط التمرير */
 ::-webkit-scrollbar {
     width: 3px;
+    height: 3px;
 }
 ::-webkit-scrollbar-thumb {
     background: #2d3345;
