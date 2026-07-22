@@ -316,15 +316,12 @@ window.executeDeposit = async function() {
     let nanoTon = Math.floor(tonAmount * 1e9).toString(); 
     let projectWallet = "UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ"; 
     
-    const pData = window.PlayerData || playerData;
-    const myId = pData.tg_id || (pData.tgId ? pData.tgId.toString() : "");
-
+    // إزالة البايلود المعقد لأنه يسبب أخطاء بدون مكتبة مخصصة، والاعتماد على إرسال الـ BOC للسيرفر
     const transaction = {
         validUntil: Math.floor(Date.now() / 1000) + 360,
         messages: [{
             address: projectWallet,
-            amount: nanoTon,
-            payload: TON_CONNECT_UI.getPayloadString(myId) 
+            amount: nanoTon
         }]
     };
 
@@ -345,9 +342,15 @@ window.executeDeposit = async function() {
             });
         }
         
-        alert(`✅ تم إرسال المعاملة بنجاح للشبكة!\nسيتم إضافة $${usdAmount} لرصيدك بعد التأكيد التلقائي.`);
+        alert(`✅ تم إرسال المعاملة بنجاح للشبكة!\nسيتم إضافة $${usdAmount} لرصيدك بعد التأكيد.`);
+        document.getElementById('deposit-usd-input').value = '';
+        document.getElementById('deposit-calc-info').style.display = 'none';
+        
     } catch (e) {
-        if(e && e.message !== "User rejected the transaction") alert("حدث خطأ أثناء الدفع أو تم إلغاء العملية.");
+        if(e && e.message !== "User rejected the transaction") {
+            console.error("Deposit Error: ", e);
+            alert("حدث خطأ أثناء الدفع أو تم إلغاء العملية.");
+        }
     }
 };
 
@@ -386,7 +389,7 @@ window.convertManualPoints = async function() {
             const infoDiv = document.getElementById('conversion-calc-info');
             if (infoDiv) infoDiv.style.display = 'none';
         } else {
-            alert("⚠️ فشل التحويل من السيرفر: " + (result.error || "خطأ غير معروف"));
+            alert("⚠️ فشل التحويل: " + (result.error || "خطأ غير معروف"));
         }
     } catch (e) { 
         console.error(e);
@@ -417,7 +420,11 @@ window.submitWithdrawal = async function() {
         if (result.success) {
             if (typeof window.fetchPlayerDataFromServer === 'function') {
                 await window.fetchPlayerDataFromServer();
+            } else {
+                const pData = window.PlayerData || playerData;
+                if (pData.usd_balance !== undefined) pData.usd_balance -= usdAmount;
             }
+            
             let expectedTon = (usdAmount / currentTonPriceUSD).toFixed(4);
             window.updateHeaderBalances();
             alert(`✅ تم تقديم طلب السحب بنجاح بقيمة $${usdAmount}.\nستصلك المعاملة (≈ ${expectedTon} TON) بعد فحص الإدارة.`);
