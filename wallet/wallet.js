@@ -11,9 +11,8 @@ let playerData = {
 
 let isWalletConnected = false;
 let userWalletAddress = null;
-let currentTonPriceUSD = 5.00; 
+let currentTonPriceUSD = 0; // سيتم جلبه لحظياً
 
-// ضمان عدم وجود قيمة فارغة تتسبب في شاشة بيضاء
 let currentWalletTab = localStorage.getItem('lastWalletTab');
 if (!['withdraw', 'history', 'deposit'].includes(currentWalletTab)) {
     currentWalletTab = 'withdraw';
@@ -25,9 +24,7 @@ let tonConnectUI = null;
 // 🛠️ أدوات مساعدة وتفاعل التلجرام
 // ==========================================
 const tgApp = window.Telegram?.WebApp;
-if (tgApp) {
-    tgApp.ready();
-}
+if (tgApp) tgApp.ready();
 
 function showAppAlert(message) {
     if (tgApp && typeof tgApp.showAlert === 'function') {
@@ -45,131 +42,101 @@ function triggerHapticFeedback(type = 'impact', style = 'medium') {
 }
 
 // ==========================================
-// 🌐 0. جلب سعر عملة TON
+// 🌐 0. جلب سعر عملة TON (أكثر دقة)
 // ==========================================
 async function fetchLiveTonPrice() {
     try {
-        const response = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=TONUSDT');
-        if (!response.ok) throw new Error("فشل الاستجابة من Binance");
-        const data = await response.json();
-        
-        if (data && data.price) {
-            currentTonPriceUSD = parseFloat(data.price);
+        // المحاولة 1: موقع TonAPI (الأدق للـ TON)
+        let res = await fetch('https://tonapi.io/v2/rates?tokens=ton&currencies=usd');
+        let data = await res.json();
+        if (data && data.rates && data.rates.TON && data.rates.TON.prices && data.rates.TON.prices.USD) {
+            currentTonPriceUSD = data.rates.TON.prices.USD;
+        } else {
+            throw new Error("TonAPI failed");
         }
-    } catch (error) {
+    } catch (e1) {
         try {
-            const fallbackRes = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd');
-            const fallbackData = await fallbackRes.json();
-            if (fallbackData && fallbackData['the-open-network'] && fallbackData['the-open-network'].usd) {
-                currentTonPriceUSD = parseFloat(fallbackData['the-open-network'].usd);
+            // المحاولة 2: منصة Binance
+            let res2 = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=TONUSDT');
+            let data2 = await res2.json();
+            currentTonPriceUSD = parseFloat(data2.price);
+        } catch (e2) {
+            try {
+                // المحاولة 3: منصة CoinGecko
+                let res3 = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd');
+                let data3 = await res3.json();
+                currentTonPriceUSD = parseFloat(data3['the-open-network'].usd);
+            } catch (e3) {
+                // في حالة فشل كل السيرفرات (نادر جداً)
+                if(currentTonPriceUSD === 0) currentTonPriceUSD = 5.00;
             }
-        } catch (fallbackErr) {}
+        }
     } finally {
         const tonPriceElem = document.getElementById('current-ton-price');
-        if (tonPriceElem) {
-            tonPriceElem.innerText = currentTonPriceUSD.toFixed(2);
-        }
-        if (typeof window.updateHeaderBalances === 'function') {
-            window.updateHeaderBalances();
-        }
+        if (tonPriceElem) tonPriceElem.innerText = currentTonPriceUSD.toFixed(3);
+        window.updateHeaderBalances();
     }
 }
 
 // ==========================================
-// 🔗 1. تهيئة TonConnect (باسترجاع الاتصال التلقائي)
+// 🔗 1. تهيئة TonConnect (باسترجاع الاتصال التلقائي الصامت)
 // ==========================================
-async function initTonConnect() {
-    let hiddenDiv = document.getElementById('hidden-ton-root');
-    if (!hiddenDiv) {
-        hiddenDiv = document.createElement('div');
-        hiddenDiv.id = 'hidden-ton-root';
-        hiddenDiv.style.position = 'absolute';
-        hiddenDiv.style.top = '-9999px';
-        hiddenDiv.style.left = '-9999px';
-        hiddenDiv.style.visibility = 'hidden';
-        document.body.appendChild(hiddenDiv);
-    }
-
-    // الانتظار الصامت حتى تجهز مكتبة المحفظة دون إزعاج المستخدم
+function initTonConnect() {
+    // ننتظر ثواني حتى يتم تحميل مكتبة التون كونكت
     if (typeof window.TON_CONNECT_UI === 'undefined') {
-        await new Promise(resolve => {
-            const interval = setInterval(() => {
-                if (typeof window.TON_CONNECT_UI !== 'undefined') {
-                    clearInterval(interval);
-                    resolve();
-                }
-            }, 100);
-        });
+        setTimeout(initTonConnect, 100);
+        return;
     }
 
     if (!tonConnectUI) {
-        try {
-            tonConnectUI = new window.TON_CONNECT_UI.TonConnectUI({
-                manifestUrl: 'https://zn-goxe-production.up.railway.app/tonconnect-manifest.json',
-                buttonRootId: 'hidden-ton-root'
-            });
+        tonConnectUI = new window.TON_CONNECT_UI.TonConnectUI({
+            manifestUrl: 'https://zn-goxe-production.up.railway.app/tonconnect-manifest.json',
+            buttonRootId: 'hidden-ton-root'
+        });
 
-            tonConnectUI.uiOptions = {
-                theme: 'DARK',
-                colorsSet: {
-                    DARK: {
-                        connectButton: { background: '#0088cc', foreground: '#ffffff' },
-                        accent: '#0088cc', 
-                        telegramButton: '#0088cc',
-                        background: { primary: '#121212', secondary: '#1e1e1e', qr: '#ffffff' },
-                        text: { primary: '#ffffff', secondary: '#aaaaaa' }
-                    }
+        tonConnectUI.uiOptions = {
+            theme: 'DARK',
+            colorsSet: {
+                DARK: {
+                    connectButton: { background: '#0088cc', foreground: '#ffffff' },
+                    accent: '#0088cc', 
+                    telegramButton: '#0088cc',
+                    background: { primary: '#121212', secondary: '#1e1e1e', qr: '#ffffff' },
+                    text: { primary: '#ffffff', secondary: '#aaaaaa' }
                 }
-            };
+            }
+        };
 
-            // حل مشكلة نسيان الربط: نجبر المكتبة تسترجع الجلسة المحفوظة
-            tonConnectUI.connectionRestored.then(restored => {
-                if (restored && typeof window.renderWalletTab === 'function') {
-                    window.renderWalletTab(currentWalletTab);
-                }
-            });
+        // استرجاع الاتصال القديم في صمت (حل مشكلة نسيان الربط)
+        tonConnectUI.connectionRestored.then(restored => {
+            if (restored) {
+                isWalletConnected = true;
+                userWalletAddress = window.TON_CONNECT_UI.toUserFriendlyAddress(tonConnectUI.wallet.account.address);
+                window.renderWalletTab(currentWalletTab); // إعادة رسم الشاشة لفتح القفل
+            }
+        });
 
-            tonConnectUI.onStatusChange(wallet => {
-                if (wallet && wallet.account) {
-                    isWalletConnected = true;
-                    userWalletAddress = window.TON_CONNECT_UI.toUserFriendlyAddress(wallet.account.address);
-                    triggerHapticFeedback('notification', 'success');
-                } else {
-                    isWalletConnected = false;
-                    userWalletAddress = null;
-                }
-                
-                if (typeof window.renderWalletTab === 'function') {
-                    window.renderWalletTab(currentWalletTab); 
-                }
-            });
-        } catch (e) {
-            console.error("❌ خطأ أثناء تهيئة TonConnect:", e);
-        }
+        // مراقبة حالات الربط وإلغاء الربط
+        tonConnectUI.onStatusChange(wallet => {
+            if (wallet && wallet.account) {
+                isWalletConnected = true;
+                userWalletAddress = window.TON_CONNECT_UI.toUserFriendlyAddress(wallet.account.address);
+                triggerHapticFeedback('notification', 'success');
+            } else {
+                isWalletConnected = false;
+                userWalletAddress = null;
+            }
+            window.renderWalletTab(currentWalletTab);
+        });
     }
 }
 
-// دالة الربط السلسة بدون رسائل مزعجة
 window.connectCustomWallet = async function() {
     triggerHapticFeedback('impact', 'light');
-    
-    // إعطاء تأثير بصري للمستخدم بدلاً من الرسالة المنبثقة المزعجة
-    const connectBtns = document.querySelectorAll('.action-btn.btn-blue');
-    connectBtns.forEach(btn => { 
-        if(btn.innerText.includes('ربط')) btn.innerText = "⏳ جاري فتح المحفظة..."; 
-    });
-
     try {
-        if (!tonConnectUI) {
-            await initTonConnect(); 
-        }
         await tonConnectUI.openModal();
-    } catch (e) { 
-        console.log("تم إلغاء عملية الاتصال:", e); 
-    } finally {
-        if (typeof window.renderWalletTab === 'function') {
-            window.renderWalletTab(currentWalletTab); // لإعادة الزر لشكله الطبيعي إذا فشل
-        }
+    } catch (e) {
+        console.log("تم إلغاء عملية الاتصال");
     }
 };
 
@@ -179,9 +146,7 @@ window.disconnectCustomWallet = async function() {
         try { 
             await tonConnectUI.disconnect(); 
             showAppAlert("تم إلغاء ربط المحفظة بنجاح.");
-        } catch (e) { 
-            console.error("خطأ أثناء إلغاء ربط المحفظة:", e); 
-        }
+        } catch (e) {}
     }
 };
 
@@ -214,6 +179,7 @@ window.renderWalletTab = function(tab) {
     const content = document.getElementById('wallet-content');
     if (!content) return;
     
+    // تفعيل الزر المناسب
     const tabs = ['withdraw', 'history', 'deposit'];
     tabs.forEach(t => {
         const btn = document.getElementById(`btn-${t}`);
@@ -226,33 +192,33 @@ window.renderWalletTab = function(tab) {
     if (tab === 'deposit') {
         if (!isWalletConnected) {
             content.innerHTML = `
-                <div class="card locked-state" style="text-align: center; padding: 25px 15px;">
+                <div class="card locked-state">
                     <div style="font-size: 40px; margin-bottom: 10px;">🔒</div>
-                    <p style="color: #ccc; margin-bottom: 15px;">يجب ربط محفظة التليجرام أولاً لتتمكن من الإيداع</p>
+                    <p>يجب ربط محفظة التليجرام أولاً لتتمكن من الإيداع</p>
                     <button onclick="window.connectCustomWallet()" class="action-btn btn-blue" style="width: 100%; max-width: 250px;">ربط المحفظة الآن</button>
                 </div>`;
         } else {
             content.innerHTML = `
                 <div class="card">
-                    <div class="connected-state" style="background: rgba(0, 136, 204, 0.1); padding: 12px; border-radius: 10px; margin-bottom: 15px; border: 1px solid rgba(0,136,204,0.3); display: flex; justify-content: space-between; align-items: center;">
-                        <div class="wallet-address-text" style="color: #00cc66; font-size: 12px; word-break: break-all;">
+                    <div class="connected-state">
+                        <div class="wallet-address-text">
                             ✅ متصل:<br><b style="color: #fff;">${userWalletAddress}</b>
                         </div>
-                        <button onclick="window.disconnectCustomWallet()" class="disconnect-btn" style="background: #ff4444; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 11px; cursor: pointer;">إلغاء الربط</button>
+                        <button onclick="window.disconnectCustomWallet()" class="disconnect-btn">إلغاء الربط</button>
                     </div>
                     
                     <h3 style="margin-top:0; color:#fff; text-align:center; margin-bottom: 15px;">إيداع (شراء رصيد USD)</h3>
                     
-                    <div class="input-group" style="margin-bottom: 15px;">
-                        <label class="input-label" style="display:block; color:#aaa; margin-bottom:5px; font-size:13px;">المبلغ المطلوب إيداعه ($)</label>
-                        <input type="number" id="deposit-usd-input" class="input-field" placeholder="مثال: 5" style="width:100%; padding:10px; border-radius:8px; border:1px solid #333; background:#1e1e1e; color:#fff;" oninput="window.calculateDepositTon()">
+                    <div class="input-group">
+                        <label class="input-label">المبلغ المطلوب إيداعه ($)</label>
+                        <input type="number" id="deposit-usd-input" class="input-field" placeholder="مثال: 5" oninput="window.calculateDepositTon()">
                     </div>
                     
                     <div id="deposit-calc-info" style="display:none; padding:10px; margin-bottom:15px; border-radius:8px; text-align:center; background:rgba(0, 136, 204, 0.1); border:1px solid #0088cc;">
                         مطلوب إرسال: <b id="required-ton-amount" style="color:#88ccff;">0</b> TON
                     </div>
                     
-                    <button id="deposit-btn" onclick="window.executeDeposit()" class="action-btn btn-blue" style="width:100%;">متابعة الدفع بواسطة TON</button>
+                    <button id="deposit-btn" onclick="window.executeDeposit()" class="action-btn btn-blue">متابعة الدفع بواسطة TON</button>
                 </div>`;
         }
     } 
@@ -267,9 +233,7 @@ window.renderWalletTab = function(tab) {
         fetch(`/api/get_history?initData=${encodeURIComponent(initData)}`)
             .then(res => res.json())
             .then(data => {
-                // *** حماية التداخل (Race Condition Fix) ***
-                // لو المستخدم غير التبويب قبل ما البيانات تحمل، الكود هيتجاهل رسم البيانات دي 
-                if (currentWalletTab !== 'history') return; 
+                if (currentWalletTab !== 'history') return; // حماية التداخل
 
                 if (data.success && data.history && data.history.length > 0) {
                     let html = `<div class="card" style="padding: 15px;">
@@ -306,7 +270,6 @@ window.renderWalletTab = function(tab) {
                                 </div>
                             </div>`;
                     });
-
                     html += `</div></div>`;
                     content.innerHTML = html;
                 } else {
@@ -318,8 +281,7 @@ window.renderWalletTab = function(tab) {
                 }
             })
             .catch(err => {
-                if (currentWalletTab !== 'history') return; // حماية التداخل
-                console.error("خطأ في جلب السجلات:", err);
+                if (currentWalletTab !== 'history') return;
                 content.innerHTML = `
                     <div class="card" style="text-align:center; color:#ff4444; padding:30px 20px;">
                         ⚠️ خطأ في تحميل السجلات. تأكد من اتصالك بالإنترنت.
@@ -330,46 +292,44 @@ window.renderWalletTab = function(tab) {
         let withdrawHtml = `
             <div class="card" style="margin-bottom: 15px;">
                 <h3 style="margin-top:0; color:#fff; text-align:center; margin-bottom:10px;">🔄 تحويل النقاط إلى USD</h3>
-                <label class="input-label" style="display:block; color:#aaa; margin-bottom:8px; font-size:12px; text-align:center;">
-                    (كل 1,000,000 ZN = $1.00 USD)
-                </label>
-                <input type="number" id="zn-input" class="input-field" placeholder="أدخل كمية ZN المراد تحويلها" style="width:100%; padding:10px; border-radius:8px; border:1px solid #333; background:#1e1e1e; color:#fff; margin-bottom:15px;" oninput="window.calculateConversionPreview()">
+                <label class="input-label" style="text-align:center;">(كل 1,000,000 ZN = $1.00 USD)</label>
+                <input type="number" id="zn-input" class="input-field" placeholder="أدخل كمية ZN المراد تحويلها" oninput="window.calculateConversionPreview()">
                 
-                <div id="conversion-calc-info" style="display:none; padding:10px; margin-bottom:15px; text-align:center; color:#00cc66; background:rgba(0, 204, 102, 0.1); border:1px solid #00cc66; border-radius:8px;">
+                <div id="conversion-calc-info" style="display:none; padding:10px; margin:top:15px; margin-bottom:15px; text-align:center; color:#00cc66; background:rgba(0, 204, 102, 0.1); border:1px solid #00cc66; border-radius:8px;">
                     ستحصل على: <b id="expected-usd-amount">0.00000</b> $
                 </div>
 
-                <button id="convert-btn" onclick="window.convertManualPoints()" class="action-btn btn-green" style="width:100%;">تحويل النقاط الآن</button>
+                <button id="convert-btn" onclick="window.convertManualPoints()" class="action-btn btn-green">تحويل النقاط الآن</button>
             </div>`;
 
         if (!isWalletConnected) {
             withdrawHtml += `
-                <div class="card locked-state" style="text-align: center; padding: 25px 15px;">
+                <div class="card locked-state">
                     <div style="font-size: 40px; margin-bottom: 10px;">🔒</div>
-                    <p style="color: #ccc; margin-bottom: 15px;">يجب ربط محفظة التليجرام أولاً لتتمكن من السحب</p>
+                    <p>يجب ربط محفظة التليجرام أولاً لتتمكن من السحب</p>
                     <button onclick="window.connectCustomWallet()" class="action-btn btn-blue" style="width:100%; max-width:250px;">ربط المحفظة الآن</button>
                 </div>`;
         } else {
             withdrawHtml += `
                 <div class="card">
-                    <div class="connected-state" style="background: rgba(0, 136, 204, 0.1); padding: 12px; border-radius: 10px; margin-bottom: 15px; border: 1px solid rgba(0,136,204,0.3); display: flex; justify-content: space-between; align-items: center;">
-                        <div class="wallet-address-text" style="color: #00cc66; font-size: 12px; word-break: break-all;">
+                    <div class="connected-state">
+                        <div class="wallet-address-text">
                             ✅ متصل:<br><b style="color: #fff;">${userWalletAddress}</b>
                         </div>
-                        <button onclick="window.disconnectCustomWallet()" class="disconnect-btn" style="background: #ff4444; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 11px; cursor: pointer;">إلغاء الربط</button>
+                        <button onclick="window.disconnectCustomWallet()" class="disconnect-btn">إلغاء الربط</button>
                     </div>
 
                     <h3 style="margin-top:0; color:#fff; text-align:center; margin-bottom:15px;">📤 طلب سحب الأرباح</h3>
-                    <div class="input-group" style="margin-bottom:15px;">
-                        <label class="input-label" style="display:block; color:#aaa; margin-bottom:5px; font-size:13px;">المبلغ المراد سحبه ($)</label>
-                        <input type="number" id="usd-withdraw" class="input-field" placeholder="المبلغ بالسنت أو الدولار ($)" style="width:100%; padding:10px; border-radius:8px; border:1px solid #333; background:#1e1e1e; color:#fff;" oninput="window.calculateWithdrawTon()">
+                    <div class="input-group">
+                        <label class="input-label">المبلغ المراد سحبه ($)</label>
+                        <input type="number" id="usd-withdraw" class="input-field" placeholder="المبلغ بالسنت أو الدولار ($)" oninput="window.calculateWithdrawTon()">
                     </div>
                     
                     <div id="withdraw-calc-info" style="display:none; padding:10px; margin-bottom:15px; text-align:center; color:#aaa; font-size:13px; background:rgba(255,255,255,0.05); border-radius:8px;">
                         ستستلم على محفظتك: <b id="receive-ton-amount" style="color:#0088cc;">0</b> TON
                     </div>
                     
-                    <button id="withdraw-btn" onclick="window.submitWithdrawal()" class="action-btn btn-blue" style="width:100%;">تقديم طلب سحب</button>
+                    <button id="withdraw-btn" onclick="window.submitWithdrawal()" class="action-btn btn-blue">تقديم طلب سحب</button>
                 </div>`;
         }
         content.innerHTML = withdrawHtml;
@@ -431,7 +391,7 @@ window.calculateWithdrawTon = function() {
 };
 
 // ==========================================
-// 💸 5. تنفيذ العمليات (إيداع / تحويل / سحب)
+// 💸 5. تنفيذ العمليات
 // ==========================================
 window.executeDeposit = async function() {
     triggerHapticFeedback('impact', 'medium');
@@ -450,18 +410,11 @@ window.executeDeposit = async function() {
     
     const transaction = {
         validUntil: Math.floor(Date.now() / 1000) + 360,
-        messages: [{
-            address: projectWallet,
-            amount: nanoTon
-        }]
+        messages: [{ address: projectWallet, amount: nanoTon }]
     };
 
     try {
-        if (depositBtn) {
-            depositBtn.disabled = true;
-            depositBtn.innerText = "⏳ جاري فتح المحفظة...";
-        }
-
+        if (depositBtn) { depositBtn.disabled = true; depositBtn.innerText = "⏳ جاري فتح المحفظة..."; }
         const txResult = await tonConnectUI.sendTransaction(transaction);
         triggerHapticFeedback('notification', 'success');
 
@@ -470,16 +423,11 @@ window.executeDeposit = async function() {
             await fetch('/api/wallet_deposit_report', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    initData: initData,
-                    usdAmount: usdAmount,
-                    tonAmount: tonAmount,
-                    boc: txResult.boc 
-                })
+                body: JSON.stringify({ initData: initData, usdAmount: usdAmount, tonAmount: tonAmount, boc: txResult.boc })
             });
         }
         
-        showAppAlert(`✅ تم إرسال المعاملة بنجاح للشبكة!\nسيتم إضافة $${usdAmount} لرصيدك بعد تأكيد البلوكشين.`);
+        showAppAlert(`✅ تم إرسال المعاملة بنجاح!\nسيتم إضافة $${usdAmount} لرصيدك بعد تأكيد الشبكة.`);
         if (usdInput) usdInput.value = '';
         const calcInfo = document.getElementById('deposit-calc-info');
         if (calcInfo) calcInfo.style.display = 'none';
@@ -487,16 +435,10 @@ window.executeDeposit = async function() {
     } catch (e) {
         triggerHapticFeedback('notification', 'warning');
         if (e && e.message !== "User rejected the transaction") {
-            console.error("خطأ الإيداع: ", e);
-            showAppAlert("⚠️ حدث خطأ أثناء تنفيذ الدفع، أو تم إغلاق المحفظة.");
-        } else {
-            showAppAlert("ℹ️ تم إلغاء عملية الدفع بواسطة المستخدم.");
+            showAppAlert("⚠️ حدث خطأ أثناء الدفع، أو تم إغلاق المحفظة.");
         }
     } finally {
-        if (depositBtn) {
-            depositBtn.disabled = false;
-            depositBtn.innerText = "متابعة الدفع بواسطة TON";
-        }
+        if (depositBtn) { depositBtn.disabled = false; depositBtn.innerText = "متابعة الدفع بواسطة TON"; }
     }
 };
 
@@ -507,22 +449,14 @@ window.convertManualPoints = async function() {
 
     let amount = parseFloat(znInput?.value);
     if (!amount || isNaN(amount) || amount <= 0) {
-        triggerHapticFeedback('notification', 'error');
-        return showAppAlert("⚠️ الرجاء إدخال كمية صحيحة من النقاط (ZN)");
+        return showAppAlert("⚠️ الرجاء إدخال كمية صحيحة من النقاط");
     }
     
     const initData = tgApp?.initData || null;
-    if (!initData) {
-        triggerHapticFeedback('notification', 'error');
-        return showAppAlert("⚠️ يجب فتح اللعبة من داخل التليجرام لحماية معاملتك.");
-    }
+    if (!initData) return showAppAlert("⚠️ يجب فتح اللعبة من داخل التليجرام.");
 
     try {
-        if (convertBtn) {
-            convertBtn.disabled = true;
-            convertBtn.innerText = "⏳ جاري التحويل...";
-        }
-
+        if (convertBtn) { convertBtn.disabled = true; convertBtn.innerText = "⏳ جاري التحويل..."; }
         let response = await fetch('/api/wallet_convert', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -544,24 +478,15 @@ window.convertManualPoints = async function() {
 
             window.updateHeaderBalances();
             showAppAlert(`🎉 تم تحويل النقاط بنجاح!\nكسبت $${usdGained.toFixed(5)} USD`);
-            
             if (znInput) znInput.value = '';
-            const infoDiv = document.getElementById('conversion-calc-info');
-            if (infoDiv) infoDiv.style.display = 'none';
-
+            document.getElementById('conversion-calc-info').style.display = 'none';
         } else {
-            triggerHapticFeedback('notification', 'error');
-            showAppAlert("⚠️ فشل التحويل: " + (result.error || result.message || "سبب غير معروف"));
+            showAppAlert("⚠️ فشل التحويل: " + (result.error || result.message));
         }
     } catch (e) { 
-        console.error("خطأ في الاتصال بالخادم عند تحويل النقاط:", e);
-        triggerHapticFeedback('notification', 'error');
-        showAppAlert("⚠️ حدث خطأ أثناء الاتصال بالسيرفر. حاول مرة أخرى."); 
+        showAppAlert("⚠️ خطأ في الاتصال بالسيرفر."); 
     } finally {
-        if (convertBtn) {
-            convertBtn.disabled = false;
-            convertBtn.innerText = "تحويل النقاط الآن";
-        }
+        if (convertBtn) { convertBtn.disabled = false; convertBtn.innerText = "تحويل النقاط الآن"; }
     }
 };
 
@@ -572,35 +497,23 @@ window.submitWithdrawal = async function() {
 
     let usdAmount = parseFloat(usdInput?.value);
     if (!usdAmount || usdAmount <= 0) {
-        triggerHapticFeedback('notification', 'error');
         return showAppAlert("⚠️ يرجى إدخال مبلغ صحيح للسحب ($)");
     }
 
     if (!userWalletAddress) {
-        triggerHapticFeedback('notification', 'warning');
-        return showAppAlert("⚠️ الرجاء ربط محفظة التليجرام أولاً لتحديد عنوان الاستلام.");
+        return showAppAlert("⚠️ الرجاء ربط المحفظة أولاً.");
     }
 
     const initData = tgApp?.initData || null;
-    if (!initData) {
-        triggerHapticFeedback('notification', 'error');
-        return showAppAlert("⚠️ غير مصرح بالعملية خارج التليجرام.");
-    }
+    if (!initData) return showAppAlert("⚠️ غير مصرح بالعملية خارج التليجرام.");
 
     try {
-        if (withdrawBtn) {
-            withdrawBtn.disabled = true;
-            withdrawBtn.innerText = "⏳ جاري إرسال الطلب...";
-        }
+        if (withdrawBtn) { withdrawBtn.disabled = true; withdrawBtn.innerText = "⏳ جاري إرسال الطلب..."; }
 
         let response = await fetch('/api/wallet_withdraw', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                initData: initData, 
-                amount: usdAmount,
-                walletAddress: userWalletAddress 
-            })
+            body: JSON.stringify({ initData: initData, amount: usdAmount, walletAddress: userWalletAddress })
         });
         let result = await response.json();
         
@@ -617,39 +530,30 @@ window.submitWithdrawal = async function() {
             let expectedTon = (usdAmount / currentTonPriceUSD).toFixed(4);
             window.updateHeaderBalances();
             
-            showAppAlert(`✅ تم تقديم طلب السحب بنجاح بقيمة $${usdAmount}.\nستصلك المعاملة (≈ ${expectedTon} TON) بعد فحص الإدارة.`);
+            showAppAlert(`✅ تم تقديم طلب السحب بقيمة $${usdAmount}.\nستصلك (≈ ${expectedTon} TON) بعد فحص الإدارة.`);
             if (usdInput) usdInput.value = '';
-            
-            const infoDiv = document.getElementById('withdraw-calc-info');
-            if (infoDiv) infoDiv.style.display = 'none';
+            document.getElementById('withdraw-calc-info').style.display = 'none';
 
         } else {
-            triggerHapticFeedback('notification', 'error');
-            showAppAlert("⚠️ رفض السيرفر طلب السحب: " + (result.error || result.message || "سبب غير معروف"));
+            showAppAlert("⚠️ رفض السيرفر الطلب: " + (result.error || result.message));
         }
     } catch (e) { 
-        console.error("خطأ أثناء السحب:", e);
-        triggerHapticFeedback('notification', 'error');
-        showAppAlert("⚠️ خطأ في معالجة طلب السحب. حاول لاحقاً."); 
+        showAppAlert("⚠️ خطأ في معالجة الطلب."); 
     } finally {
-        if (withdrawBtn) {
-            withdrawBtn.disabled = false;
-            withdrawBtn.innerText = "تقديم طلب سحب";
-        }
+        if (withdrawBtn) { withdrawBtn.disabled = false; withdrawBtn.innerText = "تقديم طلب سحب"; }
     }
 };
 
 // ==========================================
-// 🚀 6. التشغيل والتنفيذ التلقائي (حل مشكلة الشاشة البيضاء)
+// 🚀 6. التشغيل التلقائي عند فتح الصفحة
 // ==========================================
-document.addEventListener('DOMContentLoaded', () => {
-    fetchLiveTonPrice();
-    setInterval(fetchLiveTonPrice, 60000);
-    
-    // إجبار الكود على رسم التبويب فور تحميل الصفحة بدون انتظار
-    window.updateHeaderBalances();
-    window.renderWalletTab(currentWalletTab);
-    
-    // استدعاء تهيئة المحفظة للعمل في الخلفية بصمت
-    initTonConnect();
-});
+// 1. استدعاء السعر وتحديثه كل دقيقة
+fetchLiveTonPrice();
+setInterval(fetchLiveTonPrice, 60000);
+
+// 2. رسم الشاشة فوراً دون انتظار أي شيء (يمنع الشاشة السوداء)
+window.renderWalletTab(currentWalletTab);
+window.updateHeaderBalances();
+
+// 3. تشغيل مكتبة المحفظة للعمل بصمت في الخلفية لاسترجاع الجلسة
+initTonConnect();
