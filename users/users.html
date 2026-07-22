@@ -1,5 +1,4 @@
 <style>
-    /* تصميم احترافي مخصص لشاشات الموبايل */
     .users-section {
         display: flex;
         flex-direction: column;
@@ -28,11 +27,9 @@
         font-size: 12px;
         margin: 0;
     }
-    
-    /* تعديل مربع البحث والزرار (تحت بعض) */
     .u-search-box {
         display: flex;
-        flex-direction: column; /* جعل العناصر تحت بعضها */
+        flex-direction: column;
         gap: 10px;
         margin-top: 15px;
     }
@@ -66,15 +63,13 @@
         transform: scale(0.98);
         background: #d97706;
     }
-
-    /* تعديل الجدول ليناسب الشاشات الصغيرة بدون تداخل */
     .u-table-container {
         width: 100%;
-        overflow-x: auto; /* يسمح بسحب الجدول يمين ويسار */
+        overflow-x: auto;
     }
     .u-table {
         width: 100%;
-        min-width: 500px; /* إجبار الجدول على مساحة معينة لمنع تداخل النصوص */
+        min-width: 500px;
         border-collapse: collapse;
         text-align: center;
     }
@@ -119,8 +114,8 @@
         <p class="u-header-desc">إدارة جميع مستخدمين البوت والتحكم بهم</p>
         
         <div class="u-search-box">
-            <input type="text" id="uSearchInput" placeholder="🔍 ابحث بالـ ID أو الاسم..." oninput="window.uSearch()">
-            <button onclick="window.uFetch()">🔄 تحديث البيانات</button>
+            <input type="text" id="uSearchInput" placeholder="🔍 ابحث بالـ ID أو الاسم..." oninput="uSearch()">
+            <button onclick="uFetch()">🔄 تحديث البيانات</button>
         </div>
     </div>
 
@@ -144,104 +139,3 @@
         </div>
     </div>
 </div>
-
-<!-- خدعة برمجية لتشغيل الجافاسكريبت إجبارياً عند فتح القسم -->
-<img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" onload="initUsersJS()" style="display:none;" />
-
-<script>
-    // تم وضع الأكواد داخل دالة تعمل فوراً لضمان التشغيل
-    function initUsersJS() {
-        window.uData = []; 
-
-        window.uFetch = async function() {
-            const tbody = document.getElementById('uTableBody');
-            if(!tbody) return;
-            
-            tbody.innerHTML = '<tr><td colspan="5" style="color: #f59e0b; padding: 25px;">جاري تحديث البيانات... ⏳</td></tr>';
-            
-            try {
-                // إضافة متغير وقت لمنع الكاش وجلب أحدث بيانات دائماً
-                let res = await fetch('/api/users?t=' + new Date().getTime());
-                let json = await res.json();
-                
-                if(json.success) {
-                    window.uData = json.users;
-                    window.uRender(window.uData);
-                } else {
-                    tbody.innerHTML = '<tr><td colspan="5" style="color: #ef4444; padding: 25px;">❌ فشل جلب البيانات من السيرفر</td></tr>';
-                }
-            } catch (err) {
-                tbody.innerHTML = '<tr><td colspan="5" style="color: #ef4444; padding: 25px;">❌ خطأ في الاتصال، تأكد من عمل السيرفر</td></tr>';
-            }
-        };
-
-        window.uRender = function(usersList) {
-            const tbody = document.getElementById('uTableBody');
-            if(!tbody) return;
-            tbody.innerHTML = '';
-            
-            if(!usersList || usersList.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="color: #94a3b8; padding: 25px;">لا يوجد مستخدمين مسجلين.</td></tr>';
-                return;
-            }
-
-            usersList.forEach(u => {
-                let tr = document.createElement('tr');
-                if(u.isBanned) tr.style.opacity = "0.4"; // بهتان سطر المستخدم المحظور
-                
-                let actionBtn = u.isBanned 
-                    ? `<button class="u-btn u-btn-unban" onclick="window.uAction('${u.id}', 'unban')">فك الحظر</button>`
-                    : `<button class="u-btn u-btn-ban" onclick="window.uAction('${u.id}', 'ban')">حظر</button>`;
-
-                tr.innerHTML = `
-                    <td style="color: #f59e0b; font-weight: bold;">${u.id}</td>
-                    <td>${u.name}</td>
-                    <td><span class="u-badge">${u.balance} 💰</span></td>
-                    <td style="color: #94a3b8;">${u.joinDate}</td>
-                    <td>
-                        ${actionBtn}
-                        <button class="u-btn u-btn-add" onclick="window.uAddBal('${u.id}')">➕ رصيد</button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        };
-
-        window.uSearch = function() {
-            let term = document.getElementById('uSearchInput').value.toLowerCase();
-            let filtered = window.uData.filter(u => 
-                u.id.includes(term) || u.name.toLowerCase().includes(term)
-            );
-            window.uRender(filtered);
-        };
-
-        window.uAction = async function(id, action) {
-            if(!confirm(action === 'ban' ? 'هل أنت متأكد من حظر المستخدم؟' : 'هل أنت متأكد من فك الحظر؟')) return;
-            try {
-                await fetch('/api/users/' + id + '/action', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ action: action })
-                });
-                window.uFetch(); // تحديث فوري بعد الأكشن
-            } catch(e) { alert('حدث خطأ أثناء التنفيذ!'); }
-        };
-
-        window.uAddBal = async function(id) {
-            let val = prompt("أدخل قيمة الرصيد المراد إضافته (أرقام فقط):");
-            if(!val || isNaN(val)) return;
-            try {
-                await fetch('/api/users/' + id + '/action', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ action: 'add_balance', value: parseInt(val) })
-                });
-                alert('✅ تم إضافة الرصيد بنجاح!');
-                window.uFetch(); // تحديث فوري بعد الإضافة
-            } catch(e) { alert('حدث خطأ أثناء الإضافة!'); }
-        };
-
-        // جلب البيانات تلقائياً بمجرد فتح القسم
-        window.uFetch();
-    }
-</script>
