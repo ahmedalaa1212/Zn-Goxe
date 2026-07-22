@@ -1,209 +1,247 @@
 <style>
-    /* تصميم قسم المستخدمين المتناسق مع اللوحة */
-    .users-container {
+    /* تصميم احترافي مخصص لشاشات الموبايل */
+    .users-section {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
         color: #fff;
         font-family: Tahoma, Arial, sans-serif;
+        padding-bottom: 20px;
     }
-    .users-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
+    .u-card {
         background: #1e293b;
-        padding: 15px 20px;
         border-radius: 12px;
-        margin-bottom: 20px;
+        padding: 15px;
         border: 1px solid #334155;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
     }
-    .users-header h2 {
-        margin: 0;
-        color: #f59e0b; /* اللون البرتقالي بتاعك */
-        font-size: 20px;
-    }
-    .search-box {
+    .u-header-title {
+        color: #f59e0b;
+        font-size: 18px;
+        margin: 0 0 5px 0;
         display: flex;
-        gap: 10px;
+        align-items: center;
+        gap: 8px;
     }
-    .search-box input {
-        padding: 10px;
+    .u-header-desc {
+        color: #94a3b8;
+        font-size: 12px;
+        margin: 0;
+    }
+    
+    /* تعديل مربع البحث والزرار (تحت بعض) */
+    .u-search-box {
+        display: flex;
+        flex-direction: column; /* جعل العناصر تحت بعضها */
+        gap: 10px;
+        margin-top: 15px;
+    }
+    .u-search-box input {
+        width: 100%;
+        padding: 12px;
         border-radius: 8px;
         border: 1px solid #475569;
         background: #0f172a;
         color: #fff;
+        font-size: 14px;
+        box-sizing: border-box;
         outline: none;
-        width: 250px;
     }
-    .search-box button {
+    .u-search-box input:focus {
+        border-color: #f59e0b;
+    }
+    .u-search-box button {
+        width: 100%;
         background: #f59e0b;
         color: #000;
         border: none;
-        padding: 10px 15px;
+        padding: 12px;
         border-radius: 8px;
-        cursor: pointer;
         font-weight: bold;
-        transition: 0.3s;
+        font-size: 14px;
+        cursor: pointer;
+        transition: 0.2s;
     }
-    .search-box button:hover {
+    .u-search-box button:active {
+        transform: scale(0.98);
         background: #d97706;
     }
-    .users-table-wrapper {
-        background: #1e293b;
-        border-radius: 12px;
-        padding: 15px;
-        overflow-x: auto;
-        border: 1px solid #334155;
-    }
-    table {
+
+    /* تعديل الجدول ليناسب الشاشات الصغيرة بدون تداخل */
+    .u-table-container {
         width: 100%;
+        overflow-x: auto; /* يسمح بسحب الجدول يمين ويسار */
+    }
+    .u-table {
+        width: 100%;
+        min-width: 500px; /* إجبار الجدول على مساحة معينة لمنع تداخل النصوص */
         border-collapse: collapse;
-        text-align: right;
+        text-align: center;
     }
-    th, td {
-        padding: 12px 15px;
-        border-bottom: 1px solid #334155;
-    }
-    th {
+    .u-table th {
+        background: #0f172a;
         color: #94a3b8;
-        font-weight: normal;
+        padding: 12px 10px;
+        font-size: 13px;
+        white-space: nowrap;
     }
-    .btn-action {
+    .u-table td {
+        padding: 12px 10px;
+        border-bottom: 1px solid #334155;
+        vertical-align: middle;
+        font-size: 13px;
+    }
+    .u-badge {
+        background: #334155;
+        padding: 4px 8px;
+        border-radius: 6px;
+        color: #f8fafc;
+        font-weight: bold;
+    }
+    .u-btn {
         padding: 6px 12px;
         border-radius: 6px;
         border: none;
-        cursor: pointer;
-        font-size: 12px;
-        margin-left: 5px;
         font-weight: bold;
+        font-size: 12px;
+        cursor: pointer;
+        margin: 2px;
     }
-    .btn-ban { background: #ef4444; color: white; }
-    .btn-unban { background: #10b981; color: white; }
-    .btn-add { background: #3b82f6; color: white; }
-    .banned-row td { opacity: 0.5; }
+    .u-btn-ban { background: #ef4444; color: #fff; }
+    .u-btn-unban { background: #10b981; color: #fff; }
+    .u-btn-add { background: #3b82f6; color: #fff; }
 </style>
 
-<div class="users-container animate-fade-in">
-    <div class="users-header">
-        <div>
-            <h2>👥 بيانات المستخدمين</h2>
-            <p style="color: #94a3b8; font-size: 13px; margin-top: 5px;">إدارة جميع مستخدمين البوت والتحكم بهم</p>
-        </div>
-        <div class="search-box">
-            <input type="text" id="userSearchInput" placeholder="بحث بالـ ID أو الاسم..." onkeyup="filterUsers()">
-            <button onclick="fetchUsersData()">🔄 تحديث</button>
+<div class="users-section animate-fade-in">
+    <!-- كارت البحث -->
+    <div class="u-card">
+        <h2 class="u-header-title">👥 بيانات المستخدمين</h2>
+        <p class="u-header-desc">إدارة جميع مستخدمين البوت والتحكم بهم</p>
+        
+        <div class="u-search-box">
+            <input type="text" id="uSearchInput" placeholder="🔍 ابحث بالـ ID أو الاسم..." oninput="window.uSearch()">
+            <button onclick="window.uFetch()">🔄 تحديث البيانات</button>
         </div>
     </div>
 
-    <div class="users-table-wrapper">
-        <table id="usersTable">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>الاسم</th>
-                    <th>الرصيد</th>
-                    <th>تاريخ الانضمام</th>
-                    <th>إجراءات</th>
-                </tr>
-            </thead>
-            <tbody id="usersTableBody">
-                <tr><td colspan="5" style="text-align: center; color: #f59e0b;">جاري جلب البيانات...</td></tr>
-            </tbody>
-        </table>
+    <!-- كارت الجدول -->
+    <div class="u-card" style="padding: 0; overflow: hidden;">
+        <div class="u-table-container">
+            <table class="u-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>الاسم</th>
+                        <th>الرصيد</th>
+                        <th>الانضمام</th>
+                        <th>الإجراءات</th>
+                    </tr>
+                </thead>
+                <tbody id="uTableBody">
+                    <tr><td colspan="5" style="color: #f59e0b; padding: 25px;">جاري جلب البيانات... ⏳</td></tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 
+<!-- خدعة برمجية لتشغيل الجافاسكريبت إجبارياً عند فتح القسم -->
+<img src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==" onload="initUsersJS()" style="display:none;" />
+
 <script>
-    // جعل المتغيرات عامة لضمان عملها عند تحميل القسم
-    window.allUsersData = [];
+    // تم وضع الأكواد داخل دالة تعمل فوراً لضمان التشغيل
+    function initUsersJS() {
+        window.uData = []; 
 
-    window.fetchUsersData = async function() {
-        const tbody = document.getElementById('usersTableBody');
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #f59e0b;">جاري جلب البيانات... ⏳</td></tr>';
-        
-        try {
-            let response = await fetch('/api/users');
-            let data = await response.json();
+        window.uFetch = async function() {
+            const tbody = document.getElementById('uTableBody');
+            if(!tbody) return;
             
-            if(data.success) {
-                window.allUsersData = data.users;
-                renderUsersTable(window.allUsersData);
-            } else {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #ef4444;">❌ خطأ في جلب البيانات</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="color: #f59e0b; padding: 25px;">جاري تحديث البيانات... ⏳</td></tr>';
+            
+            try {
+                // إضافة متغير وقت لمنع الكاش وجلب أحدث بيانات دائماً
+                let res = await fetch('/api/users?t=' + new Date().getTime());
+                let json = await res.json();
+                
+                if(json.success) {
+                    window.uData = json.users;
+                    window.uRender(window.uData);
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" style="color: #ef4444; padding: 25px;">❌ فشل جلب البيانات من السيرفر</td></tr>';
+                }
+            } catch (err) {
+                tbody.innerHTML = '<tr><td colspan="5" style="color: #ef4444; padding: 25px;">❌ خطأ في الاتصال، تأكد من عمل السيرفر</td></tr>';
             }
-        } catch (error) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #ef4444;">❌ خطأ في الاتصال بالسيرفر</td></tr>';
-        }
-    };
+        };
 
-    window.renderUsersTable = function(users) {
-        const tbody = document.getElementById('usersTableBody');
-        tbody.innerHTML = '';
-        
-        if(users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">لا يوجد مستخدمين حالياً.</td></tr>';
-            return;
-        }
-
-        users.forEach(user => {
-            let tr = document.createElement('tr');
-            if(user.isBanned) tr.className = 'banned-row';
+        window.uRender = function(usersList) {
+            const tbody = document.getElementById('uTableBody');
+            if(!tbody) return;
+            tbody.innerHTML = '';
             
-            let actionBtn = user.isBanned 
-                ? `<button class="btn-action btn-unban" onclick="userAction('${user.id}', 'unban')">فك الحظر</button>`
-                : `<button class="btn-action btn-ban" onclick="userAction('${user.id}', 'ban')">حظر</button>`;
+            if(!usersList || usersList.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="color: #94a3b8; padding: 25px;">لا يوجد مستخدمين مسجلين.</td></tr>';
+                return;
+            }
 
-            tr.innerHTML = `
-                <td style="color: #f59e0b;">${user.id}</td>
-                <td>${user.name}</td>
-                <td><span style="background: #334155; padding: 3px 8px; border-radius: 5px;">${user.balance} 💰</span></td>
-                <td style="font-size: 13px; color: #94a3b8;">${user.joinDate}</td>
-                <td>
-                    ${actionBtn}
-                    <button class="btn-action btn-add" onclick="addBalance('${user.id}')">➕ رصيد</button>
-                </td>
-            `;
-            tbody.appendChild(tr);
-        });
-    };
+            usersList.forEach(u => {
+                let tr = document.createElement('tr');
+                if(u.isBanned) tr.style.opacity = "0.4"; // بهتان سطر المستخدم المحظور
+                
+                let actionBtn = u.isBanned 
+                    ? `<button class="u-btn u-btn-unban" onclick="window.uAction('${u.id}', 'unban')">فك الحظر</button>`
+                    : `<button class="u-btn u-btn-ban" onclick="window.uAction('${u.id}', 'ban')">حظر</button>`;
 
-    window.filterUsers = function() {
-        let searchValue = document.getElementById('userSearchInput').value.toLowerCase();
-        let filtered = window.allUsersData.filter(user => 
-            user.id.includes(searchValue) || user.name.toLowerCase().includes(searchValue)
-        );
-        renderUsersTable(filtered);
-    };
-
-    window.userAction = async function(userId, action) {
-        if(!confirm(action === 'ban' ? 'هل أنت متأكد من حظر هذا المستخدم؟' : 'هل أنت متأكد من فك الحظر؟')) return;
-        
-        try {
-            await fetch(`/api/users/${userId}/action`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ action: action })
+                tr.innerHTML = `
+                    <td style="color: #f59e0b; font-weight: bold;">${u.id}</td>
+                    <td>${u.name}</td>
+                    <td><span class="u-badge">${u.balance} 💰</span></td>
+                    <td style="color: #94a3b8;">${u.joinDate}</td>
+                    <td>
+                        ${actionBtn}
+                        <button class="u-btn u-btn-add" onclick="window.uAddBal('${u.id}')">➕ رصيد</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
             });
-            fetchUsersData(); // تحديث الجدول بعد العملية
-        } catch (e) {
-            alert('حدث خطأ أثناء تنفيذ العملية!');
-        }
-    };
+        };
 
-    window.addBalance = async function(userId) {
-        let amount = prompt("أدخل قيمة الرصيد المراد إضافته (أرقام فقط):");
-        if(!amount || isNaN(amount)) return;
-        
-        try {
-            await fetch(`/api/users/${userId}/action`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ action: 'add_balance', value: parseInt(amount) })
-            });
-            alert('✅ تم إضافة الرصيد بنجاح!');
-            fetchUsersData();
-        } catch (e) {
-            alert('حدث خطأ أثناء الإضافة!');
-        }
-    };
+        window.uSearch = function() {
+            let term = document.getElementById('uSearchInput').value.toLowerCase();
+            let filtered = window.uData.filter(u => 
+                u.id.includes(term) || u.name.toLowerCase().includes(term)
+            );
+            window.uRender(filtered);
+        };
 
-    // تشغيل جلب البيانات أول ما القسم يفتح
-    setTimeout(() => { fetchUsersData(); }, 300);
+        window.uAction = async function(id, action) {
+            if(!confirm(action === 'ban' ? 'هل أنت متأكد من حظر المستخدم؟' : 'هل أنت متأكد من فك الحظر؟')) return;
+            try {
+                await fetch('/api/users/' + id + '/action', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ action: action })
+                });
+                window.uFetch(); // تحديث فوري بعد الأكشن
+            } catch(e) { alert('حدث خطأ أثناء التنفيذ!'); }
+        };
+
+        window.uAddBal = async function(id) {
+            let val = prompt("أدخل قيمة الرصيد المراد إضافته (أرقام فقط):");
+            if(!val || isNaN(val)) return;
+            try {
+                await fetch('/api/users/' + id + '/action', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ action: 'add_balance', value: parseInt(val) })
+                });
+                alert('✅ تم إضافة الرصيد بنجاح!');
+                window.uFetch(); // تحديث فوري بعد الإضافة
+            } catch(e) { alert('حدث خطأ أثناء الإضافة!'); }
+        };
+
+        // جلب البيانات تلقائياً بمجرد فتح القسم
+        window.uFetch();
+    }
 </script>
