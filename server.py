@@ -22,7 +22,7 @@ def add_header(response):
 db = None
 firebase_creds_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT', '').strip()
 
-# 🚨🚨 ضع توكن البوت الخاص بك هنا بين علامات التنصيص بدلاً من YOUR_BOT_TOKEN_HERE 🚨🚨
+# 🚨🚨 ضع توكن البوت الخاص بك هنا بين علامات التنصيص 🚨🚨
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '').strip()
 
 if firebase_creds_json:
@@ -349,7 +349,7 @@ def claim_ref_task():
     reward = safe_float(data.get('reward'))
     req_friends = safe_int(data.get('reqFriends'))
     
-    if not task_id: return jsonify({'success': False}), 400
+    if not task_id or reward <= 0: return jsonify({'success': False, 'error': 'بيانات غير صالحة'}), 400
     
     try:
         user_ref = get_user_ref(telegram_id)
@@ -754,7 +754,6 @@ def wallet_convert():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-
 @app.route('/api/wallet_withdraw', methods=['POST'])
 def wallet_withdraw():
     success, telegram_id, user_name, err_resp = get_authenticated_user(request, is_post=True)
@@ -765,7 +764,7 @@ def wallet_withdraw():
     wallet_address = data.get('walletAddress')
     
     if amount <= 0 or not wallet_address:
-        return jsonify({'success': False, 'error': 'بيانات السحب غير مكتملة'}), 400
+        return jsonify({'success': False, 'error': 'بيانات السحب غير مكتملة أو غير صالحة'}), 400
         
     try:
         transaction = db.transaction()
@@ -802,7 +801,6 @@ def wallet_withdraw():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-
 @app.route('/api/wallet_deposit_report', methods=['POST'])
 def wallet_deposit_report():
     success, telegram_id, user_name, err_resp = get_authenticated_user(request, is_post=True)
@@ -829,7 +827,6 @@ def wallet_deposit_report():
         return jsonify({'success': True}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
-
 
 @app.route('/api/get_history', methods=['GET'])
 def get_history():
@@ -919,7 +916,6 @@ def admin_update_user():
         return jsonify({"success": True, "message": "تم التحديث بنجاح"}), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
-
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
