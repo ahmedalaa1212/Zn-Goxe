@@ -2,7 +2,7 @@
 // 💳 ZN Goxe - Wallet Module (wallet.js)
 // ==========================================
 
-// 1. الحالة العامة للمستند والمحفظة (State Management)
+// 1. الحالة العامة للمستند والمحفظة
 let playerData = {
     znBalance: 0,
     usdBalance: 0.00000,
@@ -11,16 +11,22 @@ let playerData = {
 
 let isWalletConnected = false;
 let userWalletAddress = null;
-let currentTonPriceUSD = 5.00; // سعر افتراضي لحين جلب السعر المباشر
-let currentWalletTab = localStorage.getItem('lastWalletTab') || 'withdraw';
+let currentTonPriceUSD = 5.00; 
+
+// ضمان عدم وجود قيمة فارغة تتسبب في شاشة بيضاء
+let currentWalletTab = localStorage.getItem('lastWalletTab');
+if (!['withdraw', 'history', 'deposit'].includes(currentWalletTab)) {
+    currentWalletTab = 'withdraw';
+}
+
 let tonConnectUI = null;
 
 // ==========================================
-// 🛠️ أدوات مساعدة وتفاعل التلجرام (Telegram WebApp Helpers)
+// 🛠️ أدوات مساعدة وتفاعل التلجرام
 // ==========================================
 const tgApp = window.Telegram?.WebApp;
 if (tgApp) {
-    tgApp.ready(); // التأكد من تهيئة التلجرام
+    tgApp.ready();
 }
 
 function showAppAlert(message) {
@@ -33,16 +39,13 @@ function showAppAlert(message) {
 
 function triggerHapticFeedback(type = 'impact', style = 'medium') {
     if (tgApp && tgApp.HapticFeedback) {
-        if (type === 'impact') {
-            tgApp.HapticFeedback.impactOccurred(style);
-        } else if (type === 'notification') {
-            tgApp.HapticFeedback.notificationOccurred(style);
-        }
+        if (type === 'impact') tgApp.HapticFeedback.impactOccurred(style);
+        else if (type === 'notification') tgApp.HapticFeedback.notificationOccurred(style);
     }
 }
 
 // ==========================================
-// 🌐 0. جلب سعر عملة TON الفعلي واللحظي من السوق
+// 🌐 0. جلب سعر عملة TON
 // ==========================================
 async function fetchLiveTonPrice() {
     try {
@@ -54,22 +57,18 @@ async function fetchLiveTonPrice() {
             currentTonPriceUSD = parseFloat(data.price);
         }
     } catch (error) {
-        console.warn("⚠️ لم نتمكن من جلب السعر من Binance، يتم المحاولة من مصدر احتياطي...", error);
         try {
             const fallbackRes = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd');
             const fallbackData = await fallbackRes.json();
             if (fallbackData && fallbackData['the-open-network'] && fallbackData['the-open-network'].usd) {
                 currentTonPriceUSD = parseFloat(fallbackData['the-open-network'].usd);
             }
-        } catch (fallbackErr) {
-            console.error("❌ خطأ في جلب سعر TON المباشر من كل المصادر:", fallbackErr);
-        }
+        } catch (fallbackErr) {}
     } finally {
         const tonPriceElem = document.getElementById('current-ton-price');
         if (tonPriceElem) {
             tonPriceElem.innerText = currentTonPriceUSD.toFixed(2);
         }
-        
         if (typeof window.updateHeaderBalances === 'function') {
             window.updateHeaderBalances();
         }
@@ -77,15 +76,13 @@ async function fetchLiveTonPrice() {
 }
 
 // ==========================================
-// 🔗 1. تهيئة TonConnect بأمان تام
+// 🔗 1. تهيئة TonConnect (باسترجاع الاتصال التلقائي)
 // ==========================================
 async function initTonConnect() {
-    // إنشاء الحاوية بشكل يسمح للمكتبة بالعمل بدون تشويه الواجهة
     let hiddenDiv = document.getElementById('hidden-ton-root');
     if (!hiddenDiv) {
         hiddenDiv = document.createElement('div');
         hiddenDiv.id = 'hidden-ton-root';
-        // استخدام الإخفاء الآمن بدل display: none
         hiddenDiv.style.position = 'absolute';
         hiddenDiv.style.top = '-9999px';
         hiddenDiv.style.left = '-9999px';
@@ -93,65 +90,86 @@ async function initTonConnect() {
         document.body.appendChild(hiddenDiv);
     }
 
-    try {
-        if (typeof window.TON_CONNECT_UI === 'undefined') {
-            console.warn("⏳ مكتبة TON_CONNECT_UI غير محملة، سيتم إعادة المحاولة...");
-            setTimeout(initTonConnect, 1000);
-            return;
-        }
-
-        tonConnectUI = new window.TON_CONNECT_UI.TonConnectUI({
-            manifestUrl: 'https://zn-goxe-production.up.railway.app/tonconnect-manifest.json',
-            buttonRootId: 'hidden-ton-root'
-        });
-
-        // إعدادات الواجهة بطريقة آمنة
-        tonConnectUI.uiOptions = {
-            theme: 'DARK',
-            colorsSet: {
-                DARK: {
-                    connectButton: { background: '#0088cc', foreground: '#ffffff' },
-                    accent: '#0088cc', 
-                    telegramButton: '#0088cc',
-                    background: { primary: '#121212', secondary: '#1e1e1e', qr: '#ffffff' },
-                    text: { primary: '#ffffff', secondary: '#aaaaaa' }
+    // الانتظار الصامت حتى تجهز مكتبة المحفظة دون إزعاج المستخدم
+    if (typeof window.TON_CONNECT_UI === 'undefined') {
+        await new Promise(resolve => {
+            const interval = setInterval(() => {
+                if (typeof window.TON_CONNECT_UI !== 'undefined') {
+                    clearInterval(interval);
+                    resolve();
                 }
-            }
-        };
-
-        // مراقبة حالة الاتصال بالمحفظة
-        tonConnectUI.onStatusChange(wallet => {
-            if (wallet && wallet.account) {
-                isWalletConnected = true;
-                userWalletAddress = window.TON_CONNECT_UI.toUserFriendlyAddress(wallet.account.address);
-                triggerHapticFeedback('notification', 'success');
-            } else {
-                isWalletConnected = false;
-                userWalletAddress = null;
-            }
-            
-            if (typeof window.renderWalletTab === 'function') {
-                window.renderWalletTab(currentWalletTab); 
-            }
+            }, 100);
         });
-    } catch (e) {
-        console.error("❌ خطأ أثناء تهيئة TonConnect:", e);
+    }
+
+    if (!tonConnectUI) {
+        try {
+            tonConnectUI = new window.TON_CONNECT_UI.TonConnectUI({
+                manifestUrl: 'https://zn-goxe-production.up.railway.app/tonconnect-manifest.json',
+                buttonRootId: 'hidden-ton-root'
+            });
+
+            tonConnectUI.uiOptions = {
+                theme: 'DARK',
+                colorsSet: {
+                    DARK: {
+                        connectButton: { background: '#0088cc', foreground: '#ffffff' },
+                        accent: '#0088cc', 
+                        telegramButton: '#0088cc',
+                        background: { primary: '#121212', secondary: '#1e1e1e', qr: '#ffffff' },
+                        text: { primary: '#ffffff', secondary: '#aaaaaa' }
+                    }
+                }
+            };
+
+            // حل مشكلة نسيان الربط: نجبر المكتبة تسترجع الجلسة المحفوظة
+            tonConnectUI.connectionRestored.then(restored => {
+                if (restored && typeof window.renderWalletTab === 'function') {
+                    window.renderWalletTab(currentWalletTab);
+                }
+            });
+
+            tonConnectUI.onStatusChange(wallet => {
+                if (wallet && wallet.account) {
+                    isWalletConnected = true;
+                    userWalletAddress = window.TON_CONNECT_UI.toUserFriendlyAddress(wallet.account.address);
+                    triggerHapticFeedback('notification', 'success');
+                } else {
+                    isWalletConnected = false;
+                    userWalletAddress = null;
+                }
+                
+                if (typeof window.renderWalletTab === 'function') {
+                    window.renderWalletTab(currentWalletTab); 
+                }
+            });
+        } catch (e) {
+            console.error("❌ خطأ أثناء تهيئة TonConnect:", e);
+        }
     }
 }
 
+// دالة الربط السلسة بدون رسائل مزعجة
 window.connectCustomWallet = async function() {
     triggerHapticFeedback('impact', 'light');
     
-    if (!tonConnectUI) {
-        showAppAlert("⏳ جاري تحميل إعدادات المحفظة، يرجى الانتظار ثانية والمحاولة...");
-        initTonConnect(); // محاولة التهيئة مجدداً في حال فشلها مسبقاً
-        return;
-    }
-    
-    try { 
-        await tonConnectUI.openModal(); 
+    // إعطاء تأثير بصري للمستخدم بدلاً من الرسالة المنبثقة المزعجة
+    const connectBtns = document.querySelectorAll('.action-btn.btn-blue');
+    connectBtns.forEach(btn => { 
+        if(btn.innerText.includes('ربط')) btn.innerText = "⏳ جاري فتح المحفظة..."; 
+    });
+
+    try {
+        if (!tonConnectUI) {
+            await initTonConnect(); 
+        }
+        await tonConnectUI.openModal();
     } catch (e) { 
-        console.log("تم إلغاء عملية الاتصال أو إغلاق النافذة:", e); 
+        console.log("تم إلغاء عملية الاتصال:", e); 
+    } finally {
+        if (typeof window.renderWalletTab === 'function') {
+            window.renderWalletTab(currentWalletTab); // لإعادة الزر لشكله الطبيعي إذا فشل
+        }
     }
 };
 
@@ -160,7 +178,7 @@ window.disconnectCustomWallet = async function() {
     if (tonConnectUI) {
         try { 
             await tonConnectUI.disconnect(); 
-            showAppAlert("✅ تم إلغاء ربط المحفظة بنجاح.");
+            showAppAlert("تم إلغاء ربط المحفظة بنجاح.");
         } catch (e) { 
             console.error("خطأ أثناء إلغاء ربط المحفظة:", e); 
         }
@@ -168,11 +186,10 @@ window.disconnectCustomWallet = async function() {
 };
 
 // ==========================================
-// 🔒 2. مزامنة الأرصدة الحقيقية مع الواجهة
+// 🔒 2. مزامنة الأرصدة 
 // ==========================================
 window.updateHeaderBalances = function() {
     const pData = window.PlayerData || playerData;
-    
     const zn = parseFloat(pData.balance !== undefined ? pData.balance : pData.znBalance) || 0;
     const usd = parseFloat(pData.usd_balance !== undefined ? pData.usd_balance : pData.usdBalance) || 0;
 
@@ -250,6 +267,10 @@ window.renderWalletTab = function(tab) {
         fetch(`/api/get_history?initData=${encodeURIComponent(initData)}`)
             .then(res => res.json())
             .then(data => {
+                // *** حماية التداخل (Race Condition Fix) ***
+                // لو المستخدم غير التبويب قبل ما البيانات تحمل، الكود هيتجاهل رسم البيانات دي 
+                if (currentWalletTab !== 'history') return; 
+
                 if (data.success && data.history && data.history.length > 0) {
                     let html = `<div class="card" style="padding: 15px;">
                         <h3 style="margin-top:0; color:#fff; text-align:center; margin-bottom:15px;">📋 سجل المعاملات</h3>
@@ -297,6 +318,7 @@ window.renderWalletTab = function(tab) {
                 }
             })
             .catch(err => {
+                if (currentWalletTab !== 'history') return; // حماية التداخل
                 console.error("خطأ في جلب السجلات:", err);
                 content.innerHTML = `
                     <div class="card" style="text-align:center; color:#ff4444; padding:30px 20px;">
@@ -355,7 +377,7 @@ window.renderWalletTab = function(tab) {
 };
 
 // ==========================================
-// 🧮 4. دالّات الحساب التلقائي (Real-time Calculators)
+// 🧮 4. دالّات الحساب التلقائي
 // ==========================================
 window.calculateConversionPreview = function() {
     let inputElem = document.getElementById('zn-input');
@@ -618,19 +640,16 @@ window.submitWithdrawal = async function() {
 };
 
 // ==========================================
-// 🚀 6. التشغيل والتنفيذ التلقائي (Auto Initialization)
+// 🚀 6. التشغيل والتنفيذ التلقائي (حل مشكلة الشاشة البيضاء)
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     fetchLiveTonPrice();
     setInterval(fetchLiveTonPrice, 60000);
+    
+    // إجبار الكود على رسم التبويب فور تحميل الصفحة بدون انتظار
+    window.updateHeaderBalances();
+    window.renderWalletTab(currentWalletTab);
+    
+    // استدعاء تهيئة المحفظة للعمل في الخلفية بصمت
     initTonConnect();
-
-    setTimeout(() => {
-        if (typeof window.updateHeaderBalances === 'function') {
-            window.updateHeaderBalances();
-        }
-        if (typeof window.renderWalletTab === 'function') {
-            window.renderWalletTab(currentWalletTab);
-        }
-    }, 200);
 });
