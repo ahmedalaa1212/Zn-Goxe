@@ -70,6 +70,8 @@
         }
 
         async function loadAllViews() {
+            const cacheVersion = new Date().getTime(); // لمنع مشاكل كاش التليجرام
+            
             const views = [
                 { id: 'view-friends', path: 'friends/friends.html' },
                 { id: 'view-wallet', path: 'wallet/wallet.html' },
@@ -80,9 +82,10 @@
                 { id: 'view-settings', path: 'settings/settings.html' }
             ];
 
+            // جلب ملفات الـ HTML
             for (let view of views) {
                 try {
-                    let response = await fetch(view.path);
+                    let response = await fetch(`${view.path}?v=${cacheVersion}`);
                     if (response.ok) {
                         let html = await response.text();
                         document.getElementById(view.id).innerHTML = html;
@@ -94,8 +97,10 @@
                 }
             }
 
+            // تحميل الـ Javascript بالترتيب الصحيح
             let mainScript = document.createElement('script');
-            mainScript.src = 'game.js';
+            mainScript.src = `game.js?v=${cacheVersion}`;
+            
             mainScript.onload = () => {
                 const scripts = [
                     'friends/friends.js',
@@ -109,7 +114,7 @@
 
                 scripts.forEach(jsPath => {
                     let script = document.createElement('script');
-                    script.src = jsPath;
+                    script.src = `${jsPath}?v=${cacheVersion}`;
                     document.body.appendChild(script);
                 });
             };
