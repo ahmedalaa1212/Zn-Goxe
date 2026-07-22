@@ -2,7 +2,7 @@ import os
 import json
 import tempfile
 import threading
-import datetime
+from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import firebase_admin
@@ -132,7 +132,7 @@ def server_status():
         'status': 'online',
         'system': 'Admin ZN Control Server',
         'firebase_connected': db is not None,
-        'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     }), 200
 
 # مسار يتحقق من صلاحية المستخدم ويرسل صلاحياته للويب
@@ -197,7 +197,7 @@ def add_moderator():
         doc_ref.set({
             'name': mod_name,
             'permissions': permissions,
-            'addedAt': datetime.datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'addedAt': datetime.now().strftime('%Y-%m-%d %H:%M'),
             'isMain': False
         })
 
@@ -205,7 +205,7 @@ def add_moderator():
         log_ref.set({
             'admin': admin_who_added,
             'action': f"إضافة المشرف الجديد: {mod_name} (ID: {mod_id})",
-            'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         })
 
         return jsonify({'success': True, 'message': f'تمت إضافة المشرف {mod_name} بنجاح'}), 200
@@ -240,7 +240,7 @@ def delete_moderator(mod_id):
         log_ref.set({
             'admin': admin_who_deleted,
             'action': f"حذف المشرف: {mod_name} (ID: {mod_id})",
-            'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         })
 
         return jsonify({'success': True, 'message': f'تم حذف المشرف {mod_name} بنجاح'}), 200
@@ -276,6 +276,7 @@ def get_all_users():
         return jsonify({'success': False, 'message': 'سيرفر قاعدة البيانات غير متصل'}), 500
     
     try:
+        # بنجلب آخر 100 مستخدم
         users_ref = db.collection('users').limit(100)
         docs = users_ref.stream()
         
@@ -302,18 +303,19 @@ def user_action(user_id):
     
     try:
         data = request.get_json(silent=True) or {}
-        action = data.get('action') # 'ban', 'unban', 'add_balance', 'deduct_balance'
+        action = data.get('action') 
         value = data.get('value', 0)
         
         doc_ref = db.collection('users').document(str(user_id).strip())
         doc = doc_ref.get()
         
-        # التأكد من وجود المستند، وإنشائه افتراضياً إن لم يوجد
+        # التأكد من وجود المستند، وإنشائه إذا كان غير موجود
         if not doc.exists:
+            current_time = datetime.now().strftime('%Y-%m-%d %I:%M %p') # إضافة الوقت مع التاريخ
             doc_ref.set({
                 'name': 'بدون اسم',
                 'balance': 0,
-                'joinDate': datetime.datetime.now().strftime('%Y-%m-%d'),
+                'joinDate': current_time,
                 'isBanned': False
             })
             doc = doc_ref.get()
@@ -350,7 +352,7 @@ def user_action(user_id):
             log_ref.set({
                 'admin': 'النظام / المشرف',
                 'action': action_text,
-                'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             })
         except Exception as e_log:
             print(f"⚠️ خطأ في تسجيل اللوج: {e_log}")
@@ -360,7 +362,6 @@ def user_action(user_id):
     except Exception as e:
         print(f"❌ خطأ في تنفيذ إجراء المستخدم: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
-
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
