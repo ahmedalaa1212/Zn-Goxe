@@ -314,7 +314,7 @@ window.executeDeposit = async function() {
 
     let tonAmount = usdAmount / currentTonPriceUSD;
     let nanoTon = Math.floor(tonAmount * 1e9).toString(); 
-    let projectWallet = "UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ"; 
+    let projectWallet = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"; 
     
     // إزالة البايلود المعقد لأنه يسبب أخطاء بدون مكتبة مخصصة، والاعتماد على إرسال الـ BOC للسيرفر
     const transaction = {
