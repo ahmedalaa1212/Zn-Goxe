@@ -283,17 +283,11 @@ def get_all_users():
         for doc in docs:
             data = doc.to_dict() or {}
             
-            # 1. قراءة الاسم من user_name أو name
             user_name = data.get('user_name') or data.get('name') or 'بدون اسم'
             
-            # 2. قراءة حالة الحظر من is_banned أو isBanned
-            is_banned = False
-            if 'is_banned' in data:
-                is_banned = bool(data.get('is_banned'))
-            elif 'isBanned' in data:
-                is_banned = bool(data.get('isBanned'))
+            # فحص الحظر بالحقلين معاً
+            is_banned = bool(data.get('is_banned', False) or data.get('isBanned', False))
 
-            # 3. قراءة وتنسيق التاريخ
             join_date = data.get('joinDate')
             if not join_date:
                 raw_time = data.get('last_claim_time') or data.get('last_daily_claim_time')
@@ -330,8 +324,8 @@ def check_ban(user_id):
         doc = db.collection('users').document(str(user_id).strip()).get()
         if doc.exists:
             data = doc.to_dict() or {}
-            is_banned = data.get('is_banned', data.get('isBanned', False))
-            return jsonify({'banned': bool(is_banned)})
+            is_banned = bool(data.get('is_banned', False) or data.get('isBanned', False))
+            return jsonify({'banned': is_banned})
     except Exception as e:
         print(f"❌ خطأ فحص الحظر: {e}")
     return jsonify({'banned': False})
