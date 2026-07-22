@@ -13,6 +13,17 @@ def start_command(message):
     tg_id = message.from_user.id
     first_name = message.from_user.first_name or "صديقي"
     
+    # 🚨 فحص حالة الحظر قبل أي إجراء
+    if database.is_user_banned(tg_id):
+        bot.send_message(
+            message.chat.id,
+            "🚫 *تم حظر حسابك نهائياً!*\n\n"
+            "عذراً، لا يمكنك استخدام البوت أو التطبيق بسبب انتهاك الشروط والأحكام أو اكتشاف نشاط غير مصرح به (مثل الغش).\n"
+            "إذا كنت تعتقد أن هذا الإجراء تم بالخطأ، يرجى التواصل مع الدعم الفني.",
+            parse_mode="Markdown"
+        )
+        return # نوقف الدالة هنا وميفتحش البوت معاه
+    
     # لقط كود الإحالة من التليجرام
     text_parts = message.text.split()
     ref_id = None
