@@ -276,8 +276,7 @@ def get_all_users():
         return jsonify({'success': False, 'message': 'سيرفر قاعدة البيانات غير متصل'}), 500
     
     try:
-        # بنجلب آخر 50 مستخدم عشان اللوحة متكونش تقيلة وتفضل سريعة
-        users_ref = db.collection('users').limit(50)
+        users_ref = db.collection('users').limit(100)
         docs = users_ref.stream()
         
         users_list = []
@@ -295,43 +294,71 @@ def get_all_users():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# التحكم في المستخدم (حظر / فك حظر / تعديل رصيد)
+# التحكم في المستخدم (حظر / فك حظر / إضافة رصيد / خصم رصيد)
 @app.route('/api/users/<user_id>/action', methods=['POST'])
 def user_action(user_id):
     if not db:
-        return jsonify({'success': False}), 500
+        return jsonify({'success': False, 'message': 'قاعدة البيانات غير متصلة'}), 500
     
     try:
-        data = request.get_json()
-        action = data.get('action') # 'ban', 'unban', 'add_balance'
+        data = request.get_json(silent=True) or {}
+        action = data.get('action') # 'ban', 'unban', 'add_balance', 'deduct_balance'
         value = data.get('value', 0)
         
-        doc_ref = db.collection('users').document(str(user_id))
+        doc_ref = db.collection('users').document(str(user_id).strip())
+        doc = doc_ref.get()
         
-        # التأكد من وجود المستخدم أولاً، لو مش موجود ننشئه افتراضياً
-        if not doc_ref.get().exists:
-            doc_ref.set({'name': 'بدون اسم', 'balance': 0, 'joinDate': datetime.datetime.now().strftime('%Y-%m-%d'), 'isBanned': False})
-        
+        # التأكد من وجود المستند، وإنشائه افتراضياً إن لم يوجد
+        if not doc.exists:
+            doc_ref.set({
+                'name': 'بدون اسم',
+                'balance': 0,
+                'joinDate': datetime.datetime.now().strftime('%Y-%m-%d'),
+                'isBanned': False
+            })
+            doc = doc_ref.get()
+
+        curr_data = doc.to_dict() or {}
+        action_text = ""
+
         if action == 'ban':
             doc_ref.update({'isBanned': True})
             action_text = f"حظر المستخدم {user_id}"
+
         elif action == 'unban':
             doc_ref.update({'isBanned': False})
             action_text = f"فك حظر المستخدم {user_id}"
+
         elif action == 'add_balance':
-            doc_ref.update({'balance': firestore.Increment(int(value))})
-            action_text = f"إضافة {value} لرصيد المستخدم {user_id}"
+            val = abs(int(value))
+            doc_ref.update({'balance': firestore.Increment(val)})
+            action_text = f"إضافة {val} لرصيد المستخدم {user_id}"
+
+        elif action == 'deduct_balance':
+            val = abs(int(value))
+            current_bal = curr_data.get('balance', 0)
+            new_bal = max(0, current_bal - val)
+            doc_ref.update({'balance': new_bal})
+            action_text = f"خصم {val} من رصيد المستخدم {user_id}"
+
+        else:
+            return jsonify({'success': False, 'message': 'إجراء غير معروف'}), 400
             
         # تسجيل الحركة في السجل
-        log_ref = db.collection('admin_logs').document()
-        log_ref.set({
-            'admin': 'النظام / المشرف',
-            'action': action_text,
-            'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        })
+        try:
+            log_ref = db.collection('admin_logs').document()
+            log_ref.set({
+                'admin': 'النظام / المشرف',
+                'action': action_text,
+                'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+        except Exception as e_log:
+            print(f"⚠️ خطأ في تسجيل اللوج: {e_log}")
             
-        return jsonify({'success': True})
+        return jsonify({'success': True, 'message': 'تم تنفيذ الإجراء وتحديث قاعدة البيانات بنجاح'})
+
     except Exception as e:
+        print(f"❌ خطأ في تنفيذ إجراء المستخدم: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
