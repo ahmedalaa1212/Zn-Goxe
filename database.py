@@ -35,6 +35,23 @@ def initialize_firebase():
     
     return db
 
+# دالة فحص حظر المستخدم
+def is_user_banned(telegram_id):
+    global db
+    if db is None: initialize_firebase()
+    if db is None: return False
+    
+    try:
+        doc = db.collection('users').document(str(telegram_id).strip()).get()
+        if doc.exists:
+            data = doc.to_dict()
+            # نفحص الحقلين لضمان التوافق مع لوحة الأدمن
+            return data.get('isBanned', False) or data.get('is_banned', False)
+        return False
+    except Exception as e:
+        print(f"❌ Error checking ban status: {e}")
+        return False
+
 def init_user(telegram_id, referred_by=None, first_name="صديق"):
     global db
     if db is None: initialize_firebase()
@@ -52,13 +69,17 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
                 referred_by = None
                 
         if not doc.exists:
+            # إضافة تاريخ ووقت الانضمام بالكامل
+            current_time_full = datetime.now().strftime('%Y-%m-%d %I:%M %p')
+            
             user_data = {
                 'telegram_id': telegram_id,
                 'user_name': first_name,
                 'balance': 0.0,
                 'ad_balance': 0.0,
                 'usd_balance': 0.0,
-                'is_banned': False,
+                'isBanned': False, # تم توحيدها مع لوحة الأدمن
+                'joinDate': current_time_full, # وقت الانضمام الكامل
                 'last_claim_time': datetime.now(timezone.utc).isoformat(),
                 'storage_level': 0,
                 'daily_day': 1,
@@ -102,6 +123,8 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
             if 'claimed_ref_tasks' not in data: updates['claimed_ref_tasks'] = []
             if 'referral_details' not in data: updates['referral_details'] = {}
             if 'usd_balance' not in data: updates['usd_balance'] = 0.0
+            # في حال كان المستخدم قديماً وليس لديه حقل joinDate
+            if 'joinDate' not in data: updates['joinDate'] = datetime.now().strftime('%Y-%m-%d %I:%M %p')
             
             if updates:
                 user_ref.update(updates)
