@@ -6,9 +6,7 @@
     <title>Zn Goxe - Crypto Mining</title>
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
     <script src='//libtl.com/sdk.js' data-zone='11322720' data-sdk='show_11322720'></script>
-
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     
     <link rel="stylesheet" href="farm/farm.css">
@@ -16,7 +14,12 @@
 </head>
 <body>
 
-    <div id="app">
+    <div id="security-gate" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#0f172a; z-index:9999999; display:flex; justify-content:center; align-items:center; flex-direction:column; color:white;">
+        <div style="font-size: 50px; margin-bottom: 20px; animation: pulse 1.5s infinite;">🛡️</div>
+        <h2 style="color:#f59e0b; margin:0; font-family: Tahoma, sans-serif; font-size: 18px;">جاري التحقق من أمان الحساب...</h2>
+    </div>
+
+    <div id="app" style="display: none;">
         <div id="view-friends" class="game-view"></div>
         <div id="view-wallet" class="game-view"></div>
         <div id="view-tasks" class="game-view"></div>
@@ -26,23 +29,20 @@
         <div id="view-settings" class="game-view"></div>
     </div>
 
-    <nav class="bottom-nav">
+    <nav class="bottom-nav" id="main-nav" style="display: none;">
         <button class="nav-item" onclick="switchView('friends')" id="nav-friends">
             <i class="fas fa-users"></i><span>الأصدقاء</span>
         </button>
         <button class="nav-item" onclick="switchView('wallet')" id="nav-wallet">
             <i class="fas fa-wallet"></i><span>المحفظة</span>
         </button>
-
         <button class="nav-item" onclick="switchView('tasks')" id="nav-tasks">
             <i class="fas fa-list-check"></i><span>المهام</span>
         </button>
-
         <button class="nav-item nav-center-btn active" onclick="switchView('farm')" id="nav-farm">
             <i class="fas fa-screwdriver-wrench"></i>
             <span class="nav-center-text">المزرعة</span>
         </button>
-
         <button class="nav-item" onclick="switchView('games')" id="nav-games">
             <i class="fas fa-gamepad"></i><span>الألعاب</span>
         </button>
@@ -58,41 +58,54 @@
     
     <script>
         // ==========================================
-        // 🔴 حماية اللعبة من المستخدمين المحظورين 🔴
+        // 🔴 نظام التحقق الجذري قبل تشغيل اللعبة 🔴
         // ==========================================
-        let isBannedUser = false;
+        async function verifyAndStartGame() {
+            if (window.Telegram && window.Telegram.WebApp) {
+                window.Telegram.WebApp.ready(); 
+                window.Telegram.WebApp.expand(); 
+            }
 
-        function applyBanUI() {
-            isBannedUser = true;
-            document.body.innerHTML = `
-                <div style="background-color: #0f172a; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: Tahoma, sans-serif; text-align: center; flex-direction: column; padding: 20px; box-sizing: border-box;">
-                    <div style="font-size: 80px; margin-bottom: 20px;">🚫</div>
-                    <h1 style="color: #ef4444; margin-bottom: 15px; font-size: 24px;">تم حظر حسابك نهائياً!</h1>
-                    <p style="color: #cbd5e1; line-height: 1.6; font-size: 15px; max-width: 400px;">عذراً، لا يمكنك استخدام التطبيق بسبب انتهاك الشروط والأحكام أو اكتشاف نشاط غير مصرح به.</p>
-                </div>
-            `;
-        }
+            let tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+            let userId = tgUser ? tgUser.id : new URLSearchParams(window.location.search).get('tg_id');
+            let isBanned = false;
 
-        if (window.Telegram && window.Telegram.WebApp) {
-            window.Telegram.WebApp.ready(); 
-            window.Telegram.WebApp.expand(); 
-
-            let tgUser = window.Telegram.WebApp.initDataUnsafe?.user;
-            if (tgUser && tgUser.id) {
-                fetch(`https://admin-zn-production.up.railway.app/api/check_ban/${tgUser.id}`)
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data && data.banned) {
-                            applyBanUI();
+            if (userId) {
+                try {
+                    // عمل سباق زمني: لو السيرفر اتأخر أكتر من 7 ثواني هنعديه واللعبة (game.js) هتمسكه
+                    const fetchPromise = fetch(`https://admin-zn-production.up.railway.app/api/check_ban/${userId}`);
+                    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve({ timeout: true }), 7000));
+                    
+                    let res = await Promise.race([fetchPromise, timeoutPromise]);
+                    
+                    if (res && !res.timeout) {
+                        let data = await res.json();
+                        if (data && data.banned === true) {
+                            isBanned = true;
                         }
-                    })
-                    .catch(err => console.error("خطأ أثناء فحص الحظر:", err));
+                    }
+                } catch (err) {
+                    console.log("تخطي الفحص السريع، سيتم الفحص عبر السيرفر الداخلي.");
+                }
+            }
+
+            if (isBanned) {
+                // تجميد الشاشة برسالة الحظر الدائمة
+                document.getElementById('security-gate').innerHTML = `
+                    <div style="font-size: 80px; margin-bottom: 20px;">🚫</div>
+                    <h1 style="color: #ef4444; margin-bottom: 15px; font-size: 24px; font-family: Tahoma, sans-serif;">تم حظر حسابك نهائياً!</h1>
+                    <p style="color: #cbd5e1; line-height: 1.6; font-size: 15px; max-width: 400px; text-align: center; font-family: Tahoma, sans-serif;">عذراً، لا يمكنك استخدام التطبيق بسبب انتهاك الشروط والأحكام أو اكتشاف نشاط غير مصرح به.</p>
+                `;
+            } else {
+                // الحساب سليم: إخفاء البوابة وإظهار اللعبة
+                document.getElementById('security-gate').style.display = 'none';
+                document.getElementById('app').style.display = 'block';
+                document.getElementById('main-nav').style.display = 'flex';
+                loadAllViews();
             }
         }
 
         async function loadAllViews() {
-            if (isBannedUser) return;
-
             const cacheVersion = new Date().getTime(); 
             
             const views = [
@@ -110,14 +123,9 @@
                     let response = await fetch(`${view.path}?v=${cacheVersion}`);
                     if (response.ok) {
                         let html = await response.text();
-                        let targetEl = document.getElementById(view.id);
-                        if (targetEl) targetEl.innerHTML = html;
-                    } else {
-                        console.error("لم يتم العثور على مسار: " + view.path);
+                        document.getElementById(view.id).innerHTML = html;
                     }
-                } catch (error) {
-                    console.error("خطأ في جلب التصميم: ", error);
-                }
+                } catch (error) {}
             }
 
             let mainScript = document.createElement('script');
@@ -125,15 +133,9 @@
             
             mainScript.onload = () => {
                 const scripts = [
-                    'friends/friends.js',
-                    'wallet/wallet.js',
-                    'tasks/tasks.js',
-                    'farm/farm.js',
-                    'games/games.js',
-                    'shop/shop.js',
-                    'settings/settings.js'
+                    'friends/friends.js', 'wallet/wallet.js', 'tasks/tasks.js',
+                    'farm/farm.js', 'games/games.js', 'shop/shop.js', 'settings/settings.js'
                 ];
-
                 scripts.forEach(jsPath => {
                     let script = document.createElement('script');
                     script.src = `${jsPath}?v=${cacheVersion}`;
@@ -143,10 +145,7 @@
             document.body.appendChild(mainScript);
         }
 
-        document.addEventListener('DOMContentLoaded', loadAllViews);
-
         function switchView(viewName) {
-            if (isBannedUser) return;
             document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
             let targetView = document.getElementById(`view-${viewName}`);
             if (targetView) targetView.classList.add('active');
@@ -159,6 +158,13 @@
                 window.triggerAllUIUpdates();
             }
         }
+
+        // بدء الفحص فور تحميل الصفحة
+        document.addEventListener('DOMContentLoaded', verifyAndStartGame);
     </script>
+
+    <style>
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+    </style>
 </body>
 </html>
