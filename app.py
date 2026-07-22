@@ -18,7 +18,7 @@ CORS(app)
 # =========================================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 WEBAPP_URL = os.environ.get("WEB_URL", "https://admin-zn-production.up.railway.app/") 
-ADMIN_ID = "5102387551" # ⚠️ الـ ID الخاص بك (المدير الأساسي)
+ADMIN_ID = "5102387551" # الـ ID الخاص بك (المدير الأساسي)
 
 # =========================================
 # 2. تهيئة الاتصال بـ Firebase Firestore
@@ -115,7 +115,7 @@ if bot:
     threading.Thread(target=run_telegram_bot, daemon=True).start()
 
 # =========================================
-# 4. مسارات سيرفر الويب و الـ APIs (الأساسية)
+# 4. مسارات سيرفر الويب والـ APIs
 # =========================================
 
 @app.route('/', methods=['GET'])
@@ -276,24 +276,65 @@ def get_all_users():
         return jsonify({'success': False, 'message': 'سيرفر قاعدة البيانات غير متصل'}), 500
     
     try:
-        # بنجلب آخر 100 مستخدم
-        users_ref = db.collection('users').limit(100)
+        users_ref = db.collection('users').limit(150)
         docs = users_ref.stream()
         
         users_list = []
         for doc in docs:
-            data = doc.to_dict()
+            data = doc.to_dict() or {}
+            
+            # 1. قراءة الاسم من user_name أو name
+            user_name = data.get('user_name') or data.get('name') or 'بدون اسم'
+            
+            # 2. قراءة حالة الحظر من is_banned أو isBanned
+            is_banned = False
+            if 'is_banned' in data:
+                is_banned = bool(data.get('is_banned'))
+            elif 'isBanned' in data:
+                is_banned = bool(data.get('isBanned'))
+
+            # 3. قراءة وتنسيق التاريخ
+            join_date = data.get('joinDate')
+            if not join_date:
+                raw_time = data.get('last_claim_time') or data.get('last_daily_claim_time')
+                if raw_time:
+                    try:
+                        if isinstance(raw_time, str):
+                            dt = datetime.fromisoformat(raw_time.replace('Z', '+00:00'))
+                            join_date = dt.strftime('%Y-%m-%d %I:%M %p')
+                        else:
+                            join_date = str(raw_time)
+                    except Exception:
+                        join_date = str(raw_time)[:16]
+                else:
+                    join_date = 'غير معروف'
+            
             users_list.append({
                 'id': doc.id,
-                'name': data.get('name', 'بدون اسم'),
+                'name': user_name,
                 'balance': data.get('balance', 0),
-                'joinDate': data.get('joinDate', 'غير معروف'),
-                'isBanned': data.get('isBanned', False)
+                'joinDate': join_date,
+                'isBanned': is_banned
             })
             
         return jsonify({'success': True, 'users': users_list}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+# فحص حالة الحظر للعبة الميني آب
+@app.route('/api/check_ban/<user_id>', methods=['GET'])
+def check_ban(user_id):
+    if not db:
+        return jsonify({'banned': False})
+    try:
+        doc = db.collection('users').document(str(user_id).strip()).get()
+        if doc.exists:
+            data = doc.to_dict() or {}
+            is_banned = data.get('is_banned', data.get('isBanned', False))
+            return jsonify({'banned': bool(is_banned)})
+    except Exception as e:
+        print(f"❌ خطأ فحص الحظر: {e}")
+    return jsonify({'banned': False})
 
 # التحكم في المستخدم (حظر / فك حظر / إضافة رصيد / خصم رصيد)
 @app.route('/api/users/<user_id>/action', methods=['POST'])
@@ -309,13 +350,14 @@ def user_action(user_id):
         doc_ref = db.collection('users').document(str(user_id).strip())
         doc = doc_ref.get()
         
-        # التأكد من وجود المستند، وإنشائه إذا كان غير موجود
         if not doc.exists:
-            current_time = datetime.now().strftime('%Y-%m-%d %I:%M %p') # إضافة الوقت مع التاريخ
+            current_time = datetime.now().strftime('%Y-%m-%d %I:%M %p')
             doc_ref.set({
+                'user_name': 'بدون اسم',
                 'name': 'بدون اسم',
                 'balance': 0,
                 'joinDate': current_time,
+                'is_banned': False,
                 'isBanned': False
             })
             doc = doc_ref.get()
@@ -324,29 +366,34 @@ def user_action(user_id):
         action_text = ""
 
         if action == 'ban':
-            doc_ref.update({'isBanned': True})
+            doc_ref.update({'is_banned': True, 'isBanned': True})
             action_text = f"حظر المستخدم {user_id}"
 
         elif action == 'unban':
-            doc_ref.update({'isBanned': False})
+            doc_ref.update({'is_banned': False, 'isBanned': False})
             action_text = f"فك حظر المستخدم {user_id}"
 
         elif action == 'add_balance':
-            val = abs(int(value))
+            try:
+                val = abs(float(value))
+            except (ValueError, TypeError):
+                val = 0
             doc_ref.update({'balance': firestore.Increment(val)})
             action_text = f"إضافة {val} لرصيد المستخدم {user_id}"
 
         elif action == 'deduct_balance':
-            val = abs(int(value))
-            current_bal = curr_data.get('balance', 0)
-            new_bal = max(0, current_bal - val)
+            try:
+                val = abs(float(value))
+            except (ValueError, TypeError):
+                val = 0
+            current_bal = float(curr_data.get('balance', 0))
+            new_bal = max(0.0, current_bal - val)
             doc_ref.update({'balance': new_bal})
             action_text = f"خصم {val} من رصيد المستخدم {user_id}"
 
         else:
             return jsonify({'success': False, 'message': 'إجراء غير معروف'}), 400
             
-        # تسجيل الحركة في السجل
         try:
             log_ref = db.collection('admin_logs').document()
             log_ref.set({
