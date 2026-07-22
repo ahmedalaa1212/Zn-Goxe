@@ -45,7 +45,7 @@ def is_user_banned(telegram_id):
         doc = db.collection('users').document(str(telegram_id).strip()).get()
         if doc.exists:
             data = doc.to_dict()
-            # نفحص الحقلين لضمان التوافق مع لوحة الأدمن
+            # فحص الحقلين لضمان التوافق التام مع لوحة الإدارة
             return data.get('isBanned', False) or data.get('is_banned', False)
         return False
     except Exception as e:
@@ -69,17 +69,17 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
                 referred_by = None
                 
         if not doc.exists:
-            # إضافة تاريخ ووقت الانضمام بالكامل
-            current_time_full = datetime.now().strftime('%Y-%m-%d %I:%M %p')
+            # استخدام توقيت UTC لضمان دقة الوقت بغض النظر عن موقع السيرفر
+            current_time_full = datetime.now(timezone.utc).strftime('%Y-%m-%d %I:%M %p (UTC)')
             
             user_data = {
                 'telegram_id': telegram_id,
                 'user_name': first_name,
                 'balance': 0.0,
                 'ad_balance': 0.0,
-                'usd_balance': 0.0,
-                'isBanned': False, # تم توحيدها مع لوحة الأدمن
-                'joinDate': current_time_full, # وقت الانضمام الكامل
+                'usd_balance': 0.00000,
+                'is_banned': False, 
+                'joinDate': current_time_full,
                 'last_claim_time': datetime.now(timezone.utc).isoformat(),
                 'storage_level': 0,
                 'daily_day': 1,
@@ -122,9 +122,11 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
             if 'invited_friends_count' not in data: updates['invited_friends_count'] = 0
             if 'claimed_ref_tasks' not in data: updates['claimed_ref_tasks'] = []
             if 'referral_details' not in data: updates['referral_details'] = {}
-            if 'usd_balance' not in data: updates['usd_balance'] = 0.0
+            if 'usd_balance' not in data: updates['usd_balance'] = 0.00000
+            
             # في حال كان المستخدم قديماً وليس لديه حقل joinDate
-            if 'joinDate' not in data: updates['joinDate'] = datetime.now().strftime('%Y-%m-%d %I:%M %p')
+            if 'joinDate' not in data: 
+                updates['joinDate'] = datetime.now(timezone.utc).strftime('%Y-%m-%d %I:%M %p (UTC)')
             
             if updates:
                 user_ref.update(updates)
