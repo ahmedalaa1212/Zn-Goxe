@@ -19,6 +19,9 @@ let tonConnectUI = null;
 // 🛠️ أدوات مساعدة وتفاعل التلجرام (Telegram WebApp Helpers)
 // ==========================================
 const tgApp = window.Telegram?.WebApp;
+if (tgApp) {
+    tgApp.ready(); // التأكد من تهيئة التلجرام
+}
 
 function showAppAlert(message) {
     if (tgApp && typeof tgApp.showAlert === 'function') {
@@ -43,7 +46,6 @@ function triggerHapticFeedback(type = 'impact', style = 'medium') {
 // ==========================================
 async function fetchLiveTonPrice() {
     try {
-        // محاولة جلب السعر من منصة Binance
         const response = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=TONUSDT');
         if (!response.ok) throw new Error("فشل الاستجابة من Binance");
         const data = await response.json();
@@ -54,7 +56,6 @@ async function fetchLiveTonPrice() {
     } catch (error) {
         console.warn("⚠️ لم نتمكن من جلب السعر من Binance، يتم المحاولة من مصدر احتياطي...", error);
         try {
-            // مصدر احتياطي (CoinGecko)
             const fallbackRes = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd');
             const fallbackData = await fallbackRes.json();
             if (fallbackData && fallbackData['the-open-network'] && fallbackData['the-open-network'].usd) {
@@ -79,41 +80,50 @@ async function fetchLiveTonPrice() {
 // 🔗 1. تهيئة TonConnect بأمان تام
 // ==========================================
 async function initTonConnect() {
-    if (!document.getElementById('hidden-ton-root')) {
-        let hiddenDiv = document.createElement('div');
+    // إنشاء الحاوية بشكل يسمح للمكتبة بالعمل بدون تشويه الواجهة
+    let hiddenDiv = document.getElementById('hidden-ton-root');
+    if (!hiddenDiv) {
+        hiddenDiv = document.createElement('div');
         hiddenDiv.id = 'hidden-ton-root';
-        hiddenDiv.style.display = 'none';
+        // استخدام الإخفاء الآمن بدل display: none
+        hiddenDiv.style.position = 'absolute';
+        hiddenDiv.style.top = '-9999px';
+        hiddenDiv.style.left = '-9999px';
+        hiddenDiv.style.visibility = 'hidden';
         document.body.appendChild(hiddenDiv);
     }
 
     try {
-        if (typeof TON_CONNECT_UI === 'undefined') {
-            console.error("❌ مكتبة TON_CONNECT_UI غير محملة في الصفحة!");
+        if (typeof window.TON_CONNECT_UI === 'undefined') {
+            console.warn("⏳ مكتبة TON_CONNECT_UI غير محملة، سيتم إعادة المحاولة...");
+            setTimeout(initTonConnect, 1000);
             return;
         }
 
-        tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
+        tonConnectUI = new window.TON_CONNECT_UI.TonConnectUI({
             manifestUrl: 'https://zn-goxe-production.up.railway.app/tonconnect-manifest.json',
-            buttonRootId: 'hidden-ton-root',
-            uiPreferences: {
-                theme: TON_CONNECT_UI.THEME.DARK,
-                colorsSet: {
-                    [TON_CONNECT_UI.THEME.DARK]: {
-                        connectButton: { background: '#0088cc', foreground: '#ffffff' },
-                        accent: '#0088cc', 
-                        telegramButton: '#0088cc',
-                        background: { primary: '#121212', secondary: '#1e1e1e', qr: '#ffffff' },
-                        text: { primary: '#ffffff', secondary: '#aaaaaa' }
-                    }
+            buttonRootId: 'hidden-ton-root'
+        });
+
+        // إعدادات الواجهة بطريقة آمنة
+        tonConnectUI.uiOptions = {
+            theme: 'DARK',
+            colorsSet: {
+                DARK: {
+                    connectButton: { background: '#0088cc', foreground: '#ffffff' },
+                    accent: '#0088cc', 
+                    telegramButton: '#0088cc',
+                    background: { primary: '#121212', secondary: '#1e1e1e', qr: '#ffffff' },
+                    text: { primary: '#ffffff', secondary: '#aaaaaa' }
                 }
             }
-        });
+        };
 
         // مراقبة حالة الاتصال بالمحفظة
         tonConnectUI.onStatusChange(wallet => {
             if (wallet && wallet.account) {
                 isWalletConnected = true;
-                userWalletAddress = TON_CONNECT_UI.toUserFriendlyAddress(wallet.account.address);
+                userWalletAddress = window.TON_CONNECT_UI.toUserFriendlyAddress(wallet.account.address);
                 triggerHapticFeedback('notification', 'success');
             } else {
                 isWalletConnected = false;
@@ -131,12 +141,15 @@ async function initTonConnect() {
 
 window.connectCustomWallet = async function() {
     triggerHapticFeedback('impact', 'light');
+    
     if (!tonConnectUI) {
-        showAppAlert("⏳ جاري تحميل المحفظة، يرجى الانتظار ثانية والمحاولة مرة أخرى...");
+        showAppAlert("⏳ جاري تحميل إعدادات المحفظة، يرجى الانتظار ثانية والمحاولة...");
+        initTonConnect(); // محاولة التهيئة مجدداً في حال فشلها مسبقاً
         return;
     }
+    
     try { 
-        await tonConnectUI.connectWallet(); 
+        await tonConnectUI.openModal(); 
     } catch (e) { 
         console.log("تم إلغاء عملية الاتصال أو إغلاق النافذة:", e); 
     }
@@ -147,7 +160,7 @@ window.disconnectCustomWallet = async function() {
     if (tonConnectUI) {
         try { 
             await tonConnectUI.disconnect(); 
-            showAppAlert("تم إلغاء ربط المحفظة بنجاح.");
+            showAppAlert("✅ تم إلغاء ربط المحفظة بنجاح.");
         } catch (e) { 
             console.error("خطأ أثناء إلغاء ربط المحفظة:", e); 
         }
@@ -398,8 +411,6 @@ window.calculateWithdrawTon = function() {
 // ==========================================
 // 💸 5. تنفيذ العمليات (إيداع / تحويل / سحب)
 // ==========================================
-
-// 1. تنفيذ الإيداع عبر محفظة TON
 window.executeDeposit = async function() {
     triggerHapticFeedback('impact', 'medium');
     let depositBtn = document.getElementById('deposit-btn');
@@ -467,7 +478,6 @@ window.executeDeposit = async function() {
     }
 };
 
-// 2. تحويل نقاط ZN إلى رصيد USD
 window.convertManualPoints = async function() {
     triggerHapticFeedback('impact', 'medium');
     let convertBtn = document.getElementById('convert-btn');
@@ -533,7 +543,6 @@ window.convertManualPoints = async function() {
     }
 };
 
-// 3. تقديم طلب سحب الأرباح
 window.submitWithdrawal = async function() {
     triggerHapticFeedback('impact', 'medium');
     let withdrawBtn = document.getElementById('withdraw-btn');
@@ -612,14 +621,10 @@ window.submitWithdrawal = async function() {
 // 🚀 6. التشغيل والتنفيذ التلقائي (Auto Initialization)
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. جلب سعر العملة المباشر وتحديثه دورياً كل دقيقة
     fetchLiveTonPrice();
     setInterval(fetchLiveTonPrice, 60000);
-
-    // 2. تهيئة محفظة TonConnect
     initTonConnect();
 
-    // 3. تحديث واجهة المستخدم والتبويبات فور جاهزية الصفحة
     setTimeout(() => {
         if (typeof window.updateHeaderBalances === 'function') {
             window.updateHeaderBalances();
