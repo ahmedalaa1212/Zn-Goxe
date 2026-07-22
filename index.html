@@ -57,23 +57,36 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     
     <script>
+        // ==========================================
+        // 🔴 حماية اللعبة من المستخدمين المحظورين 🔴
+        // ==========================================
         if (window.Telegram && window.Telegram.WebApp) {
             window.Telegram.WebApp.ready(); 
             window.Telegram.WebApp.expand(); 
 
-            // 🔴 التحقق من الحظر عند فتح تطبيق الويب 🔴
             let tgUser = window.Telegram.WebApp.initDataUnsafe?.user;
             if (tgUser && tgUser.id) {
-                fetch(`/api/check_ban/${tgUser.id}`)
+                // الاتصال بسيرفر الأدمن مباشرة للتحقق من الحظر
+                fetch(`https://admin-zn-production.up.railway.app/api/check_ban/${tgUser.id}`)
                     .then(res => res.json())
                     .then(data => {
                         if (data && data.banned) {
-                            document.body.innerHTML = `
-                                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; background:#0f172a; color:#fff; text-align:center; padding:20px; position:fixed; top:0; left:0; width:100%; z-index:999999;">
-                                    <div style="font-size: 70px; margin-bottom: 15px;">🚫</div>
-                                    <h1 style="color: #ef4444; font-family: sans-serif; margin-bottom: 10px;">تم حظر حسابك!</h1>
-                                    <p style="color: #cbd5e1; font-family: sans-serif; line-height: 1.6; max-width: 350px;">عذراً، تم إيقاف حسابك من استخدام التطبيق لانتهاك قوانين وشروط اللعبة.</p>
-                                </div>`;
+                            // مسح اللعبة بالكامل وإظهار رسالة الحظر
+                            document.documentElement.innerHTML = `
+                                <head>
+                                    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                                    <style>
+                                        body { background-color: #0f172a; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: Tahoma, sans-serif; text-align: center; }
+                                    </style>
+                                </head>
+                                <body>
+                                    <div style="padding: 20px;">
+                                        <div style="font-size: 80px; margin-bottom: 20px;">🚫</div>
+                                        <h1 style="color: #ef4444; margin-bottom: 15px; font-size: 24px;">تم حظر حسابك!</h1>
+                                        <p style="color: #cbd5e1; line-height: 1.6; font-size: 15px;">عذراً، لا يمكنك استخدام التطبيق بسبب انتهاك الشروط والأحكام أو استخدام طرق غير مصرح بها.</p>
+                                    </div>
+                                </body>
+                            `;
                         }
                     })
                     .catch(err => console.error("خطأ أثناء فحص الحظر:", err));
@@ -81,7 +94,7 @@
         }
 
         async function loadAllViews() {
-            const cacheVersion = new Date().getTime(); // لمنع مشاكل كاش التليجرام
+            const cacheVersion = new Date().getTime(); 
             
             const views = [
                 { id: 'view-friends', path: 'friends/friends.html' },
@@ -93,7 +106,6 @@
                 { id: 'view-settings', path: 'settings/settings.html' }
             ];
 
-            // جلب ملفات الـ HTML
             for (let view of views) {
                 try {
                     let response = await fetch(`${view.path}?v=${cacheVersion}`);
@@ -108,7 +120,6 @@
                 }
             }
 
-            // تحميل الـ Javascript بالترتيب الصحيح
             let mainScript = document.createElement('script');
             mainScript.src = `game.js?v=${cacheVersion}`;
             
