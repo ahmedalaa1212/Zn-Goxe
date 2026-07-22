@@ -171,7 +171,8 @@ window.renderWalletTab = function(tab) {
                 جاري تحميل السجلات...
             </div>`;
         
-        const initData = window.Telegram?.WebApp?.initData || '';
+        // أضفنا حماية للتأكد من وجود التليجرام أوبجيكت
+        const initData = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp.initData : '';
         fetch(`/api/get_history?initData=${encodeURIComponent(initData)}`)
             .then(res => res.json())
             .then(data => {
@@ -316,7 +317,6 @@ window.executeDeposit = async function() {
     let nanoTon = Math.floor(tonAmount * 1e9).toString(); 
     let projectWallet = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"; 
     
-    // إزالة البايلود المعقد لأنه يسبب أخطاء بدون مكتبة مخصصة، والاعتماد على إرسال الـ BOC للسيرفر
     const transaction = {
         validUntil: Math.floor(Date.now() / 1000) + 360,
         messages: [{
@@ -328,7 +328,7 @@ window.executeDeposit = async function() {
     try {
         const txResult = await tonConnectUI.sendTransaction(transaction);
         
-        const initData = window.Telegram?.WebApp?.initData;
+        const initData = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp.initData : null;
         if (initData) {
             await fetch('/api/wallet_deposit_report', {
                 method: 'POST',
@@ -359,7 +359,7 @@ window.convertManualPoints = async function() {
     
     if (!amount || isNaN(amount) || amount <= 0) return alert("الرجاء إدخال كمية صحيحة من النقاط");
     
-    const initData = window.Telegram?.WebApp?.initData;
+    const initData = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp.initData : null;
     if (!initData) return alert("⚠️ يجب فتح اللعبة من تليجرام لحماية معاملتك.");
 
     try {
@@ -402,7 +402,7 @@ window.submitWithdrawal = async function() {
     if (!usdAmount || usdAmount <= 0) return alert("يرجى إدخال مبلغ صحيح للسحب");
     if (!userWalletAddress) return alert("الرجاء ربط المحفظة أولاً لتحديد عنوان السحب.");
 
-    const initData = window.Telegram?.WebApp?.initData;
+    const initData = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp.initData : null;
     if (!initData) return alert("⚠️ غير مصرح بالعملية خارج التليجرام.");
 
     try {
