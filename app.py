@@ -115,7 +115,7 @@ if bot:
     threading.Thread(target=run_telegram_bot, daemon=True).start()
 
 # =========================================
-# 4. مسارات سيرفر الويب و الـ APIs
+# 4. مسارات سيرفر الويب و الـ APIs (الأساسية)
 # =========================================
 
 @app.route('/', methods=['GET'])
@@ -262,6 +262,75 @@ def get_admin_logs():
             logs_list.append(doc.to_dict())
 
         return jsonify({'success': True, 'logs': logs_list}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# =========================================
+# 5. مسارات قسم بيانات المستخدمين (Users)
+# =========================================
+
+# جلب قائمة المستخدمين
+@app.route('/api/users', methods=['GET'])
+def get_all_users():
+    if not db:
+        return jsonify({'success': False, 'message': 'سيرفر قاعدة البيانات غير متصل'}), 500
+    
+    try:
+        # بنجلب آخر 50 مستخدم عشان اللوحة متكونش تقيلة وتفضل سريعة
+        users_ref = db.collection('users').limit(50)
+        docs = users_ref.stream()
+        
+        users_list = []
+        for doc in docs:
+            data = doc.to_dict()
+            users_list.append({
+                'id': doc.id,
+                'name': data.get('name', 'بدون اسم'),
+                'balance': data.get('balance', 0),
+                'joinDate': data.get('joinDate', 'غير معروف'),
+                'isBanned': data.get('isBanned', False)
+            })
+            
+        return jsonify({'success': True, 'users': users_list}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# التحكم في المستخدم (حظر / فك حظر / تعديل رصيد)
+@app.route('/api/users/<user_id>/action', methods=['POST'])
+def user_action(user_id):
+    if not db:
+        return jsonify({'success': False}), 500
+    
+    try:
+        data = request.get_json()
+        action = data.get('action') # 'ban', 'unban', 'add_balance'
+        value = data.get('value', 0)
+        
+        doc_ref = db.collection('users').document(str(user_id))
+        
+        # التأكد من وجود المستخدم أولاً، لو مش موجود ننشئه افتراضياً
+        if not doc_ref.get().exists:
+            doc_ref.set({'name': 'بدون اسم', 'balance': 0, 'joinDate': datetime.datetime.now().strftime('%Y-%m-%d'), 'isBanned': False})
+        
+        if action == 'ban':
+            doc_ref.update({'isBanned': True})
+            action_text = f"حظر المستخدم {user_id}"
+        elif action == 'unban':
+            doc_ref.update({'isBanned': False})
+            action_text = f"فك حظر المستخدم {user_id}"
+        elif action == 'add_balance':
+            doc_ref.update({'balance': firestore.Increment(int(value))})
+            action_text = f"إضافة {value} لرصيد المستخدم {user_id}"
+            
+        # تسجيل الحركة في السجل
+        log_ref = db.collection('admin_logs').document()
+        log_ref.set({
+            'admin': 'النظام / المشرف',
+            'action': action_text,
+            'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
+            
+        return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
