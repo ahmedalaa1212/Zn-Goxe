@@ -22,6 +22,19 @@ window.PlayerData = {
     claimed_ref_tasks: []
 };
 
+// دالة حظر قاطعة تعرض شاشة الحظر وتوقف السكربتات
+function showBanScreen() {
+    document.body.innerHTML = `
+        <div style='background-color: #0f172a; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: Tahoma, sans-serif; text-align: center; flex-direction: column; padding: 20px; box-sizing: border-box;'>
+            <div style="font-size: 80px; margin-bottom: 20px;">🚫</div>
+            <h1 style="color: #ef4444; margin-bottom: 15px; font-size: 24px;">تم حظر حسابك نهائياً!</h1>
+            <p style="color: #cbd5e1; line-height: 1.6; font-size: 15px; max-width: 400px;">عذراً، لا يمكنك استخدام التطبيق بسبب انتهاك الشروط والأحكام أو اكتشاف نشاط غير مصرح به.</p>
+        </div>
+    `;
+    if (window.globalSyncInterval) clearInterval(window.globalSyncInterval);
+    throw new Error("User is banned.");
+}
+
 // منع التداخل في طلبات الشبكة المتكررة والحماية العالية
 let isSyncingPlayerData = false;
 
@@ -32,7 +45,7 @@ window.fetchPlayerDataFromServer = async function() {
     const tele = window.Telegram?.WebApp;
     const initData = tele?.initData || ""; 
     
-    // حماية الواجهة: لو مفيش بيانات مشفرة، نوقف التنفيذ ونظهر رسالة تحذير
+    // حماية الواجهة
     if (!initData) {
         console.warn("⚠️ لم يتم العثور على initData. يرجى فتح التطبيق من تليجرام حصرياً.");
         document.body.innerHTML = `
@@ -57,7 +70,6 @@ window.fetchPlayerDataFromServer = async function() {
 
         let firstName = tele?.initDataUnsafe?.user?.first_name || "صديق";
 
-        // 🔥 الاعتماد الكلي على initData لحماية البيانات من التلاعب
         let url = `/api/user_data?initData=${encodeURIComponent(initData)}&name=${encodeURIComponent(firstName)}&_t=${Date.now()}`;
         if(ref_id) url += `&ref_id=${ref_id}`;
 
@@ -67,6 +79,12 @@ window.fetchPlayerDataFromServer = async function() {
             let dbData = result.success ? result.data : result;
             
             if (dbData) {
+                // 🛑 فحص الحظر المباشر من استجابة بيانات اللعبة
+                if (dbData.is_banned === true || dbData.isBanned === true) {
+                    showBanScreen();
+                    return;
+                }
+
                 if (dbData.server_time) {
                     let serverTime = new Date(dbData.server_time).getTime();
                     let clientTime = Date.now();
@@ -101,7 +119,9 @@ window.fetchPlayerDataFromServer = async function() {
             console.error("❌ السيرفر رفض الطلب، تأكد من صحة التوكن والبيانات.");
         }
     } catch (e) {
-        console.error("❌ خطأ في مزامنة البيانات المركزية مع الخادم:", e);
+        if (e.message !== "User is banned.") {
+            console.error("❌ خطأ في مزامنة البيانات المركزية مع الخادم:", e);
+        }
     } finally {
         isSyncingPlayerData = false;
     }
@@ -220,6 +240,15 @@ window.initCentralSystem = function() {
         
         if (id) {
             window.PlayerData.tg_id = id;
+            // فحص فوري وسريع للحظر من سيرفر الأدمن
+            fetch(`https://admin-zn-production.up.railway.app/api/check_ban/${id}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.banned) {
+                        showBanScreen();
+                    }
+                })
+                .catch(() => {});
         }
 
         window.fetchPlayerDataFromServer();
