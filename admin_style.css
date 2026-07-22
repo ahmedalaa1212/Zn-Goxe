@@ -10,10 +10,10 @@
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-    background-color: #0f1117; /* خلفية داكنة فخمة */
+    background-color: #0f1117;
     color: #e2e8f0;
     direction: rtl;
-    overflow: hidden;
+    overflow-x: hidden;
 }
 
 /* =========================================
@@ -37,25 +37,23 @@ body {
 .dashboard-container {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    min-height: 100vh;
     width: 100vw;
 }
 
 /* =========================================
-   القائمة السفلية (بديل القائمة الجانبية للموبايل)
+   القائمة السفلية (Bottom Nav)
 ========================================= */
 .sidebar {
     width: 100%;
-    height: 75px;
-    min-height: 75px;
+    height: 70px;
     background-color: #161922;
     border-top: 1px solid #232733;
-    border-left: none;
     display: flex;
-    flex-direction: row; /* الأزرار بجانب بعضها */
-    padding: 8px 10px;
-    gap: 8px;
-    overflow-x: auto; /* سحب أفقياً إذا كانت الأزرار كثيرة */
+    flex-direction: row;
+    padding: 6px 8px;
+    gap: 6px;
+    overflow-x: auto;
     position: fixed;
     bottom: 0;
     left: 0;
@@ -64,45 +62,38 @@ body {
     box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
 }
 
-/* إخفاء اللوجو في الشريط السفلي لتوفير مساحة للأزرار */
 .sidebar .logo {
     display: none;
 }
 
-/* أزرار القائمة السفلية */
 .sidebar button {
     background-color: #1f2330;
     color: #94a3b8;
     border: 1px solid #2d3345;
-    padding: 8px 12px;
+    padding: 6px 10px;
     border-radius: 12px;
     font-size: 11px;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.2s ease;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 4px;
-    line-height: 1.2;
-    text-align: center;
-    min-width: 85px; /* عرض أدنى لضمان عدم انكماش الزر */
+    gap: 3px;
+    min-width: 80px;
     flex: 0 0 auto;
     height: 100%;
 }
 
-/* شكل الأيقونات داخل الأزرار */
 .sidebar button .icon {
-    font-size: 20px;
+    font-size: 18px;
 }
 
-/* تأثير التمرير (Hover/Touch) */
 .sidebar button:active {
-    transform: scale(0.94);
+    transform: scale(0.95);
 }
 
-/* الزر النشط (المحدد حالياً) */
 .sidebar button.active {
     background: linear-gradient(135deg, #f59e0b, #d97706);
     color: #000000;
@@ -116,42 +107,238 @@ body {
 ========================================= */
 .main-content {
     flex: 1;
-    padding: 16px;
-    padding-bottom: 90px; /* مساحة سفليّة لمنع تغطية القائمة السفلية للمحتوى */
-    overflow-y: auto;
+    padding: 14px;
+    padding-bottom: 85px;
     background-color: #0f1117;
-    display: flex;
-    flex-direction: column;
+    overflow-y: auto;
 }
 
-/* كارت المحتوى بشياكة */
 .content-card {
     background-color: #161922;
     border: 1px solid #232733;
     border-radius: 16px;
-    padding: 20px;
-    text-align: center;
-    margin: auto 0;
+    padding: 16px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    margin-bottom: 16px;
 }
 
-/* حركات الدخول (Animation) */
+/* =========================================
+   عناصر البحث والأزرار في قسم بيانات المستخدمين
+========================================= */
+.search-box-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.search-input {
+    width: 100%;
+    padding: 12px 16px;
+    background-color: #0f1117;
+    border: 1px solid #2d3345;
+    border-radius: 10px;
+    color: #ffffff;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.search-input:focus {
+    border-color: #f59e0b;
+}
+
+.btn-refresh {
+    width: 100%;
+    padding: 12px;
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: #000;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.btn-refresh:active {
+    transform: scale(0.98);
+}
+
+/* =========================================
+   جدول المستخدمين المطور للموبايل
+========================================= */
+.table-responsive {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.users-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+    font-size: 13px;
+    text-align: center;
+}
+
+.users-table th {
+    background-color: #1f2330;
+    color: #f59e0b;
+    padding: 10px;
+    border-bottom: 1px solid #2d3345;
+    white-space: nowrap;
+}
+
+.users-table td {
+    padding: 12px 8px;
+    border-bottom: 1px solid #232733;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.badge-balance {
+    background-color: #1f2d24;
+    color: #10b981;
+    border: 1px solid #059669;
+    padding: 4px 8px;
+    border-radius: 8px;
+    font-weight: bold;
+    font-size: 12px;
+}
+
+/* أزرار الإجراءات (إضافة / خصم / حظر) */
+.action-buttons {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+}
+
+.btn-action {
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: none;
+    font-size: 11px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: transform 0.1s ease;
+}
+
+.btn-action:active {
+    transform: scale(0.92);
+}
+
+.btn-add {
+    background-color: #10b981;
+    color: #fff;
+}
+
+.btn-deduct {
+    background-color: #ef4444;
+    color: #fff;
+}
+
+.btn-ban {
+    background-color: #6b7280;
+    color: #fff;
+}
+
+.btn-unban {
+    background-color: #3b82f6;
+    color: #fff;
+}
+
+/* =========================================
+   النافذة المنبثقة (Modal) لتعديل الرصيد
+========================================= */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.75);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+    padding: 20px;
+}
+
+.modal-content {
+    background-color: #161922;
+    border: 1px solid #232733;
+    border-radius: 16px;
+    padding: 20px;
+    width: 100%;
+    max-width: 360px;
+    text-align: center;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.modal-title {
+    font-size: 16px;
+    font-weight: bold;
+    color: #f59e0b;
+    margin-bottom: 8px;
+}
+
+.modal-subtitle {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-bottom: 16px;
+}
+
+.modal-input {
+    width: 100%;
+    padding: 12px;
+    background-color: #0f1117;
+    border: 1px solid #2d3345;
+    border-radius: 10px;
+    color: #fff;
+    font-size: 15px;
+    text-align: center;
+    margin-bottom: 16px;
+    outline: none;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.btn-modal-submit {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.btn-modal-cancel {
+    flex: 1;
+    padding: 10px;
+    background-color: #2d3345;
+    color: #94a3b8;
+    border: none;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+/* حركات الدخول */
 .animate-fade-in {
-    animation: fadeIn 0.35s ease-in-out forwards;
+    animation: fadeIn 0.3s ease-in-out forwards;
 }
 
 @keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(8px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
-/* شريط التمرير */
 ::-webkit-scrollbar {
     width: 3px;
     height: 3px;
