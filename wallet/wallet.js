@@ -557,3 +557,4 @@ window.updateHeaderBalances();
 
 // 3. تشغيل مكتبة المحفظة للعمل بصمت في الخلفية لاسترجاع الجلسة
 initTonConnect();
+
