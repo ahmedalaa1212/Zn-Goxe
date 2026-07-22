@@ -19,9 +19,7 @@
         
         <!-- القائمة السفلية -->
         <div class="sidebar" id="sidebarMenu">
-            <div class="logo">إدارة ZN 👑</div>
-            
-            <button id="btn_super_admin" onclick="loadSuperAdminSection()">
+            <button id="btn_super_admin" onclick="loadSuperAdminSection(this)">
                 <span class="icon">👨‍💻</span>
                 <span>الإدارة العليا</span>
             </button>
@@ -67,85 +65,7 @@
 
     </div>
 
-    <!-- نافذة تعديل الرصيد المنبثقة (إضافة / خصم) -->
-    <div id="balanceModal" class="modal-overlay" style="display: none;">
-        <div class="modal-content animate-fade-in">
-            <div class="modal-title" id="modalTitle">تعديل الرصيد</div>
-            <div class="modal-subtitle" id="modalSubTitle">ID: -</div>
-            
-            <input type="number" id="modalAmountInput" class="modal-input" placeholder="أدخل المبلغ هنا..." min="1">
-            
-            <div class="modal-actions">
-                <button id="btnModalSubmit" class="btn-modal-submit" onclick="submitBalanceChange()">تأكيد</button>
-                <button class="btn-modal-cancel" onclick="closeBalanceModal()">إلغاء</button>
-            </div>
-        </div>
-    </div>
-
     <script src="main.js"></script>
     
-    <script>
-        const tg = window.Telegram.WebApp;
-        tg.ready();
-        tg.expand();
-
-        let currentUserData = null;
-
-        async function verifyAccess() {
-            let userId = null;
-
-            if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
-                userId = tg.initDataUnsafe.user.id;
-            } else {
-                userId = "5102387551"; // للتجربة الافتراضية
-            }
-
-            try {
-                let response = await fetch(`/api/verify/${userId}`);
-                let data = await response.json();
-
-                if (data.authorized) {
-                    currentUserData = data;
-                    document.getElementById('accessDenied').style.display = 'none';
-                    document.getElementById('adminPanel').style.display = 'flex';
-                    document.getElementById('welcomeTitle').innerText = `مرحباً بك يا ${data.name} 👋`;
-
-                    // إذا لم يكن المدير الأساسي، يتم إخفاء أو قفل زر الإدارة العليا نهائياً
-                    if (!data.is_admin) {
-                        const superAdminBtn = document.getElementById('btn_super_admin');
-                        if (superAdminBtn) {
-                            superAdminBtn.style.opacity = '0.4';
-                            superAdminBtn.style.cursor = 'not-allowed';
-                        }
-                    }
-
-                } else {
-                    document.getElementById('accessDenied').innerHTML = "<h2>⛔ دخول غير مصرح به! أنت لست مسجلاً كأدمن أو مشرف في النظام.</h2>";
-                    setTimeout(() => { tg.close(); }, 4000);
-                }
-            } catch (error) {
-                console.error("خطأ في الاتصال بالخادم:", error);
-                document.getElementById('accessDenied').innerHTML = "<h2>❌ حدث خطأ أثناء الاتصال بسيرفر التحقق.</h2>";
-            }
-        }
-
-        // دالة حماية قسم الإدارة العليا للمشرفين
-        function loadSuperAdminSection() {
-            if (currentUserData && !currentUserData.is_admin) {
-                const contentArea = document.getElementById('contentArea');
-                contentArea.innerHTML = `
-                    <div class="content-card animate-fade-in" style="text-align: center; padding: 40px; color: #ff4444;">
-                        <span style="font-size: 40px;">⛔</span>
-                        <h3 style="margin-top: 15px; color: #f59e0b;">عذراً يا غالي، هذا القسم مخصص للمدير الأساسي فقط! 👑</h3>
-                        <p style="color: #94a3b8; font-size: 14px; margin-top: 10px;">ليس لديك الصلاحية للوصول إلى لوحة الإدارة العليا.</p>
-                    </div>
-                `;
-                return;
-            }
-            loadSection('super_admin', document.getElementById('btn_super_admin'));
-        }
-
-        verifyAccess();
-    </script>
 </body>
 </html>
