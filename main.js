@@ -5,6 +5,7 @@ tg.expand();
 let currentUserData = null;
 
 async function verifyAccess() {
+    // جلب الأيدي مع دعم النسخة الاحتياطية للمدير
     let userId = tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "5102387551"; 
 
     try {
@@ -32,11 +33,11 @@ async function verifyAccess() {
     } catch (error) {
         console.error("خطأ في التحقق:", error);
         document.getElementById('accessDenied').style.display = 'none';
-        document.getElementById('adminPanel').style.display = 'flex';
+        document.getElementById('adminPanel').style.display = 'flex'; // تنبيه: يمكن تغييره ليظهر رسالة خطأ بالاتصال
     }
 }
 
-// دالة تحميل الأقسام من المجلدات الخاصة بها (السر كله هنا)
+// دالة تحميل الأقسام من المجلدات الخاصة بها
 async function loadSection(sectionName, btnElement) {
     // تفعيل لون الزرار
     if (btnElement) {
@@ -47,9 +48,12 @@ async function loadSection(sectionName, btnElement) {
     const contentArea = document.getElementById('contentArea');
     contentArea.innerHTML = `<div style="text-align:center; padding:20px; color:#f59e0b;">⏳ جاري تحميل القسم...</div>`;
 
+    // متغير لمنع الكاش وتحديث الملفات فوراً
+    const cacheBuster = new Date().getTime();
+
     try {
-        // 1. جلب ملف الـ HTML من المجلد الخاص بالقسم
-        let response = await fetch(`/${sectionName}/${sectionName}.html`);
+        // 1. جلب ملف الـ HTML من المجلد الخاص بالقسم مع منع الكاش
+        let response = await fetch(`/${sectionName}/${sectionName}.html?v=${cacheBuster}`);
         
         if (response.ok) {
             let html = await response.text();
@@ -62,7 +66,7 @@ async function loadSection(sectionName, btnElement) {
             if (oldScript) oldScript.remove();
 
             let script = document.createElement('script');
-            script.src = `/${sectionName}/${sectionName}.js`;
+            script.src = `/${sectionName}/${sectionName}.js?v=${cacheBuster}`;
             script.id = scriptId;
             document.body.appendChild(script);
             
