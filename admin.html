@@ -67,6 +67,21 @@
 
     </div>
 
+    <!-- نافذة تعديل الرصيد المنبثقة (إضافة / خصم) -->
+    <div id="balanceModal" class="modal-overlay" style="display: none;">
+        <div class="modal-content animate-fade-in">
+            <div class="modal-title" id="modalTitle">تعديل الرصيد</div>
+            <div class="modal-subtitle" id="modalSubTitle">ID: -</div>
+            
+            <input type="number" id="modalAmountInput" class="modal-input" placeholder="أدخل المبلغ هنا..." min="1">
+            
+            <div class="modal-actions">
+                <button id="btnModalSubmit" class="btn-modal-submit" onclick="submitBalanceChange()">تأكيد</button>
+                <button class="btn-modal-cancel" onclick="closeBalanceModal()">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
     <script src="main.js"></script>
     
     <script>
