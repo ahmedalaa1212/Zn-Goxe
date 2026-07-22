@@ -59,15 +59,24 @@
     </div>
 
     <!-- وعاء عرض محتوى القسم النشط -->
-    <div id="wallet-content"></div>
+    <div id="wallet-content">
+        <!-- شاشة تحميل مبدئية عشان الشاشة متكونش فاضية أبداً -->
+        <div class="card" style="text-align:center; padding:30px; color:#777;">
+            جاري تهيئة المحفظة...
+        </div>
+    </div>
 
     <!-- سعر الـ TON اللحظي -->
     <div class="ton-price-ticker">
-        سعر 1 TON حالياً = $<span id="current-ton-price">5.00</span>
+        سعر 1 TON حالياً = $<span id="current-ton-price">...</span>
     </div>
 </div>
 
+<!-- حاوية مخفية لمكتبة المحفظة -->
+<div id="hidden-ton-root" style="display: none;"></div>
+
 <script src="../game.js"></script>
-<script src="wallet.js?v=2"></script>
+<!-- تم تغيير الإصدار لـ v=3 لإجبار التليجرام على تحديث الكاش -->
+<script src="wallet.js?v=3"></script>
 </body>
 </html>
