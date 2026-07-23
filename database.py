@@ -45,7 +45,6 @@ def is_user_banned(telegram_id):
         doc = db.collection('users').document(str(telegram_id).strip()).get()
         if doc.exists:
             data = doc.to_dict()
-            # فحص الحقلين لضمان التوافق التام مع لوحة الإدارة
             return data.get('isBanned', False) or data.get('is_banned', False)
         return False
     except Exception as e:
@@ -65,13 +64,13 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
         doc = user_ref.get()
         if referred_by:
             referred_by = str(referred_by).replace('ref_', '').strip()
-            if referred_by == telegram_id:
+            if referred_by == telegram_id: # منع إحالة النفس
                 referred_by = None
                 
+        current_time_full = datetime.now(timezone.utc).strftime('%Y-%m-%d %I:%M %p (UTC)')
+        now_iso = datetime.now(timezone.utc).isoformat()
+
         if not doc.exists:
-            # استخدام توقيت UTC لضمان دقة الوقت بغض النظر عن موقع السيرفر
-            current_time_full = datetime.now(timezone.utc).strftime('%Y-%m-%d %I:%M %p (UTC)')
-            
             user_data = {
                 'telegram_id': telegram_id,
                 'user_name': first_name,
@@ -80,10 +79,11 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
                 'usd_balance': 0.00000,
                 'is_banned': False, 
                 'joinDate': current_time_full,
-                'last_claim_time': datetime.now(timezone.utc).isoformat(),
+                'last_claim_time': now_iso,
                 'storage_level': 0,
                 'daily_day': 1,
                 'last_daily_claim_time': "2000-01-01T00:00:00+00:00",
+                'last_game_reward_time': "2000-01-01T00:00:00+00:00", # حماية الألعاب
                 'referred_by': referred_by,
                 'pending_ref_earnings': 0.0,
                 'invited_friends_count': 0,
@@ -118,15 +118,14 @@ def init_user(telegram_id, referred_by=None, first_name="صديق"):
                     })
                     is_new_referral = True
 
+            # تعبئة الحقول الناقصة إن وجدت
             if 'pending_ref_earnings' not in data: updates['pending_ref_earnings'] = 0.0
             if 'invited_friends_count' not in data: updates['invited_friends_count'] = 0
             if 'claimed_ref_tasks' not in data: updates['claimed_ref_tasks'] = []
             if 'referral_details' not in data: updates['referral_details'] = {}
             if 'usd_balance' not in data: updates['usd_balance'] = 0.00000
-            
-            # في حال كان المستخدم قديماً وليس لديه حقل joinDate
-            if 'joinDate' not in data: 
-                updates['joinDate'] = datetime.now(timezone.utc).strftime('%Y-%m-%d %I:%M %p (UTC)')
+            if 'last_game_reward_time' not in data: updates['last_game_reward_time'] = "2000-01-01T00:00:00+00:00"
+            if 'joinDate' not in data: updates['joinDate'] = current_time_full
             
             if updates:
                 user_ref.update(updates)
