@@ -2,7 +2,6 @@
 // 💳 ZN Goxe - Wallet Module (wallet.js)
 // ==========================================
 
-// 1. الحالة العامة للمستند والمحفظة
 let playerData = {
     znBalance: 0,
     usdBalance: 0.00000,
@@ -11,7 +10,7 @@ let playerData = {
 
 let isWalletConnected = false;
 let userWalletAddress = null;
-let currentTonPriceUSD = 0; // سيتم جلبه لحظياً
+let currentTonPriceUSD = 0; 
 
 let currentWalletTab = localStorage.getItem('lastWalletTab');
 if (!['withdraw', 'history', 'deposit'].includes(currentWalletTab)) {
@@ -20,9 +19,6 @@ if (!['withdraw', 'history', 'deposit'].includes(currentWalletTab)) {
 
 let tonConnectUI = null;
 
-// ==========================================
-// 🛠️ أدوات مساعدة وتفاعل التلجرام
-// ==========================================
 const tgApp = window.Telegram?.WebApp;
 if (tgApp) tgApp.ready();
 
@@ -41,12 +37,8 @@ function triggerHapticFeedback(type = 'impact', style = 'medium') {
     }
 }
 
-// ==========================================
-// 🌐 0. جلب سعر عملة TON (أكثر دقة)
-// ==========================================
 async function fetchLiveTonPrice() {
     try {
-        // المحاولة 1: موقع TonAPI (الأدق للـ TON)
         let res = await fetch('https://tonapi.io/v2/rates?tokens=ton&currencies=usd');
         let data = await res.json();
         if (data && data.rates && data.rates.TON && data.rates.TON.prices && data.rates.TON.prices.USD) {
@@ -56,18 +48,15 @@ async function fetchLiveTonPrice() {
         }
     } catch (e1) {
         try {
-            // المحاولة 2: منصة Binance
             let res2 = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=TONUSDT');
             let data2 = await res2.json();
             currentTonPriceUSD = parseFloat(data2.price);
         } catch (e2) {
             try {
-                // المحاولة 3: منصة CoinGecko
                 let res3 = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd');
                 let data3 = await res3.json();
                 currentTonPriceUSD = parseFloat(data3['the-open-network'].usd);
             } catch (e3) {
-                // في حالة فشل كل السيرفرات (نادر جداً)
                 if(currentTonPriceUSD === 0) currentTonPriceUSD = 5.00;
             }
         }
@@ -78,11 +67,7 @@ async function fetchLiveTonPrice() {
     }
 }
 
-// ==========================================
-// 🔗 1. تهيئة TonConnect (باسترجاع الاتصال التلقائي الصامت)
-// ==========================================
 function initTonConnect() {
-    // ننتظر ثواني حتى يتم تحميل مكتبة التون كونكت
     if (typeof window.TON_CONNECT_UI === 'undefined') {
         setTimeout(initTonConnect, 100);
         return;
@@ -107,16 +92,14 @@ function initTonConnect() {
             }
         };
 
-        // استرجاع الاتصال القديم في صمت (حل مشكلة نسيان الربط)
         tonConnectUI.connectionRestored.then(restored => {
             if (restored) {
                 isWalletConnected = true;
                 userWalletAddress = window.TON_CONNECT_UI.toUserFriendlyAddress(tonConnectUI.wallet.account.address);
-                window.renderWalletTab(currentWalletTab); // إعادة رسم الشاشة لفتح القفل
+                window.renderWalletTab(currentWalletTab); 
             }
         });
 
-        // مراقبة حالات الربط وإلغاء الربط
         tonConnectUI.onStatusChange(wallet => {
             if (wallet && wallet.account) {
                 isWalletConnected = true;
@@ -150,9 +133,6 @@ window.disconnectCustomWallet = async function() {
     }
 };
 
-// ==========================================
-// 🔒 2. مزامنة الأرصدة 
-// ==========================================
 window.updateHeaderBalances = function() {
     const pData = window.PlayerData || playerData;
     const zn = parseFloat(pData.balance !== undefined ? pData.balance : pData.znBalance) || 0;
@@ -169,9 +149,6 @@ window.updateHeaderBalances = function() {
     if (tonElem) tonElem.innerText = "≈ " + estimateTon.toFixed(4) + " TON";
 };
 
-// ==========================================
-// 🎨 3. عرض تبويبات المحفظة
-// ==========================================
 window.renderWalletTab = function(tab) {
     currentWalletTab = tab;
     localStorage.setItem('lastWalletTab', tab);
@@ -179,7 +156,6 @@ window.renderWalletTab = function(tab) {
     const content = document.getElementById('wallet-content');
     if (!content) return;
     
-    // تفعيل الزر المناسب
     const tabs = ['withdraw', 'history', 'deposit'];
     tabs.forEach(t => {
         const btn = document.getElementById(`btn-${t}`);
@@ -233,7 +209,7 @@ window.renderWalletTab = function(tab) {
         fetch(`/api/get_history?initData=${encodeURIComponent(initData)}`)
             .then(res => res.json())
             .then(data => {
-                if (currentWalletTab !== 'history') return; // حماية التداخل
+                if (currentWalletTab !== 'history') return;
 
                 if (data.success && data.history && data.history.length > 0) {
                     let html = `<div class="card" style="padding: 15px;">
@@ -336,9 +312,6 @@ window.renderWalletTab = function(tab) {
     }
 };
 
-// ==========================================
-// 🧮 4. دالّات الحساب التلقائي
-// ==========================================
 window.calculateConversionPreview = function() {
     let inputElem = document.getElementById('zn-input');
     let infoDiv = document.getElementById('conversion-calc-info');
@@ -390,9 +363,6 @@ window.calculateWithdrawTon = function() {
     }
 };
 
-// ==========================================
-// 💸 5. تنفيذ العمليات
-// ==========================================
 window.executeDeposit = async function() {
     triggerHapticFeedback('impact', 'medium');
     let depositBtn = document.getElementById('deposit-btn');
@@ -420,14 +390,21 @@ window.executeDeposit = async function() {
 
         const initData = tgApp?.initData || null;
         if (initData) {
-            await fetch('/api/wallet_deposit_report', {
+            let response = await fetch('/api/wallet_deposit_report', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ initData: initData, usdAmount: usdAmount, tonAmount: tonAmount, boc: txResult.boc })
             });
+            let result = await response.json();
+            
+            if (result.success) {
+                showAppAlert(`✅ تم الإيداع بنجاح!\nتم إضافة $${usdAmount} لرصيدك.`);
+                if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
+            } else {
+                showAppAlert("⚠️ فشل تأكيد الإيداع في السيرفر: " + (result.error || result.message));
+            }
         }
         
-        showAppAlert(`✅ تم إرسال المعاملة بنجاح!\nسيتم إضافة $${usdAmount} لرصيدك بعد تأكيد الشبكة.`);
         if (usdInput) usdInput.value = '';
         const calcInfo = document.getElementById('deposit-calc-info');
         if (calcInfo) calcInfo.style.display = 'none';
@@ -544,17 +521,10 @@ window.submitWithdrawal = async function() {
     }
 };
 
-// ==========================================
-// 🚀 6. التشغيل التلقائي عند فتح الصفحة
-// ==========================================
-// 1. استدعاء السعر وتحديثه كل دقيقة
 fetchLiveTonPrice();
 setInterval(fetchLiveTonPrice, 60000);
 
-// 2. رسم الشاشة فوراً دون انتظار أي شيء (يمنع الشاشة السوداء)
 window.renderWalletTab(currentWalletTab);
 window.updateHeaderBalances();
 
-// 3. تشغيل مكتبة المحفظة للعمل بصمت في الخلفية لاسترجاع الجلسة
 initTonConnect();
-
