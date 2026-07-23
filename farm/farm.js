@@ -14,7 +14,15 @@
 
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 15,
-        dailyRewards: [3000, 6000, 10000, 15000, 25000, 40000, 100000],
+        // تم تحديث الجوائز لـ 30 يوم (جوائز متصاعدة تحفز اللاعب)
+        dailyRewards: [
+            3000, 4000, 5000, 6000, 7500,          // 1 - 5
+            10000, 12000, 15000, 18000, 20000,     // 6 - 10
+            25000, 30000, 35000, 40000, 50000,     // 11 - 15
+            60000, 70000, 80000, 90000, 100000,    // 16 - 20
+            120000, 150000, 180000, 220000, 250000,// 21 - 25
+            300000, 400000, 500000, 750000, 1000000// 26 - 30
+        ],
         capacities: {0: 10000, 1: 20000, 2: 30000, 3: 50000, 4: 100000, 5: 200000, 6: 500000, 7: 1000000, 8: 2500000, 9: 5000000, 10: 10000000},
         miningRates: {1: 100, 2: 500, 3: 1500, 4: 4000, 5: 10000, 6: 25000, 7: 60000, 8: 150000, 9: 500000} 
     };
@@ -29,7 +37,6 @@
     };
 
     window.updateFarmUI = function() {
-        // تم التعديل: لو الداتا لسة مش موجودة، هنستخدم قيم افتراضية بدل ما نوقف الكود
         const pData = window.PlayerData || {};
         
         let bal = parseFloat(pData.balance || 0);
@@ -58,7 +65,7 @@
             storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
         }
         
-        // 🏛️ رسم الـ 9 كروت (الآن ستظهر فوراً)
+        // 🏛️ رسم الـ 9 كروت 
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
             let fieldsHTML = '';
@@ -106,11 +113,18 @@
         renderDailyRewards(); 
     };
 
-    // 📅 نظام التسجيل اليومي 
+    // دالة لتحويل الأرقام الكبيرة عشان تناسب المربعات الصغيرة
+    function formatCompactNumber(num) {
+        if (num >= 1000000) return (num / 1000000).toFixed(num % 1000000 === 0 ? 0 : 1) + 'M';
+        if (num >= 1000) return (num / 1000).toFixed(num % 1000 === 0 ? 0 : 1) + 'K';
+        return num.toString();
+    }
+
+    // 📅 نظام التسجيل اليومي (30 يوم)
     function renderDailyRewards() {
         const container = document.getElementById('daily-rewards-container');
         const pData = window.PlayerData || {};
-        if (!container) return; // شيلنا الاعتماد الكامل على الداتا هنا عشان يرسم الحاوية
+        if (!container) return; 
 
         let html = '';
         let nowOffset = Date.now() + (window.timeOffset || 0);
@@ -119,42 +133,44 @@
         const canClaim = timePassed >= (24 * 60 * 60 * 1000); 
         const currentDailyDay = parseInt(pData.daily_day || 1);
 
-        for (let i = 0; i < 7; i++) {
+        for (let i = 0; i < 30; i++) {
             let dayNum = i + 1;
-            let reward = GAME_CONFIG.dailyRewards[i].toLocaleString();
+            let rawReward = GAME_CONFIG.dailyRewards[i];
+            let displayReward = formatCompactNumber(rawReward); // استخدام الدالة لتصغير الرقم
 
+            // تم تصغير الخطوط وتقليل الحواف (padding) عشان تناسب 5 كروت في الصف
             if (dayNum < currentDailyDay) {
                 html += `
-                    <div style="min-width: 80px; background: rgba(40, 167, 69, 0.08); border: 1px solid #28a745; border-radius: 10px; padding: 10px; text-align: center;">
-                        <div style="color: #888; font-size: 11px; margin-bottom: 4px;">اليوم ${dayNum}</div>
-                        <div style="color: #28a745; font-size: 16px; margin-bottom: 4px;">✔️</div>
-                        <div style="color: #28a745; font-size: 10px; font-weight: bold;">تم الاستلام</div>
+                    <div style="background: rgba(40, 167, 69, 0.08); border: 1px solid #28a745; border-radius: 8px; padding: 8px 2px; text-align: center;">
+                        <div style="color: #888; font-size: 10px; margin-bottom: 3px;">يوم ${dayNum}</div>
+                        <div style="color: #28a745; font-size: 14px; margin-bottom: 3px;">✔️</div>
+                        <div style="color: #28a745; font-size: 9px; font-weight: bold;">تم</div>
                     </div>
                 `;
             } else if (dayNum === currentDailyDay) {
                 if (canClaim) {
                     html += `
-                        <div style="min-width: 80px; background: #222; border: 2px solid #ffcc00; border-radius: 10px; padding: 10px; text-align: center; box-shadow: 0 0 10px rgba(255, 204, 0, 0.2);">
-                            <div style="color: #fff; font-size: 11px; font-weight: bold; margin-bottom: 4px;">اليوم ${dayNum}</div>
-                            <div style="color: #ffcc00; font-size: 12px; font-weight: bold; margin-bottom: 6px;">${reward}</div>
-                            <button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${dayNum})" style="background: #28a745; color: white; border: none; border-radius: 5px; padding: 5px; font-size: 10px; font-weight: bold; cursor: pointer; width: 100%; animation: pulseGreen 2s infinite;">استلام 📺</button>
+                        <div style="background: #222; border: 2px solid #ffcc00; border-radius: 8px; padding: 6px 2px; text-align: center; box-shadow: 0 0 6px rgba(255, 204, 0, 0.25);">
+                            <div style="color: #fff; font-size: 10px; font-weight: bold; margin-bottom: 3px;">يوم ${dayNum}</div>
+                            <div style="color: #ffcc00; font-size: 10px; font-weight: bold; margin-bottom: 4px;">${displayReward}</div>
+                            <button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${dayNum})" style="background: #28a745; color: white; border: none; border-radius: 4px; padding: 4px 0; font-size: 10px; cursor: pointer; width: 85%; animation: pulseGreen 2s infinite;">📺</button>
                         </div>
                     `;
                 } else {
                     html += `
-                        <div style="min-width: 80px; background: #222; border: 1px solid #555; border-radius: 10px; padding: 10px; text-align: center;">
-                            <div style="color: #fff; font-size: 11px; margin-bottom: 4px;">اليوم ${dayNum}</div>
-                            <div style="color: #ffcc00; font-size: 12px; margin-bottom: 6px;">${reward}</div>
-                            <div style="color: #ff4444; font-size: 10px; font-weight: bold;">انتظر ⏳</div>
+                        <div style="background: #222; border: 1px solid #555; border-radius: 8px; padding: 8px 2px; text-align: center;">
+                            <div style="color: #fff; font-size: 10px; margin-bottom: 3px;">يوم ${dayNum}</div>
+                            <div style="color: #ffcc00; font-size: 10px; margin-bottom: 4px;">${displayReward}</div>
+                            <div style="color: #ff4444; font-size: 10px; font-weight: bold;">⏳</div>
                         </div>
                     `;
                 }
             } else {
                 html += `
-                    <div style="min-width: 80px; background: #141414; border: 1px solid #2a2a2a; border-radius: 10px; padding: 10px; text-align: center; opacity: 0.5;">
-                        <div style="color: #777; font-size: 11px; margin-bottom: 4px;">اليوم ${dayNum}</div>
-                        <div style="color: #555; font-size: 16px; margin-bottom: 4px;">🔒</div>
-                        <div style="color: #777; font-size: 10px;">${reward}</div>
+                    <div style="background: #141414; border: 1px solid #2a2a2a; border-radius: 8px; padding: 8px 2px; text-align: center; opacity: 0.5;">
+                        <div style="color: #777; font-size: 10px; margin-bottom: 3px;">يوم ${dayNum}</div>
+                        <div style="color: #555; font-size: 14px; margin-bottom: 3px;">🔒</div>
+                        <div style="color: #777; font-size: 9px;">${displayReward}</div>
                     </div>
                 `;
             }
@@ -259,16 +275,16 @@
     window.handleDailyClaim = async function(day) {
         if (isClaimingDaily) return;
         const btn = document.getElementById(`daily-btn-${day}`);
+        const originalHtml = btn ? btn.innerHTML : '';
         if (btn) {
             btn.disabled = true;
-            btn.innerText = "جاري فتح الإعلان... ⏳";
+            btn.innerHTML = "⏳";
         }
         
         isClaimingDaily = true;
         const adWatched = await showTelegramAd();
         
         if (adWatched) {
-            if (btn) btn.innerText = "جاري الاستلام... ⏳";
             try {
                 let response = await fetch('/api/daily_claim', {
                     method: 'POST',
@@ -286,19 +302,19 @@
                     if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(errMsg);
                     if (btn) {
                         btn.disabled = false;
-                        btn.innerText = "استلام 📺";
+                        btn.innerHTML = originalHtml;
                     }
                 }
             } catch (e) {
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerText = "استلام 📺";
+                    btn.innerHTML = originalHtml;
                 }
             }
         } else {
             if (btn) {
                 btn.disabled = false;
-                btn.innerText = "استلام 📺";
+                btn.innerHTML = originalHtml;
             }
         }
         isClaimingDaily = false;
@@ -347,13 +363,11 @@
         }
     };
 
-    // استدعاء الواجهة مبدئياً عشان الأماكن ما تفضلش فاضية
     window.updateFarmUI();
 
-    // جلب البيانات من السيرفر بعد ما الواجهة تكون اترسمت
     if (typeof window.fetchPlayerData === 'function') {
         window.fetchPlayerData().then(() => {
-            window.updateFarmUI(); // تحديث تاني بعد ما الداتا توصل
+            window.updateFarmUI(); 
         });
     }
 })();
