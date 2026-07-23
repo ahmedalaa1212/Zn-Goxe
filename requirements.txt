@@ -1,5 +1,7 @@
-pyTelegramBotAPI==4.22.1
-Flask==3.0.3
-Flask-Cors==4.0.1
-firebase-admin==6.5.0
-gunicorn==22.0.0
+Flask==3.0.0
+flask-cors==4.0.0
+firebase-admin==6.2.0
+tonsdk==1.0.14
+requests==2.31.0
+python-dotenv==1.0.0
+gunicorn==21.2.0
