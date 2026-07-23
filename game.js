@@ -15,7 +15,7 @@ window.GameState = {
 // الدالة دي أي قائمة هتستخدمها عشان تكلم السيرفر بأمان
 window.apiCall = async function(endpoint, method = 'GET', body = null) {
     // ⚠️ غير الرابط ده برابط Railway بتاعك بعدين
-    const BASE_URL = "https://YOUR_NEW_RAILWAY_URL.up.railway.app"; 
+    const BASE_URL = "https://zn-goxe-production.up.railway.app/"; 
     
     // سحب بصمة الأمان الخاصة بتليجرام
     const initData = window.Telegram?.WebApp?.initData || "";
