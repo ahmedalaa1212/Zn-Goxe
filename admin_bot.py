@@ -9,26 +9,18 @@ from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# ==========================================
-# 1. إعداد المتغيرات الأساسية
-# ==========================================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 WEBAPP_URL = os.environ.get("WEB_URL", "https://admin-zn-production.up.railway.app/") 
-ADMIN_ID = "5102387551" # ⚠️ الـ ID الخاص بك (المدير الأساسي)
+ADMIN_ID = "5102387551"
 
-# ==========================================
-# 2. تهيئة الاتصال بـ Firebase Firestore
-# ==========================================
 db = None
 try:
     if not firebase_admin._apps:
         firebase_env = os.environ.get("FIREBASE_CREDENTIALS") or os.environ.get("FIREBASE_KEY")
-        
         if firebase_env:
             with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
                 temp_file.write(firebase_env)
                 temp_path = temp_file.name
-            
             cred = credentials.Certificate(temp_path)
             firebase_admin.initialize_app(cred)
         elif os.path.exists("firebase.json"):
@@ -36,15 +28,11 @@ try:
             firebase_admin.initialize_app(cred)
         else:
             firebase_admin.initialize_app()
-            
     db = firestore.client()
     print("✅ تم الاتصال بقاعدة بيانات Firestore بنجاح!")
 except Exception as e:
     print(f"❌ خطأ في الاتصال بـ Firebase: {e}")
 
-# ==========================================
-# 3. إعداد سيرفر الويب (لوحة التحكم)
-# ==========================================
 app = Flask(__name__, static_folder='.')
 CORS(app)
 
@@ -68,37 +56,24 @@ def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
-# ==========================================
-# 4. دالة التحقق من صلاحيات الأدمن أو المشرفين
-# ==========================================
 def is_admin(user_id):
     str_id = str(user_id)
-    
-    # 1. السماح للمدير الأساسي فوراً
     if str_id == str(ADMIN_ID):
         return True
-        
-    # 2. التحقق مما إذا كان مسجلاً كمشرف في قاعدة بيانات Firebase
     if not db:
         return False
     try:
         doc_ref = db.collection('moderators').document(str_id)
-        doc = doc_ref.get()
-        return doc.exists
+        return doc_ref.get().exists
     except Exception as e:
-        print(f"❌ خطأ أثناء التحقق من المشرف في قاعدة البيانات: {e}")
+        print(f"❌ خطأ أثناء التحقق من المشرف: {e}")
         return False
 
-# ==========================================
-# 5. إعداد بوت التليجرام
-# ==========================================
 bot = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.from_user.id
-    
-    # التحقق عبر دالة الفحص الشاملة (الأدمن + المشرفين)
     if not is_admin(user_id):
         bot.reply_to(message, "⛔ عذراً، هذا البوت مخصص للأدمن والمشرفين المصرح لهم فقط.")
         return
