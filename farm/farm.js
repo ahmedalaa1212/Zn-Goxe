@@ -29,8 +29,8 @@
     };
 
     window.updateFarmUI = function() {
-        const pData = window.PlayerData;
-        if (!pData) return;
+        // تم التعديل: لو الداتا لسة مش موجودة، هنستخدم قيم افتراضية بدل ما نوقف الكود
+        const pData = window.PlayerData || {};
         
         let bal = parseFloat(pData.balance || 0);
         let hRate = parseFloat(pData.hourly_rate || 0);
@@ -58,7 +58,7 @@
             storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
         }
         
-        // 🏛️ رسم الـ 9 كروت الخاصة بمستويات التعدين
+        // 🏛️ رسم الـ 9 كروت (الآن ستظهر فوراً)
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
             let fieldsHTML = '';
@@ -106,11 +106,11 @@
         renderDailyRewards(); 
     };
 
-    // 📅 نظام التسجيل اليومي (Check-in)
+    // 📅 نظام التسجيل اليومي 
     function renderDailyRewards() {
         const container = document.getElementById('daily-rewards-container');
-        const pData = window.PlayerData;
-        if (!container || !pData) return;
+        const pData = window.PlayerData || {};
+        if (!container) return; // شيلنا الاعتماد الكامل على الداتا هنا عشان يرسم الحاوية
 
         let html = '';
         let nowOffset = Date.now() + (window.timeOffset || 0);
@@ -162,7 +162,7 @@
         container.innerHTML = html;
     }
 
-    // عداد التعدين بالثانية المحلي
+    // تحديث الواجهة كل ثانية
     setInterval(() => {
         const pData = window.PlayerData;
         if (!pData) return;
@@ -234,11 +234,8 @@
     function showTelegramAd() {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 !== 'function') {
-                console.warn("[Monetag] الإعلانات محجوبة.");
                 if (window.Telegram && window.Telegram.WebApp) {
                     window.Telegram.WebApp.showAlert("⚠️ يرجى إيقاف مانع الإعلانات (AdBlocker) لمشاهدة الإعلان والحصول على المكافأة!");
-                } else {
-                    alert("⚠️ يرجى إيقاف مانع الإعلانات للحصول على المكافأة!");
                 }
                 resolve(false); 
                 return;
@@ -250,8 +247,6 @@
                 }).catch(() => {
                     if (window.Telegram && window.Telegram.WebApp) {
                         window.Telegram.WebApp.showAlert("⚠️ يجب مشاهدة الإعلان بالكامل للحصول على المكافأة!");
-                    } else {
-                        alert("⚠️ يجب مشاهدة الإعلان بالكامل للحصول على المكافأة!");
                     }
                     resolve(false); 
                 });
@@ -285,13 +280,10 @@
                 if (response.ok && resData.success) {
                     const successMsg = `🎉 مبروك! لقد استلمت ${resData.reward.toLocaleString()} ZN بنجاح!`;
                     if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(successMsg);
-                    else alert(successMsg);
-                    
-                    await window.fetchPlayerDataFromServer(); 
+                    await window.fetchPlayerData(); 
                 } else {
                     const errMsg = resData.error || "عفواً، لا يمكنك استلام المكافأة الآن.";
                     if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(errMsg);
-                    else alert(errMsg);
                     if (btn) {
                         btn.disabled = false;
                         btn.innerText = "استلام 📺";
@@ -333,7 +325,7 @@
                 });
                 
                 if (response.ok) {
-                    await window.fetchPlayerDataFromServer(); 
+                    await window.fetchPlayerData(); 
                     claimCooldown = 60; 
                 } else {
                     if (claimBtn) {
@@ -355,5 +347,13 @@
         }
     };
 
+    // استدعاء الواجهة مبدئياً عشان الأماكن ما تفضلش فاضية
     window.updateFarmUI();
+
+    // جلب البيانات من السيرفر بعد ما الواجهة تكون اترسمت
+    if (typeof window.fetchPlayerData === 'function') {
+        window.fetchPlayerData().then(() => {
+            window.updateFarmUI(); // تحديث تاني بعد ما الداتا توصل
+        });
+    }
 })();
