@@ -1,9 +1,5 @@
 (function initFarm() {
     
-    localStorage.removeItem('zn_daily_day');
-    localStorage.removeItem('zn_daily_time');
-    
-    // التأكد من أن اللعبة تفتح داخل التليجرام فقط
     if (typeof window.Telegram === 'undefined' || !window.Telegram.WebApp.initData || !window.Telegram.WebApp.initDataUnsafe.user) {
         document.body.innerHTML = `
             <div style='color:#ff4444; text-align:center; padding:60px 20px; font-size:22px; font-weight:bold; background:#121212; height:100vh; display:flex; align-items:center; justify-content:center; flex-direction:column;'>
@@ -14,7 +10,6 @@
         return; 
     }
 
-    // 🔒 جلب بيانات التوثيق المشفرة بالكامل لحماية الطلبات
     const INIT_DATA = window.Telegram.WebApp.initData;
 
     const GAME_CONFIG = {
@@ -27,7 +22,6 @@
     let claimCooldown = 0; 
     let isClaimingDaily = false;
 
-    // تم تغييرها لتعمل مع نظام المزامنة الموحد لمنع تعارض جلب البيانات
     window.fetchPlayerData = async function() {
         if (typeof window.fetchPlayerDataFromServer === 'function') {
             await window.fetchPlayerDataFromServer();
@@ -43,7 +37,6 @@
         let unclaim = parseFloat(pData.unclaimed || 0);
         let maxC = parseFloat(pData.max_cap || 10000);
 
-        // تحديث النصوص في شاشة المزرعة
         const farmBalEl = document.getElementById('farm-balance');
         const farmRateEl = document.getElementById('farm-rate');
         
@@ -65,6 +58,7 @@
             storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
         }
         
+        // 🏛️ رسم الـ 9 كروت الخاصة بمستويات التعدين
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
             let fieldsHTML = '';
@@ -75,34 +69,34 @@
                 
                 if (isMax) {
                     fieldsHTML += `
-                        <div style="background: #333; border-radius: 10px; padding: 15px 5px; text-align: center; border: 1px solid #555; position: relative; overflow: hidden;">
-                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; font-size: 18px; transform: rotate(-20deg);">MAX</div>
-                            <div style="font-size: 24px; margin-bottom: 5px; opacity: 0.3;">🏛️</div>
-                            <div style="color: #888; font-size: 12px; font-weight: bold;">LV ${i}</div>
+                        <div style="background: #222; border-radius: 12px; padding: 15px 8px; text-align: center; border: 1px solid #444; position: relative; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
+                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; font-size: 16px; transform: rotate(-15deg);">MAX</div>
+                            <div style="font-size: 24px; margin-bottom: 5px; opacity: 0.4;">🏛️</div>
+                            <div style="color: #888; font-size: 12px; font-weight: bold;">مستوى ${i}</div>
                         </div>
                     `;
                 } else if (count > 0) {
                     fieldsHTML += `
-                        <div style="background: #1c1c1c; border-radius: 10px; padding: 15px 5px; text-align: center; border: 1px solid #0088cc; position: relative;">
-                            <div style="position: absolute; top: -5px; right: -5px; background: #ffcc00; color: #000; font-weight: bold; border-radius: 50%; padding: 2px 6px; font-size: 11px; border: 2px solid #121212;">x${count}</div>
-                            <div style="width: 30px; height: 30px; background: #ffcc00; border-radius: 50%; margin: 0 auto 5px auto; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">
-                                <span style="font-size: 14px;">🏛️</span>
+                        <div style="background: #1c1c1c; border-radius: 12px; padding: 15px 8px; text-align: center; border: 1px solid #0088cc; position: relative; box-shadow: 0 4px 8px rgba(0,136,204,0.15);">
+                            <div style="position: absolute; top: -6px; right: -6px; background: #ffcc00; color: #000; font-weight: bold; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 10px; border: 2px solid #121212;">x${count}</div>
+                            <div style="width: 32px; height: 32px; background: #ffcc00; border-radius: 50%; margin: 0 auto 6px auto; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">
+                                <span style="font-size: 15px;">🏛️</span>
                             </div>
-                            <div style="color: white; font-size: 12px; font-weight: bold;">LV ${i}</div>
+                            <div style="color: white; font-size: 12px; font-weight: bold;">مستوى ${i}</div>
                         </div>
                     `;
                 } else if (isUnlocked) {
                     fieldsHTML += `
-                        <div style="background: #1c1c1c; border-radius: 10px; padding: 15px 5px; text-align: center; border: 1px dashed #555;">
-                            <div style="font-size: 20px; color: #555; margin-bottom: 5px;">🏛️</div>
-                            <div style="color: #666; font-size: 11px; font-weight: bold;">متاح للشراء</div>
+                        <div style="background: #181818; border-radius: 12px; padding: 15px 8px; text-align: center; border: 1px dashed #555; cursor: pointer;">
+                            <div style="font-size: 22px; color: #777; margin-bottom: 5px;">🏛️</div>
+                            <div style="color: #00bfff; font-size: 11px; font-weight: bold;">متاح للشراء</div>
                         </div>
                     `;
                 } else {
                     fieldsHTML += `
-                        <div style="background: #151515; border-radius: 10px; padding: 15px 5px; text-align: center; border: 1px solid #222;">
-                            <div style="font-size: 20px; color: #ffcc00; margin-bottom: 5px;">🔒</div>
-                            <div style="color: #666; font-size: 12px; font-weight: bold;">مغلق</div>
+                        <div style="background: #141414; border-radius: 12px; padding: 15px 8px; text-align: center; border: 1px solid #222; opacity: 0.5;">
+                            <div style="font-size: 22px; color: #555; margin-bottom: 5px;">🔒</div>
+                            <div style="color: #666; font-size: 11px; font-weight: bold;">مغلق</div>
                         </div>
                     `;
                 }
@@ -112,6 +106,7 @@
         renderDailyRewards(); 
     };
 
+    // 📅 نظام التسجيل اليومي (Check-in)
     function renderDailyRewards() {
         const container = document.getElementById('daily-rewards-container');
         const pData = window.PlayerData;
@@ -119,7 +114,7 @@
 
         let html = '';
         let nowOffset = Date.now() + (window.timeOffset || 0);
-        const lastClaim = new Date(pData.last_daily_claim_time).getTime();
+        const lastClaim = new Date(pData.last_daily_claim_time || 0).getTime();
         const timePassed = nowOffset - lastClaim;
         const canClaim = timePassed >= (24 * 60 * 60 * 1000); 
         const currentDailyDay = parseInt(pData.daily_day || 1);
@@ -130,36 +125,36 @@
 
             if (dayNum < currentDailyDay) {
                 html += `
-                    <div style="min-width: 85px; background: rgba(40, 167, 69, 0.1); border: 1px solid #28a745; border-radius: 10px; padding: 10px; text-align: center;">
-                        <div style="color: #888; font-size: 11px; margin-bottom: 5px;">اليوم ${dayNum}</div>
-                        <div style="color: #28a745; font-size: 18px; margin-bottom: 5px;">✔️</div>
+                    <div style="min-width: 80px; background: rgba(40, 167, 69, 0.08); border: 1px solid #28a745; border-radius: 10px; padding: 10px; text-align: center;">
+                        <div style="color: #888; font-size: 11px; margin-bottom: 4px;">اليوم ${dayNum}</div>
+                        <div style="color: #28a745; font-size: 16px; margin-bottom: 4px;">✔️</div>
                         <div style="color: #28a745; font-size: 10px; font-weight: bold;">تم الاستلام</div>
                     </div>
                 `;
             } else if (dayNum === currentDailyDay) {
                 if (canClaim) {
                     html += `
-                        <div style="min-width: 85px; background: #2a2a2a; border: 2px solid #ffcc00; border-radius: 10px; padding: 10px; text-align: center; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">
-                            <div style="color: #fff; font-size: 12px; font-weight: bold; margin-bottom: 5px;">اليوم ${dayNum}</div>
-                            <div style="color: #ffcc00; font-size: 13px; font-weight: bold; margin-bottom: 8px;">${reward}</div>
-                            <button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${dayNum})" style="background: #28a745; color: white; border: none; border-radius: 5px; padding: 6px; font-size: 11px; font-weight: bold; cursor: pointer; width: 100%; animation: pulseGreen 2s infinite;">استلام 📺</button>
+                        <div style="min-width: 80px; background: #222; border: 2px solid #ffcc00; border-radius: 10px; padding: 10px; text-align: center; box-shadow: 0 0 10px rgba(255, 204, 0, 0.2);">
+                            <div style="color: #fff; font-size: 11px; font-weight: bold; margin-bottom: 4px;">اليوم ${dayNum}</div>
+                            <div style="color: #ffcc00; font-size: 12px; font-weight: bold; margin-bottom: 6px;">${reward}</div>
+                            <button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${dayNum})" style="background: #28a745; color: white; border: none; border-radius: 5px; padding: 5px; font-size: 10px; font-weight: bold; cursor: pointer; width: 100%; animation: pulseGreen 2s infinite;">استلام 📺</button>
                         </div>
                     `;
                 } else {
                     html += `
-                        <div style="min-width: 85px; background: #2a2a2a; border: 1px solid #555; border-radius: 10px; padding: 10px; text-align: center;">
-                            <div style="color: #fff; font-size: 11px; margin-bottom: 5px;">اليوم ${dayNum}</div>
-                            <div style="color: #ffcc00; font-size: 13px; margin-bottom: 8px;">${reward}</div>
+                        <div style="min-width: 80px; background: #222; border: 1px solid #555; border-radius: 10px; padding: 10px; text-align: center;">
+                            <div style="color: #fff; font-size: 11px; margin-bottom: 4px;">اليوم ${dayNum}</div>
+                            <div style="color: #ffcc00; font-size: 12px; margin-bottom: 6px;">${reward}</div>
                             <div style="color: #ff4444; font-size: 10px; font-weight: bold;">انتظر ⏳</div>
                         </div>
                     `;
                 }
             } else {
                 html += `
-                    <div style="min-width: 85px; background: #151515; border: 1px solid #333; border-radius: 10px; padding: 10px; text-align: center; opacity: 0.6;">
-                        <div style="color: #777; font-size: 11px; margin-bottom: 5px;">اليوم ${dayNum}</div>
-                        <div style="color: #555; font-size: 18px; margin-bottom: 5px;">🔒</div>
-                        <div style="color: #777; font-size: 11px;">${reward}</div>
+                    <div style="min-width: 80px; background: #141414; border: 1px solid #2a2a2a; border-radius: 10px; padding: 10px; text-align: center; opacity: 0.5;">
+                        <div style="color: #777; font-size: 11px; margin-bottom: 4px;">اليوم ${dayNum}</div>
+                        <div style="color: #555; font-size: 16px; margin-bottom: 4px;">🔒</div>
+                        <div style="color: #777; font-size: 10px;">${reward}</div>
                     </div>
                 `;
             }
@@ -180,9 +175,7 @@
 
         if (unclaim < maxC) {
             unclaim += hRate / 3600;
-            if (unclaim >= maxC) {
-                unclaim = maxC;
-            }
+            if (unclaim >= maxC) unclaim = maxC;
         }
         pData.unclaimed = unclaim;
 
@@ -238,15 +231,14 @@
         }
     }, 1000);
 
-    // دالة عرض إعلانات Monetag (Rewarded Interstitial)
     function showTelegramAd() {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 !== 'function') {
-                console.warn("[Monetag] الإعلانات محجوبة بواسطة مانع الإعلانات.");
+                console.warn("[Monetag] الإعلانات محجوبة.");
                 if (window.Telegram && window.Telegram.WebApp) {
-                    window.Telegram.WebApp.showAlert("⚠️ يرجى إيقاف مانع الإعلانات (AdBlocker) أو الـ VPN لمشاهدة الإعلان والحصول على المكافأة!");
+                    window.Telegram.WebApp.showAlert("⚠️ يرجى إيقاف مانع الإعلانات (AdBlocker) لمشاهدة الإعلان والحصول على المكافأة!");
                 } else {
-                    alert("⚠️ يرجى إيقاف مانع الإعلانات بالجهاز للحصول على المكافأة!");
+                    alert("⚠️ يرجى إيقاف مانع الإعلانات للحصول على المكافأة!");
                 }
                 resolve(false); 
                 return;
@@ -255,16 +247,15 @@
             try {
                 window.show_11322720().then(() => {
                     resolve(true); 
-                }).catch((e) => {
+                }).catch(() => {
                     if (window.Telegram && window.Telegram.WebApp) {
-                        window.Telegram.WebApp.showAlert("⚠️ يجب مشاهدة الإعلان بالكامل دون تخطي للحصول على المكافأة!");
+                        window.Telegram.WebApp.showAlert("⚠️ يجب مشاهدة الإعلان بالكامل للحصول على المكافأة!");
                     } else {
                         alert("⚠️ يجب مشاهدة الإعلان بالكامل للحصول على المكافأة!");
                     }
                     resolve(false); 
                 });
             } catch (err) {
-                console.error("[Monetag] Error:", err);
                 resolve(false);
             }
         });
@@ -284,7 +275,6 @@
         if (adWatched) {
             if (btn) btn.innerText = "جاري الاستلام... ⏳";
             try {
-                // 🔒 تم التعديل لإرسال initData المشفرة بدلاً من الـ ID المكشوف
                 let response = await fetch('/api/daily_claim', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -297,7 +287,6 @@
                     if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(successMsg);
                     else alert(successMsg);
                     
-                    // استدعاء جلب البيانات المركزي والموحد فوراً
                     await window.fetchPlayerDataFromServer(); 
                 } else {
                     const errMsg = resData.error || "عفواً، لا يمكنك استلام المكافأة الآن.";
@@ -309,7 +298,6 @@
                     }
                 }
             } catch (e) {
-                console.error("خطأ في المكافأة اليومية", e);
                 if (btn) {
                     btn.disabled = false;
                     btn.innerText = "استلام 📺";
@@ -338,7 +326,6 @@
         
         if (adWatched) {
             try {
-                // 🔒 تم التعديل لإرسال initData المشفرة بدلاً من الـ ID المكشوف
                 let response = await fetch('/api/claim', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -346,7 +333,6 @@
                 });
                 
                 if (response.ok) {
-                    // استدعاء جلب البيانات المركزي فوراً بعد التجميع
                     await window.fetchPlayerDataFromServer(); 
                     claimCooldown = 60; 
                 } else {
@@ -356,7 +342,6 @@
                     }
                 }
             } catch (e) {
-                console.error("خطأ في التجميع", e);
                 if (claimBtn) {
                     claimBtn.disabled = false;
                     claimBtn.innerText = "تجميع الرصيد 📺";
@@ -370,6 +355,5 @@
         }
     };
 
-    // تشغيل التحديث فور قراءة المودول
     window.updateFarmUI();
 })();
