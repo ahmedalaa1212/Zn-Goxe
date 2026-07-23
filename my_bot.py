@@ -18,22 +18,19 @@ def start_command(message):
         bot.send_message(
             message.chat.id,
             "🚫 *تم حظر حسابك نهائياً!*\n\n"
-            "عذراً، لا يمكنك استخدام البوت أو التطبيق بسبب انتهاك الشروط والأحكام أو اكتشاف نشاط غير مصرح به (مثل الغش).\n"
+            "عذراً، لا يمكنك استخدام البوت أو التطبيق بسبب انتهاك الشروط والأحكام أو اكتشاف نشاط غير مصرح به.\n"
             "إذا كنت تعتقد أن هذا الإجراء تم بالخطأ، يرجى التواصل مع الدعم الفني.",
             parse_mode="Markdown"
         )
-        return # نوقف الدالة هنا وميفتحش البوت معاه
+        return
     
-    # لقط كود الإحالة من التليجرام
     text_parts = message.text.split()
     ref_id = None
     if len(text_parts) > 1:
         ref_id = text_parts[1].replace('ref_', '').strip()
         
-    # تسجيل الحساب في الداتابيز
     is_new_referral = database.init_user(str(tg_id), ref_id, first_name)
     
-    # إرسال إشعار لصاحب الرابط (تم التعديل لـ HTML لتجنب مشاكل الأسماء)
     if is_new_referral and ref_id:
         try:
             bot.send_message(
@@ -47,7 +44,6 @@ def start_command(message):
     markup = InlineKeyboardMarkup()
     clean_web_url = WEB_URL.lower().strip()
     
-    # تمرير البيانات للويب آب
     web_app_url = f"{clean_web_url}?tg_id={tg_id}"
     if ref_id:
         web_app_url += f"&start_param=ref_{ref_id}"
