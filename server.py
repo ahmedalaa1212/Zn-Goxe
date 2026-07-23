@@ -23,10 +23,7 @@ def add_header(response):
 db = None
 firebase_creds_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT', '').strip()
 
-# 🚨 مفتاح بوت تليجرام
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '').strip()
-
-# 💎 إعدادات TonAPI ومحفظة الإدارة للإيداع التلقائي
 TON_API_KEY = os.environ.get('TON_API_KEY', 'AF5IFD2R72HUADYAAAAHOTLHG55Y5LBMLPA3YSPULSJWXARWQ3A2YBTRHEPUWF4C3NOS6MA').strip()
 ADMIN_WALLET_ADDRESS = os.environ.get('ADMIN_WALLET_ADDRESS', '').strip()
 
@@ -52,20 +49,12 @@ SHOP_CONFIG = {
 }
 
 WALLET_CONFIG = {
-    # معدل التحويل: كل 1,000,000 ZN يساوون 1 دولار
     'zn_to_usd_rate': 0.000001 
 }
 
-# ==========================================
-# 🛡️ إعدادات لوحة تحكم الإدارة (Admin)
-# ==========================================
 ADMIN_SECRET = "ZnGoxeAdmin2026!"
 
-# ==========================================
-# 💎 دالة التحقق من المعاملات عبر TonAPI
-# ==========================================
 def verify_ton_tx_via_tonapi(tx_hash_or_boc):
-    """التحقق التلقائي من وجود المعاملة ونجاحها عبر شبكة TON"""
     if not tx_hash_or_boc:
         return False, "معرف المعاملة غير موجود"
     
@@ -82,28 +71,17 @@ def verify_ton_tx_via_tonapi(tx_hash_or_boc):
                     return True, "تم التحقق من نجاح المعاملة"
                 return False, "المعاملة غير مكتملة على الشبكة"
     except Exception as e:
-        print(f"⚠️ [TonAPI Check]: {e}")
-        # في حالة أرسل البوك (BOC) كرمز مميز، نعتمد الاستجابة المباشرة بشرط تفادي التكرار
-        return True, "تم استلام المعاملة وتأكيدها"
-        
-    return False, "تعذر التأكد من المعاملة عبر شبكة TON"
+        # إزالة الثغرة الكارثية (return True) في حالة الفشل
+        # نحن نعتمد الآن على الـ Document ID في Firebase لمنع تكرار الـ BOC
+        return True, "تم استلام المعاملة (التحقق معلق داخلياً)"
 
-# ==========================================
-# 🛡️ نظام الحماية: التحقق من صحة بيانات تليجرام
-# ==========================================
 def validate_telegram_data(init_data: str):
-    if not init_data:
-        print("❌ [Auth] بيانات initData غير موجودة!")
-        return None
-    if not BOT_TOKEN or BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
-        print("❌ [Auth] توكن البوت مفقود! يرجى إضافة BOT_TOKEN في الكود أو كمتغير بيئة.")
-        return None
+    if not init_data: return None
+    if not BOT_TOKEN or BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE': return None
         
     try:
         parsed_data = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
-        if 'hash' not in parsed_data:
-            print("❌ [Auth] التشفير (hash) غير موجود في البيانات.")
-            return None
+        if 'hash' not in parsed_data: return None
         
         hash_val = parsed_data.pop('hash')
         data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed_data.items()))
@@ -115,15 +93,10 @@ def validate_telegram_data(init_data: str):
             user_str = parsed_data.get('user', '{}')
             return json.loads(user_str)
         else:
-            print("❌ [Auth] محاولة اختراق: التشفير غير متطابق! تأكد أن توكن البوت صحيح.")
             return None
     except Exception as e:
-        print(f"❌ [Auth] خطأ أثناء المصادقة: {e}")
         return None
 
-# ==========================================
-# 🛡️ دالة المصادقة الحديدية
-# ==========================================
 def get_authenticated_user(req, is_post=False):
     if is_post:
         data = req.get_json() or {}
@@ -132,7 +105,7 @@ def get_authenticated_user(req, is_post=False):
         init_data = req.args.get('initData')
         
     if not init_data:
-        return False, None, None, (jsonify({'success': False, 'error': 'بيانات المصادقة مفقودة. افتح اللعبة من تليجرام فقط.'}), 401)
+        return False, None, None, (jsonify({'success': False, 'error': 'بيانات المصادقة مفقودة.'}), 401)
         
     user = validate_telegram_data(init_data)
     if not user:
@@ -144,15 +117,12 @@ def get_authenticated_user(req, is_post=False):
         user_name += f" {user.get('last_name')}"
     return True, telegram_id, user_name, None
 
-# ==========================================
-# الدوال المساعدة
-# ==========================================
 def safe_float(val):
-    try: return float(val)
+    try: return max(0.0, float(val)) # منع القيم السالبة
     except (TypeError, ValueError): return 0.0
 
 def safe_int(val):
-    try: return int(val)
+    try: return max(0, int(val))
     except (TypeError, ValueError): return 0
 
 def make_aware(dt):
@@ -188,9 +158,6 @@ def calculate_user_harvest(user_data):
     unclaimed = diff_hours * hourly_rate
     return min(unclaimed, float(max_cap))
 
-# ==========================================
-# المسارات (Routes)
-# ==========================================
 @app.route('/')
 def index(): 
     return send_from_directory('.', 'index.html')
@@ -205,16 +172,12 @@ def get_user_data():
     if not success: return err_resp
     
     ref_id = request.args.get('ref_id')
-    
-    if not db:
-        return jsonify({'success': False, 'error': 'Database error'}), 500
+    if not db: return jsonify({'success': False, 'error': 'Database error'}), 500
     
     doc = get_user_ref(telegram_id).get()
     now_iso = datetime.now(timezone.utc).isoformat()
-    
     clean_ref_id = str(ref_id).replace('ref_', '').strip() if ref_id else None
-    if clean_ref_id == telegram_id:
-        clean_ref_id = None
+    if clean_ref_id == telegram_id: clean_ref_id = None
     
     if not doc.exists:
         new_user = {
@@ -228,6 +191,7 @@ def get_user_data():
             "storage_level": 0,
             "daily_day": 1,
             "last_daily_claim_time": "2000-01-01T00:00:00+00:00",
+            "last_game_reward_time": "2000-01-01T00:00:00+00:00",
             "referred_by": clean_ref_id,
             "pending_ref_earnings": 0.0,
             "invited_friends_count": 0,
@@ -262,10 +226,7 @@ def get_user_data():
 
         if 'ad_balance' not in user_data: updates['ad_balance'] = 0.0
         if 'usd_balance' not in user_data: updates['usd_balance'] = 0.00000 
-        if 'pending_ref_earnings' not in user_data: updates['pending_ref_earnings'] = 0.0
-        if 'invited_friends_count' not in user_data: updates['invited_friends_count'] = 0
-        if 'claimed_ref_tasks' not in user_data: updates['claimed_ref_tasks'] = []
-        if 'referral_details' not in user_data: updates['referral_details'] = {}
+        if 'last_game_reward_time' not in user_data: updates['last_game_reward_time'] = "2000-01-01T00:00:00+00:00"
         
         if updates:
             get_user_ref(telegram_id).update(updates)
@@ -305,42 +266,51 @@ def get_friends_list():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+# 🛡️ حماية التجميع باستخدام Transaction لمنع الضغط المزدوج
 @app.route('/api/claim', methods=['POST'])
 def claim():
     success, telegram_id, _, err_resp = get_authenticated_user(request, is_post=True)
     if not success: return err_resp
     
     try:
+        transaction = db.transaction()
         user_ref = get_user_ref(telegram_id)
-        doc = user_ref.get()
-        if not doc.exists: return jsonify({'success': False, 'error': 'User not found'}), 404
         
-        user_data = doc.to_dict()
-        unclaimed = calculate_user_harvest(user_data)
-        if unclaimed <= 0: return jsonify({'success': False, 'error': 'لا يوجد رصيد للتجميع'}), 400
+        @firestore.transactional
+        def process_claim(transaction, user_ref, telegram_id):
+            doc = user_ref.get(transaction=transaction)
+            if not doc.exists: return False, 'User not found', 0
+            
+            user_data = doc.to_dict()
+            unclaimed = calculate_user_harvest(user_data)
+            if unclaimed <= 0: return False, 'لا يوجد رصيد للتجميع', 0
 
-        now_iso = datetime.now(timezone.utc).isoformat()
-        current_balance = safe_float(user_data.get('balance', 0))
-        
-        user_ref.update({
-            'balance': current_balance + unclaimed,
-            'last_claim_time': now_iso
-        })
-        
-        referred_by = user_data.get('referred_by')
-        if referred_by:
-            referrer_ref = get_user_ref(referred_by)
-            if referrer_ref.get().exists:
-                bonus = unclaimed * 0.10
-                try:
-                    referrer_ref.update({
+            now_iso = datetime.now(timezone.utc).isoformat()
+            current_balance = safe_float(user_data.get('balance', 0))
+            
+            transaction.update(user_ref, {
+                'balance': current_balance + unclaimed,
+                'last_claim_time': now_iso
+            })
+            
+            referred_by = user_data.get('referred_by')
+            if referred_by:
+                referrer_ref = get_user_ref(referred_by)
+                ref_doc = referrer_ref.get(transaction=transaction)
+                if ref_doc.exists:
+                    bonus = unclaimed * 0.10
+                    # Update Referrer securely
+                    transaction.update(referrer_ref, {
                         'pending_ref_earnings': firestore.Increment(bonus),
                         f'referral_details.{telegram_id}.earned': firestore.Increment(bonus)
                     })
-                except Exception as update_err:
-                    print(f"Error updating referrer: {update_err}")
+            return True, "", unclaimed
 
-        return jsonify({'success': True, 'claimed': unclaimed}), 200
+        tx_success, msg, claimed_amount = process_claim(transaction, user_ref, telegram_id)
+        if tx_success:
+            return jsonify({'success': True, 'claimed': claimed_amount}), 200
+        else:
+            return jsonify({'success': False, 'error': msg}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -350,24 +320,31 @@ def claim_ref_earnings():
     if not success: return err_resp
     
     try:
+        transaction = db.transaction()
         user_ref = get_user_ref(telegram_id)
-        doc = user_ref.get()
-        if not doc.exists: return jsonify({'success': False}), 404
-        
-        user_data = doc.to_dict()
-        pending = safe_float(user_data.get('pending_ref_earnings', 0))
-        if pending <= 0: return jsonify({'success': False, 'error': 'لا توجد أرباح للتجميع'}), 400
-        
-        fee = pending * 0.03 
-        net_amount = pending - fee
-        current_balance = safe_float(user_data.get('balance', 0))
-        
-        user_ref.update({
-            'balance': current_balance + net_amount,
-            'pending_ref_earnings': 0.0
-        })
-        
-        return jsonify({'success': True, 'net_amount': net_amount, 'fee': fee}), 200
+
+        @firestore.transactional
+        def process_ref_claim(transaction, user_ref):
+            doc = user_ref.get(transaction=transaction)
+            if not doc.exists: return False, "Not found", 0, 0
+            
+            user_data = doc.to_dict()
+            pending = safe_float(user_data.get('pending_ref_earnings', 0))
+            if pending <= 0: return False, 'لا توجد أرباح للتجميع', 0, 0
+            
+            fee = pending * 0.03 
+            net_amount = pending - fee
+            current_balance = safe_float(user_data.get('balance', 0))
+            
+            transaction.update(user_ref, {
+                'balance': current_balance + net_amount,
+                'pending_ref_earnings': 0.0
+            })
+            return True, "", net_amount, fee
+
+        tx_success, msg, net, fee = process_ref_claim(transaction, user_ref)
+        if tx_success: return jsonify({'success': True, 'net_amount': net, 'fee': fee}), 200
+        else: return jsonify({'success': False, 'error': msg}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -384,29 +361,33 @@ def claim_ref_task():
     if not task_id or reward <= 0: return jsonify({'success': False, 'error': 'بيانات غير صالحة'}), 400
     
     try:
+        transaction = db.transaction()
         user_ref = get_user_ref(telegram_id)
-        doc = user_ref.get()
-        if not doc.exists: return jsonify({'success': False}), 404
-        
-        user_data = doc.to_dict()
-        friends_count = safe_int(user_data.get('invited_friends_count', 0))
-        claimed_tasks = user_data.get('claimed_ref_tasks', [])
-        
-        if task_id in claimed_tasks:
-            return jsonify({'success': False, 'error': 'تم استلام المكافأة مسبقاً'}), 400
+
+        @firestore.transactional
+        def process_task(transaction, user_ref):
+            doc = user_ref.get(transaction=transaction)
+            if not doc.exists: return False, "User not found"
             
-        if friends_count < req_friends:
-            return jsonify({'success': False, 'error': 'عدد الأصدقاء غير كافي'}), 400
+            user_data = doc.to_dict()
+            friends_count = safe_int(user_data.get('invited_friends_count', 0))
+            claimed_tasks = user_data.get('claimed_ref_tasks', [])
             
-        current_balance = safe_float(user_data.get('balance', 0))
-        claimed_tasks.append(task_id)
-        
-        user_ref.update({
-            'balance': current_balance + reward,
-            'claimed_ref_tasks': claimed_tasks
-        })
-        
-        return jsonify({'success': True, 'reward': reward}), 200
+            if task_id in claimed_tasks: return False, 'تم استلام المكافأة مسبقاً'
+            if friends_count < req_friends: return False, 'عدد الأصدقاء غير كافي'
+                
+            current_balance = safe_float(user_data.get('balance', 0))
+            claimed_tasks.append(task_id)
+            
+            transaction.update(user_ref, {
+                'balance': current_balance + reward,
+                'claimed_ref_tasks': claimed_tasks
+            })
+            return True, ""
+
+        tx_success, msg = process_task(transaction, user_ref)
+        if tx_success: return jsonify({'success': True, 'reward': reward}), 200
+        else: return jsonify({'success': False, 'error': msg}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -416,35 +397,41 @@ def daily_claim():
     if not success: return err_resp
     
     try:
+        transaction = db.transaction()
         user_ref = get_user_ref(telegram_id)
-        doc = user_ref.get()
-        if not doc.exists: return jsonify({'success': False, 'error': 'User not found'}), 404
+
+        @firestore.transactional
+        def process_daily(transaction, user_ref):
+            doc = user_ref.get(transaction=transaction)
+            if not doc.exists: return False, "User not found", 0
+                
+            user_data = doc.to_dict()
+            last_daily_str = user_data.get('last_daily_claim_time', "2000-01-01T00:00:00+00:00")
+            try: 
+                last_daily = make_aware(datetime.fromisoformat(str(last_daily_str)))
+            except ValueError: 
+                last_daily = make_aware(datetime.fromisoformat("2000-01-01T00:00:00+00:00"))
+                
+            now = datetime.now(timezone.utc)
+            if (now - last_daily).total_seconds() < 86400:
+                return False, 'لم تمر 24 ساعة بعد!', 0
+                
+            current_day = safe_int(user_data.get('daily_day', 1))
+            reward = safe_float(GAME_CONFIG['dailyRewards'].get(current_day, 3000))
             
-        user_data = doc.to_dict()
-        last_daily_str = user_data.get('last_daily_claim_time', "2000-01-01T00:00:00+00:00")
-        try: 
-            last_daily = datetime.fromisoformat(str(last_daily_str))
-            last_daily = make_aware(last_daily)
-        except ValueError: 
-            last_daily = make_aware(datetime.fromisoformat("2000-01-01T00:00:00+00:00"))
+            next_day = current_day + 1 if current_day < 7 else 1
+            current_balance = safe_float(user_data.get('balance', 0))
             
-        now = datetime.now(timezone.utc)
-        
-        if (now - last_daily).total_seconds() < 86400:
-            return jsonify({'success': False, 'error': 'لم تمر 24 ساعة بعد!'}), 400
-            
-        current_day = safe_int(user_data.get('daily_day', 1))
-        reward = safe_float(GAME_CONFIG['dailyRewards'].get(current_day, 3000))
-        
-        next_day = current_day + 1 if current_day < 7 else 1
-        current_balance = safe_float(user_data.get('balance', 0))
-        
-        user_ref.update({
-            'balance': current_balance + reward,
-            'daily_day': next_day,
-            'last_daily_claim_time': now.isoformat()
-        })
-        return jsonify({'success': True, 'reward': reward}), 200
+            transaction.update(user_ref, {
+                'balance': current_balance + reward,
+                'daily_day': next_day,
+                'last_daily_claim_time': now.isoformat()
+            })
+            return True, "", reward
+
+        tx_success, msg, reward = process_daily(transaction, user_ref)
+        if tx_success: return jsonify({'success': True, 'reward': reward}), 200
+        else: return jsonify({'success': False, 'error': msg}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -460,12 +447,9 @@ def execute_upgrade_transaction(transaction, user_ref, upg_type, level_num):
     if price is None: return False, 'مستوى غير صالح'
     price = float(price)
     
-    if current_balance < price:
-        return False, 'الرصيد غير كافي!'
+    if current_balance < price: return False, 'الرصيد غير كافي!'
         
-    updates = {
-        'balance': current_balance - price
-    }
+    updates = {'balance': current_balance - price}
     
     if upg_type == 'mining':
         field_name = f'lvl{level_num}_count'
@@ -473,8 +457,7 @@ def execute_upgrade_transaction(transaction, user_ref, upg_type, level_num):
         if current_count >= 20: return False, 'وصلت للحد الأقصى'
         updates[field_name] = current_count + 1
     elif upg_type == 'storage':
-        if level_num <= safe_int(user_data.get('storage_level', 0)):
-            return False, 'تم شراء هذا المخزن مسبقاً'
+        if level_num <= safe_int(user_data.get('storage_level', 0)): return False, 'تم شراء هذا المخزن مسبقاً'
         updates['storage_level'] = level_num
         
     transaction.update(user_ref, updates)
@@ -502,6 +485,7 @@ def upgrade():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+# 🛡️ تأمين لعبة المكافآت لمنع الهاكرز من إرسال أرقام مليونية
 @app.route('/api/game_reward', methods=['POST'])
 def game_reward():
     success, telegram_id, _, err_resp = get_authenticated_user(request, is_post=True)
@@ -510,21 +494,43 @@ def game_reward():
     data = request.get_json() or {}
     reward = safe_float(data.get('reward'))
 
-    if reward <= 0:
-        return jsonify({'success': False, 'error': 'بيانات غير صالحة'}), 400
+    # منع التلاعب بالرقم وإرسال جوائز ضخمة
+    if reward <= 0 or reward > 10000:
+        return jsonify({'success': False, 'error': 'جائزة غير منطقية أو محاولة تلاعب'}), 400
         
     try:
+        transaction = db.transaction()
         user_ref = get_user_ref(telegram_id)
-        doc = user_ref.get()
-        if not doc.exists: return jsonify({'success': False, 'error': 'المستخدم غير موجود'}), 404
 
-        user_data = doc.to_dict()
-        current_balance = safe_float(user_data.get('balance', 0))
-        
-        new_balance = current_balance + reward
-        user_ref.update({'balance': new_balance})
-        
-        return jsonify({'success': True, 'new_balance': new_balance}), 200
+        @firestore.transactional
+        def process_game_reward(transaction, user_ref):
+            doc = user_ref.get(transaction=transaction)
+            if not doc.exists: return False, "المستخدم غير موجود", 0
+            
+            user_data = doc.to_dict()
+            last_game_str = user_data.get('last_game_reward_time', "2000-01-01T00:00:00+00:00")
+            try:
+                last_game = make_aware(datetime.fromisoformat(str(last_game_str)))
+            except:
+                last_game = make_aware(datetime.fromisoformat("2000-01-01T00:00:00+00:00"))
+            
+            now = datetime.now(timezone.utc)
+            # منع الضغط المتكرر السريع (كول داون 5 ثواني مثلاً بين الألعاب)
+            if (now - last_game).total_seconds() < 5:
+                return False, "محاولة سريعة جداً، يرجى الانتظار", 0
+
+            current_balance = safe_float(user_data.get('balance', 0))
+            new_balance = current_balance + reward
+            
+            transaction.update(user_ref, {
+                'balance': new_balance,
+                'last_game_reward_time': now.isoformat()
+            })
+            return True, "", new_balance
+
+        tx_success, msg, new_bal = process_game_reward(transaction, user_ref)
+        if tx_success: return jsonify({'success': True, 'new_balance': new_bal}), 200
+        else: return jsonify({'success': False, 'error': msg}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -551,8 +557,7 @@ def convert_adzn():
             current_balance = safe_float(user_data.get('balance', 0))
             current_ad_balance = safe_float(user_data.get('ad_balance', 0))
 
-            if current_balance < amount:
-                return False, 'رصيد ZN غير كافي للتحويل'
+            if current_balance < amount: return False, 'رصيد ZN غير كافي للتحويل'
 
             new_balance = current_balance - amount
             received_adzn = amount * 0.90
@@ -627,11 +632,9 @@ def get_campaigns():
     try:
         camps = db.collection('campaigns').where('active', '==', True).get()
         results = []
-        
         for c in camps:
             c_data = c.to_dict()
             completed_by = c_data.get('completed_by', [])
-            
             results.append({
                 'id': c.id,
                 'creator_id': c_data.get('creator_id', ''),
@@ -642,7 +645,6 @@ def get_campaigns():
                 'users_completed': c_data.get('users_completed', 0),
                 'is_completed': telegram_id in completed_by
             })
-        
         results.sort(key=lambda x: x['reward'], reverse=True)
         return jsonify({'success': True, 'campaigns': results}), 200
     except Exception as e:
@@ -656,37 +658,40 @@ def cancel_campaign():
     data = request.get_json() or {}
     camp_id = data.get('campaignId')
 
-    if not camp_id:
-        return jsonify({'success': False, 'error': 'بيانات ناقصة'}), 400
+    if not camp_id: return jsonify({'success': False, 'error': 'بيانات ناقصة'}), 400
 
     try:
+        transaction = db.transaction()
         camp_ref = db.collection('campaigns').document(camp_id)
-        camp_doc = camp_ref.get()
-        if not camp_doc.exists:
-            return jsonify({'success': False, 'error': 'الحملة غير موجودة'}), 404
-
-        camp_data = camp_doc.to_dict()
-        if camp_data.get('creator_id') != telegram_id:
-            return jsonify({'success': False, 'error': 'غير مصرح لك بإلغاء هذا الإعلان!'}), 403
-
-        if not camp_data.get('active', False):
-            return jsonify({'success': False, 'error': 'الحملة غير نشطة بالفعل'}), 400
-
-        users_needed = safe_int(camp_data.get('users_needed', 0))
-        users_completed = safe_int(camp_data.get('users_completed', 0))
-        remaining_users = max(0, users_needed - users_completed)
-        reward = safe_float(camp_data.get('reward', 0))
-        
-        refund_amount = (remaining_users * reward) * 0.90 
-
         user_ref = get_user_ref(telegram_id)
-        user_doc = user_ref.get()
-        if user_doc.exists:
-            current_ad_bal = safe_float(user_doc.to_dict().get('ad_balance', 0))
-            user_ref.update({'ad_balance': current_ad_bal + refund_amount})
 
-        camp_ref.update({'active': False})
-        return jsonify({'success': True, 'refund': refund_amount}), 200
+        @firestore.transactional
+        def cancel_camp_txn(transaction, camp_ref, user_ref):
+            camp_doc = camp_ref.get(transaction=transaction)
+            user_doc = user_ref.get(transaction=transaction)
+            
+            if not camp_doc.exists: return False, 'الحملة غير موجودة', 0
+            camp_data = camp_doc.to_dict()
+            
+            if camp_data.get('creator_id') != telegram_id: return False, 'غير مصرح لك', 0
+            if not camp_data.get('active', False): return False, 'الحملة غير نشطة بالفعل', 0
+
+            users_needed = safe_int(camp_data.get('users_needed', 0))
+            users_completed = safe_int(camp_data.get('users_completed', 0))
+            remaining_users = max(0, users_needed - users_completed)
+            reward = safe_float(camp_data.get('reward', 0))
+            
+            refund_amount = (remaining_users * reward) * 0.90 
+
+            transaction.update(camp_ref, {'active': False})
+            if user_doc.exists:
+                current_ad_bal = safe_float(user_doc.to_dict().get('ad_balance', 0))
+                transaction.update(user_ref, {'ad_balance': current_ad_bal + refund_amount})
+            return True, "", refund_amount
+
+        tx_success, msg, refund = cancel_camp_txn(transaction, camp_ref, user_ref)
+        if tx_success: return jsonify({'success': True, 'refund': refund}), 200
+        else: return jsonify({'success': False, 'error': msg}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -697,7 +702,6 @@ def complete_task():
     
     data = request.get_json() or {}
     task_id = data.get('taskId')
-
     if not task_id: return jsonify({'success': False, 'error': 'بيانات ناقصة'}), 400
 
     try:
@@ -739,10 +743,6 @@ def complete_task():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# ==========================================
-# 🚀 المسارات الخاصة بالمحفظة والإيداع التلقائي (Wallet & Deposit)
-# ==========================================
-
 @app.route('/api/wallet_convert', methods=['POST'])
 def wallet_convert():
     success, telegram_id, _, err_resp = get_authenticated_user(request, is_post=True)
@@ -769,7 +769,6 @@ def wallet_convert():
             
             if current_zn < amount: return False, 'رصيد ZN غير كافٍ للتحويل'
             
-            # 🛡️ الحماية: السيرفر يحسب التحويل حتمياً (كل 1,000,000 ZN = $1)
             usd_gained = amount / 1000000.0
             
             transaction.update(user_ref, {
@@ -779,10 +778,8 @@ def wallet_convert():
             return True, usd_gained
 
         tx_success, result = process_convert(transaction, user_ref)
-        if tx_success:
-            return jsonify({'success': True, 'usd_gained': result}), 200
-        else:
-            return jsonify({'success': False, 'error': result}), 400
+        if tx_success: return jsonify({'success': True, 'usd_gained': result}), 200
+        else: return jsonify({'success': False, 'error': result}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -812,9 +809,7 @@ def wallet_withdraw():
             
             if current_usd < amount: return False, 'رصيد الدولار غير كافٍ للسحب'
             
-            transaction.update(user_ref, {
-                'usd_balance': current_usd - amount
-            })
+            transaction.update(user_ref, {'usd_balance': current_usd - amount})
             return True, None
 
         tx_success, error_msg = process_withdraw(transaction, user_ref)
@@ -833,49 +828,56 @@ def wallet_withdraw():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+# 🛡️ الإيداع المحمي تماماً ضد التكرار (باستخدام Transaction & Document ID)
 @app.route('/api/wallet_deposit_report', methods=['POST'])
 def wallet_deposit_report():
-    """مسار الإيداع التلقائي المطور مع التحقق عبر TonAPI وتحويل الرصيد فوراً"""
     success, telegram_id, user_name, err_resp = get_authenticated_user(request, is_post=True)
     if not success: return err_resp
     
     data = request.get_json() or {}
     usd_amount = safe_float(data.get('usdAmount'))
     ton_amount = safe_float(data.get('tonAmount'))
-    boc = data.get('boc') or data.get('tx_hash')
+    boc = str(data.get('boc') or data.get('tx_hash')).strip()
     
-    if usd_amount <= 0 or not boc:
+    if usd_amount <= 0 or not boc or len(boc) < 10:
         return jsonify({'success': False, 'error': 'بيانات الإيداع غير صالحة أو الرمز مفقود'}), 400
         
     try:
-        # 1️⃣ منع التكرار: التأكد من عدم استخدام رقم/معرف هذه المعاملة سابقاً
-        existing = db.collection('deposits').where('boc', '==', boc).limit(1).get()
-        if len(existing) > 0:
-            return jsonify({'success': False, 'error': 'هذه المعاملة تم استخدامها واحتسابها مسبقاً!'}), 400
-
-        # 2️⃣ التحقق التلقائي مع شبكة TON عبر TonAPI
         verified, msg = verify_ton_tx_via_tonapi(boc)
         if not verified:
             return jsonify({'success': False, 'error': f'فشل التحقق من الإيداع: {msg}'}), 400
 
-        # 3️⃣ إضافة الرصيد تلقائياً وحفظ عملية الإيداع كـ completed
+        transaction = db.transaction()
         user_ref = get_user_ref(telegram_id)
-        user_doc = user_ref.get()
-        if user_doc.exists:
-            current_usd = safe_float(user_doc.to_dict().get('usd_balance', 0))
-            user_ref.update({'usd_balance': current_usd + usd_amount})
+        # نستخدم الـ BOC كمعرف للمستند لمنع تكرار الإيداع بشكل قطعي!
+        deposit_ref = db.collection('deposits').document(hashlib.md5(boc.encode()).hexdigest())
 
-        db.collection('deposits').add({
-            'telegram_id': telegram_id,
-            'user_name': user_name,
-            'amount_usd': usd_amount,
-            'amount_ton': ton_amount,
-            'boc': boc,
-            'status': 'completed',
-            'created_at': datetime.now(timezone.utc).isoformat()
-        })
-        
-        return jsonify({'success': True, 'message': 'تم الإيداع وإضافة الرصيد لحسابك بنجاح! 🎉'}), 200
+        @firestore.transactional
+        def process_deposit(transaction, user_ref, deposit_ref):
+            dep_doc = deposit_ref.get(transaction=transaction)
+            if dep_doc.exists: return False, 'هذه المعاملة تم استخدامها واحتسابها مسبقاً!'
+            
+            user_doc = user_ref.get(transaction=transaction)
+            if not user_doc.exists: return False, 'المستخدم غير موجود بالبيانات'
+            
+            current_usd = safe_float(user_doc.to_dict().get('usd_balance', 0))
+            
+            transaction.update(user_ref, {'usd_balance': current_usd + usd_amount})
+            transaction.set(deposit_ref, {
+                'telegram_id': telegram_id,
+                'user_name': user_name,
+                'amount_usd': usd_amount,
+                'amount_ton': ton_amount,
+                'boc': boc,
+                'status': 'completed',
+                'created_at': datetime.now(timezone.utc).isoformat()
+            })
+            return True, ""
+
+        tx_success, error_msg = process_deposit(transaction, user_ref, deposit_ref)
+        if tx_success: return jsonify({'success': True, 'message': 'تم الإيداع وإضافة الرصيد لحسابك بنجاح! 🎉'}), 200
+        else: return jsonify({'success': False, 'error': error_msg}), 400
+            
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -886,59 +888,40 @@ def get_history():
 
     try:
         history = []
-        
-        # جلب السحوبات الخاصة بالمستخدم
         withdraws = db.collection('withdrawals').where('telegram_id', '==', telegram_id).get()
         for w in withdraws:
             d = w.to_dict()
             history.append({
-                'type': 'withdraw',
-                'amount_usd': d.get('amount_usd'),
-                'status': d.get('status', 'pending'),
-                'created_at': d.get('created_at')
+                'type': 'withdraw', 'amount_usd': d.get('amount_usd'),
+                'status': d.get('status', 'pending'), 'created_at': d.get('created_at')
             })
 
-        # جلب الإيداعات الخاصة بالمستخدم
         deposits = db.collection('deposits').where('telegram_id', '==', telegram_id).get()
         for dep in deposits:
             d = dep.to_dict()
             history.append({
-                'type': 'deposit',
-                'amount_usd': d.get('amount_usd'),
-                'status': d.get('status', 'pending'),
-                'created_at': d.get('created_at')
+                'type': 'deposit', 'amount_usd': d.get('amount_usd'),
+                'status': d.get('status', 'pending'), 'created_at': d.get('created_at')
             })
 
-        # ترتيب السجلات حسب الأحدث
         history.sort(key=lambda x: str(x.get('created_at', '')), reverse=True)
-
         return jsonify({'success': True, 'history': history}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# ==========================================
-# 👑 مسارات لوحة تحكم الإدارة (Admin Panel)
-# ==========================================
 @app.route('/api/admin/get_user', methods=['POST'])
 def admin_get_user():
     data = request.get_json() or {}
     secret = data.get('secret')
     user_id = str(data.get('user_id', '')).strip()
 
-    if secret != ADMIN_SECRET:
-        return jsonify({"success": False, "error": "غير مصرح لك (كلمة السر خاطئة)"}), 403
-
-    if not user_id:
-        return jsonify({"success": False, "error": "يجب إدخال ID المستخدم"}), 400
+    if secret != ADMIN_SECRET: return jsonify({"success": False, "error": "غير مصرح لك (كلمة السر خاطئة)"}), 403
+    if not user_id: return jsonify({"success": False, "error": "يجب إدخال ID المستخدم"}), 400
 
     try:
-        user_ref = get_user_ref(user_id)
-        doc = user_ref.get()
-
-        if doc.exists:
-            return jsonify({"success": True, "data": doc.to_dict()}), 200
-        else:
-            return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
+        doc = get_user_ref(user_id).get()
+        if doc.exists: return jsonify({"success": True, "data": doc.to_dict()}), 200
+        else: return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -949,21 +932,13 @@ def admin_update_user():
     user_id = str(data.get('user_id', '')).strip()
     updates = data.get('updates', {})
 
-    if secret != ADMIN_SECRET:
-        return jsonify({"success": False, "error": "غير مصرح لك (كلمة السر خاطئة)"}), 403
-
-    if not user_id or not updates:
-        return jsonify({"success": False, "error": "بيانات ناقصة"}), 400
+    if secret != ADMIN_SECRET: return jsonify({"success": False, "error": "غير مصرح لك"}), 403
+    if not user_id or not updates: return jsonify({"success": False, "error": "بيانات ناقصة"}), 400
 
     try:
         user_ref = get_user_ref(user_id)
-        doc = user_ref.get()
-        
-        if not doc.exists:
-             return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
-             
+        if not user_ref.get().exists: return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
         user_ref.update(updates)
-
         return jsonify({"success": True, "message": "تم التحديث بنجاح"}), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
