@@ -247,49 +247,33 @@
         }
     }, 1000);
 
-    // 📢 دالة تشغيل إعلان Monetag بالانتظار الذكي (تضمن فتح الإعلان فور جهوزه)
+    // 📢 دالة تشغيل إعلان Monetag بالانتظار الذكي
     function showTelegramAd(statusCallback) {
         return new Promise((resolve) => {
-            let attempts = 0;
-            const maxAttempts = 15; // محاولة الانتظار لمدة تصل إلى 7.5 ثانية
-
-            function tryTriggerAd() {
-                if (typeof window.show_11322720 === 'function') {
-                    if (statusCallback) statusCallback("جارٍ فتح الإعلان...");
-                    window.show_11322720().then(() => {
-                        resolve(true); // مشاهدة الإعلان بنجاح
-                    }).catch((error) => {
-                        console.warn("الإعلان أغلقه المستخدم أو حدث خطأ:", error);
-                        resolve(false);
-                    });
-                } else {
-                    attempts++;
-                    if (attempts < maxAttempts) {
-                        if (statusCallback) statusCallback(`جاري تحميل الإعلان (${attempts})... ⏳`);
-                        setTimeout(tryTriggerAd, 500); // إعادة المحاولة كل نصف ثانية
+            // التحقق مما إذا كان سكربت الإعلانات قد تم تحميله بنجاح
+            if (typeof window.show_11322720 === 'function') {
+                
+                if (statusCallback) statusCallback("جارٍ فتح الإعلان... ⏳");
+                
+                // استدعاء الإعلان
+                window.show_11322720().then(() => {
+                    // تم مشاهدة الإعلان بالكامل - يتم إرجاع true لإعطاء المكافأة
+                    resolve(true);
+                }).catch((error) => {
+                    // المستخدم أغلق الإعلان قبل انتهائه أو حدث خطأ
+                    console.warn("تم إغلاق الإعلان أو حدث خطأ:", error);
+                    let msg = "⚠️ لم تقم بمشاهدة الإعلان للنهاية، لذلك لم يتم منح المكافأة.";
+                    if (window.Telegram && window.Telegram.WebApp) {
+                        window.Telegram.WebApp.showAlert(msg);
                     } else {
-                        // لو السكريبت لم يتم تحميله نهائياً، نقوم بحقنه مجدداً مباشرة
-                        if (statusCallback) statusCallback("إعادة تحميل شبكة الإعلانات...");
-                        let script = document.createElement('script');
-                        script.src = "https://alwingulla.com/88/tag.min.js";
-                        script.dataset.zone = "11322720";
-                        script.onload = () => {
-                            setTimeout(() => {
-                                if (typeof window.show_11322720 === 'function') {
-                                    window.show_11322720().then(() => resolve(true)).catch(() => resolve(false));
-                                } else {
-                                    alertNoAd();
-                                }
-                            }, 1000);
-                        };
-                        script.onerror = () => alertNoAd();
-                        document.head.appendChild(script);
+                        alert(msg);
                     }
-                }
-            }
+                    resolve(false); // إرجاع false لمنع إعطاء المكافأة
+                });
 
-            function alertNoAd() {
-                let msg = "⚠️ عذراً، تعذر الاتصال بشبكة الإعلانات. تأكد من اتصال الإنترنت لديك أو أعد محاولة الضغط مرة أخرى.";
+            } else {
+                // في حال كان المستخدم يستخدم مانع إعلانات (AdBlocker) أو ضعف الإنترنت
+                let msg = "⚠️ عذراً، تعذر تحميل الإعلان. يرجى إيقاف مانع الإعلانات (Ad Blocker) والمحاولة مرة أخرى.";
                 if (window.Telegram && window.Telegram.WebApp) {
                     window.Telegram.WebApp.showAlert(msg);
                 } else {
@@ -297,8 +281,6 @@
                 }
                 resolve(false);
             }
-
-            tryTriggerAd();
         });
     }
 
