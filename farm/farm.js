@@ -1,18 +1,16 @@
 (function initFarm() {
     
-    // 🟢 تم إزالة شاشة الحظر الحمراء بالكامل للسماح للمتصفحات بالدخول 🟢
-    // جلب بيانات تليجرام إذا كانت متاحة، أو تركها فارغة للمتصفح
     const INIT_DATA = (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) ? window.Telegram.WebApp.initData : "";
 
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 15,
         dailyRewards: [
-            3000, 4000, 5000, 6000, 7500,          // 1 - 5
-            10000, 12000, 15000, 18000, 20000,     // 6 - 10
-            25000, 30000, 35000, 40000, 50000,     // 11 - 15
-            60000, 70000, 80000, 90000, 100000,    // 16 - 20
-            120000, 150000, 180000, 220000, 250000,// 21 - 25
-            300000, 400000, 500000, 750000, 1000000// 26 - 30
+            3000, 4000, 5000, 6000, 7500,          
+            10000, 12000, 15000, 18000, 20000,     
+            25000, 30000, 35000, 40000, 50000,     
+            60000, 70000, 80000, 90000, 100000,    
+            120000, 150000, 180000, 220000, 250000,
+            300000, 400000, 500000, 750000, 1000000
         ],
         capacities: {0: 10000, 1: 20000, 2: 30000, 3: 50000, 4: 100000, 5: 200000, 6: 500000, 7: 1000000, 8: 2500000, 9: 5000000, 10: 10000000},
         miningRates: {1: 100, 2: 500, 3: 1500, 4: 4000, 5: 10000, 6: 25000, 7: 60000, 8: 150000, 9: 500000} 
@@ -21,25 +19,21 @@
     let claimCooldown = 0; 
     let isClaimingDaily = false;
 
-    // دالة الاتصال الحقيقي بالسيرفر وجلب بيانات اللاعب
     window.fetchPlayerDataFromServer = async function() {
-        // 🛡️ لو فتح من المتصفح (مفيش تليجرام)، نحط بيانات وهمية للمراجع
         if (!INIT_DATA) {
-            console.log("وضع المتصفح: تحميل بيانات مزرعة وهمية للمعاينة.");
             window.PlayerData = {
                 balance: 5000,
                 hourly_rate: 1500,
                 unclaimed: 2500,
                 max_cap: 30000,
-                upgrades: {lvl1: 5, lvl2: 1}, // شوية كروت مفتوحة للمنظر
+                upgrades: {lvl1: 5, lvl2: 1}, 
                 daily_day: 3,
-                last_daily_claim_time: Date.now() - (48 * 60 * 60 * 1000) // عشان الزرار يبان متاح
+                last_daily_claim_time: Date.now() - (48 * 60 * 60 * 1000) 
             };
             window.updateFarmUI();
-            return; // نوقف الدالة هنا عشان متبعتش للسيرفر
+            return; 
         }
 
-        // الاتصال الحقيقي للسيرفر لو المستخدم من تليجرام
         try {
             let response = await fetch('/api/farm/player_data', {
                 method: 'POST',
@@ -89,7 +83,6 @@
             storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
         }
         
-        // رسم الـ 9 كروت
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
             let fieldsHTML = '';
@@ -199,7 +192,6 @@
         container.innerHTML = html;
     }
 
-    // تحديث الواجهة التلقائي كل ثانية
     setInterval(() => {
         const pData = window.PlayerData;
         if (!pData) return;
@@ -268,31 +260,20 @@
         }
     }, 1000);
 
-    // 📢 دالة عرض إعلان OnClickA
+    // 🟢 التعديل الجذري هنا ليتوافق مع سكربت OnClickA التلقائي 🟢
     function showTelegramAd() {
         return new Promise((resolve) => {
-            try {
-                // عند ضغط المستخدم على الزر، تقوم مكتبة OnClickA تلقائياً بإظهار الإعلان (Popunder / In-Page Push / Interstitial)
-                if (typeof window.show_onclicka_ad === 'function') {
-                    window.show_onclicka_ad()
-                        .then(() => resolve(true))
-                        .catch(() => resolve(true));
-                } else {
-                    // فتح التجميع مباشرة وتوليد الضغطة الإعلانية لـ OnClickA
-                    resolve(true);
-                }
-            } catch (err) {
-                console.error("خطأ في تشغيل إعلان OnClickA:", err);
-                resolve(true);
-            }
+            // سكربت OnClickA يفتح تلقائياً عند ضغط المستخدم.
+            // نؤخر التنفيذ قليلاً للسماح للإعلان بالظهور وتجنب تعليق الزرار نهائياً.
+            setTimeout(() => {
+                resolve(true); 
+            }, 1500); // تأخير ثانية ونص
         });
     }
 
-    // استلام الجائزة اليومية
     window.handleDailyClaim = async function(day) {
         if (isClaimingDaily) return;
         
-        // 🛡️ لو في المتصفح ندي له رسالة نجاح وهمية بدون ما نكلم السيرفر
         if (!INIT_DATA) {
             alert("وضع المعاينة: تم استلام المكافأة اليومية بنجاح! (لم يتم حفظ البيانات)");
             return;
@@ -306,6 +287,8 @@
         }
         
         isClaimingDaily = true;
+        
+        // هنا بيستدعي الفانكشن اللي اتعدلت عشان ما تعلقش
         const adWatched = await showTelegramAd();
         
         if (adWatched) {
@@ -352,12 +335,10 @@
         isClaimingDaily = false;
     };
 
-    // تجميع رصيد التعدين
     window.handleClaim = async function() {
         const pData = window.PlayerData;
         if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0) return;
         
-        // 🛡️ لو في المتصفح، تجميع وهمي بدون السيرفر
         if (!INIT_DATA) {
             alert("وضع المعاينة: تم التجميع بنجاح! (لم يتم الحفظ)");
             claimCooldown = 5;
@@ -405,7 +386,6 @@
         }
     };
 
-    // التشغيل الفوري عند تحضير الصفحة
     window.fetchPlayerData();
 
 })();
