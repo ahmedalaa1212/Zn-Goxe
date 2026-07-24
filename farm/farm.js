@@ -247,7 +247,6 @@
         }
     }, 1000);
 
-    // 📢 دالة تشغيل إعلان Monetag (مخصصة للتسجيل اليومي فقط)
     function showTelegramAd(statusCallback) {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
@@ -276,7 +275,6 @@
         });
     }
 
-    // التسجيل اليومي يستخدم إعلانات Monetag بأمان تام
     window.handleDailyClaim = async function(day) {
         if (isClaimingDaily) return;
         
@@ -342,7 +340,6 @@
         isClaimingDaily = false;
     };
 
-    // 📢 تجميع الرصيد المباشر والسلس (التجميع يتم فوراً في الخلفية مع كوول داون وبدون قفل الشاشة)
     window.handleClaim = async function() {
         const pData = window.PlayerData;
         if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0) return;
@@ -371,7 +368,7 @@
             let resData = await response.json();
             if (response.ok && resData.success) {
                 await window.fetchPlayerData(); 
-                claimCooldown = 5; // كوول داون 5 ثواني لمنع السامبينج
+                claimCooldown = 5; 
             } else {
                 if (claimBtn) {
                     claimBtn.disabled = false;
