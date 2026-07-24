@@ -6,8 +6,8 @@ from database import db
 
 farm_bp = Blueprint('farm', __name__)
 
-# جدول جوائز الـ 30 يوم
-DAILY_REWARDS = [
+# جدول جوائز الـ 30 يوم (الافتراضي) - سيتم رفعه للداتابيز تلقائياً
+DAILY_REWARDS_DEFAULT = [
     3000, 4000, 5000, 6000, 7500,          # 1 - 5
     10000, 12000, 15000, 18000, 20000,     # 6 - 10
     25000, 30000, 35000, 40000, 50000,     # 11 - 15
@@ -16,10 +16,25 @@ DAILY_REWARDS = [
     300000, 400000, 500000, 750000, 1000000# 26 - 30
 ]
 
+def get_game_settings():
+    """جلب إعدادات اللعبة من فايربيس (جوائز التسجيل اليومي) عشان تقدر تعدلها بعدين"""
+    try:
+        config_ref = db.collection('config').document('game_settings')
+        config_doc = config_ref.get()
+        if config_doc.exists:
+            data = config_doc.to_dict()
+            return data.get('daily_rewards', DAILY_REWARDS_DEFAULT)
+        else:
+            # إنشاء الإعدادات الافتراضية في الداتابيز لو مش موجودة
+            config_ref.set({'daily_rewards': DAILY_REWARDS_DEFAULT})
+            return DAILY_REWARDS_DEFAULT
+    except Exception as e:
+        print(f"Error fetching config: {e}")
+        return DAILY_REWARDS_DEFAULT
 
 @farm_bp.route('/player_data', methods=['GET', 'POST'])
 def get_player_data():
-    """جلب بيانات المزرعة وحساب التعدين الأوفلاين"""
+    """جلب بيانات المزرعة وحساب التعدين الأوفلاين وإرسال الإعدادات الديناميكية"""
     is_post = (request.method == 'POST')
     is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=is_post)
     if not is_auth:
@@ -40,11 +55,15 @@ def get_player_data():
                 "daily_day": 1,
                 "last_claim_time": now.isoformat(),
                 "last_daily_claim_time": None,
+                "ads_watched": 0,  # 🟢 تم إضافة حقل لتتبع عدد مشاهدات الإعلانات
                 "upgrades": {}
             }
             user_ref.set(user_data)
         else:
             user_data = user_doc.to_dict()
+            # تأمين وجود الحقل للمستخدمين القدامى
+            if "ads_watched" not in user_data:
+                user_data["ads_watched"] = 0
 
         # حساب التعدين الأوفلاين منذ آخر زيارة
         last_claim_str = user_data.get("last_claim_time")
@@ -72,8 +91,17 @@ def get_player_data():
             "unclaimed": unclaimed,
             "last_claim_time": now.isoformat()
         })
+        
+        # جلب أرقام الجوائز من الداتابيز لإرسالها للواجهة الأمامية
+        daily_rewards = get_game_settings()
 
-        return jsonify({"success": True, "player": user_data}), 200
+        return jsonify({
+            "success": True, 
+            "player": user_data,
+            "game_config": {
+                "daily_rewards": daily_rewards
+            }
+        }), 200
 
     except Exception as e:
         print(f"Player Data Error: {e}")
@@ -82,7 +110,7 @@ def get_player_data():
 
 @farm_bp.route('/claim', methods=['POST'])
 def claim_mined_tokens():
-    """تجميع رصيد التعدين وإضافته إلى المحفظة"""
+    """تجميع رصيد التعدين وإضافته إلى المحفظة وتحديث عدد الإعلانات"""
     is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
         return error_response
@@ -111,7 +139,6 @@ def claim_mined_tokens():
                 
                 seconds_passed = (now - last_claim).total_seconds()
                 
-                # 🛡️ نظام الحماية (Anti-Spam): منع التجميع السريع المتكرر (أقل من 10 ثوانٍ)
                 if seconds_passed < 10:
                     return jsonify({"success": False, "error": "يرجى الانتظار قليلاً قبل التجميع مرة أخرى."}), 429
                     
@@ -126,11 +153,15 @@ def claim_mined_tokens():
 
         current_balance = float(user_data.get("balance", 0.0))
         new_balance = current_balance + unclaimed
+        
+        # 🟢 زيادة عداد الإعلانات لأن التجميع لا يتم إلا بعد المشاهدة
+        ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
         user_ref.update({
             "balance": new_balance,
             "unclaimed": 0.0,
-            "last_claim_time": now.isoformat()
+            "last_claim_time": now.isoformat(),
+            "ads_watched": ads_watched # تحديث العداد
         })
 
         return jsonify({
@@ -146,7 +177,7 @@ def claim_mined_tokens():
 
 @farm_bp.route('/daily_claim', methods=['POST'])
 def daily_claim():
-    """استلام الجائزة اليومية"""
+    """استلام الجائزة اليومية وتحديث عداد الإعلانات بناءً على إعدادات الداتابيز"""
     is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
         return error_response
@@ -181,8 +212,15 @@ def daily_claim():
             except Exception as e:
                 print(f"Daily date parse error: {e}")
 
+        # 🟢 جلب الجوائز المحدثة من الداتابيز
+        daily_rewards = get_game_settings()
         reward_index = (current_day - 1) % 30
-        reward_amount = DAILY_REWARDS[reward_index]
+        
+        # التأكد من عدم حدوث خطأ لو المصفوفة اتعدلت خطأ في الفايربيس
+        if reward_index < len(daily_rewards):
+            reward_amount = daily_rewards[reward_index]
+        else:
+            reward_amount = DAILY_REWARDS_DEFAULT[reward_index % 30]
 
         current_balance = float(user_data.get("balance", 0.0))
         new_balance = current_balance + reward_amount
@@ -190,11 +228,15 @@ def daily_claim():
         next_day = current_day + 1
         if next_day > 30:
             next_day = 1
+            
+        # 🟢 زيادة عداد الإعلانات هنا أيضاً
+        ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
         user_ref.update({
             "balance": new_balance,
             "daily_day": next_day,
-            "last_daily_claim_time": now.isoformat()
+            "last_daily_claim_time": now.isoformat(),
+            "ads_watched": ads_watched # تحديث العداد
         })
 
         return jsonify({
