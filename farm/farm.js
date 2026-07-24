@@ -1,6 +1,15 @@
 (function initFarm() {
     
-    // 🟢 تم إزالة شاشة الحظر الحمراء بالكامل للسماح للمتصفحات بالدخول 🟢
+    // 🟢 زراعة كود إعلانات OnClickA تلقائياً 🟢
+    if (!document.querySelector('script[data-admpid="449058"]')) {
+        const adScript = document.createElement('script');
+        adScript.async = true;
+        adScript.src = "https://js.onclckmn.com/static/onclicka.js";
+        adScript.setAttribute("data-admpid", "449058");
+        document.head.appendChild(adScript);
+        console.log("تم تحميل إعلانات OnClickA بنجاح.");
+    }
+
     // جلب بيانات تليجرام إذا كانت متاحة، أو تركها فارغة للمتصفح
     const INIT_DATA = (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) ? window.Telegram.WebApp.initData : "";
 
@@ -23,7 +32,6 @@
 
     // دالة الاتصال الحقيقي بالسيرفر وجلب بيانات اللاعب
     window.fetchPlayerDataFromServer = async function() {
-        // 🛡️ لو فتح من المتصفح (مفيش تليجرام)، نحط بيانات وهمية للمراجع
         if (!INIT_DATA) {
             console.log("وضع المتصفح: تحميل بيانات مزرعة وهمية للمعاينة.");
             window.PlayerData = {
@@ -31,15 +39,14 @@
                 hourly_rate: 1500,
                 unclaimed: 2500,
                 max_cap: 30000,
-                upgrades: {lvl1: 5, lvl2: 1}, // شوية كروت مفتوحة للمنظر
+                upgrades: {lvl1: 5, lvl2: 1}, 
                 daily_day: 3,
-                last_daily_claim_time: Date.now() - (48 * 60 * 60 * 1000) // عشان الزرار يبان متاح
+                last_daily_claim_time: Date.now() - (48 * 60 * 60 * 1000) 
             };
             window.updateFarmUI();
-            return; // نوقف الدالة هنا عشان متبعتش للسيرفر
+            return; 
         }
 
-        // الاتصال الحقيقي للسيرفر لو المستخدم من تليجرام
         try {
             let response = await fetch('/api/farm/player_data', {
                 method: 'POST',
@@ -89,7 +96,6 @@
             storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
         }
         
-        // رسم الـ 9 كروت
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
             let fieldsHTML = '';
@@ -199,7 +205,6 @@
         container.innerHTML = html;
     }
 
-    // تحديث الواجهة التلقائي كل ثانية
     setInterval(() => {
         const pData = window.PlayerData;
         if (!pData) return;
@@ -268,27 +273,12 @@
         }
     }, 1000);
 
+    // 🟢 تم تعديل دالة الإعلانات لتتوافق مع نظام Popunder الخاص بـ OnClickA 🟢
     function showTelegramAd() {
         return new Promise((resolve) => {
-            if (typeof window.show_11322720 !== 'function') {
-                resolve(true); // الاستمرار حتى لو الإعلان مش متحمل للتجربة
-                return;
-            }
-
-            try {
-                window.show_11322720().then(() => {
-                    resolve(true); 
-                }).catch(() => {
-                    if (window.Telegram && window.Telegram.WebApp) {
-                        window.Telegram.WebApp.showAlert("⚠️ يجب مشاهدة الإعلان بالكامل للحصول على المكافأة!");
-                    } else {
-                        alert("⚠️ يجب مشاهدة الإعلان بالكامل للحصول على المكافأة!");
-                    }
-                    resolve(false); 
-                });
-            } catch (err) {
-                resolve(true);
-            }
+            // سكريبت OnClickA بيقوم بفتح نافذة منبثقة (Popunder) تلقائياً عند أول ضغطة من المستخدم.
+            // لذلك هنا بنعطي أمر بالموافقة الفورية (resolve) عشان يكمل عملية التجميع بالتزامن مع فتح الإعلان.
+            resolve(true); 
         });
     }
 
@@ -296,7 +286,6 @@
     window.handleDailyClaim = async function(day) {
         if (isClaimingDaily) return;
         
-        // 🛡️ لو في المتصفح ندي له رسالة نجاح وهمية بدون ما نكلم السيرفر
         if (!INIT_DATA) {
             alert("وضع المعاينة: تم استلام المكافأة اليومية بنجاح! (لم يتم حفظ البيانات)");
             return;
@@ -310,7 +299,9 @@
         }
         
         isClaimingDaily = true;
-        const adWatched = await showTelegramAd();
+        
+        // هنا بيستدعي الدالة المعدلة اللي بتوافق فوراً وتسمح لـ OnClickA إنه يفتح الإعلان في الخلفية
+        const adWatched = await showTelegramAd(); 
         
         if (adWatched) {
             try {
@@ -347,11 +338,6 @@
                     btn.innerHTML = originalHtml;
                 }
             }
-        } else {
-            if (btn) {
-                btn.disabled = false;
-                btn.innerHTML = originalHtml;
-            }
         }
         isClaimingDaily = false;
     };
@@ -361,7 +347,6 @@
         const pData = window.PlayerData;
         if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0) return;
         
-        // 🛡️ لو في المتصفح، تجميع وهمي بدون السيرفر
         if (!INIT_DATA) {
             alert("وضع المعاينة: تم التجميع بنجاح! (لم يتم الحفظ)");
             claimCooldown = 5;
@@ -375,6 +360,7 @@
             claimBtn.innerText = "جاري الحفظ... ⏳";
         }
 
+        // نفس الفكرة: الموافقة الفورية والاعتماد على الكود المخفي إنه يصطاد الضغطة ويفتح الإعلان
         const adWatched = await showTelegramAd();
         
         if (adWatched) {
@@ -401,15 +387,9 @@
                     claimBtn.innerText = "تجميع الرصيد 📺";
                 }
             }
-        } else {
-            if (claimBtn) {
-                claimBtn.disabled = false;
-                claimBtn.innerText = "تجميع الرصيد 📺";
-            }
         }
     };
 
-    // التشغيل الفوري عند تحضير الصفحة
     window.fetchPlayerData();
 
 })();
