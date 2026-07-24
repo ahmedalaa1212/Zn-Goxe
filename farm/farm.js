@@ -260,14 +260,27 @@
         }
     }, 1000);
 
-    // 📢 دالة التكامل مع إعلان OnClickA (data-admpid="449064")
+    // 📢 دالة التكامل مع إعلان Monetag (Rewarded Interstitial)
     function showTelegramAd() {
         return new Promise((resolve) => {
-            // كود OnClickA يعمل تلقائياً مع ضغطة المستخدم على أي مكان في الصفحة
-            // نضع تأخير 800 مللي ثانية لضمان إتاحة فرصة ظهور الإعلان (Pop-up أو Pop-under) دون تعليق زر التجميع
-            setTimeout(() => {
-                resolve(true);
-            }, 800);
+            // نتأكد إن سكريبت Monetag اتحمل في الصفحة
+            if (typeof show_11322720 === 'function') {
+                show_11322720().then(() => {
+                    // المستخدم كمل الإعلان للآخر
+                    resolve(true);
+                }).catch((error) => {
+                    // المستخدم قفل الإعلان قبل ما يخلص
+                    console.warn("تم إغلاق الإعلان أو حدث خطأ:", error);
+                    resolve(false);
+                });
+            } else {
+                if (window.Telegram && window.Telegram.WebApp) {
+                    window.Telegram.WebApp.showAlert("⏳ جاري تحميل الإعلان، يرجى المحاولة بعد قليل.");
+                } else {
+                    alert("⏳ جاري تحميل الإعلان، يرجى المحاولة بعد قليل.");
+                }
+                resolve(false);
+            }
         });
     }
 
