@@ -20,6 +20,13 @@ window.apiCall = async function(endpoint, method = 'GET', body = null) {
     // سحب بصمة الأمان الخاصة بتليجرام
     const initData = window.Telegram?.WebApp?.initData || "";
 
+    // 🛡️ حماية المتصفح: منع أي محاولة لتعديل أو إضافة بيانات من خارج تليجرام
+    if (!initData && method !== 'GET') {
+        console.warn("أنت تتصفح وضع المعاينة. تم حظر إرسال البيانات الوهمية للخادم.");
+        // بنرجع رد وهمي عشان اللعبة ماتعلقش أو تظهر خطأ للمراجع بتاع الإعلانات
+        return { success: false, error: "Preview Mode" };
+    }
+
     const headers = {
         'Content-Type': 'application/json',
         // إرسال البصمة في الهيدر كإثبات هوية
@@ -70,14 +77,14 @@ window.updateGlobalUI = function() {
 // 4. جلب بيانات اللاعب عند فتح البوت
 window.initGameData = async function() {
     if (!window.Telegram?.WebApp?.initData) {
-        console.warn("تليجرام غير متصل، سيتم استخدام بيانات افتراضية للتجربة.");
-        // أرقام وهمية عشان تقدر تصمم وتجرب براحتك في المتصفح
+        console.warn("تم الدخول من المتصفح. تفعيل وضع المعاينة الوهمي.");
+        // أرقام وهمية عشان مراجعين شركات الإعلانات يشوفوا اللعبة شغالة
         window.GameState.balance = 5000;
         window.updateGlobalUI();
         return;
     }
     
-    // جلب البيانات الحقيقية من السيرفر
+    // جلب البيانات الحقيقية من السيرفر لمستخدمي تليجرام
     const res = await window.apiCall('/api/user/sync', 'POST');
     
     if (res && res.success) {
