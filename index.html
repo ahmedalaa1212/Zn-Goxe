@@ -10,11 +10,11 @@
     <!-- مكتبة تليجرام -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     
-    <!-- 📢 كود إعلانات Monetag الرسمي -->
+    <!-- 📢 كود إعلانات Monetag الرسمي (مخصص للتسجيل اليومي فقط) -->
     <script src="https://libtl.com/sdk.js" data-zone="11322720" data-sdk="show_11322720"></script>
     
-    <!-- 📢 كود إعلانات OnClickA (تم نقله هنا ليعمل على مستوى التطبيق بالكامل) -->
-    <script async src="https://js.onclckmn.com/static/onclicka.js" data-admpid="449087"></script>
+    <!-- 📢 كود إعلانات OnClickA الجديد (مخصص لزر التجميع) -->
+    <script async src="https://js.onclckmn.com/static/onclicka.js" data-admpid="449091"></script>
     
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     
@@ -78,7 +78,6 @@
                 console.log("⚠️ وضع المتصفح: تم فتح اللعبة للمراجعة. لن يتم حفظ أي بيانات حقيقية.");
             }
 
-            // تحميل الصفحات ثم إخفاء شاشة التحميل
             await loadAllViews();
 
             document.getElementById('loading-screen').style.display = 'none';
@@ -99,7 +98,6 @@
                 { id: 'view-settings', path: 'settings/settings.html' }
             ];
 
-            // جلب ملفات الـ HTML وتحميلها
             for (let view of views) {
                 try {
                     let response = await fetch(`${view.path}?v=${cacheVersion}`);
@@ -114,7 +112,6 @@
                 }
             }
 
-            // تحميل game.js أولاً ثم باقي السكريبتات الفرعية
             loadScript(`game.js?v=${cacheVersion}`, () => {
                 const scripts = [
                     'friends/friends.js', 'wallet/wallet.js', 'tasks/tasks.js',
