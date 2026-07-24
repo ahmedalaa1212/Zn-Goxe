@@ -7,30 +7,30 @@ from firebase_admin import credentials, firestore
 def initialize_firebase():
     """
     دالة لتهيئة الاتصال بقاعدة بيانات فايربيس (Firestore)
-    بتتأكد إن الاتصال بيتفتح مرة واحدة بس عشان نوفر موارد السيرفر
+    بتضمن فتح الاتصال مرة واحدة بشكل أمن وسريع
     """
-    # التأكد من عدم تهيئة Firebase أكثر من مرة
     if not firebase_admin._apps:
+        firebase_creds_json = os.environ.get('FIREBASE_CREDENTIALS')
+        
         try:
-            # الطريقة الأفضل لسيرفرات زي Railway: تخزين مفاتيح فايربيس كـ نص في متغيرات البيئة
-            firebase_creds_json = os.environ.get('FIREBASE_CREDENTIALS')
-            
             if firebase_creds_json:
-                # لو رافع المشروع على سيرفر وحاطط المفاتيح في المتغيرات
+                # تحويل النص الجاي من متغيرات البيئة لـ Dictionary
                 creds_dict = json.loads(firebase_creds_json)
                 cred = credentials.Certificate(creds_dict)
             else:
-                # لو بتجرب على جهازك الشخصي، هيقرأ من ملف الجيسون ده
-                # تأكد إنك تغير اسم الملف ده لاسم ملف مفاتيح فايربيس بتاعك
+                # للتشغيل المحلي على جهازك الشخصي
                 cred = credentials.Certificate("firebase-adminsdk.json") 
 
             firebase_admin.initialize_app(cred)
             print("✅ تم الاتصال بقاعدة بيانات Firebase بنجاح!")
+            
         except Exception as e:
-            print(f"❌ خطأ في الاتصال بقاعدة البيانات: {e}")
+            print(f"❌ خطأ حرج: فشل الاتصال بقاعدة البيانات Firebase: {e}")
+            # نرفع الاستثناء عشان السيرفر ينبهك فوراً لو في مشكلة وما يكملش بشكل خاطئ
+            raise e
 
-# استدعاء الدالة لفتح الاتصال
+# 1. فتح الاتصال عند تشغيل الملف
 initialize_firebase()
 
-# تصدير (db) عشان أي ملف تاني في المشروع يقدر يستخدمه بسهولة
+# 2. تصدير كائن الداتابيز (db) ليستخدم في كافة القوائم (Blueprints)
 db = firestore.client()
