@@ -1,29 +1,23 @@
 # app.py
 import os
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
-
-# استيراد مسار المزرعة (الوزير المسؤول عن المزرعة والتسجيل اليومي)
 from farm.farm_api import farm_bp
 
 app = Flask(__name__)
-# السماح للواجهة بالاتصال بالسيرفر
+# السماح للواجهة بالاتصال بالسيرفر (ضروري لتليجرام WebApp)
 CORS(app)
 
-# تسجيل مسار المزرعة مع تحديد بادئة المسارات
+# تسجيل مسار المزرعة
 app.register_blueprint(farm_bp, url_prefix='/api/farm')
 
-# منع حفظ الكاش عشان البيانات تتحدث فوراً
 @app.after_request
-def add_header(response):
+def add_security_headers(response):
+    # منع الكاش لضمان تحديث البيانات فوراً
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, public, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
     return response
-
-# ==========================================
-# 🌐 1. عرض الواجهة للمستخدمين (Frontend)
-# ==========================================
 
 @app.route('/')
 def serve_index():
@@ -31,21 +25,18 @@ def serve_index():
 
 @app.route('/<path:path>')
 def serve_static(path):
-    # 🛡️ حماية: نمنع أي حد يوصل لملفات البايثون أو الإعدادات السرية
-    if path.endswith('.py') or path.endswith('.env') or path.startswith('core/') or path == 'requirements.txt':
-        return jsonify({"error": "غير مصرح لك بالوصول"}), 403
+    # 🛡️ حماية صارمة: منع الوصول لملفات البايثون، الإعدادات، ومفتاح الفايربيس
+    forbidden_extensions = ('.py', '.env', '.json', '.md')
+    forbidden_dirs = ('core/', 'farm/', 'api/')
+    
+    if path.endswith(forbidden_extensions) or path.startswith(forbidden_dirs) or path == 'requirements.txt':
+        return jsonify({"error": "Access Denied"}), 403
     
     return send_from_directory('.', path)
 
-
-# ==========================================
-# ⚙️ 2. مسارات العمليات (Backend APIs)
-# ==========================================
-
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    return jsonify({"success": True, "message": "المايسترو جاهز والسيرفر يعمل بكفاءة 🚀"}), 200
-
+    return jsonify({"success": True, "status": "active"}), 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
