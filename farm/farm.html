@@ -19,7 +19,7 @@
         0 / 0
     </div>
     
-    <!-- زر التجميع المرتبط بإعلانات OnClickA عبر الـ ID -->
+    <!-- زر التجميع -->
     <button id="claim-btn" onclick="handleClaim()" style="width: 100%; padding: 15px; background: #0088cc; border: none; color: white; border-radius: 10px; font-weight: bold; font-size: 16px; cursor: pointer; margin-bottom: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: 0.3s;">
         تجميع الرصيد 📺
     </button>
@@ -39,11 +39,23 @@
             <span id="daily-timer" style="color: #ff4444; font-size: 14px; font-weight: bold; display: none;">00:00:00</span>
         </div>
         
-        <!-- الحاوية للشبكة 5×6 -->
         <div id="daily-rewards-container" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;">
             <!-- سيتم توليد الـ 30 يوم هنا أوتوماتيكياً -->
         </div>
     </div>
+</div>
+
+<!-- 📢 نافذة إعلان OnClickA الإجبارية (تظهر عند التجميع بـ 15 ثانية وعداد تنازلي) -->
+<div id="onclicka-ad-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.95); z-index: 999999; flex-direction: column; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box;">
+    <div style="color: #fff; font-size: 16px; margin-bottom: 15px; font-weight: bold; text-align: center;">
+        يرجى مشاهدة الإعلان للنهاية (<span id="onclicka-countdown">15</span> ثانية) ⏳
+    </div>
+    <!-- الحاوية المخصصة ليحقن فيها إعلان OnClickA تلقائياً عبر الـ Selector -->
+    <div id="ad-container" style="width: 100%; max-width: 400px; height: 250px; background: #111; border-radius: 10px; overflow: hidden; display: flex; justify-content: center; align-items: center; border: 1px solid #333;"></div>
+    
+    <button id="onclicka-close-btn" disabled style="margin-top: 20px; background: #444; color: #888; border: none; padding: 12px 30px; border-radius: 8px; font-weight: bold; font-size: 15px; cursor: not-allowed; transition: 0.3s;">
+        انتظر انتهاء العداد...
+    </button>
 </div>
 
 <style>
