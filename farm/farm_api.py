@@ -6,7 +6,7 @@ from database import db
 
 farm_bp = Blueprint('farm', __name__)
 
-# جدول جوائز الـ 30 يوم كاملة
+# جدول جوائز الـ 30 يوم
 DAILY_REWARDS = [
     3000, 4000, 5000, 6000, 7500,          # 1 - 5
     10000, 12000, 15000, 18000, 20000,     # 6 - 10
@@ -16,72 +16,73 @@ DAILY_REWARDS = [
     300000, 400000, 500000, 750000, 1000000# 26 - 30
 ]
 
-@farm_bp.route('/daily_status', methods=['GET'])
-def get_daily_status():
-    """فحص حالة التسجيل اليومي للمستخدم عند فتح اللعبة"""
-    is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=False)
+
+@farm_bp.route('/player_data', methods=['GET', 'POST'])
+def get_player_data():
+    """جلب بيانات المزرعة وحساب التعدين الأوفلاين"""
+    is_post = (request.method == 'POST')
+    is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=is_post)
     if not is_auth:
         return error_response
 
     try:
         user_ref = db.collection('users').document(telegram_id)
         user_doc = user_ref.get()
+        now = datetime.now(timezone.utc)
 
         if not user_doc.exists:
-            # إنشاء حساب افتراضي لو أول مرة يدخل
             user_data = {
                 "telegram_id": telegram_id,
                 "balance": 0.0,
+                "hourly_rate": 100.0,
+                "unclaimed": 0.0,
+                "max_cap": 10000.0,
                 "daily_day": 1,
-                "last_daily_claim_time": None
+                "last_claim_time": now.isoformat(),
+                "last_daily_claim_time": None,
+                "upgrades": {}
             }
             user_ref.set(user_data)
         else:
             user_data = user_doc.to_dict()
 
-        now = datetime.now(timezone.utc)
-        last_claim = user_data.get("last_daily_claim_time")
-        current_day = int(user_data.get("daily_day", 1))
+        # حساب التعدين الأوفلاين منذ آخر زيارة
+        last_claim_str = user_data.get("last_claim_time")
+        hourly_rate = float(user_data.get("hourly_rate", 100.0))
+        max_cap = float(user_data.get("max_cap", 10000.0))
+        unclaimed = float(user_data.get("unclaimed", 0.0))
 
-        can_claim = True
-        time_remaining_seconds = 0
+        if last_claim_str:
+            try:
+                last_claim = datetime.fromisoformat(str(last_claim_str))
+                if last_claim.tzinfo is None:
+                    last_claim = last_claim.replace(tzinfo=timezone.utc)
+                
+                seconds_passed = (now - last_claim).total_seconds()
+                if seconds_passed > 0:
+                    mined = (hourly_rate / 3600.0) * seconds_passed
+                    unclaimed = min(unclaimed + mined, max_cap)
+            except Exception as e:
+                print(f"Date parse error: {e}")
 
-        if last_claim:
-            if last_claim.tzinfo is None:
-                last_claim = last_claim.replace(tzinfo=timezone.utc)
+        # تحديث بيانات التعدين في فايربيس
+        user_data["unclaimed"] = unclaimed
+        user_data["last_claim_time"] = now.isoformat()
+        user_ref.update({
+            "unclaimed": unclaimed,
+            "last_claim_time": now.isoformat()
+        })
 
-            time_passed = now - last_claim
-
-            # لو غاب أكتر من 48 ساعة -> يرجع لليوم الأول
-            if time_passed > timedelta(hours=48):
-                current_day = 1
-                user_ref.update({"daily_day": 1})
-
-            # لو مر أقل من 24 ساعة -> لا يمكن الاستلام
-            elif time_passed < timedelta(hours=24):
-                can_claim = False
-                time_remaining_seconds = int((timedelta(hours=24) - time_passed).total_seconds())
-
-        reward_index = (current_day - 1) % 30
-        reward_amount = DAILY_REWARDS[reward_index]
-
-        return jsonify({
-            "success": True,
-            "current_day": current_day,
-            "can_claim": can_claim,
-            "time_remaining_seconds": time_remaining_seconds,
-            "reward_amount": reward_amount,
-            "balance": user_data.get("balance", 0)
-        }), 200
+        return jsonify({"success": True, "player": user_data}), 200
 
     except Exception as e:
-        print(f"Daily Status Error: {e}")
-        return jsonify({"success": False, "error": "خطأ في جلب بيانات التسجيل اليومي"}), 500
+        print(f"Player Data Error: {e}")
+        return jsonify({"success": False, "error": "حدث خطأ أثناء جلب بيانات اللاعب"}), 500
 
 
-@farm_bp.route('/daily_claim', methods=['POST'])
-def daily_claim():
-    """دالة استلام الجائزة اليومية"""
+@farm_bp.route('/claim', methods=['POST'])
+def claim_mined_tokens():
+    """تجميع رصيد التعدين وإضافته إلى المحفظة"""
     is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
         return error_response
@@ -91,40 +92,103 @@ def daily_claim():
         user_doc = user_ref.get()
 
         if not user_doc.exists:
-            return jsonify({"success": False, "error": "اللاعب غير مسجل في النظام"}), 404
+            return jsonify({"success": False, "error": "الحساب غير موجود"}), 404
 
         user_data = user_doc.to_dict()
         now = datetime.now(timezone.utc)
 
-        last_claim = user_data.get("last_daily_claim_time")
+        # حساب الرصيد القابل للتجميع
+        last_claim_str = user_data.get("last_claim_time")
+        hourly_rate = float(user_data.get("hourly_rate", 100.0))
+        max_cap = float(user_data.get("max_cap", 10000.0))
+        unclaimed = float(user_data.get("unclaimed", 0.0))
+
+        if last_claim_str:
+            try:
+                last_claim = datetime.fromisoformat(str(last_claim_str))
+                if last_claim.tzinfo is None:
+                    last_claim = last_claim.replace(tzinfo=timezone.utc)
+                seconds_passed = (now - last_claim).total_seconds()
+                if seconds_passed > 0:
+                    mined = (hourly_rate / 3600.0) * seconds_passed
+                    unclaimed = min(unclaimed + mined, max_cap)
+            except Exception:
+                pass
+
+        if unclaimed <= 0:
+            return jsonify({"success": False, "error": "لا يوجد رصيد للتجميع حالياً"}), 400
+
+        current_balance = float(user_data.get("balance", 0.0))
+        new_balance = current_balance + unclaimed
+
+        user_ref.update({
+            "balance": new_balance,
+            "unclaimed": 0.0,
+            "last_claim_time": now.isoformat()
+        })
+
+        return jsonify({
+            "success": True,
+            "claimed": unclaimed,
+            "new_balance": new_balance
+        }), 200
+
+    except Exception as e:
+        print(f"Claim Error: {e}")
+        return jsonify({"success": False, "error": "خطأ في عملية تجميع الرصيد"}), 500
+
+
+@farm_bp.route('/daily_claim', methods=['POST'])
+def daily_claim():
+    """استلام الجائزة اليومية"""
+    is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=True)
+    if not is_auth:
+        return error_response
+
+    try:
+        user_ref = db.collection('users').document(telegram_id)
+        user_doc = user_ref.get()
+
+        if not user_doc.exists:
+            return jsonify({"success": False, "error": "اللاعب غير مسجل"}), 404
+
+        user_data = user_doc.to_dict()
+        now = datetime.now(timezone.utc)
+
+        last_claim_str = user_data.get("last_daily_claim_time")
         current_day = int(user_data.get("daily_day", 1))
 
-        if last_claim:
-            if last_claim.tzinfo is None:
-                last_claim = last_claim.replace(tzinfo=timezone.utc)
+        if last_claim_str:
+            try:
+                last_claim = datetime.fromisoformat(str(last_claim_str))
+                if last_claim.tzinfo is None:
+                    last_claim = last_claim.replace(tzinfo=timezone.utc)
 
-            time_passed = now - last_claim
+                time_passed = now - last_claim
 
-            if time_passed < timedelta(hours=24):
-                return jsonify({"success": False, "error": "يجب الانتظار لمرور 24 ساعة على آخر استلام!"}), 400
+                if time_passed < timedelta(hours=24):
+                    return jsonify({"success": False, "error": "يجب الانتظار 24 ساعة بين كل استلام!"}), 400
 
-            if time_passed > timedelta(hours=48):
-                current_day = 1
+                # غياب أكتر من 48 ساعة يرجع لليوم الأول
+                if time_passed > timedelta(hours=48):
+                    current_day = 1
+            except Exception as e:
+                print(f"Daily date parse error: {e}")
 
         reward_index = (current_day - 1) % 30
         reward_amount = DAILY_REWARDS[reward_index]
 
-        current_balance = float(user_data.get("balance", 0))
+        current_balance = float(user_data.get("balance", 0.0))
         new_balance = current_balance + reward_amount
 
-        new_day = current_day + 1
-        if new_day > 30:
-            new_day = 1
+        next_day = current_day + 1
+        if next_day > 30:
+            next_day = 1
 
         user_ref.update({
             "balance": new_balance,
-            "daily_day": new_day,
-            "last_daily_claim_time": now
+            "daily_day": next_day,
+            "last_daily_claim_time": now.isoformat()
         })
 
         return jsonify({
@@ -132,9 +196,9 @@ def daily_claim():
             "reward": reward_amount,
             "new_balance": new_balance,
             "current_day": current_day,
-            "next_day": new_day
+            "next_day": next_day
         }), 200
 
     except Exception as e:
         print(f"Daily Claim Error: {e}")
-        return jsonify({"success": False, "error": "حدث خطأ داخلي في السيرفر"}), 500
+        return jsonify({"success": False, "error": "حدث خطأ أثناء استلام الجائزة اليومية"}), 500
