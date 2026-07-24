@@ -247,7 +247,7 @@
         }
     }, 1000);
 
-    // 📢 دالة تشغيل إعلان Monetag (للمكافآت اليومية)
+    // 📢 دالة تشغيل إعلان Monetag (مخصصة للتسجيل اليومي فقط بدون تأثير)
     function showTelegramAd(statusCallback) {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
@@ -276,7 +276,7 @@
         });
     }
 
-    // التسجيل اليومي يستخدم إعلانات Monetag
+    // التسجيل اليومي يستخدم إعلانات Monetag بأمان تام
     window.handleDailyClaim = async function(day) {
         if (isClaimingDaily) return;
         
@@ -342,27 +342,63 @@
         isClaimingDaily = false;
     };
 
-    // زر تجميع الرصيد (مرتبط بـ OnClickA عبر الـ ID مباشرة)
-    window.handleClaim = async function() {
+    // 📢 تجميع الرصيد عبر إعلانات OnClickA (بنظام الـ 15 ثانية وفتح الـ Modal الإجباري)
+    window.handleClaim = function() {
         const pData = window.PlayerData;
         if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0) return;
         
-        if (!INIT_DATA) {
-            alert("وضع المعاينة: تم التجميع بنجاح!");
-            claimCooldown = 5;
-            window.PlayerData.unclaimed = 0;
-            return;
-        }
+        const modal = document.getElementById('onclicka-ad-modal');
+        const countdownEl = document.getElementById('onclicka-countdown');
+        const closeBtn = document.getElementById('onclicka-close-btn');
+        
+        if (!modal) return;
 
-        const claimBtn = document.getElementById('claim-btn');
+        // إظهار النافذة الإجبارية وإعادة ضبط العداد لـ 15 ثانية
+        modal.style.display = 'flex';
+        let timeLeft = 15;
+        countdownEl.innerText = timeLeft;
+        
+        closeBtn.disabled = true;
+        closeBtn.style.background = '#444';
+        closeBtn.style.color = '#888';
+        closeBtn.style.cursor = 'not-allowed';
+        closeBtn.innerText = `انتظر انتهاء العداد (${timeLeft}) ⏳`;
 
-        // ⚠️ تأخير الكود 800 ملي ثانية (أقل من ثانية) 
-        // عشان يدي فرصة لسكريبت OnClickA الموجود في ملف index إنه يلقط الضغطة الأول
-        setTimeout(async () => {
+        // بدء عداد الـ 15 ثانية
+        const timer = setInterval(() => {
+            timeLeft--;
+            if (timeLeft > 0) {
+                countdownEl.innerText = timeLeft;
+                closeBtn.innerText = `انتظر انتهاء العداد (${timeLeft}) ⏳`;
+            } else {
+                clearInterval(timer);
+                countdownEl.innerText = "0";
+                closeBtn.disabled = false;
+                closeBtn.style.background = '#28a745';
+                closeBtn.style.color = '#fff';
+                closeBtn.style.cursor = 'pointer';
+                closeBtn.innerText = "إغلاق وتجميع الرصيد ✅";
+            }
+        }, 1000);
+
+        // عند الضغط على زر الإغلاق بعد انتهاء العداد
+        closeBtn.onclick = async function() {
+            if (closeBtn.disabled) return;
             
+            modal.style.display = 'none';
+            
+            if (!INIT_DATA) {
+                alert("وضع المعاينة: تم التجميع بنجاح!");
+                claimCooldown = 5;
+                window.PlayerData.unclaimed = 0;
+                window.updateFarmUI();
+                return;
+            }
+
+            const claimBtn = document.getElementById('claim-btn');
             if (claimBtn) {
                 claimBtn.disabled = true;
-                claimBtn.innerText = "جاري الحفظ... 💾";
+                claimBtn.innerText = "جاري الحفظ والتحويل... 💾";
             }
             
             try {
@@ -388,7 +424,7 @@
                     claimBtn.innerText = "تجميع الرصيد 📺";
                 }
             }
-        }, 800); 
+        };
     };
 
     window.fetchPlayerData();
