@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Zn Goxe - Crypto Mining</title>
     
+    <!-- 🟢 كود إثبات الملكية الخاص بشبكة Clickadu 🟢 -->
+    <meta name="clckd" content="33fdc2db6d7c74829748874cd984ec1d" />
+    
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- مكتبة تليجرام يجب أن تكون في الأعلى لضمان تحميلها مبكراً -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -65,7 +68,6 @@
         // ==========================================
         
         async function verifyAndStartGame() {
-            // تهيئة واجهة تليجرام إذا كان المستخدم من التطبيق
             if (window.Telegram && window.Telegram.WebApp) {
                 window.Telegram.WebApp.ready(); 
                 window.Telegram.WebApp.expand(); 
@@ -77,13 +79,12 @@
                 console.log("⚠️ وضع المتصفح: تم فتح اللعبة للمراجعة. لن يتم حفظ أي بيانات حقيقية.");
             }
 
-            // إخفاء شاشة التحميل وفتح اللعبة فوراً للجميع
             setTimeout(() => {
                 document.getElementById('loading-screen').style.display = 'none';
                 document.getElementById('app').style.display = 'block';
                 document.getElementById('main-nav').style.display = 'flex';
                 loadAllViews();
-            }, 1000); // تأخير ثانية لجماليات التحميل
+            }, 1000); 
         }
 
         async function loadAllViews() {
@@ -109,7 +110,6 @@
                 } catch (error) {}
             }
 
-            // تحميل ملف الذاكرة المؤقتة الأساسي
             let mainScript = document.createElement('script');
             mainScript.src = `game.js?v=${cacheVersion}`;
             
