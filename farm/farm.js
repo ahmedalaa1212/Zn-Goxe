@@ -260,17 +260,14 @@
         }
     }, 1000);
 
-    // 📢 دالة التكامل مع إعلان Monetag (Rewarded Interstitial)
+    // 📢 دالة التكامل مع إعلان Monetag (مربوطة بشكل صحيح الآن)
     function showTelegramAd() {
         return new Promise((resolve) => {
-            // نتأكد إن سكريبت Monetag اتحمل في الصفحة
             if (typeof show_11322720 === 'function') {
                 show_11322720().then(() => {
-                    // المستخدم كمل الإعلان للآخر
-                    resolve(true);
+                    resolve(true); // تم المشاهدة للنهاية
                 }).catch((error) => {
-                    // المستخدم قفل الإعلان قبل ما يخلص
-                    console.warn("تم إغلاق الإعلان أو حدث خطأ:", error);
+                    console.warn("تم إغلاق الإعلان:", error);
                     resolve(false);
                 });
             } else {
@@ -288,7 +285,7 @@
         if (isClaimingDaily) return;
         
         if (!INIT_DATA) {
-            alert("وضع المعاينة: تم استلام المكافأة اليومية بنجاح! (لم يتم حفظ البيانات)");
+            alert("وضع المعاينة: تم استلام المكافأة اليومية بنجاح!");
             return;
         }
 
@@ -352,7 +349,7 @@
         if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0) return;
         
         if (!INIT_DATA) {
-            alert("وضع المعاينة: تم التجميع بنجاح! (لم يتم الحفظ)");
+            alert("وضع المعاينة: تم التجميع بنجاح!");
             claimCooldown = 5;
             window.PlayerData.unclaimed = 0;
             return;
