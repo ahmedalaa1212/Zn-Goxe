@@ -16,10 +16,10 @@
 </head>
 <body>
 
-    <!-- بوابة الحماية -->
-    <div id="security-gate" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#0f172a; z-index:9999999; display:flex; justify-content:center; align-items:center; flex-direction:column; color:white;">
-        <div style="font-size: 50px; margin-bottom: 20px; animation: pulse 1.5s infinite;">🛡️</div>
-        <h2 style="color:#f59e0b; margin:0; font-family: Tahoma, sans-serif; font-size: 18px;">جاري مصادقة الحساب مع الخادم...</h2>
+    <!-- شاشة التحميل (مفتوحة للجميع بما فيهم شركات الإعلانات) -->
+    <div id="loading-screen" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#0f172a; z-index:9999999; display:flex; justify-content:center; align-items:center; flex-direction:column; color:white;">
+        <div style="font-size: 50px; margin-bottom: 20px; animation: pulse 1.5s infinite;">🚀</div>
+        <h2 style="color:#f59e0b; margin:0; font-family: Tahoma, sans-serif; font-size: 18px;">جاري تحميل اللعبة...</h2>
     </div>
 
     <!-- التطبيق -->
@@ -61,64 +61,29 @@
 
     <script>
         // ==========================================
-        // 🔴 نظام التحقق الجذري الجديد (متصل بـ security.py) 🔴
+        // 🟢 نظام الدخول الجديد (يسمح بالتصفح للجميع) 🟢
         // ==========================================
         
-        // رابط السيرفر الجديد بتاعك على Railway (هنغيره لما ترفع السيرفر)
-        const SERVER_URL = "https://YOUR_NEW_RAILWAY_URL.up.railway.app"; 
-
         async function verifyAndStartGame() {
+            // تهيئة واجهة تليجرام إذا كان المستخدم من التطبيق
             if (window.Telegram && window.Telegram.WebApp) {
                 window.Telegram.WebApp.ready(); 
                 window.Telegram.WebApp.expand(); 
             }
 
             const initData = window.Telegram?.WebApp?.initData;
-            let isBanned = false;
-            let isAuthorized = false;
 
-            if (initData) {
-                try {
-                    // إرسال البصمة للسيرفر الجديد للتحقق
-                    const response = await fetch(`${SERVER_URL}/api/auth`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ initData: initData })
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        isAuthorized = true;
-                        // حفظ بيانات المستخدم في الذاكرة عشان باقي القوائم تستخدمها
-                        window.userData = data.user; 
-                    } else if (data.banned) {
-                        isBanned = true;
-                    }
-                } catch (err) {
-                    console.error("خطأ في الاتصال بالسيرفر:", err);
-                    // لو السيرفر واقع، ممكن نمنع الدخول أو نسمح بدخول مؤقت حسب رغبتك
-                    // حالياً هنسيبه يكمل عشان تقدر تجرب الواجهة
-                    isAuthorized = true; 
-                }
-            } else {
-                console.log("لم يتم العثور على بيانات تليجرام، ربما تفتح من المتصفح مباشرة.");
-                // للتجربة من المتصفح العادي أثناء البرمجة (يفضل إيقافها عند النشر)
-                isAuthorized = true;
+            if (!initData) {
+                console.log("⚠️ وضع المتصفح: تم فتح اللعبة للمراجعة. لن يتم حفظ أي بيانات حقيقية.");
             }
 
-            if (isBanned) {
-                document.getElementById('security-gate').innerHTML = `
-                    <div style="font-size: 80px; margin-bottom: 20px;">🚫</div>
-                    <h1 style="color: #ef4444; margin-bottom: 15px; font-size: 24px;">تم حظر حسابك نهائياً!</h1>
-                    <p style="color: #cbd5e1; line-height: 1.6; font-size: 15px; max-width: 400px; text-align: center;">عذراً، لا يمكنك استخدام التطبيق.</p>
-                `;
-            } else if (isAuthorized) {
-                document.getElementById('security-gate').style.display = 'none';
+            // إخفاء شاشة التحميل وفتح اللعبة فوراً للجميع
+            setTimeout(() => {
+                document.getElementById('loading-screen').style.display = 'none';
                 document.getElementById('app').style.display = 'block';
                 document.getElementById('main-nav').style.display = 'flex';
                 loadAllViews();
-            }
+            }, 1000); // تأخير ثانية لجماليات التحميل
         }
 
         async function loadAllViews() {
