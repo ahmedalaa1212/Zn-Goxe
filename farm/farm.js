@@ -5,7 +5,6 @@
 
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 15,
-        // قيم مبدئية، سيتم تحديثها تلقائياً من الفايربيس
         dailyRewards: [
             3000, 4000, 5000, 6000, 7500,          
             10000, 12000, 15000, 18000, 20000,     
@@ -45,14 +44,13 @@
             let resData = await response.json();
             if (response.ok && resData.success) {
                 window.PlayerData = resData.player;
-                // 🟢 تحديث الجوائز اليومية ديناميكياً من السيرفر (الداتابيز)
                 if (resData.game_config && resData.game_config.daily_rewards) {
                     GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
                 }
                 window.updateFarmUI();
             }
         } catch (e) {
-            console.error("خطأ في جلب بيانات اللاعب من السيرفر:", e);
+            console.error("Error fetching player data:", e);
         }
     };
 
@@ -270,33 +268,58 @@
         }
     }, 1000);
 
-    // 📢 دالة التكامل مع إعلان Monetag (محدثة إجبارية وضد مانع الإعلانات)
+    // 📢 النظام الذكي والآمن لتحميل الإعلان إجبارياً
     function showTelegramAd() {
         return new Promise((resolve) => {
-            // التحقق من توافر الدالة، مما يعني أن السكريبت لم يحظره AdBlock
-            if (typeof window.show_11322720 === 'function') {
-                window.show_11322720().then(() => {
-                    resolve(true); // تم مشاهدة الإعلان للنهاية
-                }).catch((error) => {
-                    console.warn("تم إغلاق الإعلان قبل الانتهاء:", error);
-                    let msg = "❌ عذراً، يجب مشاهدة الإعلان بالكامل للحصول على المكافأة.";
-                    if (window.Telegram && window.Telegram.WebApp) {
-                        window.Telegram.WebApp.showAlert(msg);
-                    } else {
-                        alert(msg);
-                    }
-                    resolve(false);
-                });
-            } else {
-                // حالة الفشل: سكريبت Monetag لم يحمل بسبب بطء الإنترنت أو AdBlock
-                let errorMsg = "⚠️ الإعلان إجباري لاستلام الرصيد.\nلم يتم تحميل الإعلان، يرجى التأكد من إيقاف أي مانع إعلانات (AdBlock) والمحاولة مرة أخرى.";
-                if (window.Telegram && window.Telegram.WebApp) {
-                    window.Telegram.WebApp.showAlert(errorMsg);
+            let checkCount = 0;
+
+            function processShowAd() {
+                if (typeof window.show_11322720 === 'function') {
+                    window.show_11322720().then(() => {
+                        resolve(true); // الإعلان اشتغل للآخر
+                    }).catch((error) => {
+                        console.warn("الإعلان اتقفل أو فشل:", error);
+                        if (window.Telegram && window.Telegram.WebApp) {
+                            window.Telegram.WebApp.showAlert("❌ الإعلان إجباري لاستلام الرصيد، يجب مشاهدته بالكامل.");
+                        }
+                        resolve(false);
+                    });
                 } else {
-                    alert(errorMsg);
+                    checkCount++;
+                    if (checkCount <= 10) { 
+                        // نحاول كل 500 ملي ثانية (يعني هيصبر معاه لحد 5 ثواني لو النت ضعيف)
+                        setTimeout(processShowAd, 500);
+                    } else {
+                        // لو محملش خالص، هنجبر الصفحة تحمله تاني
+                        let script = document.createElement('script');
+                        script.src = "https://alwingulla.com/88/tag.min.js";
+                        script.dataset.zone = "11322720";
+                        script.onload = () => {
+                            if (typeof window.show_11322720 === 'function') {
+                                window.show_11322720().then(() => resolve(true)).catch(() => resolve(false));
+                            } else {
+                                alertFailMessage();
+                            }
+                        };
+                        script.onerror = () => {
+                            alertFailMessage();
+                        };
+                        document.head.appendChild(script);
+                    }
+                }
+            }
+
+            function alertFailMessage() {
+                let msg = "⚠️ شبكة الإعلانات مغلقة في منطقتك أو الاتصال ضعيف. للإستمرار بجمع الرصيد، تأكد من عدم استخدام AdBlock، أو جرب تفعيل VPN.";
+                if (window.Telegram && window.Telegram.WebApp) {
+                    window.Telegram.WebApp.showAlert(msg);
+                } else {
+                    alert(msg);
                 }
                 resolve(false);
             }
+
+            processShowAd();
         });
     }
 
@@ -312,15 +335,16 @@
         const originalHtml = btn ? btn.innerHTML : '';
         if (btn) {
             btn.disabled = true;
-            btn.innerHTML = "⏳";
+            btn.innerHTML = "جاري تحميل الإعلان... ⏳";
         }
         
         isClaimingDaily = true;
         
-        // 🟢 الإعلان أصبح إجباري، لو المستخدم قفله الدالة هترجع false ولن يتم الاستلام
+        // 🟢 الإعلان إجباري
         const adWatched = await showTelegramAd();
         
         if (adWatched) {
+            if (btn) btn.innerHTML = "جاري الحفظ... ⏳";
             try {
                 let response = await fetch('/api/farm/daily_claim', {
                     method: 'POST',
@@ -356,7 +380,6 @@
                 }
             }
         } else {
-            // في حالة لم يتم مشاهدة الإعلان يرجع الزر لطبيعته
             if (btn) {
                 btn.disabled = false;
                 btn.innerHTML = originalHtml;
@@ -379,10 +402,10 @@
         const claimBtn = document.getElementById('claim-btn');
         if (claimBtn) {
             claimBtn.disabled = true;
-            claimBtn.innerText = "جاري فتح الإعلان... ⏳";
+            claimBtn.innerText = "جاري تحميل الإعلان... ⏳";
         }
 
-        // 🟢 الإعلان إجباري أيضاً في التجميع
+        // 🟢 الإعلان إجباري
         const adWatched = await showTelegramAd();
         
         if (adWatched) {
@@ -411,7 +434,6 @@
                 }
             }
         } else {
-            // إعادة تفعيل الزر لو فشل أو أغلق الإعلان
             if (claimBtn) {
                 claimBtn.disabled = false;
                 claimBtn.innerText = "تجميع الرصيد 📺";
