@@ -192,7 +192,12 @@
         container.innerHTML = html;
     }
 
-    setInterval(() => {
+    // 🛡️ تنظيف العداد القديم لمنع تكراره عند التنقل بين الصفحات
+    if (window.farmIntervalId) {
+        clearInterval(window.farmIntervalId);
+    }
+
+    window.farmIntervalId = setInterval(() => {
         const pData = window.PlayerData;
         if (!pData) return;
         
@@ -260,14 +265,14 @@
         }
     }, 1000);
 
-    // 📢 دالة التكامل مع إعلان Monetag (مربوطة بشكل صحيح الآن)
+    // 📢 دالة التكامل مع إعلان Monetag (مربوطة بشكل صحيح بالنطاق العام window)
     function showTelegramAd() {
         return new Promise((resolve) => {
-            if (typeof show_11322720 === 'function') {
-                show_11322720().then(() => {
+            if (typeof window.show_11322720 === 'function') {
+                window.show_11322720().then(() => {
                     resolve(true); // تم المشاهدة للنهاية
                 }).catch((error) => {
-                    console.warn("تم إغلاق الإعلان:", error);
+                    console.warn("تم إغلاق الإعلان أو فشل التحميل:", error);
                     resolve(false);
                 });
             } else {
