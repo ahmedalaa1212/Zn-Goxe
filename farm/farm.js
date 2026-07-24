@@ -14,7 +14,6 @@
 
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 15,
-        // تم تحديث الجوائز لـ 30 يوم (جوائز متصاعدة تحفز اللاعب)
         dailyRewards: [
             3000, 4000, 5000, 6000, 7500,          // 1 - 5
             10000, 12000, 15000, 18000, 20000,     // 6 - 10
@@ -30,17 +29,33 @@
     let claimCooldown = 0; 
     let isClaimingDaily = false;
 
-    window.fetchPlayerData = async function() {
-        if (typeof window.fetchPlayerDataFromServer === 'function') {
-            await window.fetchPlayerDataFromServer();
+    // دالة الاتصال الحقيقي بالسيرفر وجلب بيانات اللاعب
+    window.fetchPlayerDataFromServer = async function() {
+        try {
+            let response = await fetch('/api/farm/player_data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ initData: INIT_DATA })
+            });
+            let resData = await response.json();
+            if (response.ok && resData.success) {
+                window.PlayerData = resData.player;
+                window.updateFarmUI();
+            }
+        } catch (e) {
+            console.error("خطأ في جلب بيانات اللاعب من السيرفر:", e);
         }
+    };
+
+    window.fetchPlayerData = async function() {
+        await window.fetchPlayerDataFromServer();
     };
 
     window.updateFarmUI = function() {
         const pData = window.PlayerData || {};
         
         let bal = parseFloat(pData.balance || 0);
-        let hRate = parseFloat(pData.hourly_rate || 0);
+        let hRate = parseFloat(pData.hourly_rate || 100);
         let unclaim = parseFloat(pData.unclaimed || 0);
         let maxC = parseFloat(pData.max_cap || 10000);
 
@@ -65,7 +80,7 @@
             storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
         }
         
-        // 🏛️ رسم الـ 9 كروت 
+        // رسم الـ 9 كروت
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
             let fieldsHTML = '';
@@ -113,14 +128,12 @@
         renderDailyRewards(); 
     };
 
-    // دالة لتحويل الأرقام الكبيرة عشان تناسب المربعات الصغيرة
     function formatCompactNumber(num) {
         if (num >= 1000000) return (num / 1000000).toFixed(num % 1000000 === 0 ? 0 : 1) + 'M';
         if (num >= 1000) return (num / 1000).toFixed(num % 1000 === 0 ? 0 : 1) + 'K';
         return num.toString();
     }
 
-    // 📅 نظام التسجيل اليومي (30 يوم)
     function renderDailyRewards() {
         const container = document.getElementById('daily-rewards-container');
         const pData = window.PlayerData || {};
@@ -130,15 +143,14 @@
         let nowOffset = Date.now() + (window.timeOffset || 0);
         const lastClaim = new Date(pData.last_daily_claim_time || 0).getTime();
         const timePassed = nowOffset - lastClaim;
-        const canClaim = timePassed >= (24 * 60 * 60 * 1000); 
+        const canClaim = timePassed >= (24 * 60 * 60 * 1000) || !pData.last_daily_claim_time; 
         const currentDailyDay = parseInt(pData.daily_day || 1);
 
         for (let i = 0; i < 30; i++) {
             let dayNum = i + 1;
             let rawReward = GAME_CONFIG.dailyRewards[i];
-            let displayReward = formatCompactNumber(rawReward); // استخدام الدالة لتصغير الرقم
+            let displayReward = formatCompactNumber(rawReward);
 
-            // تم تصغير الخطوط وتقليل الحواف (padding) عشان تناسب 5 كروت في الصف
             if (dayNum < currentDailyDay) {
                 html += `
                     <div style="background: rgba(40, 167, 69, 0.08); border: 1px solid #28a745; border-radius: 8px; padding: 8px 2px; text-align: center;">
@@ -178,14 +190,14 @@
         container.innerHTML = html;
     }
 
-    // تحديث الواجهة كل ثانية
+    // تحديث الواجهة التلقائي كل ثانية
     setInterval(() => {
         const pData = window.PlayerData;
         if (!pData) return;
         
         let unclaim = parseFloat(pData.unclaimed || 0);
         let maxC = parseFloat(pData.max_cap || 10000);
-        let hRate = parseFloat(pData.hourly_rate || 0);
+        let hRate = parseFloat(pData.hourly_rate || 100);
         
         unclaim = Math.max(0, Math.min(unclaim, maxC));
 
@@ -250,10 +262,7 @@
     function showTelegramAd() {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 !== 'function') {
-                if (window.Telegram && window.Telegram.WebApp) {
-                    window.Telegram.WebApp.showAlert("⚠️ يرجى إيقاف مانع الإعلانات (AdBlocker) لمشاهدة الإعلان والحصول على المكافأة!");
-                }
-                resolve(false); 
+                resolve(true); // الاستمرار حتى لو الإعلان مش متحمل للتجربة
                 return;
             }
 
@@ -267,11 +276,12 @@
                     resolve(false); 
                 });
             } catch (err) {
-                resolve(false);
+                resolve(true);
             }
         });
     }
 
+    // استلام الجائزة اليومية
     window.handleDailyClaim = async function(day) {
         if (isClaimingDaily) return;
         const btn = document.getElementById(`daily-btn-${day}`);
@@ -286,7 +296,7 @@
         
         if (adWatched) {
             try {
-                let response = await fetch('/api/daily_claim', {
+                let response = await fetch('/api/farm/daily_claim', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ initData: INIT_DATA })
@@ -295,11 +305,19 @@
                 let resData = await response.json();
                 if (response.ok && resData.success) {
                     const successMsg = `🎉 مبروك! لقد استلمت ${resData.reward.toLocaleString()} ZN بنجاح!`;
-                    if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(successMsg);
+                    if (window.Telegram && window.Telegram.WebApp) {
+                        window.Telegram.WebApp.showAlert(successMsg);
+                    } else {
+                        alert(successMsg);
+                    }
                     await window.fetchPlayerData(); 
                 } else {
                     const errMsg = resData.error || "عفواً، لا يمكنك استلام المكافأة الآن.";
-                    if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(errMsg);
+                    if (window.Telegram && window.Telegram.WebApp) {
+                        window.Telegram.WebApp.showAlert(errMsg);
+                    } else {
+                        alert(errMsg);
+                    }
                     if (btn) {
                         btn.disabled = false;
                         btn.innerHTML = originalHtml;
@@ -320,6 +338,7 @@
         isClaimingDaily = false;
     };
 
+    // تجميع رصيد التعدين
     window.handleClaim = async function() {
         const pData = window.PlayerData;
         if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0) return;
@@ -327,22 +346,23 @@
         const claimBtn = document.getElementById('claim-btn');
         if (claimBtn) {
             claimBtn.disabled = true;
-            claimBtn.innerText = "جاري فتح الإعلان... ⏳";
+            claimBtn.innerText = "جاري الحفظ... ⏳";
         }
 
         const adWatched = await showTelegramAd();
         
         if (adWatched) {
             try {
-                let response = await fetch('/api/claim', {
+                let response = await fetch('/api/farm/claim', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ initData: INIT_DATA })
                 });
                 
-                if (response.ok) {
+                let resData = await response.json();
+                if (response.ok && resData.success) {
                     await window.fetchPlayerData(); 
-                    claimCooldown = 60; 
+                    claimCooldown = 5; 
                 } else {
                     if (claimBtn) {
                         claimBtn.disabled = false;
@@ -363,11 +383,7 @@
         }
     };
 
-    window.updateFarmUI();
+    // التشغيل الفوري عند تحضير الصفحة
+    window.fetchPlayerData();
 
-    if (typeof window.fetchPlayerData === 'function') {
-        window.fetchPlayerData().then(() => {
-            window.updateFarmUI(); 
-        });
-    }
 })();
