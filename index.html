@@ -11,8 +11,6 @@
     
     <script src="https://libtl.com/sdk.js" data-zone="11322720" data-sdk="show_11322720"></script>
     
-    <script async src="https://js.onclckmn.com/static/onclicka.js" data-admpid="449091"></script>
-    
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     
     <link rel="stylesheet" href="farm/farm.css">
@@ -72,7 +70,15 @@
                 console.log("⚠️ وضع المتصفح: تم فتح اللعبة للمراجعة. لن يتم حفظ أي بيانات حقيقية.");
             }
 
+            // الانتظار حتى يتم تحميل كافة الصفحات والأزرار في المتصفح أولاً
             await loadAllViews();
+
+            // 📢 حقن وتفعيل كود إعلانات Onlicka للـ Telegram App بعد ظهور زر التجميع #claim-btn مباشرة
+            let onlickaScript = document.createElement('script');
+            onlickaScript.src = "https://js.onclckmn.com/static/onclicka.js";
+            onlickaScript.setAttribute('data-admpid', '449096');
+            onlickaScript.async = true;
+            document.body.appendChild(onlickaScript);
 
             document.getElementById('loading-screen').style.display = 'none';
             document.getElementById('app').style.display = 'block';
