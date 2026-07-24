@@ -1,3 +1,4 @@
+# core/security.py
 import os
 import hashlib
 import hmac
@@ -35,14 +36,21 @@ def get_authenticated_user(request, is_post=False):
     """
     دالة جاهزة للاستخدام في أي قائمة للتأكد من هوية المستخدم
     """
-    init_data = request.get_json().get('initData') if is_post else request.args.get('initData')
-    
-    if not init_data:
-        return False, None, (jsonify({'success': False, 'error': 'بيانات المصادقة مفقودة'}), 401)
+    try:
+        if is_post:
+            req_data = request.get_json(silent=True) or {}
+            init_data = req_data.get('initData')
+        else:
+            init_data = request.args.get('initData')
         
-    user = validate_telegram_data(init_data)
-    if not user:
-        return False, None, (jsonify({'success': False, 'error': 'محاولة وصول غير مصرح بها'}), 401)
-        
-    telegram_id = str(user.get('id')).strip()
-    return True, telegram_id, None
+        if not init_data:
+            return False, None, (jsonify({'success': False, 'error': 'بيانات المصادقة مفقودة'}), 401)
+            
+        user = validate_telegram_data(init_data)
+        if not user:
+            return False, None, (jsonify({'success': False, 'error': 'محاولة وصول غير مصرح بها'}), 401)
+            
+        telegram_id = str(user.get('id')).strip()
+        return True, telegram_id, None
+    except Exception:
+        return False, None, (jsonify({'success': False, 'error': 'خطأ في المصادقة'}), 401)
