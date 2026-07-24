@@ -260,14 +260,14 @@
         }
     }, 1000);
 
-    // 🟢 التعديل الجذري هنا ليتوافق مع سكربت OnClickA التلقائي 🟢
+    // 📢 دالة التكامل مع إعلان OnClickA (data-admpid="449058")
     function showTelegramAd() {
         return new Promise((resolve) => {
-            // سكربت OnClickA يفتح تلقائياً عند ضغط المستخدم.
-            // نؤخر التنفيذ قليلاً للسماح للإعلان بالظهور وتجنب تعليق الزرار نهائياً.
+            // كود OnClickA يعمل تلقائياً مع ضغطة المستخدم في index.html
+            // نضع تأخير 800 مللي ثانية لضمان إتاحة فرصة ظهور الإعلان دون تعليق الزر
             setTimeout(() => {
-                resolve(true); 
-            }, 1500); // تأخير ثانية ونص
+                resolve(true);
+            }, 800);
         });
     }
 
@@ -288,7 +288,6 @@
         
         isClaimingDaily = true;
         
-        // هنا بيستدعي الفانكشن اللي اتعدلت عشان ما تعلقش
         const adWatched = await showTelegramAd();
         
         if (adWatched) {
