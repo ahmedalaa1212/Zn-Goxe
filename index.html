@@ -7,13 +7,10 @@
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- مكتبة تليجرام -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     
-    <!-- 📢 كود إعلانات Monetag الرسمي (مخصص للتسجيل اليومي فقط) -->
     <script src="https://libtl.com/sdk.js" data-zone="11322720" data-sdk="show_11322720"></script>
     
-    <!-- 📢 كود إعلانات OnClickA الجديد (مخصص لزر التجميع) -->
     <script async src="https://js.onclckmn.com/static/onclicka.js" data-admpid="449091"></script>
     
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
@@ -23,13 +20,11 @@
 </head>
 <body>
 
-    <!-- شاشة التحميل -->
     <div id="loading-screen" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#0f172a; z-index:9999999; display:flex; justify-content:center; align-items:center; flex-direction:column; color:white;">
         <div style="font-size: 50px; margin-bottom: 20px; animation: pulse 1.5s infinite;">🚀</div>
         <h2 style="color:#f59e0b; margin:0; font-family: Tahoma, sans-serif; font-size: 18px;">جاري تحميل اللعبة...</h2>
     </div>
 
-    <!-- التطبيق -->
     <div id="app" style="display: none;">
         <div id="view-friends" class="game-view"></div>
         <div id="view-wallet" class="game-view"></div>
@@ -40,7 +35,6 @@
         <div id="view-settings" class="game-view"></div>
     </div>
 
-    <!-- شريط التنقل -->
     <nav class="bottom-nav" id="main-nav" style="display: none;">
         <button class="nav-item" onclick="switchView('friends')" id="nav-friends">
             <i class="fas fa-users"></i><span>الأصدقاء</span>
