@@ -356,37 +356,39 @@
 
         const claimBtn = document.getElementById('claim-btn');
 
-        // تعطيل الزر فوراً لمنع الضغط المزدوج أثناء ظهور الإعلان وحفظ الرصيد
-        if (claimBtn) {
-            claimBtn.disabled = true;
-            claimBtn.innerText = "جاري الحفظ... 💾";
-        }
-        
-        try {
-            // إرسال طلب الحفظ للسيرفر
-            let response = await fetch('/api/farm/claim', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ initData: INIT_DATA })
-            });
+        // ⚠️ تأخير الكود 800 ملي ثانية (أقل من ثانية) 
+        // عشان يدي فرصة لسكريبت OnClickA الموجود في ملف index إنه يلقط الضغطة الأول
+        setTimeout(async () => {
             
-            let resData = await response.json();
-            if (response.ok && resData.success) {
-                await window.fetchPlayerData(); 
-                // وضع التبريد (Cooldown) بعد التجميع الناجح - تقدر تزوده براحتك
-                claimCooldown = 5; 
-            } else {
+            if (claimBtn) {
+                claimBtn.disabled = true;
+                claimBtn.innerText = "جاري الحفظ... 💾";
+            }
+            
+            try {
+                let response = await fetch('/api/farm/claim', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ initData: INIT_DATA })
+                });
+                
+                let resData = await response.json();
+                if (response.ok && resData.success) {
+                    await window.fetchPlayerData(); 
+                    claimCooldown = 5; 
+                } else {
+                    if (claimBtn) {
+                        claimBtn.disabled = false;
+                        claimBtn.innerText = "تجميع الرصيد 📺";
+                    }
+                }
+            } catch (e) {
                 if (claimBtn) {
                     claimBtn.disabled = false;
                     claimBtn.innerText = "تجميع الرصيد 📺";
                 }
             }
-        } catch (e) {
-            if (claimBtn) {
-                claimBtn.disabled = false;
-                claimBtn.innerText = "تجميع الرصيد 📺";
-            }
-        }
+        }, 800); 
     };
 
     window.fetchPlayerData();
