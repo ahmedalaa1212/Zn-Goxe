@@ -16,7 +16,7 @@
     <!-- 📢 إعلان OnClickA -->
     <script async src="https://js.onclckmn.com/static/onclicka.js" data-admpid="449058"></script>
 
-    <!-- 📢 كود إعلانات Monetag (لزر التجميع والمكافآت) تم وضعه هنا ليعمل بنجاح -->
+    <!-- 📢 كود إعلانات Monetag (لزر التجميع والمكافآت) -->
     <script src="https://alwingulla.com/88/tag.min.js" data-zone="11322720" async data-cfasync="false"></script>
     
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
@@ -81,12 +81,12 @@
                 console.log("⚠️ وضع المتصفح: تم فتح اللعبة للمراجعة. لن يتم حفظ أي بيانات حقيقية.");
             }
 
-            setTimeout(() => {
-                document.getElementById('loading-screen').style.display = 'none';
-                document.getElementById('app').style.display = 'block';
-                document.getElementById('main-nav').style.display = 'flex';
-                loadAllViews();
-            }, 1000); 
+            // تحميل الصفحات ثم إخفاء شاشة التحميل
+            await loadAllViews();
+
+            document.getElementById('loading-screen').style.display = 'none';
+            document.getElementById('app').style.display = 'block';
+            document.getElementById('main-nav').style.display = 'flex';
         }
 
         async function loadAllViews() {
@@ -102,33 +102,39 @@
                 { id: 'view-settings', path: 'settings/settings.html' }
             ];
 
+            // جلب ملفات الـ HTML وتحميلها
             for (let view of views) {
                 try {
                     let response = await fetch(`${view.path}?v=${cacheVersion}`);
                     if (response.ok) {
                         let html = await response.text();
                         document.getElementById(view.id).innerHTML = html;
+                    } else {
+                        console.error(`❌ خطأ في تحميل ${view.path}: كود ${response.status}`);
                     }
                 } catch (error) {
-                    console.error("Failed to load view:", view.path);
+                    console.error("❌ فشل الاتصال لتحميل العرض:", view.path, error);
                 }
             }
 
-            let mainScript = document.createElement('script');
-            mainScript.src = `game.js?v=${cacheVersion}`;
-            
-            mainScript.onload = () => {
+            // تحميل game.js أولاً ثم باقي السكريبتات الفرعية
+            loadScript(`game.js?v=${cacheVersion}`, () => {
                 const scripts = [
                     'friends/friends.js', 'wallet/wallet.js', 'tasks/tasks.js',
                     'farm/farm.js', 'games/games.js', 'shop/shop.js', 'settings/settings.js'
                 ];
                 scripts.forEach(jsPath => {
-                    let script = document.createElement('script');
-                    script.src = `${jsPath}?v=${cacheVersion}`;
-                    document.body.appendChild(script);
+                    loadScript(`${jsPath}?v=${cacheVersion}`);
                 });
-            };
-            document.body.appendChild(mainScript);
+            });
+        }
+
+        function loadScript(src, callback) {
+            let script = document.createElement('script');
+            script.src = src;
+            script.async = false; // لضمان ترتيب التشغيل الصحيح
+            if (callback) script.onload = callback;
+            document.body.appendChild(script);
         }
 
         function switchView(viewName) {
