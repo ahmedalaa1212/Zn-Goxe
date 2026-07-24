@@ -1,9 +1,11 @@
+// farm/farm.js
 (function initFarm() {
     
     const INIT_DATA = (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) ? window.Telegram.WebApp.initData : "";
 
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 15,
+        // قيم مبدئية، سيتم تحديثها تلقائياً من الفايربيس
         dailyRewards: [
             3000, 4000, 5000, 6000, 7500,          
             10000, 12000, 15000, 18000, 20000,     
@@ -43,6 +45,10 @@
             let resData = await response.json();
             if (response.ok && resData.success) {
                 window.PlayerData = resData.player;
+                // 🟢 تحديث الجوائز اليومية ديناميكياً من السيرفر (الداتابيز)
+                if (resData.game_config && resData.game_config.daily_rewards) {
+                    GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
+                }
                 window.updateFarmUI();
             }
         } catch (e) {
@@ -192,7 +198,6 @@
         container.innerHTML = html;
     }
 
-    // 🛡️ تنظيف العداد القديم لمنع تكراره عند التنقل بين الصفحات
     if (window.farmIntervalId) {
         clearInterval(window.farmIntervalId);
     }
@@ -265,21 +270,30 @@
         }
     }, 1000);
 
-    // 📢 دالة التكامل مع إعلان Monetag (مربوطة بشكل صحيح بالنطاق العام window)
+    // 📢 دالة التكامل مع إعلان Monetag (محدثة إجبارية وضد مانع الإعلانات)
     function showTelegramAd() {
         return new Promise((resolve) => {
+            // التحقق من توافر الدالة، مما يعني أن السكريبت لم يحظره AdBlock
             if (typeof window.show_11322720 === 'function') {
                 window.show_11322720().then(() => {
-                    resolve(true); // تم المشاهدة للنهاية
+                    resolve(true); // تم مشاهدة الإعلان للنهاية
                 }).catch((error) => {
-                    console.warn("تم إغلاق الإعلان أو فشل التحميل:", error);
+                    console.warn("تم إغلاق الإعلان قبل الانتهاء:", error);
+                    let msg = "❌ عذراً، يجب مشاهدة الإعلان بالكامل للحصول على المكافأة.";
+                    if (window.Telegram && window.Telegram.WebApp) {
+                        window.Telegram.WebApp.showAlert(msg);
+                    } else {
+                        alert(msg);
+                    }
                     resolve(false);
                 });
             } else {
+                // حالة الفشل: سكريبت Monetag لم يحمل بسبب بطء الإنترنت أو AdBlock
+                let errorMsg = "⚠️ الإعلان إجباري لاستلام الرصيد.\nلم يتم تحميل الإعلان، يرجى التأكد من إيقاف أي مانع إعلانات (AdBlock) والمحاولة مرة أخرى.";
                 if (window.Telegram && window.Telegram.WebApp) {
-                    window.Telegram.WebApp.showAlert("⏳ جاري تحميل الإعلان، يرجى المحاولة بعد قليل.");
+                    window.Telegram.WebApp.showAlert(errorMsg);
                 } else {
-                    alert("⏳ جاري تحميل الإعلان، يرجى المحاولة بعد قليل.");
+                    alert(errorMsg);
                 }
                 resolve(false);
             }
@@ -303,6 +317,7 @@
         
         isClaimingDaily = true;
         
+        // 🟢 الإعلان أصبح إجباري، لو المستخدم قفله الدالة هترجع false ولن يتم الاستلام
         const adWatched = await showTelegramAd();
         
         if (adWatched) {
@@ -341,6 +356,7 @@
                 }
             }
         } else {
+            // في حالة لم يتم مشاهدة الإعلان يرجع الزر لطبيعته
             if (btn) {
                 btn.disabled = false;
                 btn.innerHTML = originalHtml;
@@ -363,12 +379,14 @@
         const claimBtn = document.getElementById('claim-btn');
         if (claimBtn) {
             claimBtn.disabled = true;
-            claimBtn.innerText = "جاري الحفظ... ⏳";
+            claimBtn.innerText = "جاري فتح الإعلان... ⏳";
         }
 
+        // 🟢 الإعلان إجباري أيضاً في التجميع
         const adWatched = await showTelegramAd();
         
         if (adWatched) {
+            if (claimBtn) claimBtn.innerText = "جاري الحفظ... ⏳";
             try {
                 let response = await fetch('/api/farm/claim', {
                     method: 'POST',
@@ -393,6 +411,7 @@
                 }
             }
         } else {
+            // إعادة تفعيل الزر لو فشل أو أغلق الإعلان
             if (claimBtn) {
                 claimBtn.disabled = false;
                 claimBtn.innerText = "تجميع الرصيد 📺";
