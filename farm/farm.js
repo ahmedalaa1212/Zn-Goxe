@@ -247,7 +247,7 @@
         }
     }, 1000);
 
-    // 📢 دالة تشغيل إعلان Monetag (تُستخدم فقط للمكافآت اليومية الآن)
+    // 📢 دالة تشغيل إعلان Monetag (للمكافآت اليومية)
     function showTelegramAd(statusCallback) {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
@@ -276,7 +276,7 @@
         });
     }
 
-    // التسجيل اليومي يستخدم إعلانات Monetag (تم الإبقاء عليه كما هو)
+    // التسجيل اليومي يستخدم إعلانات Monetag
     window.handleDailyClaim = async function(day) {
         if (isClaimingDaily) return;
         
@@ -342,7 +342,7 @@
         isClaimingDaily = false;
     };
 
-    // زر تجميع الرصيد (تم إزالة Monetag وتخصيصه للعمل مع سكربت OnClickA المضاف في HTML)
+    // زر تجميع الرصيد (مرتبط بـ OnClickA عبر الـ ID مباشرة)
     window.handleClaim = async function() {
         const pData = window.PlayerData;
         if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0) return;
@@ -356,14 +356,14 @@
 
         const claimBtn = document.getElementById('claim-btn');
 
-        // سكربت OnClickA يتفاعل تلقائياً مع النقرة، لذلك لا نحتاج لمنع العملية لانتظار الإعلان هنا
-        // بمجرد ضغط المستخدم، سيتم حفظ الرصيد، وفي نفس الوقت سيظهر إعلان OnClickA بشكل طبيعي.
+        // تعطيل الزر فوراً لمنع الضغط المزدوج أثناء ظهور الإعلان وحفظ الرصيد
         if (claimBtn) {
             claimBtn.disabled = true;
             claimBtn.innerText = "جاري الحفظ... 💾";
         }
         
         try {
+            // إرسال طلب الحفظ للسيرفر
             let response = await fetch('/api/farm/claim', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -373,7 +373,7 @@
             let resData = await response.json();
             if (response.ok && resData.success) {
                 await window.fetchPlayerData(); 
-                // وضع التبريد (Cooldown) بعد التجميع الناجح
+                // وضع التبريد (Cooldown) بعد التجميع الناجح - تقدر تزوده براحتك
                 claimCooldown = 5; 
             } else {
                 if (claimBtn) {
