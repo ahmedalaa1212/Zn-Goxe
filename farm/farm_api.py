@@ -108,7 +108,13 @@ def claim_mined_tokens():
                 last_claim = datetime.fromisoformat(str(last_claim_str))
                 if last_claim.tzinfo is None:
                     last_claim = last_claim.replace(tzinfo=timezone.utc)
+                
                 seconds_passed = (now - last_claim).total_seconds()
+                
+                # 🛡️ نظام الحماية (Anti-Spam): منع التجميع السريع المتكرر (أقل من 10 ثوانٍ)
+                if seconds_passed < 10:
+                    return jsonify({"success": False, "error": "يرجى الانتظار قليلاً قبل التجميع مرة أخرى."}), 429
+                    
                 if seconds_passed > 0:
                     mined = (hourly_rate / 3600.0) * seconds_passed
                     unclaimed = min(unclaimed + mined, max_cap)
