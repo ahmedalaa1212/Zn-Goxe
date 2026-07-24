@@ -13,8 +13,11 @@
     <!-- مكتبة تليجرام -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     
-    <!-- 📢 كود إعلان OnClickA المدمج يعمل بشكل صحيح هنا -->
+    <!-- 📢 إعلان OnClickA -->
     <script async src="https://js.onclckmn.com/static/onclicka.js" data-admpid="449058"></script>
+
+    <!-- 📢 كود إعلانات Monetag (لزر التجميع والمكافآت) تم وضعه هنا ليعمل بنجاح -->
+    <script src="https://alwingulla.com/88/tag.min.js" data-zone="11322720" async data-cfasync="false"></script>
     
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     
@@ -74,7 +77,6 @@
             }
 
             const initData = window.Telegram?.WebApp?.initData;
-
             if (!initData) {
                 console.log("⚠️ وضع المتصفح: تم فتح اللعبة للمراجعة. لن يتم حفظ أي بيانات حقيقية.");
             }
@@ -107,7 +109,9 @@
                         let html = await response.text();
                         document.getElementById(view.id).innerHTML = html;
                     }
-                } catch (error) {}
+                } catch (error) {
+                    console.error("Failed to load view:", view.path);
+                }
             }
 
             let mainScript = document.createElement('script');
