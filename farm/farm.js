@@ -247,7 +247,7 @@
         }
     }, 1000);
 
-    // 📢 دالة تشغيل إعلان Monetag (مخصصة للتسجيل اليومي فقط بدون تأثير)
+    // 📢 دالة تشغيل إعلان Monetag (مخصصة للتسجيل اليومي فقط)
     function showTelegramAd(statusCallback) {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
@@ -342,89 +342,48 @@
         isClaimingDaily = false;
     };
 
-    // 📢 تجميع الرصيد عبر إعلانات OnClickA (بنظام الـ 15 ثانية وفتح الـ Modal الإجباري)
-    window.handleClaim = function() {
+    // 📢 تجميع الرصيد المباشر والسلس (التجميع يتم فوراً في الخلفية مع كوول داون وبدون قفل الشاشة)
+    window.handleClaim = async function() {
         const pData = window.PlayerData;
         if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0) return;
         
-        const modal = document.getElementById('onclicka-ad-modal');
-        const countdownEl = document.getElementById('onclicka-countdown');
-        const closeBtn = document.getElementById('onclicka-close-btn');
-        
-        if (!modal) return;
+        if (!INIT_DATA) {
+            alert("وضع المعاينة: تم التجميع بنجاح!");
+            claimCooldown = 5;
+            window.PlayerData.unclaimed = 0;
+            window.updateFarmUI();
+            return;
+        }
 
-        // إظهار النافذة الإجبارية وإعادة ضبط العداد لـ 15 ثانية
-        modal.style.display = 'flex';
-        let timeLeft = 15;
-        countdownEl.innerText = timeLeft;
+        const claimBtn = document.getElementById('claim-btn');
+        if (claimBtn) {
+            claimBtn.disabled = true;
+            claimBtn.innerText = "جاري الحفظ والتحويل... 💾";
+        }
         
-        closeBtn.disabled = true;
-        closeBtn.style.background = '#444';
-        closeBtn.style.color = '#888';
-        closeBtn.style.cursor = 'not-allowed';
-        closeBtn.innerText = `انتظر انتهاء العداد (${timeLeft}) ⏳`;
-
-        // بدء عداد الـ 15 ثانية
-        const timer = setInterval(() => {
-            timeLeft--;
-            if (timeLeft > 0) {
-                countdownEl.innerText = timeLeft;
-                closeBtn.innerText = `انتظر انتهاء العداد (${timeLeft}) ⏳`;
+        try {
+            let response = await fetch('/api/farm/claim', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ initData: INIT_DATA })
+            });
+            
+            let resData = await response.json();
+            if (response.ok && resData.success) {
+                await window.fetchPlayerData(); 
+                claimCooldown = 5; // كوول داون 5 ثواني لمنع السامبينج
             } else {
-                clearInterval(timer);
-                countdownEl.innerText = "0";
-                closeBtn.disabled = false;
-                closeBtn.style.background = '#28a745';
-                closeBtn.style.color = '#fff';
-                closeBtn.style.cursor = 'pointer';
-                closeBtn.innerText = "إغلاق وتجميع الرصيد ✅";
-            }
-        }, 1000);
-
-        // عند الضغط على زر الإغلاق بعد انتهاء العداد
-        closeBtn.onclick = async function() {
-            if (closeBtn.disabled) return;
-            
-            modal.style.display = 'none';
-            
-            if (!INIT_DATA) {
-                alert("وضع المعاينة: تم التجميع بنجاح!");
-                claimCooldown = 5;
-                window.PlayerData.unclaimed = 0;
-                window.updateFarmUI();
-                return;
-            }
-
-            const claimBtn = document.getElementById('claim-btn');
-            if (claimBtn) {
-                claimBtn.disabled = true;
-                claimBtn.innerText = "جاري الحفظ والتحويل... 💾";
-            }
-            
-            try {
-                let response = await fetch('/api/farm/claim', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ initData: INIT_DATA })
-                });
-                
-                let resData = await response.json();
-                if (response.ok && resData.success) {
-                    await window.fetchPlayerData(); 
-                    claimCooldown = 5; 
-                } else {
-                    if (claimBtn) {
-                        claimBtn.disabled = false;
-                        claimBtn.innerText = "تجميع الرصيد 📺";
-                    }
-                }
-            } catch (e) {
                 if (claimBtn) {
                     claimBtn.disabled = false;
                     claimBtn.innerText = "تجميع الرصيد 📺";
                 }
             }
-        };
+        } catch (e) {
+            if (claimBtn) {
+                claimBtn.disabled = false;
+                claimBtn.innerText = "تجميع الرصيد 📺";
+            }
+        }
     };
 
     window.fetchPlayerData();
