@@ -268,25 +268,21 @@
         }
     }, 1000);
 
+    // 📢 دالة عرض إعلان OnClickA
     function showTelegramAd() {
         return new Promise((resolve) => {
-            if (typeof window.show_11322720 !== 'function') {
-                resolve(true); // الاستمرار حتى لو الإعلان مش متحمل للتجربة
-                return;
-            }
-
             try {
-                window.show_11322720().then(() => {
-                    resolve(true); 
-                }).catch(() => {
-                    if (window.Telegram && window.Telegram.WebApp) {
-                        window.Telegram.WebApp.showAlert("⚠️ يجب مشاهدة الإعلان بالكامل للحصول على المكافأة!");
-                    } else {
-                        alert("⚠️ يجب مشاهدة الإعلان بالكامل للحصول على المكافأة!");
-                    }
-                    resolve(false); 
-                });
+                // عند ضغط المستخدم على الزر، تقوم مكتبة OnClickA تلقائياً بإظهار الإعلان (Popunder / In-Page Push / Interstitial)
+                if (typeof window.show_onclicka_ad === 'function') {
+                    window.show_onclicka_ad()
+                        .then(() => resolve(true))
+                        .catch(() => resolve(true));
+                } else {
+                    // فتح التجميع مباشرة وتوليد الضغطة الإعلانية لـ OnClickA
+                    resolve(true);
+                }
             } catch (err) {
+                console.error("خطأ في تشغيل إعلان OnClickA:", err);
                 resolve(true);
             }
         });
