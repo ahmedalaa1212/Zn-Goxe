@@ -1,4 +1,3 @@
-# app.py
 import os
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
@@ -27,9 +26,12 @@ def serve_index():
 def serve_static(path):
     # 🛡️ حماية صارمة: منع الوصول لملفات البايثون، الإعدادات، ومفتاح الفايربيس
     forbidden_extensions = ('.py', '.env', '.json', '.md')
-    forbidden_dirs = ('core/', 'farm/', 'api/')
     
-    if path.endswith(forbidden_extensions) or path.startswith(forbidden_dirs) or path == 'requirements.txt':
+    # 🟢 تم إزالة 'farm/' من هنا لكي يستطيع المتصفح تحميل farm.html و farm.js و farm.css
+    # ملفات البايثون داخل مجلد farm (مثل farm_api.py) محمية تلقائياً بفضل forbidden_extensions أعلاه
+    forbidden_dirs = ('core/', 'api/', '.git/')
+    
+    if path.endswith(forbidden_extensions) or any(path.startswith(d) for d in forbidden_dirs) or path == 'requirements.txt':
         return jsonify({"error": "Access Denied"}), 403
     
     return send_from_directory('.', path)
