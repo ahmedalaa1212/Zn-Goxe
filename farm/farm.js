@@ -245,72 +245,51 @@
                 claimBtn.disabled = unclaim <= 0;
             }
         }
-
-        const timerEl = document.getElementById('daily-timer');
-        if (timerEl && pData.last_daily_claim_time) {
-            let nowOffset = Date.now() + (window.timeOffset || 0);
-            const lastDaily = new Date(pData.last_daily_claim_time).getTime();
-            const timePassed = nowOffset - lastDaily;
-            const timeLeft = (24 * 60 * 60 * 1000) - timePassed;
-            
-            if (timeLeft > 0) {
-                timerEl.style.display = 'block';
-                let h = Math.floor((timeLeft / (1000 * 60 * 60)) % 24).toString().padStart(2, '0');
-                let m = Math.floor((timeLeft / 1000 / 60) % 60).toString().padStart(2, '0');
-                let s = Math.floor((timeLeft / 1000) % 60).toString().padStart(2, '0');
-                timerEl.innerText = `${h}:${m}:${s}`;
-            } else {
-                if (timerEl.style.display !== 'none') {
-                    timerEl.style.display = 'none';
-                    renderDailyRewards(); 
-                }
-            }
-        }
     }, 1000);
 
-    // 📢 النظام الذكي والآمن لتحميل الإعلان إجبارياً
-    function showTelegramAd() {
+    // 📢 دالة تشغيل إعلان Monetag بالانتظار الذكي (تضمن فتح الإعلان فور جهوزه)
+    function showTelegramAd(statusCallback) {
         return new Promise((resolve) => {
-            let checkCount = 0;
+            let attempts = 0;
+            const maxAttempts = 15; // محاولة الانتظار لمدة تصل إلى 7.5 ثانية
 
-            function processShowAd() {
+            function tryTriggerAd() {
                 if (typeof window.show_11322720 === 'function') {
+                    if (statusCallback) statusCallback("جارٍ فتح الإعلان...");
                     window.show_11322720().then(() => {
-                        resolve(true); // الإعلان اشتغل للآخر
+                        resolve(true); // مشاهدة الإعلان بنجاح
                     }).catch((error) => {
-                        console.warn("الإعلان اتقفل أو فشل:", error);
-                        if (window.Telegram && window.Telegram.WebApp) {
-                            window.Telegram.WebApp.showAlert("❌ الإعلان إجباري لاستلام الرصيد، يجب مشاهدته بالكامل.");
-                        }
+                        console.warn("الإعلان أغلقه المستخدم أو حدث خطأ:", error);
                         resolve(false);
                     });
                 } else {
-                    checkCount++;
-                    if (checkCount <= 10) { 
-                        // نحاول كل 500 ملي ثانية (يعني هيصبر معاه لحد 5 ثواني لو النت ضعيف)
-                        setTimeout(processShowAd, 500);
+                    attempts++;
+                    if (attempts < maxAttempts) {
+                        if (statusCallback) statusCallback(`جاري تحميل الإعلان (${attempts})... ⏳`);
+                        setTimeout(tryTriggerAd, 500); // إعادة المحاولة كل نصف ثانية
                     } else {
-                        // لو محملش خالص، هنجبر الصفحة تحمله تاني
+                        // لو السكريبت لم يتم تحميله نهائياً، نقوم بحقنه مجدداً مباشرة
+                        if (statusCallback) statusCallback("إعادة تحميل شبكة الإعلانات...");
                         let script = document.createElement('script');
                         script.src = "https://alwingulla.com/88/tag.min.js";
                         script.dataset.zone = "11322720";
                         script.onload = () => {
-                            if (typeof window.show_11322720 === 'function') {
-                                window.show_11322720().then(() => resolve(true)).catch(() => resolve(false));
-                            } else {
-                                alertFailMessage();
-                            }
+                            setTimeout(() => {
+                                if (typeof window.show_11322720 === 'function') {
+                                    window.show_11322720().then(() => resolve(true)).catch(() => resolve(false));
+                                } else {
+                                    alertNoAd();
+                                }
+                            }, 1000);
                         };
-                        script.onerror = () => {
-                            alertFailMessage();
-                        };
+                        script.onerror = () => alertNoAd();
                         document.head.appendChild(script);
                     }
                 }
             }
 
-            function alertFailMessage() {
-                let msg = "⚠️ شبكة الإعلانات مغلقة في منطقتك أو الاتصال ضعيف. للإستمرار بجمع الرصيد، تأكد من عدم استخدام AdBlock، أو جرب تفعيل VPN.";
+            function alertNoAd() {
+                let msg = "⚠️ عذراً، تعذر الاتصال بشبكة الإعلانات. تأكد من اتصال الإنترنت لديك أو أعد محاولة الضغط مرة أخرى.";
                 if (window.Telegram && window.Telegram.WebApp) {
                     window.Telegram.WebApp.showAlert(msg);
                 } else {
@@ -319,7 +298,7 @@
                 resolve(false);
             }
 
-            processShowAd();
+            tryTriggerAd();
         });
     }
 
@@ -333,18 +312,18 @@
 
         const btn = document.getElementById(`daily-btn-${day}`);
         const originalHtml = btn ? btn.innerHTML : '';
-        if (btn) {
-            btn.disabled = true;
-            btn.innerHTML = "جاري تحميل الإعلان... ⏳";
-        }
         
         isClaimingDaily = true;
         
-        // 🟢 الإعلان إجباري
-        const adWatched = await showTelegramAd();
+        const adWatched = await showTelegramAd((msg) => {
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = "⏳";
+            }
+        });
         
         if (adWatched) {
-            if (btn) btn.innerHTML = "جاري الحفظ... ⏳";
+            if (btn) btn.innerHTML = "💾";
             try {
                 let response = await fetch('/api/farm/daily_claim', {
                     method: 'POST',
@@ -400,16 +379,16 @@
         }
 
         const claimBtn = document.getElementById('claim-btn');
-        if (claimBtn) {
-            claimBtn.disabled = true;
-            claimBtn.innerText = "جاري تحميل الإعلان... ⏳";
-        }
 
-        // 🟢 الإعلان إجباري
-        const adWatched = await showTelegramAd();
+        const adWatched = await showTelegramAd((msg) => {
+            if (claimBtn) {
+                claimBtn.disabled = true;
+                claimBtn.innerText = msg;
+            }
+        });
         
         if (adWatched) {
-            if (claimBtn) claimBtn.innerText = "جاري الحفظ... ⏳";
+            if (claimBtn) claimBtn.innerText = "جاري الحفظ... 💾";
             try {
                 let response = await fetch('/api/farm/claim', {
                     method: 'POST',
