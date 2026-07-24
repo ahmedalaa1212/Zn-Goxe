@@ -1,16 +1,8 @@
 (function initFarm() {
     
-    if (typeof window.Telegram === 'undefined' || !window.Telegram.WebApp.initData || !window.Telegram.WebApp.initDataUnsafe.user) {
-        document.body.innerHTML = `
-            <div style='color:#ff4444; text-align:center; padding:60px 20px; font-size:22px; font-weight:bold; background:#121212; height:100vh; display:flex; align-items:center; justify-content:center; flex-direction:column;'>
-                <div style='font-size: 50px; margin-bottom: 20px;'>🚫</div>
-                يجب فتح اللعبة من داخل تطبيق تيليجرام فقط!
-            </div>
-        `;
-        return; 
-    }
-
-    const INIT_DATA = window.Telegram.WebApp.initData;
+    // 🟢 تم إزالة شاشة الحظر الحمراء بالكامل للسماح للمتصفحات بالدخول 🟢
+    // جلب بيانات تليجرام إذا كانت متاحة، أو تركها فارغة للمتصفح
+    const INIT_DATA = (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) ? window.Telegram.WebApp.initData : "";
 
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 15,
@@ -31,6 +23,23 @@
 
     // دالة الاتصال الحقيقي بالسيرفر وجلب بيانات اللاعب
     window.fetchPlayerDataFromServer = async function() {
+        // 🛡️ لو فتح من المتصفح (مفيش تليجرام)، نحط بيانات وهمية للمراجع
+        if (!INIT_DATA) {
+            console.log("وضع المتصفح: تحميل بيانات مزرعة وهمية للمعاينة.");
+            window.PlayerData = {
+                balance: 5000,
+                hourly_rate: 1500,
+                unclaimed: 2500,
+                max_cap: 30000,
+                upgrades: {lvl1: 5, lvl2: 1}, // شوية كروت مفتوحة للمنظر
+                daily_day: 3,
+                last_daily_claim_time: Date.now() - (48 * 60 * 60 * 1000) // عشان الزرار يبان متاح
+            };
+            window.updateFarmUI();
+            return; // نوقف الدالة هنا عشان متبعتش للسيرفر
+        }
+
+        // الاتصال الحقيقي للسيرفر لو المستخدم من تليجرام
         try {
             let response = await fetch('/api/farm/player_data', {
                 method: 'POST',
@@ -272,6 +281,8 @@
                 }).catch(() => {
                     if (window.Telegram && window.Telegram.WebApp) {
                         window.Telegram.WebApp.showAlert("⚠️ يجب مشاهدة الإعلان بالكامل للحصول على المكافأة!");
+                    } else {
+                        alert("⚠️ يجب مشاهدة الإعلان بالكامل للحصول على المكافأة!");
                     }
                     resolve(false); 
                 });
@@ -284,6 +295,13 @@
     // استلام الجائزة اليومية
     window.handleDailyClaim = async function(day) {
         if (isClaimingDaily) return;
+        
+        // 🛡️ لو في المتصفح ندي له رسالة نجاح وهمية بدون ما نكلم السيرفر
+        if (!INIT_DATA) {
+            alert("وضع المعاينة: تم استلام المكافأة اليومية بنجاح! (لم يتم حفظ البيانات)");
+            return;
+        }
+
         const btn = document.getElementById(`daily-btn-${day}`);
         const originalHtml = btn ? btn.innerHTML : '';
         if (btn) {
@@ -343,6 +361,14 @@
         const pData = window.PlayerData;
         if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0) return;
         
+        // 🛡️ لو في المتصفح، تجميع وهمي بدون السيرفر
+        if (!INIT_DATA) {
+            alert("وضع المعاينة: تم التجميع بنجاح! (لم يتم الحفظ)");
+            claimCooldown = 5;
+            window.PlayerData.unclaimed = 0;
+            return;
+        }
+
         const claimBtn = document.getElementById('claim-btn');
         if (claimBtn) {
             claimBtn.disabled = true;
