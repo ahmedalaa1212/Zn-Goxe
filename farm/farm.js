@@ -247,20 +247,14 @@
         }
     }, 1000);
 
-    // 📢 دالة تشغيل إعلان Monetag بالانتظار الذكي
+    // 📢 دالة تشغيل إعلان Monetag (تُستخدم فقط للمكافآت اليومية الآن)
     function showTelegramAd(statusCallback) {
         return new Promise((resolve) => {
-            // التحقق مما إذا كان سكربت الإعلانات قد تم تحميله بنجاح
             if (typeof window.show_11322720 === 'function') {
-                
                 if (statusCallback) statusCallback("جارٍ فتح الإعلان... ⏳");
-                
-                // استدعاء الإعلان
                 window.show_11322720().then(() => {
-                    // تم مشاهدة الإعلان بالكامل - يتم إرجاع true لإعطاء المكافأة
                     resolve(true);
                 }).catch((error) => {
-                    // المستخدم أغلق الإعلان قبل انتهائه أو حدث خطأ
                     console.warn("تم إغلاق الإعلان أو حدث خطأ:", error);
                     let msg = "⚠️ لم تقم بمشاهدة الإعلان للنهاية، لذلك لم يتم منح المكافأة.";
                     if (window.Telegram && window.Telegram.WebApp) {
@@ -268,11 +262,9 @@
                     } else {
                         alert(msg);
                     }
-                    resolve(false); // إرجاع false لمنع إعطاء المكافأة
+                    resolve(false); 
                 });
-
             } else {
-                // في حال كان المستخدم يستخدم مانع إعلانات (AdBlocker) أو ضعف الإنترنت
                 let msg = "⚠️ عذراً، تعذر تحميل الإعلان. يرجى إيقاف مانع الإعلانات (Ad Blocker) والمحاولة مرة أخرى.";
                 if (window.Telegram && window.Telegram.WebApp) {
                     window.Telegram.WebApp.showAlert(msg);
@@ -284,6 +276,7 @@
         });
     }
 
+    // التسجيل اليومي يستخدم إعلانات Monetag (تم الإبقاء عليه كما هو)
     window.handleDailyClaim = async function(day) {
         if (isClaimingDaily) return;
         
@@ -349,6 +342,7 @@
         isClaimingDaily = false;
     };
 
+    // زر تجميع الرصيد (تم إزالة Monetag وتخصيصه للعمل مع سكربت OnClickA المضاف في HTML)
     window.handleClaim = async function() {
         const pData = window.PlayerData;
         if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0) return;
@@ -362,39 +356,32 @@
 
         const claimBtn = document.getElementById('claim-btn');
 
-        const adWatched = await showTelegramAd((msg) => {
-            if (claimBtn) {
-                claimBtn.disabled = true;
-                claimBtn.innerText = msg;
-            }
-        });
+        // سكربت OnClickA يتفاعل تلقائياً مع النقرة، لذلك لا نحتاج لمنع العملية لانتظار الإعلان هنا
+        // بمجرد ضغط المستخدم، سيتم حفظ الرصيد، وفي نفس الوقت سيظهر إعلان OnClickA بشكل طبيعي.
+        if (claimBtn) {
+            claimBtn.disabled = true;
+            claimBtn.innerText = "جاري الحفظ... 💾";
+        }
         
-        if (adWatched) {
-            if (claimBtn) claimBtn.innerText = "جاري الحفظ... 💾";
-            try {
-                let response = await fetch('/api/farm/claim', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ initData: INIT_DATA })
-                });
-                
-                let resData = await response.json();
-                if (response.ok && resData.success) {
-                    await window.fetchPlayerData(); 
-                    claimCooldown = 5; 
-                } else {
-                    if (claimBtn) {
-                        claimBtn.disabled = false;
-                        claimBtn.innerText = "تجميع الرصيد 📺";
-                    }
-                }
-            } catch (e) {
+        try {
+            let response = await fetch('/api/farm/claim', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ initData: INIT_DATA })
+            });
+            
+            let resData = await response.json();
+            if (response.ok && resData.success) {
+                await window.fetchPlayerData(); 
+                // وضع التبريد (Cooldown) بعد التجميع الناجح
+                claimCooldown = 5; 
+            } else {
                 if (claimBtn) {
                     claimBtn.disabled = false;
                     claimBtn.innerText = "تجميع الرصيد 📺";
                 }
             }
-        } else {
+        } catch (e) {
             if (claimBtn) {
                 claimBtn.disabled = false;
                 claimBtn.innerText = "تجميع الرصيد 📺";
