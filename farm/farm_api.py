@@ -59,7 +59,7 @@ def get_player_data():
             except: pass
 
         last_claim_str = user_data.get("last_claim_time")
-        hourly_rate = float(user_data.get("hourly_rate", 100.0))
+        hourly_rate = float(user_data.get("hourly_rate", 0))
         max_cap = float(user_data.get("max_cap", 10000.0))
         unclaimed = float(user_data.get("unclaimed", 0.0))
 
@@ -96,7 +96,7 @@ def claim_mined_tokens():
         now = datetime.now(timezone.utc)
         
         last_claim_str = user_data.get("last_claim_time")
-        hourly_rate = float(user_data.get("hourly_rate", 100.0))
+        hourly_rate = float(user_data.get("hourly_rate", 0))
         max_cap = float(user_data.get("max_cap", 10000.0))
         unclaimed = float(user_data.get("unclaimed", 0.0))
 
@@ -140,7 +140,7 @@ def daily_boost():
         if user_data.get("last_boost_date") == today_str:
             return jsonify({"success": False, "error": "لقد استخدمت التسريع اليوم! انتظر لمنتصف الليل."}), 400
 
-        new_rate = float(user_data.get("hourly_rate", 100.0)) + 1.0
+        new_rate = float(user_data.get("hourly_rate", 0)) + 1.0
         ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
         user_ref.update({
