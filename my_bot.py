@@ -17,10 +17,10 @@ def start_command(message):
     if database.is_user_banned(tg_id):
         bot.send_message(
             message.chat.id,
-            "🚫 *تم حظر حسابك نهائياً!*\n\n"
-            "عذراً، لا يمكنك استخدام البوت أو التطبيق بسبب انتهاك الشروط والأحكام أو اكتشاف نشاط غير مصرح به.\n"
-            "إذا كنت تعتقد أن هذا الإجراء تم بالخطأ، يرجى التواصل مع الدعم الفني.",
-            parse_mode="Markdown"
+            "🚫 <b>تم تقييد حسابك!</b>\n\n"
+            "عذراً، لا يمكنك استخدام التطبيق حالياً لمخالفة شروط الاستخدام.\n"
+            "إذا كنت تعتقد أن هذا الإجراء تم بالخطأ، يرجى التواصل مع فريق الدعم.",
+            parse_mode="HTML"
         )
         return
     
@@ -35,7 +35,7 @@ def start_command(message):
         try:
             bot.send_message(
                 chat_id=int(ref_id), 
-                text=f"🎉 <b>خبر مفرح!</b>\n\nلقد انضم صديقك <b>[{first_name}]</b> إلى اللعبة عن طريق رابط الإحالة الخاص بك.\nستحصل الآن على 10% من أرباح تعدينه للأبد! 💸",
+                text=f"🎉 <b>خبر مفرح!</b>\n\nلقد انضم صديقك <b>[{first_name}]</b> إلى اللعبة عن طريق رابط الإحالة الخاص بك.\nستحصل الآن على 10% من أرباحه للأبد! 💸",
                 parse_mode='HTML'
             )
         except Exception as e:
@@ -48,18 +48,27 @@ def start_command(message):
     if ref_id:
         web_app_url += f"&start_param=ref_{ref_id}"
         
-    btn_game = InlineKeyboardButton("🎮 دخول اللعبة وابدأ التجميع الآن", web_app=WebAppInfo(url=web_app_url))
-    btn_channel = InlineKeyboardButton("📢 تابع قناة اللعبة الرسمية", url="https://t.me/zngoxe")
-    markup.add(btn_game)
-    markup.add(btn_channel)
+    # أزرار احترافية وجذابة
+    btn_game = InlineKeyboardButton("🎮 ابدأ اللعب واجمع الرصيد", web_app=WebAppInfo(url=web_app_url))
+    btn_channel = InlineKeyboardButton("📢 مجتمع اللعبة (الأخبار والتحديثات)", url="https://t.me/zngoxe")
     
-    motivational_text = (
-        f"🔥 أهلاً بك يا {first_name} في عالم الـ Zn Goxe المثير! 🔥\n\n"
-        f"🚀 فرصة ذهبية مستنياك لتجميع العملات وتطوير إمبراطوريتك الرقمية من الصفر! "
-        f"جهاز التعدين الخاص بك يعمل الآن في السحاب ويجمع لك الأرباح ثانية بثانية حتى وأنت مغلق للتطبيق!\n\n"
-        f"👇 اضغط على الأزرار بالأسفل وانطلق فوراً!"
+    # إضافة الأزرار فوق بعضها لشكل أفضل على الموبايل
+    markup.row(btn_game)
+    markup.row(btn_channel)
+    
+    # رسالة ترحيبية احترافية، آمنة، ومحفزة جداً
+    welcome_message = (
+        f"👋 <b>أهلاً بك يا {first_name} في عالم Zn Goxe!</b>\n\n"
+        f"🚀 <b>استعد لبناء إمبراطوريتك الرقمية من الصفر!</b>\n"
+        f"هنا، كل ثانية تمر تعمل لصالحك. جهاز التعدين الخاص بك جاهز للانطلاق لجمع عملات الـ <b>ZN</b> حتى وأنت بعيد عن هاتفك.\n\n"
+        f"🔥 <b>ماذا ينتظرك بالداخل؟</b>\n"
+        f"⛏️ <b>التعدين الذكي:</b> قم بترقية معداتك لزيادة دخلك التلقائي.\n"
+        f"⚔️ <b>الساحة الكبرى:</b> نافس لاعبين آخرين واربح جوائز ضخمة كل 15 دقيقة.\n"
+        f"🤝 <b>نظام الإحالة:</b> ادعُ أصدقاءك واستفد من 10% من أرباحهم للأبد!\n\n"
+        f"👇 <b>اضغط على الزر بالأسفل وانطلق الآن!</b>"
     )
-    bot.send_message(message.chat.id, motivational_text, reply_markup=markup)
+    
+    bot.send_message(message.chat.id, welcome_message, reply_markup=markup, parse_mode="HTML")
 
 if __name__ == '__main__':
     database.initialize_firebase()
