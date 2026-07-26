@@ -48,18 +48,16 @@ def get_player_data():
         else:
             user_data = user_doc.to_dict()
 
-        # 🟢 لوجيك حساب الستريك (تصفير لو عدى يوم بدون تسجيل)
         last_daily_date = user_data.get("last_daily_claim_date")
         if last_daily_date:
             try:
                 last_date_obj = datetime.strptime(last_daily_date, '%Y-%m-%d').date()
                 days_diff = (now.date() - last_date_obj).days
-                if days_diff > 1:  # يعني فوت يوم كامل
+                if days_diff > 1:
                     user_data["daily_day"] = 1
                     user_ref.update({"daily_day": 1})
             except: pass
 
-        # حساب الرصيد المتجمع
         last_claim_str = user_data.get("last_claim_time")
         hourly_rate = float(user_data.get("hourly_rate", 100.0))
         max_cap = float(user_data.get("max_cap", 10000.0))
@@ -84,7 +82,6 @@ def get_player_data():
     except Exception:
         return jsonify({"success": False, "error": "خطأ في جلب البيانات"}), 500
 
-# 🟢 زر التجميع المباشر النظيف (بدون إعلانات)
 @farm_bp.route('/claim', methods=['POST'])
 def claim_mined_tokens():
     is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=True)
@@ -108,13 +105,14 @@ def claim_mined_tokens():
                 last_claim = datetime.fromisoformat(str(last_claim_str))
                 if last_claim.tzinfo is None: last_claim = last_claim.replace(tzinfo=timezone.utc)
                 seconds_passed = (now - last_claim).total_seconds()
-                if seconds_passed < 10: return jsonify({"success": False, "error": "انتظر قليلاً"}), 429
+                
+                # 🟢 تم إزالة شرط الـ 10 ثواني اللي كان عامل الأزمة
                 if seconds_passed > 0:
                     mined = (hourly_rate / 3600.0) * seconds_passed
                     unclaimed = min(unclaimed + mined, max_cap)
             except: pass
 
-        if unclaimed <= 0: return jsonify({"success": False, "error": "لا يوجد رصيد"}), 400
+        if unclaimed <= 0: return jsonify({"success": False, "error": "لا يوجد رصيد حالياً في المخزن."}), 400
 
         new_balance = float(user_data.get("balance", 0.0)) + unclaimed
         user_ref.update({
@@ -126,7 +124,6 @@ def claim_mined_tokens():
     except:
         return jsonify({"success": False, "error": "خطأ في التجميع"}), 500
 
-# 🟢 التسريع (مرة واحدة في اليوم حتى منتصف الليل UTC)
 @farm_bp.route('/daily_boost', methods=['POST'])
 def daily_boost():
     is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=True)
@@ -155,7 +152,6 @@ def daily_boost():
     except:
         return jsonify({"success": False, "error": "خطأ في تفعيل التسريع"}), 500
 
-# 🟢 الستريك اليومي (يعتمد على منتصف الليل UTC)
 @farm_bp.route('/daily_claim', methods=['POST'])
 def daily_claim():
     is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=True)
