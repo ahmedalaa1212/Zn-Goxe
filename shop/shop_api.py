@@ -122,7 +122,7 @@ def buy_upgrade():
             upgrades[lvl_key] = current_lvl_count + 1
 
             # إعادة حساب سرعة التعدين الإجمالية
-            new_hourly_rate = 100.0  # السرعة الأساسية
+            new_hourly_rate = 0.0  # تم التصفير لتبدأ من 0 بدلاً من 100
             for lvl_idx in range(1, 10):
                 cnt = int(upgrades.get(f"lvl{lvl_idx}", 0))
                 if cnt > 0 and lvl_idx in MINING_CONFIG:
