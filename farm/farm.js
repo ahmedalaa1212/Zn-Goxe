@@ -64,7 +64,7 @@
         const pData = window.PlayerData || {};
         
         let bal = parseFloat(pData.balance || 0);
-        let hRate = parseFloat(pData.hourly_rate || 100);
+        let hRate = parseFloat(pData.hourly_rate || 0);
         
         document.getElementById('farm-balance').innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
         document.getElementById('farm-rate').innerText = `⚡ ${Math.floor(hRate).toLocaleString()}/س`;
@@ -141,8 +141,8 @@
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
         if (progressEl && storageTextEl) {
-            let pct = (unclaim / maxC) * 100;
-            pct = Math.max(0, Math.min(pct, 100)); 
+            let pct = (unclaim / maxC) * 0;
+            pct = Math.max(0, Math.min(pct, 0)); 
             progressEl.style.width = `${pct}%`;
             if (pct >= 100) progressEl.style.background = 'linear-gradient(90deg, #ff4444, #cc0000)'; 
             storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
