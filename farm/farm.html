@@ -5,22 +5,18 @@
         <div id="farm-balance" style="color: #ffcc00; font-weight: bold; font-size: 16px;">ZN: 0</div>
     </div>
 
-    <!-- 🟢 منطقة العملة وزرار التسريع -->
     <div style="display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 25px;">
         
-        <!-- زرار تسريع التعدين -->
         <button id="boost-btn" onclick="handleDailyBoost()" style="width: 70px; height: 70px; border-radius: 50%; background: linear-gradient(135deg, #ff8c00, #ff0080); border: 2px solid #fff; color: white; display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: pointer; box-shadow: 0 4px 15px rgba(255, 0, 128, 0.5); transition: 0.2s;">
             <span id="boost-icon" style="font-size: 22px; margin-bottom: 2px;">🚀</span>
             <span id="boost-text" style="font-size: 11px; font-weight: bold;">+1/س</span>
         </button>
 
-        <!-- العملة ثلاثية الأبعاد -->
         <div style="perspective: 1000px;">
             <div class="coin-3d">ZN</div>
         </div>
         
-        <div style="width: 70px;"></div> <!-- توازن -->
-    </div>
+        <div style="width: 70px;"></div> </div>
     
     <div style="width: 100%; background: #333; height: 20px; border-radius: 10px; overflow: hidden; margin-bottom: 8px; border: 1px solid #444;">
         <div id="storage-progress" style="width: 0%; height: 100%; transition: width 0.3s, background 0.3s; background: linear-gradient(90deg, #0088cc, #00bfff);"></div >
@@ -29,7 +25,6 @@
         0 / 0
     </div>
     
-    <!-- 🟢 زرار التجميع الأساسي (نظيف وبدون إعلانات) -->
     <button id="claim-btn" onclick="handleClaim()" style="width: 100%; padding: 15px; background: #0088cc; border: none; color: white; border-radius: 10px; font-weight: bold; font-size: 16px; cursor: pointer; margin-bottom: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: 0.3s;">
         تجميع الرصيد 💰
     </button>
