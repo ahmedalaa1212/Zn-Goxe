@@ -17,14 +17,10 @@
 
     let claimCooldown = 0; 
     let isClaimingDaily = false;
-    let isBoosting = false; // 🟢 لمنع الضغط المتكرر على التسريع
+    let isBoosting = false; 
 
     window.fetchPlayerDataFromServer = async function() {
-        if (!INIT_DATA) {
-            console.log("وضع المعاينة (خارج تليجرام)");
-            return; 
-        }
-
+        if (!INIT_DATA) return; 
         try {
             let response = await fetch('/api/farm/player_data', {
                 method: 'POST',
@@ -75,23 +71,6 @@
                 progressEl.style.background = 'linear-gradient(90deg, #0088cc, #00bfff)'; 
             }
             storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
-        }
-
-        // 🟢 تحديث حالة زرار التسريع (التحقق من مرور 24 ساعة)
-        const boostBtn = document.getElementById('boost-btn');
-        if (boostBtn) {
-            const lastBoost = new Date(pData.last_boost_time || 0).getTime();
-            const now = Date.now();
-            if (now - lastBoost < (24 * 60 * 60 * 1000)) {
-                boostBtn.disabled = true;
-                boostBtn.innerHTML = "⏳ التسريع متاح غداً";
-                boostBtn.className = "btn-cooldown";
-                boostBtn.style.background = "#555";
-            } else {
-                boostBtn.disabled = false;
-                boostBtn.innerHTML = "<span>🚀</span> زيادة سرعة التعدين مجاناً (إعلان)";
-                boostBtn.style.background = "linear-gradient(90deg, #ff8c00, #ff0080)";
-            }
         }
         
         const fieldsContainer = document.getElementById('mining-fields');
@@ -195,10 +174,11 @@
         }
     }, 1000);
 
+    // 🟢 دي الدالة اللي بتعرض إعلانات Monetag لأي حاجة (زرار السرعة أو الستريك اليومي)
     function showTelegramAd(statusCallback) {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
-                if (statusCallback) statusCallback("جارٍ فتح الإعلان... ⏳");
+                if (statusCallback) statusCallback();
                 window.show_11322720().then(() => {
                     resolve(true);
                 }).catch((error) => {
@@ -214,20 +194,20 @@
         });
     }
 
-    // 🟢 دالة زرار التسريع الجديدة
+    // 🟢 زرار التسريع (شغال بإعلانات Monetag وبدون قيود وقت)
     window.handleDailyBoost = async function() {
         if (isBoosting || !INIT_DATA) return;
         const btn = document.getElementById('boost-btn');
         const originalHtml = btn.innerHTML;
         isBoosting = true;
         
-        const adWatched = await showTelegramAd((msg) => {
+        const adWatched = await showTelegramAd(() => {
             btn.disabled = true;
-            btn.innerHTML = "⏳ جاري عرض الإعلان...";
+            btn.innerHTML = `<span style="font-size: 20px;">⏳</span>`;
         });
         
         if (adWatched) {
-            btn.innerHTML = "💾 جاري زيادة السرعة...";
+            btn.innerHTML = `<span style="font-size: 20px;">💾</span>`;
             try {
                 let response = await fetch('/api/farm/daily_boost', {
                     method: 'POST',
@@ -238,34 +218,32 @@
                 let resData = await response.json();
                 if (response.ok && resData.success) {
                     if (window.Telegram && window.Telegram.WebApp) {
-                        window.Telegram.WebApp.showAlert(`🚀 مبروك! تمت زيادة سرعة التعدين بمقدار +50 في الساعة!`);
+                        window.Telegram.WebApp.showAlert(`🚀 تمت زيادة سرعة التعدين بمقدار +1 في الساعة!`);
                     }
                     await window.fetchPlayerData(); 
                 } else {
                     if (window.Telegram && window.Telegram.WebApp) {
                         window.Telegram.WebApp.showAlert(resData.error || "خطأ في العملية.");
                     }
-                    btn.disabled = false;
-                    btn.innerHTML = originalHtml;
                 }
             } catch (e) {
-                btn.disabled = false;
-                btn.innerHTML = originalHtml;
+                console.error("Boost error", e);
             }
-        } else {
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
         }
+        
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
         isBoosting = false;
     };
 
+    // 🟢 الستريك اليومي
     window.handleDailyClaim = async function(day) {
         if (isClaimingDaily || !INIT_DATA) return;
         const btn = document.getElementById(`daily-btn-${day}`);
         const originalHtml = btn ? btn.innerHTML : '';
         isClaimingDaily = true;
         
-        const adWatched = await showTelegramAd((msg) => {
+        const adWatched = await showTelegramAd(() => {
             if (btn) { btn.disabled = true; btn.innerHTML = "⏳"; }
         });
         
@@ -279,7 +257,10 @@
                 });
                 let resData = await response.json();
                 if (response.ok && resData.success) {
-                    if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(`🎉 مبروك! استلمت ${resData.reward.toLocaleString()} ZN!`);
+                    if (window.Telegram && window.Telegram.WebApp) {
+                        window.Telegram.WebApp.showAlert(`🎉 مبروك! استلمت ${resData.reward.toLocaleString()} ZN!`);
+                        if (resData.reset_msg) window.Telegram.WebApp.showAlert(resData.reset_msg);
+                    }
                     await window.fetchPlayerData(); 
                 } else {
                     if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(resData.error || "عفواً، خطأ.");
