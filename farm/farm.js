@@ -3,7 +3,7 @@
     const INIT_DATA = (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) ? window.Telegram.WebApp.initData : "";
 
     const GAME_CONFIG = {
-        maxUpgradesPerLevel: 10, // جعلناها متوافقة مع المتجر (10 ترقيات)
+        maxUpgradesPerLevel: 10, 
         dailyRewards: [
             3000, 4000, 5000, 6000, 7500,          
             10000, 12000, 15000, 18000, 20000,     
@@ -64,10 +64,10 @@
         const pData = window.PlayerData || {};
         
         let bal = parseFloat(pData.balance || 0);
-        let hRate = parseFloat(pData.hourly_rate || 0);
+        let hRate = parseFloat(pData.hourly_rate || 0); // تم التعديل لتكون 0
         
         document.getElementById('farm-balance').innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
-        document.getElementById('farm-rate').innerText = `⚡ ${Math.floor(hRate).toLocaleString()}/س`;
+        document.getElementById('farm-rate').innerText = `⚡ ${Math.floor(hRate).toLocaleString()}/h`; // تم تعديل س إلى h
         
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
@@ -130,7 +130,7 @@
         
         let unclaim = parseFloat(pData.unclaimed || 0);
         let maxC = parseFloat(pData.max_cap || 10000);
-        let hRate = parseFloat(pData.hourly_rate || 0);
+        let hRate = parseFloat(pData.hourly_rate || 0); // تعديل لـ 0
         
         if (unclaim < maxC) {
             unclaim += hRate / 3600;
@@ -141,8 +141,8 @@
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
         if (progressEl && storageTextEl) {
-            let pct = (unclaim / maxC) * 0;
-            pct = Math.max(0, Math.min(pct, 0)); 
+            let pct = (unclaim / maxC) * 100;
+            pct = Math.max(0, Math.min(pct, 100)); 
             progressEl.style.width = `${pct}%`;
             if (pct >= 100) progressEl.style.background = 'linear-gradient(90deg, #ff4444, #cc0000)'; 
             storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
@@ -176,7 +176,7 @@
                     boostBtn.className = "";
                     boostBtn.disabled = false;
                     boostBtn.style.background = "linear-gradient(135deg, #ff8c00, #ff0080)";
-                    boostBtn.innerHTML = `<span style="font-size: 22px; margin-bottom: 2px;">🚀</span><span style="font-size: 11px; font-weight: bold;">+1/س</span>`;
+                    boostBtn.innerHTML = `<span style="font-size: 22px; margin-bottom: 2px;">🚀</span><span style="font-size: 11px; font-weight: bold;">+1/h</span>`; // تم تعديل س إلى h
                 }
             }
         }
