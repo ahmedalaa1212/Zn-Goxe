@@ -37,7 +37,7 @@ def get_player_data():
 
         if not user_doc.exists:
             user_data = {
-                "telegram_id": telegram_id, "balance": 0.0, "hourly_rate": 0,
+                "telegram_id": telegram_id, "balance": 0.0, "hourly_rate": 0.0,
                 "unclaimed": 0.0, "max_cap": 10000.0, "daily_day": 1,
                 "last_claim_time": now.isoformat(), 
                 "last_daily_claim_date": None, 
@@ -59,7 +59,7 @@ def get_player_data():
             except: pass
 
         last_claim_str = user_data.get("last_claim_time")
-        hourly_rate = float(user_data.get("hourly_rate", 0))
+        hourly_rate = float(user_data.get("hourly_rate", 0.0))
         max_cap = float(user_data.get("max_cap", 10000.0))
         unclaimed = float(user_data.get("unclaimed", 0.0))
 
@@ -96,7 +96,7 @@ def claim_mined_tokens():
         now = datetime.now(timezone.utc)
         
         last_claim_str = user_data.get("last_claim_time")
-        hourly_rate = float(user_data.get("hourly_rate", 0))
+        hourly_rate = float(user_data.get("hourly_rate", 0.0))
         max_cap = float(user_data.get("max_cap", 10000.0))
         unclaimed = float(user_data.get("unclaimed", 0.0))
 
@@ -106,7 +106,6 @@ def claim_mined_tokens():
                 if last_claim.tzinfo is None: last_claim = last_claim.replace(tzinfo=timezone.utc)
                 seconds_passed = (now - last_claim).total_seconds()
                 
-                # 🟢 تم إزالة شرط الـ 10 ثواني اللي كان عامل الأزمة
                 if seconds_passed > 0:
                     mined = (hourly_rate / 3600.0) * seconds_passed
                     unclaimed = min(unclaimed + mined, max_cap)
@@ -140,7 +139,7 @@ def daily_boost():
         if user_data.get("last_boost_date") == today_str:
             return jsonify({"success": False, "error": "لقد استخدمت التسريع اليوم! انتظر لمنتصف الليل."}), 400
 
-        new_rate = float(user_data.get("hourly_rate", 0)) + 1.0
+        new_rate = float(user_data.get("hourly_rate", 0.0)) + 1.0
         ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
         user_ref.update({
