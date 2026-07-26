@@ -1,24 +1,21 @@
 (function initShop() {
     
-    if (typeof window.Telegram === 'undefined' || !window.Telegram.WebApp.initData) {
-        console.warn("Telegram WebApp Environment Not Detected.");
-    }
-
+    // إعدادات المتجر الجديدة بناءً على طلبك
     const SHOP_CONFIG = {
-        maxMiningUpgrades: 15, 
+        maxMiningUpgrades: 10, // تم التعديل إلى 10 ترقيات كحد أقصى
         miningPrices: {
-            1: 1000, 2: 5000, 3: 15000, 4: 40000, 5: 100000,
-            6: 250000, 7: 600000, 8: 1500000, 9: 5000000
+            1: 310, 2: 820, 3: 2100, 4: 7000, 5: 10100,
+            6: 14500, 7: 17300, 8: 21500, 9: 32150
         },
-        miningRates: { 
-            1: 100, 2: 500, 3: 1500, 4: 4000, 5: 10000, 
-            6: 25000, 7: 60000, 8: 150000, 9: 500000
+        miningRates: { // الزيادة في السرعة
+            1: 2, 2: 5, 3: 11, 4: 23, 5: 56, 
+            6: 76, 7: 84, 8: 98, 9: 110
         },
-        storagePrices: {
-            1: 500, 2: 2500, 3: 8000, 4: 20000, 5: 50000,
-            6: 120000, 7: 300000, 8: 750000, 9: 2000000, 10: 5000000
+        storagePrices: { // أسعار المخازن 10 مستويات
+            1: 1000, 2: 2000, 3: 3000, 4: 4000, 5: 5000,
+            6: 6000, 7: 7000, 8: 8000, 9: 9000, 10: 10000
         },
-        storageCapacities: {
+        storageCapacities: { // سعة المخازن (القيم الافتراضية للحفاظ على التوازن)
             1: 20000,  2: 30000,  3: 50000,  4: 100000, 5: 200000,
             6: 500000, 7: 1000000, 8: 2500000, 9: 5000000, 10: 10000000
         },
@@ -33,16 +30,18 @@
         const btnMining = document.getElementById('tab-mining');
         const btnStorage = document.getElementById('tab-storage');
 
+        if (!miningSec || !storageSec) return;
+
         if (tab === 'mining') {
-            if (miningSec) miningSec.style.display = 'grid';
-            if (storageSec) storageSec.style.display = 'none';
-            if (btnMining) btnMining.style.background = '#0088cc';
-            if (btnStorage) btnStorage.style.background = '#333';
+            miningSec.style.display = 'grid';
+            storageSec.style.display = 'none';
+            btnMining.style.background = '#0088cc';
+            btnStorage.style.background = '#333';
         } else {
-            if (miningSec) miningSec.style.display = 'none';
-            if (storageSec) storageSec.style.display = 'grid';
-            if (btnMining) btnMining.style.background = '#333';
-            if (btnStorage) btnStorage.style.background = '#0088cc';
+            miningSec.style.display = 'none';
+            storageSec.style.display = 'grid';
+            btnMining.style.background = '#333';
+            btnStorage.style.background = '#0088cc';
         }
     };
 
@@ -52,103 +51,104 @@
     };
 
     window.updateShopUI = function() {
-        const pData = window.PlayerData;
-        if (!pData) return;
-
-        let totalBal = parseFloat(pData.balance || 0);
-
-        const shopBalEl = document.getElementById('shop-balance');
-        const shopRateEl = document.getElementById('shop-rate');
-
-        if (shopBalEl) shopBalEl.innerHTML = `<span>🪙</span> <span>ZN: ${Math.floor(totalBal).toLocaleString()}</span>`;
-        if (shopRateEl) shopRateEl.innerHTML = `<span>⚡</span> <span>${(pData.hourly_rate || 0).toLocaleString()}/س</span>`;
-
         const miningSec = document.getElementById('shop-mining-section');
         const storageSec = document.getElementById('shop-storage-section');
-
-        // بناء قائمة ترقيات سرعة التعدين
-        if (miningSec) {
-            let html = '';
-            for (let i = 1; i <= 9; i++) {
-                let count = parseInt((pData.upgrades && pData.upgrades[`lvl${i}`]) || 0);
-                let price = parseFloat(SHOP_CONFIG.miningPrices[i]);
-                let speed = parseFloat(SHOP_CONFIG.miningRates[i]); 
-                let isMax = count >= SHOP_CONFIG.maxMiningUpgrades;
-                let canAfford = totalBal >= price;
-
-                html += `
-                    <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 12px; text-align: center; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between;">
-                        ${isMax ? `<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; font-size: 18px; z-index: 10; transform: rotate(-10deg);">مكتمل MAX</div>` : ''}
-                        <div>
-                            <div style="font-size: 26px; margin-bottom: 5px;">🏛️</div>
-                            <div style="color: #fff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
-                            <div style="color: #28a745; font-size: 12px; margin: 4px 0;">⚡ +${speed.toLocaleString()}/س</div>
-                            <div style="color: #888; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${SHOP_CONFIG.maxMiningUpgrades}</div>
-                        </div>
-                        <button id="btn-speed-${i}" onclick="buyShopItem('speed', ${i}, ${price})" 
-                            style="width: 100%; padding: 9px; background: ${canAfford && !isMax ? '#ffcc00' : '#333'}; color: ${canAfford && !isMax ? '#000' : '#888'}; border: none; border-radius: 6px; font-weight: bold; cursor: ${canAfford && !isMax ? 'pointer' : 'not-allowed'}; transition: background 0.2s;" ${isMax || !canAfford ? 'disabled' : ''}>
-                            ${price.toLocaleString()} ZN
-                        </button>
-                    </div>
-                `;
-            }
-            miningSec.innerHTML = html;
+        
+        // التحقق من وجود العناصر لتفادي الخطأ اللي بيخلي الشاشة سوداء
+        if (!miningSec || !storageSec) {
+            setTimeout(window.updateShopUI, 500); // حاول مرة أخرى بعد نصف ثانية
+            return;
         }
 
-        // بناء قائمة ترقيات المخازن
-        if (storageSec) {
-            let html = '';
-            let currentStorageLvl = parseInt(pData.storage_level || 0); 
+        // لو البيانات لسه مجاتش من السيرفر، اعتبرها أصفار مؤقتاً عشان الواجهة تترسم ومتبقاش فاضية
+        const pData = window.PlayerData || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0 };
+        let totalBal = parseFloat(pData.balance || 0);
 
-            for (let i = 1; i <= 10; i++) {
-                let price = parseFloat(SHOP_CONFIG.storagePrices[i]);
-                let capacity = parseFloat(SHOP_CONFIG.storageCapacities[i]);
-                
-                let isOwned = i <= currentStorageLvl;
-                let isNextUpgrade = i === currentStorageLvl + 1;
-                let canAfford = totalBal >= price;
+        // تحديث الرصيد العلوي
+        const shopBalEl = document.getElementById('shop-balance-text');
+        const shopRateEl = document.getElementById('shop-rate-text');
+        if (shopBalEl) shopBalEl.innerText = `ZN: ${Math.floor(totalBal).toLocaleString()}`;
+        if (shopRateEl) shopRateEl.innerText = `${(pData.hourly_rate || 0).toLocaleString()}/س`;
 
-                let btnBg = '#333';
-                let btnColor = '#888';
-                let btnText = `${price.toLocaleString()} ZN`;
-                let isDisabled = true;
+        // 1. بناء قائمة ترقيات سرعة التعدين
+        let miningHtml = '';
+        for (let i = 1; i <= 9; i++) {
+            let count = parseInt((pData.upgrades && pData.upgrades[`lvl${i}`]) || 0);
+            let price = parseFloat(SHOP_CONFIG.miningPrices[i]);
+            let speed = parseFloat(SHOP_CONFIG.miningRates[i]); 
+            let isMax = count >= SHOP_CONFIG.maxMiningUpgrades;
+            let canAfford = totalBal >= price;
 
-                if (isOwned) {
-                    btnBg = '#28a745';
+            miningHtml += `
+                <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 12px; text-align: center; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between;">
+                    ${isMax ? `<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; font-size: 18px; z-index: 10; transform: rotate(-10deg);">مكتمل MAX</div>` : ''}
+                    <div>
+                        <div style="font-size: 26px; margin-bottom: 5px;">🏛️</div>
+                        <div style="color: #fff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
+                        <div style="color: #28a745; font-size: 12px; margin: 4px 0;">⚡ +${speed.toLocaleString()}/س</div>
+                        <div style="color: #888; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${SHOP_CONFIG.maxMiningUpgrades}</div>
+                    </div>
+                    <button id="btn-speed-${i}" onclick="buyShopItem('speed', ${i}, ${price})" 
+                        style="width: 100%; padding: 9px; background: ${canAfford && !isMax ? '#ffcc00' : '#333'}; color: ${canAfford && !isMax ? '#000' : '#888'}; border: none; border-radius: 6px; font-weight: bold; cursor: ${canAfford && !isMax ? 'pointer' : 'not-allowed'};" ${isMax || (!canAfford && !isMax) ? 'disabled' : ''}>
+                        ${price.toLocaleString()} ZN
+                    </button>
+                </div>
+            `;
+        }
+        miningSec.innerHTML = miningHtml;
+
+        // 2. بناء قائمة ترقيات المخازن
+        let storageHtml = '';
+        let currentStorageLvl = parseInt(pData.storage_level || 0); 
+
+        for (let i = 1; i <= 10; i++) {
+            let price = parseFloat(SHOP_CONFIG.storagePrices[i]);
+            let capacity = parseFloat(SHOP_CONFIG.storageCapacities[i]);
+            
+            let isOwned = i <= currentStorageLvl;
+            let isNextUpgrade = i === currentStorageLvl + 1;
+            let canAfford = totalBal >= price;
+
+            let btnBg = '#333';
+            let btnColor = '#888';
+            let btnText = `${price.toLocaleString()} ZN`;
+            let isDisabled = true;
+
+            if (isOwned) {
+                btnBg = '#28a745';
+                btnColor = '#fff';
+                btnText = 'تم الشراء ✔️';
+                isDisabled = true;
+            } else if (isNextUpgrade) {
+                if (canAfford) {
+                    btnBg = '#0088cc';
                     btnColor = '#fff';
-                    btnText = 'تم الشراء ✔️';
-                    isDisabled = true;
-                } else if (isNextUpgrade) {
-                    if (canAfford) {
-                        btnBg = '#0088cc';
-                        btnColor = '#fff';
-                        isDisabled = false;
-                    } else {
-                        btnBg = '#333';
-                        btnColor = '#888';
-                        isDisabled = true;
-                    }
+                    isDisabled = false;
                 } else {
-                    btnText = 'مغلق 🔒';
+                    btnBg = '#333';
+                    btnColor = '#888';
                     isDisabled = true;
                 }
-
-                html += `
-                    <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 12px; text-align: center; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between;">
-                        <div>
-                            <div style="font-size: 26px; margin-bottom: 5px;">📦</div>
-                            <div style="color: #fff; font-weight: bold; font-size: 14px;">مخزن مستوى ${i}</div>
-                            <div style="color: #0088cc; font-size: 12px; margin: 4px 0 10px 0;">السعة: ${capacity.toLocaleString()} ZN</div>
-                        </div>
-                        <button id="btn-storage-${i}" onclick="buyShopItem('storage', ${i}, ${price})" 
-                            style="width: 100%; padding: 9px; background: ${btnBg}; color: ${btnColor}; border: none; border-radius: 6px; font-weight: bold; cursor: ${!isDisabled ? 'pointer' : 'not-allowed'}; transition: background 0.2s;" ${isDisabled ? 'disabled' : ''}>
-                            ${btnText}
-                        </button>
-                    </div>
-                `;
+            } else {
+                btnText = 'مغلق 🔒';
+                isDisabled = true;
             }
-            storageSec.innerHTML = html;
+
+            storageHtml += `
+                <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 12px; text-align: center; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between;">
+                    <div>
+                        <div style="font-size: 26px; margin-bottom: 5px;">📦</div>
+                        <div style="color: #fff; font-weight: bold; font-size: 14px;">مخزن مستوى ${i}</div>
+                        <div style="color: #0088cc; font-size: 12px; margin: 4px 0 10px 0;">السعة: ${capacity.toLocaleString()} ZN</div>
+                    </div>
+                    <button id="btn-storage-${i}" onclick="buyShopItem('storage', ${i}, ${price})" 
+                        style="width: 100%; padding: 9px; background: ${btnBg}; color: ${btnColor}; border: none; border-radius: 6px; font-weight: bold; cursor: ${!isDisabled ? 'pointer' : 'not-allowed'};" ${isDisabled ? 'disabled' : ''}>
+                        ${btnText}
+                    </button>
+                </div>
+            `;
         }
+        storageSec.innerHTML = storageHtml;
     };
 
     window.buyShopItem = async function(type, level, price) {
@@ -198,27 +198,31 @@
             let resData = await response.json();
 
             if (response.ok && resData.success) {
+                // تحديث البيانات من السيرفر بعد الشراء الناجح
                 if (typeof window.fetchPlayerDataFromServer === 'function') {
                     await window.fetchPlayerDataFromServer(); 
                 }
+                window.updateShopUI();
             } else {
                 alert(resData.error || resData.message || "حدث خطأ أثناء الشراء.");
-                if (typeof window.fetchPlayerDataFromServer === 'function') {
-                    await window.fetchPlayerDataFromServer(); 
-                }
             }
         } catch (e) {
             console.error("Shop Purchase Error:", e);
             alert("فشل الاتصال بالسيرفر. يرجى التحقق من الشبكة.");
+        } finally {
             if (btnEl) {
                 btnEl.disabled = false;
                 btnEl.innerText = oldBtnText;
             }
-        } finally {
             isBuying = false; 
+            window.updateShopUI();
         }
     };
 
-    // التحديث الفوري للواجهة
+    // تشغيل دالة الرسم فوراً
     window.updateShopUI();
+
+    // تشغيلها مرة أخرى كل ثانية للتأكد من المزامنة المستمرة للرصيد
+    setInterval(window.updateShopUI, 1000);
+
 })();
