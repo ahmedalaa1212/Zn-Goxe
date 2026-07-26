@@ -319,9 +319,11 @@
             let resData = await response.json();
 
             if (response.ok && resData.success) {
-                // تحديث البيانات محلياً
+                // الاعتماد الكلي على الرد السليم من السيرفر فقط (بدون أي استدعاء عشوائي)
                 if (window.PlayerData) {
                     window.PlayerData.balance = resData.balance;
+                    window.PlayerData.last_claim_time = resData.last_claim_time; // تحديث الوقت لتجنب الخلل
+                    
                     if (apiType === 'mining') {
                         window.PlayerData.hourly_rate = resData.hourly_rate;
                         window.PlayerData.upgrades = resData.upgrades;
@@ -331,9 +333,7 @@
                     }
                 }
 
-                if (typeof window.fetchPlayerDataFromServer === 'function') {
-                    await window.fetchPlayerDataFromServer(); 
-                }
+                // تم إزالة الكود المسبب للمشكلة (fetchPlayerDataFromServer) نهائياً من هنا
                 
                 window.updateShopUI();
                 
@@ -341,8 +341,6 @@
                     window.updateFarmUI();
                 }
 
-                // إظهار إشعار نجاح خفيف إن أردت (اختياري)
-                // Telegram.WebApp.showAlert("تم الشراء بنجاح! 🎉");
             } else {
                 alert(resData.error || resData.message || "حدث خطأ أثناء الشراء.");
             }
