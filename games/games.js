@@ -5,7 +5,6 @@ let arenaEndTime = 0;
 let countdownInterval = null;
 let hasCheckedResults = false;
 
-// دالة التبديل بين الألعاب (Tabs)
 window.switchGameTab = function(tabName) {
     const arenaTab = document.getElementById('tab-arena');
     const soonTab = document.getElementById('tab-soon');
@@ -31,7 +30,6 @@ window.switchGameTab = function(tabName) {
     }
 }
 
-// جلب حالة الساحة من السيرفر
 async function fetchArenaStatus() {
     try {
         const initData = window.Telegram?.WebApp?.initData;
@@ -48,21 +46,16 @@ async function fetchArenaStatus() {
         const data = await response.json();
         
         if (data.success) {
-            // تحديث الرصيد العلوي
             const gameBalEl = document.getElementById('top-balance-games');
             if (gameBalEl) {
                 gameBalEl.innerText = `ZN ${Math.floor(data.balance).toLocaleString()}`;
             }
             
-            // تحديث البيانات الأساسية للعبة
             currentRoundId = data.round_id;
             arenaEndTime = data.end_time;
             hasCheckedResults = false;
             
-            // تحديث الجوائز في الواجهة
             updateArenaPrizes(data);
-            
-            // تشغيل العداد السلس
             startSmoothCountdown(data.has_joined);
         }
     } catch (error) {
@@ -71,12 +64,10 @@ async function fetchArenaStatus() {
         if (btn && btn.innerText.includes("جاري التحميل")) {
             btn.innerText = "خطأ في الاتصال، جاري إعادة المحاولة...";
         }
-        // محاولة إعادة الاتصال بعد 3 ثواني في حالة الفشل
         setTimeout(fetchArenaStatus, 3000);
     }
 }
 
-// تحديث الأرقام والجوائز فقط
 function updateArenaPrizes(data) {
     document.getElementById('prize-pool').innerText = data.prize_pool.toLocaleString() + " ZN";
     document.getElementById('prize-1').innerText = Math.floor(data.prize_pool * 0.30).toLocaleString() + " ZN";
@@ -86,11 +77,8 @@ function updateArenaPrizes(data) {
     document.getElementById('prize-5').innerText = Math.floor(data.prize_pool * 0.10).toLocaleString() + " ZN";
 }
 
-// نظام العداد السلس (Smooth Timer) يعمل ثانية بثانية محلياً
 function startSmoothCountdown(hasJoined) {
     if (countdownInterval) clearInterval(countdownInterval);
-    
-    // تشغيل الدالة فوراً لتجنب تأخير أول ثانية
     timerTick(hasJoined);
     countdownInterval = setInterval(() => timerTick(hasJoined), 1000);
 }
@@ -104,30 +92,24 @@ function timerTick(hasJoined) {
     
     if (timeLeft < 0) timeLeft = 0;
 
-    // تنسيق الدقائق والثواني
     let m = Math.floor(timeLeft / 60);
     let s = timeLeft % 60;
     timerEl.innerText = `${m < 10 ? '0'+m : m}:${s < 10 ? '0'+s : s}`;
 
-    // التحكم في زر الاشتراك بناءً على الوقت
     if (timeLeft <= 15 && timeLeft > 0) {
-        // فترة القفل قبل السحب
         btn.disabled = true;
         btn.classList.add('btn-disabled');
         btn.innerText = "تم إغلاق الاشتراك (جاري السحب⏳)";
     } else if (timeLeft === 0) {
-        // وقت السحب
         btn.disabled = true;
         btn.classList.add('btn-disabled');
         btn.innerText = "جاري إعلان النتائج... 🔄";
         
-        // جلب النتيجة مرة واحدة فقط
         if (!hasCheckedResults) {
             hasCheckedResults = true;
-            fetchRoundResults(currentRoundId);
+            fetchRoundResults(currentRoundId, 0); // نبدأ المحاولات من الصفر
         }
     } else {
-        // الوقت العادي المسموح فيه بالاشتراك
         if (!hasJoined) {
             btn.disabled = false;
             btn.classList.remove('btn-disabled');
@@ -140,7 +122,6 @@ function timerTick(hasJoined) {
     }
 }
 
-// دالة الاشتراك في الساحة
 window.joinArena = async function() {
     if (isJoining) return;
     const initData = window.Telegram?.WebApp?.initData;
@@ -166,11 +147,9 @@ window.joinArena = async function() {
         const data = await response.json();
         
         if (data.success) {
-            // تحديث بيانات المزرعة الأساسية إن وُجدت لتزامن الرصيد في كل القوائم
             if (typeof window.fetchPlayerDataFromServer === 'function') {
                 window.fetchPlayerDataFromServer();
             }
-            // إعادة جلب الحالة لتحديث الزر والجوائز
             fetchArenaStatus(); 
         } else {
             alert("⚠️ " + data.message);
@@ -186,7 +165,6 @@ window.joinArena = async function() {
     }
 };
 
-// إدارة النوافذ المنبثقة للنتائج
 function showDrawModal(state) {
     const modal = document.getElementById('draw-modal');
     document.getElementById('draw-refunded').style.display = 'none';
@@ -199,12 +177,17 @@ function showDrawModal(state) {
 
 window.closeDrawModal = function() {
     document.getElementById('draw-modal').style.display = 'none';
-    // بعد إغلاق النتيجة، نعيد تحميل الساحة للجولة الجديدة
     fetchArenaStatus();
 }
 
-// جلب النتائج
-async function fetchRoundResults(roundId) {
+// تعديل الدالة لمنع التعليق المستمر
+async function fetchRoundResults(roundId, retries = 0) {
+    if (retries > 12) { // أقصى حد للمحاولات، بعدها يتم إعادة تهيئة الساحة
+        console.warn("تأخر السيرفر في إصدار النتيجة.");
+        fetchArenaStatus();
+        return;
+    }
+
     try {
         const initData = window.Telegram?.WebApp?.initData;
         const response = await fetch('/api/games/results', {
@@ -214,8 +197,7 @@ async function fetchRoundResults(roundId) {
         });
         
         if (!response.ok) {
-            // لو السيرفر لسه بيحسب النتيجة، جرب تاني بعد ثانيتين
-            setTimeout(() => { fetchRoundResults(roundId); }, 2000);
+            setTimeout(() => { fetchRoundResults(roundId, retries + 1); }, 2000);
             return;
         }
         
@@ -228,8 +210,7 @@ async function fetchRoundResults(roundId) {
                 renderWinners(data.winners);
                 showDrawModal('winners');
             } else {
-                // الجولة لم تنتهِ بعد فعلياً في السيرفر، انتظر وحاول مجدداً
-                setTimeout(() => { fetchRoundResults(roundId); }, 2000);
+                setTimeout(() => { fetchRoundResults(roundId, retries + 1); }, 2000);
             }
             
             if (typeof window.fetchPlayerDataFromServer === 'function') {
@@ -238,7 +219,7 @@ async function fetchRoundResults(roundId) {
         }
     } catch (e) {
         console.error("Error fetching results", e);
-        setTimeout(() => { fetchRoundResults(roundId); }, 2000);
+        setTimeout(() => { fetchRoundResults(roundId, retries + 1); }, 2000);
     }
 }
 
@@ -264,5 +245,4 @@ function renderWinners(winners) {
     });
 }
 
-// التشغيل الأول عند فتح الصفحة
 fetchArenaStatus();
