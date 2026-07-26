@@ -18,8 +18,8 @@
     let isClaimingDaily = false;
     let isBoosting = false; 
     let isFetching = false;
+    let isClaimingMain = false; // لمنع السبام على التجميع الرئيسي
 
-    // أدوات حساب التوقيت العالمي (UTC) عشان اليوم يقلب 12 بليل مظبوط
     function getTodayUTCStr() {
         return new Date().toISOString().split('T')[0];
     }
@@ -69,7 +69,6 @@
         document.getElementById('farm-balance').innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
         document.getElementById('farm-rate').innerText = `⚡ ${Math.floor(hRate).toLocaleString()}/س`;
         
-        // رسم الترقيات (بدون تغيير)
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
             let fieldsHTML = '';
@@ -124,7 +123,6 @@
         container.innerHTML = html;
     }
 
-    // العداد الرئيسي للصفحة
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
         const pData = window.PlayerData;
@@ -157,14 +155,13 @@
                 claimBtn.innerText = `انتظر ${claimCooldown} ثانية ⏳`;
                 claimBtn.className = "btn-cooldown";
                 claimBtn.disabled = true;
-            } else {
+            } else if (!isClaimingMain) {
                 claimBtn.innerText = "تجميع الرصيد 💰";
                 claimBtn.className = unclaim > 0 ? "btn-ready" : "";
                 claimBtn.disabled = unclaim <= 0;
             }
         }
 
-        // 🟢 تحديث عدادات الأيام (زر التسريع وزر الستريك)
         const todayStr = getTodayUTCStr();
         const timeLeftStr = getTimeUntilUTCMidnight();
         
@@ -192,7 +189,9 @@
     }, 1000);
 
     setInterval(() => {
-        if (!isBoosting && !isClaimingDaily && claimCooldown === 0) window.fetchPlayerDataFromServer();
+        if (!isBoosting && !isClaimingDaily && !isClaimingMain && claimCooldown === 0) {
+            window.fetchPlayerDataFromServer();
+        }
     }, 10000); 
 
     document.addEventListener("visibilitychange", () => {
@@ -205,7 +204,7 @@
                 if (statusCallback) statusCallback();
                 window.show_11322720().then(() => resolve(true)).catch(() => resolve(false));
             } else {
-                if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert("⚠️ عطل في مانع الإعلانات.");
+                if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert("⚠️ عطل في تحميل الإعلان. تأكد من اتصالك بالإنترنت أو أوقف مانع الإعلانات.");
                 resolve(false);
             }
         });
@@ -232,6 +231,8 @@
                 if (response.ok && resData.success) {
                     if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(`🚀 تمت زيادة السرعة! العداد سيبدأ الآن.`);
                     await window.fetchPlayerData(); 
+                } else if (resData.error && window.Telegram && window.Telegram.WebApp) {
+                    window.Telegram.WebApp.showAlert(resData.error);
                 }
             } catch (e) { console.error(e); }
         }
@@ -262,7 +263,9 @@
                         if (resData.reset_msg) window.Telegram.WebApp.showAlert(resData.reset_msg);
                     }
                     await window.fetchPlayerData(); 
-                } 
+                } else if (resData.error && window.Telegram && window.Telegram.WebApp) {
+                    window.Telegram.WebApp.showAlert(resData.error);
+                }
             } catch (e) { }
         } else {
             if (btn) btn.innerHTML = "📺";
@@ -270,11 +273,11 @@
         isClaimingDaily = false;
     };
 
-    // 🟢 زرار التجميع الأساسي (نظيف ومباشر بدون إعلانات)
     window.handleClaim = async function() {
         const pData = window.PlayerData;
-        if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0 || !INIT_DATA) return;
+        if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0 || !INIT_DATA || isClaimingMain) return;
 
+        isClaimingMain = true;
         const claimBtn = document.getElementById('claim-btn');
         claimBtn.disabled = true;
         claimBtn.innerText = "جاري الحفظ... 💾";
@@ -286,10 +289,14 @@
                 body: JSON.stringify({ initData: INIT_DATA })
             });
             let resData = await response.json();
+            
             if (response.ok && resData.success) {
                 await window.fetchPlayerData(); 
                 claimCooldown = 5; 
             } else {
+                if (resData.error && window.Telegram && window.Telegram.WebApp) {
+                    window.Telegram.WebApp.showAlert(resData.error);
+                }
                 claimBtn.disabled = false;
                 claimBtn.innerText = "تجميع الرصيد 💰";
             }
@@ -297,6 +304,7 @@
             claimBtn.disabled = false;
             claimBtn.innerText = "تجميع الرصيد 💰";
         }
+        isClaimingMain = false;
     };
 
     window.fetchPlayerData();
