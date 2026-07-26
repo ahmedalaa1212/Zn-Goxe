@@ -12,26 +12,16 @@
             60000, 70000, 80000, 90000, 100000,    
             120000, 150000, 180000, 220000, 250000,
             300000, 400000, 500000, 750000, 1000000
-        ],
-        capacities: {0: 10000, 1: 20000, 2: 30000, 3: 50000, 4: 100000, 5: 200000, 6: 500000, 7: 1000000, 8: 2500000, 9: 5000000, 10: 10000000},
-        miningRates: {1: 100, 2: 500, 3: 1500, 4: 4000, 5: 10000, 6: 25000, 7: 60000, 8: 150000, 9: 500000} 
+        ]
     };
 
     let claimCooldown = 0; 
     let isClaimingDaily = false;
+    let isBoosting = false; // 🟢 لمنع الضغط المتكرر على التسريع
 
     window.fetchPlayerDataFromServer = async function() {
         if (!INIT_DATA) {
-            window.PlayerData = {
-                balance: 5000,
-                hourly_rate: 1500,
-                unclaimed: 2500,
-                max_cap: 30000,
-                upgrades: {lvl1: 5, lvl2: 1}, 
-                daily_day: 3,
-                last_daily_claim_time: Date.now() - (48 * 60 * 60 * 1000) 
-            };
-            window.updateFarmUI();
+            console.log("وضع المعاينة (خارج تليجرام)");
             return; 
         }
 
@@ -70,7 +60,7 @@
         const farmRateEl = document.getElementById('farm-rate');
         
         if (farmBalEl) farmBalEl.innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
-        if (farmRateEl) farmRateEl.innerText = `⚡ ${hRate.toLocaleString()}/س`;
+        if (farmRateEl) farmRateEl.innerText = `⚡ ${Math.floor(hRate).toLocaleString()}/س`;
         
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
@@ -86,6 +76,23 @@
             }
             storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
         }
+
+        // 🟢 تحديث حالة زرار التسريع (التحقق من مرور 24 ساعة)
+        const boostBtn = document.getElementById('boost-btn');
+        if (boostBtn) {
+            const lastBoost = new Date(pData.last_boost_time || 0).getTime();
+            const now = Date.now();
+            if (now - lastBoost < (24 * 60 * 60 * 1000)) {
+                boostBtn.disabled = true;
+                boostBtn.innerHTML = "⏳ التسريع متاح غداً";
+                boostBtn.className = "btn-cooldown";
+                boostBtn.style.background = "#555";
+            } else {
+                boostBtn.disabled = false;
+                boostBtn.innerHTML = "<span>🚀</span> زيادة سرعة التعدين مجاناً (إعلان)";
+                boostBtn.style.background = "linear-gradient(90deg, #ff8c00, #ff0080)";
+            }
+        }
         
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
@@ -96,37 +103,13 @@
                 let isMax = count >= GAME_CONFIG.maxUpgradesPerLevel;
                 
                 if (isMax) {
-                    fieldsHTML += `
-                        <div style="background: #222; border-radius: 12px; padding: 15px 8px; text-align: center; border: 1px solid #444; position: relative; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
-                            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; font-size: 16px; transform: rotate(-15deg);">MAX</div>
-                            <div style="font-size: 24px; margin-bottom: 5px; opacity: 0.4;">🏛️</div>
-                            <div style="color: #888; font-size: 12px; font-weight: bold;">مستوى ${i}</div>
-                        </div>
-                    `;
+                    fieldsHTML += `<div style="background: #222; border-radius: 12px; padding: 15px 8px; text-align: center; border: 1px solid #444; position: relative; overflow: hidden;"><div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; font-size: 16px; transform: rotate(-15deg);">MAX</div><div style="font-size: 24px; margin-bottom: 5px; opacity: 0.4;">🏛️</div><div style="color: #888; font-size: 12px; font-weight: bold;">مستوى ${i}</div></div>`;
                 } else if (count > 0) {
-                    fieldsHTML += `
-                        <div style="background: #1c1c1c; border-radius: 12px; padding: 15px 8px; text-align: center; border: 1px solid #0088cc; position: relative; box-shadow: 0 4px 8px rgba(0,136,204,0.15);">
-                            <div style="position: absolute; top: -6px; right: -6px; background: #ffcc00; color: #000; font-weight: bold; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 10px; border: 2px solid #121212;">x${count}</div>
-                            <div style="width: 32px; height: 32px; background: #ffcc00; border-radius: 50%; margin: 0 auto 6px auto; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">
-                                <span style="font-size: 15px;">🏛️</span>
-                            </div>
-                            <div style="color: white; font-size: 12px; font-weight: bold;">مستوى ${i}</div>
-                        </div>
-                    `;
+                    fieldsHTML += `<div style="background: #1c1c1c; border-radius: 12px; padding: 15px 8px; text-align: center; border: 1px solid #0088cc; position: relative;"><div style="position: absolute; top: -6px; right: -6px; background: #ffcc00; color: #000; font-weight: bold; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 10px; border: 2px solid #121212;">x${count}</div><div style="width: 32px; height: 32px; background: #ffcc00; border-radius: 50%; margin: 0 auto 6px auto; display: flex; align-items: center; justify-content: center;"><span style="font-size: 15px;">🏛️</span></div><div style="color: white; font-size: 12px; font-weight: bold;">مستوى ${i}</div></div>`;
                 } else if (isUnlocked) {
-                    fieldsHTML += `
-                        <div style="background: #181818; border-radius: 12px; padding: 15px 8px; text-align: center; border: 1px dashed #555; cursor: pointer;">
-                            <div style="font-size: 22px; color: #777; margin-bottom: 5px;">🏛️</div>
-                            <div style="color: #00bfff; font-size: 11px; font-weight: bold;">متاح للشراء</div>
-                        </div>
-                    `;
+                    fieldsHTML += `<div style="background: #181818; border-radius: 12px; padding: 15px 8px; text-align: center; border: 1px dashed #555; cursor: pointer;"><div style="font-size: 22px; color: #777; margin-bottom: 5px;">🏛️</div><div style="color: #00bfff; font-size: 11px; font-weight: bold;">متاح للشراء</div></div>`;
                 } else {
-                    fieldsHTML += `
-                        <div style="background: #141414; border-radius: 12px; padding: 15px 8px; text-align: center; border: 1px solid #222; opacity: 0.5;">
-                            <div style="font-size: 22px; color: #555; margin-bottom: 5px;">🔒</div>
-                            <div style="color: #666; font-size: 11px; font-weight: bold;">مغلق</div>
-                        </div>
-                    `;
+                    fieldsHTML += `<div style="background: #141414; border-radius: 12px; padding: 15px 8px; text-align: center; border: 1px solid #222; opacity: 0.5;"><div style="font-size: 22px; color: #555; margin-bottom: 5px;">🔒</div><div style="color: #666; font-size: 11px; font-weight: bold;">مغلق</div></div>`;
                 }
             }
             fieldsContainer.innerHTML = fieldsHTML;
@@ -146,9 +129,8 @@
         if (!container) return; 
 
         let html = '';
-        let nowOffset = Date.now() + (window.timeOffset || 0);
         const lastClaim = new Date(pData.last_daily_claim_time || 0).getTime();
-        const timePassed = nowOffset - lastClaim;
+        const timePassed = Date.now() - lastClaim;
         const canClaim = timePassed >= (24 * 60 * 60 * 1000) || !pData.last_daily_claim_time; 
         const currentDailyDay = parseInt(pData.daily_day || 1);
 
@@ -158,48 +140,21 @@
             let displayReward = formatCompactNumber(rawReward);
 
             if (dayNum < currentDailyDay) {
-                html += `
-                    <div style="background: rgba(40, 167, 69, 0.08); border: 1px solid #28a745; border-radius: 8px; padding: 8px 2px; text-align: center;">
-                        <div style="color: #888; font-size: 10px; margin-bottom: 3px;">يوم ${dayNum}</div>
-                        <div style="color: #28a745; font-size: 14px; margin-bottom: 3px;">✔️</div>
-                        <div style="color: #28a745; font-size: 9px; font-weight: bold;">تم</div>
-                    </div>
-                `;
+                html += `<div style="background: rgba(40, 167, 69, 0.08); border: 1px solid #28a745; border-radius: 8px; padding: 8px 2px; text-align: center;"><div style="color: #888; font-size: 10px; margin-bottom: 3px;">يوم ${dayNum}</div><div style="color: #28a745; font-size: 14px; margin-bottom: 3px;">✔️</div><div style="color: #28a745; font-size: 9px; font-weight: bold;">تم</div></div>`;
             } else if (dayNum === currentDailyDay) {
                 if (canClaim) {
-                    html += `
-                        <div style="background: #222; border: 2px solid #ffcc00; border-radius: 8px; padding: 6px 2px; text-align: center; box-shadow: 0 0 6px rgba(255, 204, 0, 0.25);">
-                            <div style="color: #fff; font-size: 10px; font-weight: bold; margin-bottom: 3px;">يوم ${dayNum}</div>
-                            <div style="color: #ffcc00; font-size: 10px; font-weight: bold; margin-bottom: 4px;">${displayReward}</div>
-                            <button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${dayNum})" style="background: #28a745; color: white; border: none; border-radius: 4px; padding: 4px 0; font-size: 10px; cursor: pointer; width: 85%; animation: pulseGreen 2s infinite;">📺</button>
-                        </div>
-                    `;
+                    html += `<div style="background: #222; border: 2px solid #ffcc00; border-radius: 8px; padding: 6px 2px; text-align: center;"><div style="color: #fff; font-size: 10px; font-weight: bold; margin-bottom: 3px;">يوم ${dayNum}</div><div style="color: #ffcc00; font-size: 10px; font-weight: bold; margin-bottom: 4px;">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${dayNum})" style="background: #28a745; color: white; border: none; border-radius: 4px; padding: 4px 0; font-size: 10px; cursor: pointer; width: 85%; animation: pulseGreen 2s infinite;">📺</button></div>`;
                 } else {
-                    html += `
-                        <div style="background: #222; border: 1px solid #555; border-radius: 8px; padding: 8px 2px; text-align: center;">
-                            <div style="color: #fff; font-size: 10px; margin-bottom: 3px;">يوم ${dayNum}</div>
-                            <div style="color: #ffcc00; font-size: 10px; margin-bottom: 4px;">${displayReward}</div>
-                            <div style="color: #ff4444; font-size: 10px; font-weight: bold;">⏳</div>
-                        </div>
-                    `;
+                    html += `<div style="background: #222; border: 1px solid #555; border-radius: 8px; padding: 8px 2px; text-align: center;"><div style="color: #fff; font-size: 10px; margin-bottom: 3px;">يوم ${dayNum}</div><div style="color: #ffcc00; font-size: 10px; margin-bottom: 4px;">${displayReward}</div><div style="color: #ff4444; font-size: 10px; font-weight: bold;">⏳</div></div>`;
                 }
             } else {
-                html += `
-                    <div style="background: #141414; border: 1px solid #2a2a2a; border-radius: 8px; padding: 8px 2px; text-align: center; opacity: 0.5;">
-                        <div style="color: #777; font-size: 10px; margin-bottom: 3px;">يوم ${dayNum}</div>
-                        <div style="color: #555; font-size: 14px; margin-bottom: 3px;">🔒</div>
-                        <div style="color: #777; font-size: 9px;">${displayReward}</div>
-                    </div>
-                `;
+                html += `<div style="background: #141414; border: 1px solid #2a2a2a; border-radius: 8px; padding: 8px 2px; text-align: center; opacity: 0.5;"><div style="color: #777; font-size: 10px; margin-bottom: 3px;">يوم ${dayNum}</div><div style="color: #555; font-size: 14px; margin-bottom: 3px;">🔒</div><div style="color: #777; font-size: 9px;">${displayReward}</div></div>`;
             }
         }
         container.innerHTML = html;
     }
 
-    if (window.farmIntervalId) {
-        clearInterval(window.farmIntervalId);
-    }
-
+    if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
         const pData = window.PlayerData;
         if (!pData) return;
@@ -208,8 +163,6 @@
         let maxC = parseFloat(pData.max_cap || 10000);
         let hRate = parseFloat(pData.hourly_rate || 100);
         
-        unclaim = Math.max(0, Math.min(unclaim, maxC));
-
         if (unclaim < maxC) {
             unclaim += hRate / 3600;
             if (unclaim >= maxC) unclaim = maxC;
@@ -222,13 +175,8 @@
         if (progressEl && storageTextEl) {
             let pct = (unclaim / maxC) * 100;
             pct = Math.max(0, Math.min(pct, 100)); 
-            
             progressEl.style.width = `${pct}%`;
-            if (pct >= 100) {
-                progressEl.style.background = 'linear-gradient(90deg, #ff4444, #cc0000)'; 
-            } else {
-                progressEl.style.background = 'linear-gradient(90deg, #0088cc, #00bfff)'; 
-            }
+            if (pct >= 100) progressEl.style.background = 'linear-gradient(90deg, #ff4444, #cc0000)'; 
             storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
         }
 
@@ -254,45 +202,71 @@
                 window.show_11322720().then(() => {
                     resolve(true);
                 }).catch((error) => {
-                    console.warn("تم إغلاق الإعلان أو حدث خطأ:", error);
-                    let msg = "⚠️ لم تقم بمشاهدة الإعلان للنهاية، لذلك لم يتم منح المكافأة.";
-                    if (window.Telegram && window.Telegram.WebApp) {
-                        window.Telegram.WebApp.showAlert(msg);
-                    } else {
-                        alert(msg);
-                    }
+                    let msg = "⚠️ لم تقم بمشاهدة الإعلان للنهاية.";
+                    if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(msg);
                     resolve(false); 
                 });
             } else {
-                let msg = "⚠️ عذراً، تعذر تحميل الإعلان. يرجى إيقاف مانع الإعلانات (Ad Blocker) والمحاولة مرة أخرى.";
-                if (window.Telegram && window.Telegram.WebApp) {
-                    window.Telegram.WebApp.showAlert(msg);
-                } else {
-                    alert(msg);
-                }
+                let msg = "⚠️ تعذر تحميل الإعلان. يرجى إيقاف مانع الإعلانات.";
+                if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(msg);
                 resolve(false);
             }
         });
     }
 
-    window.handleDailyClaim = async function(day) {
-        if (isClaimingDaily) return;
+    // 🟢 دالة زرار التسريع الجديدة
+    window.handleDailyBoost = async function() {
+        if (isBoosting || !INIT_DATA) return;
+        const btn = document.getElementById('boost-btn');
+        const originalHtml = btn.innerHTML;
+        isBoosting = true;
         
-        if (!INIT_DATA) {
-            alert("وضع المعاينة: تم استلام المكافأة اليومية بنجاح!");
-            return;
-        }
+        const adWatched = await showTelegramAd((msg) => {
+            btn.disabled = true;
+            btn.innerHTML = "⏳ جاري عرض الإعلان...";
+        });
+        
+        if (adWatched) {
+            btn.innerHTML = "💾 جاري زيادة السرعة...";
+            try {
+                let response = await fetch('/api/farm/daily_boost', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ initData: INIT_DATA })
+                });
 
+                let resData = await response.json();
+                if (response.ok && resData.success) {
+                    if (window.Telegram && window.Telegram.WebApp) {
+                        window.Telegram.WebApp.showAlert(`🚀 مبروك! تمت زيادة سرعة التعدين بمقدار +50 في الساعة!`);
+                    }
+                    await window.fetchPlayerData(); 
+                } else {
+                    if (window.Telegram && window.Telegram.WebApp) {
+                        window.Telegram.WebApp.showAlert(resData.error || "خطأ في العملية.");
+                    }
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                }
+            } catch (e) {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
+        } else {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+        isBoosting = false;
+    };
+
+    window.handleDailyClaim = async function(day) {
+        if (isClaimingDaily || !INIT_DATA) return;
         const btn = document.getElementById(`daily-btn-${day}`);
         const originalHtml = btn ? btn.innerHTML : '';
-        
         isClaimingDaily = true;
         
         const adWatched = await showTelegramAd((msg) => {
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = "⏳";
-            }
+            if (btn) { btn.disabled = true; btn.innerHTML = "⏳"; }
         });
         
         if (adWatched) {
@@ -303,60 +277,30 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ initData: INIT_DATA })
                 });
-
                 let resData = await response.json();
                 if (response.ok && resData.success) {
-                    const successMsg = `🎉 مبروك! لقد استلمت ${resData.reward.toLocaleString()} ZN بنجاح!`;
-                    if (window.Telegram && window.Telegram.WebApp) {
-                        window.Telegram.WebApp.showAlert(successMsg);
-                    } else {
-                        alert(successMsg);
-                    }
+                    if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(`🎉 مبروك! استلمت ${resData.reward.toLocaleString()} ZN!`);
                     await window.fetchPlayerData(); 
                 } else {
-                    const errMsg = resData.error || "عفواً، لا يمكنك استلام المكافأة الآن.";
-                    if (window.Telegram && window.Telegram.WebApp) {
-                        window.Telegram.WebApp.showAlert(errMsg);
-                    } else {
-                        alert(errMsg);
-                    }
-                    if (btn) {
-                        btn.disabled = false;
-                        btn.innerHTML = originalHtml;
-                    }
+                    if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(resData.error || "عفواً، خطأ.");
+                    if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
                 }
             } catch (e) {
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = originalHtml;
-                }
+                if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
             }
         } else {
-            if (btn) {
-                btn.disabled = false;
-                btn.innerHTML = originalHtml;
-            }
+            if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
         }
         isClaimingDaily = false;
     };
 
     window.handleClaim = async function() {
         const pData = window.PlayerData;
-        if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0) return;
-        
-        if (!INIT_DATA) {
-            alert("وضع المعاينة: تم التجميع بنجاح!");
-            claimCooldown = 5;
-            window.PlayerData.unclaimed = 0;
-            window.updateFarmUI();
-            return;
-        }
+        if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0 || !INIT_DATA) return;
 
         const claimBtn = document.getElementById('claim-btn');
-        if (claimBtn) {
-            claimBtn.disabled = true;
-            claimBtn.innerText = "جاري الحفظ والتحويل... 💾";
-        }
+        claimBtn.disabled = true;
+        claimBtn.innerText = "جاري الحفظ والتحويل... 💾";
         
         try {
             let response = await fetch('/api/farm/claim', {
@@ -364,25 +308,19 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ initData: INIT_DATA })
             });
-            
             let resData = await response.json();
             if (response.ok && resData.success) {
                 await window.fetchPlayerData(); 
                 claimCooldown = 5; 
             } else {
-                if (claimBtn) {
-                    claimBtn.disabled = false;
-                    claimBtn.innerText = "تجميع الرصيد 📺";
-                }
-            }
-        } catch (e) {
-            if (claimBtn) {
                 claimBtn.disabled = false;
                 claimBtn.innerText = "تجميع الرصيد 📺";
             }
+        } catch (e) {
+            claimBtn.disabled = false;
+            claimBtn.innerText = "تجميع الرصيد 📺";
         }
     };
 
     window.fetchPlayerData();
-
 })();
