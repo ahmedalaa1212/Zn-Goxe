@@ -3,7 +3,7 @@
     const INIT_DATA = (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) ? window.Telegram.WebApp.initData : "";
 
     const GAME_CONFIG = {
-        maxUpgradesPerLevel: 15,
+        maxUpgradesPerLevel: 10, // جعلناها متوافقة مع المتجر (10 ترقيات)
         dailyRewards: [
             3000, 4000, 5000, 6000, 7500,          
             10000, 12000, 15000, 18000, 20000,     
@@ -18,7 +18,7 @@
     let isClaimingDaily = false;
     let isBoosting = false; 
     let isFetching = false;
-    let isClaimingMain = false; // لمنع السبام على التجميع الرئيسي
+    let isClaimingMain = false; 
 
     function getTodayUTCStr() {
         return new Date().toISOString().split('T')[0];
