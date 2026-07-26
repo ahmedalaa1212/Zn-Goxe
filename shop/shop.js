@@ -2,20 +2,20 @@
     
     // إعدادات المتجر الجديدة بناءً على طلبك
     const SHOP_CONFIG = {
-        maxMiningUpgrades: 10, // تم التعديل إلى 10 ترقيات كحد أقصى
+        maxMiningUpgrades: 10,
         miningPrices: {
             1: 310, 2: 820, 3: 2100, 4: 7000, 5: 10100,
             6: 14500, 7: 17300, 8: 21500, 9: 32150
         },
-        miningRates: { // الزيادة في السرعة
+        miningRates: { 
             1: 2, 2: 5, 3: 11, 4: 23, 5: 56, 
             6: 76, 7: 84, 8: 98, 9: 110
         },
-        storagePrices: { // أسعار المخازن 10 مستويات
+        storagePrices: { 
             1: 1000, 2: 2000, 3: 3000, 4: 4000, 5: 5000,
             6: 6000, 7: 7000, 8: 8000, 9: 9000, 10: 10000
         },
-        storageCapacities: { // سعة المخازن (القيم الافتراضية للحفاظ على التوازن)
+        storageCapacities: { 
             1: 20000,  2: 30000,  3: 50000,  4: 100000, 5: 200000,
             6: 500000, 7: 1000000, 8: 2500000, 9: 5000000, 10: 10000000
         },
@@ -54,17 +54,14 @@
         const miningSec = document.getElementById('shop-mining-section');
         const storageSec = document.getElementById('shop-storage-section');
         
-        // التحقق من وجود العناصر لتفادي الخطأ اللي بيخلي الشاشة سوداء
         if (!miningSec || !storageSec) {
-            setTimeout(window.updateShopUI, 500); // حاول مرة أخرى بعد نصف ثانية
+            setTimeout(window.updateShopUI, 500);
             return;
         }
 
-        // لو البيانات لسه مجاتش من السيرفر، اعتبرها أصفار مؤقتاً عشان الواجهة تترسم ومتبقاش فاضية
         const pData = window.PlayerData || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0 };
         let totalBal = parseFloat(pData.balance || 0);
 
-        // تحديث الرصيد العلوي
         const shopBalEl = document.getElementById('shop-balance-text');
         const shopRateEl = document.getElementById('shop-rate-text');
         if (shopBalEl) shopBalEl.innerText = `ZN: ${Math.floor(totalBal).toLocaleString()}`;
@@ -198,11 +195,15 @@
             let resData = await response.json();
 
             if (response.ok && resData.success) {
-                // تحديث البيانات من السيرفر بعد الشراء الناجح
                 if (typeof window.fetchPlayerDataFromServer === 'function') {
                     await window.fetchPlayerDataFromServer(); 
                 }
                 window.updateShopUI();
+                
+                // === الربط مع المزرعة: تحديث واجهة المزرعة فوراً ===
+                if (typeof window.updateFarmUI === 'function') {
+                    window.updateFarmUI();
+                }
             } else {
                 alert(resData.error || resData.message || "حدث خطأ أثناء الشراء.");
             }
@@ -219,10 +220,7 @@
         }
     };
 
-    // تشغيل دالة الرسم فوراً
     window.updateShopUI();
-
-    // تشغيلها مرة أخرى كل ثانية للتأكد من المزامنة المستمرة للرصيد
     setInterval(window.updateShopUI, 1000);
 
 })();
