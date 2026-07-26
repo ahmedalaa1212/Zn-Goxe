@@ -24,6 +24,88 @@
 
     let isBuying = false; 
 
+    // ==========================================
+    // 🎨 بناء رسالة التأكيد الاحترافية (Modal)
+    // ==========================================
+    const injectModalUI = () => {
+        // 1. حقن ستايل الـ CSS الخاص بالنافذة المنبثقة
+        if (!document.getElementById('shop-modal-styles')) {
+            const styleSheet = document.createElement("style");
+            styleSheet.id = 'shop-modal-styles';
+            styleSheet.innerHTML = `
+                #shop-confirm-modal-overlay {
+                    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                    background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(4px);
+                    display: none; align-items: center; justify-content: center;
+                    z-index: 99999; opacity: 0; transition: opacity 0.3s ease;
+                }
+                #shop-confirm-modal {
+                    background: #1a1a1a; border: 1px solid #333; border-radius: 20px;
+                    padding: 24px; width: 85%; max-width: 320px; text-align: center;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+                    transform: translateY(30px) scale(0.95);
+                    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                }
+                .shop-modal-active { display: flex !important; opacity: 1 !important; }
+                .shop-modal-active > #shop-confirm-modal { transform: translateY(0) scale(1); }
+                .shop-modal-title { color: #fff; font-size: 20px; font-weight: bold; margin-bottom: 8px; }
+                .shop-modal-desc { color: #aaa; font-size: 14px; margin-bottom: 15px; line-height: 1.5; }
+                .shop-modal-price-box { 
+                    background: #000; border-radius: 12px; padding: 12px; 
+                    color: #ffcc00; font-weight: bold; font-size: 18px; margin-bottom: 20px;
+                    border: 1px solid #333;
+                }
+                .shop-modal-actions { display: flex; gap: 12px; justify-content: center; }
+                .shop-btn {
+                    flex: 1; padding: 12px; border: none; border-radius: 10px;
+                    font-weight: bold; font-size: 15px; cursor: pointer; transition: 0.2s;
+                }
+                .shop-btn-cancel { background: #333; color: #fff; }
+                .shop-btn-cancel:hover { background: #444; }
+                .shop-btn-confirm { background: #0088cc; color: #fff; }
+                .shop-btn-confirm:hover { background: #0077b3; filter: brightness(1.2); }
+            `;
+            document.head.appendChild(styleSheet);
+        }
+
+        // 2. حقن هيكل الـ HTML الخاص بالنافذة المنبثقة
+        if (!document.getElementById('shop-confirm-modal-overlay')) {
+            const modalHTML = `
+                <div id="shop-confirm-modal-overlay">
+                    <div id="shop-confirm-modal">
+                        <div id="shop-modal-icon" style="font-size: 45px; margin-bottom: 10px; text-shadow: 0 0 15px rgba(255,255,255,0.2);">🛒</div>
+                        <div class="shop-modal-title" id="shop-modal-title">تأكيد الشراء</div>
+                        <div class="shop-modal-desc" id="shop-modal-desc">هل أنت متأكد من هذه العملية؟</div>
+                        <div class="shop-modal-price-box" id="shop-modal-price">0 ZN</div>
+                        <div class="shop-modal-actions">
+                            <button class="shop-btn shop-btn-cancel" onclick="closeShopModal()">إلغاء</button>
+                            <button class="shop-btn shop-btn-confirm" id="shop-modal-confirm-btn">شراء الآن</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+        }
+    };
+
+    window.closeShopModal = function() {
+        const overlay = document.getElementById('shop-confirm-modal-overlay');
+        if(overlay) {
+            overlay.classList.remove('shop-modal-active');
+            // تأخير الإخفاء التام حتى ينتهي الأنيميشن
+            setTimeout(() => {
+                if(!overlay.classList.contains('shop-modal-active')) {
+                    overlay.style.display = 'none'; 
+                }
+            }, 300);
+        }
+    };
+
+    // تجهيز النافذة فور تحميل السكربت
+    injectModalUI();
+    // ==========================================
+
+
     window.switchShopTab = function(tab) {
         const miningSec = document.getElementById('shop-mining-section');
         const storageSec = document.getElementById('shop-storage-section');
@@ -55,7 +137,6 @@
         const storageSec = document.getElementById('shop-storage-section');
         
         if (!miningSec || !storageSec) {
-            // ننتظر حتى يتم تحميل الواجهة
             setTimeout(window.updateShopUI, 500);
             return;
         }
@@ -86,7 +167,7 @@
                         <div style="color: #28a745; font-size: 12px; margin: 4px 0;">⚡ +${speed.toLocaleString()}/س</div>
                         <div style="color: #888; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${SHOP_CONFIG.maxMiningUpgrades}</div>
                     </div>
-                    <button id="btn-speed-${i}" onclick="buyShopItem('speed', ${i}, ${price})" 
+                    <button id="btn-speed-${i}" onclick="requestShopPurchase('speed', ${i}, ${price})" 
                         style="width: 100%; padding: 9px; background: ${canAfford && !isMax ? '#ffcc00' : '#333'}; color: ${canAfford && !isMax ? '#000' : '#888'}; border: none; border-radius: 6px; font-weight: bold; cursor: ${canAfford && !isMax ? 'pointer' : 'not-allowed'};" ${isMax || (!canAfford && !isMax) ? 'disabled' : ''}>
                         ${price.toLocaleString()} ZN
                     </button>
@@ -139,7 +220,7 @@
                         <div style="color: #fff; font-weight: bold; font-size: 14px;">مخزن مستوى ${i}</div>
                         <div style="color: #0088cc; font-size: 12px; margin: 4px 0 10px 0;">السعة: ${capacity.toLocaleString()} ZN</div>
                     </div>
-                    <button id="btn-storage-${i}" onclick="buyShopItem('storage', ${i}, ${price})" 
+                    <button id="btn-storage-${i}" onclick="requestShopPurchase('storage', ${i}, ${price})" 
                         style="width: 100%; padding: 9px; background: ${btnBg}; color: ${btnColor}; border: none; border-radius: 6px; font-weight: bold; cursor: ${!isDisabled ? 'pointer' : 'not-allowed'};" ${isDisabled ? 'disabled' : ''}>
                         ${btnText}
                     </button>
@@ -149,8 +230,57 @@
         storageSec.innerHTML = storageHtml;
     };
 
-    window.buyShopItem = async function(type, level, price) {
+
+    // دالة استدعاء النافذة المنبثقة بدلاً من الشراء المباشر
+    window.requestShopPurchase = function(type, level, price) {
         const pData = window.PlayerData;
+        const totalBal = parseFloat((pData && pData.balance) || 0);
+        let numPrice = parseFloat(price);
+
+        if (totalBal < numPrice) {
+            alert("⚠️ الرصيد غير كافي لشراء هذا التطوير!");
+            return; 
+        }
+
+        const overlay = document.getElementById('shop-confirm-modal-overlay');
+        const titleEl = document.getElementById('shop-modal-title');
+        const descEl = document.getElementById('shop-modal-desc');
+        const priceEl = document.getElementById('shop-modal-price');
+        const iconEl = document.getElementById('shop-modal-icon');
+        const confirmBtn = document.getElementById('shop-modal-confirm-btn');
+
+        // تخصيص النافذة حسب نوع الشراء
+        if (type === 'speed') {
+            iconEl.innerText = '⚡';
+            titleEl.innerText = 'ترقية سرعة التعدين';
+            descEl.innerText = `هل تريد شراء ترقية السرعة (مستوى ${level})؟`;
+            confirmBtn.style.background = '#ffcc00';
+            confirmBtn.style.color = '#000';
+        } else {
+            iconEl.innerText = '📦';
+            titleEl.innerText = 'توسعة المخزن';
+            descEl.innerText = `هل تريد ترقية مساحة المخزن الخاص بك إلى (مستوى ${level})؟`;
+            confirmBtn.style.background = '#0088cc';
+            confirmBtn.style.color = '#fff';
+        }
+
+        priceEl.innerText = `التكلفة: ${numPrice.toLocaleString()} ZN`;
+
+        // عند الضغط على تأكيد، نغلق النافذة وننفذ الشراء الفعلي
+        confirmBtn.onclick = function() {
+            closeShopModal();
+            executeActualPurchase(type, level, price);
+        };
+
+        // إظهار النافذة المنبثقة
+        overlay.style.display = 'flex';
+        // استخدام setTimeout لإعطاء فرصة للمتصفح لتطبيق الانتقال (Animation)
+        setTimeout(() => overlay.classList.add('shop-modal-active'), 10);
+    };
+
+
+    // دالة الشراء الفعلية (التي تتصل بالسيرفر)
+    async function executeActualPurchase(type, level, price) {
         const initData = window.Telegram?.WebApp?.initData; 
 
         if (!initData) {
@@ -159,16 +289,8 @@
         }
 
         if (isBuying) return;
-
-        let numPrice = parseFloat(price);
-        let totalBal = parseFloat((pData && pData.balance) || 0);
-
-        if (!pData || totalBal < numPrice) {
-            alert("⚠️ الرصيد غير كافي لشراء هذا التطوير!");
-            return; 
-        }
-
         isBuying = true;
+
         const btnId = `btn-${type === 'speed' ? 'speed' : 'storage'}-${level}`;
         const btnEl = document.getElementById(btnId);
         
@@ -178,6 +300,7 @@
             btnEl.disabled = true;
             btnEl.innerText = "جاري الشراء... ⏳";
             btnEl.style.background = "#555";
+            btnEl.style.color = "#fff";
         }
 
         let apiType = (type === 'speed') ? 'mining' : 'storage';
@@ -196,7 +319,7 @@
             let resData = await response.json();
 
             if (response.ok && resData.success) {
-                // 1. تحديث البيانات محلياً لتجنب تأخير الواجهة
+                // تحديث البيانات محلياً
                 if (window.PlayerData) {
                     window.PlayerData.balance = resData.balance;
                     if (apiType === 'mining') {
@@ -208,18 +331,18 @@
                     }
                 }
 
-                // 2. مزامنة مع السيرفر الرئيسي (إن وجد)
                 if (typeof window.fetchPlayerDataFromServer === 'function') {
                     await window.fetchPlayerDataFromServer(); 
                 }
                 
-                // 3. تحديث واجهة المتجر
                 window.updateShopUI();
                 
-                // 4. الربط المباشر مع المزرعة
                 if (typeof window.updateFarmUI === 'function') {
                     window.updateFarmUI();
                 }
+
+                // إظهار إشعار نجاح خفيف إن أردت (اختياري)
+                // Telegram.WebApp.showAlert("تم الشراء بنجاح! 🎉");
             } else {
                 alert(resData.error || resData.message || "حدث خطأ أثناء الشراء.");
             }
@@ -234,7 +357,7 @@
             isBuying = false; 
             window.updateShopUI();
         }
-    };
+    }
 
     window.updateShopUI();
     // تحديث الواجهة كل ثانية لضمان تزامن الرصيد مع المزرعة
