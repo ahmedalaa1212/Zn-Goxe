@@ -5,7 +5,6 @@ from flask import Blueprint, jsonify, request
 from firebase_admin import firestore
 
 from database import db
-# استدعاء دالة الحماية
 from core.security import get_authenticated_user
 
 games_bp = Blueprint('games', __name__)
@@ -24,8 +23,7 @@ def get_current_round_info():
     current_time = int(time.time())
     round_id_num = current_time // ROUND_DURATION
     end_time = (round_id_num + 1) * ROUND_DURATION
-    prev_round_id = str(round_id_num - 1)
-    return str(round_id_num), end_time, current_time, prev_round_id
+    return str(round_id_num), end_time, current_time, round_id_num
 
 @games_bp.route('/status', methods=['POST'])
 def arena_status():
@@ -34,13 +32,15 @@ def arena_status():
         if not success:
             return error_res
         
-        round_id, end_time, current_time, prev_round_id = get_current_round_info()
+        round_id, end_time, current_time, round_id_num = get_current_round_info()
         
-        # فحص الجولة السابقة
-        prev_round_ref = db.collection('arena_rounds').document(prev_round_id)
-        prev_doc = prev_round_ref.get()
-        if prev_doc.exists and prev_doc.to_dict().get('status') == 'active':
-            resolve_round(prev_round_id)
+        # فحص الجولات السابقة (حتى 3 جولات للوراء) لضمان عدم وجود جولة معلقة
+        for i in range(1, 4):
+            past_id = str(round_id_num - i)
+            past_round_ref = db.collection('arena_rounds').document(past_id)
+            past_doc = past_round_ref.get()
+            if past_doc.exists and past_doc.to_dict().get('status') == 'active':
+                resolve_round(past_id)
 
         # جلب بيانات الجولة الحالية
         round_ref = db.collection('arena_rounds').document(round_id)
@@ -124,15 +124,21 @@ def resolve_round(round_id):
     participants = data.get('participants', [])
     batch = db.batch()
     
+    # حالة: إلغاء الجولة لعدم اكتمال النصاب
     if len(participants) < MIN_PARTICIPANTS:
         for p in participants:
             user_ref = db.collection('users').document(p['uid'])
-            batch.update(user_ref, {'balance': firestore.Increment(ENTRY_FEE)})
+            # إعادة الرصيد + تسجيل إشعار الاسترداد
+            batch.update(user_ref, {
+                'balance': firestore.Increment(ENTRY_FEE),
+                'pending_refund': firestore.Increment(ENTRY_FEE)
+            })
             
         batch.update(round_ref, {'status': 'refunded'})
         batch.commit()
         return
 
+    # حالة: الجولة اكتملت بنجاح
     total_collected = len(participants) * ENTRY_FEE
     visible_prize_pool = int(total_collected * PRIZE_POOL_PERCENTAGE)
     
@@ -178,3 +184,29 @@ def get_results():
         "status": r_data.get('status'),
         "winners": r_data.get('winners', [])
     })
+
+# ==========================================
+# التحقق من الإشعارات المعلقة (المرتجعات)
+# ==========================================
+@games_bp.route('/check_notifications', methods=['POST'])
+def check_notifications():
+    success, uid, error_res = get_authenticated_user(request, is_post=True)
+    if not success: return error_res
+    
+    try:
+        user_ref = db.collection('users').document(uid)
+        user_doc = user_ref.get()
+        if not user_doc.exists:
+            return jsonify({"success": True, "refund": 0})
+        
+        data = user_doc.to_dict()
+        pending_refund = data.get('pending_refund', 0)
+        
+        if pending_refund > 0:
+            user_ref.update({'pending_refund': 0})
+            return jsonify({"success": True, "refund": pending_refund})
+        
+        return jsonify({"success": True, "refund": 0})
+    except Exception as e:
+        print(f"Error checking notifications: {e}")
+        return jsonify({"success": False})
