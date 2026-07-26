@@ -7,6 +7,7 @@ import traceback
 
 shop_bp = Blueprint('shop', __name__)
 
+# إعدادات ترقيات السرعة
 MINING_CONFIG = {
     1: {'price': 310, 'rate': 2, 'max': 10},
     2: {'price': 820, 'rate': 5, 'max': 10},
@@ -19,6 +20,7 @@ MINING_CONFIG = {
     9: {'price': 32150, 'rate': 110, 'max': 10}
 }
 
+# إعدادات المخازن
 STORAGE_CONFIG = {
     1: {'price': 1000, 'capacity': 20000},
     2: {'price': 2000, 'capacity': 30000},
@@ -51,7 +53,21 @@ def buy_upgrade():
         if not user_info:
             return jsonify({"success": False, "error": "فشلت عملية المصادقة."}), 401
 
-        user_id = str(user_info['id'])
+        # ====== الفلتر الذكي لحل مشكلة الـ Tuple ======
+        # إذا كانت الدالة ترجع (user_data, status) نقوم باستخراج القاموس فقط
+        if isinstance(user_info, tuple):
+            extracted_info = None
+            for item in user_info:
+                if isinstance(item, dict):  # نبحث عن القاموس داخل الـ Tuple
+                    extracted_info = item
+                    break
+            user_info = extracted_info if extracted_info else user_info[0]
+            
+        user_id = str(user_info.get('id', ''))
+        if not user_id:
+            return jsonify({"success": False, "error": "لم يتم العثور على معرف اللاعب."}), 400
+        # ===============================================
+
         user_ref = db.collection('users').document(user_id)
         user_doc = user_ref.get()
 
@@ -64,7 +80,6 @@ def buy_upgrade():
         hourly_rate = float(user_data.get('hourly_rate', 0.0))
         max_cap = float(user_data.get('max_cap', 10000.0)) 
         
-        # حماية إضافية لهيكل البيانات
         upgrades = user_data.get('upgrades')
         if not isinstance(upgrades, dict):
             upgrades = {}
@@ -166,6 +181,5 @@ def buy_upgrade():
             return jsonify({"success": False, "error": "نوع الترقية غير معروف."}), 400
 
     except Exception as e:
-        # هذه الأسطر هي الأهم: ستعيد الخطأ البرمجي الدقيق للفرونت إند لنعرف السبب
         print(traceback.format_exc())
         return jsonify({"success": False, "error": f"Debug Error: {str(e)}"}), 500
