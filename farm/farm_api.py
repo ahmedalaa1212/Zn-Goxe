@@ -49,7 +49,6 @@ def get_player_data():
                 "daily_day": 1,
                 "last_claim_time": now.isoformat(),
                 "last_daily_claim_time": None,
-                "last_boost_time": None, # 🟢 حقل التسريع
                 "ads_watched": 0,
                 "upgrades": {}
             }
@@ -57,7 +56,18 @@ def get_player_data():
         else:
             user_data = user_doc.to_dict()
             if "ads_watched" not in user_data: user_data["ads_watched"] = 0
-            if "last_boost_time" not in user_data: user_data["last_boost_time"] = None # 🟢 تأمين القدامى
+
+        # 🟢 تحديث ديناميكي للستريك عشان لو عدى يوم تتصفر الواجهة تلقائي
+        last_daily_str = user_data.get("last_daily_claim_time")
+        if last_daily_str:
+            try:
+                last_claim = datetime.fromisoformat(str(last_daily_str))
+                if last_claim.tzinfo is None: last_claim = last_claim.replace(tzinfo=timezone.utc)
+                time_passed = now - last_claim
+                if time_passed > timedelta(hours=48):
+                    user_data["daily_day"] = 1
+                    user_ref.update({"daily_day": 1})
+            except: pass
 
         last_claim_str = user_data.get("last_claim_time")
         hourly_rate = float(user_data.get("hourly_rate", 100.0))
@@ -129,7 +139,7 @@ def claim_mined_tokens():
     except Exception:
         return jsonify({"success": False, "error": "خطأ في التجميع"}), 500
 
-# 🟢 الدالة الجديدة الخاصة بزرار التسريع
+# 🟢 تم إزالة شرط الـ 24 ساعة، يقدر يزود سرعته براحته بالإعلانات
 @farm_bp.route('/daily_boost', methods=['POST'])
 def daily_boost():
     is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=True)
@@ -141,27 +151,14 @@ def daily_boost():
         if not user_doc.exists: return jsonify({"success": False, "error": "الحساب غير موجود"}), 404
 
         user_data = user_doc.to_dict()
-        now = datetime.now(timezone.utc)
-        last_boost_str = user_data.get("last_boost_time")
-
-        if last_boost_str:
-            try:
-                last_boost = datetime.fromisoformat(str(last_boost_str))
-                if last_boost.tzinfo is None: last_boost = last_boost.replace(tzinfo=timezone.utc)
-                time_passed = now - last_boost
-                
-                if time_passed < timedelta(hours=24):
-                    return jsonify({"success": False, "error": "التسريع متاح مرة واحدة كل 24 ساعة!"}), 400
-            except Exception: pass
-
-        # 🟢 زيادة سرعة التعدين بمقدار 50 في الساعة (بشكل دائم كحافز يومي)
+        
+        # 🟢 زيادة سرعة التعدين بمقدار 1 في الساعة لكل إعلان
         current_rate = float(user_data.get("hourly_rate", 100.0))
-        new_rate = current_rate + 50.0
+        new_rate = current_rate + 1.0
         ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
         user_ref.update({
             "hourly_rate": new_rate,
-            "last_boost_time": now.isoformat(),
             "ads_watched": ads_watched
         })
 
@@ -170,6 +167,7 @@ def daily_boost():
     except Exception:
         return jsonify({"success": False, "error": "خطأ في تفعيل التسريع"}), 500
 
+# 🟢 لوجيك الستريك القوي: لو عدى 48 ساعة يرجع ليوم 1
 @farm_bp.route('/daily_claim', methods=['POST'])
 def daily_claim():
     is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=True)
@@ -184,14 +182,22 @@ def daily_claim():
         now = datetime.now(timezone.utc)
         last_claim_str = user_data.get("last_daily_claim_time")
         current_day = int(user_data.get("daily_day", 1))
+        reset_message = None
 
         if last_claim_str:
             try:
                 last_claim = datetime.fromisoformat(str(last_claim_str))
                 if last_claim.tzinfo is None: last_claim = last_claim.replace(tzinfo=timezone.utc)
                 time_passed = now - last_claim
-                if time_passed < timedelta(hours=24): return jsonify({"success": False, "error": "يجب الانتظار 24 ساعة!"}), 400
-                if time_passed > timedelta(hours=48): current_day = 1
+                
+                # لو لسه معداش 24 ساعة يرفض
+                if time_passed < timedelta(hours=24): 
+                    return jsonify({"success": False, "error": "يجب الانتظار 24 ساعة!"}), 400
+                
+                # 🟢 لو عدى أكتر من 48 ساعة، العقاب: يرجع لليوم الأول
+                if time_passed > timedelta(hours=48): 
+                    current_day = 1
+                    reset_message = "⚠️ تم تصفير التسجيل اليومي لعدم الدخول أمس!"
             except Exception: pass
 
         daily_rewards = get_game_settings()
@@ -209,7 +215,12 @@ def daily_claim():
             "ads_watched": ads_watched
         })
 
-        return jsonify({"success": True, "reward": reward_amount, "new_balance": new_balance}), 200
+        return jsonify({
+            "success": True, 
+            "reward": reward_amount, 
+            "new_balance": new_balance,
+            "reset_msg": reset_message
+        }), 200
 
     except Exception:
         return jsonify({"success": False, "error": "خطأ أثناء الاستلام"}), 500
