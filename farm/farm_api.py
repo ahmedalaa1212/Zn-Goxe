@@ -48,6 +48,7 @@ def get_player_data():
         else:
             user_data = user_doc.to_dict()
 
+        # فحص التسجيل اليومي المتتالي (Streak Check)
         last_daily_date = user_data.get("last_daily_claim_date")
         if last_daily_date:
             try:
@@ -58,6 +59,7 @@ def get_player_data():
                     user_ref.update({"daily_day": 1})
             except: pass
 
+        # حساب التعدين المتراكم
         last_claim_str = user_data.get("last_claim_time")
         hourly_rate = float(user_data.get("hourly_rate", 0.0))
         max_cap = float(user_data.get("max_cap", 10000.0))
@@ -66,7 +68,9 @@ def get_player_data():
         if last_claim_str:
             try:
                 last_claim = datetime.fromisoformat(str(last_claim_str))
-                if last_claim.tzinfo is None: last_claim = last_claim.replace(tzinfo=timezone.utc)
+                if last_claim.tzinfo is None: 
+                    last_claim = last_claim.replace(tzinfo=timezone.utc)
+                
                 seconds_passed = (now - last_claim).total_seconds()
                 if seconds_passed > 0:
                     mined = (hourly_rate / 3600.0) * seconds_passed
@@ -103,7 +107,9 @@ def claim_mined_tokens():
         if last_claim_str:
             try:
                 last_claim = datetime.fromisoformat(str(last_claim_str))
-                if last_claim.tzinfo is None: last_claim = last_claim.replace(tzinfo=timezone.utc)
+                if last_claim.tzinfo is None: 
+                    last_claim = last_claim.replace(tzinfo=timezone.utc)
+                    
                 seconds_passed = (now - last_claim).total_seconds()
                 
                 if seconds_passed > 0:
@@ -111,7 +117,8 @@ def claim_mined_tokens():
                     unclaimed = min(unclaimed + mined, max_cap)
             except: pass
 
-        if unclaimed <= 0: return jsonify({"success": False, "error": "لا يوجد رصيد حالياً في المخزن."}), 400
+        if unclaimed <= 0: 
+            return jsonify({"success": False, "error": "لا يوجد رصيد حالياً في المخزن."}), 400
 
         new_balance = float(user_data.get("balance", 0.0)) + unclaimed
         user_ref.update({
@@ -136,6 +143,7 @@ def daily_boost():
         user_data = user_doc.to_dict()
         today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         
+        # حماية صارمة من السيرفر
         if user_data.get("last_boost_date") == today_str:
             return jsonify({"success": False, "error": "لقد استخدمت التسريع اليوم! انتظر لمنتصف الليل."}), 400
 
