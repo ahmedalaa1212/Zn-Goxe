@@ -1,6 +1,6 @@
 (function initShop() {
     
-    // إعدادات المتجر الجديدة بناءً على طلبك
+    // إعدادات المتجر
     const SHOP_CONFIG = {
         maxMiningUpgrades: 10,
         miningPrices: {
@@ -55,6 +55,7 @@
         const storageSec = document.getElementById('shop-storage-section');
         
         if (!miningSec || !storageSec) {
+            // ننتظر حتى يتم تحميل الواجهة
             setTimeout(window.updateShopUI, 500);
             return;
         }
@@ -195,12 +196,27 @@
             let resData = await response.json();
 
             if (response.ok && resData.success) {
+                // 1. تحديث البيانات محلياً لتجنب تأخير الواجهة
+                if (window.PlayerData) {
+                    window.PlayerData.balance = resData.balance;
+                    if (apiType === 'mining') {
+                        window.PlayerData.hourly_rate = resData.hourly_rate;
+                        window.PlayerData.upgrades = resData.upgrades;
+                    } else if (apiType === 'storage') {
+                        window.PlayerData.storage_level = resData.storage_level;
+                        window.PlayerData.max_cap = resData.max_cap;
+                    }
+                }
+
+                // 2. مزامنة مع السيرفر الرئيسي (إن وجد)
                 if (typeof window.fetchPlayerDataFromServer === 'function') {
                     await window.fetchPlayerDataFromServer(); 
                 }
+                
+                // 3. تحديث واجهة المتجر
                 window.updateShopUI();
                 
-                // === الربط مع المزرعة: تحديث واجهة المزرعة فوراً ===
+                // 4. الربط المباشر مع المزرعة
                 if (typeof window.updateFarmUI === 'function') {
                     window.updateFarmUI();
                 }
@@ -221,6 +237,7 @@
     };
 
     window.updateShopUI();
+    // تحديث الواجهة كل ثانية لضمان تزامن الرصيد مع المزرعة
     setInterval(window.updateShopUI, 1000);
 
 })();
