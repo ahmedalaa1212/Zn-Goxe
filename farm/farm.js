@@ -130,7 +130,7 @@
         
         let unclaim = parseFloat(pData.unclaimed || 0);
         let maxC = parseFloat(pData.max_cap || 10000);
-        let hRate = parseFloat(pData.hourly_rate || 100);
+        let hRate = parseFloat(pData.hourly_rate || 0);
         
         if (unclaim < maxC) {
             unclaim += hRate / 3600;
