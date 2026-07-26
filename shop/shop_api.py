@@ -41,33 +41,22 @@ def shop_index():
 @shop_bp.route('/buy', methods=['POST'])
 def buy_upgrade():
     try:
+        # 1. جلب البيانات المرسلة من الفرونت إند
         data = request.get_json() or {}
-        init_data = data.get('initData')
         upgrade_type = data.get('type')  
         level_num = data.get('level_num')
 
-        if not init_data or not upgrade_type or level_num is None:
+        if not upgrade_type or level_num is None:
             return jsonify({"success": False, "error": "بيانات الطلب غير مكتملة."}), 400
 
-        user_info = get_authenticated_user(init_data)
-        if not user_info:
-            return jsonify({"success": False, "error": "فشلت عملية المصادقة."}), 401
+        # 2. المصادقة الصحيحة (الاستدعاء السليم لدالة الحماية)
+        is_auth, user_id, error_response = get_authenticated_user(request, is_post=True)
+        
+        # إذا فشلت المصادقة، نرجع الخطأ القادم من security.py مباشرة
+        if not is_auth:
+            return error_response
 
-        # ====== الفلتر الذكي لحل مشكلة الـ Tuple ======
-        # إذا كانت الدالة ترجع (user_data, status) نقوم باستخراج القاموس فقط
-        if isinstance(user_info, tuple):
-            extracted_info = None
-            for item in user_info:
-                if isinstance(item, dict):  # نبحث عن القاموس داخل الـ Tuple
-                    extracted_info = item
-                    break
-            user_info = extracted_info if extracted_info else user_info[0]
-            
-        user_id = str(user_info.get('id', ''))
-        if not user_id:
-            return jsonify({"success": False, "error": "لم يتم العثور على معرف اللاعب."}), 400
-        # ===============================================
-
+        # 3. جلب بيانات المستخدم من Firestore
         user_ref = db.collection('users').document(user_id)
         user_doc = user_ref.get()
 
@@ -76,6 +65,7 @@ def buy_upgrade():
 
         user_data = user_doc.to_dict() or {}
         
+        # 4. تجهيز المتغيرات الحالية
         current_balance = float(user_data.get('balance', 0.0))
         hourly_rate = float(user_data.get('hourly_rate', 0.0))
         max_cap = float(user_data.get('max_cap', 10000.0)) 
@@ -84,6 +74,7 @@ def buy_upgrade():
         if not isinstance(upgrades, dict):
             upgrades = {}
         
+        # 5. حساب الرصيد المعلق (Pending) قبل إتمام الشراء لضمان عدم ضياع أرباح المزرعة
         last_claim_str = user_data.get('last_claim_time')
         now_dt = datetime.now(timezone.utc)
         now_ts = now_dt.timestamp()
@@ -98,10 +89,16 @@ def buy_upgrade():
             except ValueError:
                 pass 
 
+        # الرصيد الفعلي الذي يمكن الشراء به
         total_balance = current_balance + pending_mined
         level_num = int(level_num)
+        
+        # وقت الشراء يعتبر بمثابة وقت "تجميع" جديد
         new_last_claim_time = now_dt.isoformat()
 
+        # ----------------------------------------
+        # معالجة شراء ترقيات السرعة (Mining)
+        # ----------------------------------------
         if upgrade_type == 'mining':
             if level_num not in MINING_CONFIG:
                 return jsonify({"success": False, "error": "مستوى غير صالح."}), 400
@@ -114,20 +111,24 @@ def buy_upgrade():
             current_lvl_count = int(upgrades.get(lvl_key, 0))
 
             if current_lvl_count >= max_limit:
-                return jsonify({"success": False, "error": "وصلت للحد الأقصى للترقيات."}), 400
+                return jsonify({"success": False, "error": "وصلت للحد الأقصى للترقيات في هذا المستوى."}), 400
 
             if total_balance < price:
                 return jsonify({"success": False, "error": "الرصيد غير كافي."}), 400
 
+            # الخصم من الرصيد
             new_balance = total_balance - price
+            # إضافة الترقية
             upgrades[lvl_key] = current_lvl_count + 1
 
-            new_hourly_rate = 100.0 
+            # إعادة حساب سرعة التعدين الإجمالية
+            new_hourly_rate = 100.0  # السرعة الأساسية
             for lvl_idx in range(1, 10):
                 cnt = int(upgrades.get(f"lvl{lvl_idx}", 0))
                 if cnt > 0 and lvl_idx in MINING_CONFIG:
                     new_hourly_rate += cnt * MINING_CONFIG[lvl_idx]['rate']
 
+            # تحديث الداتابيز
             user_ref.update({
                 'balance': new_balance,
                 'upgrades': upgrades,
@@ -142,6 +143,9 @@ def buy_upgrade():
                 "upgrades": upgrades
             }), 200
 
+        # ----------------------------------------
+        # معالجة شراء المخازن (Storage)
+        # ----------------------------------------
         elif upgrade_type == 'storage':
             if level_num not in STORAGE_CONFIG:
                 return jsonify({"success": False, "error": "مستوى مخزن غير صالح."}), 400
@@ -161,8 +165,10 @@ def buy_upgrade():
             if total_balance < price:
                 return jsonify({"success": False, "error": "الرصيد غير كافي."}), 400
 
+            # الخصم من الرصيد
             new_balance = total_balance - price
 
+            # تحديث الداتابيز
             user_ref.update({
                 'balance': new_balance,
                 'storage_level': level_num,
@@ -182,4 +188,5 @@ def buy_upgrade():
 
     except Exception as e:
         print(traceback.format_exc())
-        return jsonify({"success": False, "error": f"Debug Error: {str(e)}"}), 500
+        return jsonify({"success": False, "error": f"حدث خطأ داخلي في الخادم: {str(e)}"}), 500
+
