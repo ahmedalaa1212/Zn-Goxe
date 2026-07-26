@@ -18,9 +18,12 @@
     let claimCooldown = 0; 
     let isClaimingDaily = false;
     let isBoosting = false; 
+    let isFetching = false; // عشان نمنع التحديثات المتداخلة
 
+    // دالة جلب البيانات من السيرفر
     window.fetchPlayerDataFromServer = async function() {
-        if (!INIT_DATA) return; 
+        if (!INIT_DATA || isFetching) return; 
+        isFetching = true;
         try {
             let response = await fetch('/api/farm/player_data', {
                 method: 'POST',
@@ -37,6 +40,8 @@
             }
         } catch (e) {
             console.error("Error fetching player data:", e);
+        } finally {
+            isFetching = false;
         }
     };
 
@@ -44,6 +49,7 @@
         await window.fetchPlayerDataFromServer();
     };
 
+    // تحديث الواجهة
     window.updateFarmUI = function() {
         const pData = window.PlayerData || {};
         
@@ -133,6 +139,7 @@
         container.innerHTML = html;
     }
 
+    // عداد الواجهة الداخلي (بيشتغل كل ثانية عشان يحسب التعدين)
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
         const pData = window.PlayerData;
@@ -174,7 +181,26 @@
         }
     }, 1000);
 
-    // 🟢 دي الدالة اللي بتعرض إعلانات Monetag لأي حاجة (زرار السرعة أو الستريك اليومي)
+    // ==========================================
+    // 🟢 الإضافة الجديدة: المزامنة الحية (Real-time Feel)
+    // ==========================================
+
+    // 1. مزامنة في الخلفية كل 10 ثواني بدون ما المستخدم يحس
+    setInterval(() => {
+        // مش هنعمل مزامنة لو هو بيتفرج على إعلان أو بيعمل تجميع عشان مفيش حاجة تعلق معاه
+        if (!isBoosting && !isClaimingDaily && claimCooldown === 0) {
+            window.fetchPlayerDataFromServer();
+        }
+    }, 10000); 
+
+    // 2. تحديث فوري أول ما المستخدم يرجع للبوت (لو كان قافل الشاشة أو مصغرها)
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+            window.fetchPlayerDataFromServer();
+        }
+    });
+    // ==========================================
+
     function showTelegramAd(statusCallback) {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
@@ -194,7 +220,6 @@
         });
     }
 
-    // 🟢 زرار التسريع (شغال بإعلانات Monetag وبدون قيود وقت)
     window.handleDailyBoost = async function() {
         if (isBoosting || !INIT_DATA) return;
         const btn = document.getElementById('boost-btn');
@@ -236,7 +261,6 @@
         isBoosting = false;
     };
 
-    // 🟢 الستريك اليومي
     window.handleDailyClaim = async function(day) {
         if (isClaimingDaily || !INIT_DATA) return;
         const btn = document.getElementById(`daily-btn-${day}`);
@@ -303,5 +327,6 @@
         }
     };
 
+    // جلب البيانات أول مرة عند الفتح
     window.fetchPlayerData();
 })();
