@@ -7,7 +7,6 @@ import traceback
 
 shop_bp = Blueprint('shop', __name__)
 
-# إعدادات ترقيات السرعة
 MINING_CONFIG = {
     1: {'price': 310, 'rate': 2, 'max': 10},
     2: {'price': 820, 'rate': 5, 'max': 10},
@@ -20,7 +19,6 @@ MINING_CONFIG = {
     9: {'price': 32150, 'rate': 110, 'max': 10}
 }
 
-# إعدادات المخازن
 STORAGE_CONFIG = {
     1: {'price': 1000, 'capacity': 20000},
     2: {'price': 2000, 'capacity': 30000},
@@ -62,13 +60,15 @@ def buy_upgrade():
 
         user_data = user_doc.to_dict() or {}
         
-        # 1. جلب البيانات بأسماء الحقول الصحيحة المطابقة لـ Firestore
         current_balance = float(user_data.get('balance', 0.0))
         hourly_rate = float(user_data.get('hourly_rate', 0.0))
         max_cap = float(user_data.get('max_cap', 10000.0)) 
-        upgrades = user_data.get('upgrades') or {}
         
-        # 2. معالجة الوقت بشكل آمن (تفادي مشكلة String to Float التي كانت تسبب الكراش)
+        # حماية إضافية لهيكل البيانات
+        upgrades = user_data.get('upgrades')
+        if not isinstance(upgrades, dict):
+            upgrades = {}
+        
         last_claim_str = user_data.get('last_claim_time')
         now_dt = datetime.now(timezone.utc)
         now_ts = now_dt.timestamp()
@@ -76,19 +76,15 @@ def buy_upgrade():
         pending_mined = 0.0
         if last_claim_str:
             try:
-                # محاولة قراءة صيغة ISO (الموجودة في الداتابيز)
                 last_claim_dt = datetime.fromisoformat(last_claim_str)
                 last_claim_ts = last_claim_dt.timestamp()
                 time_elapsed = max(0.0, now_ts - last_claim_ts)
                 pending_mined = min(time_elapsed * (hourly_rate / 3600.0), max_cap)
             except ValueError:
-                pass # في حال فشل التحويل، نعتبر المتراكم 0 لتفادي الكراش
+                pass 
 
-        # الرصيد الإجمالي الذي يمكن للمستخدم الشراء به
         total_balance = current_balance + pending_mined
         level_num = int(level_num)
-
-        # تحديد الوقت الحالي بصيغة ISO لتحديثه في الداتابيز بعد الشراء
         new_last_claim_time = now_dt.isoformat()
 
         if upgrade_type == 'mining':
@@ -100,7 +96,7 @@ def buy_upgrade():
             max_limit = config['max']
 
             lvl_key = f"lvl{level_num}"
-            current_lvl_count = int(upgrades.get(lvl_key) or 0)
+            current_lvl_count = int(upgrades.get(lvl_key, 0))
 
             if current_lvl_count >= max_limit:
                 return jsonify({"success": False, "error": "وصلت للحد الأقصى للترقيات."}), 400
@@ -108,18 +104,15 @@ def buy_upgrade():
             if total_balance < price:
                 return jsonify({"success": False, "error": "الرصيد غير كافي."}), 400
 
-            # الخصم من الرصيد الكلي
             new_balance = total_balance - price
             upgrades[lvl_key] = current_lvl_count + 1
 
-            # إعادة حساب سرعة التعدين الإجمالية
-            new_hourly_rate = 100.0 # السرعة الأساسية (عدلها إذا كانت مختلفة عندك)
+            new_hourly_rate = 100.0 
             for lvl_idx in range(1, 10):
-                cnt = int(upgrades.get(f"lvl{lvl_idx}") or 0)
+                cnt = int(upgrades.get(f"lvl{lvl_idx}", 0))
                 if cnt > 0 and lvl_idx in MINING_CONFIG:
                     new_hourly_rate += cnt * MINING_CONFIG[lvl_idx]['rate']
 
-            # تحديث قاعدة البيانات
             user_ref.update({
                 'balance': new_balance,
                 'upgrades': upgrades,
@@ -153,10 +146,8 @@ def buy_upgrade():
             if total_balance < price:
                 return jsonify({"success": False, "error": "الرصيد غير كافي."}), 400
 
-            # الخصم من الرصيد الكلي
             new_balance = total_balance - price
 
-            # تحديث قاعدة البيانات (استخدام max_cap بدلاً من max_storage)
             user_ref.update({
                 'balance': new_balance,
                 'storage_level': level_num,
@@ -175,7 +166,6 @@ def buy_upgrade():
             return jsonify({"success": False, "error": "نوع الترقية غير معروف."}), 400
 
     except Exception as e:
-        # طباعة الخطأ بالكامل في كونسول Railway لسهولة التتبع مستقبلاً
-        print(f"Server Error in buy_upgrade: {str(e)}")
-        traceback.print_exc()
-        return jsonify({"success": False, "error": "حدث خطأ في الخادم."}), 500
+        # هذه الأسطر هي الأهم: ستعيد الخطأ البرمجي الدقيق للفرونت إند لنعرف السبب
+        print(traceback.format_exc())
+        return jsonify({"success": False, "error": f"Debug Error: {str(e)}"}), 500
