@@ -29,6 +29,11 @@ async function fetchArenaStatus() {
         }
     } catch (error) {
         console.error("Error fetching game status:", error);
+        // التعامل مع الخطأ لتجنب تعليق الزر وإعلام المستخدم بمحاولة إعادة الاتصال
+        const btn = document.getElementById('btn-join-arena');
+        if (btn && btn.innerText.includes("جاري التحميل")) {
+            btn.innerText = "خطأ في الاتصال، جاري إعادة المحاولة...";
+        }
     }
 }
 
