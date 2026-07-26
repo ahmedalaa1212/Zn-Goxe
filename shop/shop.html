@@ -1,12 +1,12 @@
 <div class="shop-container" style="padding: 15px; direction: rtl; font-family: system-ui, -apple-system, sans-serif; padding-bottom: 90px; color: #ffffff;">
     
-    <!-- شريط البيانات العلوي (مستنسخ ومزامن مع المزرعة) -->
+    <!-- شريط البيانات العلوي -->
     <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #1a1a1a; border-radius: 12px; margin-bottom: 20px; border: 1px solid #333; box-shadow: 0 4px 10px rgba(0,0,0,0.3);">
         <div id="shop-rate" style="color: #ffcc00; font-weight: bold; font-size: 15px; display: flex; align-items: center; gap: 5px;">
-            <span>⚡</span> <span>0/س</span>
+            <span>⚡</span> <span id="shop-rate-text">0/س</span>
         </div>
         <div id="shop-balance" style="color: #28a745; font-weight: bold; font-size: 16px; display: flex; align-items: center; gap: 5px;">
-            <span>🪙</span> <span>ZN: 0</span>
+            <span>🪙</span> <span id="shop-balance-text">ZN: 0</span>
         </div>
     </div>
 
@@ -15,43 +15,34 @@
         <span>💎</span> عروض مميزة (USDT)
     </h3>
     <div style="display: flex; gap: 12px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 25px; scrollbar-width: none;">
-        
-        <!-- العرض الأول -->
         <div class="usdt-card" style="min-width: 140px; flex: 1; background: linear-gradient(135deg, #1c1c1c, #2a2a2a); border: 1px solid #28a745; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 4px 10px rgba(40, 167, 69, 0.2);">
             <div style="font-size: 28px; margin-bottom: 5px;">📦</div>
             <div style="color: #fff; font-weight: bold; font-size: 14px;">باقة المبتدئين</div>
             <div style="color: #28a745; font-weight: bold; font-size: 16px; margin: 6px 0;">5 USDT</div>
-            <button onclick="buyWithUSDT('5')" style="width: 100%; background: #28a745; color: white; border: none; padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: opacity 0.2s;">شراء الآن</button>
+            <button onclick="buyWithUSDT('5')" style="width: 100%; background: #28a745; color: white; border: none; padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer;">شراء الآن</button>
         </div>
-
-        <!-- العرض الثاني -->
         <div class="usdt-card" style="min-width: 140px; flex: 1; background: linear-gradient(135deg, #1c1c1c, #332b00); border: 1px solid #ffcc00; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 4px 10px rgba(255, 204, 0, 0.2);">
             <div style="font-size: 28px; margin-bottom: 5px;">🚀</div>
             <div style="color: #fff; font-weight: bold; font-size: 14px;">باقة المحترفين</div>
             <div style="color: #ffcc00; font-weight: bold; font-size: 16px; margin: 6px 0;">15 USDT</div>
-            <button onclick="buyWithUSDT('15')" style="width: 100%; background: #ffcc00; color: #000; border: none; padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: opacity 0.2s;">شراء الآن</button>
+            <button onclick="buyWithUSDT('15')" style="width: 100%; background: #ffcc00; color: #000; border: none; padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer;">شراء الآن</button>
         </div>
-
-        <!-- العرض الثالث -->
         <div class="usdt-card" style="min-width: 140px; flex: 1; background: linear-gradient(135deg, #1c1c1c, #3a1c1c); border: 1px solid #ff4444; border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 4px 10px rgba(255, 68, 68, 0.2);">
             <div style="font-size: 28px; margin-bottom: 5px;">👑</div>
             <div style="color: #fff; font-weight: bold; font-size: 14px;">باقة الحيتان</div>
             <div style="color: #ff4444; font-weight: bold; font-size: 16px; margin: 6px 0;">50 USDT</div>
-            <button onclick="buyWithUSDT('50')" style="width: 100%; background: #ff4444; color: white; border: none; padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: opacity 0.2s;">شراء الآن</button>
+            <button onclick="buyWithUSDT('50')" style="width: 100%; background: #ff4444; color: white; border: none; padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer;">شراء الآن</button>
         </div>
-        
     </div>
 
     <!-- أزرار التنقل بين ألسنة المتجر -->
     <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-        <button id="tab-mining" onclick="switchShopTab('mining')" style="flex: 1; padding: 12px; background: #0088cc; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: background 0.3s;">⚡ ترقيات السرعة</button>
-        <button id="tab-storage" onclick="switchShopTab('storage')" style="flex: 1; padding: 12px; background: #333; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: background 0.3s;">📦 ترقيات المخزن</button>
+        <button id="tab-mining" onclick="switchShopTab('mining')" style="flex: 1; padding: 12px; background: #0088cc; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">⚡ ترقيات السرعة</button>
+        <button id="tab-storage" onclick="switchShopTab('storage')" style="flex: 1; padding: 12px; background: #333; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">📦 ترقيات المخزن</button>
     </div>
 
-    <!-- شبكة مستويات التعدين (Mining Speed Grid) -->
+    <!-- شبكات العرض -->
     <div id="shop-mining-section" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;"></div>
-
-    <!-- شبكة مستويات المخازن (Storage Capacities Grid) -->
     <div id="shop-storage-section" style="display: none; grid-template-columns: repeat(2, 1fr); gap: 12px;"></div>
 
 </div>
