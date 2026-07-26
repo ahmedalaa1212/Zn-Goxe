@@ -1,276 +1,196 @@
-// بيانات الـ 12 جائزة في العجلة
-const wheelPrizes = [500, 1000, 2000, 3000, 5000, 10000, 15000, 20000, 25000, 50000, 75000, 100000];
-// ألوان الـ 12 قسم
-const wheelColors = ['#ff4d4d', '#ff9933', '#ffcc00', '#33cc33', '#3399ff', '#cc33ff', '#ff3399', '#669999', '#ff6600', '#99cc00', '#00cccc', '#9966ff'];
+let updateInterval;
+let isJoining = false;
+let currentRoundId = null;
 
-let pendingReward = 0; 
-let cooldownMinutes = 3; 
-
-// دالة تحديث الواجهة
+// تحديث الرصيد العلوي
 window.updateGamesUI = function() {
     const pData = window.PlayerData;
     if (!pData) return;
-    
     const gameBalEl = document.getElementById('top-balance-games');
     if (gameBalEl) {
-        const formattedBalance = Math.floor(pData.balance).toLocaleString();
-        gameBalEl.innerText = gameBalEl.innerText.includes('ZN:') ? `ZN: ${formattedBalance}` : `ZN ${formattedBalance}`;
+        gameBalEl.innerText = `ZN ${Math.floor(pData.balance).toLocaleString()}`;
     }
 };
 
-// 🔒 إرسال المكافأة للسيرفر باستخدام بيانات تليجرام المشفرة (initData)
-async function sendRewardToServer(initData, amount) {
+// جلب حالة الساحة من السيرفر
+async function fetchArenaStatus() {
     try {
-        const response = await fetch('/api/game_reward', {
+        const initData = window.Telegram?.WebApp?.initData;
+        const response = await fetch('/api/games/status', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ initData: initData, reward: amount }) // 🔒 الحماية طبقت هنا
+            body: JSON.stringify({ initData: initData })
         });
-        const result = await response.json();
-        if (result.success) {
+        const data = await response.json();
+        
+        if (data.success) {
+            updateArenaUI(data);
+        }
+    } catch (error) {
+        console.error("خطأ في جلب حالة اللعبة:", error);
+    }
+}
+
+// تحديث واجهة الساحة
+function updateArenaUI(data) {
+    currentRoundId = data.round_id;
+    const now = Math.floor(Date.now() / 1000);
+    let timeLeft = data.end_time - now;
+    
+    const btn = document.getElementById('btn-join-arena');
+    const timerEl = document.getElementById('arena-timer');
+    
+    if (timeLeft < 0) timeLeft = 0;
+
+    // تنسيق الوقت
+    let m = Math.floor(timeLeft / 60);
+    let s = timeLeft % 60;
+    timerEl.innerText = `${m < 10 ? '0'+m : m}:${s < 10 ? '0'+s : s}`;
+
+    // إغلاق الاشتراك في آخر 15 ثانية وعرض الأنيميشن
+    if (timeLeft <= 15 && timeLeft > 0) {
+        btn.disabled = true;
+        btn.classList.add('btn-disabled');
+        btn.innerText = "تم إغلاق الاشتراك (جاري السحب⏳)";
+        showDrawModal('waiting');
+    } else if (timeLeft === 0 && document.getElementById('draw-modal').style.display === 'flex' && document.getElementById('draw-waiting').style.display === 'block') {
+        // انتهى الوقت، اطلب النتائج
+        fetchRoundResults(currentRoundId);
+    } else {
+        // الوقت متاح
+        if (!data.has_joined) {
+            btn.disabled = false;
+            btn.classList.remove('btn-disabled');
+            btn.innerText = "دخول الساحة (1000 ZN)";
+        } else {
+            btn.disabled = true;
+            btn.classList.add('btn-disabled');
+            btn.innerText = "أنت مشترك بالفعل ✅";
+        }
+    }
+
+    // تحديث الأرقام (الفرونت إند بيستقبل الـ 45% جاهزة من السيرفر)
+    document.getElementById('participants-count').innerText = data.participants;
+    document.getElementById('prize-pool').innerText = data.prize_pool.toLocaleString() + " ZN";
+
+    // تقسيم الجوائز المتوقع
+    document.getElementById('prize-1').innerText = Math.floor(data.prize_pool * 0.30).toLocaleString() + " ZN";
+    document.getElementById('prize-2').innerText = Math.floor(data.prize_pool * 0.25).toLocaleString() + " ZN";
+    document.getElementById('prize-3').innerText = Math.floor(data.prize_pool * 0.20).toLocaleString() + " ZN";
+    document.getElementById('prize-4').innerText = Math.floor(data.prize_pool * 0.15).toLocaleString() + " ZN";
+    document.getElementById('prize-5').innerText = Math.floor(data.prize_pool * 0.10).toLocaleString() + " ZN";
+}
+
+// دالة الاشتراك في الساحة
+window.joinArena = async function() {
+    if (isJoining) return;
+    const initData = window.Telegram?.WebApp?.initData;
+    if (!initData) {
+        alert("⚠️ يجب فتح اللعبة من تليجرام.");
+        return;
+    }
+
+    const btn = document.getElementById('btn-join-arena');
+    btn.disabled = true;
+    btn.innerText = "جاري الدخول... ⏳";
+    isJoining = true;
+
+    try {
+        const response = await fetch('/api/games/join', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ initData: initData })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            // تحديث الرصيد فوراً لو عندك دالة المزامنة
             if (typeof window.fetchPlayerDataFromServer === 'function') {
                 await window.fetchPlayerDataFromServer();
             }
-            return true;
+            fetchArenaStatus(); // تحديث الواجهة
+        } else {
+            alert("⚠️ " + data.message);
+            btn.disabled = false;
+            btn.innerText = "دخول الساحة (1000 ZN)";
         }
-        return false;
     } catch (error) {
-        console.error("خطأ في الاتصال بالسيرفر وإرسال المكافأة:", error);
-        return false;
-    }
-}
-
-// دالة تهيئة العجلة ورسم الأقسام
-function initWheel() {
-    const wheel = document.getElementById('spin-wheel');
-    if (!wheel) return;
-    
-    wheel.innerHTML = '';
-    
-    let gradientParts = [];
-    for (let i = 0; i < 12; i++) {
-        let startDeg = i * 30;
-        let endDeg = (i + 1) * 30;
-        gradientParts.push(`${wheelColors[i]} ${startDeg}deg ${endDeg}deg`);
-    }
-    wheel.style.background = `conic-gradient(${gradientParts.join(', ')})`;
-
-    for (let i = 0; i < 12; i++) {
-        let angle = (i * 30) + 15; 
-        let text = document.createElement('div');
-        
-        let displayPrize = wheelPrizes[i] >= 1000 ? (wheelPrizes[i]/1000) + 'K' : wheelPrizes[i];
-        
-        text.innerText = displayPrize;
-        text.style.position = 'absolute';
-        text.style.width = '40px';
-        text.style.left = '50%';
-        text.style.top = '10px'; 
-        text.style.marginLeft = '-20px';
-        text.style.textAlign = 'center';
-        text.style.fontWeight = 'bold';
-        text.style.fontSize = '14px';
-        text.style.color = '#fff';
-        text.style.textShadow = '1px 1px 2px rgba(0,0,0,0.8)';
-        text.style.transformOrigin = '50% 100px'; 
-        text.style.transform = `rotate(${angle}deg)`;
-        
-        wheel.appendChild(text);
-    }
-}
-
-setTimeout(initWheel, 300);
-
-// التحقق من العدادات
-function checkCooldowns() {
-    startTimerIfActive('box', 'btn-play-box', 'افتح الصندوق الآن (إعلان 📺)');
-    startTimerIfActive('spin', 'btn-play-spin', 'لف العجلة الآن (إعلان 📺)');
-}
-setTimeout(checkCooldowns, 500);
-
-// دالة اللعب والتأكد من إعلان Monetag
-window.playGame = async function(gameType) {
-    let btnId = gameType === 'box' ? 'btn-play-box' : 'btn-play-spin';
-    const btn = document.getElementById(btnId);
-    let originalText = gameType === 'box' ? 'افتح الصندوق الآن (إعلان 📺)' : 'لف العجلة الآن (إعلان 📺)';
-
-    if (!btn) return;
-    btn.disabled = true;
-    btn.innerText = "جاري تحميل الإعلان... ⏳";
-
-    let adWatched = false;
-    
-    if (typeof window.show_11322720 === 'function') {
-        try {
-            await window.show_11322720();
-            adWatched = true;
-        } catch(e) {
-            console.error("لم يكتمل الإعلان", e);
-        }
-    } else {
-        alert("⚠️ يرجى إيقاف مانع الإعلانات لتتمكن من اللعب!");
+        alert("حدث خطأ في الاتصال.");
         btn.disabled = false;
-        btn.innerText = originalText;
-        return;
-    }
-
-    if (adWatched) {
-        if(gameType === 'box') {
-            btn.innerText = "جاري سحب الجائزة... 🎲";
-            setTimeout(() => {
-                let reward = Math.floor(Math.random() * (25000 - 1000 + 1)) + 1000;
-                showWinModal(reward);
-                setCooldown(gameType, btnId, originalText);
-            }, 1000);
-        } 
-        else if (gameType === 'spin') {
-            btn.innerText = "جاري لف العجلة... 🎡";
-            const wheel = document.getElementById('spin-wheel');
-            if (!wheel) return;
-            
-            let prizeIndex = Math.floor(Math.random() * 12);
-            let prize = wheelPrizes[prizeIndex];
-            
-            let stopAngle = 360 - ((prizeIndex * 30) + 15); 
-            let totalRotation = stopAngle + 1800; 
-
-            wheel.style.transform = `rotate(${totalRotation}deg)`;
-            
-            setTimeout(() => {
-                showWinModal(prize);
-                setCooldown(gameType, btnId, originalText);
-                
-                setTimeout(() => {
-                    wheel.style.transition = 'none';
-                    wheel.style.transform = `rotate(${stopAngle}deg)`;
-                    setTimeout(() => wheel.style.transition = 'transform 4s cubic-bezier(0.25, 0.1, 0.25, 1)', 50);
-                }, 1000);
-
-            }, 4200); 
-        }
-    } else {
-        alert("⚠️ يجب عليك مشاهدة الإعلان كاملاً للحصول على المكافأة!");
-        btn.disabled = false;
-        btn.innerText = originalText;
+    } finally {
+        isJoining = false;
     }
 };
 
-// نافذة الفوز
-function showWinModal(reward) {
-    pendingReward = reward;
-    document.getElementById('win-amount').innerText = reward.toLocaleString() + " ZN";
+// إدارة نوافذ السحب
+function showDrawModal(state) {
+    const modal = document.getElementById('draw-modal');
+    document.getElementById('draw-waiting').style.display = 'none';
+    document.getElementById('draw-refunded').style.display = 'none';
+    document.getElementById('draw-winners').style.display = 'none';
     
-    document.getElementById('btn-claim-x2').innerText = "ضاعفها x2 (إعلان 📺)";
-    document.getElementById('btn-claim-x2').disabled = false;
-    document.getElementById('btn-claim-normal').style.display = "block";
-    
-    document.getElementById('win-modal').style.display = "flex";
+    modal.style.display = 'flex';
+    if (state === 'waiting') document.getElementById('draw-waiting').style.display = 'block';
+    if (state === 'refunded') document.getElementById('draw-refunded').style.display = 'block';
+    if (state === 'winners') document.getElementById('draw-winners').style.display = 'block';
 }
 
-// 🔒 الاستلام العادي والمضاعف (مؤمن)
-window.claimReward = async function(type) {
-    const modal = document.getElementById('win-modal');
-    
-    // استخراج بيانات تليجرام للحماية
-    const initData = window.Telegram?.WebApp?.initData;
-    if (!initData) {
-        alert("⚠️ عذراً، يجب فتح اللعبة من داخل تليجرام لضمان حماية حسابك.");
-        return;
-    }
-    
-    if (type === 'normal') {
-        const success = await sendRewardToServer(initData, pendingReward); // 🔒 تمرير initData
-        if (success) {
-            alert(`✅ تم استلام ${pendingReward.toLocaleString()} ZN بنجاح!`);
-            modal.style.display = "none";
-        } else {
-            alert("⚠️ حدث خطأ أثناء الاتصال بالسيرفر، يرجى المحاولة لاحقاً.");
-        }
-    } 
-    else if (type === 'double') {
-        const btnX2 = document.getElementById('btn-claim-x2');
-        if (!btnX2) return;
-        btnX2.disabled = true;
-        btnX2.innerText = "جاري تحميل الإعلان... ⏳";
+window.closeDrawModal = function() {
+    document.getElementById('draw-modal').style.display = 'none';
+}
+
+// جلب نتائج السحب بعد انتهاء الوقت
+async function fetchRoundResults(roundId) {
+    try {
+        const initData = window.Telegram?.WebApp?.initData;
+        const response = await fetch('/api/games/results', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ initData: initData, round_id: roundId })
+        });
+        const data = await response.json();
         
-        let adWatched = false;
-        if (typeof window.show_11322720 === 'function') {
-            try {
-                await window.show_11322720();
-                adWatched = true;
-            } catch(e) {}
-        }
-        
-        if (adWatched) {
-            let doubledReward = pendingReward * 2;
-            const success = await sendRewardToServer(initData, doubledReward); // 🔒 تمرير initData
-            
-            if (success) {
-                document.getElementById('win-amount').innerText = doubledReward.toLocaleString() + " ZN";
-                document.getElementById('win-amount').style.color = "#00ff00"; 
-                
-                btnX2.innerText = "✅ تمت المضاعفة بنجاح!";
-                document.getElementById('btn-claim-normal').style.display = "none";
-                
-                setTimeout(() => {
-                    alert(`🎉 مبروك! تم إضافة ${doubledReward.toLocaleString()} ZN لرصيدك!`);
-                    modal.style.display = "none";
-                }, 1000);
-            } else {
-                alert("⚠️ حدث خطأ أثناء إضافة المكافأة.");
-                btnX2.disabled = false;
-                btnX2.innerText = "ضاعفها x2 (إعلان 📺)";
+        if (data.success) {
+            if (data.status === 'refunded') {
+                showDrawModal('refunded');
+            } else if (data.status === 'completed') {
+                renderWinners(data.winners);
+                showDrawModal('winners');
             }
-        } else {
-            alert("⚠️ لم يكتمل الإعلان، لم يتم مضاعفة المكافأة.");
-            btnX2.disabled = false;
-            btnX2.innerText = "ضاعفها x2 (إعلان 📺)";
+            // تحديث الرصيد للمستخدم لاحتمال فوزه أو استرداده الفلوس
+            if (typeof window.fetchPlayerDataFromServer === 'function') {
+                window.fetchPlayerDataFromServer();
+            }
         }
+    } catch (e) {
+        console.error("خطأ في جلب النتائج", e);
     }
-};
-
-// نظام العداد
-function setCooldown(gameType, btnId, originalText) {
-    let now = new Date().getTime();
-    localStorage.setItem(gameType + '_cooldown', now);
-    startTimerIfActive(gameType, btnId, originalText);
 }
 
-function startTimerIfActive(gameType, btnId, originalText) {
-    let lastTime = localStorage.getItem(gameType + '_cooldown');
-    if (!lastTime) return;
-
-    let now = new Date().getTime();
-    let diffSeconds = Math.floor((now - parseInt(lastTime)) / 1000);
-    let totalCooldownSeconds = cooldownMinutes * 60;
-
-    if (diffSeconds < totalCooldownSeconds) {
-        let remaining = totalCooldownSeconds - diffSeconds;
-        let btn = document.getElementById(btnId);
+function renderWinners(winners) {
+    const list = document.getElementById('winners-list');
+    list.innerHTML = '';
+    const medals = ['🥇', '🥈', '🥉', '🏅', '🏅'];
+    
+    winners.forEach((winner, index) => {
+        let name = winner.name || `User #${winner.uid.substring(0,5)}`;
+        let prize = winner.prize.toLocaleString();
         
-        if(btn) {
-            btn.disabled = true;
-            btn.classList.add('btn-disabled');
-            
-            let interval = setInterval(() => {
-                remaining--;
-                let m = Math.floor(remaining / 60);
-                let s = remaining % 60;
-                btn.innerText = `انتظر ${m}:${s < 10 ? '0'+s : s} ⏳`;
-                
-                if (remaining <= 0) {
-                    clearInterval(interval);
-                    btn.disabled = false;
-                    btn.classList.remove('btn-disabled');
-                    btn.innerText = originalText;
-                    localStorage.removeItem(gameType + '_cooldown');
-                }
-            }, 1000);
-        }
-    } else {
-        localStorage.removeItem(gameType + '_cooldown');
-    }
+        list.innerHTML += `
+            <div class="winner-item">
+                <span style="color: #fff; font-weight: bold; font-size: 14px;">
+                    ${medals[index]} ${name}
+                </span>
+                <span style="color: #00ff00; font-weight: bold;">
+                    +${prize} ZN
+                </span>
+            </div>
+        `;
+    });
 }
 
-// تشغيل المزامنة الفورية عند التحميل
+// التشغيل
 window.updateGamesUI();
+fetchArenaStatus();
+// تحديث الحالة كل 3 ثواني
+updateInterval = setInterval(fetchArenaStatus, 3000);
