@@ -1,7 +1,9 @@
 import time
+from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 from database import db
 from core.security import get_authenticated_user
+import traceback
 
 shop_bp = Blueprint('shop', __name__)
 
@@ -59,20 +61,35 @@ def buy_upgrade():
             return jsonify({"success": False, "error": "المستخدم غير موجود."}), 404
 
         user_data = user_doc.to_dict() or {}
-        now = time.time()
-
-        # الحماية ضد أخطاء قاعدة البيانات (تفادي خطأ 500)
-        last_claim = float(user_data.get('last_claim') or now)
-        hourly_rate = float(user_data.get('hourly_rate') or 0.0)
-        max_storage = float(user_data.get('max_storage') or 20000.0)
-        current_balance = float(user_data.get('balance') or 0.0)
+        
+        # 1. جلب البيانات بأسماء الحقول الصحيحة المطابقة لـ Firestore
+        current_balance = float(user_data.get('balance', 0.0))
+        hourly_rate = float(user_data.get('hourly_rate', 0.0))
+        max_cap = float(user_data.get('max_cap', 10000.0)) 
         upgrades = user_data.get('upgrades') or {}
+        
+        # 2. معالجة الوقت بشكل آمن (تفادي مشكلة String to Float التي كانت تسبب الكراش)
+        last_claim_str = user_data.get('last_claim_time')
+        now_dt = datetime.now(timezone.utc)
+        now_ts = now_dt.timestamp()
+        
+        pending_mined = 0.0
+        if last_claim_str:
+            try:
+                # محاولة قراءة صيغة ISO (الموجودة في الداتابيز)
+                last_claim_dt = datetime.fromisoformat(last_claim_str)
+                last_claim_ts = last_claim_dt.timestamp()
+                time_elapsed = max(0.0, now_ts - last_claim_ts)
+                pending_mined = min(time_elapsed * (hourly_rate / 3600.0), max_cap)
+            except ValueError:
+                pass # في حال فشل التحويل، نعتبر المتراكم 0 لتفادي الكراش
 
-        time_elapsed = max(0.0, now - last_claim)
-        pending_mined = min(time_elapsed * (hourly_rate / 3600.0), max_storage)
+        # الرصيد الإجمالي الذي يمكن للمستخدم الشراء به
         total_balance = current_balance + pending_mined
-
         level_num = int(level_num)
+
+        # تحديد الوقت الحالي بصيغة ISO لتحديثه في الداتابيز بعد الشراء
+        new_last_claim_time = now_dt.isoformat()
 
         if upgrade_type == 'mining':
             if level_num not in MINING_CONFIG:
@@ -91,32 +108,37 @@ def buy_upgrade():
             if total_balance < price:
                 return jsonify({"success": False, "error": "الرصيد غير كافي."}), 400
 
+            # الخصم من الرصيد الكلي
             new_balance = total_balance - price
             upgrades[lvl_key] = current_lvl_count + 1
 
-            new_hourly_rate = 0.0
+            # إعادة حساب سرعة التعدين الإجمالية
+            new_hourly_rate = 100.0 # السرعة الأساسية (عدلها إذا كانت مختلفة عندك)
             for lvl_idx in range(1, 10):
                 cnt = int(upgrades.get(f"lvl{lvl_idx}") or 0)
-                new_hourly_rate += cnt * MINING_CONFIG[lvl_idx]['rate']
+                if cnt > 0 and lvl_idx in MINING_CONFIG:
+                    new_hourly_rate += cnt * MINING_CONFIG[lvl_idx]['rate']
 
+            # تحديث قاعدة البيانات
             user_ref.update({
                 'balance': new_balance,
                 'upgrades': upgrades,
                 'hourly_rate': new_hourly_rate,
-                'last_claim': now
+                'last_claim_time': new_last_claim_time 
             })
 
             return jsonify({
                 "success": True, 
                 "balance": new_balance, 
-                "hourly_rate": new_hourly_rate
+                "hourly_rate": new_hourly_rate,
+                "upgrades": upgrades
             }), 200
 
         elif upgrade_type == 'storage':
             if level_num not in STORAGE_CONFIG:
                 return jsonify({"success": False, "error": "مستوى مخزن غير صالح."}), 400
 
-            current_storage_lvl = int(user_data.get('storage_level') or 0)
+            current_storage_lvl = int(user_data.get('storage_level', 0))
 
             if level_num <= current_storage_lvl:
                 return jsonify({"success": False, "error": "تم شراء هذا المخزن بالفعل."}), 400
@@ -131,25 +153,29 @@ def buy_upgrade():
             if total_balance < price:
                 return jsonify({"success": False, "error": "الرصيد غير كافي."}), 400
 
+            # الخصم من الرصيد الكلي
             new_balance = total_balance - price
 
+            # تحديث قاعدة البيانات (استخدام max_cap بدلاً من max_storage)
             user_ref.update({
                 'balance': new_balance,
                 'storage_level': level_num,
-                'max_storage': new_capacity,
-                'last_claim': now
+                'max_cap': new_capacity,
+                'last_claim_time': new_last_claim_time
             })
 
             return jsonify({
                 "success": True, 
                 "balance": new_balance, 
                 "storage_level": level_num, 
-                "max_storage": new_capacity
+                "max_cap": new_capacity
             }), 200
 
         else:
             return jsonify({"success": False, "error": "نوع الترقية غير معروف."}), 400
 
     except Exception as e:
+        # طباعة الخطأ بالكامل في كونسول Railway لسهولة التتبع مستقبلاً
         print(f"Server Error in buy_upgrade: {str(e)}")
+        traceback.print_exc()
         return jsonify({"success": False, "error": "حدث خطأ في الخادم."}), 500
