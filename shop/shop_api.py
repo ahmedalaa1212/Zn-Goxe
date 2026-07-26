@@ -140,7 +140,8 @@ def buy_upgrade():
                 "success": True, 
                 "balance": new_balance, 
                 "hourly_rate": new_hourly_rate,
-                "upgrades": upgrades
+                "upgrades": upgrades,
+                "last_claim_time": new_last_claim_time
             }), 200
 
         # ----------------------------------------
@@ -180,7 +181,8 @@ def buy_upgrade():
                 "success": True, 
                 "balance": new_balance, 
                 "storage_level": level_num, 
-                "max_cap": new_capacity
+                "max_cap": new_capacity,
+                "last_claim_time": new_last_claim_time
             }), 200
 
         else:
@@ -189,4 +191,3 @@ def buy_upgrade():
     except Exception as e:
         print(traceback.format_exc())
         return jsonify({"success": False, "error": f"حدث خطأ داخلي في الخادم: {str(e)}"}), 500
-
