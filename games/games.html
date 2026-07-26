@@ -15,21 +15,15 @@
     <div style="background: linear-gradient(145deg, #1a1a2e, #16213e); border: 2px solid #0f3460; border-radius: 15px; padding: 20px; text-align: center; position: relative; overflow: hidden; box-shadow: 0 10px 20px rgba(0,0,0,0.5);">
         
         <!-- العداد التنازلي -->
-        <div style="background: rgba(0,0,0,0.5); border-radius: 10px; padding: 10px; display: inline-block; margin-bottom: 15px; border: 1px solid #e94560;">
+        <div style="background: rgba(0,0,0,0.5); border-radius: 10px; padding: 10px; display: inline-block; margin-bottom: 20px; border: 1px solid #e94560;">
             <span style="color: #e94560; font-size: 12px; display: block; margin-bottom: 3px;">الوقت المتبقي للسحب</span>
             <span id="arena-timer" style="color: #fff; font-size: 24px; font-weight: bold; font-family: monospace; letter-spacing: 2px;">00:00</span>
         </div>
 
-        <!-- صندوق الجوائز والمشتركين -->
-        <div style="margin-bottom: 20px;">
-            <h3 style="color: #ffcc00; font-size: 14px; margin-bottom: 5px;">🏆 إجمالي الجوائز (45%)</h3>
-            <div id="prize-pool" style="font-size: 32px; font-weight: bold; color: #fff; text-shadow: 0 0 15px rgba(255, 204, 0, 0.8);">0 ZN</div>
-            
-            <div style="margin-top: 15px; background: #0f3460; border-radius: 10px; padding: 10px;">
-                <span style="color: #aaa; font-size: 12px;">المشتركين الآن:</span>
-                <span id="participants-count" style="color: #fff; font-weight: bold; font-size: 16px; margin-left: 5px;">0</span>
-                <span style="color: #888; font-size: 11px; display: block; margin-top: 3px;">(الحد الأدنى للسحب: 20 مشترك)</span>
-            </div>
+        <!-- صندوق الجوائز الغامض -->
+        <div style="margin-bottom: 25px; background: rgba(0,0,0,0.3); padding: 15px; border-radius: 15px; border: 1px solid #333;">
+            <h3 style="color: #ffcc00; font-size: 15px; margin-bottom: 10px;">🏆 إجمالي الجوائز الحالية</h3>
+            <div id="prize-pool" style="font-size: 36px; font-weight: bold; color: #fff; text-shadow: 0 0 20px rgba(255, 204, 0, 0.8);">0 ZN</div>
         </div>
 
         <!-- زر الاشتراك -->
@@ -37,23 +31,23 @@
             دخول الساحة (1000 ZN)
         </button>
 
-        <!-- تقسيم الجوائز المتوقع -->
-        <div style="background: rgba(0,0,0,0.3); border-radius: 10px; padding: 10px; text-align: right;">
-            <h4 style="color: #fff; font-size: 13px; text-align: center; margin-bottom: 10px; border-bottom: 1px solid #333; padding-bottom: 5px;">توزيع الجوائز المتوقع</h4>
-            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px;">
-                <span style="color: #ffd700;">🥇 المركز الأول (30%)</span> <span id="prize-1" style="color: #fff; font-weight: bold;">0 ZN</span>
+        <!-- تقسيم الجوائز المتوقع بدون نسب -->
+        <div style="background: rgba(0,0,0,0.4); border-radius: 10px; padding: 15px; text-align: right;">
+            <h4 style="color: #fff; font-size: 13px; text-align: center; margin-bottom: 12px; border-bottom: 1px solid #444; padding-bottom: 8px;">توزيع الجوائز المتوقع</h4>
+            <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px;">
+                <span style="color: #ffd700; font-weight: bold;">🥇 المركز الأول</span> <span id="prize-1" style="color: #fff; font-weight: bold;">0 ZN</span>
             </div>
-            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px;">
-                <span style="color: #c0c0c0;">🥈 المركز الثاني (25%)</span> <span id="prize-2" style="color: #fff; font-weight: bold;">0 ZN</span>
+            <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px;">
+                <span style="color: #c0c0c0; font-weight: bold;">🥈 المركز الثاني</span> <span id="prize-2" style="color: #fff; font-weight: bold;">0 ZN</span>
             </div>
-            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px;">
-                <span style="color: #cd7f32;">🥉 المركز الثالث (20%)</span> <span id="prize-3" style="color: #fff; font-weight: bold;">0 ZN</span>
+            <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px;">
+                <span style="color: #cd7f32; font-weight: bold;">🥉 المركز الثالث</span> <span id="prize-3" style="color: #fff; font-weight: bold;">0 ZN</span>
             </div>
-            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px;">
-                <span style="color: #aaa;">🏅 المركز الرابع (15%)</span> <span id="prize-4" style="color: #fff; font-weight: bold;">0 ZN</span>
+            <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px;">
+                <span style="color: #aaa;">🏅 المركز الرابع</span> <span id="prize-4" style="color: #fff; font-weight: bold;">0 ZN</span>
             </div>
-            <div style="display: flex; justify-content: space-between; font-size: 12px;">
-                <span style="color: #aaa;">🏅 المركز الخامس (10%)</span> <span id="prize-5" style="color: #fff; font-weight: bold;">0 ZN</span>
+            <div style="display: flex; justify-content: space-between; font-size: 13px;">
+                <span style="color: #aaa;">🏅 المركز الخامس</span> <span id="prize-5" style="color: #fff; font-weight: bold;">0 ZN</span>
             </div>
         </div>
     </div>
@@ -62,18 +56,18 @@
     <div id="draw-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 1000; justify-content: center; align-items: center; flex-direction: column;">
         
         <!-- شاشة الانتظار (آخر 15 ثانية) -->
-        <div id="draw-waiting" style="text-align: center;">
+        <div id="draw-waiting" style="text-align: center; display: none;">
             <div style="font-size: 60px; animation: pulse 1s infinite;">⏳</div>
             <h2 style="color: #e94560; margin-top: 15px;">تم إغلاق باب الاشتراك!</h2>
             <p style="color: #fff; font-size: 18px; margin-top: 10px;">جاري اختيار الفائزين...</p>
         </div>
 
-        <!-- شاشة استرداد الأموال (لو العدد أقل من 20) -->
-        <div id="draw-refunded" style="display: none; text-align: center; padding: 20px;">
-            <div style="font-size: 60px; margin-bottom: 10px;">🔄</div>
-            <h2 style="color: #fff;">لم يكتمل العدد المطلوب!</h2>
-            <p style="color: #aaa; margin-top: 10px;">تم إلغاء السحب وإرجاع 1000 ZN لكل المشتركين.</p>
-            <button onclick="closeDrawModal()" style="margin-top: 20px; padding: 10px 30px; background: #0f3460; color: white; border: none; border-radius: 8px;">حسناً</button>
+        <!-- شاشة استرداد الأموال -->
+        <div id="draw-refunded" style="display: none; text-align: center; padding: 20px; width: 85%; background: #1a1a2e; border: 2px solid #0f3460; border-radius: 15px;">
+            <div style="font-size: 50px; margin-bottom: 15px;">🛡️</div>
+            <h2 style="color: #fff; font-size: 20px; margin-bottom: 10px;">لم يكتمل العدد المطلوب للسحب!</h2>
+            <p style="color: #aaa; font-size: 14px; line-height: 1.6;">سيتم استرداد عملاتك (1000 ZN) بالكامل إلى محفظتك بدون أي خصم، لا تقلق أبداً.</p>
+            <button onclick="closeDrawModal()" style="margin-top: 20px; width: 100%; padding: 12px; background: #0f3460; color: white; border: none; border-radius: 8px; font-weight: bold;">حسناً، فهمت</button>
         </div>
 
         <!-- شاشة الفائزين -->
@@ -90,7 +84,7 @@
     <style>
         @keyframes pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.1); opacity: 0.7; } 100% { transform: scale(1); opacity: 1; } }
         .btn-disabled { background: #333 !important; color: #888 !important; cursor: not-allowed !important; border: 1px solid #444 !important; box-shadow: none !important; }
-        .winner-item { padding: 10px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+        .winner-item { padding: 12px 10px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
         .winner-item:last-child { border-bottom: none; }
     </style>
 </div>
