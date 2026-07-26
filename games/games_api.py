@@ -4,8 +4,8 @@ import random
 from flask import Blueprint, jsonify, request
 from firebase_admin import firestore
 
-# استدعاء كائن قاعدة البيانات ودالة الحماية
 from database import db
+# استدعاء دالة الحماية
 from core.security import get_authenticated_user
 
 games_bp = Blueprint('games', __name__)
@@ -24,42 +24,36 @@ def get_current_round_info():
     current_time = int(time.time())
     round_id_num = current_time // ROUND_DURATION
     end_time = (round_id_num + 1) * ROUND_DURATION
-    
-    # نحتاج ID الجولة السابقة لحلها إذا كانت معلقة
     prev_round_id = str(round_id_num - 1)
     return str(round_id_num), end_time, current_time, prev_round_id
 
 @games_bp.route('/status', methods=['POST'])
 def arena_status():
     try:
-        data = request.get_json() or {}
-        init_data = data.get('initData')
+        # التعديل الجذري: استخدام دالة الحماية بالطريقة الصحيحة المتوافقة مع ملفك
+        success, uid, error_res = get_authenticated_user(request, is_post=True)
+        if not success:
+            return error_res # إرجاع رسالة الخطأ من ملف الحماية مباشرة
         
-        user = get_authenticated_user(init_data)
-        if not user:
-            return jsonify({"success": False, "message": "غير مصرح لك"}), 401
-        
-        uid = user['uid']
         round_id, end_time, current_time, prev_round_id = get_current_round_info()
         
-        # 1. فحص الجولة السابقة (لضمان توزيع الجوائز إذا كانت معلقة)
+        # فحص الجولة السابقة
         prev_round_ref = db.collection('arena_rounds').document(prev_round_id)
         prev_doc = prev_round_ref.get()
         if prev_doc.exists and prev_doc.to_dict().get('status') == 'active':
             resolve_round(prev_round_id)
 
-        # 2. جلب بيانات الجولة الحالية
+        # جلب بيانات الجولة الحالية
         round_ref = db.collection('arena_rounds').document(round_id)
         round_doc = round_ref.get()
         
         participants = round_doc.to_dict().get('participants', []) if round_doc.exists else []
         has_joined = any(p['uid'] == uid for p in participants)
         
-        # 3. جلب رصيد اللاعب المباشر (لحل مشكلة اختفاء الرصيد)
+        # جلب رصيد اللاعب
         user_doc = db.collection('users').document(uid).get()
         balance = user_doc.to_dict().get('balance', 0) if user_doc.exists else 0
 
-        # 4. حساب الجائزة
         total_collected = len(participants) * ENTRY_FEE
         visible_prize_pool = int(total_collected * PRIZE_POOL_PERCENTAGE)
 
@@ -77,15 +71,12 @@ def arena_status():
 
 @games_bp.route('/join', methods=['POST'])
 def join_arena():
-    data = request.get_json() or {}
-    init_data = data.get('initData')
-    
-    user = get_authenticated_user(init_data)
-    if not user:
-        return jsonify({"success": False, "message": "غير مصرح لك"}), 401
+    # التعديل هنا أيضاً
+    success, uid, error_res = get_authenticated_user(request, is_post=True)
+    if not success:
+        return error_res
         
-    uid = user['uid']
-    name = user.get('first_name', 'Player')
+    name = f"Player #{uid[:5]}" # بما أن دالتك ترجع الـ ID فقط، سننشئ اسماً افتراضياً مميزاً
 
     round_id, end_time, current_time, _ = get_current_round_info()
     
@@ -109,23 +100,22 @@ def join_arena():
         if any(p['uid'] == uid for p in participants):
             return False, "أنت مشترك بالفعل في هذه الجولة."
             
-        # خصم الرصيد بطريقة حسابية آمنة داخل الترانزاكشن
+        # خصم الرصيد
         transaction.update(user_ref, {'balance': current_balance - ENTRY_FEE})
         
-        # إضافة اللاعب للجولة
+        # إضافة اللاعب
         participants.append({"uid": uid, "name": name})
         transaction.set(round_ref, {'participants': participants, 'status': 'active'}, merge=True)
         return True, "تم دخول الساحة بنجاح!"
         
     try:
-        success, msg = join_transaction(db.transaction(), round_ref, user_ref)
-        return jsonify({"success": success, "message": msg})
+        success_join, msg = join_transaction(db.transaction(), round_ref, user_ref)
+        return jsonify({"success": success_join, "message": msg})
     except Exception as e:
         print(f"Error in join_arena: {e}")
         return jsonify({"success": False, "message": "حدث خطأ أثناء معالجة الطلب."})
 
 def resolve_round(round_id):
-    """معالجة الجولة بعد انتهاء الوقت (توزيع الجوائز أو الاسترداد)"""
     round_ref = db.collection('arena_rounds').document(round_id)
     round_doc = round_ref.get()
     
@@ -169,13 +159,12 @@ def resolve_round(round_id):
 
 @games_bp.route('/results', methods=['POST'])
 def get_results():
-    data = request.get_json() or {}
-    init_data = data.get('initData')
-    req_round_id = data.get('round_id')
+    success, uid, error_res = get_authenticated_user(request, is_post=True)
+    if not success:
+        return error_res
     
-    user = get_authenticated_user(init_data)
-    if not user:
-        return jsonify({"success": False}), 401
+    data = request.get_json() or {}
+    req_round_id = data.get('round_id')
     
     resolve_round(str(req_round_id))
     
