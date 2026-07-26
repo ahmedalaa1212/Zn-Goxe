@@ -1,29 +1,30 @@
+// games/games.js
 let updateInterval;
 let isJoining = false;
 let currentRoundId = null;
 
-// تحديث الرصيد العلوي
-window.updateGamesUI = function() {
-    const pData = window.PlayerData;
-    if (!pData) return;
-    const gameBalEl = document.getElementById('top-balance-games');
-    if (gameBalEl) {
-        gameBalEl.innerText = `ZN ${Math.floor(pData.balance).toLocaleString()}`;
-    }
-};
-
-// جلب حالة الساحة من السيرفر
+// جلب حالة الساحة من السيرفر وتحديث الرصيد وكل شيء
 async function fetchArenaStatus() {
     try {
         const initData = window.Telegram?.WebApp?.initData;
+        if (!initData) return;
+
         const response = await fetch('/api/games/status', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ initData: initData })
         });
+        
+        if (!response.ok) throw new Error("Server Error");
+        
         const data = await response.json();
         
         if (data.success) {
+            // تحديث الرصيد فوراً من بيانات السيرفر
+            const gameBalEl = document.getElementById('top-balance-games');
+            if (gameBalEl) {
+                gameBalEl.innerText = `ZN ${Math.floor(data.balance).toLocaleString()}`;
+            }
             updateArenaUI(data);
         }
     } catch (error) {
@@ -46,12 +47,14 @@ function updateArenaUI(data) {
     let s = timeLeft % 60;
     timerEl.innerText = `${m < 10 ? '0'+m : m}:${s < 10 ? '0'+s : s}`;
 
+    const isWaitingModalOpen = document.getElementById('draw-waiting').style.display === 'block';
+
     if (timeLeft <= 15 && timeLeft > 0) {
         btn.disabled = true;
         btn.classList.add('btn-disabled');
         btn.innerText = "تم إغلاق الاشتراك (جاري السحب⏳)";
         showDrawModal('waiting');
-    } else if (timeLeft === 0 && document.getElementById('draw-modal').style.display === 'flex' && document.getElementById('draw-waiting').style.display === 'block') {
+    } else if (timeLeft === 0 && isWaitingModalOpen) {
         fetchRoundResults(currentRoundId);
     } else {
         if (!data.has_joined) {
@@ -65,9 +68,7 @@ function updateArenaUI(data) {
         }
     }
 
-    // الأرقام تظهر كقيمة نهائية فقط بدون نسب
     document.getElementById('prize-pool').innerText = data.prize_pool.toLocaleString() + " ZN";
-    
     document.getElementById('prize-1').innerText = Math.floor(data.prize_pool * 0.30).toLocaleString() + " ZN";
     document.getElementById('prize-2').innerText = Math.floor(data.prize_pool * 0.25).toLocaleString() + " ZN";
     document.getElementById('prize-3').innerText = Math.floor(data.prize_pool * 0.20).toLocaleString() + " ZN";
@@ -95,11 +96,15 @@ window.joinArena = async function() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ initData: initData })
         });
+        
+        if (!response.ok) throw new Error("Server Error");
+        
         const data = await response.json();
         
         if (data.success) {
+            // تحديث بيانات المزرعة الأساسية إن وُجدت لتزامن الرصيد في كل القوائم
             if (typeof window.fetchPlayerDataFromServer === 'function') {
-                await window.fetchPlayerDataFromServer();
+                window.fetchPlayerDataFromServer();
             }
             fetchArenaStatus(); 
         } else {
@@ -108,7 +113,7 @@ window.joinArena = async function() {
             btn.innerText = "دخول الساحة (1000 ZN)";
         }
     } catch (error) {
-        alert("حدث خطأ في الاتصال بالخادم.");
+        alert("حدث خطأ في الاتصال بالخادم. حاول مجدداً.");
         btn.disabled = false;
         btn.innerText = "دخول الساحة (1000 ZN)";
     } finally {
@@ -116,7 +121,7 @@ window.joinArena = async function() {
     }
 };
 
-// إدارة النوافذ
+// إدارة النوافذ المنبثقة
 function showDrawModal(state) {
     const modal = document.getElementById('draw-modal');
     document.getElementById('draw-waiting').style.display = 'none';
@@ -142,6 +147,8 @@ async function fetchRoundResults(roundId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ initData: initData, round_id: roundId })
         });
+        
+        if (!response.ok) return;
         const data = await response.json();
         
         if (data.success) {
@@ -151,6 +158,7 @@ async function fetchRoundResults(roundId) {
                 renderWinners(data.winners);
                 showDrawModal('winners');
             }
+            fetchArenaStatus(); // تحديث الرصيد بعد الفوز/الاسترداد
             if (typeof window.fetchPlayerDataFromServer === 'function') {
                 window.fetchPlayerDataFromServer();
             }
@@ -183,6 +191,5 @@ function renderWinners(winners) {
 }
 
 // التشغيل والمزامنة
-window.updateGamesUI();
 fetchArenaStatus();
-updateInterval = setInterval(fetchArenaStatus, 3000);
+updateInterval = setInterval(fetchArenaStatus, 3000); // تحديث كل 3 ثواني لمزامنة العداد
