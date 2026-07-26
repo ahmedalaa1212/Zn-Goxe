@@ -5,7 +5,7 @@ from core.security import get_authenticated_user
 
 shop_bp = Blueprint('shop', __name__)
 
-# إعدادات ترقيات السرعة (10 ترقيات كحد أقصى)
+# إعدادات ترقيات السرعة
 MINING_CONFIG = {
     1: {'price': 310, 'rate': 2, 'max': 10},
     2: {'price': 820, 'rate': 5, 'max': 10},
@@ -18,7 +18,7 @@ MINING_CONFIG = {
     9: {'price': 32150, 'rate': 110, 'max': 10}
 }
 
-# إعدادات المخازن 
+# إعدادات المخازن
 STORAGE_CONFIG = {
     1: {'price': 1000, 'capacity': 20000},
     2: {'price': 2000, 'capacity': 30000},
@@ -61,14 +61,13 @@ def buy_upgrade():
         user_data = user_doc.to_dict() or {}
         now = time.time()
 
-        # [الإصلاح الجذري] استخدام (or) لضمان عدم حدوث خطأ إذا كانت القيمة None
+        # الحماية ضد أخطاء قاعدة البيانات (تفادي خطأ 500)
         last_claim = float(user_data.get('last_claim') or now)
         hourly_rate = float(user_data.get('hourly_rate') or 0.0)
         max_storage = float(user_data.get('max_storage') or 20000.0)
         current_balance = float(user_data.get('balance') or 0.0)
         upgrades = user_data.get('upgrades') or {}
 
-        # حساب الرصيد المعلق
         time_elapsed = max(0.0, now - last_claim)
         pending_mined = min(time_elapsed * (hourly_rate / 3600.0), max_storage)
         total_balance = current_balance + pending_mined
@@ -95,7 +94,6 @@ def buy_upgrade():
             new_balance = total_balance - price
             upgrades[lvl_key] = current_lvl_count + 1
 
-            # إعادة حساب السرعة الإجمالية
             new_hourly_rate = 0.0
             for lvl_idx in range(1, 10):
                 cnt = int(upgrades.get(f"lvl{lvl_idx}") or 0)
@@ -108,7 +106,11 @@ def buy_upgrade():
                 'last_claim': now
             })
 
-            return jsonify({"success": True, "balance": new_balance, "hourly_rate": new_hourly_rate}), 200
+            return jsonify({
+                "success": True, 
+                "balance": new_balance, 
+                "hourly_rate": new_hourly_rate
+            }), 200
 
         elif upgrade_type == 'storage':
             if level_num not in STORAGE_CONFIG:
@@ -118,6 +120,7 @@ def buy_upgrade():
 
             if level_num <= current_storage_lvl:
                 return jsonify({"success": False, "error": "تم شراء هذا المخزن بالفعل."}), 400
+
             if level_num > current_storage_lvl + 1:
                 return jsonify({"success": False, "error": "يجب شراء المخازن بالترتيب."}), 400
 
@@ -137,8 +140,16 @@ def buy_upgrade():
                 'last_claim': now
             })
 
-            return jsonify({"success": True, "balance": new_balance, "storage_level": level_num, "max_storage": new_capacity}), 200
+            return jsonify({
+                "success": True, 
+                "balance": new_balance, 
+                "storage_level": level_num, 
+                "max_storage": new_capacity
+            }), 200
+
+        else:
+            return jsonify({"success": False, "error": "نوع الترقية غير معروف."}), 400
 
     except Exception as e:
-        print(f"Server Error: {str(e)}")
-        return jsonify({"success": False, "error": "حدث خطأ في الخادم أثناء معالجة الطلب."}), 500
+        print(f"Server Error in buy_upgrade: {str(e)}")
+        return jsonify({"success": False, "error": "حدث خطأ في الخادم."}), 500
