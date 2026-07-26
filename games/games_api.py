@@ -30,10 +30,9 @@ def get_current_round_info():
 @games_bp.route('/status', methods=['POST'])
 def arena_status():
     try:
-        # التعديل الجذري: استخدام دالة الحماية بالطريقة الصحيحة المتوافقة مع ملفك
         success, uid, error_res = get_authenticated_user(request, is_post=True)
         if not success:
-            return error_res # إرجاع رسالة الخطأ من ملف الحماية مباشرة
+            return error_res
         
         round_id, end_time, current_time, prev_round_id = get_current_round_info()
         
@@ -71,12 +70,11 @@ def arena_status():
 
 @games_bp.route('/join', methods=['POST'])
 def join_arena():
-    # التعديل هنا أيضاً
     success, uid, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
         
-    name = f"Player #{uid[:5]}" # بما أن دالتك ترجع الـ ID فقط، سننشئ اسماً افتراضياً مميزاً
+    name = f"Player #{uid[:5]}" 
 
     round_id, end_time, current_time, _ = get_current_round_info()
     
