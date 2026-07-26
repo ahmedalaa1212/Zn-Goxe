@@ -28,7 +28,6 @@
     // 🎨 بناء رسالة التأكيد الاحترافية (Modal)
     // ==========================================
     const injectModalUI = () => {
-        // 1. حقن ستايل الـ CSS الخاص بالنافذة المنبثقة
         if (!document.getElementById('shop-modal-styles')) {
             const styleSheet = document.createElement("style");
             styleSheet.id = 'shop-modal-styles';
@@ -68,7 +67,6 @@
             document.head.appendChild(styleSheet);
         }
 
-        // 2. حقن هيكل الـ HTML الخاص بالنافذة المنبثقة
         if (!document.getElementById('shop-confirm-modal-overlay')) {
             const modalHTML = `
                 <div id="shop-confirm-modal-overlay">
@@ -92,7 +90,6 @@
         const overlay = document.getElementById('shop-confirm-modal-overlay');
         if(overlay) {
             overlay.classList.remove('shop-modal-active');
-            // تأخير الإخفاء التام حتى ينتهي الأنيميشن
             setTimeout(() => {
                 if(!overlay.classList.contains('shop-modal-active')) {
                     overlay.style.display = 'none'; 
@@ -101,7 +98,6 @@
         }
     };
 
-    // تجهيز النافذة فور تحميل السكربت
     injectModalUI();
     // ==========================================
 
@@ -147,9 +143,8 @@
         const shopBalEl = document.getElementById('shop-balance-text');
         const shopRateEl = document.getElementById('shop-rate-text');
         if (shopBalEl) shopBalEl.innerText = `ZN: ${Math.floor(totalBal).toLocaleString()}`;
-        if (shopRateEl) shopRateEl.innerText = `${(pData.hourly_rate || 0).toLocaleString()}/س`;
+        if (shopRateEl) shopRateEl.innerText = `${(pData.hourly_rate || 0).toLocaleString()}/h`; // تم التعديل
 
-        // 1. بناء قائمة ترقيات سرعة التعدين
         let miningHtml = '';
         for (let i = 1; i <= 9; i++) {
             let count = parseInt((pData.upgrades && pData.upgrades[`lvl${i}`]) || 0);
@@ -164,7 +159,7 @@
                     <div>
                         <div style="font-size: 26px; margin-bottom: 5px;">🏛️</div>
                         <div style="color: #fff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
-                        <div style="color: #28a745; font-size: 12px; margin: 4px 0;">⚡ +${speed.toLocaleString()}/س</div>
+                        <div style="color: #28a745; font-size: 12px; margin: 4px 0;">⚡ +${speed.toLocaleString()}/h</div>
                         <div style="color: #888; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${SHOP_CONFIG.maxMiningUpgrades}</div>
                     </div>
                     <button id="btn-speed-${i}" onclick="requestShopPurchase('speed', ${i}, ${price})" 
@@ -176,7 +171,6 @@
         }
         miningSec.innerHTML = miningHtml;
 
-        // 2. بناء قائمة ترقيات المخازن
         let storageHtml = '';
         let currentStorageLvl = parseInt(pData.storage_level || 0); 
 
@@ -231,7 +225,6 @@
     };
 
 
-    // دالة استدعاء النافذة المنبثقة بدلاً من الشراء المباشر
     window.requestShopPurchase = function(type, level, price) {
         const pData = window.PlayerData;
         const totalBal = parseFloat((pData && pData.balance) || 0);
@@ -249,7 +242,6 @@
         const iconEl = document.getElementById('shop-modal-icon');
         const confirmBtn = document.getElementById('shop-modal-confirm-btn');
 
-        // تخصيص النافذة حسب نوع الشراء
         if (type === 'speed') {
             iconEl.innerText = '⚡';
             titleEl.innerText = 'ترقية سرعة التعدين';
@@ -266,20 +258,16 @@
 
         priceEl.innerText = `التكلفة: ${numPrice.toLocaleString()} ZN`;
 
-        // عند الضغط على تأكيد، نغلق النافذة وننفذ الشراء الفعلي
         confirmBtn.onclick = function() {
             closeShopModal();
             executeActualPurchase(type, level, price);
         };
 
-        // إظهار النافذة المنبثقة
         overlay.style.display = 'flex';
-        // استخدام setTimeout لإعطاء فرصة للمتصفح لتطبيق الانتقال (Animation)
         setTimeout(() => overlay.classList.add('shop-modal-active'), 10);
     };
 
 
-    // دالة الشراء الفعلية (التي تتصل بالسيرفر)
     async function executeActualPurchase(type, level, price) {
         const initData = window.Telegram?.WebApp?.initData; 
 
@@ -319,10 +307,9 @@
             let resData = await response.json();
 
             if (response.ok && resData.success) {
-                // الاعتماد الكلي على الرد السليم من السيرفر فقط (بدون أي استدعاء عشوائي)
                 if (window.PlayerData) {
                     window.PlayerData.balance = resData.balance;
-                    window.PlayerData.last_claim_time = resData.last_claim_time; // تحديث الوقت لتجنب الخلل
+                    window.PlayerData.last_claim_time = resData.last_claim_time; 
                     
                     if (apiType === 'mining') {
                         window.PlayerData.hourly_rate = resData.hourly_rate;
@@ -332,8 +319,6 @@
                         window.PlayerData.max_cap = resData.max_cap;
                     }
                 }
-
-                // تم إزالة الكود المسبب للمشكلة (fetchPlayerDataFromServer) نهائياً من هنا
                 
                 window.updateShopUI();
                 
@@ -358,7 +343,6 @@
     }
 
     window.updateShopUI();
-    // تحديث الواجهة كل ثانية لضمان تزامن الرصيد مع المزرعة
     setInterval(window.updateShopUI, 1000);
 
 })();
