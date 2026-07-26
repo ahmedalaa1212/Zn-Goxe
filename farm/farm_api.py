@@ -37,7 +37,7 @@ def get_player_data():
 
         if not user_doc.exists:
             user_data = {
-                "telegram_id": telegram_id, "balance": 0.0, "hourly_rate": 100.0,
+                "telegram_id": telegram_id, "balance": 0.0, "hourly_rate": 0,
                 "unclaimed": 0.0, "max_cap": 10000.0, "daily_day": 1,
                 "last_claim_time": now.isoformat(), 
                 "last_daily_claim_date": None, 
