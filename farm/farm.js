@@ -3,7 +3,7 @@
     const INIT_DATA = (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) ? window.Telegram.WebApp.initData : "";
 
     const GAME_CONFIG = {
-        maxUpgradesPerLevel: 10, 
+        maxUpgradesPerLevel: 10, // الحد الأقصى للترقيات (10 مستويات)
         dailyRewards: [
             3000, 4000, 5000, 6000, 7500,          
             10000, 12000, 15000, 18000, 20000,     
@@ -52,22 +52,27 @@
                 if (resData.game_config && resData.game_config.daily_rewards) {
                     GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
                 }
-                window.updateFarmUI();
+                window.updateFarmUI(); // تحديث فوري للواجهة بمجرد وصول البيانات
             }
-        } catch (e) { console.error("Error", e); } 
-        finally { isFetching = false; }
+        } catch (e) { 
+            console.error("Error fetching data", e); 
+        } finally { 
+            isFetching = false; 
+        }
     };
 
-    window.fetchPlayerData = async function() { await window.fetchPlayerDataFromServer(); };
+    window.fetchPlayerData = async function() { 
+        await window.fetchPlayerDataFromServer(); 
+    };
 
     window.updateFarmUI = function() {
         const pData = window.PlayerData || {};
         
         let bal = parseFloat(pData.balance || 0);
-        let hRate = parseFloat(pData.hourly_rate || 0); // تم التعديل لتكون 0
+        let hRate = parseFloat(pData.hourly_rate || 0);
         
         document.getElementById('farm-balance').innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
-        document.getElementById('farm-rate').innerText = `⚡ ${Math.floor(hRate).toLocaleString()}/h`; // تم تعديل س إلى h
+        document.getElementById('farm-rate').innerText = `⚡ ${Math.floor(hRate).toLocaleString()}/h`; 
         
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
@@ -95,8 +100,8 @@
 
     function renderDailyRewards() {
         const container = document.getElementById('daily-rewards-container');
-        const pData = window.PlayerData || {};
-        if (!container) return; 
+        const pData = window.PlayerData;
+        if (!container || !pData) return; 
 
         let html = '';
         const todayStr = getTodayUTCStr();
@@ -126,11 +131,11 @@
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
         const pData = window.PlayerData;
-        if (!pData) return;
+        if (!pData) return; // انتظار جلب البيانات
         
         let unclaim = parseFloat(pData.unclaimed || 0);
         let maxC = parseFloat(pData.max_cap || 10000);
-        let hRate = parseFloat(pData.hourly_rate || 0); // تعديل لـ 0
+        let hRate = parseFloat(pData.hourly_rate || 0); 
         
         if (unclaim < maxC) {
             unclaim += hRate / 3600;
@@ -145,6 +150,8 @@
             pct = Math.max(0, Math.min(pct, 100)); 
             progressEl.style.width = `${pct}%`;
             if (pct >= 100) progressEl.style.background = 'linear-gradient(90deg, #ff4444, #cc0000)'; 
+            else progressEl.style.background = 'linear-gradient(90deg, #0088cc, #00bfff)';
+            
             storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
         }
 
@@ -157,8 +164,14 @@
                 claimBtn.disabled = true;
             } else if (!isClaimingMain) {
                 claimBtn.innerText = "تجميع الرصيد 💰";
-                claimBtn.className = unclaim > 0 ? "btn-ready" : "";
-                claimBtn.disabled = unclaim <= 0;
+                if (unclaim > 0) {
+                    claimBtn.className = "btn-ready";
+                    claimBtn.disabled = false;
+                    claimBtn.style.background = ""; // إزالة التجاوز للسماح للكلاس بالعمل
+                } else {
+                    claimBtn.className = "btn-cooldown";
+                    claimBtn.disabled = true;
+                }
             }
         }
 
@@ -170,13 +183,16 @@
             if (pData.last_boost_date === todayStr) {
                 boostBtn.className = "btn-cooldown";
                 boostBtn.disabled = true;
+                boostBtn.style.background = ""; // تفريغ الخلفية ليظهر الـ cooldown
+                boostBtn.style.boxShadow = "none";
                 boostBtn.innerHTML = `<span style="font-size: 16px; margin-bottom:2px;">⏳</span><span class="timer-text">${timeLeftStr}</span>`;
             } else {
                 if(!isBoosting) {
                     boostBtn.className = "";
                     boostBtn.disabled = false;
                     boostBtn.style.background = "linear-gradient(135deg, #ff8c00, #ff0080)";
-                    boostBtn.innerHTML = `<span style="font-size: 22px; margin-bottom: 2px;">🚀</span><span style="font-size: 11px; font-weight: bold;">+1/h</span>`; // تم تعديل س إلى h
+                    boostBtn.style.boxShadow = "0 4px 15px rgba(255, 0, 128, 0.5)";
+                    boostBtn.innerHTML = `<span style="font-size: 22px; margin-bottom: 2px;">🚀</span><span style="font-size: 11px; font-weight: bold;">+1/h</span>`; 
                 }
             }
         }
@@ -211,12 +227,19 @@
     }
 
     window.handleDailyBoost = async function() {
-        if (isBoosting || !INIT_DATA) return;
+        // حماية صارمة: لا تنفذ الحدث إذا لم تكن البيانات جاهزة أو الزر مضغوط بالفعل
+        if (!window.PlayerData || isBoosting || !INIT_DATA) return;
+        
+        const pData = window.PlayerData;
+        const todayStr = getTodayUTCStr();
+        if (pData.last_boost_date === todayStr) return; // حماية إضافية من الفرونت إند قبل الإعلان
+
         const btn = document.getElementById('boost-btn');
         isBoosting = true;
         
         const adWatched = await showTelegramAd(() => {
             btn.innerHTML = `<span style="font-size: 20px;">🎬</span>`;
+            btn.disabled = true; // تعطيل أثناء المشاهدة
         });
         
         if (adWatched) {
@@ -233,19 +256,33 @@
                     await window.fetchPlayerData(); 
                 } else if (resData.error && window.Telegram && window.Telegram.WebApp) {
                     window.Telegram.WebApp.showAlert(resData.error);
+                    await window.fetchPlayerData(); // إعادة جلب البيانات لتصحيح حالة الواجهة
                 }
-            } catch (e) { console.error(e); }
+            } catch (e) { 
+                console.error(e); 
+            }
+        } else {
+            // فشل الإعلان، نعيد الواجهة لحالتها
+            isBoosting = false;
         }
         isBoosting = false;
     };
 
     window.handleDailyClaim = async function(day) {
-        if (isClaimingDaily || !INIT_DATA) return;
+        if (!window.PlayerData || isClaimingDaily || !INIT_DATA) return;
+        
+        const pData = window.PlayerData;
+        const todayStr = getTodayUTCStr();
+        if (pData.last_daily_claim_date === todayStr) return; // حماية إضافية
+
         const btn = document.getElementById(`daily-btn-${day}`);
         isClaimingDaily = true;
         
         const adWatched = await showTelegramAd(() => {
-            if (btn) btn.innerHTML = "⏳";
+            if (btn) {
+                btn.innerHTML = "⏳";
+                btn.disabled = true;
+            }
         });
         
         if (adWatched) {
@@ -268,7 +305,10 @@
                 }
             } catch (e) { }
         } else {
-            if (btn) btn.innerHTML = "📺";
+            if (btn) {
+                btn.innerHTML = "📺";
+                btn.disabled = false;
+            }
         }
         isClaimingDaily = false;
     };
@@ -280,6 +320,7 @@
         isClaimingMain = true;
         const claimBtn = document.getElementById('claim-btn');
         claimBtn.disabled = true;
+        claimBtn.className = "btn-cooldown";
         claimBtn.innerText = "جاري الحفظ... 💾";
         
         try {
@@ -307,5 +348,6 @@
         isClaimingMain = false;
     };
 
+    // بدء التشغيل
     window.fetchPlayerData();
 })();
