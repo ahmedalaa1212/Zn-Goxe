@@ -5,14 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>الإعدادات</title>
     <style>
-        /* ستايل الشات داخل النافذة العائمة */
         .chat-msg { max-width: 80%; padding: 10px 15px; border-radius: 15px; font-size: 14px; line-height: 1.4; word-wrap: break-word; }
         .msg-user { background: #00cc66; color: #000; align-self: flex-start; border-bottom-right-radius: 2px; }
         .msg-admin { background: #222; color: #fff; align-self: flex-end; border-bottom-left-radius: 2px; border: 1px solid #333; }
         .msg-system { background: transparent; color: #aaa; align-self: center; font-size: 12px; text-align: center; width: 100%; margin: 10px 0; }
         
-        /* تأثير التحميل */
-        .spinner { border: 3px solid #333; border-top: 3px solid #00cc66; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; margin-left: 10px; }
+        .spinner { border: 3px solid #333; border-top: 3px solid #00cc66; border-radius: 50%; width: 18px; height: 18px; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
@@ -53,7 +51,6 @@
             <span>📢 قناة التليجرام الرسمية</span><span>❯</span>
         </a>
         
-        <!-- زر الدعم الفني يفتح النافذة العائمة الآن -->
         <div onclick="openSupportModal()" style="display:flex; align-items:center; justify-content:space-between; background:#222; padding:12px 15px; border-radius:10px; color:#fff; font-weight:bold; font-size:14px; border-left:4px solid #00cc66; cursor:pointer;">
             <span>🎧 الدعم الفني لحل المشاكل</span><span>❯</span>
         </div>
@@ -71,22 +68,26 @@
 </div>
 
 <!-- ========================================== -->
-<!-- 🟢 نافذة الدعم الفني العائمة (Chat Modal) -->
+<!-- 🟢 نافذة الدعم الفني العائمة المحدثة -->
 <!-- ========================================== -->
 <div id="support-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:#0f0f0f; z-index:10000; flex-direction:column; box-sizing: border-box;">
     
-    <!-- الهيدر وعلامة الإغلاق -->
-    <div style="background:#1c1c1c; padding:15px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333;">
+    <!-- الهيدر مع زر إغلاق بارز وواضح جداً -->
+    <div style="background:#1c1c1c; padding:12px 15px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333;">
         <div>
-            <h3 style="margin:0; color:#00cc66; font-size:16px;">تواصل معنا 🎧</h3>
+            <h3 style="margin:0; color:#00cc66; font-size:16px; display:flex; align-items:center; gap:6px;">تواصل معنا 🎧</h3>
             <span id="ticket-id-display" style="font-size:11px; color:#aaa;">جاري الاتصال بالدعم...</span>
         </div>
-        <button onclick="closeSupportModal()" style="background:none; border:none; color:#ff4444; font-size:28px; cursor:pointer; line-height:1; padding:0 10px;">×</button>
+        
+        <!-- 🔥 زر الإغلاق الواضح والمحسّن -->
+        <button onclick="closeSupportModal()" style="background:#cc0000; border:none; color:#fff; font-size:13px; font-weight:bold; padding:8px 14px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:5px; box-shadow: 0 2px 6px rgba(204, 0, 0, 0.4);">
+            <span>إغلاق</span>
+            <span style="font-size:16px; line-height:1;">✕</span>
+        </button>
     </div>
 
-    <!-- مساحة الرسائل -->
+    <!-- منطقة الرسائل -->
     <div id="support-chat-box" style="flex:1; padding:15px; overflow-y:auto; display:flex; flex-direction:column; gap:10px;">
-        <!-- سيتم إضافة الرسائل هنا بالجافاسكريبت -->
     </div>
 
     <!-- حقل الإدخال -->
