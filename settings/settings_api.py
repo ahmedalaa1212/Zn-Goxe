@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, request
+import traceback # أضفنا هذه المكتبة لطباعة الأخطاء بوضوح في سجلات Railway
 # تم تعديل اسم الدالة ليتطابق مع ملف security.py الخاص بك
 from core.security import validate_telegram_data
 from database import db
@@ -17,7 +18,8 @@ def get_settings_stats():
     # 2. التحقق من صحة التوقيع عبر ملف security.py
     auth_result = validate_telegram_data(init_data)
     
-    if not auth_result or 'id' not in auth_result:
+    # التأكد من أن auth_result ليس False وأنه يحتوي على id
+    if not auth_result or not isinstance(auth_result, dict) or 'id' not in auth_result:
         return jsonify({"success": False, "message": "Unauthorized request, invalid initData"}), 403
 
     user_id = str(auth_result['id'])
@@ -28,16 +30,29 @@ def get_settings_stats():
         user_doc = user_ref.get()
 
         if user_doc.exists:
-            user_data = user_doc.to_dict()
+            # نجلب البيانات، وفي حال كانت فارغة نضع قاموساً فارغاً لتفادي الأخطاء
+            user_data = user_doc.to_dict() or {}
             
-            # حساب إجمالي مستويات المزرعة (يجمع مستويات الترقية من 1 لـ 10)
+            # 4. حساب إجمالي مستويات المزرعة بشكل آمن (Safe Casting)
             farm_levels_count = 0
             for i in range(1, 11):
-                farm_levels_count += int(user_data.get(f'lvl{i}_count', 0))
+                # نستخدم .get لجلب القيمة. إذا كانت غير موجودة سترجع None
+                lvl_val = user_data.get(f'lvl{i}_count')
+                if lvl_val is not None:
+                    try:
+                        farm_levels_count += int(lvl_val)
+                    except (ValueError, TypeError):
+                        # إذا كان الحقل يحتوي على نص غير مفهوم أو معطوب، يتجاهله ولا ينهار السيرفر
+                        pass
                 
-            # جلب مستوى المخزن (لو بتستخدم حقل واحد اسمه storage_level في الداتابيز)
-            # ولو بتستخدم نظام مختلف للمخازن، عدل المتغير ده بناءً على الداتابيز بتاعتك
-            storage_levels_count = int(user_data.get('storage_level', 0))
+            # 5. جلب مستوى المخزن بشكل آمن
+            storage_levels_count = 0
+            storage_val = user_data.get('storage_level')
+            if storage_val is not None:
+                try:
+                    storage_levels_count = int(storage_val)
+                except (ValueError, TypeError):
+                    pass
 
             return jsonify({
                 "success": True,
@@ -46,6 +61,7 @@ def get_settings_stats():
             }), 200
             
         else:
+            # المستخدم ليس له وثيقة في قاعدة البيانات بعد
             return jsonify({
                 "success": True, 
                 "farm_levels_count": 0, 
@@ -53,5 +69,7 @@ def get_settings_stats():
             }), 200
 
     except Exception as e:
-        print(f"Settings API Error: {e}")
+        # طباعة الخطأ بالكامل في الكونسول لمعرفة سببه بدقة في Railway
+        print(f"Settings API Error for user {user_id}: {str(e)}")
+        traceback.print_exc() 
         return jsonify({"success": False, "message": "Internal server error"}), 500
