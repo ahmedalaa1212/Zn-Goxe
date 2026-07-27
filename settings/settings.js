@@ -2,7 +2,6 @@
     
     function getTgUser() {
         if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
-            // التخلص من ?. لدعم الهواتف القديمة ومنع كسر الأكواد
             if (window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
                 return window.Telegram.WebApp.initDataUnsafe.user;
             }
@@ -23,12 +22,42 @@
         return "اللاعب المحترف";
     }
 
-    // 🔒 تحديث الدالة لترسل البيانات في الـ Headers لضمان أقصى درجات الأمان
+    // 🔄 دالة التحديث في الوقت الفعلي (بدون الضغط على السيرفر)
+    function updateStatsFromLocalData() {
+        // نتحقق إذا كانت بيانات اللاعب موجودة في المتغير العام الذي يحدثه المتجر
+        if (window.PlayerData) {
+            const totalMiningEl = document.getElementById('stat-total-mining');
+            const totalStorageEl = document.getElementById('stat-total-storage');
+            
+            let farmLevelsCount = 0;
+            // حساب مستويات المزرعة المفتوحة (التي تحتوي على ترقية واحدة على الأقل)
+            if (window.PlayerData.upgrades) {
+                for (let i = 1; i <= 9; i++) {
+                    if (window.PlayerData.upgrades[`lvl${i}`] > 0) {
+                        farmLevelsCount++;
+                    }
+                }
+            }
+
+            // حساب مستوى المخزن الحالي (رقم المستوى يعبر عن عدد المستويات المفتوحة)
+            let storageLevelsCount = parseInt(window.PlayerData.storage_level || 0);
+
+            if (totalMiningEl) {
+                totalMiningEl.innerText = `${farmLevelsCount} مستويات`;
+                totalMiningEl.style.color = "#00cc66"; 
+            }
+            if (totalStorageEl) {
+                totalStorageEl.innerText = `${storageLevelsCount} مستويات`;
+                totalStorageEl.style.color = "#0088cc"; 
+            }
+        }
+    }
+
+    // 🔒 تحميل البيانات الأساسية للمستخدم (الاسم والصورة) وجلب أولي من السيرفر كإجراء احتياطي
     async function fetchAndRenderData() {
         const telegramId = getTgId();
         let initData = "";
         
-        // استخراج التوقيع بأمان بدون كسر المتصفحات القديمة
         if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
             initData = window.Telegram.WebApp.initData;
         }
@@ -39,7 +68,7 @@
         const totalMiningEl = document.getElementById('stat-total-mining');
         const totalStorageEl = document.getElementById('stat-total-storage');
 
-        // طباعة البيانات الشخصية مباشرة بدون سيرفر للسرعة
+        // طباعة البيانات الشخصية مباشرة للسرعة
         if (usernameEl) usernameEl.innerText = getPlayerName();
         if (telegramIdEl) telegramIdEl.innerText = telegramId;
 
@@ -48,59 +77,55 @@
             avatarEl.innerHTML = `<img src="${user.photo_url}" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">`;
         }
 
-        // جلب الإحصائيات (المزرعة والمخزن) من السيرفر حصراً لمنع التلاعب
         if (!initData) {
             console.error("⚠️ فشل: لا يوجد initData، تأكد من فتح اللعبة داخل تليجرام.");
-            if (totalMiningEl) totalMiningEl.innerText = "0 مستويات (تجريبي)";
-            if (totalStorageEl) totalStorageEl.innerText = "0 مستويات (تجريبي)";
+            if (totalMiningEl && !window.PlayerData) totalMiningEl.innerText = "0 مستويات (تجريبي)";
+            if (totalStorageEl && !window.PlayerData) totalStorageEl.innerText = "0 مستويات (تجريبي)";
             return;
         }
 
-        try {
-            // استدعاء الرابط المباشر الذي يدمجه السيرفر بنجاح الآن
-            let response = await fetch('/api/settings/stats', {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Telegram-Init-Data': initData // 🔒 إرسال التوقيع في الهيدر
+        // إذا لم تكن البيانات المحلية جاهزة بعد، جلبها من السيرفر كاحتياطي
+        if (!window.PlayerData) {
+            try {
+                let response = await fetch('/api/settings/stats', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Telegram-Init-Data': initData
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
-            });
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
+                let result = await response.json();
 
-            let result = await response.json();
-
-            if (result.success) {
+                if (result.success) {
+                    if (totalMiningEl) {
+                        totalMiningEl.innerText = `${result.farm_levels_count} مستويات`;
+                        totalMiningEl.style.color = "#00cc66";
+                    }
+                    if (totalStorageEl) {
+                        totalStorageEl.innerText = `${result.storage_levels_count} مستويات`;
+                        totalStorageEl.style.color = "#0088cc";
+                    }
+                }
+            } catch (error) {
+                console.error("❌ خطأ أثناء جلب البيانات من السيرفر:", error);
                 if (totalMiningEl) {
-                    totalMiningEl.innerText = `${result.farm_levels_count} مستويات`;
-                    totalMiningEl.style.color = "#00cc66"; // إعادة اللون للطبيعي
+                    totalMiningEl.innerText = "خطأ في الاتصال";
+                    totalMiningEl.style.color = "#ff4444";
                 }
                 if (totalStorageEl) {
-                    totalStorageEl.innerText = `${result.storage_levels_count} مستويات`;
-                    totalStorageEl.style.color = "#0088cc"; // إعادة اللون للطبيعي
+                    totalStorageEl.innerText = "خطأ في الاتصال";
+                    totalStorageEl.style.color = "#ff4444";
                 }
-                console.log("✅ تمت مزامنة الإحصائيات بأمان من السيرفر!");
-            } else {
-                console.error("⚠️ السيرفر رفض الطلب أو البيانات غير متاحة:", result.message);
-                if (totalMiningEl) totalMiningEl.innerText = "0 مستويات";
-                if (totalStorageEl) totalStorageEl.innerText = "0 مستويات";
-            }
-        } catch (error) {
-            console.error("❌ خطأ أثناء جلب البيانات من السيرفر:", error);
-            if (totalMiningEl) {
-                totalMiningEl.innerText = "خطأ في الاتصال";
-                totalMiningEl.style.color = "#ff4444";
-            }
-            if (totalStorageEl) {
-                totalStorageEl.innerText = "خطأ في الاتصال";
-                totalStorageEl.style.color = "#ff4444";
             }
         }
     }
 
-    // دعم أقوى لعملية النسخ داخل متصفح تيليجرام
+    // دعم قوي لعملية النسخ داخل متصفح تيليجرام
     window.copyPlayerId = function() {
         const idText = document.getElementById('player-telegram-id').innerText;
         if (navigator.clipboard && window.isSecureContext) {
@@ -152,7 +177,7 @@
         }
     }
 
-    // لضمان استدعاء الدالة بعد اكتمال تحميل التليجرام ويب آب
+    // استدعاء التحميل الأولي
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
         setTimeout(fetchAndRenderData, 100);
     } else {
@@ -161,13 +186,8 @@
         });
     }
 
-    // نظام Retry ذكي: سيحاول التحديث فقط إذا كانت النتيجة "جاري التحميل" أو "خطأ" 
-    // للحفاظ على موارد الفايربيس من الطلبات الوهمية
-    setInterval(() => {
-        const totalMiningEl = document.getElementById('stat-total-mining');
-        if (totalMiningEl && (totalMiningEl.innerText.includes("جاري") || totalMiningEl.innerText.includes("خطأ"))) {
-            fetchAndRenderData();
-        }
-    }, 5000);
+    // 🚀 الحلقة السحرية: فحص محلي كل ثانية لتحديث واجهة الإعدادات فور الشراء 
+    // من المتجر دون أي تحميل أو استهلاك للسيرفر
+    setInterval(updateStatsFromLocalData, 1000);
 
 })();
