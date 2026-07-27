@@ -15,7 +15,7 @@
 
     <div style="background:#1c1c1c; padding:15px; border-radius:15px; border:1px solid #333; text-align:center; margin-bottom:20px;">
         <div style="width:70px; height:70px; background:#0088cc; border-radius:50%; margin:0 auto 10px auto; display:flex; justify-content:center; align-items:center; border:2px solid #00cc66; overflow:hidden;">
-            <span id="player-avatar" style="font-size:32px; color:#fff;">👤</span>
+            <span id="player-avatar" style="font-size:32px; color:#fff; display:flex; align-items:center; justify-content:center; width:100%; height:100%;">👤</span>
         </div>
         <h3 id="player-username" style="margin:5px 0; color:#fff; font-size:18px;">جاري التحميل...</h3>
         <div style="display:flex; justify-content:center; align-items:center; gap:5px; background:#0f0f0f; padding:6px 12px; border-radius:8px; width:fit-content; margin:8px auto 0 auto; border:1px solid #222;">
@@ -31,13 +31,13 @@
         <!-- مستويات المزرعة -->
         <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom: 10px;">
             <span style="color:#aaa;">إجمالي مستويات المزرعة المفتوحة:</span>
-            <span id="stat-total-mining" style="font-weight:bold; color:#00cc66;">0 مستويات</span>
+            <span id="stat-total-mining" style="font-weight:bold; color:#00cc66;">جاري التحميل...</span>
         </div>
         
-        <!-- مستويات المخازن (الإضافة الجديدة) -->
+        <!-- مستويات المخازن -->
         <div style="display:flex; justify-content:space-between; font-size:13px; border-top:1px solid #333; padding-top:10px;">
             <span style="color:#aaa;">إجمالي مستويات المخازن المفتوحة:</span>
-            <span id="stat-total-storage" style="font-weight:bold; color:#0088cc;">0 مستويات</span>
+            <span id="stat-total-storage" style="font-weight:bold; color:#0088cc;">جاري التحميل...</span>
         </div>
     </div>
 
@@ -46,7 +46,6 @@
             <span>📢 قناة التليجرام الرسمية</span><span>❯</span>
         </a>
         
-        <!-- الدعم الفني بدلاً من مجموعة النقاش -->
         <a id="lnk-support" href="https://t.me/YOUR_SUPPORT_BOT" target="_blank" style="display:flex; align-items:center; justify-content:space-between; background:#222; padding:12px 15px; border-radius:10px; text-decoration:none; color:#fff; font-weight:bold; font-size:14px; border-left:4px solid #00cc66;">
             <span>🎧 الدعم الفني لحل المشاكل</span><span>❯</span>
         </a>
@@ -56,7 +55,6 @@
         </a>
     </div>
 
-    <!-- تم إزالة زر تحديث اللعبة، وجعل سياسة الاستخدام بعرض كامل -->
     <div style="display:flex; gap:10px;">
         <button onclick="showPrivacyModal()" style="width:100%; padding:12px; background:#1c1c1c; border:1px solid #333; color:#aaa; border-radius:10px; font-weight:bold; font-size:13px; cursor:pointer;">
             ⚖️ سياسة الاستخدام
