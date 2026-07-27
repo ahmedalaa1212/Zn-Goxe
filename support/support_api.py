@@ -8,7 +8,7 @@ from google.cloud import firestore
 support_bp = Blueprint('support', __name__)
 
 # ==========================================
-# دالة لتوليد رقم التذكرة المتسلسل (0000000001)
+# دالة لتوليد رقم التذكرة المتسلسل (إصلاح الخطأ هنا)
 # ==========================================
 def generate_next_ticket_id():
     tracker_ref = db.collection('system').document('ticket_tracker')
@@ -20,11 +20,13 @@ def generate_next_ticket_id():
             transaction.set(ref, {'last_id': 0})
             new_id = 1
         else:
-            new_id = snapshot.get('last_id', 0) + 1
+            # تم إصلاح الخطأ: تحويل الداتا لقاموس بايثون أولاً
+            data = snapshot.to_dict() or {}
+            new_id = data.get('last_id', 0) + 1
             transaction.update(ref, {'last_id': new_id})
         return new_id
 
-    transaction = db.transaction()
+    transaction = db.client().transaction() if hasattr(db, 'client') else db.transaction()
     new_id = get_and_increment_transaction(transaction, tracker_ref)
     return f"{new_id:010d}"
 
@@ -44,7 +46,6 @@ def get_or_create_ticket():
     user_id = str(auth_result['id'])
 
     try:
-        # 🟢 1. جلب كافة بيانات المستخدم الحالية لتضمينها في التذكرة للأدمن
         user_doc = db.collection('users').document(user_id).get()
         user_info = {
             "telegram_id": user_id,
@@ -56,30 +57,28 @@ def get_or_create_ticket():
         }
         
         if user_doc.exists:
-            u_data = user_doc.to_dict()
+            u_data = user_doc.to_dict() or {}
             user_info["first_name"] = u_data.get('first_name', user_info["first_name"])
             user_info["username"] = u_data.get('username', user_info["username"])
             user_info["joined_at"] = u_data.get('created_at', u_data.get('joined_at', 'غير محدد'))
             user_info["storage_level"] = u_data.get('storage_level', 1)
             user_info["upgrades"] = u_data.get('upgrades', {})
 
-        # 🟢 2. جلب التذاكر بدون الحاجة لـ Composite Index وتفادي التعليق
         tickets_ref = db.collection('support_tickets')
         docs = list(tickets_ref.where('user_id', '==', user_id).stream())
         
         user_tickets = [d.to_dict() for d in docs]
-        # فرز التذاكر من الأحدث للأقدم داخل بايثون
         user_tickets.sort(key=lambda x: x.get('ticket_id', ''), reverse=True)
 
         latest_ticket = user_tickets[0] if user_tickets else None
 
-        # إذا كانت لا توجد تذكرة أو كانت آخر تذكرة مغلقة -> إنشاء تذكرة جديدة
+        # إنشاء تذكرة جديدة إذا لم يكن هناك تذكرة، أو إذا كانت التذكرة الأخيرة مغلقة (closed)
         if not latest_ticket or latest_ticket.get('status') == 'closed':
             new_ticket_id = generate_next_ticket_id()
             new_ticket_data = {
                 'ticket_id': new_ticket_id,
                 'user_id': user_id,
-                'user_info': user_info,  # ✅ بيانات المستخدم الشاملة تم حفظها مع التذكرة
+                'user_info': user_info,
                 'status': 'open',
                 'created_at': datetime.utcnow().isoformat(),
                 'updated_at': datetime.utcnow().isoformat(),
@@ -93,7 +92,6 @@ def get_or_create_ticket():
                 "messages": []
             }), 200
         
-        # إن كانت التذكرة مفتوحة، نقوم بتحديث بيانات المستخدم فيها لضمان دقتها
         tickets_ref.document(latest_ticket['ticket_id']).update({'user_info': user_info})
 
         return jsonify({
@@ -135,15 +133,15 @@ def send_message():
         ticket_doc = ticket_ref.get()
 
         if not ticket_doc.exists:
-            return jsonify({"success": False, "message": "Ticket not found"}), 404
+            return jsonify({"success": False, "message": "التذكرة غير موجودة"}), 404
             
-        ticket_data = ticket_doc.to_dict()
+        ticket_data = ticket_doc.to_dict() or {}
         
         if ticket_data.get('user_id') != user_id:
-            return jsonify({"success": False, "message": "Unauthorized ticket access"}), 403
+            return jsonify({"success": False, "message": "غير مصرح"}), 403
 
         if ticket_data.get('status') == 'closed':
-            return jsonify({"success": False, "message": "Ticket is closed"}), 400
+            return jsonify({"success": False, "message": "تم إغلاق هذه التذكرة ولا يمكن الإرسال بها"}), 400
 
         new_msg = {
             'sender': 'user',
