@@ -27,9 +27,17 @@
 
     <div style="background:#1c1c1c; padding:15px; border-radius:15px; border:1px solid #222; margin-bottom:20px;">
         <h4 style="margin:0 0 10px 0; color:#00cc66; font-size:14px; border-bottom:1px solid #222; padding-bottom:5px;">📊 إحصائيات النشاط الحية</h4>
-        <div style="display:flex; justify-content:space-between; font-size:13px;">
+        
+        <!-- مستويات المزرعة -->
+        <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom: 10px;">
             <span style="color:#aaa;">إجمالي مستويات المزرعة المفتوحة:</span>
             <span id="stat-total-mining" style="font-weight:bold; color:#00cc66;">0 مستويات</span>
+        </div>
+        
+        <!-- مستويات المخازن (الإضافة الجديدة) -->
+        <div style="display:flex; justify-content:space-between; font-size:13px; border-top:1px solid #333; padding-top:10px;">
+            <span style="color:#aaa;">إجمالي مستويات المخازن المفتوحة:</span>
+            <span id="stat-total-storage" style="font-weight:bold; color:#0088cc;">0 مستويات</span>
         </div>
     </div>
 
@@ -37,19 +45,20 @@
         <a id="lnk-channel" href="https://t.me/YOUR_CHANNEL" target="_blank" style="display:flex; align-items:center; justify-content:space-between; background:#222; padding:12px 15px; border-radius:10px; text-decoration:none; color:#fff; font-weight:bold; font-size:14px; border-left:4px solid #0088cc;">
             <span>📢 قناة التليجرام الرسمية</span><span>❯</span>
         </a>
-        <a id="lnk-group" href="https://t.me/YOUR_GROUP" target="_blank" style="display:flex; align-items:center; justify-content:space-between; background:#222; padding:12px 15px; border-radius:10px; text-decoration:none; color:#fff; font-weight:bold; font-size:14px; border-left:4px solid #0088cc;">
-            <span>💬 مجتمع ومجموعة النقاش</span><span>❯</span>
+        
+        <!-- الدعم الفني بدلاً من مجموعة النقاش -->
+        <a id="lnk-support" href="https://t.me/YOUR_SUPPORT_BOT" target="_blank" style="display:flex; align-items:center; justify-content:space-between; background:#222; padding:12px 15px; border-radius:10px; text-decoration:none; color:#fff; font-weight:bold; font-size:14px; border-left:4px solid #00cc66;">
+            <span>🎧 الدعم الفني لحل المشاكل</span><span>❯</span>
         </a>
+
         <a id="lnk-youtube" href="https://youtube.com/@YOUR_CHANNEL" target="_blank" style="display:flex; align-items:center; justify-content:space-between; background:#222; padding:12px 15px; border-radius:10px; text-decoration:none; color:#fff; font-weight:bold; font-size:14px; border-left:4px solid #cc0000;">
             <span>▶️ قناة اليوتيوب وشروحاتنا</span><span>❯</span>
         </a>
     </div>
 
+    <!-- تم إزالة زر تحديث اللعبة، وجعل سياسة الاستخدام بعرض كامل -->
     <div style="display:flex; gap:10px;">
-        <button onclick="refreshGameData()" style="flex:1; padding:12px; background:#1c1c1c; border:1px solid #333; color:#fff; border-radius:10px; font-weight:bold; font-size:13px; display:flex; align-items:center; justify-content:center; gap:5px; cursor:pointer;">
-            🔄 تحديث اللعبة بالكامل
-        </button>
-        <button onclick="showPrivacyModal()" style="flex:1; padding:12px; background:#1c1c1c; border:1px solid #333; color:#aaa; border-radius:10px; font-weight:bold; font-size:13px; cursor:pointer;">
+        <button onclick="showPrivacyModal()" style="width:100%; padding:12px; background:#1c1c1c; border:1px solid #333; color:#aaa; border-radius:10px; font-weight:bold; font-size:13px; cursor:pointer;">
             ⚖️ سياسة الاستخدام
         </button>
     </div>
