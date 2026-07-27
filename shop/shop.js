@@ -2,7 +2,11 @@
     
     // إعدادات المتجر
     const SHOP_CONFIG = {
-        maxMiningUpgrades: 10,
+        // تم تحديث الحد الأقصى لكل مستوى ليكون ديناميكياً
+        maxMiningUpgrades: {
+            1: 15, 2: 10, 3: 10, 4: 10, 5: 10, 
+            6: 10, 7: 10, 8: 10, 9: 10
+        },
         miningPrices: {
             1: 310, 2: 820, 3: 2100, 4: 7000, 5: 10100,
             6: 14500, 7: 17300, 8: 21500, 9: 32150
@@ -15,9 +19,10 @@
             1: 1000, 2: 2000, 3: 3000, 4: 4000, 5: 5000,
             6: 6000, 7: 7000, 8: 8000, 9: 9000, 10: 10000
         },
+        // تم توحيد السعات لتتناسب مع الباك إند
         storageCapacities: { 
-            1: 20000,  2: 30000,  3: 50000,  4: 100000, 5: 200000,
-            6: 500000, 7: 1000000, 8: 2500000, 9: 5000000, 10: 10000000
+            1: 100, 2: 300, 3: 600, 4: 1000, 5: 1500,
+            6: 2500, 7: 3500, 8: 4500, 9: 5500, 10: 7000
         },
         walletDepositLink: "https://t.me/wallet" 
     };
@@ -101,7 +106,6 @@
     injectModalUI();
     // ==========================================
 
-
     window.switchShopTab = function(tab) {
         const miningSec = document.getElementById('shop-mining-section');
         const storageSec = document.getElementById('shop-storage-section');
@@ -143,14 +147,18 @@
         const shopBalEl = document.getElementById('shop-balance-text');
         const shopRateEl = document.getElementById('shop-rate-text');
         if (shopBalEl) shopBalEl.innerText = `ZN: ${Math.floor(totalBal).toLocaleString()}`;
-        if (shopRateEl) shopRateEl.innerText = `${(pData.hourly_rate || 0).toLocaleString()}/h`; // تم التعديل
+        if (shopRateEl) shopRateEl.innerText = `${(pData.hourly_rate || 0).toLocaleString()}/h`; 
 
+        // ----------------------------------------
+        // بناء واجهة ترقيات التعدين
+        // ----------------------------------------
         let miningHtml = '';
         for (let i = 1; i <= 9; i++) {
             let count = parseInt((pData.upgrades && pData.upgrades[`lvl${i}`]) || 0);
             let price = parseFloat(SHOP_CONFIG.miningPrices[i]);
             let speed = parseFloat(SHOP_CONFIG.miningRates[i]); 
-            let isMax = count >= SHOP_CONFIG.maxMiningUpgrades;
+            let maxLimit = SHOP_CONFIG.maxMiningUpgrades[i];
+            let isMax = count >= maxLimit;
             let canAfford = totalBal >= price;
 
             miningHtml += `
@@ -160,17 +168,20 @@
                         <div style="font-size: 26px; margin-bottom: 5px;">🏛️</div>
                         <div style="color: #fff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
                         <div style="color: #28a745; font-size: 12px; margin: 4px 0;">⚡ +${speed.toLocaleString()}/h</div>
-                        <div style="color: #888; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${SHOP_CONFIG.maxMiningUpgrades}</div>
+                        <div style="color: #888; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${maxLimit}</div>
                     </div>
                     <button id="btn-speed-${i}" onclick="requestShopPurchase('speed', ${i}, ${price})" 
                         style="width: 100%; padding: 9px; background: ${canAfford && !isMax ? '#ffcc00' : '#333'}; color: ${canAfford && !isMax ? '#000' : '#888'}; border: none; border-radius: 6px; font-weight: bold; cursor: ${canAfford && !isMax ? 'pointer' : 'not-allowed'};" ${isMax || (!canAfford && !isMax) ? 'disabled' : ''}>
-                        ${price.toLocaleString()} ZN
+                        ZN ${price.toLocaleString()}
                     </button>
                 </div>
             `;
         }
         miningSec.innerHTML = miningHtml;
 
+        // ----------------------------------------
+        // بناء واجهة المخازن
+        // ----------------------------------------
         let storageHtml = '';
         let currentStorageLvl = parseInt(pData.storage_level || 0); 
 
@@ -184,7 +195,7 @@
 
             let btnBg = '#333';
             let btnColor = '#888';
-            let btnText = `${price.toLocaleString()} ZN`;
+            let btnText = `ZN ${price.toLocaleString()}`;
             let isDisabled = true;
 
             if (isOwned) {
@@ -212,7 +223,7 @@
                     <div>
                         <div style="font-size: 26px; margin-bottom: 5px;">📦</div>
                         <div style="color: #fff; font-weight: bold; font-size: 14px;">مخزن مستوى ${i}</div>
-                        <div style="color: #0088cc; font-size: 12px; margin: 4px 0 10px 0;">السعة: ${capacity.toLocaleString()} ZN</div>
+                        <div style="color: #0088cc; font-size: 12px; margin: 4px 0 10px 0;">السعة: ${capacity.toLocaleString()}</div>
                     </div>
                     <button id="btn-storage-${i}" onclick="requestShopPurchase('storage', ${i}, ${price})" 
                         style="width: 100%; padding: 9px; background: ${btnBg}; color: ${btnColor}; border: none; border-radius: 6px; font-weight: bold; cursor: ${!isDisabled ? 'pointer' : 'not-allowed'};" ${isDisabled ? 'disabled' : ''}>
