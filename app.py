@@ -12,6 +12,7 @@ from games.games_api import games_bp
 from tasks.tasks_api import tasks_bp
 from shop.shop_api import shop_bp
 from wallet.wallet_api import wallet_bp
+from support.support_api import support_bp # ✅ تم إضافة مجلد الدعم الفني
 
 app = Flask(__name__)
 # السماح للواجهة بالاتصال بالسيرفر (ضروري لتليجرام WebApp)
@@ -27,13 +28,13 @@ app.register_blueprint(games_bp, url_prefix='/api/games')
 app.register_blueprint(tasks_bp, url_prefix='/api/tasks')
 app.register_blueprint(shop_bp, url_prefix='/api/shop')
 app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
+app.register_blueprint(support_bp, url_prefix='/api/support') # ✅ تسجيل مسار الدعم الفني
 
 # ==========================================
 # 3. إعدادات الحماية والتوجيه (Security & Static)
 # ==========================================
 @app.after_request
 def add_security_headers(response):
-    # منع الكاش لضمان تحديث البيانات فوراً وعدم حفظ بيانات حساسة
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, public, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
@@ -45,13 +46,9 @@ def serve_index():
 
 @app.route('/<path:path>')
 def serve_static(path):
-    # 🛡️ حماية صارمة: منع الوصول لملفات البايثون، الإعدادات، ومفتاح الفايربيس
     forbidden_extensions = ('.py', '.env', '.json', '.md')
-    
-    # 🟢 المجلدات المحظور الوصول إليها مباشرة من المتصفح
     forbidden_dirs = ('core/', 'api/', '.git/')
     
-    # التحقق من الأمان قبل إرسال الملف
     if path.endswith(forbidden_extensions) or any(path.startswith(d) for d in forbidden_dirs) or path == 'requirements.txt':
         return jsonify({"error": "Access Denied", "message": "غير مصرح لك بالوصول لهذا الملف"}), 403
     
@@ -68,6 +65,5 @@ def health_check():
 # تشغيل السيرفر
 # ==========================================
 if __name__ == '__main__':
-    # بورت 8080 مناسب جداً لاستضافة Railway
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
