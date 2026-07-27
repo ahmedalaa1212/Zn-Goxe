@@ -134,7 +134,7 @@
         if (!pData) return; // انتظار جلب البيانات
         
         let unclaim = parseFloat(pData.unclaimed || 0);
-        let maxC = parseFloat(pData.max_cap || 10000);
+        let maxC = parseFloat(pData.max_cap || 100);
         let hRate = parseFloat(pData.hourly_rate || 0); 
         
         if (unclaim < maxC) {
@@ -227,19 +227,18 @@
     }
 
     window.handleDailyBoost = async function() {
-        // حماية صارمة: لا تنفذ الحدث إذا لم تكن البيانات جاهزة أو الزر مضغوط بالفعل
         if (!window.PlayerData || isBoosting || !INIT_DATA) return;
         
         const pData = window.PlayerData;
         const todayStr = getTodayUTCStr();
-        if (pData.last_boost_date === todayStr) return; // حماية إضافية من الفرونت إند قبل الإعلان
+        if (pData.last_boost_date === todayStr) return;
 
         const btn = document.getElementById('boost-btn');
         isBoosting = true;
         
         const adWatched = await showTelegramAd(() => {
             btn.innerHTML = `<span style="font-size: 20px;">🎬</span>`;
-            btn.disabled = true; // تعطيل أثناء المشاهدة
+            btn.disabled = true;
         });
         
         if (adWatched) {
@@ -256,13 +255,12 @@
                     await window.fetchPlayerData(); 
                 } else if (resData.error && window.Telegram && window.Telegram.WebApp) {
                     window.Telegram.WebApp.showAlert(resData.error);
-                    await window.fetchPlayerData(); // إعادة جلب البيانات لتصحيح حالة الواجهة
+                    await window.fetchPlayerData();
                 }
             } catch (e) { 
                 console.error(e); 
             }
         } else {
-            // فشل الإعلان، نعيد الواجهة لحالتها
             isBoosting = false;
         }
         isBoosting = false;
@@ -273,7 +271,7 @@
         
         const pData = window.PlayerData;
         const todayStr = getTodayUTCStr();
-        if (pData.last_daily_claim_date === todayStr) return; // حماية إضافية
+        if (pData.last_daily_claim_date === todayStr) return;
 
         const btn = document.getElementById(`daily-btn-${day}`);
         isClaimingDaily = true;
