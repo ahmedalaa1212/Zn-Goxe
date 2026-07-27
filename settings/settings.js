@@ -1,19 +1,21 @@
 (function initSettingsSystem() {
     
-    function getTgId() {
+    function getTgUser() {
         if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
-            const webAppUser = window.Telegram.WebApp.initDataUnsafe.user;
-            if (webAppUser) return String(webAppUser.id);
+            return window.Telegram.WebApp.initDataUnsafe?.user || null;
         }
-        return "5102387551"; // Fallback for testing
+        return null;
+    }
+
+    function getTgId() {
+        const user = getTgUser();
+        return user ? String(user.id) : "5102387551"; // Fallback for testing
     }
 
     function getPlayerName() {
-        if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
-            const webAppUser = window.Telegram.WebApp.initDataUnsafe.user;
-            if (webAppUser) {
-                return webAppUser.first_name + (webAppUser.last_name ? " " + webAppUser.last_name : "");
-            }
+        const user = getTgUser();
+        if (user) {
+            return user.first_name + (user.last_name ? " " + user.last_name : "");
         }
         return "اللاعب المحترف";
     }
@@ -26,21 +28,23 @@
         const usernameEl = document.getElementById('player-username');
         const telegramIdEl = document.getElementById('player-telegram-id');
         const avatarEl = document.getElementById('player-avatar');
+        const totalMiningEl = document.getElementById('stat-total-mining');
+        const totalStorageEl = document.getElementById('stat-total-storage');
 
-        // طباعة البيانات الشخصية مباشرة بدون سيرفر
+        // طباعة البيانات الشخصية مباشرة بدون سيرفر للسرعة
         if (usernameEl) usernameEl.innerText = getPlayerName();
         if (telegramIdEl) telegramIdEl.innerText = telegramId;
 
-        if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
-            const webAppUser = window.Telegram.WebApp.initDataUnsafe.user;
-            if (webAppUser && webAppUser.photo_url && avatarEl) {
-                avatarEl.innerHTML = `<img src="${webAppUser.photo_url}" style="width:100%; height:100%; object-fit:cover;">`;
-            }
+        const user = getTgUser();
+        if (user && user.photo_url && avatarEl) {
+            avatarEl.innerHTML = `<img src="${user.photo_url}" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">`;
         }
 
         // جلب الإحصائيات (المزرعة والمخزن) من السيرفر حصراً لمنع التلاعب
         if (!initData) {
             console.error("⚠️ فشل: لا يوجد initData، تأكد من فتح اللعبة داخل تليجرام.");
+            if (totalMiningEl) totalMiningEl.innerText = "0 مستويات (تجريبي)";
+            if (totalStorageEl) totalStorageEl.innerText = "0 مستويات (تجريبي)";
             return;
         }
 
@@ -53,25 +57,37 @@
                 }
             });
 
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
             let result = await response.json();
 
             if (result.success) {
-                const totalMiningEl = document.getElementById('stat-total-mining');
-                const totalStorageEl = document.getElementById('stat-total-storage');
-                
                 if (totalMiningEl) {
                     totalMiningEl.innerText = `${result.farm_levels_count} مستويات`;
+                    totalMiningEl.style.color = "#00cc66"; // إعادة اللون للطبيعي
                 }
                 if (totalStorageEl) {
                     totalStorageEl.innerText = `${result.storage_levels_count} مستويات`;
+                    totalStorageEl.style.color = "#0088cc"; // إعادة اللون للطبيعي
                 }
-                
                 console.log("✅ تمت مزامنة الإحصائيات بأمان من السيرفر!");
             } else {
                 console.error("⚠️ السيرفر رفض الطلب أو البيانات غير متاحة:", result.message);
+                if (totalMiningEl) totalMiningEl.innerText = "0 مستويات";
+                if (totalStorageEl) totalStorageEl.innerText = "0 مستويات";
             }
         } catch (error) {
             console.error("❌ خطأ أثناء جلب البيانات من السيرفر:", error);
+            if (totalMiningEl) {
+                totalMiningEl.innerText = "خطأ في الاتصال";
+                totalMiningEl.style.color = "#ff4444";
+            }
+            if (totalStorageEl) {
+                totalStorageEl.innerText = "خطأ في الاتصال";
+                totalStorageEl.style.color = "#ff4444";
+            }
         }
     }
 
@@ -81,6 +97,18 @@
             showToast("تم نسخ الـ ID بنجاح! 📋");
         }).catch(err => {
             console.error('فشل في نسخ النص: ', err);
+            // Fallback for older browsers
+            const textArea = document.createElement("textarea");
+            textArea.value = idText;
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                showToast("تم نسخ الـ ID بنجاح! 📋");
+            } catch (err) {
+                console.error('Fallback: فشل النسخ', err);
+            }
+            document.body.removeChild(textArea);
         });
     };
 
@@ -105,18 +133,20 @@
         }
     }
 
-    // تم حذف دالة refreshGameData لأننا أزلنا الزر
-
+    // لضمان استدعاء الدالة بعد اكتمال تحميل التليجرام ويب آب
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
-        fetchAndRenderData();
+        setTimeout(fetchAndRenderData, 100);
     } else {
-        document.addEventListener('DOMContentLoaded', fetchAndRenderData);
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(fetchAndRenderData, 100);
+        });
     }
 
-    // تحديث البيانات كل 5 ثواني كحد أقصى لتخفيف الضغط على الفايربيس
+    // نظام Retry ذكي: سيحاول التحديث فقط إذا كانت النتيجة "جاري التحميل" أو "خطأ" 
+    // للحفاظ على موارد الفايربيس من الطلبات الوهمية
     setInterval(() => {
         const totalMiningEl = document.getElementById('stat-total-mining');
-        if (totalMiningEl && totalMiningEl.innerText === "0 مستويات") {
+        if (totalMiningEl && (totalMiningEl.innerText.includes("جاري") || totalMiningEl.innerText.includes("خطأ"))) {
             fetchAndRenderData();
         }
     }, 5000);
