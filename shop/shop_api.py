@@ -7,9 +7,9 @@ import traceback
 
 shop_bp = Blueprint('shop', __name__)
 
-# إعدادات ترقيات السرعة
+# إعدادات ترقيات السرعة (تم تعديل المستوى الأول ليسمح بـ 15 ترقية كحد أقصى)
 MINING_CONFIG = {
-    1: {'price': 310, 'rate': 2, 'max': 10},
+    1: {'price': 310, 'rate': 2, 'max': 15},
     2: {'price': 820, 'rate': 5, 'max': 10},
     3: {'price': 2100, 'rate': 11, 'max': 10},
     4: {'price': 7000, 'rate': 23, 'max': 10},
@@ -20,18 +20,18 @@ MINING_CONFIG = {
     9: {'price': 32150, 'rate': 110, 'max': 10}
 }
 
-# إعدادات المخازن
+# إعدادات المخازن (تم توحيد السعات لتتناسب مع اقتصاد المزرعة)
 STORAGE_CONFIG = {
-    1: {'price': 1000, 'capacity': 20000},
-    2: {'price': 2000, 'capacity': 30000},
-    3: {'price': 3000, 'capacity': 50000},
-    4: {'price': 4000, 'capacity': 100000},
-    5: {'price': 5000, 'capacity': 200000},
-    6: {'price': 6000, 'capacity': 500000},
-    7: {'price': 7000, 'capacity': 1000000},
-    8: {'price': 8000, 'capacity': 2500000},
-    9: {'price': 9000, 'capacity': 5000000},
-    10: {'price': 10000, 'capacity': 10000000}
+    1: {'price': 1000, 'capacity': 100},
+    2: {'price': 2000, 'capacity': 300},
+    3: {'price': 3000, 'capacity': 600},
+    4: {'price': 4000, 'capacity': 1000},
+    5: {'price': 5000, 'capacity': 1500},
+    6: {'price': 6000, 'capacity': 2500},
+    7: {'price': 7000, 'capacity': 3500},
+    8: {'price': 8000, 'capacity': 4500},
+    9: {'price': 9000, 'capacity': 5500},
+    10: {'price': 10000, 'capacity': 7000}
 }
 
 @shop_bp.route('/', methods=['GET', 'POST'])
@@ -52,7 +52,6 @@ def buy_upgrade():
         # 2. المصادقة الصحيحة (الاستدعاء السليم لدالة الحماية)
         is_auth, user_id, error_response = get_authenticated_user(request, is_post=True)
         
-        # إذا فشلت المصادقة، نرجع الخطأ القادم من security.py مباشرة
         if not is_auth:
             return error_response
 
@@ -68,7 +67,7 @@ def buy_upgrade():
         # 4. تجهيز المتغيرات الحالية
         current_balance = float(user_data.get('balance', 0.0))
         hourly_rate = float(user_data.get('hourly_rate', 0.0))
-        max_cap = float(user_data.get('max_cap', 10000.0)) 
+        max_cap = float(user_data.get('max_cap', 100.0)) 
         
         upgrades = user_data.get('upgrades')
         if not isinstance(upgrades, dict):
@@ -122,7 +121,7 @@ def buy_upgrade():
             upgrades[lvl_key] = current_lvl_count + 1
 
             # إعادة حساب سرعة التعدين الإجمالية
-            new_hourly_rate = 0.0  # تم التصفير لتبدأ من 0 بدلاً من 100
+            new_hourly_rate = 0.0
             for lvl_idx in range(1, 10):
                 cnt = int(upgrades.get(f"lvl{lvl_idx}", 0))
                 if cnt > 0 and lvl_idx in MINING_CONFIG:
