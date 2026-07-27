@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
-# استدعاء ملفات الحماية والداتابيز الأساسية الخاصة بمشروعك
-from core.security import verify_telegram_data
+# تم تعديل اسم الدالة ليتطابق مع ملف security.py الخاص بك
+from core.security import validate_telegram_data
 from database import db
 
 # تعريف الـ Blueprint
@@ -15,7 +15,7 @@ def get_settings_stats():
         return jsonify({"success": False, "message": "Missing authentication data"}), 401
 
     # 2. التحقق من صحة التوقيع عبر ملف security.py
-    auth_result = verify_telegram_data(init_data)
+    auth_result = validate_telegram_data(init_data)
     
     if not auth_result or 'id' not in auth_result:
         return jsonify({"success": False, "message": "Unauthorized request, invalid initData"}), 403
