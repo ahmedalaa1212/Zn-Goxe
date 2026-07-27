@@ -7,8 +7,6 @@ from database import db
 # تعريف الـ Blueprint
 settings_bp = Blueprint('settings', __name__)
 
-# 🚨 تم الإصلاح: المسار هنا يجب أن يكون /stats فقط
-# لأن app.py يقوم مسبقاً بإضافة /api/settings قبل هذا المسار
 @settings_bp.route('/stats', methods=['GET'])
 def get_settings_stats():
     # 1. جلب التوقيع من الهيدر
@@ -41,10 +39,9 @@ def get_settings_stats():
             # نجلب الـ Map المسمى 'upgrades' من الفايربيس
             upgrades_map = user_data.get('upgrades', {}) 
             
-            # نتأكد أنه Map (قاموس) لتفادي الأخطاء
             if isinstance(upgrades_map, dict):
-                # نجمع المستويات من lvl1 إلى lvl10
-                for i in range(1, 11):
+                # مطابقة 9 مستويات فقط زي المتجر بالضبط (من 1 لـ 9)
+                for i in range(1, 10):
                     lvl_val = upgrades_map.get(f'lvl{i}')
                     if lvl_val is not None:
                         try:
