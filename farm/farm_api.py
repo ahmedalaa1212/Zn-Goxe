@@ -6,6 +6,21 @@ from database import db
 
 farm_bp = Blueprint('farm', __name__)
 
+# مصفوفة سعات المخازن بحسب المستوى (Storage Capacity Table)
+STORAGE_CAPACITIES = {
+    0: 100.0,
+    1: 250.0,
+    2: 450.0,
+    3: 750.0,
+    4: 1000.0,
+    5: 1500.0,
+    6: 2000.0,
+    7: 3000.0,
+    8: 4000.0,
+    9: 5500.0,
+    10: 7000.0
+}
+
 DAILY_REWARDS_DEFAULT = [
     3000, 4000, 5000, 6000, 7500,
     10000, 12000, 15000, 18000, 20000,
@@ -14,6 +29,19 @@ DAILY_REWARDS_DEFAULT = [
     120000, 150000, 180000, 220000, 250000,
     300000, 400000, 500000, 750000, 1000000
 ]
+
+def get_storage_capacity(storage_level):
+    try:
+        lvl = int(storage_level)
+    except (ValueError, TypeError):
+        lvl = 0
+    
+    if lvl < 0:
+        lvl = 0
+    elif lvl > 10:
+        lvl = 10
+        
+    return STORAGE_CAPACITIES.get(lvl, 100.0)
 
 def get_game_settings():
     try:
@@ -33,20 +61,30 @@ def get_player_data():
         user_ref = db.collection('users').document(telegram_id)
         user_doc = user_ref.get()
         now = datetime.now(timezone.utc)
-        today_str = now.strftime('%Y-%m-%d')
 
         if not user_doc.exists:
             user_data = {
-                "telegram_id": telegram_id, "balance": 0.0, "hourly_rate": 0.0,
-                "unclaimed": 0.0, "max_cap": 10000.0, "daily_day": 1,
+                "telegram_id": telegram_id, 
+                "balance": 0.0, 
+                "hourly_rate": 0.0,
+                "unclaimed": 0.0, 
+                "storage_level": 0,
+                "max_cap": 100.0, 
+                "daily_day": 1,
                 "last_claim_time": now.isoformat(), 
                 "last_daily_claim_date": None, 
                 "last_boost_date": None,
-                "ads_watched": 0, "upgrades": {}
+                "ads_watched": 0, 
+                "upgrades": {}
             }
             user_ref.set(user_data)
         else:
             user_data = user_doc.to_dict()
+
+        # حساب السعة القصوى للمخزن بناءً على مستوى المخزن المسجل في الفايربيس
+        storage_level = user_data.get("storage_level", 0)
+        max_cap = get_storage_capacity(storage_level)
+        user_data["max_cap"] = max_cap
 
         # فحص التسجيل اليومي المتتالي (Streak Check)
         last_daily_date = user_data.get("last_daily_claim_date")
@@ -62,7 +100,6 @@ def get_player_data():
         # حساب التعدين المتراكم
         last_claim_str = user_data.get("last_claim_time")
         hourly_rate = float(user_data.get("hourly_rate", 0.0))
-        max_cap = float(user_data.get("max_cap", 10000.0))
         unclaimed = float(user_data.get("unclaimed", 0.0))
 
         if last_claim_str:
@@ -79,7 +116,11 @@ def get_player_data():
 
         user_data["unclaimed"] = unclaimed
         user_data["last_claim_time"] = now.isoformat()
-        user_ref.update({"unclaimed": unclaimed, "last_claim_time": now.isoformat()})
+        user_ref.update({
+            "unclaimed": unclaimed, 
+            "max_cap": max_cap,
+            "last_claim_time": now.isoformat()
+        })
         
         return jsonify({"success": True, "player": user_data, "game_config": {"daily_rewards": get_game_settings()}}), 200
 
@@ -101,7 +142,8 @@ def claim_mined_tokens():
         
         last_claim_str = user_data.get("last_claim_time")
         hourly_rate = float(user_data.get("hourly_rate", 0.0))
-        max_cap = float(user_data.get("max_cap", 10000.0))
+        storage_level = user_data.get("storage_level", 0)
+        max_cap = get_storage_capacity(storage_level)
         unclaimed = float(user_data.get("unclaimed", 0.0))
 
         if last_claim_str:
@@ -124,6 +166,7 @@ def claim_mined_tokens():
         user_ref.update({
             "balance": new_balance,
             "unclaimed": 0.0,
+            "max_cap": max_cap,
             "last_claim_time": now.isoformat()
         })
         return jsonify({"success": True, "claimed": unclaimed, "new_balance": new_balance}), 200
