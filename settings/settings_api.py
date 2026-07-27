@@ -7,7 +7,9 @@ from database import db
 # تعريف الـ Blueprint
 settings_bp = Blueprint('settings', __name__)
 
-@settings_bp.route('/api/settings/stats', methods=['GET'])
+# 🚨 تم الإصلاح: المسار هنا يجب أن يكون /stats فقط
+# لأن app.py يقوم مسبقاً بإضافة /api/settings قبل هذا المسار
+@settings_bp.route('/stats', methods=['GET'])
 def get_settings_stats():
     # 1. جلب التوقيع من الهيدر
     init_data = request.headers.get('X-Telegram-Init-Data')
@@ -32,7 +34,7 @@ def get_settings_stats():
             user_data = user_doc.to_dict() or {}
             
             # ==========================================
-            # 🟢 التعديل الجذري هنا بناءً على صورة قاعدة البيانات
+            # 🟢 حساب مستويات المزرعة والمخزن
             # ==========================================
             
             farm_levels_count = 0
@@ -41,7 +43,7 @@ def get_settings_stats():
             
             # نتأكد أنه Map (قاموس) لتفادي الأخطاء
             if isinstance(upgrades_map, dict):
-                # نجمع المستويات من lvl1 إلى lvl10 (حسب أسماء الحقول في صورتك)
+                # نجمع المستويات من lvl1 إلى lvl10
                 for i in range(1, 11):
                     lvl_val = upgrades_map.get(f'lvl{i}')
                     if lvl_val is not None:
@@ -50,7 +52,7 @@ def get_settings_stats():
                         except (ValueError, TypeError):
                             pass
                 
-            # جلب مستوى المخزن (موجود في الجذر الرئيسي باسم storage_level كما في صورتك)
+            # جلب مستوى المخزن 
             storage_levels_count = 0
             storage_val = user_data.get('storage_level')
             if storage_val is not None:
@@ -77,4 +79,3 @@ def get_settings_stats():
         print(f"Settings API Error for user {user_id}: {str(e)}")
         traceback.print_exc() 
         return jsonify({"success": False, "message": "Internal server error"}), 500
-
