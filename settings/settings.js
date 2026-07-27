@@ -11,7 +11,7 @@
 
     function getTgId() {
         const user = getTgUser();
-        return user ? String(user.id) : "5102387551"; // Fallback for testing
+        return user ? String(user.id) : "5102387551"; 
     }
 
     function getPlayerName() {
@@ -29,9 +29,6 @@
         return "";
     }
 
-    // ==========================================
-    // ⚙️ وظائف الإعدادات العامة
-    // ==========================================
     function updateStatsFromLocalData() {
         if (window.PlayerData) {
             const totalMiningEl = document.getElementById('stat-total-mining');
@@ -47,11 +44,9 @@
 
             if (totalMiningEl) {
                 totalMiningEl.innerText = `${totalUpgradesCount} مستويات`;
-                totalMiningEl.style.color = "#00cc66"; 
             }
             if (totalStorageEl) {
                 totalStorageEl.innerText = `${storageLevelsCount} مستويات`;
-                totalStorageEl.style.color = "#0088cc"; 
             }
         }
     }
@@ -75,7 +70,6 @@
         if (window.PlayerData) {
             updateStatsFromLocalData();
         } else if (initData) {
-            // جلب احتياطي من السيرفر
             try {
                 let response = await fetch('/api/settings/stats', {
                     headers: { 'X-Telegram-Init-Data': initData }
@@ -92,12 +86,12 @@
     }
 
     // ==========================================
-    // 🎧 وظائف الدعم الفني (الشات العائم)
+    // 🎧 وظائف الشات والدعم الفني
     // ==========================================
     let supportTicketId = null;
     let isSupportClosed = false;
     let supportPollInterval = null;
-    let supportLastMessageCount = 0;
+    let supportLastMsgCount = -1;
 
     const chatBox = document.getElementById('support-chat-box');
     const msgInput = document.getElementById('support-msg-input');
@@ -107,7 +101,7 @@
 
     window.openSupportModal = function() {
         document.getElementById('support-modal').style.display = 'flex';
-        fetchTicketData(); // جلب المحادثة أو إنشاء تذكرة جديدة عند الفتح
+        fetchTicketData();
     };
 
     window.closeSupportModal = function() {
@@ -117,9 +111,10 @@
 
     async function fetchTicketData() {
         const initData = getInitData();
-        if (!initData) return;
-
-        ticketDisplay.innerHTML = `جاري الاتصال... <div class="spinner"></div>`;
+        if (!initData) {
+            ticketDisplay.innerText = "يرجى فتح التطبيق داخل تليجرام";
+            return;
+        }
 
         try {
             const response = await fetch('/api/support/ticket', {
@@ -132,29 +127,33 @@
                 supportTicketId = data.ticket_id;
                 isSupportClosed = data.status === 'closed';
                 
-                ticketDisplay.innerText = `رقم التذكرة: ${supportTicketId}`;
+                ticketDisplay.innerText = `رقم التذكرة: #${supportTicketId}`;
                 renderMessages(data.messages);
                 
                 if (isSupportClosed) {
-                    disableSupportInput("تم إنهاء هذه المحادثة من الدعم الفني.");
+                    disableSupportInput("تم إغلاق هذه التذكرة من قبل الدعم.");
                 } else {
                     enableSupportInput();
                     startSupportPolling();
                 }
+            } else {
+                ticketDisplay.innerText = "خطأ: " + (data.message || "فشل الاتصال");
             }
         } catch (error) {
-            ticketDisplay.innerText = "خطأ في الاتصال بالخادم";
+            ticketDisplay.innerText = "فشل الاتصال بالسيرفر";
         }
     }
 
     function renderMessages(messages) {
-        if (!messages || messages.length === 0) {
-            chatBox.innerHTML = '<div class="msg-system">نحن هنا لمساعدتك، ارسل استفسارك الآن.</div>';
+        messages = messages || [];
+        
+        if (messages.length === supportLastMsgCount) return;
+        supportLastMsgCount = messages.length;
+
+        if (messages.length === 0) {
+            chatBox.innerHTML = '<div class="msg-system">مرحباً بك! ارسل استفسارك وسيقوم فريق الدعم بالرد عليك.</div>';
             return;
         }
-
-        if (messages.length === supportLastMessageCount) return; // لا تقم بالتحديث إذا لم تكن هناك رسائل جديدة
-        supportLastMessageCount = messages.length;
 
         chatBox.innerHTML = ''; 
         messages.forEach(msg => {
@@ -167,7 +166,7 @@
         if (isSupportClosed) {
             const closedDiv = document.createElement('div');
             closedDiv.className = 'msg-system';
-            closedDiv.innerText = '🔒 تم إغلاق هذه التذكرة.';
+            closedDiv.innerText = '🔒 هذه التذكرة مغلقة.';
             chatBox.appendChild(closedDiv);
         }
 
@@ -180,7 +179,6 @@
 
         const initData = getInitData();
         
-        // عرض الرسالة مؤقتاً لتجربة سريعة
         const tempDiv = document.createElement('div');
         tempDiv.className = 'chat-msg msg-user';
         tempDiv.innerText = text;
@@ -206,10 +204,11 @@
                 fetchTicketData(); 
             } else {
                 tempDiv.remove();
-                alert("فشل الإرسال: " + data.message);
+                alert("فشل الإرسال: " + (data.message || "خطأ غير معروف"));
             }
         } catch (error) {
             tempDiv.remove();
+            alert("خطأ في الاتصال بالشبكة.");
         } finally {
             sendBtn.disabled = false;
         }
@@ -236,16 +235,13 @@
             if(!isSupportClosed && document.getElementById('support-modal').style.display === 'flex') {
                 fetchTicketData();
             }
-        }, 3000); // تحديث كل 3 ثواني أثناء فتح الشاشة
+        }, 3000);
     }
 
     msgInput.addEventListener('keypress', function (e) {
         if (e.key === 'Enter') sendSupportMessage();
     });
 
-    // ==========================================
-    // دوال النسخ والمودال العام
-    // ==========================================
     window.copyPlayerId = function() {
         const idText = document.getElementById('player-telegram-id').innerText;
         if (navigator.clipboard && window.isSecureContext) {
@@ -274,7 +270,6 @@
         setTimeout(() => toast.style.display = 'none', 2000);
     }
 
-    // التهيئة
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
         setTimeout(fetchAndRenderData, 100);
     } else {
