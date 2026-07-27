@@ -1,5 +1,8 @@
 import os
 import json
+import hmac
+import hashlib
+import urllib.parse
 import tempfile
 import threading
 import telebot
@@ -37,26 +40,54 @@ app = Flask(__name__, static_folder='.')
 CORS(app)
 
 # ==========================================
-# 🔗 تسجيل الـ Blueprints للمجلدات المختلفة
+# 🛡️ دالة التحقق الأمني الرقمي لبيانات تليجرام
 # ==========================================
+def validate_telegram_admin(init_data):
+    if not init_data or not BOT_TOKEN:
+        return None
+    try:
+        parsed_data = dict(urllib.parse.parse_qsl(init_data))
+        hash_from_telegram = parsed_data.pop('hash', None)
+        if not hash_from_telegram:
+            return None
+        
+        data_check_string = '\n'.join([f"{k}={v}" for k, v in sorted(parsed_data.items())])
+        secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+        calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+        
+        if calculated_hash == hash_from_telegram:
+            user_data = json.loads(parsed_data.get('user', '{}'))
+            user_id = str(user_data.get('id'))
+            
+            # 1. فحص هل هو الأدمن الرئيسي؟
+            if user_id == str(ADMIN_ID):
+                return {"user": user_data, "role": "Super Admin", "is_owner": True}
+                
+            # 2. فحص هل هو مشرف مضاف في الفايربيس؟
+            if db:
+                mod_doc = db.collection('moderators').document(user_id).get()
+                if mod_doc.exists:
+                    mod_data = mod_doc.to_dict() or {}
+                    return {"user": user_data, "role": "مشرف", "is_owner": False, "permissions": mod_data.get('permissions', {})}
+                    
+        return None
+    except Exception as e:
+        print(f"Auth Error: {e}")
+        return None
 
-# مثال لتسجيل API قسم المستخدمين (سيتم استيرادها عندما تنشئ الملفات)
+# ==========================================
+# 🔗 تسجيل المجلدات والـ APIs
+# ==========================================
 try:
-    from users.users_api import users_bp
-    app.register_blueprint(users_bp, url_prefix='/api/users')
-except ImportError:
-    print("⚠️ لم يتم العثور على users/users_api.py بعد")
-
-try:
-    from support.support_admin_api import support_admin_bp
-    app.register_blueprint(support_admin_bp, url_prefix='/api/admin/support')
-except ImportError:
-    print("⚠️ لم يتم العثور على support/support_admin_api.py بعد")
+    from admin_chat.admin_chat_api import admin_chat_bp
+    app.register_blueprint(admin_chat_bp, url_prefix='/api/admin/chat')
+    print("✅ تم تسجيل API الدردشة والدعم بنجاح")
+except ImportError as e:
+    print(f"⚠️ لم يتم العثور على ملف admin_chat/admin_chat_api.py: {e}")
 
 # ==========================================
-# 🌐 مسارات سيرفر الويب
+# 🌐 المسارات الرئيسية
 # ==========================================
-
 @app.route('/')
 def home():
     return send_from_directory('.', 'admin.html')
@@ -65,37 +96,36 @@ def home():
 def serve_files(filename):
     return send_from_directory('.', filename)
 
-@app.route('/api/status', methods=['GET'])
-def server_status():
+@app.route('/api/verify_admin', methods=['POST'])
+def verify_admin_endpoint():
+    init_data = request.headers.get('X-Telegram-Init-Data')
+    auth_info = validate_telegram_admin(init_data)
+    
+    if not auth_info:
+        return jsonify({"success": False, "message": "غير مصرح لك بالدخول!"}), 403
+        
     return jsonify({
-        'status': 'online',
-        'system': 'Admin ZN Control Server',
-        'firebase_connected': db is not None
+        "success": True,
+        "role": auth_info["role"],
+        "user": auth_info["user"]
     }), 200
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
-def is_admin(user_id):
-    str_id = str(user_id)
-    if str_id == str(ADMIN_ID):
-        return True
-    if not db:
-        return False
-    try:
-        doc_ref = db.collection('moderators').document(str_id)
-        return doc_ref.get().exists
-    except Exception as e:
-        print(f"❌ خطأ أثناء التحقق من المشرف: {e}")
-        return False
-
 bot = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    user_id = message.from_user.id
-    if not is_admin(user_id):
+    user_id = str(message.from_user.id)
+    
+    # فحص الحماية للبوت
+    is_authorized = (user_id == str(ADMIN_ID))
+    if not is_authorized and db:
+        is_authorized = db.collection('moderators').document(user_id).get().exists
+
+    if not is_authorized:
         bot.reply_to(message, "⛔ عذراً، هذا البوت مخصص للأدمن والمشرفين المصرح لهم فقط.")
         return
 
@@ -118,5 +148,3 @@ if __name__ == "__main__":
     if bot:
         print("🤖 بوت الأدمن قيد التشغيل...")
         bot.infinity_polling()
-    else:
-        print("❌ خطأ: يرجى التأكد من ضبط BOT_TOKEN في متغيرات البيئة.")
