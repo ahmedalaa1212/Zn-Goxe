@@ -2,7 +2,10 @@
     
     function getTgUser() {
         if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
-            return window.Telegram.WebApp.initDataUnsafe?.user || null;
+            // التخلص من ?. لدعم الهواتف القديمة ومنع كسر الأكواد
+            if (window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+                return window.Telegram.WebApp.initDataUnsafe.user;
+            }
         }
         return null;
     }
@@ -23,7 +26,12 @@
     // 🔒 تحديث الدالة لترسل البيانات في الـ Headers لضمان أقصى درجات الأمان
     async function fetchAndRenderData() {
         const telegramId = getTgId();
-        const initData = window.Telegram?.WebApp?.initData; 
+        let initData = "";
+        
+        // استخراج التوقيع بأمان بدون كسر المتصفحات القديمة
+        if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
+            initData = window.Telegram.WebApp.initData;
+        }
         
         const usernameEl = document.getElementById('player-username');
         const telegramIdEl = document.getElementById('player-telegram-id');
@@ -49,6 +57,7 @@
         }
 
         try {
+            // استدعاء الرابط المباشر الذي يدمجه السيرفر بنجاح الآن
             let response = await fetch('/api/settings/stats', {
                 method: 'GET',
                 headers: {
@@ -91,26 +100,36 @@
         }
     }
 
+    // دعم أقوى لعملية النسخ داخل متصفح تيليجرام
     window.copyPlayerId = function() {
         const idText = document.getElementById('player-telegram-id').innerText;
-        navigator.clipboard.writeText(idText).then(() => {
-            showToast("تم نسخ الـ ID بنجاح! 📋");
-        }).catch(err => {
-            console.error('فشل في نسخ النص: ', err);
-            // Fallback for older browsers
-            const textArea = document.createElement("textarea");
-            textArea.value = idText;
-            document.body.appendChild(textArea);
-            textArea.select();
-            try {
-                document.execCommand('copy');
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(idText).then(() => {
                 showToast("تم نسخ الـ ID بنجاح! 📋");
-            } catch (err) {
-                console.error('Fallback: فشل النسخ', err);
-            }
-            document.body.removeChild(textArea);
-        });
+            }).catch(err => {
+                console.error('فشل في نسخ النص: ', err);
+                fallbackCopyTextToClipboard(idText);
+            });
+        } else {
+            fallbackCopyTextToClipboard(idText);
+        }
     };
+
+    function fallbackCopyTextToClipboard(text) {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed"; 
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            showToast("تم نسخ الـ ID بنجاح! 📋");
+        } catch (err) {
+            console.error('Fallback: فشل النسخ', err);
+        }
+        document.body.removeChild(textArea);
+    }
 
     window.showPrivacyModal = function() {
         const modal = document.getElementById('settings-modal');
