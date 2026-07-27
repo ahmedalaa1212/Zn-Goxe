@@ -4,7 +4,7 @@ import tempfile
 import threading
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-from flask import Flask, send_from_directory, jsonify
+from flask import Flask, send_from_directory, jsonify, request
 from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -35,6 +35,27 @@ except Exception as e:
 
 app = Flask(__name__, static_folder='.')
 CORS(app)
+
+# ==========================================
+# 🔗 تسجيل الـ Blueprints للمجلدات المختلفة
+# ==========================================
+
+# مثال لتسجيل API قسم المستخدمين (سيتم استيرادها عندما تنشئ الملفات)
+try:
+    from users.users_api import users_bp
+    app.register_blueprint(users_bp, url_prefix='/api/users')
+except ImportError:
+    print("⚠️ لم يتم العثور على users/users_api.py بعد")
+
+try:
+    from support.support_admin_api import support_admin_bp
+    app.register_blueprint(support_admin_bp, url_prefix='/api/admin/support')
+except ImportError:
+    print("⚠️ لم يتم العثور على support/support_admin_api.py بعد")
+
+# ==========================================
+# 🌐 مسارات سيرفر الويب
+# ==========================================
 
 @app.route('/')
 def home():
