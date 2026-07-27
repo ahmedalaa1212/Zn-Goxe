@@ -1,15 +1,57 @@
 from flask import Blueprint, jsonify, request
+# استدعاء ملفات الحماية والداتابيز الأساسية الخاصة بمشروعك
+from core.security import verify_telegram_data
+from database import db
 
-# تعريف الـ Blueprint اللي ملف app.py بيدور عليه
+# تعريف الـ Blueprint
 settings_bp = Blueprint('settings', __name__)
 
-# مسار (Endpoint) تجريبي عشان السيرفر ما يديش خطأ
-@settings_bp.route('/', methods=['GET'])
-def get_settings():
-    return jsonify({
-        "success": True, 
-        "message": "ملف الإعدادات يعمل بنجاح!"
-    }), 200
+@settings_bp.route('/api/settings/stats', methods=['GET'])
+def get_settings_stats():
+    # 1. جلب التوقيع من الهيدر (دستور الحماية)
+    init_data = request.headers.get('X-Telegram-Init-Data')
+    
+    if not init_data:
+        return jsonify({"success": False, "message": "Missing authentication data"}), 401
 
-# لو عندك دوال تانية خاصة بالإعدادات تقدر تضيفها هنا بعدين
+    # 2. التحقق من صحة التوقيع عبر ملف security.py
+    auth_result = verify_telegram_data(init_data)
+    
+    if not auth_result or 'id' not in auth_result:
+        return jsonify({"success": False, "message": "Unauthorized request, invalid initData"}), 403
 
+    user_id = str(auth_result['id'])
+
+    try:
+        # 3. جلب بيانات اللاعب من الفايربيس
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+
+        if user_doc.exists:
+            user_data = user_doc.to_dict()
+            
+            # حساب إجمالي مستويات المزرعة (يجمع مستويات الترقية من 1 لـ 10)
+            farm_levels_count = 0
+            for i in range(1, 11):
+                farm_levels_count += int(user_data.get(f'lvl{i}_count', 0))
+                
+            # جلب مستوى المخزن (لو بتستخدم حقل واحد اسمه storage_level في الداتابيز)
+            # ولو بتستخدم نظام مختلف للمخازن، عدل المتغير ده بناءً على الداتابيز بتاعتك
+            storage_levels_count = int(user_data.get('storage_level', 0))
+
+            return jsonify({
+                "success": True,
+                "farm_levels_count": farm_levels_count,
+                "storage_levels_count": storage_levels_count
+            }), 200
+            
+        else:
+            return jsonify({
+                "success": True, 
+                "farm_levels_count": 0, 
+                "storage_levels_count": 0
+            }), 200
+
+    except Exception as e:
+        print(f"Settings API Error: {e}")
+        return jsonify({"success": False, "message": "Internal server error"}), 500
