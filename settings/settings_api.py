@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
-import traceback # أضفنا هذه المكتبة لطباعة الأخطاء بوضوح في سجلات Railway
-# تم تعديل اسم الدالة ليتطابق مع ملف security.py الخاص بك
+import traceback
+# استدعاء دالة الحماية الخاصة بك
 from core.security import validate_telegram_data
 from database import db
 
@@ -9,7 +9,7 @@ settings_bp = Blueprint('settings', __name__)
 
 @settings_bp.route('/api/settings/stats', methods=['GET'])
 def get_settings_stats():
-    # 1. جلب التوقيع من الهيدر (دستور الحماية)
+    # 1. جلب التوقيع من الهيدر
     init_data = request.headers.get('X-Telegram-Init-Data')
     
     if not init_data:
@@ -18,7 +18,6 @@ def get_settings_stats():
     # 2. التحقق من صحة التوقيع عبر ملف security.py
     auth_result = validate_telegram_data(init_data)
     
-    # التأكد من أن auth_result ليس False وأنه يحتوي على id
     if not auth_result or not isinstance(auth_result, dict) or 'id' not in auth_result:
         return jsonify({"success": False, "message": "Unauthorized request, invalid initData"}), 403
 
@@ -30,22 +29,28 @@ def get_settings_stats():
         user_doc = user_ref.get()
 
         if user_doc.exists:
-            # نجلب البيانات، وفي حال كانت فارغة نضع قاموساً فارغاً لتفادي الأخطاء
             user_data = user_doc.to_dict() or {}
             
-            # 4. حساب إجمالي مستويات المزرعة بشكل آمن (Safe Casting)
+            # ==========================================
+            # 🟢 التعديل الجذري هنا بناءً على صورة قاعدة البيانات
+            # ==========================================
+            
             farm_levels_count = 0
-            for i in range(1, 11):
-                # نستخدم .get لجلب القيمة. إذا كانت غير موجودة سترجع None
-                lvl_val = user_data.get(f'lvl{i}_count')
-                if lvl_val is not None:
-                    try:
-                        farm_levels_count += int(lvl_val)
-                    except (ValueError, TypeError):
-                        # إذا كان الحقل يحتوي على نص غير مفهوم أو معطوب، يتجاهله ولا ينهار السيرفر
-                        pass
+            # نجلب الـ Map المسمى 'upgrades' من الفايربيس
+            upgrades_map = user_data.get('upgrades', {}) 
+            
+            # نتأكد أنه Map (قاموس) لتفادي الأخطاء
+            if isinstance(upgrades_map, dict):
+                # نجمع المستويات من lvl1 إلى lvl10 (حسب أسماء الحقول في صورتك)
+                for i in range(1, 11):
+                    lvl_val = upgrades_map.get(f'lvl{i}')
+                    if lvl_val is not None:
+                        try:
+                            farm_levels_count += int(lvl_val)
+                        except (ValueError, TypeError):
+                            pass
                 
-            # 5. جلب مستوى المخزن بشكل آمن
+            # جلب مستوى المخزن (موجود في الجذر الرئيسي باسم storage_level كما في صورتك)
             storage_levels_count = 0
             storage_val = user_data.get('storage_level')
             if storage_val is not None:
@@ -54,6 +59,7 @@ def get_settings_stats():
                 except (ValueError, TypeError):
                     pass
 
+            # إرسال البيانات للفرونت إند
             return jsonify({
                 "success": True,
                 "farm_levels_count": farm_levels_count,
@@ -61,7 +67,6 @@ def get_settings_stats():
             }), 200
             
         else:
-            # المستخدم ليس له وثيقة في قاعدة البيانات بعد
             return jsonify({
                 "success": True, 
                 "farm_levels_count": 0, 
@@ -69,7 +74,7 @@ def get_settings_stats():
             }), 200
 
     except Exception as e:
-        # طباعة الخطأ بالكامل في الكونسول لمعرفة سببه بدقة في Railway
         print(f"Settings API Error for user {user_id}: {str(e)}")
         traceback.print_exc() 
         return jsonify({"success": False, "message": "Internal server error"}), 500
+
