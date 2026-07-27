@@ -22,28 +22,26 @@
         return "اللاعب المحترف";
     }
 
-    // 🔄 دالة التحديث في الوقت الفعلي (بدون الضغط على السيرفر)
+    // 🔄 دالة التحديث في الوقت الفعلي (تحسب إجمالي الترقيات الفعلية)
     function updateStatsFromLocalData() {
-        // نتحقق إذا كانت بيانات اللاعب موجودة في المتغير العام الذي يحدثه المتجر
         if (window.PlayerData) {
             const totalMiningEl = document.getElementById('stat-total-mining');
             const totalStorageEl = document.getElementById('stat-total-storage');
             
-            let farmLevelsCount = 0;
-            // حساب مستويات المزرعة المفتوحة (التي تحتوي على ترقية واحدة على الأقل)
+            let totalUpgradesCount = 0;
+            
+            // حساب إجمالي جميع الترقيات المشتراة داخل الـ 9 مستويات
             if (window.PlayerData.upgrades) {
                 for (let i = 1; i <= 9; i++) {
-                    if (window.PlayerData.upgrades[`lvl${i}`] > 0) {
-                        farmLevelsCount++;
-                    }
+                    totalUpgradesCount += parseInt(window.PlayerData.upgrades[`lvl${i}`] || 0);
                 }
             }
 
-            // حساب مستوى المخزن الحالي (رقم المستوى يعبر عن عدد المستويات المفتوحة)
+            // حساب مستوى المخزن الحالي
             let storageLevelsCount = parseInt(window.PlayerData.storage_level || 0);
 
             if (totalMiningEl) {
-                totalMiningEl.innerText = `${farmLevelsCount} مستويات`;
+                totalMiningEl.innerText = `${totalUpgradesCount} مستويات`;
                 totalMiningEl.style.color = "#00cc66"; 
             }
             if (totalStorageEl) {
@@ -53,7 +51,7 @@
         }
     }
 
-    // 🔒 تحميل البيانات الأساسية للمستخدم (الاسم والصورة) وجلب أولي من السيرفر كإجراء احتياطي
+    // 🔒 تحميل البيانات الأساسية وجلب الإحصائيات من السيرفر كإجراء احتياطي
     async function fetchAndRenderData() {
         const telegramId = getTgId();
         let initData = "";
@@ -68,7 +66,6 @@
         const totalMiningEl = document.getElementById('stat-total-mining');
         const totalStorageEl = document.getElementById('stat-total-storage');
 
-        // طباعة البيانات الشخصية مباشرة للسرعة
         if (usernameEl) usernameEl.innerText = getPlayerName();
         if (telegramIdEl) telegramIdEl.innerText = telegramId;
 
@@ -78,29 +75,29 @@
         }
 
         if (!initData) {
-            console.error("⚠️ فشل: لا يوجد initData، تأكد من فتح اللعبة داخل تليجرام.");
-            if (totalMiningEl && !window.PlayerData) totalMiningEl.innerText = "0 مستويات (تجريبي)";
-            if (totalStorageEl && !window.PlayerData) totalStorageEl.innerText = "0 مستويات (تجريبي)";
+            if (totalMiningEl && !window.PlayerData) totalMiningEl.innerText = "0 مستويات";
+            if (totalStorageEl && !window.PlayerData) totalStorageEl.innerText = "0 مستويات";
             return;
         }
 
-        // إذا لم تكن البيانات المحلية جاهزة بعد، جلبها من السيرفر كاحتياطي
-        if (!window.PlayerData) {
-            try {
-                let response = await fetch('/api/settings/stats', {
-                    method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Telegram-Init-Data': initData
-                    }
-                });
+        // لو الداتا المحلية موجودة، استخدمها مباشرة ووفر طلب السيرفر
+        if (window.PlayerData) {
+            updateStatsFromLocalData();
+            return;
+        }
 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+        // جلب احتياطي من السيرفر في حالة التحميل لأول مرة
+        try {
+            let response = await fetch('/api/settings/stats', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': initData
                 }
+            });
 
+            if (response.ok) {
                 let result = await response.json();
-
                 if (result.success) {
                     if (totalMiningEl) {
                         totalMiningEl.innerText = `${result.farm_levels_count} مستويات`;
@@ -111,28 +108,22 @@
                         totalStorageEl.style.color = "#0088cc";
                     }
                 }
-            } catch (error) {
-                console.error("❌ خطأ أثناء جلب البيانات من السيرفر:", error);
-                if (totalMiningEl) {
-                    totalMiningEl.innerText = "خطأ في الاتصال";
-                    totalMiningEl.style.color = "#ff4444";
-                }
-                if (totalStorageEl) {
-                    totalStorageEl.innerText = "خطأ في الاتصال";
-                    totalStorageEl.style.color = "#ff4444";
-                }
+            }
+        } catch (error) {
+            console.error("❌ خطأ أثناء جلب البيانات:", error);
+            if (totalMiningEl) {
+                totalMiningEl.innerText = "خطأ في الاتصال";
+                totalMiningEl.style.color = "#ff4444";
             }
         }
     }
 
-    // دعم قوي لعملية النسخ داخل متصفح تيليجرام
     window.copyPlayerId = function() {
         const idText = document.getElementById('player-telegram-id').innerText;
         if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(idText).then(() => {
                 showToast("تم نسخ الـ ID بنجاح! 📋");
             }).catch(err => {
-                console.error('فشل في نسخ النص: ', err);
                 fallbackCopyTextToClipboard(idText);
             });
         } else {
@@ -150,9 +141,7 @@
         try {
             document.execCommand('copy');
             showToast("تم نسخ الـ ID بنجاح! 📋");
-        } catch (err) {
-            console.error('Fallback: فشل النسخ', err);
-        }
+        } catch (err) {}
         document.body.removeChild(textArea);
     }
 
@@ -186,8 +175,7 @@
         });
     }
 
-    // 🚀 الحلقة السحرية: فحص محلي كل ثانية لتحديث واجهة الإعدادات فور الشراء 
-    // من المتجر دون أي تحميل أو استهلاك للسيرفر
+    // فحص دوري كل ثانية لتحديث واجهة الإعدادات فور الشراء 
     setInterval(updateStatsFromLocalData, 1000);
 
 })();
