@@ -5,7 +5,7 @@
             const webAppUser = window.Telegram.WebApp.initDataUnsafe.user;
             if (webAppUser) return String(webAppUser.id);
         }
-        return "5102387551"; 
+        return "5102387551"; // Fallback for testing
     }
 
     function getPlayerName() {
@@ -18,15 +18,16 @@
         return "اللاعب المحترف";
     }
 
-    // 🔒 تحديث الدالة لترسل وتستعلم بالبيانات المشفرة حتماً
+    // 🔒 تحديث الدالة لترسل البيانات في الـ Headers لضمان أقصى درجات الأمان
     async function fetchAndRenderData() {
         const telegramId = getTgId();
-        const initData = window.Telegram?.WebApp?.initData; // 🔒
+        const initData = window.Telegram?.WebApp?.initData; 
         
         const usernameEl = document.getElementById('player-username');
         const telegramIdEl = document.getElementById('player-telegram-id');
         const avatarEl = document.getElementById('player-avatar');
 
+        // طباعة البيانات الشخصية مباشرة بدون سيرفر
         if (usernameEl) usernameEl.innerText = getPlayerName();
         if (telegramIdEl) telegramIdEl.innerText = telegramId;
 
@@ -37,37 +38,40 @@
             }
         }
 
-        try {
-            let url = `/api/user_data`;
-            if (initData) {
-                url += `?initData=${encodeURIComponent(initData)}`;
-            } else {
-                url += `?telegramId=${telegramId}`; // فحص محلي
-            }
+        // جلب الإحصائيات (المزرعة والمخزن) من السيرفر حصراً لمنع التلاعب
+        if (!initData) {
+            console.error("⚠️ فشل: لا يوجد initData، تأكد من فتح اللعبة داخل تليجرام.");
+            return;
+        }
 
-            let response = await fetch(url);
+        try {
+            let response = await fetch('/api/settings/stats', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': initData // 🔒 إرسال التوقيع في الهيدر
+                }
+            });
+
             let result = await response.json();
 
-            if (result.success && result.data) {
-                const userData = result.data;
-                window.PlayerData = userData;
-
-                let totalUpgradesCount = 0;
-                for (let i = 1; i <= 10; i++) {
-                    totalUpgradesCount += parseInt(userData[`lvl${i}_count`] || 0);
-                }
-
+            if (result.success) {
                 const totalMiningEl = document.getElementById('stat-total-mining');
+                const totalStorageEl = document.getElementById('stat-total-storage');
+                
                 if (totalMiningEl) {
-                    totalMiningEl.innerText = `${totalUpgradesCount} مستويات`;
+                    totalMiningEl.innerText = `${result.farm_levels_count} مستويات`;
+                }
+                if (totalStorageEl) {
+                    totalStorageEl.innerText = `${result.storage_levels_count} مستويات`;
                 }
                 
-                console.log(`✅ تمت المزامنة الآمنة! إجمالي مستويات الترقيات: ${totalUpgradesCount}`);
+                console.log("✅ تمت مزامنة الإحصائيات بأمان من السيرفر!");
             } else {
-                console.error("⚠️ فشل في قراءة استجابة السيرفر أو البيانات ناقصة");
+                console.error("⚠️ السيرفر رفض الطلب أو البيانات غير متاحة:", result.message);
             }
         } catch (error) {
-            console.error("❌ خطأ أثناء جلب البيانات من الفايربيس:", error);
+            console.error("❌ خطأ أثناء جلب البيانات من السيرفر:", error);
         }
     }
 
@@ -101,12 +105,7 @@
         }
     }
 
-    window.refreshGameData = function() {
-        showToast("🔄 جاري إعادة تحميل وتحديث اللعبة بالكامل...");
-        setTimeout(() => {
-            window.location.reload(); 
-        }, 800);
-    };
+    // تم حذف دالة refreshGameData لأننا أزلنا الزر
 
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
         fetchAndRenderData();
@@ -114,11 +113,12 @@
         document.addEventListener('DOMContentLoaded', fetchAndRenderData);
     }
 
+    // تحديث البيانات كل 5 ثواني كحد أقصى لتخفيف الضغط على الفايربيس
     setInterval(() => {
         const totalMiningEl = document.getElementById('stat-total-mining');
         if (totalMiningEl && totalMiningEl.innerText === "0 مستويات") {
             fetchAndRenderData();
         }
-    }, 2000);
+    }, 5000);
 
 })();
