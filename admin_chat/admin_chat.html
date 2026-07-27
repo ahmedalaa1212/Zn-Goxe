@@ -1,0 +1,38 @@
+<div class="content-card animate-fade-in">
+    <h2 style="color: #f59e0b; margin-bottom: 12px;">💬 مركز الدردشة والدعم الفني</h2>
+    <p style="color: #94a3b8; font-size: 12px; margin-bottom: 16px;">متابعة استفسارات المستخدمين والرد عليها مباشرة.</p>
+
+    <!-- قائمة التذاكر -->
+    <div id="tickets-list-section">
+        <button onclick="fetchAdminTickets()" class="btn-refresh" style="margin-bottom: 12px;">
+            🔄 تحديث قائمة المحادثات
+        </button>
+        <div id="tickets-container">
+            <p style="text-align: center; color: #94a3b8;">جاري تحميل المحادثات...</p>
+        </div>
+    </div>
+
+    <!-- نافذة الشات مع مستخدم معين -->
+    <div id="chat-view-section" style="display: none; margin-top: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: #1f2330; padding: 10px; border-radius: 10px;">
+            <div>
+                <strong id="chat-user-name" style="color: #f59e0b;">-</strong>
+                <div id="chat-ticket-id" style="font-size: 11px; color: #94a3b8;">-</div>
+            </div>
+            <button onclick="closeChatView()" style="background: #2d3345; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;">رجوع ↩️</button>
+        </div>
+
+        <div id="admin-chat-box" style="height: 300px; overflow-y: auto; background: #0f1117; border: 1px solid #2d3345; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <!-- الرسائل ستظهر هنا -->
+        </div>
+
+        <div style="display: flex; gap: 8px; margin-top: 10px;">
+            <input type="text" id="admin-reply-input" placeholder="اكتب ردك هنا..." class="search-input" style="flex: 1;">
+            <button onclick="sendAdminReply()" class="btn-refresh" style="width: auto; padding: 0 16px;">إرسال 🚀</button>
+        </div>
+
+        <button onclick="closeCurrentTicket()" style="width: 100%; margin-top: 10px; background: #ef4444; color: #fff; border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer;">
+            🔒 إنهاء وإغلاق هذه التذكرة
+        </button>
+    </div>
+</div>
