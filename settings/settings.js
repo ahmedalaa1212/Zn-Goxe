@@ -101,6 +101,9 @@
 
     window.openSupportModal = function() {
         document.getElementById('support-modal').style.display = 'flex';
+        // تصفير البيانات عند فتح النافذة
+        chatBox.innerHTML = '';
+        supportLastMsgCount = -1;
         fetchTicketData();
     };
 
@@ -131,7 +134,7 @@
                 renderMessages(data.messages);
                 
                 if (isSupportClosed) {
-                    disableSupportInput("تم إغلاق هذه التذكرة من قبل الدعم.");
+                    disableSupportInput("تم إغلاق هذه التذكرة من الدعم الفني.");
                 } else {
                     enableSupportInput();
                     startSupportPolling();
@@ -147,27 +150,29 @@
     function renderMessages(messages) {
         messages = messages || [];
         
+        // إذا لم يكن هناك تغيير في عدد الرسائل، لا تقم بإعادة الرسم لتجنب الوميض
         if (messages.length === supportLastMsgCount) return;
         supportLastMsgCount = messages.length;
 
+        chatBox.innerHTML = ''; 
+
         if (messages.length === 0) {
             chatBox.innerHTML = '<div class="msg-system">مرحباً بك! ارسل استفسارك وسيقوم فريق الدعم بالرد عليك.</div>';
-            return;
+        } else {
+            messages.forEach(msg => {
+                const div = document.createElement('div');
+                div.className = `chat-msg ${msg.sender === 'user' ? 'msg-user' : 'msg-admin'}`;
+                div.innerText = msg.text;
+                chatBox.appendChild(div);
+            });
         }
-
-        chatBox.innerHTML = ''; 
-        messages.forEach(msg => {
-            const div = document.createElement('div');
-            div.className = `chat-msg ${msg.sender === 'user' ? 'msg-user' : 'msg-admin'}`;
-            div.innerText = msg.text;
-            chatBox.appendChild(div);
-        });
 
         if (isSupportClosed) {
             const closedDiv = document.createElement('div');
             closedDiv.className = 'msg-system';
-            closedDiv.innerText = '🔒 هذه التذكرة مغلقة.';
+            closedDiv.innerText = '🔒 تم إغلاق هذه المحادثة.';
             chatBox.appendChild(closedDiv);
+            disableSupportInput("تم إغلاق هذه التذكرة من الدعم الفني.");
         }
 
         chatBox.scrollTop = chatBox.scrollHeight;
@@ -179,6 +184,7 @@
 
         const initData = getInitData();
         
+        // عرض الرسالة مؤقتاً للمستخدم
         const tempDiv = document.createElement('div');
         tempDiv.className = 'chat-msg msg-user';
         tempDiv.innerText = text;
@@ -201,10 +207,15 @@
             const data = await response.json();
 
             if (data.success) {
-                fetchTicketData(); 
+                fetchTicketData(); // تحديث لجلب الرسالة بشكلها النهائي
             } else {
                 tempDiv.remove();
-                alert("فشل الإرسال: " + (data.message || "خطأ غير معروف"));
+                alert("فشل الإرسال: " + (data.message || "حدث خطأ"));
+                // إذا تم الرد بأنها مغلقة أثناء محاولة الإرسال
+                if(data.message && data.message.includes("إغلاق")) {
+                    isSupportClosed = true;
+                    fetchTicketData();
+                }
             }
         } catch (error) {
             tempDiv.remove();
