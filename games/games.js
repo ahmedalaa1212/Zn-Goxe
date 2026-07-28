@@ -5,6 +5,30 @@ let arenaEndTime = 0;
 let countdownInterval = null;
 let hasCheckedResults = false;
 
+// --- أدوات المزامنة الموحدة للرصيد ---
+function getStoredBalance() {
+    const bal = localStorage.getItem('user_balance') || localStorage.getItem('zn_balance');
+    return bal !== null ? parseFloat(bal) : null;
+}
+
+function setStoredBalance(newBalance) {
+    if (newBalance !== undefined && newBalance !== null) {
+        const strVal = newBalance.toString();
+        localStorage.setItem('user_balance', strVal);
+        localStorage.setItem('zn_balance', strVal);
+    }
+}
+
+function syncGameBalance() {
+    const stored = getStoredBalance();
+    if (stored !== null) {
+        const gameBalEl = document.getElementById('top-balance-games');
+        if (gameBalEl) {
+            gameBalEl.innerText = `ZN ${Math.floor(stored).toLocaleString()}`;
+        }
+    }
+}
+
 window.switchGameTab = function(tabName) {
     const arenaTab = document.getElementById('tab-arena');
     const soonTab = document.getElementById('tab-soon');
@@ -12,23 +36,19 @@ window.switchGameTab = function(tabName) {
     const soonContent = document.getElementById('content-soon');
 
     if (tabName === 'arena') {
-        arenaTab.style.border = '2px solid #ffcc00';
-        arenaTab.style.opacity = '1';
-        soonTab.style.border = '2px solid transparent';
-        soonTab.style.opacity = '0.6';
+        if (arenaTab) { arenaTab.style.border = '2px solid #ffcc00'; arenaTab.style.opacity = '1'; }
+        if (soonTab) { soonTab.style.border = '2px solid transparent'; soonTab.style.opacity = '0.6'; }
         
-        arenaContent.style.display = 'block';
-        soonContent.style.display = 'none';
+        if (arenaContent) arenaContent.style.display = 'block';
+        if (soonContent) soonContent.style.display = 'none';
     } else {
-        soonTab.style.border = '2px solid #00ffcc';
-        soonTab.style.opacity = '1';
-        arenaTab.style.border = '2px solid transparent';
-        arenaTab.style.opacity = '0.6';
+        if (soonTab) { soonTab.style.border = '2px solid #00ffcc'; soonTab.style.opacity = '1'; }
+        if (arenaTab) { arenaTab.style.border = '2px solid transparent'; arenaTab.style.opacity = '0.6'; }
         
-        arenaContent.style.display = 'none';
-        soonContent.style.display = 'block';
+        if (arenaContent) arenaContent.style.display = 'none';
+        if (soonContent) soonContent.style.display = 'block';
     }
-}
+};
 
 async function fetchArenaStatus() {
     try {
@@ -46,10 +66,10 @@ async function fetchArenaStatus() {
         const data = await response.json();
         
         if (data.success) {
-            const gameBalEl = document.getElementById('top-balance-games');
-            if (gameBalEl) {
-                gameBalEl.innerText = `ZN ${Math.floor(data.balance).toLocaleString()}`;
+            if (data.balance !== undefined) {
+                setStoredBalance(data.balance);
             }
+            syncGameBalance();
             
             currentRoundId = data.round_id;
             arenaEndTime = data.end_time;
@@ -69,12 +89,20 @@ async function fetchArenaStatus() {
 }
 
 function updateArenaPrizes(data) {
-    document.getElementById('prize-pool').innerText = data.prize_pool.toLocaleString() + " ZN";
-    document.getElementById('prize-1').innerText = Math.floor(data.prize_pool * 0.30).toLocaleString() + " ZN";
-    document.getElementById('prize-2').innerText = Math.floor(data.prize_pool * 0.25).toLocaleString() + " ZN";
-    document.getElementById('prize-3').innerText = Math.floor(data.prize_pool * 0.20).toLocaleString() + " ZN";
-    document.getElementById('prize-4').innerText = Math.floor(data.prize_pool * 0.15).toLocaleString() + " ZN";
-    document.getElementById('prize-5').innerText = Math.floor(data.prize_pool * 0.10).toLocaleString() + " ZN";
+    const prizePoolEl = document.getElementById('prize-pool');
+    if (prizePoolEl) prizePoolEl.innerText = data.prize_pool.toLocaleString() + " ZN";
+    
+    const p1 = document.getElementById('prize-1');
+    const p2 = document.getElementById('prize-2');
+    const p3 = document.getElementById('prize-3');
+    const p4 = document.getElementById('prize-4');
+    const p5 = document.getElementById('prize-5');
+
+    if (p1) p1.innerText = Math.floor(data.prize_pool * 0.30).toLocaleString() + " ZN";
+    if (p2) p2.innerText = Math.floor(data.prize_pool * 0.25).toLocaleString() + " ZN";
+    if (p3) p3.innerText = Math.floor(data.prize_pool * 0.20).toLocaleString() + " ZN";
+    if (p4) p4.innerText = Math.floor(data.prize_pool * 0.15).toLocaleString() + " ZN";
+    if (p5) p5.innerText = Math.floor(data.prize_pool * 0.10).toLocaleString() + " ZN";
 }
 
 function startSmoothCountdown(hasJoined) {
@@ -92,9 +120,13 @@ function timerTick(hasJoined) {
     
     if (timeLeft < 0) timeLeft = 0;
 
-    let m = Math.floor(timeLeft / 60);
-    let s = timeLeft % 60;
-    timerEl.innerText = `${m < 10 ? '0'+m : m}:${s < 10 ? '0'+s : s}`;
+    if (timerEl) {
+        let m = Math.floor(timeLeft / 60);
+        let s = timeLeft % 60;
+        timerEl.innerText = `${m < 10 ? '0'+m : m}:${s < 10 ? '0'+s : s}`;
+    }
+
+    if (!btn) return;
 
     if (timeLeft <= 15 && timeLeft > 0) {
         btn.disabled = true;
@@ -107,7 +139,7 @@ function timerTick(hasJoined) {
         
         if (!hasCheckedResults) {
             hasCheckedResults = true;
-            fetchRoundResults(currentRoundId, 0); // نبدأ المحاولات من الصفر
+            fetchRoundResults(currentRoundId, 0);
         }
     } else {
         if (!hasJoined) {
@@ -131,8 +163,10 @@ window.joinArena = async function() {
     }
 
     const btn = document.getElementById('btn-join-arena');
-    btn.disabled = true;
-    btn.innerText = "جاري الدخول... ⏳";
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = "جاري الدخول... ⏳";
+    }
     isJoining = true;
 
     try {
@@ -147,19 +181,31 @@ window.joinArena = async function() {
         const data = await response.json();
         
         if (data.success) {
+            if (data.new_balance !== undefined) {
+                setStoredBalance(data.new_balance);
+            } else {
+                let current = getStoredBalance();
+                if (current !== null) setStoredBalance(current - 1000);
+            }
+            syncGameBalance();
+
             if (typeof window.fetchPlayerDataFromServer === 'function') {
                 window.fetchPlayerDataFromServer();
             }
             fetchArenaStatus(); 
         } else {
             alert("⚠️ " + data.message);
-            btn.disabled = false;
-            btn.innerText = "دخول الساحة (1000 ZN)";
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = "دخول الساحة (1000 ZN)";
+            }
         }
     } catch (error) {
         alert("حدث خطأ في الاتصال بالخادم. حاول مجدداً.");
-        btn.disabled = false;
-        btn.innerText = "دخول الساحة (1000 ZN)";
+        if (btn) {
+            btn.disabled = false;
+            btn.innerText = "دخول الساحة (1000 ZN)";
+        }
     } finally {
         isJoining = false;
     }
@@ -167,22 +213,25 @@ window.joinArena = async function() {
 
 function showDrawModal(state) {
     const modal = document.getElementById('draw-modal');
-    document.getElementById('draw-refunded').style.display = 'none';
-    document.getElementById('draw-winners').style.display = 'none';
+    const refundedEl = document.getElementById('draw-refunded');
+    const winnersEl = document.getElementById('draw-winners');
+
+    if (refundedEl) refundedEl.style.display = 'none';
+    if (winnersEl) winnersEl.style.display = 'none';
     
-    modal.style.display = 'flex';
-    if (state === 'refunded') document.getElementById('draw-refunded').style.display = 'block';
-    if (state === 'winners') document.getElementById('draw-winners').style.display = 'block';
+    if (modal) modal.style.display = 'flex';
+    if (state === 'refunded' && refundedEl) refundedEl.style.display = 'block';
+    if (state === 'winners' && winnersEl) winnersEl.style.display = 'block';
 }
 
 window.closeDrawModal = function() {
-    document.getElementById('draw-modal').style.display = 'none';
+    const modal = document.getElementById('draw-modal');
+    if (modal) modal.style.display = 'none';
     fetchArenaStatus();
-}
+};
 
-// تعديل الدالة لمنع التعليق المستمر
 async function fetchRoundResults(roundId, retries = 0) {
-    if (retries > 12) { // أقصى حد للمحاولات، بعدها يتم إعادة تهيئة الساحة
+    if (retries > 12) {
         console.warn("تأخر السيرفر في إصدار النتيجة.");
         fetchArenaStatus();
         return;
@@ -204,6 +253,11 @@ async function fetchRoundResults(roundId, retries = 0) {
         const data = await response.json();
         
         if (data.success) {
+            if (data.new_balance !== undefined) {
+                setStoredBalance(data.new_balance);
+                syncGameBalance();
+            }
+
             if (data.status === 'refunded') {
                 showDrawModal('refunded');
             } else if (data.status === 'completed') {
@@ -225,6 +279,8 @@ async function fetchRoundResults(roundId, retries = 0) {
 
 function renderWinners(winners) {
     const list = document.getElementById('winners-list');
+    if (!list) return;
+
     list.innerHTML = '';
     const medals = ['🥇', '🥈', '🥉', '🏅', '🏅'];
     
@@ -235,7 +291,7 @@ function renderWinners(winners) {
         list.innerHTML += `
             <div class="winner-item">
                 <span style="color: #fff; font-weight: bold; font-size: 14px;">
-                    ${medals[index]} ${name}
+                    ${medals[index] || '🏅'} ${name}
                 </span>
                 <span style="color: #00ff00; font-weight: bold;">
                     +${prize} ZN
@@ -245,4 +301,19 @@ function renderWinners(winners) {
     });
 }
 
+// --- مستمعات التنقل والمزامنة الفورية ---
+window.addEventListener('pageshow', () => {
+    syncGameBalance();
+    fetchArenaStatus();
+});
+
+document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+        syncGameBalance();
+        fetchArenaStatus();
+    }
+});
+
+// بدء التشغيل الفوري من الكاش ثم الاتصال بالسيرفر
+syncGameBalance();
 fetchArenaStatus();
