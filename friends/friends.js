@@ -8,9 +8,9 @@ const REF_TASKS = [
     { id: 7, reqFriends: 500, reward: 10000000 }
 ];
 
-const BOT_USERNAME = "zngoxe_bot"; // يوزر البوت
+const BOT_USERNAME = "zngoxe_bot"; // يوزر البوت بدون @
 
-document.addEventListener("DOMContentLoaded", async () => {
+function initFriendsPage() {
     const tele = window.Telegram?.WebApp;
     if (tele) {
         tele.ready();
@@ -19,39 +19,38 @@ document.addEventListener("DOMContentLoaded", async () => {
     
     const initData = tele?.initData;
     const refInput = document.getElementById('ref-link-input');
-    const container = document.getElementById('friends-list-container');
     
-    if (!initData) {
-        if(refInput) {
-            if(refInput.tagName === 'INPUT') refInput.value = "يرجى فتح التطبيق من داخل تليجرام";
-            else refInput.innerText = "يرجى فتح التطبيق من داخل تليجرام";
+    // 1. توليد وتثبيت الرابط فوراً في المربع دون انتظار أي شيء
+    let userId = "0000";
+    if (tele?.initDataUnsafe?.user?.id) {
+        userId = tele.initDataUnsafe.user.id;
+    }
+
+    if (refInput) {
+        if (!initData && userId === "0000") {
+            refInput.value = "يرجى فتح التطبيق من داخل تليجرام";
+        } else {
+            refInput.value = `https://t.me/${BOT_USERNAME}?start=ref_${userId}`;
         }
+    }
+
+    const container = document.getElementById('friends-list-container');
+    if (!initData) {
         if(container) container.innerHTML = '<div class="empty-state">يرجى فتح التطبيق من تليجرام لعرض الأصدقاء.</div>';
         return;
     }
 
-    // توليد الرابط فوراً لضمان عدم بقاء "جاري التحميل"
-    let userId = "0000";
-    try {
-        if (tele?.initDataUnsafe?.user?.id) {
-            userId = tele.initDataUnsafe.user.id;
-        }
-    } catch(e) { console.error("Error getting user ID:", e); }
+    // 2. طلب بيانات الرصيد وسجل الأصدقاء من السيرفر
+    loadFriendsData(initData);
+}
 
-    if (refInput) {
-        const link = `https://t.me/${BOT_USERNAME}?start=ref_${userId}`;
-        // الحماية هنا: لو العنصر input بنستخدم value، لو div بنستخدم innerText
-        if(refInput.tagName === 'INPUT') refInput.value = link;
-        else refInput.innerText = link;
-    }
-
-    // جلب بيانات الرصيد والمهام من مسار الأصدقاء المستقل
+async function loadFriendsData(initData) {
     try {
         const response = await fetch('/api/friends/data', {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${initData}` // تأمين إضافي
+                'Authorization': `Bearer ${initData}`
             },
             body: JSON.stringify({ initData: initData })
         });
@@ -64,7 +63,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     updateFriendsUI();
     await fetchAndRenderFriendsList(initData);
-});
+}
 
 function updateFriendsUI() {
     const pData = window.PlayerData || {};
@@ -141,9 +140,8 @@ window.copyRefLink = function() {
     const refInput = document.getElementById('ref-link-input');
     if(!refInput) return;
     
-    const link = refInput.tagName === 'INPUT' ? refInput.value : refInput.innerText;
-    
-    if (link.includes("جاري") || link.includes("يرجى") || link.includes("خطأ")) return;
+    const link = refInput.value;
+    if (!link || link.includes("جاري") || link.includes("يرجى")) return;
     
     navigator.clipboard.writeText(link).then(() => {
         window.Telegram?.WebApp?.showAlert("✅ تم نسخ الرابط بنجاح!");
@@ -269,4 +267,11 @@ async function fetchAndRenderFriendsList(initData) {
     } catch (e) {
         container.innerHTML = '<div class="empty-state">خطأ في الاتصال بالخادم.</div>';
     }
+}
+
+// تنفيذ الكود فوراً وبدون تأخير
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initFriendsPage);
+} else {
+    initFriendsPage();
 }
