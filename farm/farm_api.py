@@ -1,4 +1,3 @@
-# farm/farm_api.py
 from flask import Blueprint, request, jsonify
 from datetime import datetime, timezone
 from core.security import get_authenticated_user
@@ -163,14 +162,38 @@ def claim_mined_tokens():
             return jsonify({"success": False, "error": "لا يوجد رصيد حالياً في المخزن."}), 400
 
         new_balance = float(user_data.get("balance", 0.0)) + unclaimed
-        user_ref.update({
+        
+        update_data = {
             "balance": new_balance,
             "unclaimed": 0.0,
             "max_cap": max_cap,
             "last_claim_time": now.isoformat()
-        })
+        }
+
+        # ----------------------------------------------------
+        # 🚀 نظام دعوة الأصدقاء - 10% من التعدين
+        # ----------------------------------------------------
+        referred_by = user_data.get("referred_by")
+        upgrades = user_data.get("upgrades", {})
+        # شرط أن يكون اللاعب لديه 3 ترقيات على الأقل
+        if referred_by and len(upgrades) >= 3:
+            bonus_for_inviter = unclaimed * 0.10
+            try:
+                from google.cloud import firestore
+                inviter_ref = db.collection('users').document(referred_by)
+                inviter_ref.update({
+                    "pending_ref_earnings": firestore.Increment(bonus_for_inviter)
+                })
+                # إضافة السجل للمستخدم الحالي ليعرف الداعي كم ربح منه
+                update_data["generated_for_inviter"] = firestore.Increment(bonus_for_inviter)
+            except Exception as e:
+                print(f"Error updating inviter balance: {e}")
+        # ----------------------------------------------------
+
+        user_ref.update(update_data)
         return jsonify({"success": True, "claimed": unclaimed, "new_balance": new_balance}), 200
-    except:
+    except Exception as e:
+        print(f"Error in claim: {e}")
         return jsonify({"success": False, "error": "خطأ في التجميع"}), 500
 
 @farm_bp.route('/daily_boost', methods=['POST'])
