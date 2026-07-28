@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>الأصدقاء - Zngoxe</title>
+    <title>الأصدقاء - Zn Goxe</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         :root {
@@ -30,7 +30,7 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
             padding: 0;
-            padding-bottom: 80px;
+            padding-bottom: 90px; /* مساحة للشريط السفلي الجديد */
         }
 
         .container {
@@ -65,7 +65,6 @@
             box-shadow: 0 8px 16px rgba(0,0,0,0.2);
             transition: transform 0.3s ease;
         }
-        .card:hover { transform: translateY(-2px); }
         .card h3 { 
             margin-top: 0; 
             border-bottom: 1px solid var(--border-color); 
@@ -103,14 +102,12 @@
             font-size: 1rem;
             cursor: pointer;
             transition: all 0.2s;
-            box-shadow: 0 4px 10px var(--primary-glow);
         }
-        button:active { transform: scale(0.95); box-shadow: none; }
+        button:active { transform: scale(0.95); }
         button:disabled {
             background: var(--btn-disabled);
             color: #666;
             cursor: not-allowed;
-            box-shadow: none;
             transform: none;
         }
 
@@ -132,9 +129,6 @@
         .stat-box strong { font-size: 1.4rem; color: var(--primary); }
 
         .friends-list { list-style: none; padding: 0; margin: 0; max-height: 250px; overflow-y: auto; padding-right: 5px; }
-        .friends-list::-webkit-scrollbar { width: 6px; }
-        .friends-list::-webkit-scrollbar-thumb { background: #444; border-radius: 10px; }
-        
         .friend-item {
             display: flex;
             align-items: center;
@@ -151,7 +145,6 @@
             display: flex; align-items: center; justify-content: center;
             font-weight: bold; color: #fff; font-size: 1.2rem;
             margin-left: 12px;
-            border: 2px solid var(--border-color);
         }
         .friend-info { flex: 1; display: flex; flex-direction: column; }
         .friend-name { font-weight: bold; font-size: 1rem; color: #fff; }
@@ -167,50 +160,24 @@
             margin-bottom: 15px;
             border: 1px solid #333;
         }
-        .task-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
-        }
+        .task-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
         .task-info h4 { margin: 0 0 5px 0; font-size: 1.1rem; }
         .task-info p { margin: 0; color: var(--primary); font-size: 0.95rem; font-weight: bold; }
         
-        .progress-container {
-            width: 100%;
-            height: 10px;
-            background: #111;
-            border-radius: 10px;
-            overflow: hidden;
-            margin-bottom: 10px;
-            border: 1px solid #333;
-        }
-        .progress-bar {
-            height: 100%;
-            background: linear-gradient(90deg, #f39c12, #f1c40f);
-            border-radius: 10px;
-            transition: width 0.5s ease-in-out;
-            box-shadow: 0 0 8px var(--primary-glow);
-        }
-        .task-footer {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.85rem;
-            color: var(--text-muted);
-        }
-        
+        .progress-container { width: 100%; height: 10px; background: #111; border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
+        .progress-bar { height: 100%; background: linear-gradient(90deg, #f39c12, #f1c40f); border-radius: 10px; }
+        .task-footer { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-muted); }
         .task-action button { padding: 8px 15px; font-size: 0.9rem; }
-        .claimed-btn { background: #27ae60 !important; color: white !important; box-shadow: none; border: 1px solid #2ecc71; }
+        .claimed-btn { background: #27ae60 !important; color: white !important; }
         
+        /* تحديث الشريط السفلي ليطابق الصورة */
         .bottom-nav {
             position: fixed;
             bottom: 0; left: 0; right: 0;
-            background-color: rgba(26, 26, 26, 0.95);
-            backdrop-filter: blur(10px);
+            background-color: rgba(26, 26, 26, 0.98);
             display: flex;
-            justify-content: space-around;
-            padding: 15px 0;
+            justify-content: space-between;
+            padding: 10px 5px;
             border-top: 1px solid var(--border-color);
             z-index: 1000;
         }
@@ -218,14 +185,27 @@
             color: var(--text-muted);
             text-decoration: none;
             font-weight: bold;
-            font-size: 0.95rem;
-            transition: 0.3s;
+            font-size: 0.75rem;
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 5px;
+            flex: 1;
         }
         .bottom-nav a.active { color: var(--primary); }
+        .bottom-nav a i { font-size: 1.4rem; font-style: normal; }
+        .nav-farm-btn {
+            background: var(--primary);
+            color: #000 !important;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: -20px;
+            box-shadow: 0 0 10px var(--primary-glow);
+        }
     </style>
 </head>
 <body>
@@ -248,7 +228,6 @@
 
         <div class="card ref-link-card">
             <h3>🔗 رابط الدعوة الخاص بك</h3>
-            <p style="color: var(--text-muted); font-size: 0.9rem;">احصل على 10% من أرباح تعدين أصدقائك للأبد! انسخ الرابط وشاركه الآن.</p>
             <div class="copy-box">
                 <input type="text" id="ref-link-input" readonly value="جاري التحميل...">
                 <button onclick="copyRefLink()">نسخ الرابط</button>
@@ -264,7 +243,7 @@
         <div class="card ref-tasks-card">
             <h3>🎁 مكافآت الإنجازات (المهام)</h3>
             <ul id="ref-tasks-list">
-                <!-- المهام -->
+                <!-- المهام ستظهر هنا -->
             </ul>
         </div>
 
@@ -276,14 +255,21 @@
         </div>
     </div>
 
+    <!-- الشريط السفلي المحدث بناءً على الصورة الخاصة بك -->
     <nav class="bottom-nav">
-        <a href="index.html">المزرعة</a>
-        <a href="shop.html">التطوير</a>
-        <a href="games.html">الألعاب</a>
-        <a href="friends.html" class="active">الأصدقاء</a>
+        <a href="settings.html"><i>⚙️</i>الإعدادات</a>
+        <a href="shop.html"><i>🏪</i>المتجر</a>
+        <a href="games.html"><i>🎮</i>الألعاب</a>
+        <a href="index.html">
+            <div class="nav-farm-btn"><i>⚒️</i></div>
+            <span style="margin-top: 5px;">المزرعة</span>
+        </a>
+        <a href="tasks.html"><i>📋</i>المهام</a>
+        <a href="wallet.html"><i>💳</i>المحفظة</a>
+        <a href="friends.html" class="active"><i>👥</i>الأصدقاء</a>
     </nav>
 
-    <script src="../game.js"></script>
+    <!-- ربط السكربت -->
     <script src="friends.js"></script>
 </body>
 </html>
