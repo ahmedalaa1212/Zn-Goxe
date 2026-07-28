@@ -1,67 +1,82 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>نظام الأصدقاء</title>
-    <!-- استدعاء مكتبة تليجرام (مهم جداً) -->
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="../style.css"> 
-</head>
-<body>
-    <div class="app-container">
-        <!-- الرصيد العلوي -->
-        <div class="balance-section">
-            <h2>🤝 نظام الأصدقاء</h2>
-            <div class="main-balance" id="top-balance-friends">ZN: 0</div>
-        </div>
-
-        <!-- إحصائيات الأصدقاء -->
-        <div class="stats-grid">
-            <div class="stat-card">
-                <span class="stat-title">إجمالي الأصدقاء</span>
-                <span class="stat-value" id="invited-friends-count">0</span>
-            </div>
-            <div class="stat-card">
-                <span class="stat-title">أرباح معلقة للسحب</span>
-                <span class="stat-value" id="pending-ref-earnings">0</span>
-            </div>
-        </div>
-
-        <!-- رابط الدعوة -->
-        <div class="ref-link-section section-box">
-            <h3>🔗 رابط الدعوة الخاص بك</h3>
-            <div class="input-group">
-                <input type="text" id="ref-link-input" value="...جاري التحميل" readonly>
-                <button onclick="copyRefLink()" class="copy-btn">نسخ الرابط</button>
-            </div>
-        </div>
-
-        <!-- سحب الأرباح -->
-        <div class="claim-section section-box">
-            <h3>💰 سحب أرباح الأصدقاء</h3>
-            <p class="note">* يتم خصم 1.5% رسوم تحويل عند السحب إلى الرصيد الأساسي.</p>
-            <button id="btn-claim-ref" class="action-btn" onclick="claimRefEarnings()" disabled>سحب الأرباح الآن</button>
-        </div>
-
-        <!-- مكافآت الإنجازات -->
-        <div class="tasks-section section-box">
-            <h3>🎁 مكافآت الإنجازات (المهام)</h3>
-            <ul id="ref-tasks-list" class="tasks-list">
-                <!-- سيتم ملؤها عبر الجافاسكريبت -->
-            </ul>
-        </div>
-
-        <!-- سجل الأصدقاء -->
-        <div class="friends-list-section section-box">
-            <h3>👥 سجل أصدقائك</h3>
-            <div id="friends-list-container">
-                <p style="text-align:center; color:#888;">...جاري التحميل</p>
-            </div>
-        </div>
+<div class="farm-container" style="padding: 20px; direction: rtl; font-family: sans-serif; padding-bottom: 90px;">
+    
+    <div style="display: flex; justify-content: space-between; padding: 15px; background: #1a1a1a; border-radius: 12px; margin-bottom: 25px; border: 1px solid #333;">
+        <div id="farm-rate" style="color: #ffcc00; font-weight: bold; font-size: 16px;">⚡ 0/h</div>
+        <div id="farm-balance" style="color: #ffcc00; font-weight: bold; font-size: 16px;">ZN: 0</div>
     </div>
 
-    <!-- استدعاء ملف الجافاسكريبت -->
-    <script src="friends.js"></script>
-</body>
-</html>
+    <div style="display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 25px;">
+        
+        <!-- الزر يبدأ معطلاً افتراضياً لمنع السبام قبل التحميل -->
+        <button id="boost-btn" disabled class="btn-cooldown" onclick="handleDailyBoost()" style="width: 70px; height: 70px; border-radius: 50%; border: 2px solid #fff; color: white; display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: pointer; transition: 0.2s;">
+            <span id="boost-icon" style="font-size: 22px; margin-bottom: 2px;">⏳</span>
+            <span id="boost-text" style="font-size: 11px; font-weight: bold;">تحميل...</span>
+        </button>
+
+        <div style="perspective: 1000px;">
+            <div class="coin-3d">ZN</div>
+        </div>
+        
+        <div style="width: 70px;"></div> 
+    </div>
+    
+    <div style="width: 100%; background: #333; height: 20px; border-radius: 10px; overflow: hidden; margin-bottom: 8px; border: 1px solid #444;">
+        <div id="storage-progress" style="width: 0%; height: 100%; transition: width 0.3s, background 0.3s; background: linear-gradient(90deg, #0088cc, #00bfff);"></div>
+    </div>
+    <div id="storage-text" style="text-align: center; font-size: 14px; color: #ccc; margin-bottom: 15px; font-weight: bold;">
+        0 / 100
+    </div>
+    
+    <!-- زر التجميع يبدأ معطلاً أيضاً -->
+    <button id="claim-btn" disabled class="btn-cooldown" onclick="handleClaim()" style="width: 100%; padding: 15px; border: none; color: white; border-radius: 10px; font-weight: bold; font-size: 16px; cursor: pointer; margin-bottom: 25px; transition: 0.3s;">
+        جاري التحميل... ⏳
+    </button>
+
+    <div style="margin-bottom: 25px;">
+        <div style="color: #fff; font-weight: bold; font-size: 15px; margin-bottom: 12px;">⚡ ترقيات ومستويات التعدين (أقصى حد: 10)</div>
+        <div id="mining-fields" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;"></div>
+    </div>
+
+    <div style="background: #1a1a1a; border-radius: 12px; border: 1px solid #333; padding: 15px; margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <span style="color: #fff; font-weight: bold; font-size: 15px;">📅 التسجيل الشهري (متصل باليوم)</span>
+        </div>
+        
+        <div id="daily-rewards-container" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;"></div>
+    </div>
+</div>
+
+<style>
+.coin-3d {
+    width: 120px;
+    height: 120px;
+    background: radial-gradient(circle, #ffdf00, #d4af37, #997a00);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 38px;
+    font-weight: 900;
+    color: #fff;
+    border: 4px solid #fffb00;
+    box-shadow: 0 0 25px rgba(255, 204, 0, 0.6), inset 0 0 15px rgba(0,0,0,0.3);
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    animation: spin3D 4s linear infinite;
+    transform-style: preserve-3d;
+}
+@keyframes spin3D {
+    0% { transform: rotateY(0deg); }
+    100% { transform: rotateY(360deg); }
+}
+
+#boost-btn:active:not(:disabled) { transform: scale(0.9); }
+.btn-cooldown { background: #555 !important; cursor: not-allowed !important; color: #aaa !important; box-shadow: none !important; }
+.btn-ready { background: #28a745 !important; animation: pulseGreen 2s infinite; box-shadow: 0 4px 6px rgba(0,0,0,0.3) !important;}
+.timer-text { font-size: 11px !important; font-weight: bold; color: #fff; }
+
+@keyframes pulseGreen {
+    0% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(40, 167, 69, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0); }
+}
+    </style>
