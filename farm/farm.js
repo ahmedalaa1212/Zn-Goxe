@@ -1,6 +1,8 @@
 // farm/farm.js
 (function initFarm() {
     const INIT_DATA = (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) ? window.Telegram.WebApp.initData : "";
+    // إضافة: التقاط كود الدعوة من رابط التيليجرام
+    const START_PARAM = (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.start_param) ? window.Telegram.WebApp.initDataUnsafe.start_param : "";
 
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 10, // الحد الأقصى للترقيات (10 مستويات)
@@ -44,7 +46,10 @@
             let response = await fetch('/api/farm/player_data', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: INIT_DATA })
+                body: JSON.stringify({ 
+                    initData: INIT_DATA,
+                    start_param: START_PARAM // إضافة: إرسال كود الدعوة للسيرفر
+                })
             });
             let resData = await response.json();
             if (response.ok && resData.success) {
