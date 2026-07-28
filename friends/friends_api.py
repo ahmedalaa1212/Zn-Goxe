@@ -34,7 +34,7 @@ def get_friends_data():
 
 @friends_bp.route('/list', methods=['POST'])
 def get_friends_list():
-    """جلب سجل الأصدقاء"""
+    """جلب سجل الأصدقاء (تم التصحيح هنا)"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -46,10 +46,20 @@ def get_friends_list():
         friends_list = []
         for doc in friends_query:
             f_data = doc.to_dict()
+            
+            # حساب إجمالي الترقيات الفعلي للصديق عشان تظهر الحالة صح
+            upgrades = f_data.get('upgrades', {})
+            total_upgrades = 0
+            if isinstance(upgrades, dict):
+                for k, v in upgrades.items():
+                    try: total_upgrades += int(v)
+                    except: pass
+            
             friends_list.append({
                 "name": f_data.get('first_name', 'صديق'),
-                "upgrades_count": f_data.get('upgrades_count', 0),
-                "generated": f_data.get('ref_generated_amount', 0)
+                "upgrades_count": total_upgrades,
+                # قراءة الرقم اللي الصديق ده جابهولك انت، مش إجمالي أرباحه هو من إحالاته
+                "generated": f_data.get('generated_for_inviter', 0)
             })
             
         return jsonify({"success": True, "friends": friends_list}), 200
