@@ -1,8 +1,22 @@
+// shop/shop.js
 (function initShop() {
     
+    // --- أدوات المزامنة الموحدة مع الذاكرة المحلية ---
+    function getStoredBalance() {
+        const bal = localStorage.getItem('user_balance') || localStorage.getItem('zn_balance');
+        return bal !== null ? parseFloat(bal) : null;
+    }
+
+    function setStoredBalance(newBalance) {
+        if (newBalance !== undefined && newBalance !== null) {
+            const strVal = newBalance.toString();
+            localStorage.setItem('user_balance', strVal);
+            localStorage.setItem('zn_balance', strVal);
+        }
+    }
+
     // إعدادات المتجر
     const SHOP_CONFIG = {
-        // تم تحديث الحد الأقصى لكل مستوى ليكون ديناميكياً
         maxMiningUpgrades: {
             1: 15, 2: 10, 3: 10, 4: 10, 5: 10, 
             6: 10, 7: 10, 8: 10, 9: 10
@@ -19,7 +33,6 @@
             1: 1000, 2: 2000, 3: 3000, 4: 4000, 5: 5000,
             6: 6000, 7: 7000, 8: 8000, 9: 9000, 10: 10000
         },
-        // تم توحيد السعات لتتناسب مع الباك إند
         storageCapacities: { 
             1: 100, 2: 300, 3: 600, 4: 1000, 5: 1500,
             6: 2500, 7: 3500, 8: 4500, 9: 5500, 10: 7000
@@ -93,10 +106,10 @@
 
     window.closeShopModal = function() {
         const overlay = document.getElementById('shop-confirm-modal-overlay');
-        if(overlay) {
+        if (overlay) {
             overlay.classList.remove('shop-modal-active');
             setTimeout(() => {
-                if(!overlay.classList.contains('shop-modal-active')) {
+                if (!overlay.classList.contains('shop-modal-active')) {
                     overlay.style.display = 'none'; 
                 }
             }, 300);
@@ -104,7 +117,6 @@
     };
 
     injectModalUI();
-    // ==========================================
 
     window.switchShopTab = function(tab) {
         const miningSec = document.getElementById('shop-mining-section');
@@ -117,13 +129,13 @@
         if (tab === 'mining') {
             miningSec.style.display = 'grid';
             storageSec.style.display = 'none';
-            btnMining.style.background = '#0088cc';
-            btnStorage.style.background = '#333';
+            if (btnMining) btnMining.style.background = '#0088cc';
+            if (btnStorage) btnStorage.style.background = '#333';
         } else {
             miningSec.style.display = 'none';
             storageSec.style.display = 'grid';
-            btnMining.style.background = '#333';
-            btnStorage.style.background = '#0088cc';
+            if (btnMining) btnMining.style.background = '#333';
+            if (btnStorage) btnStorage.style.background = '#0088cc';
         }
     };
 
@@ -137,12 +149,15 @@
         const storageSec = document.getElementById('shop-storage-section');
         
         if (!miningSec || !storageSec) {
-            setTimeout(window.updateShopUI, 500);
             return;
         }
 
         const pData = window.PlayerData || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0 };
-        let totalBal = parseFloat(pData.balance || 0);
+        
+        // قراءة الرصيد المحلي أولاً لضمان عدم حدوث رفة
+        let storedBal = getStoredBalance();
+        let totalBal = storedBal !== null ? storedBal : parseFloat(pData.balance || 0);
+        if (window.PlayerData) window.PlayerData.balance = totalBal;
 
         const shopBalEl = document.getElementById('shop-balance-text');
         const shopRateEl = document.getElementById('shop-rate-text');
@@ -235,10 +250,10 @@
         storageSec.innerHTML = storageHtml;
     };
 
-
     window.requestShopPurchase = function(type, level, price) {
         const pData = window.PlayerData;
-        const totalBal = parseFloat((pData && pData.balance) || 0);
+        const storedBal = getStoredBalance();
+        const totalBal = storedBal !== null ? storedBal : parseFloat((pData && pData.balance) || 0);
         let numPrice = parseFloat(price);
 
         if (totalBal < numPrice) {
@@ -254,30 +269,37 @@
         const confirmBtn = document.getElementById('shop-modal-confirm-btn');
 
         if (type === 'speed') {
-            iconEl.innerText = '⚡';
-            titleEl.innerText = 'ترقية سرعة التعدين';
-            descEl.innerText = `هل تريد شراء ترقية السرعة (مستوى ${level})؟`;
-            confirmBtn.style.background = '#ffcc00';
-            confirmBtn.style.color = '#000';
+            if (iconEl) iconEl.innerText = '⚡';
+            if (titleEl) titleEl.innerText = 'ترقية سرعة التعدين';
+            if (descEl) descEl.innerText = `هل تريد شراء ترقية السرعة (مستوى ${level})؟`;
+            if (confirmBtn) {
+                confirmBtn.style.background = '#ffcc00';
+                confirmBtn.style.color = '#000';
+            }
         } else {
-            iconEl.innerText = '📦';
-            titleEl.innerText = 'توسعة المخزن';
-            descEl.innerText = `هل تريد ترقية مساحة المخزن الخاص بك إلى (مستوى ${level})؟`;
-            confirmBtn.style.background = '#0088cc';
-            confirmBtn.style.color = '#fff';
+            if (iconEl) iconEl.innerText = '📦';
+            if (titleEl) titleEl.innerText = 'توسعة المخزن';
+            if (descEl) descEl.innerText = `هل تريد ترقية مساحة المخزن الخاص بك إلى (مستوى ${level})؟`;
+            if (confirmBtn) {
+                confirmBtn.style.background = '#0088cc';
+                confirmBtn.style.color = '#fff';
+            }
         }
 
-        priceEl.innerText = `التكلفة: ${numPrice.toLocaleString()} ZN`;
+        if (priceEl) priceEl.innerText = `التكلفة: ${numPrice.toLocaleString()} ZN`;
 
-        confirmBtn.onclick = function() {
-            closeShopModal();
-            executeActualPurchase(type, level, price);
-        };
+        if (confirmBtn) {
+            confirmBtn.onclick = function() {
+                closeShopModal();
+                executeActualPurchase(type, level, price);
+            };
+        }
 
-        overlay.style.display = 'flex';
-        setTimeout(() => overlay.classList.add('shop-modal-active'), 10);
+        if (overlay) {
+            overlay.style.display = 'flex';
+            setTimeout(() => overlay.classList.add('shop-modal-active'), 10);
+        }
     };
-
 
     async function executeActualPurchase(type, level, price) {
         const initData = window.Telegram?.WebApp?.initData; 
@@ -318,6 +340,8 @@
             let resData = await response.json();
 
             if (response.ok && resData.success) {
+                setStoredBalance(resData.balance);
+
                 if (window.PlayerData) {
                     window.PlayerData.balance = resData.balance;
                     window.PlayerData.last_claim_time = resData.last_claim_time; 
@@ -352,6 +376,17 @@
             window.updateShopUI();
         }
     }
+
+    // --- مستمعات التنقل والمزامنة اللحظية ---
+    window.addEventListener('pageshow', () => {
+        window.updateShopUI();
+    });
+
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+            window.updateShopUI();
+        }
+    });
 
     window.updateShopUI();
     setInterval(window.updateShopUI, 1000);
