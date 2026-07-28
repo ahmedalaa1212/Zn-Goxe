@@ -1,4 +1,3 @@
-// friends/friends.js
 (function initFriendsModule() {
     const REF_TASKS = [
         { id: 1, reqFriends: 1, reward: 5000 },
@@ -10,9 +9,9 @@
         { id: 7, reqFriends: 500, reward: 10000000 }
     ];
 
-    const BOT_USERNAME = "zngoxe_bot"; // يوزر البوت بدون @
+    const BOT_USERNAME = "zngoxe_bot"; // اسم يوزر البوت بدون @
 
-    // --- أدوات المزامنة الموحدة مع game.js و localStorage ---
+    // --- أدوات المزامنة الموحدة للرصيد ---
     function getStoredBalance() {
         if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
             return parseFloat(window.GameState.balance);
@@ -31,6 +30,15 @@
                 localStorage.setItem('zn_balance', numVal.toString());
                 localStorage.setItem('user_balance', numVal.toString());
             }
+        }
+    }
+
+    function showToast(message) {
+        const tele = window.Telegram?.WebApp;
+        if (tele && tele.showAlert) {
+            tele.showAlert(message);
+        } else {
+            alert(message);
         }
     }
 
@@ -69,7 +77,7 @@
             return;
         }
 
-        // 2. طلب أحدث البيانات من السيرفر ومزامنتها
+        // 2. طلب أحدث البيانات من الخادم ومزامنتها
         loadFriendsData(initData);
     }
 
@@ -91,7 +99,7 @@
                 }
             }
         } catch (error) {
-            console.warn("Failed to fetch player friends data:", error);
+            console.warn("فشل في جلب بيانات الأصدقاء من الخادم:", error);
         }
 
         window.updateFriendsUI();
@@ -188,14 +196,28 @@
         
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(link).then(() => {
-                if (window.Telegram?.WebApp?.showAlert) {
-                    window.Telegram.WebApp.showAlert("✅ تم نسخ رابط الدعوة بنجاح!");
-                } else {
-                    alert("✅ تم نسخ رابط الدعوة بنجاح!");
-                }
+                showToast("✅ تم نسخ رابط الدعوة بنجاح!");
             }).catch(() => fallbackCopy(refInput));
         } else {
             fallbackCopy(refInput);
+        }
+    };
+
+    window.shareRefLink = function() {
+        const refInput = document.getElementById('ref-link-input');
+        if (!refInput) return;
+        
+        const link = refInput.value;
+        if (!link || link.includes("جاري") || link.includes("يرجى")) return;
+
+        const shareText = "انضم إلي في لعبة Zn Goxe واحصل على مكافآت تعدين مجانية! 🪙🚀";
+        const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(shareText)}`;
+
+        const tele = window.Telegram?.WebApp;
+        if (tele && typeof tele.openTelegramLink === 'function') {
+            tele.openTelegramLink(shareUrl);
+        } else {
+            window.open(shareUrl, '_blank');
         }
     };
 
@@ -203,11 +225,7 @@
         inputEl.select();
         inputEl.setSelectionRange(0, 99999);
         document.execCommand("copy");
-        if (window.Telegram?.WebApp?.showAlert) {
-            window.Telegram.WebApp.showAlert("✅ تم نسخ رابط الدعوة بنجاح!");
-        } else {
-            alert("✅ تم نسخ رابط الدعوة بنجاح!");
-        }
+        showToast("✅ تم نسخ رابط الدعوة بنجاح!");
     }
 
     window.claimRefEarnings = async function() {
@@ -233,26 +251,24 @@
             const data = await res.json();
             
             if (res.ok && data.success) {
-                if (tele?.showAlert) {
-                    tele.showAlert(`🎉 تم السحب بنجاح!\nأُضيف ${Math.floor(data.net_amount).toLocaleString()} ZN إلى رصيدك.`);
-                }
+                showToast(`🎉 تم السحب بنجاح!\nأُضيف ${Math.floor(data.net_amount).toLocaleString()} ZN إلى رصيدك.`);
                 
                 // تحديث الـ LocalStorage والذاكرة فوراً
                 setStoredBalance(data.new_balance);
-                if (!window.PlayerData) window.PlayerData = {};
+                if (!windowPlayerData) window.PlayerData = {};
                 window.PlayerData.balance = data.new_balance;
                 window.PlayerData.pending_ref_earnings = 0;
                 
                 window.updateFriendsUI();
             } else {
-                if (tele?.showAlert) tele.showAlert(data.error || "فشل السحب");
+                showToast(data.error || "فشل السحب");
                 if (btn) {
                     btn.disabled = false;
                     btn.innerText = "سحب الأرباح الآن 💰";
                 }
             }
         } catch (e) {
-            if (tele?.showAlert) tele.showAlert('خطأ في الاتصال بالخادم.');
+            showToast('خطأ في الاتصال بالخادم.');
             if (btn) {
                 btn.disabled = false;
                 btn.innerText = "سحب الأرباح الآن 💰";
@@ -277,9 +293,7 @@
             const data = await res.json();
             
             if (res.ok && data.success) {
-                if (tele?.showAlert) {
-                    tele.showAlert(`🎊 مبروك! استلمت مكافأة ${reward.toLocaleString()} ZN.`);
-                }
+                showToast(`🎊 مبروك! استلمت مكافأة ${reward.toLocaleString()} ZN.`);
                 
                 setStoredBalance(data.new_balance);
                 if (!window.PlayerData) window.PlayerData = {};
@@ -289,10 +303,10 @@
                 
                 window.updateFriendsUI();
             } else {
-                if (tele?.showAlert) tele.showAlert(data.error || "خطأ في استلام المكافأة");
+                showToast(data.error || "خطأ في استلام المكافأة");
             }
         } catch (e) {
-            if (tele?.showAlert) tele.showAlert('خطأ في الاتصال بالخادم.');
+            showToast('خطأ في الاتصال بالخادم.');
         }
     };
 
@@ -321,8 +335,8 @@
                 data.friends.forEach(f => {
                     const cnt = f.upgrades_count || 0;
                     let statusHtml = cnt >= 3 
-                        ? `<span style="color: #2ecc71; font-size: 0.8rem;">مؤهل للمهام (${cnt}/3 ترقيات) ✅</span>`
-                        : `<span style="color: #f39c12; font-size: 0.8rem;">ينقصه ${3 - cnt} ترقية (${cnt}/3 ترقيات) ⏳</span>`;
+                        ? `<span style="color: #2ecc71;">مؤهل للمهام (${cnt}/3 ترقيات) ✅</span>`
+                        : `<span style="color: #f39c12;">ينقصه ${3 - cnt} ترقية (${cnt}/3) ⏳</span>`;
                     
                     html += `
                         <li class="friend-item">
@@ -345,7 +359,7 @@
         }
     }
 
-    // تجديد الرصيد فور العودة للصفحة من أي تبويب آخر
+    // تجديد الرصيد فور العودة للصفحة
     window.addEventListener('pageshow', function() {
         const stored = getStoredBalance();
         if (stored !== null) {
