@@ -8,8 +8,57 @@ const REF_TASKS = [
     { id: 7, reqFriends: 500, reward: 10000000 }
 ];
 
+// ⚠️ تأكد أن هذا هو يوزر البوت الخاص بك بالضبط
 const BOT_USERNAME = "zngoxe_bot"; 
 
+// ==========================================
+// 1. جلب البيانات تلقائياً عند فتح الصفحة
+// ==========================================
+document.addEventListener("DOMContentLoaded", async () => {
+    const tele = window.Telegram?.WebApp;
+    if (tele) {
+        tele.ready();
+        tele.expand();
+    }
+    
+    const initData = tele?.initData;
+    
+    if (!initData) {
+        document.getElementById('ref-link-input').value = "يرجى فتح التطبيق من تليجرام";
+        document.getElementById('friends-list-container').innerHTML = '<div class="empty-state">يرجى فتح التطبيق من تليجرام لعرض الأصدقاء.</div>';
+        return;
+    }
+
+    try {
+        // جلب بيانات اللاعب الأساسية لعرض الرابط والمحفظة
+        const response = await fetch('/api/farm/player_data', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ initData: initData })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            window.PlayerData = data.player; // حفظ البيانات
+            updateFriendsUI(); // تحديث الواجهة
+        } else {
+            document.getElementById('ref-link-input').value = "حدث خطأ في جلب البيانات";
+        }
+        
+        // جلب قائمة الأصدقاء (السجل)
+        await fetchAndRenderFriendsList();
+
+    } catch (error) {
+        console.error("Error fetching data:", error);
+        document.getElementById('ref-link-input').value = "خطأ في الاتصال بالسيرفر";
+    }
+});
+
+
+// ==========================================
+// 2. تحديث واجهة الأصدقاء (الرابط، المهام، الأرصدة)
+// ==========================================
 window.updateFriendsUI = function() {
     const pData = window.PlayerData;
     if (!pData) return;
@@ -25,7 +74,7 @@ window.updateFriendsUI = function() {
 
     const btnClaim = document.getElementById('btn-claim-ref');
     if (btnClaim) {
-        if (pData.pending_ref_earnings <= 0) {
+        if ((pData.pending_ref_earnings || 0) <= 0) {
             btnClaim.disabled = true;
             btnClaim.innerText = "لا توجد أرباح للسحب";
         } else {
@@ -36,19 +85,20 @@ window.updateFriendsUI = function() {
 
     const linkInput = document.getElementById('ref-link-input');
     if (linkInput) {
-        if (pData.tg_id) {
-            linkInput.value = `https://t.me/${BOT_USERNAME}?start=ref_${pData.tg_id}`;
+        if (pData.telegram_id || pData.tg_id) {
+            const uid = pData.telegram_id || pData.tg_id;
+            linkInput.value = `https://t.me/${BOT_USERNAME}?start=ref_${uid}`;
         } else {
-            linkInput.value = "جاري التحميل...";
+            linkInput.value = "فشل توليد الرابط";
         }
     }
 
     renderRefTasks();
-    if(typeof window.fetchAndRenderFriendsList === 'function') {
-        window.fetchAndRenderFriendsList();
-    }
 };
 
+// ==========================================
+// 3. عرض مهام الأصدقاء (الإنجازات)
+// ==========================================
 function renderRefTasks() {
     const listEl = document.getElementById('ref-tasks-list');
     if (!listEl) return;
@@ -87,11 +137,9 @@ function renderRefTasks() {
                         ${btnHtml}
                     </div>
                 </div>
-                
                 <div class="progress-container">
                     <div class="progress-bar" style="width: ${progressPercent}%;"></div>
                 </div>
-                
                 <div class="task-footer">
                     <span>تقدمك: ${currentFriends} / ${task.reqFriends}</span>
                     <span>${Math.floor(progressPercent)}%</span>
@@ -103,43 +151,40 @@ function renderRefTasks() {
     listEl.innerHTML = html;
 }
 
+// ==========================================
+// 4. نسخ الرابط
+// ==========================================
 window.copyRefLink = function() {
-    const pData = window.PlayerData;
-    let finalLink = "";
-    
-    if (pData && pData.tg_id) {
-        finalLink = `https://t.me/${BOT_USERNAME}?start=ref_${pData.tg_id}`;
-    } else {
-        const linkInput = document.getElementById('ref-link-input');
-        if (!linkInput || !linkInput.value || linkInput.value.includes("جاري")) {
-            alert("يرجى الانتظار حتى يتم تحميل الرابط الخاص بك.");
-            return;
-        }
-        finalLink = linkInput.value;
+    const linkInput = document.getElementById('ref-link-input');
+    if (!linkInput || !linkInput.value || linkInput.value.includes("جاري") || linkInput.value.includes("يرجى")) {
+        const tele = window.Telegram?.WebApp;
+        if (tele && tele.showAlert) tele.showAlert("يرجى الانتظار حتى يتم تحميل الرابط الخاص بك.");
+        else alert("يرجى الانتظار حتى يتم تحميل الرابط الخاص بك.");
+        return;
     }
+    
+    const finalLink = linkInput.value;
     
     navigator.clipboard.writeText(finalLink).then(() => {
         const tele = window.Telegram?.WebApp;
         if (tele && tele.showAlert) {
-            tele.showAlert("تم نسخ الرابط بنجاح! 🚀 شاركه الآن.");
+            tele.showAlert("✅ تم نسخ الرابط بنجاح! شاركه الآن.");
         } else {
-            alert("تم نسخ الرابط بنجاح! 🚀");
+            alert("تم نسخ الرابط بنجاح!");
         }
-    }).catch(err => console.error('Error:', err));
+    }).catch(err => console.error('Error copying:', err));
 };
 
-// 🔒 استخدام initData لتأمين سحب الأرباح
+// ==========================================
+// 5. سحب أرباح الإحالة
+// ==========================================
 window.claimRefEarnings = async function() {
     const pData = window.PlayerData;
     const tele = window.Telegram?.WebApp;
     const initData = tele?.initData;
 
-    if (!initData) {
-        if (tele && tele.showAlert) tele.showAlert("⚠️ عذراً، يجب فتح اللعبة من داخل تليجرام.");
-        return;
-    }
-
-    if (!pData || pData.pending_ref_earnings <= 0) return;
+    if (!initData) return;
+    if (!pData || (pData.pending_ref_earnings || 0) <= 0) return;
 
     const btn = document.getElementById('btn-claim-ref');
     try {
@@ -148,47 +193,43 @@ window.claimRefEarnings = async function() {
         const res = await fetch('/api/friends/claim_ref_earnings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ initData: initData }) // 🔒
+            body: JSON.stringify({ initData: initData })
         });
         
         const data = await res.json();
         
         if (data.success) {
-            const msg = `🎉 تم السحب بنجاح!\nأضيف ${Math.floor(data.net_amount).toLocaleString()} ZN إلى رصيدك.`;
-            if (tele && tele.showAlert) tele.showAlert(msg);
-            else alert(msg);
+            if (tele && tele.showAlert) tele.showAlert(`🎉 تم السحب بنجاح!\nأضيف ${Math.floor(data.net_amount).toLocaleString()} ZN إلى رصيدك.`);
             
-            if(window.fetchPlayerDataFromServer) window.fetchPlayerDataFromServer();
+            // تحديث البيانات محلياً
+            window.PlayerData.balance = data.new_balance;
+            window.PlayerData.pending_ref_earnings = 0;
+            updateFriendsUI();
         } else {
-            const errMsg = data.error || 'حدث خطأ أثناء السحب.';
-            if (tele && tele.showAlert) tele.showAlert(errMsg);
-            else alert(errMsg);
+            if (tele && tele.showAlert) tele.showAlert(data.error || 'حدث خطأ أثناء السحب.');
             if(btn) { btn.disabled = false; btn.innerText = "سحب الأرباح الآن"; }
         }
     } catch (e) {
-        const errMsg = 'خطأ في الاتصال بالخادم. يرجى المحاولة لاحقاً.';
-        if (tele && tele.showAlert) tele.showAlert(errMsg);
-        else alert(errMsg);
+        if (tele && tele.showAlert) tele.showAlert('خطأ في الاتصال بالخادم. يرجى المحاولة لاحقاً.');
         if(btn) { btn.disabled = false; btn.innerText = "سحب الأرباح الآن"; }
     }
 };
 
-// 🔒 استخدام initData لتأمين استلام مهام الإحالة
+// ==========================================
+// 6. استلام مكافأة مهام الدعوة
+// ==========================================
 window.claimRefTask = async function(taskId, reward, reqFriends) {
     const tele = window.Telegram?.WebApp;
     const initData = tele?.initData;
 
-    if (!initData) {
-        if (tele && tele.showAlert) tele.showAlert("⚠️ عذراً، يجب فتح اللعبة من داخل تليجرام.");
-        return;
-    }
+    if (!initData) return;
 
     try {
         const res = await fetch('/api/friends/claim_ref_task', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
-                initData: initData, // 🔒
+                initData: initData,
                 taskId: taskId, 
                 reward: reward, 
                 reqFriends: reqFriends 
@@ -198,24 +239,24 @@ window.claimRefTask = async function(taskId, reward, reqFriends) {
         const data = await res.json();
         
         if (data.success) {
-            const msg = `🎊 مبروك! لقد أتممت المهمة واستلمت ${reward.toLocaleString()} ZN.`;
-            if (tele && tele.showAlert) tele.showAlert(msg);
-            else alert(msg);
+            if (tele && tele.showAlert) tele.showAlert(`🎊 مبروك! لقد أتممت المهمة واستلمت ${reward.toLocaleString()} ZN.`);
             
-            if(window.fetchPlayerDataFromServer) window.fetchPlayerDataFromServer();
+            // تحديث البيانات محلياً
+            window.PlayerData.balance = data.new_balance;
+            if(!window.PlayerData.claimed_ref_tasks) window.PlayerData.claimed_ref_tasks = [];
+            window.PlayerData.claimed_ref_tasks.push(taskId);
+            updateFriendsUI();
         } else {
-            const errMsg = data.error || 'عذراً، لم تتمكن من استلام المكافأة.';
-            if (tele && tele.showAlert) tele.showAlert(errMsg);
-            else alert(errMsg);
+            if (tele && tele.showAlert) tele.showAlert(data.error || 'عذراً، لم تتمكن من استلام المكافأة.');
         }
     } catch (e) {
-        const errMsg = 'خطأ في الاتصال بالخادم.';
-        if (tele && tele.showAlert) tele.showAlert(errMsg);
-        else alert(errMsg);
+        if (tele && tele.showAlert) tele.showAlert('خطأ في الاتصال بالخادم.');
     }
 };
 
-// 🔒 جلب قائمة الأصدقاء (سجل الأصدقاء) وكم ربحت منهم
+// ==========================================
+// 7. جلب وعرض سجل الأصدقاء
+// ==========================================
 window.fetchAndRenderFriendsList = async function() {
     const tele = window.Telegram?.WebApp;
     const initData = tele?.initData;
@@ -267,7 +308,3 @@ window.fetchAndRenderFriendsList = async function() {
         container.innerHTML = '<div class="empty-state">خطأ في الاتصال بالخادم.</div>';
     }
 };
-
-if (window.PlayerData && window.PlayerData.tg_id) {
-    window.updateFriendsUI();
-                        }
