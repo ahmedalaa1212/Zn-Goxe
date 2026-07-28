@@ -2,7 +2,6 @@ import os
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 import database
-from google.cloud import firestore
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app')
@@ -27,45 +26,19 @@ def start_command(message):
     if len(text_parts) > 1:
         ref_id = text_parts[1].replace('ref_', '').strip()
         
-    # التحقق المباشر من قاعدة البيانات لضمان دقة الدعوات
-    user_ref = database.db.collection('users').document(tg_id)
-    user_doc = user_ref.get()
+    # التحقق وتحديث/إنشاء المستخدم من خلال database.py لتوحيد العمليات
+    is_new = database.init_user(tg_id, ref_id, first_name)
     
-    is_new_user = not user_doc.exists
-    
-    if is_new_user:
-        # إنشاء المستخدم الجديد وربطه بالشخص الذي دعاه
-        new_data = {
-            'first_name': first_name,
-            'balance': 0,
-            'referred_by': ref_id if ref_id and ref_id != tg_id else None,
-            'invited_friends_count': 0,
-            'pending_ref_earnings': 0,
-            'claimed_ref_tasks': [],
-            'upgrades_count': 0,
-            'ref_generated_amount': 0
-        }
-        user_ref.set(new_data)
-        
-        # إذا كان هناك شخص قام بدعوته، نقوم بزيادة العداد الخاص به
-        if ref_id and ref_id != tg_id:
-            referrer_ref = database.db.collection('users').document(ref_id)
-            if referrer_ref.get().exists:
-                # زيادة عداد الأصدقاء بواحد
-                referrer_ref.update({
-                    'invited_friends_count': firestore.Increment(1)
-                })
-                try:
-                    bot.send_message(
-                        chat_id=int(ref_id), 
-                        text=f"🎉 <b>خبر مفرح!</b>\n\nلقد انضم صديقك <b>[{first_name}]</b> إلى اللعبة عن طريق رابط الإحالة الخاص بك.\nستحصل الآن على 10% من أرباحه للأبد! 💸",
-                        parse_mode='HTML'
-                    )
-                except Exception as e:
-                    print(f"Could not send message to referrer: {e}")
-    else:
-        # إذا كان مستخدم قديم، نقوم بتحديث اسمه فقط (حفاظاً على باقي بياناته عبر database.py)
-        database.init_user(tg_id, None, first_name)
+    # إرسال إشعار للداعي إذا كان اللاعب جديداً وجاء عبر رابط إحالة
+    if is_new and ref_id and str(ref_id) != str(tg_id):
+        try:
+            bot.send_message(
+                chat_id=int(ref_id), 
+                text=f"🎉 <b>خبر مفرح!</b>\n\nلقد انضم صديقك <b>[{first_name}]</b> إلى اللعبة عبر رابطك.\nستحصل الآن على <b>10%</b> من أرباح تعدينه بشكل دائم! 💸",
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            print(f"Could not send message to referrer: {e}")
     
     markup = InlineKeyboardMarkup()
     clean_web_url = WEB_URL.lower().strip()
@@ -74,21 +47,22 @@ def start_command(message):
     if ref_id:
         web_app_url += f"&start_param=ref_{ref_id}"
         
-    btn_game = InlineKeyboardButton("🎮 ابدأ اللعب واجمع الرصيد", web_app=WebAppInfo(url=web_app_url))
-    btn_channel = InlineKeyboardButton("📢 مجتمع اللعبة", url="https://t.me/zngoxe")
+    btn_game = InlineKeyboardButton("🚀 العب الآن واجمع ثروتك", web_app=WebAppInfo(url=web_app_url))
+    btn_channel = InlineKeyboardButton("📢 انضم لمجتمعنا", url="https://t.me/zngoxe")
     
     markup.row(btn_game)
     markup.row(btn_channel)
     
+    # رسالة الترحيب الاحترافية والمحفزة
     welcome_message = (
-        f"👋 <b>أهلاً بك يا {first_name} في عالم Zn Goxe!</b>\n\n"
-        f"🚀 <b>استعد لبناء إمبراطوريتك الرقمية من الصفر!</b>\n"
-        f"هنا، كل ثانية تمر تعمل لصالحك. جهاز التعدين الخاص بك جاهز للانطلاق.\n\n"
-        f"🔥 <b>ماذا ينتظرك بالداخل؟</b>\n"
-        f"⛏️ <b>التعدين الذكي:</b> قم بترقية معداتك لزيادة دخلك التلقائي.\n"
-        f"⚔️ <b>الساحة الكبرى:</b> نافس لاعبين آخرين واربح جوائز ضخمة.\n"
-        f"🤝 <b>نظام الإحالة:</b> ادعُ أصدقاءك واستفد من أرباحهم للأبد!\n\n"
-        f"👇 <b>اضغط على الزر بالأسفل وانطلق الآن!</b>"
+        f"🌟 <b>مرحباً بك يا {first_name} في إمبراطورية Zn Goxe!</b> 🌟\n\n"
+        f"هل أنت مستعد لتغيير قواعد اللعبة؟ 🚀 هنا، وقتك يُترجم إلى ثروة رقمية حقيقية.\n\n"
+        f"💎 <b>ما يجعلك مميزاً هنا:</b>\n"
+        f"⛏️ <b>تعدين لا يتوقف:</b> طور مزرعتك ودع الأرباح تتدفق إليك حتى وأنت نائم.\n"
+        f"🤝 <b>شبكة الثروة:</b> ادعُ أصدقاءك، وابنِ فريقك، واحصل على <b>10%</b> من أرباحهم دائماً!\n"
+        f"⚔️ <b>منافسات ملحمية:</b> ادخل الساحة، اهزم خصومك، واقتنص الجوائز الكبرى.\n\n"
+        f"⚡ <b>لا تضيع الوقت، جهاز التعدين الخاص بك بانتظار إشارة البدء!</b>\n"
+        f"👇 <b>اضغط على الزر بالأسفل وانطلق نحو القمة الآن!</b>"
     )
     
     bot.send_message(message.chat.id, welcome_message, reply_markup=markup, parse_mode="HTML")
