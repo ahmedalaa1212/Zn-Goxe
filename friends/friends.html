@@ -30,7 +30,7 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
             padding: 0;
-            padding-bottom: 90px; /* مساحة للشريط السفلي الجديد */
+            padding-bottom: 90px;
         }
 
         .container {
@@ -170,7 +170,6 @@
         .task-action button { padding: 8px 15px; font-size: 0.9rem; }
         .claimed-btn { background: #27ae60 !important; color: white !important; }
         
-        /* تحديث الشريط السفلي ليطابق الصورة */
         .bottom-nav {
             position: fixed;
             bottom: 0; left: 0; right: 0;
@@ -229,7 +228,7 @@
         <div class="card ref-link-card">
             <h3>🔗 رابط الدعوة الخاص بك</h3>
             <div class="copy-box">
-                <input type="text" id="ref-link-input" readonly value="جاري التحميل...">
+                <input type="text" id="ref-link-input" readonly value="جاري إنشاء الرابط...">
                 <button onclick="copyRefLink()">نسخ الرابط</button>
             </div>
         </div>
@@ -255,7 +254,6 @@
         </div>
     </div>
 
-    <!-- الشريط السفلي المحدث بناءً على الصورة الخاصة بك -->
     <nav class="bottom-nav">
         <a href="settings.html"><i>⚙️</i>الإعدادات</a>
         <a href="shop.html"><i>🏪</i>المتجر</a>
@@ -269,7 +267,7 @@
         <a href="friends.html" class="active"><i>👥</i>الأصدقاء</a>
     </nav>
 
-    <!-- ربط السكربت -->
-    <script src="friends.js"></script>
+    <!-- إضافة ?v=10.0 لإجبار تيليجرام على كسر الكاش وتحديث الملف فوراً -->
+    <script src="friends.js?v=10.0"></script>
 </body>
 </html>
