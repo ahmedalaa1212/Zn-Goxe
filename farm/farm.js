@@ -1,11 +1,10 @@
 // farm/farm.js
 (function initFarm() {
     const INIT_DATA = (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) ? window.Telegram.WebApp.initData : "";
-    // إضافة: التقاط كود الدعوة من رابط التيليجرام
     const START_PARAM = (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.start_param) ? window.Telegram.WebApp.initDataUnsafe.start_param : "";
 
     const GAME_CONFIG = {
-        maxUpgradesPerLevel: 10, // الحد الأقصى للترقيات (10 مستويات)
+        maxUpgradesPerLevel: 10,
         dailyRewards: [
             3000, 4000, 5000, 6000, 7500,          
             10000, 12000, 15000, 18000, 20000,     
@@ -21,6 +20,20 @@
     let isBoosting = false; 
     let isFetching = false;
     let isClaimingMain = false; 
+
+    // --- أدوات المزامنة الموحدة مع باقي الصفحات ---
+    function getStoredBalance() {
+        const bal = localStorage.getItem('user_balance') || localStorage.getItem('zn_balance');
+        return bal !== null ? parseFloat(bal) : null;
+    }
+
+    function setStoredBalance(newBalance) {
+        if (newBalance !== undefined && newBalance !== null) {
+            const strVal = newBalance.toString();
+            localStorage.setItem('user_balance', strVal);
+            localStorage.setItem('zn_balance', strVal);
+        }
+    }
 
     function getTodayUTCStr() {
         return new Date().toISOString().split('T')[0];
@@ -48,16 +61,19 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     initData: INIT_DATA,
-                    start_param: START_PARAM // إضافة: إرسال كود الدعوة للسيرفر
+                    start_param: START_PARAM
                 })
             });
             let resData = await response.json();
             if (response.ok && resData.success) {
                 window.PlayerData = resData.player;
+                if (resData.player && resData.player.balance !== undefined) {
+                    setStoredBalance(resData.player.balance);
+                }
                 if (resData.game_config && resData.game_config.daily_rewards) {
                     GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
                 }
-                window.updateFarmUI(); // تحديث فوري للواجهة بمجرد وصول البيانات
+                window.updateFarmUI();
             }
         } catch (e) { 
             console.error("Error fetching data", e); 
@@ -73,11 +89,18 @@
     window.updateFarmUI = function() {
         const pData = window.PlayerData || {};
         
-        let bal = parseFloat(pData.balance || 0);
+        // قراءة الرصيد الأحدث من المخزن المحلي أولاً لمنع التراجع
+        const storedBal = getStoredBalance();
+        let bal = storedBal !== null ? storedBal : parseFloat(pData.balance || 0);
+        if (window.PlayerData) window.PlayerData.balance = bal;
+
         let hRate = parseFloat(pData.hourly_rate || 0);
         
-        document.getElementById('farm-balance').innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
-        document.getElementById('farm-rate').innerText = `⚡ ${Math.floor(hRate).toLocaleString()}/h`; 
+        const balEl = document.getElementById('farm-balance');
+        if (balEl) balEl.innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
+        
+        const rateEl = document.getElementById('farm-rate');
+        if (rateEl) rateEl.innerText = `⚡ ${Math.floor(hRate).toLocaleString()}/h`; 
         
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
@@ -136,7 +159,7 @@
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
         const pData = window.PlayerData;
-        if (!pData) return; // انتظار جلب البيانات
+        if (!pData) return;
         
         let unclaim = parseFloat(pData.unclaimed || 0);
         let maxC = parseFloat(pData.max_cap || 100);
@@ -172,7 +195,7 @@
                 if (unclaim > 0) {
                     claimBtn.className = "btn-ready";
                     claimBtn.disabled = false;
-                    claimBtn.style.background = ""; // إزالة التجاوز للسماح للكلاس بالعمل
+                    claimBtn.style.background = ""; 
                 } else {
                     claimBtn.className = "btn-cooldown";
                     claimBtn.disabled = true;
@@ -188,7 +211,7 @@
             if (pData.last_boost_date === todayStr) {
                 boostBtn.className = "btn-cooldown";
                 boostBtn.disabled = true;
-                boostBtn.style.background = ""; // تفريغ الخلفية ليظهر الـ cooldown
+                boostBtn.style.background = ""; 
                 boostBtn.style.boxShadow = "none";
                 boostBtn.innerHTML = `<span style="font-size: 16px; margin-bottom:2px;">⏳</span><span class="timer-text">${timeLeftStr}</span>`;
             } else {
@@ -215,8 +238,27 @@
         }
     }, 10000); 
 
+    // تجديد العرض فور العودة للصفحة من أي تبويب آخر
+    window.addEventListener('pageshow', () => {
+        const stored = getStoredBalance();
+        if (stored !== null) {
+            if (!window.PlayerData) window.PlayerData = {};
+            window.PlayerData.balance = stored;
+        }
+        window.updateFarmUI();
+        window.fetchPlayerDataFromServer();
+    });
+
     document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") window.fetchPlayerDataFromServer();
+        if (document.visibilityState === "visible") {
+            const stored = getStoredBalance();
+            if (stored !== null) {
+                if (!window.PlayerData) window.PlayerData = {};
+                window.PlayerData.balance = stored;
+            }
+            window.updateFarmUI();
+            window.fetchPlayerDataFromServer();
+        }
     });
 
     function showTelegramAd(statusCallback) {
@@ -256,6 +298,7 @@
                 });
                 let resData = await response.json();
                 if (response.ok && resData.success) {
+                    if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
                     if (window.Telegram && window.Telegram.WebApp) window.Telegram.WebApp.showAlert(`🚀 تمت زيادة السرعة! العداد سيبدأ الآن.`);
                     await window.fetchPlayerData(); 
                 } else if (resData.error && window.Telegram && window.Telegram.WebApp) {
@@ -298,6 +341,7 @@
                 });
                 let resData = await response.json();
                 if (response.ok && resData.success) {
+                    if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
                     if (window.Telegram && window.Telegram.WebApp) {
                         window.Telegram.WebApp.showAlert(`🎉 استلمت ${resData.reward.toLocaleString()} ZN!`);
                         if (resData.reset_msg) window.Telegram.WebApp.showAlert(resData.reset_msg);
@@ -335,6 +379,7 @@
             let resData = await response.json();
             
             if (response.ok && resData.success) {
+                if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
                 await window.fetchPlayerData(); 
                 claimCooldown = 5; 
             } else {
@@ -351,6 +396,11 @@
         isClaimingMain = false;
     };
 
-    // بدء التشغيل
+    // البدء الفوري برصيد الذاكرة المحلية ثم الاتصال بالسيرفر
+    const cachedBal = getStoredBalance();
+    if (cachedBal !== null) {
+        window.PlayerData = { balance: cachedBal };
+        window.updateFarmUI();
+    }
     window.fetchPlayerData();
 })();
