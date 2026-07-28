@@ -21,17 +21,25 @@
     let isFetching = false;
     let isClaimingMain = false; 
 
-    // --- أدوات المزامنة الموحدة مع باقي الصفحات ---
+    // --- أدوات المزامنة الموحدة مع game.js و localStorage ---
     function getStoredBalance() {
-        const bal = localStorage.getItem('user_balance') || localStorage.getItem('zn_balance');
-        return bal !== null ? parseFloat(bal) : null;
+        if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
+            return parseFloat(window.GameState.balance);
+        }
+        const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
+        return bal !== null ? parseFloat(bal) : 0;
     }
 
     function setStoredBalance(newBalance) {
         if (newBalance !== undefined && newBalance !== null) {
-            const strVal = newBalance.toString();
-            localStorage.setItem('user_balance', strVal);
-            localStorage.setItem('zn_balance', strVal);
+            const numVal = parseFloat(newBalance);
+            if (typeof window.setBalance === 'function') {
+                window.setBalance(numVal);
+            } else {
+                if (window.GameState) window.GameState.balance = numVal;
+                localStorage.setItem('zn_balance', numVal.toString());
+                localStorage.setItem('user_balance', numVal.toString());
+            }
         }
     }
 
@@ -89,9 +97,8 @@
     window.updateFarmUI = function() {
         const pData = window.PlayerData || {};
         
-        // قراءة الرصيد الأحدث من المخزن المحلي أولاً لمنع التراجع
-        const storedBal = getStoredBalance();
-        let bal = storedBal !== null ? storedBal : parseFloat(pData.balance || 0);
+        // قراءة الرصيد الأحدث من الذاكرة اللحظية فوراً
+        let bal = getStoredBalance();
         if (window.PlayerData) window.PlayerData.balance = bal;
 
         let hRate = parseFloat(pData.hourly_rate || 0);
@@ -99,6 +106,11 @@
         const balEl = document.getElementById('farm-balance');
         if (balEl) balEl.innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
         
+        // تحديث أي عنصر برصيد عام إذا كان موجوداً
+        if (typeof window.updateGlobalUI === 'function') {
+            window.updateGlobalUI();
+        }
+
         const rateEl = document.getElementById('farm-rate');
         if (rateEl) rateEl.innerText = `⚡ ${Math.floor(hRate).toLocaleString()}/h`; 
         
@@ -308,8 +320,6 @@
             } catch (e) { 
                 console.error(e); 
             }
-        } else {
-            isBoosting = false;
         }
         isBoosting = false;
     };
@@ -369,7 +379,16 @@
         claimBtn.disabled = true;
         claimBtn.className = "btn-cooldown";
         claimBtn.innerText = "جاري الحفظ... 💾";
+
+        // 🚀 تحديث متفائل (Optimistic Update) للرصيد فوراً
+        const unclaimedAmount = parseFloat(pData.unclaimed || 0);
+        const currentBal = getStoredBalance();
+        const optimisticNewBal = currentBal + unclaimedAmount;
         
+        setStoredBalance(optimisticNewBal);
+        pData.unclaimed = 0;
+        window.updateFarmUI();
+
         try {
             let response = await fetch('/api/farm/claim', {
                 method: 'POST',
@@ -383,6 +402,8 @@
                 await window.fetchPlayerData(); 
                 claimCooldown = 5; 
             } else {
+                // التراجع في حالة الخطأ
+                setStoredBalance(currentBal);
                 if (resData.error && window.Telegram && window.Telegram.WebApp) {
                     window.Telegram.WebApp.showAlert(resData.error);
                 }
@@ -390,17 +411,19 @@
                 claimBtn.innerText = "تجميع الرصيد 💰";
             }
         } catch (e) {
+            // التراجع عند قطع الشبكة
+            setStoredBalance(currentBal);
             claimBtn.disabled = false;
             claimBtn.innerText = "تجميع الرصيد 💰";
         }
         isClaimingMain = false;
     };
 
-    // البدء الفوري برصيد الذاكرة المحلية ثم الاتصال بالسيرفر
+    // البدء الفوري برصيد الذاكرة المحلية دون انتظار السيرفر (0 ثانية delay)
     const cachedBal = getStoredBalance();
-    if (cachedBal !== null) {
-        window.PlayerData = { balance: cachedBal };
-        window.updateFarmUI();
-    }
+    window.PlayerData = { balance: cachedBal, unclaimed: 0, hourly_rate: 0 };
+    window.updateFarmUI();
+
+    // مزامنة البيانات الحقيقية من السيرفر في الخلفية
     window.fetchPlayerData();
 })();
