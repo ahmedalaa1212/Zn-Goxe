@@ -11,7 +11,7 @@ const REF_TASKS = [
 const BOT_USERNAME = "zngoxe_bot"; // يوزر البوت
 
 document.addEventListener("DOMContentLoaded", async () => {
-    let tele = window.Telegram?.WebApp;
+    const tele = window.Telegram?.WebApp;
     if (tele) {
         tele.ready();
         tele.expand();
@@ -20,20 +20,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     const initData = tele?.initData;
     
     if (!initData) {
-        document.getElementById('ref-link-input').value = "يرجى فتح التطبيق من تليجرام";
+        document.getElementById('ref-link-input').value = "يرجى فتح التطبيق من داخل تليجرام";
         document.getElementById('friends-list-container').innerHTML = '<div class="empty-state">يرجى فتح التطبيق من تليجرام لعرض الأصدقاء.</div>';
         return;
     }
 
-    // ✅ الحل الأكيد: توليد الـ ID مباشرة من بيانات تليجرام بدون انتظار الباك إند
+    // توليد الرابط فوراً لضمان عدم بقاء "جاري التحميل"
     let userId = "";
     try {
         if (tele?.initDataUnsafe?.user?.id) {
             userId = tele.initDataUnsafe.user.id;
-        } else {
-            const urlParams = new URLSearchParams(initData);
-            const userStr = urlParams.get('user');
-            if(userStr) userId = JSON.parse(userStr).id;
         }
     } catch(e) { console.error("Error getting user ID:", e); }
 
@@ -44,24 +40,21 @@ document.addEventListener("DOMContentLoaded", async () => {
         refInput.value = "حدث خطأ في توليد الرابط";
     }
 
-    // ✅ جلب بيانات الرصيد (محمية بـ Try/Catch عشان لو فشلت المهام تكمل)
+    // جلب بيانات الرصيد والمهام من مسار الأصدقاء المستقل
     try {
-        const response = await fetch('/api/farm/player_data', {
+        const response = await fetch('/api/friends/data', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ initData: initData })
         });
         const data = await response.json();
-        window.PlayerData = data.success ? (data.player || data.user || {}) : {};
+        window.PlayerData = data.success ? data.player : {};
     } catch (error) {
-        console.warn("Failed to fetch player data, using fallback.");
+        console.warn("Failed to fetch player data.");
         window.PlayerData = {}; 
     }
 
-    // تحديث الأرقام والمهام
     updateFriendsUI();
-    
-    // جلب قائمة الأصدقاء بشكل منفصل
     await fetchAndRenderFriendsList(initData);
 });
 
@@ -157,7 +150,7 @@ window.claimRefEarnings = async function() {
         const data = await res.json();
         
         if (data.success) {
-            tele.showAlert(`🎉 تم السحب بنجاح!\nأضيف ${Math.floor(data.net_amount).toLocaleString()} ZN بعد خصم الرسوم.`);
+            tele.showAlert(`🎉 تم السحب بنجاح!\nأضيف ${Math.floor(data.net_amount).toLocaleString()} ZN إلى رصيدك.`);
             window.PlayerData.balance = data.new_balance;
             window.PlayerData.pending_ref_earnings = 0;
             updateFriendsUI();
