@@ -8,7 +8,7 @@ const REF_TASKS = [
     { id: 7, reqFriends: 500, reward: 10000000 }
 ];
 
-const BOT_USERNAME = "zngoxe_bot"; // تأكد من يوزر البوت
+const BOT_USERNAME = "zngoxe_bot";
 
 document.addEventListener("DOMContentLoaded", async () => {
     const tele = window.Telegram?.WebApp;
@@ -18,15 +18,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
     
     const initData = tele?.initData;
+    const user = tele?.initDataUnsafe?.user; // الحصول على بيانات المستخدم فوراً
     
-    if (!initData) {
+    if (!initData || !user) {
         document.getElementById('ref-link-input').value = "يرجى فتح التطبيق من تليجرام";
         document.getElementById('friends-list-container').innerHTML = '<div class="empty-state">يرجى فتح التطبيق من تليجرام لعرض الأصدقاء.</div>';
         return;
     }
 
+    // 🚀 الحل السحري: توليد الرابط فوراً وبشكل محلي لضمان ظهوره وعدم التعليق
+    document.getElementById('ref-link-input').value = `https://t.me/${BOT_USERNAME}?start=ref_${user.id}`;
+
     try {
-        // جلب بيانات اللاعب من الـ API الرئيسي للمزرعة
         const response = await fetch('/api/farm/player_data', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -35,32 +38,39 @@ document.addEventListener("DOMContentLoaded", async () => {
         
         const data = await response.json();
         
+        // حماية من اختلاف هيكل البيانات القادم من السيرفر
         if (data.success) {
-            window.PlayerData = data.player;
+            window.PlayerData = data.player || data.user || data.data || {}; 
             updateFriendsUI();
         } else {
-            document.getElementById('ref-link-input').value = "حدث خطأ في جلب البيانات";
+            console.warn("استجابة السيرفر فشلت، جاري استخدام بيانات صفرية.");
+            window.PlayerData = { balance: 0, invited_friends_count: 0, pending_ref_earnings: 0 };
+            updateFriendsUI();
         }
-        
-        // جلب قائمة الأصدقاء من الـ API الجديد
-        await fetchAndRenderFriendsList(initData);
-
     } catch (error) {
         console.error("Error fetching data:", error);
-        document.getElementById('ref-link-input').value = "خطأ في الاتصال بالسيرفر";
+        window.PlayerData = { balance: 0, invited_friends_count: 0, pending_ref_earnings: 0 };
+        updateFriendsUI();
     }
+
+    // جلب قائمة الأصدقاء بشكل مستقل حتى لو فشل جلب الرصيد
+    await fetchAndRenderFriendsList(initData);
 });
 
 function updateFriendsUI() {
-    const pData = window.PlayerData;
-    if (!pData) return;
+    const pData = window.PlayerData || {};
+    
+    // تحويل آمن للأرقام لمنع الـ NaN
+    const pending = parseFloat(pData.pending_ref_earnings) || 0;
+    const invited = parseInt(pData.invited_friends_count) || 0;
+    const balance = parseFloat(pData.balance) || 0;
 
-    document.getElementById('pending-ref-earnings').innerText = Math.floor(pData.pending_ref_earnings || 0).toLocaleString();
-    document.getElementById('invited-friends-count').innerText = parseInt(pData.invited_friends_count || 0).toLocaleString();
-    document.getElementById('top-balance-friends').innerText = `ZN: ${Math.floor(pData.balance || 0).toLocaleString()}`;
+    document.getElementById('pending-ref-earnings').innerText = Math.floor(pending).toLocaleString();
+    document.getElementById('invited-friends-count').innerText = invited.toLocaleString();
+    document.getElementById('top-balance-friends').innerText = `ZN: ${Math.floor(balance).toLocaleString()}`;
 
     const btnClaim = document.getElementById('btn-claim-ref');
-    if ((pData.pending_ref_earnings || 0) <= 0) {
+    if (pending <= 0) {
         btnClaim.disabled = true;
         btnClaim.innerText = "لا توجد أرباح للسحب";
     } else {
@@ -68,20 +78,14 @@ function updateFriendsUI() {
         btnClaim.innerText = "سحب الأرباح الآن";
     }
 
-    const uid = pData.telegram_id || pData.tg_id;
-    if (uid) {
-        document.getElementById('ref-link-input').value = `https://t.me/${BOT_USERNAME}?start=ref_${uid}`;
-    }
-
-    renderRefTasks();
+    // تمرير البيانات لدالة المهام لرسمها
+    renderRefTasks(invited, pData.claimed_ref_tasks || []);
 }
 
-function renderRefTasks() {
+function renderRefTasks(currentFriends, claimedTasks) {
     const listEl = document.getElementById('ref-tasks-list');
-    const pData = window.PlayerData;
-    const currentFriends = parseInt(pData.invited_friends_count || 0);
-    const claimedTasks = pData.claimed_ref_tasks || [];
-    
+    if (!listEl) return;
+
     let html = '';
 
     REF_TASKS.forEach(task => {
@@ -215,16 +219,16 @@ async function fetchAndRenderFriendsList(initData) {
             data.friends.forEach(f => {
                 let statusHtml = f.upgrades_count >= 3 
                     ? `<span style="color: #2ecc71; font-size: 0.8rem;">نشط ✅</span>`
-                    : `<span style="color: #f39c12; font-size: 0.8rem;">ينقصه ${3 - f.upgrades_count} ترقية ⏳</span>`;
+                    : `<span style="color: #f39c12; font-size: 0.8rem;">ينقصه ${3 - (f.upgrades_count || 0)} ترقية ⏳</span>`;
                 
                 html += `
                     <li class="friend-item">
-                        <div class="friend-avatar">${f.name.charAt(0).toUpperCase()}</div>
+                        <div class="friend-avatar">${(f.name || 'U').charAt(0).toUpperCase()}</div>
                         <div class="friend-info">
-                            <span class="friend-name">${f.name}</span>
+                            <span class="friend-name">${f.name || 'مستخدم مجهول'}</span>
                             <span class="friend-id">${statusHtml}</span>
                         </div>
-                        <div class="friend-earn">+${Math.floor(f.generated).toLocaleString()} ZN</div>
+                        <div class="friend-earn">+${Math.floor(f.generated || 0).toLocaleString()} ZN</div>
                     </li>
                 `;
             });
