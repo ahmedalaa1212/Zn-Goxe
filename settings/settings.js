@@ -1,5 +1,20 @@
+// settings/settings.js
 (function initSettingsSystem() {
     
+    // --- أدوات المزامنة الموحدة مع باقي الشاشات ---
+    function getStoredBalance() {
+        const bal = localStorage.getItem('user_balance') || localStorage.getItem('zn_balance');
+        return bal !== null ? parseFloat(bal) : null;
+    }
+
+    function setStoredBalance(newBalance) {
+        if (newBalance !== undefined && newBalance !== null) {
+            const strVal = newBalance.toString();
+            localStorage.setItem('user_balance', strVal);
+            localStorage.setItem('zn_balance', strVal);
+        }
+    }
+
     function getTgUser() {
         if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
             if (window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
@@ -30,6 +45,13 @@
     }
 
     function updateStatsFromLocalData() {
+        // تزامن الرصيد المخزن مع متغير اللاعب العام إذا كان موجواً
+        const storedBal = getStoredBalance();
+        if (storedBal !== null) {
+            if (!window.PlayerData) window.PlayerData = {};
+            window.PlayerData.balance = storedBal;
+        }
+
         if (window.PlayerData) {
             const totalMiningEl = document.getElementById('stat-total-mining');
             const totalStorageEl = document.getElementById('stat-total-storage');
@@ -77,8 +99,10 @@
                 if (response.ok) {
                     let result = await response.json();
                     if (result.success) {
-                        document.getElementById('stat-total-mining').innerText = `${result.farm_levels_count} مستويات`;
-                        document.getElementById('stat-total-storage').innerText = `${result.storage_levels_count} مستويات`;
+                        const miningEl = document.getElementById('stat-total-mining');
+                        const storageEl = document.getElementById('stat-total-storage');
+                        if (miningEl) miningEl.innerText = `${result.farm_levels_count} مستويات`;
+                        if (storageEl) storageEl.innerText = `${result.storage_levels_count} مستويات`;
                     }
                 }
             } catch (error) {}
@@ -100,22 +124,25 @@
     const ticketDisplay = document.getElementById('ticket-id-display');
 
     window.openSupportModal = function() {
-        document.getElementById('support-modal').style.display = 'flex';
+        const modal = document.getElementById('support-modal');
+        if (modal) modal.style.display = 'flex';
+        
         // تصفير البيانات عند فتح النافذة
-        chatBox.innerHTML = '';
+        if (chatBox) chatBox.innerHTML = '';
         supportLastMsgCount = -1;
         fetchTicketData();
     };
 
     window.closeSupportModal = function() {
-        document.getElementById('support-modal').style.display = 'none';
-        if(supportPollInterval) clearInterval(supportPollInterval);
+        const modal = document.getElementById('support-modal');
+        if (modal) modal.style.display = 'none';
+        if (supportPollInterval) clearInterval(supportPollInterval);
     };
 
     async function fetchTicketData() {
         const initData = getInitData();
         if (!initData) {
-            ticketDisplay.innerText = "يرجى فتح التطبيق داخل تليجرام";
+            if (ticketDisplay) ticketDisplay.innerText = "يرجى فتح التطبيق داخل تليجرام";
             return;
         }
 
@@ -130,7 +157,7 @@
                 supportTicketId = data.ticket_id;
                 isSupportClosed = data.status === 'closed';
                 
-                ticketDisplay.innerText = `رقم التذكرة: #${supportTicketId}`;
+                if (ticketDisplay) ticketDisplay.innerText = `رقم التذكرة: #${supportTicketId}`;
                 renderMessages(data.messages);
                 
                 if (isSupportClosed) {
@@ -140,16 +167,17 @@
                     startSupportPolling();
                 }
             } else {
-                ticketDisplay.innerText = "خطأ: " + (data.message || "فشل الاتصال");
+                if (ticketDisplay) ticketDisplay.innerText = "خطأ: " + (data.message || "فشل الاتصال");
             }
         } catch (error) {
-            ticketDisplay.innerText = "فشل الاتصال بالسيرفر";
+            if (ticketDisplay) ticketDisplay.innerText = "فشل الاتصال بالسيرفر";
         }
     }
 
     function renderMessages(messages) {
         messages = messages || [];
-        
+        if (!chatBox) return;
+
         // إذا لم يكن هناك تغيير في عدد الرسائل، لا تقم بإعادة الرسم لتجنب الوميض
         if (messages.length === supportLastMsgCount) return;
         supportLastMsgCount = messages.length;
@@ -179,6 +207,7 @@
     }
 
     window.sendSupportMessage = async function() {
+        if (!msgInput) return;
         const text = msgInput.value.trim();
         if (!text || isSupportClosed || !supportTicketId) return;
 
@@ -189,11 +218,14 @@
         tempDiv.className = 'chat-msg msg-user';
         tempDiv.innerText = text;
         tempDiv.style.opacity = '0.5'; 
-        chatBox.appendChild(tempDiv);
-        chatBox.scrollTop = chatBox.scrollHeight;
+        
+        if (chatBox) {
+            chatBox.appendChild(tempDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
         
         msgInput.value = '';
-        sendBtn.disabled = true;
+        if (sendBtn) sendBtn.disabled = true;
 
         try {
             const response = await fetch('/api/support/message', {
@@ -211,8 +243,7 @@
             } else {
                 tempDiv.remove();
                 alert("فشل الإرسال: " + (data.message || "حدث خطأ"));
-                // إذا تم الرد بأنها مغلقة أثناء محاولة الإرسال
-                if(data.message && data.message.includes("إغلاق")) {
+                if (data.message && data.message.includes("إغلاق")) {
                     isSupportClosed = true;
                     fetchTicketData();
                 }
@@ -221,40 +252,49 @@
             tempDiv.remove();
             alert("خطأ في الاتصال بالشبكة.");
         } finally {
-            sendBtn.disabled = false;
+            if (sendBtn) sendBtn.disabled = false;
         }
     };
 
     function disableSupportInput(reason) {
-        msgInput.disabled = true;
-        sendBtn.disabled = true;
-        msgInput.placeholder = reason;
-        inputSection.style.opacity = '0.5';
-        if(supportPollInterval) clearInterval(supportPollInterval);
+        if (msgInput) {
+            msgInput.disabled = true;
+            msgInput.placeholder = reason;
+        }
+        if (sendBtn) sendBtn.disabled = true;
+        if (inputSection) inputSection.style.opacity = '0.5';
+        if (supportPollInterval) clearInterval(supportPollInterval);
     }
 
     function enableSupportInput() {
-        msgInput.disabled = false;
-        sendBtn.disabled = false;
-        msgInput.placeholder = "اكتب رسالتك هنا...";
-        inputSection.style.opacity = '1';
+        if (msgInput) {
+            msgInput.disabled = false;
+            msgInput.placeholder = "اكتب رسالتك هنا...";
+        }
+        if (sendBtn) sendBtn.disabled = false;
+        if (inputSection) inputSection.style.opacity = '1';
     }
 
     function startSupportPolling() {
-        if(supportPollInterval) clearInterval(supportPollInterval);
+        if (supportPollInterval) clearInterval(supportPollInterval);
         supportPollInterval = setInterval(() => {
-            if(!isSupportClosed && document.getElementById('support-modal').style.display === 'flex') {
+            const modal = document.getElementById('support-modal');
+            if (!isSupportClosed && modal && modal.style.display === 'flex') {
                 fetchTicketData();
             }
         }, 3000);
     }
 
-    msgInput.addEventListener('keypress', function (e) {
-        if (e.key === 'Enter') sendSupportMessage();
-    });
+    if (msgInput) {
+        msgInput.addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') sendSupportMessage();
+        });
+    }
 
     window.copyPlayerId = function() {
-        const idText = document.getElementById('player-telegram-id').innerText;
+        const idEl = document.getElementById('player-telegram-id');
+        if (!idEl) return;
+        const idText = idEl.innerText;
         if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(idText).then(() => showToast("تم النسخ!")).catch(() => fallbackCopy(idText));
         } else {
@@ -271,15 +311,36 @@
         document.body.removeChild(textArea);
     }
 
-    window.showPrivacyModal = function() { document.getElementById('settings-modal').style.display = 'flex'; };
-    window.closeSettingsModal = function() { document.getElementById('settings-modal').style.display = 'none'; };
+    window.showPrivacyModal = function() { 
+        const modal = document.getElementById('settings-modal');
+        if (modal) modal.style.display = 'flex'; 
+    };
+    
+    window.closeSettingsModal = function() { 
+        const modal = document.getElementById('settings-modal');
+        if (modal) modal.style.display = 'none'; 
+    };
     
     function showToast(text) {
         const toast = document.getElementById('toast-msg');
+        if (!toast) return;
         toast.innerText = text;
         toast.style.display = 'block';
         setTimeout(() => toast.style.display = 'none', 2000);
     }
+
+    // --- مستمعات التنقل والمزامنة اللحظية ---
+    window.addEventListener('pageshow', () => {
+        updateStatsFromLocalData();
+        fetchAndRenderData();
+    });
+
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+            updateStatsFromLocalData();
+            fetchAndRenderData();
+        }
+    });
 
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
         setTimeout(fetchAndRenderData, 100);
