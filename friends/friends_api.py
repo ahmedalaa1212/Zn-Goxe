@@ -6,7 +6,7 @@ friends_bp = Blueprint('friends', __name__)
 
 @friends_bp.route('/data', methods=['GET', 'POST'])
 def get_friends_data():
-    """مسار مستقل لجلب بيانات صفحة الأصدقاء فقط"""
+    """مسار لجلب بيانات صفحة الأصدقاء بدون تعليق"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -15,10 +15,17 @@ def get_friends_data():
         user_ref = db.collection('users').document(str(user_id))
         user_doc = user_ref.get()
         
+        # إذا كان المستخدم جديداً ولم يُنشأ حسابه بعد، نرجع بيانات افتراضية بدل خطأ 404
         if not user_doc.exists:
-            return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
-            
-        user_data = user_doc.to_dict()
+            user_data = {
+                'balance': 0,
+                'pending_ref_earnings': 0,
+                'invited_friends_count': 0,
+                'claimed_ref_tasks': []
+            }
+        else:
+            user_data = user_doc.to_dict() or {}
+        
         return jsonify({
             "success": True,
             "player": {
@@ -44,7 +51,7 @@ def get_friends_list():
         
         friends_list = []
         for doc in friends_query:
-            f_data = doc.to_dict()
+            f_data = doc.to_dict() or {}
             
             upgrades = f_data.get('upgrades', {})
             total_upgrades = 0
@@ -78,7 +85,7 @@ def claim_ref_earnings():
         if not user_doc.exists:
             return jsonify({"success": False, "error": "حساب المستخدم غير موجود"}), 404
             
-        user_data = user_doc.to_dict()
+        user_data = user_doc.to_dict() or {}
         pending_earnings = float(user_data.get('pending_ref_earnings', 0))
         current_balance = float(user_data.get('balance', 0))
         
@@ -111,7 +118,7 @@ def claim_ref_task():
         if not is_valid:
             return error_resp
             
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         task_id = int(data.get('taskId', 0))
         expected_reward = float(data.get('reward', 0))
         req_friends = int(data.get('reqFriends', 0))
@@ -122,7 +129,7 @@ def claim_ref_task():
         if not user_doc.exists:
             return jsonify({"success": False, "error": "حساب المستخدم غير موجود"}), 404
             
-        user_data = user_doc.to_dict()
+        user_data = user_doc.to_dict() or {}
         invited_count = int(user_data.get('invited_friends_count', 0))
         claimed_tasks = user_data.get('claimed_ref_tasks', [])
         current_balance = float(user_data.get('balance', 0))
