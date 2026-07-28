@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from datetime import datetime, timezone
+from google.cloud import firestore  # تمت إضافتها للتعامل مع الزيادة التلقائية للمبالغ
 from core.security import get_authenticated_user
 from database import db
 
@@ -56,12 +57,34 @@ def get_player_data():
     is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=(request.method == 'POST'))
     if not is_auth: return error_response
 
+    # التقاط كود الدعوة القادم من الفرونت إند
+    req_data = request.get_json() or {}
+    start_param = req_data.get('start_param', '')
+
     try:
         user_ref = db.collection('users').document(telegram_id)
         user_doc = user_ref.get()
         now = datetime.now(timezone.utc)
 
         if not user_doc.exists:
+            # ----------------------------------------------------
+            # 🚀 إضافة: تسجيل دعوة الأصدقاء للمستخدم الجديد
+            # ----------------------------------------------------
+            referred_by = None
+            if start_param and start_param.startswith('ref_'):
+                potential_referrer = start_param.split('_')[1]
+                # منع المستخدم من دعوة نفسه
+                if potential_referrer != str(telegram_id):
+                    referred_by = potential_referrer
+                    # زيادة عداد الأصدقاء لصاحب الرابط
+                    try:
+                        referrer_ref = db.collection('users').document(potential_referrer)
+                        referrer_ref.update({
+                            'invited_friends_count': firestore.Increment(1)
+                        })
+                    except Exception as e:
+                        print(f"Error updating referrer count: {e}")
+
             user_data = {
                 "telegram_id": telegram_id, 
                 "balance": 0.0, 
@@ -74,7 +97,13 @@ def get_player_data():
                 "last_daily_claim_date": None, 
                 "last_boost_date": None,
                 "ads_watched": 0, 
-                "upgrades": {}
+                "upgrades": {},
+                # حقول الأصدقاء الافتراضية
+                "referred_by": referred_by,
+                "pending_ref_earnings": 0.0,
+                "invited_friends_count": 0,
+                "ref_generated_amount": 0.0,
+                "claimed_ref_tasks": []
             }
             user_ref.set(user_data)
         else:
@@ -179,10 +208,10 @@ def claim_mined_tokens():
         if referred_by and len(upgrades) >= 3:
             bonus_for_inviter = unclaimed * 0.10
             try:
-                from google.cloud import firestore
                 inviter_ref = db.collection('users').document(referred_by)
                 inviter_ref.update({
-                    "pending_ref_earnings": firestore.Increment(bonus_for_inviter)
+                    "pending_ref_earnings": firestore.Increment(bonus_for_inviter),
+                    "ref_generated_amount": firestore.Increment(bonus_for_inviter) # إضافة السجل للإجمالي
                 })
                 # إضافة السجل للمستخدم الحالي ليعرف الداعي كم ربح منه
                 update_data["generated_for_inviter"] = firestore.Increment(bonus_for_inviter)
