@@ -412,6 +412,7 @@
                 }
                 if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
                 window.fetchAndRenderTasks();
+                window.updateTasksUI();
             } else { alert("⚠️ خطأ بالإلغاء: " + result.error); }
         } catch (e) { alert("حدث خطأ."); }
         finally { isCancelingCampaign = false; }
@@ -443,11 +444,18 @@
             if (response.ok && result.success) {
                 alert(`✅ شحن ناجح! تمت عملية التحويل لمحفظتك بنجاح.`);
                 if (window.PlayerData) {
-                    window.PlayerData.balance -= amount;
-                    window.PlayerData.ad_balance = (window.PlayerData.ad_balance || 0) + result.received;
+                    if (result.new_balance !== undefined) window.PlayerData.balance = result.new_balance;
+                    else window.PlayerData.balance -= amount;
+
+                    if (result.new_ad_balance !== undefined) window.PlayerData.ad_balance = result.new_ad_balance;
+                    else window.PlayerData.ad_balance = (window.PlayerData.ad_balance || 0) + result.received;
                 }
                 if (window.GameState) {
-                    window.GameState.balance -= amount;
+                    if (result.new_balance !== undefined) window.GameState.balance = result.new_balance;
+                    else window.GameState.balance -= amount;
+                }
+                if (typeof window.fetchPlayerDataFromServer === 'function') {
+                    await window.fetchPlayerDataFromServer();
                 }
                 window.updateTasksUI();
                 if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
@@ -571,7 +579,13 @@
                     document.getElementById('review-modal').style.display = 'none'; 
 
                     if (response.ok && result.success) {
-                        if(window.PlayerData) window.PlayerData.ad_balance -= totalCost;
+                        if (window.PlayerData) {
+                            if (result.new_ad_balance !== undefined) window.PlayerData.ad_balance = result.new_ad_balance;
+                            else window.PlayerData.ad_balance -= totalCost;
+                        }
+                        if (typeof window.fetchPlayerDataFromServer === 'function') {
+                            await window.fetchPlayerDataFromServer();
+                        }
                         document.getElementById('success-modal').style.display = 'flex';
                     } else {
                         isSubmittingCampaign = false;
