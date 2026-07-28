@@ -44,10 +44,11 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
         is_new_referral = False
         
         if not user_doc.exists:
-            # 1. إنشاء حساب اللاعب الجديد بالهيكلة الصحيحة لتدعم الأصدقاء ونسبة 10% والمهام
+            # إنشاء حساب اللاعب الجديد بالهيكلة الصحيحة وإضافة رصيد الإعلانات ad_balance
             new_user_data = {
                 "first_name": first_name,
                 "balance": 0.0,
+                "ad_balance": 0.0,             # رصيد محفظة الإعلانات
                 "hourly_rate": 0.0,
                 "mining_level": 1,
                 "level_1_upgrades": 0,
@@ -61,7 +62,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
             }
             user_ref.set(new_user_data)
             
-            # 2. ربط الإحالة وإنشاء سجل للصديق عند الداعي
+            # ربط الإحالة وإنشاء سجل للصديق عند الداعي
             if ref_id and str(ref_id) != str(tg_id):
                 referrer_ref = db.collection('users').document(str(ref_id))
                 referrer_doc = referrer_ref.get()
