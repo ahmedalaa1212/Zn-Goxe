@@ -20,7 +20,6 @@ function initFriendsPage() {
     const initData = tele?.initData;
     const refInput = document.getElementById('ref-link-input');
     
-    // 1. توليد وتثبيت الرابط فوراً في المربع دون انتظار أي شيء
     let userId = "0000";
     if (tele?.initDataUnsafe?.user?.id) {
         userId = tele.initDataUnsafe.user.id;
@@ -40,7 +39,6 @@ function initFriendsPage() {
         return;
     }
 
-    // 2. طلب بيانات الرصيد وسجل الأصدقاء من السيرفر
     loadFriendsData(initData);
 }
 
@@ -69,7 +67,8 @@ function updateFriendsUI() {
     const pData = window.PlayerData || {};
     
     const pending = parseFloat(pData.pending_ref_earnings) || 0;
-    const invited = parseInt(pData.invited_friends_count) || 0;
+    const totalInvited = parseInt(pData.invited_friends_count) || 0;
+    const eligibleForTasks = parseInt(pData.eligible_task_friends_count) || 0;
     const balance = parseFloat(pData.balance) || 0;
 
     const elPending = document.getElementById('pending-ref-earnings');
@@ -78,7 +77,7 @@ function updateFriendsUI() {
     const btnClaim = document.getElementById('btn-claim-ref');
 
     if(elPending) elPending.innerText = Math.floor(pending).toLocaleString();
-    if(elInvited) elInvited.innerText = invited.toLocaleString();
+    if(elInvited) elInvited.innerText = totalInvited.toLocaleString();
     if(elBalance) elBalance.innerText = `ZN: ${Math.floor(balance).toLocaleString()}`;
 
     if(btnClaim) {
@@ -91,18 +90,18 @@ function updateFriendsUI() {
         }
     }
 
-    renderRefTasks(invited, pData.claimed_ref_tasks || []);
+    renderRefTasks(eligibleForTasks, pData.claimed_ref_tasks || []);
 }
 
-function renderRefTasks(currentFriends, claimedTasks) {
+function renderRefTasks(eligibleFriendsCount, claimedTasks) {
     const listEl = document.getElementById('ref-tasks-list');
     if (!listEl) return;
 
     let html = '';
     REF_TASKS.forEach(task => {
         const isClaimed = claimedTasks.includes(task.id);
-        const isReady = currentFriends >= task.reqFriends;
-        let progressPercent = Math.min((currentFriends / task.reqFriends) * 100, 100);
+        const isReady = eligibleFriendsCount >= task.reqFriends;
+        let progressPercent = Math.min((eligibleFriendsCount / task.reqFriends) * 100, 100);
 
         let btnHtml = '';
         if (isClaimed) {
@@ -110,7 +109,7 @@ function renderRefTasks(currentFriends, claimedTasks) {
         } else if (isReady) {
             btnHtml = `<button onclick="claimRefTask(${task.id}, ${task.reward}, ${task.reqFriends})" class="claim-btn" style="background: linear-gradient(45deg, #2ecc71, #27ae60); color: white;">🎁 استلام</button>`;
         } else {
-            let remaining = task.reqFriends - currentFriends;
+            let remaining = task.reqFriends - eligibleFriendsCount;
             btnHtml = `<button disabled class="locked-btn">🔒 باقي ${remaining}</button>`;
         }
 
@@ -118,7 +117,7 @@ function renderRefTasks(currentFriends, claimedTasks) {
             <li class="task-item">
                 <div class="task-header">
                     <div class="task-info">
-                        <h4>دعوة ${task.reqFriends} أصدقاء</h4>
+                        <h4>دعوة ${task.reqFriends} أصدقاء (3+ ترقيات)</h4>
                         <p>مكافأة: ${task.reward.toLocaleString()} ZN</p>
                     </div>
                     <div class="task-action">${btnHtml}</div>
@@ -127,7 +126,7 @@ function renderRefTasks(currentFriends, claimedTasks) {
                     <div class="progress-bar" style="width: ${progressPercent}%;"></div>
                 </div>
                 <div class="task-footer">
-                    <span>تقدمك: ${currentFriends} / ${task.reqFriends}</span>
+                    <span>مؤهلين: ${eligibleFriendsCount} / ${task.reqFriends}</span>
                     <span>${Math.floor(progressPercent)}%</span>
                 </div>
             </li>
@@ -244,9 +243,10 @@ async function fetchAndRenderFriendsList(initData) {
             
             let html = '<ul class="friends-list">';
             data.friends.forEach(f => {
-                let statusHtml = f.upgrades_count >= 3 
-                    ? `<span style="color: #2ecc71; font-size: 0.8rem;">نشط ✅</span>`
-                    : `<span style="color: #f39c12; font-size: 0.8rem;">ينقصه ${3 - (f.upgrades_count || 0)} ترقية ⏳</span>`;
+                const cnt = f.upgrades_count || 0;
+                let statusHtml = cnt >= 3 
+                    ? `<span style="color: #2ecc71; font-size: 0.8rem;">مؤهل للمهام (${cnt}/3 ترقيات) ✅</span>`
+                    : `<span style="color: #f39c12; font-size: 0.8rem;">ينقصه ${3 - cnt} ترقية (${cnt}/3 ترقيات) ⏳</span>`;
                 
                 html += `
                     <li class="friend-item">
@@ -269,7 +269,6 @@ async function fetchAndRenderFriendsList(initData) {
     }
 }
 
-// تنفيذ الكود فوراً وبدون تأخير
 if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", initFriendsPage);
 } else {
