@@ -145,7 +145,7 @@ window.claimRefEarnings = async function() {
     try {
         if(btn) { btn.disabled = true; btn.innerText = "⏳ جاري السحب..."; }
 
-        const res = await fetch('/api/claim_ref_earnings', {
+        const res = await fetch('/api/friends/claim_ref_earnings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ initData: initData }) // 🔒
@@ -184,7 +184,7 @@ window.claimRefTask = async function(taskId, reward, reqFriends) {
     }
 
     try {
-        const res = await fetch('/api/claim_ref_task', {
+        const res = await fetch('/api/friends/claim_ref_task', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -215,6 +215,59 @@ window.claimRefTask = async function(taskId, reward, reqFriends) {
     }
 };
 
+// 🔒 جلب قائمة الأصدقاء (سجل الأصدقاء) وكم ربحت منهم
+window.fetchAndRenderFriendsList = async function() {
+    const tele = window.Telegram?.WebApp;
+    const initData = tele?.initData;
+    
+    if (!initData) return;
+
+    const container = document.getElementById('friends-list-container');
+    try {
+        const res = await fetch('/api/friends/list', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ initData: initData })
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+            if (data.friends.length === 0) {
+                container.innerHTML = '<div class="empty-state">لم تقم بدعوة أي أصدقاء حتى الآن.</div>';
+                return;
+            }
+            
+            let html = '<ul class="friends-list">';
+            data.friends.forEach(f => {
+                let statusHtml = '';
+                if (f.upgrades_count >= 3) {
+                    statusHtml = `<span style="color: #2ecc71; font-size: 0.8rem;">نشط ✅</span>`;
+                } else {
+                    let req = 3 - f.upgrades_count;
+                    statusHtml = `<span style="color: #f39c12; font-size: 0.8rem;">ينقصه ${req} ترقية ⏳</span>`;
+                }
+                
+                html += `
+                    <li class="friend-item">
+                        <div class="friend-avatar">${f.name.charAt(0).toUpperCase()}</div>
+                        <div class="friend-info">
+                            <span class="friend-name">${f.name}</span>
+                            <span class="friend-id">${statusHtml}</span>
+                        </div>
+                        <div class="friend-earn">+${Math.floor(f.generated).toLocaleString()} ZN</div>
+                    </li>
+                `;
+            });
+            html += '</ul>';
+            container.innerHTML = html;
+        } else {
+            container.innerHTML = '<div class="empty-state">فشل في تحميل الأصدقاء.</div>';
+        }
+    } catch (e) {
+        container.innerHTML = '<div class="empty-state">خطأ في الاتصال بالخادم.</div>';
+    }
+};
+
 if (window.PlayerData && window.PlayerData.tg_id) {
     window.updateFriendsUI();
-}
+                        }
