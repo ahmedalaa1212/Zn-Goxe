@@ -1,5 +1,4 @@
 (function initTasks() {
-    // كائنات ومصفوفات تتبع الطوابع الزمنية المطلقة لمنع التجميد والغش نهائياً
     window.taskStates = window.taskStates || {};
     window.accumulatedOutsideTime = window.accumulatedOutsideTime || {};
     window.lastGoOutside = window.lastGoOutside || {};
@@ -48,16 +47,24 @@
     }
 
     window.switchTasksTab = function(tab) {
-        document.getElementById('section-earn').style.display = tab === 'earn' ? 'block' : 'none';
-        document.getElementById('section-promote').style.display = tab === 'promote' ? 'block' : 'none';
+        const earnSection = document.getElementById('section-earn');
+        const promoteSection = document.getElementById('section-promote');
+        if (earnSection) earnSection.style.display = tab === 'earn' ? 'block' : 'none';
+        if (promoteSection) promoteSection.style.display = tab === 'promote' ? 'block' : 'none';
         
-        document.getElementById('btn-tab-earn').style.background = tab === 'earn' ? '#0088cc' : 'transparent';
-        document.getElementById('btn-tab-earn').style.color = tab === 'earn' ? '#fff' : '#8e92a2';
-        document.getElementById('btn-tab-earn').style.boxShadow = tab === 'earn' ? '0 4px 12px rgba(0, 136, 204, 0.3)' : 'none';
-        
-        document.getElementById('btn-tab-promote').style.background = tab === 'promote' ? '#0088cc' : 'transparent';
-        document.getElementById('btn-tab-promote').style.color = tab === 'promote' ? '#fff' : '#8e92a2';
-        document.getElementById('btn-tab-promote').style.boxShadow = tab === 'promote' ? '0 4px 12px rgba(0, 136, 204, 0.3)' : 'none';
+        const btnEarn = document.getElementById('btn-tab-earn');
+        const btnPromote = document.getElementById('btn-tab-promote');
+
+        if (btnEarn) {
+            btnEarn.style.background = tab === 'earn' ? '#0088cc' : 'transparent';
+            btnEarn.style.color = tab === 'earn' ? '#fff' : '#8e92a2';
+            btnEarn.style.boxShadow = tab === 'earn' ? '0 4px 12px rgba(0, 136, 204, 0.3)' : 'none';
+        }
+        if (btnPromote) {
+            btnPromote.style.background = tab === 'promote' ? '#0088cc' : 'transparent';
+            btnPromote.style.color = tab === 'promote' ? '#fff' : '#8e92a2';
+            btnPromote.style.boxShadow = tab === 'promote' ? '0 4px 12px rgba(0, 136, 204, 0.3)' : 'none';
+        }
         
         if(tab === 'earn' || tab === 'promote') {
             window.fetchAndRenderTasks(); 
@@ -82,11 +89,10 @@
         let completedTasks = JSON.parse(localStorage.getItem('zn_completed_tasks') || '[]');
         let myId = String(getTgId()).trim();
         
-        // 🔒 جلب آمن للمهام باستخدام التشفير
         const initData = window.Telegram?.WebApp?.initData;
         let realTasks = [];
         try {
-            let url = `/api/get_campaigns`;
+            let url = `/api/tasks/get_campaigns`;
             if (initData) {
                 url += `?initData=${encodeURIComponent(initData)}`;
             } else {
@@ -96,7 +102,7 @@
             let response = await fetch(url);
             if (response.ok) {
                 let data = await response.json();
-                if (data.success) { realTasks = data.campaigns; }
+                if (data.success) { realTasks = data.campaigns || []; }
             }
         } catch (e) { console.warn("خطأ جلب المهام", e); }
 
@@ -316,7 +322,6 @@
         window.visibilityListenerAdded = true;
     }
 
-    // 🔒 التحقق المحمي عبر التليجرام داتا
     window.verifyTask = async function(taskId, reward) {
         const initData = window.Telegram?.WebApp?.initData;
         if (!initData) {
@@ -328,10 +333,10 @@
         if(btn) { btn.innerText = "فحص التفاعل..."; btn.disabled = true; btn.style.opacity = "0.5"; }
 
         try {
-            let response = await fetch('/api/complete_task', {
+            let response = await fetch('/api/tasks/complete_task', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: initData, taskId: taskId }) // 🔒
+                body: JSON.stringify({ initData: initData, taskId: taskId })
             });
             let result = await response.json();
             
@@ -358,7 +363,6 @@
         if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
     };
 
-    // 🔒 إلغاء الحملة بأمان لمنع سحب رصيد الغير
     window.cancelServerCampaign = async function(campId) {
         const initData = window.Telegram?.WebApp?.initData;
         if (!initData) return alert("⚠️ غير مصرح بالعملية خارج التليجرام.");
@@ -371,14 +375,17 @@
         if(btn) { btn.innerText = "جاري الحذف والرد..."; btn.disabled = true; }
 
         try {
-            let response = await fetch('/api/cancel_campaign', {
+            let response = await fetch('/api/tasks/cancel_campaign', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: initData, campaignId: campId }) // 🔒
+                body: JSON.stringify({ initData: initData, campaignId: campId })
             });
             let result = await response.json();
             if (response.ok && result.success) {
                 alert(`✅ تم إلغاء حملتك بنجاح وإرجاع الميزانية المتبقية لمحفظتك!`);
+                if (window.PlayerData && result.refund) {
+                    window.PlayerData.ad_balance = (window.PlayerData.ad_balance || 0) + result.refund;
+                }
                 if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
                 window.fetchAndRenderTasks();
             } else { alert("⚠️ خطأ بالإلغاء: " + result.error); }
@@ -386,7 +393,6 @@
         finally { isCancelingCampaign = false; }
     };
 
-    // 🔒 تحويل الرصيد الإعلاني بشكل مؤمن ومحمي بالسيرفر
     window.convertZnToAdZn = async function() {
         const initData = window.Telegram?.WebApp?.initData;
         if (!initData) return alert("⚠️ يجب فتح اللعبة من داخل التليجرام أولاً.");
@@ -403,10 +409,10 @@
 
         isConvertingBalance = true;
         try {
-            let response = await fetch('/api/convert_adzn', {
+            let response = await fetch('/api/tasks/convert_adzn', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: initData, amount: amount }) // 🔒
+                body: JSON.stringify({ initData: initData, amount: amount })
             });
             let result = await response.json();
             if (response.ok && result.success) {
@@ -453,7 +459,6 @@
         document.getElementById('ad-modal').style.display = 'none';
     };
 
-    // 🔒 رفع الحملة الإعلانية بالسيرفر بنظام التشفير التام
     window.submitAdCampaign = async function() {
         const initData = window.Telegram?.WebApp?.initData;
         if (!initData) return alert("⚠️ عذراً لا يمكن إنتاج حملات إعلانية خارج تطبيق تليجرام الأصلي.");
@@ -521,11 +526,11 @@
                 clearInterval(reviewInterval);
                 
                 try {
-                    let response = await fetch('/api/create_campaign', {
+                    let response = await fetch('/api/tasks/create_campaign', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
-                            initData: initData, // 🔒
+                            initData: initData,
                             platform: currentAdType,
                             url: link,
                             description: desc, 
