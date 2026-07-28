@@ -8,59 +8,66 @@ const REF_TASKS = [
     { id: 7, reqFriends: 500, reward: 10000000 }
 ];
 
-const BOT_USERNAME = "zngoxe_bot";
+const BOT_USERNAME = "zngoxe_bot"; // يوزر البوت
 
 document.addEventListener("DOMContentLoaded", async () => {
-    const tele = window.Telegram?.WebApp;
+    let tele = window.Telegram?.WebApp;
     if (tele) {
         tele.ready();
         tele.expand();
     }
     
     const initData = tele?.initData;
-    const user = tele?.initDataUnsafe?.user; // الحصول على بيانات المستخدم فوراً
     
-    if (!initData || !user) {
+    if (!initData) {
         document.getElementById('ref-link-input').value = "يرجى فتح التطبيق من تليجرام";
         document.getElementById('friends-list-container').innerHTML = '<div class="empty-state">يرجى فتح التطبيق من تليجرام لعرض الأصدقاء.</div>';
         return;
     }
 
-    // 🚀 الحل السحري: توليد الرابط فوراً وبشكل محلي لضمان ظهوره وعدم التعليق
-    document.getElementById('ref-link-input').value = `https://t.me/${BOT_USERNAME}?start=ref_${user.id}`;
+    // ✅ الحل الأكيد: توليد الـ ID مباشرة من بيانات تليجرام بدون انتظار الباك إند
+    let userId = "";
+    try {
+        if (tele?.initDataUnsafe?.user?.id) {
+            userId = tele.initDataUnsafe.user.id;
+        } else {
+            const urlParams = new URLSearchParams(initData);
+            const userStr = urlParams.get('user');
+            if(userStr) userId = JSON.parse(userStr).id;
+        }
+    } catch(e) { console.error("Error getting user ID:", e); }
 
+    const refInput = document.getElementById('ref-link-input');
+    if (userId) {
+        refInput.value = `https://t.me/${BOT_USERNAME}?start=ref_${userId}`;
+    } else {
+        refInput.value = "حدث خطأ في توليد الرابط";
+    }
+
+    // ✅ جلب بيانات الرصيد (محمية بـ Try/Catch عشان لو فشلت المهام تكمل)
     try {
         const response = await fetch('/api/farm/player_data', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ initData: initData })
         });
-        
         const data = await response.json();
-        
-        // حماية من اختلاف هيكل البيانات القادم من السيرفر
-        if (data.success) {
-            window.PlayerData = data.player || data.user || data.data || {}; 
-            updateFriendsUI();
-        } else {
-            console.warn("استجابة السيرفر فشلت، جاري استخدام بيانات صفرية.");
-            window.PlayerData = { balance: 0, invited_friends_count: 0, pending_ref_earnings: 0 };
-            updateFriendsUI();
-        }
+        window.PlayerData = data.success ? (data.player || data.user || {}) : {};
     } catch (error) {
-        console.error("Error fetching data:", error);
-        window.PlayerData = { balance: 0, invited_friends_count: 0, pending_ref_earnings: 0 };
-        updateFriendsUI();
+        console.warn("Failed to fetch player data, using fallback.");
+        window.PlayerData = {}; 
     }
 
-    // جلب قائمة الأصدقاء بشكل مستقل حتى لو فشل جلب الرصيد
+    // تحديث الأرقام والمهام
+    updateFriendsUI();
+    
+    // جلب قائمة الأصدقاء بشكل منفصل
     await fetchAndRenderFriendsList(initData);
 });
 
 function updateFriendsUI() {
     const pData = window.PlayerData || {};
     
-    // تحويل آمن للأرقام لمنع الـ NaN
     const pending = parseFloat(pData.pending_ref_earnings) || 0;
     const invited = parseInt(pData.invited_friends_count) || 0;
     const balance = parseFloat(pData.balance) || 0;
@@ -78,7 +85,6 @@ function updateFriendsUI() {
         btnClaim.innerText = "سحب الأرباح الآن";
     }
 
-    // تمرير البيانات لدالة المهام لرسمها
     renderRefTasks(invited, pData.claimed_ref_tasks || []);
 }
 
@@ -87,7 +93,6 @@ function renderRefTasks(currentFriends, claimedTasks) {
     if (!listEl) return;
 
     let html = '';
-
     REF_TASKS.forEach(task => {
         const isClaimed = claimedTasks.includes(task.id);
         const isReady = currentFriends >= task.reqFriends;
@@ -97,7 +102,7 @@ function renderRefTasks(currentFriends, claimedTasks) {
         if (isClaimed) {
             btnHtml = `<button disabled class="claimed-btn">✅ مستلمة</button>`;
         } else if (isReady) {
-            btnHtml = `<button onclick="claimRefTask(${task.id}, ${task.reward}, ${task.reqFriends})" class="claim-btn">🎁 استلام</button>`;
+            btnHtml = `<button onclick="claimRefTask(${task.id}, ${task.reward}, ${task.reqFriends})" class="claim-btn" style="background: linear-gradient(45deg, #2ecc71, #27ae60); color: white;">🎁 استلام</button>`;
         } else {
             let remaining = task.reqFriends - currentFriends;
             btnHtml = `<button disabled class="locked-btn">🔒 باقي ${remaining}</button>`;
@@ -122,7 +127,6 @@ function renderRefTasks(currentFriends, claimedTasks) {
             </li>
         `;
     });
-
     listEl.innerHTML = html;
 }
 
@@ -131,8 +135,7 @@ window.copyRefLink = function() {
     if (link.includes("جاري") || link.includes("يرجى") || link.includes("خطأ")) return;
     
     navigator.clipboard.writeText(link).then(() => {
-        const tele = window.Telegram?.WebApp;
-        if (tele && tele.showAlert) tele.showAlert("✅ تم نسخ الرابط بنجاح!");
+        window.Telegram?.WebApp?.showAlert("✅ تم نسخ الرابط بنجاح!");
     });
 };
 
@@ -151,7 +154,6 @@ window.claimRefEarnings = async function() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ initData: initData })
         });
-        
         const data = await res.json();
         
         if (data.success) {
@@ -160,7 +162,7 @@ window.claimRefEarnings = async function() {
             window.PlayerData.pending_ref_earnings = 0;
             updateFriendsUI();
         } else {
-            tele.showAlert(data.error);
+            tele.showAlert(data.error || "فشل السحب");
             btn.disabled = false;
             btn.innerText = "سحب الأرباح الآن";
         }
@@ -182,7 +184,6 @@ window.claimRefTask = async function(taskId, reward, reqFriends) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ initData, taskId, reward, reqFriends })
         });
-        
         const data = await res.json();
         
         if (data.success) {
@@ -192,7 +193,7 @@ window.claimRefTask = async function(taskId, reward, reqFriends) {
             window.PlayerData.claimed_ref_tasks.push(taskId);
             updateFriendsUI();
         } else {
-            tele.showAlert(data.error);
+            tele.showAlert(data.error || "خطأ في الاستلام");
         }
     } catch (e) {
         tele.showAlert('خطأ في الاتصال بالخادم.');
@@ -210,7 +211,7 @@ async function fetchAndRenderFriendsList(initData) {
         const data = await res.json();
         
         if (data.success) {
-            if (data.friends.length === 0) {
+            if (!data.friends || data.friends.length === 0) {
                 container.innerHTML = '<div class="empty-state">لم تقم بدعوة أي أصدقاء حتى الآن.</div>';
                 return;
             }
