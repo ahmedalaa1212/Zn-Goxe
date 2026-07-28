@@ -4,16 +4,43 @@ from database import db
 
 friends_bp = Blueprint('friends', __name__)
 
+@friends_bp.route('/data', methods=['POST'])
+def get_friends_data():
+    """مسار مستقل لجلب بيانات صفحة الأصدقاء فقط"""
+    try:
+        is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
+        if not is_valid:
+            return error_resp
+            
+        user_ref = db.collection('users').document(str(user_id))
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
+            
+        user_data = user_doc.to_dict()
+        return jsonify({
+            "success": True,
+            "player": {
+                "balance": user_data.get('balance', 0),
+                "pending_ref_earnings": user_data.get('pending_ref_earnings', 0),
+                "invited_friends_count": user_data.get('invited_friends_count', 0),
+                "claimed_ref_tasks": user_data.get('claimed_ref_tasks', [])
+            }
+        }), 200
+    except Exception as e:
+        print(f"Error in friends/data: {e}")
+        return jsonify({"success": False, "error": "حدث خطأ في الخادم"}), 500
+
 @friends_bp.route('/list', methods=['POST'])
 def get_friends_list():
     """جلب سجل الأصدقاء"""
     try:
-        # ✅ الاستخدام الصحيح لدالة المصادقة الخاصة بك
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
-            return error_resp # إرجاع رسالة الرفض (401/403)
+            return error_resp
             
-        # البحث عن الأصدقاء
+        # البحث عن الأصدقاء الذين سجلوا عن طريق هذا المستخدم
         friends_query = db.collection('users').where('referred_by', '==', str(user_id)).stream()
         
         friends_list = []
@@ -26,11 +53,9 @@ def get_friends_list():
             })
             
         return jsonify({"success": True, "friends": friends_list}), 200
-
     except Exception as e:
         print(f"Error in friends/list: {e}")
         return jsonify({"success": False, "error": "حدث خطأ في الخادم"}), 500
-
 
 @friends_bp.route('/claim_ref_earnings', methods=['POST'])
 def claim_ref_earnings():
@@ -67,11 +92,9 @@ def claim_ref_earnings():
             "new_balance": new_balance,
             "net_amount": net_amount
         }), 200
-
     except Exception as e:
         print(f"Error in claim_ref_earnings: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء عملية السحب"}), 500
-
 
 @friends_bp.route('/claim_ref_task', methods=['POST'])
 def claim_ref_task():
@@ -112,7 +135,6 @@ def claim_ref_task():
         })
         
         return jsonify({"success": True, "new_balance": new_balance}), 200
-
     except Exception as e:
         print(f"Error in claim_ref_task: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء استلام المكافأة"}), 500
