@@ -3,6 +3,8 @@ import json
 import uuid
 from flask import Blueprint, jsonify, request
 from core.security import get_authenticated_user
+from database import db as firestore_db
+from firebase_admin import firestore
 
 tasks_bp = Blueprint('tasks', __name__)
 
@@ -30,12 +32,11 @@ def save_data(data):
 def get_campaigns():
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=False)
     if not is_auth:
-        # سماح بالقراءة التجريبية عند الضغط من واجهة تطوير محلية
         telegram_id = request.args.get('telegramId', '5102387551').strip()
 
     db = load_data()
     campaigns = db.get('campaigns', [])
-    user_completed = db.get('completed_tasks', {}).get(telegram_id, [])
+    user_completed = db.get('completed_tasks', {}).get(str(telegram_id), [])
 
     result_campaigns = []
     for c in campaigns:
@@ -73,22 +74,50 @@ def create_campaign():
     except ValueError:
         return jsonify({"success": False, "error": "قيم الكلفة والأعضاء غير صحيحة"}), 400
 
-    db = load_data()
-    new_campaign = {
-        "id": f"camp_{uuid.uuid4().hex[:10]}",
-        "creator_id": telegram_id,
-        "platform": platform,
-        "url": url,
-        "description": description,
-        "reward": reward,
-        "users_needed": users_needed,
-        "users_completed": 0
-    }
+    total_cost = reward * users_needed
 
-    db['campaigns'].append(new_campaign)
-    save_data(db)
+    try:
+        user_ref = firestore_db.collection('users').document(str(telegram_id))
+        user_doc = user_ref.get()
 
-    return jsonify({"success": True, "campaign": new_campaign}), 200
+        if not user_doc.exists:
+            return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
+
+        user_data = user_doc.to_dict() or {}
+        current_ad_balance = float(user_data.get('ad_balance', 0.0))
+
+        if current_ad_balance < total_cost:
+            return jsonify({"success": False, "error": f"رصيدك الإعلاني غير كافٍ. المطلوب: {total_cost} AdZN"}), 400
+
+        # خصم التكلفة الإجمالية للحملة من رصيد الإعلانات في فايربيس
+        user_ref.update({
+            'ad_balance': firestore.Increment(-total_cost)
+        })
+
+        db = load_data()
+        new_campaign = {
+            "id": f"camp_{uuid.uuid4().hex[:10]}",
+            "creator_id": str(telegram_id),
+            "platform": platform,
+            "url": url,
+            "description": description,
+            "reward": reward,
+            "users_needed": users_needed,
+            "users_completed": 0
+        }
+
+        db['campaigns'].append(new_campaign)
+        save_data(db)
+
+        return jsonify({
+            "success": True, 
+            "campaign": new_campaign,
+            "new_ad_balance": current_ad_balance - total_cost
+        }), 200
+
+    except Exception as e:
+        print(f"Error creating campaign: {e}")
+        return jsonify({"success": False, "error": "حدث خطأ أثناء حفظ الحملة"}), 500
 
 @tasks_bp.route('/complete_task', methods=['POST'])
 def complete_task():
@@ -109,12 +138,23 @@ def complete_task():
     if not target_campaign:
         return jsonify({"success": False, "error": "المهمة غير موجودة أو انتهت"}), 444
 
-    if str(target_campaign.get('creator_id')).strip() == telegram_id:
+    if str(target_campaign.get('creator_id')).strip() == str(telegram_id).strip():
         return jsonify({"success": False, "error": "لا يمكنك تنفيذ حملتك الخاصة"}), 400
 
-    user_completed = db.setdefault('completed_tasks', {}).setdefault(telegram_id, [])
+    user_completed = db.setdefault('completed_tasks', {}).setdefault(str(telegram_id), [])
     if task_id in user_completed:
         return jsonify({"success": False, "error": "لقد قمت بإكمال هذه المهمة مسبقاً"}), 400
+
+    reward_amount = float(target_campaign['reward'])
+
+    # إضافة المكافأة لرصيد المنفّذ في فايربيس
+    try:
+        user_ref = firestore_db.collection('users').document(str(telegram_id))
+        user_ref.update({
+            'balance': firestore.Increment(reward_amount)
+        })
+    except Exception as e:
+        print(f"Error adding task reward to user in Firebase: {e}")
 
     # تسجيل الإكمال للعميل وزيادة العداد
     user_completed.append(task_id)
@@ -123,7 +163,7 @@ def complete_task():
 
     return jsonify({
         "success": True, 
-        "reward": target_campaign['reward'],
+        "reward": reward_amount,
         "message": "تم إكمال المهمة وإضافة المكافأة"
     }), 200
 
@@ -143,7 +183,7 @@ def cancel_campaign():
     if not target_campaign:
         return jsonify({"success": False, "error": "الحملة غير موجودة"}), 404
 
-    if str(target_campaign.get('creator_id')).strip() != telegram_id:
+    if str(target_campaign.get('creator_id')).strip() != str(telegram_id).strip():
         return jsonify({"success": False, "error": "غير مصرح لك بإلغاء هذه الحملة"}), 403
 
     comp = target_campaign.get('users_completed', 0)
@@ -151,6 +191,16 @@ def cancel_campaign():
     cost_per_user = target_campaign.get('reward', 0)
     
     refund_amount = max(0, (need - comp) * cost_per_user)
+
+    # إعادة المبلغ المتبقي لحساب المستخدم بداخل فايربيس ad_balance
+    if refund_amount > 0:
+        try:
+            user_ref = firestore_db.collection('users').document(str(telegram_id))
+            user_ref.update({
+                'ad_balance': firestore.Increment(refund_amount)
+            })
+        except Exception as e:
+            print(f"Error refunding campaign ad balance: {e}")
 
     # حذف الحملة من القائمة
     db['campaigns'] = [c for c in campaigns if c['id'] != campaign_id]
@@ -169,16 +219,48 @@ def convert_adzn():
         return err_response
 
     req = request.get_json(silent=True) or {}
-    amount = float(req.get('amount', 0))
+    try:
+        amount = float(req.get('amount', 0))
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "المبلغ غير صحيح"}), 400
 
     if amount <= 0:
         return jsonify({"success": False, "error": "المبلغ غير صحيح"}), 400
 
-    fee = amount * 0.10
-    received = amount - fee
+    try:
+        user_ref = firestore_db.collection('users').document(str(telegram_id))
+        user_doc = user_ref.get()
 
-    return jsonify({
-        "success": True,
-        "received": received,
-        "fee": fee
-    }), 200
+        if not user_doc.exists:
+            return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
+
+        user_data = user_doc.to_dict() or {}
+        current_balance = float(user_data.get('balance', 0.0))
+
+        if current_balance < amount:
+            return jsonify({"success": False, "error": "رصيد ZN الحالي غير كافٍ لهذا التحويل"}), 400
+
+        fee = amount * 0.10
+        received = amount - fee
+
+        # خصم ZN وزيادة AdZN حقيقياً وبشكل دائم داخل قاعدة البيانات فايربيس
+        user_ref.update({
+            'balance': firestore.Increment(-amount),
+            'ad_balance': firestore.Increment(received)
+        })
+
+        new_balance = current_balance - amount
+        new_ad_balance = float(user_data.get('ad_balance', 0.0)) + received
+
+        return jsonify({
+            "success": True,
+            "received": received,
+            "fee": fee,
+            "new_balance": new_balance,
+            "new_ad_balance": new_ad_balance,
+            "message": "تم تحويل الرصيد وحفظه بنجاح"
+        }), 200
+
+    except Exception as e:
+        print(f"Error in convert_adzn: {e}")
+        return jsonify({"success": False, "error": "حدث خطأ أثناء إجراء التحويل في السيرفر"}), 500
