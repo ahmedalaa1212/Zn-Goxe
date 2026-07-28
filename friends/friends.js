@@ -18,33 +18,41 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
     
     const initData = tele?.initData;
+    const refInput = document.getElementById('ref-link-input');
+    const container = document.getElementById('friends-list-container');
     
     if (!initData) {
-        document.getElementById('ref-link-input').value = "يرجى فتح التطبيق من داخل تليجرام";
-        document.getElementById('friends-list-container').innerHTML = '<div class="empty-state">يرجى فتح التطبيق من تليجرام لعرض الأصدقاء.</div>';
+        if(refInput) {
+            if(refInput.tagName === 'INPUT') refInput.value = "يرجى فتح التطبيق من داخل تليجرام";
+            else refInput.innerText = "يرجى فتح التطبيق من داخل تليجرام";
+        }
+        if(container) container.innerHTML = '<div class="empty-state">يرجى فتح التطبيق من تليجرام لعرض الأصدقاء.</div>';
         return;
     }
 
     // توليد الرابط فوراً لضمان عدم بقاء "جاري التحميل"
-    let userId = "";
+    let userId = "0000";
     try {
         if (tele?.initDataUnsafe?.user?.id) {
             userId = tele.initDataUnsafe.user.id;
         }
     } catch(e) { console.error("Error getting user ID:", e); }
 
-    const refInput = document.getElementById('ref-link-input');
-    if (userId) {
-        refInput.value = `https://t.me/${BOT_USERNAME}?start=ref_${userId}`;
-    } else {
-        refInput.value = "حدث خطأ في توليد الرابط";
+    if (refInput) {
+        const link = `https://t.me/${BOT_USERNAME}?start=ref_${userId}`;
+        // الحماية هنا: لو العنصر input بنستخدم value، لو div بنستخدم innerText
+        if(refInput.tagName === 'INPUT') refInput.value = link;
+        else refInput.innerText = link;
     }
 
     // جلب بيانات الرصيد والمهام من مسار الأصدقاء المستقل
     try {
         const response = await fetch('/api/friends/data', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${initData}` // تأمين إضافي
+            },
             body: JSON.stringify({ initData: initData })
         });
         const data = await response.json();
@@ -65,17 +73,23 @@ function updateFriendsUI() {
     const invited = parseInt(pData.invited_friends_count) || 0;
     const balance = parseFloat(pData.balance) || 0;
 
-    document.getElementById('pending-ref-earnings').innerText = Math.floor(pending).toLocaleString();
-    document.getElementById('invited-friends-count').innerText = invited.toLocaleString();
-    document.getElementById('top-balance-friends').innerText = `ZN: ${Math.floor(balance).toLocaleString()}`;
-
+    const elPending = document.getElementById('pending-ref-earnings');
+    const elInvited = document.getElementById('invited-friends-count');
+    const elBalance = document.getElementById('top-balance-friends');
     const btnClaim = document.getElementById('btn-claim-ref');
-    if (pending <= 0) {
-        btnClaim.disabled = true;
-        btnClaim.innerText = "لا توجد أرباح للسحب";
-    } else {
-        btnClaim.disabled = false;
-        btnClaim.innerText = "سحب الأرباح الآن";
+
+    if(elPending) elPending.innerText = Math.floor(pending).toLocaleString();
+    if(elInvited) elInvited.innerText = invited.toLocaleString();
+    if(elBalance) elBalance.innerText = `ZN: ${Math.floor(balance).toLocaleString()}`;
+
+    if(btnClaim) {
+        if (pending <= 0) {
+            btnClaim.disabled = true;
+            btnClaim.innerText = "لا توجد أرباح للسحب";
+        } else {
+            btnClaim.disabled = false;
+            btnClaim.innerText = "سحب الأرباح الآن";
+        }
     }
 
     renderRefTasks(invited, pData.claimed_ref_tasks || []);
@@ -124,7 +138,11 @@ function renderRefTasks(currentFriends, claimedTasks) {
 }
 
 window.copyRefLink = function() {
-    const link = document.getElementById('ref-link-input').value;
+    const refInput = document.getElementById('ref-link-input');
+    if(!refInput) return;
+    
+    const link = refInput.tagName === 'INPUT' ? refInput.value : refInput.innerText;
+    
     if (link.includes("جاري") || link.includes("يرجى") || link.includes("خطأ")) return;
     
     navigator.clipboard.writeText(link).then(() => {
@@ -138,13 +156,18 @@ window.claimRefEarnings = async function() {
     if (!initData) return;
 
     const btn = document.getElementById('btn-claim-ref');
-    btn.disabled = true;
-    btn.innerText = "⏳ جاري السحب...";
+    if(btn) {
+        btn.disabled = true;
+        btn.innerText = "⏳ جاري السحب...";
+    }
 
     try {
         const res = await fetch('/api/friends/claim_ref_earnings', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${initData}`
+            },
             body: JSON.stringify({ initData: initData })
         });
         const data = await res.json();
@@ -156,13 +179,17 @@ window.claimRefEarnings = async function() {
             updateFriendsUI();
         } else {
             tele.showAlert(data.error || "فشل السحب");
-            btn.disabled = false;
-            btn.innerText = "سحب الأرباح الآن";
+            if(btn) {
+                btn.disabled = false;
+                btn.innerText = "سحب الأرباح الآن";
+            }
         }
     } catch (e) {
         tele.showAlert('خطأ في الاتصال بالخادم.');
-        btn.disabled = false;
-        btn.innerText = "سحب الأرباح الآن";
+        if(btn) {
+            btn.disabled = false;
+            btn.innerText = "سحب الأرباح الآن";
+        }
     }
 };
 
@@ -174,7 +201,10 @@ window.claimRefTask = async function(taskId, reward, reqFriends) {
     try {
         const res = await fetch('/api/friends/claim_ref_task', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${initData}`
+            },
             body: JSON.stringify({ initData, taskId, reward, reqFriends })
         });
         const data = await res.json();
@@ -195,10 +225,15 @@ window.claimRefTask = async function(taskId, reward, reqFriends) {
 
 async function fetchAndRenderFriendsList(initData) {
     const container = document.getElementById('friends-list-container');
+    if(!container) return;
+
     try {
         const res = await fetch('/api/friends/list', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${initData}`
+            },
             body: JSON.stringify({ initData: initData })
         });
         const data = await res.json();
