@@ -1,3 +1,4 @@
+// tasks/tasks.js
 (function initTasks() {
     window.taskStates = window.taskStates || {};
     window.accumulatedOutsideTime = window.accumulatedOutsideTime || {};
@@ -8,6 +9,26 @@
     let isConvertingBalance = false;
     let isCancelingCampaign = false;
     let currentAdType = 'يوتيوب';
+
+    // --- أدوات المزامنة اللحظية للرصيد ---
+    function getStoredBalance() {
+        if (window.PlayerData && window.PlayerData.balance !== undefined) {
+            return parseFloat(window.PlayerData.balance);
+        }
+        if (window.GameState && window.GameState.balance !== undefined) {
+            return parseFloat(window.GameState.balance);
+        }
+        const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
+        return bal !== null ? parseFloat(bal) : 0;
+    }
+
+    function syncTopBalance() {
+        const stored = getStoredBalance();
+        const topBalEl = document.getElementById('top-balance-tasks');
+        if (topBalEl) {
+            topBalEl.innerText = `ZN ${Math.floor(stored).toLocaleString()}`;
+        }
+    }
 
     const preDefinedDescriptions = {
         'يوتيوب': [
@@ -49,32 +70,29 @@
     window.switchTasksTab = function(tab) {
         const earnSection = document.getElementById('section-earn');
         const promoteSection = document.getElementById('section-promote');
-        if (earnSection) earnSection.style.display = tab === 'earn' ? 'block' : 'none';
-        if (promoteSection) promoteSection.style.display = tab === 'promote' ? 'block' : 'none';
-        
         const btnEarn = document.getElementById('btn-tab-earn');
         const btnPromote = document.getElementById('btn-tab-promote');
 
+        if (earnSection) earnSection.style.display = tab === 'earn' ? 'block' : 'none';
+        if (promoteSection) promoteSection.style.display = tab === 'promote' ? 'block' : 'none';
+
         if (btnEarn) {
-            btnEarn.style.background = tab === 'earn' ? '#0088cc' : 'transparent';
-            btnEarn.style.color = tab === 'earn' ? '#fff' : '#8e92a2';
-            btnEarn.style.boxShadow = tab === 'earn' ? '0 4px 12px rgba(0, 136, 204, 0.3)' : 'none';
+            if (tab === 'earn') btnEarn.classList.add('active');
+            else btnEarn.classList.remove('active');
         }
         if (btnPromote) {
-            btnPromote.style.background = tab === 'promote' ? '#0088cc' : 'transparent';
-            btnPromote.style.color = tab === 'promote' ? '#fff' : '#8e92a2';
-            btnPromote.style.boxShadow = tab === 'promote' ? '0 4px 12px rgba(0, 136, 204, 0.3)' : 'none';
+            if (tab === 'promote') btnPromote.classList.add('active');
+            else btnPromote.classList.remove('active');
         }
         
-        if(tab === 'earn' || tab === 'promote') {
+        if (tab === 'earn' || tab === 'promote') {
             window.fetchAndRenderTasks(); 
         }
     };
 
     window.updateTasksUI = function() {
+        syncTopBalance();
         const pData = window.PlayerData || { balance: 0, ad_balance: 0 };
-        const tasksTopBalance = document.getElementById('top-balance-tasks');
-        if (tasksTopBalance) tasksTopBalance.innerText = `ZN ${Math.floor(pData.balance || 0).toLocaleString()}`;
 
         const adBalDisplay = document.getElementById('ad-balance-display');
         if (adBalDisplay) {
@@ -135,7 +153,7 @@
                 let config = platformConfig[plat] || platformConfig['أخرى'];
 
                 html += `
-                    <div style="margin-top: 25px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                    <div style="margin-top: 20px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
                         <i class="${config.icon}" style="color: ${config.color}; font-size: 15px;"></i>
                         <h5 style="color: #94a3b8; margin: 0; font-size: 13px; font-weight: 700;">${config.title}</h5>
                     </div>
@@ -172,9 +190,9 @@
                     }
 
                     html += `
-                        <div style="background: linear-gradient(135deg, #11111e, #141424); border: 1px solid #222235; border-radius: 16px; padding: 15px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+                        <div style="background: linear-gradient(135deg, #11111e, #141424); border: 1px solid #222235; border-radius: 16px; padding: 14px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
                             <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
-                                <div style="background: rgba(255,255,255,0.02); width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.05);">
+                                <div style="background: rgba(255,255,255,0.02); width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.05);">
                                     <i class="${config.icon}" style="font-size: 18px; color: ${config.color};"></i>
                                 </div>
                                 <div style="text-align: right; flex: 1;">
@@ -213,7 +231,7 @@
                 let config = platformConfig[ad.platform] || platformConfig['أخرى'];
 
                 adsHtml += `
-                    <div style="background: #131324; border: 1px solid #24243a; border-radius: 16px; padding: 18px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+                    <div style="background: #131324; border: 1px solid #24243a; border-radius: 16px; padding: 16px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <i class="${config.icon}" style="color: ${config.color}; font-size: 15px;"></i>
@@ -318,6 +336,9 @@
                     }
                 }
             }
+            if (document.visibilityState === "visible") {
+                syncTopBalance();
+            }
         });
         window.visibilityListenerAdded = true;
     }
@@ -344,12 +365,15 @@
                 let completedTasks = JSON.parse(localStorage.getItem('zn_completed_tasks') || '[]');
                 completedTasks.push(taskId);
                 localStorage.setItem('zn_completed_tasks', JSON.stringify(completedTasks));
+                
                 if (window.PlayerData) window.PlayerData.balance += reward;
+                if (window.GameState) window.GameState.balance += reward;
                 
                 delete window.taskStates[taskId];
                 delete window.accumulatedOutsideTime[taskId];
                 delete window.lastGoOutside[taskId];
                 
+                syncTopBalance();
                 alert(`🎉 مبارك! تم تأكيد التفاعل وإضافة رصيد بقيمة ${reward.toLocaleString()} ZN`);
             } else {
                 alert("⚠️ فشل التحقق: " + (result.error || "تأكد من إتمام التفاعل الفعلي أولاً"));
@@ -402,7 +426,8 @@
         if (!amount || isNaN(amount) || amount <= 0) return;
         amount = parseFloat(amount);
 
-        if (parseFloat(window.PlayerData?.balance || 0) < amount) {
+        let currentBal = getStoredBalance();
+        if (currentBal < amount) {
             alert("⚠️ رصيد ZN الحالي غير كافٍ للعملية!");
             return;
         }
@@ -420,6 +445,9 @@
                 if (window.PlayerData) {
                     window.PlayerData.balance -= amount;
                     window.PlayerData.ad_balance = (window.PlayerData.ad_balance || 0) + result.received;
+                }
+                if (window.GameState) {
+                    window.GameState.balance -= amount;
                 }
                 window.updateTasksUI();
                 if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
@@ -576,8 +604,15 @@
         }, 300);
     };
 
-    setTimeout(() => {
-        if(typeof window.updateTasksUI === 'function') window.updateTasksUI();
-    }, 400);
+    // مزامنة مبدئية عند التحميل
+    window.addEventListener('pageshow', () => {
+        window.updateTasksUI();
+    });
+
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        window.updateTasksUI();
+    } else {
+        document.addEventListener('DOMContentLoaded', window.updateTasksUI);
+    }
 
 })();
