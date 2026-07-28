@@ -1,13 +1,17 @@
 // game.js
+// 1. استرجاع آخر رصيد وطاقة محفوظين على الموبايل فوراً (0 ثانية Delay)
+const cachedBalance = parseFloat(localStorage.getItem('zn_balance')) || 0;
+const cachedEnergy = parseInt(localStorage.getItem('zn_energy')) || 1000;
+
 window.GameState = {
-    userId: null,
-    username: "",
-    balance: 0,
-    energy: 1000
+    userId: localStorage.getItem('zn_user_id') || null,
+    username: localStorage.getItem('zn_username') || "",
+    balance: cachedBalance,
+    energy: cachedEnergy
 };
 
+// 2. دالة الاتصال بالباك إيند (مرفقة بحماية تليجرام)
 window.apiCall = async function(endpoint, method = 'GET', body = null) {
-    // 🛡️ استخدام مسار نسبي ليعمل أوتوماتيكياً على Railway أو أي استضافة بدون مشاكل CORS
     const BASE_URL = ""; 
     const initData = window.Telegram?.WebApp?.initData || "";
 
@@ -39,35 +43,74 @@ window.apiCall = async function(endpoint, method = 'GET', body = null) {
     }
 };
 
+// 3. تحديث كافة الواجهات على الشاشة فوراً
 window.updateGlobalUI = function() {
-    document.querySelectorAll('.user-balance').forEach(el => {
-        el.innerText = window.GameState.balance.toLocaleString();
+    const formattedBalance = Number(window.GameState.balance).toLocaleString();
+    
+    // دعم كافة الكلاسات المعروضة في كل القوائم (المزرعة، المتجر، المهام...)
+    document.querySelectorAll('.user-balance, .zn-balance-display, .balance-text, #user-balance').forEach(el => {
+        el.innerText = formattedBalance;
     });
     
-    document.querySelectorAll('.user-energy').forEach(el => {
+    document.querySelectorAll('.user-energy, #user-energy').forEach(el => {
         el.innerText = window.GameState.energy;
     });
 };
 
+// 4. دوال لمس مساعدة للتعديل اللحظي على الرصيد (Optimistic Updates)
+window.setBalance = function(newBalance) {
+    window.GameState.balance = Number(newBalance);
+    localStorage.setItem('zn_balance', window.GameState.balance);
+    window.updateGlobalUI();
+};
+
+window.addBalance = function(amount) {
+    window.setBalance(window.GameState.balance + Number(amount));
+};
+
+window.deductBalance = function(amount) {
+    window.setBalance(window.GameState.balance - Number(amount));
+};
+
+// 5. مزامنة البيانات مع السيرفر في الخلفية
 window.initGameData = async function() {
+    // ⚡ عرض الرصيد المحفوظ في ذاكرة الجهاز فوراً بدبيكة 0 ثانية
+    window.updateGlobalUI();
+
     if (!window.Telegram?.WebApp?.initData) {
-        window.GameState.balance = 5000;
-        window.updateGlobalUI();
+        if (!localStorage.getItem('zn_balance')) {
+            window.setBalance(5000);
+        }
         return;
     }
     
-    // جلب البيانات الأساسية من السيرفر
-    const res = await window.apiCall('/api/user/sync', 'POST');
-    
-    if (res && res.success) {
-        window.GameState.userId = res.data.id;
-        window.GameState.username = res.data.username;
-        window.GameState.balance = res.data.balance || 0;
-        window.updateGlobalUI();
+    // جلب أحدث رصيد من السيرفر في الخلفية دون تعطيل الشاشة
+    try {
+        const res = await window.apiCall('/api/user/sync', 'POST');
+        
+        if (res && res.success && res.data) {
+            window.GameState.userId = res.data.id;
+            window.GameState.username = res.data.username;
+            
+            localStorage.setItem('zn_user_id', res.data.id || "");
+            localStorage.setItem('zn_username', res.data.username || "");
+
+            // لو السيرفر رجّع رصيد مختلف، بنحدثه
+            if (res.data.balance !== undefined) {
+                window.setBalance(res.data.balance);
+            }
+            if (res.data.energy !== undefined) {
+                window.GameState.energy = res.data.energy;
+                localStorage.setItem('zn_energy', res.data.energy);
+                window.updateGlobalUI();
+            }
+        }
+    } catch (err) {
+        console.warn("تنبيه: تعذر المزامنة مع السيرفر، تم الاعتماد على الرصيد المحلي.", err);
     }
 };
 
+// التشغيل الفوري أول ما عناصر الصفحة تجهز (بدون setTimeout)
 document.addEventListener('DOMContentLoaded', () => {
-    // 500 ملي ثانية كافية جداً لتحميل التليجرام
-    setTimeout(window.initGameData, 500);
+    window.initGameData();
 });
