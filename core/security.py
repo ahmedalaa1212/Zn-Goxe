@@ -8,9 +8,10 @@ from flask import jsonify
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '').strip()
 
 def validate_telegram_data(init_data: str):
-    """دالة التحقق من التشفير والـ initData"""
-    if not init_data or not BOT_TOKEN:
-        print(" Security Warning: init_data or BOT_TOKEN is missing!")
+    """دالة التحقق من التشفير والـ initData الخاص بتليجرام"""
+    token = os.environ.get('BOT_TOKEN', '').strip() or BOT_TOKEN
+    if not init_data or not token:
+        print("⚠️ Security Warning: init_data or BOT_TOKEN is missing!")
         return None
         
     try:
@@ -20,13 +21,17 @@ def validate_telegram_data(init_data: str):
             return None
         hash_val = parsed_data.pop('hash')
         
+        # ترتيب العناصر أبجدياً طبقاً لتعليمات تليجرام
         data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed_data.items()))
         
-        secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
-        calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+        # إنشاء التوقيع السري ومقارنته آمنياً
+        secret_key = hmac.new(b"WebAppData", token.encode('utf-8'), hashlib.sha256).digest()
+        calculated_hash = hmac.new(secret_key, data_check_string.encode('utf-8'), hashlib.sha256).hexdigest()
         
-        if calculated_hash == hash_val:
-            return json.loads(parsed_data.get('user', '{}'))
+        # استخدام compare_digest للوقاية من هجمات Timing Attacks
+        if hmac.compare_digest(calculated_hash, hash_val):
+            user_str = parsed_data.get('user', '{}')
+            return json.loads(user_str)
         return None
         
     except Exception as e:
@@ -34,13 +39,15 @@ def validate_telegram_data(init_data: str):
         return None
 
 def get_authenticated_user(request, is_post=False):
-    """استخراج وتأكيد صحة المستخدم"""
+    """استخراج وتأكيد صحة المستخدم من الطلب"""
     try:
+        init_data = None
         if is_post:
             req_data = request.get_json(silent=True) or {}
             init_data = req_data.get('initData')
-        else:
-            init_data = request.args.get('initData')
+        
+        if not init_data:
+            init_data = request.args.get('initData') or request.headers.get('X-Telegram-Init-Data')
         
         if not init_data:
             return False, None, (jsonify({'success': False, 'error': 'بيانات المصادقة مفقودة (initData)'}), 401)
