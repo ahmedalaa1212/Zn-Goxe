@@ -182,6 +182,7 @@
         .task-footer { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-muted); }
         .task-action button { padding: 8px 15px; font-size: 0.9rem; }
         .claimed-btn { background: #27ae60 !important; color: white !important; }
+        .locked-btn { background: var(--btn-disabled) !important; color: #777 !important; }
         
         .bottom-nav {
             position: fixed;
@@ -224,7 +225,7 @@
     <div class="container">
         <header>
             <h2>نظام الأصدقاء 🤝</h2>
-            <div id="top-balance-friends" class="balance-display">ZN: 0</div>
+            <div id="top-balance-friends" class="balance-display user-balance zn-balance-display">ZN: 0</div>
         </header>
 
         <div class="stats-grid">
@@ -255,7 +256,7 @@
         <div class="card ref-earnings-card">
             <h3>💰 سحب أرباح الأصدقاء</h3>
             <small style="color: var(--danger); display: block; margin-bottom: 15px;">* يتم خصم 1.5% رسوم تحويل عند السحب إلى الرصيد الأساسي.</small>
-            <button onclick="claimRefEarnings()" id="btn-claim-ref" style="width: 100%; padding: 15px; font-size: 1.1rem;">سحب الأرباح الآن</button>
+            <button onclick="claimRefEarnings()" id="btn-claim-ref" style="width: 100%; padding: 15px; font-size: 1.1rem;">سحب الأرباح الآن 💰</button>
         </div>
 
         <div class="card ref-tasks-card">
@@ -286,7 +287,6 @@
         <a href="friends.html" class="active"><i>👥</i>الأصدقاء</a>
     </nav>
 
-    <!-- تحديث إصدار الملف لكسر الكاش فوراً -->
-    <script src="friends.js?v=12.0"></script>
+    <script src="friends.js?v=13.0"></script>
 </body>
 </html>
