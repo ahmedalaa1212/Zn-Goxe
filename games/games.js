@@ -6,7 +6,17 @@
     let countdownInterval = null;
     let hasCheckedResults = false;
 
-    // --- أدوات المزامنة الموحدة للرصيد مع الذاكرة المحلية واللعبة ---
+    const tele = window.Telegram?.WebApp;
+
+    function showNotification(msg) {
+        if (tele && tele.showAlert) {
+            tele.showAlert(msg);
+        } else {
+            alert(msg);
+        }
+    }
+
+    // --- أدوات المزامنة الموحدة للرصيد ---
     function getStoredBalance() {
         if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
             return parseFloat(window.GameState.balance);
@@ -62,7 +72,7 @@
 
     async function fetchArenaStatus() {
         try {
-            const initData = window.Telegram?.WebApp?.initData || "";
+            const initData = tele?.initData || "";
 
             const response = await fetch('/api/games/status', {
                 method: 'POST',
@@ -91,12 +101,12 @@
                 startSmoothCountdown(data.has_joined);
             }
         } catch (error) {
-            console.error("Error fetching game status:", error);
+            console.error("خطأ جلب حالة الساحة:", error);
             const btn = document.getElementById('btn-join-arena');
             if (btn && btn.innerText.includes("جاري التحميل")) {
-                btn.innerText = "خطأ في الاتصال، جاري إعادة المحاولة...";
+                btn.innerText = "تعذر الاتصال، جاري إعادة المحاولة...";
             }
-            setTimeout(fetchArenaStatus, 3000);
+            setTimeout(fetchArenaStatus, 4000);
         }
     }
 
@@ -169,13 +179,11 @@
 
     window.joinArena = async function() {
         if (isJoining) return;
-        const tele = window.Telegram?.WebApp;
         const initData = tele?.initData || "";
         
         const currentBal = getStoredBalance();
         if (currentBal < 1000) {
-            if (tele?.showAlert) tele.showAlert("⚠️ رصيدك غير كافي للدخول في الساحة (تطلب 1,000 ZN).");
-            else alert("⚠️ رصيدك غير كافي للدخول في الساحة.");
+            showNotification("⚠️ رصيدك غير كافٍ للدخول في الساحة (تطلب 1,000 ZN).");
             return;
         }
 
@@ -213,18 +221,14 @@
                 }
                 fetchArenaStatus(); 
             } else {
-                if (tele?.showAlert) tele.showAlert("⚠️ " + (data.message || data.error));
-                else alert("⚠️ " + (data.message || data.error));
-                
+                showNotification("⚠️ " + (data.message || data.error || "تعذر الاشتراك"));
                 if (btn) {
                     btn.disabled = false;
                     btn.innerText = "دخول الساحة (1,000 ZN)";
                 }
             }
         } catch (error) {
-            if (tele?.showAlert) tele.showAlert("حدث خطأ في الاتصال بالخادم. حاول مجدداً.");
-            else alert("حدث خطأ في الاتصال بالخادم. حاول مجدداً.");
-            
+            showNotification("حدث خطأ في الاتصال بالخادم. حاول مجدداً.");
             if (btn) {
                 btn.disabled = false;
                 btn.innerText = "دخول الساحة (1,000 ZN)";
@@ -254,14 +258,14 @@
     };
 
     async function fetchRoundResults(roundId, retries = 0) {
-        if (retries > 12) {
-            console.warn("تأخر السيرفر في إصدار النتيجة.");
+        if (retries > 10) {
+            console.warn("تأخر السيرفر في إحراز النتائج.");
             fetchArenaStatus();
             return;
         }
 
         try {
-            const initData = window.Telegram?.WebApp?.initData || "";
+            const initData = tele?.initData || "";
             const response = await fetch('/api/games/results', {
                 method: 'POST',
                 headers: { 
@@ -298,7 +302,7 @@
                 }
             }
         } catch (e) {
-            console.error("Error fetching results", e);
+            console.error("خطأ جلب النتائج:", e);
             setTimeout(() => { fetchRoundResults(roundId, retries + 1); }, 2000);
         }
     }
@@ -311,15 +315,15 @@
         const medals = ['🥇', '🥈', '🥉', '🏅', '🏅'];
         
         winners.forEach((winner, index) => {
-            let name = winner.name || `User #${(winner.uid || '00000').substring(0,5)}`;
+            let name = winner.name || `مستخدم #${(winner.uid || '00000').substring(0,5)}`;
             let prize = (winner.prize || 0).toLocaleString();
             
             list.innerHTML += `
                 <div class="winner-item">
-                    <span style="color: #fff; font-weight: bold; font-size: 14px;">
+                    <span style="color: #fff; font-weight: bold; font-size: 13px;">
                         ${medals[index] || '🏅'} ${name}
                     </span>
-                    <span style="color: #2ecc71; font-weight: bold;">
+                    <span style="color: #2ecc71; font-weight: bold; font-size: 13px;">
                         +${prize} ZN
                     </span>
                 </div>
@@ -327,7 +331,7 @@
         });
     }
 
-    // --- مستمعات المزامنة اللحظية ---
+    // --- مستمعات المزامنة اللحظية عند التبديل ---
     window.addEventListener('pageshow', () => {
         syncGameBalance();
         fetchArenaStatus();
@@ -340,7 +344,7 @@
         }
     });
 
-    // تشغيل الأوامر الفورية
+    // التحديث الفوري المبدئي
     syncGameBalance();
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", fetchArenaStatus);
