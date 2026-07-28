@@ -22,6 +22,7 @@
         * {
             box-sizing: border-box;
             outline: none;
+            -webkit-tap-highlight-color: transparent;
         }
 
         body {
@@ -30,7 +31,8 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
             padding: 0;
-            padding-bottom: 90px;
+            padding-bottom: 100px;
+            user-select: none;
         }
 
         .container {
@@ -41,9 +43,14 @@
 
         header {
             text-align: center;
-            margin-bottom: 25px;
+            margin-bottom: 20px;
         }
-        h2 { margin: 0 0 15px 0; color: var(--text-main); font-size: 1.8rem; }
+        
+        h2 { 
+            margin: 0 0 12px 0; 
+            color: var(--text-main); 
+            font-size: 1.8rem; 
+        }
         
         .balance-display {
             font-size: 1.3rem;
@@ -63,14 +70,15 @@
             border-radius: 16px;
             margin-bottom: 20px;
             border: 1px solid var(--border-color);
-            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
-            transition: transform 0.3s ease;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+            transition: transform 0.2s ease;
         }
+
         .card h3 { 
             margin-top: 0; 
             border-bottom: 1px solid var(--border-color); 
             padding-bottom: 12px; 
-            font-size: 1.2rem; 
+            font-size: 1.15rem; 
             display: flex; 
             align-items: center; 
             gap: 8px;
@@ -78,11 +86,13 @@
         
         .copy-box {
             display: flex;
+            flex-direction: column;
             gap: 10px;
             margin-top: 15px;
         }
+
         .copy-box input {
-            flex: 1;
+            width: 100%;
             padding: 12px;
             border-radius: 10px;
             border: 1px solid #444;
@@ -91,6 +101,16 @@
             direction: ltr;
             font-weight: bold;
             text-align: center;
+            font-size: 0.95rem;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .action-buttons button {
+            flex: 1;
         }
         
         .info-box {
@@ -109,39 +129,50 @@
             background: linear-gradient(45deg, #f39c12, #f1c40f);
             color: #000;
             border: none;
-            padding: 12px 20px;
+            padding: 12px 18px;
             border-radius: 10px;
             font-weight: bold;
-            font-size: 1rem;
+            font-size: 0.95rem;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
         }
-        button:active { transform: scale(0.95); }
+        button:active { transform: scale(0.97); }
         button:disabled {
-            background: var(--btn-disabled);
-            color: #666;
+            background: var(--btn-disabled) !important;
+            color: #666 !important;
             cursor: not-allowed;
-            transform: none;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+
+        .btn-share {
+            background: linear-gradient(45deg, #2980b9, #3498db);
+            color: #fff;
         }
 
         .stats-grid {
             display: flex;
             justify-content: space-between;
-            gap: 15px;
+            gap: 12px;
             margin-bottom: 20px;
         }
+
         .stat-box {
             flex: 1;
-            background: #222;
+            background: #1e1e1e;
             padding: 15px;
             border-radius: 12px;
             text-align: center;
             border: 1px solid #333;
         }
-        .stat-box span { display: block; font-size: 0.9rem; color: var(--text-muted); margin-bottom: 5px; }
-        .stat-box strong { font-size: 1.4rem; color: var(--primary); }
+        .stat-box span { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 6px; }
+        .stat-box strong { font-size: 1.3rem; color: var(--primary); }
 
-        .friends-list { list-style: none; padding: 0; margin: 0; max-height: 250px; overflow-y: auto; padding-right: 5px; }
+        .friends-list { list-style: none; padding: 0; margin: 0; max-height: 280px; overflow-y: auto; padding-right: 3px; }
         .friend-item {
             display: flex;
             align-items: center;
@@ -152,38 +183,40 @@
             border: 1px solid #333;
         }
         .friend-avatar {
-            width: 40px; height: 40px;
+            width: 42px; height: 42px;
             border-radius: 50%;
             background: linear-gradient(45deg, #2c3e50, #34495e);
             display: flex; align-items: center; justify-content: center;
             font-weight: bold; color: #fff; font-size: 1.2rem;
             margin-left: 12px;
+            flex-shrink: 0;
         }
-        .friend-info { flex: 1; display: flex; flex-direction: column; }
-        .friend-name { font-weight: bold; font-size: 1rem; color: #fff; }
-        .friend-id { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
-        .friend-earn { color: var(--success); font-weight: bold; font-size: 1rem; }
-        .empty-state { text-align: center; color: var(--text-muted); padding: 20px 0; font-size: 0.95rem; }
+        .friend-info { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .friend-name { font-weight: bold; font-size: 0.95rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .friend-id { font-size: 0.8rem; margin-top: 3px; }
+        .friend-earn { color: var(--success); font-weight: bold; font-size: 0.95rem; flex-shrink: 0; }
+        .empty-state { text-align: center; color: var(--text-muted); padding: 25px 0; font-size: 0.95rem; }
 
         .ref-tasks-card ul { list-style: none; padding: 0; margin: 0; }
         .task-item {
             background: #222;
             padding: 15px;
             border-radius: 12px;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
             border: 1px solid #333;
         }
-        .task-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-        .task-info h4 { margin: 0 0 5px 0; font-size: 1.1rem; }
-        .task-info p { margin: 0; color: var(--primary); font-size: 0.95rem; font-weight: bold; }
+        .task-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .task-info h4 { margin: 0 0 5px 0; font-size: 1rem; }
+        .task-info p { margin: 0; color: var(--primary); font-size: 0.9rem; font-weight: bold; }
         
-        .progress-container { width: 100%; height: 10px; background: #111; border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
-        .progress-bar { height: 100%; background: linear-gradient(90deg, #f39c12, #f1c40f); border-radius: 10px; }
-        .task-footer { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-muted); }
-        .task-action button { padding: 8px 15px; font-size: 0.9rem; }
+        .progress-container { width: 100%; height: 8px; background: #111; border-radius: 10px; overflow: hidden; margin-bottom: 8px; }
+        .progress-bar { height: 100%; background: linear-gradient(90deg, #f39c12, #f1c40f); border-radius: 10px; transition: width 0.4s ease; }
+        .task-footer { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); }
+        .task-action button { padding: 8px 14px; font-size: 0.85rem; }
         .claimed-btn { background: #27ae60 !important; color: white !important; }
         .locked-btn { background: var(--btn-disabled) !important; color: #777 !important; }
         
+        /* Bottom Navigation Bar */
         .bottom-nav {
             position: fixed;
             bottom: 0; left: 0; right: 0;
@@ -192,6 +225,7 @@
             justify-content: space-between;
             padding: 10px 5px;
             border-top: 1px solid var(--border-color);
+            backdrop-filter: blur(10px);
             z-index: 1000;
         }
         .bottom-nav a {
@@ -202,22 +236,23 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 5px;
+            gap: 4px;
             flex: 1;
+            transition: color 0.2s;
         }
         .bottom-nav a.active { color: var(--primary); }
-        .bottom-nav a i { font-size: 1.4rem; font-style: normal; }
+        .bottom-nav a i { font-size: 1.3rem; font-style: normal; }
         .nav-farm-btn {
             background: var(--primary);
             color: #000 !important;
             border-radius: 50%;
-            width: 50px;
-            height: 50px;
+            width: 48px;
+            height: 48px;
             display: flex;
             justify-content: center;
             align-items: center;
-            margin-top: -20px;
-            box-shadow: 0 0 10px var(--primary-glow);
+            margin-top: -18px;
+            box-shadow: 0 0 12px var(--primary-glow);
         }
     </style>
 </head>
@@ -243,11 +278,14 @@
             <h3>🔗 رابط الدعوة الخاص بك</h3>
             <div class="copy-box">
                 <input type="text" id="ref-link-input" readonly value="جاري إنشاء الرابط...">
-                <button onclick="copyRefLink()">نسخ الرابط</button>
+                <div class="action-buttons">
+                    <button onclick="copyRefLink()">📋 نسخ الرابط</button>
+                    <button onclick="shareRefLink()" class="btn-share">✈️ مشاركة</button>
+                </div>
             </div>
             
             <div class="info-box">
-                💡 <strong>شروط أرباح الدعوة:</strong><br>
+                💡 <strong>شروط وأرباح الدعوة:</strong><br>
                 • تحصُل تلقائياً على <strong>10%</strong> من كافة أرباح تعدين صديقك بشكل مستمر.<br>
                 • لاحتساب الصديق في <strong>شريط تقدم المهام والمكافآت</strong>، يجب عليه شراء 3 ترقيات لسرعة التعدين على الأقل.
             </div>
@@ -256,14 +294,13 @@
         <div class="card ref-earnings-card">
             <h3>💰 سحب أرباح الأصدقاء</h3>
             <small style="color: var(--danger); display: block; margin-bottom: 15px;">* يتم خصم 1.5% رسوم تحويل عند السحب إلى الرصيد الأساسي.</small>
-            <button onclick="claimRefEarnings()" id="btn-claim-ref" style="width: 100%; padding: 15px; font-size: 1.1rem;">سحب الأرباح الآن 💰</button>
+            <button onclick="claimRefEarnings()" id="btn-claim-ref" style="width: 100%; padding: 14px; font-size: 1.05rem;">سحب الأرباح الآن 💰</button>
         </div>
 
         <div class="card ref-tasks-card">
             <h3>🎁 مكافآت الإنجازات (المهام)</h3>
             <ul id="ref-tasks-list">
-                <!-- المهام ستظهر هنا -->
-            </ul>
+                </ul>
         </div>
 
         <div class="card friends-history-card">
@@ -275,18 +312,18 @@
     </div>
 
     <nav class="bottom-nav">
-        <a href="settings.html"><i>⚙️</i>الإعدادات</a>
-        <a href="shop.html"><i>🏪</i>المتجر</a>
-        <a href="games.html"><i>🎮</i>الألعاب</a>
-        <a href="index.html">
+        <a href="../settings/settings.html"><i>⚙️</i>الإعدادات</a>
+        <a href="../shop/shop.html"><i>🏪</i>المتجر</a>
+        <a href="../games/games.html"><i>🎮</i>الألعاب</a>
+        <a href="../index.html">
             <div class="nav-farm-btn"><i>⚒️</i></div>
-            <span style="margin-top: 5px;">المزرعة</span>
+            <span style="margin-top: 4px;">المزرعة</span>
         </a>
-        <a href="tasks.html"><i>📋</i>المهام</a>
-        <a href="wallet.html"><i>💳</i>المحفظة</a>
+        <a href="../tasks/tasks.html"><i>📋</i>المهام</a>
+        <a href="../wallet/wallet.html"><i>💳</i>المحفظة</a>
         <a href="friends.html" class="active"><i>👥</i>الأصدقاء</a>
     </nav>
 
-    <script src="friends.js?v=13.0"></script>
+    <script src="friends.js?v=13.1"></script>
 </body>
 </html>
