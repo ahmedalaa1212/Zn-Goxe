@@ -1,17 +1,36 @@
 // shop/shop.js
 (function initShop() {
     
-    // --- أدوات المزامنة الموحدة مع الذاكرة المحلية ---
+    // --- أدوات المزامنة الموحدة مع الذاكرة المحلية والواجهات ---
     function getStoredBalance() {
-        const bal = localStorage.getItem('user_balance') || localStorage.getItem('zn_balance');
-        return bal !== null ? parseFloat(bal) : null;
+        if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
+            return parseFloat(window.GameState.balance);
+        }
+        const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
+        return bal !== null ? parseFloat(bal) : 0;
     }
 
     function setStoredBalance(newBalance) {
         if (newBalance !== undefined && newBalance !== null) {
-            const strVal = newBalance.toString();
-            localStorage.setItem('user_balance', strVal);
-            localStorage.setItem('zn_balance', strVal);
+            const numVal = parseFloat(newBalance);
+            if (typeof window.setBalance === 'function') {
+                window.setBalance(numVal);
+            } else {
+                if (window.GameState) window.GameState.balance = numVal;
+                localStorage.setItem('zn_balance', numVal.toString());
+                localStorage.setItem('user_balance', numVal.toString());
+            }
+        }
+    }
+
+    function syncTopBalance() {
+        const stored = getStoredBalance();
+        const topBalEl = document.getElementById('top-balance-shop');
+        if (topBalEl) {
+            topBalEl.innerText = `ZN: ${Math.floor(stored).toLocaleString()}`;
+        }
+        if (typeof window.updateGlobalUI === 'function') {
+            window.updateGlobalUI();
         }
     }
 
@@ -52,7 +71,7 @@
             styleSheet.innerHTML = `
                 #shop-confirm-modal-overlay {
                     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-                    background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(4px);
+                    background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(4px);
                     display: none; align-items: center; justify-content: center;
                     z-index: 99999; opacity: 0; transition: opacity 0.3s ease;
                 }
@@ -89,7 +108,7 @@
             const modalHTML = `
                 <div id="shop-confirm-modal-overlay">
                     <div id="shop-confirm-modal">
-                        <div id="shop-modal-icon" style="font-size: 45px; margin-bottom: 10px; text-shadow: 0 0 15px rgba(255,255,255,0.2);">🛒</div>
+                        <div id="shop-modal-icon" style="font-size: 45px; margin-bottom: 10px;">🛒</div>
                         <div class="shop-modal-title" id="shop-modal-title">تأكيد الشراء</div>
                         <div class="shop-modal-desc" id="shop-modal-desc">هل أنت متأكد من هذه العملية؟</div>
                         <div class="shop-modal-price-box" id="shop-modal-price">0 ZN</div>
@@ -148,16 +167,13 @@
         const miningSec = document.getElementById('shop-mining-section');
         const storageSec = document.getElementById('shop-storage-section');
         
-        if (!miningSec || !storageSec) {
-            return;
-        }
+        if (!miningSec || !storageSec) return;
 
-        const pData = window.PlayerData || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0 };
+        const pData = window.PlayerData || window.GameState || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0 };
         
-        // قراءة الرصيد المحلي أولاً لضمان عدم حدوث رفة
-        let storedBal = getStoredBalance();
-        let totalBal = storedBal !== null ? storedBal : parseFloat(pData.balance || 0);
-        if (window.PlayerData) window.PlayerData.balance = totalBal;
+        // مزامنة الرصيد فورياً
+        let totalBal = getStoredBalance();
+        syncTopBalance();
 
         const shopBalEl = document.getElementById('shop-balance-text');
         const shopRateEl = document.getElementById('shop-rate-text');
@@ -165,7 +181,7 @@
         if (shopRateEl) shopRateEl.innerText = `${(pData.hourly_rate || 0).toLocaleString()}/h`; 
 
         // ----------------------------------------
-        // بناء واجهة ترقيات التعدين
+        // بناء واجهة ترقيات السرعة والتعدين
         // ----------------------------------------
         let miningHtml = '';
         for (let i = 1; i <= 9; i++) {
@@ -182,7 +198,7 @@
                     <div>
                         <div style="font-size: 26px; margin-bottom: 5px;">🏛️</div>
                         <div style="color: #fff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
-                        <div style="color: #28a745; font-size: 12px; margin: 4px 0;">⚡ +${speed.toLocaleString()}/h</div>
+                        <div style="color: #00cc66; font-size: 12px; margin: 4px 0;">⚡ +${speed.toLocaleString()}/h</div>
                         <div style="color: #888; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${maxLimit}</div>
                     </div>
                     <button id="btn-speed-${i}" onclick="requestShopPurchase('speed', ${i}, ${price})" 
@@ -214,8 +230,8 @@
             let isDisabled = true;
 
             if (isOwned) {
-                btnBg = '#28a745';
-                btnColor = '#fff';
+                btnBg = '#00cc66';
+                btnColor = '#000';
                 btnText = 'تم الشراء ✔️';
                 isDisabled = true;
             } else if (isNextUpgrade) {
@@ -251,9 +267,7 @@
     };
 
     window.requestShopPurchase = function(type, level, price) {
-        const pData = window.PlayerData;
-        const storedBal = getStoredBalance();
-        const totalBal = storedBal !== null ? storedBal : parseFloat((pData && pData.balance) || 0);
+        const totalBal = getStoredBalance();
         let numPrice = parseFloat(price);
 
         if (totalBal < numPrice) {
@@ -329,7 +343,10 @@
         try {
             let response = await fetch('/api/shop/buy', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${initData}`
+                },
                 body: JSON.stringify({ 
                     initData: initData,
                     type: apiType, 
@@ -342,17 +359,16 @@
             if (response.ok && resData.success) {
                 setStoredBalance(resData.balance);
 
-                if (window.PlayerData) {
-                    window.PlayerData.balance = resData.balance;
-                    window.PlayerData.last_claim_time = resData.last_claim_time; 
-                    
-                    if (apiType === 'mining') {
-                        window.PlayerData.hourly_rate = resData.hourly_rate;
-                        window.PlayerData.upgrades = resData.upgrades;
-                    } else if (apiType === 'storage') {
-                        window.PlayerData.storage_level = resData.storage_level;
-                        window.PlayerData.max_cap = resData.max_cap;
-                    }
+                if (!window.PlayerData) window.PlayerData = {};
+                window.PlayerData.balance = resData.balance;
+                window.PlayerData.last_claim_time = resData.last_claim_time; 
+                
+                if (apiType === 'mining') {
+                    window.PlayerData.hourly_rate = resData.hourly_rate;
+                    window.PlayerData.upgrades = resData.upgrades;
+                } else if (apiType === 'storage') {
+                    window.PlayerData.storage_level = resData.storage_level;
+                    window.PlayerData.max_cap = resData.max_cap;
                 }
                 
                 window.updateShopUI();
@@ -388,7 +404,10 @@
         }
     });
 
-    window.updateShopUI();
-    setInterval(window.updateShopUI, 1000);
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        window.updateShopUI();
+    } else {
+        document.addEventListener('DOMContentLoaded', window.updateShopUI);
+    }
 
 })();
