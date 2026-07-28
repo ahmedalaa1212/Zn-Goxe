@@ -1,4 +1,3 @@
-# core/security.py
 import os
 import hashlib
 import hmac
@@ -6,49 +5,36 @@ import json
 import urllib.parse
 from flask import jsonify
 
-# توكن البوت بنجيبه من إعدادات السيرفر المخفية (Environment Variables)
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '').strip()
 
 def validate_telegram_data(init_data: str):
-    """
-    دالة للتحقق من أن الطلب قادم فعلاً من تليجرام وليس من هاكر.
-    تقوم بفك التشفير ومطابقته مع توكن البوت.
-    """
+    """دالة التحقق من التشفير والـ initData"""
     if not init_data or not BOT_TOKEN:
+        print(" Security Warning: init_data or BOT_TOKEN is missing!")
         return None
         
     try:
-        # تحويل النص إلى قاموس بيانات
         parsed_data = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
         
-        # استخراج الختم (hash) للمقارنة لاحقاً
         if 'hash' not in parsed_data:
             return None
         hash_val = parsed_data.pop('hash')
         
-        # ترتيب البيانات أبجدياً وتجهيزها للتشفير
         data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed_data.items()))
         
-        # إنشاء المفتاح السري باستخدام التوكن
         secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
-        
-        # تشفير البيانات ومقارنتها بالختم المرسل
         calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
         
         if calculated_hash == hash_val:
-            # إذا كان سليماً، نرجع بيانات المستخدم كـ Dictionary
             return json.loads(parsed_data.get('user', '{}'))
         return None
         
-    except Exception:
+    except Exception as e:
+        print(f"Security validation exception: {e}")
         return None
 
 def get_authenticated_user(request, is_post=False):
-    """
-    دالة مساعدة جاهزة للاستخدام في أي (Blueprint).
-    تقوم باستخراج الـ initData من الطلب (GET أو POST) والتحقق منه.
-    ترجع 3 قيم: (حالة النجاح، آي دي المستخدم، رسالة الخطأ إن وجدت).
-    """
+    """استخراج وتأكيد صحة المستخدم"""
     try:
         if is_post:
             req_data = request.get_json(silent=True) or {}
@@ -61,10 +47,10 @@ def get_authenticated_user(request, is_post=False):
             
         user = validate_telegram_data(init_data)
         if not user:
-            return False, None, (jsonify({'success': False, 'error': 'محاولة وصول غير مصرح بها أو تلاعب بالبيانات'}), 403)
+            return False, None, (jsonify({'success': False, 'error': 'محاولة وصول غير مصرح بها أو توكن مفعل خاطئ'}), 403)
             
         telegram_id = str(user.get('id')).strip()
         return True, telegram_id, None
         
-    except Exception:
+    except Exception as e:
         return False, None, (jsonify({'success': False, 'error': 'حدث خطأ في عملية المصادقة'}), 500)
