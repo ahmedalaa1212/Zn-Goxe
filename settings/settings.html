@@ -2,119 +2,284 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>الإعدادات</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>الإعدادات والدعم - Zn Goxe</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
+        :root {
+            --bg-color: #0f0f0f;
+            --card-bg: #1c1c1c;
+            --primary: #00cc66;
+            --primary-glow: rgba(0, 204, 102, 0.3);
+            --telegram-blue: #0088cc;
+            --accent-red: #cc0000;
+            --text-main: #ffffff;
+            --text-muted: #aaaaaa;
+            --border-color: #222222;
+        }
+
+        * {
+            box-sizing: border-box;
+            outline: none;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            padding-bottom: 90px;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        /* هيدر الرصيد الثابت */
+        .balance-header-fixed {
+            position: fixed;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.85);
+            border: 1px solid var(--primary);
+            padding: 8px 25px;
+            border-radius: 30px;
+            z-index: 100;
+            box-shadow: 0 4px 15px var(--primary-glow);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: var(--primary);
+        }
+
+        .settings-container {
+            padding: 15px;
+            padding-top: 70px;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .profile-card {
+            background: var(--card-bg);
+            padding: 20px 15px;
+            border-radius: 16px;
+            border: 1px solid #333;
+            text-align: center;
+            margin-bottom: 18px;
+        }
+
+        .avatar-box {
+            width: 75px;
+            height: 75px;
+            background: var(--telegram-blue);
+            border-radius: 50%;
+            margin: 0 auto 10px auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border: 2px solid var(--primary);
+            overflow: hidden;
+            box-shadow: 0 0 10px var(--primary-glow);
+        }
+
+        .stats-card {
+            background: var(--card-bg);
+            padding: 15px;
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 18px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+            padding: 6px 0;
+        }
+
+        .links-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .action-link-btn {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #222;
+            padding: 14px 16px;
+            border-radius: 12px;
+            text-decoration: none;
+            color: #fff;
+            font-weight: bold;
+            font-size: 0.9rem;
+            transition: transform 0.2s;
+        }
+
+        .action-link-btn:active { transform: scale(0.98); }
+
+        /* شات الدعم */
         .chat-msg { max-width: 80%; padding: 10px 15px; border-radius: 15px; font-size: 14px; line-height: 1.4; word-wrap: break-word; }
-        .msg-user { background: #00cc66; color: #000; align-self: flex-start; border-bottom-right-radius: 2px; }
+        .msg-user { background: var(--primary); color: #000; align-self: flex-start; border-bottom-right-radius: 2px; font-weight: 600; }
         .msg-admin { background: #222; color: #fff; align-self: flex-end; border-bottom-left-radius: 2px; border: 1px solid #333; }
         .msg-system { background: transparent; color: #aaa; align-self: center; font-size: 12px; text-align: center; width: 100%; margin: 10px 0; }
-        
-        .spinner { border: 3px solid #333; border-top: 3px solid #00cc66; border-radius: 50%; width: 18px; height: 18px; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Navigation Bar */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            background-color: rgba(26, 26, 26, 0.98);
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 5px;
+            border-top: 1px solid var(--border-color);
+            z-index: 1000;
+        }
+        .bottom-nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 0.75rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            flex: 1;
+        }
+        .bottom-nav a.active { color: var(--primary); }
+        .bottom-nav a i { font-size: 1.4rem; font-style: normal; }
+        .nav-farm-btn {
+            background: #f39c12;
+            color: #000 !important;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: -20px;
+            box-shadow: 0 0 10px rgba(243, 156, 18, 0.4);
+        }
     </style>
 </head>
-<body style="background:#0f0f0f; margin:0; font-family: sans-serif; -webkit-user-select: none; user-select: none;">
+<body>
 
-<div id="main-settings-section" class="settings-container" style="padding:20px; color:#fff; max-width:400px; margin:0 auto; background:#0f0f0f; min-height:100vh; box-sizing: border-box;">
-    
-    <div style="text-align:center; margin-bottom:20px;">
-        <h2 style="margin:0; color:#00cc66; font-size:24px;">الإعدادات ⚙️</h2>
+    <div class="balance-header-fixed">
+        <span>🪙</span>
+        <span id="top-balance-settings" class="user-balance zn-balance-display">ZN: 0</span>
     </div>
 
-    <div style="background:#1c1c1c; padding:15px; border-radius:15px; border:1px solid #333; text-align:center; margin-bottom:20px;">
-        <div style="width:70px; height:70px; background:#0088cc; border-radius:50%; margin:0 auto 10px auto; display:flex; justify-content:center; align-items:center; border:2px solid #00cc66; overflow:hidden;">
-            <span id="player-avatar" style="font-size:32px; color:#fff; display:flex; align-items:center; justify-content:center; width:100%; height:100%;">👤</span>
-        </div>
-        <h3 id="player-username" style="margin:5px 0; color:#fff; font-size:18px;">جاري التحميل...</h3>
-        <div style="display:flex; justify-content:center; align-items:center; gap:5px; background:#0f0f0f; padding:6px 12px; border-radius:8px; width:fit-content; margin:8px auto 0 auto; border:1px solid #222;">
-            <span style="color:#aaa; font-size:12px;">ID:</span>
-            <span id="player-telegram-id" style="color:#00cc66; font-weight:bold; font-size:13px; font-family:monospace;">00000000</span>
-            <button onclick="copyPlayerId()" style="background:none; border:none; color:#0088cc; cursor:pointer; font-size:14px; padding:0 0 0 5px;" title="نسخ">📋</button>
-        </div>
-    </div>
-
-    <div style="background:#1c1c1c; padding:15px; border-radius:15px; border:1px solid #222; margin-bottom:20px;">
-        <h4 style="margin:0 0 10px 0; color:#00cc66; font-size:14px; border-bottom:1px solid #222; padding-bottom:5px;">📊 إحصائيات النشاط الحية</h4>
-        <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom: 10px;">
-            <span style="color:#aaa;">إجمالي مستويات المزرعة المفتوحة:</span>
-            <span id="stat-total-mining" style="font-weight:bold; color:#00cc66;">جاري التحميل...</span>
-        </div>
-        <div style="display:flex; justify-content:space-between; font-size:13px; border-top:1px solid #333; padding-top:10px;">
-            <span style="color:#aaa;">إجمالي مستويات المخازن المفتوحة:</span>
-            <span id="stat-total-storage" style="font-weight:bold; color:#0088cc;">جاري التحميل...</span>
-        </div>
-    </div>
-
-    <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:20px;">
-        <a id="lnk-channel" href="https://t.me/YOUR_CHANNEL" target="_blank" style="display:flex; align-items:center; justify-content:space-between; background:#222; padding:12px 15px; border-radius:10px; text-decoration:none; color:#fff; font-weight:bold; font-size:14px; border-left:4px solid #0088cc;">
-            <span>📢 قناة التليجرام الرسمية</span><span>❯</span>
-        </a>
+    <div id="main-settings-section" class="settings-container">
         
-        <div onclick="openSupportModal()" style="display:flex; align-items:center; justify-content:space-between; background:#222; padding:12px 15px; border-radius:10px; color:#fff; font-weight:bold; font-size:14px; border-left:4px solid #00cc66; cursor:pointer;">
-            <span>🎧 الدعم الفني لحل المشاكل</span><span>❯</span>
+        <div style="text-align:center; margin-bottom:15px;">
+            <h2 style="margin:0; color:var(--primary); font-size:22px;">الإعدادات ⚙️</h2>
         </div>
 
-        <a id="lnk-youtube" href="https://youtube.com/@YOUR_CHANNEL" target="_blank" style="display:flex; align-items:center; justify-content:space-between; background:#222; padding:12px 15px; border-radius:10px; text-decoration:none; color:#fff; font-weight:bold; font-size:14px; border-left:4px solid #cc0000;">
-            <span>▶️ قناة اليوتيوب وشروحاتنا</span><span>❯</span>
-        </a>
-    </div>
-
-    <div style="display:flex; gap:10px;">
-        <button onclick="showPrivacyModal()" style="width:100%; padding:12px; background:#1c1c1c; border:1px solid #333; color:#aaa; border-radius:10px; font-weight:bold; font-size:13px; cursor:pointer;">
-            ⚖️ سياسة الاستخدام
-        </button>
-    </div>
-</div>
-
-<!-- ========================================== -->
-<!-- 🟢 نافذة الدعم الفني العائمة المحدثة -->
-<!-- ========================================== -->
-<div id="support-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:#0f0f0f; z-index:10000; flex-direction:column; box-sizing: border-box;">
-    
-    <!-- الهيدر مع زر إغلاق بارز وواضح جداً -->
-    <div style="background:#1c1c1c; padding:12px 15px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333;">
-        <div>
-            <h3 style="margin:0; color:#00cc66; font-size:16px; display:flex; align-items:center; gap:6px;">تواصل معنا 🎧</h3>
-            <span id="ticket-id-display" style="font-size:11px; color:#aaa;">جاري الاتصال بالدعم...</span>
+        <div class="profile-card">
+            <div class="avatar-box">
+                <span id="player-avatar" style="font-size:32px; color:#fff; display:flex; align-items:center; justify-content:center; width:100%; height:100%;">👤</span>
+            </div>
+            <h3 id="player-username" style="margin:5px 0; color:#fff; font-size:18px;">جاري التحميل...</h3>
+            <div style="display:flex; justify-content:center; align-items:center; gap:5px; background:#0f0f0f; padding:6px 12px; border-radius:8px; width:fit-content; margin:8px auto 0 auto; border:1px solid #222;">
+                <span style="color:#aaa; font-size:12px;">ID:</span>
+                <span id="player-telegram-id" style="color:var(--primary); font-weight:bold; font-size:13px; font-family:monospace;">00000000</span>
+                <button onclick="copyPlayerId()" style="background:none; border:none; color:var(--telegram-blue); cursor:pointer; font-size:14px; padding:0 0 0 5px;" title="نسخ">📋</button>
+            </div>
         </div>
+
+        <div class="stats-card">
+            <h4 style="margin:0 0 10px 0; color:var(--primary); font-size:14px; border-bottom:1px solid #222; padding-bottom:8px;">📊 إحصائيات النشاط الحية</h4>
+            <div class="stat-row">
+                <span style="color:#aaa;">مستويات المزرعة المفتوحة:</span>
+                <span id="stat-total-mining" style="font-weight:bold; color:var(--primary);">جاري التحميل...</span>
+            </div>
+            <div class="stat-row" style="border-top:1px solid #222; padding-top:8px;">
+                <span style="color:#aaa;">مستويات المخازن المفتوحة:</span>
+                <span id="stat-total-storage" style="font-weight:bold; color:var(--telegram-blue);">جاري التحميل...</span>
+            </div>
+        </div>
+
+        <div class="links-group">
+            <a id="lnk-channel" href="https://t.me/YOUR_CHANNEL" target="_blank" class="action-link-btn" style="border-left:4px solid var(--telegram-blue);">
+                <span>📢 قناة التليجرام الرسمية</span><span>❯</span>
+            </a>
+            
+            <div onclick="openSupportModal()" class="action-link-btn" style="border-left:4px solid var(--primary); cursor:pointer;">
+                <span>🎧 الدعم الفني لحل المشاكل</span><span>❯</span>
+            </div>
+
+            <a id="lnk-youtube" href="https://youtube.com/@YOUR_CHANNEL" target="_blank" class="action-link-btn" style="border-left:4px solid var(--accent-red);">
+                <span>▶️ قناة اليوتيوب وشروحاتنا</span><span>❯</span>
+            </a>
+        </div>
+
+        <div style="display:flex; gap:10px;">
+            <button onclick="showPrivacyModal()" style="width:100%; padding:12px; background:var(--card-bg); border:1px solid #333; color:#aaa; border-radius:10px; font-weight:bold; font-size:13px; cursor:pointer;">
+                ⚖️ سياسة الاستخدام
+            </button>
+        </div>
+    </div>
+
+    <!-- نافذة الدعم الفني -->
+    <div id="support-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:#0f0f0f; z-index:10000; flex-direction:column; box-sizing: border-box;">
         
-        <!-- 🔥 زر الإغلاق الواضح والمحسّن -->
-        <button onclick="closeSupportModal()" style="background:#cc0000; border:none; color:#fff; font-size:13px; font-weight:bold; padding:8px 14px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:5px; box-shadow: 0 2px 6px rgba(204, 0, 0, 0.4);">
-            <span>إغلاق</span>
-            <span style="font-size:16px; line-height:1;">✕</span>
-        </button>
-    </div>
-
-    <!-- منطقة الرسائل -->
-    <div id="support-chat-box" style="flex:1; padding:15px; overflow-y:auto; display:flex; flex-direction:column; gap:10px;">
-    </div>
-
-    <!-- حقل الإدخال -->
-    <div id="support-input-section" style="background:#1c1c1c; padding:10px 15px; display:flex; gap:10px; align-items:center; border-top:1px solid #333;">
-        <input type="text" id="support-msg-input" placeholder="اكتب رسالتك هنا..." style="flex:1; background:#0f0f0f; border:1px solid #333; color:#fff; padding:12px 15px; border-radius:20px; outline:none; font-family:inherit;" autocomplete="off">
-        <button id="support-send-btn" onclick="sendSupportMessage()" style="background:#00cc66; border:none; border-radius:50%; width:42px; height:42px; display:flex; justify-content:center; align-items:center; color:#000; font-size:18px; cursor:pointer;">➤</button>
-    </div>
-
-</div>
-
-<!-- نافذة سياسة الاستخدام -->
-<div id="settings-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); justify-content:center; align-items:center; z-index:9999; padding:20px; box-sizing: border-box;">
-    <div style="background:#1c1c1c; padding:20px; border-radius:15px; width:100%; max-width:320px; border:1px solid #333; text-align:right; max-height:80vh; overflow-y:auto;">
-        <h3 style="color:#00cc66; margin-top:0; text-align:center; font-size:18px;">شروط وسياسة الاستخدام</h3>
-        <div style="color:#ccc; font-size:12px; line-height:1.6; margin:15px 0;">
-            <p style="margin:5px 0;">1. تطبيق Zn Goxe هو تطبيق مصغر ترفيهي مبني بالكامل داخل بيئة تليجرام الآمنة.</p>
-            <p style="margin:5px 0;">2. اللعبة لا تطلب أو تجمع أي صلاحيات سرية أو كلمات مرور أو بيانات بنكية خاصة بالمستخدمين.</p>
-            <p style="margin:5px 0;">3. كافة نقاط ورصيد العملة (ZN) داخل التطبيق هي رصيد افتراضي مخصص للتقدم والمحاكاة داخل اللعبة.</p>
+        <div style="background:#1c1c1c; padding:12px 15px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333;">
+            <div>
+                <h3 style="margin:0; color:var(--primary); font-size:16px; display:flex; align-items:center; gap:6px;">تواصل معنا 🎧</h3>
+                <span id="ticket-id-display" style="font-size:11px; color:#aaa;">جاري الاتصال بالدعم...</span>
+            </div>
+            
+            <button onclick="closeSupportModal()" style="background:var(--accent-red); border:none; color:#fff; font-size:13px; font-weight:bold; padding:8px 14px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:5px; box-shadow: 0 2px 6px rgba(204, 0, 0, 0.4);">
+                <span>إغلاق</span>
+                <span style="font-size:16px; line-height:1;">✕</span>
+            </button>
         </div>
-        <button onclick="closeSettingsModal()" style="width:100%; padding:10px; background:#00cc66; border:none; color:white; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer;">موافق وإغلاق</button>
+
+        <div id="support-chat-box" style="flex:1; padding:15px; overflow-y:auto; display:flex; flex-direction:column; gap:10px;">
+        </div>
+
+        <div id="support-input-section" style="background:#1c1c1c; padding:10px 15px; display:flex; gap:10px; align-items:center; border-top:1px solid #333;">
+            <input type="text" id="support-msg-input" placeholder="اكتب رسالتك هنا..." style="flex:1; background:#0f0f0f; border:1px solid #333; color:#fff; padding:12px 15px; border-radius:20px; outline:none; font-family:inherit;" autocomplete="off">
+            <button id="support-send-btn" onclick="sendSupportMessage()" style="background:var(--primary); border:none; border-radius:50%; width:42px; height:42px; display:flex; justify-content:center; align-items:center; color:#000; font-size:18px; cursor:pointer;">➤</button>
+        </div>
+
     </div>
-</div>
 
-<div id="toast-msg" style="display:none; position:fixed; bottom:80px; left:50%; transform:translateX(-50%); background:#00cc66; color:#fff; padding:8px 16px; border-radius:20px; font-size:12px; font-weight:bold; z-index:10000; box-shadow:0 4px 10px rgba(0,0,0,0.5); text-align:center; min-width:220px;">
-    تم نسخ الـ ID بنجاح!
-</div>
+    <!-- نافذة سياسة الاستخدام -->
+    <div id="settings-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); justify-content:center; align-items:center; z-index:9999; padding:20px; box-sizing: border-box;">
+        <div style="background:#1c1c1c; padding:20px; border-radius:15px; width:100%; max-width:320px; border:1px solid #333; text-align:right; max-height:80vh; overflow-y:auto;">
+            <h3 style="color:var(--primary); margin-top:0; text-align:center; font-size:18px;">شروط وسياسة الاستخدام</h3>
+            <div style="color:#ccc; font-size:12px; line-height:1.6; margin:15px 0;">
+                <p style="margin:5px 0;">1. تطبيق Zn Goxe هو تطبيق مصغر ترفيهي مبني بالكامل داخل بيئة تليجرام الآمنة.</p>
+                <p style="margin:5px 0;">2. اللعبة لا تطلب أو تجمع أي صلاحيات سرية أو كلمات مرور أو بيانات بنكية خاصة بالمستخدمين.</p>
+                <p style="margin:5px 0;">3. كافة نقاط ورصيد العملة (ZN) داخل التطبيق هي رصيد افتراضي مخصص للتقدم والمحاكاة داخل اللعبة.</p>
+            </div>
+            <button onclick="closeSettingsModal()" style="width:100%; padding:10px; background:var(--primary); border:none; color:black; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer;">موافق وإغلاق</button>
+        </div>
+    </div>
 
-<script src="settings.js"></script>
+    <div id="toast-msg" style="display:none; position:fixed; bottom:80px; left:50%; transform:translateX(-50%); background:var(--primary); color:#000; padding:8px 16px; border-radius:20px; font-size:12px; font-weight:bold; z-index:10000; box-shadow:0 4px 10px rgba(0,0,0,0.5); text-align:center; min-width:220px;">
+        تم نسخ الـ ID بنجاح!
+    </div>
+
+    <nav class="bottom-nav">
+        <a href="settings.html" class="active"><i>⚙️</i>الإعدادات</a>
+        <a href="shop.html"><i>🏪</i>المتجر</a>
+        <a href="games.html"><i>🎮</i>الألعاب</a>
+        <a href="index.html">
+            <div class="nav-farm-btn"><i>⚒️</i></div>
+            <span style="margin-top: 5px;">المزرعة</span>
+        </a>
+        <a href="tasks.html"><i>📋</i>المهام</a>
+        <a href="wallet.html"><i>💳</i>المحفظة</a>
+        <a href="friends.html"><i>👥</i>الأصدقاء</a>
+    </nav>
+
+    <script src="settings.js?v=13.0"></script>
 </body>
 </html>
