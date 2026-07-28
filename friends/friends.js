@@ -10,6 +10,20 @@ const REF_TASKS = [
 
 const BOT_USERNAME = "zngoxe_bot"; // يوزر البوت بدون @
 
+// --- أدوات المزامنة الموحدة مع باقي الصفحات (localStorage) ---
+function getStoredBalance() {
+    const bal = localStorage.getItem('user_balance') || localStorage.getItem('zn_balance');
+    return bal !== null ? parseFloat(bal) : null;
+}
+
+function setStoredBalance(newBalance) {
+    if (newBalance !== undefined && newBalance !== null) {
+        const strVal = newBalance.toString();
+        localStorage.setItem('user_balance', strVal);
+        localStorage.setItem('zn_balance', strVal);
+    }
+}
+
 function initFriendsPage() {
     const tele = window.Telegram?.WebApp;
     if (tele) {
@@ -33,12 +47,21 @@ function initFriendsPage() {
         }
     }
 
+    // 1. عرض الرصيد المحفوظ محلياً فوراً (إن وجد) لعدم حدوث أي تأخير أو اختلاف
+    const cachedBalance = getStoredBalance();
+    if (cachedBalance !== null) {
+        if (!window.PlayerData) window.PlayerData = {};
+        window.PlayerData.balance = cachedBalance;
+        updateFriendsUI();
+    }
+
     const container = document.getElementById('friends-list-container');
     if (!initData) {
         if(container) container.innerHTML = '<div class="empty-state">يرجى فتح التطبيق من تليجرام لعرض الأصدقاء.</div>';
         return;
     }
 
+    // 2. طلب أحدث البيانات من السيرفر ومزامنتها
     loadFriendsData(initData);
 }
 
@@ -53,10 +76,13 @@ async function loadFriendsData(initData) {
             body: JSON.stringify({ initData: initData })
         });
         const data = await response.json();
-        window.PlayerData = data.success ? data.player : {};
+        if (data.success && data.player) {
+            window.PlayerData = data.player;
+            // حفظ الرصيد الجاي من السيرفر في المخزن المحلي الموحد
+            setStoredBalance(data.player.balance);
+        }
     } catch (error) {
         console.warn("Failed to fetch player data.");
-        window.PlayerData = {}; 
     }
 
     updateFriendsUI();
@@ -66,10 +92,13 @@ async function loadFriendsData(initData) {
 function updateFriendsUI() {
     const pData = window.PlayerData || {};
     
+    // إذا كان هناك رصيد في المخزن المحلي أحدث، نعتمد عليه
+    const localBal = getStoredBalance();
+    const balance = localBal !== null ? localBal : (parseFloat(pData.balance) || 0);
+    
     const pending = parseFloat(pData.pending_ref_earnings) || 0;
     const totalInvited = parseInt(pData.invited_friends_count) || 0;
     const eligibleForTasks = parseInt(pData.eligible_task_friends_count) || 0;
-    const balance = parseFloat(pData.balance) || 0;
 
     const elPending = document.getElementById('pending-ref-earnings');
     const elInvited = document.getElementById('invited-friends-count');
@@ -171,8 +200,13 @@ window.claimRefEarnings = async function() {
         
         if (data.success) {
             tele.showAlert(`🎉 تم السحب بنجاح!\nأضيف ${Math.floor(data.net_amount).toLocaleString()} ZN إلى رصيدك.`);
+            
+            // تحديث الـ LocalStorage والذاكرة بالرصيد الجديد لترُى في باقي الصفحات فوراً
+            setStoredBalance(data.new_balance);
+            if (!window.PlayerData) window.PlayerData = {};
             window.PlayerData.balance = data.new_balance;
             window.PlayerData.pending_ref_earnings = 0;
+            
             updateFriendsUI();
         } else {
             tele.showAlert(data.error || "فشل السحب");
@@ -208,9 +242,14 @@ window.claimRefTask = async function(taskId, reward, reqFriends) {
         
         if (data.success) {
             tele.showAlert(`🎊 مبروك! استلمت ${reward.toLocaleString()} ZN.`);
+            
+            // تحديث الـ LocalStorage والذاكرة بالرصيد الجديد لترُى في المزرعة وباقي الصفحات
+            setStoredBalance(data.new_balance);
+            if (!window.PlayerData) window.PlayerData = {};
             window.PlayerData.balance = data.new_balance;
             if(!window.PlayerData.claimed_ref_tasks) window.PlayerData.claimed_ref_tasks = [];
             window.PlayerData.claimed_ref_tasks.push(taskId);
+            
             updateFriendsUI();
         } else {
             tele.showAlert(data.error || "خطأ في الاستلام");
@@ -268,6 +307,16 @@ async function fetchAndRenderFriendsList(initData) {
         container.innerHTML = '<div class="empty-state">خطأ في الاتصال بالخادم.</div>';
     }
 }
+
+// إعادة تحديث الواجهة فوراً عند العودة للصفحة من أي صفحة أخرى
+window.addEventListener('pageshow', function() {
+    const stored = getStoredBalance();
+    if (stored !== null) {
+        if (!window.PlayerData) window.PlayerData = {};
+        window.PlayerData.balance = stored;
+        updateFriendsUI();
+    }
+});
 
 if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", initFriendsPage);
