@@ -6,26 +6,23 @@ friends_bp = Blueprint('friends', __name__)
 
 @friends_bp.route('/list', methods=['POST'])
 def get_friends_list():
-    """جلب سجل الأصدقاء الذين قاموا بالدخول عبر رابط إحالة اللاعب"""
+    """جلب سجل الأصدقاء"""
     try:
-        data = request.get_json()
-        init_data = data.get('initData')
-        
-        user_info = get_authenticated_user(init_data)
-        if not user_info:
-            return jsonify({"success": False, "error": "غير مصرح لك (Unauthorized)"}), 401
+        # ✅ الاستخدام الصحيح لدالة المصادقة الخاصة بك
+        is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
+        if not is_valid:
+            return error_resp # إرجاع رسالة الرفض (401/403)
             
-        user_id = str(user_info.get('id'))
-        
-        friends_query = db.collection('users').where('referred_by', '==', user_id).stream()
+        # البحث عن الأصدقاء
+        friends_query = db.collection('users').where('referred_by', '==', str(user_id)).stream()
         
         friends_list = []
         for doc in friends_query:
             f_data = doc.to_dict()
             friends_list.append({
-                "name": f_data.get('first_name') or 'صديق',
-                "upgrades_count": f_data.get('upgrades_count') or 0,
-                "generated": f_data.get('ref_generated_amount') or 0
+                "name": f_data.get('first_name', 'صديق'),
+                "upgrades_count": f_data.get('upgrades_count', 0),
+                "generated": f_data.get('ref_generated_amount', 0)
             })
             
         return jsonify({"success": True, "friends": friends_list}), 200
@@ -37,27 +34,21 @@ def get_friends_list():
 
 @friends_bp.route('/claim_ref_earnings', methods=['POST'])
 def claim_ref_earnings():
-    """سحب أرباح الأصدقاء المعلقة إلى الرصيد الأساسي مع خصم 1.5% رسوم"""
+    """سحب الأرباح مع خصم 1.5%"""
     try:
-        data = request.get_json()
-        init_data = data.get('initData')
-        
-        user_info = get_authenticated_user(init_data)
-        if not user_info:
-            return jsonify({"success": False, "error": "غير مصرح لك"}), 401
+        is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
+        if not is_valid:
+            return error_resp
             
-        user_id = str(user_info.get('id'))
-        user_ref = db.collection('users').document(user_id)
+        user_ref = db.collection('users').document(str(user_id))
         user_doc = user_ref.get()
         
         if not user_doc.exists:
             return jsonify({"success": False, "error": "حساب المستخدم غير موجود"}), 404
             
         user_data = user_doc.to_dict()
-        
-        # حماية ضد القيم الـ None في الداتا بيز
-        pending_earnings = float(user_data.get('pending_ref_earnings') or 0)
-        current_balance = float(user_data.get('balance') or 0)
+        pending_earnings = float(user_data.get('pending_ref_earnings', 0))
+        current_balance = float(user_data.get('balance', 0))
         
         if pending_earnings <= 0:
             return jsonify({"success": False, "error": "لا توجد أرباح معلقة للسحب"}), 400
@@ -84,31 +75,27 @@ def claim_ref_earnings():
 
 @friends_bp.route('/claim_ref_task', methods=['POST'])
 def claim_ref_task():
-    """استلام مكافآت الإنجازات بناءً على عدد الأصدقاء"""
+    """استلام مكافآت الإنجازات"""
     try:
-        data = request.get_json()
-        init_data = data.get('initData')
-        task_id = int(data.get('taskId'))
-        expected_reward = float(data.get('reward'))
-        req_friends = int(data.get('reqFriends'))
-        
-        user_info = get_authenticated_user(init_data)
-        if not user_info:
-            return jsonify({"success": False, "error": "غير مصرح لك"}), 401
+        is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
+        if not is_valid:
+            return error_resp
             
-        user_id = str(user_info.get('id'))
-        user_ref = db.collection('users').document(user_id)
+        data = request.get_json()
+        task_id = int(data.get('taskId', 0))
+        expected_reward = float(data.get('reward', 0))
+        req_friends = int(data.get('reqFriends', 0))
+        
+        user_ref = db.collection('users').document(str(user_id))
         user_doc = user_ref.get()
         
         if not user_doc.exists:
             return jsonify({"success": False, "error": "حساب المستخدم غير موجود"}), 404
             
         user_data = user_doc.to_dict()
-        
-        # حماية ضد الـ None
-        invited_count = int(user_data.get('invited_friends_count') or 0)
-        claimed_tasks = user_data.get('claimed_ref_tasks') or []
-        current_balance = float(user_data.get('balance') or 0)
+        invited_count = int(user_data.get('invited_friends_count', 0))
+        claimed_tasks = user_data.get('claimed_ref_tasks', [])
+        current_balance = float(user_data.get('balance', 0))
         
         if invited_count < req_friends:
             return jsonify({"success": False, "error": "لم تصل للعدد المطلوب من الأصدقاء بعد"}), 400
@@ -124,10 +111,7 @@ def claim_ref_task():
             'claimed_ref_tasks': claimed_tasks
         })
         
-        return jsonify({
-            "success": True, 
-            "new_balance": new_balance
-        }), 200
+        return jsonify({"success": True, "new_balance": new_balance}), 200
 
     except Exception as e:
         print(f"Error in claim_ref_task: {e}")
