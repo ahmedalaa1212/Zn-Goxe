@@ -4,7 +4,7 @@ from database import db
 
 friends_bp = Blueprint('friends', __name__)
 
-@friends_bp.route('/data', methods=['POST'])
+@friends_bp.route('/data', methods=['GET', 'POST'])
 def get_friends_data():
     """مسار مستقل لجلب بيانات صفحة الأصدقاء فقط"""
     try:
@@ -32,22 +32,20 @@ def get_friends_data():
         print(f"Error in friends/data: {e}")
         return jsonify({"success": False, "error": "حدث خطأ في الخادم"}), 500
 
-@friends_bp.route('/list', methods=['POST'])
+@friends_bp.route('/list', methods=['GET', 'POST'])
 def get_friends_list():
-    """جلب سجل الأصدقاء (تم التصحيح هنا)"""
+    """جلب سجل الأصدقاء"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
             return error_resp
             
-        # البحث عن الأصدقاء الذين سجلوا عن طريق هذا المستخدم
         friends_query = db.collection('users').where('referred_by', '==', str(user_id)).stream()
         
         friends_list = []
         for doc in friends_query:
             f_data = doc.to_dict()
             
-            # حساب إجمالي الترقيات الفعلي للصديق عشان تظهر الحالة صح
             upgrades = f_data.get('upgrades', {})
             total_upgrades = 0
             if isinstance(upgrades, dict):
@@ -58,7 +56,6 @@ def get_friends_list():
             friends_list.append({
                 "name": f_data.get('first_name', 'صديق'),
                 "upgrades_count": total_upgrades,
-                # قراءة الرقم اللي الصديق ده جابهولك انت، مش إجمالي أرباحه هو من إحالاته
                 "generated": f_data.get('generated_for_inviter', 0)
             })
             
