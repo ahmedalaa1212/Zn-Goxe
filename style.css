@@ -1,4 +1,6 @@
-/* تنسيقات عامة للعبة */
+/* =========================================
+   تنسيقات عامة للعبة
+   ========================================= */
 * {
     margin: 0;
     padding: 0;
@@ -8,16 +10,17 @@
 }
 
 body {
-    background-color: #121212; /* لون خلفية هادي */
+    background-color: #121212; /* لون خلفية هادئ */
     color: #ffffff;
     height: 100vh;
     overflow: hidden;
+    position: relative;
 }
 
 #app {
-    height: calc(100vh - 75px);
+    height: calc(100vh - 65px);
     padding: 15px;
-    padding-bottom: 25px; 
+    padding-bottom: 90px; /* مسافة أمان لمنع تداخل المحتوى مع الشريط السفلي */
     overflow-y: auto;
     overflow-x: hidden;
 }
@@ -32,6 +35,7 @@ body {
 
 .game-view {
     display: none !important;
+    padding-bottom: 20px;
 }
 
 .game-view.active {
@@ -45,21 +49,21 @@ body {
 }
 
 /* =========================================
-   شريط التنقل السفلي البسيط والعملي
+   شريط التنقل السفلي
    ========================================= */
 .bottom-nav {
     position: fixed;
     bottom: 0;
     left: 0;
     width: 100%;
-    height: 65px; /* ارتفاع مناسب مش كبير أوي */
+    height: 65px;
     background-color: #1a1a1a;
     display: flex;
-    justify-content: space-between;
+    justify-content: space-around;
     align-items: center;
     border-top: 1px solid #2a2a2a;
-    padding: 0 2px; /* مسافة بسيطة جداً عشان الزحمة */
-    z-index: 1000;
+    padding: 0 2px;
+    z-index: 99999; /* ضمان بقاء الشريط فوق المحتوى */
 }
 
 .nav-item {
@@ -71,53 +75,89 @@ body {
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    flex: 1; /* التوزيع بالتساوي على الـ 7 أزرار */
+    flex: 1; /* التوزيع بالتساوي على الأزرار الـ 7 */
     min-width: 0; /* منع خروج العناصر بره الشاشة */
+    transition: all 0.2s ease;
+    padding: 4px 0;
 }
 
 .nav-item i {
     font-size: 18px;
     margin-bottom: 4px;
-    transition: color 0.2s;
+    transition: color 0.2s, transform 0.2s;
 }
 
 .nav-item span {
-    font-size: 9px; /* مقاس خط مثالي لـ 7 كلمات */
-    white-space: nowrap; /* يمنع الكلمة تنزل سطرين */
+    font-size: 9px; /* مقاس خط مناسب لجميع الأزرار */
+    white-space: nowrap;
+    transition: color 0.2s;
 }
 
-/* اللون عند التفعيل (لون هادي وبسيط) */
-.nav-item.active, .nav-item.active i {
-    color: #f39c12; /* برتقالي/ذهبي مطفي شيك */
+/* لون الأزرار العادية عند التفعيل */
+.nav-item.active {
+    color: #f39c12;
+}
+
+.nav-item.active i {
+    color: #f39c12;
+    transform: scale(1.1);
+}
+
+.nav-item.active span {
+    color: #f39c12;
+    font-weight: bold;
 }
 
 /* =========================================
-   زر المزرعة المركزي (حجم معقول ومضبوط)
+   زر المزرعة المركزي (إصلاح مشكلة التوهج والبروز المزعج)
    ========================================= */
 .nav-center-btn {
     position: relative;
-    top: -12px; /* ارتفاع بسيط عن باقي الأزرار */
-    background-color: #f39c12; /* خلفية صلبة بدون تدريج ألوان */
-    color: #121212 !important;
-    width: 52px; /* عرض مناسب ميضغطش باقي القوائم */
-    height: 52px;
+    top: -8px; /* ارتفاع بسيط ومتناسق */
+    background-color: #252525; /* لون داكن وهادئ أثناء عدم التفعيل */
+    color: #888888 !important;
+    width: 50px;
+    height: 50px;
     border-radius: 50%;
-    border: 4px solid #121212; /* عشان يعمل شكل الفراغ حواليه */
-    flex: none; /* عشان ميصغرش أو يكبر مع باقي القوائم */
+    border: 3px solid #1a1a1a;
+    flex: none;
     display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+    transition: all 0.3s ease;
+    margin: 0 2px;
 }
 
 .nav-center-btn i {
-    font-size: 20px !important;
-    color: #121212 !important;
+    font-size: 18px !important;
+    color: #888888 !important;
     margin-bottom: 0;
+    transition: all 0.3s ease;
 }
 
 .nav-center-text {
     position: absolute;
-    bottom: -18px;
-    color: #ffffff !important;
+    bottom: -16px;
+    color: #888888;
     font-size: 9px;
+    white-space: nowrap;
+    transition: all 0.3s ease;
+}
+
+/* عند تفعيل زر المزرعة فقط يتحول للون الذهبي/البرتقالي المميز */
+.nav-center-btn.active {
+    background-color: #f39c12 !important;
+    border-color: #121212 !important;
+    box-shadow: 0 0 12px rgba(243, 156, 18, 0.5);
+}
+
+.nav-center-btn.active i {
+    color: #121212 !important;
+}
+
+.nav-center-btn.active .nav-center-text {
+    color: #f39c12 !important;
+    font-weight: bold;
 }
