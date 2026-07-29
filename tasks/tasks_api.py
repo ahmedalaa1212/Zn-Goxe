@@ -34,21 +34,42 @@ def get_campaigns():
     if not is_auth:
         telegram_id = request.args.get('telegramId', '5102387551').strip()
 
+    telegram_id_str = str(telegram_id).strip()
+
+    # جلب بيانات المستخدم المحدثة مباشرة من فايربيس
+    ad_balance = 0.0
+    balance = 0.0
+    try:
+        user_ref = firestore_db.collection('users').document(telegram_id_str)
+        user_doc = user_ref.get()
+        if user_doc.exists:
+            u_data = user_doc.to_dict() or {}
+            ad_balance = float(u_data.get('ad_balance', 0.0))
+            balance = float(u_data.get('balance', 0.0))
+    except Exception as e:
+        print(f"Error fetching user data in get_campaigns: {e}")
+
     db = load_data()
     campaigns = db.get('campaigns', [])
-    user_completed = db.get('completed_tasks', {}).get(str(telegram_id), [])
+    user_completed = db.get('completed_tasks', {}).get(telegram_id_str, [])
 
     result_campaigns = []
     for c in campaigns:
-        # إخفاء الحملات المنتهية
-        if c.get('users_completed', 0) >= c.get('users_needed', 1):
+        # إخفاء الحملات المنتهية للمستخدمين الآخرين فقط، وإظهارها لصاحب الحملة
+        if c.get('users_completed', 0) >= c.get('users_needed', 1) and str(c.get('creator_id')).strip() != telegram_id_str:
             continue
             
         c_copy = dict(c)
         c_copy['is_completed'] = c['id'] in user_completed
         result_campaigns.append(c_copy)
 
-    return jsonify({"success": True, "campaigns": result_campaigns}), 200
+    return jsonify({
+        "success": True,
+        "user_id": telegram_id_str,
+        "ad_balance": ad_balance,
+        "balance": balance,
+        "campaigns": result_campaigns
+    }), 200
 
 @tasks_bp.route('/create_campaign', methods=['POST'])
 def create_campaign():
@@ -56,6 +77,7 @@ def create_campaign():
     if not is_auth:
         return err_response
 
+    telegram_id_str = str(telegram_id).strip()
     req = request.get_json(silent=True) or {}
     platform = req.get('platform')
     url = req.get('url')
@@ -77,7 +99,7 @@ def create_campaign():
     total_cost = reward * users_needed
 
     try:
-        user_ref = firestore_db.collection('users').document(str(telegram_id))
+        user_ref = firestore_db.collection('users').document(telegram_id_str)
         user_doc = user_ref.get()
 
         if not user_doc.exists:
@@ -97,7 +119,7 @@ def create_campaign():
         db = load_data()
         new_campaign = {
             "id": f"camp_{uuid.uuid4().hex[:10]}",
-            "creator_id": str(telegram_id),
+            "creator_id": telegram_id_str,
             "platform": platform,
             "url": url,
             "description": description,
@@ -106,7 +128,7 @@ def create_campaign():
             "users_completed": 0
         }
 
-        db['campaigns'].append(new_campaign)
+        db.setdefault('campaigns', []).append(new_campaign)
         save_data(db)
 
         return jsonify({
@@ -125,6 +147,7 @@ def complete_task():
     if not is_auth:
         return err_response
 
+    telegram_id_str = str(telegram_id).strip()
     req = request.get_json(silent=True) or {}
     task_id = req.get('taskId')
 
@@ -136,12 +159,12 @@ def complete_task():
     target_campaign = next((c for c in campaigns if c['id'] == task_id), None)
 
     if not target_campaign:
-        return jsonify({"success": False, "error": "المهمة غير موجودة أو انتهت"}), 444
+        return jsonify({"success": False, "error": "المهمة غير موجودة أو انتهت"}), 404
 
-    if str(target_campaign.get('creator_id')).strip() == str(telegram_id).strip():
+    if str(target_campaign.get('creator_id')).strip() == telegram_id_str:
         return jsonify({"success": False, "error": "لا يمكنك تنفيذ حملتك الخاصة"}), 400
 
-    user_completed = db.setdefault('completed_tasks', {}).setdefault(str(telegram_id), [])
+    user_completed = db.setdefault('completed_tasks', {}).setdefault(telegram_id_str, [])
     if task_id in user_completed:
         return jsonify({"success": False, "error": "لقد قمت بإكمال هذه المهمة مسبقاً"}), 400
 
@@ -149,7 +172,7 @@ def complete_task():
 
     # إضافة المكافأة لرصيد المنفّذ في فايربيس
     try:
-        user_ref = firestore_db.collection('users').document(str(telegram_id))
+        user_ref = firestore_db.collection('users').document(telegram_id_str)
         user_ref.update({
             'balance': firestore.Increment(reward_amount)
         })
@@ -173,6 +196,7 @@ def cancel_campaign():
     if not is_auth:
         return err_response
 
+    telegram_id_str = str(telegram_id).strip()
     req = request.get_json(silent=True) or {}
     campaign_id = req.get('campaignId')
 
@@ -183,7 +207,7 @@ def cancel_campaign():
     if not target_campaign:
         return jsonify({"success": False, "error": "الحملة غير موجودة"}), 404
 
-    if str(target_campaign.get('creator_id')).strip() != str(telegram_id).strip():
+    if str(target_campaign.get('creator_id')).strip() != telegram_id_str:
         return jsonify({"success": False, "error": "غير مصرح لك بإلغاء هذه الحملة"}), 403
 
     comp = target_campaign.get('users_completed', 0)
@@ -195,7 +219,7 @@ def cancel_campaign():
     # إعادة المبلغ المتبقي لحساب المستخدم بداخل فايربيس ad_balance
     if refund_amount > 0:
         try:
-            user_ref = firestore_db.collection('users').document(str(telegram_id))
+            user_ref = firestore_db.collection('users').document(telegram_id_str)
             user_ref.update({
                 'ad_balance': firestore.Increment(refund_amount)
             })
@@ -218,6 +242,7 @@ def convert_adzn():
     if not is_auth:
         return err_response
 
+    telegram_id_str = str(telegram_id).strip()
     req = request.get_json(silent=True) or {}
     try:
         amount = float(req.get('amount', 0))
@@ -228,7 +253,7 @@ def convert_adzn():
         return jsonify({"success": False, "error": "المبلغ غير صحيح"}), 400
 
     try:
-        user_ref = firestore_db.collection('users').document(str(telegram_id))
+        user_ref = firestore_db.collection('users').document(telegram_id_str)
         user_doc = user_ref.get()
 
         if not user_doc.exists:
