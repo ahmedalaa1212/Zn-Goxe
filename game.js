@@ -74,7 +74,7 @@ window.deductBalance = function(amount) {
 
 // 5. مزامنة البيانات مع السيرفر في الخلفية
 window.initGameData = async function() {
-    // ⚡ عرض الرصيد المحفوظ في ذاكرة الجهاز فوراً بدبيكة 0 ثانية
+    // ⚡ عرض الرصيد المحفوظ في ذاكرة الجهاز فوراً بديبيكة 0 ثانية
     window.updateGlobalUI();
 
     if (!window.Telegram?.WebApp?.initData) {
