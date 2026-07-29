@@ -21,6 +21,7 @@
     let isBoosting = false; 
     let isFetching = false;
     let isClaimingMain = false; 
+    let isUpgrading = false;
 
     function showToast(message) {
         if (tele && tele.showAlert) {
@@ -45,7 +46,8 @@
             if (typeof window.setBalance === 'function') {
                 window.setBalance(numVal);
             } else {
-                if (window.GameState) window.GameState.balance = numVal;
+                if (!window.GameState) window.GameState = {};
+                window.GameState.balance = numVal;
                 localStorage.setItem('zn_balance', numVal.toString());
                 localStorage.setItem('user_balance', numVal.toString());
             }
@@ -131,13 +133,13 @@
                 let isMax = count >= GAME_CONFIG.maxUpgradesPerLevel;
                 
                 if (isMax) {
-                    fieldsHTML += `<div style="background: #222; border-radius: 12px; padding: 12px 6px; text-align: center; border: 1px solid #444; position: relative; overflow: hidden;"><div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #f39c12; font-size: 14px; transform: rotate(-15deg);">MAX</div><div style="font-size: 22px; margin-bottom: 4px; opacity: 0.3;">🏛️</div><div style="color: #888; font-size: 11px; font-weight: bold;">مستوى ${i}</div></div>`;
+                    fieldsHTML += `<div class="mining-card" style="position: relative; overflow: hidden; opacity: 0.8;"><div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #f39c12; font-size: 14px; transform: rotate(-15deg); z-index: 2;">MAX</div><div style="font-size: 22px; margin-bottom: 4px; opacity: 0.3;">🏛️</div><div class="mining-card-title">مستوى ${i}</div><div class="mining-card-level">مكتمل</div></div>`;
                 } else if (count > 0) {
-                    fieldsHTML += `<div style="background: #1c1c1c; border-radius: 12px; padding: 12px 6px; text-align: center; border: 1px solid #f39c12; position: relative;"><div style="position: absolute; top: -6px; right: -6px; background: #f39c12; color: #000; font-weight: bold; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px; border: 2px solid #121212;">x${count}</div><div style="width: 28px; height: 28px; background: #f39c12; border-radius: 50%; margin: 0 auto 5px auto; display: flex; align-items: center; justify-content: center;"><span style="font-size: 14px;">🏛️</span></div><div style="color: white; font-size: 11px; font-weight: bold;">مستوى ${i}</div></div>`;
+                    fieldsHTML += `<div class="mining-card" onclick="handleUpgrade(${i})" style="cursor: pointer; border-color: #f39c12; position: relative;"><div style="position: absolute; top: -6px; right: -6px; background: #f39c12; color: #000; font-weight: bold; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px; border: 2px solid #121212;">x${count}</div><div style="width: 28px; height: 28px; background: #f39c12; border-radius: 50%; margin: 0 auto 5px auto; display: flex; align-items: center; justify-content: center;"><span style="font-size: 14px;">🏛️</span></div><div class="mining-card-title">مستوى ${i}</div><button class="mining-card-btn">ترقية ⚡</button></div>`;
                 } else if (isUnlocked) {
-                    fieldsHTML += `<div style="background: #181818; border-radius: 12px; padding: 12px 6px; text-align: center; border: 1px dashed #555;"><div style="font-size: 20px; color: #777; margin-bottom: 4px;">🏛️</div><div style="color: #f1c40f; font-size: 10px; font-weight: bold;">متاح للشراء</div></div>`;
+                    fieldsHTML += `<div class="mining-card" onclick="handleUpgrade(${i})" style="cursor: pointer; border: 1px dashed #555;"><div style="font-size: 20px; color: #777; margin-bottom: 4px;">🏛️</div><div class="mining-card-title">مستوى ${i}</div><button class="mining-card-btn">شراء ⚡</button></div>`;
                 } else {
-                    fieldsHTML += `<div style="background: #141414; border-radius: 12px; padding: 12px 6px; text-align: center; border: 1px solid #222; opacity: 0.4;"><div style="font-size: 20px; color: #555; margin-bottom: 4px;">🔒</div><div style="color: #666; font-size: 10px; font-weight: bold;">مغلق</div></div>`;
+                    fieldsHTML += `<div class="mining-card" style="opacity: 0.4; cursor: not-allowed;"><div style="font-size: 20px; color: #555; margin-bottom: 4px;">🔒</div><div class="mining-card-title">مستوى ${i}</div><div class="mining-card-level" style="color:#666;">مغلق</div></div>`;
                 }
             }
             fieldsContainer.innerHTML = fieldsHTML;
@@ -167,15 +169,15 @@
             let displayReward = formatCompactNumber(rawReward);
 
             if (dayNum < currentDailyDay) {
-                html += `<div style="background: rgba(46, 204, 113, 0.08); border: 1px solid #2ecc71; border-radius: 8px; padding: 6px 2px; text-align: center;"><div style="color: #888; font-size: 9px; margin-bottom: 2px;">يوم ${dayNum}</div><div style="color: #2ecc71; font-size: 12px; margin-bottom: 2px;">✔️</div><div style="color: #2ecc71; font-size: 9px; font-weight: bold;">تم</div></div>`;
+                html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div style="font-size: 12px;">✔️</div><div style="font-size: 9px; font-weight: bold;">تم</div></div>`;
             } else if (dayNum === currentDailyDay) {
                 if (canClaim) {
-                    html += `<div style="background: #222; border: 2px solid #f39c12; border-radius: 8px; padding: 5px 2px; text-align: center;"><div style="color: #fff; font-size: 9px; font-weight: bold; margin-bottom: 2px;">يوم ${dayNum}</div><div style="color: #f39c12; font-size: 9px; font-weight: bold; margin-bottom: 4px;">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${dayNum})" style="background: #2ecc71; color: white; border: none; border-radius: 4px; padding: 4px 0; font-size: 10px; cursor: pointer; width: 90%; animation: pulseGreen 2s infinite;">📺 استلام</button></div>`;
+                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward} ZN</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${dayNum})" style="background: #2ecc71; color: white; border: none; border-radius: 4px; padding: 4px 0; font-size: 10px; cursor: pointer; width: 90%; animation: pulseGreen 2s infinite;">📺 استلام</button></div>`;
                 } else {
-                    html += `<div style="background: #222; border: 1px solid #555; border-radius: 8px; padding: 6px 2px; text-align: center;"><div style="color: #fff; font-size: 9px; margin-bottom: 2px;">يوم ${dayNum}</div><div style="color: #f39c12; font-size: 9px; margin-bottom: 3px;">${displayReward}</div><div id="daily-timer" style="color: #e74c3c; font-size: 9px; font-weight: bold;">⏳</div></div>`;
+                    html += `<div class="reward-day-card" style="border-color: #555;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward} ZN</div><div id="daily-timer" style="color: #e74c3c; font-size: 9px; font-weight: bold;">⏳</div></div>`;
                 }
             } else {
-                html += `<div style="background: #141414; border: 1px solid #2a2a2a; border-radius: 8px; padding: 6px 2px; text-align: center; opacity: 0.5;"><div style="color: #777; font-size: 9px; margin-bottom: 2px;">يوم ${dayNum}</div><div style="color: #555; font-size: 12px; margin-bottom: 2px;">🔒</div><div style="color: #777; font-size: 8px;">${displayReward}</div></div>`;
+                html += `<div class="reward-day-card" style="opacity: 0.5;"><div class="day-title">يوم ${dayNum}</div><div style="font-size: 12px; color: #555;">🔒</div><div class="day-amount">${displayReward}</div></div>`;
             }
         }
         container.innerHTML = html;
@@ -254,8 +256,9 @@
 
     }, 1000);
 
-    setInterval(() => {
-        if (!isBoosting && !isClaimingDaily && !isClaimingMain && claimCooldown === 0) {
+    if (window.farmSyncIntervalId) clearInterval(window.farmSyncIntervalId);
+    window.farmSyncIntervalId = setInterval(() => {
+        if (!isBoosting && !isClaimingDaily && !isClaimingMain && !isUpgrading && claimCooldown === 0) {
             window.fetchPlayerDataFromServer();
         }
     }, 10000); 
@@ -294,6 +297,32 @@
         });
     }
 
+    window.handleUpgrade = async function(level) {
+        if (!window.PlayerData || isUpgrading || !INIT_DATA) return;
+        isUpgrading = true;
+
+        try {
+            let response = await fetch('/api/farm/upgrade', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ initData: INIT_DATA, level: level })
+            });
+            let resData = await response.json();
+            if (response.ok && resData.success) {
+                if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                showToast(`⚡ تم التحديث بنجاح للمستوى ${level}!`);
+                await window.fetchPlayerData();
+            } else if (resData.error) {
+                showToast(resData.error);
+            }
+        } catch (e) {
+            console.error("خطأ في شراء الترقية:", e);
+            showToast("حدث خطأ أثناء الاتصال بالخادم.");
+        } finally {
+            isUpgrading = false;
+        }
+    };
+
     window.handleDailyBoost = async function() {
         if (!window.PlayerData || isBoosting || !INIT_DATA) return;
         
@@ -306,12 +335,14 @@
         
         try {
             const adWatched = await showTelegramAd(() => {
-                btn.innerHTML = `<span style="font-size: 18px;">🎬</span>`;
-                btn.disabled = true;
+                if (btn) {
+                    btn.innerHTML = `<span style="font-size: 18px;">🎬</span>`;
+                    btn.disabled = true;
+                }
             });
             
             if (adWatched) {
-                btn.innerHTML = `<span style="font-size: 18px;">💾</span>`;
+                if (btn) btn.innerHTML = `<span style="font-size: 18px;">💾</span>`;
                 let response = await fetch('/api/farm/daily_boost', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -391,9 +422,11 @@
 
         isClaimingMain = true;
         const claimBtn = document.getElementById('claim-btn');
-        claimBtn.disabled = true;
-        claimBtn.className = "btn-cooldown";
-        claimBtn.innerText = "جاري الحفظ... 💾";
+        if (claimBtn) {
+            claimBtn.disabled = true;
+            claimBtn.className = "btn-cooldown";
+            claimBtn.innerText = "جاري الحفظ... 💾";
+        }
 
         // تحديث متفائل (Optimistic Update)
         const unclaimedAmount = parseFloat(pData.unclaimed || 0);
@@ -420,13 +453,17 @@
                 // التراجع عند الخطأ
                 setStoredBalance(currentBal);
                 if (resData.error) showToast(resData.error);
-                claimBtn.disabled = false;
-                claimBtn.innerText = "تجميع الرصيد 💰";
+                if (claimBtn) {
+                    claimBtn.disabled = false;
+                    claimBtn.innerText = "تجميع الرصيد 💰";
+                }
             }
         } catch (e) {
             setStoredBalance(currentBal);
-            claimBtn.disabled = false;
-            claimBtn.innerText = "تجميع الرصيد 💰";
+            if (claimBtn) {
+                claimBtn.disabled = false;
+                claimBtn.innerText = "تجميع الرصيد 💰";
+            }
         } finally {
             isClaimingMain = false;
         }
