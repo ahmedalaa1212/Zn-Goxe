@@ -57,7 +57,7 @@ async function fetchLiveTonPrice() {
                 let data3 = await res3.json();
                 currentTonPriceUSD = parseFloat(data3['the-open-network'].usd);
             } catch (e3) {
-                if(currentTonPriceUSD === 0) currentTonPriceUSD = 5.00;
+                if(currentTonPriceUSD === 0) currentTonPriceUSD = 5.00; // قيمة افتراضية للطوارئ
             }
         }
     } finally {
@@ -134,7 +134,7 @@ window.disconnectCustomWallet = async function() {
 };
 
 window.updateHeaderBalances = function() {
-    const pData = window.PlayerData || playerData;
+    const pData = window.GameState || window.PlayerData || playerData;
     const zn = parseFloat(pData.balance !== undefined ? pData.balance : pData.znBalance) || 0;
     const usd = parseFloat(pData.usd_balance !== undefined ? pData.usd_balance : pData.usdBalance) || 0;
 
@@ -206,7 +206,8 @@ window.renderWalletTab = function(tab) {
             </div>`;
         
         const initData = tgApp?.initData || '';
-        fetch(`/api/get_history?initData=${encodeURIComponent(initData)}`)
+        // طلب السجلات من الباك إيند
+        fetch(`/api/wallet/get_history?initData=${encodeURIComponent(initData)}`)
             .then(res => res.json())
             .then(data => {
                 if (currentWalletTab !== 'history') return;
@@ -390,7 +391,7 @@ window.executeDeposit = async function() {
 
         const initData = tgApp?.initData || null;
         if (initData) {
-            let response = await fetch('/api/wallet_deposit_report', {
+            let response = await fetch('/api/wallet/wallet_deposit_report', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ initData: initData, usdAmount: usdAmount, tonAmount: tonAmount, boc: txResult.boc })
@@ -434,7 +435,7 @@ window.convertManualPoints = async function() {
 
     try {
         if (convertBtn) { convertBtn.disabled = true; convertBtn.innerText = "⏳ جاري التحويل..."; }
-        let response = await fetch('/api/wallet_convert', {
+        let response = await fetch('/api/wallet/wallet_convert', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ initData: initData, amount: amount })
@@ -443,16 +444,14 @@ window.convertManualPoints = async function() {
         
         if (result.success) {
             triggerHapticFeedback('notification', 'success');
-            const usdGained = result.usd_gained || (amount / 1000000);
+            const usdGained = result.usd_gained;
             
-            if (typeof window.fetchPlayerDataFromServer === 'function') {
-                await window.fetchPlayerDataFromServer();
-            } else {
-                const pData = window.PlayerData || playerData;
-                if (pData.balance !== undefined) pData.balance -= amount;
-                if (pData.usd_balance !== undefined) pData.usd_balance = (pData.usd_balance || 0) + usdGained;
+            // التحديث اللحظي للأرصدة
+            if (window.GameState) {
+                window.GameState.balance -= amount;
+                window.GameState.usd_balance = (window.GameState.usd_balance || 0) + usdGained;
             }
-
+            
             window.updateHeaderBalances();
             showAppAlert(`🎉 تم تحويل النقاط بنجاح!\nكسبت $${usdGained.toFixed(5)} USD`);
             if (znInput) znInput.value = '';
@@ -487,7 +486,7 @@ window.submitWithdrawal = async function() {
     try {
         if (withdrawBtn) { withdrawBtn.disabled = true; withdrawBtn.innerText = "⏳ جاري إرسال الطلب..."; }
 
-        let response = await fetch('/api/wallet_withdraw', {
+        let response = await fetch('/api/wallet/wallet_withdraw', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ initData: initData, amount: usdAmount, walletAddress: userWalletAddress })
@@ -497,11 +496,8 @@ window.submitWithdrawal = async function() {
         if (result.success) {
             triggerHapticFeedback('notification', 'success');
             
-            if (typeof window.fetchPlayerDataFromServer === 'function') {
-                await window.fetchPlayerDataFromServer();
-            } else {
-                const pData = window.PlayerData || playerData;
-                if (pData.usd_balance !== undefined) pData.usd_balance -= usdAmount;
+            if (window.GameState) {
+                window.GameState.usd_balance -= usdAmount;
             }
             
             let expectedTon = (usdAmount / currentTonPriceUSD).toFixed(4);
