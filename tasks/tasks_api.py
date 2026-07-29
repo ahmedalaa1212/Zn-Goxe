@@ -10,11 +10,6 @@ from firebase_admin import firestore
 tasks_bp = Blueprint('tasks', __name__)
 
 def is_task_completed_by_user(task, user_completed_data):
-    """
-    فحص إكمال المهمة:
-    - مهام 'موقع': تتجدد يومياً وتعتبر مكتملة فقط إذا أُنجزت اليوم بنفس التاريخ (UTC YYYY-MM-DD).
-    - باقي المنصات (يوتيوب، تيليجرام، انستغرام، X...): مكتملة بصفة دائمة بمجرد إنجازها مرّة واحدة.
-    """
     task_id = str(task.get('id', '')).strip()
     platform = str(task.get('platform', '')).strip()
     
@@ -23,7 +18,6 @@ def is_task_completed_by_user(task, user_completed_data):
 
     today_str = datetime.datetime.utcnow().strftime('%Y-%m-%d')
 
-    # 1. إذا كان التخزين بالشكل القديم (قائمة List)
     if isinstance(user_completed_data, list):
         if task_id not in user_completed_data:
             return False
@@ -31,7 +25,6 @@ def is_task_completed_by_user(task, user_completed_data):
             return False
         return True
 
-    # 2. إذا كان التخزين بالشكل الجديد (Dictionary)
     if isinstance(user_completed_data, dict):
         if task_id not in user_completed_data:
             return False
@@ -62,6 +55,7 @@ def is_task_completed_by_user(task, user_completed_data):
 def get_campaigns():
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=False)
     if not is_auth:
+        # Fallback for local testing only. In production, consider returning err_response.
         telegram_id = request.args.get('telegramId', '5102387551').strip()
 
     telegram_id_str = str(telegram_id).strip()
@@ -82,12 +76,10 @@ def get_campaigns():
     user_completed_data = {}
 
     try:
-        # جلب المهام المكتملة للمستخدم مباشرة من Firestore السحابية
         completed_ref = firestore_db.collection('completed_tasks').document(telegram_id_str).get()
         if completed_ref.exists:
             user_completed_data = completed_ref.to_dict() or {}
 
-        # جلب جميع الحملات من Firestore السحابية
         docs = firestore_db.collection('campaigns').stream()
         for doc in docs:
             c_data = doc.to_dict() or {}
@@ -98,7 +90,6 @@ def get_campaigns():
 
     result_campaigns = []
     for c in campaigns:
-        # إخفاء الحملات المنتهية للمستخدمين الآخرين وإظهارها لصاحب الحملة
         if c.get('users_completed', 0) >= c.get('users_needed', 1) and str(c.get('creator_id')).strip() != telegram_id_str:
             continue
             
@@ -154,7 +145,6 @@ def create_campaign():
         if current_ad_balance < total_cost:
             return jsonify({"success": False, "error": f"رصيدك الإعلاني غير كافٍ. المطلوب: {total_cost} AdZN"}), 400
 
-        # خصم التكلفة من رصيد الإعلانات
         user_ref.set({
             'ad_balance': firestore.Increment(-total_cost)
         }, merge=True)
@@ -172,7 +162,6 @@ def create_campaign():
             "created_at": datetime.datetime.utcnow().isoformat()
         }
 
-        # حفظ الحملة في قاعدة بيانات Firestore السحابية الدائمة
         firestore_db.collection('campaigns').document(camp_id).set(new_campaign)
 
         return jsonify({
@@ -211,11 +200,9 @@ def complete_task():
         if str(target_campaign.get('creator_id')).strip() == telegram_id_str:
             return jsonify({"success": False, "error": "لا يمكنك تنفيذ حملتك الخاصة"}), 400
 
-        # منع التنافس الزائد وإكمال مهام مكتملة بالفعل
         if target_campaign.get('users_completed', 0) >= target_campaign.get('users_needed', 1):
             return jsonify({"success": False, "error": "هذه المهمة مكتملة بالكامل واستوفت عدد الأعضاء المطلوب!"}), 400
 
-        # جلب المهام المكتملة للمستخدم من Firestore
         completed_ref = firestore_db.collection('completed_tasks').document(telegram_id_str)
         completed_doc = completed_ref.get()
         user_completed_map = completed_doc.to_dict() if completed_doc.exists else {}
@@ -228,7 +215,6 @@ def complete_task():
 
         reward_amount = float(target_campaign['reward'])
 
-        # إضافة المكافأة لرصيد المستخدم في فايربيس
         user_ref = firestore_db.collection('users').document(telegram_id_str)
         user_ref.set({
             'balance': firestore.Increment(reward_amount)
@@ -240,12 +226,10 @@ def complete_task():
             "timestamp": now_utc.timestamp()
         }
 
-        # تحديث سجل المهام المكتملة للمستخدم في فايربيس
         completed_ref.set({
             task_id: task_record
         }, merge=True)
 
-        # زيادة عدد المكتملين للمهمة في فايربيس
         camp_ref.set({
             'users_completed': firestore.Increment(1)
         }, merge=True)
@@ -294,7 +278,6 @@ def cancel_campaign():
                 'ad_balance': firestore.Increment(refund_amount)
             }, merge=True)
 
-        # حذف الحملة نهائياً من فايربيس
         camp_ref.delete()
 
         return jsonify({
@@ -339,12 +322,13 @@ def convert_adzn():
         fee = amount * 0.10
         received = amount - fee
 
-        # خصم ZN وزيادة AdZN حقيقياً داخل فايربيس
+        # خصم وإضافة في الفايربيس
         user_ref.set({
             'balance': firestore.Increment(-amount),
             'ad_balance': firestore.Increment(received)
         }, merge=True)
 
+        # حساب القيم الدقيقة لإرسالها للواجهة الأمامية
         new_balance = current_balance - amount
         new_ad_balance = float(user_data.get('ad_balance', 0.0)) + received
 
@@ -354,10 +338,9 @@ def convert_adzn():
             "fee": fee,
             "new_balance": new_balance,
             "new_ad_balance": new_ad_balance,
-            "message": "تم تحويل الرصيد وحفظه بنجاح"
+            "message": "تم تحويل الرصيد بنجاح"
         }), 200
 
     except Exception as e:
         print(f"Error in convert_adzn: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء إجراء التحويل في السيرفر"}), 500
-
