@@ -23,13 +23,18 @@
     function setStoredBalance(newBalance) {
         if (newBalance !== undefined && newBalance !== null) {
             const numVal = parseFloat(newBalance);
-            if (typeof window.setBalance === 'function') {
+            
+            // تحديث GameState لتشغيل الـ Proxy وتحديث الواجهة تلقائياً
+            if (window.GameState) {
+                window.GameState.balance = numVal;
+            } else if (typeof window.setBalance === 'function') {
                 window.setBalance(numVal);
             } else {
-                if (window.GameState) window.GameState.balance = numVal;
                 localStorage.setItem('zn_balance', numVal.toString());
                 localStorage.setItem('user_balance', numVal.toString());
             }
+
+            if (window.PlayerData) window.PlayerData.balance = numVal;
         }
     }
 
@@ -255,7 +260,7 @@
                 
                 // تحديث الـ LocalStorage والذاكرة فوراً
                 setStoredBalance(data.new_balance);
-                if (!windowPlayerData) window.PlayerData = {};
+                if (!window.PlayerData) window.PlayerData = {};
                 window.PlayerData.balance = data.new_balance;
                 window.PlayerData.pending_ref_earnings = 0;
                 
