@@ -237,6 +237,16 @@
 
         .wallet-address-text { color: var(--accent-green); font-size: 12px; font-weight: 600; word-break: break-all; text-align: right; flex: 1; }
         .disconnect-btn { background: transparent; border: 1px solid var(--accent-red); color: var(--accent-red); padding: 5px 10px; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer; margin-right: 10px; }
+
+        /* 🎨 تخصيص مودال TON Connect ومنع الألوان الافتراضية البرتقالية */
+        #tc-widget-root, [data-tc-modal="true"] {
+            font-family: 'Plus Jakarta Sans', system-ui, sans-serif !important;
+        }
+        
+        /* إجبار لون الأزرار والعناصر الخاصة بالربط على نظام ألوان التطبيق */
+        div[class*="tc-modal-container"] {
+            background-color: #0a0d14 !important;
+        }
     </style>
 </head>
 <body>
@@ -277,6 +287,6 @@
 <div id="hidden-ton-root" style="display: none;"></div>
 
 <script src="../game.js"></script>
-<script src="wallet.js?v=5"></script>
+<script src="wallet.js?v=6"></script>
 </body>
 </html>
