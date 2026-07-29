@@ -33,7 +33,7 @@ function triggerHapticFeedback(type = 'impact', style = 'medium') {
     }
 }
 
-// 1. جلب سعر الـ TON اللحظي بأكثر من المصدر لضمان الاستقرار
+// 1. جلب سعر الـ TON اللحظي بأكثر من مصدر لضمان الاستقرار
 async function fetchLiveTonPrice() {
     try {
         let res = await fetch('https://tonapi.io/v2/rates?tokens=ton&currencies=usd');
@@ -133,7 +133,11 @@ window.updateHeaderBalances = function() {
     const tonElem = document.getElementById('wallet-ton-estimate');
 
     if (znElem) znElem.innerText = Math.floor(zn).toLocaleString('ar-EG');
-    if (usdElem) usdElem.innerText = "$" + usd.toFixed(5);
+    
+    if (usdElem) {
+        // عرض الخانات العشرية بدقة حتى لا تظهر $0.00000 للأرصدة الصغرى
+        usdElem.innerText = "$" + (usd > 0 && usd < 0.01 ? usd.toFixed(5) : usd.toFixed(4));
+    }
     
     let estimateTon = currentTonPriceUSD > 0 ? (usd / currentTonPriceUSD) : 0;
     if (tonElem) tonElem.innerText = "≈ " + estimateTon.toFixed(4) + " TON";
@@ -242,6 +246,10 @@ window.renderWalletTab = function(tab) {
                         const dateStr = item.created_at ? new Date(item.created_at).toLocaleString('ar-EG', {
                             month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
                         }) : '';
+
+                        // تنسيق مرن للمبلغ ليعرض المبالغ الصغيرة بدون تقريب لـ 0.00
+                        const rawAmount = parseFloat(item.amount_usd || item.amount || 0);
+                        const displayAmount = (rawAmount > 0 && rawAmount < 0.01) ? rawAmount.toFixed(4) : rawAmount.toFixed(2);
                         
                         html += `
                             <div style="background: rgba(10, 13, 20, 0.5); padding: 12px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(255,255,255,0.05);">
@@ -250,7 +258,7 @@ window.renderWalletTab = function(tab) {
                                     <div style="font-size: 11px; color: #94a3b8; margin-top: 3px;">${dateStr}</div>
                                 </div>
                                 <div style="text-align: left;">
-                                    <div style="color: ${isDeposit ? '#10b981' : '#ef4444'}; font-weight: 800; font-size: 15px;">$${parseFloat(item.amount_usd || item.amount || 0).toFixed(2)}</div>
+                                    <div style="color: ${isDeposit ? '#10b981' : '#ef4444'}; font-weight: 800; font-size: 15px;">$${displayAmount}</div>
                                     <div style="font-size: 11px; color: ${statusColor}; font-weight:600; margin-top: 3px;">${statusText}</div>
                                 </div>
                             </div>`;
@@ -415,6 +423,21 @@ window.executeDeposit = async function() {
             let result = await response.json();
             
             if (result.success) {
+                // تحديث الرصيد المحلي فوراً في الـ GameState والـ PlayerData
+                const targetUsd = result.new_usd_balance !== undefined ? result.new_usd_balance : null;
+                
+                if (window.GameState) {
+                    window.GameState.usd_balance = targetUsd !== null ? targetUsd : ((window.GameState.usd_balance || 0) + usdAmount);
+                }
+                if (window.PlayerData) {
+                    window.PlayerData.usdBalance = targetUsd !== null ? targetUsd : ((window.PlayerData.usdBalance || 0) + usdAmount);
+                    window.PlayerData.usd_balance = window.PlayerData.usdBalance;
+                }
+                playerData.usdBalance = targetUsd !== null ? targetUsd : (playerData.usdBalance + usdAmount);
+
+                // تحديث واجهة الرصيد العلوية فوراً
+                window.updateHeaderBalances();
+
                 showAppAlert(`✅ تم الإيداع بنجاح!\nتمت إضافة $${usdAmount} لرصيدك.`);
                 if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
             } else {
@@ -460,7 +483,11 @@ window.convertManualPoints = async function() {
             
             if (window.GameState) {
                 window.GameState.balance -= amount;
-                window.GameState.usd_balance = (window.GameState.usd_balance || 0) + usdGained;
+                window.GameState.usd_balance = result.new_usd_balance !== undefined ? result.new_usd_balance : ((window.GameState.usd_balance || 0) + usdGained);
+            }
+            if (window.PlayerData) {
+                window.PlayerData.balance -= amount;
+                window.PlayerData.usdBalance = result.new_usd_balance !== undefined ? result.new_usd_balance : ((window.PlayerData.usdBalance || 0) + usdGained);
             }
             
             window.updateHeaderBalances();
@@ -509,7 +536,10 @@ window.submitWithdrawal = async function() {
             triggerHapticFeedback('notification', 'success');
             
             if (window.GameState) {
-                window.GameState.usd_balance -= usdAmount;
+                window.GameState.usd_balance = result.new_usd_balance !== undefined ? result.new_usd_balance : Math.max(0, (window.GameState.usd_balance || 0) - usdAmount);
+            }
+            if (window.PlayerData) {
+                window.PlayerData.usdBalance = result.new_usd_balance !== undefined ? result.new_usd_balance : Math.max(0, (window.PlayerData.usdBalance || 0) - usdAmount);
             }
             
             let expectedTon = (usdAmount / currentTonPriceUSD).toFixed(4);
