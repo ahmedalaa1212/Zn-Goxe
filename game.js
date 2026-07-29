@@ -1,32 +1,37 @@
-// game.js - النسخة المعدلة والمصلحة بالكامل
+// game.js - النسخة المعدلة والمصلحة بالكامل لتعمل مع نظام المهام
 
-// 1. استرجاع الرصيد والطاقة المحفوظين محلياً فوراً
+// 1. استرجاع الرصيد، رصيد الإعلانات، والطاقة المحفوظين محلياً فوراً
 const cachedBalance = parseFloat(localStorage.getItem('zn_balance')) || 0;
+const cachedAdBalance = parseFloat(localStorage.getItem('zn_ad_balance')) || 0;
 const cachedEnergy = parseInt(localStorage.getItem('zn_energy')) || 1000;
 
-// استخدام Proxy لمراقبة أي تغيير في الرصيد أو الطاقة وتحديث الشاشة فوراً
+// استخدام Proxy لمراقبة أي تغيير في الأرصدة وتحديث الشاشة فوراً
 const initialData = {
     userId: localStorage.getItem('zn_user_id') || null,
     username: localStorage.getItem('zn_username') || "",
     balance: cachedBalance,
+    ad_balance: cachedAdBalance,
     energy: cachedEnergy
 };
 
 window.GameState = new Proxy(initialData, {
     set(target, key, value) {
-        target[key] = value;
+        target[key] = Number(value); // تأكيد أن القيمة رقم لتجنب الأخطاء
         if (key === 'balance') {
-            localStorage.setItem('zn_balance', value);
+            localStorage.setItem('zn_balance', target[key]);
+            window.updateGlobalUI();
+        } else if (key === 'ad_balance') {
+            localStorage.setItem('zn_ad_balance', target[key]);
             window.updateGlobalUI();
         } else if (key === 'energy') {
-            localStorage.setItem('zn_energy', value);
+            localStorage.setItem('zn_energy', target[key]);
             window.updateGlobalUI();
         }
         return true;
     }
 });
 
-// 2. دالة الاتصال بالباك إيند
+// 2. دالة الاتصال بالباك إيند الموحدة
 window.apiCall = async function(endpoint, method = 'GET', body = null) {
     const BASE_URL = ""; 
     const initData = window.Telegram?.WebApp?.initData || "";
@@ -62,62 +67,51 @@ window.apiCall = async function(endpoint, method = 'GET', body = null) {
 // 3. تحديث كافة الواجهات في جميع القوائم والتبويبات
 window.updateGlobalUI = function() {
     const balanceVal = Number(window.GameState.balance) || 0;
+    const adBalanceVal = Number(window.GameState.ad_balance) || 0;
     
-    // تنسيق الرقم (مثلاً: 1,728.61 أو 1728)
-    const formattedBalance = balanceVal.toLocaleString(undefined, {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 2
-    });
+    // تنسيق الرقم
+    const formattedBalance = Math.floor(balanceVal).toLocaleString();
+    const formattedAdBalance = Math.floor(adBalanceVal).toLocaleString();
     
-    // شامل كافة المسميات والـ Classes المستخدمة في شاشات (المزرعة، الألعاب، المهام، المحفظة)
+    // تحديث رصيد ZN الأساسي
     const balanceSelectors = [
-        '.user-balance',
-        '.zn-balance-display',
-        '.balance-text',
-        '#user-balance',
-        '#farm-balance',
-        '#game-balance',
-        '#task-balance',
-        '#wallet-balance',
-        '[data-balance]'
+        '.user-balance', '.zn-balance-display', '.balance-text',
+        '#user-balance', '#farm-balance', '#game-balance',
+        '#task-balance', '#wallet-balance', '#top-balance-tasks', '[data-balance]'
     ].join(', ');
 
     document.querySelectorAll(balanceSelectors).forEach(el => {
-        el.innerText = formattedBalance;
+        if(el.id === 'top-balance-tasks') {
+            el.innerText = `ZN ${formattedBalance}`;
+        } else {
+            el.innerText = formattedBalance;
+        }
     });
     
-    const energySelectors = [
-        '.user-energy',
-        '#user-energy',
-        '[data-energy]'
-    ].join(', ');
+    // تحديث رصيد الإعلانات AdZN
+    const adBalanceSelectors = ['#ad-balance-display', '.ad-balance-text', '[data-ad-balance]'].join(', ');
+    document.querySelectorAll(adBalanceSelectors).forEach(el => {
+        el.innerText = `AdZN ${formattedAdBalance}`;
+    });
 
+    // تحديث الطاقة
+    const energySelectors = ['.user-energy', '#user-energy', '[data-energy]'].join(', ');
     document.querySelectorAll(energySelectors).forEach(el => {
         el.innerText = window.GameState.energy;
     });
 };
 
 // 4. دوال التعديل اللحظي (Optimistic Updates)
-window.setBalance = function(newBalance) {
-    window.GameState.balance = Number(newBalance);
-};
-
-window.addBalance = function(amount) {
-    window.GameState.balance = Number(window.GameState.balance) + Number(amount);
-};
-
-window.deductBalance = function(amount) {
-    window.GameState.balance = Number(window.GameState.balance) - Number(amount);
-};
+window.setBalance = function(newBalance) { window.GameState.balance = newBalance; };
+window.addBalance = function(amount) { window.GameState.balance += amount; };
+window.deductBalance = function(amount) { window.GameState.balance -= amount; };
 
 // 5. مزامنة البيانات مع السيرفر
 window.initGameData = async function() {
     window.updateGlobalUI();
 
     if (!window.Telegram?.WebApp?.initData) {
-        if (!localStorage.getItem('zn_balance')) {
-            window.setBalance(5000);
-        }
+        if (!localStorage.getItem('zn_balance')) window.setBalance(5000);
         return;
     }
     
@@ -131,37 +125,25 @@ window.initGameData = async function() {
             localStorage.setItem('zn_user_id', res.data.id || "");
             localStorage.setItem('zn_username', res.data.username || "");
 
-            // دمج وتحديث الرصيد من السيرفر
-            // ملاحظة: التأكد أن السيرفر يرجع الإجمالي الكامل لرصيد المستخدم
-            const serverBalance = res.data.balance !== undefined ? res.data.balance : res.data.ad_balance;
-            if (serverBalance !== undefined) {
-                window.GameState.balance = Number(serverBalance);
-            }
-            if (res.data.energy !== undefined) {
-                window.GameState.energy = res.data.energy;
-            }
+            if (res.data.balance !== undefined) window.GameState.balance = res.data.balance;
+            if (res.data.ad_balance !== undefined) window.GameState.ad_balance = res.data.ad_balance;
+            if (res.data.energy !== undefined) window.GameState.energy = res.data.energy;
         }
     } catch (err) {
         console.warn("تنبيه: تعذر المزامنة مع السيرفر، تم الاعتماد على الرصيد المحلي.", err);
     }
 };
 
-// مراقبة التنقل بين القوائم والتبويبات لتحديث الرصيد تلقائياً عند فتح أي قائمة
+// مراقبة التنقل
 document.addEventListener('DOMContentLoaded', () => {
     window.initGameData();
-
-    // 1. تحديث الواجهة فوراً عند النقر على أي زر تنقل (التبويبات السفلية)
     document.querySelectorAll('.nav-item, .tab-btn, footer button, nav button, a').forEach(btn => {
         btn.addEventListener('click', () => {
             setTimeout(window.updateGlobalUI, 50);
-            setTimeout(window.updateGlobalUI, 300); // إعطاء مهلة لتغير الـ DOM
+            setTimeout(window.updateGlobalUI, 300);
         });
     });
 
-    // 2. مراقب لتغييرات الـ DOM (في حال تم إظهار/إخفاء تبويب ديناميكياً)
-    const observer = new MutationObserver(() => {
-        window.updateGlobalUI();
-    });
-
+    const observer = new MutationObserver(() => window.updateGlobalUI());
     observer.observe(document.body, { childList: true, subtree: true });
 });
