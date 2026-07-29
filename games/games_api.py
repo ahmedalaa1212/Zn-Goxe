@@ -15,8 +15,8 @@ games_bp = Blueprint('games', __name__)
 ENTRY_FEE = 1000
 MIN_PARTICIPANTS = 20
 PRIZE_POOL_PERCENTAGE = 0.45
-ROUND_DURATION = 900 # 15 دقيقة
-LOCK_SECONDS = 15 # قفل قبل النهاية
+ROUND_DURATION = 900  # 15 دقيقة
+LOCK_SECONDS = 15     # قفل قبل النهاية
 
 def get_current_round_info():
     """حساب ID الجولة الحالية والسابقة بناءً على توقيت السيرفر العالمي"""
@@ -73,8 +73,6 @@ def join_arena():
     success, uid, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
-        
-    name = f"Player #{uid[:5]}" 
 
     round_id, end_time, current_time, _ = get_current_round_info()
     
@@ -87,31 +85,42 @@ def join_arena():
     @firestore.transactional
     def join_transaction(transaction, round_ref, user_ref):
         user_doc = user_ref.get(transaction=transaction)
-        current_balance = user_doc.to_dict().get('balance', 0) if user_doc.exists else 0
+        if not user_doc.exists:
+            return False, "المستخدم غير موجود.", 0
+            
+        user_data = user_doc.to_dict()
+        current_balance = user_data.get('balance', 0)
         
         if current_balance < ENTRY_FEE:
-            return False, "رصيدك غير كافٍ للاشتراك (تحتاج 1000 ZN)."
+            return False, "رصيدك غير كافٍ للاشتراك (تحتاج 1000 ZN).", current_balance
             
         round_doc = round_ref.get(transaction=transaction)
         participants = round_doc.to_dict().get('participants', []) if round_doc.exists else []
             
         if any(p['uid'] == uid for p in participants):
-            return False, "أنت مشترك بالفعل في هذه الجولة."
+            return False, "أنت مشترك بالفعل في هذه الجولة.", current_balance
             
+        # تحديد اسم اللاعب الحقيقي أو افتراضي
+        player_name = user_data.get('first_name') or user_data.get('name') or f"Player #{uid[:5]}"
+        new_balance = current_balance - ENTRY_FEE
+        
         # خصم الرصيد
-        transaction.update(user_ref, {'balance': current_balance - ENTRY_FEE})
+        transaction.update(user_ref, {'balance': new_balance})
         
         # إضافة اللاعب
-        participants.append({"uid": uid, "name": name})
+        participants.append({"uid": uid, "name": player_name})
         transaction.set(round_ref, {'participants': participants, 'status': 'active'}, merge=True)
-        return True, "تم دخول الساحة بنجاح!"
+        return True, "تم دخول الساحة بنجاح!", new_balance
         
     try:
-        success_join, msg = join_transaction(db.transaction(), round_ref, user_ref)
-        return jsonify({"success": success_join, "message": msg})
+        success_join, msg, new_bal = join_transaction(db.transaction(), round_ref, user_ref)
+        res_payload = {"success": success_join, "message": msg}
+        if success_join:
+            res_payload["new_balance"] = new_bal
+        return jsonify(res_payload)
     except Exception as e:
         print(f"Error in join_arena: {e}")
-        return jsonify({"success": False, "message": "حدث خطأ أثناء معالجة الطلب."})
+        return jsonify({"success": False, "message": "حدث خطأ أثناء معالجة الطلب."}), 500
 
 def resolve_round(round_id):
     round_ref = db.collection('arena_rounds').document(round_id)
@@ -170,7 +179,8 @@ def get_results():
     data = request.get_json() or {}
     req_round_id = data.get('round_id')
     
-    resolve_round(str(req_round_id))
+    if req_round_id:
+        resolve_round(str(req_round_id))
     
     round_ref = db.collection('arena_rounds').document(str(req_round_id))
     round_doc = round_ref.get()
@@ -179,10 +189,16 @@ def get_results():
         return jsonify({"success": False})
         
     r_data = round_doc.to_dict()
+    
+    # جلب رصيد المستخدم الحالي لتحديث واجهته اللحظية
+    user_doc = db.collection('users').document(uid).get()
+    current_bal = user_doc.to_dict().get('balance', 0) if user_doc.exists else 0
+    
     return jsonify({
         "success": True,
         "status": r_data.get('status'),
-        "winners": r_data.get('winners', [])
+        "winners": r_data.get('winners', []),
+        "new_balance": current_bal
     })
 
 # ==========================================
@@ -191,7 +207,8 @@ def get_results():
 @games_bp.route('/check_notifications', methods=['POST'])
 def check_notifications():
     success, uid, error_res = get_authenticated_user(request, is_post=True)
-    if not success: return error_res
+    if not success:
+        return error_res
     
     try:
         user_ref = db.collection('users').document(uid)
@@ -209,4 +226,4 @@ def check_notifications():
         return jsonify({"success": True, "refund": 0})
     except Exception as e:
         print(f"Error checking notifications: {e}")
-        return jsonify({"success": False})
+        return jsonify({"success": False}), 500
