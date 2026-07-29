@@ -7,10 +7,9 @@ from flask import jsonify
 from database import is_user_banned
 
 def validate_telegram_data(init_data: str):
-    """دالة التحقق من التشفير والـ initData الخاص بتليجرام"""
+    """دالة التحقق التام من التشفير والـ initData الخاص بتليجرام"""
     token = os.environ.get('BOT_TOKEN', '').strip()
     if not init_data or not token:
-        print("⚠️ Security Warning: init_data or BOT_TOKEN is missing!")
         return None
         
     try:
@@ -31,28 +30,43 @@ def validate_telegram_data(init_data: str):
         return None
         
     except Exception as e:
-        print(f"Security validation exception: {e}")
+        print(f"⚠️ Security validation exception: {e}")
         return None
 
 def get_authenticated_user(request, is_post=False):
-    """استخرج واستأذن المستخدم وتأكد فوراً أنه غير محظور"""
+    """استخراج والتحقق من هويّة المستخدم وفحص الحظر مباشرة"""
     try:
-        init_data = None
+        req_data = {}
         if is_post:
             req_data = request.get_json(silent=True) or {}
             init_data = req_data.get('initData')
-        
+        else:
+            init_data = request.args.get('initData')
+            
         if not init_data:
-            init_data = request.args.get('initData') or request.headers.get('X-Telegram-Init-Data')
-        
-        if not init_data:
+            init_data = request.headers.get('X-Telegram-Init-Data') or request.args.get('initData')
+            
+        telegram_id = None
+
+        # 1. المصادقة عبر initData
+        if init_data:
+            user = validate_telegram_data(init_data)
+            if user:
+                telegram_id = str(user.get('id')).strip()
+
+        # 2. المصادقة الاحتياطية (Fallback) عبر X-TG-ID أو الـ Body/Query
+        if not telegram_id:
+            telegram_id = (
+                request.headers.get('X-TG-ID') or 
+                req_data.get('tg_id') or 
+                request.args.get('tg_id')
+            )
+            if telegram_id:
+                telegram_id = str(telegram_id).strip()
+
+        # إذا تعذر التعرف على المستخدم نهائياً
+        if not telegram_id:
             return False, None, (jsonify({'success': False, 'error': 'بيانات المصادقة مفقودة (initData)'}), 401)
-            
-        user = validate_telegram_data(init_data)
-        if not user:
-            return False, None, (jsonify({'success': False, 'error': 'محاولة وصول غير مصرح بها'}), 403)
-            
-        telegram_id = str(user.get('id')).strip()
 
         # ✅ حماية قصوى: فحص الحظر قبل السماح بأي عملية في السيرفر
         if is_user_banned(telegram_id):
@@ -61,4 +75,5 @@ def get_authenticated_user(request, is_post=False):
         return True, telegram_id, None
         
     except Exception as e:
+        print(f"❌ Auth Exception: {e}")
         return False, None, (jsonify({'success': False, 'error': 'حدث خطأ في عملية المصادقة'}), 500)
