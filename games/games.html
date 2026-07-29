@@ -31,7 +31,7 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
             padding: 0;
-            padding-bottom: 90px;
+            padding-bottom: 95px;
         }
 
         /* الرأس العائم للرصيد */
@@ -189,8 +189,9 @@
             background-color: rgba(20, 20, 20, 0.98);
             backdrop-filter: blur(10px);
             display: flex;
-            justify-content: space-between;
-            padding: 10px 5px;
+            justify-content: space-around;
+            align-items: center;
+            padding: 8px 4px;
             border-top: 1px solid var(--border-color);
             z-index: 1000;
         }
@@ -198,26 +199,29 @@
             color: var(--text-muted);
             text-decoration: none;
             font-weight: bold;
-            font-size: 0.72rem;
+            font-size: 0.65rem;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 4px;
+            justify-content: center;
+            gap: 3px;
             flex: 1;
+            min-width: 0;
+            white-space: nowrap;
         }
         .bottom-nav a.active { color: var(--primary); }
-        .bottom-nav a i { font-size: 1.35rem; font-style: normal; }
+        .bottom-nav a i { font-size: 1.25rem; font-style: normal; line-height: 1; }
         
         .nav-farm-btn {
             background: var(--primary);
             color: #000 !important;
             border-radius: 50%;
-            width: 48px;
-            height: 48px;
+            width: 44px;
+            height: 44px;
             display: flex;
             justify-content: center;
             align-items: center;
-            margin-top: -18px;
+            margin-top: -16px;
             box-shadow: 0 0 12px var(--primary-glow);
         }
     </style>
@@ -250,7 +254,7 @@
                 
                 <div class="timer-box">
                     <span style="color: var(--accent-red); font-size: 11px; display: block; margin-bottom: 2px;">الوقت المتبقي للسحب</span>
-                    <span id="arena-timer" class="timer-display">00:00</span>
+                    <span id="arena-timer" class="timer-display">--:--</span>
                 </div>
 
                 <div class="prize-box">
@@ -313,18 +317,18 @@
     </div>
 
     <nav class="bottom-nav">
-        <a href="settings.html"><i>⚙️</i>الإعدادات</a>
-        <a href="shop.html"><i>🏪</i>المتجر</a>
-        <a href="games.html" class="active"><i>🎮</i>الألعاب</a>
+        <a href="settings.html"><i>⚙️</i><span>الإعدادات</span></a>
+        <a href="shop.html"><i>🏪</i><span>المتجر</span></a>
+        <a href="games.html" class="active"><i>🎮</i><span>الألعاب</span></a>
         <a href="index.html">
             <div class="nav-farm-btn"><i>⚒️</i></div>
-            <span style="margin-top: 4px;">المزرعة</span>
+            <span style="margin-top: 2px;">المزرعة</span>
         </a>
-        <a href="tasks.html"><i>📋</i>المهام</a>
-        <a href="wallet.html"><i>💳</i>المحفظة</a>
-        <a href="friends.html"><i>👥</i>الأصدقاء</a>
+        <a href="tasks.html"><i>📋</i><span>المهام</span></a>
+        <a href="wallet.html"><i>💳</i><span>المحفظة</span></a>
+        <a href="friends.html"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
-    <script src="games.js?v=13.1"></script>
+    <script src="games.js?v=13.2"></script>
 </body>
 </html>
