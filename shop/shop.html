@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>المتجر - Zn Goxe</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="../style.css?v=13.2">
     <style>
         :root {
             --bg-color: #0f0f0f;
             --card-bg: #1c1c1c;
-            --primary: #00cc66;
-            --primary-glow: rgba(0, 204, 102, 0.3);
+            --primary: #f39c12;
+            --primary-glow: rgba(243, 156, 18, 0.3);
             --telegram-blue: #0088cc;
             --gold: #ffcc00;
             --accent-red: #ff4444;
@@ -92,48 +93,10 @@
             padding: 15px;
             text-align: center;
         }
-
-        /* Navigation Bar */
-        .bottom-nav {
-            position: fixed;
-            bottom: 0; left: 0; right: 0;
-            background-color: rgba(26, 26, 26, 0.98);
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 5px;
-            border-top: 1px solid var(--border-color);
-            z-index: 1000;
-        }
-        .bottom-nav a {
-            color: var(--text-muted);
-            text-decoration: none;
-            font-weight: bold;
-            font-size: 0.75rem;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 5px;
-            flex: 1;
-        }
-        .bottom-nav a.active { color: var(--primary); }
-        .bottom-nav a i { font-size: 1.4rem; font-style: normal; }
-        .nav-farm-btn {
-            background: #f39c12;
-            color: #000 !important;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin-top: -20px;
-            box-shadow: 0 0 10px rgba(243, 156, 18, 0.4);
-        }
     </style>
 </head>
 <body>
 
-    <!-- هيدر الرصيد الثابت -->
     <div class="balance-header-fixed">
         <span>🪙</span>
         <span id="top-balance-shop" class="user-balance zn-balance-display">ZN: 0</span>
@@ -141,7 +104,6 @@
 
     <div class="shop-container">
         
-        <!-- شريط البيانات العلوي للمتجر -->
         <div class="shop-stats-bar">
             <div id="shop-rate" style="color: var(--gold); font-weight: bold; font-size: 15px; display: flex; align-items: center; gap: 5px;">
                 <span>⚡</span> <span id="shop-rate-text">0/h</span>
@@ -151,12 +113,11 @@
             </div>
         </div>
 
-        <!-- قسم عروض الـ USDT المميزة -->
         <h3 style="color: #fff; margin-bottom: 12px; font-size: 18px; display: flex; align-items: center; gap: 8px;">
             <span>💎</span> عروض مميزة (USDT)
         </h3>
         <div class="usdt-container">
-            <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #2a2a2a); border: 1px solid var(--primary); box-shadow: 0 4px 10px rgba(40, 167, 69, 0.2);">
+            <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #2a2a2a); border: 1px solid var(--primary); box-shadow: 0 4px 10px rgba(243, 156, 18, 0.2);">
                 <div style="font-size: 28px; margin-bottom: 5px;">📦</div>
                 <div style="color: #fff; font-weight: bold; font-size: 14px;">باقة المبتدئين</div>
                 <div style="color: var(--primary); font-weight: bold; font-size: 16px; margin: 6px 0;">5 USDT</div>
@@ -176,30 +137,27 @@
             </div>
         </div>
 
-        <!-- أزرار التنقل بين ألسنة المتجر -->
         <div style="display: flex; gap: 10px; margin-bottom: 20px;">
             <button id="tab-mining" onclick="switchShopTab('mining')" style="flex: 1; padding: 12px; background: var(--telegram-blue); color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">⚡ ترقيات السرعة</button>
             <button id="tab-storage" onclick="switchShopTab('storage')" style="flex: 1; padding: 12px; background: #333; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">📦 ترقيات المخزن</button>
         </div>
 
-        <!-- شبكات العرض -->
         <div id="shop-mining-section" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;"></div>
         <div id="shop-storage-section" style="display: none; grid-template-columns: repeat(2, 1fr); gap: 12px;"></div>
 
     </div>
 
-    <!-- شريط التنقل السفلي -->
     <nav class="bottom-nav">
-        <a href="settings.html"><i>⚙️</i>الإعدادات</a>
-        <a href="shop.html" class="active"><i>🏪</i>المتجر</a>
-        <a href="games.html"><i>🎮</i>الألعاب</a>
-        <a href="index.html">
-            <div class="nav-farm-btn"><i>⚒️</i></div>
-            <span style="margin-top: 5px;">المزرعة</span>
+        <a href="../settings/settings.html"><i>⚙️</i><span>الإعدادات</span></a>
+        <a href="shop.html" class="active"><i>🏪</i><span>المتجر</span></a>
+        <a href="../games/games.html"><i>🎮</i><span>الألعاب</span></a>
+        <a href="../index.html" class="nav-center-btn">
+            <i>⚒️</i>
+            <span>المزرعة</span>
         </a>
-        <a href="tasks.html"><i>📋</i>المهام</a>
-        <a href="wallet.html"><i>💳</i>المحفظة</a>
-        <a href="friends.html"><i>👥</i>الأصدقاء</a>
+        <a href="../tasks/tasks.html"><i>📋</i><span>المهام</span></a>
+        <a href="../wallet/wallet.html"><i>💳</i><span>المحفظة</span></a>
+        <a href="../friends/friends.html"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
     <script src="shop.js?v=13.0"></script>
