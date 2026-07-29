@@ -1,74 +1,159 @@
 import os
+import html
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 import database
 
+# ==========================================
+# 1. إعداد المتغيرات والاتصال
+# ==========================================
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
-WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app')
+WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app').strip().rstrip('/')
+
+# التأكد من وجود https:// لضمان عمل WebApp بدون مشاكل
+if not WEB_URL.startswith('http'):
+    WEB_URL = f"https://{WEB_URL}"
+
+if not BOT_TOKEN:
+    print("❌ خطأ حرج: لم يتم العثور على BOT_TOKEN في متغيرات البيئة!")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
+# تهيئة Firebase عند تشغيل البوت
+try:
+    database.initialize_firebase()
+except Exception as e:
+    print(f"⚠️ تنبيه Firebase: {e}")
+
+# ==========================================
+# 2. معالج أمر /start
+# ==========================================
 @bot.message_handler(commands=['start'])
 def start_command(message):
-    tg_id = str(message.from_user.id)
-    first_name = message.from_user.first_name or "صديقي"
-    
-    if database.is_user_banned(tg_id):
+    try:
+        tg_id = str(message.from_user.id)
+        raw_first_name = message.from_user.first_name or "صديقي"
+        
+        # حماية الاسم من كسر HTML في التليجرام
+        first_name = html.escape(raw_first_name)
+        
+        # الفحص ضد الحظر في قاعدة البيانات
+        if database.is_user_banned(tg_id):
+            bot.send_message(
+                message.chat.id,
+                "🚫 <b>تم تقييد حسابك!</b>\n\nعذراً، لا يمكنك استخدام تطبيق ZN Goxe حالياً.",
+                parse_mode="HTML"
+            )
+            return
+        
+        # استخراج وتدقيق رابط الإحالة
+        text_parts = message.text.split()
+        ref_id = None
+        if len(text_parts) > 1:
+            raw_ref = text_parts[1].replace('ref_', '').strip()
+            if raw_ref.isdigit() and raw_ref != tg_id:
+                ref_id = raw_ref
+            
+        # إنشاء أو تحديث المستخدم في قاعدة البيانات
+        is_new = database.init_user(tg_id, ref_id, raw_first_name)
+        
+        # إرسال إشعار جذاب وآمن للداعي
+        if is_new and ref_id:
+            try:
+                bot.send_message(
+                    chat_id=int(ref_id), 
+                    text=(
+                        f"🎉 <b>إنجاز جديد في فريقك!</b>\n\n"
+                        f"انضم صديقك <b>{first_name}</b> إلى عالم ZN Goxe عبر رابطك.\n"
+                        f"🎁 ستستمتع بمكافآت نشاط جبارة و <b>10%</b> مشاركة أرباح دورية!"
+                    ),
+                    parse_mode='HTML'
+                )
+            except Exception as e:
+                print(f"⚠️ تعذر إرسال الإشعار للمحيل: {e}")
+        
+        # تجهيز رابط الـ Mini App
+        web_app_url = f"{WEB_URL}?tg_id={tg_id}"
+        if ref_id:
+            web_app_url += f"&start_param=ref_{ref_id}"
+            
+        # بناء لوحة الأزرار
+        markup = InlineKeyboardMarkup()
+        btn_game = InlineKeyboardButton("🎮 انطلق للعب واجمع النقاط 🚀", web_app=WebAppInfo(url=web_app_url))
+        btn_channel = InlineKeyboardButton("📢 القناة الرسمية والتحديثات", url="https://t.me/zngoxe")
+        btn_help = InlineKeyboardButton("❓ كيف تلعب؟", callback_data="how_to_play")
+        
+        markup.row(btn_game)
+        markup.row(btn_channel, btn_help)
+        
+        # رسالة التترحيب المشوقة والأنيقة
+        welcome_message = (
+            f"⚡ <b>أهلاً بك يا {first_name} في عالم ZN Goxe الرقمي!</b> ⚡\n\n"
+            f"استعد لخوض تجربة تفاعلية فريدة تجمع بين التسلية، التحدي، وجمع المكافآت! 🏆\n\n"
+            f"✨ <b>ماذا ينتظرك داخل التطبيق؟</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🚜 <b>مزرعة ZN الرقمية:</b> طوّر أجهزتك ودع نقاطك تنمو باستمرار.\n"
+            f"🎯 <b>المهام والتحديات:</b> أكمل المطبوعات اليومية واقتنص الكنوز.\n"
+            f"🤝 <b>نظام التحالفات:</b> ادعُ أصدقاءك وابنِ إمبراطوريتك الخاصة.\n"
+            f"⚔️ <b>المنافسات المباشرة:</b> نافس على صدارة القائمة واثبت وجودك!\n"
+            f"━━━━━━━━━━━━━━━━━━\n\n"
+            f"🔥 <b>محطتك الأولى تبدأ بضغطة زر واحدة.. هل أنت جاهز؟</b>"
+        )
+        
+        bot.send_message(message.chat.id, welcome_message, reply_markup=markup, parse_mode="HTML")
+
+    except Exception as e:
+        print(f"❌ خطأ في معالج start: {e}")
+
+# ==========================================
+# 3. معالج زر "كيف تلعب؟" (Callback Query)
+# ==========================================
+@bot.callback_query_handler(func=lambda call: call.data == "how_to_play")
+def how_to_play_callback(call):
+    try:
+        help_text = (
+            "📖 <b>دليل البدء السريع - ZN Goxe:</b>\n\n"
+            "1️⃣ اضغط على زر <b>(انطلق للعب)</b> لفتح التطبيق.\n"
+            "2️⃣ قم بتفعيل <b>المزرعة</b> وترقية المكونات لزيادة سرعة الإنتاج.\n"
+            "3️⃣ انجز <b>المهام اليومية</b> للحصول على مكافآت فورية.\n"
+            "4️⃣ شارك رابطك مع أصدقائك لتحصل على <b>10%</b> بونص إضافي دائماً!\n\n"
+            "💡 <i>كلما زاد نشاطك داخل التطبيق، زادت رتبتك وجوائزك!</i>"
+        )
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, help_text, parse_mode="HTML")
+    except Exception as e:
+        print(f"❌ خطأ في callback: {e}")
+
+# ==========================================
+# 4. معالج كافة الرسائل العادية (Fallback)
+# ==========================================
+@bot.message_handler(func=lambda message: True)
+def default_message_handler(message):
+    try:
+        tg_id = str(message.from_user.id)
+        web_app_url = f"{WEB_URL}?tg_id={tg_id}"
+        
+        markup = InlineKeyboardMarkup()
+        btn_game = InlineKeyboardButton("🎮 فتح تطبيق ZN Goxe", web_app=WebAppInfo(url=web_app_url))
+        markup.row(btn_game)
+        
         bot.send_message(
             message.chat.id,
-            "🚫 <b>تم تقييد حسابك!</b>\n\nعذراً، لا يمكنك استخدام التطبيق حالياً.",
+            "💡 <b>اضغط على الزر بالأسفل لفتح التطبيق ومتابعة لعبتك!</b>",
+            reply_markup=markup,
             parse_mode="HTML"
         )
-        return
-    
-    text_parts = message.text.split()
-    ref_id = None
-    if len(text_parts) > 1:
-        ref_id = text_parts[1].replace('ref_', '').strip()
-        
-    # التحقق وتحديث/إنشاء المستخدم من خلال database.py لتوحيد العمليات
-    is_new = database.init_user(tg_id, ref_id, first_name)
-    
-    # إرسال إشعار للداعي إذا كان اللاعب جديداً وجاء عبر رابط إحالة
-    if is_new and ref_id and str(ref_id) != str(tg_id):
-        try:
-            bot.send_message(
-                chat_id=int(ref_id), 
-                text=f"🎉 <b>خبر مفرح!</b>\n\nلقد انضم صديقك <b>[{first_name}]</b> إلى اللعبة عبر رابطك.\nستحصل الآن على <b>10%</b> من أرباح تعدينه بشكل دائم! 💸",
-                parse_mode='HTML'
-            )
-        except Exception as e:
-            print(f"Could not send message to referrer: {e}")
-    
-    markup = InlineKeyboardMarkup()
-    clean_web_url = WEB_URL.lower().strip()
-    
-    web_app_url = f"{clean_web_url}?tg_id={tg_id}"
-    if ref_id:
-        web_app_url += f"&start_param=ref_{ref_id}"
-        
-    btn_game = InlineKeyboardButton("🚀 العب الآن واجمع ثروتك", web_app=WebAppInfo(url=web_app_url))
-    btn_channel = InlineKeyboardButton("📢 انضم لمجتمعنا", url="https://t.me/zngoxe")
-    
-    markup.row(btn_game)
-    markup.row(btn_channel)
-    
-    # رسالة الترحيب الاحترافية والمحفزة
-    welcome_message = (
-        f"🌟 <b>مرحباً بك يا {first_name} في إمبراطورية Zn Goxe!</b> 🌟\n\n"
-        f"هل أنت مستعد لتغيير قواعد اللعبة؟ 🚀 هنا، وقتك يُترجم إلى ثروة رقمية حقيقية.\n\n"
-        f"💎 <b>ما يجعلك مميزاً هنا:</b>\n"
-        f"⛏️ <b>تعدين لا يتوقف:</b> طور مزرعتك ودع الأرباح تتدفق إليك حتى وأنت نائم.\n"
-        f"🤝 <b>شبكة الثروة:</b> ادعُ أصدقاءك، وابنِ فريقك، واحصل على <b>10%</b> من أرباحهم دائماً!\n"
-        f"⚔️ <b>منافسات ملحمية:</b> ادخل الساحة، اهزم خصومك، واقتنص الجوائز الكبرى.\n\n"
-        f"⚡ <b>لا تضيع الوقت، جهاز التعدين الخاص بك بانتظار إشارة البدء!</b>\n"
-        f"👇 <b>اضغط على الزر بالأسفل وانطلق نحو القمة الآن!</b>"
-    )
-    
-    bot.send_message(message.chat.id, welcome_message, reply_markup=markup, parse_mode="HTML")
+    except Exception as e:
+        print(f"❌ خطأ في المعالج العام: {e}")
 
+# ==========================================
+# 5. تشغيل البوت والحماية من السقوط
+# ==========================================
 if __name__ == '__main__':
-    database.initialize_firebase()
-    bot.remove_webhook()
-    print("🤖 Bot is running smoothly...")
-    bot.infinity_polling(allowed_updates=telebot.util.update_types)
+    try:
+        bot.remove_webhook()
+    except Exception:
+        pass
+        
+    print("🤖 ZN Goxe Bot is online and running safely...")
+    bot.infinity_polling(timeout=20, long_polling_timeout=10)
