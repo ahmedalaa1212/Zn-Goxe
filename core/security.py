@@ -5,11 +5,9 @@ import json
 import urllib.parse
 from flask import jsonify
 
-BOT_TOKEN = os.environ.get('BOT_TOKEN', '').strip()
-
 def validate_telegram_data(init_data: str):
     """دالة التحقق من التشفير والـ initData الخاص بتليجرام"""
-    token = os.environ.get('BOT_TOKEN', '').strip() or BOT_TOKEN
+    token = os.environ.get('BOT_TOKEN', '').strip()
     if not init_data or not token:
         print("⚠️ Security Warning: init_data or BOT_TOKEN is missing!")
         return None
@@ -21,14 +19,11 @@ def validate_telegram_data(init_data: str):
             return None
         hash_val = parsed_data.pop('hash')
         
-        # ترتيب العناصر أبجدياً طبقاً لتعليمات تليجرام
         data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed_data.items()))
         
-        # إنشاء التوقيع السري ومقارنته آمنياً
         secret_key = hmac.new(b"WebAppData", token.encode('utf-8'), hashlib.sha256).digest()
         calculated_hash = hmac.new(secret_key, data_check_string.encode('utf-8'), hashlib.sha256).hexdigest()
         
-        # استخدام compare_digest للوقاية من هجمات Timing Attacks
         if hmac.compare_digest(calculated_hash, hash_val):
             user_str = parsed_data.get('user', '{}')
             return json.loads(user_str)
