@@ -11,15 +11,16 @@ wallet_bp = Blueprint('wallet', __name__)
 def wallet_index():
     return jsonify({"success": True, "message": "Wallet API is Secure and Active!"}), 200
 
-# 1. استرجاع سجل السحوبات والإيداعات
+# 1. جلب سجل المعاملات
 @wallet_bp.route('/get_history', methods=['GET'])
 def get_history():
     is_auth, user_id, err = get_authenticated_user(request)
-    if not is_auth: return err
+    if not is_auth: 
+        return err
     
     try:
-        withdrawals_query = db.collection('withdrawals').where('user_id', '==', str(user_id)).limit(15).get()
-        deposits_query = db.collection('deposits').where('user_id', '==', str(user_id)).limit(15).get()
+        withdrawals_query = db.collection('withdrawals').where('user_id', '==', str(user_id)).limit(20).get()
+        deposits_query = db.collection('deposits').where('user_id', '==', str(user_id)).limit(20).get()
         
         history = []
         for doc in withdrawals_query:
@@ -35,25 +36,25 @@ def get_history():
         history.sort(key=lambda x: x.get('created_at', ''), reverse=True)
         return jsonify({"success": True, "history": history[:30]}), 200
     except Exception as e:
-        print(f"Error fetching history: {e}")
+        print(f"[Wallet API] Error fetching history: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب السجلات"}), 500
 
-# 2. تحويل النقاط ZN إلى USD (معاملة محمية Transaction)
+# 2. تحويل نقاط ZN إلى USD (Firestore Transaction)
 @wallet_bp.route('/wallet_convert', methods=['POST'])
 def wallet_convert():
     is_auth, user_id, err = get_authenticated_user(request, is_post=True)
-    if not is_auth: return err
+    if not is_auth: 
+        return err
     
     req = request.get_json(silent=True) or {}
     try:
         amount = float(req.get('amount', 0))
         if amount < 1000000 or amount <= 0:
             return jsonify({"success": False, "error": "الحد الأدنى للتحويل هو 1,000,000 ZN"}), 400
-    except ValueError:
+    except (ValueError, TypeError):
         return jsonify({"success": False, "error": "كمية غير صالحة"}), 400
         
     usd_gained = amount / 1000000.0
-    
     transaction = db.transaction()
     user_ref = db.collection('users').document(str(user_id))
     
@@ -82,21 +83,22 @@ def wallet_convert():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
 
-# 3. تقديم طلب سحب (معاملة محمية Transaction)
+# 3. تقديم طلب سحب أرباح
 @wallet_bp.route('/wallet_withdraw', methods=['POST'])
 def wallet_withdraw():
     is_auth, user_id, err = get_authenticated_user(request, is_post=True)
-    if not is_auth: return err
+    if not is_auth: 
+        return err
     
     req = request.get_json(silent=True) or {}
     try:
         amount = float(req.get('amount', 0))
         if amount <= 0:
             return jsonify({"success": False, "error": "مبلغ غير صالح"}), 400
-    except ValueError:
+    except (ValueError, TypeError):
         return jsonify({"success": False, "error": "مبلغ غير صالح"}), 400
         
-    wallet_address = req.get('walletAddress', '').strip()
+    wallet_address = str(req.get('walletAddress', '')).strip()
     if not wallet_address:
         return jsonify({"success": False, "error": "عنوان المحفظة مفقود"}), 400
         
@@ -134,23 +136,23 @@ def wallet_withdraw():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
 
-# 4. تسجيل إيداع ناجح عبر TON Connect
+# 4. تسجيل إيداع ناجح
 @wallet_bp.route('/wallet_deposit_report', methods=['POST'])
 def wallet_deposit_report():
     is_auth, user_id, err = get_authenticated_user(request, is_post=True)
-    if not is_auth: return err
+    if not is_auth: 
+        return err
     
     req = request.get_json(silent=True) or {}
     try:
         usd_amount = float(req.get('usdAmount', 0))
         ton_amount = float(req.get('tonAmount', 0))
         if usd_amount <= 0:
-            return jsonify({"success": False, "error": "مبلغ غير صالح"}), 400
-    except ValueError:
-        return jsonify({"success": False, "error": "مبلغ الإيداع غير صالح"}), 400
+            return jsonify({"success": False, "error": "مبلغ إيداع غير صالح"}), 400
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "مبلغ إيداع غير صالح"}), 400
         
     boc = req.get('boc')
-    
     transaction = db.transaction()
     user_ref = db.collection('users').document(str(user_id))
     
