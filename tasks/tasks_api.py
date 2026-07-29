@@ -43,11 +43,10 @@ def is_task_completed_by_user(task, user_completed_data):
 
     today_str = datetime.datetime.utcnow().strftime('%Y-%m-%d')
 
-    # 1. إذا كان التخزين بالشكل القديم (قائمة List من الـ task_id)
+    # 1. إذا كان التخزين بالشكل القديم (قائمة List)
     if isinstance(user_completed_data, list):
         if task_id not in user_completed_data:
             return False
-        # إذا كانت المهمة قديمة ومن نوع موقع، نفترض أنها غير مكتملة اليوم لتطبيق التجديد اليومي
         if platform == 'موقع':
             return False
         return True
@@ -75,7 +74,6 @@ def is_task_completed_by_user(task, user_completed_data):
                 return task_dt == today_str
             return False
         else:
-            # المنصات الأخرى مكتملة دائماً
             return True
 
     return False
@@ -88,7 +86,6 @@ def get_campaigns():
 
     telegram_id_str = str(telegram_id).strip()
 
-    # جلب بيانات المستخدم المحدثة مباشرة من فايربيس
     ad_balance = 0.0
     balance = 0.0
     try:
@@ -107,7 +104,7 @@ def get_campaigns():
 
     result_campaigns = []
     for c in campaigns:
-        # إخفاء الحملات المنتهية للمستخدمين الآخرين فقط، وإظهارها لصاحب الحملة
+        # إخفاء الحملات المنتهية للمستخدمين الآخرين وإظهارها لصاحب الحملة
         if c.get('users_completed', 0) >= c.get('users_needed', 1) and str(c.get('creator_id')).strip() != telegram_id_str:
             continue
             
@@ -163,10 +160,10 @@ def create_campaign():
         if current_ad_balance < total_cost:
             return jsonify({"success": False, "error": f"رصيدك الإعلاني غير كافٍ. المطلوب: {total_cost} AdZN"}), 400
 
-        # خصم التكلفة الإجمالية للحملة من رصيد الإعلانات في فايربيس
-        user_ref.update({
+        # خصم التكلفة من رصيد الإعلانات بمرونة
+        user_ref.set({
             'ad_balance': firestore.Increment(-total_cost)
-        })
+        }, merge=True)
 
         db = load_data()
         new_campaign = {
@@ -216,9 +213,13 @@ def complete_task():
     if str(target_campaign.get('creator_id')).strip() == telegram_id_str:
         return jsonify({"success": False, "error": "لا يمكنك تنفيذ حملتك الخاصة"}), 400
 
+    # منع التنافس الزائد وإكمال مهام مكتملة بالفعل
+    if target_campaign.get('users_completed', 0) >= target_campaign.get('users_needed', 1):
+        return jsonify({"success": False, "error": "هذه المهمة مكتملة بالكامل واستوفت عدد الأعضاء المطلوب!"}), 400
+
     user_completed_map = db.setdefault('completed_tasks', {}).setdefault(telegram_id_str, {})
 
-    # تحويل التنسيق القديم (list) إلى dict لتفادي المشاكل
+    # تحويل التنسيق القديم (list) إلى dict
     if isinstance(user_completed_map, list):
         new_map = {tid: {"date": "2000-01-01", "timestamp": 0} for tid in user_completed_map}
         db['completed_tasks'][telegram_id_str] = new_map
@@ -232,16 +233,15 @@ def complete_task():
 
     reward_amount = float(target_campaign['reward'])
 
-    # إضافة المكافأة لرصيد المنفّذ في فايربيس
+    # إضافة المكافأة لرصيد المستخدم في فايربيس
     try:
         user_ref = firestore_db.collection('users').document(telegram_id_str)
-        user_ref.update({
+        user_ref.set({
             'balance': firestore.Increment(reward_amount)
-        })
+        }, merge=True)
     except Exception as e:
         print(f"Error adding task reward to user in Firebase: {e}")
 
-    # تسجيل تاريخ ووقت الإكمال
     now_utc = datetime.datetime.utcnow()
     user_completed_map[task_id] = {
         "date": now_utc.strftime('%Y-%m-%d'),
@@ -283,17 +283,15 @@ def cancel_campaign():
     
     refund_amount = max(0, (need - comp) * cost_per_user)
 
-    # إعادة المبلغ المتبقي لحساب المستخدم بداخل فايربيس ad_balance
     if refund_amount > 0:
         try:
             user_ref = firestore_db.collection('users').document(telegram_id_str)
-            user_ref.update({
+            user_ref.set({
                 'ad_balance': firestore.Increment(refund_amount)
-            })
+            }, merge=True)
         except Exception as e:
             print(f"Error refunding campaign ad balance: {e}")
 
-    # حذف الحملة من القائمة
     db['campaigns'] = [c for c in campaigns if c['id'] != campaign_id]
     save_data(db)
 
@@ -335,11 +333,11 @@ def convert_adzn():
         fee = amount * 0.10
         received = amount - fee
 
-        # خصم ZN وزيادة AdZN حقيقياً وبشكل دائم داخل قاعدة البيانات فايربيس
-        user_ref.update({
+        # خصم ZN وزيادة AdZN حقيقياً داخل فايربيس
+        user_ref.set({
             'balance': firestore.Increment(-amount),
             'ad_balance': firestore.Increment(received)
-        })
+        }, merge=True)
 
         new_balance = current_balance - amount
         new_ad_balance = float(user_data.get('ad_balance', 0.0)) + received
