@@ -5,6 +5,7 @@
     let arenaEndTime = 0;
     let countdownInterval = null;
     let hasCheckedResults = false;
+    let statusRetryTimeout = null;
 
     const tele = window.Telegram?.WebApp;
 
@@ -19,21 +20,25 @@
     // --- أدوات المزامنة الموحدة للرصيد ---
     function getStoredBalance() {
         if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
-            return parseFloat(window.GameState.balance);
+            const val = parseFloat(window.GameState.balance);
+            return isNaN(val) ? 0 : val;
         }
         const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
-        return bal !== null ? parseFloat(bal) : 0;
+        const num = bal !== null ? parseFloat(bal) : 0;
+        return isNaN(num) ? 0 : num;
     }
 
     function setStoredBalance(newBalance) {
         if (newBalance !== undefined && newBalance !== null) {
             const numVal = parseFloat(newBalance);
-            if (typeof window.setBalance === 'function') {
-                window.setBalance(numVal);
-            } else {
+            if (!isNaN(numVal)) {
                 if (window.GameState) window.GameState.balance = numVal;
                 localStorage.setItem('zn_balance', numVal.toString());
                 localStorage.setItem('user_balance', numVal.toString());
+                
+                if (typeof window.setBalance === 'function') {
+                    window.setBalance(numVal);
+                }
             }
         }
     }
@@ -71,6 +76,11 @@
     };
 
     async function fetchArenaStatus() {
+        if (statusRetryTimeout) {
+            clearTimeout(statusRetryTimeout);
+            statusRetryTimeout = null;
+        }
+
         try {
             const initData = tele?.initData || "";
 
@@ -94,7 +104,7 @@
                 syncGameBalance();
                 
                 currentRoundId = data.round_id;
-                arenaEndTime = data.end_time;
+                arenaEndTime = parseInt(data.end_time) || 0;
                 hasCheckedResults = false;
                 
                 updateArenaPrizes(data);
@@ -106,7 +116,7 @@
             if (btn && btn.innerText.includes("جاري التحميل")) {
                 btn.innerText = "تعذر الاتصال، جاري إعادة المحاولة...";
             }
-            setTimeout(fetchArenaStatus, 4000);
+            statusRetryTimeout = setTimeout(fetchArenaStatus, 4000);
         }
     }
 
@@ -135,6 +145,8 @@
     }
 
     function timerTick(hasJoined) {
+        if (!arenaEndTime || arenaEndTime <= 0) return;
+
         const now = Math.floor(Date.now() / 1000);
         let timeLeft = arenaEndTime - now;
         
@@ -160,7 +172,7 @@
             btn.classList.add('btn-disabled');
             btn.innerText = "جاري إعلان النتائج... 🔄";
             
-            if (!hasCheckedResults) {
+            if (!hasCheckedResults && currentRoundId) {
                 hasCheckedResults = true;
                 fetchRoundResults(currentRoundId, 0);
             }
@@ -258,6 +270,8 @@
     };
 
     async function fetchRoundResults(roundId, retries = 0) {
+        if (!roundId) return;
+
         if (retries > 10) {
             console.warn("تأخر السيرفر في إحراز النتائج.");
             fetchArenaStatus();
