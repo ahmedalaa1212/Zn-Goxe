@@ -1,81 +1,100 @@
-// game.js - النسخة المعدلة والمصلحة بالكامل لتعمل مع نظام المهام
+// game.js - النسخة المؤقلمة والمحدثة بالكامل والمحصنة لـ ZN Goxe
 
-// 1. استرجاع الرصيد، رصيد الإعلانات، والطاقة المحفوظين محلياً فوراً
+// 1. استرجاع البيانات المحفوظة محلياً فوراً لمنع التأخير أثناء التحميل
 const cachedBalance = parseFloat(localStorage.getItem('zn_balance')) || 0;
 const cachedAdBalance = parseFloat(localStorage.getItem('zn_ad_balance')) || 0;
+const cachedUsdBalance = parseFloat(localStorage.getItem('zn_usd_balance')) || 0.0;
 const cachedEnergy = parseInt(localStorage.getItem('zn_energy')) || 1000;
 
-// استخدام Proxy لمراقبة أي تغيير في الأرصدة وتحديث الشاشة فوراً
+// استخراج tg_id من رابط الصفحة في حال لم يتوفر initData المباشر
+const urlParams = new URLSearchParams(window.location.search);
+const queryTgId = urlParams.get('tg_id') || localStorage.getItem('zn_tg_id') || "";
+
+if (queryTgId) {
+    localStorage.setItem('zn_tg_id', queryTgId);
+}
+
+// البيانات المبدئية لحالة اللعبة
 const initialData = {
-    userId: localStorage.getItem('zn_user_id') || null,
+    tg_id: queryTgId,
+    userId: localStorage.getItem('zn_user_id') || queryTgId,
     username: localStorage.getItem('zn_username') || "",
     balance: cachedBalance,
     ad_balance: cachedAdBalance,
-    energy: cachedEnergy,
-    usd_balance: 0.00000 // ضفنا سطر صغير للـ USD عشان الجافاسكربت يراقبه
+    usd_balance: cachedUsdBalance,
+    energy: cachedEnergy
 };
 
+// استخدام Proxy لمراقبة التغييرات وتحديث المظهر والتخزين تلقائياً
 window.GameState = new Proxy(initialData, {
     set(target, key, value) {
-        target[key] = Number(value); // تأكيد أن القيمة رقم لتجنب الأخطاء
+        // حماية: عدم تحويل النصوص (مثل الأسماء والمعرفات) إلى أرقام
+        if (['balance', 'ad_balance', 'usd_balance', 'energy'].includes(key)) {
+            target[key] = Number(value) || 0;
+        } else {
+            target[key] = value;
+        }
+
         if (key === 'balance') {
             localStorage.setItem('zn_balance', target[key]);
             window.updateGlobalUI();
         } else if (key === 'ad_balance') {
             localStorage.setItem('zn_ad_balance', target[key]);
             window.updateGlobalUI();
+        } else if (key === 'usd_balance') {
+            localStorage.setItem('zn_usd_balance', target[key]);
+            window.updateGlobalUI();
         } else if (key === 'energy') {
             localStorage.setItem('zn_energy', target[key]);
             window.updateGlobalUI();
-        } else if (key === 'usd_balance') {
-            // تحديث واجهة المحفظة لما الـ USD يتغير
-            if (window.updateHeaderBalances) window.updateHeaderBalances();
         }
         return true;
     }
 });
 
-// 2. دالة الاتصال بالباك إيند الموحدة
+// 2. دالة الاتصال بالباك إيند الموحدة وآمنة
 window.apiCall = async function(endpoint, method = 'GET', body = null) {
     const BASE_URL = ""; 
     const initData = window.Telegram?.WebApp?.initData || "";
-
-    if (!initData && method !== 'GET') {
-        console.warn("Preview Mode - Action blocked.");
-        return { success: false, error: "Preview Mode" };
-    }
+    const tgId = window.GameState.tg_id || localStorage.getItem('zn_tg_id') || "";
 
     const headers = {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${initData}` 
+        'Authorization': `Bearer ${initData}`,
+        'X-TG-ID': tgId
     };
 
     const config = { method, headers };
 
-    if (body) {
-        body.initData = initData; 
-        config.body = JSON.stringify(body);
-    } else if (method === 'POST') {
-        config.body = JSON.stringify({ initData });
+    // تجهيز البودي وإرفاق tg_id و initData دائماً ضماناً لعدم ضياع الحساب
+    let payload = body ? { ...body } : {};
+    payload.initData = initData;
+    payload.tg_id = tgId;
+
+    if (method !== 'GET') {
+        config.body = JSON.stringify(payload);
     }
 
     try {
         const response = await fetch(`${BASE_URL}${endpoint}`, config);
-        return await response.json();
+        const data = await response.json();
+        return data;
     } catch (error) {
-        console.error(`API Error (${endpoint}):`, error);
+        console.error(`❌ خطأ في الاتصال بالشبكة (${endpoint}):`, error);
         return { success: false, error: "Network Error" };
     }
 };
 
-// 3. تحديث كافة الواجهات في جميع القوائم والتبويبات
+// 3. تحديث كافة عناصر الواجهة في الصفحة بدون استثناء
 window.updateGlobalUI = function() {
     const balanceVal = Number(window.GameState.balance) || 0;
     const adBalanceVal = Number(window.GameState.ad_balance) || 0;
+    const usdBalanceVal = Number(window.GameState.usd_balance) || 0;
     
-    // تنسيق الرقم
+    // تنسيق الأرقام لعرض جمالي
     const formattedBalance = Math.floor(balanceVal).toLocaleString();
     const formattedAdBalance = Math.floor(adBalanceVal).toLocaleString();
+    const formattedUsdBalance = usdBalanceVal.toFixed(2);
     
     // تحديث رصيد ZN الأساسي
     const balanceSelectors = [
@@ -85,7 +104,7 @@ window.updateGlobalUI = function() {
     ].join(', ');
 
     document.querySelectorAll(balanceSelectors).forEach(el => {
-        if(el.id === 'top-balance-tasks') {
+        if (el.id === 'top-balance-tasks') {
             el.innerText = `ZN ${formattedBalance}`;
         } else {
             el.innerText = formattedBalance;
@@ -96,6 +115,12 @@ window.updateGlobalUI = function() {
     const adBalanceSelectors = ['#ad-balance-display', '.ad-balance-text', '[data-ad-balance]'].join(', ');
     document.querySelectorAll(adBalanceSelectors).forEach(el => {
         el.innerText = `AdZN ${formattedAdBalance}`;
+    });
+
+    // تحديث رصيد USD
+    const usdBalanceSelectors = ['#usd-balance-display', '.usd-balance-text', '[data-usd-balance]'].join(', ');
+    document.querySelectorAll(usdBalanceSelectors).forEach(el => {
+        el.innerText = `$${formattedUsdBalance}`;
     });
 
     // تحديث الطاقة
@@ -110,38 +135,40 @@ window.setBalance = function(newBalance) { window.GameState.balance = newBalance
 window.addBalance = function(amount) { window.GameState.balance += amount; };
 window.deductBalance = function(amount) { window.GameState.balance -= amount; };
 
-// 5. مزامنة البيانات مع السيرفر
+// 5. مزامنة البيانات التلقائية مع السيرفر
 window.initGameData = async function() {
     window.updateGlobalUI();
 
-    if (!window.Telegram?.WebApp?.initData) {
-        if (!localStorage.getItem('zn_balance')) window.setBalance(5000);
+    const tgId = window.GameState.tg_id || localStorage.getItem('zn_tg_id');
+    if (!tgId && !window.Telegram?.WebApp?.initData) {
+        if (!localStorage.getItem('zn_balance')) window.setBalance(1000);
         return;
     }
     
     try {
-        const res = await window.apiCall('/api/user/sync', 'POST');
+        const res = await window.apiCall('/api/farm/sync', 'POST');
         
         if (res && res.success && res.data) {
-            window.GameState.userId = res.data.id;
-            window.GameState.username = res.data.username;
+            window.GameState.userId = res.data.id || tgId;
+            window.GameState.username = res.data.first_name || res.data.username || "";
             
-            localStorage.setItem('zn_user_id', res.data.id || "");
-            localStorage.setItem('zn_username', res.data.username || "");
+            localStorage.setItem('zn_user_id', window.GameState.userId);
 
             if (res.data.balance !== undefined) window.GameState.balance = res.data.balance;
             if (res.data.ad_balance !== undefined) window.GameState.ad_balance = res.data.ad_balance;
-            if (res.data.energy !== undefined) window.GameState.energy = res.data.energy;
             if (res.data.usd_balance !== undefined) window.GameState.usd_balance = res.data.usd_balance;
+            if (res.data.energy !== undefined) window.GameState.energy = res.data.energy;
         }
     } catch (err) {
-        console.warn("تنبيه: تعذر المزامنة مع السيرفر، تم الاعتماد على الرصيد المحلي.", err);
+        console.warn("⚠️ تنبيه: تم الاعتماد على الأرصدة المحلية لتعذر المزامنة الحالية.", err);
     }
 };
 
-// مراقبة التنقل
+// 6. الاستماع للتحميل والتنقلات داخل الـ Mini App
 document.addEventListener('DOMContentLoaded', () => {
     window.initGameData();
+
+    // إرسال تحديث للـ UI مع كل كليك على القوائم والأزرار
     document.querySelectorAll('.nav-item, .tab-btn, footer button, nav button, a').forEach(btn => {
         btn.addEventListener('click', () => {
             setTimeout(window.updateGlobalUI, 50);
@@ -149,6 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // مراقبة أي تغييرات في صفحة الـ HTML لتطبيق التحديثات فوراً
     const observer = new MutationObserver(() => window.updateGlobalUI());
     observer.observe(document.body, { childList: true, subtree: true });
 });
