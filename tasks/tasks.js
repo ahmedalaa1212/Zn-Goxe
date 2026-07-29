@@ -1,5 +1,9 @@
 // tasks/tasks.js
 (function initTasks() {
+    if (window.Telegram?.WebApp) {
+        window.Telegram.WebApp.ready();
+    }
+
     window.taskStates = window.taskStates || {};
     window.accumulatedOutsideTime = window.accumulatedOutsideTime || {};
     window.lastGoOutside = window.lastGoOutside || {};
@@ -64,7 +68,7 @@
     };
 
     function getTgId() {
-        return window.PlayerData?.tg_id || window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || "5102387551";
+        return window.myRealTgId || window.PlayerData?.tg_id || window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || "5102387551";
     }
 
     window.switchTasksTab = function(tab) {
@@ -92,10 +96,10 @@
 
     window.updateTasksUI = function() {
         syncTopBalance();
-        const pData = window.PlayerData || { balance: 0, ad_balance: 0 };
+        const pData = window.PlayerData || {};
 
         const adBalDisplay = document.getElementById('ad-balance-display');
-        if (adBalDisplay) {
+        if (adBalDisplay && pData.ad_balance !== undefined) {
             adBalDisplay.innerText = `AdZN ${Math.floor(pData.ad_balance || 0).toLocaleString()}`;
         }
         window.fetchAndRenderTasks();
@@ -120,7 +124,31 @@
             let response = await fetch(url);
             if (response.ok) {
                 let data = await response.json();
-                if (data.success) { realTasks = data.campaigns || []; }
+                if (data.success) { 
+                    realTasks = data.campaigns || []; 
+                    
+                    // حفظ معرّف الحساب الموثق القادم من السيرفر
+                    if (data.user_id) {
+                        window.myRealTgId = String(data.user_id).trim();
+                        myId = window.myRealTgId;
+                    }
+
+                    // تحديث الرصيد ورصيد الإعلانات فوراً بالقيم القادمة من فايربيس
+                    window.PlayerData = window.PlayerData || {};
+                    if (data.ad_balance !== undefined) {
+                        window.PlayerData.ad_balance = data.ad_balance;
+                        const adBalDisplay = document.getElementById('ad-balance-display');
+                        if (adBalDisplay) {
+                            adBalDisplay.innerText = `AdZN ${Math.floor(data.ad_balance).toLocaleString()}`;
+                        }
+                    }
+                    if (data.balance !== undefined) {
+                        window.PlayerData.balance = data.balance;
+                        if (window.GameState) window.GameState.balance = data.balance;
+                        localStorage.setItem('zn_balance', data.balance);
+                        syncTopBalance();
+                    }
+                }
             }
         } catch (e) { console.warn("خطأ جلب المهام", e); }
 
@@ -366,8 +394,8 @@
                 completedTasks.push(taskId);
                 localStorage.setItem('zn_completed_tasks', JSON.stringify(completedTasks));
                 
-                if (window.PlayerData) window.PlayerData.balance += reward;
-                if (window.GameState) window.GameState.balance += reward;
+                if (window.PlayerData) window.PlayerData.balance = (window.PlayerData.balance || 0) + reward;
+                if (window.GameState) window.GameState.balance = (window.GameState.balance || 0) + reward;
                 
                 delete window.taskStates[taskId];
                 delete window.accumulatedOutsideTime[taskId];
@@ -410,7 +438,6 @@
                 if (window.PlayerData && result.refund) {
                     window.PlayerData.ad_balance = (window.PlayerData.ad_balance || 0) + result.refund;
                 }
-                if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
                 window.fetchAndRenderTasks();
                 window.updateTasksUI();
             } else { alert("⚠️ خطأ بالإلغاء: " + result.error); }
@@ -453,9 +480,6 @@
                 if (window.GameState) {
                     if (result.new_balance !== undefined) window.GameState.balance = result.new_balance;
                     else window.GameState.balance -= amount;
-                }
-                if (typeof window.fetchPlayerDataFromServer === 'function') {
-                    await window.fetchPlayerDataFromServer();
                 }
                 window.updateTasksUI();
                 if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
@@ -582,9 +606,6 @@
                         if (window.PlayerData) {
                             if (result.new_ad_balance !== undefined) window.PlayerData.ad_balance = result.new_ad_balance;
                             else window.PlayerData.ad_balance -= totalCost;
-                        }
-                        if (typeof window.fetchPlayerDataFromServer === 'function') {
-                            await window.fetchPlayerDataFromServer();
                         }
                         document.getElementById('success-modal').style.display = 'flex';
                     } else {
