@@ -56,7 +56,7 @@ async function fetchLiveTonPrice() {
     }
 }
 
-// 2. تهيئة TON Connect
+// 2. تهيئة TON Connect بلمسات Dark Theme ممتازة
 function initTonConnect() {
     if (typeof window.TON_CONNECT_UI === 'undefined') {
         setTimeout(initTonConnect, 100);
@@ -64,22 +64,29 @@ function initTonConnect() {
     }
 
     if (!tonConnectUI) {
+        const themeDark = window.TON_CONNECT_UI.THEME ? window.TON_CONNECT_UI.THEME.DARK : 'DARK';
+
         tonConnectUI = new window.TON_CONNECT_UI.TonConnectUI({
             manifestUrl: 'https://zn-goxe-production.up.railway.app/tonconnect-manifest.json',
-            buttonRootId: 'hidden-ton-root'
-        });
-
-        tonConnectUI.uiOptions = {
-            theme: 'DARK',
-            colorsSet: {
-                DARK: {
-                    connectButton: { background: '#0098ea', foreground: '#ffffff' },
-                    accent: '#0098ea', 
-                    background: { primary: '#0a0d14', secondary: '#161c27', qr: '#ffffff' },
-                    text: { primary: '#ffffff', secondary: '#94a3b8' }
+            buttonRootId: 'hidden-ton-root',
+            uiPreferences: {
+                theme: themeDark,
+                colorsSet: {
+                    [themeDark]: {
+                        connectButton: { background: '#0098ea', foreground: '#ffffff' },
+                        accent: '#0098ea',
+                        iconOnAccent: '#ffffff',
+                        background: { 
+                            primary: '#0a0d14', 
+                            secondary: '#161c27', 
+                            qr: '#ffffff', 
+                            tint: '#1e293b' 
+                        },
+                        text: { primary: '#ffffff', secondary: '#94a3b8' }
+                    }
                 }
             }
-        };
+        });
 
         tonConnectUI.connectionRestored.then(restored => {
             if (restored && tonConnectUI.wallet) {
@@ -106,6 +113,7 @@ function initTonConnect() {
 window.connectCustomWallet = async function() {
     triggerHapticFeedback('impact', 'light');
     try {
+        if (!tonConnectUI) initTonConnect();
         await tonConnectUI.openModal();
     } catch (e) {
         console.log("تم إلغاء عملية الاتصال");
@@ -135,7 +143,6 @@ window.updateHeaderBalances = function() {
     if (znElem) znElem.innerText = Math.floor(zn).toLocaleString('ar-EG');
     
     if (usdElem) {
-        // عرض الخانات العشرية بدقة حتى لا تظهر $0.00000 للأرصدة الصغرى
         usdElem.innerText = "$" + (usd > 0 && usd < 0.01 ? usd.toFixed(5) : usd.toFixed(4));
     }
     
@@ -247,7 +254,6 @@ window.renderWalletTab = function(tab) {
                             month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
                         }) : '';
 
-                        // تنسيق مرن للمبلغ ليعرض المبالغ الصغيرة بدون تقريب لـ 0.00
                         const rawAmount = parseFloat(item.amount_usd || item.amount || 0);
                         const displayAmount = (rawAmount > 0 && rawAmount < 0.01) ? rawAmount.toFixed(4) : rawAmount.toFixed(2);
                         
@@ -423,7 +429,6 @@ window.executeDeposit = async function() {
             let result = await response.json();
             
             if (result.success) {
-                // تحديث الرصيد المحلي فوراً في الـ GameState والـ PlayerData
                 const targetUsd = result.new_usd_balance !== undefined ? result.new_usd_balance : null;
                 
                 if (window.GameState) {
@@ -435,7 +440,6 @@ window.executeDeposit = async function() {
                 }
                 playerData.usdBalance = targetUsd !== null ? targetUsd : (playerData.usdBalance + usdAmount);
 
-                // تحديث واجهة الرصيد العلوية فوراً
                 window.updateHeaderBalances();
 
                 showAppAlert(`✅ تم الإيداع بنجاح!\nتمت إضافة $${usdAmount} لرصيدك.`);
