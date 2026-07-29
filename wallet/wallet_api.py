@@ -71,15 +71,16 @@ def wallet_convert():
         if current_balance < amount:
             raise Exception("رصيد النقاط غير كافٍ لإتمام التحويل")
             
+        new_usd = current_usd + usd_gained
         transaction.update(user_ref, {
             'balance': current_balance - amount,
-            'usd_balance': current_usd + usd_gained
+            'usd_balance': new_usd
         })
-        return usd_gained
+        return usd_gained, new_usd
         
     try:
-        final_usd = secure_convert_tx(transaction, user_ref)
-        return jsonify({"success": True, "usd_gained": final_usd}), 200
+        gained, new_usd = secure_convert_tx(transaction, user_ref)
+        return jsonify({"success": True, "usd_gained": gained, "new_usd_balance": new_usd}), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
 
@@ -117,8 +118,9 @@ def wallet_withdraw():
         if current_usd < amount:
             raise Exception("رصيد الـ USD غير كافٍ للسحب")
             
+        new_usd = current_usd - amount
         transaction.update(user_ref, {
-            'usd_balance': current_usd - amount
+            'usd_balance': new_usd
         })
         
         withdraw_ref = db.collection('withdrawals').document()
@@ -129,10 +131,11 @@ def wallet_withdraw():
             'status': 'pending',
             'created_at': datetime.datetime.utcnow().isoformat()
         })
+        return new_usd
         
     try:
-        secure_withdraw_tx(transaction, user_ref)
-        return jsonify({"success": True}), 200
+        new_usd = secure_withdraw_tx(transaction, user_ref)
+        return jsonify({"success": True, "new_usd_balance": new_usd}), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
 
@@ -164,9 +167,10 @@ def wallet_deposit_report():
             
         user_data = snapshot.to_dict()
         current_usd = float(user_data.get('usd_balance', 0))
+        new_usd = current_usd + usd_amount
         
         transaction.update(user_ref, {
-            'usd_balance': current_usd + usd_amount
+            'usd_balance': new_usd
         })
         
         deposit_ref = db.collection('deposits').document()
@@ -178,9 +182,10 @@ def wallet_deposit_report():
             'status': 'completed',
             'created_at': datetime.datetime.utcnow().isoformat()
         })
+        return new_usd
         
     try:
-        secure_deposit_tx(transaction, user_ref)
-        return jsonify({"success": True}), 200
+        new_usd = secure_deposit_tx(transaction, user_ref)
+        return jsonify({"success": True, "new_usd_balance": new_usd}), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
