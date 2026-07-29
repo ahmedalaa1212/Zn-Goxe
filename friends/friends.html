@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>الأصدقاء - Zn Goxe</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="../style.css?v=13.2">
     <style>
         :root {
             --bg-color: #0f0f0f;
             --card-bg: #1a1a1a;
-            --primary: #00cc66;
-            --primary-glow: rgba(0, 204, 102, 0.3);
+            --primary: #f39c12;
+            --primary-glow: rgba(243, 156, 18, 0.3);
             --text-main: #ffffff;
             --text-muted: #888888;
             --btn-disabled: #333333;
@@ -114,7 +115,7 @@
         }
         
         .info-box {
-            background: rgba(0, 204, 102, 0.08);
+            background: rgba(243, 156, 18, 0.08);
             border-right: 4px solid var(--primary);
             padding: 12px 15px;
             border-radius: 8px;
@@ -126,7 +127,7 @@
         .info-box strong { color: var(--primary); }
 
         button {
-            background: linear-gradient(45deg, #00cc66, #00994d);
+            background: linear-gradient(45deg, #f39c12, #d35400);
             color: #ffffff;
             border: none;
             padding: 12px 18px;
@@ -210,50 +211,11 @@
         .task-info p { margin: 0; color: var(--primary); font-size: 0.9rem; font-weight: bold; }
         
         .progress-container { width: 100%; height: 8px; background: #111; border-radius: 10px; overflow: hidden; margin-bottom: 8px; }
-        .progress-bar { height: 100%; background: linear-gradient(90deg, #00cc66, #00994d); border-radius: 10px; transition: width 0.4s ease; }
+        .progress-bar { height: 100%; background: linear-gradient(90deg, #f39c12, #d35400); border-radius: 10px; transition: width 0.4s ease; }
         .task-footer { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); }
         .task-action button { padding: 8px 14px; font-size: 0.85rem; }
         .claimed-btn { background: #27ae60 !important; color: white !important; }
         .locked-btn { background: var(--btn-disabled) !important; color: #777 !important; }
-        
-        /* Bottom Navigation Bar */
-        .bottom-nav {
-            position: fixed;
-            bottom: 0; left: 0; right: 0;
-            background-color: rgba(26, 26, 26, 0.98);
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 5px;
-            border-top: 1px solid var(--border-color);
-            backdrop-filter: blur(10px);
-            z-index: 1000;
-        }
-        .bottom-nav a {
-            color: var(--text-muted);
-            text-decoration: none;
-            font-weight: bold;
-            font-size: 0.75rem;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 4px;
-            flex: 1;
-            transition: color 0.2s;
-        }
-        .bottom-nav a.active { color: var(--primary); }
-        .bottom-nav a i { font-size: 1.3rem; font-style: normal; }
-        .nav-farm-btn {
-            background: var(--primary);
-            color: #000 !important;
-            border-radius: 50%;
-            width: 48px;
-            height: 48px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin-top: -18px;
-            box-shadow: 0 0 12px var(--primary-glow);
-        }
     </style>
 </head>
 <body>
@@ -312,16 +274,16 @@
     </div>
 
     <nav class="bottom-nav">
-        <a href="../settings/settings.html"><i>⚙️</i>الإعدادات</a>
-        <a href="../shop/shop.html"><i>🏪</i>المتجر</a>
-        <a href="../games/games.html"><i>🎮</i>الألعاب</a>
-        <a href="../index.html">
-            <div class="nav-farm-btn"><i>⚒️</i></div>
-            <span style="margin-top: 4px;">المزرعة</span>
+        <a href="../settings/settings.html"><i>⚙️</i><span>الإعدادات</span></a>
+        <a href="../shop/shop.html"><i>🏪</i><span>المتجر</span></a>
+        <a href="../games/games.html"><i>🎮</i><span>الألعاب</span></a>
+        <a href="../index.html" class="nav-center-btn">
+            <i>⚒️</i>
+            <span>المزرعة</span>
         </a>
-        <a href="../tasks/tasks.html"><i>📋</i>المهام</a>
-        <a href="../wallet/wallet.html"><i>💳</i>المحفظة</a>
-        <a href="friends.html" class="active"><i>👥</i>الأصدقاء</a>
+        <a href="../tasks/tasks.html"><i>📋</i><span>المهام</span></a>
+        <a href="../wallet/wallet.html"><i>💳</i><span>المحفظة</span></a>
+        <a href="friends.html" class="active"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
     <script src="friends.js?v=13.1"></script>
