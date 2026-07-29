@@ -194,7 +194,7 @@
         }
         .friend-info { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
         .friend-name { font-weight: bold; font-size: 0.95rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .friend-id { font-size: 0.8rem; margin-top: 3px; }
+        .friend-id { font-size: 0.8rem; margin-top: 3px; color: var(--text-muted); }
         .friend-earn { color: var(--success); font-weight: bold; font-size: 0.95rem; flex-shrink: 0; }
         .empty-state { text-align: center; color: var(--text-muted); padding: 25px 0; font-size: 0.95rem; }
 
@@ -222,7 +222,7 @@
     <div class="container">
         <header>
             <h2>نظام الأصدقاء 🤝</h2>
-            <div id="top-balance-friends" class="balance-display user-balance zn-balance-display">ZN: 0</div>
+            <div id="top-balance-friends" class="balance-display user-balance zn-balance-display">ZN: 0.00</div>
         </header>
 
         <div class="stats-grid">
@@ -232,7 +232,7 @@
             </div>
             <div class="stat-box">
                 <span>أرباح معلقة للسحب</span>
-                <strong id="pending-ref-earnings">0</strong>
+                <strong id="pending-ref-earnings">0.00</strong>
             </div>
         </div>
 
