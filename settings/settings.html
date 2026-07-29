@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>الإعدادات والدعم - Zn Goxe</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="../style.css?v=13.2">
     <style>
         :root {
             --bg-color: #0f0f0f;
             --card-bg: #1c1c1c;
-            --primary: #00cc66;
-            --primary-glow: rgba(0, 204, 102, 0.3);
+            --primary: #f39c12;
+            --primary-glow: rgba(243, 156, 18, 0.3);
             --telegram-blue: #0088cc;
             --accent-red: #cc0000;
             --text-main: #ffffff;
@@ -128,43 +129,6 @@
         .msg-user { background: var(--primary); color: #000; align-self: flex-start; border-bottom-right-radius: 2px; font-weight: 600; }
         .msg-admin { background: #222; color: #fff; align-self: flex-end; border-bottom-left-radius: 2px; border: 1px solid #333; }
         .msg-system { background: transparent; color: #aaa; align-self: center; font-size: 12px; text-align: center; width: 100%; margin: 10px 0; }
-
-        /* Navigation Bar */
-        .bottom-nav {
-            position: fixed;
-            bottom: 0; left: 0; right: 0;
-            background-color: rgba(26, 26, 26, 0.98);
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 5px;
-            border-top: 1px solid var(--border-color);
-            z-index: 1000;
-        }
-        .bottom-nav a {
-            color: var(--text-muted);
-            text-decoration: none;
-            font-weight: bold;
-            font-size: 0.75rem;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 5px;
-            flex: 1;
-        }
-        .bottom-nav a.active { color: var(--primary); }
-        .bottom-nav a i { font-size: 1.4rem; font-style: normal; }
-        .nav-farm-btn {
-            background: #f39c12;
-            color: #000 !important;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin-top: -20px;
-            box-shadow: 0 0 10px rgba(243, 156, 18, 0.4);
-        }
     </style>
 </head>
 <body>
@@ -225,7 +189,6 @@
         </div>
     </div>
 
-    <!-- نافذة الدعم الفني -->
     <div id="support-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:#0f0f0f; z-index:10000; flex-direction:column; box-sizing: border-box;">
         
         <div style="background:#1c1c1c; padding:12px 15px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333;">
@@ -250,7 +213,6 @@
 
     </div>
 
-    <!-- نافذة سياسة الاستخدام -->
     <div id="settings-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); justify-content:center; align-items:center; z-index:9999; padding:20px; box-sizing: border-box;">
         <div style="background:#1c1c1c; padding:20px; border-radius:15px; width:100%; max-width:320px; border:1px solid #333; text-align:right; max-height:80vh; overflow-y:auto;">
             <h3 style="color:var(--primary); margin-top:0; text-align:center; font-size:18px;">شروط وسياسة الاستخدام</h3>
@@ -268,16 +230,16 @@
     </div>
 
     <nav class="bottom-nav">
-        <a href="settings.html" class="active"><i>⚙️</i>الإعدادات</a>
-        <a href="shop.html"><i>🏪</i>المتجر</a>
-        <a href="games.html"><i>🎮</i>الألعاب</a>
-        <a href="index.html">
-            <div class="nav-farm-btn"><i>⚒️</i></div>
-            <span style="margin-top: 5px;">المزرعة</span>
+        <a href="settings.html" class="active"><i>⚙️</i><span>الإعدادات</span></a>
+        <a href="../shop/shop.html"><i>🏪</i><span>المتجر</span></a>
+        <a href="../games/games.html"><i>🎮</i><span>الألعاب</span></a>
+        <a href="../index.html" class="nav-center-btn">
+            <i>⚒️</i>
+            <span>المزرعة</span>
         </a>
-        <a href="tasks.html"><i>📋</i>المهام</a>
-        <a href="wallet.html"><i>💳</i>المحفظة</a>
-        <a href="friends.html"><i>👥</i>الأصدقاء</a>
+        <a href="../tasks/tasks.html"><i>📋</i><span>المهام</span></a>
+        <a href="../wallet/wallet.html"><i>💳</i><span>المحفظة</span></a>
+        <a href="../friends/friends.html"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
     <script src="settings.js?v=13.0"></script>
