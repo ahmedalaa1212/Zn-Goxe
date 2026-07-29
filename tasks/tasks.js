@@ -205,7 +205,10 @@
                             }
                             let remaining = Math.max(1, 15 - Math.floor(currentTotalOutside));
                             
-                            if (document.visibilityState === 'visible') {
+                            if (remaining <= 1 && currentTotalOutside >= 15) {
+                                window.taskStates[task.id] = 'ready';
+                                actionHtml = `<button type="button" id="btn-task-${task.id}" onclick="verifyTask('${task.id}', ${task.reward})" style="background: #ffcc00; color: #000; border: none; padding: 8px 18px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">تحقق ✅</button>`;
+                            } else if (document.visibilityState === 'visible') {
                                 actionHtml = `<button type="button" id="btn-task-${task.id}" disabled style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); padding: 8px 14px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">عُد للمهمة.. ${remaining}ث⏳</button>`;
                             } else {
                                 actionHtml = `<button type="button" id="btn-task-${task.id}" disabled style="background: #222; color: #ffaa00; border: 1px solid #333; padding: 8px 14px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">جاري التنفيذ.. ${remaining}ث⏳</button>`;
@@ -242,69 +245,68 @@
             let myCreatedCampaigns = realTasks.filter(task => String(task.creator_id).trim() === myId);
             if (myCreatedCampaigns.length === 0) {
                 activeAdsContainer.innerHTML = `<div style="text-align: center; color: #64748b; font-size: 12px; padding: 30px; background: #11111e; border-radius: 16px;">ليس لديك أي حملات ترويجية قائمة حالياً.</div>`;
-                return;
+            } else {
+                let adsHtml = '';
+                myCreatedCampaigns.forEach(ad => {
+                    let comp = ad.users_completed || 0;
+                    let need = ad.users_needed || 1;
+                    let pct = Math.min(100, Math.floor((comp / need) * 100));
+                    let costPerClick = ad.reward || 0;
+                    let totalBudget = costPerClick * need;
+                    let consumedBudget = costPerClick * comp;
+                    let remainingBudget = totalBudget - consumedBudget;
+                    let config = platformConfig[ad.platform] || platformConfig['أخرى'];
+
+                    adsHtml += `
+                        <div style="background: #131324; border: 1px solid #24243a; border-radius: 16px; padding: 16px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <i class="${config.icon}" style="color: ${config.color}; font-size: 15px;"></i>
+                                    <span style="color: #fff; font-size: 13px; font-weight: 700;">حملة ممولة لـ ${ad.platform}</span>
+                                </div>
+                                <span style="background: rgba(56,189,248,0.1); color: #38bdf8; font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: 700;">
+                                    الإنجاز: ${comp} / ${need}
+                                </span>
+                            </div>
+                            
+                            <div style="background: #090911; border-radius: 12px; padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; border: 1px solid #1c1c2e;">
+                                <div style="text-align: right;">
+                                    <span style="color: #64748b; font-size: 11px; display: block;">تكلفة الضغطة:</span>
+                                    <span style="color: #fff; font-size: 12px; font-weight: 700;">${costPerClick.toLocaleString()} AdZN</span>
+                                </div>
+                                <div style="text-align: right;">
+                                    <span style="color: #64748b; font-size: 11px; display: block;">ميزانية الإعلان:</span>
+                                    <span style="color: #ffcc00; font-size: 12px; font-weight: 700;">${totalBudget.toLocaleString()} AdZN</span>
+                                </div>
+                                <div style="text-align: right; border-top: 1px solid #1a1a2e; padding-top: 5px;">
+                                    <span style="color: #64748b; font-size: 11px; display: block;">مستهلك حتى الآن:</span>
+                                    <span style="color: #ef4444; font-size: 12px; font-weight: 700;">${consumedBudget.toLocaleString()} AdZN</span>
+                                </div>
+                                <div style="text-align: right; border-top: 1px solid #1a1a2e; padding-top: 5px;">
+                                    <span style="color: #64748b; font-size: 11px; display: block;">المتبقي القابل للاسترداد:</span>
+                                    <span style="color: #28a745; font-size: 12px; font-weight: 700;">${remainingBudget.toLocaleString()} AdZN</span>
+                                </div>
+                            </div>
+
+                            <div style="background: rgba(255,255,255,0.02); border-right: 3px solid #38bdf8; padding: 6px 10px; font-size: 11px; color: #b4b9c8; margin-bottom: 12px; text-align: right; border-radius: 4px; font-weight: 500;">
+                                <strong>التوجيه الفعلي للزوار:</strong> ${ad.description}
+                            </div>
+
+                            <div style="margin-bottom: 14px;">
+                                <div style="display: flex; justify-content: space-between; font-size: 11px; color: #64748b; margin-bottom: 4px;">
+                                    <span>التقدم الإجمالي للنسبة</span>
+                                    <span style="color: #38bdf8; font-weight: 700;">${pct}%</span>
+                                </div>
+                                <div style="width: 100%; height: 6px; background: #0b0b12; border-radius: 10px; overflow: hidden; border: 1px solid #1f1f2e;">
+                                    <div style="width: ${pct}%; height: 100%; background: linear-gradient(90deg, #0088cc, #38bdf8); border-radius: 10px; transition: width 0.4s ease;"></div>
+                                </div>
+                            </div>
+                            <div style="color: #475569; font-size: 11px; margin-bottom: 12px; word-break: break-all; text-align: left; background: #090911; padding: 8px; border-radius: 8px; font-family: monospace;" dir="ltr">${ad.url}</div>
+                            <button type="button" id="btn-cancel-${ad.id}" onclick="cancelServerCampaign('${ad.id}')" style="width: 100%; background: rgba(239,68,68,0.05); border: 1px solid rgba(239,68,68,0.25); color: #ef4444; padding: 11px; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 12px; transition: 0.2s;">إلغاء الإعلان فوراً وسحب المتبقي لحسابك</button>
+                        </div>`;
+                });
+                activeAdsContainer.innerHTML = adsHtml;
             }
-
-            let adsHtml = '';
-            myCreatedCampaigns.forEach(ad => {
-                let comp = ad.users_completed || 0;
-                let need = ad.users_needed || 1;
-                let pct = Math.min(100, Math.floor((comp / need) * 100));
-                let costPerClick = ad.reward || 0;
-                let totalBudget = costPerClick * need;
-                let consumedBudget = costPerClick * comp;
-                let remainingBudget = totalBudget - consumedBudget;
-                let config = platformConfig[ad.platform] || platformConfig['أخرى'];
-
-                adsHtml += `
-                    <div style="background: #131324; border: 1px solid #24243a; border-radius: 16px; padding: 16px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <i class="${config.icon}" style="color: ${config.color}; font-size: 15px;"></i>
-                                <span style="color: #fff; font-size: 13px; font-weight: 700;">حملة ممولة لـ ${ad.platform}</span>
-                            </div>
-                            <span style="background: rgba(56,189,248,0.1); color: #38bdf8; font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: 700;">
-                                الإنجاز: ${comp} / ${need}
-                            </span>
-                        </div>
-                        
-                        <div style="background: #090911; border-radius: 12px; padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; border: 1px solid #1c1c2e;">
-                            <div style="text-align: right;">
-                                <span style="color: #64748b; font-size: 11px; display: block;">تكلفة الضغطة:</span>
-                                <span style="color: #fff; font-size: 12px; font-weight: 700;">${costPerClick.toLocaleString()} AdZN</span>
-                            </div>
-                            <div style="text-align: right;">
-                                <span style="color: #64748b; font-size: 11px; display: block;">ميزانية الإعلان:</span>
-                                <span style="color: #ffcc00; font-size: 12px; font-weight: 700;">${totalBudget.toLocaleString()} AdZN</span>
-                            </div>
-                            <div style="text-align: right; border-top: 1px solid #1a1a2e; padding-top: 5px;">
-                                <span style="color: #64748b; font-size: 11px; display: block;">مستهلك حتى الآن:</span>
-                                <span style="color: #ef4444; font-size: 12px; font-weight: 700;">${consumedBudget.toLocaleString()} AdZN</span>
-                            </div>
-                            <div style="text-align: right; border-top: 1px solid #1a1a2e; padding-top: 5px;">
-                                <span style="color: #64748b; font-size: 11px; display: block;">المتبقي القابل للاسترداد:</span>
-                                <span style="color: #28a745; font-size: 12px; font-weight: 700;">${remainingBudget.toLocaleString()} AdZN</span>
-                            </div>
-                        </div>
-
-                        <div style="background: rgba(255,255,255,0.02); border-right: 3px solid #38bdf8; padding: 6px 10px; font-size: 11px; color: #b4b9c8; margin-bottom: 12px; text-align: right; border-radius: 4px; font-weight: 500;">
-                            <strong>التوجيه الفعلي للزوار:</strong> ${ad.description}
-                        </div>
-
-                        <div style="margin-bottom: 14px;">
-                            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #64748b; margin-bottom: 4px;">
-                                <span>التقدم الإجمالي للنسبة</span>
-                                <span style="color: #38bdf8; font-weight: 700;">${pct}%</span>
-                            </div>
-                            <div style="width: 100%; height: 6px; background: #0b0b12; border-radius: 10px; overflow: hidden; border: 1px solid #1f1f2e;">
-                                <div style="width: ${pct}%; height: 100%; background: linear-gradient(90deg, #0088cc, #38bdf8); border-radius: 10px; transition: width 0.4s ease;"></div>
-                            </div>
-                        </div>
-                        <div style="color: #475569; font-size: 11px; margin-bottom: 12px; word-break: break-all; text-align: left; background: #090911; padding: 8px; border-radius: 8px; font-family: monospace;" dir="ltr">${ad.url}</div>
-                        <button type="button" id="btn-cancel-${ad.id}" onclick="cancelServerCampaign('${ad.id}')" style="width: 100%; background: rgba(239,68,68,0.05); border: 1px solid rgba(239,68,68,0.25); color: #ef4444; padding: 11px; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 12px; transition: 0.2s;">إلغاء الإعلان فوراً وسحب المتبقي لحسابك</button>
-                    </div>`;
-            });
-            activeAdsContainer.innerHTML = adsHtml;
         }
     };
 
@@ -429,7 +431,7 @@
             let result = await response.json();
             if (response.ok && result.success) {
                 alert(`✅ تم إلغاء حملتك بنجاح وإرجاع الميزانية المتبقية لمحفظتك!`);
-                if (window.PlayerData && result.refund) {
+                if (window.PlayerData && result.refund !== undefined) {
                     window.PlayerData.ad_balance = (window.PlayerData.ad_balance || 0) + result.refund;
                 }
                 window.fetchAndRenderTasks();
@@ -444,9 +446,10 @@
         if (!initData) return alert("⚠️ يجب فتح اللعبة من داخل التليجرام أولاً.");
 
         if (isConvertingBalance) return;
-        let amount = prompt("أدخل رصيد ZN المراد تحويله لرصيد الإعلانات:\n* سيتم تطبيق عمولة تداول 10%.");
-        if (!amount || isNaN(amount) || amount <= 0) return;
-        amount = parseFloat(amount);
+        let inputVal = prompt("أدخل رصيد ZN المراد تحويله لرصيد الإعلانات:\n* سيتم تطبيق عمولة تداول 10%.");
+        if (!inputVal) return;
+        let amount = parseFloat(inputVal.trim());
+        if (isNaN(amount) || amount <= 0) return;
 
         let currentBal = getStoredBalance();
         if (currentBal < amount) {
@@ -484,20 +487,26 @@
 
     window.openAdModal = function(type) {
         currentAdType = type;
-        document.getElementById('ad-modal-title').innerText = `إطلاق حملة ${type} حقيقية`;
-        document.getElementById('ad-link').value = '';
-        document.getElementById('ad-reward').value = '';
-        document.getElementById('ad-users').value = '';
+        const modalTitle = document.getElementById('ad-modal-title');
+        if (modalTitle) modalTitle.innerText = `إطلاق حملة ${type} حقيقية`;
+        
+        const linkEl = document.getElementById('ad-link');
+        const rewardEl = document.getElementById('ad-reward');
+        const usersEl = document.getElementById('ad-users');
+        if (linkEl) linkEl.value = '';
+        if (rewardEl) rewardEl.value = '';
+        if (usersEl) usersEl.value = '';
         
         const selectContainer = document.getElementById('ad-desc-select');
-        selectContainer.innerHTML = '';
-        
-        let optionsHtml = '';
-        let optionsList = preDefinedDescriptions[type] || ["برجاء اتباع الرابط لإكمال التفاعل الإعلاني."];
-        optionsList.forEach(descText => {
-            optionsHtml += `<option value="${descText}">${descText}</option>`;
-        });
-        selectContainer.innerHTML = optionsHtml;
+        if (selectContainer) {
+            selectContainer.innerHTML = '';
+            let optionsHtml = '';
+            let optionsList = preDefinedDescriptions[type] || ["برجاء اتباع الرابط لإكمال التفاعل الإعلاني."];
+            optionsList.forEach(descText => {
+                optionsHtml += `<option value="${descText}">${descText}</option>`;
+            });
+            selectContainer.innerHTML = optionsHtml;
+        }
 
         const submitBtn = document.getElementById('btn-submit-campaign-action');
         if (submitBtn) {
@@ -505,12 +514,14 @@
             submitBtn.disabled = false;
             submitBtn.style.opacity = "1";
         }
-        document.getElementById('ad-modal').style.display = 'flex';
+        const adModal = document.getElementById('ad-modal');
+        if (adModal) adModal.style.display = 'flex';
     };
 
     window.closeAdModal = function() {
         if (isSubmittingCampaign) return;
-        document.getElementById('ad-modal').style.display = 'none';
+        const adModal = document.getElementById('ad-modal');
+        if (adModal) adModal.style.display = 'none';
     };
 
     window.submitAdCampaign = async function() {
@@ -519,14 +530,19 @@
 
         if (isSubmittingCampaign) return;
 
-        let link = document.getElementById('ad-link').value.trim();
-        let desc = document.getElementById('ad-desc-select').value; 
-        let reward = parseFloat(document.getElementById('ad-reward').value);
-        let users = parseInt(document.getElementById('ad-users').value);
+        let link = document.getElementById('ad-link')?.value.trim() || '';
+        let desc = document.getElementById('ad-desc-select')?.value || ''; 
+        let reward = parseFloat(document.getElementById('ad-reward')?.value || '0');
+        let users = parseInt(document.getElementById('ad-users')?.value || '0', 10);
 
         if (!link || !desc || isNaN(reward) || reward <= 0 || isNaN(users) || users <= 0) {
             alert("⚠️ يرجى ملء كافة الخانات المالية وبينات الرابط بشكل سليم.");
             return;
+        }
+
+        // إدراج البروتوكول تلقائياً إذا نسيه المستخدم
+        if (!/^https?:\/\//i.test(link)) {
+            link = 'https://' + link;
         }
 
         let linkLower = link.toLowerCase();
@@ -564,13 +580,18 @@
             return;
         }
 
-        document.getElementById('review-modal').style.display = 'flex';
+        isSubmittingCampaign = true;
+        
+        // إغلاق مودال الإدخال وإظهار مودال الفحص
+        const adModal = document.getElementById('ad-modal');
+        if (adModal) adModal.style.display = 'none';
+
+        const reviewModal = document.getElementById('review-modal');
+        if (reviewModal) reviewModal.style.display = 'flex';
+        
         let remainingSeconds = 10;
         const countdownTimerDisplay = document.getElementById('review-countdown-timer');
         if (countdownTimerDisplay) countdownTimerDisplay.innerText = remainingSeconds;
-        
-        isSubmittingCampaign = true;
-        closeAdModal(); 
 
         let reviewInterval = setInterval(async () => {
             remainingSeconds--;
@@ -594,20 +615,21 @@
                     });
                     let result = await response.json();
                     
-                    document.getElementById('review-modal').style.display = 'none'; 
+                    if (reviewModal) reviewModal.style.display = 'none'; 
 
                     if (response.ok && result.success) {
                         if (window.PlayerData) {
                             if (result.new_ad_balance !== undefined) window.PlayerData.ad_balance = result.new_ad_balance;
                             else window.PlayerData.ad_balance -= totalCost;
                         }
-                        document.getElementById('success-modal').style.display = 'flex';
+                        const successModal = document.getElementById('success-modal');
+                        if (successModal) successModal.style.display = 'flex';
                     } else {
                         isSubmittingCampaign = false;
                         alert("⚠️ رفض السيرفر إنشاء الحملة: " + (result.error || "تأكد من سلامة الحساب"));
                     }
                 } catch (e) {
-                    document.getElementById('review-modal').style.display = 'none';
+                    if (reviewModal) reviewModal.style.display = 'none';
                     isSubmittingCampaign = false;
                     alert("حدث خطأ أثناء رفع الحملة للسيرفر الرئيسي.");
                 }
@@ -616,9 +638,13 @@
     };
 
     window.handleSuccessRedirect = function() {
-        document.getElementById('success-modal').style.display = 'none';
-        document.getElementById('review-modal').style.display = 'none';
-        document.getElementById('ad-modal').style.display = 'none';
+        const successModal = document.getElementById('success-modal');
+        const reviewModal = document.getElementById('review-modal');
+        const adModal = document.getElementById('ad-modal');
+        
+        if (successModal) successModal.style.display = 'none';
+        if (reviewModal) reviewModal.style.display = 'none';
+        if (adModal) adModal.style.display = 'none';
         
         isSubmittingCampaign = false;
 
