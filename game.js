@@ -11,7 +11,8 @@ const initialData = {
     username: localStorage.getItem('zn_username') || "",
     balance: cachedBalance,
     ad_balance: cachedAdBalance,
-    energy: cachedEnergy
+    energy: cachedEnergy,
+    usd_balance: 0.00000 // ضفنا سطر صغير للـ USD عشان الجافاسكربت يراقبه
 };
 
 window.GameState = new Proxy(initialData, {
@@ -26,6 +27,9 @@ window.GameState = new Proxy(initialData, {
         } else if (key === 'energy') {
             localStorage.setItem('zn_energy', target[key]);
             window.updateGlobalUI();
+        } else if (key === 'usd_balance') {
+            // تحديث واجهة المحفظة لما الـ USD يتغير
+            if (window.updateHeaderBalances) window.updateHeaderBalances();
         }
         return true;
     }
@@ -128,6 +132,7 @@ window.initGameData = async function() {
             if (res.data.balance !== undefined) window.GameState.balance = res.data.balance;
             if (res.data.ad_balance !== undefined) window.GameState.ad_balance = res.data.ad_balance;
             if (res.data.energy !== undefined) window.GameState.energy = res.data.energy;
+            if (res.data.usd_balance !== undefined) window.GameState.usd_balance = res.data.usd_balance;
         }
     } catch (err) {
         console.warn("تنبيه: تعذر المزامنة مع السيرفر، تم الاعتماد على الرصيد المحلي.", err);
