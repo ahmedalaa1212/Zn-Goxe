@@ -19,6 +19,25 @@
     <link rel="stylesheet" href="style.css">
 
     <style>
+        /* إجبار إخفاء القوائم غير النشطة تماماً لمنع ظهور أي أزرار أو أشرطة متداخلة */
+        .game-view {
+            display: none !important;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .game-view.active {
+            display: block !important;
+        }
+
+        /* تثبيت شريط التنقل السفلي ورصيف الأولوية لمنع تداخله */
+        .bottom-nav {
+            position: fixed !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            z-index: 999999 !important;
+        }
+
         /* ستايل الرسالة العائمة للمرتجعات */
         #global-toast {
             position: fixed;
@@ -203,13 +222,26 @@
         }
 
         function switchView(viewName) {
-            document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
+            // إخفاء جميع العروض بشكل صريح وصارم
+            document.querySelectorAll('.game-view').forEach(v => {
+                v.classList.remove('active');
+                v.style.setProperty('display', 'none', 'important');
+            });
+
+            // إظهار الصفحة المستهدفة فقط
             let targetView = document.getElementById(`view-${viewName}`);
-            if (targetView) targetView.classList.add('active');
+            if (targetView) {
+                targetView.classList.add('active');
+                targetView.style.setProperty('display', 'block', 'important');
+            }
             
+            // تحديث حالة الأزرار في القائمة السفلية
             document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
             let targetNav = document.getElementById(`nav-${viewName}`);
             if (targetNav) targetNav.classList.add('active');
+
+            // إرجاع التمرير لأعلى الصفحة عند التبديل
+            window.scrollTo(0, 0);
 
             if (typeof window.triggerAllUIUpdates === 'function') {
                 window.triggerAllUIUpdates();
