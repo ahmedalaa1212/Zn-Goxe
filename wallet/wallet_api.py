@@ -17,6 +17,9 @@ def get_history():
     is_auth, user_id, err = get_authenticated_user(request)
     if not is_auth: 
         return err
+
+    if is_user_banned(user_id):
+        return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 403
     
     try:
         withdrawals_query = db.collection('withdrawals').where('user_id', '==', str(user_id)).limit(20).get()
@@ -39,12 +42,15 @@ def get_history():
         print(f"[Wallet API] Error fetching history: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب السجلات"}), 500
 
-# 2. تحويل نقاط ZN إلى USD (Firestore Transaction)
+# 2. تحويل نقاط ZN إلى USD (Firestore Transaction محصنة)
 @wallet_bp.route('/wallet_convert', methods=['POST'])
 def wallet_convert():
     is_auth, user_id, err = get_authenticated_user(request, is_post=True)
     if not is_auth: 
         return err
+
+    if is_user_banned(user_id):
+        return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 403
     
     req = request.get_json(silent=True) or {}
     try:
@@ -90,6 +96,9 @@ def wallet_withdraw():
     is_auth, user_id, err = get_authenticated_user(request, is_post=True)
     if not is_auth: 
         return err
+
+    if is_user_banned(user_id):
+        return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 403
     
     req = request.get_json(silent=True) or {}
     try:
@@ -129,7 +138,7 @@ def wallet_withdraw():
             'amount_usd': amount,
             'wallet_address': wallet_address,
             'status': 'pending',
-            'created_at': datetime.datetime.utcnow().isoformat()
+            'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
         })
         return new_usd
         
@@ -145,6 +154,9 @@ def wallet_deposit_report():
     is_auth, user_id, err = get_authenticated_user(request, is_post=True)
     if not is_auth: 
         return err
+
+    if is_user_banned(user_id):
+        return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 403
     
     req = request.get_json(silent=True) or {}
     try:
@@ -180,7 +192,7 @@ def wallet_deposit_report():
             'amount_ton': ton_amount,
             'boc': boc,
             'status': 'completed',
-            'created_at': datetime.datetime.utcnow().isoformat()
+            'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
         })
         return new_usd
         
