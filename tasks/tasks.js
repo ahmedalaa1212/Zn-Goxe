@@ -16,11 +16,11 @@
 
     // --- أدوات المزامنة اللحظية للرصيد ---
     function getStoredBalance() {
-        if (window.PlayerData && window.PlayerData.balance !== undefined) {
-            return parseFloat(window.PlayerData.balance);
-        }
         if (window.GameState && window.GameState.balance !== undefined) {
             return parseFloat(window.GameState.balance);
+        }
+        if (window.PlayerData && window.PlayerData.balance !== undefined) {
+            return parseFloat(window.PlayerData.balance);
         }
         const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
         return bal !== null ? parseFloat(bal) : 0;
@@ -31,6 +31,9 @@
         const topBalEl = document.getElementById('top-balance-tasks');
         if (topBalEl) {
             topBalEl.innerText = `ZN ${Math.floor(stored).toLocaleString()}`;
+        }
+        if (typeof window.updateGlobalUI === 'function') {
+            window.updateGlobalUI();
         }
     }
 
@@ -140,8 +143,8 @@
                         }
                     }
                     if (data.balance !== undefined) {
-                        window.PlayerData.balance = data.balance;
-                        if (window.GameState) window.GameState.balance = data.balance;
+                        window.PlayerData.balance = Number(data.balance);
+                        if (window.GameState) window.GameState.balance = Number(data.balance);
                         localStorage.setItem('zn_balance', data.balance);
                         syncTopBalance();
                     }
@@ -390,8 +393,9 @@
             let result = await response.json();
             
             if (response.ok && result.success) {
-                if (window.PlayerData) window.PlayerData.balance = (window.PlayerData.balance || 0) + reward;
-                if (window.GameState) window.GameState.balance = (window.GameState.balance || 0) + reward;
+                // تحديث القيم كأرقام لمنع التصاق النصوص (String Concatenation)
+                if (window.PlayerData) window.PlayerData.balance = (Number(window.PlayerData.balance) || 0) + Number(reward);
+                if (window.GameState) window.GameState.balance = (Number(window.GameState.balance) || 0) + Number(reward);
                 
                 delete window.taskStates[taskId];
                 delete window.accumulatedOutsideTime[taskId];
@@ -432,7 +436,7 @@
             if (response.ok && result.success) {
                 alert(`✅ تم إلغاء حملتك بنجاح وإرجاع الميزانية المتبقية لمحفظتك!`);
                 if (window.PlayerData && result.refund !== undefined) {
-                    window.PlayerData.ad_balance = (window.PlayerData.ad_balance || 0) + result.refund;
+                    window.PlayerData.ad_balance = Number(window.PlayerData.ad_balance || 0) + Number(result.refund);
                 }
                 window.fetchAndRenderTasks();
                 window.updateTasksUI();
@@ -467,17 +471,21 @@
             let result = await response.json();
             if (response.ok && result.success) {
                 alert(`✅ شحن ناجح! تمت عملية التحويل لمحفظتك بنجاح.`);
+                
+                // التحديث كأرقام لتجنب الأخطاء
                 if (window.PlayerData) {
-                    if (result.new_balance !== undefined) window.PlayerData.balance = result.new_balance;
-                    else window.PlayerData.balance -= amount;
+                    if (result.new_balance !== undefined) window.PlayerData.balance = Number(result.new_balance);
+                    else window.PlayerData.balance = Number(window.PlayerData.balance) - amount;
 
-                    if (result.new_ad_balance !== undefined) window.PlayerData.ad_balance = result.new_ad_balance;
-                    else window.PlayerData.ad_balance = (window.PlayerData.ad_balance || 0) + result.received;
+                    if (result.new_ad_balance !== undefined) window.PlayerData.ad_balance = Number(result.new_ad_balance);
+                    else window.PlayerData.ad_balance = Number(window.PlayerData.ad_balance || 0) + Number(result.received);
                 }
+                
                 if (window.GameState) {
-                    if (result.new_balance !== undefined) window.GameState.balance = result.new_balance;
-                    else window.GameState.balance -= amount;
+                    if (result.new_balance !== undefined) window.GameState.balance = Number(result.new_balance);
+                    else window.GameState.balance = Number(window.GameState.balance) - amount;
                 }
+                
                 window.updateTasksUI();
                 if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
             } else { alert("⚠️ فشل: " + result.error); }
@@ -619,8 +627,8 @@
 
                     if (response.ok && result.success) {
                         if (window.PlayerData) {
-                            if (result.new_ad_balance !== undefined) window.PlayerData.ad_balance = result.new_ad_balance;
-                            else window.PlayerData.ad_balance -= totalCost;
+                            if (result.new_ad_balance !== undefined) window.PlayerData.ad_balance = Number(result.new_ad_balance);
+                            else window.PlayerData.ad_balance = Number(window.PlayerData.ad_balance) - totalCost;
                         }
                         const successModal = document.getElementById('success-modal');
                         if (successModal) successModal.style.display = 'flex';
