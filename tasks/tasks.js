@@ -14,51 +14,12 @@
     let isCancelingCampaign = false;
     let currentAdType = 'يوتيوب';
 
-    // --- أدوات المزامنة اللحظية للرصيد ---
-    function getStoredBalance() {
-        if (window.GameState && window.GameState.balance !== undefined) {
-            return parseFloat(window.GameState.balance);
-        }
-        if (window.PlayerData && window.PlayerData.balance !== undefined) {
-            return parseFloat(window.PlayerData.balance);
-        }
-        const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
-        return bal !== null ? parseFloat(bal) : 0;
-    }
-
-    function syncTopBalance() {
-        const stored = getStoredBalance();
-        const topBalEl = document.getElementById('top-balance-tasks');
-        if (topBalEl) {
-            topBalEl.innerText = `ZN ${Math.floor(stored).toLocaleString()}`;
-        }
-        if (typeof window.updateGlobalUI === 'function') {
-            window.updateGlobalUI();
-        }
-    }
-
     const preDefinedDescriptions = {
-        'يوتيوب': [
-            "اشترك بالقناة وفعّل جرس التنبيهات 🔔",
-            "ضع لايك حقيقي للفيديو المرفق 👍",
-            "اكتب تعليق إيجابي يخص محتوى الفيديو 💬"
-        ],
-        'تيليجرام': [
-            "انضم إلى القناة وقم بزيارة آخر 3 منشورات 📢",
-            "انضم إلى الجروب وشارك في النقاشات بأدب 👥"
-        ],
-        'موقع': [
-            "قم بتصفح الموقع والبقاء داخله لمدة دقيقة كاملة 🌐",
-            "تصفح المقالات وتفاعل مع الإعلانات داخل الموقع 📄"
-        ],
-        'انستغرام': [
-            "تابع الحساب الرسمي وتفاعل باللايكات 📸",
-            "ضع لايك على المنشور الأخير واكتب تعليق ❤️"
-        ],
-        'X': [
-            "تابع الحساب الرسمي وقم بعمل ريتويت للتغريدة المثبتة 🔁",
-            "ضع إعجاب على التغريدة الأخيرة المنشورة 🤍"
-        ]
+        'يوتيوب': ["اشترك بالقناة وفعّل جرس التنبيهات 🔔", "ضع لايك حقيقي للفيديو المرفق 👍", "اكتب تعليق إيجابي يخص محتوى الفيديو 💬"],
+        'تيليجرام': ["انضم إلى القناة وقم بزيارة آخر 3 منشورات 📢", "انضم إلى الجروب وشارك في النقاشات بأدب 👥"],
+        'موقع': ["قم بتصفح الموقع والبقاء داخله لمدة دقيقة كاملة 🌐", "تصفح المقالات وتفاعل مع الإعلانات داخل الموقع 📄"],
+        'انستغرام': ["تابع الحساب الرسمي وتفاعل باللايكات 📸", "ضع لايك على المنشور الأخير واكتب تعليق ❤️"],
+        'X': ["تابع الحساب الرسمي وقم بعمل ريتويت للتغريدة المثبتة 🔁", "ضع إعجاب على التغريدة الأخيرة المنشورة 🤍"]
     };
 
     const platformConfig = {
@@ -71,7 +32,7 @@
     };
 
     function getTgId() {
-        return window.myRealTgId || window.PlayerData?.tg_id || window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || "5102387551";
+        return window.GameState?.userId || window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || "5102387551";
     }
 
     window.switchTasksTab = function(tab) {
@@ -98,13 +59,7 @@
     };
 
     window.updateTasksUI = function() {
-        syncTopBalance();
-        const pData = window.PlayerData || {};
-
-        const adBalDisplay = document.getElementById('ad-balance-display');
-        if (adBalDisplay && pData.ad_balance !== undefined) {
-            adBalDisplay.innerText = `AdZN ${Math.floor(pData.ad_balance || 0).toLocaleString()}`;
-        }
+        if(typeof window.updateGlobalUI === 'function') window.updateGlobalUI();
         window.fetchAndRenderTasks();
     };
 
@@ -130,23 +85,14 @@
                     realTasks = data.campaigns || []; 
                     
                     if (data.user_id) {
-                        window.myRealTgId = String(data.user_id).trim();
-                        myId = window.myRealTgId;
+                        myId = String(data.user_id).trim();
+                        if(window.GameState) window.GameState.userId = myId;
                     }
 
-                    window.PlayerData = window.PlayerData || {};
-                    if (data.ad_balance !== undefined) {
-                        window.PlayerData.ad_balance = data.ad_balance;
-                        const adBalDisplay = document.getElementById('ad-balance-display');
-                        if (adBalDisplay) {
-                            adBalDisplay.innerText = `AdZN ${Math.floor(data.ad_balance).toLocaleString()}`;
-                        }
-                    }
-                    if (data.balance !== undefined) {
-                        window.PlayerData.balance = Number(data.balance);
-                        if (window.GameState) window.GameState.balance = Number(data.balance);
-                        localStorage.setItem('zn_balance', data.balance);
-                        syncTopBalance();
+                    // التحديث اللحظي عبر GameState Proxy
+                    if (window.GameState) {
+                        if (data.ad_balance !== undefined) window.GameState.ad_balance = data.ad_balance;
+                        if (data.balance !== undefined) window.GameState.balance = data.balance;
                     }
                 }
             }
@@ -368,7 +314,7 @@
                 }
             }
             if (document.visibilityState === "visible") {
-                syncTopBalance();
+                if(typeof window.updateGlobalUI === 'function') window.updateGlobalUI();
             }
         });
         window.visibilityListenerAdded = true;
@@ -393,15 +339,13 @@
             let result = await response.json();
             
             if (response.ok && result.success) {
-                // تحديث القيم كأرقام لمنع التصاق النصوص (String Concatenation)
-                if (window.PlayerData) window.PlayerData.balance = (Number(window.PlayerData.balance) || 0) + Number(reward);
-                if (window.GameState) window.GameState.balance = (Number(window.GameState.balance) || 0) + Number(reward);
+                // الاعتماد على GameState فقط (سيتحدث الـ UI وتُحفظ تلقائياً)
+                if (window.GameState) window.GameState.balance += Number(reward);
                 
                 delete window.taskStates[taskId];
                 delete window.accumulatedOutsideTime[taskId];
                 delete window.lastGoOutside[taskId];
                 
-                syncTopBalance();
                 alert(`🎉 مبارك! تم تأكيد التفاعل وإضافة رصيد بقيمة ${reward.toLocaleString()} ZN`);
             } else {
                 alert("⚠️ فشل التحقق: " + (result.error || "تأكد من إتمام التفاعل الفعلي أولاً"));
@@ -412,7 +356,6 @@
             window.taskStates[taskId] = 'ready';
         }
         await window.fetchAndRenderTasks();
-        if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
     };
 
     window.cancelServerCampaign = async function(campId) {
@@ -435,11 +378,10 @@
             let result = await response.json();
             if (response.ok && result.success) {
                 alert(`✅ تم إلغاء حملتك بنجاح وإرجاع الميزانية المتبقية لمحفظتك!`);
-                if (window.PlayerData && result.refund !== undefined) {
-                    window.PlayerData.ad_balance = Number(window.PlayerData.ad_balance || 0) + Number(result.refund);
+                if (window.GameState && result.refund !== undefined) {
+                    window.GameState.ad_balance += Number(result.refund);
                 }
                 window.fetchAndRenderTasks();
-                window.updateTasksUI();
             } else { alert("⚠️ خطأ بالإلغاء: " + result.error); }
         } catch (e) { alert("حدث خطأ."); }
         finally { isCancelingCampaign = false; }
@@ -455,7 +397,7 @@
         let amount = parseFloat(inputVal.trim());
         if (isNaN(amount) || amount <= 0) return;
 
-        let currentBal = getStoredBalance();
+        let currentBal = window.GameState ? window.GameState.balance : 0;
         if (currentBal < amount) {
             alert("⚠️ رصيد ZN الحالي غير كافٍ للعملية!");
             return;
@@ -472,22 +414,13 @@
             if (response.ok && result.success) {
                 alert(`✅ شحن ناجح! تمت عملية التحويل لمحفظتك بنجاح.`);
                 
-                // التحديث كأرقام لتجنب الأخطاء
-                if (window.PlayerData) {
-                    if (result.new_balance !== undefined) window.PlayerData.balance = Number(result.new_balance);
-                    else window.PlayerData.balance = Number(window.PlayerData.balance) - amount;
-
-                    if (result.new_ad_balance !== undefined) window.PlayerData.ad_balance = Number(result.new_ad_balance);
-                    else window.PlayerData.ad_balance = Number(window.PlayerData.ad_balance || 0) + Number(result.received);
-                }
-                
+                // تحديث القيم بدقة عبر السيرفر
                 if (window.GameState) {
                     if (result.new_balance !== undefined) window.GameState.balance = Number(result.new_balance);
-                    else window.GameState.balance = Number(window.GameState.balance) - amount;
+                    if (result.new_ad_balance !== undefined) window.GameState.ad_balance = Number(result.new_ad_balance);
                 }
                 
                 window.updateTasksUI();
-                if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
             } else { alert("⚠️ فشل: " + result.error); }
         } catch (e) { alert("خطأ شبكة."); }
         finally { isConvertingBalance = false; }
@@ -548,7 +481,6 @@
             return;
         }
 
-        // إدراج البروتوكول تلقائياً إذا نسيه المستخدم
         if (!/^https?:\/\//i.test(link)) {
             link = 'https://' + link;
         }
@@ -581,7 +513,7 @@
         }
 
         let totalCost = reward * users;
-        let currentAdBalance = parseFloat(window.PlayerData?.ad_balance || 0);
+        let currentAdBalance = window.GameState ? window.GameState.ad_balance : 0;
 
         if (currentAdBalance < totalCost) {
             alert(`⚠️ رصيدك الإعلاني غير كافٍ! التكلفة المطلوبة: ${totalCost} AdZN`);
@@ -590,7 +522,6 @@
 
         isSubmittingCampaign = true;
         
-        // إغلاق مودال الإدخال وإظهار مودال الفحص
         const adModal = document.getElementById('ad-modal');
         if (adModal) adModal.style.display = 'none';
 
@@ -626,9 +557,9 @@
                     if (reviewModal) reviewModal.style.display = 'none'; 
 
                     if (response.ok && result.success) {
-                        if (window.PlayerData) {
-                            if (result.new_ad_balance !== undefined) window.PlayerData.ad_balance = Number(result.new_ad_balance);
-                            else window.PlayerData.ad_balance = Number(window.PlayerData.ad_balance) - totalCost;
+                        if (window.GameState) {
+                            if (result.new_ad_balance !== undefined) window.GameState.ad_balance = Number(result.new_ad_balance);
+                            else window.GameState.ad_balance -= totalCost;
                         }
                         const successModal = document.getElementById('success-modal');
                         if (successModal) successModal.style.display = 'flex';
@@ -667,7 +598,6 @@
         }, 300);
     };
 
-    // مزامنة مبدئية عند التحميل
     window.addEventListener('pageshow', () => {
         window.updateTasksUI();
     });
