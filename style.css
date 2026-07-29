@@ -49,7 +49,7 @@ body {
 }
 
 /* =========================================
-   شريط التنقل السفلي الموحد والوحيد
+   شريط التنقل السفلي الموحد
    ========================================= */
 .bottom-nav {
     position: fixed !important;
@@ -64,7 +64,7 @@ body {
     align-items: center !important;
     border-top: 1px solid #2a2a2a !important;
     padding: 0 2px !important;
-    z-index: 99999 !important; /* لضمان ثباته في المقدمة */
+    z-index: 99999 !important;
     box-sizing: border-box !important;
 }
 
@@ -98,29 +98,31 @@ body {
     transition: color 0.2s !important;
 }
 
-/* لون الأزرار عند التفعيل */
+/* لون الأزرار العادية عند التفعيل (اللون الذهبي الأصلي) */
 .nav-item.active, .bottom-nav a.active {
-    color: #00cc66 !important;
+    color: #f39c12 !important;
 }
 
 .nav-item.active i, .bottom-nav a.active i {
-    color: #00cc66 !important;
+    color: #f39c12 !important;
     transform: scale(1.1) !important;
 }
 
 .nav-item.active span, .bottom-nav a.active span {
-    color: #00cc66 !important;
+    color: #f39c12 !important;
     font-weight: bold !important;
 }
 
-/* زر المزرعة المركزي */
+/* =========================================
+   زر المزرعة المركزي (باللون الذهبي الأصلي)
+   ========================================= */
 .nav-center-btn, .nav-farm-btn {
     position: relative !important;
     top: -8px !important;
     background-color: #252525 !important;
     color: #888888 !important;
-    width: 46px !important;
-    height: 46px !important;
+    width: 48px !important;
+    height: 48px !important;
     border-radius: 50% !important;
     border: 3px solid #1a1a1a !important;
     flex: none !important;
@@ -133,8 +135,20 @@ body {
     margin: 0 2px !important;
 }
 
+.nav-center-btn i, .nav-farm-btn i {
+    font-size: 18px !important;
+    color: #888888 !important;
+    margin-bottom: 0 !important;
+    transition: all 0.3s ease !important;
+}
+
+/* عند تفعيل زر المزرعة */
 .nav-center-btn.active, .nav-farm-btn.active {
-    background-color: #00cc66 !important;
+    background-color: #f39c12 !important;
     border-color: #121212 !important;
-    box-shadow: 0 0 12px rgba(0, 204, 102, 0.5) !important;
+    box-shadow: 0 0 12px rgba(243, 156, 18, 0.5) !important;
+}
+
+.nav-center-btn.active i, .nav-farm-btn.active i {
+    color: #121212 !important;
 }
