@@ -23,6 +23,7 @@
         * {
             box-sizing: border-box;
             outline: none;
+            -webkit-tap-highlight-color: transparent;
         }
 
         body {
@@ -86,11 +87,26 @@
             scrollbar-width: none;
         }
 
+        .usdt-container::-webkit-scrollbar {
+            display: none;
+        }
+
         .usdt-card {
             min-width: 130px;
             flex: 1;
             border-radius: 12px;
             padding: 15px;
+            text-align: center;
+        }
+
+        .upgrade-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
             text-align: center;
         }
     </style>
