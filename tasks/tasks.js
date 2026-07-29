@@ -108,7 +108,6 @@
     window.fetchAndRenderTasks = async function() {
         const container = document.getElementById('tasks-list-container');
         const activeAdsContainer = document.getElementById('active-ads-container');
-        let completedTasks = JSON.parse(localStorage.getItem('zn_completed_tasks') || '[]');
         let myId = String(getTgId()).trim();
         
         const initData = window.Telegram?.WebApp?.initData;
@@ -127,13 +126,11 @@
                 if (data.success) { 
                     realTasks = data.campaigns || []; 
                     
-                    // حفظ معرّف الحساب الموثق القادم من السيرفر
                     if (data.user_id) {
                         window.myRealTgId = String(data.user_id).trim();
                         myId = window.myRealTgId;
                     }
 
-                    // تحديث الرصيد ورصيد الإعلانات فوراً بالقيم القادمة من فايربيس
                     window.PlayerData = window.PlayerData || {};
                     if (data.ad_balance !== undefined) {
                         window.PlayerData.ad_balance = data.ad_balance;
@@ -162,7 +159,7 @@
                     platform: task.platform || 'أخرى',
                     reward: task.reward,
                     link: task.url,
-                    is_completed: task.is_completed,
+                    is_completed: !!task.is_completed,
                     creator_id: String(task.creator_id).trim()
                 });
             });
@@ -189,13 +186,14 @@
 
                 tasksArray.forEach(task => {
                     const isMyAd = (task.creator_id === myId);
-                    const isCompleted = task.is_completed || completedTasks.includes(task.id);
+                    const isCompleted = task.is_completed;
                     let actionHtml = '';
 
                     if (isMyAd) {
                         actionHtml = `<button type="button" disabled style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.25); padding: 8px 14px; border-radius: 8px; font-size: 11px; font-weight: bold; cursor: not-allowed;">إعلانك الخاص 📢</button>`;
                     } else if (isCompleted) {
-                        actionHtml = `<button type="button" disabled style="background: rgba(40, 167, 69, 0.12); color: #28a745; border: 1px solid rgba(40, 167, 69, 0.25); padding: 8px 14px; border-radius: 8px; font-size: 11px; font-weight: bold; cursor: not-allowed;">مكتمل ✔️</button>`;
+                        let textCompleted = task.platform === 'موقع' ? "مكتمل اليوم ✔️" : "مكتمل ✔️";
+                        actionHtml = `<button type="button" disabled style="background: rgba(40, 167, 69, 0.12); color: #28a745; border: 1px solid rgba(40, 167, 69, 0.25); padding: 8px 14px; border-radius: 8px; font-size: 11px; font-weight: bold; cursor: not-allowed;">${textCompleted}</button>`;
                     } else {
                         let state = window.taskStates[task.id] || 'idle';
                         if (state === 'idle') {
@@ -390,10 +388,6 @@
             let result = await response.json();
             
             if (response.ok && result.success) {
-                let completedTasks = JSON.parse(localStorage.getItem('zn_completed_tasks') || '[]');
-                completedTasks.push(taskId);
-                localStorage.setItem('zn_completed_tasks', JSON.stringify(completedTasks));
-                
                 if (window.PlayerData) window.PlayerData.balance = (window.PlayerData.balance || 0) + reward;
                 if (window.GameState) window.GameState.balance = (window.GameState.balance || 0) + reward;
                 
@@ -411,7 +405,7 @@
             alert("خطأ في الاتصال بالسيرفر الرئيسي.");
             window.taskStates[taskId] = 'ready';
         }
-        window.fetchAndRenderTasks();
+        await window.fetchAndRenderTasks();
         if (typeof window.triggerAllUIUpdates === 'function') window.triggerAllUIUpdates();
     };
 
