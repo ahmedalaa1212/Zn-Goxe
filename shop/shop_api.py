@@ -1,3 +1,4 @@
+# shop/shop_api.py
 import time
 from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
@@ -7,7 +8,7 @@ import traceback
 
 shop_bp = Blueprint('shop', __name__)
 
-# إعدادات ترقيات السرعة (تم تعديل المستوى الأول ليسمح بـ 15 ترقية كحد أقصى)
+# إعدادات ترقيات السرعة (مطابقة تماماً للفرونت إند)
 MINING_CONFIG = {
     1: {'price': 310, 'rate': 2, 'max': 15},
     2: {'price': 820, 'rate': 5, 'max': 10},
@@ -20,7 +21,7 @@ MINING_CONFIG = {
     9: {'price': 32150, 'rate': 110, 'max': 10}
 }
 
-# إعدادات المخازن (تم توحيد السعات لتتناسب مع اقتصاد المزرعة)
+# إعدادات المخازن (مطابقة تماماً للفرونت إند)
 STORAGE_CONFIG = {
     1: {'price': 1000, 'capacity': 100},
     2: {'price': 2000, 'capacity': 300},
@@ -49,14 +50,14 @@ def buy_upgrade():
         if not upgrade_type or level_num is None:
             return jsonify({"success": False, "error": "بيانات الطلب غير مكتملة."}), 400
 
-        # 2. المصادقة الصحيحة (الاستدعاء السليم لدالة الحماية)
+        # 2. المصادقة والتحقق من التوكن
         is_auth, user_id, error_response = get_authenticated_user(request, is_post=True)
         
         if not is_auth:
             return error_response
 
         # 3. جلب بيانات المستخدم من Firestore
-        user_ref = db.collection('users').document(user_id)
+        user_ref = db.collection('users').document(str(user_id))
         user_doc = user_ref.get()
 
         if not user_doc.exists:
@@ -81,18 +82,18 @@ def buy_upgrade():
         pending_mined = 0.0
         if last_claim_str:
             try:
-                last_claim_dt = datetime.fromisoformat(last_claim_str)
+                last_claim_dt = datetime.fromisoformat(last_claim_str.replace('Z', '+00:00'))
                 last_claim_ts = last_claim_dt.timestamp()
                 time_elapsed = max(0.0, now_ts - last_claim_ts)
                 pending_mined = min(time_elapsed * (hourly_rate / 3600.0), max_cap)
-            except ValueError:
-                pass 
+            except Exception:
+                pending_mined = 0.0
 
-        # الرصيد الفعلي الذي يمكن الشراء به
+        # الرصيد الفعلي الإجمالي المتاح للشراء
         total_balance = current_balance + pending_mined
         level_num = int(level_num)
         
-        # وقت الشراء يعتبر بمثابة وقت "تجميع" جديد
+        # وقت الشراء يصبح زمن آخر تجميع
         new_last_claim_time = now_dt.isoformat()
 
         # ----------------------------------------
@@ -117,7 +118,7 @@ def buy_upgrade():
 
             # الخصم من الرصيد
             new_balance = total_balance - price
-            # إضافة الترقية
+            # زيادة عداد الترقية
             upgrades[lvl_key] = current_lvl_count + 1
 
             # إعادة حساب سرعة التعدين الإجمالية
