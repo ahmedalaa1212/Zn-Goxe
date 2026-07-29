@@ -12,7 +12,19 @@
     let isSubmittingCampaign = false;
     let isConvertingBalance = false;
     let isCancelingCampaign = false;
+    let isVerifyingTask = false;
     let currentAdType = 'يوتيوب';
+
+    // دالة حماية وتطهير النصوص من هجمات XSS
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
 
     const preDefinedDescriptions = {
         'يوتيوب': ["اشترك بالقناة وفعّل جرس التنبيهات 🔔", "ضع لايك حقيقي للفيديو المرفق 👍", "اكتب تعليق إيجابي يخص محتوى الفيديو 💬"],
@@ -32,7 +44,7 @@
     };
 
     function getTgId() {
-        return window.GameState?.userId || window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || "5102387551";
+        return window.GameState?.userId || window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || "";
     }
 
     window.switchTasksTab = function(tab) {
@@ -59,7 +71,17 @@
     };
 
     window.updateTasksUI = function() {
-        if(typeof window.updateGlobalUI === 'function') window.updateGlobalUI();
+        if (typeof window.updateGlobalUI === 'function') {
+            window.updateGlobalUI();
+        }
+        const topBal = document.getElementById('top-balance-tasks');
+        if (topBal && window.GameState?.balance !== undefined) {
+            topBal.innerText = `ZN ${Math.floor(window.GameState.balance).toLocaleString()}`;
+        }
+        const adBalDisplay = document.getElementById('ad-balance-display');
+        if (adBalDisplay && window.GameState?.ad_balance !== undefined) {
+            adBalDisplay.innerText = `AdZN ${Math.floor(window.GameState.ad_balance).toLocaleString()}`;
+        }
         window.fetchAndRenderTasks();
     };
 
@@ -68,14 +90,14 @@
         const activeAdsContainer = document.getElementById('active-ads-container');
         let myId = String(getTgId()).trim();
         
-        const initData = window.Telegram?.WebApp?.initData;
+        const initData = window.Telegram?.WebApp?.initData || "";
         let realTasks = [];
         try {
             let url = `/api/tasks/get_campaigns`;
             if (initData) {
                 url += `?initData=${encodeURIComponent(initData)}`;
-            } else {
-                url += `?telegramId=${myId}`;
+            } else if (myId) {
+                url += `?telegramId=${encodeURIComponent(myId)}`;
             }
             
             let response = await fetch(url);
@@ -86,13 +108,21 @@
                     
                     if (data.user_id) {
                         myId = String(data.user_id).trim();
-                        if(window.GameState) window.GameState.userId = myId;
+                        if (window.GameState) window.GameState.userId = myId;
                     }
 
-                    // التحديث اللحظي عبر GameState Proxy
                     if (window.GameState) {
                         if (data.ad_balance !== undefined) window.GameState.ad_balance = data.ad_balance;
                         if (data.balance !== undefined) window.GameState.balance = data.balance;
+                    }
+
+                    const topBal = document.getElementById('top-balance-tasks');
+                    if (topBal && window.GameState?.balance !== undefined) {
+                        topBal.innerText = `ZN ${Math.floor(window.GameState.balance).toLocaleString()}`;
+                    }
+                    const adBalDisplay = document.getElementById('ad-balance-display');
+                    if (adBalDisplay && window.GameState?.ad_balance !== undefined) {
+                        adBalDisplay.innerText = `AdZN ${Math.floor(window.GameState.ad_balance).toLocaleString()}`;
                     }
                 }
             }
@@ -102,14 +132,14 @@
             let allTasks = [];
             realTasks.forEach(task => {
                 allTasks.push({
-                    id: task.id,
-                    title: `دعم وتفاعل منصة (${task.platform})`,
-                    description: task.description || "برجاء اتباع الرابط لإكمال المهمة المطلوبة بنجاح التام.",
+                    id: String(task.id),
+                    title: `دعم وتفاعل منصة (${escapeHtml(task.platform)})`,
+                    description: escapeHtml(task.description) || "برجاء اتباع الرابط لإكمال المهمة المطلوبة بنجاح التام.",
                     platform: task.platform || 'أخرى',
-                    reward: task.reward,
+                    reward: Number(task.reward || 0),
                     link: task.url,
                     is_completed: !!task.is_completed,
-                    creator_id: String(task.creator_id).trim()
+                    creator_id: String(task.creator_id || '').trim()
                 });
             });
 
@@ -146,7 +176,7 @@
                     } else {
                         let state = window.taskStates[task.id] || 'idle';
                         if (state === 'idle') {
-                            actionHtml = `<button type="button" id="btn-task-${task.id}" onclick="startTask('${task.id}', '${task.link}', ${task.reward})" style="background: #fff; color: #000; border: none; padding: 8px 22px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; transition: 0.2s;">ابدأ</button>`;
+                            actionHtml = `<button type="button" id="btn-task-${task.id}" onclick="startTask('${task.id}', '${encodeURIComponent(task.link)}', ${task.reward})" style="background: #fff; color: #000; border: none; padding: 8px 22px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; transition: 0.2s;">ابدأ</button>`;
                         } else if (state === 'running') {
                             let currentTotalOutside = window.accumulatedOutsideTime[task.id] || 0;
                             if (document.visibilityState === 'hidden') {
@@ -211,7 +241,7 @@
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <i class="${config.icon}" style="color: ${config.color}; font-size: 15px;"></i>
-                                    <span style="color: #fff; font-size: 13px; font-weight: 700;">حملة ممولة لـ ${ad.platform}</span>
+                                    <span style="color: #fff; font-size: 13px; font-weight: 700;">حملة ممولة لـ ${escapeHtml(ad.platform)}</span>
                                 </div>
                                 <span style="background: rgba(56,189,248,0.1); color: #38bdf8; font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: 700;">
                                     الإنجاز: ${comp} / ${need}
@@ -238,7 +268,7 @@
                             </div>
 
                             <div style="background: rgba(255,255,255,0.02); border-right: 3px solid #38bdf8; padding: 6px 10px; font-size: 11px; color: #b4b9c8; margin-bottom: 12px; text-align: right; border-radius: 4px; font-weight: 500;">
-                                <strong>التوجيه الفعلي للزوار:</strong> ${ad.description}
+                                <strong>التوجيه الفعلي للزوار:</strong> ${escapeHtml(ad.description)}
                             </div>
 
                             <div style="margin-bottom: 14px;">
@@ -250,7 +280,7 @@
                                     <div style="width: ${pct}%; height: 100%; background: linear-gradient(90deg, #0088cc, #38bdf8); border-radius: 10px; transition: width 0.4s ease;"></div>
                                 </div>
                             </div>
-                            <div style="color: #475569; font-size: 11px; margin-bottom: 12px; word-break: break-all; text-align: left; background: #090911; padding: 8px; border-radius: 8px; font-family: monospace;" dir="ltr">${ad.url}</div>
+                            <div style="color: #475569; font-size: 11px; margin-bottom: 12px; word-break: break-all; text-align: left; background: #090911; padding: 8px; border-radius: 8px; font-family: monospace;" dir="ltr">${escapeHtml(ad.url)}</div>
                             <button type="button" id="btn-cancel-${ad.id}" onclick="cancelServerCampaign('${ad.id}')" style="width: 100%; background: rgba(239,68,68,0.05); border: 1px solid rgba(239,68,68,0.25); color: #ef4444; padding: 11px; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 12px; transition: 0.2s;">إلغاء الإعلان فوراً وسحب المتبقي لحسابك</button>
                         </div>`;
                 });
@@ -259,13 +289,17 @@
         }
     };
 
-    window.startTask = function(taskId, link, reward) {
+    window.startTask = function(taskId, encodedLink, reward) {
+        const link = decodeURIComponent(encodedLink);
         window.taskStates[taskId] = 'running';
         window.accumulatedOutsideTime[taskId] = 0;
         window.lastGoOutside[taskId] = Date.now();
 
-        if (window.Telegram?.WebApp) { window.Telegram.WebApp.openLink(link); } 
-        else { window.open(link, '_blank'); }
+        if (window.Telegram?.WebApp) { 
+            window.Telegram.WebApp.openLink(link); 
+        } else { 
+            window.open(link, '_blank'); 
+        }
         
         window.fetchAndRenderTasks();
         
@@ -314,21 +348,28 @@
                 }
             }
             if (document.visibilityState === "visible") {
-                if(typeof window.updateGlobalUI === 'function') window.updateGlobalUI();
+                if (typeof window.updateGlobalUI === 'function') window.updateGlobalUI();
             }
         });
         window.visibilityListenerAdded = true;
     }
 
     window.verifyTask = async function(taskId, reward) {
+        if (isVerifyingTask) return;
+        
         const initData = window.Telegram?.WebApp?.initData;
         if (!initData) {
             alert("⚠️ يجب فتح البوت من تليجرام للتحقق الحقيقي.");
             return;
         }
 
+        isVerifyingTask = true;
         const btn = document.getElementById(`btn-task-${taskId}`);
-        if(btn) { btn.innerText = "فحص التفاعل..."; btn.disabled = true; btn.style.opacity = "0.5"; }
+        if (btn) { 
+            btn.innerText = "فحص التفاعل..."; 
+            btn.disabled = true; 
+            btn.style.opacity = "0.5"; 
+        }
 
         try {
             let response = await fetch('/api/tasks/complete_task', {
@@ -339,8 +380,13 @@
             let result = await response.json();
             
             if (response.ok && result.success) {
-                // الاعتماد على GameState فقط (سيتحدث الـ UI وتُحفظ تلقائياً)
-                if (window.GameState) window.GameState.balance += Number(reward);
+                if (window.GameState) {
+                    if (result.new_balance !== undefined) {
+                        window.GameState.balance = Number(result.new_balance);
+                    } else {
+                        window.GameState.balance += Number(reward);
+                    }
+                }
                 
                 delete window.taskStates[taskId];
                 delete window.accumulatedOutsideTime[taskId];
@@ -352,10 +398,12 @@
                 window.taskStates[taskId] = 'ready';
             }
         } catch (e) {
-            alert("خطأ في الاتصال بالسيرفر الرئيسي.");
+            alert("حدث خطأ في الاتصال بالسيرفر الرئيسي.");
             window.taskStates[taskId] = 'ready';
+        } finally {
+            isVerifyingTask = false;
+            await window.fetchAndRenderTasks();
         }
-        await window.fetchAndRenderTasks();
     };
 
     window.cancelServerCampaign = async function(campId) {
@@ -367,7 +415,7 @@
         
         isCancelingCampaign = true;
         const btn = document.getElementById(`btn-cancel-${campId}`);
-        if(btn) { btn.innerText = "جاري الحذف والرد..."; btn.disabled = true; }
+        if (btn) { btn.innerText = "جاري الحذف والرد..."; btn.disabled = true; }
 
         try {
             let response = await fetch('/api/tasks/cancel_campaign', {
@@ -378,12 +426,16 @@
             let result = await response.json();
             if (response.ok && result.success) {
                 alert(`✅ تم إلغاء حملتك بنجاح وإرجاع الميزانية المتبقية لمحفظتك!`);
-                if (window.GameState && result.refund !== undefined) {
+                if (window.GameState && result.new_ad_balance !== undefined) {
+                    window.GameState.ad_balance = Number(result.new_ad_balance);
+                } else if (window.GameState && result.refund !== undefined) {
                     window.GameState.ad_balance += Number(result.refund);
                 }
                 window.fetchAndRenderTasks();
-            } else { alert("⚠️ خطأ بالإلغاء: " + result.error); }
-        } catch (e) { alert("حدث خطأ."); }
+            } else { 
+                alert("⚠️ خطأ بالإلغاء: " + (result.error || "عذراً تعذر الإلغاء")); 
+            }
+        } catch (e) { alert("حدث خطأ في الاتصال بالسيرفر."); }
         finally { isCancelingCampaign = false; }
     };
 
@@ -395,7 +447,10 @@
         let inputVal = prompt("أدخل رصيد ZN المراد تحويله لرصيد الإعلانات:\n* سيتم تطبيق عمولة تداول 10%.");
         if (!inputVal) return;
         let amount = parseFloat(inputVal.trim());
-        if (isNaN(amount) || amount <= 0) return;
+        if (isNaN(amount) || amount <= 0) {
+            alert("⚠️ يرجى إدخال مبلغ صحيح وموجب.");
+            return;
+        }
 
         let currentBal = window.GameState ? window.GameState.balance : 0;
         if (currentBal < amount) {
@@ -414,15 +469,14 @@
             if (response.ok && result.success) {
                 alert(`✅ شحن ناجح! تمت عملية التحويل لمحفظتك بنجاح.`);
                 
-                // تحديث القيم بدقة عبر السيرفر
                 if (window.GameState) {
                     if (result.new_balance !== undefined) window.GameState.balance = Number(result.new_balance);
                     if (result.new_ad_balance !== undefined) window.GameState.ad_balance = Number(result.new_ad_balance);
                 }
                 
                 window.updateTasksUI();
-            } else { alert("⚠️ فشل: " + result.error); }
-        } catch (e) { alert("خطأ شبكة."); }
+            } else { alert("⚠️ فشل: " + (result.error || "خطأ في عملية التحويل")); }
+        } catch (e) { alert("خطأ شبكة أثناء تحويل الرصيد."); }
         finally { isConvertingBalance = false; }
     };
 
@@ -444,7 +498,7 @@
             let optionsHtml = '';
             let optionsList = preDefinedDescriptions[type] || ["برجاء اتباع الرابط لإكمال التفاعل الإعلاني."];
             optionsList.forEach(descText => {
-                optionsHtml += `<option value="${descText}">${descText}</option>`;
+                optionsHtml += `<option value="${escapeHtml(descText)}">${escapeHtml(descText)}</option>`;
             });
             selectContainer.innerHTML = optionsHtml;
         }
@@ -477,7 +531,7 @@
         let users = parseInt(document.getElementById('ad-users')?.value || '0', 10);
 
         if (!link || !desc || isNaN(reward) || reward <= 0 || isNaN(users) || users <= 0) {
-            alert("⚠️ يرجى ملء كافة الخانات المالية وبينات الرابط بشكل سليم.");
+            alert("⚠️ يرجى ملء كافة الخانات المالية وبيانات الرابط بشكل سليم.");
             return;
         }
 
@@ -516,7 +570,7 @@
         let currentAdBalance = window.GameState ? window.GameState.ad_balance : 0;
 
         if (currentAdBalance < totalCost) {
-            alert(`⚠️ رصيدك الإعلاني غير كافٍ! التكلفة المطلوبة: ${totalCost} AdZN`);
+            alert(`⚠️ رصيدك الإعلاني غير كافٍ! التكلفة المطلوبة: ${totalCost.toLocaleString()} AdZN`);
             return;
         }
 
