@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import datetime
+import urllib.parse
 from flask import Blueprint, jsonify, request
 from core.security import get_authenticated_user
 from database import db as firestore_db
@@ -10,6 +11,10 @@ from firebase_admin import firestore
 tasks_bp = Blueprint('tasks', __name__)
 
 def is_task_completed_by_user(task, user_completed_data):
+    """
+    التحقق الآمن من إكمال المستخدم للمهمة،
+    مع دعم إعادة فتح مهام زيارة المواقع يومياً.
+    """
     task_id = str(task.get('id', '')).strip()
     platform = str(task.get('platform', '')).strip()
     
@@ -53,10 +58,12 @@ def is_task_completed_by_user(task, user_completed_data):
 
 @tasks_bp.route('/get_campaigns', methods=['GET'])
 def get_campaigns():
+    """
+    جلب الحملات النشطة مع بيانات المستخدم بصورة مصادق عليها وآمنة.
+    """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=False)
     if not is_auth:
-        # Fallback for local testing only. In production, consider returning err_response.
-        telegram_id = request.args.get('telegramId', '5102387551').strip()
+        return err_response
 
     telegram_id_str = str(telegram_id).strip()
 
@@ -90,6 +97,7 @@ def get_campaigns():
 
     result_campaigns = []
     for c in campaigns:
+        # استبعاد الحملات المكتملة ما لم يكن المستخدم هو منشئ الحملة
         if c.get('users_completed', 0) >= c.get('users_needed', 1) and str(c.get('creator_id')).strip() != telegram_id_str:
             continue
             
@@ -107,6 +115,10 @@ def get_campaigns():
 
 @tasks_bp.route('/create_campaign', methods=['POST'])
 def create_campaign():
+    """
+    إنشاء حملة ترويجية بخصم آمن عبر Firestore Transaction
+    لمنع السحب المضاعف ورصيد AdZN بالسالب.
+    """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
         return err_response
@@ -122,60 +134,77 @@ def create_campaign():
     if not all([platform, url, description, reward, users_needed]):
         return jsonify({"success": False, "error": "جميع البيانات مطلوبة"}), 400
 
+    # الفحص الأمني للروابط
+    if not isinstance(url, str) or not (url.startswith('http://') or url.startswith('https://')):
+        return jsonify({"success": False, "error": "الرابط يجب أن يبدأ بـ http:// أو https://"}), 400
+
     try:
         reward = float(reward)
         users_needed = int(users_needed)
         if reward <= 0 or users_needed <= 0:
             raise ValueError()
-    except ValueError:
+    except (ValueError, TypeError):
         return jsonify({"success": False, "error": "قيم الكلفة والأعضاء غير صحيحة"}), 400
 
     total_cost = reward * users_needed
 
-    try:
+    @firestore.transactional
+    def run_create_transaction(transaction):
         user_ref = firestore_db.collection('users').document(telegram_id_str)
-        user_doc = user_ref.get()
+        user_snapshot = user_ref.get(transaction=transaction)
 
-        if not user_doc.exists:
-            return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
+        if not user_snapshot.exists:
+            raise ValueError("المستخدم غير موجود")
 
-        user_data = user_doc.to_dict() or {}
+        user_data = user_snapshot.to_dict() or {}
         current_ad_balance = float(user_data.get('ad_balance', 0.0))
 
         if current_ad_balance < total_cost:
-            return jsonify({"success": False, "error": f"رصيدك الإعلاني غير كافٍ. المطلوب: {total_cost} AdZN"}), 400
+            raise ValueError(f"رصيدك الإعلاني غير كافٍ. المطلوب: {total_cost} AdZN")
 
-        user_ref.set({
-            'ad_balance': firestore.Increment(-total_cost)
-        }, merge=True)
+        new_ad_balance = current_ad_balance - total_cost
 
         camp_id = f"camp_{uuid.uuid4().hex[:10]}"
         new_campaign = {
             "id": camp_id,
             "creator_id": telegram_id_str,
-            "platform": platform,
-            "url": url,
-            "description": description,
+            "platform": str(platform).strip(),
+            "url": str(url).strip(),
+            "description": str(description).strip(),
             "reward": reward,
             "users_needed": users_needed,
             "users_completed": 0,
             "created_at": datetime.datetime.utcnow().isoformat()
         }
 
-        firestore_db.collection('campaigns').document(camp_id).set(new_campaign)
+        camp_ref = firestore_db.collection('campaigns').document(camp_id)
+        
+        transaction.update(user_ref, {'ad_balance': new_ad_balance})
+        transaction.set(camp_ref, new_campaign)
+
+        return new_campaign, new_ad_balance
+
+    try:
+        transaction = firestore_db.transaction()
+        campaign_data, updated_ad_balance = run_create_transaction(transaction)
 
         return jsonify({
             "success": True, 
-            "campaign": new_campaign,
-            "new_ad_balance": current_ad_balance - total_cost
+            "campaign": campaign_data,
+            "new_ad_balance": updated_ad_balance
         }), 200
 
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
     except Exception as e:
         print(f"Error creating campaign: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء حفظ الحملة"}), 500
 
 @tasks_bp.route('/complete_task', methods=['POST'])
 def complete_task():
+    """
+    إكمال المهمة وتحصيل المكافأة بضمان عدم التكرار عبر Firestore Transaction.
+    """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
         return err_response
@@ -187,38 +216,46 @@ def complete_task():
     if not task_id:
         return jsonify({"success": False, "error": "رقم المهمة مفقود"}), 400
 
-    try:
-        camp_ref = firestore_db.collection('campaigns').document(task_id)
-        camp_doc = camp_ref.get()
+    @firestore.transactional
+    def run_complete_transaction(transaction):
+        camp_ref = firestore_db.collection('campaigns').document(str(task_id).strip())
+        camp_snapshot = camp_ref.get(transaction=transaction)
 
-        if not camp_doc.exists:
-            return jsonify({"success": False, "error": "المهمة غير موجودة أو انتهت"}), 404
+        if not camp_snapshot.exists:
+            raise ValueError("المهمة غير موجودة أو انتهت")
 
-        target_campaign = camp_doc.to_dict() or {}
-        target_campaign['id'] = camp_doc.id
+        target_campaign = camp_snapshot.to_dict() or {}
+        target_campaign['id'] = camp_snapshot.id
 
         if str(target_campaign.get('creator_id')).strip() == telegram_id_str:
-            return jsonify({"success": False, "error": "لا يمكنك تنفيذ حملتك الخاصة"}), 400
+            raise ValueError("لا يمكنك تنفيذ حملتك الخاصة")
 
-        if target_campaign.get('users_completed', 0) >= target_campaign.get('users_needed', 1):
-            return jsonify({"success": False, "error": "هذه المهمة مكتملة بالكامل واستوفت عدد الأعضاء المطلوب!"}), 400
+        users_completed = target_campaign.get('users_completed', 0)
+        users_needed = target_campaign.get('users_needed', 1)
+
+        if users_completed >= users_needed:
+            raise ValueError("هذه المهمة مكتملة بالكامل واستوفت عدد الأعضاء المطلوب!")
 
         completed_ref = firestore_db.collection('completed_tasks').document(telegram_id_str)
-        completed_doc = completed_ref.get()
-        user_completed_map = completed_doc.to_dict() if completed_doc.exists else {}
+        completed_snapshot = completed_ref.get(transaction=transaction)
+        user_completed_map = completed_snapshot.to_dict() if completed_snapshot.exists else {}
 
         if is_task_completed_by_user(target_campaign, user_completed_map):
             if target_campaign.get('platform') == 'موقع':
-                return jsonify({"success": False, "error": "لقد قمت بزيارة هذا الموقع اليوم، يمكنك زيارته غداً مجدداً!"}), 400
+                raise ValueError("لقد قمت بزيارة هذا الموقع اليوم، يمكنك زيارته غداً مجدداً!")
             else:
-                return jsonify({"success": False, "error": "لقد قمت بإكمال هذه المهمة مسبقاً"}), 400
+                raise ValueError("لقد قمت بإكمال هذه المهمة مسبقاً")
 
-        reward_amount = float(target_campaign['reward'])
+        reward_amount = float(target_campaign.get('reward', 0))
 
         user_ref = firestore_db.collection('users').document(telegram_id_str)
-        user_ref.set({
-            'balance': firestore.Increment(reward_amount)
-        }, merge=True)
+        user_snapshot = user_ref.get(transaction=transaction)
+        
+        current_balance = 0.0
+        if user_snapshot.exists:
+            current_balance = float((user_snapshot.to_dict() or {}).get('balance', 0.0))
+
+        new_balance = current_balance + reward_amount
 
         now_utc = datetime.datetime.utcnow()
         task_record = {
@@ -226,26 +263,34 @@ def complete_task():
             "timestamp": now_utc.timestamp()
         }
 
-        completed_ref.set({
-            task_id: task_record
-        }, merge=True)
+        transaction.set(user_ref, {'balance': new_balance}, merge=True)
+        transaction.set(completed_ref, {task_id: task_record}, merge=True)
+        transaction.update(camp_ref, {'users_completed': users_completed + 1})
 
-        camp_ref.set({
-            'users_completed': firestore.Increment(1)
-        }, merge=True)
+        return reward_amount, new_balance
+
+    try:
+        transaction = firestore_db.transaction()
+        reward_amount, new_balance = run_complete_transaction(transaction)
 
         return jsonify({
             "success": True, 
             "reward": reward_amount,
+            "new_balance": new_balance,
             "message": "تم إكمال المهمة وإضافة المكافأة"
         }), 200
 
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
     except Exception as e:
         print(f"Error completing task: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء إكمال المهمة"}), 500
 
 @tasks_bp.route('/cancel_campaign', methods=['POST'])
 def cancel_campaign():
+    """
+    إلغاء الحملة وإرجاع الميزانية المتبقية محصنة بـ Transaction.
+    """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
         return err_response
@@ -254,44 +299,65 @@ def cancel_campaign():
     req = request.get_json(silent=True) or {}
     campaign_id = req.get('campaignId')
 
-    try:
-        camp_ref = firestore_db.collection('campaigns').document(campaign_id)
-        camp_doc = camp_ref.get()
+    if not campaign_id:
+        return jsonify({"success": False, "error": "معرف الحملة مفقود"}), 400
 
-        if not camp_doc.exists:
-            return jsonify({"success": False, "error": "الحملة غير موجودة"}), 404
+    @firestore.transactional
+    def run_cancel_transaction(transaction):
+        camp_ref = firestore_db.collection('campaigns').document(str(campaign_id).strip())
+        camp_snapshot = camp_ref.get(transaction=transaction)
 
-        target_campaign = camp_doc.to_dict() or {}
+        if not camp_snapshot.exists:
+            raise ValueError("الحملة غير موجودة")
+
+        target_campaign = camp_snapshot.to_dict() or {}
 
         if str(target_campaign.get('creator_id')).strip() != telegram_id_str:
-            return jsonify({"success": False, "error": "غير مصرح لك بإلغاء هذه الحملة"}), 403
+            raise ValueError("غير مصرح لك بإلغاء هذه الحملة")
 
         comp = target_campaign.get('users_completed', 0)
         need = target_campaign.get('users_needed', 1)
         cost_per_user = target_campaign.get('reward', 0)
         
-        refund_amount = max(0, (need - comp) * cost_per_user)
+        refund_amount = max(0.0, float((need - comp) * cost_per_user))
 
-        if refund_amount > 0:
-            user_ref = firestore_db.collection('users').document(telegram_id_str)
-            user_ref.set({
-                'ad_balance': firestore.Increment(refund_amount)
-            }, merge=True)
+        user_ref = firestore_db.collection('users').document(telegram_id_str)
+        user_snapshot = user_ref.get(transaction=transaction)
+        
+        current_ad_balance = 0.0
+        if user_snapshot.exists:
+            current_ad_balance = float((user_snapshot.to_dict() or {}).get('ad_balance', 0.0))
 
-        camp_ref.delete()
+        new_ad_balance = current_ad_balance + refund_amount
+
+        transaction.update(user_ref, {'ad_balance': new_ad_balance})
+        transaction.delete(camp_ref)
+
+        return refund_amount, new_ad_balance
+
+    try:
+        transaction = firestore_db.transaction()
+        refund_amount, new_ad_balance = run_cancel_transaction(transaction)
 
         return jsonify({
             "success": True, 
             "refund": refund_amount,
+            "new_ad_balance": new_ad_balance,
             "message": "تم إلغاء الحملة وإرجاع الميزانية المتبقية"
         }), 200
 
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
     except Exception as e:
         print(f"Error canceling campaign: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء إلغاء الحملة"}), 500
 
 @tasks_bp.route('/convert_adzn', methods=['POST'])
 def convert_adzn():
+    """
+    تحويل رصيد ZN إلى رصيد الإعلانات AdZN بخصم عمولة 10%
+    ومعاملة ذرية تضمن عدم إمكانية التلاعب بالأرصدة بالتوازي.
+    """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
         return err_response
@@ -304,33 +370,39 @@ def convert_adzn():
         return jsonify({"success": False, "error": "المبلغ غير صحيح"}), 400
 
     if amount <= 0:
-        return jsonify({"success": False, "error": "المبلغ غير صحيح"}), 400
+        return jsonify({"success": False, "error": "المبلغ يجب أن يكون أكبر من صفر"}), 400
 
-    try:
+    @firestore.transactional
+    def run_convert_transaction(transaction):
         user_ref = firestore_db.collection('users').document(telegram_id_str)
-        user_doc = user_ref.get()
+        user_snapshot = user_ref.get(transaction=transaction)
 
-        if not user_doc.exists:
-            return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
+        if not user_snapshot.exists:
+            raise ValueError("المستخدم غير موجود")
 
-        user_data = user_doc.to_dict() or {}
+        user_data = user_snapshot.to_dict() or {}
         current_balance = float(user_data.get('balance', 0.0))
+        current_ad_balance = float(user_data.get('ad_balance', 0.0))
 
         if current_balance < amount:
-            return jsonify({"success": False, "error": "رصيد ZN الحالي غير كافٍ لهذا التحويل"}), 400
+            raise ValueError("رصيد ZN الحالي غير كافٍ لهذا التحويل")
 
         fee = amount * 0.10
         received = amount - fee
 
-        # خصم وإضافة في الفايربيس
-        user_ref.set({
-            'balance': firestore.Increment(-amount),
-            'ad_balance': firestore.Increment(received)
-        }, merge=True)
-
-        # حساب القيم الدقيقة لإرسالها للواجهة الأمامية
         new_balance = current_balance - amount
-        new_ad_balance = float(user_data.get('ad_balance', 0.0)) + received
+        new_ad_balance = current_ad_balance + received
+
+        transaction.update(user_ref, {
+            'balance': new_balance,
+            'ad_balance': new_ad_balance
+        })
+
+        return received, fee, new_balance, new_ad_balance
+
+    try:
+        transaction = firestore_db.transaction()
+        received, fee, new_balance, new_ad_balance = run_convert_transaction(transaction)
 
         return jsonify({
             "success": True,
@@ -341,6 +413,8 @@ def convert_adzn():
             "message": "تم تحويل الرصيد بنجاح"
         }), 200
 
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
     except Exception as e:
         print(f"Error in convert_adzn: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء إجراء التحويل في السيرفر"}), 500
