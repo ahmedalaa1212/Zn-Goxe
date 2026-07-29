@@ -24,7 +24,6 @@
         if (newBalance !== undefined && newBalance !== null) {
             const numVal = parseFloat(newBalance);
             
-            // تحديث GameState لتشغيل الـ Proxy وتحديث الواجهة تلقائياً
             if (window.GameState) {
                 window.GameState.balance = numVal;
             } else if (typeof window.setBalance === 'function') {
@@ -70,7 +69,7 @@
             }
         }
 
-        // 1. عرض الرصيد المحفوظ محلياً فوراً (0 ثانية تأخير)
+        // 1. عرض الرصيد المحفوظ محلياً فوراً
         const cachedBalance = getStoredBalance();
         if (!window.PlayerData) window.PlayerData = {};
         window.PlayerData.balance = cachedBalance;
@@ -114,7 +113,6 @@
     window.updateFriendsUI = function() {
         const pData = window.PlayerData || {};
         
-        // قراءة أحدث رصيد متوفر
         const balance = getStoredBalance();
         if (window.PlayerData) window.PlayerData.balance = balance;
         
@@ -129,7 +127,7 @@
 
         if (elPending) elPending.innerText = Math.floor(pending).toLocaleString();
         if (elInvited) elInvited.innerText = totalInvited.toLocaleString();
-        if (elBalance) elBalance.innerText = `ZN: ${Math.floor(balance).toLocaleString()}`;
+        if (elBalance) elBalance.innerText = `ZN: ${balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
 
         if (typeof window.updateGlobalUI === 'function') {
             window.updateGlobalUI();
@@ -258,7 +256,6 @@
             if (res.ok && data.success) {
                 showToast(`🎉 تم السحب بنجاح!\nأُضيف ${Math.floor(data.net_amount).toLocaleString()} ZN إلى رصيدك.`);
                 
-                // تحديث الـ LocalStorage والذاكرة فوراً
                 setStoredBalance(data.new_balance);
                 if (!window.PlayerData) window.PlayerData = {};
                 window.PlayerData.balance = data.new_balance;
@@ -364,7 +361,6 @@
         }
     }
 
-    // تجديد الرصيد فور العودة للصفحة
     window.addEventListener('pageshow', function() {
         const stored = getStoredBalance();
         if (stored !== null) {
