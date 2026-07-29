@@ -1,78 +1,69 @@
-from flask import Blueprint, jsonify, request
+# settings/settings_api.py
 import traceback
-# استدعاء دالة الحماية الخاصة بك
-from core.security import validate_telegram_data
+from flask import Blueprint, jsonify, request
 from database import db
+from core.security import get_authenticated_user
 
-# تعريف الـ Blueprint
 settings_bp = Blueprint('settings', __name__)
 
-@settings_bp.route('/stats', methods=['GET'])
+@settings_bp.route('/stats', methods=['GET', 'POST'])
 def get_settings_stats():
-    # 1. جلب التوقيع من الهيدر
-    init_data = request.headers.get('X-Telegram-Init-Data')
-    
-    if not init_data:
-        return jsonify({"success": False, "message": "Missing authentication data"}), 401
-
-    # 2. التحقق من صحة التوقيع عبر ملف security.py
-    auth_result = validate_telegram_data(init_data)
-    
-    if not auth_result or not isinstance(auth_result, dict) or 'id' not in auth_result:
-        return jsonify({"success": False, "message": "Unauthorized request, invalid initData"}), 403
-
-    user_id = str(auth_result['id'])
-
     try:
-        # 3. جلب بيانات اللاعب من الفايربيس
-        user_ref = db.collection('users').document(user_id)
+        # دعم المصادقة الموحدة الآمنة عبر Authorization Bearer
+        is_post = (request.method == 'POST')
+        success, uid, error_res = get_authenticated_user(request, is_post=is_post)
+        if not success:
+            return error_res
+
+        # جلب بيانات اللاعب من الفايربيس
+        user_ref = db.collection('users').document(uid)
         user_doc = user_ref.get()
 
-        if user_doc.exists:
-            user_data = user_doc.to_dict() or {}
-            
-            # ==========================================
-            # 🟢 حساب مستويات المزرعة والمخزن
-            # ==========================================
-            
-            farm_levels_count = 0
-            # نجلب الـ Map المسمى 'upgrades' من الفايربيس
-            upgrades_map = user_data.get('upgrades', {}) 
-            
-            if isinstance(upgrades_map, dict):
-                # مطابقة 9 مستويات فقط زي المتجر بالضبط (من 1 لـ 9)
-                for i in range(1, 10):
-                    lvl_val = upgrades_map.get(f'lvl{i}')
-                    if lvl_val is not None:
-                        try:
-                            farm_levels_count += int(lvl_val)
-                        except (ValueError, TypeError):
-                            pass
-                
-            # جلب مستوى المخزن 
-            storage_levels_count = 0
-            storage_val = user_data.get('storage_level')
-            if storage_val is not None:
-                try:
-                    storage_levels_count = int(storage_val)
-                except (ValueError, TypeError):
-                    pass
-
-            # إرسال البيانات للفرونت إند
+        if not user_doc.exists:
             return jsonify({
                 "success": True,
-                "farm_levels_count": farm_levels_count,
-                "storage_levels_count": storage_levels_count
-            }), 200
-            
-        else:
-            return jsonify({
-                "success": True, 
-                "farm_levels_count": 0, 
-                "storage_levels_count": 0
+                "farm_levels_count": 0,
+                "storage_levels_count": 0,
+                "balance": 0
             }), 200
 
+        user_data = user_doc.to_dict() or {}
+        
+        # ==========================================
+        # 🟢 حساب مستويات المزرعة والمخزن والرصيد
+        # ==========================================
+        farm_levels_count = 0
+        upgrades_map = user_data.get('upgrades', {})
+        if isinstance(upgrades_map, dict):
+            # مطابقة 9 مستويات (من lvl1 حتى lvl9)
+            for i in range(1, 10):
+                lvl_val = upgrades_map.get(f'lvl{i}')
+                if lvl_val is not None:
+                    try:
+                        farm_levels_count += int(lvl_val)
+                    except (ValueError, TypeError):
+                        pass
+
+        # جلب مستوى المخزن
+        storage_levels_count = 0
+        storage_val = user_data.get('storage_level')
+        if storage_val is not None:
+            try:
+                storage_levels_count = int(storage_val)
+            except (ValueError, TypeError):
+                pass
+
+        # جلب الرصيد للمزامنة الفورية
+        balance = user_data.get('balance', 0)
+
+        return jsonify({
+            "success": True,
+            "farm_levels_count": farm_levels_count,
+            "storage_levels_count": storage_levels_count,
+            "balance": balance
+        }), 200
+
     except Exception as e:
-        print(f"Settings API Error for user {user_id}: {str(e)}")
-        traceback.print_exc() 
+        print(f"Error in get_settings_stats for user {uid if 'uid' in locals() else 'unknown'}: {e}")
+        traceback.print_exc()
         return jsonify({"success": False, "message": "Internal server error"}), 500
