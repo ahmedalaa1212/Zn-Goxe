@@ -6,7 +6,7 @@
         <div id="farm-balance" class="user-balance zn-balance-display" style="color: #f39c12; font-weight: bold; font-size: 16px;">ZN: 0</div>
     </div>
 
-    <!-- القسم الأوسط: العملة و أزرار التعزيز -->
+    <!-- القسم الأوسط: العملة وأزرار التعزيز -->
     <div style="display: flex; justify-content: space-between; align-items: center; gap: 15px; margin-bottom: 25px;">
         
         <!-- زر تسريع التعدين اليومي -->
@@ -106,5 +106,93 @@
     0% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0.6); }
     70% { box-shadow: 0 0 0 10px rgba(46, 204, 113, 0); }
     100% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0); }
+}
+
+/* تنسيقات كروت ترقيات التعدين الديناميكية */
+.mining-card {
+    background: #222;
+    border: 1px solid #333;
+    border-radius: 10px;
+    padding: 10px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    transition: all 0.2s ease;
+}
+
+.mining-card:hover {
+    border-color: #f39c12;
+}
+
+.mining-card-title {
+    color: #fff;
+    font-size: 12px;
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.mining-card-level {
+    color: #f39c12;
+    font-size: 11px;
+    margin-bottom: 6px;
+}
+
+.mining-card-btn {
+    width: 100%;
+    padding: 6px 0;
+    border: none;
+    border-radius: 6px;
+    background: #f39c12;
+    color: #000;
+    font-weight: bold;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.mining-card-btn:disabled {
+    background: #444;
+    color: #888;
+    cursor: not-allowed;
+}
+
+/* تنسيقات كروت المكافآت اليومية الديناميكية */
+.reward-day-card {
+    background: #222;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 8px 4px;
+    text-align: center;
+    font-size: 11px;
+    color: #aaa;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.reward-day-card.claimed {
+    background: #1e3a29;
+    border-color: #27ae60;
+    color: #2ecc71;
+}
+
+.reward-day-card.active {
+    background: #3a2e1e;
+    border-color: #f39c12;
+    color: #f1c40f;
+    animation: pulseGreen 2s infinite;
+}
+
+.reward-day-card .day-title {
+    font-weight: bold;
+    font-size: 10px;
+}
+
+.reward-day-card .day-amount {
+    color: #fff;
+    font-weight: bold;
 }
 </style>
