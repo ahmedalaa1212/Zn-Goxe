@@ -1,4 +1,3 @@
-# database.py
 import os
 import json
 import firebase_admin
@@ -29,10 +28,13 @@ initialize_firebase()
 db = firestore.client()
 
 def is_user_banned(tg_id):
+    """فحص حالة حظر المستخدم مباشرة من قاعدة البيانات"""
     try:
+        if not tg_id: return False
         doc = db.collection('users').document(str(tg_id)).get()
         return doc.to_dict().get('banned', False) if doc.exists else False
-    except:
+    except Exception as e:
+        print(f"Error checking ban status for {tg_id}: {e}")
         return False
 
 def init_user(tg_id, ref_id=None, first_name="صديقي"):
@@ -44,11 +46,11 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
         is_new_referral = False
         
         if not user_doc.exists:
-            # إنشاء حساب اللاعب الجديد بالهيكلة الصحيحة وإضافة رصيد الإعلانات ad_balance
             new_user_data = {
                 "first_name": first_name,
                 "balance": 0.0,
                 "ad_balance": 0.0,             # رصيد محفظة الإعلانات
+                "usd_balance": 0.0,            # ✅ تم إضافة رصيد USD المبدئي
                 "hourly_rate": 0.0,
                 "mining_level": 1,
                 "level_1_upgrades": 0,
@@ -69,20 +71,16 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 
                 if referrer_doc.exists:
                     is_new_referral = True
-                    
-                    # زيادة عدد الأصدقاء
                     referrer_ref.update({
                         "invited_friends_count": firestore.Increment(1)
                     })
                     
-                    # إنشاء سجل هذا الصديق بداخل حساب الداعي لعرضه في واجهة السجل لاحقاً
                     referrer_ref.collection('friends').document(str(tg_id)).set({
                         "first_name": first_name,
-                        "earned_from_him": 0.0, # تتبع إجمالي العملات المجموعة من هذا الصديق خصيصاً
+                        "earned_from_him": 0.0,
                         "joined_at": firestore.SERVER_TIMESTAMP
                     })
         else:
-            # تحديث الاسم فقط للاعب القديم لضمان عدم ضياع بياناته
             user_ref.update({"first_name": first_name})
         
         return is_new_referral
