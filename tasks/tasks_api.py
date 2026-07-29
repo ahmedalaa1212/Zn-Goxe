@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import datetime
 from flask import Blueprint, jsonify, request
 from core.security import get_authenticated_user
 from database import db as firestore_db
@@ -28,6 +29,57 @@ def save_data(data):
     except Exception as e:
         print(f"Error saving tasks data: {e}")
 
+def is_task_completed_by_user(task, user_completed_data):
+    """
+    فحص إكمال المهمة:
+    - مهام 'موقع': تتجدد يومياً وتعتبر مكتملة فقط إذا أُنجزت اليوم بنفس التاريخ (UTC YYYY-MM-DD).
+    - باقي المنصات (يوتيوب، تيليجرام، انستغرام، X...): مكتملة بصفة دائمة بمجرد إنجازها مرّة واحدة.
+    """
+    task_id = str(task.get('id', '')).strip()
+    platform = str(task.get('platform', '')).strip()
+    
+    if not user_completed_data or not task_id:
+        return False
+
+    today_str = datetime.datetime.utcnow().strftime('%Y-%m-%d')
+
+    # 1. إذا كان التخزين بالشكل القديم (قائمة List من الـ task_id)
+    if isinstance(user_completed_data, list):
+        if task_id not in user_completed_data:
+            return False
+        # إذا كانت المهمة قديمة ومن نوع موقع، نفترض أنها غير مكتملة اليوم لتطبيق التجديد اليومي
+        if platform == 'موقع':
+            return False
+        return True
+
+    # 2. إذا كان التخزين بالشكل الجديد (Dictionary)
+    if isinstance(user_completed_data, dict):
+        if task_id not in user_completed_data:
+            return False
+
+        record = user_completed_data[task_id]
+        
+        if platform == 'موقع':
+            if isinstance(record, str):
+                return record == today_str
+            elif isinstance(record, dict):
+                task_date = record.get('date')
+                if task_date:
+                    return task_date == today_str
+                ts = record.get('timestamp')
+                if ts:
+                    task_dt = datetime.datetime.utcfromtimestamp(ts).strftime('%Y-%m-%d')
+                    return task_dt == today_str
+            elif isinstance(record, (int, float)):
+                task_dt = datetime.datetime.utcfromtimestamp(record).strftime('%Y-%m-%d')
+                return task_dt == today_str
+            return False
+        else:
+            # المنصات الأخرى مكتملة دائماً
+            return True
+
+    return False
+
 @tasks_bp.route('/get_campaigns', methods=['GET'])
 def get_campaigns():
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=False)
@@ -51,7 +103,7 @@ def get_campaigns():
 
     db = load_data()
     campaigns = db.get('campaigns', [])
-    user_completed = db.get('completed_tasks', {}).get(telegram_id_str, [])
+    user_completed_data = db.get('completed_tasks', {}).get(telegram_id_str, {})
 
     result_campaigns = []
     for c in campaigns:
@@ -60,7 +112,7 @@ def get_campaigns():
             continue
             
         c_copy = dict(c)
-        c_copy['is_completed'] = c['id'] in user_completed
+        c_copy['is_completed'] = is_task_completed_by_user(c, user_completed_data)
         result_campaigns.append(c_copy)
 
     return jsonify({
@@ -164,9 +216,19 @@ def complete_task():
     if str(target_campaign.get('creator_id')).strip() == telegram_id_str:
         return jsonify({"success": False, "error": "لا يمكنك تنفيذ حملتك الخاصة"}), 400
 
-    user_completed = db.setdefault('completed_tasks', {}).setdefault(telegram_id_str, [])
-    if task_id in user_completed:
-        return jsonify({"success": False, "error": "لقد قمت بإكمال هذه المهمة مسبقاً"}), 400
+    user_completed_map = db.setdefault('completed_tasks', {}).setdefault(telegram_id_str, {})
+
+    # تحويل التنسيق القديم (list) إلى dict لتفادي المشاكل
+    if isinstance(user_completed_map, list):
+        new_map = {tid: {"date": "2000-01-01", "timestamp": 0} for tid in user_completed_map}
+        db['completed_tasks'][telegram_id_str] = new_map
+        user_completed_map = new_map
+
+    if is_task_completed_by_user(target_campaign, user_completed_map):
+        if target_campaign.get('platform') == 'موقع':
+            return jsonify({"success": False, "error": "لقد قمت بزيارة هذا الموقع اليوم، يمكنك زيارته غداً مجدداً!"}), 400
+        else:
+            return jsonify({"success": False, "error": "لقد قمت بإكمال هذه المهمة مسبقاً"}), 400
 
     reward_amount = float(target_campaign['reward'])
 
@@ -179,8 +241,13 @@ def complete_task():
     except Exception as e:
         print(f"Error adding task reward to user in Firebase: {e}")
 
-    # تسجيل الإكمال للعميل وزيادة العداد
-    user_completed.append(task_id)
+    # تسجيل تاريخ ووقت الإكمال
+    now_utc = datetime.datetime.utcnow()
+    user_completed_map[task_id] = {
+        "date": now_utc.strftime('%Y-%m-%d'),
+        "timestamp": now_utc.timestamp()
+    }
+
     target_campaign['users_completed'] = target_campaign.get('users_completed', 0) + 1
     save_data(db)
 
