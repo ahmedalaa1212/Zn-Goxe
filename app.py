@@ -53,7 +53,7 @@ def serve_manifest():
     return jsonify({
         "url": WEB_URL,
         "name": "ZN Goxe Bot",
-        "iconUrl": f"{WEB_URL}/favicon.ico",
+        "iconUrl": f"{WEB_URL}/logo.png",
         "termsOfDeliveryUrl": WEB_URL,
         "privacyPolicyUrl": WEB_URL
     }), 200
