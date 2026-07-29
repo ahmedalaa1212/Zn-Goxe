@@ -4,6 +4,7 @@ import hmac
 import json
 import urllib.parse
 from flask import jsonify
+from database import is_user_banned
 
 def validate_telegram_data(init_data: str):
     """دالة التحقق من التشفير والـ initData الخاص بتليجرام"""
@@ -34,7 +35,7 @@ def validate_telegram_data(init_data: str):
         return None
 
 def get_authenticated_user(request, is_post=False):
-    """استخراج وتأكيد صحة المستخدم من الطلب"""
+    """استخرج واستأذن المستخدم وتأكد فوراً أنه غير محظور"""
     try:
         init_data = None
         if is_post:
@@ -49,9 +50,14 @@ def get_authenticated_user(request, is_post=False):
             
         user = validate_telegram_data(init_data)
         if not user:
-            return False, None, (jsonify({'success': False, 'error': 'محاولة وصول غير مصرح بها أو توكن مفعل خاطئ'}), 403)
+            return False, None, (jsonify({'success': False, 'error': 'محاولة وصول غير مصرح بها'}), 403)
             
         telegram_id = str(user.get('id')).strip()
+
+        # ✅ حماية قصوى: فحص الحظر قبل السماح بأي عملية في السيرفر
+        if is_user_banned(telegram_id):
+            return False, None, (jsonify({'success': False, 'error': 'تم حظر حسابك لمخالفة القوانين'}), 403)
+
         return True, telegram_id, None
         
     except Exception as e:
