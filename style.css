@@ -20,7 +20,7 @@ body {
 #app {
     min-height: calc(100vh - 65px);
     padding: 15px;
-    padding-bottom: 85px; /* مسافة أمان لتجنب إخفاء أي عنصر تحت الشريط السفلي */
+    padding-bottom: 85px;
     overflow-y: auto;
     overflow-x: hidden;
 }
@@ -81,7 +81,7 @@ body {
     flex: 1 !important;
     min-width: 0 !important;
     transition: all 0.2s ease !important;
-    padding: 4px 0 !important;
+    padding: 2px 0 !important;
     white-space: nowrap !important;
 }
 
@@ -89,6 +89,7 @@ body {
     font-size: 18px !important;
     margin-bottom: 2px !important;
     font-style: normal !important;
+    line-height: 1 !important;
     transition: color 0.2s, transform 0.2s !important;
 }
 
@@ -98,7 +99,7 @@ body {
     transition: color 0.2s !important;
 }
 
-/* لون الأزرار العادية عند التفعيل (اللون الذهبي الأصلي) */
+/* لون الأزرار العادية عند التفعيل (الذهبي/البرتقالي الأصلي) */
 .nav-item.active, .bottom-nav a.active {
     color: #f39c12 !important;
 }
@@ -114,15 +115,17 @@ body {
 }
 
 /* =========================================
-   زر المزرعة المركزي (باللون الذهبي الأصلي)
+   تنسيق زر المزرعة المركزي (معالجة كل الحالات)
    ========================================= */
-.nav-center-btn, .nav-farm-btn {
+
+/* حالة زر المزرعة المباشر */
+a.nav-center-btn, a.nav-farm-btn {
     position: relative !important;
     top: -8px !important;
     background-color: #252525 !important;
     color: #888888 !important;
-    width: 48px !important;
-    height: 48px !important;
+    width: 46px !important;
+    height: 46px !important;
     border-radius: 50% !important;
     border: 3px solid #1a1a1a !important;
     flex: none !important;
@@ -130,25 +133,41 @@ body {
     flex-direction: column !important;
     justify-content: center !important;
     align-items: center !important;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.4) !important;
-    transition: all 0.3s ease !important;
-    margin: 0 2px !important;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.5) !important;
 }
 
-.nav-center-btn i, .nav-farm-btn i {
+/* حالة الدائرة الداخلية إذا كانت داخل <a> */
+div.nav-farm-btn, div.nav-center-btn {
+    background-color: #252525 !important;
+    color: #888888 !important;
+    width: 42px !important;
+    height: 42px !important;
+    border-radius: 50% !important;
+    border: 2px solid #1a1a1a !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    margin-top: -12px !important;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.5) !important;
+    transition: all 0.3s ease !important;
+}
+
+div.nav-farm-btn i, div.nav-center-btn i,
+a.nav-center-btn i, a.nav-farm-btn i {
     font-size: 18px !important;
     color: #888888 !important;
-    margin-bottom: 0 !important;
-    transition: all 0.3s ease !important;
+    margin: 0 !important;
 }
 
-/* عند تفعيل زر المزرعة */
-.nav-center-btn.active, .nav-farm-btn.active {
+/* تفعيل زر المزرعة باللون الذهبي الأصلي */
+a.nav-center-btn.active, a.nav-farm-btn.active,
+a.active div.nav-farm-btn, a.active div.nav-center-btn {
     background-color: #f39c12 !important;
     border-color: #121212 !important;
-    box-shadow: 0 0 12px rgba(243, 156, 18, 0.5) !important;
+    box-shadow: 0 0 12px rgba(243, 156, 18, 0.6) !important;
 }
 
-.nav-center-btn.active i, .nav-farm-btn.active i {
+a.nav-center-btn.active i, a.nav-farm-btn.active i,
+a.active div.nav-farm-btn i, a.active div.nav-center-btn i {
     color: #121212 !important;
 }
