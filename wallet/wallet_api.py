@@ -7,41 +7,34 @@ from google.cloud import firestore
 
 wallet_bp = Blueprint('wallet', __name__)
 
-# الثوابت المعتمدة للعمليات المالية
-DEPOSIT_FEE_PERCENT = 0.03  # خصم 3% رسوم إيداع
-MIN_DEPOSIT_USD = 1.00      # الحد الأدنى للإيداع
-MIN_CONVERT_ZN = 1000000    # الحد الأدنى لتحويل ZN (1 مليون)
+DEPOSIT_FEE_PERCENT = 0.03
+MIN_DEPOSIT_USD = 1.00
+MIN_CONVERT_ZN = 1000000
 
 @wallet_bp.route('/', methods=['GET', 'POST'])
 def wallet_index():
-    return jsonify({"success": True, "message": "Wallet API is Secure and Active!"}), 200
+    return jsonify({"success": True, "message": "Wallet API is Active!"}), 200
 
-# -------------------------------------------------------------------------
-# 1. جلب سجل المعاملات (السحب، الإيداع، التحويل، والحركات العامة)
-# -------------------------------------------------------------------------
 @wallet_bp.route('/get_history', methods=['GET', 'POST'])
 def get_history():
     is_post = (request.method == 'POST')
     is_auth, user_id, err = get_authenticated_user(request, is_post=is_post)
     if not is_auth: 
-        return err
+        return jsonify({"success": False, "error": "فشل المصادقة، يرجى إعادة فتح التطبيق."}), 200
 
     if is_user_banned(user_id):
-        return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 403
+        return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 200
     
     try:
         user_id_str = str(user_id).strip()
         user_ids = [user_id_str]
         try:
             num_id = int(user_id_str)
-            if num_id not in user_ids:
-                user_ids.append(num_id)
-        except (ValueError, TypeError):
-            pass
+            if num_id not in user_ids: user_ids.append(num_id)
+        except (ValueError, TypeError): pass
 
         history = []
 
-        # استعلام السحوبات (withdrawals)
         try:
             w_docs = db.collection('withdrawals').where('user_id', 'in', user_ids).limit(20).get()
             for doc in w_docs:
@@ -49,10 +42,8 @@ def get_history():
                 d['type'] = d.get('type', 'withdraw')
                 d['id'] = doc.id
                 history.append(d)
-        except Exception as e:
-            print(f"[Wallet API] Warning fetching withdrawals: {e}")
+        except Exception: pass
 
-        # استعلام الإيداعات (deposits)
         try:
             d_docs = db.collection('deposits').where('user_id', 'in', user_ids).limit(20).get()
             for doc in d_docs:
@@ -60,10 +51,8 @@ def get_history():
                 d['type'] = d.get('type', 'deposit')
                 d['id'] = doc.id
                 history.append(d)
-        except Exception as e:
-            print(f"[Wallet API] Warning fetching deposits: {e}")
+        except Exception: pass
 
-        # استعلام التحويلات (conversions)
         try:
             c_docs = db.collection('conversions').where('user_id', 'in', user_ids).limit(20).get()
             for doc in c_docs:
@@ -71,57 +60,33 @@ def get_history():
                 d['type'] = d.get('type', 'convert')
                 d['id'] = doc.id
                 history.append(d)
-        except Exception as e:
-            print(f"[Wallet API] Warning fetching conversions: {e}")
+        except Exception: pass
 
-        # استعلام المعاملات العامة (transactions)
-        try:
-            t_docs = db.collection('transactions').where('tg_id', 'in', user_ids).limit(20).get()
-            for doc in t_docs:
-                d = doc.to_dict() or {}
-                d['id'] = doc.id
-                if not any(item.get('id') == doc.id for item in history):
-                    history.append(d)
-        except Exception as e:
-            print(f"[Wallet API] Warning fetching general transactions: {e}")
-
-        # دالة ترتيب واستخراج التاريخ بأمان
         def safe_date_key(item):
             val = item.get('created_at') or item.get('timestamp') or item.get('date') or ''
-            if hasattr(val, 'isoformat'):
-                return val.isoformat()
-            return str(val)
+            return val.isoformat() if hasattr(val, 'isoformat') else str(val)
 
         history.sort(key=safe_date_key, reverse=True)
 
-        # تنظيف الكائنات للـ JSON
         clean_history = []
         for item in history[:30]:
-            clean_item = {}
-            for k, v in item.items():
-                if hasattr(v, 'isoformat'):
-                    clean_item[k] = v.isoformat()
-                else:
-                    clean_item[k] = v
+            clean_item = {k: (v.isoformat() if hasattr(v, 'isoformat') else v) for k, v in item.items()}
             clean_history.append(clean_item)
 
         return jsonify({"success": True, "history": clean_history}), 200
 
     except Exception as e:
         print(f"[Wallet API] Error fetching history: {e}")
-        return jsonify({"success": False, "error": "حدث خطأ أثناء جلب السجلات"}), 500
+        return jsonify({"success": False, "error": "حدث خطأ أثناء جلب السجلات"}), 200
 
-# -------------------------------------------------------------------------
-# 2. تحويل نقاط ZN إلى USD
-# -------------------------------------------------------------------------
 @wallet_bp.route('/wallet_convert', methods=['POST'])
 def wallet_convert():
     is_auth, user_id, err = get_authenticated_user(request, is_post=True)
     if not is_auth: 
-        return err
+        return jsonify({"success": False, "error": "فشل المصادقة، يرجى إعادة فتح التطبيق من التليجرام."}), 200
 
     if is_user_banned(user_id):
-        return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 403
+        return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 200
     
     req = request.get_json(silent=True) or {}
     try:
@@ -130,9 +95,9 @@ def wallet_convert():
             return jsonify({
                 "success": False, 
                 "error": f"الحد الأدنى لتحويل ZN هو {MIN_CONVERT_ZN:,} نقطة."
-            }), 400
+            }), 200
     except (ValueError, TypeError):
-        return jsonify({"success": False, "error": "كمية نقاط غير صالحة"}), 400
+        return jsonify({"success": False, "error": "كمية نقاط غير صالحة"}), 200
         
     usd_gained = round(amount / 1000000.0, 5)
     user_id_str = str(user_id).strip()
@@ -183,31 +148,28 @@ def wallet_convert():
         }), 200
     except Exception as e:
         print(f"[Wallet API] Conversion Error: {e}")
-        return jsonify({"success": False, "error": str(e)}), 400
+        return jsonify({"success": False, "error": str(e)}), 200
 
-# -------------------------------------------------------------------------
-# 3. تقديم طلب سحب أرباح
-# -------------------------------------------------------------------------
 @wallet_bp.route('/wallet_withdraw', methods=['POST'])
 def wallet_withdraw():
     is_auth, user_id, err = get_authenticated_user(request, is_post=True)
     if not is_auth: 
-        return err
+        return jsonify({"success": False, "error": "فشل المصادقة، يرجى إعادة فتح التطبيق."}), 200
 
     if is_user_banned(user_id):
-        return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 403
+        return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 200
     
     req = request.get_json(silent=True) or {}
     try:
         amount = float(req.get('amount', 0))
         if amount <= 0:
-            return jsonify({"success": False, "error": "مبلغ سحب غير صالح"}), 400
+            return jsonify({"success": False, "error": "مبلغ سحب غير صالح"}), 200
     except (ValueError, TypeError):
-        return jsonify({"success": False, "error": "مبلغ سحب غير صالح"}), 400
+        return jsonify({"success": False, "error": "مبلغ سحب غير صالح"}), 200
         
     wallet_address = str(req.get('walletAddress', '')).strip()
     if not wallet_address:
-        return jsonify({"success": False, "error": "عنوان المحفظة مفقود"}), 400
+        return jsonify({"success": False, "error": "عنوان المحفظة مفقود"}), 200
         
     user_id_str = str(user_id).strip()
     transaction = db.transaction()
@@ -226,9 +188,7 @@ def wallet_withdraw():
             raise Exception("رصيد الـ USD غير كافٍ للسحب")
             
         new_usd = round(current_usd - amount, 5)
-        transaction.update(user_ref, {
-            'usd_balance': new_usd
-        })
+        transaction.update(user_ref, {'usd_balance': new_usd})
         
         withdraw_ref = db.collection('withdrawals').document()
         transaction.set(withdraw_ref, {
@@ -250,19 +210,16 @@ def wallet_withdraw():
         }), 200
     except Exception as e:
         print(f"[Wallet API] Withdraw Error: {e}")
-        return jsonify({"success": False, "error": str(e)}), 400
+        return jsonify({"success": False, "error": str(e)}), 200
 
-# -------------------------------------------------------------------------
-# 4. تسجيل إيداع ناجح
-# -------------------------------------------------------------------------
 @wallet_bp.route('/wallet_deposit_report', methods=['POST'])
 def wallet_deposit_report():
     is_auth, user_id, err = get_authenticated_user(request, is_post=True)
     if not is_auth: 
-        return err
+        return jsonify({"success": False, "error": "فشل المصادقة، يرجى إعادة فتح التطبيق."}), 200
 
     if is_user_banned(user_id):
-        return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 403
+        return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 200
     
     req = request.get_json(silent=True) or {}
     try:
@@ -273,13 +230,13 @@ def wallet_deposit_report():
             return jsonify({
                 "success": False, 
                 "error": f"الحد الأدنى للإيداع هو ${MIN_DEPOSIT_USD:.2f}"
-            }), 400
+            }), 200
     except (ValueError, TypeError):
-        return jsonify({"success": False, "error": "مبلغ إيداع غير صالح"}), 400
+        return jsonify({"success": False, "error": "مبلغ إيداع غير صالح"}), 200
         
     boc = req.get('boc')
     if not boc:
-        return jsonify({"success": False, "error": "رمز إثبات المعاملة (BOC) مفقود"}), 400
+        return jsonify({"success": False, "error": "رمز إثبات المعاملة (BOC) مفقود"}), 200
 
     fee_usd = round(gross_usd * DEPOSIT_FEE_PERCENT, 4)
     net_usd = round(gross_usd - fee_usd, 4)
@@ -305,9 +262,7 @@ def wallet_deposit_report():
         current_usd = float(user_data.get('usd_balance', 0))
         new_usd = round(current_usd + net_usd, 5)
         
-        transaction.update(user_ref, {
-            'usd_balance': new_usd
-        })
+        transaction.update(user_ref, {'usd_balance': new_usd})
         
         transaction.set(deposit_ref, {
             'user_id': user_id_str,
@@ -332,4 +287,4 @@ def wallet_deposit_report():
         }), 200
     except Exception as e:
         print(f"[Wallet API] Deposit Error: {e}")
-        return jsonify({"success": False, "error": str(e)}), 400
+        return jsonify({"success": False, "error": str(e)}), 200
