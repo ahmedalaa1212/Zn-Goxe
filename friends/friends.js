@@ -333,7 +333,19 @@
         }
     }
 
-    // المزامنة اللحظية عند التبديل بين التبويبات أو النوافذ (زي المزرعة بالظبط)
+    // --- التايمر السحري للمزامنة اللحظية الفائقة والربط بين القوائم بدون ريفريش ---
+    setInterval(() => {
+        const cachedBal = getStoredBalance();
+        // إذا اختلف الرصيد في الكاش المحلي عن الرصيد الحالي المسجل بالواجهة، يتم التحديث فوراً
+        if (window.PlayerData && Math.floor(window.PlayerData.balance) !== Math.floor(cachedBal)) {
+            window.PlayerData.balance = cachedBal;
+            if (typeof window.updateFriendsUI === 'function') {
+                window.updateFriendsUI();
+            }
+        }
+    }, 1000); // يفحص كل 1 ثانية لمزامنة فائقة السرعة
+
+    // المزامنة عند التبديل التقليدي بين النوافذ
     window.addEventListener('pageshow', () => {
         const stored = getStoredBalance();
         if (window.PlayerData) window.PlayerData.balance = stored;
