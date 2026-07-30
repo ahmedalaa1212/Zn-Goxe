@@ -1,11 +1,17 @@
 # wallet/wallet_api.py
 import datetime
+import hashlib
 from flask import Blueprint, jsonify, request
 from core.security import get_authenticated_user
 from database import db, is_user_banned
 from google.cloud import firestore
 
 wallet_bp = Blueprint('wallet', __name__)
+
+# الثوابت المعتمدة للعمليات المالية
+DEPOSIT_FEE_PERCENT = 0.03  # خصم 3% رسوم إيداع
+MIN_DEPOSIT_USD = 1.00      # الحد الأدنى للإيداع
+MIN_CONVERT_ZN = 1000000    # الحد الأدنى لتحويل ZN (1 مليون)
 
 @wallet_bp.route('/', methods=['GET', 'POST'])
 def wallet_index():
@@ -22,20 +28,25 @@ def get_history():
         return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 403
     
     try:
-        withdrawals_query = db.collection('withdrawals').where('user_id', '==', str(user_id)).limit(20).get()
-        deposits_query = db.collection('deposits').where('user_id', '==', str(user_id)).limit(20).get()
+        user_id_str = str(user_id)
+        
+        withdrawals_query = db.collection('withdrawals').where('user_id', '==', user_id_str).limit(20).get()
+        deposits_query = db.collection('deposits').where('user_id', '==', user_id_str).limit(20).get()
         
         history = []
         for doc in withdrawals_query:
             d = doc.to_dict()
             d['type'] = 'withdraw'
+            d['id'] = doc.id
             history.append(d)
             
         for doc in deposits_query:
             d = doc.to_dict()
             d['type'] = 'deposit'
+            d['id'] = doc.id
             history.append(d)
             
+        # ترتيب السجلات حسب تاريخ الإنشاء من الأحدث للأقدم
         history.sort(key=lambda x: x.get('created_at', ''), reverse=True)
         return jsonify({"success": True, "history": history[:30]}), 200
     except Exception as e:
@@ -55,12 +66,12 @@ def wallet_convert():
     req = request.get_json(silent=True) or {}
     try:
         amount = float(req.get('amount', 0))
-        if amount < 1000000 or amount <= 0:
-            return jsonify({"success": False, "error": "الحد الأدنى للتحويل هو 1,000,000 ZN"}), 400
+        if amount < MIN_CONVERT_ZN or amount <= 0:
+            return jsonify({"success": False, "error": f"الحد الأدنى للتحويل هو {MIN_CONVERT_ZN:,} ZN"}), 400
     except (ValueError, TypeError):
         return jsonify({"success": False, "error": "كمية غير صالحة"}), 400
         
-    usd_gained = amount / 1000000.0
+    usd_gained = round(amount / 1000000.0, 5)
     transaction = db.transaction()
     user_ref = db.collection('users').document(str(user_id))
     
@@ -77,7 +88,7 @@ def wallet_convert():
         if current_balance < amount:
             raise Exception("رصيد النقاط غير كافٍ لإتمام التحويل")
             
-        new_usd = current_usd + usd_gained
+        new_usd = round(current_usd + usd_gained, 5)
         transaction.update(user_ref, {
             'balance': current_balance - amount,
             'usd_balance': new_usd
@@ -127,7 +138,7 @@ def wallet_withdraw():
         if current_usd < amount:
             raise Exception("رصيد الـ USD غير كافٍ للسحب")
             
-        new_usd = current_usd - amount
+        new_usd = round(current_usd - amount, 5)
         transaction.update(user_ref, {
             'usd_balance': new_usd
         })
@@ -148,7 +159,7 @@ def wallet_withdraw():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
 
-# 4. تسجيل إيداع ناجح
+# 4. تسجيل إيداع ناجح (مع احتساب رسوم الـ 3% والحد الأدنى وحماية التكرار)
 @wallet_bp.route('/wallet_deposit_report', methods=['POST'])
 def wallet_deposit_report():
     is_auth, user_id, err = get_authenticated_user(request, is_post=True)
@@ -160,35 +171,54 @@ def wallet_deposit_report():
     
     req = request.get_json(silent=True) or {}
     try:
-        usd_amount = float(req.get('usdAmount', 0))
+        gross_usd = float(req.get('usdAmount', 0))
         ton_amount = float(req.get('tonAmount', 0))
-        if usd_amount <= 0:
-            return jsonify({"success": False, "error": "مبلغ إيداع غير صالح"}), 400
+        
+        # التحقق من الحد الأدنى لإجمالي مبلغ الإيداع
+        if gross_usd < MIN_DEPOSIT_USD:
+            return jsonify({"success": False, "error": f"الحد الأدنى للإيداع هو ${MIN_DEPOSIT_USD:.2f}"}), 400
     except (ValueError, TypeError):
         return jsonify({"success": False, "error": "مبلغ إيداع غير صالح"}), 400
         
     boc = req.get('boc')
+    if not boc:
+        return jsonify({"success": False, "error": "رمز إثبات المعاملة (BOC) مفقود"}), 400
+
+    # حساب الخصم الصافي برمجياً على السيرفر
+    fee_usd = round(gross_usd * DEPOSIT_FEE_PERCENT, 4)
+    net_usd = round(gross_usd - fee_usd, 4)
+
+    # إنشاء Hash فريد بناءً على الـ BOC للتحقق من عدم تكرار الإيداع
+    tx_hash = hashlib.sha256(str(boc).encode('utf-8')).hexdigest()
+    deposit_ref = db.collection('deposits').document(tx_hash)
+    
     transaction = db.transaction()
     user_ref = db.collection('users').document(str(user_id))
     
     @firestore.transactional
     def secure_deposit_tx(transaction, user_ref):
+        # منع تكرار نفس المعاملة (Replay Attack Protection)
+        deposit_snap = deposit_ref.get(transaction=transaction)
+        if deposit_snap.exists:
+            raise Exception("تم تسجيل هذه المعاملة مسبقاً")
+
         snapshot = user_ref.get(transaction=transaction)
         if not snapshot.exists:
             raise Exception("حساب المستخدم غير موجود")
             
         user_data = snapshot.to_dict()
         current_usd = float(user_data.get('usd_balance', 0))
-        new_usd = current_usd + usd_amount
+        new_usd = round(current_usd + net_usd, 5)
         
         transaction.update(user_ref, {
             'usd_balance': new_usd
         })
         
-        deposit_ref = db.collection('deposits').document()
         transaction.set(deposit_ref, {
             'user_id': str(user_id),
-            'amount_usd': usd_amount,
+            'gross_amount_usd': gross_usd,
+            'amount_usd': net_usd,      # المبلغ الصافي المضاف لرصيد المستخدم
+            'fee_usd': fee_usd,         # الرسوم المقتطعة 3%
             'amount_ton': ton_amount,
             'boc': boc,
             'status': 'completed',
@@ -198,6 +228,10 @@ def wallet_deposit_report():
         
     try:
         new_usd = secure_deposit_tx(transaction, user_ref)
-        return jsonify({"success": True, "new_usd_balance": new_usd}), 200
+        return jsonify({
+            "success": True, 
+            "new_usd_balance": new_usd,
+            "net_usd_credited": net_usd
+        }), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
