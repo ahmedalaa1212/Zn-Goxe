@@ -1,202 +1,346 @@
-// =================================================================
-// 🎮 ZN Goxe - Core Game Engine & Universal Realtime State Manager
-// =================================================================
+/* ==========================================
+   1. Initial Setup & Telegram WebApp Bridge
+   ========================================== */
+const tg = window.Telegram?.WebApp;
 
-(function initGameEngine() {
-    'use strict';
+if (tg) {
+    tg.ready();
+    tg.expand();
+    if (tg.enableClosingConfirmation) {
+        tg.enableClosingConfirmation();
+    }
+    if (tg.setHeaderColor) {
+        tg.setHeaderColor('secondary_bg_color');
+    }
+}
 
-    // 1. تهيئة تطبيق التليجرام Mini App
-    const tg = window.Telegram?.WebApp;
-    if (tg) {
-        tg.ready();
-        tg.expand();
+// الكائن الداخلي للبيانات
+const rawUserState = {
+    tg_id: null,
+    first_name: "لاعب",
+    balance: 0.0,
+    usd_balance: 0.0,
+    ad_balance: 0.0,
+    hourly_rate: 0.0,
+    mining_level: 1,
+    storage_level: 1,
+    upgrades: {},
+    wallet_address: null
+};
+
+// حفظ البيانات محلياً
+function saveLocalState() {
+    try {
+        localStorage.setItem('app_user_state', JSON.stringify(window.userState));
+    } catch (e) {
+        console.error("Error saving local state", e);
+    }
+}
+
+// إنشاء Proxy ذكي لـ window.userState لتحديث الشاشات فور تغيير أي قيمة من أي ملف آخر
+window.userState = new Proxy(rawUserState, {
+    set(target, prop, value) {
+        target[prop] = value;
+        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'mining_level', 'storage_level'].includes(prop)) {
+            saveLocalState();
+            if (typeof window.updateUI === 'function') {
+                window.updateUI();
+            }
+        }
+        return true;
+    }
+});
+
+// استرجاع البيانات المخزنة محلياً فوراً لمنع اختفاء الرصيد أثناء التحميل
+function loadLocalState() {
+    try {
+        const saved = localStorage.getItem('app_user_state');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            Object.assign(rawUserState, parsed);
+        }
+    } catch (e) {
+        console.error("Error loading local state", e);
+    }
+}
+
+loadLocalState(); // تشغيل فوري
+
+/* ==========================================
+   2. API Communication Utility
+   ========================================== */
+async function fetchAPI(endpoint, method = 'GET', bodyData = null) {
+    const headers = {
+        'Content-Type': 'application/json'
+    };
+
+    if (tg && tg.initData) {
+        headers['X-Telegram-Init-Data'] = tg.initData;
+        headers['Authorization'] = `Bearer ${tg.initData}`;
     }
 
-    // 2. الحجم والبيانات الافتراضية
-    const rawUser = tg?.initDataUnsafe?.user;
-    const defaultUserId = rawUser?.id ? String(rawUser.id) : '';
-    const defaultUsername = rawUser?.username || rawUser?.first_name || 'Goxe User';
+    const options = { method, headers };
+    if (bodyData) {
+        options.body = JSON.stringify(bodyData);
+    }
 
-    // 3. الحالة الكلية للعبة (Internal Raw Target)
-    const rawState = {
-        user_id: defaultUserId,
-        username: defaultUsername,
-        balance: 0,
-        usd_balance: 0,
-        ad_balance: 0,
-        hourly_rate: 0,
-        energy: 1000,
-        max_energy: 1000,
-        is_syncing: false,
-        is_initialized: false
-    };
-
-    // 4. دالة المصادقة الآمنة لجلب الـ Payload
-    window.getAuthPayload = function(extraData = {}) {
-        const initData = window.Telegram?.WebApp?.initData || '';
-        const currentUserId = window.GameState?.user_id || defaultUserId;
-        return {
-            initData: initData,
-            tg_id: String(currentUserId),
-            ...extraData
-        };
-    };
-
-    // 5. محرك التحديث الموحد لجميع واجهات التطبيق (Universal UI Updater)
-    window.updateGlobalUI = function() {
-        if (!window.GameState) return;
-
-        const zn = Number(window.GameState.balance) || 0;
-        const usd = Number(window.GameState.usd_balance) || 0;
-        const speed = Number(window.GameState.hourly_rate) || 0;
-
-        // تنسيق الأرقام
-        const formattedZN = Math.floor(zn).toLocaleString('en-US');
-        const formattedUSD = "$" + (usd > 0 && usd < 0.01 ? usd.toFixed(5) : usd.toFixed(4));
-        const formattedSpeed = "h/" + Math.floor(speed).toLocaleString('en-US');
-
-        // قائمة بجميع الـ IDs المحتملة لرصيد النقاط ZN عبر كل الصفحات (المهمات، المتجر، المحفظة، المزرعة)
-        const znSelectors = [
-            '#user-zn-balance', '#zn-balance', '#wallet-zn-balance', 
-            '#top-zn-balance', '#farm-zn-balance', '#task-zn-balance',
-            '#store-zn-balance', '.zn-balance-value', '.global-zn-display'
-        ];
-
-        // قائمة بجميع الـ IDs المحتملة لرصيد الدولار USD
-        const usdSelectors = [
-            '#user-usd-balance', '#usd-balance', '#wallet-usd-balance', 
-            '#store-usd-balance', '#top-usd-balance', '.usd-balance-value', 
-            '.global-usd-display'
-        ];
-
-        // قائمة بجميع الـ IDs المحتملة للسرعة hourly_rate
-        const speedSelectors = [
-            '#user-hourly-rate', '#hourly-rate', '#store-hourly-rate', 
-            '#farm-speed-rate', '.speed-rate-value'
-        ];
-
-        // تحديث عناصر ZN
-        znSelectors.forEach(selector => {
-            document.querySelectorAll(selector).forEach(el => {
-                if (el.tagName === 'INPUT') {
-                    el.value = formattedZN;
-                } else {
-                    // إذا كان العنصر يحتوى على نص داخلي مثل ZN 0
-                    if (el.classList.contains('text-formatted') || el.dataset.prefix) {
-                        el.innerText = (el.dataset.prefix || '') + formattedZN + (el.dataset.suffix || '');
-                    } else {
-                        el.innerText = formattedZN;
-                    }
-                }
-            });
-        });
-
-        // تحديث عناصر USD
-        usdSelectors.forEach(selector => {
-            document.querySelectorAll(selector).forEach(el => {
-                if (el.tagName === 'INPUT') el.value = formattedUSD;
-                else el.innerText = formattedUSD;
-            });
-        });
-
-        // تحديث عناصر السرعة
-        speedSelectors.forEach(selector => {
-            document.querySelectorAll(selector).forEach(el => {
-                if (el.tagName === 'INPUT') el.value = formattedSpeed;
-                else el.innerText = formattedSpeed;
-            });
-        });
-
-        // استدعاء تحديث المحفظة إذا كانت دالتها محملة
-        if (typeof window.updateWalletHeaderUI === 'function') {
-            window.updateWalletHeaderUI();
-        }
-    };
-
-    // 6. إنشاء Proxy ذكي لمراقبة أي تغيير في GameState وتحديث الشاشات فوراً
-    window.GameState = new Proxy(rawState, {
-        set(target, prop, value) {
-            target[prop] = value;
-            
-            // عند تعديل أي قيمة مالية أو رئيسية، يتم استدعاء التحديث اللحظي للـ UI فوراً
-            if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy'].includes(prop)) {
-                window.updateGlobalUI();
-            }
-            return true;
-        }
-    });
-
-    // 7. دالة المزامنة المباشرة مع سيرفر Flask / Firestore
-    window.syncGameState = async function() {
-        if (!window.apiCall || rawState.is_syncing) return;
-        rawState.is_syncing = true;
-
-        try {
-            const payload = window.getAuthPayload();
-            const res = await window.apiCall('/api/farm/sync', 'POST', payload);
-
-            if (res && res.success && res.data) {
-                const data = res.data;
-                if (data.balance !== undefined) window.GameState.balance = Number(data.balance);
-                if (data.usd_balance !== undefined) window.GameState.usd_balance = Number(data.usd_balance);
-                if (data.ad_balance !== undefined) window.GameState.ad_balance = Number(data.ad_balance);
-                if (data.hourly_rate !== undefined) window.GameState.hourly_rate = Number(data.hourly_rate);
-                if (data.energy !== undefined) window.GameState.energy = Number(data.energy);
-                if (data.max_energy !== undefined) window.GameState.max_energy = Number(data.max_energy);
-                
-                window.GameState.is_initialized = true;
-                window.updateGlobalUI();
-            }
-        } catch (err) {
-            console.error("Game state sync error:", err);
-        } finally {
-            rawState.is_syncing = false;
-        }
-    };
-
-    // 8. التنقل الموحد بين القوائم والمجلدات
-    window.switchTab = function(tabName) {
-        if (tg && tg.HapticFeedback) {
-            tg.HapticFeedback.impactOccurred('light');
-        }
-
-        const navBtns = document.querySelectorAll('.nav-btn, .footer-btn, [data-tab]');
-        navBtns.forEach(btn => {
-            if (btn.dataset.tab === tabName || btn.id === `nav-${tabName}`) {
-                btn.classList.add('active');
-            } else {
-                btn.classList.remove('active');
-            }
-        });
-
-        const sections = document.querySelectorAll('.tab-content, .page-section');
-        sections.forEach(sec => {
-            if (sec.id === `tab-${tabName}` || sec.id === `${tabName}-section`) {
-                sec.style.display = 'block';
-            } else {
-                sec.style.display = 'none';
-            }
-        });
-
-        // مزامنة فورية عند تغيير التبويب لتأكيد ظهور الرصيد الصحيح
-        window.updateGlobalUI();
-    };
-
-    // 9. تشغيل المزامنة التلقائية عند التحميل ودورياً كل 10 ثوانٍ
-    document.addEventListener('DOMContentLoaded', () => {
-        window.updateGlobalUI();
-        window.syncGameState();
+    try {
+        const response = await fetch(endpoint, options);
+        const result = await response.json();
         
-        // مزامنة خلفية كل 10 ثوانٍ لضمان استقرار الأرصدة
-        setInterval(() => {
-            window.syncGameState();
-        }, 10000);
+        if (!response.ok) {
+            if (response.status === 403 && result.error?.includes("محظور")) {
+                alert("تم حظر حسابك من استخدام التطبيق.");
+                if (tg) tg.close();
+            }
+            throw new Error(result.error || `Error HTTP ${response.status}`);
+        }
+        return result;
+    } catch (err) {
+        console.error(`[API Error] Path: ${endpoint} ->`, err);
+        throw err;
+    }
+}
+
+/* ==========================================
+   3. UI Builders & Formatters
+   ========================================== */
+function formatNumber(num, decimals = 2) {
+    const val = parseFloat(num);
+    if (isNaN(val)) return "0.00";
+    return val.toLocaleString('en-US', {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+    });
+}
+
+window.updateUI = function() {
+    const znFormatted = formatNumber(window.userState.balance, 0);
+    const usdFormatted = `$${formatNumber(window.userState.usd_balance, 4)}`;
+    const hourlyFormatted = `+${formatNumber(window.userState.hourly_rate, 0)}/h`;
+
+    // قائمة بجميع الـ IDs للرصيد ZN عبر كافة القوائم (الرئيسية، المتجر، المهمات، المحفظة)
+    const znElementIds = [
+        'user-balance', 
+        'shop-balance-text', 
+        'top-zn-balance', 
+        'wallet-zn-balance', 
+        'task-zn-balance', 
+        'farm-zn-balance',
+        'zn-balance'
+    ];
+
+    znElementIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            if (el.tagName === 'INPUT') el.value = znFormatted;
+            else el.innerText = znFormatted;
+        }
     });
 
-    // تشغيل فوري في حال تم تحميل Script بعد DOMContentLoaded
-    if (document.readyState === 'complete' || document.readyState === 'interactive') {
-        window.updateGlobalUI();
-        window.syncGameState();
+    // تحديث بالـ Class لضمان تغطية أية عناصر إضافية
+    document.querySelectorAll('.zn-balance-display').forEach(el => {
+        el.innerText = znFormatted;
+    });
+
+    // قائمة بجميع الـ IDs للرصيد USD عبر كافة القوائم
+    const usdElementIds = [
+        'user-usd-balance', 
+        'shop-usd-text', 
+        'top-usd-balance', 
+        'wallet-usd-balance', 
+        'usd-balance'
+    ];
+
+    usdElementIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            if (el.tagName === 'INPUT') el.value = usdFormatted;
+            else el.innerText = usdFormatted;
+        }
+    });
+
+    document.querySelectorAll('.usd-balance-display').forEach(el => {
+        el.innerText = usdFormatted;
+    });
+
+    // قائمة بجميع الـ IDs لمعدل السرعة hourly_rate
+    const hourlyElementIds = [
+        'hourly-rate', 
+        'shop-rate-text', 
+        'user-hourly-rate', 
+        'farm-rate-text'
+    ];
+
+    hourlyElementIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            if (el.tagName === 'INPUT') el.value = hourlyFormatted;
+            else el.innerText = hourlyFormatted;
+        }
+    });
+
+    // استدعاء دالة تحديث المتجر إذا كانت معرفة في ملف shop.js
+    if (typeof window.updateShopUI === 'function') {
+        window.updateShopUI();
     }
 
-})();
+    // استدعاء دالة تحديث المهمات إذا كانت معرفة في ملف tasks.js
+    if (typeof window.renderTasks === 'function') {
+        window.renderTasks();
+    }
+};
+
+/* ==========================================
+   4. Fetch Latest User Data from Server
+   ========================================== */
+let isUserDataFetching = false;
+
+window.loadUserData = async function() {
+    if (!tg || !tg.initData) return;
+    if (isUserDataFetching) return; 
+
+    isUserDataFetching = true;
+
+    try {
+        // جلب بيانات الحساب المحدثة من السيرفر
+        const data = await fetchAPI('/api/user/info');
+        if (data && data.success) {
+            // تحديث القيم مباشرة لتفعيل الـ Proxy والتحديث اللحظي
+            if (data.balance !== undefined) window.userState.balance = parseFloat(data.balance);
+            if (data.usd_balance !== undefined) window.userState.usd_balance = parseFloat(data.usd_balance);
+            if (data.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(data.hourly_rate);
+            if (data.storage_level !== undefined) window.userState.storage_level = parseInt(data.storage_level);
+            if (data.upgrades !== undefined) window.userState.upgrades = data.upgrades;
+            if (data.wallet_address !== undefined) window.userState.wallet_address = data.wallet_address;
+
+            saveLocalState();
+            window.updateUI();
+        }
+    } catch (e) {
+        console.log("استخدام البيانات المحلية المسجلة مسبقاً لحين توفر الاتصال.");
+        window.updateUI();
+    } finally {
+        isUserDataFetching = false;
+    }
+};
+
+/* ==========================================
+   5. Actions (Convert, Withdraw, Deposit)
+   ========================================== */
+async function loadWalletHistory() {
+    const historyList = document.getElementById('wallet-history-list');
+    if (!historyList) return;
+
+    historyList.innerHTML = `<div class="loading-spinner">جاري تحميل السجلات...</div>`;
+
+    try {
+        const data = await fetchAPI('/api/wallet/get_history');
+        if (data.success && Array.isArray(data.history)) {
+            if (data.history.length === 0) {
+                historyList.innerHTML = `<div class="empty-msg">لا توجد معاملات سابقة حتى الآن.</div>`;
+                return;
+            }
+
+            let html = '';
+            data.history.forEach(tx => {
+                let badgeClass = 'bg-secondary';
+                let txTitle = 'عملية';
+                let amountText = '';
+
+                if (tx.type === 'withdraw') {
+                    badgeClass = tx.status === 'completed' ? 'badge-success' : (tx.status === 'pending' ? 'badge-warning' : 'badge-danger');
+                    txTitle = 'سحب أرباح';
+                    amountText = `-$${formatNumber(tx.amount_usd || 0, 2)}`;
+                } else if (tx.type === 'deposit') {
+                    badgeClass = 'badge-success';
+                    txTitle = 'إيداع رصيد';
+                    amountText = `+$${formatNumber(tx.amount_usd || tx.gross_amount_usd || 0, 2)}`;
+                } else if (tx.type === 'convert') {
+                    badgeClass = 'badge-info';
+                    txTitle = 'تحويل ZN إلى USD';
+                    amountText = `+$${formatNumber(tx.amount_usd || 0, 4)}`;
+                }
+
+                const dateStr = tx.created_at ? new Date(tx.created_at).toLocaleString('ar-EG') : 'الآن';
+
+                html += `
+                    <div class="history-item">
+                        <div class="history-info">
+                            <span class="history-title">${txTitle}</span>
+                            <span class="history-date">${dateStr}</span>
+                        </div>
+                        <div class="history-amount">
+                            <span class="amount-text">${amountText}</span>
+                            <span class="badge ${badgeClass}">${tx.status || 'مكتمل'}</span>
+                        </div>
+                    </div>
+                `;
+            });
+            historyList.innerHTML = html;
+        } else {
+            historyList.innerHTML = `<div class="error-msg">فشل في جلب السجلات.</div>`;
+        }
+    } catch (e) {
+        historyList.innerHTML = `<div class="error-msg">${e.message || 'خطأ في الاتصال بالشبكة'}</div>`;
+    }
+}
+
+async function executeConvertZN(amount) {
+    try {
+        const res = await fetchAPI('/api/wallet/wallet_convert', 'POST', { amount: parseFloat(amount) });
+        if (res.success) {
+            window.userState.usd_balance = res.new_usd_balance;
+            window.userState.balance = res.new_balance;
+            saveLocalState();
+            window.updateUI();
+            alert(`تم تحويل ${formatNumber(amount, 0)} ZN بنجاح إلى $${formatNumber(res.usd_gained, 4)}!`);
+            loadWalletHistory();
+        }
+    } catch (e) {
+        alert(`فشل التحويل: ${e.message}`);
+    }
+}
+
+async function executeWithdraw(amountUSD, address) {
+    try {
+        const res = await fetchAPI('/api/wallet/wallet_withdraw', 'POST', { 
+            amount: parseFloat(amountUSD), 
+            walletAddress: address 
+        });
+        if (res.success) {
+            window.userState.usd_balance = res.new_usd_balance;
+            saveLocalState();
+            window.updateUI();
+            alert(`تم إرسال طلب السحب بنجاح وهي قيد المعالجة!`);
+            loadWalletHistory();
+        }
+    } catch (e) {
+        alert(`فشل السحب: ${e.message}`);
+    }
+}
+
+/* ==========================================
+   6. Realtime Auto-Sync & Event Listeners
+   ========================================== */
+document.addEventListener('DOMContentLoaded', () => {
+    window.updateUI();
+    window.loadUserData(); // جلب البيانات الحقيقية فور تحميل الصفحة
+    
+    const historyBtn = document.getElementById('open-history-btn');
+    if (historyBtn) {
+        historyBtn.addEventListener('click', loadWalletHistory);
+    }
+
+    // 1. مزامنة تلقائية حية كل 4 ثوانٍ لضمان استقبال أية نقاط أضيفت من السيرفر أو البوت بدون إغلاق التطبيق
+    setInterval(() => {
+        window.loadUserData();
+    }, 4000);
+
+    // 2. مزامنة فورية بمجرد عودة المستخدم لشاشة التطبيق
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            window.loadUserData();
+        }
+    });
+});
