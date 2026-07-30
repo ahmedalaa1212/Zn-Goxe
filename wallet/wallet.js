@@ -393,7 +393,7 @@ window.renderWalletTab = function(tab) {
                             month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
                         }) : '';
 
-                        const rawAmount = parseFloat(item.amount_usd || item.amount || item.usd_amount || 0);
+                        const rawAmount = parseFloat(item.amount_usd || item.amount || item.usd_amount || item.amount_zn / 1000000 || 0);
                         const displayAmount = (rawAmount > 0 && rawAmount < 0.01) ? rawAmount.toFixed(5) : rawAmount.toFixed(2);
                         
                         html += `
