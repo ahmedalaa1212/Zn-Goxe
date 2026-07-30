@@ -16,6 +16,7 @@
             --ton-blue-glow: rgba(0, 152, 234, 0.3);
             --accent-green: #10b981;
             --accent-green-glow: rgba(16, 185, 129, 0.25);
+            --accent-yellow: #f59e0b;
             --accent-red: #ef4444;
             --text-main: #f8fafc;
             --text-sub: #94a3b8;
@@ -66,6 +67,7 @@
         .zn-pill {
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 6px;
             background: rgba(255, 255, 255, 0.06);
             padding: 6px 14px;
@@ -76,6 +78,12 @@
             margin-bottom: 12px;
         }
 
+        .num-en {
+            direction: ltr;
+            display: inline-block;
+            unicode-bidi: embed;
+        }
+
         .usd-balance { 
             color: var(--text-main); 
             font-size: 38px; 
@@ -83,6 +91,7 @@
             letter-spacing: -1px;
             margin: 4px 0;
             text-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            direction: ltr;
         }
 
         .ton-estimate { 
@@ -94,9 +103,10 @@
             padding: 4px 12px;
             border-radius: 12px;
             margin-top: 6px;
+            direction: ltr;
         }
 
-        /* أزرار التبويبات الفخمة */
+        /* أزرار التبويبات الرئيسية (سحب - سجلات - إيداع) */
         .tabs { 
             display: flex; 
             gap: 6px; 
@@ -136,6 +146,97 @@
             backdrop-filter: blur(10px);
         }
 
+        /* 📦 شبكة باقات الشراء المباشرة داخل قسم الإيداع */
+        .packages-section-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-main);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .packages-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+
+        .package-card {
+            background: rgba(10, 13, 20, 0.6);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .package-card:hover, .package-card.selected {
+            border-color: var(--ton-blue);
+            background: rgba(0, 152, 234, 0.08);
+            box-shadow: 0 0 12px rgba(0, 152, 234, 0.2);
+        }
+
+        .package-card.selected::after {
+            content: '✓';
+            position: absolute;
+            top: 6px;
+            left: 8px;
+            font-size: 12px;
+            color: var(--ton-blue);
+            font-weight: bold;
+        }
+
+        .package-price {
+            font-size: 18px;
+            font-weight: 800;
+            color: #fff;
+        }
+
+        .package-amount {
+            font-size: 12px;
+            color: var(--accent-green);
+            font-weight: 700;
+            margin-top: 2px;
+        }
+
+        .package-tag {
+            position: absolute;
+            top: 0;
+            right: 0;
+            background: var(--ton-blue);
+            color: #fff;
+            font-size: 9px;
+            font-weight: 800;
+            padding: 2px 8px;
+            border-bottom-left-radius: 8px;
+        }
+
+        /* شريط معلومات الشروط (الحد الأدنى 1$ وخصم 3%) */
+        .deposit-notice-bar {
+            background: rgba(245, 158, 11, 0.08);
+            border: 1px dashed rgba(245, 158, 11, 0.3);
+            border-radius: 10px;
+            padding: 10px 12px;
+            font-size: 12px;
+            color: #fcd34d;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .deposit-notice-bar span {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
         .input-group { margin-bottom: 16px; }
         .input-label { font-size: 13px; color: var(--text-sub); margin-bottom: 8px; display: block; text-align: right; font-weight: 600; }
         
@@ -157,30 +258,11 @@
             font-size: 16px; 
             font-weight: 600;
             transition: border-color 0.2s; 
+            direction: ltr;
+            text-align: left;
         }
 
         .input-field:focus { border-color: var(--ton-blue); }
-
-        .quick-chips {
-            display: flex;
-            gap: 8px;
-            margin-top: 8px;
-        }
-
-        .chip-btn {
-            flex: 1;
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            color: var(--text-sub);
-            padding: 6px;
-            border-radius: 8px;
-            font-size: 12px;
-            font-weight: 700;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .chip-btn:active { background: rgba(255, 255, 255, 0.15); }
 
         .action-btn { 
             width: 100%; 
@@ -216,14 +298,6 @@
             box-shadow: 0 0 8px var(--accent-green);
         }
 
-        .locked-state { 
-            padding: 24px; 
-            text-align: center; 
-            background: rgba(239, 68, 68, 0.05); 
-            border: 1px solid rgba(239, 68, 68, 0.2); 
-            border-radius: 16px; 
-        }
-
         .connected-state { 
             padding: 12px 14px; 
             margin-bottom: 16px; 
@@ -238,12 +312,11 @@
         .wallet-address-text { color: var(--accent-green); font-size: 12px; font-weight: 600; word-break: break-all; text-align: right; flex: 1; }
         .disconnect-btn { background: transparent; border: 1px solid var(--accent-red); color: var(--accent-red); padding: 5px 10px; border-radius: 8px; font-size: 11px; font-weight: 700; cursor: pointer; margin-right: 10px; }
 
-        /* 🎨 تخصيص مودال TON Connect ومنع الألوان الافتراضية البرتقالية */
+        /* تخصيص مودال TON Connect */
         #tc-widget-root, [data-tc-modal="true"] {
             font-family: 'Plus Jakarta Sans', system-ui, sans-serif !important;
         }
         
-        /* إجبار لون الأزرار والعناصر الخاصة بالربط على نظام ألوان التطبيق */
         div[class*="tc-modal-container"] {
             background-color: #0a0d14 !important;
         }
@@ -257,9 +330,9 @@
     <div class="balance-card">
         <div class="zn-pill">
             <span>⚡ رصيد ZN:</span>
-            <b id="wallet-zn-balance" style="color:#fff;">0</b>
+            <b id="wallet-zn-balance" class="num-en" style="color:#fff;">0</b>
         </div>
-        <div id="wallet-usd-balance" class="usd-balance">$0.00000</div>
+        <div id="wallet-usd-balance" class="usd-balance">$0.0000</div>
         <div id="wallet-ton-estimate" class="ton-estimate">≈ 0.0000 TON</div>
     </div>
 
@@ -280,13 +353,13 @@
     <!-- مؤشر سعر الـ TON اللحظي -->
     <div class="ton-price-ticker">
         <span class="live-dot"></span>
-        سعر 1 TON اللحظي = $<span id="current-ton-price">...</span>
+        <span>سعر 1 TON اللحظي = <span id="current-ton-price" class="num-en">...</span>$</span>
     </div>
 </div>
 
 <div id="hidden-ton-root" style="display: none;"></div>
 
 <script src="../game.js"></script>
-<script src="wallet.js?v=6"></script>
+<script src="wallet.js?v=8"></script>
 </body>
 </html>
