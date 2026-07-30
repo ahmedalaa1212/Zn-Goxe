@@ -1,4 +1,3 @@
-# wallet/wallet_api.py
 import datetime
 import hashlib
 from flask import Blueprint, jsonify, request
@@ -17,7 +16,7 @@ MIN_CONVERT_ZN = 1000000    # الحد الأدنى لتحويل ZN (1 مليو�
 def wallet_index():
     return jsonify({"success": True, "message": "Wallet API is Secure and Active!"}), 200
 
-# 1. جلب سجل المعاملات
+# 1. جلب سجل المعاملات (مُعدل لدعم الرقم والنص معاً)
 @wallet_bp.route('/get_history', methods=['GET'])
 def get_history():
     is_auth, user_id, err = get_authenticated_user(request)
@@ -29,9 +28,16 @@ def get_history():
     
     try:
         user_id_str = str(user_id)
+        # تجهيز البحث بكل أنواع الـ ID (نصي وعددي) لضمان العثور على كافة السجلات
+        user_ids = [user_id_str]
+        try:
+            user_ids.append(int(user_id))
+        except ValueError:
+            pass
         
-        withdrawals_query = db.collection('withdrawals').where('user_id', '==', user_id_str).limit(20).get()
-        deposits_query = db.collection('deposits').where('user_id', '==', user_id_str).limit(20).get()
+        # جلب السحوبات والإيداعات
+        withdrawals_query = db.collection('withdrawals').where('user_id', 'in', user_ids).limit(20).get()
+        deposits_query = db.collection('deposits').where('user_id', 'in', user_ids).limit(20).get()
         
         history = []
         for doc in withdrawals_query:
@@ -46,9 +52,17 @@ def get_history():
             d['id'] = doc.id
             history.append(d)
             
+        # دالة آمنة لتحويل التاريخ إلى نص لتفادي خطأ المقارنة عند الترتيب
+        def safe_date_key(item):
+            val = item.get('created_at') or item.get('timestamp') or item.get('date') or ''
+            if isinstance(val, datetime.datetime):
+                return val.isoformat()
+            return str(val)
+
         # ترتيب السجلات حسب تاريخ الإنشاء من الأحدث للأقدم
-        history.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        history.sort(key=safe_date_key, reverse=True)
         return jsonify({"success": True, "history": history[:30]}), 200
+
     except Exception as e:
         print(f"[Wallet API] Error fetching history: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب السجلات"}), 500
@@ -159,7 +173,7 @@ def wallet_withdraw():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
 
-# 4. تسجيل إيداع ناجح (مع احتساب رسوم الـ 3% والحد الأدنى وحماية التكرار)
+# 4. تسجيل إيداع ناجح
 @wallet_bp.route('/wallet_deposit_report', methods=['POST'])
 def wallet_deposit_report():
     is_auth, user_id, err = get_authenticated_user(request, is_post=True)
@@ -174,7 +188,6 @@ def wallet_deposit_report():
         gross_usd = float(req.get('usdAmount', 0))
         ton_amount = float(req.get('tonAmount', 0))
         
-        # التحقق من الحد الأدنى لإجمالي مبلغ الإيداع
         if gross_usd < MIN_DEPOSIT_USD:
             return jsonify({"success": False, "error": f"الحد الأدنى للإيداع هو ${MIN_DEPOSIT_USD:.2f}"}), 400
     except (ValueError, TypeError):
@@ -184,11 +197,9 @@ def wallet_deposit_report():
     if not boc:
         return jsonify({"success": False, "error": "رمز إثبات المعاملة (BOC) مفقود"}), 400
 
-    # حساب الخصم الصافي برمجياً على السيرفر
     fee_usd = round(gross_usd * DEPOSIT_FEE_PERCENT, 4)
     net_usd = round(gross_usd - fee_usd, 4)
 
-    # إنشاء Hash فريد بناءً على الـ BOC للتحقق من عدم تكرار الإيداع
     tx_hash = hashlib.sha256(str(boc).encode('utf-8')).hexdigest()
     deposit_ref = db.collection('deposits').document(tx_hash)
     
@@ -197,7 +208,6 @@ def wallet_deposit_report():
     
     @firestore.transactional
     def secure_deposit_tx(transaction, user_ref):
-        # منع تكرار نفس المعاملة (Replay Attack Protection)
         deposit_snap = deposit_ref.get(transaction=transaction)
         if deposit_snap.exists:
             raise Exception("تم تسجيل هذه المعاملة مسبقاً")
@@ -217,8 +227,8 @@ def wallet_deposit_report():
         transaction.set(deposit_ref, {
             'user_id': str(user_id),
             'gross_amount_usd': gross_usd,
-            'amount_usd': net_usd,      # المبلغ الصافي المضاف لرصيد المستخدم
-            'fee_usd': fee_usd,         # الرسوم المقتطعة 3%
+            'amount_usd': net_usd,
+            'fee_usd': fee_usd,
             'amount_ton': ton_amount,
             'boc': boc,
             'status': 'completed',
