@@ -1,6 +1,7 @@
 // shop/shop.js
 (function initShop() {
-    
+    'use strict';
+
     // --- أدوات المزامنة الموحدة مع الذاكرة المحلية والواجهات ---
     function getStoredBalance() {
         if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
@@ -34,6 +35,17 @@
                 if (window.PlayerData) window.PlayerData.balance = numVal;
                 localStorage.setItem('zn_balance', numVal.toString());
                 localStorage.setItem('user_balance', numVal.toString());
+            }
+        }
+    }
+
+    // أداة اهتزاز اللمس لتطبيقات تليجرام (Haptic Feedback)
+    function triggerHaptic(type = 'impact', style = 'medium') {
+        if (window.Telegram?.WebApp?.HapticFeedback) {
+            if (type === 'impact') {
+                window.Telegram.WebApp.HapticFeedback.impactOccurred(style);
+            } else if (type === 'notification') {
+                window.Telegram.WebApp.HapticFeedback.notificationOccurred(style);
             }
         }
     }
@@ -128,6 +140,7 @@
     };
 
     window.closeShopModal = function() {
+        triggerHaptic('impact', 'light');
         const overlay = document.getElementById('shop-confirm-modal-overlay');
         if (overlay) {
             overlay.classList.remove('shop-modal-active');
@@ -142,6 +155,7 @@
     injectModalUI();
 
     window.switchShopTab = function(tab) {
+        triggerHaptic('impact', 'light');
         const miningSec = document.getElementById('shop-mining-section');
         const storageSec = document.getElementById('shop-storage-section');
         const btnMining = document.getElementById('tab-mining');
@@ -163,6 +177,7 @@
     };
 
     window.buyWithUSDT = function(amount) {
+        triggerHaptic('impact', 'medium');
         alert(`جاري توجيهك لشراء باقة ${amount} USDT...`);
         window.open(SHOP_CONFIG.walletDepositLink, '_blank');
     };
@@ -286,9 +301,12 @@
         let numPrice = parseFloat(price);
 
         if (totalBal < numPrice) {
+            triggerHaptic('notification', 'error');
             alert("⚠️ الرصيد غير كافي لشراء هذا التطوير!");
             return; 
         }
+
+        triggerHaptic('impact', 'light');
 
         const overlay = document.getElementById('shop-confirm-modal-overlay');
         const titleEl = document.getElementById('shop-modal-title');
@@ -334,6 +352,7 @@
         const initData = window.Telegram?.WebApp?.initData; 
 
         if (!initData) {
+            triggerHaptic('notification', 'error');
             alert("⚠️ عذراً، يجب فتح اللعبة من داخل تطبيق تليجرام.");
             return;
         }
@@ -372,6 +391,7 @@
             let resData = await response.json();
 
             if (response.ok && resData.success) {
+                triggerHaptic('notification', 'success');
                 setStoredBalance(resData.balance);
 
                 if (!window.PlayerData) window.PlayerData = {};
@@ -393,10 +413,12 @@
                 }
 
             } else {
+                triggerHaptic('notification', 'error');
                 alert(resData.error || resData.message || "حدث خطأ أثناء الشراء.");
             }
         } catch (e) {
             console.error("Shop Purchase Error:", e);
+            triggerHaptic('notification', 'error');
             alert("فشل الاتصال بالسيرفر. يرجى التحقق من الشبكة.");
         } finally {
             if (btnEl) {
