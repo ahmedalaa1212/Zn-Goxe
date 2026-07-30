@@ -261,6 +261,57 @@ window.setQuickUsd = function(percent) {
 };
 
 // =================================================================
+// 📥 دالة مساعدة لجلب السجلات المباشرة من Firestore عند الحاجة
+// =================================================================
+
+async function fetchHistoryFromFirestore() {
+    const rawUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || window.GameState?.user_id;
+    if (!rawUserId) return [];
+
+    const strUserId = String(rawUserId);
+    const numUserId = Number(rawUserId);
+    const firestore = window.db || (window.firebase && window.firebase.firestore ? window.firebase.firestore() : null);
+
+    if (!firestore) return [];
+
+    let combinedList = [];
+
+    try {
+        // 1. جلب طلبات السحب (withdrawals) مع مراعاة نوع ID نصي أم رقمي
+        const wSnapStr = await firestore.collection("withdrawals").where("user_id", "==", strUserId).get();
+        wSnapStr.forEach(doc => combinedList.push({ id: doc.id, type: 'withdraw', ...doc.data() }));
+
+        if (wSnapStr.empty && !isNaN(numUserId)) {
+            const wSnapNum = await firestore.collection("withdrawals").where("user_id", "==", numUserId).get();
+            wSnapNum.forEach(doc => combinedList.push({ id: doc.id, type: 'withdraw', ...doc.data() }));
+        }
+
+        // 2. جلب طلبات الإيداع (deposits) إن وجدت
+        try {
+            const dSnapStr = await firestore.collection("deposits").where("user_id", "==", strUserId).get();
+            dSnapStr.forEach(doc => combinedList.push({ id: doc.id, type: 'deposit', ...doc.data() }));
+            
+            if (dSnapStr.empty && !isNaN(numUserId)) {
+                const dSnapNum = await firestore.collection("deposits").where("user_id", "==", numUserId).get();
+                dSnapNum.forEach(doc => combinedList.push({ id: doc.id, type: 'deposit', ...doc.data() }));
+            }
+        } catch (e) {}
+
+        // ترتيب حسب التاريخ تنازلياً
+        combinedList.sort((a, b) => {
+            const tA = new Date(a.created_at || a.date || a.timestamp || 0).getTime();
+            const tB = new Date(b.created_at || b.date || b.timestamp || 0).getTime();
+            return tB - tA;
+        });
+
+    } catch (err) {
+        console.error("Firestore history fetch error:", err);
+    }
+
+    return combinedList;
+}
+
+// =================================================================
 // 🖼️ 5. عرض محتوى التبويبات
 // =================================================================
 
@@ -349,78 +400,93 @@ window.renderWalletTab = function(tab) {
                 جاري جلب سجل المعاملات...
             </div>`;
         
-        if (typeof window.apiCall === 'function') {
-            window.apiCall('/api/wallet/get_history', 'GET').then(data => {
-                if (currentWalletTab !== 'history') return;
+        const renderListUI = (rawList) => {
+            if (currentWalletTab !== 'history') return;
 
-                const rawList = data?.history || data?.transactions || data?.data || data?.logs || [];
-
-                if (data && data.success && Array.isArray(rawList) && rawList.length > 0) {
-                    let html = `<div class="card" style="padding: 16px;">
-                        <h3 style="margin-top:0; color:#fff; text-align:center; font-size:16px; margin-bottom:15px;">📋 سجل المعاملات</h3>
-                        <div style="display: flex; flex-direction: column; gap: 10px; max-height: 380px; overflow-y: auto;">`;
+            if (Array.isArray(rawList) && rawList.length > 0) {
+                let html = `<div class="card" style="padding: 16px;">
+                    <h3 style="margin-top:0; color:#fff; text-align:center; font-size:16px; margin-bottom:15px;">📋 سجل المعاملات</h3>
+                    <div style="display: flex; flex-direction: column; gap: 10px; max-height: 380px; overflow-y: auto;">`;
+                
+                rawList.forEach(item => {
+                    let typeText = '⚙️ عملية';
+                    let amountColor = '#10b981';
                     
-                    rawList.forEach(item => {
-                        let typeText = '⚙️ عملية';
-                        let amountColor = '#10b981';
-                        
-                        const itemType = String(item.type || '').toLowerCase();
+                    const itemType = String(item.type || '').toLowerCase();
 
-                        if (itemType === 'deposit') {
-                            typeText = '🟢 إيداع TON';
-                            amountColor = '#10b981';
-                        } else if (itemType === 'withdraw' || itemType === 'withdrawal') {
-                            typeText = '🔴 سحب أرباح';
-                            amountColor = '#ef4444';
-                        } else if (itemType === 'convert' || itemType === 'conversion' || itemType === 'points_convert') {
-                            typeText = '🔄 تحويل نقاط ZN';
-                            amountColor = '#0098ea';
-                        }
+                    if (itemType === 'deposit') {
+                        typeText = '🟢 إيداع TON';
+                        amountColor = '#10b981';
+                    } else if (itemType === 'withdraw' || itemType === 'withdrawal') {
+                        typeText = '🔴 سحب أرباح';
+                        amountColor = '#ef4444';
+                    } else if (itemType === 'convert' || itemType === 'conversion' || itemType === 'points_convert') {
+                        typeText = '🔄 تحويل نقاط ZN';
+                        amountColor = '#0098ea';
+                    }
 
-                        let statusText = 'مكتمل ✅';
-                        let statusColor = '#10b981';
-                        const status = String(item.status || '').toLowerCase();
+                    let statusText = 'مكتمل ✅';
+                    let statusColor = '#10b981';
+                    const status = String(item.status || '').toLowerCase();
 
-                        if (status === 'pending' || status === 'processing') {
-                            statusText = 'قيد المراجعة ⏳';
-                            statusColor = '#f59e0b';
-                        } else if (status === 'rejected' || status === 'cancelled' || status === 'failed') {
-                            statusText = 'مرفوض ❌';
-                            statusColor = '#ef4444';
-                        }
+                    if (status === 'pending' || status === 'processing') {
+                        statusText = 'قيد المراجعة ⏳';
+                        statusColor = '#f59e0b';
+                    } else if (status === 'rejected' || status === 'cancelled' || status === 'failed') {
+                        statusText = 'مرفوض ❌';
+                        statusColor = '#ef4444';
+                    }
 
-                        const dateStr = (item.created_at || item.date || item.timestamp) ? new Date(item.created_at || item.date || item.timestamp).toLocaleString('en-US', {
-                            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                        }) : '';
+                    const dateVal = item.created_at || item.date || item.timestamp;
+                    const dateStr = dateVal ? new Date(dateVal).toLocaleString('en-US', {
+                        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                    }) : '';
 
-                        const rawAmount = parseFloat(item.amount_usd || item.amount || item.usd_amount || item.amount_zn / 1000000 || 0);
-                        const displayAmount = (rawAmount > 0 && rawAmount < 0.01) ? rawAmount.toFixed(5) : rawAmount.toFixed(2);
-                        
-                        html += `
-                            <div style="background: rgba(10, 13, 20, 0.5); padding: 12px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(255,255,255,0.05);">
-                                <div>
-                                    <div style="font-weight: bold; color: #fff; font-size: 14px;">${typeText}</div>
-                                    <div style="font-size: 11px; color: #94a3b8; margin-top: 3px;" class="num-en">${dateStr}</div>
-                                </div>
-                                <div style="text-align: left;">
-                                    <div style="color: ${amountColor}; font-weight: 800; font-size: 15px;" class="num-en">$${displayAmount}</div>
-                                    <div style="font-size: 11px; color: ${statusColor}; font-weight:600; margin-top: 3px;">${statusText}</div>
-                                </div>
-                            </div>`;
-                    });
-                    html += `</div></div>`;
-                    content.innerHTML = html;
-                } else {
-                    content.innerHTML = `
-                        <div class="card" style="text-align:center; color:#94a3b8; padding:40px 20px;">
-                            <div style="font-size:40px; margin-bottom:10px;">📥</div>
-                            لا توجد عمليات سابقة مسجلة
+                    const rawAmount = parseFloat(item.amount_usd || item.amount || item.usd_amount || (item.amount_zn ? item.amount_zn / 1000000 : 0));
+                    const displayAmount = (rawAmount > 0 && rawAmount < 0.01) ? rawAmount.toFixed(5) : rawAmount.toFixed(2);
+                    
+                    html += `
+                        <div style="background: rgba(10, 13, 20, 0.5); padding: 12px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(255,255,255,0.05);">
+                            <div>
+                                <div style="font-weight: bold; color: #fff; font-size: 14px;">${typeText}</div>
+                                <div style="font-size: 11px; color: #94a3b8; margin-top: 3px;" class="num-en">${dateStr}</div>
+                            </div>
+                            <div style="text-align: left;">
+                                <div style="color: ${amountColor}; font-weight: 800; font-size: 15px;" class="num-en">$${displayAmount}</div>
+                                <div style="font-size: 11px; color: ${statusColor}; font-weight:600; margin-top: 3px;">${statusText}</div>
+                            </div>
                         </div>`;
+                });
+                html += `</div></div>`;
+                content.innerHTML = html;
+            } else {
+                content.innerHTML = `
+                    <div class="card" style="text-align:center; color:#94a3b8; padding:40px 20px;">
+                        <div style="font-size:40px; margin-bottom:10px;">📥</div>
+                        لا توجد عمليات سابقة مسجلة
+                    </div>`;
+            }
+        };
+
+        // المحاولة 1: طلب البيانات عبر apiCall (إن وُجد)
+        if (typeof window.apiCall === 'function') {
+            window.apiCall('/api/wallet/get_history', 'GET').then(async (data) => {
+                const rawList = data?.history || data?.transactions || data?.data || data?.logs || [];
+                
+                // إذا أرجع السيرفر نتائج نكتفي بها، وإلا نحاول الاستعلام المباشر من Firestore
+                if (data && data.success && Array.isArray(rawList) && rawList.length > 0) {
+                    renderListUI(rawList);
+                } else {
+                    const fsList = await fetchHistoryFromFirestore();
+                    renderListUI(fsList);
                 }
-            }).catch(() => {
-                if (currentWalletTab !== 'history') return;
-                content.innerHTML = `<div class="card" style="text-align:center; color:#ef4444; padding:30px;">⚠️ تعذر تحميل السجل حالياً.</div>`;
+            }).catch(async () => {
+                const fsList = await fetchHistoryFromFirestore();
+                renderListUI(fsList);
             });
+        } else {
+            // المحاولة 2: جلب مباشر من Firestore إذا لم تكن apiCall موجودة
+            fetchHistoryFromFirestore().then(fsList => renderListUI(fsList));
         }
     }
     else if (tab === 'withdraw') {
