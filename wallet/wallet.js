@@ -1,5 +1,5 @@
 // =================================================================
-// 💳 ZN Goxe - Wallet Module (Fully Integrated with Telegram Wallet & Live TON)
+// 💳 ZN Goxe - Wallet Module (Fully Integrated with History Fix)
 // =================================================================
 
 let isWalletConnected = false;
@@ -35,7 +35,6 @@ function triggerHapticFeedback(type = 'impact', style = 'medium') {
 // 📡 1. جلب سعر TON اللحظي المطابق لمحفظة تليجرام (TonAPI + OKX + CoinGecko)
 // =================================================================
 
-// دالة تطبيق السعر وتحديث الواجهات في الحال
 function applyTonPrice(price) {
     let validPrice = parseFloat(price);
     if (isNaN(validPrice) || validPrice <= 0.1 || validPrice > 200) return;
@@ -43,21 +42,18 @@ function applyTonPrice(price) {
     window.currentTonPriceUSD = validPrice;
     localStorage.setItem('last_ton_price', validPrice);
 
-    // تحديث عنصر السعر اللحظي في أسفل الصفحة
     const tonPriceElem = document.getElementById('current-ton-price');
     if (tonPriceElem) {
         tonPriceElem.innerText = validPrice.toFixed(3);
     }
 
-    // تحديث حسابات المحفظة
     if (typeof window.updateWalletHeaderUI === 'function') {
         window.updateWalletHeaderUI();
     }
 }
 
-// دالة الجلب المباشر لسعر TON من المصادر الرسمية لتليجرام
 async function fetchLiveTonPrice() {
-    // 1. المصدر الأول والأهم: TonAPI.io (المصدر الرسمي لسلسلة TON وتطبيقات تليجرام)
+    // 1. TonAPI.io (المصدر الرسمي)
     try {
         let res = await fetch('https://tonapi.io/v2/rates?tokens=ton&currencies=usd');
         if (res.ok) {
@@ -70,7 +66,7 @@ async function fetchLiveTonPrice() {
         }
     } catch (e) {}
 
-    // 2. المصدر الثاني: OKX Exchange API
+    // 2. OKX Exchange API
     try {
         let res = await fetch('https://www.okx.com/api/v5/market/ticker?instId=TON-USDT');
         if (res.ok) {
@@ -83,7 +79,7 @@ async function fetchLiveTonPrice() {
         }
     } catch (e) {}
 
-    // 3. المصدر الثالث: CoinGecko API
+    // 3. CoinGecko API
     try {
         let res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd');
         if (res.ok) {
@@ -100,7 +96,6 @@ async function fetchLiveTonPrice() {
 function startTonPriceSync() {
     fetchLiveTonPrice();
     if (priceIntervalTimer) clearInterval(priceIntervalTimer);
-    // تحديث دوري كل 15 ثانية لضمان الدقة الحية
     priceIntervalTimer = setInterval(fetchLiveTonPrice, 15000);
 }
 
@@ -108,7 +103,6 @@ function startTonPriceSync() {
 // 🔄 2. ربط ومزامنة المحفظة المباشرة مع game.js
 // =================================================================
 
-// توسيع دالة updateGlobalUI الخاصة بـ game.js لتحدث عناصر المحفظة تلقائياً
 const originalUpdateGlobalUI = window.updateGlobalUI;
 window.updateGlobalUI = function() {
     if (typeof originalUpdateGlobalUI === 'function') {
@@ -117,7 +111,6 @@ window.updateGlobalUI = function() {
     window.updateWalletHeaderUI();
 };
 
-// تحديث الهيدر والواجهة الخاصة بالمحفظة بالاعتماد على window.GameState
 window.updateWalletHeaderUI = function() {
     if (!window.GameState) return;
 
@@ -142,7 +135,6 @@ window.updateWalletHeaderUI = function() {
     }
 };
 
-// مزامنة الأرصدة مع السيرفر باستخدام apiCall الموحد من game.js
 window.syncWalletData = async function() {
     if (typeof window.apiCall === 'function') {
         const res = await window.apiCall('/api/farm/sync', 'POST');
@@ -268,14 +260,13 @@ window.setQuickUsd = function(percent) {
 };
 
 // =================================================================
-// 🖼️ 5. عرض محتوى التبويبات مع التحديث التلقائي
+// 🖼️ 5. عرض محتوى التبويبات مع إصلاح السجلات الشامل
 // =================================================================
 
 window.renderWalletTab = function(tab) {
     currentWalletTab = tab;
     localStorage.setItem('lastWalletTab', tab);
 
-    // ⚡ تحديث الرصيد من السيرفر فوراً عند فتح التبويب
     window.syncWalletData();
 
     const content = document.getElementById('wallet-content');
@@ -361,30 +352,49 @@ window.renderWalletTab = function(tab) {
             window.apiCall('/api/wallet/get_history', 'GET').then(data => {
                 if (currentWalletTab !== 'history') return;
 
-                if (data.success && data.history && data.history.length > 0) {
+                // 🔧 فحص المرونة لضمان قراءة السجل بغض النظر عن الاسم القادم من السيرفر
+                const rawList = data?.history || data?.transactions || data?.data || data?.logs || [];
+
+                if (data && data.success && Array.isArray(rawList) && rawList.length > 0) {
                     let html = `<div class="card" style="padding: 16px;">
                         <h3 style="margin-top:0; color:#fff; text-align:center; font-size:16px; margin-bottom:15px;">📋 سجل المعاملات</h3>
                         <div style="display: flex; flex-direction: column; gap: 10px; max-height: 380px; overflow-y: auto;">`;
                     
-                    data.history.forEach(item => {
-                        const isDeposit = item.type === 'deposit';
-                        const typeText = isDeposit ? '🟢 إيداع' : '🔴 سحب';
-                        let statusText = 'قيد المراجعة ⏳';
-                        let statusColor = '#f59e0b';
-                        if (item.status === 'completed' || item.status === 'approved') {
-                            statusText = 'مكتمل ✅';
-                            statusColor = '#10b981';
-                        } else if (item.status === 'rejected' || item.status === 'cancelled') {
+                    rawList.forEach(item => {
+                        let typeText = '⚙️ عملية';
+                        let amountColor = '#10b981';
+                        
+                        const itemType = String(item.type || '').toLowerCase();
+
+                        if (itemType === 'deposit') {
+                            typeText = '🟢 إيداع TON';
+                            amountColor = '#10b981';
+                        } else if (itemType === 'withdraw' || itemType === 'withdrawal') {
+                            typeText = '🔴 سحب أرباح';
+                            amountColor = '#ef4444';
+                        } else if (itemType === 'convert' || itemType === 'conversion' || itemType === 'points_convert') {
+                            typeText = '🔄 تحويل نقاط ZN';
+                            amountColor = '#0098ea';
+                        }
+
+                        let statusText = 'مكتمل ✅';
+                        let statusColor = '#10b981';
+                        const status = String(item.status || '').toLowerCase();
+
+                        if (status === 'pending' || status === 'processing') {
+                            statusText = 'قيد المراجعة ⏳';
+                            statusColor = '#f59e0b';
+                        } else if (status === 'rejected' || status === 'cancelled' || status === 'failed') {
                             statusText = 'مرفوض ❌';
                             statusColor = '#ef4444';
                         }
 
-                        const dateStr = item.created_at ? new Date(item.created_at).toLocaleString('en-US', {
+                        const dateStr = (item.created_at || item.date || item.timestamp) ? new Date(item.created_at || item.date || item.timestamp).toLocaleString('en-US', {
                             month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
                         }) : '';
 
-                        const rawAmount = parseFloat(item.amount_usd || item.amount || 0);
-                        const displayAmount = (rawAmount > 0 && rawAmount < 0.01) ? rawAmount.toFixed(4) : rawAmount.toFixed(2);
+                        const rawAmount = parseFloat(item.amount_usd || item.amount || item.usd_amount || 0);
+                        const displayAmount = (rawAmount > 0 && rawAmount < 0.01) ? rawAmount.toFixed(5) : rawAmount.toFixed(2);
                         
                         html += `
                             <div style="background: rgba(10, 13, 20, 0.5); padding: 12px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(255,255,255,0.05);">
@@ -393,7 +403,7 @@ window.renderWalletTab = function(tab) {
                                     <div style="font-size: 11px; color: #94a3b8; margin-top: 3px;" class="num-en">${dateStr}</div>
                                 </div>
                                 <div style="text-align: left;">
-                                    <div style="color: ${isDeposit ? '#10b981' : '#ef4444'}; font-weight: 800; font-size: 15px;" class="num-en">$${displayAmount}</div>
+                                    <div style="color: ${amountColor}; font-weight: 800; font-size: 15px;" class="num-en">$${displayAmount}</div>
                                     <div style="font-size: 11px; color: ${statusColor}; font-weight:600; margin-top: 3px;">${statusText}</div>
                                 </div>
                             </div>`;
@@ -404,12 +414,12 @@ window.renderWalletTab = function(tab) {
                     content.innerHTML = `
                         <div class="card" style="text-align:center; color:#94a3b8; padding:40px 20px;">
                             <div style="font-size:40px; margin-bottom:10px;">📥</div>
-                            لا توجد عمليات سحب أو إيداع سابقة
+                            لا توجد عمليات سابقة مسجلة
                         </div>`;
                 }
             }).catch(() => {
                 if (currentWalletTab !== 'history') return;
-                content.innerHTML = `<div class="card" style="text-align:center; color:#ef4444; padding:30px;">⚠️ تعذر تحميل السجل.</div>`;
+                content.innerHTML = `<div class="card" style="text-align:center; color:#ef4444; padding:30px;">⚠️ تعذر تحميل السجل حالياً.</div>`;
             });
         }
     }
@@ -476,7 +486,6 @@ window.renderWalletTab = function(tab) {
         content.innerHTML = withdrawHtml;
     }
 
-    // تحديث السعر في الواجهة فور عرض التبويب
     window.updateWalletHeaderUI();
 };
 
@@ -578,7 +587,6 @@ window.executeDeposit = async function() {
             });
             
             if (result.success) {
-                // ⚡ تعديل رصيد GameState مباشرة ليتم التحديث في كافة القوائم لحظياً
                 if (result.new_usd_balance !== undefined) {
                     window.GameState.usd_balance = result.new_usd_balance;
                 } else {
@@ -623,7 +631,6 @@ window.convertManualPoints = async function() {
         if (result.success) {
             triggerHapticFeedback('notification', 'success');
             
-            // ⚡ خصم النقاط وإضافة الدولار فوراً عبر Proxy ليسمع في المزرعة والمهام فوراً
             window.GameState.balance -= amount;
             if (result.usd_gained) {
                 window.GameState.usd_balance += result.usd_gained;
@@ -674,7 +681,6 @@ window.submitWithdrawal = async function() {
         if (result.success) {
             triggerHapticFeedback('notification', 'success');
             
-            // ⚡ خصم الرصيد مباشرة في الـ GameState
             window.GameState.usd_balance -= usdAmount;
             
             let expectedTon = (usdAmount / (window.currentTonPriceUSD || 1)).toFixed(4);
