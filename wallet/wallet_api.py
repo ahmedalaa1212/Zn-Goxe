@@ -16,7 +16,7 @@ MIN_CONVERT_ZN = 1000000    # الحد الأدنى لتحويل ZN (1 مليو�
 def wallet_index():
     return jsonify({"success": True, "message": "Wallet API is Secure and Active!"}), 200
 
-# 1. جلب سجل المعاملات (يدعم السحب، الإيداع، وتحويل النقاط)
+# 1. جلب سجل المعاملات (يدعم السحب، الإيداع، التحويل، والحركات العامة)
 @wallet_bp.route('/get_history', methods=['GET'])
 def get_history():
     is_auth, user_id, err = get_authenticated_user(request)
@@ -28,53 +28,90 @@ def get_history():
     
     try:
         user_id_str = str(user_id)
-        # تجهيز البحث بكل أنواع الـ ID (نصي وعددي) لضمان العثور على كافة السجلات
+        # تجهيز قائمة المعرفات (نص وعددي) لضمان عدم مطابقة الاستعلام بالخطأ
         user_ids = [user_id_str]
         try:
-            user_ids.append(int(user_id))
-        except ValueError:
+            num_id = int(user_id)
+            if num_id not in user_ids:
+                user_ids.append(num_id)
+        except (ValueError, TypeError):
             pass
-        
-        # جلب السحوبات، الإيداعات، والتحويلات
-        withdrawals_query = db.collection('withdrawals').where('user_id', 'in', user_ids).limit(20).get()
-        deposits_query = db.collection('deposits').where('user_id', 'in', user_ids).limit(20).get()
-        conversions_query = db.collection('conversions').where('user_id', 'in', user_ids).limit(20).get()
-        
-        history = []
-        for doc in withdrawals_query:
-            d = doc.to_dict()
-            d['type'] = 'withdraw'
-            d['id'] = doc.id
-            history.append(d)
-            
-        for doc in deposits_query:
-            d = doc.to_dict()
-            d['type'] = 'deposit'
-            d['id'] = doc.id
-            history.append(d)
 
-        for doc in conversions_query:
-            d = doc.to_dict()
-            d['type'] = 'convert'
-            d['id'] = doc.id
-            history.append(d)
-            
-        # دالة آمنة لتحويل التاريخ إلى نص لتفادي خطأ المقارنة عند الترتيب
+        history = []
+
+        # استعلام السحوبات
+        try:
+            w_docs = db.collection('withdrawals').where('user_id', 'in', user_ids).limit(20).get()
+            for doc in w_docs:
+                d = doc.to_dict()
+                d['type'] = d.get('type', 'withdraw')
+                d['id'] = doc.id
+                history.append(d)
+        except Exception as e:
+            print(f"[Wallet API] Warning fetching withdrawals: {e}")
+
+        # استعلام الإيداعات
+        try:
+            d_docs = db.collection('deposits').where('user_id', 'in', user_ids).limit(20).get()
+            for doc in d_docs:
+                d = doc.to_dict()
+                d['type'] = d.get('type', 'deposit')
+                d['id'] = doc.id
+                history.append(d)
+        except Exception as e:
+            print(f"[Wallet API] Warning fetching deposits: {e}")
+
+        # استعلام التحويلات
+        try:
+            c_docs = db.collection('conversions').where('user_id', 'in', user_ids).limit(20).get()
+            for doc in c_docs:
+                d = doc.to_dict()
+                d['type'] = d.get('type', 'convert')
+                d['id'] = doc.id
+                history.append(d)
+        except Exception as e:
+            print(f"[Wallet API] Warning fetching conversions: {e}")
+
+        # استعلام المعاملات العامة في مجموعات transactions إن وجدت
+        try:
+            t_docs = db.collection('transactions').where('tg_id', 'in', user_ids).limit(20).get()
+            for doc in t_docs:
+                d = doc.to_dict()
+                d['id'] = doc.id
+                # تجنب تكرار السجلات المسجلة بالفعل
+                if not any(item.get('id') == doc.id for item in history):
+                    history.append(d)
+        except Exception as e:
+            print(f"[Wallet API] Warning fetching general transactions: {e}")
+
+        # دالة آمنة لتحويل التاريخ إلى نص isoformat لمقارنة الترتيب
         def safe_date_key(item):
             val = item.get('created_at') or item.get('timestamp') or item.get('date') or ''
-            if isinstance(val, datetime.datetime):
+            if hasattr(val, 'isoformat'):
                 return val.isoformat()
             return str(val)
 
         # ترتيب السجلات حسب تاريخ الإنشاء من الأحدث للأقدم
         history.sort(key=safe_date_key, reverse=True)
-        return jsonify({"success": True, "history": history[:30]}), 200
+
+        # تنظيف كائنات التواريخ وتجهيزها للتحويل إلى JSON
+        clean_history = []
+        for item in history[:30]:
+            clean_item = {}
+            for k, v in item.items():
+                if hasattr(v, 'isoformat'):
+                    clean_item[k] = v.isoformat()
+                else:
+                    clean_item[k] = v
+            clean_history.append(clean_item)
+
+        return jsonify({"success": True, "history": clean_history}), 200
 
     except Exception as e:
         print(f"[Wallet API] Error fetching history: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب السجلات"}), 500
 
-# 2. تحويل نقاط ZN إلى USD (Firestore Transaction محصنة وتأطير العملية في السجل)
+# 2. تحويل نقاط ZN إلى USD
 @wallet_bp.route('/wallet_convert', methods=['POST'])
 def wallet_convert():
     is_auth, user_id, err = get_authenticated_user(request, is_post=True)
@@ -88,7 +125,7 @@ def wallet_convert():
     try:
         amount = float(req.get('amount', 0))
         if amount < MIN_CONVERT_ZN or amount <= 0:
-            return jsonify({"success": False, "error": f"الحد الأدنى للتحويل هو {MIN_CONVERT_ZN:,} ZN"}), 400
+            return jsonify({"success": False, "error": f"الحد الأدنى لتحويل ZN هو {MIN_CONVERT_ZN:,}"}), 400
     except (ValueError, TypeError):
         return jsonify({"success": False, "error": "كمية غير صالحة"}), 400
         
@@ -111,26 +148,33 @@ def wallet_convert():
             raise Exception("رصيد النقاط غير كافٍ لإتمام التحويل")
             
         new_usd = round(current_usd + usd_gained, 5)
+        new_balance = current_balance - amount
         
-        # تحديث رصيد المستخدم
+        # تحديث رصيد المستخدم في Firestore
         transaction.update(user_ref, {
-            'balance': current_balance - amount,
+            'balance': new_balance,
             'usd_balance': new_usd
         })
         
-        # إضافة العملية للسجل
+        # إضافة العملية في سجل التحويلات
         transaction.set(conversion_ref, {
             'user_id': str(user_id),
             'amount_zn': amount,
             'amount_usd': usd_gained,
+            'type': 'convert',
             'status': 'completed',
             'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
         })
-        return usd_gained, new_usd
+        return usd_gained, new_usd, new_balance
         
     try:
-        gained, new_usd = secure_convert_tx(transaction, user_ref, conversion_ref)
-        return jsonify({"success": True, "usd_gained": gained, "new_usd_balance": new_usd}), 200
+        gained, new_usd, new_balance = secure_convert_tx(transaction, user_ref, conversion_ref)
+        return jsonify({
+            "success": True, 
+            "usd_gained": gained, 
+            "new_usd_balance": new_usd,
+            "new_balance": new_balance
+        }), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
 
@@ -181,6 +225,7 @@ def wallet_withdraw():
             'user_id': str(user_id),
             'amount_usd': amount,
             'wallet_address': wallet_address,
+            'type': 'withdraw',
             'status': 'pending',
             'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
         })
@@ -250,6 +295,7 @@ def wallet_deposit_report():
             'fee_usd': fee_usd,
             'amount_ton': ton_amount,
             'boc': boc,
+            'type': 'deposit',
             'status': 'completed',
             'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
         })
