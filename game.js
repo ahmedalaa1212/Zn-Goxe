@@ -34,11 +34,16 @@ function saveLocalState() {
     } catch (e) {}
 }
 
-// Proxy ذكي لتحديث الواجهة فوراً عند تغيير أي قيمة
+// ==========================================
+// Proxy الذكي والمحدث (القلب النابض للتطبيق)
+// أي تغيير للرصيد في *أي* ملف أو ميزة (مزرعة، مهام، هدية، إحالة)
+// سيقوم الـ Proxy تلقائياً بتحديث واجهة التطبيق بالكامل فوراً.
+// ==========================================
 window.userState = new Proxy(rawUserState, {
     set(target, prop, value) {
         target[prop] = value;
-        if (['balance', 'usd_balance', 'hourly_rate'].includes(prop)) {
+        // لو اتغير الرصيد، الدولار، أو سرعة التعدين من أي حتة في التطبيق
+        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'mining_level', 'storage_level'].includes(prop)) {
             saveLocalState();
             if (typeof window.updateUI === 'function') {
                 window.updateUI();
@@ -99,7 +104,6 @@ async function fetchAPI(endpoint, method = 'GET', bodyData = null) {
    3. UI Builders & Formatters (The Ultimate Fix)
    ========================================== */
 window.updateUI = function() {
-    // وضعنا الكود داخل try/catch عشان لو حصل خطأ مستحيل يوقف المهام أو يخفيها
     try {
         const rawBalance = parseFloat(window.userState.balance || 0);
         const rawUsd = parseFloat(window.userState.usd_balance || 0);
@@ -109,7 +113,7 @@ window.updateUI = function() {
         const usdFormatted = rawUsd.toLocaleString('en-US', {minimumFractionDigits: 4, maximumFractionDigits: 4});
         const hourlyFormatted = rawRate.toLocaleString('en-US', {maximumFractionDigits: 0});
 
-        // 1. تحديث رصيد ZN في كل الصفحات (المحفظة، المهام، الأصدقاء، الإعدادات)
+        // 1. تحديث رصيد ZN في كل الصفحات والقوائم بدون استثناء
         const allZnElements = document.querySelectorAll('[id*="balance"], [id*="zn"], .zn-balance, .balance-text');
         allZnElements.forEach(el => {
             if (el.tagName === 'INPUT') {
@@ -117,7 +121,6 @@ window.updateUI = function() {
                 return;
             }
             const text = el.innerText || "";
-            // التأكد إنه عنصر يخص الـ ZN فقط
             if (text.includes('ZN') || el.id.includes('zn-balance') || el.id === 'user-balance' || el.id.includes('shop-balance')) {
                 if (text.includes('رصيد ZN:')) el.innerText = `رصيد ZN: ${znFormatted}`;
                 else if (text.includes('ZN:')) el.innerText = `ZN: ${znFormatted}`;
@@ -126,7 +129,7 @@ window.updateUI = function() {
             }
         });
 
-        // 2. تحديث رصيد USD (المتجر والمحفظة)
+        // 2. تحديث رصيد USD
         const allUsdElements = document.querySelectorAll('[id*="usd"], .usd-balance');
         allUsdElements.forEach(el => {
             if (el.tagName === 'INPUT') {
@@ -159,15 +162,6 @@ window.updateUI = function() {
     }
 };
 
-// ==========================================
-// الدالة السحرية للربط مع المزرعة (game.js)
-// ==========================================
-window.SyncInstant = function(newZN, newUSD) {
-    if (newZN !== undefined) window.userState.balance = parseFloat(newZN);
-    if (newUSD !== undefined) window.userState.usd_balance = parseFloat(newUSD);
-    // بمجرد تحديث userState، دالة التحديث ستعمل تلقائياً في نفس الجزء من الثانية
-};
-
 /* ==========================================
    4. Fetch Latest User Data from Server
    ========================================== */
@@ -180,6 +174,7 @@ window.loadUserData = async function() {
     try {
         const data = await fetchAPI('/api/user/info');
         if (data && data.success) {
+            // تحديث القيم هنا سيقوم بتشغيل الProxy تلقائياً لتحديث كل الشاشات
             if (data.balance !== undefined) window.userState.balance = parseFloat(data.balance);
             if (data.usd_balance !== undefined) window.userState.usd_balance = parseFloat(data.usd_balance);
             if (data.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(data.hourly_rate);
@@ -260,6 +255,7 @@ async function executeConvertZN(amount) {
     try {
         const res = await fetchAPI('/api/wallet/wallet_convert', 'POST', { amount: parseFloat(amount) });
         if (res.success) {
+            // التعديل هنا هيحدث الواجهة في كل التطبيق تلقائياً عبر الـ Proxy
             window.userState.usd_balance = res.new_usd_balance;
             window.userState.balance = res.new_balance;
             alert(`تم تحويل ${parseFloat(amount).toLocaleString()} ZN بنجاح إلى $${parseFloat(res.usd_gained).toLocaleString('en-US', {minimumFractionDigits:4})}!`);
@@ -298,10 +294,10 @@ document.addEventListener('DOMContentLoaded', () => {
         historyBtn.addEventListener('click', loadWalletHistory);
     }
 
-    // تقليل الضغط على السيرفر، لأن التحديث اللحظي أصبح مربوطاً بالمزرعة مباشرة
+    // مزامنة دورية لضمان جلب أي رصيد زاد من المهام، الإحالات، أو البوت الخارجي
     setInterval(() => {
         window.loadUserData();
-    }, 15000); // خليناها 15 ثانية بدل 4 ثواني عشان نقلل الضغط، لأنك مش هتحتاجها خلاص
+    }, 5000); 
 
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
