@@ -1,5 +1,5 @@
 // =================================================================
-// 💳 ZN Goxe - Wallet Module (Fully Integrated with game.js & Live TON)
+// 💳 ZN Goxe - Wallet Module (Fully Integrated with Telegram Wallet & Live TON)
 // =================================================================
 
 let isWalletConnected = false;
@@ -7,9 +7,9 @@ let userWalletAddress = null;
 let currentWalletTab = localStorage.getItem('lastWalletTab') || 'withdraw';
 let tonConnectUI = null;
 
-// سعر TON المباشر وحالة الـ WebSocket
+// سعر TON المباشر المخزن
 window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 0;
-let tonWebSocket = null;
+let priceIntervalTimer = null;
 
 // التهيئة الأولى لتطبيق التليجرام
 const tgApp = window.Telegram?.WebApp;
@@ -32,10 +32,10 @@ function triggerHapticFeedback(type = 'impact', style = 'medium') {
 }
 
 // =================================================================
-// 📡 1. نظام سعر TON اللحظي الموحد مع مصادر متعددة وتحديث الـ DOM
+// 📡 1. جلب سعر TON اللحظي المطابق لمحفظة تليجرام (TonAPI + OKX + CoinGecko)
 // =================================================================
 
-// دالة مركزية لتطبيق السعر وتحديث الشاشة فوراً
+// دالة تطبيق السعر وتحديث الواجهات في الحال
 function applyTonPrice(price) {
     let validPrice = parseFloat(price);
     if (isNaN(validPrice) || validPrice <= 0.1 || validPrice > 200) return;
@@ -43,61 +43,26 @@ function applyTonPrice(price) {
     window.currentTonPriceUSD = validPrice;
     localStorage.setItem('last_ton_price', validPrice);
 
-    // تحديث عنصر السعر السفلي
+    // تحديث عنصر السعر اللحظي في أسفل الصفحة
     const tonPriceElem = document.getElementById('current-ton-price');
     if (tonPriceElem) {
         tonPriceElem.innerText = validPrice.toFixed(3);
     }
 
-    // تحديث أرصدة واجهة المحفظة والهيدر
+    // تحديث حسابات المحفظة
     if (typeof window.updateWalletHeaderUI === 'function') {
         window.updateWalletHeaderUI();
     }
 }
 
-function initLiveTonPriceStream() {
-    // جلب السعر احتياطياً فوراً لمنع انتظار الـ WebSocket
-    fetchBackupTonPrice();
-
-    const wsUrl = 'wss://stream.binance.com:9443/ws/tonusdt@ticker';
-    
+// دالة الجلب المباشر لسعر TON من المصادر الرسمية لتليجرام
+async function fetchLiveTonPrice() {
+    // 1. المصدر الأول والأهم: TonAPI.io (المصدر الرسمي لسلسلة TON وتطبيقات تليجرام)
     try {
-        if (tonWebSocket) tonWebSocket.close();
-        tonWebSocket = new WebSocket(wsUrl);
-
-        tonWebSocket.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                const livePrice = parseFloat(data.c);
-                if (!isNaN(livePrice) && livePrice > 0.1) {
-                    applyTonPrice(livePrice);
-                }
-            } catch (err) {
-                console.error("Error parsing TON WebSocket price:", err);
-            }
-        };
-
-        tonWebSocket.onerror = () => {
-            fetchBackupTonPrice();
-        };
-
-        tonWebSocket.onclose = () => {
-            setTimeout(initLiveTonPriceStream, 10000);
-        };
-
-    } catch (e) {
-        fetchBackupTonPrice();
-    }
-}
-
-// دالة جلب السعر من مصادر متعددة في حال استجابة أي منها (Binance -> CoinGecko -> OKX)
-async function fetchBackupTonPrice() {
-    // المصدر الأول: Binance REST API
-    try {
-        let res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=TONUSDT');
+        let res = await fetch('https://tonapi.io/v2/rates?tokens=ton&currencies=usd');
         if (res.ok) {
             let data = await res.json();
-            let price = parseFloat(data.price);
+            let price = parseFloat(data?.rates?.TON?.prices?.USD);
             if (price > 0) {
                 applyTonPrice(price);
                 return;
@@ -105,20 +70,7 @@ async function fetchBackupTonPrice() {
         }
     } catch (e) {}
 
-    // المصدر الثاني (احتياطي 1): CoinGecko API
-    try {
-        let res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd');
-        if (res.ok) {
-            let data = await res.json();
-            let price = parseFloat(data['the-open-network']?.usd);
-            if (price > 0) {
-                applyTonPrice(price);
-                return;
-            }
-        }
-    } catch (e) {}
-
-    // المصدر الثالث (احتياطي 2): OKX API
+    // 2. المصدر الثاني: OKX Exchange API
     try {
         let res = await fetch('https://www.okx.com/api/v5/market/ticker?instId=TON-USDT');
         if (res.ok) {
@@ -130,6 +82,26 @@ async function fetchBackupTonPrice() {
             }
         }
     } catch (e) {}
+
+    // 3. المصدر الثالث: CoinGecko API
+    try {
+        let res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd');
+        if (res.ok) {
+            let data = await res.json();
+            let price = parseFloat(data['the-open-network']?.usd);
+            if (price > 0) {
+                applyTonPrice(price);
+                return;
+            }
+        }
+    } catch (e) {}
+}
+
+function startTonPriceSync() {
+    fetchLiveTonPrice();
+    if (priceIntervalTimer) clearInterval(priceIntervalTimer);
+    // تحديث دوري كل 15 ثانية لضمان الدقة الحية
+    priceIntervalTimer = setInterval(fetchLiveTonPrice, 15000);
 }
 
 // =================================================================
@@ -578,7 +550,7 @@ window.executeDeposit = async function() {
     }
 
     if (!window.currentTonPriceUSD || window.currentTonPriceUSD <= 0) {
-        return showAppAlert("⚠️ جاري جلب سعر TON، يرجى الانتظار ثوانٍ والتجربة مجدداً.");
+        return showAppAlert("⚠️ جاري جلب سعر TON المباشر، يرجى الانتظار ثوانٍ والتجربة مجدداً.");
     }
 
     let tonAmount = usdAmount / window.currentTonPriceUSD;
@@ -721,13 +693,10 @@ window.submitWithdrawal = async function() {
 };
 
 // =================================================================
-// 🚀 8. بدء التشغيل التلقائي عند استدعاء الملف
+// 🚀 8. بدء التشغيل التلقائي والمزامنة
 // =================================================================
 
-// تشغيل بث أسعار TON المباشر
-initLiveTonPriceStream();
-
-// المزامنة الأولى للبيانات والتطبيق
+startTonPriceSync();
 window.syncWalletData();
 window.renderWalletTab(currentWalletTab);
 initTonConnect();
