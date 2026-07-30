@@ -1,5 +1,5 @@
 // ==========================================
-// 💳 ZN Goxe - Wallet Module (wallet.js)
+// 💳 ZN Goxe - Wallet Module (Full Auto-Sync Version)
 // ==========================================
 
 let playerData = {
@@ -15,9 +15,11 @@ let currentTonPriceUSD = 0;
 let currentWalletTab = localStorage.getItem('lastWalletTab') || 'withdraw';
 let tonConnectUI = null;
 
+// التهيئة الأولى لتطبيق التليجرام
 const tgApp = window.Telegram?.WebApp;
 if (tgApp) tgApp.ready();
 
+// 🛠️ التنبيهات والهزاز
 function showAppAlert(message) {
     if (tgApp && typeof tgApp.showAlert === 'function') {
         tgApp.showAlert(message);
@@ -33,7 +35,38 @@ function triggerHapticFeedback(type = 'impact', style = 'medium') {
     }
 }
 
-// 1. جلب سعر الـ TON اللحظي
+// 🔄 دالة المزامنة المباشرة مع الفايربيس / السيرفر
+window.syncGlobalBalanceWithServer = async function() {
+    try {
+        const initData = tgApp?.initData || '';
+        if (!initData) return;
+
+        let res = await fetch(`/api/user/get_profile?initData=${encodeURIComponent(initData)}`);
+        let data = await res.json();
+
+        if (data.success && data.user) {
+            // تحديث الكائنات العامة بالذاكرة
+            if (!window.GameState) window.GameState = {};
+            window.GameState.balance = data.user.balance;
+            window.GameState.usd_balance = data.user.usd_balance;
+
+            if (!window.PlayerData) window.PlayerData = {};
+            window.PlayerData.balance = data.user.balance;
+            window.PlayerData.usdBalance = data.user.usd_balance;
+            window.PlayerData.usd_balance = data.user.usd_balance;
+
+            playerData.znBalance = data.user.balance;
+            playerData.usdBalance = data.user.usd_balance;
+
+            // تحديث الواجهة فوراً
+            window.updateHeaderBalances();
+        }
+    } catch (err) {
+        console.error("[Balance Sync Error]:", err);
+    }
+};
+
+// 📈 جلب سعر الـ TON اللحظي
 async function fetchLiveTonPrice() {
     try {
         let res = await fetch('https://tonapi.io/v2/rates?tokens=ton&currencies=usd');
@@ -56,7 +89,7 @@ async function fetchLiveTonPrice() {
     }
 }
 
-// 2. تهيئة TON Connect
+// 🔗 تهيئة TON Connect
 function initTonConnect() {
     if (typeof window.TON_CONNECT_UI === 'undefined') {
         setTimeout(initTonConnect, 100);
@@ -130,7 +163,7 @@ window.disconnectCustomWallet = async function() {
     }
 };
 
-// 3. تحديث الأرصدة المعروضة
+// 💰 تحديث رصيد الهيدر العلوي
 window.updateHeaderBalances = function() {
     const pData = window.GameState || window.PlayerData || playerData;
     const zn = parseFloat(pData.balance !== undefined ? pData.balance : pData.znBalance) || 0;
@@ -150,7 +183,7 @@ window.updateHeaderBalances = function() {
     if (tonElem) tonElem.innerText = "≈ " + estimateTon.toFixed(4) + " TON";
 };
 
-// اختيارات الكروت والكميات السريعة
+// 🎛️ أزرار الاختيار السريع
 window.selectDepositPackage = function(amountUsd, element) {
     triggerHapticFeedback('impact', 'light');
     
@@ -186,10 +219,13 @@ window.setQuickUsd = function(percent) {
     }
 };
 
-// 4. عرض محتوى التبويبات
+// 🖼️ عرض التبويبات مع المزامنة الفورية
 window.renderWalletTab = function(tab) {
     currentWalletTab = tab;
     localStorage.setItem('lastWalletTab', tab);
+
+    // ⚡ تحديث حاد للرصيد من الفايربيس عند الضغط على أي تبويب
+    window.syncGlobalBalanceWithServer();
 
     const content = document.getElementById('wallet-content');
     if (!content) return;
@@ -202,13 +238,11 @@ window.renderWalletTab = function(tab) {
     if (tab === 'deposit') {
         let depositHtml = `
             <div class="card">
-                <!-- شريط تنبيه شروط الإيداع -->
                 <div class="deposit-notice-bar">
                     <span>📌 الحد الأدنى للإيداع: <b>$1.00</b></span>
                     <span>⚡ الخصم/الرسوم: <b>3%</b></span>
                 </div>
 
-                <!-- 💎 باقات الشراء السريعة -->
                 <div class="packages-section-title">
                     <span>💎 باقات الرصيد السريعة</span>
                 </div>
@@ -394,7 +428,7 @@ window.renderWalletTab = function(tab) {
     }
 };
 
-// 5. الحسابات التفاعلية والتحقق من الشروط
+// 🧮 العمليات الحسابية
 window.calculateConversionPreview = function() {
     let inputElem = document.getElementById('zn-input');
     let infoDiv = document.getElementById('conversion-calc-info');
@@ -418,9 +452,8 @@ window.calculateDepositTon = function() {
 
     let usd = parseFloat(inputElem?.value);
 
-    // التحقق من الحد الأدنى وهو 1$
     if (usd >= 1 && currentTonPriceUSD > 0) {
-        let netUsd = usd * 0.97; // خصم 3% رسوم
+        let netUsd = usd * 0.97;
         let tonRequired = (usd / currentTonPriceUSD).toFixed(4);
 
         if (netElem) netElem.innerText = "$" + netUsd.toFixed(2);
@@ -446,7 +479,7 @@ window.calculateWithdrawTon = function() {
     }
 };
 
-// 6. تنفيذ العمليات والتواصل مع الخادم
+// ⚡ تنفيذ العمليات وتأكيدها فوراً
 window.executeDeposit = async function() {
     triggerHapticFeedback('impact', 'medium');
     let depositBtn = document.getElementById('deposit-btn');
@@ -454,7 +487,6 @@ window.executeDeposit = async function() {
     
     let usdAmount = parseFloat(usdInput?.value);
 
-    // التحقق المباشر من الحد الأدنى 1$
     if (!usdAmount || usdAmount < 1.00) {
         return showAppAlert("⚠️ الحد الأدنى للإيداع هو $1.00 USD");
     }
@@ -473,7 +505,7 @@ window.executeDeposit = async function() {
         const txResult = await tonConnectUI.sendTransaction(transaction);
         triggerHapticFeedback('notification', 'success');
 
-        const netCredited = usdAmount * 0.97; // المبلغ المضاف فعلياً بعد الخصم
+        const netCredited = usdAmount * 0.97;
         const initData = tgApp?.initData || null;
 
         if (initData) {
@@ -491,21 +523,8 @@ window.executeDeposit = async function() {
             let result = await response.json();
             
             if (result.success) {
-                const targetUsd = result.new_usd_balance !== undefined ? result.new_usd_balance : null;
-                
-                if (window.GameState) {
-                    window.GameState.usd_balance = targetUsd !== null ? targetUsd : ((window.GameState.usd_balance || 0) + netCredited);
-                }
-                if (window.PlayerData) {
-                    window.PlayerData.usdBalance = targetUsd !== null ? targetUsd : ((window.PlayerData.usdBalance || 0) + netCredited);
-                    window.PlayerData.usd_balance = window.PlayerData.usdBalance;
-                }
-                playerData.usdBalance = targetUsd !== null ? targetUsd : (playerData.usdBalance + netCredited);
-
-                window.updateHeaderBalances();
-
-                showAppAlert(`✅ تم الإيداع بنجاح!\nأضيفت $${netCredited.toFixed(2)} لرصيدك بعد خصم (3%).`);
-                if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
+                await window.syncGlobalBalanceWithServer();
+                showAppAlert(`✅ تم الإيداع بنجاح!\nأضيفت $${(result.net_usd_credited || netCredited).toFixed(2)} لرصيدك بعد خصم (3%).`);
             } else {
                 showAppAlert("⚠️ فشل تأكيد الإيداع في السيرفر: " + (result.error || result.message));
             }
@@ -545,19 +564,9 @@ window.convertManualPoints = async function() {
         
         if (result.success) {
             triggerHapticFeedback('notification', 'success');
-            const usdGained = result.usd_gained;
+            await window.syncGlobalBalanceWithServer();
             
-            if (window.GameState) {
-                window.GameState.balance -= amount;
-                window.GameState.usd_balance = result.new_usd_balance !== undefined ? result.new_usd_balance : ((window.GameState.usd_balance || 0) + usdGained);
-            }
-            if (window.PlayerData) {
-                window.PlayerData.balance -= amount;
-                window.PlayerData.usdBalance = result.new_usd_balance !== undefined ? result.new_usd_balance : ((window.PlayerData.usdBalance || 0) + usdGained);
-            }
-            
-            window.updateHeaderBalances();
-            showAppAlert(`🎉 تم تحويل النقاط بنجاح!\nأضيف لرصيدك $${usdGained.toFixed(5)} USD`);
+            showAppAlert(`🎉 تم تحويل النقاط بنجاح!\nأضيف لرصيدك $${result.usd_gained.toFixed(5)} USD`);
             if (znInput) znInput.value = '';
             const convInfo = document.getElementById('conversion-calc-info');
             if (convInfo) convInfo.style.display = 'none';
@@ -600,17 +609,9 @@ window.submitWithdrawal = async function() {
         
         if (result.success) {
             triggerHapticFeedback('notification', 'success');
-            
-            if (window.GameState) {
-                window.GameState.usd_balance = result.new_usd_balance !== undefined ? result.new_usd_balance : Math.max(0, (window.GameState.usd_balance || 0) - usdAmount);
-            }
-            if (window.PlayerData) {
-                window.PlayerData.usdBalance = result.new_usd_balance !== undefined ? result.new_usd_balance : Math.max(0, (window.PlayerData.usdBalance || 0) - usdAmount);
-            }
+            await window.syncGlobalBalanceWithServer();
             
             let expectedTon = (usdAmount / currentTonPriceUSD).toFixed(4);
-            window.updateHeaderBalances();
-            
             showAppAlert(`✅ تم تقديم طلب السحب بقيمة $${usdAmount}.\nستصلك (≈ ${expectedTon} TON) بعد المراجعة.`);
             if (usdInput) usdInput.value = '';
             const wInfo = document.getElementById('withdraw-calc-info');
@@ -625,10 +626,29 @@ window.submitWithdrawal = async function() {
     }
 };
 
-// بدء التهيئة والتشغيل
+// ====================================================
+// 🔄 مشغلات المزامنة الآلية والتلقائية للرصيد
+// ====================================================
+
+// 1. تشغيل فوري أول فتح الكود
 fetchLiveTonPrice();
+window.syncGlobalBalanceWithServer();
+
+// 2. تحديث الرصيد تلقائياً كل 10 ثوانٍ في الخلفية
+setInterval(() => {
+    window.syncGlobalBalanceWithServer();
+}, 10000);
+
+// 3. تحديث فور عودة المستخدم لشاشة التطبيق (التركيز)
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+        window.syncGlobalBalanceWithServer();
+    }
+});
+
+// 4. تحديث سعر الـ TON كل 60 ثانية
 setInterval(fetchLiveTonPrice, 60000);
 
+// 5. تهيئة التبويبات والاتصال بالـ TON
 window.renderWalletTab(currentWalletTab);
-window.updateHeaderBalances();
 initTonConnect();
