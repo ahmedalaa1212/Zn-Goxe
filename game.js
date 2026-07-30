@@ -37,7 +37,7 @@ function saveLocalState() {
     }
 }
 
-// إنشاء Proxy ذكي لـ window.userState لتحديث الشاشات فور تغيير أي قيمة من أي ملف آخر
+// إنشاء Proxy ذكي لـ window.userState لتحديث الشاشات فور تغيير أي قيمة من أي ملف آخر أو من السيرفر
 window.userState = new Proxy(rawUserState, {
     set(target, prop, value) {
         target[prop] = value;
@@ -103,7 +103,7 @@ async function fetchAPI(endpoint, method = 'GET', bodyData = null) {
 }
 
 /* ==========================================
-   3. UI Builders & Formatters
+   3. UI Builders & Formatters (The Ultimate Fix)
    ========================================== */
 function formatNumber(num, decimals = 2) {
     const val = parseFloat(num);
@@ -115,79 +115,88 @@ function formatNumber(num, decimals = 2) {
 }
 
 window.updateUI = function() {
-    const znFormatted = formatNumber(window.userState.balance, 0);
-    const usdFormatted = `$${formatNumber(window.userState.usd_balance, 4)}`;
+    // تجهيز الأرقام المنسقة
+    const rawBalance = window.userState.balance;
+    const rawUsd = window.userState.usd_balance;
+    
+    const znFormatted = formatNumber(rawBalance, 0); 
+    const usdFormatted = formatNumber(rawUsd, 4);
     const hourlyFormatted = `+${formatNumber(window.userState.hourly_rate, 0)}/h`;
 
-    // قائمة بجميع الـ IDs للرصيد ZN عبر كافة القوائم (الرئيسية، المتجر، المهمات، المحفظة)
-    const znElementIds = [
-        'user-balance', 
-        'shop-balance-text', 
-        'top-zn-balance', 
-        'wallet-zn-balance', 
-        'task-zn-balance', 
-        'farm-zn-balance',
-        'zn-balance'
+    // 1. تحديث رصيد ZN في كل الصفحات (حتى لو الـ ID متكرر)
+    const znSelectors = [
+        '[id="user-balance"]', '[id="shop-balance-text"]', 
+        '[id="top-zn-balance"]', '[id="wallet-zn-balance"]', 
+        '[id="task-zn-balance"]', '[id="farm-zn-balance"]',
+        '[id="zn-balance"]', '.zn-balance-display', '.balance-text'
     ];
 
-    znElementIds.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-            if (el.tagName === 'INPUT') el.value = znFormatted;
-            else el.innerText = znFormatted;
-        }
+    znSelectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => {
+            if (el.tagName === 'INPUT') {
+                el.value = znFormatted;
+            } else {
+                // الحفاظ على كلمة ZN لو موجودة داخل العنصر لتطابق الصور
+                const currentText = el.innerText || "";
+                if (currentText.includes('رصيد ZN:')) {
+                    el.innerText = `رصيد ZN: ${znFormatted}`;
+                } else if (currentText.includes('ZN:')) {
+                    el.innerText = `ZN: ${znFormatted}`;
+                } else if (currentText.includes('ZN ')) {
+                    el.innerText = `ZN ${znFormatted}`;
+                } else {
+                    el.innerText = znFormatted;
+                }
+            }
+        });
     });
 
-    // تحديث بالـ Class لضمان تغطية أية عناصر إضافية
-    document.querySelectorAll('.zn-balance-display').forEach(el => {
-        el.innerText = znFormatted;
-    });
-
-    // قائمة بجميع الـ IDs للرصيد USD عبر كافة القوائم
-    const usdElementIds = [
-        'user-usd-balance', 
-        'shop-usd-text', 
-        'top-usd-balance', 
-        'wallet-usd-balance', 
-        'usd-balance'
+    // 2. تحديث رصيد USD في المحفظة والمتجر معاً وبدون تعليق
+    const usdSelectors = [
+        '[id="user-usd-balance"]', '[id="shop-usd-text"]', 
+        '[id="wallet-usd-balance"]', '[id="usd-balance"]', 
+        '.usd-balance-display'
     ];
 
-    usdElementIds.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-            if (el.tagName === 'INPUT') el.value = usdFormatted;
-            else el.innerText = usdFormatted;
-        }
+    usdSelectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => {
+            if (el.tagName === 'INPUT') {
+                el.value = usdFormatted;
+            } else {
+                const currentText = el.innerText || "";
+                // لو العنصر فيه علامة الدولار مسبقاً بنحافظ عليها
+                if (currentText.includes('$')) {
+                    el.innerText = `$${usdFormatted}`;
+                } else if (currentText.includes('USD')) {
+                    el.innerText = `USD $${usdFormatted}`;
+                } else {
+                    el.innerText = `$${usdFormatted}`; // الشكل الافتراضي
+                }
+            }
+        });
     });
 
-    document.querySelectorAll('.usd-balance-display').forEach(el => {
-        el.innerText = usdFormatted;
-    });
-
-    // قائمة بجميع الـ IDs لمعدل السرعة hourly_rate
-    const hourlyElementIds = [
-        'hourly-rate', 
-        'shop-rate-text', 
-        'user-hourly-rate', 
-        'farm-rate-text'
+    // 3. تحديث سرعة التعدين في كل مكان
+    const hourlySelectors = [
+        '[id="hourly-rate"]', '[id="shop-rate-text"]', 
+        '[id="user-hourly-rate"]', '[id="farm-rate-text"]',
+        '.hourly-rate-display'
     ];
 
-    hourlyElementIds.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-            if (el.tagName === 'INPUT') el.value = hourlyFormatted;
-            else el.innerText = hourlyFormatted;
-        }
+    hourlySelectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => {
+            if (el.tagName === 'INPUT') {
+                el.value = hourlyFormatted;
+            } else {
+                // حسب تصميمك في الصور، السرعة تظهر بالشكل التالي
+                el.innerText = `h/${formatNumber(window.userState.hourly_rate, 0)}`;
+            }
+        });
     });
 
-    // استدعاء دالة تحديث المتجر إذا كانت معرفة في ملف shop.js
+    // استدعاء الدوال الفرعية لو موجودة
     if (typeof window.updateShopUI === 'function') {
         window.updateShopUI();
-    }
-
-    // استدعاء دالة تحديث المهمات إذا كانت معرفة في ملف tasks.js
-    if (typeof window.renderTasks === 'function') {
-        window.renderTasks();
     }
 };
 
@@ -198,28 +207,24 @@ let isUserDataFetching = false;
 
 window.loadUserData = async function() {
     if (!tg || !tg.initData) return;
-    if (isUserDataFetching) return; 
+    if (isUserDataFetching) return;
 
     isUserDataFetching = true;
 
     try {
-        // جلب بيانات الحساب المحدثة من السيرفر
         const data = await fetchAPI('/api/user/info');
         if (data && data.success) {
-            // تحديث القيم مباشرة لتفعيل الـ Proxy والتحديث اللحظي
+            // التعديل هنا سيطلق الـ Proxy ويحدث كل الشاشات فوراً
             if (data.balance !== undefined) window.userState.balance = parseFloat(data.balance);
             if (data.usd_balance !== undefined) window.userState.usd_balance = parseFloat(data.usd_balance);
             if (data.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(data.hourly_rate);
             if (data.storage_level !== undefined) window.userState.storage_level = parseInt(data.storage_level);
             if (data.upgrades !== undefined) window.userState.upgrades = data.upgrades;
             if (data.wallet_address !== undefined) window.userState.wallet_address = data.wallet_address;
-
-            saveLocalState();
-            window.updateUI();
         }
     } catch (e) {
         console.log("استخدام البيانات المحلية المسجلة مسبقاً لحين توفر الاتصال.");
-        window.updateUI();
+        window.updateUI(); // استدعاء احتياطي
     } finally {
         isUserDataFetching = false;
     }
@@ -292,8 +297,6 @@ async function executeConvertZN(amount) {
         if (res.success) {
             window.userState.usd_balance = res.new_usd_balance;
             window.userState.balance = res.new_balance;
-            saveLocalState();
-            window.updateUI();
             alert(`تم تحويل ${formatNumber(amount, 0)} ZN بنجاح إلى $${formatNumber(res.usd_gained, 4)}!`);
             loadWalletHistory();
         }
@@ -310,8 +313,6 @@ async function executeWithdraw(amountUSD, address) {
         });
         if (res.success) {
             window.userState.usd_balance = res.new_usd_balance;
-            saveLocalState();
-            window.updateUI();
             alert(`تم إرسال طلب السحب بنجاح وهي قيد المعالجة!`);
             loadWalletHistory();
         }
@@ -324,20 +325,20 @@ async function executeWithdraw(amountUSD, address) {
    6. Realtime Auto-Sync & Event Listeners
    ========================================== */
 document.addEventListener('DOMContentLoaded', () => {
-    window.updateUI();
-    window.loadUserData(); // جلب البيانات الحقيقية فور تحميل الصفحة
+    window.updateUI(); // تحديث أولي سريع 
+    window.loadUserData(); // جلب البيانات الحقيقية من السيرفر
     
     const historyBtn = document.getElementById('open-history-btn');
     if (historyBtn) {
         historyBtn.addEventListener('click', loadWalletHistory);
     }
 
-    // 1. مزامنة تلقائية حية كل 4 ثوانٍ لضمان استقبال أية نقاط أضيفت من السيرفر أو البوت بدون إغلاق التطبيق
+    // مزامنة تلقائية حية كل 4 ثوانٍ لضمان استقبال أية نقاط أضيفت من الفايربيس، البوت أو السيرفر
     setInterval(() => {
         window.loadUserData();
     }, 4000);
 
-    // 2. مزامنة فورية بمجرد عودة المستخدم لشاشة التطبيق
+    // مزامنة فورية بمجرد أن يفتح المستخدم التطبيق أو يرجع له من شاشة أخرى
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
             window.loadUserData();
