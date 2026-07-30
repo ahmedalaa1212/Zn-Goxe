@@ -6,7 +6,9 @@ from flask_cors import CORS
 # 1. إعداد التطبيق والمتغيرات الأساسية
 # ==========================================
 app = Flask(__name__)
-CORS(app)
+
+# تفعيل CORS لجميع مسارات الـ API بدون قيود
+CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app').strip().rstrip('/')
 
@@ -45,7 +47,26 @@ def add_security_headers(response):
     return response
 
 # ==========================================
-# 4. مسارات تطبيق TON Connect والصفحة الرئيسية
+# 4. معالجة الأخطاء العالمية (Global Error Handlers)
+# ==========================================
+@app.errorhandler(500)
+def handle_500_error(e):
+    return jsonify({
+        "success": False,
+        "error": "حدث خطأ داخلي في السيرفر (500). يرجى التأكد من الاتصال بقاعدة البيانات."
+    }), 200
+
+@app.errorhandler(404)
+def handle_404_error(e):
+    if request.path.startswith('/api/'):
+        return jsonify({
+            "success": False,
+            "error": "المسار المطلوب غير موجود في السيرفر (404)."
+        }), 200
+    return send_from_directory('.', 'index.html')
+
+# ==========================================
+# 5. مسارات تطبيق TON Connect والصفحة الرئيسية
 # ==========================================
 @app.route('/tonconnect-manifest.json')
 def serve_manifest():
@@ -64,26 +85,23 @@ def serve_index():
 
 @app.route('/<path:path>')
 def serve_static(path):
-    # السماح الصريح بملف المانفيست
     if path == 'tonconnect-manifest.json':
         return serve_manifest()
 
-    # حظر الامتدادات والمجلدات الحساسة
-    forbidden_extensions = ('.py', '.env', '.json', '.md', '.txt')
+    # حظر الامتدادات والمجلدات الحساسة مع السماح بالملفات العامة
+    forbidden_extensions = ('.py', '.env', '.md', '.txt')
     forbidden_dirs = ('core/', 'admin_chat/', '.git/', '.github/')
     
-    # السماح بالملفات العامة كـ (js, css, html, png, jpg, ico)
     if any(path.startswith(d) for d in forbidden_dirs) or (path.endswith(forbidden_extensions) and path != 'favicon.ico'):
         return jsonify({"error": "Access Denied", "message": "غير مصرح لك بالوصول لهذا الملف"}), 403
     
     try:
         return send_from_directory('.', path)
     except Exception:
-        # في حالة طلب صفحة غير موجودة توجيهه إلى index.html
         return send_from_directory('.', 'index.html')
 
 # ==========================================
-# 5. فحص حالة السيرفر (Health Check)
+# 6. فحص حالة السيرفر (Health Check)
 # ==========================================
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -94,7 +112,7 @@ def health_check():
     }), 200
 
 # ==========================================
-# 6. نقطة التشغيل الرئيسية
+# 7. نقطة التشغيل الرئيسية
 # ==========================================
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
