@@ -6,8 +6,22 @@
         if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
             return parseFloat(window.GameState.balance);
         }
+        if (window.PlayerData && window.PlayerData.balance !== undefined && window.PlayerData.balance !== null) {
+            return parseFloat(window.PlayerData.balance);
+        }
         const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
         return bal !== null ? parseFloat(bal) : 0;
+    }
+
+    function getStoredUsdBalance() {
+        if (window.GameState && window.GameState.usd_balance !== undefined && window.GameState.usd_balance !== null) {
+            return parseFloat(window.GameState.usd_balance);
+        }
+        if (window.PlayerData && window.PlayerData.usd_balance !== undefined && window.PlayerData.usd_balance !== null) {
+            return parseFloat(window.PlayerData.usd_balance);
+        }
+        const usd = localStorage.getItem('usd_balance');
+        return usd !== null ? parseFloat(usd) : 0.0;
     }
 
     function setStoredBalance(newBalance) {
@@ -17,20 +31,10 @@
                 window.setBalance(numVal);
             } else {
                 if (window.GameState) window.GameState.balance = numVal;
+                if (window.PlayerData) window.PlayerData.balance = numVal;
                 localStorage.setItem('zn_balance', numVal.toString());
                 localStorage.setItem('user_balance', numVal.toString());
             }
-        }
-    }
-
-    function syncTopBalance() {
-        const stored = getStoredBalance();
-        const topBalEl = document.getElementById('top-balance-shop');
-        if (topBalEl) {
-            topBalEl.innerText = `ZN: ${Math.floor(stored).toLocaleString()}`;
-        }
-        if (typeof window.updateGlobalUI === 'function') {
-            window.updateGlobalUI();
         }
     }
 
@@ -169,16 +173,27 @@
         
         if (!miningSec || !storageSec) return;
 
-        const pData = window.PlayerData || window.GameState || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0 };
+        const pData = window.PlayerData || window.GameState || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0, usd_balance: 0 };
         
-        // مزامنة الرصيد فورياً
+        // جلب وقراءة الأرصادات المحدثة
         let totalBal = getStoredBalance();
-        syncTopBalance();
+        let totalUsd = getStoredUsdBalance();
 
         const shopBalEl = document.getElementById('shop-balance-text');
         const shopRateEl = document.getElementById('shop-rate-text');
-        if (shopBalEl) shopBalEl.innerText = `ZN: ${Math.floor(totalBal).toLocaleString()}`;
+        const shopUsdEl = document.getElementById('shop-usd-text');
+
+        if (shopBalEl) shopBalEl.innerText = `${Math.floor(totalBal).toLocaleString()}`;
         if (shopRateEl) shopRateEl.innerText = `${(pData.hourly_rate || 0).toLocaleString()}/h`; 
+        
+        if (shopUsdEl) {
+            let numUsd = Number(totalUsd) || 0;
+            shopUsdEl.innerText = "$" + (numUsd > 0 && numUsd < 0.01 ? numUsd.toFixed(5) : numUsd.toFixed(2));
+        }
+
+        if (typeof window.updateGlobalUI === 'function') {
+            window.updateGlobalUI();
+        }
 
         // ----------------------------------------
         // بناء واجهة ترقيات السرعة والتعدين
