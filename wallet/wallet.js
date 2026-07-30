@@ -8,7 +8,7 @@ let currentWalletTab = localStorage.getItem('lastWalletTab') || 'withdraw';
 let tonConnectUI = null;
 
 // سعر TON المباشر وحالة الـ WebSocket
-window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 5.00;
+window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 0;
 let tonWebSocket = null;
 
 // التهيئة الأولى لتطبيق التليجرام
@@ -32,11 +32,33 @@ function triggerHapticFeedback(type = 'impact', style = 'medium') {
 }
 
 // =================================================================
-// 📡 1. نظام سعر TON اللحظي السريع المحصن ضد التلاعب (Live WebSocket)
+// 📡 1. نظام سعر TON اللحظي الموحد مع مصادر متعددة وتحديث الـ DOM
 // =================================================================
 
+// دالة مركزية لتطبيق السعر وتحديث الشاشة فوراً
+function applyTonPrice(price) {
+    let validPrice = parseFloat(price);
+    if (isNaN(validPrice) || validPrice <= 0.1 || validPrice > 200) return;
+
+    window.currentTonPriceUSD = validPrice;
+    localStorage.setItem('last_ton_price', validPrice);
+
+    // تحديث عنصر السعر السفلي
+    const tonPriceElem = document.getElementById('current-ton-price');
+    if (tonPriceElem) {
+        tonPriceElem.innerText = validPrice.toFixed(3);
+    }
+
+    // تحديث أرصدة واجهة المحفظة والهيدر
+    if (typeof window.updateWalletHeaderUI === 'function') {
+        window.updateWalletHeaderUI();
+    }
+}
+
 function initLiveTonPriceStream() {
-    // الاتصال بشبكة البث المباشر لأسعار باينانس
+    // جلب السعر احتياطياً فوراً لمنع انتظار الـ WebSocket
+    fetchBackupTonPrice();
+
     const wsUrl = 'wss://stream.binance.com:9443/ws/tonusdt@ticker';
     
     try {
@@ -46,28 +68,9 @@ function initLiveTonPriceStream() {
         tonWebSocket.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                const livePrice = parseFloat(data.c); // السعر الحالي اللحظي
-
-                // 🛡️ حماية ضد التلاعب والسحب الوهمي:
-                // تأكد أن السعر رقم منطقي وغير مفبرك من الـ Console
-                if (!isNaN(livePrice) && livePrice > 0.5 && livePrice < 100) {
-                    // حماية إضافية: منع القفزات غير المنطقية المفاجئة (+- 20%)
-                    if (window.currentTonPriceUSD > 0) {
-                        const maxDiff = window.currentTonPriceUSD * 0.20;
-                        if (Math.abs(livePrice - window.currentTonPriceUSD) > maxDiff && window.currentTonPriceUSD !== 5.00) {
-                            console.warn("⚠️ تم رفض سعر TON لوجود تقلب غير طبيعي أو محاولة تلاعب.");
-                            return;
-                        }
-                    }
-
-                    window.currentTonPriceUSD = livePrice;
-                    localStorage.setItem('last_ton_price', livePrice);
-                    
-                    // تحديث عناصر السعر في الشاشة فوراً
-                    const tonPriceElem = document.getElementById('current-ton-price');
-                    if (tonPriceElem) tonPriceElem.innerText = livePrice.toFixed(3);
-                    
-                    window.updateWalletHeaderUI();
+                const livePrice = parseFloat(data.c);
+                if (!isNaN(livePrice) && livePrice > 0.1) {
+                    applyTonPrice(livePrice);
                 }
             } catch (err) {
                 console.error("Error parsing TON WebSocket price:", err);
@@ -79,8 +82,7 @@ function initLiveTonPriceStream() {
         };
 
         tonWebSocket.onclose = () => {
-            // إعادة الاتصال التلقائي في حالة انقطاع النت
-            setTimeout(initLiveTonPriceStream, 3000);
+            setTimeout(initLiveTonPriceStream, 10000);
         };
 
     } catch (e) {
@@ -88,19 +90,46 @@ function initLiveTonPriceStream() {
     }
 }
 
-// دالة إضافية لجلب السعر احتياطياً في حال تعطل البث
+// دالة جلب السعر من مصادر متعددة في حال استجابة أي منها (Binance -> CoinGecko -> OKX)
 async function fetchBackupTonPrice() {
+    // المصدر الأول: Binance REST API
     try {
         let res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=TONUSDT');
-        let data = await res.json();
-        let price = parseFloat(data.price);
-        if (price > 0) {
-            window.currentTonPriceUSD = price;
-            window.updateWalletHeaderUI();
+        if (res.ok) {
+            let data = await res.json();
+            let price = parseFloat(data.price);
+            if (price > 0) {
+                applyTonPrice(price);
+                return;
+            }
         }
-    } catch (e) {
-        console.warn("Could not fetch backup TON price");
-    }
+    } catch (e) {}
+
+    // المصدر الثاني (احتياطي 1): CoinGecko API
+    try {
+        let res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd');
+        if (res.ok) {
+            let data = await res.json();
+            let price = parseFloat(data['the-open-network']?.usd);
+            if (price > 0) {
+                applyTonPrice(price);
+                return;
+            }
+        }
+    } catch (e) {}
+
+    // المصدر الثالث (احتياطي 2): OKX API
+    try {
+        let res = await fetch('https://www.okx.com/api/v5/market/ticker?instId=TON-USDT');
+        if (res.ok) {
+            let data = await res.json();
+            let price = parseFloat(data?.data?.[0]?.last);
+            if (price > 0) {
+                applyTonPrice(price);
+                return;
+            }
+        }
+    } catch (e) {}
 }
 
 // =================================================================
@@ -126,6 +155,7 @@ window.updateWalletHeaderUI = function() {
     const znElem = document.getElementById('wallet-zn-balance');
     const usdElem = document.getElementById('wallet-usd-balance');
     const tonElem = document.getElementById('wallet-ton-estimate');
+    const tonPriceElem = document.getElementById('current-ton-price');
 
     if (znElem) znElem.innerText = Math.floor(zn).toLocaleString('en-US');
     
@@ -133,8 +163,11 @@ window.updateWalletHeaderUI = function() {
         usdElem.innerText = "$" + (usd > 0 && usd < 0.01 ? usd.toFixed(5) : usd.toFixed(4));
     }
     
-    let estimateTon = window.currentTonPriceUSD > 0 ? (usd / window.currentTonPriceUSD) : 0;
-    if (tonElem) tonElem.innerText = "≈ " + estimateTon.toFixed(4) + " TON";
+    if (window.currentTonPriceUSD > 0) {
+        let estimateTon = (usd / window.currentTonPriceUSD);
+        if (tonElem) tonElem.innerText = "≈ " + estimateTon.toFixed(4) + " TON";
+        if (tonPriceElem) tonPriceElem.innerText = window.currentTonPriceUSD.toFixed(3);
+    }
 };
 
 // مزامنة الأرصدة مع السيرفر باستخدام apiCall الموحد من game.js
@@ -470,6 +503,9 @@ window.renderWalletTab = function(tab) {
         }
         content.innerHTML = withdrawHtml;
     }
+
+    // تحديث السعر في الواجهة فور عرض التبويب
+    window.updateWalletHeaderUI();
 };
 
 // =================================================================
@@ -539,6 +575,10 @@ window.executeDeposit = async function() {
 
     if (!usdAmount || usdAmount < 1.00) {
         return showAppAlert("⚠️ الحد الأدنى للإيداع هو $1.00 USD");
+    }
+
+    if (!window.currentTonPriceUSD || window.currentTonPriceUSD <= 0) {
+        return showAppAlert("⚠️ جاري جلب سعر TON، يرجى الانتظار ثوانٍ والتجربة مجدداً.");
     }
 
     let tonAmount = usdAmount / window.currentTonPriceUSD;
@@ -665,7 +705,7 @@ window.submitWithdrawal = async function() {
             // ⚡ خصم الرصيد مباشرة في الـ GameState
             window.GameState.usd_balance -= usdAmount;
             
-            let expectedTon = (usdAmount / window.currentTonPriceUSD).toFixed(4);
+            let expectedTon = (usdAmount / (window.currentTonPriceUSD || 1)).toFixed(4);
             showAppAlert(`✅ تم تقديم طلب السحب بقيمة $${usdAmount}.\nستصلك (≈ ${expectedTon} TON) بعد المراجعة.`);
             if (usdInput) usdInput.value = '';
             const wInfo = document.getElementById('withdraw-calc-info');
