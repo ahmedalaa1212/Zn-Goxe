@@ -7,6 +7,22 @@ let userWalletAddress = null;
 let currentWalletTab = localStorage.getItem('lastWalletTab') || 'withdraw';
 let tonConnectUI = null;
 
+// 🛡️ تثبيت احتياطي آمن لدالة apiCall لتفادي توقف الكود إذا لم تكن معرفة في app.js
+if (typeof window.apiCall !== 'function') {
+    window.apiCall = async function(url, method = 'POST', payload = {}) {
+        try {
+            const response = await fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            return await response.json();
+        } catch (err) {
+            return { success: false, error: "تعذر الاتصال بالسيرفر، تأكد من اتصال الإنترنت." };
+        }
+    };
+}
+
 // سعر TON المباشر المخزن
 window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 0;
 let priceIntervalTimer = null;
@@ -736,7 +752,6 @@ window.convertManualPoints = async function() {
             showAppAlert("⚠️ " + (result?.error || result?.message || "فشل التحويل."));
         }
     } catch (e) { 
-        // 🎯 التقاط النص الصريح المرجّع من السيرفر وإظهاره فوراً للمستخدم
         const serverError = e?.message || e?.error || (typeof e === 'string' ? e : "خطأ في الاتصال بالسيرفر.");
         showAppAlert("⚠️ " + serverError); 
     } finally {
@@ -793,7 +808,6 @@ window.submitWithdrawal = async function() {
             showAppAlert("⚠️ " + (result?.error || result?.message || "خطأ أثناء معالجة الطلب"));
         }
     } catch (e) { 
-        // 🎯 التقاط النص الصريح المرجّع من السيرفر وإظهاره فوراً للمستخدم
         const serverError = e?.message || e?.error || (typeof e === 'string' ? e : "خطأ في الاتصال بالسيرفر.");
         showAppAlert("⚠️ " + serverError); 
     } finally {
