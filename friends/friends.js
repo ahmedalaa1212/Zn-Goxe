@@ -331,4 +331,3 @@
         initFriendsPage();
     }
 })();
-
