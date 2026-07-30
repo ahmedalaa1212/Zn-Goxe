@@ -11,18 +11,21 @@
 
     const BOT_USERNAME = "zngoxe_bot"; // اسم يوزر البوت بدون @
 
-    // جلب الرصيد مباشرة من الـ Proxy المركزي الموحد
+    // جلب الرصيد مباشرة من الـ Proxy المركزي الموحد مع التخلص التام من الكسور
     function getStoredBalance() {
+        let bal = 0;
         if (window.userState && window.userState.balance !== undefined) {
-            return parseFloat(window.userState.balance);
+            bal = parseFloat(window.userState.balance);
+        } else if (window.PlayerData && window.PlayerData.balance !== undefined) {
+            bal = parseFloat(window.PlayerData.balance);
         }
-        return 0;
+        return Math.floor(bal || 0);
     }
 
-    // تحديث الرصيد عبر الـ Proxy المركزي لتحديث كافة القوائم فوراً (بدون Refresh)
+    // تحديث الرصيد عبر الـ Proxy المركزي لتحديث كافة القوائم فوراً وبدون كسور
     function setStoredBalance(newBalance) {
         if (newBalance !== undefined && newBalance !== null) {
-            const numVal = parseFloat(newBalance);
+            const numVal = Math.floor(parseFloat(newBalance) || 0);
             if (window.userState) {
                 window.userState.balance = numVal;
             }
@@ -107,6 +110,12 @@
         const totalInvited = parseInt(pData.invited_friends_count) || 0;
         const eligibleForTasks = parseInt(pData.eligible_task_friends_count) || 0;
 
+        // 🔥 الحل الجذري: ربط وتحديث عنصر الرصيد في أعلى صفحة الأصدقاء لحظياً وبدون كسور
+        const elBalance = document.getElementById('top-balance-friends') || document.querySelector('.zn-balance-display');
+        if (elBalance) {
+            elBalance.innerText = balance.toLocaleString();
+        }
+
         const elPending = document.getElementById('pending-ref-earnings');
         const elInvited = document.getElementById('invited-friends-count');
         const btnClaim = document.getElementById('btn-claim-ref');
@@ -154,7 +163,7 @@
                     <div class="task-header">
                         <div class="task-info">
                             <h4>دعوة ${task.reqFriends} أصدقاء (3+ ترقيات)</h4>
-                            <p>مكافأة: ${task.reward.toLocaleString()} ZN</p>
+                            <p>مكافأة: ${Math.floor(task.reward).toLocaleString()} ZN</p>
                         </div>
                         <div class="task-action">${btnHtml}</div>
                     </div>
@@ -227,7 +236,7 @@
                 // التحديث هنا سيُفعّل الـ Proxy في game.js لتحديث الرصيد لحظياً في كل التطبيق
                 setStoredBalance(data.new_balance);
                 if (!window.PlayerData) window.PlayerData = {};
-                window.PlayerData.balance = data.new_balance;
+                window.PlayerData.balance = Math.floor(data.new_balance);
                 window.PlayerData.pending_ref_earnings = 0;
                 
                 window.updateFriendsUI();
@@ -251,12 +260,12 @@
         try {
             const data = await window.fetchAPI('/api/friends/claim_ref_task', 'POST', { taskId, reward, reqFriends });
             if (data && data.success) {
-                showToast(`🎊 مبروك! استلمت مكافأة ${reward.toLocaleString()} ZN.`);
+                showToast(`🎊 مبروك! استلمت مكافأة ${Math.floor(reward).toLocaleString()} ZN.`);
                 
                 // التحديث اللحظي للواجهات
                 setStoredBalance(data.new_balance);
                 if (!window.PlayerData) window.PlayerData = {};
-                window.PlayerData.balance = data.new_balance;
+                window.PlayerData.balance = Math.floor(data.new_balance);
                 if (!window.PlayerData.claimed_ref_tasks) window.PlayerData.claimed_ref_tasks = [];
                 window.PlayerData.claimed_ref_tasks.push(taskId);
                 
