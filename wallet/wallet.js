@@ -485,7 +485,7 @@ window.renderWalletTab = function(tab) {
             }
         };
 
-        // المحاولة 1: طلب البيانات عبر POST مع تمرير بيانت المصادقة
+        // المحاولة 1: طلب البيانات عبر POST مع تمرير بيانات المصادقة
         if (typeof window.apiCall === 'function') {
             const payload = getAuthPayload();
             window.apiCall('/api/wallet/get_history', 'POST', payload).then(async (data) => {
@@ -681,14 +681,15 @@ window.executeDeposit = async function() {
                 window.updateWalletHeaderUI();
                 showAppAlert(`✅ تم الإيداع بنجاح!\nأضيفت $${netCredited.toFixed(2)} لرصيدك بعد خصم (3%).`);
             } else {
-                showAppAlert("⚠️ فشل تأكيد الإيداع في السيرفر: " + (result?.error || result?.message || "خطأ غير معروف"));
+                showAppAlert("⚠️ " + (result?.error || result?.message || "فشل تأكيد الإيداع في السيرفر"));
             }
         }
         if (usdInput) usdInput.value = '';
     } catch (e) {
         triggerHapticFeedback('notification', 'warning');
         if (e && e.message !== "User rejected the transaction") {
-            showAppAlert("⚠️ تم إلغاء المعاملة أو حدث خطأ أثناء الدفع.");
+            const errMsg = e?.message || e?.error || "تم إلغاء المعاملة أو حدث خطأ أثناء الدفع.";
+            showAppAlert("⚠️ " + errMsg);
         }
     } finally {
         if (depositBtn) { depositBtn.disabled = false; depositBtn.innerText = "متابعة الدفع عبر TON"; }
@@ -732,10 +733,12 @@ window.convertManualPoints = async function() {
             const convInfo = document.getElementById('conversion-calc-info');
             if (convInfo) convInfo.style.display = 'none';
         } else {
-            showAppAlert("⚠️ فشل التحويل: " + (result?.error || result?.message || "خطأ غير معروف"));
+            showAppAlert("⚠️ " + (result?.error || result?.message || "فشل التحويل."));
         }
     } catch (e) { 
-        showAppAlert("⚠️ خطأ في الاتصال بالسيرفر."); 
+        // 🎯 التقاط النص الصريح المرجّع من السيرفر وإظهاره فوراً للمستخدم
+        const serverError = e?.message || e?.error || (typeof e === 'string' ? e : "خطأ في الاتصال بالسيرفر.");
+        showAppAlert("⚠️ " + serverError); 
     } finally {
         if (convertBtn) { convertBtn.disabled = false; convertBtn.innerText = "تحويل النقاط الآن"; }
     }
@@ -790,7 +793,9 @@ window.submitWithdrawal = async function() {
             showAppAlert("⚠️ " + (result?.error || result?.message || "خطأ أثناء معالجة الطلب"));
         }
     } catch (e) { 
-        showAppAlert("⚠️ خطأ أثناء معالجة الطلب."); 
+        // 🎯 التقاط النص الصريح المرجّع من السيرفر وإظهاره فوراً للمستخدم
+        const serverError = e?.message || e?.error || (typeof e === 'string' ? e : "خطأ في الاتصال بالسيرفر.");
+        showAppAlert("⚠️ " + serverError); 
     } finally {
         if (withdrawBtn) { withdrawBtn.disabled = false; withdrawBtn.innerText = "تقديم طلب السحب"; }
     }
