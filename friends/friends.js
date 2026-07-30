@@ -19,7 +19,7 @@
         return 0;
     }
 
-    // تحديث الرصيد عبر الـ Proxy المركزي لتحديث كافة القوائم فوراً
+    // تحديث الرصيد عبر الـ Proxy المركزي لتحديث كافة القوائم فوراً (بدون Refresh)
     function setStoredBalance(newBalance) {
         if (newBalance !== undefined && newBalance !== null) {
             const numVal = parseFloat(newBalance);
@@ -253,6 +253,7 @@
             if (data && data.success) {
                 showToast(`🎊 مبروك! استلمت مكافأة ${reward.toLocaleString()} ZN.`);
                 
+                // التحديث اللحظي للواجهات
                 setStoredBalance(data.new_balance);
                 if (!window.PlayerData) window.PlayerData = {};
                 window.PlayerData.balance = data.new_balance;
