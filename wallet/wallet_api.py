@@ -16,7 +16,7 @@ MIN_CONVERT_ZN = 1000000    # الحد الأدنى لتحويل ZN (1 مليو�
 def wallet_index():
     return jsonify({"success": True, "message": "Wallet API is Secure and Active!"}), 200
 
-# 1. جلب سجل المعاملات (مُعدل لدعم الرقم والنص معاً)
+# 1. جلب سجل المعاملات (يدعم السحب، الإيداع، وتحويل النقاط)
 @wallet_bp.route('/get_history', methods=['GET'])
 def get_history():
     is_auth, user_id, err = get_authenticated_user(request)
@@ -35,9 +35,10 @@ def get_history():
         except ValueError:
             pass
         
-        # جلب السحوبات والإيداعات
+        # جلب السحوبات، الإيداعات، والتحويلات
         withdrawals_query = db.collection('withdrawals').where('user_id', 'in', user_ids).limit(20).get()
         deposits_query = db.collection('deposits').where('user_id', 'in', user_ids).limit(20).get()
+        conversions_query = db.collection('conversions').where('user_id', 'in', user_ids).limit(20).get()
         
         history = []
         for doc in withdrawals_query:
@@ -49,6 +50,12 @@ def get_history():
         for doc in deposits_query:
             d = doc.to_dict()
             d['type'] = 'deposit'
+            d['id'] = doc.id
+            history.append(d)
+
+        for doc in conversions_query:
+            d = doc.to_dict()
+            d['type'] = 'convert'
             d['id'] = doc.id
             history.append(d)
             
@@ -67,7 +74,7 @@ def get_history():
         print(f"[Wallet API] Error fetching history: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب السجلات"}), 500
 
-# 2. تحويل نقاط ZN إلى USD (Firestore Transaction محصنة)
+# 2. تحويل نقاط ZN إلى USD (Firestore Transaction محصنة وتأطير العملية في السجل)
 @wallet_bp.route('/wallet_convert', methods=['POST'])
 def wallet_convert():
     is_auth, user_id, err = get_authenticated_user(request, is_post=True)
@@ -88,9 +95,10 @@ def wallet_convert():
     usd_gained = round(amount / 1000000.0, 5)
     transaction = db.transaction()
     user_ref = db.collection('users').document(str(user_id))
+    conversion_ref = db.collection('conversions').document()
     
     @firestore.transactional
-    def secure_convert_tx(transaction, user_ref):
+    def secure_convert_tx(transaction, user_ref, conversion_ref):
         snapshot = user_ref.get(transaction=transaction)
         if not snapshot.exists:
             raise Exception("حساب المستخدم غير موجود")
@@ -103,14 +111,25 @@ def wallet_convert():
             raise Exception("رصيد النقاط غير كافٍ لإتمام التحويل")
             
         new_usd = round(current_usd + usd_gained, 5)
+        
+        # تحديث رصيد المستخدم
         transaction.update(user_ref, {
             'balance': current_balance - amount,
             'usd_balance': new_usd
         })
+        
+        # إضافة العملية للسجل
+        transaction.set(conversion_ref, {
+            'user_id': str(user_id),
+            'amount_zn': amount,
+            'amount_usd': usd_gained,
+            'status': 'completed',
+            'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
+        })
         return usd_gained, new_usd
         
     try:
-        gained, new_usd = secure_convert_tx(transaction, user_ref)
+        gained, new_usd = secure_convert_tx(transaction, user_ref, conversion_ref)
         return jsonify({"success": True, "usd_gained": gained, "new_usd_balance": new_usd}), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
