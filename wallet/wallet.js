@@ -31,8 +31,20 @@ function triggerHapticFeedback(type = 'impact', style = 'medium') {
     }
 }
 
+// 🔑 دالة مساعدة لتجهيز حزمة المصادقة الآمنة لطلبات الـ API
+function getAuthPayload(extraData = {}) {
+    const initData = window.Telegram?.WebApp?.initData || '';
+    const rawUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || window.GameState?.user_id || '';
+    
+    return {
+        initData: initData,
+        tg_id: String(rawUserId),
+        ...extraData
+    };
+}
+
 // =================================================================
-// 📡 1. جلب سعر TON اللحظي المطابق لمحفظة تليجرام (TonAPI + OKX + CoinGecko)
+// 📡 1. جلب سعر TON اللحظي المطابق لمحفظة تليجرام
 // =================================================================
 
 function applyTonPrice(price) {
@@ -53,7 +65,7 @@ function applyTonPrice(price) {
 }
 
 async function fetchLiveTonPrice() {
-    // 1. TonAPI.io (المصدر الرسمي)
+    // 1. TonAPI.io
     try {
         let res = await fetch('https://tonapi.io/v2/rates?tokens=ton&currencies=usd');
         if (res.ok) {
@@ -138,7 +150,8 @@ window.updateWalletHeaderUI = function() {
 window.syncWalletData = async function() {
     if (typeof window.apiCall === 'function') {
         try {
-            const res = await window.apiCall('/api/farm/sync', 'POST');
+            const payload = getAuthPayload();
+            const res = await window.apiCall('/api/farm/sync', 'POST', payload);
             if (res && res.success && res.data) {
                 if (res.data.balance !== undefined) window.GameState.balance = res.data.balance;
                 if (res.data.usd_balance !== undefined) window.GameState.usd_balance = res.data.usd_balance;
@@ -472,9 +485,10 @@ window.renderWalletTab = function(tab) {
             }
         };
 
-        // المحاولة 1: طلب البيانات عبر apiCall
+        // المحاولة 1: طلب البيانات عبر POST مع تمرير بيانت المصادقة
         if (typeof window.apiCall === 'function') {
-            window.apiCall('/api/wallet/get_history', 'GET').then(async (data) => {
+            const payload = getAuthPayload();
+            window.apiCall('/api/wallet/get_history', 'POST', payload).then(async (data) => {
                 const rawList = data?.history || data?.transactions || data?.data || data?.logs || [];
                 
                 if (data && data.success && Array.isArray(rawList) && rawList.length > 0) {
@@ -648,14 +662,16 @@ window.executeDeposit = async function() {
         const netCredited = usdAmount * 0.97;
 
         if (typeof window.apiCall === 'function') {
-            let result = await window.apiCall('/api/wallet/wallet_deposit_report', 'POST', {
+            const payload = getAuthPayload({
                 usdAmount: usdAmount, 
                 netUsdAmount: netCredited,
                 tonAmount: tonAmount, 
                 boc: txResult.boc 
             });
+
+            let result = await window.apiCall('/api/wallet/wallet_deposit_report', 'POST', payload);
             
-            if (result.success) {
+            if (result && result.success) {
                 if (result.new_usd_balance !== undefined) {
                     window.GameState.usd_balance = result.new_usd_balance;
                 } else {
@@ -665,7 +681,7 @@ window.executeDeposit = async function() {
                 window.updateWalletHeaderUI();
                 showAppAlert(`✅ تم الإيداع بنجاح!\nأضيفت $${netCredited.toFixed(2)} لرصيدك بعد خصم (3%).`);
             } else {
-                showAppAlert("⚠️ فشل تأكيد الإيداع في السيرفر: " + (result.error || result.message));
+                showAppAlert("⚠️ فشل تأكيد الإيداع في السيرفر: " + (result?.error || result?.message || "خطأ غير معروف"));
             }
         }
         if (usdInput) usdInput.value = '';
@@ -696,9 +712,10 @@ window.convertManualPoints = async function() {
     try {
         if (convertBtn) { convertBtn.disabled = true; convertBtn.innerText = "⏳ جاري التحويل..."; }
         
-        let result = await window.apiCall('/api/wallet/wallet_convert', 'POST', { amount: amount });
+        const payload = getAuthPayload({ amount: amount });
+        let result = await window.apiCall('/api/wallet/wallet_convert', 'POST', payload);
         
-        if (result.success) {
+        if (result && result.success) {
             triggerHapticFeedback('notification', 'success');
             
             window.GameState.balance -= amount;
@@ -715,7 +732,7 @@ window.convertManualPoints = async function() {
             const convInfo = document.getElementById('conversion-calc-info');
             if (convInfo) convInfo.style.display = 'none';
         } else {
-            showAppAlert("⚠️ فشل التحويل: " + (result.error || result.message));
+            showAppAlert("⚠️ فشل التحويل: " + (result?.error || result?.message || "خطأ غير معروف"));
         }
     } catch (e) { 
         showAppAlert("⚠️ خطأ في الاتصال بالسيرفر."); 
@@ -745,12 +762,14 @@ window.submitWithdrawal = async function() {
     try {
         if (withdrawBtn) { withdrawBtn.disabled = true; withdrawBtn.innerText = "⏳ جاري الإرسال..."; }
 
-        let result = await window.apiCall('/api/wallet/wallet_withdraw', 'POST', {
+        const payload = getAuthPayload({
             amount: usdAmount,
             walletAddress: userWalletAddress
         });
+
+        let result = await window.apiCall('/api/wallet/wallet_withdraw', 'POST', payload);
         
-        if (result.success) {
+        if (result && result.success) {
             triggerHapticFeedback('notification', 'success');
             
             if (result.new_usd_balance !== undefined) {
@@ -768,7 +787,7 @@ window.submitWithdrawal = async function() {
             const wInfo = document.getElementById('withdraw-calc-info');
             if (wInfo) wInfo.style.display = 'none';
         } else {
-            showAppAlert("⚠️ " + (result.error || result.message));
+            showAppAlert("⚠️ " + (result?.error || result?.message || "خطأ أثناء معالجة الطلب"));
         }
     } catch (e) { 
         showAppAlert("⚠️ خطأ أثناء معالجة الطلب."); 
