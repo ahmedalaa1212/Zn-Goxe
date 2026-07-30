@@ -3,7 +3,7 @@ from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 
 # ==========================================
-# 1. إعداد التطبيق المتغيرات الأساسية
+# 1. إعداد التطبيق والمتغيرات الأساسية
 # ==========================================
 app = Flask(__name__)
 CORS(app)
@@ -52,10 +52,10 @@ def serve_manifest():
     """ملف البيان المعتمد لاتصال محفظة TON Connect"""
     return jsonify({
         "url": WEB_URL,
-        "name": "ZN Goxe Bot",
-        "iconUrl": f"{WEB_URL}/logo.png",
-        "termsOfDeliveryUrl": WEB_URL,
-        "privacyPolicyUrl": WEB_URL
+        "name": "ZN Goxe Web3",
+        "iconUrl": f"{WEB_URL}/static/icon.png",
+        "termsOfServiceUrl": f"{WEB_URL}/terms",
+        "privacyPolicyUrl": f"{WEB_URL}/privacy"
     }), 200
 
 @app.route('/')
