@@ -9,13 +9,14 @@ if (tg) {
     if (tg.enableClosingConfirmation) {
         tg.enableClosingConfirmation();
     }
+    // ضبط ألوان الشريط العلوي لمنح مظهراً متناسقاً
     if (tg.setHeaderColor) {
         tg.setHeaderColor('secondary_bg_color');
     }
 }
 
-// Global App State - كائن بيانات المستخدم الموحد
-window.userState = {
+// Global App State
+let userState = {
     tg_id: null,
     first_name: "لاعب",
     balance: 0.0,
@@ -23,34 +24,8 @@ window.userState = {
     ad_balance: 0.0,
     hourly_rate: 0.0,
     mining_level: 1,
-    storage_level: 1,
-    upgrades: {},
     wallet_address: null
 };
-
-// استرجاع البيانات المخزنة محلياً فوراً لمنع اختفاء الرصيد أثناء التحميل
-function loadLocalState() {
-    try {
-        const saved = localStorage.getItem('app_user_state');
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            window.userState = { ...window.userState, ...parsed };
-        }
-    } catch (e) {
-        console.error("Error loading local state", e);
-    }
-}
-
-// حفظ البيانات محلياً
-function saveLocalState() {
-    try {
-        localStorage.setItem('app_user_state', JSON.stringify(window.userState));
-    } catch (e) {
-        console.error("Error saving local state", e);
-    }
-}
-
-loadLocalState(); // تشغيل فوري
 
 /* ==========================================
    2. API Communication Utility
@@ -62,7 +37,6 @@ async function fetchAPI(endpoint, method = 'GET', bodyData = null) {
 
     if (tg && tg.initData) {
         headers['X-Telegram-Init-Data'] = tg.initData;
-        headers['Authorization'] = `Bearer ${tg.initData}`;
     }
 
     const options = { method, headers };
@@ -100,51 +74,22 @@ function formatNumber(num, decimals = 2) {
     });
 }
 
-window.updateUI = function() {
-    // تحديث الأرصدة في أي واجهة تحتوي على هذه الـ IDs
-    const balanceEl = document.getElementById('user-balance') || document.getElementById('shop-balance-text');
-    const usdEl = document.getElementById('user-usd-balance') || document.getElementById('shop-usd-text');
-    const hourlyEl = document.getElementById('hourly-rate') || document.getElementById('shop-rate-text');
+function updateUI() {
+    // تحديث الأرصدة في الواجهة
+    const balanceEl = document.getElementById('user-balance');
+    const usdEl = document.getElementById('user-usd-balance');
+    const hourlyEl = document.getElementById('hourly-rate');
 
-    if (balanceEl) balanceEl.innerText = formatNumber(window.userState.balance, 0);
-    if (usdEl) usdEl.innerText = `$${formatNumber(window.userState.usd_balance, 4)}`;
-    if (hourlyEl) hourlyEl.innerText = `+${formatNumber(window.userState.hourly_rate, 0)}/h`;
-
-    // استدعاء تحديث المتجر إذا كنا في صفحة المتجر
-    if (typeof window.updateShopUI === 'function') {
-        window.updateShopUI();
-    }
-};
+    if (balanceEl) balanceEl.innerText = formatNumber(userState.balance, 0);
+    if (usdEl) usdEl.innerText = `$${formatNumber(userState.usd_balance, 4)}`;
+    if (hourlyEl) hourlyEl.innerText = `+${formatNumber(userState.hourly_rate, 0)}/h`;
+}
 
 /* ==========================================
-   4. Fetch Latest User Data from Server
+   4. Core Game & Wallet Actions
    ========================================== */
-window.loadUserData = async function() {
-    if (!tg || !tg.initData) return;
 
-    try {
-        // جلب بيانات الحساب المحدثة من السيرفر
-        const data = await fetchAPI('/api/user/info');
-        if (data && data.success) {
-            window.userState.balance = parseFloat(data.balance ?? window.userState.balance);
-            window.userState.usd_balance = parseFloat(data.usd_balance ?? window.userState.usd_balance);
-            window.userState.hourly_rate = parseFloat(data.hourly_rate ?? window.userState.hourly_rate);
-            window.userState.storage_level = parseInt(data.storage_level ?? window.userState.storage_level);
-            window.userState.upgrades = data.upgrades || window.userState.upgrades;
-            window.userState.wallet_address = data.wallet_address || window.userState.wallet_address;
-
-            saveLocalState();
-            window.updateUI();
-        }
-    } catch (e) {
-        console.log("استخدام البيانات المحلية المسجلة مسبقاً لحين توفر الاتصال.");
-        window.updateUI();
-    }
-};
-
-/* ==========================================
-   5. Actions (Convert, Withdraw, Deposit)
-   ========================================== */
+// 1. تحميل سجل المحفظة (Wallet History)
 async function loadWalletHistory() {
     const historyList = document.getElementById('wallet-history-list');
     if (!historyList) return;
@@ -203,14 +148,14 @@ async function loadWalletHistory() {
     }
 }
 
+// 2. تحويل نقاط ZN إلى USD
 async function executeConvertZN(amount) {
     try {
         const res = await fetchAPI('/api/wallet/wallet_convert', 'POST', { amount: parseFloat(amount) });
         if (res.success) {
-            window.userState.usd_balance = res.new_usd_balance;
-            window.userState.balance = res.new_balance;
-            saveLocalState();
-            window.updateUI();
+            userState.usd_balance = res.new_usd_balance;
+            userState.balance = res.new_balance;
+            updateUI();
             alert(`تم تحويل ${formatNumber(amount, 0)} ZN بنجاح إلى $${formatNumber(res.usd_gained, 4)}!`);
             loadWalletHistory();
         }
@@ -219,6 +164,7 @@ async function executeConvertZN(amount) {
     }
 }
 
+// 3. طلب سحب USD
 async function executeWithdraw(amountUSD, address) {
     try {
         const res = await fetchAPI('/api/wallet/wallet_withdraw', 'POST', { 
@@ -226,9 +172,8 @@ async function executeWithdraw(amountUSD, address) {
             walletAddress: address 
         });
         if (res.success) {
-            window.userState.usd_balance = res.new_usd_balance;
-            saveLocalState();
-            window.updateUI();
+            userState.usd_balance = res.new_usd_balance;
+            updateUI();
             alert(`تم إرسال طلب السحب بنجاح وهي قيد المعالجة!`);
             loadWalletHistory();
         }
@@ -237,13 +182,32 @@ async function executeWithdraw(amountUSD, address) {
     }
 }
 
+// 4. إرسال تقرير إيداع TON
+async function executeDepositReport(usdAmount, tonAmount, boc) {
+    try {
+        const res = await fetchAPI('/api/wallet/wallet_deposit_report', 'POST', {
+            usdAmount: parseFloat(usdAmount),
+            tonAmount: parseFloat(tonAmount),
+            boc: boc
+        });
+        if (res.success) {
+            userState.usd_balance = res.new_usd_balance;
+            updateUI();
+            alert(`تم تأكيد الإيداع وإضافة $${formatNumber(res.net_usd_credited, 2)} لرصيدك!`);
+            loadWalletHistory();
+        }
+    } catch (e) {
+        alert(`خطأ أثناء تأكيد الإيداع: ${e.message}`);
+    }
+}
+
 /* ==========================================
-   6. Initialization Listener
+   5. Initialization Listener
    ========================================== */
 document.addEventListener('DOMContentLoaded', () => {
-    window.updateUI();
-    window.loadUserData(); // جلب البيانات الحقيقية فور تحميل الصفحة
+    updateUI();
     
+    // ربط زر المحفظة أو السجلات في حال كان موجوداً في الصفحة
     const historyBtn = document.getElementById('open-history-btn');
     if (historyBtn) {
         historyBtn.addEventListener('click', loadWalletHistory);
