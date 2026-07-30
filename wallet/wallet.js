@@ -1,5 +1,5 @@
 // =================================================================
-// 💳 ZN Goxe - Wallet Module (Fully Integrated with History Fix)
+// 💳 ZN Goxe - Wallet Module (Fully Integrated & Realtime Updated)
 // =================================================================
 
 let isWalletConnected = false;
@@ -142,6 +142,7 @@ window.syncWalletData = async function() {
             if (res.data.balance !== undefined) window.GameState.balance = res.data.balance;
             if (res.data.usd_balance !== undefined) window.GameState.usd_balance = res.data.usd_balance;
             if (res.data.ad_balance !== undefined) window.GameState.ad_balance = res.data.ad_balance;
+            window.updateWalletHeaderUI();
         }
     }
 };
@@ -260,7 +261,7 @@ window.setQuickUsd = function(percent) {
 };
 
 // =================================================================
-// 🖼️ 5. عرض محتوى التبويبات مع إصلاح السجلات الشامل
+// 🖼️ 5. عرض محتوى التبويبات
 // =================================================================
 
 window.renderWalletTab = function(tab) {
@@ -352,7 +353,6 @@ window.renderWalletTab = function(tab) {
             window.apiCall('/api/wallet/get_history', 'GET').then(data => {
                 if (currentWalletTab !== 'history') return;
 
-                // 🔧 فحص المرونة لضمان قراءة السجل بغض النظر عن الاسم القادم من السيرفر
                 const rawList = data?.history || data?.transactions || data?.data || data?.logs || [];
 
                 if (data && data.success && Array.isArray(rawList) && rawList.length > 0) {
@@ -544,7 +544,7 @@ window.calculateWithdrawTon = function() {
 };
 
 // =================================================================
-// ⚡ 7. تنفيذ العمليات ومزامنة Proxy المباشرة مع game.js
+// ⚡ 7. تنفيذ العمليات ومزامنة الرصيد فوراً
 // =================================================================
 
 window.executeDeposit = async function() {
@@ -590,9 +590,10 @@ window.executeDeposit = async function() {
                 if (result.new_usd_balance !== undefined) {
                     window.GameState.usd_balance = result.new_usd_balance;
                 } else {
-                    window.GameState.usd_balance += netCredited;
+                    window.GameState.usd_balance = (window.GameState.usd_balance || 0) + netCredited;
                 }
                 
+                window.updateWalletHeaderUI();
                 showAppAlert(`✅ تم الإيداع بنجاح!\nأضيفت $${netCredited.toFixed(2)} لرصيدك بعد خصم (3%).`);
             } else {
                 showAppAlert("⚠️ فشل تأكيد الإيداع في السيرفر: " + (result.error || result.message));
@@ -619,7 +620,7 @@ window.convertManualPoints = async function() {
         return showAppAlert("⚠️ الحد الأدنى للتحويل هو 1,000,000 ZN");
     }
 
-    if (amount > window.GameState.balance) {
+    if (amount > (window.GameState?.balance || 0)) {
         return showAppAlert("⚠️ رصيدك الحالي غير كافٍ لتحويل هذه الكمية.");
     }
 
@@ -632,13 +633,15 @@ window.convertManualPoints = async function() {
             triggerHapticFeedback('notification', 'success');
             
             window.GameState.balance -= amount;
-            if (result.usd_gained) {
-                window.GameState.usd_balance += result.usd_gained;
+            if (result.new_usd_balance !== undefined) {
+                window.GameState.usd_balance = result.new_usd_balance;
             } else {
-                window.GameState.usd_balance += (amount / 1000000);
+                window.GameState.usd_balance += (result.usd_gained || (amount / 1000000));
             }
 
+            window.updateWalletHeaderUI();
             showAppAlert(`🎉 تم تحويل النقاط بنجاح!\nأضيف لرصيدك $${(result.usd_gained || (amount/1000000)).toFixed(5)} USD`);
+            
             if (znInput) znInput.value = '';
             const convInfo = document.getElementById('conversion-calc-info');
             if (convInfo) convInfo.style.display = 'none';
@@ -662,7 +665,7 @@ window.submitWithdrawal = async function() {
         return showAppAlert("⚠️ يرجى إدخال مبلغ صحيح للسحب ($)");
     }
 
-    if (usdAmount > window.GameState.usd_balance) {
+    if (usdAmount > (window.GameState?.usd_balance || 0)) {
         return showAppAlert("⚠️ رصيدك بالدولار غير كافٍ لعملية السحب هذه.");
     }
 
@@ -681,10 +684,17 @@ window.submitWithdrawal = async function() {
         if (result.success) {
             triggerHapticFeedback('notification', 'success');
             
-            window.GameState.usd_balance -= usdAmount;
+            if (result.new_usd_balance !== undefined) {
+                window.GameState.usd_balance = result.new_usd_balance;
+            } else {
+                window.GameState.usd_balance -= usdAmount;
+            }
+
+            window.updateWalletHeaderUI();
             
             let expectedTon = (usdAmount / (window.currentTonPriceUSD || 1)).toFixed(4);
             showAppAlert(`✅ تم تقديم طلب السحب بقيمة $${usdAmount}.\nستصلك (≈ ${expectedTon} TON) بعد المراجعة.`);
+            
             if (usdInput) usdInput.value = '';
             const wInfo = document.getElementById('withdraw-calc-info');
             if (wInfo) wInfo.style.display = 'none';
