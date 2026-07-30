@@ -11,29 +11,24 @@
 
     const BOT_USERNAME = "zngoxe_bot"; // اسم يوزر البوت بدون @
 
-    // --- أدوات المزامنة الموحدة للرصيد ---
+    // جلب الرصيد مباشرة من الـ Proxy المركزي الموحد
     function getStoredBalance() {
-        if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
-            return parseFloat(window.GameState.balance);
+        if (window.userState && window.userState.balance !== undefined) {
+            return parseFloat(window.userState.balance);
         }
-        const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
-        return bal !== null ? parseFloat(bal) : 0;
+        return 0;
     }
 
+    // تحديث الرصيد عبر الـ Proxy المركزي لتحديث كافة القوائم فوراً
     function setStoredBalance(newBalance) {
         if (newBalance !== undefined && newBalance !== null) {
             const numVal = parseFloat(newBalance);
-            
-            if (window.GameState) {
-                window.GameState.balance = numVal;
-            } else if (typeof window.setBalance === 'function') {
-                window.setBalance(numVal);
-            } else {
-                localStorage.setItem('zn_balance', numVal.toString());
-                localStorage.setItem('user_balance', numVal.toString());
+            if (window.userState) {
+                window.userState.balance = numVal;
             }
-
-            if (window.PlayerData) window.PlayerData.balance = numVal;
+            if (window.PlayerData) {
+                window.PlayerData.balance = numVal;
+            }
         }
     }
 
@@ -53,7 +48,6 @@
             tele.expand();
         }
         
-        const initData = tele?.initData || "";
         const refInput = document.getElementById('ref-link-input');
         
         let userId = "0000";
@@ -62,42 +56,34 @@
         }
 
         if (refInput) {
-            if (!initData && userId === "0000") {
+            if (!tele?.initData && userId === "0000") {
                 refInput.value = "يرجى فتح التطبيق من داخل تليجرام";
             } else {
                 refInput.value = `https://t.me/${BOT_USERNAME}?start=ref_${userId}`;
             }
         }
 
-        // 1. عرض الرصيد المحفوظ محلياً فوراً
-        const cachedBalance = getStoredBalance();
+        // تهيئة الكائن المحلي
         if (!window.PlayerData) window.PlayerData = {};
-        window.PlayerData.balance = cachedBalance;
+        window.PlayerData.balance = getStoredBalance();
+        
         window.updateFriendsUI();
 
-        const container = document.getElementById('friends-list-container');
-        if (!initData) {
+        if (!tele?.initData) {
+            const container = document.getElementById('friends-list-container');
             if (container) container.innerHTML = '<div class="empty-state">يرجى فتح التطبيق من تليجرام لعرض الأصدقاء.</div>';
             return;
         }
 
-        // 2. طلب أحدث البيانات من الخادم ومزامنتها
-        loadFriendsData(initData);
+        // جلب أحدث البيانات من الخادم عبر fetchAPI الآمن من game.js
+        loadFriendsData();
     }
 
-    async function loadFriendsData(initData) {
+    async function loadFriendsData() {
         try {
-            const response = await fetch('/api/friends/data', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${initData}`
-                },
-                body: JSON.stringify({ initData: initData })
-            });
-            const data = await response.json();
-            if (response.ok && data.success && data.player) {
-                window.PlayerData = data.player;
+            const data = await window.fetchAPI('/api/friends/data', 'POST', {});
+            if (data && data.success && data.player) {
+                window.PlayerData = { ...window.PlayerData, ...data.player };
                 if (data.player.balance !== undefined) {
                     setStoredBalance(data.player.balance);
                 }
@@ -107,9 +93,10 @@
         }
 
         window.updateFriendsUI();
-        await fetchAndRenderFriendsList(initData);
+        await fetchAndRenderFriendsList();
     }
 
+    // الخطاف المطلوب لتحديث واجهة الأصدقاء وتوافقه مع الـ Proxy
     window.updateFriendsUI = function() {
         const pData = window.PlayerData || {};
         
@@ -122,16 +109,10 @@
 
         const elPending = document.getElementById('pending-ref-earnings');
         const elInvited = document.getElementById('invited-friends-count');
-        const elBalance = document.getElementById('top-balance-friends');
         const btnClaim = document.getElementById('btn-claim-ref');
 
         if (elPending) elPending.innerText = Math.floor(pending).toLocaleString();
         if (elInvited) elInvited.innerText = totalInvited.toLocaleString();
-        if (elBalance) elBalance.innerText = `ZN: ${balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-
-        if (typeof window.updateGlobalUI === 'function') {
-            window.updateGlobalUI();
-        }
 
         if (btnClaim) {
             if (pending <= 0) {
@@ -232,10 +213,6 @@
     }
 
     window.claimRefEarnings = async function() {
-        const tele = window.Telegram?.WebApp;
-        const initData = tele?.initData || "";
-        if (!initData) return;
-
         const btn = document.getElementById('btn-claim-ref');
         if (btn) {
             btn.disabled = true;
@@ -243,19 +220,11 @@
         }
 
         try {
-            const res = await fetch('/api/friends/claim_ref_earnings', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${initData}`
-                },
-                body: JSON.stringify({ initData: initData })
-            });
-            const data = await res.json();
-            
-            if (res.ok && data.success) {
+            const data = await window.fetchAPI('/api/friends/claim_ref_earnings', 'POST', {});
+            if (data && data.success) {
                 showToast(`🎉 تم السحب بنجاح!\nأُضيف ${Math.floor(data.net_amount).toLocaleString()} ZN إلى رصيدك.`);
                 
+                // التحديث هنا سيُفعّل الـ Proxy في game.js لتحديث الرصيد لحظياً في كل التطبيق
                 setStoredBalance(data.new_balance);
                 if (!window.PlayerData) window.PlayerData = {};
                 window.PlayerData.balance = data.new_balance;
@@ -270,7 +239,7 @@
                 }
             }
         } catch (e) {
-            showToast('خطأ في الاتصال بالخادم.');
+            showToast(e.message || 'خطأ في الاتصال بالخادم.');
             if (btn) {
                 btn.disabled = false;
                 btn.innerText = "سحب الأرباح الآن 💰";
@@ -279,22 +248,9 @@
     };
 
     window.claimRefTask = async function(taskId, reward, reqFriends) {
-        const tele = window.Telegram?.WebApp;
-        const initData = tele?.initData || "";
-        if (!initData) return;
-
         try {
-            const res = await fetch('/api/friends/claim_ref_task', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${initData}`
-                },
-                body: JSON.stringify({ initData, taskId, reward, reqFriends })
-            });
-            const data = await res.json();
-            
-            if (res.ok && data.success) {
+            const data = await window.fetchAPI('/api/friends/claim_ref_task', 'POST', { taskId, reward, reqFriends });
+            if (data && data.success) {
                 showToast(`🎊 مبروك! استلمت مكافأة ${reward.toLocaleString()} ZN.`);
                 
                 setStoredBalance(data.new_balance);
@@ -308,26 +264,17 @@
                 showToast(data.error || "خطأ في استلام المكافأة");
             }
         } catch (e) {
-            showToast('خطأ في الاتصال بالخادم.');
+            showToast(e.message || 'خطأ في الاتصال بالخادم.');
         }
     };
 
-    async function fetchAndRenderFriendsList(initData) {
+    async function fetchAndRenderFriendsList() {
         const container = document.getElementById('friends-list-container');
         if (!container) return;
 
         try {
-            const res = await fetch('/api/friends/list', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${initData}`
-                },
-                body: JSON.stringify({ initData: initData })
-            });
-            const data = await res.json();
-            
-            if (res.ok && data.success) {
+            const data = await window.fetchAPI('/api/friends/list', 'POST', {});
+            if (data && data.success) {
                 if (!data.friends || data.friends.length === 0) {
                     container.innerHTML = '<div class="empty-state">لم تقم بدعوة أي أصدقاء حتى الآن.</div>';
                     return;
@@ -361,23 +308,10 @@
         }
     }
 
-    window.addEventListener('pageshow', function() {
-        const stored = getStoredBalance();
-        if (stored !== null) {
-            if (!window.PlayerData) window.PlayerData = {};
-            window.PlayerData.balance = stored;
+    // الاستماع لتغيرات الحالة العامة من أي قائمة أخرى عبر الـ Proxy
+    window.addEventListener('userStateUpdated', (e) => {
+        if (e.detail && e.detail.prop === 'balance') {
             window.updateFriendsUI();
-        }
-    });
-
-    document.addEventListener("visibilitychange", function() {
-        if (document.visibilityState === "visible") {
-            const stored = getStoredBalance();
-            if (stored !== null) {
-                if (!window.PlayerData) window.PlayerData = {};
-                window.PlayerData.balance = stored;
-                window.updateFriendsUI();
-            }
         }
     });
 
