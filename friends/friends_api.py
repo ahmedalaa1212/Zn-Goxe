@@ -1,10 +1,12 @@
+# friends/friends_api.py
 from flask import Blueprint, request, jsonify
 from core.security import get_authenticated_user
 from database import db
+from firebase_admin import firestore  # الحلال السحري لتشغيل الـ Transactions
 
 friends_bp = Blueprint('friends', __name__)
 
-# جدول مهام الإحالة المعتمد على الخادم (Source of Truth)
+# جدول مهام الإحالة المعتمد على الخادم
 REF_TASKS_CONFIG = {
     1: {"reqFriends": 1, "reward": 5000},
     2: {"reqFriends": 5, "reward": 30000},
@@ -20,6 +22,9 @@ def get_user_upgrades_count(user_data):
     upgrades = user_data.get('upgrades', {})
     total = 0
     if isinstance(upgrades, dict):
+        # التحقق أولاً من وجود الحقل الجاهز upgrades_count لتجنب الحسابات الخاطئة
+        if 'upgrades_count' in upgrades:
+            return int(upgrades['upgrades_count'])
         for k, v in upgrades.items():
             try:
                 total += int(v)
@@ -42,15 +47,10 @@ def get_friends_data():
         user_doc = user_ref.get()
         
         if not user_doc.exists:
-            user_data = {
-                'balance': 0,
-                'pending_ref_earnings': 0,
-                'claimed_ref_tasks': []
-            }
+            user_data = {'balance': 0, 'pending_ref_earnings': 0, 'claimed_ref_tasks': []}
         else:
             user_data = user_doc.to_dict() or {}
         
-        # استعلام واحد فقط لجلب كل الأصدقاء (يمنع استهلاك الفايربيس)
         friends_query = db.collection('users').where('referred_by', '==', user_id_str).stream()
         
         total_friends_count = 0
@@ -78,7 +78,7 @@ def get_friends_data():
 
 @friends_bp.route('/list', methods=['GET', 'POST'])
 def get_friends_list():
-    """جلب سجل الأصدقاء بالتفصيل بدون N+1 Query لحماية الفايربيس"""
+    """جلب سجل الأصدقاء بالتفصيل وحل مشكلة الاسم المكرر وصفر العملات"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -86,13 +86,13 @@ def get_friends_list():
             
         user_id_str = str(user_id)
         
-        # الخطوة 1: استعلام واحد لجلب كل المستخدمين الذين تم دعوتهم (لمعرفة الترقيات)
+        # جلب كل المستخدمين الذين أحالهم هذا المستخدم
         referred_users = {}
         users_query = db.collection('users').where('referred_by', '==', user_id_str).stream()
         for doc in users_query:
             referred_users[doc.id] = doc.to_dict() or {}
             
-        # الخطوة 2: استعلام واحد للـ Subcollection الخاص بالدعوات (لمعرفة الأرباح الفردية)
+        # جلب البيانات من الساب كوليكشن
         sub_friends = {}
         sub_query = db.collection('users').document(user_id_str).collection('friends').stream()
         for doc in sub_query:
@@ -100,14 +100,15 @@ def get_friends_list():
             
         friends_list = []
         
-        # دمج البيانات في السيرفر لتقليل الطلبات لقاعدة البيانات
         for f_id, sub_data in sub_friends.items():
             main_data = referred_users.get(f_id, {})
             total_upgrades = get_user_upgrades_count(main_data)
             
-            # يتم أخذ الاسم من الساب كوليكشن إن وجد، أو من الملف الأساسي
-            f_name = sub_data.get('first_name', main_data.get('first_name', 'صديق'))
-            generated_amount = float(sub_data.get('earned_from_him', 0))
+            # تصحيح خطأ الاسم: الأولوية لملف الصديق الأساسي لمنع ظهور اسم "أحمد"
+            f_name = main_data.get('first_name') or sub_data.get('first_name') or 'صديق مجهول'
+            
+            # تصحيح خطأ الـ ZN 0+: جلب القيمة من الحقلين لضمان القراءة الصحيحة من الفايربيس
+            generated_amount = float(sub_data.get('earned_from_him', main_data.get('ref_generated_amount', 0)))
             
             friends_list.append({
                 "name": f_name,
@@ -115,7 +116,6 @@ def get_friends_list():
                 "generated": generated_amount
             })
             
-        # فرز القائمة من الأعلى للأسفل بناءً على الأرباح
         friends_list.sort(key=lambda x: x['generated'], reverse=True)
             
         return jsonify({"success": True, "friends": friends_list}), 200
@@ -125,7 +125,7 @@ def get_friends_list():
 
 @friends_bp.route('/claim_ref_earnings', methods=['POST'])
 def claim_ref_earnings():
-    """سحب الأرباح باستخدام Transaction لتجنب ثغرات التكرار"""
+    """سحب الأرباح مع تصحيح ديكوريتور الترانزاكشن بالكامل"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -133,7 +133,8 @@ def claim_ref_earnings():
             
         user_ref = db.collection('users').document(str(user_id))
 
-        @db.transactional
+        # تم التغيير هنا إلى firestore.transactional ليعمل بشكل صحيح تماماً
+        @firestore.transactional
         def run_claim_earnings_transaction(transaction, u_ref):
             snapshot = u_ref.get(transaction=transaction)
             if not snapshot.exists:
@@ -175,7 +176,7 @@ def claim_ref_earnings():
 
 @friends_bp.route('/claim_ref_task', methods=['POST'])
 def claim_ref_task():
-    """استلام مكافآت الإنجازات مع التحقق من المعطيات بالكامل داخل السيرفر و أداء العملية معاملاتيّاً"""
+    """استلام مكافآت المهام مع تصحيح الترانزاكشن"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -194,7 +195,6 @@ def claim_ref_task():
         req_friends = task_config['reqFriends']
         task_reward = task_config['reward']
 
-        # التحقق من عدد الأصدقاء المؤهلين برمجيا لتأمين النظام من التلاعب بالطلبات
         friends_query = db.collection('users').where('referred_by', '==', str(user_id)).stream()
         eligible_friends = 0
         for doc in friends_query:
@@ -209,7 +209,7 @@ def claim_ref_task():
 
         user_ref = db.collection('users').document(str(user_id))
 
-        @db.transactional
+        @firestore.transactional
         def run_claim_task_transaction(transaction, u_ref):
             snapshot = u_ref.get(transaction=transaction)
             if not snapshot.exists:
