@@ -33,7 +33,7 @@ function triggerHapticFeedback(type = 'impact', style = 'medium') {
     }
 }
 
-// 1. جلب سعر الـ TON اللحظي بأكثر من مصدر لضمان الاستقرار
+// 1. جلب سعر الـ TON اللحظي
 async function fetchLiveTonPrice() {
     try {
         let res = await fetch('https://tonapi.io/v2/rates?tokens=ton&currencies=usd');
@@ -56,7 +56,7 @@ async function fetchLiveTonPrice() {
     }
 }
 
-// 2. تهيئة TON Connect بلمسات Dark Theme ممتازة
+// 2. تهيئة TON Connect
 function initTonConnect() {
     if (typeof window.TON_CONNECT_UI === 'undefined') {
         setTimeout(initTonConnect, 100);
@@ -140,7 +140,7 @@ window.updateHeaderBalances = function() {
     const usdElem = document.getElementById('wallet-usd-balance');
     const tonElem = document.getElementById('wallet-ton-estimate');
 
-    if (znElem) znElem.innerText = Math.floor(zn).toLocaleString('ar-EG');
+    if (znElem) znElem.innerText = Math.floor(zn).toLocaleString('en-US');
     
     if (usdElem) {
         usdElem.innerText = "$" + (usd > 0 && usd < 0.01 ? usd.toFixed(5) : usd.toFixed(4));
@@ -150,7 +150,20 @@ window.updateHeaderBalances = function() {
     if (tonElem) tonElem.innerText = "≈ " + estimateTon.toFixed(4) + " TON";
 };
 
-// أزرار الاختيار السريع للكميات
+// اختيارات الكروت والكميات السريعة
+window.selectDepositPackage = function(amountUsd, element) {
+    triggerHapticFeedback('impact', 'light');
+    
+    document.querySelectorAll('.package-card').forEach(card => card.classList.remove('selected'));
+    if (element) element.classList.add('selected');
+
+    const input = document.getElementById('deposit-usd-input');
+    if (input) {
+        input.value = amountUsd;
+        window.calculateDepositTon();
+    }
+};
+
 window.setQuickZn = function(percent) {
     const pData = window.GameState || playerData;
     const zn = parseFloat(pData.balance !== undefined ? pData.balance : pData.znBalance) || 0;
@@ -187,37 +200,70 @@ window.renderWalletTab = function(tab) {
     });
 
     if (tab === 'deposit') {
+        let depositHtml = `
+            <div class="card">
+                <!-- شريط تنبيه شروط الإيداع -->
+                <div class="deposit-notice-bar">
+                    <span>📌 الحد الأدنى للإيداع: <b>$1.00</b></span>
+                    <span>⚡ الخصم/الرسوم: <b>3%</b></span>
+                </div>
+
+                <!-- 💎 باقات الشراء السريعة -->
+                <div class="packages-section-title">
+                    <span>💎 باقات الرصيد السريعة</span>
+                </div>
+
+                <div class="packages-grid">
+                    <div class="package-card" onclick="window.selectDepositPackage(1, this)">
+                        <div class="package-price">$1.00</div>
+                        <div class="package-amount">تضاف $0.97</div>
+                    </div>
+                    <div class="package-card" onclick="window.selectDepositPackage(5, this)">
+                        <div class="package-price">$5.00</div>
+                        <div class="package-amount">تضاف $4.85</div>
+                    </div>
+                    <div class="package-card" onclick="window.selectDepositPackage(10, this)">
+                        <span class="package-tag">شائع 🔥</span>
+                        <div class="package-price">$10.00</div>
+                        <div class="package-amount">تضاف $9.70</div>
+                    </div>
+                    <div class="package-card" onclick="window.selectDepositPackage(25, this)">
+                        <span class="package-tag">الأفضل ⭐</span>
+                        <div class="package-price">$25.00</div>
+                        <div class="package-amount">تضاف $24.25</div>
+                    </div>
+                </div>`;
+
         if (!isWalletConnected) {
-            content.innerHTML = `
-                <div class="card locked-state">
-                    <div style="font-size: 42px; margin-bottom: 10px;">🔒</div>
-                    <p style="color:#ef4444; font-weight:700; margin-top:0;">قم بربط محفظة TON لإتمام الإيداع</p>
-                    <button onclick="window.connectCustomWallet()" class="action-btn btn-blue" style="margin-top:10px;">ربط المحفظة الآن</button>
-                </div>`;
+            depositHtml += `
+                <div class="locked-state">
+                    <div style="font-size: 38px; margin-bottom: 8px;">🔒</div>
+                    <p style="color:#ef4444; font-weight:700; margin-top:0; font-size:13px;">قم بربط محفظة TON لإتمام الإيداع</p>
+                    <button onclick="window.connectCustomWallet()" class="action-btn btn-blue" style="margin-top:6px;">ربط المحفظة الآن</button>
+                </div></div>`;
         } else {
-            content.innerHTML = `
-                <div class="card">
-                    <div class="connected-state">
-                        <div class="wallet-address-text">
-                            ✅ المحفظة المتصلة:<br><b style="color: #fff;">${userWalletAddress}</b>
-                        </div>
-                        <button onclick="window.disconnectCustomWallet()" class="disconnect-btn">فصل</button>
+            depositHtml += `
+                <div class="connected-state">
+                    <div class="wallet-address-text">
+                        ✅ المحفظة المتصلة:<br><b style="color: #fff;" class="num-en">${userWalletAddress}</b>
                     </div>
-                    
-                    <h3 style="margin-top:0; color:#fff; text-align:center; font-size:16px;">💎 إيداع لشراء رصيد USD</h3>
-                    
-                    <div class="input-group">
-                        <label class="input-label">المبلغ المطلوب بالدولار ($)</label>
-                        <input type="number" id="deposit-usd-input" class="input-field" placeholder="0.00" oninput="window.calculateDepositTon()">
-                    </div>
-                    
-                    <div id="deposit-calc-info" style="display:none; padding:12px; margin-bottom:15px; border-radius:10px; text-align:center; background:rgba(0, 152, 234, 0.1); border:1px solid rgba(0, 152, 234, 0.2);">
-                        المبلغ المطلوب بالـ TON: <b id="required-ton-amount" style="color:#0098ea;">0</b> TON
-                    </div>
-                    
-                    <button id="deposit-btn" onclick="window.executeDeposit()" class="action-btn btn-blue">متابعة الدفع عبر TON</button>
-                </div>`;
+                    <button onclick="window.disconnectCustomWallet()" class="disconnect-btn">فصل</button>
+                </div>
+                
+                <div class="input-group">
+                    <label class="input-label">أو أدخل مبلغ مخصص بالدولار ($)</label>
+                    <input type="number" id="deposit-usd-input" class="input-field" placeholder="1.00" min="1" step="0.5" oninput="window.calculateDepositTon()">
+                </div>
+                
+                <div id="deposit-calc-info" style="display:none; padding:12px; margin-bottom:15px; border-radius:12px; text-align:center; background:rgba(0, 152, 234, 0.08); border:1px solid rgba(0, 152, 234, 0.2); font-size:13px;">
+                    <div>الرصيد الصافي المضاف: <b id="net-credited-usd" style="color:#10b981;">$0.00</b></div>
+                    <div style="margin-top:4px;">المبلغ المطلوب بالـ TON: <b id="required-ton-amount" style="color:#0098ea;" class="num-en">0</b> TON</div>
+                </div>
+                
+                <button id="deposit-btn" onclick="window.executeDeposit()" class="action-btn btn-blue">متابعة الدفع عبر TON</button>
+            </div>`;
         }
+        content.innerHTML = depositHtml;
     } 
     else if (tab === 'history') {
         content.innerHTML = `
@@ -250,7 +296,7 @@ window.renderWalletTab = function(tab) {
                             statusColor = '#ef4444';
                         }
 
-                        const dateStr = item.created_at ? new Date(item.created_at).toLocaleString('ar-EG', {
+                        const dateStr = item.created_at ? new Date(item.created_at).toLocaleString('en-US', {
                             month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
                         }) : '';
 
@@ -261,10 +307,10 @@ window.renderWalletTab = function(tab) {
                             <div style="background: rgba(10, 13, 20, 0.5); padding: 12px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(255,255,255,0.05);">
                                 <div>
                                     <div style="font-weight: bold; color: #fff; font-size: 14px;">${typeText}</div>
-                                    <div style="font-size: 11px; color: #94a3b8; margin-top: 3px;">${dateStr}</div>
+                                    <div style="font-size: 11px; color: #94a3b8; margin-top: 3px;" class="num-en">${dateStr}</div>
                                 </div>
                                 <div style="text-align: left;">
-                                    <div style="color: ${isDeposit ? '#10b981' : '#ef4444'}; font-weight: 800; font-size: 15px;">$${displayAmount}</div>
+                                    <div style="color: ${isDeposit ? '#10b981' : '#ef4444'}; font-weight: 800; font-size: 15px;" class="num-en">$${displayAmount}</div>
                                     <div style="font-size: 11px; color: ${statusColor}; font-weight:600; margin-top: 3px;">${statusText}</div>
                                 </div>
                             </div>`;
@@ -301,7 +347,7 @@ window.renderWalletTab = function(tab) {
                 </div>
                 
                 <div id="conversion-calc-info" style="display:none; padding:10px; margin-bottom:15px; text-align:center; color:#10b981; background:rgba(16, 185, 129, 0.1); border:1px solid rgba(16, 185, 129, 0.2); border-radius:10px; font-weight:700;">
-                    ستحصل على: <b id="expected-usd-amount">$0.00000</b>
+                    ستحصل على: <b id="expected-usd-amount" class="num-en">$0.00000</b>
                 </div>
 
                 <button id="convert-btn" onclick="window.convertManualPoints()" class="action-btn btn-green">تحويل النقاط الآن</button>
@@ -319,7 +365,7 @@ window.renderWalletTab = function(tab) {
                 <div class="card">
                     <div class="connected-state">
                         <div class="wallet-address-text">
-                            ✅ المحفظة المتصلة:<br><b style="color: #fff;">${userWalletAddress}</b>
+                            ✅ المحفظة المتصلة:<br><b style="color: #fff;" class="num-en">${userWalletAddress}</b>
                         </div>
                         <button onclick="window.disconnectCustomWallet()" class="disconnect-btn">فصل</button>
                     </div>
@@ -338,7 +384,7 @@ window.renderWalletTab = function(tab) {
                     </div>
                     
                     <div id="withdraw-calc-info" style="display:none; padding:10px; margin-bottom:15px; text-align:center; color:#94a3b8; font-size:13px; background:rgba(255,255,255,0.03); border-radius:10px;">
-                        ستستلم على محفظتك: <b id="receive-ton-amount" style="color:#0098ea;">0</b> TON
+                        ستستلم على محفظتك: <b id="receive-ton-amount" style="color:#0098ea;" class="num-en">0</b> TON
                     </div>
                     
                     <button id="withdraw-btn" onclick="window.submitWithdrawal()" class="action-btn btn-blue">تقديم طلب السحب</button>
@@ -348,7 +394,7 @@ window.renderWalletTab = function(tab) {
     }
 };
 
-// 5. الحسابات التفاعلية للنماذج
+// 5. الحسابات التفاعلية والتحقق من الشروط
 window.calculateConversionPreview = function() {
     let inputElem = document.getElementById('zn-input');
     let infoDiv = document.getElementById('conversion-calc-info');
@@ -368,12 +414,18 @@ window.calculateDepositTon = function() {
     let inputElem = document.getElementById('deposit-usd-input');
     let infoDiv = document.getElementById('deposit-calc-info');
     let requiredElem = document.getElementById('required-ton-amount');
+    let netElem = document.getElementById('net-credited-usd');
 
     let usd = parseFloat(inputElem?.value);
-    if (usd > 0 && currentTonPriceUSD > 0) {
+
+    // التحقق من الحد الأدنى وهو 1$
+    if (usd >= 1 && currentTonPriceUSD > 0) {
+        let netUsd = usd * 0.97; // خصم 3% رسوم
         let tonRequired = (usd / currentTonPriceUSD).toFixed(4);
+
+        if (netElem) netElem.innerText = "$" + netUsd.toFixed(2);
         if (requiredElem) requiredElem.innerText = tonRequired;
-        infoDiv.style.display = 'block';
+        if (infoDiv) infoDiv.style.display = 'block';
     } else { 
         if (infoDiv) infoDiv.style.display = 'none'; 
     }
@@ -394,15 +446,17 @@ window.calculateWithdrawTon = function() {
     }
 };
 
-// 6. تنفيذ العمليات المخاطبة للباك إيند
+// 6. تنفيذ العمليات والتواصل مع الخادم
 window.executeDeposit = async function() {
     triggerHapticFeedback('impact', 'medium');
     let depositBtn = document.getElementById('deposit-btn');
     let usdInput = document.getElementById('deposit-usd-input');
     
     let usdAmount = parseFloat(usdInput?.value);
-    if (!usdAmount || usdAmount <= 0) {
-        return showAppAlert("⚠️ يرجى إدخال مبلغ صحيح للإيداع ($)");
+
+    // التحقق المباشر من الحد الأدنى 1$
+    if (!usdAmount || usdAmount < 1.00) {
+        return showAppAlert("⚠️ الحد الأدنى للإيداع هو $1.00 USD");
     }
 
     let tonAmount = usdAmount / currentTonPriceUSD;
@@ -419,12 +473,20 @@ window.executeDeposit = async function() {
         const txResult = await tonConnectUI.sendTransaction(transaction);
         triggerHapticFeedback('notification', 'success');
 
+        const netCredited = usdAmount * 0.97; // المبلغ المضاف فعلياً بعد الخصم
         const initData = tgApp?.initData || null;
+
         if (initData) {
             let response = await fetch('/api/wallet/wallet_deposit_report', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: initData, usdAmount: usdAmount, tonAmount: tonAmount, boc: txResult.boc })
+                body: JSON.stringify({ 
+                    initData: initData, 
+                    usdAmount: usdAmount, 
+                    netUsdAmount: netCredited,
+                    tonAmount: tonAmount, 
+                    boc: txResult.boc 
+                })
             });
             let result = await response.json();
             
@@ -432,17 +494,17 @@ window.executeDeposit = async function() {
                 const targetUsd = result.new_usd_balance !== undefined ? result.new_usd_balance : null;
                 
                 if (window.GameState) {
-                    window.GameState.usd_balance = targetUsd !== null ? targetUsd : ((window.GameState.usd_balance || 0) + usdAmount);
+                    window.GameState.usd_balance = targetUsd !== null ? targetUsd : ((window.GameState.usd_balance || 0) + netCredited);
                 }
                 if (window.PlayerData) {
-                    window.PlayerData.usdBalance = targetUsd !== null ? targetUsd : ((window.PlayerData.usdBalance || 0) + usdAmount);
+                    window.PlayerData.usdBalance = targetUsd !== null ? targetUsd : ((window.PlayerData.usdBalance || 0) + netCredited);
                     window.PlayerData.usd_balance = window.PlayerData.usdBalance;
                 }
-                playerData.usdBalance = targetUsd !== null ? targetUsd : (playerData.usdBalance + usdAmount);
+                playerData.usdBalance = targetUsd !== null ? targetUsd : (playerData.usdBalance + netCredited);
 
                 window.updateHeaderBalances();
 
-                showAppAlert(`✅ تم الإيداع بنجاح!\nتمت إضافة $${usdAmount} لرصيدك.`);
+                showAppAlert(`✅ تم الإيداع بنجاح!\nأضيفت $${netCredited.toFixed(2)} لرصيدك بعد خصم (3%).`);
                 if (typeof window.fetchPlayerDataFromServer === 'function') await window.fetchPlayerDataFromServer();
             } else {
                 showAppAlert("⚠️ فشل تأكيد الإيداع في السيرفر: " + (result.error || result.message));
