@@ -14,7 +14,6 @@ def initialize_firebase():
         firebase_creds_json = os.environ.get('FIREBASE_CREDENTIALS')
         try:
             if firebase_creds_json:
-                # معالجة نصوص أسطر المفتاح الخاص \n المهربة في بيئة Railway
                 try:
                     creds_dict = json.loads(firebase_creds_json)
                 except Exception:
@@ -77,7 +76,6 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
         is_new_referral = False
         
         if not user_doc.exists:
-            # تجهيز الهيكل الأساسي للبيانات مع كافة الحقول المطلوبة
             valid_ref_id = str(ref_id) if ref_id and str(ref_id) != tg_id_str else None
             
             new_user_data = {
@@ -103,19 +101,16 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
             }
             user_ref.set(new_user_data)
             
-            # ربط الإحالة وإنشاء سجل للصديق لدى الداعي
             if valid_ref_id:
                 referrer_ref = db.collection('users').document(valid_ref_id)
                 referrer_doc = referrer_ref.get()
                 
                 if referrer_doc.exists:
                     is_new_referral = True
-                    # زيادة عدد الأصدقاء للداعي
                     referrer_ref.update({
                         "invited_friends_count": firestore.Increment(1)
                     })
                     
-                    # إضافة الصديق بالقائمة الفرعية للداعي
                     referrer_ref.collection('friends').document(tg_id_str).set({
                         "tg_id": tg_id_str,
                         "first_name": first_name,
@@ -123,7 +118,6 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                         "joined_at": firestore.SERVER_TIMESTAMP
                     })
         else:
-            # تحديث اسم المستخدم وآخر تواجد
             user_ref.update({
                 "first_name": first_name,
                 "last_active": firestore.SERVER_TIMESTAMP
@@ -164,7 +158,7 @@ def update_user(tg_id, update_data):
 # 3. الوظائف المالية والإحالات (Financial Helpers)
 # ==========================================
 def update_user_balance(tg_id, amount, balance_type="balance"):
-    """تحديث رصيد المستخدم بشكل آمن مع زيادة/نقص قيم دقيقة"""
+    """تحديث رصيد المستخدم بشكل آمن (إضافة أو خصم)"""
     try:
         if not tg_id:
             return False
@@ -190,14 +184,12 @@ def add_referral_earnings(referrer_id, friend_id, amount):
             
         ref_str = str(referrer_id)
         friend_str = str(friend_id)
-        ref_amount = float(amount) * 0.10  # نسبة 10%
+        ref_amount = float(amount) * 0.10
         
-        # 1. تحديث الأرباح المعلقة للداعي
         db.collection('users').document(ref_str).update({
             "pending_ref_earnings": firestore.Increment(ref_amount)
         })
         
-        # 2. تحديث سجل الصديق المباشر
         friend_ref = db.collection('users').document(ref_str).collection('friends').document(friend_str)
         if friend_ref.get().exists:
             friend_ref.update({
@@ -209,7 +201,61 @@ def add_referral_earnings(referrer_id, friend_id, amount):
         return False
 
 # ==========================================
-# 4. وظائف الإدارة واللوحة (Admin Helpers)
+# 4. وظائف السحوبات والسجلات (Transactions & Withdrawals)
+# ==========================================
+def create_transaction(tg_id, tx_type, amount_usd, wallet_address=None, status="pending"):
+    """تسجيل عملية جديدة (سحب / إيداع / تحويل) في قاعدة البيانات"""
+    try:
+        if not tg_id:
+            return False
+        
+        tx_data = {
+            "tg_id": str(tg_id),
+            "type": tx_type,              # 'withdraw', 'deposit', 'convert'
+            "amount_usd": float(amount_usd),
+            "wallet_address": wallet_address,
+            "status": status,            # 'pending', 'completed', 'rejected'
+            "created_at": firestore.SERVER_TIMESTAMP
+        }
+        
+        db.collection('transactions').add(tx_data)
+        return True
+    except Exception as e:
+        print(f"❌ Error creating transaction: {e}")
+        return False
+
+def get_user_transactions(tg_id, limit=30):
+    """جلب سجل عمليات المستخدم مرتبة من الأحدث للأقدم"""
+    try:
+        if not tg_id:
+            return []
+        
+        docs = db.collection('transactions')\
+            .where('tg_id', '==', str(tg_id))\
+            .limit(limit)\
+            .stream()
+        
+        history = []
+        for doc in docs:
+            item = doc.to_dict()
+            item['id'] = doc.id
+            # تحويل تاريخ فايربيس لنص ISO لتمريره للـ API
+            if item.get('created_at'):
+                try:
+                    item['created_at'] = item['created_at'].isoformat()
+                except Exception:
+                    pass
+            history.append(item)
+            
+        # الترتيب حسب التاريخ من الأحدث للأقدم
+        history.sort(key=lambda x: str(x.get('created_at', '')), reverse=True)
+        return history
+    except Exception as e:
+        print(f"❌ Error fetching transactions for {tg_id}: {e}")
+        return []
+
+# ==========================================
+# 5. وظائف الإدارة واللوحة (Admin Helpers)
 # ==========================================
 def ban_user(tg_id, status=True):
     """تغيير حالة حظر المستخدم"""
