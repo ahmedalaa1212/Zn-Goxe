@@ -55,9 +55,10 @@ def is_user_banned(tg_id):
     try:
         if not tg_id: 
             return False
-        doc = db.collection('users').document(str(tg_id)).get()
+        tg_id_str = str(tg_id)
+        doc = db.collection('users').document(tg_id_str).get()
         if doc.exists:
-            return doc.to_dict().get('banned', False)
+            return bool(doc.to_dict().get('banned', False))
         return False
     except Exception as e:
         print(f"❌ Error checking ban status for {tg_id}: {e}")
@@ -129,11 +130,12 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
         return False
 
 def get_user(tg_id):
-    """جلب كافة بيانات المستخدم كـ Dict"""
+    """جلب كافة بيانات المستخدم كـ Dict مع دعم المعرف النصي والعددي"""
     try:
         if not tg_id:
             return None
-        doc = db.collection('users').document(str(tg_id)).get()
+        tg_id_str = str(tg_id)
+        doc = db.collection('users').document(tg_id_str).get()
         if doc.exists:
             data = doc.to_dict()
             data['id'] = doc.id
@@ -165,7 +167,9 @@ def update_user_balance(tg_id, amount, balance_type="balance"):
         field_map = {
             "balance": "balance",
             "usd": "usd_balance",
-            "ad": "ad_balance"
+            "usd_balance": "usd_balance",
+            "ad": "ad_balance",
+            "ad_balance": "ad_balance"
         }
         target_field = field_map.get(balance_type, "balance")
         db.collection('users').document(str(tg_id)).update({
@@ -204,7 +208,7 @@ def add_referral_earnings(referrer_id, friend_id, amount):
 # 4. وظائف السحوبات والسجلات (Transactions & Withdrawals)
 # ==========================================
 def create_transaction(tg_id, tx_type, amount_usd, wallet_address=None, status="pending"):
-    """تسجيل عملية جديدة (سحب / إيداع / تحويل) في قاعدة البيانات"""
+    """تسجيل عملية جديدة في قاعدة البيانات"""
     try:
         if not tg_id:
             return False
@@ -230,8 +234,16 @@ def get_user_transactions(tg_id, limit=30):
         if not tg_id:
             return []
         
+        user_ids = [str(tg_id)]
+        try:
+            num_id = int(tg_id)
+            if num_id not in user_ids:
+                user_ids.append(num_id)
+        except (ValueError, TypeError):
+            pass
+
         docs = db.collection('transactions')\
-            .where('tg_id', '==', str(tg_id))\
+            .where('tg_id', 'in', user_ids)\
             .limit(limit)\
             .stream()
         
@@ -239,15 +251,10 @@ def get_user_transactions(tg_id, limit=30):
         for doc in docs:
             item = doc.to_dict()
             item['id'] = doc.id
-            # تحويل تاريخ فايربيس لنص ISO لتمريره للـ API
-            if item.get('created_at'):
-                try:
-                    item['created_at'] = item['created_at'].isoformat()
-                except Exception:
-                    pass
+            if item.get('created_at') and hasattr(item['created_at'], 'isoformat'):
+                item['created_at'] = item['created_at'].isoformat()
             history.append(item)
             
-        # الترتيب حسب التاريخ من الأحدث للأقدم
         history.sort(key=lambda x: str(x.get('created_at', '')), reverse=True)
         return history
     except Exception as e:
