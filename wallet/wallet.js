@@ -100,7 +100,7 @@ function startTonPriceSync() {
 }
 
 // =================================================================
-// 🔄 2. ربط ومزامنة المحفظة المباشرة مع game.js
+// 🔄 2. ربط ومزامنة المحفظة المباشرة مع اللعبة
 // =================================================================
 
 const originalUpdateGlobalUI = window.updateGlobalUI;
@@ -137,12 +137,16 @@ window.updateWalletHeaderUI = function() {
 
 window.syncWalletData = async function() {
     if (typeof window.apiCall === 'function') {
-        const res = await window.apiCall('/api/farm/sync', 'POST');
-        if (res && res.success && res.data) {
-            if (res.data.balance !== undefined) window.GameState.balance = res.data.balance;
-            if (res.data.usd_balance !== undefined) window.GameState.usd_balance = res.data.usd_balance;
-            if (res.data.ad_balance !== undefined) window.GameState.ad_balance = res.data.ad_balance;
-            window.updateWalletHeaderUI();
+        try {
+            const res = await window.apiCall('/api/farm/sync', 'POST');
+            if (res && res.success && res.data) {
+                if (res.data.balance !== undefined) window.GameState.balance = res.data.balance;
+                if (res.data.usd_balance !== undefined) window.GameState.usd_balance = res.data.usd_balance;
+                if (res.data.ad_balance !== undefined) window.GameState.ad_balance = res.data.ad_balance;
+                window.updateWalletHeaderUI();
+            }
+        } catch (e) {
+            console.log("Wallet Sync Pending...");
         }
     }
 };
@@ -277,7 +281,7 @@ async function fetchHistoryFromFirestore() {
     let combinedList = [];
 
     try {
-        // 1. جلب طلبات السحب (withdrawals) مع مراعاة نوع ID نصي أم رقمي
+        // 1. جلب طلبات السحب (withdrawals)
         const wSnapStr = await firestore.collection("withdrawals").where("user_id", "==", strUserId).get();
         wSnapStr.forEach(doc => combinedList.push({ id: doc.id, type: 'withdraw', ...doc.data() }));
 
@@ -286,7 +290,7 @@ async function fetchHistoryFromFirestore() {
             wSnapNum.forEach(doc => combinedList.push({ id: doc.id, type: 'withdraw', ...doc.data() }));
         }
 
-        // 2. جلب طلبات الإيداع (deposits) إن وجدت
+        // 2. جلب طلبات الإيداع (deposits)
         try {
             const dSnapStr = await firestore.collection("deposits").where("user_id", "==", strUserId).get();
             dSnapStr.forEach(doc => combinedList.push({ id: doc.id, type: 'deposit', ...doc.data() }));
@@ -468,12 +472,11 @@ window.renderWalletTab = function(tab) {
             }
         };
 
-        // المحاولة 1: طلب البيانات عبر apiCall (إن وُجد)
+        // المحاولة 1: طلب البيانات عبر apiCall
         if (typeof window.apiCall === 'function') {
             window.apiCall('/api/wallet/get_history', 'GET').then(async (data) => {
                 const rawList = data?.history || data?.transactions || data?.data || data?.logs || [];
                 
-                // إذا أرجع السيرفر نتائج نكتفي بها، وإلا نحاول الاستعلام المباشر من Firestore
                 if (data && data.success && Array.isArray(rawList) && rawList.length > 0) {
                     renderListUI(rawList);
                 } else {
