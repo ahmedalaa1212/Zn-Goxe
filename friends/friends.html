@@ -53,6 +53,7 @@
             font-size: 1.8rem; 
         }
         
+        /* الرصيد اللحظي المربوط بالبروكسي */
         .balance-display {
             font-size: 1.3rem;
             font-weight: bold;
@@ -222,6 +223,7 @@
     <div class="container">
         <header>
             <h2>نظام الأصدقاء 🤝</h2>
+            <!-- السطر الأهم: الربط اللحظي برصيد البوت عبر data-bind -->
             <div id="top-balance-friends" class="balance-display user-balance zn-balance-display" data-bind="balance">0</div>
         </header>
 
@@ -262,6 +264,7 @@
         <div class="card ref-tasks-card">
             <h3>🎁 مكافآت الإنجازات (المهام)</h3>
             <ul id="ref-tasks-list">
+                <!-- يتم حقن المهام هنا عبر الجافاسكريبت -->
             </ul>
         </div>
 
@@ -286,7 +289,7 @@
         <a href="friends.html" class="active"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
-    <!-- تم دمج game.js أولاً لضمان جاهزية الـ Proxy والاتصال اللحظي -->
+    <!-- استدعاء game.js أولاً لضمان جاهزية الـ Proxy والاتصال اللحظي -->
     <script src="../game.js?v=13.2"></script>
     <script src="friends.js?v=13.2"></script>
 </body>
