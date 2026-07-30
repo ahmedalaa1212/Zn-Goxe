@@ -31,13 +31,14 @@ def get_user_upgrades_count(user_data):
 
 @friends_bp.route('/data', methods=['GET', 'POST'])
 def get_friends_data():
-    """جلب بيانات صفحة الأصدقاء وإحصائيات المهام"""
+    """جلب بيانات صفحة الأصدقاء وإحصائيات المهام بسرعة وفاعلية"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
             return error_resp
             
-        user_ref = db.collection('users').document(str(user_id))
+        user_id_str = str(user_id)
+        user_ref = db.collection('users').document(user_id_str)
         user_doc = user_ref.get()
         
         if not user_doc.exists:
@@ -49,7 +50,8 @@ def get_friends_data():
         else:
             user_data = user_doc.to_dict() or {}
         
-        friends_query = db.collection('users').where('referred_by', '==', str(user_id)).stream()
+        # استعلام واحد فقط لجلب كل الأصدقاء (يمنع استهلاك الفايربيس)
+        friends_query = db.collection('users').where('referred_by', '==', user_id_str).stream()
         
         total_friends_count = 0
         eligible_task_friends_count = 0
@@ -76,24 +78,45 @@ def get_friends_data():
 
 @friends_bp.route('/list', methods=['GET', 'POST'])
 def get_friends_list():
-    """جلب سجل الأصدقاء بالتفصيل"""
+    """جلب سجل الأصدقاء بالتفصيل بدون N+1 Query لحماية الفايربيس"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
             return error_resp
             
-        friends_query = db.collection('users').where('referred_by', '==', str(user_id)).stream()
+        user_id_str = str(user_id)
         
+        # الخطوة 1: استعلام واحد لجلب كل المستخدمين الذين تم دعوتهم (لمعرفة الترقيات)
+        referred_users = {}
+        users_query = db.collection('users').where('referred_by', '==', user_id_str).stream()
+        for doc in users_query:
+            referred_users[doc.id] = doc.to_dict() or {}
+            
+        # الخطوة 2: استعلام واحد للـ Subcollection الخاص بالدعوات (لمعرفة الأرباح الفردية)
+        sub_friends = {}
+        sub_query = db.collection('users').document(user_id_str).collection('friends').stream()
+        for doc in sub_query:
+            sub_friends[doc.id] = doc.to_dict() or {}
+            
         friends_list = []
-        for doc in friends_query:
-            f_data = doc.to_dict() or {}
-            total_upgrades = get_user_upgrades_count(f_data)
+        
+        # دمج البيانات في السيرفر لتقليل الطلبات لقاعدة البيانات
+        for f_id, sub_data in sub_friends.items():
+            main_data = referred_users.get(f_id, {})
+            total_upgrades = get_user_upgrades_count(main_data)
+            
+            # يتم أخذ الاسم من الساب كوليكشن إن وجد، أو من الملف الأساسي
+            f_name = sub_data.get('first_name', main_data.get('first_name', 'صديق'))
+            generated_amount = float(sub_data.get('earned_from_him', 0))
             
             friends_list.append({
-                "name": f_data.get('first_name', 'صديق'),
+                "name": f_name,
                 "upgrades_count": total_upgrades,
-                "generated": float(f_data.get('generated_for_inviter', 0))
+                "generated": generated_amount
             })
+            
+        # فرز القائمة من الأعلى للأسفل بناءً على الأرباح
+        friends_list.sort(key=lambda x: x['generated'], reverse=True)
             
         return jsonify({"success": True, "friends": friends_list}), 200
     except Exception as e:
@@ -171,7 +194,7 @@ def claim_ref_task():
         req_friends = task_config['reqFriends']
         task_reward = task_config['reward']
 
-        # التحقق من عدد الأصدقاء المؤهلين
+        # التحقق من عدد الأصدقاء المؤهلين برمجيا لتأمين النظام من التلاعب بالطلبات
         friends_query = db.collection('users').where('referred_by', '==', str(user_id)).stream()
         eligible_friends = 0
         for doc in friends_query:
