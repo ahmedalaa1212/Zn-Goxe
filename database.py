@@ -44,7 +44,6 @@ except Exception as e:
     print(f"⚠️ تنبيه أثناء تهيئة DB تلقائياً: {e}")
 
 def get_game_settings():
-    """جلب إعدادات اللعبة والباقات والمتجر مباشرة من Firestore"""
     try:
         doc = db.collection('config').document('game_settings').get()
         if doc.exists:
