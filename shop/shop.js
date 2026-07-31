@@ -150,11 +150,11 @@
 
             const prepRes = await fetch('/api/shop/prepare_ton_pay', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${initData}`
-                },
-                body: JSON.stringify({ package_id: packageId })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    package_id: packageId,
+                    initData: initData 
+                })
             });
 
             const prepData = await prepRes.json();
@@ -177,13 +177,11 @@
 
             const verifyRes = await fetch('/api/shop/verify_and_apply_package', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${initData}`
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     package_id: packageId,
-                    boc: result.boc
+                    boc: result.boc,
+                    initData: initData
                 })
             });
 
@@ -424,11 +422,12 @@
         try {
             let response = await fetch('/api/shop/buy', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${initData}`
-                },
-                body: JSON.stringify({ type: apiType, level_num: level })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    type: apiType, 
+                    level_num: level,
+                    initData: initData 
+                })
             });
 
             let resData = await response.json();
@@ -456,15 +455,22 @@
             }
         } catch (e) {
             console.error("Shop Purchase Error:", e);
+            alert("❌ تعذر الاتصال بالسيرفر.");
         } finally {
             isBuying = false; 
         }
     }
 
-    document.addEventListener("DOMContentLoaded", () => {
+    function boot() {
         initTonConnect();
         loadShopConfig();
-    });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener("DOMContentLoaded", boot);
+    } else {
+        boot();
+    }
 
     window.addEventListener('userStateUpdated', () => {
         window.updateShopUI();
