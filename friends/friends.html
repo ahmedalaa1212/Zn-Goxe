@@ -5,19 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>الأصدقاء - Zn Goxe</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="../style.css?v=13.2">
+    <link rel="stylesheet" href="../style.css?v=13.3">
     <style>
         :root {
-            --bg-color: #0f0f0f;
-            --card-bg: #1a1a1a;
+            --bg-color: #0f0f11;
+            --card-bg: #18181c;
+            --card-border: #26262b;
             --primary: #f39c12;
-            --primary-glow: rgba(243, 156, 18, 0.3);
+            --primary-soft: rgba(243, 156, 18, 0.12);
             --text-main: #ffffff;
-            --text-muted: #888888;
-            --btn-disabled: #333333;
+            --text-muted: #9a9a9a;
+            --btn-disabled: #28282d;
             --success: #2ecc71;
             --danger: #e74c3c;
-            --border-color: #2a2a2a;
         }
 
         * {
@@ -29,81 +29,79 @@
         body {
             background-color: var(--bg-color);
             color: var(--text-main);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             margin: 0;
             padding: 0;
-            padding-bottom: 100px;
+            padding-bottom: 110px;
             user-select: none;
         }
 
         .container {
-            padding: 20px 15px;
-            max-width: 600px;
+            padding: 18px 15px;
+            max-width: 550px;
             margin: auto;
         }
 
         header {
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 18px;
         }
         
         h2 { 
-            margin: 0 0 12px 0; 
+            margin: 0 0 10px 0; 
             color: var(--text-main); 
-            font-size: 1.8rem; 
+            font-size: 1.6rem; 
+            font-weight: 700;
         }
         
-        /* الرصيد اللحظي المربوط بالبروكسي */
         .balance-display {
-            font-size: 1.3rem;
+            font-size: 1.25rem;
             font-weight: bold;
-            background: linear-gradient(45deg, #1e1e1e, #2a2a2a);
+            background: #1e1e24;
             display: inline-block;
-            padding: 8px 25px;
-            border-radius: 30px;
+            padding: 8px 22px;
+            border-radius: 25px;
             color: var(--primary);
-            border: 1px solid var(--primary);
-            box-shadow: 0 0 10px var(--primary-glow);
+            border: 1px solid var(--card-border);
         }
 
         .card {
             background-color: var(--card-bg);
-            padding: 20px;
-            border-radius: 16px;
-            margin-bottom: 20px;
-            border: 1px solid var(--border-color);
-            box-shadow: 0 8px 16px rgba(0,0,0,0.3);
-            transition: transform 0.2s ease;
+            padding: 18px;
+            border-radius: 14px;
+            margin-bottom: 16px;
+            border: 1px solid var(--card-border);
         }
 
         .card h3 { 
-            margin-top: 0; 
-            border-bottom: 1px solid var(--border-color); 
-            padding-bottom: 12px; 
-            font-size: 1.15rem; 
+            margin: 0 0 14px 0; 
+            border-bottom: 1px solid var(--card-border); 
+            padding-bottom: 10px; 
+            font-size: 1.05rem; 
             display: flex; 
             align-items: center; 
             gap: 8px;
+            color: #efefef;
         }
         
         .copy-box {
             display: flex;
             flex-direction: column;
             gap: 10px;
-            margin-top: 15px;
+            margin-top: 12px;
         }
 
         .copy-box input {
             width: 100%;
             padding: 12px;
             border-radius: 10px;
-            border: 1px solid #444;
-            background: #111;
+            border: 1px solid var(--card-border);
+            background: #111115;
             color: var(--primary);
             direction: ltr;
             font-weight: bold;
             text-align: center;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
         }
 
         .action-buttons {
@@ -116,114 +114,90 @@
         }
         
         .info-box {
-            background: rgba(243, 156, 18, 0.08);
-            border-right: 4px solid var(--primary);
-            padding: 12px 15px;
+            background: var(--primary-soft);
+            border-right: 3px solid var(--primary);
+            padding: 12px;
             border-radius: 8px;
-            margin-top: 15px;
-            font-size: 0.85rem;
+            margin-top: 14px;
+            font-size: 0.82rem;
             line-height: 1.6;
-            color: #ddd;
+            color: #cccccc;
         }
         .info-box strong { color: var(--primary); }
 
         button {
-            background: linear-gradient(45deg, #f39c12, #d35400);
+            background: #2a2a30;
             color: #ffffff;
-            border: none;
-            padding: 12px 18px;
+            border: 1px solid #3a3a42;
+            padding: 12px 16px;
             border-radius: 10px;
-            font-weight: bold;
-            font-size: 0.95rem;
+            font-weight: 600;
+            font-size: 0.9rem;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: background 0.2s ease, transform 0.1s ease;
             display: inline-flex;
             align-items: center;
             justify-content: center;
             gap: 6px;
         }
-        button:active { transform: scale(0.97); }
+        button:active { transform: scale(0.98); }
         button:disabled {
             background: var(--btn-disabled) !important;
-            color: #666 !important;
+            color: #666666 !important;
+            border-color: transparent !important;
             cursor: not-allowed;
             transform: none !important;
-            box-shadow: none !important;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: #000000;
+            border: none;
+            font-weight: 700;
         }
 
         .btn-share {
-            background: linear-gradient(45deg, #2980b9, #3498db);
-            color: #fff;
+            background: #2563eb;
+            color: #ffffff;
+            border: none;
         }
 
         .stats-grid {
             display: flex;
             justify-content: space-between;
-            gap: 12px;
-            margin-bottom: 20px;
+            gap: 10px;
+            margin-bottom: 16px;
         }
 
         .stat-box {
             flex: 1;
-            background: #1e1e1e;
-            padding: 15px;
+            background: var(--card-bg);
+            padding: 14px;
             border-radius: 12px;
             text-align: center;
-            border: 1px solid #333;
+            border: 1px solid var(--card-border);
         }
-        .stat-box span { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 6px; }
-        .stat-box strong { font-size: 1.3rem; color: var(--primary); }
+        .stat-box span { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px; }
+        .stat-box strong { font-size: 1.25rem; color: var(--primary); }
 
-        .friends-list { list-style: none; padding: 0; margin: 0; max-height: 280px; overflow-y: auto; padding-right: 3px; }
+        .friends-list { list-style: none; padding: 0; margin: 0; max-height: 280px; overflow-y: auto; }
         .friend-item {
             display: flex;
             align-items: center;
-            padding: 12px;
-            background: #222;
-            border-radius: 12px;
-            margin-bottom: 10px;
-            border: 1px solid #333;
+            justify-content: space-between;
+            padding: 10px 12px;
+            background: #121215;
+            border-radius: 10px;
+            margin-bottom: 8px;
+            border: 1px solid var(--card-border);
         }
-        .friend-avatar {
-            width: 42px; height: 42px;
-            border-radius: 50%;
-            background: linear-gradient(45deg, #2c3e50, #34495e);
-            display: flex; align-items: center; justify-content: center;
-            font-weight: bold; color: #fff; font-size: 1.2rem;
-            margin-left: 12px;
-            flex-shrink: 0;
-        }
-        .friend-info { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-        .friend-name { font-weight: bold; font-size: 0.95rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .friend-id { font-size: 0.8rem; margin-top: 3px; color: var(--text-muted); }
-        .friend-earn { color: var(--success); font-weight: bold; font-size: 0.95rem; flex-shrink: 0; }
-        .empty-state { text-align: center; color: var(--text-muted); padding: 25px 0; font-size: 0.95rem; }
-
-        .ref-tasks-card ul { list-style: none; padding: 0; margin: 0; }
-        .task-item {
-            background: #222;
-            padding: 15px;
-            border-radius: 12px;
-            margin-bottom: 12px;
-            border: 1px solid #333;
-        }
-        .task-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        .task-info h4 { margin: 0 0 5px 0; font-size: 1rem; }
-        .task-info p { margin: 0; color: var(--primary); font-size: 0.9rem; font-weight: bold; }
-        
-        .progress-container { width: 100%; height: 8px; background: #111; border-radius: 10px; overflow: hidden; margin-bottom: 8px; }
-        .progress-bar { height: 100%; background: linear-gradient(90deg, #f39c12, #d35400); border-radius: 10px; transition: width 0.4s ease; }
-        .task-footer { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-muted); }
-        .task-action button { padding: 8px 14px; font-size: 0.85rem; }
-        .claimed-btn { background: #27ae60 !important; color: white !important; }
-        .locked-btn { background: var(--btn-disabled) !important; color: #777 !important; }
+        .empty-state { text-align: center; color: var(--text-muted); padding: 20px 0; font-size: 0.9rem; }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
             <h2>نظام الأصدقاء 🤝</h2>
-            <!-- السطر الأهم: الربط اللحظي برصيد البوت عبر data-bind -->
             <div id="top-balance-friends" class="balance-display user-balance zn-balance-display" data-bind="balance">0</div>
         </header>
 
@@ -234,7 +208,7 @@
             </div>
             <div class="stat-box">
                 <span>أرباح معلقة للسحب</span>
-                <strong id="pending-ref-earnings">0.00</strong>
+                <strong id="pending-ref-earnings">0</strong>
             </div>
         </div>
 
@@ -243,7 +217,7 @@
             <div class="copy-box">
                 <input type="text" id="ref-link-input" readonly value="جاري إنشاء الرابط...">
                 <div class="action-buttons">
-                    <button onclick="copyRefLink()">📋 نسخ الرابط</button>
+                    <button onclick="copyRefLink()" class="btn-primary">📋 نسخ الرابط</button>
                     <button onclick="shareRefLink()" class="btn-share">✈️ مشاركة</button>
                 </div>
             </div>
@@ -257,13 +231,13 @@
 
         <div class="card ref-earnings-card">
             <h3>💰 سحب أرباح الأصدقاء</h3>
-            <small style="color: var(--danger); display: block; margin-bottom: 15px;">* يتم خصم 1.5% رسوم تحويل عند السحب إلى الرصيد الأساسي.</small>
-            <button onclick="claimRefEarnings()" id="btn-claim-ref" style="width: 100%; padding: 14px; font-size: 1.05rem;">سحب الأرباح الآن 💰</button>
+            <small style="color: var(--text-muted); display: block; margin-bottom: 12px; font-size: 0.78rem;">* يتم خصم 1.5% رسوم تحويل عند السحب إلى الرصيد الأساسي.</small>
+            <button onclick="claimRefEarnings()" id="btn-claim-ref" style="width: 100%; padding: 12px; font-size: 1rem;">سحب الأرباح الآن 💰</button>
         </div>
 
         <div class="card ref-tasks-card">
             <h3>🎁 مكافآت الإنجازات (المهام)</h3>
-            <ul id="ref-tasks-list">
+            <ul id="ref-tasks-list" style="list-style: none; padding: 0; margin: 0;">
                 <!-- يتم حقن المهام هنا عبر الجافاسكريبت -->
             </ul>
         </div>
@@ -289,8 +263,7 @@
         <a href="friends.html" class="active"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
-    <!-- استدعاء game.js أولاً لضمان جاهزية الـ Proxy والاتصال اللحظي -->
-    <script src="../game.js?v=13.2"></script>
-    <script src="friends.js?v=13.2"></script>
+    <script src="../game.js?v=13.3"></script>
+    <script src="friends.js?v=13.3"></script>
 </body>
 </html>
