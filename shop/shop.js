@@ -313,13 +313,27 @@
         const rateElem = document.getElementById('shop-rate-text');
         if (rateElem) rateElem.innerText = `${parseFloat(pData.hourly_rate || 0).toLocaleString()}/h`;
 
-        const miningCfg = shopDynamicSettings?.mining_config || {
+        // الإعدادات الافتراضية الكاملة للسرعة (9 مستويات كاملة)
+        const defaultMiningCfg = {
             "1": {"rate": 5, "price": 2000, "max": 10},
-            "2": {"rate": 15, "price": 7000, "max": 10}
+            "2": {"rate": 15, "price": 7000, "max": 10},
+            "3": {"rate": 35, "price": 20000, "max": 10},
+            "4": {"rate": 80, "price": 50000, "max": 10},
+            "5": {"rate": 180, "price": 120000, "max": 10},
+            "6": {"rate": 400, "price": 300000, "max": 10},
+            "7": {"rate": 900, "price": 700000, "max": 10},
+            "8": {"rate": 2000, "price": 1500000, "max": 10},
+            "9": {"rate": 4500, "price": 3500000, "max": 10}
         };
 
+        const miningCfg = shopDynamicSettings?.mining_config || defaultMiningCfg;
+
         let miningHtml = '';
-        for (const [i, cfg] of Object.entries(miningCfg)) {
+        for (const [key, cfg] of Object.entries(miningCfg)) {
+            // فلترة أي عنصر غير عددي لمنع ظهور daily_boost_reward في الواجهة
+            if (isNaN(parseInt(key))) continue;
+
+            let i = parseInt(key);
             let count = parseInt((pData.upgrades && pData.upgrades[`lvl${i}`]) || 0);
             let price = parseFloat(cfg.price);
             let speed = parseFloat(cfg.rate); 
@@ -345,16 +359,29 @@
         }
         miningSec.innerHTML = miningHtml;
 
-        const storageCfg = shopDynamicSettings?.storage_config || {
+        // الإعدادات الافتراضية الكاملة للمخزن (10 مستويات كاملة)
+        const defaultStorageCfg = {
             "1": {"capacity": 200, "price": 0},
-            "2": {"capacity": 500, "price": 5000}
+            "2": {"capacity": 500, "price": 5000},
+            "3": {"capacity": 1500, "price": 15000},
+            "4": {"capacity": 4000, "price": 40000},
+            "5": {"capacity": 10000, "price": 90000},
+            "6": {"capacity": 25000, "price": 200000},
+            "7": {"capacity": 60000, "price": 450000},
+            "8": {"capacity": 150000, "price": 1000000},
+            "9": {"capacity": 400000, "price": 2500000},
+            "10": {"capacity": 1000000, "price": 6000000}
         };
+
+        const storageCfg = shopDynamicSettings?.storage_config || defaultStorageCfg;
 
         let storageHtml = '';
         let currentStorageLvl = parseInt(pData.storage_level || 1); 
 
-        for (const [iStr, cfg] of Object.entries(storageCfg)) {
-            let i = parseInt(iStr);
+        for (const [key, cfg] of Object.entries(storageCfg)) {
+            if (isNaN(parseInt(key))) continue;
+
+            let i = parseInt(key);
             let price = parseFloat(cfg.price);
             let capacity = parseFloat(cfg.capacity);
             let isOwned = i <= currentStorageLvl;
@@ -397,6 +424,24 @@
         }
 
         triggerHaptic('impact', 'light');
+
+        // تحديث معلومات نافذة التأكيد بالسعر واسم الترقية المحددة
+        const modalTitle = document.getElementById('shop-modal-title');
+        const modalDesc = document.getElementById('shop-modal-desc');
+        const modalPrice = document.getElementById('shop-modal-price');
+
+        if (type === 'speed') {
+            if (modalTitle) modalTitle.innerText = `تأكيد ترقية السرعة (مستوى ${level})`;
+            if (modalDesc) modalDesc.innerText = `هل تريد إضافة هذه السرعة إلى معدل التعدين الخاص بك؟`;
+        } else {
+            if (modalTitle) modalTitle.innerText = `تأكيد ترقية المخزن (مستوى ${level})`;
+            if (modalDesc) modalDesc.innerText = `هل تريد توسيع سعة التخزين للاحتفاظ بأرباح أكثر؟`;
+        }
+
+        if (modalPrice) {
+            modalPrice.innerText = `${Number(price).toLocaleString()} ZN`;
+        }
+
         const overlay = document.getElementById('shop-confirm-modal-overlay');
         const confirmBtn = document.getElementById('shop-modal-confirm-btn');
 
