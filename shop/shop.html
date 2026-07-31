@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>المتجر - Zn Goxe</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- حزمة TonConnect المباشرة للربط مع المحفظة -->
+    <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     <link rel="stylesheet" href="../style.css?v=13.2">
     <style>
         :root {
@@ -13,110 +15,66 @@
             --primary: #f39c12;
             --primary-glow: rgba(243, 156, 18, 0.3);
             --telegram-blue: #0088cc;
+            --ton-blue: #0098ea;
             --gold: #ffcc00;
             --accent-green: #10b981;
             --accent-red: #ff4444;
             --text-main: #ffffff;
             --text-muted: #aaaaaa;
-            --border-color: #222222;
         }
 
-        * {
-            box-sizing: border-box;
-            outline: none;
-            -webkit-tap-highlight-color: transparent;
-        }
+        * { box-sizing: border-box; outline: none; -webkit-tap-highlight-color: transparent; }
 
         body {
-            background-color: var(--bg-color);
-            color: var(--text-main);
+            background-color: var(--bg-color); color: var(--text-main);
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 0;
-            padding-bottom: 90px;
-            -webkit-user-select: none;
-            user-select: none;
+            margin: 0; padding: 0; padding-bottom: 90px;
+            -webkit-user-select: none; user-select: none;
         }
 
-        .shop-container {
-            padding: 15px;
-            padding-top: 20px;
-            max-width: 500px;
-            margin: 0 auto;
-        }
+        .shop-container { padding: 15px; padding-top: 20px; max-width: 500px; margin: 0 auto; }
 
         .shop-stats-bar {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-            padding: 12px 10px;
-            background: #161616;
-            border-radius: 14px;
-            margin-bottom: 20px;
-            border: 1px solid #2a2a2a;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
-            align-items: center;
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+            padding: 12px 10px; background: #161616; border-radius: 14px;
+            margin-bottom: 15px; border: 1px solid #2a2a2a;
         }
 
         .stat-box {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            background: rgba(255, 255, 255, 0.03);
-            padding: 8px 4px;
-            border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: rgba(255, 255, 255, 0.03); padding: 8px 4px;
+            border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.05);
         }
 
-        .stat-label {
-            font-size: 11px;
-            color: var(--text-muted);
-            margin-bottom: 4px;
-            display: flex;
-            align-items: center;
-            gap: 3px;
-        }
+        .stat-label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+        .stat-value { font-weight: 800; font-size: 13px; white-space: nowrap; }
 
-        .stat-value {
-            font-weight: 800;
-            font-size: 13px;
-            white-space: nowrap;
+        .ton-price-bar {
+            background: rgba(0, 152, 234, 0.1); border: 1px solid var(--ton-blue);
+            border-radius: 12px; padding: 10px 14px; margin-bottom: 20px;
+            display: flex; justify-content: space-between; align-items: center;
         }
 
         .usdt-container {
-            display: flex;
-            gap: 12px;
-            overflow-x: auto;
-            padding-bottom: 10px;
-            margin-bottom: 25px;
-            scrollbar-width: none;
+            display: flex; gap: 12px; overflow-x: auto; padding-bottom: 10px;
+            margin-bottom: 25px; scrollbar-width: none;
         }
-
-        .usdt-container::-webkit-scrollbar {
-            display: none;
-        }
+        .usdt-container::-webkit-scrollbar { display: none; }
 
         .usdt-card {
-            min-width: 145px;
-            flex: 1;
-            border-radius: 12px;
-            padding: 12px;
-            text-align: center;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
+            min-width: 150px; flex: 1; border-radius: 12px; padding: 12px;
+            text-align: center; display: flex; flex-direction: column; justify-content: space-between;
         }
 
         .usdt-perks {
-            font-size: 11px;
-            color: #ccc;
-            margin: 6px 0;
-            line-height: 1.4;
-            text-align: right;
-            background: rgba(0,0,0,0.3);
-            padding: 6px;
-            border-radius: 6px;
+            font-size: 11px; color: #ccc; margin: 6px 0; line-height: 1.4;
+            text-align: right; background: rgba(0,0,0,0.3); padding: 6px; border-radius: 6px;
+        }
+
+        .btn-ton-pay {
+            width: 100%; color: white; border: none; padding: 8px;
+            border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 5px;
+            display: flex; align-items: center; justify-content: center; gap: 4px;
         }
     </style>
 </head>
@@ -130,74 +88,73 @@
                 <span class="stat-label">🪙 ZN</span>
                 <span id="shop-balance-text" class="stat-value" style="color: var(--primary);">0</span>
             </div>
-
             <div class="stat-box" style="border-color: rgba(255, 204, 0, 0.2); background: rgba(255, 204, 0, 0.05);">
                 <span class="stat-label" style="color: var(--gold);">⚡ السرعة</span>
                 <span id="shop-rate-text" class="stat-value" style="color: var(--gold);">0/h</span>
             </div>
-
             <div class="stat-box">
                 <span class="stat-label" style="color: var(--accent-green);">💵 USD</span>
                 <span id="shop-usd-text" class="stat-value" style="color: var(--accent-green);">$0.00</span>
             </div>
         </div>
 
-        <h3 style="color: #fff; margin-bottom: 12px; font-size: 18px; display: flex; align-items: center; gap: 8px;">
-            <span>💎</span> باقات العروض المميزة (USDT)
-        </h3>
+        <!-- شريط سعر TON ورابط المحفظة -->
+        <div class="ton-price-bar">
+            <div style="font-size: 12px; font-weight: bold; color: var(--ton-blue);">
+                💎 سعر TON اللحظي: <span id="ton-live-rate-text">$0.00</span>
+            </div>
+            <div id="ton-connect-btn"></div>
+        </div>
+
+        <h3 style="color: #fff; margin-bottom: 12px; font-size: 18px;">💎 باقات العروض المميزة (الدفع التلقائي بـ TON)</h3>
         
-        <!-- كروت باقات USDT المحدثة -->
         <div class="usdt-container">
             <!-- باقة 1 دولار -->
             <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #2a2a2a); border: 1px solid var(--primary);">
                 <div style="font-size: 24px;">📦</div>
                 <div style="color: #fff; font-weight: bold; font-size: 13px;">البرونزية</div>
-                <div style="color: var(--primary); font-weight: bold; font-size: 15px; margin: 4px 0;">1 USDT</div>
+                <div style="color: var(--primary); font-weight: bold; font-size: 15px; margin: 2px 0;">$1.00</div>
+                <div id="ton-amt-pkg_1" style="color: var(--ton-blue); font-size: 11px; font-weight: bold;">~0 TON</div>
                 <div class="usdt-perks">
-                    ⚡ +150 ZN/h<br>
-                    📦 +2,000 مخزن<br>
-                    🪙 +30,000 ZN
+                    ⚡ +150 ZN/h<br>📦 +2,000 مخزن<br>🪙 +30,000 ZN
                 </div>
-                <button onclick="buyWithUSDT('1', 'pkg_1')" style="width: 100%; background: var(--primary); color: white; border: none; padding: 7px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 5px;">شراء الآن</button>
+                <button class="btn-ton-pay" style="background: var(--primary);" onclick="buyPackageWithTon('pkg_1')">شراء تلقائي</button>
             </div>
 
             <!-- باقة 3 دولار -->
             <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #1f3a2b); border: 1px solid var(--accent-green);">
                 <div style="font-size: 24px;">🚀</div>
                 <div style="color: #fff; font-weight: bold; font-size: 13px;">الفضية</div>
-                <div style="color: var(--accent-green); font-weight: bold; font-size: 15px; margin: 4px 0;">3 USDT</div>
+                <div style="color: var(--accent-green); font-weight: bold; font-size: 15px; margin: 2px 0;">$3.00</div>
+                <div id="ton-amt-pkg_2" style="color: var(--ton-blue); font-size: 11px; font-weight: bold;">~0 TON</div>
                 <div class="usdt-perks">
-                    ⚡ +540 ZN/h<br>
-                    📦 +7,200 مخزن<br>
-                    🪙 +108,000 ZN
+                    ⚡ +540 ZN/h<br>📦 +7,200 مخزن<br>🪙 +108,000 ZN
                 </div>
-                <button onclick="buyWithUSDT('3', 'pkg_2')" style="width: 100%; background: var(--accent-green); color: white; border: none; padding: 7px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 5px;">شراء الآن</button>
+                <button class="btn-ton-pay" style="background: var(--accent-green);" onclick="buyPackageWithTon('pkg_2')">شراء تلقائي</button>
             </div>
 
             <!-- باقة 6 دولار -->
             <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #332b00); border: 1px solid var(--gold);">
                 <div style="font-size: 24px;">👑</div>
                 <div style="color: #fff; font-weight: bold; font-size: 13px;">الذهبية</div>
-                <div style="color: var(--gold); font-weight: bold; font-size: 15px; margin: 4px 0;">6 USDT</div>
+                <div style="color: var(--gold); font-weight: bold; font-size: 15px; margin: 2px 0;">$6.00</div>
+                <div id="ton-amt-pkg_3" style="color: var(--ton-blue); font-size: 11px; font-weight: bold;">~0 TON</div>
                 <div class="usdt-perks">
-                    ⚡ +1,350 ZN/h<br>
-                    📦 +18,000 مخزن<br>
-                    🪙 +270,000 ZN
+                    ⚡ +1,350 ZN/h<br>📦 +18,000 مخزن<br>🪙 +270,000 ZN
                 </div>
-                <button onclick="buyWithUSDT('6', 'pkg_3')" style="width: 100%; background: var(--gold); color: #000; border: none; padding: 7px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 5px;">شراء الآن</button>
+                <button class="btn-ton-pay" style="background: var(--gold); color:#000;" onclick="buyPackageWithTon('pkg_3')">شراء تلقائي</button>
             </div>
 
             <!-- باقة 10 دولار -->
             <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #3a1c1c); border: 1px solid var(--accent-red);">
                 <div style="font-size: 24px;">🐋</div>
                 <div style="color: #fff; font-weight: bold; font-size: 13px;">باقة الحيتان</div>
-                <div style="color: var(--accent-red); font-weight: bold; font-size: 15px; margin: 4px 0;">10 USDT</div>
+                <div style="color: var(--accent-red); font-weight: bold; font-size: 15px; margin: 2px 0;">$10.00</div>
+                <div id="ton-amt-pkg_4" style="color: var(--ton-blue); font-size: 11px; font-weight: bold;">~0 TON</div>
                 <div class="usdt-perks">
-                    ⚡ +2,850 ZN/h<br>
-                    📦 +38,000 مخزن<br>
-                    🪙 +570,000 ZN
+                    ⚡ +2,850 ZN/h<br>📦 +38,000 مخزن<br>🪙 +570,000 ZN
                 </div>
-                <button onclick="buyWithUSDT('10', 'pkg_4')" style="width: 100%; background: var(--accent-red); color: white; border: none; padding: 7px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 5px;">شراء الآن</button>
+                <button class="btn-ton-pay" style="background: var(--accent-red);" onclick="buyPackageWithTon('pkg_4')">شراء تلقائي</button>
             </div>
         </div>
 
@@ -215,15 +172,12 @@
         <a href="../settings/settings.html"><i>⚙️</i><span>الإعدادات</span></a>
         <a href="shop.html" class="active"><i>🏪</i><span>المتجر</span></a>
         <a href="../games/games.html"><i>🎮</i><span>الألعاب</span></a>
-        <a href="../index.html" class="nav-center-btn">
-            <i>⚒️</i>
-            <span>المزرعة</span>
-        </a>
+        <a href="../index.html" class="nav-center-btn"><i>⚒️</i><span>المزرعة</span></a>
         <a href="../tasks/tasks.html"><i>📋</i><span>المهام</span></a>
         <a href="../wallet/wallet.html"><i>💳</i><span>المحفظة</span></a>
         <a href="../friends/friends.html"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
-    <script src="shop.js?v=14.0"></script>
+    <script src="shop.js?v=15.0"></script>
 </body>
 </html>
