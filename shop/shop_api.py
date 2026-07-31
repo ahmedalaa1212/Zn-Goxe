@@ -4,7 +4,7 @@ import traceback
 from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 from google.cloud import firestore
-from database import db
+from database import db, create_transaction
 from core.security import get_authenticated_user
 from core.ton_price import get_live_ton_price
 
@@ -64,10 +64,10 @@ def get_config():
     
     packages_with_ton = {}
     for pkg_id, pkg_info in settings.get('usdt_packages', {}).items():
-        usd_val = pkg_info.get('usdt', 1)
-        ton_needed = round(usd_val / ton_price_usd, 4) if ton_price_usd > 0 else 0
+        usd_val = float(pkg_info.get('usdt', 1))
+        ton_needed = round(usd_val / ton_price_usd, 4) if ton_price_usd > 0 else round(usd_val / 5.5, 4)
         packages_with_ton[pkg_id] = {
-            "usdt": pkg_info.get('usdt', 0),
+            "usdt": usd_val,
             "rate_add": pkg_info.get('rate_add', 0),
             "storage_add": pkg_info.get('storage_add', 0),
             "zn_add": pkg_info.get('zn_add', 0),
@@ -101,12 +101,26 @@ def prepare_ton_pay():
         pkg_info = packages[pkg_id]
         ton_price = get_live_ton_price()
         if ton_price <= 0:
-            ton_price = 5.50  # احتياطي للسيرفر لتفادي القسمة على صفر
+            ton_price = 5.50  
 
-        ton_amount = round(pkg_info['usdt'] / ton_price, 4)
+        ton_amount = round(float(pkg_info['usdt']) / ton_price, 4)
         nano_ton = int(ton_amount * 1000000000)
 
         memo_payload = f"BUY_{pkg_id}_USER_{user_id}_{int(time.time())}"
+
+        # تسجيل المعاملة كـ Pending في الداتا بيز
+        create_transaction(
+            tg_id=user_id,
+            tx_type="package_buy_pending",
+            amount_usd=float(pkg_info['usdt']),
+            wallet_address=PROJECT_TON_WALLET,
+            status="pending",
+            details={
+                "package_id": pkg_id,
+                "ton_amount": ton_amount,
+                "memo": memo_payload
+            }
+        )
 
         return jsonify({
             "success": True,
@@ -131,10 +145,11 @@ def process_usdt_package_transaction(transaction, user_ref, package_data):
     current_balance = float(user.get('balance', 0.0))
     current_hourly_rate = float(user.get('hourly_rate', 0.0))
     current_max_cap = float(user.get('max_cap', 200.0))
+    current_usd = float(user.get('usd_balance', 0.0))
 
-    new_balance = current_balance + float(package_data['zn_add'])
-    new_hourly_rate = current_hourly_rate + float(package_data['rate_add'])
-    new_max_cap = current_max_cap + float(package_data['storage_add'])
+    new_balance = current_balance + float(package_data.get('zn_add', 0))
+    new_hourly_rate = current_hourly_rate + float(package_data.get('rate_add', 0))
+    new_max_cap = current_max_cap + float(package_data.get('storage_add', 0))
 
     transaction.update(user_ref, {
         'balance': new_balance,
@@ -145,7 +160,8 @@ def process_usdt_package_transaction(transaction, user_ref, package_data):
     return {
         "balance": new_balance,
         "hourly_rate": new_hourly_rate,
-        "max_cap": new_max_cap
+        "max_cap": new_max_cap,
+        "usd_balance": current_usd
     }
 
 @shop_bp.route('/verify_and_apply_package', methods=['POST'])
@@ -168,20 +184,40 @@ def verify_and_apply_package():
         if pkg_key not in packages:
             return jsonify({"success": False, "error": "باقة غير صالحة."}), 400
 
+        pkg_info = packages[pkg_key]
         tx_doc_id = str(tx_boc[:64])
+        
         tx_ref = db.collection('processed_txs').document(tx_doc_id)
         if tx_ref.get().exists:
             return jsonify({"success": False, "error": "تم معالجة هذه المعاملة سابقاً."}), 400
 
+        # حفظ المعاملة المعالجة لتفادي التكرار
         tx_ref.set({
             'user_id': str(user_id),
             'package_id': pkg_key,
+            'boc_short': tx_doc_id,
             'timestamp': datetime.now(timezone.utc).isoformat()
         })
 
+        # إضافة المعاملة لسجل المستخدم للتحليل والاستعلام
+        create_transaction(
+            tg_id=user_id,
+            tx_type="package_buy_success",
+            amount_usd=float(pkg_info.get('usdt', 0)),
+            status="completed",
+            details={
+                "package_id": pkg_key,
+                "title": pkg_info.get('title', ''),
+                "zn_added": pkg_info.get('zn_add', 0),
+                "rate_added": pkg_info.get('rate_add', 0),
+                "storage_added": pkg_info.get('storage_add', 0),
+                "boc": str(tx_boc)
+            }
+        )
+
         user_ref = db.collection('users').document(str(user_id))
         transaction = db.transaction()
-        updated_data = process_usdt_package_transaction(transaction, user_ref, packages[pkg_key])
+        updated_data = process_usdt_package_transaction(transaction, user_ref, pkg_info)
 
         return jsonify({
             "success": True,
@@ -219,6 +255,7 @@ def buy_upgrade():
         current_balance = float(user_data.get('balance', 0.0))
         hourly_rate = float(user_data.get('hourly_rate', 0.0))
         max_cap = float(user_data.get('max_cap', 200.0)) 
+        usd_balance = float(user_data.get('usd_balance', 0.0))
         
         upgrades = user_data.get('upgrades', {})
         if not isinstance(upgrades, dict):
@@ -262,11 +299,10 @@ def buy_upgrade():
             upgrades[lvl_key] = current_lvl_count + 1
 
             new_hourly_rate = 0.0
-            for lvl_idx in range(1, 10):
-                cnt = int(upgrades.get(f"lvl{lvl_idx}", 0))
-                l_str = str(lvl_idx)
-                if cnt > 0 and l_str in mining_cfg:
-                    new_hourly_rate += cnt * float(mining_cfg[l_str]['rate'])
+            for l_str, cfg in mining_cfg.items():
+                cnt = int(upgrades.get(f"lvl{l_str}", 0))
+                if cnt > 0:
+                    new_hourly_rate += cnt * float(cfg.get('rate', 0))
 
             user_ref.update({
                 'balance': new_balance,
@@ -275,12 +311,22 @@ def buy_upgrade():
                 'last_claim_time': new_last_claim_time 
             })
 
+            # تسجيل الترقية في الداتا بيز
+            create_transaction(
+                tg_id=user_id,
+                tx_type="mining_upgrade",
+                amount_usd=0.0,
+                status="completed",
+                details={"level": level_num, "cost_zn": price, "new_rate": new_hourly_rate}
+            )
+
             return jsonify({
                 "success": True, 
                 "balance": new_balance, 
                 "hourly_rate": new_hourly_rate,
                 "upgrades": upgrades,
-                "last_claim_time": new_last_claim_time
+                "last_claim_time": new_last_claim_time,
+                "usd_balance": usd_balance
             }), 200
 
         elif upgrade_type == 'storage':
@@ -313,12 +359,22 @@ def buy_upgrade():
                 'last_claim_time': new_last_claim_time
             })
 
+            # تسجيل ترقية المخزن في الداتا بيز
+            create_transaction(
+                tg_id=user_id,
+                tx_type="storage_upgrade",
+                amount_usd=0.0,
+                status="completed",
+                details={"level": level_num, "cost_zn": price, "new_capacity": new_capacity}
+            )
+
             return jsonify({
                 "success": True, 
                 "balance": new_balance, 
                 "storage_level": int_level, 
                 "max_cap": new_capacity,
-                "last_claim_time": new_last_claim_time
+                "last_claim_time": new_last_claim_time,
+                "usd_balance": usd_balance
             }), 200
 
         return jsonify({"success": False, "error": "نوع الترقية غير معروف."}), 400
