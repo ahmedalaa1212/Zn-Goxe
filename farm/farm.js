@@ -294,6 +294,19 @@
             if (response.ok && resData.success) {
                 if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
                 if (resData.new_hourly_rate !== undefined) window.userState.hourly_rate = resData.new_hourly_rate;
+                
+                // ⚡ تحديث الـ upgrades في الذاكرة لحظياً لظهور شارات x1, x2 فوراً
+                if (resData.upgrades) {
+                    if (!window.PlayerData) window.PlayerData = {};
+                    window.PlayerData.upgrades = resData.upgrades;
+                    
+                    if (!window.userState) window.userState = {};
+                    window.userState.upgrades = resData.upgrades;
+                }
+
+                // ⚡ تحديث الواجهة فوراً بدون تأخير
+                window.updateFarmUI();
+
                 showToast(`⚡ تم التحديث بنجاح للمستوى ${level}!`);
                 await window.fetchPlayerDataFromServer();
             } else if (resData.error) {
