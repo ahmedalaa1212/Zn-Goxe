@@ -4,6 +4,14 @@
     let tonConnectUI = null;
     let isBuying = false;
 
+    // أسعار الباقات بالدولار للحساب الفوري المباشر
+    const PACKAGE_USD_PRICES = {
+        'pkg_1': 1.00,
+        'pkg_2': 3.00,
+        'pkg_3': 6.00,
+        'pkg_4': 10.00
+    };
+
     function triggerHaptic(type = 'impact', style = 'medium') {
         if (window.Telegram?.WebApp?.HapticFeedback) {
             if (type === 'impact') window.Telegram.WebApp.HapticFeedback.impactOccurred(style);
@@ -24,25 +32,38 @@
         }
     }
 
+    // حساب وعرض قيم TON للباقات بناءً على سعر TON العالمي الحالي
+    function updatePackageTonPrices() {
+        const tonPrice = parseFloat(window.currentTonPriceUSD || 0);
+        
+        for (const [pkgId, usdVal] of Object.entries(PACKAGE_USD_PRICES)) {
+            const el = document.getElementById(`ton-amt-${pkgId}`);
+            if (el) {
+                if (tonPrice > 0) {
+                    const tonAmt = (usdVal / tonPrice).toFixed(3);
+                    el.innerText = `~${tonAmt} TON`;
+                } else {
+                    el.innerText = `~0 TON`;
+                }
+            }
+        }
+    }
+
     async function loadShopConfig() {
         try {
             const res = await fetch('/api/shop/get_config');
             const data = await res.json();
-            if (data.success) {
-                const rateEl = document.getElementById('ton-live-rate-text');
-                if (rateEl) {
-                    rateEl.innerText = `$${parseFloat(data.ton_price_usd).toFixed(2)}`;
-                }
-
+            if (data.success && data.packages) {
                 for (const [pkgId, pkg] of Object.entries(data.packages)) {
                     const el = document.getElementById(`ton-amt-${pkgId}`);
-                    if (el) el.innerText = `~${pkg.ton_amount} TON`;
+                    if (el && pkg.ton_amount) {
+                        el.innerText = `~${pkg.ton_amount} TON`;
+                    }
                 }
             }
         } catch (e) {
-            console.error("Error fetching shop config:", e);
-            const rateEl = document.getElementById('ton-live-rate-text');
-            if (rateEl) rateEl.innerText = "$5.50 (تقريبي)";
+            console.warn("استخدام الحساب المباشر لسعر TON للباقات:", e);
+            updatePackageTonPrices();
         }
     }
 
@@ -128,12 +149,6 @@
                     window.userState.balance = verifyData.result.balance;
                     window.userState.hourly_rate = verifyData.result.hourly_rate;
                     window.userState.max_cap = verifyData.result.max_cap;
-                }
-
-                if (window.PlayerData) {
-                    window.PlayerData.balance = verifyData.result.balance;
-                    window.PlayerData.hourly_rate = verifyData.result.hourly_rate;
-                    window.PlayerData.max_cap = verifyData.result.max_cap;
                 }
 
                 window.updateShopUI();
@@ -243,11 +258,14 @@
     };
 
     window.updateShopUI = function() {
+        // 1. تحديث أسعار الباقات بـ TON حياً
+        updatePackageTonPrices();
+
         const miningSec = document.getElementById('shop-mining-section');
         const storageSec = document.getElementById('shop-storage-section');
         if (!miningSec || !storageSec) return;
 
-        const pData = window.userState || window.PlayerData || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0, usd_balance: 0 };
+        const pData = window.userState || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0, usd_balance: 0 };
         let totalBal = parseFloat(pData.balance || 0);
 
         let miningHtml = '';
