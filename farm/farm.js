@@ -136,6 +136,24 @@
         return num.toString();
     }
 
+    function getRewardForDayIndex(index) {
+        const rewards = GAME_CONFIG.dailyRewards;
+        if (!rewards) return 100;
+
+        if (Array.isArray(rewards)) {
+            return rewards[index] !== undefined ? rewards[index] : 1250;
+        }
+
+        if (typeof rewards === 'object') {
+            const dayKey = `day_${index + 1}`;
+            if (rewards[dayKey] !== undefined) return rewards[dayKey];
+            if (rewards[index + 1] !== undefined) return rewards[index + 1];
+            if (rewards[index] !== undefined) return rewards[index];
+        }
+
+        return 1250;
+    }
+
     function renderDailyRewards() {
         const container = document.getElementById('daily-rewards-container');
         const pData = window.PlayerData;
@@ -149,7 +167,7 @@
 
         for (let i = 0; i < 30; i++) {
             let dayNum = i + 1;
-            let rawReward = GAME_CONFIG.dailyRewards[i] || 1250;
+            let rawReward = getRewardForDayIndex(i);
             let displayReward = formatCompactNumber(rawReward);
 
             if (dayNum < activeDayIndex) {
