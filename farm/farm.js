@@ -1,5 +1,10 @@
 // farm/farm.js
 (function initFarm() {
+    // التأكد من وجود كائن الحالة العام لمنع الانهيار
+    if (!window.userState) {
+        window.userState = { balance: 0, hourly_rate: 0 };
+    }
+
     const tele = window.Telegram?.WebApp;
     const START_PARAM = tele?.initDataUnsafe?.start_param || "";
 
@@ -51,6 +56,8 @@
         if (isFetching) return; 
         isFetching = true;
         try {
+            if (typeof window.fetchAPI !== 'function') return;
+            
             let resData = await window.fetchAPI('/api/farm/player_data', 'POST', { start_param: START_PARAM });
             if (resData && resData.success && resData.player) {
                 const serverData = resData.player;
@@ -65,7 +72,6 @@
                     window.userState.hourly_rate = serverData.hourly_rate;
                 }
 
-                // منع تذبذب القيمة غير المجمعة أثناء المزامنة
                 if (serverData.unclaimed !== undefined) {
                     const serverUnclaimed = parseFloat(serverData.unclaimed || 0);
                     if (claimCooldown > 0 || isClaimingMain) {
@@ -93,12 +99,12 @@
     };
 
     window.updateFarmUI = function() {
+        if (!window.userState) window.userState = { balance: 0, hourly_rate: 0 };
         const pData = window.PlayerData || {};
         
         if (pData.balance !== undefined) window.userState.balance = pData.balance;
         if (pData.hourly_rate !== undefined) window.userState.hourly_rate = pData.hourly_rate;
 
-        // تحديث مباشر للرصيد ومعدل التعدين على الشاشة
         const rateSpan = document.querySelector('#farm-rate span');
         if (rateSpan) {
             rateSpan.innerText = parseFloat(window.userState.hourly_rate || 0).toLocaleString('en-US');
@@ -139,8 +145,8 @@
 
     function renderDailyRewards() {
         const container = document.getElementById('daily-rewards-container');
-        const pData = window.PlayerData;
-        if (!container || !pData) return; 
+        const pData = window.PlayerData || {};
+        if (!container) return; 
 
         let html = '';
         const todayStr = getTodayUTCStr();
@@ -169,12 +175,11 @@
 
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
-        const pData = window.PlayerData;
-        if (!pData) return;
+        const pData = window.PlayerData || {};
         
         let unclaim = parseFloat(pData.unclaimed || 0);
         let maxC = parseFloat(pData.max_cap || 100);
-        let hRate = parseFloat(window.userState.hourly_rate || 0); 
+        let hRate = parseFloat(window.userState?.hourly_rate || 0); 
         
         if (unclaim < maxC && hRate > 0) {
             unclaim += hRate / 3600;
@@ -191,17 +196,16 @@
             if (pct >= 100) progressEl.style.background = 'linear-gradient(90deg, #e74c3c, #c0392b)'; 
             else progressEl.style.background = 'linear-gradient(90deg, #f39c12, #f1c40f)';
             
-            // اصلاح النص العكسي RTL
             storageTextEl.innerHTML = `<span dir="ltr">${Math.floor(unclaim).toLocaleString('en-US')} / ${Math.floor(maxC).toLocaleString('en-US')}</span>`;
         }
 
         const rateSpan = document.querySelector('#farm-rate span');
         if (rateSpan) {
-            rateSpan.innerText = parseFloat(window.userState.hourly_rate || 0).toLocaleString('en-US');
+            rateSpan.innerText = parseFloat(window.userState?.hourly_rate || 0).toLocaleString('en-US');
         }
         const balanceSpan = document.querySelector('#farm-balance span');
         if (balanceSpan) {
-            balanceSpan.innerText = Math.floor(parseFloat(window.userState.balance || 0)).toLocaleString('en-US');
+            balanceSpan.innerText = Math.floor(parseFloat(window.userState?.balance || 0)).toLocaleString('en-US');
         }
 
         const claimBtn = document.getElementById('claim-btn');
@@ -394,7 +398,7 @@
         }
 
         const unclaimedAmount = parseFloat(pData.unclaimed || 0);
-        const currentBal = parseFloat(window.userState.balance || 0);
+        const currentBal = parseFloat(window.userState?.balance || 0);
         const optimisticNewBal = currentBal + unclaimedAmount;
         
         window.userState.balance = optimisticNewBal;
@@ -419,11 +423,12 @@
         }
     };
 
-    window.PlayerData = { 
+    window.PlayerData = window.PlayerData || { 
         balance: window.userState.balance || 0, 
         unclaimed: 0, 
         hourly_rate: window.userState.hourly_rate || 0 
     };
+
     window.updateFarmUI();
     window.fetchPlayerData();
 })();
