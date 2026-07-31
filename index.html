@@ -1,73 +1,23 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-<meta name='admaven-placement' content='BqTU9qjgH'>
-<meta name="clckd" content="33fdc2db6d7c74829748874cd984ec1d" />
+    <meta name='admaven-placement' content='BqTU9qjgH'>
+    <meta name="clckd" content="33fdc2db6d7c74829748874cd984ec1d" />
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Zn Goxe - Crypto Mining</title>
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    
     <script src="https://libtl.com/sdk.js" data-zone="11322720" data-sdk="show_11322720"></script>
-    
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     
     <link rel="stylesheet" href="farm/farm.css">
     <link rel="stylesheet" href="style.css">
-
-    <style>
-        /* إجبار إخفاء القوائم غير النشطة تماماً لمنع ظهور أي أزرار أو أشرطة متداخلة */
-        .game-view {
-            display: none !important;
-            width: 100%;
-            box-sizing: border-box;
-        }
-        .game-view.active {
-            display: block !important;
-        }
-
-        /* تثبيت شريط التنقل السفلي ورصيف الأولوية لمنع تداخله */
-        .bottom-nav {
-            position: fixed !important;
-            bottom: 0 !important;
-            left: 0 !important;
-            width: 100% !important;
-            z-index: 999999 !important;
-        }
-
-        /* ستايل الرسالة العائمة للمرتجعات */
-        #global-toast {
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: linear-gradient(135deg, #1e3c72, #2a5298);
-            border: 2px solid #ffcc00;
-            color: #fff;
-            padding: 15px 25px;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            z-index: 99999999;
-            display: none;
-            align-items: center;
-            gap: 15px;
-            font-family: Tahoma, sans-serif;
-            width: 85%;
-            max-width: 350px;
-            animation: slideDown 0.5s ease-out;
-        }
-        @keyframes slideDown {
-            0% { top: -50px; opacity: 0; }
-            100% { top: 20px; opacity: 1; }
-        }
-        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
-    </style>
 </head>
 <body>
 
+    <!-- رسالة التنبيه العائمة -->
     <div id="global-toast">
         <span style="font-size: 30px;">💰</span>
         <div style="display: flex; flex-direction: column; flex-grow: 1;">
@@ -77,11 +27,13 @@
         <button onclick="document.getElementById('global-toast').style.display='none'" style="background: none; border: none; color: #fff; font-size: 24px; cursor: pointer;">&times;</button>
     </div>
 
-    <div id="loading-screen" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#0f172a; z-index:9999999; display:flex; justify-content:center; align-items:center; flex-direction:column; color:white;">
-        <div style="font-size: 50px; margin-bottom: 20px; animation: pulse 1.5s infinite;">🚀</div>
-        <h2 style="color:#f59e0b; margin:0; font-family: Tahoma, sans-serif; font-size: 18px;">جاري تحميل اللعبة...</h2>
+    <!-- شاشة التحميل الكاملة (تظل ظاهرة لحين اكتمال التحميل 100%) -->
+    <div id="loading-screen">
+        <div class="loader-rocket">🚀</div>
+        <h2>جاري تحميل اللعبة...</h2>
     </div>
 
+    <!-- الحاوية الرئيسية للقوائم -->
     <div id="app" style="display: none;">
         <div id="view-friends" class="game-view"></div>
         <div id="view-wallet" class="game-view"></div>
@@ -92,6 +44,7 @@
         <div id="view-settings" class="game-view"></div>
     </div>
 
+    <!-- شريط التنقل السفلي -->
     <nav class="bottom-nav" id="main-nav" style="display: none;">
         <button class="nav-item" onclick="switchView('friends')" id="nav-friends">
             <i class="fas fa-users"></i><span>الأصدقاء</span>
@@ -118,66 +71,57 @@
     </nav>
 
     <script>
+        // بدء تشغيل وتزامن اللعبة الموحد
         async function verifyAndStartGame() {
             if (window.Telegram && window.Telegram.WebApp) {
                 window.Telegram.WebApp.ready(); 
                 window.Telegram.WebApp.expand(); 
             }
 
-            const initData = window.Telegram?.WebApp?.initData;
-            if (!initData) {
-                console.log("⚠️ وضع المتصفح: تم فتح اللعبة للمراجعة. لن يتم حفظ أي بيانات حقيقية.");
+            const cacheVersion = new Date().getTime();
+
+            // 1. تحميل كل واجهات HTML الخاصة بالقوائم
+            await loadAllViews(cacheVersion);
+
+            // 2. تحميل المحرك الرئيسي game.js أولاً
+            await loadScriptPromise(`game.js?v=${cacheVersion}`);
+
+            // 3. تحميل باقي سكريبتات القوائم
+            const scripts = [
+                'friends/friends.js', 'wallet/wallet.js', 'tasks/tasks.js',
+                'farm/farm.js', 'games/games.js', 'shop/shop.js', 'settings/settings.js'
+            ];
+            await Promise.all(scripts.map(jsPath => loadScriptPromise(`${jsPath}?v=${cacheVersion}`)));
+
+            // 4. جلب بيانات المستخدم الفعلية من السيرفر قبل إظهار الواجهة
+            if (typeof window.loadUserData === 'function') {
+                await window.loadUserData();
             }
 
-            await loadAllViews();
+            // 5. تحديث كافة عناصر الواجهة بالبيانات المحملة
+            if (typeof window.updateUI === 'function') {
+                window.updateUI();
+            }
 
-            // حقن الإعلانات
-            let onlickaScript = document.createElement('script');
-            onlickaScript.src = "https://js.onclckmn.com/static/onclicka.js";
-            onlickaScript.setAttribute('data-admpid', '449096');
-            onlickaScript.async = true;
-            document.body.appendChild(onlickaScript);
+            // 6. التحقق من الإشعارات المستردة
+            await checkGlobalNotifications();
 
-            document.getElementById('loading-screen').style.display = 'none';
-            document.getElementById('app').style.display = 'block';
-            document.getElementById('main-nav').style.display = 'flex';
+            // 7. حقن إعلانات Onclicka
+            injectOnclickaScript();
 
-            // 🔍 البحث عن أي مبالغ مستردة من الألعاب بمجرد فتح البوت
-            checkGlobalNotifications();
+            // 8. إخفاء شاشة التحميل بسلاسة بعد اكتمال كل شيء 100%
+            const loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+                loadingScreen.classList.add('fade-out');
+                setTimeout(() => {
+                    loadingScreen.style.display = 'none';
+                    document.getElementById('app').style.display = 'block';
+                    document.getElementById('main-nav').style.display = 'flex';
+                }, 300);
+            }
         }
 
-        async function checkGlobalNotifications() {
-            const initData = window.Telegram?.WebApp?.initData;
-            if (!initData) return;
-            try {
-                let response = await fetch('/api/games/check_notifications', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ initData: initData })
-                });
-                let resData = await response.json();
-                if (resData.success && resData.refund > 0) {
-                    let msgEl = document.getElementById('toast-msg');
-                    if (msgEl) msgEl.innerText = `تم رد ${resData.refund.toLocaleString()} ZN لعدم اكتمال النصاب.`;
-                    
-                    let toast = document.getElementById('global-toast');
-                    if (toast) {
-                        toast.style.display = 'flex';
-                        // إخفاء الرسالة تلقائياً بعد 7 ثواني
-                        setTimeout(() => { toast.style.display = 'none'; }, 7000);
-                    }
-                    
-                    // تحديث رصيد الواجهة ليعكس المبلغ المضاف
-                    if (typeof window.fetchPlayerDataFromServer === 'function') {
-                        window.fetchPlayerDataFromServer();
-                    }
-                }
-            } catch(e) { console.error("Error checking notifications:", e); }
-        }
-
-        async function loadAllViews() {
-            const cacheVersion = new Date().getTime(); 
-            
+        async function loadAllViews(cacheVersion) {
             const views = [
                 { id: 'view-friends', path: 'friends/friends.html' },
                 { id: 'view-wallet', path: 'wallet/wallet.html' },
@@ -201,50 +145,75 @@
                     console.error("❌ فشل الاتصال لتحميل العرض:", view.path, error);
                 }
             }
+        }
 
-            loadScript(`game.js?v=${cacheVersion}`, () => {
-                const scripts = [
-                    'friends/friends.js', 'wallet/wallet.js', 'tasks/tasks.js',
-                    'farm/farm.js', 'games/games.js', 'shop/shop.js', 'settings/settings.js'
-                ];
-                scripts.forEach(jsPath => {
-                    loadScript(`${jsPath}?v=${cacheVersion}`);
-                });
+        function loadScriptPromise(src) {
+            return new Promise((resolve) => {
+                let script = document.createElement('script');
+                script.src = src;
+                script.async = false;
+                script.onload = () => resolve();
+                script.onerror = () => {
+                    console.error(`❌ فشل تحميل السكريبت: ${src}`);
+                    resolve(); 
+                };
+                document.body.appendChild(script);
             });
         }
 
-        function loadScript(src, callback) {
-            let script = document.createElement('script');
-            script.src = src;
-            script.async = false; 
-            if (callback) script.onload = callback;
-            document.body.appendChild(script);
+        async function checkGlobalNotifications() {
+            const initData = window.Telegram?.WebApp?.initData;
+            if (!initData) return;
+            try {
+                let response = await fetch('/api/games/check_notifications', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ initData: initData })
+                });
+                let resData = await response.json();
+                if (resData.success && resData.refund > 0) {
+                    let msgEl = document.getElementById('toast-msg');
+                    if (msgEl) msgEl.innerText = `تم رد ${resData.refund.toLocaleString()} ZN لعدم اكتمال النصاب.`;
+                    
+                    let toast = document.getElementById('global-toast');
+                    if (toast) {
+                        toast.style.display = 'flex';
+                        setTimeout(() => { toast.style.display = 'none'; }, 7000);
+                    }
+                }
+            } catch(e) { 
+                console.error("Error checking notifications:", e); 
+            }
+        }
+
+        function injectOnclickaScript() {
+            let onlickaScript = document.createElement('script');
+            onlickaScript.src = "https://js.onclckmn.com/static/onclicka.js";
+            onlickaScript.setAttribute('data-admpid', '449096');
+            onlickaScript.async = true;
+            document.body.appendChild(onlickaScript);
         }
 
         function switchView(viewName) {
-            // إخفاء جميع العروض بشكل صريح وصارم
             document.querySelectorAll('.game-view').forEach(v => {
                 v.classList.remove('active');
                 v.style.setProperty('display', 'none', 'important');
             });
 
-            // إظهار الصفحة المستهدفة فقط
             let targetView = document.getElementById(`view-${viewName}`);
             if (targetView) {
                 targetView.classList.add('active');
                 targetView.style.setProperty('display', 'block', 'important');
             }
             
-            // تحديث حالة الأزرار في القائمة السفلية
             document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
             let targetNav = document.getElementById(`nav-${viewName}`);
             if (targetNav) targetNav.classList.add('active');
 
-            // إرجاع التمرير لأعلى الصفحة عند التبديل
             window.scrollTo(0, 0);
 
-            if (typeof window.triggerAllUIUpdates === 'function') {
-                window.triggerAllUIUpdates();
+            if (typeof window.updateUI === 'function') {
+                window.updateUI();
             }
         }
 
