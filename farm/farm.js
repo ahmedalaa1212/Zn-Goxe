@@ -1,6 +1,6 @@
 // farm/farm.js
-(function initFarm() {
-    // الحماية العامة للمتغيرات لمنع أي انهيار في الـ JavaScript
+window.initFarm = function() {
+    // الحماية العامة للمتغيرات لمنع أي انهيار
     if (!window.userState) {
         window.userState = { balance: 0, hourly_rate: 0 };
     }
@@ -27,7 +27,7 @@
     let isClaimingMain = false; 
     let isUpgrading = false;
 
-    // دالة استدعاء الـ API المرنة لمنع التوقف إذا لم تكن window.fetchAPI معرّفة
+    // دالة استدعاء الـ API
     async function callAPI(endpoint, method = 'POST', body = {}) {
         try {
             if (typeof window.fetchAPI === 'function') {
@@ -77,7 +77,6 @@
         return num.toString();
     }
 
-    // إتاحة الدوال فوراً للـ HTML لتجنب أخطاء onclick
     window.handleUpgrade = async function(level) {
         if (!window.PlayerData || isUpgrading) return;
         isUpgrading = true;
@@ -233,7 +232,7 @@
                 html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div style="font-size: 12px;">✔️</div><div style="font-size: 9px; font-weight: bold;">تم</div></div>`;
             } else if (dayNum === currentDailyDay) {
                 if (canClaim) {
-                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward} ZN</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${dayNum})" style="background: #2ecc71; color: white; border: none; border-radius: 4px; padding: 4px 0; font-size: 10px; cursor: pointer; width: 90%; animation: pulseGreen 2s infinite;">📺 استلام</button></div>`;
+                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward} ZN</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${dayNum})" style="background: #27ae60; color: white; border: none; border-radius: 4px; padding: 4px 0; font-size: 10px; cursor: pointer; width: 90%;">📺 استلام</button></div>`;
                 } else {
                     html += `<div class="reward-day-card" style="border-color: #555;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward} ZN</div><div id="daily-timer" style="color: #e74c3c; font-size: 9px; font-weight: bold;">⏳</div></div>`;
                 }
@@ -253,13 +252,10 @@
             if (pData.hourly_rate !== undefined) window.userState.hourly_rate = pData.hourly_rate;
 
             const rateSpan = document.querySelector('#farm-rate span');
-            if (rateSpan) {
-                rateSpan.innerText = parseFloat(window.userState.hourly_rate || 0).toLocaleString('en-US');
-            }
+            if (rateSpan) rateSpan.innerText = parseFloat(window.userState.hourly_rate || 0).toLocaleString('en-US');
+            
             const balanceSpan = document.querySelector('#farm-balance span');
-            if (balanceSpan) {
-                balanceSpan.innerText = Math.floor(parseFloat(window.userState.balance || 0)).toLocaleString('en-US');
-            }
+            if (balanceSpan) balanceSpan.innerText = Math.floor(parseFloat(window.userState.balance || 0)).toLocaleString('en-US');
 
             const fieldsContainer = document.getElementById('mining-fields');
             if (fieldsContainer) {
@@ -270,7 +266,7 @@
                     let isMax = count >= GAME_CONFIG.maxUpgradesPerLevel;
                     
                     if (isMax) {
-                        fieldsHTML += `<div class="mining-card" style="position: relative; overflow: hidden; opacity: 0.8;"><div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #f39c12; font-size: 14px; transform: rotate(-15deg); z-index: 2;">MAX</div><div style="font-size: 22px; margin-bottom: 4px; opacity: 0.3;">🏛️</div><div class="mining-card-title">مستوى ${i}</div><div class="mining-card-level">مكتمل</div></div>`;
+                        fieldsHTML += `<div class="mining-card" style="position: relative; overflow: hidden; opacity: 0.8;"><div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #f39c12; font-size: 14px; transform: rotate(-15deg); z-index: 2;">MAX</div><div style="font-size: 22px; margin-bottom: 4px; opacity: 0.3;">🏛️</div><div class="mining-card-title">مستوى ${i}</div><div class="mining-card-level">مكتمل</div></div>`;
                     } else if (count > 0) {
                         fieldsHTML += `<div class="mining-card" onclick="handleUpgrade(${i})" style="cursor: pointer; border-color: #f39c12; position: relative;"><div style="position: absolute; top: -6px; right: -6px; background: #f39c12; color: #000; font-weight: bold; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px; border: 2px solid #121212;">x${count}</div><div style="width: 28px; height: 28px; background: #f39c12; border-radius: 50%; margin: 0 auto 5px auto; display: flex; align-items: center; justify-content: center;"><span style="font-size: 14px;">🏛️</span></div><div class="mining-card-title">مستوى ${i}</div><button class="mining-card-btn">ترقية ⚡</button></div>`;
                     } else if (isUnlocked) {
@@ -325,22 +321,12 @@
         await window.fetchPlayerDataFromServer(); 
     };
 
-    // تهيئة بيانات افتراضية فورية لتجنب بقاء الواجهة فارغة أثناء التحميل
     if (!window.PlayerData) {
-        window.PlayerData = {
-            balance: window.userState.balance || 0,
-            hourly_rate: window.userState.hourly_rate || 0,
-            unclaimed: 0,
-            max_cap: 100,
-            upgrades: {},
-            daily_day: 1
-        };
+        window.PlayerData = { balance: window.userState.balance || 0, hourly_rate: window.userState.hourly_rate || 0, unclaimed: 0, max_cap: 100, upgrades: {}, daily_day: 1 };
     }
 
-    // رسم الواجهة فوراً عند التشغيل
     window.updateFarmUI();
 
-    // التحديث الدوري كل ثانية لنسبة التخزين والعدادات والأزرار
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
         try {
@@ -361,20 +347,21 @@
                 let pct = maxC > 0 ? (unclaim / maxC) * 100 : 0;
                 pct = Math.max(0, Math.min(pct, 100)); 
                 progressEl.style.width = `${pct}%`;
-                if (pct >= 100) progressEl.style.background = 'linear-gradient(90deg, #e74c3c, #c0392b)'; 
-                else progressEl.style.background = 'linear-gradient(90deg, #f39c12, #f1c40f)';
+                
+                if (pct >= 100) {
+                    progressEl.style.background = '#e74c3c'; 
+                } else {
+                    progressEl.style.background = '#f39c12';
+                }
                 
                 storageTextEl.innerHTML = `<span dir="ltr">${Math.floor(unclaim).toLocaleString('en-US')} / ${Math.floor(maxC).toLocaleString('en-US')}</span>`;
             }
 
             const rateSpan = document.querySelector('#farm-rate span');
-            if (rateSpan) {
-                rateSpan.innerText = parseFloat(window.userState?.hourly_rate || 0).toLocaleString('en-US');
-            }
+            if (rateSpan) rateSpan.innerText = parseFloat(window.userState?.hourly_rate || 0).toLocaleString('en-US');
+            
             const balanceSpan = document.querySelector('#farm-balance span');
-            if (balanceSpan) {
-                balanceSpan.innerText = Math.floor(parseFloat(window.userState?.balance || 0)).toLocaleString('en-US');
-            }
+            if (balanceSpan) balanceSpan.innerText = Math.floor(parseFloat(window.userState?.balance || 0)).toLocaleString('en-US');
 
             const claimBtn = document.getElementById('claim-btn');
             if (claimBtn) {
@@ -397,8 +384,8 @@
 
             const todayStr = getTodayUTCStr();
             const timeLeftStr = getTimeUntilUTCMidnight();
-            
             const boostBtn = document.getElementById('boost-btn');
+            
             if (boostBtn) {
                 if (pData.last_boost_date === todayStr) {
                     boostBtn.className = "btn-cooldown";
@@ -407,16 +394,14 @@
                 } else if (!isBoosting) {
                     boostBtn.className = "";
                     boostBtn.disabled = false;
-                    boostBtn.style.background = "linear-gradient(135deg, #f39c12, #e67e22)";
-                    boostBtn.style.boxShadow = "0 4px 12px rgba(243, 156, 18, 0.4)";
-                    boostBtn.innerHTML = `<span style="font-size: 20px; margin-bottom: 2px;">🚀</span><span style="font-size: 10px; font-weight: bold;">+1/h</span>`; 
+                    boostBtn.style.background = "#f39c12";
+                    boostBtn.style.border = "none";
+                    boostBtn.innerHTML = `<span style="font-size: 20px; margin-bottom: 2px;">🚀</span><span style="font-size: 10px; font-weight: bold; color: #fff;">+1/h</span>`; 
                 }
             }
 
             const dailyTimerEl = document.getElementById('daily-timer');
-            if (dailyTimerEl && pData.last_daily_claim_date === todayStr) {
-                dailyTimerEl.innerText = timeLeftStr;
-            }
+            if (dailyTimerEl && pData.last_daily_claim_date === todayStr) dailyTimerEl.innerText = timeLeftStr;
         } catch (err) {
             console.error("Interval error:", err);
         }
@@ -429,18 +414,8 @@
         }
     }, 10000); 
 
-    window.addEventListener('pageshow', () => {
-        window.updateFarmUI();
-        window.fetchPlayerDataFromServer();
-    });
-
-    document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") {
-            window.updateFarmUI();
-            window.fetchPlayerDataFromServer();
-        }
-    });
-
-    // طلب البيانات فوراً من السيرفر
     window.fetchPlayerDataFromServer();
-})();
+};
+
+// تشغيل الدالة فوراً عند تحميل الملف
+window.initFarm();
