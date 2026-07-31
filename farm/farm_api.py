@@ -29,68 +29,6 @@ DAILY_REWARDS_DEFAULT = [
     120000, 150000, 180000, 220000, 250000, 300000, 400000, 500000, 750000, 1000000
 ]
 
-def calculate_user_hourly_rate(user_data):
-    if not isinstance(user_data, dict):
-        return 0.0
-
-    # 1. حساب سرعة ترقيات المزرعة
-    upgrades = user_data.get("upgrades", {})
-    upgrade_rate = 0.0
-    if isinstance(upgrades, dict):
-        for lvl_key, count in upgrades.items():
-            try:
-                lvl_num = int(str(lvl_key).replace('lvl', ''))
-                count_num = int(count)
-                if lvl_num in UPGRADE_CONFIG and count_num > 0:
-                    upgrade_rate += UPGRADE_CONFIG[lvl_num]["rate_bonus"] * count_num
-            except (ValueError, TypeError):
-                continue
-
-    # 2. حساب سرعات المتجر والمكافآت الإضافية
-    shop_rate = 0.0
-    shop_fields = [
-        "shop_hourly_rate", "shop_speed", "store_rate", 
-        "extra_speed", "boost_rate", "speed_bonus", 
-        "purchased_speed", "store_speed"
-    ]
-    for field in shop_fields:
-        try:
-            val = float(user_data.get(field, 0.0))
-            if val > 0:
-                shop_rate += val
-        except (ValueError, TypeError):
-            pass
-
-    # دعم هيئة boosters الكائنة أو القائمة
-    boosters = user_data.get("boosters")
-    if isinstance(boosters, dict):
-        for b_key, b_val in boosters.items():
-            try:
-                if isinstance(b_val, (int, float)):
-                    shop_rate += float(b_val)
-                elif isinstance(b_val, dict) and "speed" in b_val:
-                    shop_rate += float(b_val["speed"])
-            except (ValueError, TypeError):
-                pass
-    elif isinstance(boosters, list):
-        for b_item in boosters:
-            try:
-                if isinstance(b_item, dict):
-                    shop_rate += float(b_item.get("speed", b_item.get("rate", 0)))
-            except (ValueError, TypeError):
-                pass
-
-    total_calculated = upgrade_rate + shop_rate
-
-    # الإبقاء على القيمة الأعلى إذا كانت هناك زيادة مباشرة على hourly_rate
-    stored_rate = 0.0
-    try:
-        stored_rate = float(user_data.get("hourly_rate", 0.0))
-    except (ValueError, TypeError):
-        pass
-
-    return max(total_calculated, stored_rate)
-
 def get_storage_capacity(storage_level):
     try:
         lvl = int(storage_level)
@@ -162,10 +100,6 @@ def get_player_data():
         else:
             user_data = user_doc.to_dict()
 
-        # إعادة حساب معدل التعدين الكلي والموحد
-        hourly_rate = calculate_user_hourly_rate(user_data)
-        user_data["hourly_rate"] = hourly_rate
-
         storage_level = user_data.get("storage_level", 0)
         max_cap = get_storage_capacity(storage_level)
         user_data["max_cap"] = max_cap
@@ -182,6 +116,7 @@ def get_player_data():
                 pass
 
         last_claim_str = user_data.get("last_claim_time")
+        hourly_rate = float(user_data.get("hourly_rate", 0.0))
         unclaimed = float(user_data.get("unclaimed", 0.0))
 
         if last_claim_str:
@@ -204,7 +139,6 @@ def get_player_data():
             user_data["upgrades"] = {}
         
         user_ref.update({
-            "hourly_rate": hourly_rate,
             "unclaimed": unclaimed, 
             "max_cap": max_cap,
             "last_claim_time": now.isoformat()
@@ -238,8 +172,8 @@ def claim_mined_tokens():
             user_data = snapshot.to_dict()
             now = datetime.now(timezone.utc)
             
-            hourly_rate = calculate_user_hourly_rate(user_data)
             last_claim_str = user_data.get("last_claim_time")
+            hourly_rate = float(user_data.get("hourly_rate", 0.0))
             storage_level = user_data.get("storage_level", 0)
             max_cap = get_storage_capacity(storage_level)
             unclaimed = float(user_data.get("unclaimed", 0.0))
@@ -267,8 +201,7 @@ def claim_mined_tokens():
                 "balance": new_balance,
                 "unclaimed": 0.0,
                 "max_cap": max_cap,
-                "last_claim_time": now.isoformat(),
-                "hourly_rate": hourly_rate
+                "last_claim_time": now.isoformat()
             }
 
             referred_by = user_data.get("referred_by")
@@ -350,6 +283,7 @@ def upgrade_level():
 
             cfg = UPGRADE_CONFIG.get(level, {"base_cost": 1000.0, "rate_bonus": 1.0})
             cost = cfg["base_cost"] * (1.5 ** current_count)
+            rate_bonus = cfg["rate_bonus"]
 
             current_balance = float(user_data.get("balance", 0.0))
             if current_balance < cost:
@@ -357,9 +291,7 @@ def upgrade_level():
 
             new_balance = current_balance - cost
             upgrades[f"lvl{level}"] = current_count + 1
-            user_data["upgrades"] = upgrades
-
-            new_hourly_rate = calculate_user_hourly_rate(user_data)
+            new_hourly_rate = float(user_data.get("hourly_rate", 0.0)) + rate_bonus
 
             transaction.update(ref, {
                 "balance": new_balance,
@@ -406,13 +338,10 @@ def daily_boost():
             if user_data.get("last_boost_date") == today_str:
                 return None, "لقد استخدمت التسريع اليوم! انتظر لمنتصف الليل.", 400
 
-            current_extra = float(user_data.get("extra_speed", 0.0)) + 1.0
-            user_data["extra_speed"] = current_extra
-            new_rate = calculate_user_hourly_rate(user_data)
+            new_rate = float(user_data.get("hourly_rate", 0.0)) + 1.0
             ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
             transaction.update(ref, {
-                "extra_speed": current_extra,
                 "hourly_rate": new_rate,
                 "last_boost_date": today_str,
                 "ads_watched": ads_watched
