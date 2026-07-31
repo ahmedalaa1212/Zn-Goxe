@@ -45,7 +45,6 @@
             margin: 0 auto;
         }
 
-        /* 📊 شريط الإحصائيات الثلاثي الجديد */
         .shop-stats-bar {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -85,7 +84,6 @@
             white-space: nowrap;
         }
 
-        /* باقات USDT */
         .usdt-container {
             display: flex;
             gap: 12px;
@@ -100,11 +98,25 @@
         }
 
         .usdt-card {
-            min-width: 130px;
+            min-width: 145px;
             flex: 1;
             border-radius: 12px;
-            padding: 15px;
+            padding: 12px;
             text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .usdt-perks {
+            font-size: 11px;
+            color: #ccc;
+            margin: 6px 0;
+            line-height: 1.4;
+            text-align: right;
+            background: rgba(0,0,0,0.3);
+            padding: 6px;
+            border-radius: 6px;
         }
     </style>
 </head>
@@ -112,21 +124,18 @@
 
     <div class="shop-container">
         
-        <!-- 📊 شريط الإحصائيات المحسّن (ZN - سرعة التعدين - USD) -->
+        <!-- شريط الإحصائيات -->
         <div class="shop-stats-bar">
-            <!-- رصيد ZN -->
             <div class="stat-box">
                 <span class="stat-label">🪙 ZN</span>
                 <span id="shop-balance-text" class="stat-value" style="color: var(--primary);">0</span>
             </div>
 
-            <!-- سرعة التعدين في النص -->
             <div class="stat-box" style="border-color: rgba(255, 204, 0, 0.2); background: rgba(255, 204, 0, 0.05);">
                 <span class="stat-label" style="color: var(--gold);">⚡ السرعة</span>
                 <span id="shop-rate-text" class="stat-value" style="color: var(--gold);">0/h</span>
             </div>
 
-            <!-- رصيد الدولار USD -->
             <div class="stat-box">
                 <span class="stat-label" style="color: var(--accent-green);">💵 USD</span>
                 <span id="shop-usd-text" class="stat-value" style="color: var(--accent-green);">$0.00</span>
@@ -134,26 +143,61 @@
         </div>
 
         <h3 style="color: #fff; margin-bottom: 12px; font-size: 18px; display: flex; align-items: center; gap: 8px;">
-            <span>💎</span> عروض مميزة (USDT)
+            <span>💎</span> باقات العروض المميزة (USDT)
         </h3>
+        
+        <!-- كروت باقات USDT المحدثة -->
         <div class="usdt-container">
-            <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #2a2a2a); border: 1px solid var(--primary); box-shadow: 0 4px 10px rgba(243, 156, 18, 0.2);">
-                <div style="font-size: 28px; margin-bottom: 5px;">📦</div>
-                <div style="color: #fff; font-weight: bold; font-size: 14px;">باقة المبتدئين</div>
-                <div style="color: var(--primary); font-weight: bold; font-size: 16px; margin: 6px 0;">5 USDT</div>
-                <button onclick="buyWithUSDT('5')" style="width: 100%; background: var(--primary); color: white; border: none; padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer;">شراء الآن</button>
+            <!-- باقة 1 دولار -->
+            <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #2a2a2a); border: 1px solid var(--primary);">
+                <div style="font-size: 24px;">📦</div>
+                <div style="color: #fff; font-weight: bold; font-size: 13px;">البرونزية</div>
+                <div style="color: var(--primary); font-weight: bold; font-size: 15px; margin: 4px 0;">1 USDT</div>
+                <div class="usdt-perks">
+                    ⚡ +150 ZN/h<br>
+                    📦 +2,000 مخزن<br>
+                    🪙 +30,000 ZN
+                </div>
+                <button onclick="buyWithUSDT('1', 'pkg_1')" style="width: 100%; background: var(--primary); color: white; border: none; padding: 7px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 5px;">شراء الآن</button>
             </div>
-            <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #332b00); border: 1px solid var(--gold); box-shadow: 0 4px 10px rgba(255, 204, 0, 0.2);">
-                <div style="font-size: 28px; margin-bottom: 5px;">🚀</div>
-                <div style="color: #fff; font-weight: bold; font-size: 14px;">باقة المحترفين</div>
-                <div style="color: var(--gold); font-weight: bold; font-size: 16px; margin: 6px 0;">15 USDT</div>
-                <button onclick="buyWithUSDT('15')" style="width: 100%; background: var(--gold); color: #000; border: none; padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer;">شراء الآن</button>
+
+            <!-- باقة 3 دولار -->
+            <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #1f3a2b); border: 1px solid var(--accent-green);">
+                <div style="font-size: 24px;">🚀</div>
+                <div style="color: #fff; font-weight: bold; font-size: 13px;">الفضية</div>
+                <div style="color: var(--accent-green); font-weight: bold; font-size: 15px; margin: 4px 0;">3 USDT</div>
+                <div class="usdt-perks">
+                    ⚡ +540 ZN/h<br>
+                    📦 +7,200 مخزن<br>
+                    🪙 +108,000 ZN
+                </div>
+                <button onclick="buyWithUSDT('3', 'pkg_2')" style="width: 100%; background: var(--accent-green); color: white; border: none; padding: 7px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 5px;">شراء الآن</button>
             </div>
-            <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #3a1c1c); border: 1px solid var(--accent-red); box-shadow: 0 4px 10px rgba(255, 68, 68, 0.2);">
-                <div style="font-size: 28px; margin-bottom: 5px;">👑</div>
-                <div style="color: #fff; font-weight: bold; font-size: 14px;">باقة الحيتان</div>
-                <div style="color: var(--accent-red); font-weight: bold; font-size: 16px; margin: 6px 0;">50 USDT</div>
-                <button onclick="buyWithUSDT('50')" style="width: 100%; background: var(--accent-red); color: white; border: none; padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer;">شراء الآن</button>
+
+            <!-- باقة 6 دولار -->
+            <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #332b00); border: 1px solid var(--gold);">
+                <div style="font-size: 24px;">👑</div>
+                <div style="color: #fff; font-weight: bold; font-size: 13px;">الذهبية</div>
+                <div style="color: var(--gold); font-weight: bold; font-size: 15px; margin: 4px 0;">6 USDT</div>
+                <div class="usdt-perks">
+                    ⚡ +1,350 ZN/h<br>
+                    📦 +18,000 مخزن<br>
+                    🪙 +270,000 ZN
+                </div>
+                <button onclick="buyWithUSDT('6', 'pkg_3')" style="width: 100%; background: var(--gold); color: #000; border: none; padding: 7px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 5px;">شراء الآن</button>
+            </div>
+
+            <!-- باقة 10 دولار -->
+            <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #3a1c1c); border: 1px solid var(--accent-red);">
+                <div style="font-size: 24px;">🐋</div>
+                <div style="color: #fff; font-weight: bold; font-size: 13px;">باقة الحيتان</div>
+                <div style="color: var(--accent-red); font-weight: bold; font-size: 15px; margin: 4px 0;">10 USDT</div>
+                <div class="usdt-perks">
+                    ⚡ +2,850 ZN/h<br>
+                    📦 +38,000 مخزن<br>
+                    🪙 +570,000 ZN
+                </div>
+                <button onclick="buyWithUSDT('10', 'pkg_4')" style="width: 100%; background: var(--accent-red); color: white; border: none; padding: 7px; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 5px;">شراء الآن</button>
             </div>
         </div>
 
@@ -180,6 +224,6 @@
         <a href="../friends/friends.html"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
-    <script src="shop.js?v=13.5"></script>
+    <script src="shop.js?v=14.0"></script>
 </body>
 </html>
