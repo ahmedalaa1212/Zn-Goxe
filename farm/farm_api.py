@@ -7,26 +7,35 @@ from database import db
 farm_bp = Blueprint('farm', __name__)
 
 STORAGE_CAPACITIES = {
-    0: 100.0, 1: 250.0, 2: 450.0, 3: 750.0, 4: 1000.0,
-    5: 1500.0, 6: 2000.0, 7: 3000.0, 8: 4000.0, 9: 5500.0, 10: 7000.0
+    0: 200.0,
+    1: 600.0,
+    2: 1500.0,
+    3: 3500.0,
+    4: 8000.0,
+    5: 18000.0,
+    6: 40000.0,
+    7: 90000.0,
+    8: 200000.0,
+    9: 450000.0,
+    10: 1000000.0
 }
 
 UPGRADE_CONFIG = {
-    1: {"base_cost": 500.0, "rate_bonus": 1.0},
-    2: {"base_cost": 2500.0, "rate_bonus": 5.0},
-    3: {"base_cost": 10000.0, "rate_bonus": 20.0},
-    4: {"base_cost": 50000.0, "rate_bonus": 100.0},
-    5: {"base_cost": 200000.0, "rate_bonus": 450.0},
-    6: {"base_cost": 1000000.0, "rate_bonus": 2000.0},
-    7: {"base_cost": 5000000.0, "rate_bonus": 10000.0},
-    8: {"base_cost": 25000000.0, "rate_bonus": 50000.0},
-    9: {"base_cost": 100000000.0, "rate_bonus": 200000.0}
+    1: {"base_cost": 2000.0, "rate_bonus": 5.0},
+    2: {"base_cost": 7000.0, "rate_bonus": 15.0},
+    3: {"base_cost": 18000.0, "rate_bonus": 35.0},
+    4: {"base_cost": 45000.0, "rate_bonus": 80.0},
+    5: {"base_cost": 110000.0, "rate_bonus": 180.0},
+    6: {"base_cost": 260000.0, "rate_bonus": 400.0},
+    7: {"base_cost": 600000.0, "rate_bonus": 900.0},
+    8: {"base_cost": 1400000.0, "rate_bonus": 2000.0},
+    9: {"base_cost": 3200000.0, "rate_bonus": 4500.0}
 }
 
 DAILY_REWARDS_DEFAULT = [
-    3000, 4000, 5000, 6000, 7500, 10000, 12000, 15000, 18000, 20000,
-    25000, 30000, 35000, 40000, 50000, 60000, 70000, 80000, 90000, 100000,
-    120000, 150000, 180000, 220000, 250000, 300000, 400000, 500000, 750000, 1000000
+    100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
+    600, 600, 650, 650, 700, 700, 750, 750, 800, 800,
+    850, 850, 900, 900, 950, 950, 1000, 1000, 1100, 1250
 ]
 
 def get_storage_capacity(storage_level):
@@ -36,7 +45,7 @@ def get_storage_capacity(storage_level):
         lvl = 0
     if lvl < 0: lvl = 0
     elif lvl > 10: lvl = 10
-    return STORAGE_CAPACITIES.get(lvl, 100.0)
+    return STORAGE_CAPACITIES.get(lvl, 200.0)
 
 def get_game_settings():
     try:
@@ -83,7 +92,7 @@ def get_player_data():
                 "hourly_rate": 0.0,
                 "unclaimed": 0.0, 
                 "storage_level": 0,
-                "max_cap": 100.0, 
+                "max_cap": 200.0, 
                 "daily_day": 1,
                 "last_claim_time": now.isoformat(), 
                 "last_daily_claim_date": None, 
@@ -274,7 +283,7 @@ def upgrade_level():
                 if prev_count <= 0:
                     return None, "يجب فتح المستوى السابق أولاً", 400
 
-            cfg = UPGRADE_CONFIG.get(level, {"base_cost": 1000.0, "rate_bonus": 1.0})
+            cfg = UPGRADE_CONFIG.get(level, {"base_cost": 2000.0, "rate_bonus": 5.0})
             cost = cfg["base_cost"] * (1.5 ** current_count)
             rate_bonus = cfg["rate_bonus"]
 
@@ -328,7 +337,7 @@ def daily_boost():
         if user_data.get("last_boost_date") == today_str:
             return jsonify({"success": False, "error": "لقد استخدمت التسريع اليوم! انتظر لمنتصف الليل."}), 400
 
-        new_rate = float(user_data.get("hourly_rate", 0.0)) + 1.0
+        new_rate = float(user_data.get("hourly_rate", 0.0)) + 2.0
         ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
         user_ref.update({
@@ -373,10 +382,11 @@ def daily_claim():
                 pass
 
         daily_rewards = get_game_settings()
-        reward_amount = daily_rewards[(current_day - 1) % len(daily_rewards)]
+        reward_index = min(current_day - 1, len(daily_rewards) - 1)
+        reward_amount = daily_rewards[reward_index]
 
         new_balance = float(user_data.get("balance", 0.0)) + reward_amount
-        next_day = current_day + 1 if current_day < len(daily_rewards) else 1
+        next_day = current_day + 1 if current_day < len(daily_rewards) else len(daily_rewards)
         ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
         user_ref.update({
