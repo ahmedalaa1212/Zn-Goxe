@@ -10,6 +10,9 @@ if (tg) {
     if (tg.setHeaderColor) tg.setHeaderColor('secondary_bg_color');
 }
 
+// تهيئة سعر TON العالمي من التخزين المحلي فوراً لمنع التأخير
+window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 0;
+
 const rawUserState = {
     tg_id: null,
     first_name: "لاعب",
@@ -92,7 +95,44 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 };
 
 /* ==========================================
-   3. UI Builders & Formatters (التحديث اللحظي الموحد)
+   3. Global Live TON Price Fetcher
+   ========================================== */
+window.globalFetchTonPrice = async function() {
+    const apis = [
+        async () => {
+            let r = await fetch('https://tonapi.io/v2/rates?tokens=ton&currencies=usd');
+            let d = await r.json();
+            return parseFloat(d?.rates?.TON?.prices?.USD);
+        },
+        async () => {
+            let r = await fetch('https://www.okx.com/api/v5/market/ticker?instId=TON-USDT');
+            let d = await r.json();
+            return parseFloat(d?.data?.[0]?.last);
+        },
+        async () => {
+            let r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd');
+            let d = await r.json();
+            return parseFloat(d['the-open-network']?.usd);
+        }
+    ];
+
+    for (let fetchPrice of apis) {
+        try {
+            let price = await fetchPrice();
+            if (price && price > 0.1 && price < 200) {
+                window.currentTonPriceUSD = price;
+                localStorage.setItem('last_ton_price', price.toString());
+                
+                // تحديث الواجهات فور وصول السعر
+                if (typeof window.updateUI === 'function') window.updateUI();
+                return price;
+            }
+        } catch (e) { continue; }
+    }
+};
+
+/* ==========================================
+   4. UI Builders & Formatters (التحديث اللحظي الموحد)
    ========================================== */
 window.updateUI = function() {
     try {
@@ -101,12 +141,14 @@ window.updateUI = function() {
         const rawAd = parseFloat(window.userState.ad_balance || 0);
         const rawRate = parseFloat(window.userState.hourly_rate || 0);
         const rawEnergy = parseFloat(window.userState.energy || 0);
+        const rawTonPrice = parseFloat(window.currentTonPriceUSD || 0);
 
         const znFormatted = rawBalance.toLocaleString('en-US', { maximumFractionDigits: 0 });
         const usdFormatted = rawUsd.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
         const adFormatted = rawAd.toLocaleString('en-US', { maximumFractionDigits: 0 });
         const hourlyFormatted = rawRate.toLocaleString('en-US', { maximumFractionDigits: 0 });
         const energyFormatted = rawEnergy.toLocaleString('en-US', { maximumFractionDigits: 0 });
+        const tonPriceFormatted = rawTonPrice > 0 ? `$${rawTonPrice.toFixed(2)}` : 'جاري التحميل...';
 
         document.querySelectorAll('[data-bind="balance"]').forEach(el => {
             if (el.tagName === 'INPUT') el.value = znFormatted;
@@ -133,9 +175,16 @@ window.updateUI = function() {
             else el.innerText = energyFormatted;
         });
 
+        // تحديث أي عنصر في HTML يعرض سعر TON مباشرة
+        document.querySelectorAll('[data-bind="ton_price"]').forEach(el => {
+            if (el.tagName === 'INPUT') el.value = tonPriceFormatted;
+            else el.innerText = tonPriceFormatted;
+        });
+
         if (typeof window.updateShopUI === 'function') window.updateShopUI();
         if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
         if (typeof window.updateTasksUI === 'function') window.updateTasksUI();
+        if (typeof window.updateWalletHeaderUI === 'function') window.updateWalletHeaderUI();
 
     } catch (error) {
         console.error("خطأ في تحديث الواجهة:", error);
@@ -143,7 +192,7 @@ window.updateUI = function() {
 };
 
 /* ==========================================
-   4. Fetch Latest User Data from Server
+   5. Fetch Latest User Data from Server
    ========================================== */
 let isUserDataFetching = false;
 
@@ -172,7 +221,7 @@ window.loadUserData = async function() {
 };
 
 /* ==========================================
-   5. Actions (Convert, Withdraw, Wallet History)
+   6. Actions (Convert, Withdraw, Wallet History)
    ========================================== */
 window.loadWalletHistory = async function() {
     const historyList = document.getElementById('wallet-history-list');
@@ -263,18 +312,25 @@ window.executeWithdraw = async function(amountUSD, address) {
 };
 
 /* ==========================================
-   6. Realtime Initialization & Background Sync
+   7. Realtime Initialization & Background Sync
    ========================================== */
 document.addEventListener('DOMContentLoaded', () => {
     const historyBtn = document.getElementById('open-history-btn');
     if (historyBtn) historyBtn.addEventListener('click', window.loadWalletHistory);
 
-    // فحص دوري كل 15 ثانية للتحديث الخلفي المستقر
+    // 1. جلب سعر TON المباشر فوراً عند فتح التطبيق
+    window.globalFetchTonPrice();
+
+    // 2. فحص دوري كل 15 ثانية لجلب بيانات المستخدم وسعر العملة
     setInterval(() => {
         window.loadUserData();
+        window.globalFetchTonPrice();
     }, 15000); 
 
     document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) window.loadUserData();
+        if (!document.hidden) {
+            window.loadUserData();
+            window.globalFetchTonPrice();
+        }
     });
 });
