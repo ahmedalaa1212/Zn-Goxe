@@ -100,6 +100,9 @@ def prepare_ton_pay():
 
         pkg_info = packages[pkg_id]
         ton_price = get_live_ton_price()
+        if ton_price <= 0:
+            ton_price = 5.50  # احتياطي للسيرفر لتفادي القسمة على صفر
+
         ton_amount = round(pkg_info['usdt'] / ton_price, 4)
         nano_ton = int(ton_amount * 1000000000)
 
