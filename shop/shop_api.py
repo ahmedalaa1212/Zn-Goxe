@@ -10,11 +10,10 @@ from core.ton_price import get_live_ton_price
 
 shop_bp = Blueprint('shop', __name__)
 
-# عنوان محفظة المشروع لاستلام مدفوعات TON (يمكنك تغييره لملاحظتك الخاصة)
 PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
 
 # ==============================================================================
-# الإعدادات الافتراضية للمتجر (يتم إنشاؤها تلقائياً في Firebase إن لم تكن موجودة)
+# الإعدادات الافتراضية للمتجر (موزونة على الاقتصاد الجديد)
 # ==============================================================================
 DEFAULT_USDT_PACKAGES = {
     "pkg_1": {"usdt": 1.0, "rate_add": 150.0, "storage_add": 2000.0, "zn_add": 30000.0, "title": "البرونزية"},
@@ -26,23 +25,30 @@ DEFAULT_USDT_PACKAGES = {
 DEFAULT_MINING_CONFIG = {
     "1": {"rate": 5.0, "price": 2000.0, "max": 10},
     "2": {"rate": 15.0, "price": 7000.0, "max": 10},
-    "3": {"rate": 35.0, "price": 20000.0, "max": 10},
-    "4": {"rate": 80.0, "price": 50000.0, "max": 10}
+    "3": {"rate": 35.0, "price": 18000.0, "max": 10},
+    "4": {"rate": 80.0, "price": 45000.0, "max": 10},
+    "5": {"rate": 180.0, "price": 110000.0, "max": 10},
+    "6": {"rate": 400.0, "price": 260000.0, "max": 10},
+    "7": {"rate": 900.0, "price": 600000.0, "max": 10},
+    "8": {"rate": 2000.0, "price": 1400000.0, "max": 10},
+    "9": {"rate": 4500.0, "price": 3200000.0, "max": 10}
 }
 
 DEFAULT_STORAGE_CONFIG = {
-    "1": {"capacity": 200.0, "price": 0.0},
-    "2": {"capacity": 500.0, "price": 5000.0},
-    "3": {"capacity": 1500.0, "price": 15000.0},
-    "4": {"capacity": 4000.0, "price": 35000.0},
-    "5": {"capacity": 10000.0, "price": 80000.0}
+    "1": {"capacity": 600.0, "price": 3000.0},
+    "2": {"capacity": 1500.0, "price": 10000.0},
+    "3": {"capacity": 3500.0, "price": 25000.0},
+    "4": {"capacity": 8000.0, "price": 65000.0},
+    "5": {"capacity": 18000.0, "price": 160000.0},
+    "6": {"capacity": 40000.0, "price": 400000.0},
+    "7": {"capacity": 90000.0, "price": 950000.0},
+    "8": {"capacity": 200000.0, "price": 2200000.0},
+    "9": {"capacity": 450000.0, "price": 5000000.0},
+    "10": {"capacity": 1000000.0, "price": 12000000.0}
 }
 
-# ==============================================================================
-# الدوال المساعدة للحقن والإنشاء التلقائي (Self-Initialization)
-# ==============================================================================
 def get_game_config():
-    """قراءة وحقن إعدادات المتجر تلقائياً في config/game_settings داخل Firestore بدون الحاجة لسكريبتات خارجية"""
+    """قراءة وحقن إعدادات المتجر تلقائياً في config/game_settings داخل Firestore"""
     try:
         doc_ref = db.collection('config').document('game_settings')
         doc = doc_ref.get()
@@ -50,17 +56,14 @@ def get_game_config():
         updates = {}
         data = doc.to_dict() if (doc.exists and doc.to_dict()) else {}
 
-        # 1. فحص ومزامنة باقات USDT
         if 'usdt_packages' not in data or not isinstance(data.get('usdt_packages'), dict) or len(data['usdt_packages']) == 0:
             updates['usdt_packages'] = DEFAULT_USDT_PACKAGES
             data['usdt_packages'] = DEFAULT_USDT_PACKAGES
 
-        # 2. فحص ومزامنة إعدادات المخازن
-        if 'storage_config' not in data or not isinstance(data.get('storage_config'), dict) or len(data['storage_config']) == 0:
+        if 'storage_config' not in data or not isinstance(data.get('storage_config'), dict):
             updates['storage_config'] = DEFAULT_STORAGE_CONFIG
             data['storage_config'] = DEFAULT_STORAGE_CONFIG
 
-        # 3. فحص ومزامنة ترقيات السرعة والتعدين بدون مسح الحقول الأخرى
         current_mining = data.get('mining_config')
         if not isinstance(current_mining, dict):
             current_mining = {}
@@ -75,10 +78,9 @@ def get_game_config():
             updates['mining_config'] = current_mining
             data['mining_config'] = current_mining
 
-        # تطبيق التحديثات وإضافتها لـ Firestore تلقائياً إن وجدت عناصر مفقودة
         if updates:
             doc_ref.set(updates, merge=True)
-            print("⚙️ [Shop] تم إنشاء ومزامنة حقول إعدادات المتجر المفقودة في Firebase تلقائياً.")
+            print("⚙️ [Shop] تم تحديث إعدادات المتجر والمخازن في Firebase تلقائياً.")
 
         return data
     except Exception as e:
@@ -90,11 +92,11 @@ def get_game_config():
         }
 
 def ensure_user_shop_defaults(user_ref, user_data):
-    """التحقق من حقول المتجر داخل حساب المستخدم وإنشاؤها تلقائياً إذا كانت مفقودة"""
+    """التحقق من حقول المتجر داخل حساب المستخدم وإنشاؤها تلقائياً"""
     updates = {}
     if 'storage_level' not in user_data:
-        updates['storage_level'] = 1
-        user_data['storage_level'] = 1
+        updates['storage_level'] = 0
+        user_data['storage_level'] = 0
     if 'max_cap' not in user_data:
         updates['max_cap'] = 200.0
         user_data['max_cap'] = 200.0
@@ -107,16 +109,16 @@ def ensure_user_shop_defaults(user_ref, user_data):
     return user_data
 
 # ==============================================================================
-# مسارات الـ API الخاص بالمتجر (Routes)
+# مسارات الـ API الخاص بالمتجر
 # ==============================================================================
 
 @shop_bp.route('/get_config', methods=['GET', 'POST'])
 def get_config():
-    """جلب إعدادات المتجر وحساب أسعار الباقات بـ TON بناءً على السعر المباشر"""
+    """جلب إعدادات المتجر وحساب أسعار الباقات بـ TON"""
     settings = get_game_config()
     ton_price_usd = get_live_ton_price()
     if ton_price_usd <= 0:
-        ton_price_usd = 5.50  # سعر افتراضي في حالة تعذر الجلب
+        ton_price_usd = 5.50
 
     usdt_pkgs = settings.get('usdt_packages', DEFAULT_USDT_PACKAGES)
     packages_with_ton = {}
@@ -142,7 +144,6 @@ def get_config():
 
 @shop_bp.route('/prepare_ton_pay', methods=['POST'])
 def prepare_ton_pay():
-    """تجهيز بايلود ومعاملة دفع معلقة عبر TON"""
     try:
         is_auth, user_id, error_response = get_authenticated_user(request, is_post=True)
         if not is_auth:
@@ -195,7 +196,6 @@ def prepare_ton_pay():
 
 @firestore.transactional
 def process_usdt_package_transaction(transaction, user_ref, package_data):
-    """تطبيق إضافة مميزات الباقة المشتراة داخل Firestore بشكل آمن ودقيق"""
     snapshot = user_ref.get(transaction=transaction)
     if not snapshot.exists:
         raise Exception("المستخدم غير موجود.")
@@ -225,7 +225,6 @@ def process_usdt_package_transaction(transaction, user_ref, package_data):
 
 @shop_bp.route('/verify_and_apply_package', methods=['POST'])
 def verify_and_apply_package():
-    """التحقق من الدفع وتطبيق منافع الباقة ومنع التكرار"""
     try:
         is_auth, user_id, error_response = get_authenticated_user(request, is_post=True)
         if not is_auth:
@@ -289,7 +288,7 @@ def verify_and_apply_package():
 
 @shop_bp.route('/buy', methods=['POST'])
 def buy_upgrade():
-    """معالجة شراء ترقيات التعدين والمخازن باستخدام رصيد النقاط داخل اللعبة"""
+    """معالجة شراء ترقيات التعدين والمخازن باستخدام رصيد ZN داخل اللعبة"""
     try:
         data = request.get_json() or {}
         upgrade_type = data.get('type')  
@@ -312,7 +311,7 @@ def buy_upgrade():
                 'hourly_rate': 0.0,
                 'max_cap': 200.0,
                 'usd_balance': 0.0,
-                'storage_level': 1,
+                'storage_level': 0,
                 'upgrades': {}
             }
             user_ref.set(initial_user_data, merge=True)
@@ -346,7 +345,7 @@ def buy_upgrade():
         total_balance = current_balance + pending_mined
         new_last_claim_time = now_dt.isoformat()
 
-        # 1. ترقية التعدين (Mining Upgrade)
+        # 1. ترقية التعدين
         if upgrade_type == 'mining':
             mining_cfg = settings.get('mining_config', DEFAULT_MINING_CONFIG)
             if level_num not in mining_cfg:
@@ -398,13 +397,13 @@ def buy_upgrade():
                 "usd_balance": usd_balance
             }), 200
 
-        # 2. ترقية المخزن (Storage Upgrade)
+        # 2. ترقية المخزن
         elif upgrade_type == 'storage':
             storage_cfg = settings.get('storage_config', DEFAULT_STORAGE_CONFIG)
             if level_num not in storage_cfg:
                 return jsonify({"success": False, "error": "مستوى مخزن غير صالح."}), 400
 
-            current_storage_lvl = int(user_data.get('storage_level', 1))
+            current_storage_lvl = int(user_data.get('storage_level', 0))
             int_level = int(level_num)
 
             if int_level <= current_storage_lvl:
