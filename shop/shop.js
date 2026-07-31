@@ -1,36 +1,8 @@
-// shop/shop.js
 (function initShop() {
     'use strict';
 
     let tonConnectUI = null;
     let isBuying = false;
-
-    function getStoredBalance() {
-        if (window.GameState && window.GameState.balance !== undefined) return parseFloat(window.GameState.balance);
-        if (window.PlayerData && window.PlayerData.balance !== undefined) return parseFloat(window.PlayerData.balance);
-        const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
-        return bal !== null ? parseFloat(bal) : 0;
-    }
-
-    function getStoredUsdBalance() {
-        if (window.GameState && window.GameState.usd_balance !== undefined) return parseFloat(window.GameState.usd_balance);
-        if (window.PlayerData && window.PlayerData.usd_balance !== undefined) return parseFloat(window.PlayerData.usd_balance);
-        const usd = localStorage.getItem('usd_balance');
-        return usd !== null ? parseFloat(usd) : 0.0;
-    }
-
-    function setStoredBalance(newBalance) {
-        if (newBalance !== undefined && newBalance !== null) {
-            const numVal = parseFloat(newBalance);
-            if (typeof window.setBalance === 'function') {
-                window.setBalance(numVal);
-            } else {
-                if (window.GameState) window.GameState.balance = numVal;
-                if (window.PlayerData) window.PlayerData.balance = numVal;
-                localStorage.setItem('zn_balance', numVal.toString());
-            }
-        }
-    }
 
     function triggerHaptic(type = 'impact', style = 'medium') {
         if (window.Telegram?.WebApp?.HapticFeedback) {
@@ -39,26 +11,28 @@
         }
     }
 
-    // تهيئة TonConnect المباشر للربط مع المحفظة
     function initTonConnect() {
         try {
-            tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
-                manifestUrl: `${window.location.origin}/tonconnect-manifest.json`,
-                buttonRootId: 'ton-connect-btn'
-            });
+            if (window.TON_CONNECT_UI) {
+                tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
+                    manifestUrl: `${window.location.origin}/tonconnect-manifest.json`,
+                    buttonRootId: 'ton-connect-btn'
+                });
+            }
         } catch (e) {
             console.error("TonConnect Init Error:", e);
         }
     }
 
-    // جلب الإعدادات والسعر اللحظي من الباك إند
     async function loadShopConfig() {
         try {
             const res = await fetch('/api/shop/get_config');
             const data = await res.json();
             if (data.success) {
                 const rateEl = document.getElementById('ton-live-rate-text');
-                if (rateEl) rateEl.innerText = `$${data.ton_price_usd.toFixed(2)}`;
+                if (rateEl) {
+                    rateEl.innerText = `$${parseFloat(data.ton_price_usd).toFixed(2)}`;
+                }
 
                 for (const [pkgId, pkg] of Object.entries(data.packages)) {
                     const el = document.getElementById(`ton-amt-${pkgId}`);
@@ -66,17 +40,14 @@
                 }
             }
         } catch (e) {
-            console.error("Error fetching config:", e);
+            console.error("Error fetching shop config:", e);
+            const rateEl = document.getElementById('ton-live-rate-text');
+            if (rateEl) rateEl.innerText = "$5.50 (تقريبي)";
         }
     }
 
-    // الشراء والتفعيل التلقائي للباقة عند الدفع بـ TON
     window.buyPackageWithTon = async function(packageId) {
-        if (!tonConnectUI || !tonConnectUI.connected) {
-            triggerHaptic('notification', 'warning');
-            alert("⚠️ يرجى ربط محفظة TON الخاصة بك أولاً عبر الزر الأعلى!");
-            return;
-        }
+        if (isBuying) return;
 
         const initData = window.Telegram?.WebApp?.initData;
         if (!initData) {
@@ -84,10 +55,31 @@
             return;
         }
 
+        if (!tonConnectUI) {
+            alert("⚠️ جاري تهيئة نظام المحفظة، يرجى المحاولة بعد ثوانٍ.");
+            return;
+        }
+
         try {
             triggerHaptic('impact', 'medium');
 
-            // 1. طلب حساب المعاملة بالـ NanoTON من السيرفر
+            if (!tonConnectUI.connected) {
+                await tonConnectUI.openModal();
+
+                let attempts = 0;
+                while (!tonConnectUI.connected && attempts < 40) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    attempts++;
+                }
+
+                if (!tonConnectUI.connected) {
+                    alert("⚠️ يجب ربط المحفظة أولاً لإتمام عملية الدفع.");
+                    return;
+                }
+            }
+
+            isBuying = true;
+
             const prepRes = await fetch('/api/shop/prepare_ton_pay', {
                 method: 'POST',
                 headers: {
@@ -100,10 +92,10 @@
             const prepData = await prepRes.json();
             if (!prepData.success) {
                 alert("خطأ: " + prepData.error);
+                isBuying = false;
                 return;
             }
 
-            // 2. فتح المحفظة وإرسال الدفع
             const transaction = {
                 validUntil: Math.floor(Date.now() / 1000) + 600,
                 messages: [{
@@ -115,7 +107,6 @@
 
             const result = await tonConnectUI.sendTransaction(transaction);
 
-            // 3. إرسال تأكيد المعاملة للسيرفر للتفعيل التلقائي الفوري
             const verifyRes = await fetch('/api/shop/verify_and_apply_package', {
                 method: 'POST',
                 headers: {
@@ -131,23 +122,31 @@
             const verifyData = await verifyRes.json();
             if (verifyData.success) {
                 triggerHaptic('notification', 'success');
-                alert("🎉 تم الدفع بنجاح وتفعيل الباقة فوراً في حسابك!");
+                alert("🎉 تم تأكيد الدفع وتفعيل الباقة فوراً بنجاح!");
+
+                if (window.userState) {
+                    window.userState.balance = verifyData.result.balance;
+                    window.userState.hourly_rate = verifyData.result.hourly_rate;
+                    window.userState.max_cap = verifyData.result.max_cap;
+                }
 
                 if (window.PlayerData) {
                     window.PlayerData.balance = verifyData.result.balance;
                     window.PlayerData.hourly_rate = verifyData.result.hourly_rate;
                     window.PlayerData.max_cap = verifyData.result.max_cap;
                 }
-                setStoredBalance(verifyData.result.balance);
+
                 window.updateShopUI();
             } else {
                 alert("⚠️ " + verifyData.error);
             }
 
         } catch (e) {
-            console.error("Payment Error:", e);
+            console.error("Payment Flow Error:", e);
             triggerHaptic('notification', 'error');
             alert("❌ تم إلغاء المعاملة أو حدث خطأ أثناء الدفع.");
+        } finally {
+            isBuying = false;
         }
     };
 
@@ -248,19 +247,9 @@
         const storageSec = document.getElementById('shop-storage-section');
         if (!miningSec || !storageSec) return;
 
-        const pData = window.PlayerData || window.GameState || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0, usd_balance: 0 };
-        let totalBal = getStoredBalance();
-        let totalUsd = getStoredUsdBalance();
+        const pData = window.userState || window.PlayerData || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0, usd_balance: 0 };
+        let totalBal = parseFloat(pData.balance || 0);
 
-        const shopBalEl = document.getElementById('shop-balance-text');
-        const shopRateEl = document.getElementById('shop-rate-text');
-        const shopUsdEl = document.getElementById('shop-usd-text');
-
-        if (shopBalEl) shopBalEl.innerText = `${Math.floor(totalBal).toLocaleString()}`;
-        if (shopRateEl) shopRateEl.innerText = `${(pData.hourly_rate || 0).toLocaleString()}/h`; 
-        if (shopUsdEl) shopUsdEl.innerText = "$" + (totalUsd > 0 && totalUsd < 0.01 ? totalUsd.toFixed(5) : totalUsd.toFixed(2));
-
-        // ترقيات السرعة
         let miningHtml = '';
         for (let i = 1; i <= 9; i++) {
             let count = parseInt((pData.upgrades && pData.upgrades[`lvl${i}`]) || 0);
@@ -288,7 +277,6 @@
         }
         miningSec.innerHTML = miningHtml;
 
-        // ترقيات المخزن
         let storageHtml = '';
         let currentStorageLvl = parseInt(pData.storage_level || 0); 
 
@@ -327,7 +315,8 @@
     };
 
     window.requestShopPurchase = function(type, level, price) {
-        if (getStoredBalance() < parseFloat(price)) {
+        const curBal = parseFloat(window.userState?.balance || 0);
+        if (curBal < parseFloat(price)) {
             triggerHaptic('notification', 'error');
             alert("⚠️ الرصيد غير كافي لشراء هذا التطوير!");
             return; 
@@ -370,18 +359,18 @@
 
             if (response.ok && resData.success) {
                 triggerHaptic('notification', 'success');
-                setStoredBalance(resData.balance);
 
-                if (!window.PlayerData) window.PlayerData = {};
-                window.PlayerData.balance = resData.balance;
-                
-                if (apiType === 'mining') {
-                    window.PlayerData.hourly_rate = resData.hourly_rate;
-                    window.PlayerData.upgrades = resData.upgrades;
-                } else {
-                    window.PlayerData.storage_level = resData.storage_level;
-                    window.PlayerData.max_cap = resData.max_cap;
+                if (window.userState) {
+                    window.userState.balance = resData.balance;
+                    if (apiType === 'mining') {
+                        window.userState.hourly_rate = resData.hourly_rate;
+                        window.userState.upgrades = resData.upgrades;
+                    } else {
+                        window.userState.storage_level = resData.storage_level;
+                        window.userState.max_cap = resData.max_cap;
+                    }
                 }
+
                 window.updateShopUI();
             } else {
                 alert(resData.error || "حدث خطأ أثناء الشراء.");
