@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>المتجر - Zn Goxe</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <!-- حزمة TonConnect المباشرة للربط مع المحفظة -->
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     <link rel="stylesheet" href="../style.css?v=13.2">
     <style>
@@ -13,7 +12,6 @@
             --bg-color: #0f0f0f;
             --card-bg: #1c1c1c;
             --primary: #f39c12;
-            --primary-glow: rgba(243, 156, 18, 0.3);
             --telegram-blue: #0088cc;
             --ton-blue: #0098ea;
             --gold: #ffcc00;
@@ -50,8 +48,8 @@
         .stat-value { font-weight: 800; font-size: 13px; white-space: nowrap; }
 
         .ton-price-bar {
-            background: rgba(0, 152, 234, 0.1); border: 1px solid var(--ton-blue);
-            border-radius: 12px; padding: 10px 14px; margin-bottom: 20px;
+            background: rgba(0, 152, 234, 0.12); border: 1px solid var(--ton-blue);
+            border-radius: 12px; padding: 12px 14px; margin-bottom: 20px;
             display: flex; justify-content: space-between; align-items: center;
         }
 
@@ -72,9 +70,10 @@
         }
 
         .btn-ton-pay {
-            width: 100%; color: white; border: none; padding: 8px;
-            border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 5px;
+            width: 100%; color: white; border: none; padding: 10px 8px;
+            border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 5px;
             display: flex; align-items: center; justify-content: center; gap: 4px;
+            font-size: 13px;
         }
     </style>
 </head>
@@ -82,75 +81,79 @@
 
     <div class="shop-container">
         
-        <!-- شريط الإحصائيات -->
         <div class="shop-stats-bar">
             <div class="stat-box">
                 <span class="stat-label">🪙 ZN</span>
-                <span id="shop-balance-text" class="stat-value" style="color: var(--primary);">0</span>
+                <span data-bind="balance" id="shop-balance-text" class="stat-value" style="color: var(--primary);">0</span>
             </div>
             <div class="stat-box" style="border-color: rgba(255, 204, 0, 0.2); background: rgba(255, 204, 0, 0.05);">
                 <span class="stat-label" style="color: var(--gold);">⚡ السرعة</span>
-                <span id="shop-rate-text" class="stat-value" style="color: var(--gold);">0/h</span>
+                <span data-bind="hourly_rate" id="shop-rate-text" class="stat-value" style="color: var(--gold);">0/h</span>
             </div>
             <div class="stat-box">
                 <span class="stat-label" style="color: var(--accent-green);">💵 USD</span>
-                <span id="shop-usd-text" class="stat-value" style="color: var(--accent-green);">$0.00</span>
+                <span data-bind="usd_balance" id="shop-usd-text" class="stat-value" style="color: var(--accent-green);">$0.00</span>
             </div>
         </div>
 
-        <!-- شريط سعر TON ورابط المحفظة -->
         <div class="ton-price-bar">
-            <div style="font-size: 12px; font-weight: bold; color: var(--ton-blue);">
-                💎 سعر TON اللحظي: <span id="ton-live-rate-text">$0.00</span>
+            <div style="font-size: 13px; font-weight: bold; color: var(--ton-blue);">
+                💎 سعر TON اللحظي المباشر:
             </div>
-            <div id="ton-connect-btn"></div>
+            <div id="ton-live-rate-text" style="font-weight: 800; color: #fff; font-size: 14px;">جاري التحميل...</div>
         </div>
 
-        <h3 style="color: #fff; margin-bottom: 12px; font-size: 18px;">💎 باقات العروض المميزة (الدفع التلقائي بـ TON)</h3>
+        <div id="ton-connect-btn" style="display:none;"></div>
+
+        <h3 style="color: #fff; margin-bottom: 12px; font-size: 17px;">💎 باقات العروض المميزة (الدفع التلقائي)</h3>
         
         <div class="usdt-container">
-            <!-- باقة 1 دولار -->
             <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #2a2a2a); border: 1px solid var(--primary);">
-                <div style="font-size: 24px;">📦</div>
-                <div style="color: #fff; font-weight: bold; font-size: 13px;">البرونزية</div>
-                <div style="color: var(--primary); font-weight: bold; font-size: 15px; margin: 2px 0;">$1.00</div>
-                <div id="ton-amt-pkg_1" style="color: var(--ton-blue); font-size: 11px; font-weight: bold;">~0 TON</div>
+                <div>
+                    <div style="font-size: 24px;">📦</div>
+                    <div style="color: #fff; font-weight: bold; font-size: 13px;">البرونزية</div>
+                    <div style="color: var(--primary); font-weight: bold; font-size: 15px; margin: 2px 0;">$1.00</div>
+                    <div id="ton-amt-pkg_1" style="color: var(--ton-blue); font-size: 11px; font-weight: bold;">~0 TON</div>
+                </div>
                 <div class="usdt-perks">
                     ⚡ +150 ZN/h<br>📦 +2,000 مخزن<br>🪙 +30,000 ZN
                 </div>
                 <button class="btn-ton-pay" style="background: var(--primary);" onclick="buyPackageWithTon('pkg_1')">شراء تلقائي</button>
             </div>
 
-            <!-- باقة 3 دولار -->
             <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #1f3a2b); border: 1px solid var(--accent-green);">
-                <div style="font-size: 24px;">🚀</div>
-                <div style="color: #fff; font-weight: bold; font-size: 13px;">الفضية</div>
-                <div style="color: var(--accent-green); font-weight: bold; font-size: 15px; margin: 2px 0;">$3.00</div>
-                <div id="ton-amt-pkg_2" style="color: var(--ton-blue); font-size: 11px; font-weight: bold;">~0 TON</div>
+                <div>
+                    <div style="font-size: 24px;">🚀</div>
+                    <div style="color: #fff; font-weight: bold; font-size: 13px;">الفضية</div>
+                    <div style="color: var(--accent-green); font-weight: bold; font-size: 15px; margin: 2px 0;">$3.00</div>
+                    <div id="ton-amt-pkg_2" style="color: var(--ton-blue); font-size: 11px; font-weight: bold;">~0 TON</div>
+                </div>
                 <div class="usdt-perks">
                     ⚡ +540 ZN/h<br>📦 +7,200 مخزن<br>🪙 +108,000 ZN
                 </div>
                 <button class="btn-ton-pay" style="background: var(--accent-green);" onclick="buyPackageWithTon('pkg_2')">شراء تلقائي</button>
             </div>
 
-            <!-- باقة 6 دولار -->
             <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #332b00); border: 1px solid var(--gold);">
-                <div style="font-size: 24px;">👑</div>
-                <div style="color: #fff; font-weight: bold; font-size: 13px;">الذهبية</div>
-                <div style="color: var(--gold); font-weight: bold; font-size: 15px; margin: 2px 0;">$6.00</div>
-                <div id="ton-amt-pkg_3" style="color: var(--ton-blue); font-size: 11px; font-weight: bold;">~0 TON</div>
+                <div>
+                    <div style="font-size: 24px;">👑</div>
+                    <div style="color: #fff; font-weight: bold; font-size: 13px;">الذهبية</div>
+                    <div style="color: var(--gold); font-weight: bold; font-size: 15px; margin: 2px 0;">$6.00</div>
+                    <div id="ton-amt-pkg_3" style="color: var(--ton-blue); font-size: 11px; font-weight: bold;">~0 TON</div>
+                </div>
                 <div class="usdt-perks">
                     ⚡ +1,350 ZN/h<br>📦 +18,000 مخزن<br>🪙 +270,000 ZN
                 </div>
                 <button class="btn-ton-pay" style="background: var(--gold); color:#000;" onclick="buyPackageWithTon('pkg_3')">شراء تلقائي</button>
             </div>
 
-            <!-- باقة 10 دولار -->
             <div class="usdt-card" style="background: linear-gradient(135deg, #1c1c1c, #3a1c1c); border: 1px solid var(--accent-red);">
-                <div style="font-size: 24px;">🐋</div>
-                <div style="color: #fff; font-weight: bold; font-size: 13px;">باقة الحيتان</div>
-                <div style="color: var(--accent-red); font-weight: bold; font-size: 15px; margin: 2px 0;">$10.00</div>
-                <div id="ton-amt-pkg_4" style="color: var(--ton-blue); font-size: 11px; font-weight: bold;">~0 TON</div>
+                <div>
+                    <div style="font-size: 24px;">🐋</div>
+                    <div style="color: #fff; font-weight: bold; font-size: 13px;">باقة الحيتان</div>
+                    <div style="color: var(--accent-red); font-weight: bold; font-size: 15px; margin: 2px 0;">$10.00</div>
+                    <div id="ton-amt-pkg_4" style="color: var(--ton-blue); font-size: 11px; font-weight: bold;">~0 TON</div>
+                </div>
                 <div class="usdt-perks">
                     ⚡ +2,850 ZN/h<br>📦 +38,000 مخزن<br>🪙 +570,000 ZN
                 </div>
@@ -178,6 +181,6 @@
         <a href="../friends/friends.html"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
-    <script src="shop.js?v=15.0"></script>
+    <script src="shop.js?v=16.0"></script>
 </body>
 </html>
