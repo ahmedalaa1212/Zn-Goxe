@@ -1,23 +1,18 @@
-# core/ton_price.py
 import requests
 import time
 
-# ذاكرة مؤقتة لتخزين السعر وتجنب كثرة الطلبات (Cache)
 _ton_price_cache = {
-    "price": 5.50,  # سعر افتراضي احتياطي آمن
+    "price": 5.50,
     "updated_at": 0
 }
 
 def get_live_ton_price():
-    """جلب سعر TON اللحظي بالدولار من السيرفر بمصادر متعددة"""
     global _ton_price_cache
     now = time.time()
     
-    # تحديث السعر كل 60 ثانية فقط لتوفير الموارد
     if now - _ton_price_cache["updated_at"] < 60 and _ton_price_cache["price"] > 0:
         return _ton_price_cache["price"]
     
-    # المصدر الأول: CoinGecko
     try:
         url = "https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd"
         response = requests.get(url, timeout=4)
@@ -30,7 +25,6 @@ def get_live_ton_price():
     except Exception as e:
         print(f"⚠️ فشل CoinGecko، الانتقال للمصدر الاحتياطي: {e}")
 
-    # المصدر الثاني الاحتياطي: CoinCap
     try:
         url = "https://api.coincap.io/v2/assets/toncoin"
         response = requests.get(url, timeout=4)
