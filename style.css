@@ -18,9 +18,9 @@ body {
 }
 
 #app {
-    min-height: calc(100vh - 65px);
+    min-height: calc(100vh - 75px);
     padding: 15px;
-    padding-bottom: 85px;
+    padding-bottom: 90px;
     overflow-y: auto;
     overflow-x: hidden;
 }
@@ -34,7 +34,7 @@ body {
 }
 
 /* =========================================
-   شاشة التحميل الاحترافية الموحدة
+   شاشة التحميل الاحترافية
    ========================================= */
 #loading-screen {
     position: fixed;
@@ -79,7 +79,7 @@ body {
 }
 
 /* =========================================
-   إدارة ظهور وانتقال العروض (Views)
+   إدارة العروض والواجهات
    ========================================= */
 .game-view {
     display: none !important;
@@ -99,7 +99,7 @@ body {
 }
 
 /* =========================================
-   شريط التنقل السفلي الموحد
+   شريط التنقل السفلي - Web3 Glassmorphism UI
    ========================================= */
 .bottom-nav {
     position: fixed !important;
@@ -107,21 +107,24 @@ body {
     left: 0 !important;
     right: 0 !important;
     width: 100% !important;
-    height: 65px !important;
-    background-color: #1a1a1a !important;
+    height: 70px !important;
+    background: rgba(15, 23, 42, 0.88) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
     display: flex !important;
-    justify-content: space-around !important;
+    justify-content: space-between !important;
     align-items: center !important;
-    border-top: 1px solid #2a2a2a !important;
-    padding: 0 2px !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+    padding: 0 4px calc(env(safe-area-inset-bottom, 0px) + 2px) 4px !important;
     z-index: 999999 !important;
     box-sizing: border-box !important;
+    box-shadow: 0 -8px 25px rgba(0, 0, 0, 0.5) !important;
 }
 
-.nav-item, .bottom-nav a {
+.nav-item {
     background: none !important;
     border: none !important;
-    color: #888888 !important;
+    color: #94a3b8 !important;
     text-decoration: none !important;
     display: flex !important;
     flex-direction: column !important;
@@ -130,67 +133,144 @@ body {
     cursor: pointer !important;
     flex: 1 !important;
     min-width: 0 !important;
-    transition: all 0.2s ease !important;
-    padding: 2px 0 !important;
-    white-space: nowrap !important;
+    height: 100% !important;
+    transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    padding: 4px 0 !important;
+    position: relative !important;
+    outline: none !important;
 }
 
-.nav-item i, .bottom-nav a i {
-    font-size: 18px !important;
-    margin-bottom: 2px !important;
-    font-style: normal !important;
-    line-height: 1 !important;
-    transition: color 0.2s, transform 0.2s !important;
+.nav-item:active {
+    transform: scale(0.9) !important;
 }
 
-.nav-item span, .bottom-nav a span {
+.nav-item i {
+    font-size: 17px !important;
+    margin-bottom: 3px !important;
+    transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.nav-item span {
     font-size: 9px !important;
+    font-weight: 500 !important;
     white-space: nowrap !important;
-    transition: color 0.2s !important;
+    transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-.nav-item.active, .bottom-nav a.active {
-    color: #f39c12 !important;
+/* حالة الأزرار النشطة */
+.nav-item.active {
+    color: #f59e0b !important;
 }
 
-.nav-item.active i, .bottom-nav a.active i {
-    color: #f39c12 !important;
-    transform: scale(1.1) !important;
+.nav-item.active i {
+    color: #f59e0b !important;
+    transform: translateY(-2px) scale(1.15) !important;
+    filter: drop-shadow(0 2px 8px rgba(245, 158, 11, 0.5)) !important;
 }
 
-.nav-item.active span, .bottom-nav a.active span {
-    color: #f39c12 !important;
-    font-weight: bold !important;
+.nav-item.active span {
+    color: #f59e0b !important;
+    font-weight: 700 !important;
+}
+
+/* مؤشر نيون مضيء أعلى العنصر النشط */
+.nav-item.active::before {
+    content: '' !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: 18px !important;
+    height: 3px !important;
+    background: linear-gradient(90deg, #f59e0b, #fbbf24) !important;
+    border-radius: 0 0 4px 4px !important;
+    box-shadow: 0 2px 10px rgba(245, 158, 11, 0.8) !important;
 }
 
 /* =========================================
-   تنسيق زر المزرعة المركزي
+   زر المزرعة المركزي المميز (3D Glowing Farm Dock)
    ========================================= */
-a.nav-center-btn, button.nav-center-btn {
+.nav-item.nav-center-btn {
     position: relative !important;
-    top: -8px !important;
-    background-color: #252525 !important;
-    color: #888888 !important;
-    width: 46px !important;
-    height: 46px !important;
+    top: -14px !important;
+    flex: 0 0 58px !important;
+    width: 58px !important;
+    height: 58px !important;
     border-radius: 50% !important;
-    border: 3px solid #1a1a1a !important;
-    flex: none !important;
+    background: linear-gradient(135deg, #1e293b, #0f172a) !important;
+    border: 3px solid #f59e0b !important;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6), 0 0 15px rgba(245, 158, 11, 0.3) !important;
     display: flex !important;
     flex-direction: column !important;
-    justify-content: center !important;
     align-items: center !important;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.5) !important;
+    justify-content: center !important;
+    padding: 0 !important;
+    z-index: 10 !important;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
 }
 
-button.nav-center-btn.active {
-    background-color: #f39c12 !important;
-    border-color: #121212 !important;
-    box-shadow: 0 0 12px rgba(243, 156, 18, 0.6) !important;
+/* هالة النبض التفاعلية حول زر المزرعة */
+.nav-item.nav-center-btn::after {
+    content: '' !important;
+    position: absolute !important;
+    top: -6px !important;
+    left: -6px !important;
+    right: -6px !important;
+    bottom: -6px !important;
+    border-radius: 50% !important;
+    border: 2px solid rgba(245, 158, 11, 0.4) !important;
+    animation: pulseAura 2s infinite ease-in-out !important;
+    pointer-events: none !important;
 }
 
-button.nav-center-btn.active i {
-    color: #121212 !important;
+@keyframes pulseAura {
+    0% { transform: scale(0.95); opacity: 0.8; }
+    50% { transform: scale(1.12); opacity: 0.2; }
+    100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.farm-btn-inner {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.nav-item.nav-center-btn i {
+    font-size: 20px !important;
+    color: #f59e0b !important;
+    margin-bottom: 1px !important;
+    filter: drop-shadow(0 2px 6px rgba(245, 158, 11, 0.6)) !important;
+    transition: all 0.3s ease !important;
+}
+
+.nav-item.nav-center-btn span {
+    font-size: 8.5px !important;
+    color: #f8fafc !important;
+    font-weight: 700 !important;
+}
+
+/* حالة زر المزرعة عند التفعيل (المزرعة هي القائمة النشطة) */
+.nav-item.nav-center-btn.active {
+    background: linear-gradient(135deg, #f59e0b, #d97706) !important;
+    border-color: #ffffff !important;
+    transform: scale(1.08) !important;
+    box-shadow: 0 8px 25px rgba(245, 158, 11, 0.7), 0 0 30px rgba(245, 158, 11, 0.5) !important;
+}
+
+.nav-item.nav-center-btn.active i {
+    color: #0f172a !important;
+    transform: rotate(-12deg) scale(1.1) !important;
+    filter: none !important;
+}
+
+.nav-item.nav-center-btn.active span {
+    color: #0f172a !important;
+    font-weight: 800 !important;
+}
+
+.nav-item.nav-center-btn.active::before {
+    display: none !important;
 }
 
 /* =========================================
@@ -223,7 +303,7 @@ button.nav-center-btn.active i {
 }
 
 /* =========================================
-   إخفاء القائمة السفلية أثناء الكتابة
+   إخفاء القائمة عند فتح الكتابة في الموبايل
    ========================================= */
 body:has(input:focus) .bottom-nav,
 body:has(textarea:focus) .bottom-nav,
