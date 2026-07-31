@@ -28,13 +28,13 @@
         else alert(message);
     }
 
-    // --- الربط المباشر الموحد مع window.userState ---
     function getStoredBalance() {
         return parseFloat(window.userState?.balance || 0);
     }
 
     function setStoredBalance(newBalance) {
         if (newBalance !== undefined && newBalance !== null) {
+            if (!window.userState) window.userState = {};
             window.userState.balance = parseFloat(newBalance);
         }
     }
@@ -68,11 +68,22 @@
             let resData = await response.json();
             if (response.ok && resData.success) {
                 window.PlayerData = resData.player;
+                if (!window.userState) window.userState = {};
+                
                 if (resData.player && resData.player.balance !== undefined) {
                     setStoredBalance(resData.player.balance);
                 }
                 if (resData.player && resData.player.hourly_rate !== undefined) {
                     window.userState.hourly_rate = resData.player.hourly_rate;
+                }
+                if (resData.player && resData.player.max_cap !== undefined) {
+                    window.userState.max_cap = resData.player.max_cap;
+                }
+                if (resData.player && resData.player.storage_level !== undefined) {
+                    window.userState.storage_level = resData.player.storage_level;
+                }
+                if (resData.player && resData.player.upgrades !== undefined) {
+                    window.userState.upgrades = resData.player.upgrades;
                 }
                 if (resData.game_config && resData.game_config.daily_rewards) {
                     GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
@@ -163,7 +174,7 @@
         if (!pData) return;
         
         let unclaim = parseFloat(pData.unclaimed || 0);
-        let maxC = parseFloat(pData.max_cap || 200);
+        let maxC = parseFloat(window.userState?.max_cap || pData.max_cap || 200);
         let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0); 
         
         if (unclaim < maxC) {
