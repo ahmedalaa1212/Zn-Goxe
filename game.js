@@ -44,7 +44,8 @@ loadLocalState();
 window.userState = new Proxy(rawUserState, {
     set(target, prop, value) {
         target[prop] = value;
-        const monitoredProps = ['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level'];
+        // ⚡ تم إضافة upgrades للقائمة لتنشيط التحديث الفوري عند أي تعديل
+        const monitoredProps = ['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'];
         
         if (monitoredProps.includes(prop)) {
             saveLocalState();
@@ -191,7 +192,10 @@ window.loadUserData = async function() {
             if (data.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(data.hourly_rate);
             if (data.energy !== undefined) window.userState.energy = parseFloat(data.energy);
             if (data.storage_level !== undefined) window.userState.storage_level = parseInt(data.storage_level);
-            if (data.upgrades !== undefined) window.userState.upgrades = data.upgrades;
+            if (data.upgrades !== undefined) {
+                window.userState.upgrades = data.upgrades;
+                if (window.PlayerData) window.PlayerData.upgrades = data.upgrades;
+            }
             if (data.wallet_address !== undefined) window.userState.wallet_address = data.wallet_address;
         }
     } catch (e) {
