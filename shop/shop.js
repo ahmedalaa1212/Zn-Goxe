@@ -2,7 +2,6 @@
 (function initShop() {
     'use strict';
 
-    // --- أدوات المزامنة الموحدة مع الذاكرة المحلية والواجهات ---
     function getStoredBalance() {
         if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
             return parseFloat(window.GameState.balance);
@@ -39,7 +38,6 @@
         }
     }
 
-    // أداة اهتزاز اللمس لتطبيقات تليجرام (Haptic Feedback)
     function triggerHaptic(type = 'impact', style = 'medium') {
         if (window.Telegram?.WebApp?.HapticFeedback) {
             if (type === 'impact') {
@@ -50,36 +48,33 @@
         }
     }
 
-    // إعدادات المتجر
+    // إعدادات المتجر المحدثة طبقاً لاقتصاد العملة الجديد
     const SHOP_CONFIG = {
         maxMiningUpgrades: {
-            1: 15, 2: 10, 3: 10, 4: 10, 5: 10, 
+            1: 10, 2: 10, 3: 10, 4: 10, 5: 10, 
             6: 10, 7: 10, 8: 10, 9: 10
         },
         miningPrices: {
-            1: 310, 2: 820, 3: 2100, 4: 7000, 5: 10100,
-            6: 14500, 7: 17300, 8: 21500, 9: 32150
+            1: 2000, 2: 7000, 3: 18000, 4: 45000, 5: 110000,
+            6: 260000, 7: 600000, 8: 1400000, 9: 3200000
         },
         miningRates: { 
-            1: 2, 2: 5, 3: 11, 4: 23, 5: 56, 
-            6: 76, 7: 84, 8: 98, 9: 110
+            1: 5, 2: 15, 3: 35, 4: 80, 5: 180, 
+            6: 400, 7: 900, 8: 2000, 9: 4500
         },
         storagePrices: { 
-            1: 1000, 2: 2000, 3: 3000, 4: 4000, 5: 5000,
-            6: 6000, 7: 7000, 8: 8000, 9: 9000, 10: 10000
+            1: 3000, 2: 10000, 3: 25000, 4: 65000, 5: 160000,
+            6: 400000, 7: 950000, 8: 2200000, 9: 5000000, 10: 12000000
         },
         storageCapacities: { 
-            1: 100, 2: 300, 3: 600, 4: 1000, 5: 1500,
-            6: 2500, 7: 3500, 8: 4500, 9: 5500, 10: 7000
+            1: 600, 2: 1500, 3: 3500, 4: 8000, 5: 18000,
+            6: 40000, 7: 90000, 8: 200000, 9: 450000, 10: 1000000
         },
         walletDepositLink: "https://t.me/wallet" 
     };
 
     let isBuying = false; 
 
-    // ==========================================
-    // 🎨 بناء رسالة التأكيد الاحترافية (Modal)
-    // ==========================================
     const injectModalUI = () => {
         if (!document.getElementById('shop-modal-styles')) {
             const styleSheet = document.createElement("style");
@@ -176,9 +171,9 @@
         }
     };
 
-    window.buyWithUSDT = function(amount) {
+    window.buyWithUSDT = function(amount, packageId) {
         triggerHaptic('impact', 'medium');
-        alert(`جاري توجيهك لشراء باقة ${amount} USDT...`);
+        alert(`جاري تحويلك لشراء باقة ${amount} USDT... (معرف الباقة: ${packageId})`);
         window.open(SHOP_CONFIG.walletDepositLink, '_blank');
     };
 
@@ -190,7 +185,6 @@
 
         const pData = window.PlayerData || window.GameState || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0, usd_balance: 0 };
         
-        // جلب وقراءة الأرصادات المحدثة
         let totalBal = getStoredBalance();
         let totalUsd = getStoredUsdBalance();
 
@@ -210,9 +204,7 @@
             window.updateGlobalUI();
         }
 
-        // ----------------------------------------
-        // بناء واجهة ترقيات السرعة والتعدين
-        // ----------------------------------------
+        // --- ترقيات السرعة ---
         let miningHtml = '';
         for (let i = 1; i <= 9; i++) {
             let count = parseInt((pData.upgrades && pData.upgrades[`lvl${i}`]) || 0);
@@ -224,9 +216,9 @@
 
             miningHtml += `
                 <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 12px; text-align: center; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between;">
-                    ${isMax ? `<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; font-size: 18px; z-index: 10; transform: rotate(-10deg);">مكتمل MAX</div>` : ''}
+                    ${isMax ? `<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; font-size: 16px; z-index: 10; transform: rotate(-10deg);">مكتمل MAX (10/10)</div>` : ''}
                     <div>
-                        <div style="font-size: 26px; margin-bottom: 5px;">🏛️</div>
+                        <div style="font-size: 26px; margin-bottom: 5px;">⚡</div>
                         <div style="color: #fff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
                         <div style="color: #00cc66; font-size: 12px; margin: 4px 0;">⚡ +${speed.toLocaleString()}/h</div>
                         <div style="color: #888; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${maxLimit}</div>
@@ -240,9 +232,7 @@
         }
         miningSec.innerHTML = miningHtml;
 
-        // ----------------------------------------
-        // بناء واجهة المخازن
-        // ----------------------------------------
+        // --- ترقيات المخزن ---
         let storageHtml = '';
         let currentStorageLvl = parseInt(pData.storage_level || 0); 
 
@@ -382,7 +372,6 @@
                     'Authorization': `Bearer ${initData}`
                 },
                 body: JSON.stringify({ 
-                    initData: initData,
                     type: apiType, 
                     level_num: level 
                 })
@@ -430,15 +419,9 @@
         }
     }
 
-    // --- مستمعات التنقل والمزامنة اللحظية ---
-    window.addEventListener('pageshow', () => {
-        window.updateShopUI();
-    });
-
+    window.addEventListener('pageshow', () => { window.updateShopUI(); });
     document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") {
-            window.updateShopUI();
-        }
+        if (document.visibilityState === "visible") window.updateShopUI();
     });
 
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
