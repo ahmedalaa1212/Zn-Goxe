@@ -49,6 +49,18 @@ DEFAULT_GAME_SETTINGS = {
     }
 }
 
+def parse_daily_rewards(rewards_data):
+    """تحويل بيانات المكافآت سواء كانت مصفوفة أو خريطة في Firestore إلى مصفوفة مرتبة"""
+    if isinstance(rewards_data, list):
+        return rewards_data
+    if isinstance(rewards_data, dict):
+        res = []
+        for i in range(1, 31):
+            val = rewards_data.get(f"day_{i}") or rewards_data.get(str(i)) or 100
+            res.append(int(val))
+        return res
+    return DEFAULT_GAME_SETTINGS["daily_rewards"]
+
 def get_storage_capacity(storage_level):
     try:
         lvl = int(storage_level)
@@ -178,12 +190,13 @@ def get_player_data():
         })
         
         game_settings = get_game_settings()
+        parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
 
         return jsonify({
             "success": True, 
             "player": user_data, 
             "game_config": {
-                "daily_rewards": game_settings.get("daily_rewards", DEFAULT_GAME_SETTINGS["daily_rewards"])
+                "daily_rewards": parsed_rewards
             }
         }), 200
 
@@ -416,7 +429,7 @@ def daily_claim():
                 pass
 
         game_settings = get_game_settings()
-        daily_rewards = game_settings.get("daily_rewards", DEFAULT_GAME_SETTINGS["daily_rewards"])
+        daily_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
 
         # جلب المكافأة حسب اليوم الحالي (بحد أقصى اليوم 30)
         reward_index = min(current_day - 1, len(daily_rewards) - 1)
