@@ -12,7 +12,7 @@ shop_bp = Blueprint('shop', __name__)
 
 PROJECT_TON_WALLET = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"
 
-# باقات USDT الافتراضية لحفظها في الفايربيس إذا لم تكن موجودة في game_settings
+# الإعدادات الافتراضية لقاعدة البيانات (تُستخدم فقط في حال عدم وجود البيانات في الفايربيس)
 DEFAULT_USDT_PACKAGES = {
     "pkg_1": {"usdt": 1, "rate_add": 150, "storage_add": 2000, "zn_add": 30000, "title": "البرونزية"},
     "pkg_2": {"usdt": 3, "rate_add": 540, "storage_add": 7200, "zn_add": 108000, "title": "الفضية"},
@@ -20,40 +20,67 @@ DEFAULT_USDT_PACKAGES = {
     "pkg_4": {"usdt": 10, "rate_add": 2850, "storage_add": 38000, "zn_add": 570000, "title": "باقة الحيتان"}
 }
 
+DEFAULT_MINING_CONFIG = {
+    "1": {"rate": 5, "price": 2000, "max": 10},
+    "2": {"rate": 15, "price": 7000, "max": 10},
+    "3": {"rate": 35, "price": 20000, "max": 10},
+    "4": {"rate": 80, "price": 50000, "max": 10}
+}
+
+DEFAULT_STORAGE_CONFIG = {
+    "1": {"capacity": 200, "price": 0},
+    "2": {"capacity": 500, "price": 5000},
+    "3": {"capacity": 1500, "price": 15000},
+    "4": {"capacity": 4000, "price": 35000},
+    "5": {"capacity": 10000, "price": 80000}
+}
+
 def get_game_config():
-    """قراءة الإعدادات ديناميكياً من config/game_settings"""
+    """قراءة الإعدادات ديناميكياً من config/game_settings وزرع البيانات المفقودة تلقائياً دون مساس بتعديلاتك"""
     try:
         doc_ref = db.collection('config').document('game_settings')
         doc = doc_ref.get()
         
+        updates = {}
+        data = {}
         if doc.exists:
             data = doc.to_dict() or {}
-            # إذا لم تكن باقات USDT موجودة في game_settings نضيفها بنفس المستند
-            if 'usdt_packages' not in data:
-                doc_ref.set({'usdt_packages': DEFAULT_USDT_PACKAGES}, merge=True)
-                data['usdt_packages'] = DEFAULT_USDT_PACKAGES
-            return data
-        else:
-            # في حال عدم وجود المستند إطلاقاً
-            initial_data = {'usdt_packages': DEFAULT_USDT_PACKAGES}
-            doc_ref.set(initial_data)
-            return initial_data
+
+        if 'usdt_packages' not in data or not data['usdt_packages']:
+            updates['usdt_packages'] = DEFAULT_USDT_PACKAGES
+            data['usdt_packages'] = DEFAULT_USDT_PACKAGES
+
+        if 'storage_config' not in data or not data['storage_config']:
+            updates['storage_config'] = DEFAULT_STORAGE_CONFIG
+            data['storage_config'] = DEFAULT_STORAGE_CONFIG
+
+        if 'mining_config' not in data or not data['mining_config']:
+            updates['mining_config'] = DEFAULT_MINING_CONFIG
+            data['mining_config'] = DEFAULT_MINING_CONFIG
+
+        # حفظ الحقول المفقودة في الفايربيس إن وجدت دون المساس بأي تعديل قديم
+        if updates:
+            doc_ref.set(updates, merge=True)
+
+        return data
     except Exception as e:
         print(f"❌ Error reading Firestore config/game_settings: {e}")
-        return {'usdt_packages': DEFAULT_USDT_PACKAGES}
+        return {
+            'usdt_packages': DEFAULT_USDT_PACKAGES,
+            'storage_config': DEFAULT_STORAGE_CONFIG,
+            'mining_config': DEFAULT_MINING_CONFIG
+        }
 
 @shop_bp.route('/get_config', methods=['GET'])
 def get_config():
-    # جلب البيانات الحية المباشرة من الفايربيس
     settings = get_game_config()
     ton_price_usd = get_live_ton_price()
     if ton_price_usd <= 0:
         ton_price_usd = 5.50
 
-    usdt_pkgs = settings.get('usdt_packages', {})
+    usdt_pkgs = settings.get('usdt_packages', DEFAULT_USDT_PACKAGES)
     packages_with_ton = {}
     
-    # حساب قيمة TON ديناميكياً بناءً على السعر الحالي للعملة وباقات الفايربيس
     for pkg_id, pkg_info in usdt_pkgs.items():
         usd_val = float(pkg_info.get('usdt', 1))
         ton_needed = round(usd_val / ton_price_usd, 4)
@@ -84,7 +111,7 @@ def prepare_ton_pay():
         pkg_id = data.get('package_id')
         
         settings = get_game_config()
-        packages = settings.get('usdt_packages', {})
+        packages = settings.get('usdt_packages', DEFAULT_USDT_PACKAGES)
         
         if pkg_id not in packages:
             return jsonify({"success": False, "error": "باقة غير صالحة."}), 400
@@ -169,7 +196,7 @@ def verify_and_apply_package():
             return jsonify({"success": False, "error": "بيانات الدفع ناقصة."}), 400
 
         settings = get_game_config()
-        packages = settings.get('usdt_packages', {})
+        packages = settings.get('usdt_packages', DEFAULT_USDT_PACKAGES)
 
         if pkg_key not in packages:
             return jsonify({"success": False, "error": "باقة غير صالحة."}), 400
@@ -266,7 +293,7 @@ def buy_upgrade():
         new_last_claim_time = now_dt.isoformat()
 
         if upgrade_type == 'mining':
-            mining_cfg = settings.get('mining_config', {})
+            mining_cfg = settings.get('mining_config', DEFAULT_MINING_CONFIG)
             if level_num not in mining_cfg:
                 return jsonify({"success": False, "error": "مستوى غير صالح."}), 400
 
@@ -317,7 +344,7 @@ def buy_upgrade():
             }), 200
 
         elif upgrade_type == 'storage':
-            storage_cfg = settings.get('storage_config', {})
+            storage_cfg = settings.get('storage_config', DEFAULT_STORAGE_CONFIG)
             if level_num not in storage_cfg:
                 return jsonify({"success": False, "error": "مستوى مخزن غير صالح."}), 400
 
