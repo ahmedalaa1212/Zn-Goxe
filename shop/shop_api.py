@@ -12,6 +12,7 @@ shop_bp = Blueprint('shop', __name__)
 
 PROJECT_TON_WALLET = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"
 
+# إعدادات المتجر الكاملة
 DEFAULT_SHOP_SETTINGS = {
     "mining_config": {
         "1": {"price": 2000, "rate": 5, "max": 10},
@@ -48,9 +49,16 @@ def get_shop_settings():
     try:
         config_ref = db.collection('config').document('shop_settings')
         doc = config_ref.get()
+        
         if doc.exists:
-            return doc.to_dict()
+            data = doc.to_dict() or {}
+            # التأكد من وجود مفتاح usdt_packages، وإذا لم يوجد يتم تحديثه في الفايربيس فوراً
+            if 'usdt_packages' not in data or not data['usdt_packages']:
+                config_ref.set(DEFAULT_SHOP_SETTINGS, merge=True)
+                return DEFAULT_SHOP_SETTINGS
+            return data
         else:
+            # إنشاء المستند لأول مرة في الفايربيس
             config_ref.set(DEFAULT_SHOP_SETTINGS)
             return DEFAULT_SHOP_SETTINGS
     except Exception as e:
@@ -61,11 +69,15 @@ def get_shop_settings():
 def get_config():
     settings = get_shop_settings()
     ton_price_usd = get_live_ton_price()
-    
+    if ton_price_usd <= 0:
+        ton_price_usd = 5.50
+
     packages_with_ton = {}
-    for pkg_id, pkg_info in settings.get('usdt_packages', {}).items():
+    usdt_pkgs = settings.get('usdt_packages', DEFAULT_SHOP_SETTINGS['usdt_packages'])
+    
+    for pkg_id, pkg_info in usdt_pkgs.items():
         usd_val = float(pkg_info.get('usdt', 1))
-        ton_needed = round(usd_val / ton_price_usd, 4) if ton_price_usd > 0 else round(usd_val / 5.5, 4)
+        ton_needed = round(usd_val / ton_price_usd, 4)
         packages_with_ton[pkg_id] = {
             "usdt": usd_val,
             "rate_add": pkg_info.get('rate_add', 0),
@@ -93,7 +105,7 @@ def prepare_ton_pay():
         pkg_id = data.get('package_id')
         
         settings = get_shop_settings()
-        packages = settings.get('usdt_packages', {})
+        packages = settings.get('usdt_packages', DEFAULT_SHOP_SETTINGS['usdt_packages'])
         
         if pkg_id not in packages:
             return jsonify({"success": False, "error": "باقة غير صالحة."}), 400
@@ -108,7 +120,6 @@ def prepare_ton_pay():
 
         memo_payload = f"BUY_{pkg_id}_USER_{user_id}_{int(time.time())}"
 
-        # تسجيل المعاملة كـ Pending في الداتا بيز
         create_transaction(
             tg_id=user_id,
             tx_type="package_buy_pending",
@@ -179,7 +190,7 @@ def verify_and_apply_package():
             return jsonify({"success": False, "error": "بيانات الدفع ناقصة."}), 400
 
         settings = get_shop_settings()
-        packages = settings.get('usdt_packages', {})
+        packages = settings.get('usdt_packages', DEFAULT_SHOP_SETTINGS['usdt_packages'])
 
         if pkg_key not in packages:
             return jsonify({"success": False, "error": "باقة غير صالحة."}), 400
@@ -191,7 +202,6 @@ def verify_and_apply_package():
         if tx_ref.get().exists:
             return jsonify({"success": False, "error": "تم معالجة هذه المعاملة سابقاً."}), 400
 
-        # حفظ المعاملة المعالجة لتفادي التكرار
         tx_ref.set({
             'user_id': str(user_id),
             'package_id': pkg_key,
@@ -199,7 +209,6 @@ def verify_and_apply_package():
             'timestamp': datetime.now(timezone.utc).isoformat()
         })
 
-        # إضافة المعاملة لسجل المستخدم للتحليل والاستعلام
         create_transaction(
             tg_id=user_id,
             tx_type="package_buy_success",
@@ -278,7 +287,7 @@ def buy_upgrade():
         new_last_claim_time = now_dt.isoformat()
 
         if upgrade_type == 'mining':
-            mining_cfg = settings.get('mining_config', {})
+            mining_cfg = settings.get('mining_config', DEFAULT_SHOP_SETTINGS['mining_config'])
             if level_num not in mining_cfg:
                 return jsonify({"success": False, "error": "مستوى غير صالح."}), 400
 
@@ -311,7 +320,6 @@ def buy_upgrade():
                 'last_claim_time': new_last_claim_time 
             })
 
-            # تسجيل الترقية في الداتا بيز
             create_transaction(
                 tg_id=user_id,
                 tx_type="mining_upgrade",
@@ -330,7 +338,7 @@ def buy_upgrade():
             }), 200
 
         elif upgrade_type == 'storage':
-            storage_cfg = settings.get('storage_config', {})
+            storage_cfg = settings.get('storage_config', DEFAULT_SHOP_SETTINGS['storage_config'])
             if level_num not in storage_cfg:
                 return jsonify({"success": False, "error": "مستوى مخزن غير صالح."}), 400
 
@@ -359,7 +367,6 @@ def buy_upgrade():
                 'last_claim_time': new_last_claim_time
             })
 
-            # تسجيل ترقية المخزن في الداتا بيز
             create_transaction(
                 tg_id=user_id,
                 tx_type="storage_upgrade",
