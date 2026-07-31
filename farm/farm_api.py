@@ -55,10 +55,9 @@ def get_player_data():
 
     req_data = request.get_json(silent=True) or {}
     start_param = req_data.get('start_param', '')
-    user_id_str = str(telegram_id)
 
     try:
-        user_ref = db.collection('users').document(user_id_str)
+        user_ref = db.collection('users').document(telegram_id)
         user_doc = user_ref.get()
         now = datetime.now(timezone.utc)
 
@@ -66,8 +65,8 @@ def get_player_data():
             referred_by = None
             if start_param and isinstance(start_param, str) and start_param.startswith('ref_'):
                 parts = start_param.split('_')
-                if len(parts) > 1 and parts[1] != user_id_str:
-                    potential_referrer = str(parts[1])
+                if len(parts) > 1 and parts[1] != str(telegram_id):
+                    potential_referrer = parts[1]
                     referred_by = potential_referrer
                     try:
                         referrer_ref = db.collection('users').document(potential_referrer)
@@ -161,10 +160,8 @@ def claim_mined_tokens():
     if not is_auth: 
         return error_response
 
-    user_id_str = str(telegram_id)
-
     try:
-        user_ref = db.collection('users').document(user_id_str)
+        user_ref = db.collection('users').document(telegram_id)
         
         @firestore.transactional
         def run_claim_transaction(transaction, ref):
@@ -221,9 +218,8 @@ def claim_mined_tokens():
             if referred_by and total_upgrades >= 3:
                 bonus_for_inviter = unclaimed * 0.10
                 try:
-                    inviter_ref = db.collection('users').document(str(referred_by))
-                    inviter_snap = transaction.get(inviter_ref)
-                    if inviter_snap.exists:
+                    inviter_ref = db.collection('users').document(referred_by)
+                    if inviter_ref.get().exists:
                         transaction.update(inviter_ref, {
                             "pending_ref_earnings": firestore.Increment(bonus_for_inviter),
                             "ref_generated_amount": firestore.Increment(bonus_for_inviter)
@@ -253,7 +249,6 @@ def upgrade_level():
     if not is_auth: 
         return error_response
 
-    user_id_str = str(telegram_id)
     req_data = request.get_json(silent=True) or {}
     try:
         level = int(req_data.get('level', 0))
@@ -264,7 +259,7 @@ def upgrade_level():
         return jsonify({"success": False, "error": "مستوى ترقية غير معروف"}), 400
 
     try:
-        user_ref = db.collection('users').document(user_id_str)
+        user_ref = db.collection('users').document(telegram_id)
 
         @firestore.transactional
         def run_upgrade_transaction(transaction, ref):
@@ -283,7 +278,7 @@ def upgrade_level():
 
             if level > 1:
                 prev_count = int(upgrades.get(f"lvl{level-1}", 0))
-                if prev_count <= 0 and current_count <= 0:
+                if prev_count <= 0:
                     return None, "يجب فتح المستوى السابق أولاً", 400
 
             cfg = UPGRADE_CONFIG.get(level, {"base_cost": 1000.0, "rate_bonus": 1.0})
@@ -328,10 +323,8 @@ def daily_boost():
     if not is_auth: 
         return error_response
 
-    user_id_str = str(telegram_id)
-
     try:
-        user_ref = db.collection('users').document(user_id_str)
+        user_ref = db.collection('users').document(telegram_id)
         
         @firestore.transactional
         def run_boost_transaction(transaction, ref):
@@ -373,11 +366,8 @@ def daily_claim():
     if not is_auth: 
         return error_response
 
-    user_id_str = str(telegram_id)
-    daily_rewards = get_game_settings()
-
     try:
-        user_ref = db.collection('users').document(user_id_str)
+        user_ref = db.collection('users').document(telegram_id)
 
         @firestore.transactional
         def run_daily_claim_transaction(transaction, ref):
@@ -404,6 +394,7 @@ def daily_claim():
                 except Exception: 
                     pass
 
+            daily_rewards = get_game_settings()
             reward_amount = daily_rewards[(current_day - 1) % len(daily_rewards)]
 
             new_balance = float(user_data.get("balance", 0.0)) + reward_amount
