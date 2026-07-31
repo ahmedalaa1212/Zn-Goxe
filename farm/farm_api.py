@@ -6,11 +6,13 @@ from database import db
 
 farm_bp = Blueprint('farm', __name__)
 
+# سعات التخزين بحسب مستوى المستودع
 STORAGE_CAPACITIES = {
     0: 100.0, 1: 250.0, 2: 450.0, 3: 750.0, 4: 1000.0,
     5: 1500.0, 6: 2000.0, 7: 3000.0, 8: 4000.0, 9: 5500.0, 10: 7000.0
 }
 
+# تكاليف وزيادات المعدل لترقيات المستويات (من 1 إلى 9)
 UPGRADE_CONFIG = {
     1: {"base_cost": 500.0, "rate_bonus": 1.0},
     2: {"base_cost": 2500.0, "rate_bonus": 5.0},
@@ -253,7 +255,7 @@ def upgrade_level():
     try:
         level = int(req_data.get('level', 0))
     except (ValueError, TypeError):
-        return jsonify({"success": False, "error": "مستوى غير صالح"}), 400
+        return jsonify({"success": False, "error": "مستوى غير صالحة"}), 400
 
     if level < 1 or level > 9:
         return jsonify({"success": False, "error": "مستوى ترقية غير معروف"}), 400
@@ -325,37 +327,25 @@ def daily_boost():
 
     try:
         user_ref = db.collection('users').document(telegram_id)
+        user_doc = user_ref.get()
+        if not user_doc.exists: 
+            return jsonify({"success": False, "error": "الحساب غير موجود"}), 404
+
+        user_data = user_doc.to_dict()
+        today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         
-        @firestore.transactional
-        def run_boost_transaction(transaction, ref):
-            snapshot = ref.get(transaction=transaction)
-            if not snapshot.exists:
-                return None, "الحساب غير موجود", 404
+        if user_data.get("last_boost_date") == today_str:
+            return jsonify({"success": False, "error": "لقد استخدمت التسريع اليوم! انتظر لمنتصف الليل."}), 400
 
-            user_data = snapshot.to_dict()
-            today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-            
-            if user_data.get("last_boost_date") == today_str:
-                return None, "لقد استخدمت التسريع اليوم! انتظر لمنتصف الليل.", 400
+        new_rate = float(user_data.get("hourly_rate", 0.0)) + 1.0
+        ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
-            new_rate = float(user_data.get("hourly_rate", 0.0)) + 1.0
-            ads_watched = int(user_data.get("ads_watched", 0)) + 1
-
-            transaction.update(ref, {
-                "hourly_rate": new_rate,
-                "last_boost_date": today_str,
-                "ads_watched": ads_watched
-            })
-            return {"new_rate": new_rate}, None, 200
-
-        transaction = db.transaction()
-        result, err_msg, status_code = run_boost_transaction(transaction, user_ref)
-
-        if err_msg:
-            return jsonify({"success": False, "error": err_msg}), status_code
-
-        return jsonify({"success": True, "new_rate": result["new_rate"]}), 200
-
+        user_ref.update({
+            "hourly_rate": new_rate,
+            "last_boost_date": today_str,
+            "ads_watched": ads_watched
+        })
+        return jsonify({"success": True, "new_rate": new_rate}), 200
     except Exception as e:
         print(f"Error in daily_boost: {e}")
         return jsonify({"success": False, "error": "خطأ في تفعيل التسريع"}), 500
@@ -368,65 +358,49 @@ def daily_claim():
 
     try:
         user_ref = db.collection('users').document(telegram_id)
+        user_doc = user_ref.get()
+        if not user_doc.exists: 
+            return jsonify({"success": False, "error": "اللاعب غير مسجل"}), 404
 
-        @firestore.transactional
-        def run_daily_claim_transaction(transaction, ref):
-            snapshot = ref.get(transaction=transaction)
-            if not snapshot.exists:
-                return None, "اللاعب غير مسجل", 404
+        user_data = user_doc.to_dict()
+        now = datetime.now(timezone.utc)
+        today_str = now.strftime('%Y-%m-%d')
+        last_daily_date = user_data.get("last_daily_claim_date")
+        current_day = int(user_data.get("daily_day", 1))
+        reset_message = None
 
-            user_data = snapshot.to_dict()
-            now = datetime.now(timezone.utc)
-            today_str = now.strftime('%Y-%m-%d')
-            last_daily_date = user_data.get("last_daily_claim_date")
-            current_day = int(user_data.get("daily_day", 1))
-            reset_message = None
+        if last_daily_date == today_str:
+            return jsonify({"success": False, "error": "لقد استلمت المكافأة اليوم بالفعل!"}), 400
 
-            if last_daily_date == today_str:
-                return None, "لقد استلمت المكافأة اليوم بالفعل!", 400
+        if last_daily_date:
+            try:
+                last_date_obj = datetime.strptime(last_daily_date, '%Y-%m-%d').date()
+                if (now.date() - last_date_obj).days > 1:
+                    current_day = 1
+                    reset_message = "⚠️ تم تصفير التسجيل اليومي لعدم الدخول أمس!"
+            except Exception: 
+                pass
 
-            if last_daily_date:
-                try:
-                    last_date_obj = datetime.strptime(last_daily_date, '%Y-%m-%d').date()
-                    if (now.date() - last_date_obj).days > 1:
-                        current_day = 1
-                        reset_message = "⚠️ تم تصفير التسجيل اليومي لعدم الدخول أمس!"
-                except Exception: 
-                    pass
+        daily_rewards = get_game_settings()
+        reward_amount = daily_rewards[(current_day - 1) % len(daily_rewards)]
 
-            daily_rewards = get_game_settings()
-            reward_amount = daily_rewards[(current_day - 1) % len(daily_rewards)]
+        new_balance = float(user_data.get("balance", 0.0)) + reward_amount
+        next_day = current_day + 1 if current_day < len(daily_rewards) else 1
+        ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
-            new_balance = float(user_data.get("balance", 0.0)) + reward_amount
-            next_day = current_day + 1 if current_day < len(daily_rewards) else 1
-            ads_watched = int(user_data.get("ads_watched", 0)) + 1
-
-            transaction.update(ref, {
-                "balance": new_balance,
-                "daily_day": next_day,
-                "last_daily_claim_date": today_str,
-                "ads_watched": ads_watched
-            })
-
-            return {
-                "reward": reward_amount, 
-                "new_balance": new_balance, 
-                "reset_msg": reset_message
-            }, None, 200
-
-        transaction = db.transaction()
-        result, err_msg, status_code = run_daily_claim_transaction(transaction, user_ref)
-
-        if err_msg:
-            return jsonify({"success": False, "error": err_msg}), status_code
+        user_ref.update({
+            "balance": new_balance,
+            "daily_day": next_day,
+            "last_daily_claim_date": today_str,
+            "ads_watched": ads_watched
+        })
 
         return jsonify({
             "success": True, 
-            "reward": result["reward"], 
-            "new_balance": result["new_balance"],
-            "reset_msg": result["reset_msg"]
+            "reward": reward_amount, 
+            "new_balance": new_balance,
+            "reset_msg": reset_message
         }), 200
-
     except Exception as e:
         print(f"Error in daily_claim: {e}")
         return jsonify({"success": False, "error": "خطأ أثناء الاستلام"}), 500
