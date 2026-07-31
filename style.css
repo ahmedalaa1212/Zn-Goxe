@@ -10,7 +10,7 @@
 }
 
 body {
-    background-color: #121212;
+    background-color: #0f172a;
     color: #ffffff;
     min-height: 100vh;
     overflow-x: hidden;
@@ -33,9 +33,59 @@ body {
     border-radius: 10px;
 }
 
+/* =========================================
+   شاشة التحميل الاحترافية الموحدة
+   ========================================= */
+#loading-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: #0f172a;
+    z-index: 9999999;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    color: white;
+    opacity: 1;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+#loading-screen.fade-out {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.loader-rocket {
+    font-size: 50px;
+    margin-bottom: 20px;
+    animation: pulse 1.5s infinite ease-in-out;
+}
+
+#loading-screen h2 {
+    color: #f59e0b;
+    margin: 0;
+    font-family: Tahoma, sans-serif;
+    font-size: 18px;
+    font-weight: bold;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.15); }
+    100% { transform: scale(1); }
+}
+
+/* =========================================
+   إدارة ظهور وانتقال العروض (Views)
+   ========================================= */
 .game-view {
     display: none !important;
     padding-bottom: 20px;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .game-view.active {
@@ -64,7 +114,7 @@ body {
     align-items: center !important;
     border-top: 1px solid #2a2a2a !important;
     padding: 0 2px !important;
-    z-index: 99999 !important;
+    z-index: 999999 !important;
     box-sizing: border-box !important;
 }
 
@@ -99,7 +149,6 @@ body {
     transition: color 0.2s !important;
 }
 
-/* لون الأزرار العادية عند التفعيل (الذهبي/البرتقالي الأصلي) */
 .nav-item.active, .bottom-nav a.active {
     color: #f39c12 !important;
 }
@@ -115,11 +164,9 @@ body {
 }
 
 /* =========================================
-   تنسيق زر المزرعة المركزي (معالجة كل الحالات)
+   تنسيق زر المزرعة المركزي
    ========================================= */
-
-/* حالة زر المزرعة المباشر */
-a.nav-center-btn, a.nav-farm-btn {
+a.nav-center-btn, button.nav-center-btn {
     position: relative !important;
     top: -8px !important;
     background-color: #252525 !important;
@@ -136,44 +183,47 @@ a.nav-center-btn, a.nav-farm-btn {
     box-shadow: 0 4px 8px rgba(0,0,0,0.5) !important;
 }
 
-/* حالة الدائرة الداخلية إذا كانت داخل <a> */
-div.nav-farm-btn, div.nav-center-btn {
-    background-color: #252525 !important;
-    color: #888888 !important;
-    width: 42px !important;
-    height: 42px !important;
-    border-radius: 50% !important;
-    border: 2px solid #1a1a1a !important;
-    display: flex !important;
-    justify-content: center !important;
-    align-items: center !important;
-    margin-top: -12px !important;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.5) !important;
-    transition: all 0.3s ease !important;
-}
-
-div.nav-farm-btn i, div.nav-center-btn i,
-a.nav-center-btn i, a.nav-farm-btn i {
-    font-size: 18px !important;
-    color: #888888 !important;
-    margin: 0 !important;
-}
-
-/* تفعيل زر المزرعة باللون الذهبي الأصلي */
-a.nav-center-btn.active, a.nav-farm-btn.active,
-a.active div.nav-farm-btn, a.active div.nav-center-btn {
+button.nav-center-btn.active {
     background-color: #f39c12 !important;
     border-color: #121212 !important;
     box-shadow: 0 0 12px rgba(243, 156, 18, 0.6) !important;
 }
 
-a.nav-center-btn.active i, a.nav-farm-btn.active i,
-a.active div.nav-farm-btn i, a.active div.nav-center-btn i {
+button.nav-center-btn.active i {
     color: #121212 !important;
 }
 
 /* =========================================
-   حل مشكلة صعود القائمة السفلية عند فتح الكيبورد
+   ستايل الرسالة العائمة للمرتجعات
+   ========================================= */
+#global-toast {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, #1e3c72, #2a5298);
+    border: 2px solid #ffcc00;
+    color: #fff;
+    padding: 15px 25px;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    z-index: 99999999;
+    display: none;
+    align-items: center;
+    gap: 15px;
+    font-family: Tahoma, sans-serif;
+    width: 85%;
+    max-width: 350px;
+    animation: slideDown 0.5s ease-out;
+}
+
+@keyframes slideDown {
+    0% { top: -50px; opacity: 0; }
+    100% { top: 20px; opacity: 1; }
+}
+
+/* =========================================
+   إخفاء القائمة السفلية أثناء الكتابة
    ========================================= */
 body:has(input:focus) .bottom-nav,
 body:has(textarea:focus) .bottom-nav,
