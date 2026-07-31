@@ -79,8 +79,16 @@
     window.updateFarmUI = function() {
         const pData = window.PlayerData || {};
         
-        pData.balance = window.userState.balance || 0;
-        pData.hourly_rate = window.userState.hourly_rate || 0;
+        pData.balance = window.userState.balance !== undefined ? window.userState.balance : (pData.balance || 0);
+        pData.hourly_rate = window.userState.hourly_rate !== undefined ? window.userState.hourly_rate : (pData.hourly_rate || 0);
+
+        // --- إصلاح المشكلة: تحديث الرصيد والسرعة في أعلى الصفحة ---
+        document.querySelectorAll('[data-bind="hourly_rate"]').forEach(el => {
+            el.innerText = formatCompactNumber(pData.hourly_rate || 0);
+        });
+        document.querySelectorAll('[data-bind="balance"]').forEach(el => {
+            el.innerText = Math.floor(pData.balance || 0).toLocaleString();
+        });
 
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
@@ -106,9 +114,10 @@
     };
 
     function formatCompactNumber(num) {
-        if (num >= 1000000) return (num / 1000000).toFixed(num % 1000000 === 0 ? 0 : 1) + 'M';
-        if (num >= 1000) return (num / 1000).toFixed(num % 1000 === 0 ? 0 : 1) + 'K';
-        return num.toString();
+        let n = parseFloat(num) || 0;
+        if (n >= 1000000) return (n / 1000000).toFixed(n % 1000000 === 0 ? 0 : 1) + 'M';
+        if (n >= 1000) return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + 'K';
+        return Number.isInteger(n) ? n.toString() : n.toFixed(1);
     }
 
     function renderDailyRewards() {
@@ -148,7 +157,7 @@
         
         let unclaim = parseFloat(pData.unclaimed || 0);
         let maxC = parseFloat(pData.max_cap || 100);
-        let hRate = parseFloat(window.userState.hourly_rate || 0); 
+        let hRate = parseFloat(window.userState.hourly_rate || pData.hourly_rate || 0); 
         
         if (unclaim < maxC) {
             unclaim += hRate / 3600;
