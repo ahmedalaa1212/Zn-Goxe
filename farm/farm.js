@@ -24,33 +24,18 @@
     let isUpgrading = false;
 
     function showToast(message) {
-        if (tele && tele.showAlert) {
-            tele.showAlert(message);
-        } else {
-            alert(message);
-        }
+        if (tele && tele.showAlert) tele.showAlert(message);
+        else alert(message);
     }
 
-    // --- أدوات المزامنة الموحدة مع باقي الأقسام ---
+    // --- الربط المباشر الموحد مع window.userState ---
     function getStoredBalance() {
-        if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
-            return parseFloat(window.GameState.balance);
-        }
-        const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
-        return bal !== null ? parseFloat(bal) : 0;
+        return parseFloat(window.userState?.balance || 0);
     }
 
     function setStoredBalance(newBalance) {
         if (newBalance !== undefined && newBalance !== null) {
-            const numVal = parseFloat(newBalance);
-            if (typeof window.setBalance === 'function') {
-                window.setBalance(numVal);
-            } else {
-                if (!window.GameState) window.GameState = {};
-                window.GameState.balance = numVal;
-                localStorage.setItem('zn_balance', numVal.toString());
-                localStorage.setItem('user_balance', numVal.toString());
-            }
+            window.userState.balance = parseFloat(newBalance);
         }
     }
 
@@ -78,16 +63,16 @@
             let response = await fetch('/api/farm/player_data', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    initData: INIT_DATA,
-                    start_param: START_PARAM
-                })
+                body: JSON.stringify({ initData: INIT_DATA, start_param: START_PARAM })
             });
             let resData = await response.json();
             if (response.ok && resData.success) {
                 window.PlayerData = resData.player;
                 if (resData.player && resData.player.balance !== undefined) {
                     setStoredBalance(resData.player.balance);
+                }
+                if (resData.player && resData.player.hourly_rate !== undefined) {
+                    window.userState.hourly_rate = resData.player.hourly_rate;
                 }
                 if (resData.game_config && resData.game_config.daily_rewards) {
                     GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
@@ -101,25 +86,13 @@
         }
     };
 
-    window.fetchPlayerData = async function() { 
-        await window.fetchPlayerDataFromServer(); 
-    };
-
     window.updateFarmUI = function() {
         const pData = window.PlayerData || {};
-        
-        // قراءة الرصيد الأحدث فوراً
         let bal = getStoredBalance();
-        if (window.PlayerData) window.PlayerData.balance = bal;
-
-        let hRate = parseFloat(pData.hourly_rate || 0);
+        let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
         
         const balEl = document.getElementById('farm-balance');
         if (balEl) balEl.innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
-        
-        if (typeof window.updateGlobalUI === 'function') {
-            window.updateGlobalUI();
-        }
 
         const rateEl = document.getElementById('farm-rate');
         if (rateEl) rateEl.innerText = `⚡ ${Math.floor(hRate).toLocaleString()}/h`; 
@@ -190,7 +163,7 @@
         
         let unclaim = parseFloat(pData.unclaimed || 0);
         let maxC = parseFloat(pData.max_cap || 100);
-        let hRate = parseFloat(pData.hourly_rate || 0); 
+        let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0); 
         
         if (unclaim < maxC) {
             unclaim += hRate / 3600;
@@ -256,33 +229,15 @@
 
     }, 1000);
 
-    if (window.farmSyncIntervalId) clearInterval(window.farmSyncIntervalId);
-    window.farmSyncIntervalId = setInterval(() => {
-        if (!isBoosting && !isClaimingDaily && !isClaimingMain && !isUpgrading && claimCooldown === 0) {
-            window.fetchPlayerDataFromServer();
-        }
-    }, 10000); 
-
-    window.addEventListener('pageshow', () => {
-        const stored = getStoredBalance();
-        if (stored !== null) {
-            if (!window.PlayerData) window.PlayerData = {};
-            window.PlayerData.balance = stored;
-        }
+    // توحيد حدث التفعيل والرجوع للواجهة دون تكرار الأسطر
+    function syncOnVisibility() {
         window.updateFarmUI();
         window.fetchPlayerDataFromServer();
-    });
+    }
 
+    window.addEventListener('pageshow', syncOnVisibility);
     document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") {
-            const stored = getStoredBalance();
-            if (stored !== null) {
-                if (!window.PlayerData) window.PlayerData = {};
-                window.PlayerData.balance = stored;
-            }
-            window.updateFarmUI();
-            window.fetchPlayerDataFromServer();
-        }
+        if (document.visibilityState === "visible") syncOnVisibility();
     });
 
     function showTelegramAd(statusCallback) {
@@ -310,8 +265,9 @@
             let resData = await response.json();
             if (response.ok && resData.success) {
                 if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                if (resData.new_hourly_rate !== undefined) window.userState.hourly_rate = resData.new_hourly_rate;
                 showToast(`⚡ تم التحديث بنجاح للمستوى ${level}!`);
-                await window.fetchPlayerData();
+                await window.fetchPlayerDataFromServer();
             } else if (resData.error) {
                 showToast(resData.error);
             }
@@ -351,11 +307,12 @@
                 let resData = await response.json();
                 if (response.ok && resData.success) {
                     if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                    if (resData.new_rate !== undefined) window.userState.hourly_rate = resData.new_rate;
                     showToast(`🚀 تمت زيادة معدل التعدين بنجاح!`);
-                    await window.fetchPlayerData(); 
+                    await window.fetchPlayerDataFromServer(); 
                 } else if (resData.error) {
                     showToast(resData.error);
-                    await window.fetchPlayerData();
+                    await window.fetchPlayerDataFromServer();
                 }
             }
         } catch (e) {
@@ -395,7 +352,7 @@
                     if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
                     showToast(`🎉 استلمت ${resData.reward.toLocaleString()} ZN!`);
                     if (resData.reset_msg) showToast(resData.reset_msg);
-                    await window.fetchPlayerData(); 
+                    await window.fetchPlayerDataFromServer(); 
                 } else if (resData.error) {
                     showToast(resData.error);
                 }
@@ -428,7 +385,6 @@
             claimBtn.innerText = "جاري الحفظ... 💾";
         }
 
-        // تحديث متفائل (Optimistic Update)
         const unclaimedAmount = parseFloat(pData.unclaimed || 0);
         const currentBal = getStoredBalance();
         const optimisticNewBal = currentBal + unclaimedAmount;
@@ -447,10 +403,9 @@
             
             if (response.ok && resData.success) {
                 if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
-                await window.fetchPlayerData(); 
+                await window.fetchPlayerDataFromServer(); 
                 claimCooldown = 5; 
             } else {
-                // التراجع عند الخطأ
                 setStoredBalance(currentBal);
                 if (resData.error) showToast(resData.error);
                 if (claimBtn) {
@@ -469,11 +424,6 @@
         }
     };
 
-    // البدء برصيد الذاكرة فوراً
-    const cachedBal = getStoredBalance();
-    window.PlayerData = { balance: cachedBal, unclaimed: 0, hourly_rate: 0 };
     window.updateFarmUI();
-
-    // جلب البيانات الأصلية في الخلفية
-    window.fetchPlayerData();
+    window.fetchPlayerDataFromServer();
 })();
