@@ -6,6 +6,7 @@ from database import db
 
 farm_bp = Blueprint('farm', __name__)
 
+# سعات المخازن الجديدة المحددة
 STORAGE_CAPACITIES = {
     0: 200.0,
     1: 600.0,
@@ -20,6 +21,7 @@ STORAGE_CAPACITIES = {
     10: 1000000.0
 }
 
+# ترقيات سرعة التعدين المحددة
 UPGRADE_CONFIG = {
     1: {"base_cost": 2000.0, "rate_bonus": 5.0},
     2: {"base_cost": 7000.0, "rate_bonus": 15.0},
@@ -32,6 +34,7 @@ UPGRADE_CONFIG = {
     9: {"base_cost": 3200000.0, "rate_bonus": 4500.0}
 }
 
+# الإعدادات الافتراضية الكاملة للمزرعة (20,000 ZN إجمالي 30 يوماً)
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
         100, 150, 200, 250, 300, 
@@ -42,7 +45,7 @@ DEFAULT_GAME_SETTINGS = {
         950, 1000, 1000, 1100, 1250
     ],
     "mining_config": {
-        "daily_boost_reward": 2.0
+        "daily_boost_reward": 2.0  # زيادة السرعة الدائمة
     }
 }
 
@@ -56,12 +59,13 @@ def get_storage_capacity(storage_level):
     return STORAGE_CAPACITIES.get(lvl, 200.0)
 
 def get_game_settings():
+    """قراءة إعدادات اللعبة من Firebase وإنشاؤها تلقائياً إذا كانت محذوفة"""
     try:
         config_ref = db.collection('config').document('game_settings')
         config_doc = config_ref.get()
         
         if config_doc.exists:
-            data = config_doc.to_dict()
+            data = config_doc.to_dict() or {}
             if "daily_rewards" not in data:
                 data["daily_rewards"] = DEFAULT_GAME_SETTINGS["daily_rewards"]
             if "mining_config" not in data:
@@ -69,7 +73,6 @@ def get_game_settings():
             return data
         else:
             config_ref.set(DEFAULT_GAME_SETTINGS)
-            print("⚙️ تم إنشاء مستند config/game_settings تلقائياً في Firebase.")
             return DEFAULT_GAME_SETTINGS
     except Exception as e:
         print(f"❌ Error reading game settings: {e}")
@@ -83,9 +86,10 @@ def get_player_data():
 
     req_data = request.get_json(silent=True) or {}
     start_param = req_data.get('start_param', '')
+    user_id_str = str(telegram_id)
 
     try:
-        user_ref = db.collection('users').document(telegram_id)
+        user_ref = db.collection('users').document(user_id_str)
         user_doc = user_ref.get()
         now = datetime.now(timezone.utc)
 
@@ -93,8 +97,8 @@ def get_player_data():
             referred_by = None
             if start_param and isinstance(start_param, str) and start_param.startswith('ref_'):
                 parts = start_param.split('_')
-                if len(parts) > 1 and parts[1] != str(telegram_id):
-                    potential_referrer = parts[1]
+                if len(parts) > 1 and parts[1] != user_id_str:
+                    potential_referrer = str(parts[1])
                     referred_by = potential_referrer
                     try:
                         referrer_ref = db.collection('users').document(potential_referrer)
@@ -104,7 +108,7 @@ def get_player_data():
                         print(f"Error updating referrer count: {e}")
 
             user_data = {
-                "telegram_id": telegram_id, 
+                "telegram_id": user_id_str, 
                 "balance": 0.0, 
                 "ad_balance": 0.0,
                 "usd_balance": 0.0,
@@ -132,6 +136,7 @@ def get_player_data():
         max_cap = get_storage_capacity(storage_level)
         user_data["max_cap"] = max_cap
 
+        # عقوبة عدم الدخول يومياً: إعادة العداد لليوم 1 إذا مرت أكثر من 24 ساعة بدون استلام
         last_daily_date = user_data.get("last_daily_claim_date")
         if last_daily_date:
             try:
@@ -193,7 +198,7 @@ def claim_mined_tokens():
         return error_response
 
     try:
-        user_ref = db.collection('users').document(telegram_id)
+        user_ref = db.collection('users').document(str(telegram_id))
         
         @firestore.transactional
         def run_claim_transaction(transaction, ref):
@@ -244,7 +249,7 @@ def claim_mined_tokens():
             if referred_by and total_upgrades >= 3:
                 bonus_for_inviter = unclaimed * 0.10
                 try:
-                    inviter_ref = db.collection('users').document(referred_by)
+                    inviter_ref = db.collection('users').document(str(referred_by))
                     if inviter_ref.get().exists:
                         transaction.update(inviter_ref, {
                             "pending_ref_earnings": firestore.Increment(bonus_for_inviter),
@@ -284,7 +289,7 @@ def upgrade_level():
         return jsonify({"success": False, "error": "مستوى ترقية غير معروف"}), 400
 
     try:
-        user_ref = db.collection('users').document(telegram_id)
+        user_ref = db.collection('users').document(str(telegram_id))
 
         @firestore.transactional
         def run_upgrade_transaction(transaction, ref):
@@ -349,7 +354,7 @@ def daily_boost():
         return error_response
 
     try:
-        user_ref = db.collection('users').document(telegram_id)
+        user_ref = db.collection('users').document(str(telegram_id))
         user_doc = user_ref.get()
         if not user_doc.exists: 
             return jsonify({"success": False, "error": "الحساب غير موجود"}), 404
@@ -364,6 +369,7 @@ def daily_boost():
         mining_cfg = game_settings.get("mining_config", {})
         boost_amount = float(mining_cfg.get("daily_boost_reward", 2.0))
 
+        # زيادة سرعة التعدين الأساسية دائماً مدى الحياة
         new_rate = float(user_data.get("hourly_rate", 0.0)) + boost_amount
         ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
@@ -384,7 +390,7 @@ def daily_claim():
         return error_response
 
     try:
-        user_ref = db.collection('users').document(telegram_id)
+        user_ref = db.collection('users').document(str(telegram_id))
         user_doc = user_ref.get()
         if not user_doc.exists: 
             return jsonify({"success": False, "error": "اللاعب غير مسجل"}), 404
@@ -399,6 +405,7 @@ def daily_claim():
         if last_daily_date == today_str:
             return jsonify({"success": False, "error": "لقد استلمت المكافأة اليوم بالفعل!"}), 400
 
+        # شرط العودة للصفر: إذا فات يوم بدون استلام، يتم التصفير لليوم 1
         if last_daily_date:
             try:
                 last_date_obj = datetime.strptime(last_daily_date, '%Y-%m-%d').date()
@@ -411,10 +418,13 @@ def daily_claim():
         game_settings = get_game_settings()
         daily_rewards = game_settings.get("daily_rewards", DEFAULT_GAME_SETTINGS["daily_rewards"])
 
+        # جلب المكافأة حسب اليوم الحالي (بحد أقصى اليوم 30)
         reward_index = min(current_day - 1, len(daily_rewards) - 1)
         reward_amount = daily_rewards[reward_index]
 
         new_balance = float(user_data.get("balance", 0.0)) + reward_amount
+        
+        # بعد اليوم 30، يستمر في الحصول على مكافأة اليوم 30 طالما لم يقطع السلسلة
         next_day = current_day + 1
         ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
