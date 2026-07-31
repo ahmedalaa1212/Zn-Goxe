@@ -43,6 +43,17 @@ try:
 except Exception as e:
     print(f"⚠️ تنبيه أثناء تهيئة DB تلقائياً: {e}")
 
+def get_game_settings():
+    """جلب إعدادات اللعبة والباقات والمتجر مباشرة من Firestore"""
+    try:
+        doc = db.collection('config').document('game_settings').get()
+        if doc.exists:
+            return doc.to_dict() or {}
+        return {}
+    except Exception as e:
+        print(f"❌ Error getting game settings: {e}")
+        return {}
+
 def is_user_banned(tg_id):
     try:
         if not tg_id: return False
