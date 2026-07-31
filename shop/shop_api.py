@@ -42,20 +42,34 @@ def get_game_config():
         doc = doc_ref.get()
         
         updates = {}
-        data = doc.to_dict() if doc.exists and doc.to_dict() else {}
+        data = doc.to_dict() if (doc.exists and doc.to_dict()) else {}
 
-        if 'usdt_packages' not in data or not data['usdt_packages']:
+        # 1. فحص باقات USDT
+        if 'usdt_packages' not in data or not isinstance(data.get('usdt_packages'), dict) or len(data['usdt_packages']) == 0:
             updates['usdt_packages'] = DEFAULT_USDT_PACKAGES
             data['usdt_packages'] = DEFAULT_USDT_PACKAGES
 
-        if 'storage_config' not in data or not data['storage_config']:
+        # 2. فحص إعدادات المخازن
+        if 'storage_config' not in data or not isinstance(data.get('storage_config'), dict) or len(data['storage_config']) == 0:
             updates['storage_config'] = DEFAULT_STORAGE_CONFIG
             data['storage_config'] = DEFAULT_STORAGE_CONFIG
 
-        if 'mining_config' not in data or not data['mining_config']:
-            updates['mining_config'] = DEFAULT_MINING_CONFIG
-            data['mining_config'] = DEFAULT_MINING_CONFIG
+        # 3. فحص ترقيات السرعة والتعدين بدون مسح الحقول الأخرى (مثل daily_boost_reward)
+        current_mining = data.get('mining_config')
+        if not isinstance(current_mining, dict):
+            current_mining = {}
+        
+        mining_updated = False
+        for lvl_key, lvl_val in DEFAULT_MINING_CONFIG.items():
+            if lvl_key not in current_mining:
+                current_mining[lvl_key] = lvl_val
+                mining_updated = True
 
+        if mining_updated or 'mining_config' not in data:
+            updates['mining_config'] = current_mining
+            data['mining_config'] = current_mining
+
+        # تطبيق التحديثات وإضافتها لـ Firestore إذا وُجدت عناصر مفقودة
         if updates:
             doc_ref.set(updates, merge=True)
             print("⚙️ [Shop] تم إنشاء ومزامنة حقول إعدادات المتجر المفقودة في Firebase تلقائياً.")
@@ -278,7 +292,6 @@ def buy_upgrade():
         user_doc = user_ref.get()
 
         if not user_doc.exists:
-            # إنشاء حساب المستخدم تلقائياً إذا كان جديداً
             initial_user_data = {
                 'balance': 0.0,
                 'hourly_rate': 0.0,
