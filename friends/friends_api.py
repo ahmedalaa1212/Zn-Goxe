@@ -2,11 +2,10 @@
 from flask import Blueprint, request, jsonify
 from core.security import get_authenticated_user
 from database import db
-from firebase_admin import firestore  # الحلال السحري لتشغيل الـ Transactions
+from firebase_admin import firestore
 
 friends_bp = Blueprint('friends', __name__)
 
-# جدول مهام الإحالة المعتمد على الخادم
 REF_TASKS_CONFIG = {
     1: {"reqFriends": 1, "reward": 5000},
     2: {"reqFriends": 5, "reward": 30000},
@@ -22,7 +21,6 @@ def get_user_upgrades_count(user_data):
     upgrades = user_data.get('upgrades', {})
     total = 0
     if isinstance(upgrades, dict):
-        # التحقق أولاً من وجود الحقل الجاهز upgrades_count لتجنب الحسابات الخاطئة
         if 'upgrades_count' in upgrades:
             return int(upgrades['upgrades_count'])
         for k, v in upgrades.items():
@@ -36,7 +34,7 @@ def get_user_upgrades_count(user_data):
 
 @friends_bp.route('/data', methods=['GET', 'POST'])
 def get_friends_data():
-    """جلب بيانات صفحة الأصدقاء وإحصائيات المهام بسرعة وفاعلية"""
+    """جلب بيانات صفحة الأصدقاء وإحصائيات المهام"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -78,7 +76,7 @@ def get_friends_data():
 
 @friends_bp.route('/list', methods=['GET', 'POST'])
 def get_friends_list():
-    """جلب سجل الأصدقاء بالتفصيل وحل مشكلة الاسم المكرر وصفر العملات"""
+    """جلب سجل الأصدقاء بالتفصيل وحل مشكلة عدم ظهور جميع الدعوات"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -86,28 +84,25 @@ def get_friends_list():
             
         user_id_str = str(user_id)
         
-        # جلب كل المستخدمين الذين أحالهم هذا المستخدم
         referred_users = {}
         users_query = db.collection('users').where('referred_by', '==', user_id_str).stream()
         for doc in users_query:
             referred_users[doc.id] = doc.to_dict() or {}
             
-        # جلب البيانات من الساب كوليكشن
         sub_friends = {}
         sub_query = db.collection('users').document(user_id_str).collection('friends').stream()
         for doc in sub_query:
             sub_friends[doc.id] = doc.to_dict() or {}
             
         friends_list = []
+        all_friend_ids = set(referred_users.keys()).union(set(sub_friends.keys()))
         
-        for f_id, sub_data in sub_friends.items():
+        for f_id in all_friend_ids:
             main_data = referred_users.get(f_id, {})
+            sub_data = sub_friends.get(f_id, {})
             total_upgrades = get_user_upgrades_count(main_data)
             
-            # تصحيح خطأ الاسم: الأولوية لملف الصديق الأساسي لمنع ظهور اسم "أحمد"
-            f_name = main_data.get('first_name') or sub_data.get('first_name') or 'صديق مجهول'
-            
-            # تصحيح خطأ الـ ZN 0+: جلب القيمة من الحقلين لضمان القراءة الصحيحة من الفايربيس
+            f_name = main_data.get('first_name') or main_data.get('name') or sub_data.get('first_name') or sub_data.get('name') or 'صديق'
             generated_amount = float(sub_data.get('earned_from_him', main_data.get('ref_generated_amount', 0)))
             
             friends_list.append({
@@ -125,7 +120,7 @@ def get_friends_list():
 
 @friends_bp.route('/claim_ref_earnings', methods=['POST'])
 def claim_ref_earnings():
-    """سحب الأرباح مع تصحيح ديكوريتور الترانزاكشن بالكامل"""
+    """سحب أرباح الإحالات وتحويلها لرصيد حساب المستخدم بشكل آمن"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -133,7 +128,6 @@ def claim_ref_earnings():
             
         user_ref = db.collection('users').document(str(user_id))
 
-        # تم التغيير هنا إلى firestore.transactional ليعمل بشكل صحيح تماماً
         @firestore.transactional
         def run_claim_earnings_transaction(transaction, u_ref):
             snapshot = u_ref.get(transaction=transaction)
@@ -176,7 +170,7 @@ def claim_ref_earnings():
 
 @friends_bp.route('/claim_ref_task', methods=['POST'])
 def claim_ref_task():
-    """استلام مكافآت المهام مع تصحيح الترانزاكشن"""
+    """استلام مكافأة مهمة الإحالة"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
