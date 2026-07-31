@@ -5,6 +5,52 @@ from firebase_admin import credentials, firestore
 
 db = None
 
+def ensure_game_settings_exist():
+    """دالة الفحص والإنشاء التلقائي للخرائط الإعدادية في Firestore"""
+    global db
+    if not db:
+        return
+    try:
+        settings_ref = db.collection('config').document('game_settings')
+        doc_snap = settings_ref.get()
+
+        # القيم الافتراضية لترقيات السرعة
+        default_speed_config = {
+            "1": {"price": 2000, "rate": 5, "max": 10},
+            "2": {"price": 7000, "rate": 15, "max": 10},
+            "3": {"price": 18000, "rate": 35, "max": 10},
+            "4": {"price": 45000, "rate": 80, "max": 10}
+        }
+
+        # القيم الافتراضية للـ 30 يوم مكافآت
+        default_daily_rewards = {
+            f"day_{i}": 20000 if i == 30 else i * 500
+            for i in range(1, 31)
+        }
+
+        if not doc_snap.exists:
+            # لو المستند غير موجود أصلاً يتم إنشاؤه بالكامل
+            settings_ref.set({
+                "speed_config": default_speed_config,
+                "daily_rewards": default_daily_rewards
+            })
+            print("✅ تم إنشاء game_settings والخرائط التلقائية بنجاح في Firestore!")
+        else:
+            # لو المستند موجود، يتم فحص الخرائط الناقصة فقط واستكمالها
+            data = doc_snap.to_dict() or {}
+            updates = {}
+
+            if "speed_config" not in data:
+                updates["speed_config"] = default_speed_config
+            if "daily_rewards" not in data:
+                updates["daily_rewards"] = default_daily_rewards
+
+            if updates:
+                settings_ref.set(updates, merge=True)
+                print("✅ تم استكمال الخرائط الناقصة في Firestore تلقائياً!")
+    except Exception as e:
+        print(f"❌ خطأ أثناء التأكد من إعدادات اللعبة تلقائياً: {e}")
+
 def initialize_firebase():
     global db
     if not firebase_admin._apps:
@@ -38,8 +84,10 @@ def initialize_firebase():
         db = firestore.client()
     return db
 
+# تشغيل التهيئة وفحص الخرائط فور استدعاء الملف
 try:
     db = initialize_firebase()
+    ensure_game_settings_exist()
 except Exception as e:
     print(f"⚠️ تنبيه أثناء تهيئة DB تلقائياً: {e}")
 
