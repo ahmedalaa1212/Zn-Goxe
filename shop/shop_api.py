@@ -36,15 +36,13 @@ DEFAULT_STORAGE_CONFIG = {
 }
 
 def get_game_config():
-    """قراءة وحقن إعدادات المتجر تلقائياً في config/game_settings داخل Firestore بدون المساس بالبيانات الحالية"""
+    """قراءة وحقن إعدادات المتجر تلقائياً في config/game_settings داخل Firestore بدون الحاجة لسكريبتات خارجية"""
     try:
         doc_ref = db.collection('config').document('game_settings')
         doc = doc_ref.get()
         
         updates = {}
-        data = {}
-        if doc.exists:
-            data = doc.to_dict() or {}
+        data = doc.to_dict() if doc.exists and doc.to_dict() else {}
 
         if 'usdt_packages' not in data or not data['usdt_packages']:
             updates['usdt_packages'] = DEFAULT_USDT_PACKAGES
@@ -60,16 +58,33 @@ def get_game_config():
 
         if updates:
             doc_ref.set(updates, merge=True)
-            print("⚙️ تم مزامنة وإنشاء حقول إعدادات المتجر المفقودة في Firebase تلقائياً.")
+            print("⚙️ [Shop] تم إنشاء ومزامنة حقول إعدادات المتجر المفقودة في Firebase تلقائياً.")
 
         return data
     except Exception as e:
-        print(f"❌ Error reading Firestore config/game_settings: {e}")
+        print(f"❌ [Shop Error] خطأ في قراءة إعدادات المتجر من Firestore: {e}")
         return {
             'usdt_packages': DEFAULT_USDT_PACKAGES,
             'storage_config': DEFAULT_STORAGE_CONFIG,
             'mining_config': DEFAULT_MINING_CONFIG
         }
+
+def ensure_user_shop_defaults(user_ref, user_data):
+    """التحقق من حقول المتجر داخل حساب المستخدم وإنشاؤها تلقائياً إذا كانت مفقودة"""
+    updates = {}
+    if 'storage_level' not in user_data:
+        updates['storage_level'] = 1
+        user_data['storage_level'] = 1
+    if 'max_cap' not in user_data:
+        updates['max_cap'] = 200.0
+        user_data['max_cap'] = 200.0
+    if 'upgrades' not in user_data or not isinstance(user_data['upgrades'], dict):
+        updates['upgrades'] = {}
+        user_data['upgrades'] = {}
+
+    if updates:
+        user_ref.set(updates, merge=True)
+    return user_data
 
 @shop_bp.route('/get_config', methods=['GET', 'POST'])
 def get_config():
@@ -263,10 +278,21 @@ def buy_upgrade():
         user_doc = user_ref.get()
 
         if not user_doc.exists:
-            return jsonify({"success": False, "error": "المستخدم غير موجود."}), 404
+            # إنشاء حساب المستخدم تلقائياً إذا كان جديداً
+            initial_user_data = {
+                'balance': 0.0,
+                'hourly_rate': 0.0,
+                'max_cap': 200.0,
+                'usd_balance': 0.0,
+                'storage_level': 1,
+                'upgrades': {}
+            }
+            user_ref.set(initial_user_data, merge=True)
+            user_data = initial_user_data
+        else:
+            user_data = user_doc.to_dict() or {}
+            user_data = ensure_user_shop_defaults(user_ref, user_data)
 
-        user_data = user_doc.to_dict() or {}
-        
         current_balance = float(user_data.get('balance', 0.0))
         hourly_rate = float(user_data.get('hourly_rate', 0.0))
         max_cap = float(user_data.get('max_cap', 200.0)) 
@@ -348,7 +374,7 @@ def buy_upgrade():
             if level_num not in storage_cfg:
                 return jsonify({"success": False, "error": "مستوى مخزن غير صالح."}), 400
 
-            current_storage_lvl = int(user_data.get('storage_level', 0))
+            current_storage_lvl = int(user_data.get('storage_level', 1))
             int_level = int(level_num)
 
             if int_level <= current_storage_lvl:
