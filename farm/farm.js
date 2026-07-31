@@ -468,3 +468,4 @@
     window.updateFarmUI();
     window.fetchPlayerDataFromServer();
 })();
+
