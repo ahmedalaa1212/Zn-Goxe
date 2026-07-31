@@ -191,12 +191,18 @@
                 alert("🎉 تم تأكيد الدفع وتفعيل الباقة تلقائياً!");
 
                 if (!window.userState) window.userState = {};
+                if (!window.PlayerData) window.PlayerData = {};
+
                 window.userState.balance = verifyData.result.balance;
                 window.userState.hourly_rate = verifyData.result.hourly_rate;
                 window.userState.max_cap = verifyData.result.max_cap;
                 window.userState.usd_balance = verifyData.result.usd_balance;
 
-                window.updateShopUI();
+                window.PlayerData.balance = verifyData.result.balance;
+                window.PlayerData.hourly_rate = verifyData.result.hourly_rate;
+                window.PlayerData.max_cap = verifyData.result.max_cap;
+
+                if (typeof window.updateUI === 'function') window.updateUI();
             } else {
                 alert("⚠️ " + verifyData.error);
             }
@@ -476,19 +482,36 @@
                 triggerHaptic('notification', 'success');
 
                 if (!window.userState) window.userState = {};
+                if (!window.PlayerData) window.PlayerData = {};
+
                 window.userState.balance = resData.balance;
+                window.PlayerData.balance = resData.balance;
+
                 if (apiType === 'mining') {
                     window.userState.hourly_rate = resData.hourly_rate;
                     window.userState.upgrades = resData.upgrades;
+
+                    window.PlayerData.hourly_rate = resData.hourly_rate;
+                    window.PlayerData.upgrades = resData.upgrades;
                 } else {
                     window.userState.storage_level = resData.storage_level;
                     window.userState.max_cap = resData.max_cap;
+
+                    window.PlayerData.storage_level = resData.storage_level;
+                    window.PlayerData.max_cap = resData.max_cap;
                 }
                 if (resData.usd_balance !== undefined) {
                     window.userState.usd_balance = resData.usd_balance;
+                    window.PlayerData.usd_balance = resData.usd_balance;
                 }
 
-                window.updateShopUI();
+                // ⚡ تحديث كل واجهات التطبيق فوراً (المتجر + المزرعة)
+                if (typeof window.updateUI === 'function') {
+                    window.updateUI();
+                } else {
+                    window.updateShopUI();
+                    if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
+                }
             } else {
                 alert(resData.error || "حدث خطأ أثناء الشراء.");
             }
