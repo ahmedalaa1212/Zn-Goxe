@@ -164,9 +164,10 @@ window.loadUserData = async function() {
             if (data.wallet_address !== undefined) window.userState.wallet_address = data.wallet_address;
         }
     } catch (e) {
-        window.updateUI(); 
+        console.warn("تنبيه: تم الاعتماد على البيانات المحلية مؤقتاً لحين الاتصال.");
     } finally {
         isUserDataFetching = false;
+        window.updateUI();
     }
 };
 
@@ -262,16 +263,13 @@ window.executeWithdraw = async function(amountUSD, address) {
 };
 
 /* ==========================================
-   6. Realtime Initialization
+   6. Realtime Initialization & Background Sync
    ========================================== */
 document.addEventListener('DOMContentLoaded', () => {
-    window.updateUI(); 
-    window.loadUserData(); 
-    
     const historyBtn = document.getElementById('open-history-btn');
     if (historyBtn) historyBtn.addEventListener('click', window.loadWalletHistory);
 
-    // فحص دوري خفيف ومُحدد لمنع الضغط على السيرفر
+    // فحص دوري كل 15 ثانية للتحديث الخلفي المستقر
     setInterval(() => {
         window.loadUserData();
     }, 15000); 
