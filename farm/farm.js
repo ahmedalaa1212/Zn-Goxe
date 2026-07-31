@@ -52,17 +52,33 @@
         isFetching = true;
         try {
             let resData = await window.fetchAPI('/api/farm/player_data', 'POST', { start_param: START_PARAM });
-            if (resData && resData.success) {
-                window.PlayerData = resData.player;
-                if (resData.player && resData.player.balance !== undefined) {
-                    window.userState.balance = resData.player.balance;
+            if (resData && resData.success && resData.player) {
+                const serverData = resData.player;
+
+                if (!window.PlayerData) window.PlayerData = {};
+                Object.assign(window.PlayerData, serverData);
+
+                if (serverData.balance !== undefined) {
+                    window.userState.balance = serverData.balance;
                 }
-                if (resData.player && resData.player.hourly_rate !== undefined) {
-                    window.userState.hourly_rate = resData.player.hourly_rate;
+                if (serverData.hourly_rate !== undefined) {
+                    window.userState.hourly_rate = serverData.hourly_rate;
                 }
+
+                // منع تذبذب القيمة غير المجمعة أثناء المزامنة
+                if (serverData.unclaimed !== undefined) {
+                    const serverUnclaimed = parseFloat(serverData.unclaimed || 0);
+                    if (claimCooldown > 0 || isClaimingMain) {
+                        window.PlayerData.unclaimed = serverUnclaimed;
+                    } else {
+                        window.PlayerData.unclaimed = Math.max(parseFloat(window.PlayerData.unclaimed || 0), serverUnclaimed);
+                    }
+                }
+
                 if (resData.game_config && resData.game_config.daily_rewards) {
                     GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
                 }
+
                 window.updateFarmUI();
             }
         } catch (e) { 
@@ -79,9 +95,18 @@
     window.updateFarmUI = function() {
         const pData = window.PlayerData || {};
         
-        // ربط البيانات بالكائن الموحد مباشرة
-        pData.balance = window.userState.balance;
-        pData.hourly_rate = window.userState.hourly_rate;
+        if (pData.balance !== undefined) window.userState.balance = pData.balance;
+        if (pData.hourly_rate !== undefined) window.userState.hourly_rate = pData.hourly_rate;
+
+        // تحديث مباشر للرصيد ومعدل التعدين على الشاشة
+        const rateSpan = document.querySelector('#farm-rate span');
+        if (rateSpan) {
+            rateSpan.innerText = parseFloat(window.userState.hourly_rate || 0).toLocaleString('en-US');
+        }
+        const balanceSpan = document.querySelector('#farm-balance span');
+        if (balanceSpan) {
+            balanceSpan.innerText = Math.floor(parseFloat(window.userState.balance || 0)).toLocaleString('en-US');
+        }
 
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
@@ -151,7 +176,7 @@
         let maxC = parseFloat(pData.max_cap || 100);
         let hRate = parseFloat(window.userState.hourly_rate || 0); 
         
-        if (unclaim < maxC) {
+        if (unclaim < maxC && hRate > 0) {
             unclaim += hRate / 3600;
             if (unclaim >= maxC) unclaim = maxC;
         }
@@ -160,13 +185,23 @@
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
         if (progressEl && storageTextEl) {
-            let pct = (unclaim / maxC) * 100;
+            let pct = maxC > 0 ? (unclaim / maxC) * 100 : 0;
             pct = Math.max(0, Math.min(pct, 100)); 
             progressEl.style.width = `${pct}%`;
             if (pct >= 100) progressEl.style.background = 'linear-gradient(90deg, #e74c3c, #c0392b)'; 
             else progressEl.style.background = 'linear-gradient(90deg, #f39c12, #f1c40f)';
             
-            storageTextEl.innerText = `${Math.floor(unclaim).toLocaleString()} / ${maxC.toLocaleString()}`;
+            // اصلاح النص العكسي RTL
+            storageTextEl.innerHTML = `<span dir="ltr">${Math.floor(unclaim).toLocaleString('en-US')} / ${Math.floor(maxC).toLocaleString('en-US')}</span>`;
+        }
+
+        const rateSpan = document.querySelector('#farm-rate span');
+        if (rateSpan) {
+            rateSpan.innerText = parseFloat(window.userState.hourly_rate || 0).toLocaleString('en-US');
+        }
+        const balanceSpan = document.querySelector('#farm-balance span');
+        if (balanceSpan) {
+            balanceSpan.innerText = Math.floor(parseFloat(window.userState.balance || 0)).toLocaleString('en-US');
         }
 
         const claimBtn = document.getElementById('claim-btn');
@@ -358,9 +393,8 @@
             claimBtn.innerText = "جاري الحفظ... 💾";
         }
 
-        // تحديث متفائل (Optimistic Update) عبر Proxy المركزي مباشرة
         const unclaimedAmount = parseFloat(pData.unclaimed || 0);
-        const currentBal = window.userState.balance;
+        const currentBal = parseFloat(window.userState.balance || 0);
         const optimisticNewBal = currentBal + unclaimedAmount;
         
         window.userState.balance = optimisticNewBal;
@@ -374,7 +408,6 @@
                 claimCooldown = 5; 
             }
         } catch (e) {
-            // التراجع عند الفشل
             window.userState.balance = currentBal;
             showToast(e.message || "خطأ أثناء التجميع.");
             if (claimBtn) {
@@ -386,8 +419,11 @@
         }
     };
 
-    // البدء الفوري بحالة النظام
-    window.PlayerData = { balance: window.userState.balance, unclaimed: 0, hourly_rate: window.userState.hourly_rate };
+    window.PlayerData = { 
+        balance: window.userState.balance || 0, 
+        unclaimed: 0, 
+        hourly_rate: window.userState.hourly_rate || 0 
+    };
     window.updateFarmUI();
     window.fetchPlayerData();
 })();
