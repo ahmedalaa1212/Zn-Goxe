@@ -12,9 +12,6 @@ shop_bp = Blueprint('shop', __name__)
 
 PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
 
-# ==============================================================================
-# الإعدادات الافتراضية للمتجر (موزونة على الاقتصاد الجديد)
-# ==============================================================================
 DEFAULT_USDT_PACKAGES = {
     "pkg_1": {"usdt": 1.0, "rate_add": 150.0, "storage_add": 2000.0, "zn_add": 30000.0, "title": "البرونزية"},
     "pkg_2": {"usdt": 3.0, "rate_add": 540.0, "storage_add": 7200.0, "zn_add": 108000.0, "title": "الفضية"},
@@ -48,7 +45,6 @@ DEFAULT_STORAGE_CONFIG = {
 }
 
 def get_game_config():
-    """قراءة وحقن إعدادات المتجر تلقائياً في config/game_settings داخل Firestore"""
     try:
         doc_ref = db.collection('config').document('game_settings')
         doc = doc_ref.get()
@@ -92,7 +88,6 @@ def get_game_config():
         }
 
 def ensure_user_shop_defaults(user_ref, user_data):
-    """التحقق من حقول المتجر داخل حساب المستخدم وإنشاؤها تلقائياً"""
     updates = {}
     if 'storage_level' not in user_data:
         updates['storage_level'] = 0
@@ -108,13 +103,8 @@ def ensure_user_shop_defaults(user_ref, user_data):
         user_ref.set(updates, merge=True)
     return user_data
 
-# ==============================================================================
-# مسارات الـ API الخاص بالمتجر
-# ==============================================================================
-
 @shop_bp.route('/get_config', methods=['GET', 'POST'])
 def get_config():
-    """جلب إعدادات المتجر وحساب أسعار الباقات بـ TON"""
     settings = get_game_config()
     ton_price_usd = get_live_ton_price()
     if ton_price_usd <= 0:
@@ -288,7 +278,6 @@ def verify_and_apply_package():
 
 @shop_bp.route('/buy', methods=['POST'])
 def buy_upgrade():
-    """معالجة شراء ترقيات التعدين والمخازن باستخدام رصيد ZN داخل اللعبة"""
     try:
         data = request.get_json() or {}
         upgrade_type = data.get('type')  
@@ -345,7 +334,6 @@ def buy_upgrade():
         total_balance = current_balance + pending_mined
         new_last_claim_time = now_dt.isoformat()
 
-        # 1. ترقية التعدين
         if upgrade_type == 'mining':
             mining_cfg = settings.get('mining_config', DEFAULT_MINING_CONFIG)
             if level_num not in mining_cfg:
@@ -397,7 +385,6 @@ def buy_upgrade():
                 "usd_balance": usd_balance
             }), 200
 
-        # 2. ترقية المخزن
         elif upgrade_type == 'storage':
             storage_cfg = settings.get('storage_config', DEFAULT_STORAGE_CONFIG)
             if level_num not in storage_cfg:
