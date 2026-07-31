@@ -154,8 +154,18 @@ window.updateUI = function() {
         });
 
         document.querySelectorAll('[data-bind="hourly_rate"]').forEach(el => {
-            if (el.tagName === 'INPUT') el.value = hourlyFormatted;
-            else el.innerText = hourlyFormatted;
+            el.style.direction = 'ltr';
+            el.style.display = 'inline-block';
+            if (el.tagName === 'INPUT') {
+                el.value = hourlyFormatted;
+            } else {
+                const text = el.innerText || "";
+                if (text.includes('/h') || text.includes('⚡')) {
+                    el.innerText = `⚡ ${hourlyFormatted}/h`;
+                } else {
+                    el.innerText = hourlyFormatted;
+                }
+            }
         });
 
         document.querySelectorAll('[data-bind="energy"]').forEach(el => {
@@ -195,16 +205,21 @@ window.updateUI = function() {
             }
         });
 
-        // 4. تحديث سرعة التعدين
-        const allRateElements = document.querySelectorAll('[id*="rate"], [id*="speed"], [id*="hourly"]');
+        // 4. تحديث سرعة التعدين وتثبيت الاتجاه لمنع انقلاب النص (h/0 ⚡ -> ⚡ 0/h)
+        const allRateElements = document.querySelectorAll('[id*="rate"], [id*="speed"], [id*="hourly"], .farm-rate, .mining-rate');
         allRateElements.forEach(el => {
             if (el.hasAttribute('data-bind')) return;
+            
+            // فرض اتجاه LTR للعنصر لمنع المحرك من تقليب الرموز في الواجهة العربية
+            el.style.direction = 'ltr';
+            el.style.display = 'inline-block';
+            
             if (el.tagName === 'INPUT') {
                 el.value = hourlyFormatted;
                 return;
             }
-            const text = el.innerText || "";
-            if (text.includes('h/') || text.includes('/h') || el.id === 'farm-rate') el.innerText = `⚡ ${hourlyFormatted}/h`;
+            
+            el.innerText = `⚡ ${hourlyFormatted}/h`;
         });
 
         // تشغيل أي خطافات (Hooks) للواجهات المفتوحة حالياً
