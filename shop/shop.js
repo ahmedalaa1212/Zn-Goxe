@@ -46,7 +46,7 @@
         try {
             const res = await fetch('/api/shop/get_config');
             const data = await res.json();
-            if (data.success) {
+            if (data && data.success) {
                 shopDynamicSettings = data.settings;
                 
                 const tonPriceElem = document.getElementById('ton-live-rate-text');
@@ -54,12 +54,10 @@
                     tonPriceElem.innerText = `$${parseFloat(data.ton_price_usd).toFixed(2)}`;
                 }
 
-                // عرض باقات USDT الديناميكية القادمة من الفايربيس مباشرة
                 if (data.packages) {
                     renderDynamicPackages(data.packages);
                 }
                 
-                // تحديث واجهات التطوير والمخازن بناءً على بيانات الفايربيس
                 window.updateShopUI();
             }
         } catch (e) {
@@ -68,41 +66,45 @@
     }
 
     function renderDynamicPackages(packages) {
-        const container = document.getElementById('usdt-packages-container');
+        let container = document.getElementById('usdt-packages-container');
+        if (!container) {
+            container = document.querySelector('.usdt-packages-scroll') || document.querySelector('[data-packages]');
+        }
+
         if (!container) return;
 
         if (!packages || Object.keys(packages).length === 0) {
-            container.innerHTML = '<div style="color: #aaa; text-align: center; width: 100%;">لا توجد باقات متاحة حالياً.</div>';
+            container.innerHTML = '<div style="color: #aaaaaa; text-align: center; width: 100%; padding: 10px;">لا توجد باقات متاحة حالياً.</div>';
             return;
         }
 
         let html = '';
         const colorThemes = [
-            { bg: 'linear-gradient(135deg, #1c1c1c, #2a2a2a)', border: 'var(--primary)', btn: 'var(--primary)', icon: '📦' },
-            { bg: 'linear-gradient(135deg, #1c1c1c, #1f3a2b)', border: 'var(--accent-green)', btn: 'var(--accent-green)', icon: '🚀' },
-            { bg: 'linear-gradient(135deg, #1c1c1c, #332b00)', border: 'var(--gold)', btn: 'var(--gold)', icon: '👑', textColor: '#000' },
-            { bg: 'linear-gradient(135deg, #1c1c1c, #3a1c1c)', border: 'var(--accent-red)', btn: 'var(--accent-red)', icon: '🐋' }
+            { bg: 'linear-gradient(135deg, #1c1c1c, #2a2a2a)', border: '#ffcc00', btn: '#ffcc00', icon: '📦', textColor: '#000000' },
+            { bg: 'linear-gradient(135deg, #1c1c1c, #1f3a2b)', border: '#00cc66', btn: '#00cc66', icon: '🚀', textColor: '#000000' },
+            { bg: 'linear-gradient(135deg, #1c1c1c, #332b00)', border: '#ffd700', btn: '#ffd700', icon: '👑', textColor: '#000000' },
+            { bg: 'linear-gradient(135deg, #1c1c1c, #3a1c1c)', border: '#ff4444', btn: '#ff4444', icon: '🐋', textColor: '#ffffff' }
         ];
 
         let index = 0;
         for (const [pkgId, pkg] of Object.entries(packages)) {
             const theme = colorThemes[index % colorThemes.length];
-            const btnTextColor = theme.textColor || '#fff';
+            const btnTextColor = theme.textColor || '#ffffff';
 
             html += `
-                <div class="usdt-card" style="background: ${theme.bg}; border: 1px solid ${theme.border};">
+                <div class="usdt-card" style="background: ${theme.bg}; border: 1px solid ${theme.border}; border-radius: 14px; padding: 14px; min-width: 140px; display: flex; flex-direction: column; justify-content: space-between; text-align: center; margin-right: 10px;">
                     <div>
                         <div style="font-size: 24px;">${theme.icon}</div>
-                        <div style="color: #fff; font-weight: bold; font-size: 13px;">${pkg.title || 'باقة مميزة'}</div>
-                        <div style="color: ${theme.border}; font-weight: bold; font-size: 15px; margin: 2px 0;">$${pkg.usdt}</div>
-                        <div style="color: var(--ton-blue); font-size: 11px; font-weight: bold;">~${pkg.ton_amount} TON</div>
+                        <div style="color: #ffffff; font-weight: bold; font-size: 13px;">${pkg.title || 'باقة مميزة'}</div>
+                        <div style="color: ${theme.border}; font-weight: bold; font-size: 16px; margin: 4px 0;">$${pkg.usdt}</div>
+                        <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${pkg.ton_amount} TON</div>
                     </div>
-                    <div class="usdt-perks">
+                    <div class="usdt-perks" style="font-size: 11px; color: #cccccc; line-height: 1.4; margin-bottom: 10px; background: rgba(0,0,0,0.3); padding: 6px; border-radius: 8px;">
                         ⚡ +${Number(pkg.rate_add).toLocaleString()} ZN/h<br>
                         📦 +${Number(pkg.storage_add).toLocaleString()} مخزن<br>
                         🪙 +${Number(pkg.zn_add).toLocaleString()} ZN
                     </div>
-                    <button class="btn-ton-pay" style="background: ${theme.btn}; color: ${btnTextColor};" onclick="buyPackageWithTon('${pkgId}')">شراء تلقائي</button>
+                    <button class="btn-ton-pay" style="background: ${theme.btn}; color: ${btnTextColor}; border: none; border-radius: 8px; padding: 8px; font-weight: bold; font-size: 12px; cursor: pointer;" onclick="buyPackageWithTon('${pkgId}')">شراء تلقائي</button>
                 </div>
             `;
             index++;
@@ -223,7 +225,7 @@
                     z-index: 99999; opacity: 0; transition: opacity 0.3s ease;
                 }
                 #shop-confirm-modal {
-                    background: #1a1a1a; border: 1px solid #333; border-radius: 20px;
+                    background: #1a1a1a; border: 1px solid #333333; border-radius: 20px;
                     padding: 24px; width: 85%; max-width: 320px; text-align: center;
                     box-shadow: 0 10px 40px rgba(0,0,0,0.8);
                     transform: translateY(30px) scale(0.95);
@@ -231,17 +233,17 @@
                 }
                 .shop-modal-active { display: flex !important; opacity: 1 !important; }
                 .shop-modal-active > #shop-confirm-modal { transform: translateY(0) scale(1); }
-                .shop-modal-title { color: #fff; font-size: 20px; font-weight: bold; margin-bottom: 8px; }
-                .shop-modal-desc { color: #aaa; font-size: 14px; margin-bottom: 15px; line-height: 1.5; }
+                .shop-modal-title { color: #ffffff; font-size: 20px; font-weight: bold; margin-bottom: 8px; }
+                .shop-modal-desc { color: #aaaaaa; font-size: 14px; margin-bottom: 15px; line-height: 1.5; }
                 .shop-modal-price-box { 
-                    background: #000; border-radius: 12px; padding: 12px; 
+                    background: #000000; border-radius: 12px; padding: 12px; 
                     color: #ffcc00; font-weight: bold; font-size: 18px; margin-bottom: 20px;
-                    border: 1px solid #333;
+                    border: 1px solid #333333;
                 }
                 .shop-modal-actions { display: flex; gap: 12px; justify-content: center; }
                 .shop-btn { flex: 1; padding: 12px; border: none; border-radius: 10px; font-weight: bold; font-size: 15px; cursor: pointer; }
-                .shop-btn-cancel { background: #333; color: #fff; }
-                .shop-btn-confirm { background: #0088cc; color: #fff; }
+                .shop-btn-cancel { background: #333333; color: #ffffff; }
+                .shop-btn-confirm { background: #0088cc; color: #ffffff; }
             `;
             document.head.appendChild(styleSheet);
         }
@@ -286,11 +288,11 @@
             miningSec.style.display = 'grid';
             storageSec.style.display = 'none';
             if (btnMining) btnMining.style.background = '#0088cc';
-            if (btnStorage) btnStorage.style.background = '#333';
+            if (btnStorage) btnStorage.style.background = '#333333';
         } else {
             miningSec.style.display = 'none';
             storageSec.style.display = 'grid';
-            if (btnMining) btnMining.style.background = '#333';
+            if (btnMining) btnMining.style.background = '#333333';
             if (btnStorage) btnStorage.style.background = '#0088cc';
         }
     };
@@ -313,8 +315,10 @@
         const rateElem = document.getElementById('shop-rate-text');
         if (rateElem) rateElem.innerText = `${parseFloat(pData.hourly_rate || 0).toLocaleString()}/h`;
 
-        // جلب مستويات التعدين المباشرة من الفايربيس
-        const miningCfg = shopDynamicSettings?.mining_config || {};
+        const miningCfg = shopDynamicSettings?.mining_config || {
+            "1": {"rate": 5, "price": 2000, "max": 10},
+            "2": {"rate": 15, "price": 7000, "max": 10}
+        };
 
         let miningHtml = '';
         for (const [i, cfg] of Object.entries(miningCfg)) {
@@ -326,16 +330,16 @@
             let canAfford = totalBal >= price;
 
             miningHtml += `
-                <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 12px; text-align: center; position: relative; display: flex; flex-direction: column; justify-content: space-between;">
+                <div style="background: #1a1a1a; border: 1px solid #333333; border-radius: 12px; padding: 12px; text-align: center; position: relative; display: flex; flex-direction: column; justify-content: space-between;">
                     ${isMax ? `<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; border-radius: 12px;">مكتمل MAX</div>` : ''}
                     <div>
                         <div style="font-size: 26px;">⚡</div>
-                        <div style="color: #fff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
+                        <div style="color: #ffffff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
                         <div style="color: #00cc66; font-size: 12px; margin: 4px 0;">⚡ +${speed.toLocaleString()}/h</div>
-                        <div style="color: #888; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${maxLimit}</div>
+                        <div style="color: #888888; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${maxLimit}</div>
                     </div>
                     <button id="btn-speed-${i}" onclick="requestShopPurchase('speed', ${i}, ${price})" 
-                        style="width: 100%; padding: 9px; background: ${canAfford && !isMax ? '#ffcc00' : '#333'}; color: ${canAfford && !isMax ? '#000' : '#888'}; border: none; border-radius: 6px; font-weight: bold; cursor: ${canAfford && !isMax ? 'pointer' : 'not-allowed'};" ${isMax || !canAfford ? 'disabled' : ''}>
+                        style="width: 100%; padding: 9px; background: ${canAfford && !isMax ? '#ffcc00' : '#333333'}; color: ${canAfford && !isMax ? '#000000' : '#888888'}; border: none; border-radius: 6px; font-weight: bold; cursor: ${canAfford && !isMax ? 'pointer' : 'not-allowed'};" ${isMax || !canAfford ? 'disabled' : ''}>
                         ZN ${price.toLocaleString()}
                     </button>
                 </div>
@@ -343,8 +347,10 @@
         }
         miningSec.innerHTML = miningHtml;
 
-        // جلب مستويات المخازن المباشرة من الفايربيس
-        const storageCfg = shopDynamicSettings?.storage_config || {};
+        const storageCfg = shopDynamicSettings?.storage_config || {
+            "1": {"capacity": 200, "price": 0},
+            "2": {"capacity": 500, "price": 5000}
+        };
 
         let storageHtml = '';
         let currentStorageLvl = parseInt(pData.storage_level || 0); 
@@ -357,21 +363,21 @@
             let isNextUpgrade = i === currentStorageLvl + 1;
             let canAfford = totalBal >= price;
 
-            let btnBg = '#333', btnColor = '#888', btnText = `ZN ${price.toLocaleString()}`, isDisabled = true;
+            let btnBg = '#333333', btnColor = '#888888', btnText = `ZN ${price.toLocaleString()}`, isDisabled = true;
 
             if (isOwned) {
-                btnBg = '#00cc66'; btnColor = '#000'; btnText = 'تم الشراء ✔️';
+                btnBg = '#00cc66'; btnColor = '#000000'; btnText = 'تم الشراء ✔️';
             } else if (isNextUpgrade) {
-                if (canAfford) { btnBg = '#0088cc'; btnColor = '#fff'; isDisabled = false; }
+                if (canAfford) { btnBg = '#0088cc'; btnColor = '#ffffff'; isDisabled = false; }
             } else {
                 btnText = 'مغلق 🔒';
             }
 
             storageHtml += `
-                <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 12px; text-align: center; display: flex; flex-direction: column; justify-content: space-between;">
+                <div style="background: #1a1a1a; border: 1px solid #333333; border-radius: 12px; padding: 12px; text-align: center; display: flex; flex-direction: column; justify-content: space-between;">
                     <div>
                         <div style="font-size: 26px;">📦</div>
-                        <div style="color: #fff; font-weight: bold; font-size: 14px;">مخزن مستوى ${i}</div>
+                        <div style="color: #ffffff; font-weight: bold; font-size: 14px;">مخزن مستوى ${i}</div>
                         <div style="color: #0088cc; font-size: 12px; margin: 4px 0 10px 0;">السعة: ${capacity.toLocaleString()}</div>
                     </div>
                     <button id="btn-storage-${i}" onclick="requestShopPurchase('storage', ${i}, ${price})" 
