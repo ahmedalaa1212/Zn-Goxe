@@ -32,6 +32,7 @@ const rawUserState = {
 function saveLocalState() {
     try {
         localStorage.setItem('app_user_state', JSON.stringify(window.userState));
+        // مزامنة المفاتيح الاحتياطية لضمان عدم حدوث تعارض مع ملفات قديمة
         localStorage.setItem('zn_balance', window.userState.balance.toString());
         localStorage.setItem('zngoxe_balance', window.userState.balance.toString());
         localStorage.setItem('zngoxe_usd_balance', window.userState.usd_balance.toString());
@@ -45,18 +46,17 @@ function loadLocalState() {
     try {
         const saved = localStorage.getItem('app_user_state');
         if (saved) {
-            const parsed = JSON.parse(saved);
-            Object.assign(rawUserState, parsed);
+            Object.assign(rawUserState, JSON.parse(saved));
         }
     } catch (e) {
         console.warn("تعذر تحميل البيانات المحلية", e);
     }
 }
 
-loadLocalState(); 
+loadLocalState(); // تشغيل فوري لتسريع ظهور البيانات
 
 // ==========================================
-// Proxy الذكي واللحظي
+// Proxy الذكي واللحظي (القلب النابض للتطبيق)
 // ==========================================
 window.userState = new Proxy(rawUserState, {
     set(target, prop, value) {
@@ -73,6 +73,7 @@ window.userState = new Proxy(rawUserState, {
             window.updateUI();
         }
 
+        // إطلاق حدث عام لجميع القوائم استقبال التحديث في نفس اللحظة
         window.dispatchEvent(new CustomEvent('userStateUpdated', {
             detail: { prop, value: target[prop], state: target }
         }));
@@ -117,8 +118,10 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     }
 };
 
+const fetchAPI = window.fetchAPI;
+
 /* ==========================================
-   3. UI Builders & Formatters
+   3. UI Builders & Formatters (التحديث اللحظي الشامل)
    ========================================== */
 window.updateUI = function() {
     try {
@@ -131,10 +134,10 @@ window.updateUI = function() {
         const znFormatted = Math.floor(rawBalance).toLocaleString('en-US');
         const usdFormatted = rawUsd.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
         const adFormatted = Math.floor(rawAd).toLocaleString('en-US');
-        const hourlyFormatted = Number.isInteger(rawRate) ? rawRate.toString() : rawRate.toFixed(1);
+        const hourlyFormatted = Math.floor(rawRate).toLocaleString('en-US');
         const energyFormatted = Math.floor(rawEnergy).toLocaleString('en-US');
 
-        // 1. التحديث المباشر عبر وسم data-bind
+        // 1. التحديث المباشر عبر وسم data-bind (أسرع وأدق طريقة لجميع القوائم)
         document.querySelectorAll('[data-bind="balance"]').forEach(el => {
             if (el.tagName === 'INPUT') el.value = znFormatted;
             else el.innerText = znFormatted;
@@ -160,10 +163,10 @@ window.updateUI = function() {
             else el.innerText = energyFormatted;
         });
 
-        // 2. تحديث عناصر ZN التقليدية دون مسح أوسمة data-bind الابنة
+        // 2. تحديث عناصر ZN المعرفة عبر المعرفات والتسميات التقليدية
         const allZnElements = document.querySelectorAll('[id*="balance"], [id*="zn"], .zn-balance, .balance-text, .zn-balance-display');
         allZnElements.forEach(el => {
-            if (el.hasAttribute('data-bind') || el.querySelector('[data-bind]')) return;
+            if (el.hasAttribute('data-bind')) return;
             if (el.tagName === 'INPUT') {
                 el.value = znFormatted;
                 return;
@@ -180,7 +183,7 @@ window.updateUI = function() {
         // 3. تحديث عناصر USD المعرفة عبر المعرفات
         const allUsdElements = document.querySelectorAll('[id*="usd"], .usd-balance');
         allUsdElements.forEach(el => {
-            if (el.hasAttribute('data-bind') || el.querySelector('[data-bind]')) return;
+            if (el.hasAttribute('data-bind')) return;
             if (el.tagName === 'INPUT') {
                 el.value = usdFormatted;
                 return;
@@ -195,7 +198,7 @@ window.updateUI = function() {
         // 4. تحديث سرعة التعدين
         const allRateElements = document.querySelectorAll('[id*="rate"], [id*="speed"], [id*="hourly"]');
         allRateElements.forEach(el => {
-            if (el.hasAttribute('data-bind') || el.querySelector('[data-bind]')) return;
+            if (el.hasAttribute('data-bind')) return;
             if (el.tagName === 'INPUT') {
                 el.value = hourlyFormatted;
                 return;
@@ -204,7 +207,7 @@ window.updateUI = function() {
             if (text.includes('h/') || text.includes('/h') || el.id === 'farm-rate') el.innerText = `⚡ ${hourlyFormatted}/h`;
         });
 
-        // تشغيل خطافات الواجهات المفتوحة
+        // تشغيل أي خطافات (Hooks) للواجهات المفتوحة حالياً
         if (typeof window.updateShopUI === 'function') window.updateShopUI();
         if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
         if (typeof window.updateTasksUI === 'function') window.updateTasksUI();
@@ -229,9 +232,7 @@ window.loadUserData = async function() {
             if (data.balance !== undefined) window.userState.balance = parseFloat(data.balance);
             if (data.usd_balance !== undefined) window.userState.usd_balance = parseFloat(data.usd_balance);
             if (data.ad_balance !== undefined) window.userState.ad_balance = parseFloat(data.ad_balance);
-            if (data.hourly_rate !== undefined && parseFloat(data.hourly_rate) > 0) {
-                window.userState.hourly_rate = parseFloat(data.hourly_rate);
-            }
+            if (data.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(data.hourly_rate);
             if (data.energy !== undefined) window.userState.energy = parseFloat(data.energy);
             if (data.storage_level !== undefined) window.userState.storage_level = parseInt(data.storage_level);
             if (data.mining_level !== undefined) window.userState.mining_level = parseInt(data.mining_level);
@@ -247,7 +248,7 @@ window.loadUserData = async function() {
 };
 
 /* ==========================================
-   5. Actions
+   5. Actions (Convert, Withdraw, Wallet History)
    ========================================== */
 window.loadWalletHistory = async function() {
     const historyList = document.getElementById('wallet-history-list');
@@ -351,7 +352,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setInterval(() => {
         window.loadUserData();
-    }, 5000); 
+    }, 3000); 
 
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
