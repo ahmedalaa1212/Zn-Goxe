@@ -466,4 +466,8 @@
         loadShopConfig();
     });
 
+    window.addEventListener('userStateUpdated', () => {
+        window.updateShopUI();
+    });
+
 })();
