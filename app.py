@@ -2,6 +2,9 @@ import os
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 
+# استدعاء ملف database لتهيئة قواعد البيانات والتحقق من الإعدادات تلقائياً
+import database
+
 # ==========================================
 # 1. إعداد التطبيق والمتغيرات الأساسية
 # ==========================================
