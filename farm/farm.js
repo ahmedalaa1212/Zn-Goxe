@@ -109,10 +109,12 @@
         
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
+            // ⚡ الاعتماد على userState أولاً ثم PlayerData لضمان المزامنة المباشرة مع المتجر
+            const currentUpgrades = window.userState?.upgrades || pData.upgrades || {};
             let fieldsHTML = '';
             for (let i = 1; i <= 9; i++) {
-                let count = parseInt((pData.upgrades && pData.upgrades[`lvl${i}`]) || 0);
-                let isUnlocked = (i === 1) || (parseInt((pData.upgrades && pData.upgrades[`lvl${i-1}`]) || 0) > 0);
+                let count = parseInt(currentUpgrades[`lvl${i}`] || 0);
+                let isUnlocked = (i === 1) || (parseInt(currentUpgrades[`lvl${i-1}`] || 0) > 0);
                 let isMax = count >= GAME_CONFIG.maxUpgradesPerLevel;
                 
                 if (isMax) {
@@ -128,6 +130,14 @@
             fieldsContainer.innerHTML = fieldsHTML;
         }
         renderDailyRewards(); 
+    };
+
+    // ⚡ دالة استدعاء المزامنة عند فتح قسم المزرعة
+    window.onFarmTabOpen = function() {
+        window.updateFarmUI();
+        if (typeof window.fetchPlayerDataFromServer === 'function') {
+            window.fetchPlayerDataFromServer();
+        }
     };
 
     function formatCompactNumber(num) {
@@ -295,7 +305,6 @@
                 if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
                 if (resData.new_hourly_rate !== undefined) window.userState.hourly_rate = resData.new_hourly_rate;
                 
-                // ⚡ تحديث الـ upgrades في الذاكرة لحظياً لظهور شارات x1, x2 فوراً
                 if (resData.upgrades) {
                     if (!window.PlayerData) window.PlayerData = {};
                     window.PlayerData.upgrades = resData.upgrades;
@@ -304,7 +313,6 @@
                     window.userState.upgrades = resData.upgrades;
                 }
 
-                // ⚡ تحديث الواجهة فوراً بدون تأخير
                 window.updateFarmUI();
 
                 showToast(`⚡ تم التحديث بنجاح للمستوى ${level}!`);
@@ -468,4 +476,3 @@
     window.updateFarmUI();
     window.fetchPlayerDataFromServer();
 })();
-
