@@ -32,11 +32,17 @@ UPGRADE_CONFIG = {
     9: {"base_cost": 3200000.0, "rate_bonus": 4500.0}
 }
 
-DAILY_REWARDS_DEFAULT = [
-    100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
-    600, 600, 650, 650, 700, 700, 750, 750, 800, 800,
-    850, 850, 900, 900, 950, 950, 1000, 1000, 1100, 1250
-]
+# الإعدادات الافتراضية الكاملة للمزرعة
+DEFAULT_GAME_SETTINGS = {
+    "daily_rewards": [
+        100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
+        600, 600, 650, 650, 700, 700, 750, 750, 800, 800,
+        850, 850, 900, 900, 950, 950, 1000, 1000, 1100, 1250
+    ],
+    "mining_config": {
+        "daily_boost_reward": 2.0  # قيمة الزيادة اليومية في السرعة
+    }
+}
 
 def get_storage_capacity(storage_level):
     try:
@@ -48,13 +54,27 @@ def get_storage_capacity(storage_level):
     return STORAGE_CAPACITIES.get(lvl, 200.0)
 
 def get_game_settings():
+    """قراءة إعدادات اللعبة من Firebase وإنشاؤها تلقائياً إذا كانت محذوفة"""
     try:
-        config_doc = db.collection('config').document('game_settings').get()
+        config_ref = db.collection('config').document('game_settings')
+        config_doc = config_ref.get()
+        
         if config_doc.exists:
-            return config_doc.to_dict().get('daily_rewards', DAILY_REWARDS_DEFAULT)
-        return DAILY_REWARDS_DEFAULT
-    except Exception:
-        return DAILY_REWARDS_DEFAULT
+            data = config_doc.to_dict()
+            # التأكد من وجود المفاتيح حتى لو تم تعديل جزء منها فقط من الأدمن
+            if "daily_rewards" not in data:
+                data["daily_rewards"] = DEFAULT_GAME_SETTINGS["daily_rewards"]
+            if "mining_config" not in data:
+                data["mining_config"] = DEFAULT_GAME_SETTINGS["mining_config"]
+            return data
+        else:
+            # إعادة إنشاء المستند تلقائياً في حالة حذفه من الفايربيس
+            config_ref.set(DEFAULT_GAME_SETTINGS)
+            print("⚙️ تم إنشاء مستند config/game_settings تلقائياً في Firebase.")
+            return DEFAULT_GAME_SETTINGS
+    except Exception as e:
+        print(f"❌ Error reading game settings: {e}")
+        return DEFAULT_GAME_SETTINGS
 
 @farm_bp.route('/player_data', methods=['GET', 'POST'])
 def get_player_data():
@@ -153,10 +173,15 @@ def get_player_data():
             "last_claim_time": now.isoformat()
         })
         
+        # جلب الإعدادات المحدثة ديناميكياً
+        game_settings = get_game_settings()
+
         return jsonify({
             "success": True, 
             "player": user_data, 
-            "game_config": {"daily_rewards": get_game_settings()}
+            "game_config": {
+                "daily_rewards": game_settings.get("daily_rewards", DEFAULT_GAME_SETTINGS["daily_rewards"])
+            }
         }), 200
 
     except Exception as e:
@@ -337,7 +362,12 @@ def daily_boost():
         if user_data.get("last_boost_date") == today_str:
             return jsonify({"success": False, "error": "لقد استخدمت التسريع اليوم! انتظر لمنتصف الليل."}), 400
 
-        new_rate = float(user_data.get("hourly_rate", 0.0)) + 2.0
+        # جلب قيمة التعزيز ديناميكياً من Firebase
+        game_settings = get_game_settings()
+        mining_cfg = game_settings.get("mining_config", {})
+        boost_amount = float(mining_cfg.get("daily_boost_reward", 2.0))
+
+        new_rate = float(user_data.get("hourly_rate", 0.0)) + boost_amount
         ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
         user_ref.update({
@@ -381,7 +411,10 @@ def daily_claim():
             except Exception: 
                 pass
 
-        daily_rewards = get_game_settings()
+        # جلب المكافآت اليومية ديناميكياً
+        game_settings = get_game_settings()
+        daily_rewards = game_settings.get("daily_rewards", DEFAULT_GAME_SETTINGS["daily_rewards"])
+
         reward_index = min(current_day - 1, len(daily_rewards) - 1)
         reward_amount = daily_rewards[reward_index]
 
