@@ -164,12 +164,15 @@
                 return;
             }
 
+            // تحويل المبلغ لعدد صحيح كـ String بدون أي كسور
+            const cleanNanoTon = String(Math.floor(Number(prepData.nano_ton)));
+
+            // إرسال المعاملة بدون حقل payload لمنع رفض المحفظة للنص العادي
             const transaction = {
                 validUntil: Math.floor(Date.now() / 1000) + 600,
                 messages: [{
                     address: prepData.recipient_address,
-                    amount: prepData.nano_ton,
-                    payload: prepData.payload_memo
+                    amount: cleanNanoTon
                 }]
             };
 
@@ -202,7 +205,12 @@
                 window.PlayerData.hourly_rate = verifyData.result.hourly_rate;
                 window.PlayerData.max_cap = verifyData.result.max_cap;
 
-                if (typeof window.updateUI === 'function') window.updateUI();
+                if (typeof window.updateUI === 'function') {
+                    window.updateUI();
+                } else {
+                    window.updateShopUI();
+                    if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
+                }
             } else {
                 alert("⚠️ " + verifyData.error);
             }
@@ -505,7 +513,6 @@
                     window.PlayerData.usd_balance = resData.usd_balance;
                 }
 
-                // ⚡ تحديث كل واجهات التطبيق فوراً (المتجر + المزرعة)
                 if (typeof window.updateUI === 'function') {
                     window.updateUI();
                 } else {
