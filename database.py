@@ -73,6 +73,8 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "usd_balance": 0.0,
                 "hourly_rate": 0.0,
                 "storage_level": 0,
+                "max_cap": 200.0,
+                "upgrades": {},
                 "banned": False,
                 "wallet_address": None,
                 "referred_by": valid_ref_id,
@@ -169,23 +171,40 @@ def add_referral_earnings(referrer_id, friend_id, amount):
         print(f"❌ Error adding referral earnings: {e}")
         return False
 
-def create_transaction(tg_id, tx_type, amount_usd, wallet_address=None, status="pending"):
+def create_transaction(tg_id, tx_type, amount_usd, wallet_address=None, status="pending", details=None):
+    """
+    تسجيل كافة المعاملات بالتفصيل لتسشيل الاستعلام والمراجعة من قبل الأدمن
+    """
     try:
         if not tg_id: return False
         
         tx_data = {
             "tg_id": str(tg_id),
-            "type": tx_type, 
+            "type": tx_type,  # e.g., 'package_buy', 'mining_upgrade', 'storage_upgrade', 'deposit'
             "amount_usd": float(amount_usd),
             "wallet_address": wallet_address,
-            "status": status,
+            "status": status, # 'pending', 'completed', 'failed'
+            "details": details or {},
             "created_at": firestore.SERVER_TIMESTAMP
         }
         
-        db.collection('transactions').add(tx_data)
-        return True
+        doc_ref = db.collection('transactions').add(tx_data)
+        return doc_ref[1].id
     except Exception as e:
         print(f"❌ Error creating transaction: {e}")
+        return False
+
+def update_transaction_status(tx_id, status, extra_details=None):
+    try:
+        if not tx_id: return False
+        data = {"status": status, "updated_at": firestore.SERVER_TIMESTAMP}
+        if extra_details and isinstance(extra_details, dict):
+            for k, v in extra_details.items():
+                data[f"details.{k}"] = v
+        db.collection('transactions').document(tx_id).update(data)
+        return True
+    except Exception as e:
+        print(f"❌ Error updating transaction {tx_id}: {e}")
         return False
 
 def get_user_transactions(tg_id, limit=30):
