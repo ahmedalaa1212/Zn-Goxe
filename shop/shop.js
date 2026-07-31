@@ -148,9 +148,13 @@
 
             isBuying = true;
 
+            // 1. تجهيز المعاملة
             const prepRes = await fetch('/api/shop/prepare_ton_pay', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `twa ${initData}`
+                },
                 body: JSON.stringify({ 
                     package_id: packageId,
                     initData: initData 
@@ -164,10 +168,8 @@
                 return;
             }
 
-            // تحويل المبلغ لعدد صحيح كـ String بدون أي كسور
             const cleanNanoTon = String(Math.floor(Number(prepData.nano_ton)));
 
-            // إرسال المعاملة بدون حقل payload لمنع رفض المحفظة للنص العادي
             const transaction = {
                 validUntil: Math.floor(Date.now() / 1000) + 600,
                 messages: [{
@@ -176,14 +178,25 @@
                 }]
             };
 
+            // 2. إرسال المعاملة للمحفظة
             const result = await tcInstance.sendTransaction(transaction);
+            
+            // تنظيف معرف المعاملة لتجنب أخطاء مسار الفايرستور
+            let safeBoc = "TX_" + Date.now();
+            if (result && result.boc) {
+                safeBoc = String(result.boc).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32);
+            }
 
+            // 3. تأكيد المعاملة وتطبيق الباقة فوراً
             const verifyRes = await fetch('/api/shop/verify_and_apply_package', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `twa ${initData}`
+                },
                 body: JSON.stringify({
                     package_id: packageId,
-                    boc: result.boc,
+                    boc: safeBoc,
                     initData: initData
                 })
             });
@@ -191,15 +204,15 @@
             const verifyData = await verifyRes.json();
             if (verifyData.success) {
                 triggerHaptic('notification', 'success');
-                alert("🎉 تم تأكيد الدفع وتفعيل الباقة تلقائياً!");
+                alert("🎉 تم تأكيد الدفع وتفعيل الباقة بنجاح!");
 
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
 
+                // تحديث القيم في الواجهة فوراً
                 window.userState.balance = verifyData.result.balance;
                 window.userState.hourly_rate = verifyData.result.hourly_rate;
                 window.userState.max_cap = verifyData.result.max_cap;
-                window.userState.usd_balance = verifyData.result.usd_balance;
 
                 window.PlayerData.balance = verifyData.result.balance;
                 window.PlayerData.hourly_rate = verifyData.result.hourly_rate;
@@ -476,7 +489,10 @@
         try {
             let response = await fetch('/api/shop/buy', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `twa ${initData}`
+                },
                 body: JSON.stringify({ 
                     type: apiType, 
                     level_num: level,
