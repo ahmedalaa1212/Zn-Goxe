@@ -6,6 +6,7 @@ from database import db
 
 farm_bp = Blueprint('farm', __name__)
 
+# سعات المخازن الجديدة المحددة
 STORAGE_CAPACITIES = {
     0: 200.0,
     1: 600.0,
@@ -20,6 +21,7 @@ STORAGE_CAPACITIES = {
     10: 1000000.0
 }
 
+# ترقيات سرعة التعدين المحددة
 UPGRADE_CONFIG = {
     1: {"base_cost": 2000.0, "rate_bonus": 5.0},
     2: {"base_cost": 7000.0, "rate_bonus": 15.0},
@@ -32,15 +34,18 @@ UPGRADE_CONFIG = {
     9: {"base_cost": 3200000.0, "rate_bonus": 4500.0}
 }
 
-# الإعدادات الافتراضية الكاملة للمزرعة
+# الإعدادات الافتراضية الكاملة للمزرعة (20,000 ZN إجمالي 30 يوماً)
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
-        100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
-        600, 600, 650, 650, 700, 700, 750, 750, 800, 800,
-        850, 850, 900, 900, 950, 950, 1000, 1000, 1100, 1250
+        100, 150, 200, 250, 300, 
+        350, 400, 450, 500, 550, 
+        600, 600, 650, 650, 700, 
+        700, 750, 750, 800, 800, 
+        850, 850, 900, 900, 950, 
+        950, 1000, 1000, 1100, 1250
     ],
     "mining_config": {
-        "daily_boost_reward": 2.0  # قيمة الزيادة اليومية في السرعة
+        "daily_boost_reward": 2.0  # زيادة السرعة الدائمة
     }
 }
 
@@ -61,14 +66,12 @@ def get_game_settings():
         
         if config_doc.exists:
             data = config_doc.to_dict()
-            # التأكد من وجود المفاتيح حتى لو تم تعديل جزء منها فقط من الأدمن
             if "daily_rewards" not in data:
                 data["daily_rewards"] = DEFAULT_GAME_SETTINGS["daily_rewards"]
             if "mining_config" not in data:
                 data["mining_config"] = DEFAULT_GAME_SETTINGS["mining_config"]
             return data
         else:
-            # إعادة إنشاء المستند تلقائياً في حالة حذفه من الفايربيس
             config_ref.set(DEFAULT_GAME_SETTINGS)
             print("⚙️ تم إنشاء مستند config/game_settings تلقائياً في Firebase.")
             return DEFAULT_GAME_SETTINGS
@@ -133,6 +136,7 @@ def get_player_data():
         max_cap = get_storage_capacity(storage_level)
         user_data["max_cap"] = max_cap
 
+        # عقوبة عدم الدخول يومياً: إعادة العداد لليوم 1 إذا مرت 24 ساعة بدون استلام
         last_daily_date = user_data.get("last_daily_claim_date")
         if last_daily_date:
             try:
@@ -173,7 +177,6 @@ def get_player_data():
             "last_claim_time": now.isoformat()
         })
         
-        # جلب الإعدادات المحدثة ديناميكياً
         game_settings = get_game_settings()
 
         return jsonify({
@@ -309,7 +312,7 @@ def upgrade_level():
                     return None, "يجب فتح المستوى السابق أولاً", 400
 
             cfg = UPGRADE_CONFIG.get(level, {"base_cost": 2000.0, "rate_bonus": 5.0})
-            cost = cfg["base_cost"] * (1.5 ** current_count)
+            cost = cfg["base_cost"]
             rate_bonus = cfg["rate_bonus"]
 
             current_balance = float(user_data.get("balance", 0.0))
@@ -362,11 +365,11 @@ def daily_boost():
         if user_data.get("last_boost_date") == today_str:
             return jsonify({"success": False, "error": "لقد استخدمت التسريع اليوم! انتظر لمنتصف الليل."}), 400
 
-        # جلب قيمة التعزيز ديناميكياً من Firebase
         game_settings = get_game_settings()
         mining_cfg = game_settings.get("mining_config", {})
         boost_amount = float(mining_cfg.get("daily_boost_reward", 2.0))
 
+        # زيادة سرعة التعدين الأساسية دائماً مدى الحياة
         new_rate = float(user_data.get("hourly_rate", 0.0)) + boost_amount
         ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
@@ -402,6 +405,7 @@ def daily_claim():
         if last_daily_date == today_str:
             return jsonify({"success": False, "error": "لقد استلمت المكافأة اليوم بالفعل!"}), 400
 
+        # شرط العودة للصفر: إذا فات يوم بدون استلام، يتم التصفير لليوم 1
         if last_daily_date:
             try:
                 last_date_obj = datetime.strptime(last_daily_date, '%Y-%m-%d').date()
@@ -411,15 +415,17 @@ def daily_claim():
             except Exception: 
                 pass
 
-        # جلب المكافآت اليومية ديناميكياً
         game_settings = get_game_settings()
         daily_rewards = game_settings.get("daily_rewards", DEFAULT_GAME_SETTINGS["daily_rewards"])
 
+        # جلب المكافأة حسب اليوم الحالي (بحد أقصى اليوم 30)
         reward_index = min(current_day - 1, len(daily_rewards) - 1)
         reward_amount = daily_rewards[reward_index]
 
         new_balance = float(user_data.get("balance", 0.0)) + reward_amount
-        next_day = current_day + 1 if current_day < len(daily_rewards) else len(daily_rewards)
+        
+        # بعد اليوم 30، يستمر في الحصول على مكافأة اليوم 30 طالما لم يقطع السلسلة
+        next_day = current_day + 1
         ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
         user_ref.update({
