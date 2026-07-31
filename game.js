@@ -6,15 +6,10 @@ const tg = window.Telegram?.WebApp;
 if (tg) {
     tg.ready();
     tg.expand();
-    if (tg.enableClosingConfirmation) {
-        tg.enableClosingConfirmation();
-    }
-    if (tg.setHeaderColor) {
-        tg.setHeaderColor('secondary_bg_color');
-    }
+    if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
+    if (tg.setHeaderColor) tg.setHeaderColor('secondary_bg_color');
 }
 
-// الكائن الداخلي للبيانات الموحدة
 const rawUserState = {
     tg_id: null,
     first_name: "لاعب",
@@ -23,8 +18,7 @@ const rawUserState = {
     ad_balance: 0.0,
     hourly_rate: 0.0,
     energy: 100.0,
-    mining_level: 1,
-    storage_level: 1,
+    storage_level: 0,
     upgrades: {},
     wallet_address: null
 };
@@ -40,36 +34,23 @@ function saveLocalState() {
 function loadLocalState() {
     try {
         const saved = localStorage.getItem('app_user_state');
-        if (saved) {
-            Object.assign(rawUserState, JSON.parse(saved));
-        }
+        if (saved) Object.assign(rawUserState, JSON.parse(saved));
     } catch (e) {
         console.warn("تعذر تحميل البيانات المحلية", e);
     }
 }
 
-loadLocalState(); // تشغيل فوري لتسريع ظهور البيانات
+loadLocalState();
 
-// ==========================================
-// Proxy الذكي واللحظي (القلب النابض للتطبيق)
-// أي تغيير للرصيد أو الطاقة أو السرعة في أي قائمة
-// سيقوم الـ Proxy تلقائياً بتحديث واجهة التطبيق فوراً ونشر الحدث
-// ==========================================
 window.userState = new Proxy(rawUserState, {
     set(target, prop, value) {
         target[prop] = value;
-        
-        // مصفوفة المتغيرات التي تتطلب تحديثاً فورياً للشاشات
-        const monitoredProps = ['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'mining_level', 'storage_level'];
+        const monitoredProps = ['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level'];
         
         if (monitoredProps.includes(prop)) {
             saveLocalState();
-            
-            if (typeof window.updateUI === 'function') {
-                window.updateUI();
-            }
+            if (typeof window.updateUI === 'function') window.updateUI();
 
-            // إطلاق حدث عام لجميع القوائم لاستقبال التحديث في نفس اللحظة
             window.dispatchEvent(new CustomEvent('userStateUpdated', {
                 detail: { prop, value, state: target }
             }));
@@ -82,9 +63,7 @@ window.userState = new Proxy(rawUserState, {
    2. API Communication Utility
    ========================================== */
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
-    const headers = {
-        'Content-Type': 'application/json'
-    };
+    const headers = { 'Content-Type': 'application/json' };
 
     if (tg && tg.initData) {
         headers['X-Telegram-Init-Data'] = tg.initData;
@@ -92,9 +71,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     }
 
     const options = { method, headers };
-    if (bodyData) {
-        options.body = JSON.stringify(bodyData);
-    }
+    if (bodyData) options.body = JSON.stringify(bodyData);
 
     try {
         const response = await fetch(endpoint, options);
@@ -114,11 +91,8 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     }
 };
 
-// توافقية مع الكود القديم
-const fetchAPI = window.fetchAPI;
-
 /* ==========================================
-   3. UI Builders & Formatters (التحديث اللحظي الشامل)
+   3. UI Builders & Formatters (التحديث اللحظي الموحد)
    ========================================== */
 window.updateUI = function() {
     try {
@@ -134,7 +108,6 @@ window.updateUI = function() {
         const hourlyFormatted = rawRate.toLocaleString('en-US', { maximumFractionDigits: 0 });
         const energyFormatted = rawEnergy.toLocaleString('en-US', { maximumFractionDigits: 0 });
 
-        // 1. التحديث المباشر عبر وسم data-bind (أسرع وأدق طريقة لجميع القوائم)
         document.querySelectorAll('[data-bind="balance"]').forEach(el => {
             if (el.tagName === 'INPUT') el.value = znFormatted;
             else el.innerText = znFormatted;
@@ -152,7 +125,7 @@ window.updateUI = function() {
 
         document.querySelectorAll('[data-bind="hourly_rate"]').forEach(el => {
             if (el.tagName === 'INPUT') el.value = hourlyFormatted;
-            else el.innerText = `h/${hourlyFormatted}`;
+            else el.innerText = `⚡ ${hourlyFormatted}/h`;
         });
 
         document.querySelectorAll('[data-bind="energy"]').forEach(el => {
@@ -160,57 +133,12 @@ window.updateUI = function() {
             else el.innerText = energyFormatted;
         });
 
-        // 2. تحديث عناصر ZN المعرفة عبر المعرفات والتسميات التقليدية
-        const allZnElements = document.querySelectorAll('[id*="balance"], [id*="zn"], .zn-balance, .balance-text');
-        allZnElements.forEach(el => {
-            if (el.hasAttribute('data-bind')) return;
-            if (el.tagName === 'INPUT') {
-                el.value = znFormatted;
-                return;
-            }
-            const text = el.innerText || "";
-            if (text.includes('ZN') || el.id.includes('zn-balance') || el.id === 'user-balance' || el.id.includes('shop-balance')) {
-                if (text.includes('رصيد ZN:')) el.innerText = `رصيد ZN: ${znFormatted}`;
-                else if (text.includes('ZN:')) el.innerText = `ZN: ${znFormatted}`;
-                else if (text.includes('ZN ')) el.innerText = `ZN ${znFormatted}`;
-                else if (!text.includes('$') && !text.includes('USD')) el.innerText = znFormatted;
-            }
-        });
-
-        // 3. تحديث عناصر USD المعرفة عبر المعرفات
-        const allUsdElements = document.querySelectorAll('[id*="usd"], .usd-balance');
-        allUsdElements.forEach(el => {
-            if (el.hasAttribute('data-bind')) return;
-            if (el.tagName === 'INPUT') {
-                el.value = usdFormatted;
-                return;
-            }
-            const text = el.innerText || "";
-            if (text.includes('$') || text.includes('USD') || el.id.includes('usd')) {
-                if (text.includes('USD $')) el.innerText = `USD $${usdFormatted}`;
-                else el.innerText = `$${usdFormatted}`; 
-            }
-        });
-
-        // 4. تحديث سرعة التعدين
-        const allRateElements = document.querySelectorAll('[id*="rate"], [id*="speed"], [id*="hourly"]');
-        allRateElements.forEach(el => {
-            if (el.hasAttribute('data-bind')) return;
-            if (el.tagName === 'INPUT') {
-                el.value = hourlyFormatted;
-                return;
-            }
-            const text = el.innerText || "";
-            if (text.includes('h/')) el.innerText = `h/${hourlyFormatted}`;
-        });
-
-        // تشغيل أي خطافات (Hooks) للواجهات المفتوحة حالياً
         if (typeof window.updateShopUI === 'function') window.updateShopUI();
         if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
         if (typeof window.updateTasksUI === 'function') window.updateTasksUI();
 
     } catch (error) {
-        console.error("خطأ صامت في تحديث الواجهة:", error);
+        console.error("خطأ في تحديث الواجهة:", error);
     }
 };
 
@@ -226,19 +154,16 @@ window.loadUserData = async function() {
     try {
         const data = await window.fetchAPI('/api/user/info');
         if (data && data.success) {
-            // التعديل هنا سيُشغّل الـ Proxy تلقائياً لتحديث كل الشاشات
             if (data.balance !== undefined) window.userState.balance = parseFloat(data.balance);
             if (data.usd_balance !== undefined) window.userState.usd_balance = parseFloat(data.usd_balance);
             if (data.ad_balance !== undefined) window.userState.ad_balance = parseFloat(data.ad_balance);
             if (data.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(data.hourly_rate);
             if (data.energy !== undefined) window.userState.energy = parseFloat(data.energy);
             if (data.storage_level !== undefined) window.userState.storage_level = parseInt(data.storage_level);
-            if (data.mining_level !== undefined) window.userState.mining_level = parseInt(data.mining_level);
             if (data.upgrades !== undefined) window.userState.upgrades = data.upgrades;
             if (data.wallet_address !== undefined) window.userState.wallet_address = data.wallet_address;
         }
     } catch (e) {
-        console.log("استخدام البيانات المحلية لحين توفر الاتصال.");
         window.updateUI(); 
     } finally {
         isUserDataFetching = false;
@@ -312,7 +237,7 @@ window.executeConvertZN = async function(amount) {
         if (res.success) {
             window.userState.usd_balance = res.new_usd_balance;
             window.userState.balance = res.new_balance;
-            alert(`تم تحويل ${parseFloat(amount).toLocaleString()} ZN بنجاح إلى $${parseFloat(res.usd_gained).toLocaleString('en-US', {minimumFractionDigits:4})}!`);
+            alert(`تم تحويل ${parseFloat(amount).toLocaleString()} ZN بنجاح!`);
             window.loadWalletHistory();
         }
     } catch (e) {
@@ -328,7 +253,7 @@ window.executeWithdraw = async function(amountUSD, address) {
         });
         if (res.success) {
             window.userState.usd_balance = res.new_usd_balance;
-            alert(`تم إرسال طلب السحب بنجاح وهي قيد المعالجة!`);
+            alert(`تم إرسال طلب السحب بنجاح!`);
             window.loadWalletHistory();
         }
     } catch (e) {
@@ -337,25 +262,21 @@ window.executeWithdraw = async function(amountUSD, address) {
 };
 
 /* ==========================================
-   6. Realtime Auto-Sync & Initialization
+   6. Realtime Initialization
    ========================================== */
 document.addEventListener('DOMContentLoaded', () => {
     window.updateUI(); 
     window.loadUserData(); 
     
     const historyBtn = document.getElementById('open-history-btn');
-    if (historyBtn) {
-        historyBtn.addEventListener('click', window.loadWalletHistory);
-    }
+    if (historyBtn) historyBtn.addEventListener('click', window.loadWalletHistory);
 
-    // مزامنة دورية كل 3 ثوانٍ لضمان الشفافية التامة عبر البوت والمهام
+    // فحص دوري خفيف ومُحدد لمنع الضغط على السيرفر
     setInterval(() => {
         window.loadUserData();
-    }, 3000); 
+    }, 15000); 
 
     document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) {
-            window.loadUserData();
-        }
+        if (!document.hidden) window.loadUserData();
     });
 });
