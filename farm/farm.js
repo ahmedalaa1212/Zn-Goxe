@@ -52,13 +52,17 @@
         isFetching = true;
         try {
             let resData = await window.fetchAPI('/api/farm/player_data', 'POST', { start_param: START_PARAM });
-            if (resData && resData.success) {
-                window.PlayerData = resData.player || {};
-                if (resData.player && resData.player.balance !== undefined) {
+            if (resData && resData.success && resData.player) {
+                window.PlayerData = resData.player;
+                
+                if (resData.player.balance !== undefined) {
                     window.userState.balance = resData.player.balance;
                 }
-                if (resData.player && resData.player.hourly_rate !== undefined) {
+                if (resData.player.hourly_rate !== undefined) {
                     window.userState.hourly_rate = resData.player.hourly_rate;
+                }
+                if (resData.player.upgrades !== undefined) {
+                    window.userState.upgrades = resData.player.upgrades;
                 }
                 if (resData.game_config && resData.game_config.daily_rewards) {
                     GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
@@ -79,23 +83,36 @@
     window.updateFarmUI = function() {
         const pData = window.PlayerData || {};
         
-        pData.balance = window.userState.balance !== undefined ? window.userState.balance : (pData.balance || 0);
-        pData.hourly_rate = window.userState.hourly_rate !== undefined ? window.userState.hourly_rate : (pData.hourly_rate || 0);
+        const currentHourlyRate = (window.userState.hourly_rate && window.userState.hourly_rate > 0) 
+            ? window.userState.hourly_rate 
+            : (pData.hourly_rate || 0);
 
-        // --- إصلاح المشكلة: تحديث الرصيد والسرعة في أعلى الصفحة ---
+        const currentBalance = (window.userState.balance !== undefined) 
+            ? window.userState.balance 
+            : (pData.balance || 0);
+
+        pData.hourly_rate = currentHourlyRate;
+        pData.balance = currentBalance;
+
+        // تحديث الرصيد والسرعة في الأعلى
         document.querySelectorAll('[data-bind="hourly_rate"]').forEach(el => {
-            el.innerText = formatCompactNumber(pData.hourly_rate || 0);
+            el.innerText = formatCompactNumber(currentHourlyRate);
         });
         document.querySelectorAll('[data-bind="balance"]').forEach(el => {
-            el.innerText = Math.floor(pData.balance || 0).toLocaleString();
+            el.innerText = Math.floor(currentBalance).toLocaleString();
         });
 
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
             let fieldsHTML = '';
+            const userUpgrades = pData.upgrades || window.userState.upgrades || {};
+
             for (let i = 1; i <= 9; i++) {
-                let count = parseInt((pData.upgrades && pData.upgrades[`lvl${i}`]) || 0);
-                let isUnlocked = (i === 1) || (parseInt((pData.upgrades && pData.upgrades[`lvl${i-1}`]) || 0) > 0);
+                let count = parseInt(userUpgrades[`lvl${i}`] || 0);
+                let prevCount = parseInt(userUpgrades[`lvl${i-1}`] || 0);
+                
+                // فتح الكارت إذا كان المستوى الأول، أو المستوى السابق مشتري، أو هذا المستوى تم شراؤه مسبقاً
+                let isUnlocked = (i === 1) || (prevCount > 0) || (count > 0);
                 let isMax = count >= GAME_CONFIG.maxUpgradesPerLevel;
                 
                 if (isMax) {
