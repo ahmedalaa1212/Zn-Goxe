@@ -45,7 +45,8 @@ function loadLocalState() {
     try {
         const saved = localStorage.getItem('app_user_state');
         if (saved) {
-            Object.assign(rawUserState, JSON.parse(saved));
+            const parsed = JSON.parse(saved);
+            Object.assign(rawUserState, parsed);
         }
     } catch (e) {
         console.warn("تعذر تحميل البيانات المحلية", e);
@@ -130,7 +131,7 @@ window.updateUI = function() {
         const znFormatted = Math.floor(rawBalance).toLocaleString('en-US');
         const usdFormatted = rawUsd.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
         const adFormatted = Math.floor(rawAd).toLocaleString('en-US');
-        const hourlyFormatted = Math.floor(rawRate).toLocaleString('en-US');
+        const hourlyFormatted = Number.isInteger(rawRate) ? rawRate.toString() : rawRate.toFixed(1);
         const energyFormatted = Math.floor(rawEnergy).toLocaleString('en-US');
 
         // 1. التحديث المباشر عبر وسم data-bind
@@ -228,7 +229,9 @@ window.loadUserData = async function() {
             if (data.balance !== undefined) window.userState.balance = parseFloat(data.balance);
             if (data.usd_balance !== undefined) window.userState.usd_balance = parseFloat(data.usd_balance);
             if (data.ad_balance !== undefined) window.userState.ad_balance = parseFloat(data.ad_balance);
-            if (data.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(data.hourly_rate);
+            if (data.hourly_rate !== undefined && parseFloat(data.hourly_rate) > 0) {
+                window.userState.hourly_rate = parseFloat(data.hourly_rate);
+            }
             if (data.energy !== undefined) window.userState.energy = parseFloat(data.energy);
             if (data.storage_level !== undefined) window.userState.storage_level = parseInt(data.storage_level);
             if (data.mining_level !== undefined) window.userState.mining_level = parseInt(data.mining_level);
