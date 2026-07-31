@@ -6,29 +6,67 @@ from firebase_admin import credentials, firestore
 db = None
 
 def ensure_game_settings_exist():
-    """دالة الفحص والإنشاء التلقائي للخرائط الإعدادية في Firestore"""
+
+
+    def ensure_game_settings_exist():
+    """دالة الفحص والتحديث التلقائي لكافة إعدادات اللعبة في Firestore حسب الخطة الاقتصادية"""
     global db
     if not db:
         return
     try:
         settings_ref = db.collection('config').document('game_settings')
-        doc_snap = settings_ref.get()
 
-        # القيم الافتراضية لترقيات السرعة
-        default_speed_config = {
+        # 1. مكافآت الـ 30 يوم الدقيقة (إجمالي 20,000 ZN)
+        exact_daily_rewards = {
+            "day_1": 100,   "day_2": 150,   "day_3": 200,   "day_4": 250,   "day_5": 300,
+            "day_6": 350,   "day_7": 400,   "day_8": 450,   "day_9": 500,   "day_10": 550,
+            "day_11": 600,  "day_12": 600,  "day_13": 650,  "day_14": 650,  "day_15": 700,
+            "day_16": 700,  "day_17": 750,  "day_18": 750,  "day_19": 800,  "day_20": 800,
+            "day_21": 850,  "day_22": 850,  "day_23": 900,  "day_24": 900,  "day_25": 950,
+            "day_26": 950,  "day_27": 1000, "day_28": 1000, "day_29": 1100, "day_30": 1250
+        }
+
+        # 2. ترقيات سرعة التعدين (9 مستويات - حد أقصى 10 شراء لكل مستوى)
+        exact_speed_config = {
             "1": {"price": 2000, "rate": 5, "max": 10},
             "2": {"price": 7000, "rate": 15, "max": 10},
             "3": {"price": 18000, "rate": 35, "max": 10},
-            "4": {"price": 45000, "rate": 80, "max": 10}
+            "4": {"price": 45000, "rate": 80, "max": 10},
+            "5": {"price": 110000, "rate": 180, "max": 10},
+            "6": {"price": 260000, "rate": 400, "max": 10},
+            "7": {"price": 600000, "rate": 900, "max": 10},
+            "8": {"price": 1400000, "rate": 2000, "max": 10},
+            "9": {"price": 3200000, "rate": 4500, "max": 10}
         }
 
-        # القيم الافتراضية للـ 30 يوم مكافآت
-        default_daily_rewards = {
-            f"day_{i}": 20000 if i == 30 else i * 500
-            for i in range(1, 31)
+        # 3. سعات وأسعار المخازن (المستوى الافتراضي + 10 مستويات)
+        exact_storage_config = {
+            "0": {"capacity": 200, "price": 0},
+            "1": {"capacity": 600, "price": 3000},
+            "2": {"capacity": 1500, "price": 10000},
+            "3": {"capacity": 3500, "price": 25000},
+            "4": {"capacity": 8000, "price": 65000},
+            "5": {"capacity": 18000, "price": 160000},
+            "6": {"capacity": 40000, "price": 400000},
+            "7": {"capacity": 90000, "price": 950000},
+            "8": {"capacity": 200000, "price": 2200000},
+            "9": {"capacity": 450000, "price": 5000000},
+            "10": {"capacity": 1000000, "price": 12000000}
         }
 
-        if not doc_snap.exists:
+        # تحديث المستند في الفايرستور وإعادة كتابة الخرائط بالبيانات الصحيحة
+        settings_ref.set({
+            "daily_rewards": exact_daily_rewards,
+            "speed_config": exact_speed_config,
+            "storage_config": exact_storage_config,
+            "daily_ad_boost_rate": 2  # زيادة التعدين الدائمة عند مشاهدة إعلان مونيتاج (+2 ZN/ساعة)
+        }, merge=True)
+
+        print("✅ تم تحديث بيانات game_settings في Firestore بالقيم الاقتصادية الصحيحة!")
+
+    except Exception as e:
+        print(f"❌ خطأ أثناء تحديث إعدادات اللعبة تلقائياً: {e}")
+
             # لو المستند غير موجود أصلاً يتم إنشاؤه بالكامل
             settings_ref.set({
                 "speed_config": default_speed_config,
