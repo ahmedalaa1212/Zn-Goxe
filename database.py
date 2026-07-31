@@ -46,7 +46,7 @@ def ensure_game_settings_exist():
             "5": {"capacity": 18000, "price": 160000},
             "6": {"capacity": 40000, "price": 400000},
             "7": {"capacity": 90000, "price": 950000},
-            "8": {"capacity": 200000, "price": 2200000},
+            "8": {"capacity": 220000, "price": 2200000},
             "9": {"capacity": 450000, "price": 5000000},
             "10": {"capacity": 1000000, "price": 12000000}
         }
