@@ -61,7 +61,7 @@
                 window.updateShopUI();
             }
         } catch (e) {
-            console.error("خطأ في تحميل إعدادات الفايربيس للمتجر:", e);
+            console.error("خطأ في تحميل إعدادات المتجر:", e);
         }
     }
 
@@ -302,7 +302,7 @@
         const storageSec = document.getElementById('shop-storage-section');
         if (!miningSec || !storageSec) return;
 
-        const pData = window.userState || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0, usd_balance: 0 };
+        const pData = window.userState || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 1, usd_balance: 0 };
         let totalBal = parseFloat(pData.balance || 0);
 
         const usdElem = document.getElementById('shop-usd-text');
@@ -353,7 +353,7 @@
         };
 
         let storageHtml = '';
-        let currentStorageLvl = parseInt(pData.storage_level || 0); 
+        let currentStorageLvl = parseInt(pData.storage_level || 1); 
 
         for (const [iStr, cfg] of Object.entries(storageCfg)) {
             let i = parseInt(iStr);
