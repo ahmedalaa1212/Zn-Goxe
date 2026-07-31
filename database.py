@@ -172,18 +172,15 @@ def add_referral_earnings(referrer_id, friend_id, amount):
         return False
 
 def create_transaction(tg_id, tx_type, amount_usd, wallet_address=None, status="pending", details=None):
-    """
-    تسجيل كافة المعاملات بالتفصيل لتسشيل الاستعلام والمراجعة من قبل الأدمن
-    """
     try:
         if not tg_id: return False
         
         tx_data = {
             "tg_id": str(tg_id),
-            "type": tx_type,  # e.g., 'package_buy', 'mining_upgrade', 'storage_upgrade', 'deposit'
+            "type": tx_type,
             "amount_usd": float(amount_usd),
             "wallet_address": wallet_address,
-            "status": status, # 'pending', 'completed', 'failed'
+            "status": status,
             "details": details or {},
             "created_at": firestore.SERVER_TIMESTAMP
         }
