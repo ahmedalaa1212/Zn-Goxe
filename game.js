@@ -32,6 +32,11 @@ const rawUserState = {
 function saveLocalState() {
     try {
         localStorage.setItem('app_user_state', JSON.stringify(window.userState));
+        // مزامنة المفاتيح الاحتياطية لضمان عدم حدوث تعارض مع ملفات قديمة
+        localStorage.setItem('zn_balance', window.userState.balance.toString());
+        localStorage.setItem('zngoxe_balance', window.userState.balance.toString());
+        localStorage.setItem('zngoxe_usd_balance', window.userState.usd_balance.toString());
+        localStorage.setItem('zngoxe_hourly_rate', window.userState.hourly_rate.toString());
     } catch (e) {
         console.warn("تعذر الحفظ في LocalStorage", e);
     }
@@ -52,28 +57,27 @@ loadLocalState(); // تشغيل فوري لتسريع ظهور البيانات
 
 // ==========================================
 // Proxy الذكي واللحظي (القلب النابض للتطبيق)
-// أي تغيير للرصيد أو الطاقة أو السرعة في أي قائمة
-// سيقوم الـ Proxy تلقائياً بتحديث واجهة التطبيق فوراً ونشر الحدث
 // ==========================================
 window.userState = new Proxy(rawUserState, {
     set(target, prop, value) {
-        target[prop] = value;
-        
-        // مصفوفة المتغيرات التي تتطلب تحديثاً فورياً للشاشات
-        const monitoredProps = ['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'mining_level', 'storage_level'];
-        
-        if (monitoredProps.includes(prop)) {
-            saveLocalState();
-            
-            if (typeof window.updateUI === 'function') {
-                window.updateUI();
-            }
-
-            // إطلاق حدث عام لجميع القوائم لاستقبال التحديث في نفس اللحظة
-            window.dispatchEvent(new CustomEvent('userStateUpdated', {
-                detail: { prop, value, state: target }
-            }));
+        const numericProps = ['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'mining_level', 'storage_level'];
+        if (numericProps.includes(prop)) {
+            target[prop] = parseFloat(value) || 0;
+        } else {
+            target[prop] = value;
         }
+        
+        saveLocalState();
+        
+        if (typeof window.updateUI === 'function') {
+            window.updateUI();
+        }
+
+        // إطلاق حدث عام لجميع القوائم استقبال التحديث في نفس اللحظة
+        window.dispatchEvent(new CustomEvent('userStateUpdated', {
+            detail: { prop, value: target[prop], state: target }
+        }));
+
         return true;
     }
 });
@@ -114,7 +118,6 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     }
 };
 
-// توافقية مع الكود القديم
 const fetchAPI = window.fetchAPI;
 
 /* ==========================================
@@ -128,11 +131,11 @@ window.updateUI = function() {
         const rawRate = parseFloat(window.userState.hourly_rate || 0);
         const rawEnergy = parseFloat(window.userState.energy || 0);
 
-        const znFormatted = rawBalance.toLocaleString('en-US', { maximumFractionDigits: 0 });
+        const znFormatted = Math.floor(rawBalance).toLocaleString('en-US');
         const usdFormatted = rawUsd.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-        const adFormatted = rawAd.toLocaleString('en-US', { maximumFractionDigits: 0 });
-        const hourlyFormatted = rawRate.toLocaleString('en-US', { maximumFractionDigits: 0 });
-        const energyFormatted = rawEnergy.toLocaleString('en-US', { maximumFractionDigits: 0 });
+        const adFormatted = Math.floor(rawAd).toLocaleString('en-US');
+        const hourlyFormatted = Math.floor(rawRate).toLocaleString('en-US');
+        const energyFormatted = Math.floor(rawEnergy).toLocaleString('en-US');
 
         // 1. التحديث المباشر عبر وسم data-bind (أسرع وأدق طريقة لجميع القوائم)
         document.querySelectorAll('[data-bind="balance"]').forEach(el => {
@@ -152,7 +155,7 @@ window.updateUI = function() {
 
         document.querySelectorAll('[data-bind="hourly_rate"]').forEach(el => {
             if (el.tagName === 'INPUT') el.value = hourlyFormatted;
-            else el.innerText = `h/${hourlyFormatted}`;
+            else el.innerText = hourlyFormatted;
         });
 
         document.querySelectorAll('[data-bind="energy"]').forEach(el => {
@@ -161,7 +164,7 @@ window.updateUI = function() {
         });
 
         // 2. تحديث عناصر ZN المعرفة عبر المعرفات والتسميات التقليدية
-        const allZnElements = document.querySelectorAll('[id*="balance"], [id*="zn"], .zn-balance, .balance-text');
+        const allZnElements = document.querySelectorAll('[id*="balance"], [id*="zn"], .zn-balance, .balance-text, .zn-balance-display');
         allZnElements.forEach(el => {
             if (el.hasAttribute('data-bind')) return;
             if (el.tagName === 'INPUT') {
@@ -169,11 +172,11 @@ window.updateUI = function() {
                 return;
             }
             const text = el.innerText || "";
-            if (text.includes('ZN') || el.id.includes('zn-balance') || el.id === 'user-balance' || el.id.includes('shop-balance')) {
+            if (text.includes('ZN') || el.id.includes('zn-balance') || el.id === 'user-balance' || el.id.includes('shop-balance') || el.id === 'farm-balance') {
                 if (text.includes('رصيد ZN:')) el.innerText = `رصيد ZN: ${znFormatted}`;
                 else if (text.includes('ZN:')) el.innerText = `ZN: ${znFormatted}`;
                 else if (text.includes('ZN ')) el.innerText = `ZN ${znFormatted}`;
-                else if (!text.includes('$') && !text.includes('USD')) el.innerText = znFormatted;
+                else if (!text.includes('$') && !text.includes('USD')) el.innerText = `ZN: ${znFormatted}`;
             }
         });
 
@@ -201,7 +204,7 @@ window.updateUI = function() {
                 return;
             }
             const text = el.innerText || "";
-            if (text.includes('h/')) el.innerText = `h/${hourlyFormatted}`;
+            if (text.includes('h/') || text.includes('/h') || el.id === 'farm-rate') el.innerText = `⚡ ${hourlyFormatted}/h`;
         });
 
         // تشغيل أي خطافات (Hooks) للواجهات المفتوحة حالياً
@@ -226,7 +229,6 @@ window.loadUserData = async function() {
     try {
         const data = await window.fetchAPI('/api/user/info');
         if (data && data.success) {
-            // التعديل هنا سيُشغّل الـ Proxy تلقائياً لتحديث كل الشاشات
             if (data.balance !== undefined) window.userState.balance = parseFloat(data.balance);
             if (data.usd_balance !== undefined) window.userState.usd_balance = parseFloat(data.usd_balance);
             if (data.ad_balance !== undefined) window.userState.ad_balance = parseFloat(data.ad_balance);
@@ -348,7 +350,6 @@ document.addEventListener('DOMContentLoaded', () => {
         historyBtn.addEventListener('click', window.loadWalletHistory);
     }
 
-    // مزامنة دورية كل 3 ثوانٍ لضمان الشفافية التامة عبر البوت والمهام
     setInterval(() => {
         window.loadUserData();
     }, 3000); 
