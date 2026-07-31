@@ -4,6 +4,45 @@
         window.Telegram.WebApp.ready();
     }
 
+    // دوال المزامنة المركزية (الـ Cache) - من القواعد الذهبية
+    function getStoredBalance() {
+        let bal = localStorage.getItem('userBalance');
+        return bal ? parseFloat(bal) : (window.GameState?.balance || 0);
+    }
+
+    function setStoredBalance(val) {
+        let numVal = parseFloat(val) || 0;
+        localStorage.setItem('userBalance', numVal);
+        if (window.GameState) window.GameState.balance = numVal;
+    }
+
+    function getStoredAdBalance() {
+        let adBal = localStorage.getItem('userAdBalance');
+        return adBal ? parseFloat(adBal) : (window.GameState?.ad_balance || 0);
+    }
+
+    function setStoredAdBalance(val) {
+        let numVal = parseFloat(val) || 0;
+        localStorage.setItem('userAdBalance', numVal);
+        if (window.GameState) window.GameState.ad_balance = numVal;
+    }
+
+    // التايمر السحري للمزامنة اللحظية للرصيد
+    setInterval(() => {
+        const currentBal = getStoredBalance();
+        const currentAdBal = getStoredAdBalance();
+        
+        const topBal = document.getElementById('top-balance-tasks');
+        if (topBal) {
+            topBal.innerText = `ZN ${Math.floor(currentBal).toLocaleString()}`;
+        }
+        
+        const adBalDisplay = document.getElementById('ad-balance-display');
+        if (adBalDisplay) {
+            adBalDisplay.innerText = `AdZN ${Math.floor(currentAdBal).toLocaleString()}`;
+        }
+    }, 1000); // يفحص كل ثانية
+
     window.taskStates = window.taskStates || {};
     window.accumulatedOutsideTime = window.accumulatedOutsideTime || {};
     window.lastGoOutside = window.lastGoOutside || {};
@@ -15,7 +54,6 @@
     let isVerifyingTask = false;
     let currentAdType = 'يوتيوب';
 
-    // دالة حماية وتطهير النصوص من هجمات XSS
     function escapeHtml(str) {
         if (!str) return '';
         return String(str)
@@ -74,14 +112,6 @@
         if (typeof window.updateGlobalUI === 'function') {
             window.updateGlobalUI();
         }
-        const topBal = document.getElementById('top-balance-tasks');
-        if (topBal && window.GameState?.balance !== undefined) {
-            topBal.innerText = `ZN ${Math.floor(window.GameState.balance).toLocaleString()}`;
-        }
-        const adBalDisplay = document.getElementById('ad-balance-display');
-        if (adBalDisplay && window.GameState?.ad_balance !== undefined) {
-            adBalDisplay.innerText = `AdZN ${Math.floor(window.GameState.ad_balance).toLocaleString()}`;
-        }
         window.fetchAndRenderTasks();
     };
 
@@ -111,19 +141,8 @@
                         if (window.GameState) window.GameState.userId = myId;
                     }
 
-                    if (window.GameState) {
-                        if (data.ad_balance !== undefined) window.GameState.ad_balance = data.ad_balance;
-                        if (data.balance !== undefined) window.GameState.balance = data.balance;
-                    }
-
-                    const topBal = document.getElementById('top-balance-tasks');
-                    if (topBal && window.GameState?.balance !== undefined) {
-                        topBal.innerText = `ZN ${Math.floor(window.GameState.balance).toLocaleString()}`;
-                    }
-                    const adBalDisplay = document.getElementById('ad-balance-display');
-                    if (adBalDisplay && window.GameState?.ad_balance !== undefined) {
-                        adBalDisplay.innerText = `AdZN ${Math.floor(window.GameState.ad_balance).toLocaleString()}`;
-                    }
+                    if (data.ad_balance !== undefined) setStoredAdBalance(data.ad_balance);
+                    if (data.balance !== undefined) setStoredBalance(data.balance);
                 }
             }
         } catch (e) { console.warn("خطأ جلب المهام", e); }
@@ -380,12 +399,9 @@
             let result = await response.json();
             
             if (response.ok && result.success) {
-                if (window.GameState) {
-                    if (result.new_balance !== undefined) {
-                        window.GameState.balance = Number(result.new_balance);
-                    } else {
-                        window.GameState.balance += Number(reward);
-                    }
+                // مزامنة الرصيد الجديد عبر دوال الحفظ
+                if (result.new_balance !== undefined) {
+                    setStoredBalance(result.new_balance);
                 }
                 
                 delete window.taskStates[taskId];
@@ -426,10 +442,9 @@
             let result = await response.json();
             if (response.ok && result.success) {
                 alert(`✅ تم إلغاء حملتك بنجاح وإرجاع الميزانية المتبقية لمحفظتك!`);
-                if (window.GameState && result.new_ad_balance !== undefined) {
-                    window.GameState.ad_balance = Number(result.new_ad_balance);
-                } else if (window.GameState && result.refund !== undefined) {
-                    window.GameState.ad_balance += Number(result.refund);
+                // مزامنة رصيد الإعلانات
+                if (result.new_ad_balance !== undefined) {
+                    setStoredAdBalance(result.new_ad_balance);
                 }
                 window.fetchAndRenderTasks();
             } else { 
@@ -452,7 +467,7 @@
             return;
         }
 
-        let currentBal = window.GameState ? window.GameState.balance : 0;
+        let currentBal = getStoredBalance();
         if (currentBal < amount) {
             alert("⚠️ رصيد ZN الحالي غير كافٍ للعملية!");
             return;
@@ -469,10 +484,9 @@
             if (response.ok && result.success) {
                 alert(`✅ شحن ناجح! تمت عملية التحويل لمحفظتك بنجاح.`);
                 
-                if (window.GameState) {
-                    if (result.new_balance !== undefined) window.GameState.balance = Number(result.new_balance);
-                    if (result.new_ad_balance !== undefined) window.GameState.ad_balance = Number(result.new_ad_balance);
-                }
+                // تحديث الأرصدة المتزامنة
+                if (result.new_balance !== undefined) setStoredBalance(result.new_balance);
+                if (result.new_ad_balance !== undefined) setStoredAdBalance(result.new_ad_balance);
                 
                 window.updateTasksUI();
             } else { alert("⚠️ فشل: " + (result.error || "خطأ في عملية التحويل")); }
@@ -567,7 +581,7 @@
         }
 
         let totalCost = reward * users;
-        let currentAdBalance = window.GameState ? window.GameState.ad_balance : 0;
+        let currentAdBalance = getStoredAdBalance();
 
         if (currentAdBalance < totalCost) {
             alert(`⚠️ رصيدك الإعلاني غير كافٍ! التكلفة المطلوبة: ${totalCost.toLocaleString()} AdZN`);
@@ -611,9 +625,8 @@
                     if (reviewModal) reviewModal.style.display = 'none'; 
 
                     if (response.ok && result.success) {
-                        if (window.GameState) {
-                            if (result.new_ad_balance !== undefined) window.GameState.ad_balance = Number(result.new_ad_balance);
-                            else window.GameState.ad_balance -= totalCost;
+                        if (result.new_ad_balance !== undefined) {
+                            setStoredAdBalance(result.new_ad_balance);
                         }
                         const successModal = document.getElementById('success-modal');
                         if (successModal) successModal.style.display = 'flex';
