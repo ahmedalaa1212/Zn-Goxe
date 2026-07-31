@@ -6,9 +6,6 @@ from firebase_admin import credentials, firestore
 db = None
 
 def ensure_game_settings_exist():
-
-
-    def ensure_game_settings_exist():
     """دالة الفحص والتحديث التلقائي لكافة إعدادات اللعبة في Firestore حسب الخطة الاقتصادية"""
     global db
     if not db:
@@ -59,35 +56,13 @@ def ensure_game_settings_exist():
             "daily_rewards": exact_daily_rewards,
             "speed_config": exact_speed_config,
             "storage_config": exact_storage_config,
-            "daily_ad_boost_rate": 2  # زيادة التعدين الدائمة عند مشاهدة إعلان مونيتاج (+2 ZN/ساعة)
+            "daily_ad_boost_rate": 2
         }, merge=True)
 
         print("✅ تم تحديث بيانات game_settings في Firestore بالقيم الاقتصادية الصحيحة!")
 
     except Exception as e:
         print(f"❌ خطأ أثناء تحديث إعدادات اللعبة تلقائياً: {e}")
-
-            # لو المستند غير موجود أصلاً يتم إنشاؤه بالكامل
-            settings_ref.set({
-                "speed_config": default_speed_config,
-                "daily_rewards": default_daily_rewards
-            })
-            print("✅ تم إنشاء game_settings والخرائط التلقائية بنجاح في Firestore!")
-        else:
-            # لو المستند موجود، يتم فحص الخرائط الناقصة فقط واستكمالها
-            data = doc_snap.to_dict() or {}
-            updates = {}
-
-            if "speed_config" not in data:
-                updates["speed_config"] = default_speed_config
-            if "daily_rewards" not in data:
-                updates["daily_rewards"] = default_daily_rewards
-
-            if updates:
-                settings_ref.set(updates, merge=True)
-                print("✅ تم استكمال الخرائط الناقصة في Firestore تلقائياً!")
-    except Exception as e:
-        print(f"❌ خطأ أثناء التأكد من إعدادات اللعبة تلقائياً: {e}")
 
 def initialize_firebase():
     global db
