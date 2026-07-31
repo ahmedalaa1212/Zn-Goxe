@@ -12,17 +12,14 @@
         }
     }
 
-    // تهيئة نظام الربط بالمحفظة تلقائياً مع محاولات إعادة التهيئة الآمنة
     function initTonConnect() {
         if (tonConnectUI) return tonConnectUI;
-
         try {
             if (window.TON_CONNECT_UI) {
                 tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
                     manifestUrl: `${window.location.origin}/tonconnect-manifest.json`,
                     buttonRootId: 'ton-connect-btn'
                 });
-                console.log("✅ TonConnect UI Intialized!");
                 return tonConnectUI;
             }
         } catch (e) {
@@ -31,14 +28,13 @@
         return null;
     }
 
-    // الانتظار الآمن في حالة الضغط على الشراء وكانت المحفظة لم تكتمل في الخلفية
     async function ensureTonConnectReady() {
         if (tonConnectUI) return tonConnectUI;
         initTonConnect();
         if (tonConnectUI) return tonConnectUI;
 
         let retries = 0;
-        while (!window.TON_CONNECT_UI && retries < 15) {
+        while (!window.TON_CONNECT_UI && retries < 10) {
             await new Promise(res => setTimeout(res, 200));
             retries++;
         }
@@ -53,27 +49,32 @@
             if (data.success) {
                 shopDynamicSettings = data.settings;
                 
-                // تحديث سعر TON المباشر في الصفحة
                 const tonPriceElem = document.getElementById('ton-live-rate-text');
                 if (tonPriceElem && data.ton_price_usd) {
                     tonPriceElem.innerText = `$${parseFloat(data.ton_price_usd).toFixed(2)}`;
                 }
 
-                // عرض الباقات المجلوبة ديناميكياً من قاعدة البيانات
-                renderDynamicPackages(data.packages);
-
-                // تحديث واجهة السرعات والمخازن بحسب قيم الداتا بيز
+                // عرض باقات USDT الديناميكية القادمة من الفايربيس مباشرة
+                if (data.packages) {
+                    renderDynamicPackages(data.packages);
+                }
+                
+                // تحديث واجهات التطوير والمخازن بناءً على بيانات الفايربيس
                 window.updateShopUI();
             }
         } catch (e) {
-            console.error("خطأ في تحميل إعدادات المتجر من الداتا بيز:", e);
+            console.error("خطأ في تحميل إعدادات الفايربيس للمتجر:", e);
         }
     }
 
-    // بناء كروت الباقات المميزة ديناميكياً من الداتا بيز (حتى لو أضاف الأدمن باقة جديدة من البوت)
     function renderDynamicPackages(packages) {
         const container = document.getElementById('usdt-packages-container');
-        if (!container || !packages) return;
+        if (!container) return;
+
+        if (!packages || Object.keys(packages).length === 0) {
+            container.innerHTML = '<div style="color: #aaa; text-align: center; width: 100%;">لا توجد باقات متاحة حالياً.</div>';
+            return;
+        }
 
         let html = '';
         const colorThemes = [
@@ -138,7 +139,7 @@
                 }
 
                 if (!tcInstance.connected) {
-                    alert("⚠️ يجب ربط المحفظة إولاً لإتمام عملية الشراء.");
+                    alert("⚠️ يجب ربط المحفظة أولاً لإتمام عملية الشراء.");
                     return;
                 }
             }
@@ -187,7 +188,7 @@
             const verifyData = await verifyRes.json();
             if (verifyData.success) {
                 triggerHaptic('notification', 'success');
-                alert("🎉 تم تأكيد الدفع وتفعيل الباقة وحفظ المعاملة بنجاح!");
+                alert("🎉 تم تأكيد الدفع وتفعيل الباقة تلقائياً!");
 
                 if (window.userState) {
                     window.userState.balance = verifyData.result.balance;
@@ -302,7 +303,6 @@
         const pData = window.userState || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0, usd_balance: 0 };
         let totalBal = parseFloat(pData.balance || 0);
 
-        // تحديث إحصائيات أعلى الصفحة المباشرة بما فيها الدولار USD
         const usdElem = document.getElementById('shop-usd-text');
         if (usdElem) {
             usdElem.innerText = `$${parseFloat(pData.usd_balance || 0).toFixed(2)}`;
@@ -313,18 +313,8 @@
         const rateElem = document.getElementById('shop-rate-text');
         if (rateElem) rateElem.innerText = `${parseFloat(pData.hourly_rate || 0).toLocaleString()}/h`;
 
-        // إعدادات الترقية من الداتا بيز
-        const miningCfg = shopDynamicSettings?.mining_config || {
-            "1": {"price": 2000, "rate": 5, "max": 10},
-            "2": {"price": 7000, "rate": 15, "max": 10},
-            "3": {"price": 18000, "rate": 35, "max": 10},
-            "4": {"price": 45000, "rate": 80, "max": 10},
-            "5": {"price": 110000, "rate": 180, "max": 10},
-            "6": {"price": 260000, "rate": 400, "max": 10},
-            "7": {"price": 600000, "rate": 900, "max": 10},
-            "8": {"price": 1400000, "rate": 2000, "max": 10},
-            "9": {"price": 3200000, "rate": 4500, "max": 10}
-        };
+        // جلب مستويات التعدين المباشرة من الفايربيس
+        const miningCfg = shopDynamicSettings?.mining_config || {};
 
         let miningHtml = '';
         for (const [i, cfg] of Object.entries(miningCfg)) {
@@ -353,18 +343,8 @@
         }
         miningSec.innerHTML = miningHtml;
 
-        const storageCfg = shopDynamicSettings?.storage_config || {
-            "1": {"price": 3000, "capacity": 600},
-            "2": {"price": 10000, "capacity": 1500},
-            "3": {"price": 25000, "capacity": 3500},
-            "4": {"price": 65000, "capacity": 8000},
-            "5": {"price": 160000, "capacity": 18000},
-            "6": {"price": 400000, "capacity": 40000},
-            "7": {"price": 950000, "capacity": 90000},
-            "8": {"price": 2200000, "capacity": 200000},
-            "9": {"price": 5000000, "capacity": 450000},
-            "10": {"price": 12000000, "capacity": 1000000}
-        };
+        // جلب مستويات المخازن المباشرة من الفايربيس
+        const storageCfg = shopDynamicSettings?.storage_config || {};
 
         let storageHtml = '';
         let currentStorageLvl = parseInt(pData.storage_level || 0); 
