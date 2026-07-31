@@ -5,15 +5,6 @@ from firebase_admin import credentials, firestore
 
 db = None
 
-# 1. القيم الافتراضية للنظام (المكافآت اليومية 30 يوم)
-DEFAULT_GAME_SETTINGS = {
-    "daily_rewards": [
-        100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
-        600, 600, 650, 650, 700, 700, 750, 750, 800, 800,
-        850, 850, 900, 900, 950, 950, 1000, 1000, 1100, 1250
-    ]
-}
-
 def initialize_firebase():
     global db
     if not firebase_admin._apps:
@@ -47,57 +38,10 @@ def initialize_firebase():
         db = firestore.client()
     return db
 
-# 2. دالة التأكد من وجود الإعدادات الافتراضية وإنشائها إذا كانت محذوفة
-def ensure_default_configs():
-    try:
-        config_ref = db.collection('config').document('game_settings')
-        doc = config_ref.get()
-        if not doc.exists:
-            config_ref.set(DEFAULT_GAME_SETTINGS)
-            print("⚙️ تم إنشاء مستند config/game_settings تلقائياً بالقيم الافتراضية.")
-        else:
-            print("✅ مستند إعدادات اللعبة موجود في قاعدة البيانات.")
-    except Exception as e:
-        print(f"❌ خطأ أثناء التأكد من وجود الإعدادات: {e}")
-
-# تهيئة قاعدة البيانات والتأكد من وجود الجداول فور التشغيل
 try:
     db = initialize_firebase()
-    ensure_default_configs()
 except Exception as e:
     print(f"⚠️ تنبيه أثناء تهيئة DB تلقائياً: {e}")
-
-# ----------------------------------------------------
-# 3. دوال لوحة التحكم وبوت الأدمن للقراءة والتعديل
-# ----------------------------------------------------
-
-def get_game_settings():
-    """جلب إعدادات اللعبة للبوت أو الأدمن"""
-    try:
-        doc = db.collection('config').document('game_settings').get()
-        if doc.exists:
-            return doc.to_dict()
-        else:
-            ensure_default_configs()
-            return DEFAULT_GAME_SETTINGS
-    except Exception as e:
-        print(f"❌ Error getting game settings: {e}")
-        return DEFAULT_GAME_SETTINGS
-
-def update_game_settings(new_settings):
-    """تعديل إعدادات اللعبة من بوت الأدمن"""
-    try:
-        if not isinstance(new_settings, dict): return False
-        db.collection('config').document('game_settings').set(new_settings, merge=True)
-        print("✅ تم تحديث إعدادات اللعبة بنجاح من الأدمن!")
-        return True
-    except Exception as e:
-        print(f"❌ Error updating game settings: {e}")
-        return False
-
-# ----------------------------------------------------
-# باقي دوال المستخدمين والمعاملات كما هي
-# ----------------------------------------------------
 
 def is_user_banned(tg_id):
     try:
