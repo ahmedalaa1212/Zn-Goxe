@@ -254,126 +254,186 @@
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
                 if (statusCallback) statusCallback();
-                window.show_11322720()
-                    .then(() => resolve(true))
-                    .catch(() => resolve(true));
+                window.show_11322720().then(() => resolve(true)).catch(() => resolve(false));
             } else {
-                if (statusCallback) statusCallback();
-                setTimeout(() => resolve(true), 1000);
+                showToast("⚠️ لم يتم تحميل الإعلان بعد. حاول مجدداً بعد ثوانٍ.");
+                resolve(false);
             }
         });
     }
 
     window.handleUpgrade = async function(level) {
-        if (isUpgrading) return;
+        if (!window.PlayerData || isUpgrading || !INIT_DATA) return;
         isUpgrading = true;
 
         try {
-            const res = await fetch('/api/farm/upgrade', {
+            let response = await fetch('/api/farm/upgrade', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ level: level, initData: INIT_DATA })
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ initData: INIT_DATA, level: level })
             });
-            const data = await res.json();
-            if (res.ok && data.success) {
-                setStoredBalance(data.new_balance);
-                window.userState.hourly_rate = data.new_hourly_rate;
-                showToast("🎉 تم إجراء الترقية بنجاح!");
-                window.fetchPlayerDataFromServer();
-            } else {
-                showToast("⚠️ " + (data.error || "تعذر إتمام الترقية."));
+            let resData = await response.json();
+            if (response.ok && resData.success) {
+                if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                if (resData.new_hourly_rate !== undefined) window.userState.hourly_rate = resData.new_hourly_rate;
+                showToast(`⚡ تم التحديث بنجاح للمستوى ${level}!`);
+                await window.fetchPlayerDataFromServer();
+            } else if (resData.error) {
+                showToast(resData.error);
             }
         } catch (e) {
-            showToast("❌ خطأ في الاتصال بالسيرفر.");
+            console.error("خطأ في شراء الترقية:", e);
+            showToast("حدث خطأ أثناء الاتصال بالخادم.");
         } finally {
             isUpgrading = false;
         }
     };
 
-    window.handleDailyClaim = async function(dayNum) {
-        if (isClaimingDaily) return;
-        isClaimingDaily = true;
-
-        await showTelegramAd();
-
-        try {
-            const res = await fetch('/api/daily_claim', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: INIT_DATA })
-            });
-            const data = await res.json();
-            if (res.ok && data.success) {
-                setStoredBalance(data.new_balance);
-                if (data.reset_msg) showToast(data.reset_msg);
-                showToast(`🎉 تم استلام مكافأة اليوم (${data.reward} ZN)!`);
-                window.fetchPlayerDataFromServer();
-            } else {
-                showToast("⚠️ " + (data.error || "تعذر استلام المكافأة."));
-            }
-        } catch (e) {
-            showToast("❌ خطأ أثناء الاتصال.");
-        } finally {
-            isClaimingDaily = false;
-        }
-    };
-
     window.handleDailyBoost = async function() {
-        if (isBoosting) return;
+        if (!window.PlayerData || isBoosting || !INIT_DATA) return;
+        
+        const pData = window.PlayerData;
+        const todayStr = getTodayUTCStr();
+        if (pData.last_boost_date === todayStr) return;
+
+        const btn = document.getElementById('boost-btn');
         isBoosting = true;
-
-        await showTelegramAd();
-
+        
         try {
-            const res = await fetch('/api/farm/daily_boost', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: INIT_DATA })
+            const adWatched = await showTelegramAd(() => {
+                if (btn) {
+                    btn.innerHTML = `<span style="font-size: 18px;">🎬</span>`;
+                    btn.disabled = true;
+                }
             });
-            const data = await res.json();
-            if (res.ok && data.success) {
-                window.userState.hourly_rate = data.new_rate;
-                showToast("🚀 تم تفعيل التسريع بنجاح! زادت السرعة بمقدار +2/h.");
-                window.fetchPlayerDataFromServer();
-            } else {
-                showToast("⚠️ " + (data.error || "تعذر تفعيل التسريع."));
+            
+            if (adWatched) {
+                if (btn) btn.innerHTML = `<span style="font-size: 18px;">💾</span>`;
+                let response = await fetch('/api/farm/daily_boost', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ initData: INIT_DATA })
+                });
+                let resData = await response.json();
+                if (response.ok && resData.success) {
+                    if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                    if (resData.new_rate !== undefined) window.userState.hourly_rate = resData.new_rate;
+                    showToast(`🚀 تمت زيادة معدل التعدين بنجاح بمقدار +2/h دائماً!`);
+                    await window.fetchPlayerDataFromServer(); 
+                } else if (resData.error) {
+                    showToast(resData.error);
+                    await window.fetchPlayerDataFromServer();
+                }
             }
         } catch (e) {
-            showToast("❌ خطأ في الاتصال.");
+            console.error("خطأ تسريع التعدين:", e);
         } finally {
             isBoosting = false;
         }
     };
 
-    window.claimMinedBalance = async function() {
-        if (isClaimingMain) return;
-        isClaimingMain = true;
+    window.handleDailyClaim = async function(day) {
+        if (!window.PlayerData || isClaimingDaily || !INIT_DATA) return;
+        
+        const pData = window.PlayerData;
+        const todayStr = getTodayUTCStr();
+        if (pData.last_daily_claim_date === todayStr) return;
 
+        const btn = document.getElementById(`daily-btn-${Math.min(day, 30)}`);
+        isClaimingDaily = true;
+        
         try {
-            const res = await fetch('/api/farm/claim', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: INIT_DATA })
+            const adWatched = await showTelegramAd(() => {
+                if (btn) {
+                    btn.innerHTML = "⏳";
+                    btn.disabled = true;
+                }
             });
-            const data = await res.json();
-            if (res.ok && data.success) {
-                setStoredBalance(data.new_balance);
-                showToast(`💰 تم تجميع (${Math.floor(data.claimed)} ZN) إلى رصيدك!`);
-                claimCooldown = 5;
-                window.fetchPlayerDataFromServer();
+            
+            if (adWatched) {
+                if (btn) btn.innerHTML = "💾";
+                let response = await fetch('/api/farm/daily_claim', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ initData: INIT_DATA })
+                });
+                let resData = await response.json();
+                if (response.ok && resData.success) {
+                    if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                    showToast(`🎉 استلمت ${resData.reward.toLocaleString()} ZN!`);
+                    if (resData.reset_msg) showToast(resData.reset_msg);
+                    await window.fetchPlayerDataFromServer(); 
+                } else if (resData.error) {
+                    showToast(resData.error);
+                }
             } else {
-                showToast("⚠️ " + (data.error || "تعذر التجميع."));
+                if (btn) {
+                    btn.innerHTML = "📺 استلام";
+                    btn.disabled = false;
+                }
             }
         } catch (e) {
-            showToast("❌ خطأ في الاتصال.");
+            console.error("خطأ المكافأة اليومية:", e);
+            if (btn) {
+                btn.innerHTML = "📺 استلام";
+                btn.disabled = false;
+            }
+        } finally {
+            isClaimingDaily = false;
+        }
+    };
+
+    window.handleClaim = async function() {
+        const pData = window.PlayerData;
+        if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0 || !INIT_DATA || isClaimingMain) return;
+
+        isClaimingMain = true;
+        const claimBtn = document.getElementById('claim-btn');
+        if (claimBtn) {
+            claimBtn.disabled = true;
+            claimBtn.className = "btn-cooldown";
+            claimBtn.innerText = "جاري الحفظ... 💾";
+        }
+
+        const unclaimedAmount = parseFloat(pData.unclaimed || 0);
+        const currentBal = getStoredBalance();
+        const optimisticNewBal = currentBal + unclaimedAmount;
+        
+        setStoredBalance(optimisticNewBal);
+        pData.unclaimed = 0;
+        window.updateFarmUI();
+
+        try {
+            let response = await fetch('/api/farm/claim', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ initData: INIT_DATA })
+            });
+            let resData = await response.json();
+            
+            if (response.ok && resData.success) {
+                if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                await window.fetchPlayerDataFromServer(); 
+                claimCooldown = 5; 
+            } else {
+                setStoredBalance(currentBal);
+                if (resData.error) showToast(resData.error);
+                if (claimBtn) {
+                    claimBtn.disabled = false;
+                    claimBtn.innerText = "تجميع الرصيد 💰";
+                }
+            }
+        } catch (e) {
+            setStoredBalance(currentBal);
+            if (claimBtn) {
+                claimBtn.disabled = false;
+                claimBtn.innerText = "تجميع الرصيد 💰";
+            }
         } finally {
             isClaimingMain = false;
         }
     };
 
-    if (document.readyState === 'loading') {
-        document.addEventListener("DOMContentLoaded", () => window.fetchPlayerDataFromServer());
-    } else {
-        window.fetchPlayerDataFromServer();
-    }
+    window.updateFarmUI();
+    window.fetchPlayerDataFromServer();
 })();
