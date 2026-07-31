@@ -12,31 +12,31 @@ shop_bp = Blueprint('shop', __name__)
 
 PROJECT_TON_WALLET = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"
 
-# الإعدادات الافتراضية لقاعدة البيانات (تُستخدم فقط في حال عدم وجود البيانات في الفايربيس)
+# الإعدادات الافتراضية للعبة والمتجر عند الإنشاء التلقائي لأول مرة
 DEFAULT_USDT_PACKAGES = {
-    "pkg_1": {"usdt": 1, "rate_add": 150, "storage_add": 2000, "zn_add": 30000, "title": "البرونزية"},
-    "pkg_2": {"usdt": 3, "rate_add": 540, "storage_add": 7200, "zn_add": 108000, "title": "الفضية"},
-    "pkg_3": {"usdt": 6, "rate_add": 1350, "storage_add": 18000, "zn_add": 270000, "title": "الذهبية"},
-    "pkg_4": {"usdt": 10, "rate_add": 2850, "storage_add": 38000, "zn_add": 570000, "title": "باقة الحيتان"}
+    "pkg_1": {"usdt": 1.0, "rate_add": 150.0, "storage_add": 2000.0, "zn_add": 30000.0, "title": "البرونزية"},
+    "pkg_2": {"usdt": 3.0, "rate_add": 540.0, "storage_add": 7200.0, "zn_add": 108000.0, "title": "الفضية"},
+    "pkg_3": {"usdt": 6.0, "rate_add": 1350.0, "storage_add": 18000.0, "zn_add": 270000.0, "title": "الذهبية"},
+    "pkg_4": {"usdt": 10.0, "rate_add": 2850.0, "storage_add": 38000.0, "zn_add": 570000.0, "title": "باقة الحيتان"}
 }
 
 DEFAULT_MINING_CONFIG = {
-    "1": {"rate": 5, "price": 2000, "max": 10},
-    "2": {"rate": 15, "price": 7000, "max": 10},
-    "3": {"rate": 35, "price": 20000, "max": 10},
-    "4": {"rate": 80, "price": 50000, "max": 10}
+    "1": {"rate": 5.0, "price": 2000.0, "max": 10},
+    "2": {"rate": 15.0, "price": 7000.0, "max": 10},
+    "3": {"rate": 35.0, "price": 20000.0, "max": 10},
+    "4": {"rate": 80.0, "price": 50000.0, "max": 10}
 }
 
 DEFAULT_STORAGE_CONFIG = {
-    "1": {"capacity": 200, "price": 0},
-    "2": {"capacity": 500, "price": 5000},
-    "3": {"capacity": 1500, "price": 15000},
-    "4": {"capacity": 4000, "price": 35000},
-    "5": {"capacity": 10000, "price": 80000}
+    "1": {"capacity": 200.0, "price": 0.0},
+    "2": {"capacity": 500.0, "price": 5000.0},
+    "3": {"capacity": 1500.0, "price": 15000.0},
+    "4": {"capacity": 4000.0, "price": 35000.0},
+    "5": {"capacity": 10000.0, "price": 80000.0}
 }
 
 def get_game_config():
-    """قراءة الإعدادات ديناميكياً من config/game_settings وزرع البيانات المفقودة تلقائياً دون مساس بتعديلاتك"""
+    """قراءة وحقن إعدادات المتجر تلقائياً في config/game_settings داخل Firestore بدون المساس بالبيانات الحالية"""
     try:
         doc_ref = db.collection('config').document('game_settings')
         doc = doc_ref.get()
@@ -58,9 +58,9 @@ def get_game_config():
             updates['mining_config'] = DEFAULT_MINING_CONFIG
             data['mining_config'] = DEFAULT_MINING_CONFIG
 
-        # حفظ الحقول المفقودة في الفايربيس إن وجدت دون المساس بأي تعديل قديم
         if updates:
             doc_ref.set(updates, merge=True)
+            print("⚙️ تم مزامنة وإنشاء حقول إعدادات المتجر المفقودة في Firebase تلقائياً.")
 
         return data
     except Exception as e:
@@ -71,7 +71,7 @@ def get_game_config():
             'mining_config': DEFAULT_MINING_CONFIG
         }
 
-@shop_bp.route('/get_config', methods=['GET'])
+@shop_bp.route('/get_config', methods=['GET', 'POST'])
 def get_config():
     settings = get_game_config()
     ton_price_usd = get_live_ton_price()
