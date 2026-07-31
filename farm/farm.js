@@ -53,7 +53,7 @@
         try {
             let resData = await window.fetchAPI('/api/farm/player_data', 'POST', { start_param: START_PARAM });
             if (resData && resData.success) {
-                window.PlayerData = resData.player;
+                window.PlayerData = resData.player || {};
                 if (resData.player && resData.player.balance !== undefined) {
                     window.userState.balance = resData.player.balance;
                 }
@@ -79,9 +79,8 @@
     window.updateFarmUI = function() {
         const pData = window.PlayerData || {};
         
-        // ربط البيانات بالكائن الموحد مباشرة
-        pData.balance = window.userState.balance;
-        pData.hourly_rate = window.userState.hourly_rate;
+        pData.balance = window.userState.balance || 0;
+        pData.hourly_rate = window.userState.hourly_rate || 0;
 
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
@@ -292,10 +291,19 @@
                     showToast(`🚀 تمت زيادة معدل التعدين بنجاح!`);
                     await window.fetchPlayerData(); 
                 }
+            } else {
+                if (btn) {
+                    btn.innerHTML = `<span style="font-size: 20px; margin-bottom: 2px;">🚀</span><span style="font-size: 10px; font-weight: bold;">+1/h</span>`;
+                    btn.disabled = false;
+                }
             }
         } catch (e) {
             console.error("خطأ تسريع التعدين:", e);
             showToast(e.message || "فشل تفعيل التسريع.");
+            if (btn) {
+                btn.innerHTML = `<span style="font-size: 20px; margin-bottom: 2px;">🚀</span><span style="font-size: 10px; font-weight: bold;">+1/h</span>`;
+                btn.disabled = false;
+            }
         } finally {
             isBoosting = false;
         }
@@ -358,9 +366,8 @@
             claimBtn.innerText = "جاري الحفظ... 💾";
         }
 
-        // تحديث متفائل (Optimistic Update) عبر Proxy المركزي مباشرة
         const unclaimedAmount = parseFloat(pData.unclaimed || 0);
-        const currentBal = window.userState.balance;
+        const currentBal = window.userState.balance || 0;
         const optimisticNewBal = currentBal + unclaimedAmount;
         
         window.userState.balance = optimisticNewBal;
@@ -374,7 +381,6 @@
                 claimCooldown = 5; 
             }
         } catch (e) {
-            // التراجع عند الفشل
             window.userState.balance = currentBal;
             showToast(e.message || "خطأ أثناء التجميع.");
             if (claimBtn) {
@@ -386,8 +392,7 @@
         }
     };
 
-    // البدء الفوري بحالة النظام
-    window.PlayerData = { balance: window.userState.balance, unclaimed: 0, hourly_rate: window.userState.hourly_rate };
+    window.PlayerData = { balance: window.userState.balance || 0, unclaimed: 0, hourly_rate: window.userState.hourly_rate || 0, upgrades: {} };
     window.updateFarmUI();
     window.fetchPlayerData();
 })();
