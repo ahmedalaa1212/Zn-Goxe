@@ -6,13 +6,11 @@ from database import db
 
 farm_bp = Blueprint('farm', __name__)
 
-# سعات التخزين بحسب مستوى المستودع
 STORAGE_CAPACITIES = {
     0: 100.0, 1: 250.0, 2: 450.0, 3: 750.0, 4: 1000.0,
     5: 1500.0, 6: 2000.0, 7: 3000.0, 8: 4000.0, 9: 5500.0, 10: 7000.0
 }
 
-# تكاليف وزيادات المعدل لترقيات المستويات (من 1 إلى 9)
 UPGRADE_CONFIG = {
     1: {"base_cost": 500.0, "rate_bonus": 1.0},
     2: {"base_cost": 2500.0, "rate_bonus": 5.0},
@@ -209,13 +207,7 @@ def claim_mined_tokens():
             referred_by = user_data.get("referred_by")
             upgrades = user_data.get("upgrades", {})
             
-            total_upgrades = 0
-            if isinstance(upgrades, dict):
-                for k, v in upgrades.items():
-                    try: 
-                        total_upgrades += int(v)
-                    except (ValueError, TypeError): 
-                        pass
+            total_upgrades = sum(int(v) for v in upgrades.values() if str(v).isdigit())
 
             if referred_by and total_upgrades >= 3:
                 bonus_for_inviter = unclaimed * 0.10
@@ -226,7 +218,6 @@ def claim_mined_tokens():
                             "pending_ref_earnings": firestore.Increment(bonus_for_inviter),
                             "ref_generated_amount": firestore.Increment(bonus_for_inviter)
                         })
-                        update_data["generated_for_inviter"] = firestore.Increment(bonus_for_inviter)
                 except Exception as e:
                     print(f"Error updating inviter balance: {e}")
 
