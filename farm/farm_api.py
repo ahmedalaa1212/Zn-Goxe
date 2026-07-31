@@ -342,7 +342,7 @@ def upgrade_level():
                 "hourly_rate": new_hourly_rate
             })
 
-            return {"new_balance": new_balance, "new_hourly_rate": new_hourly_rate}, None, 200
+            return {"new_balance": new_balance, "new_hourly_rate": new_hourly_rate, "upgrades": upgrades}, None, 200
 
         transaction = db.transaction()
         result, err_msg, status_code = run_upgrade_transaction(transaction, user_ref)
@@ -353,7 +353,8 @@ def upgrade_level():
         return jsonify({
             "success": True, 
             "new_balance": result["new_balance"], 
-            "new_hourly_rate": result["new_hourly_rate"]
+            "new_hourly_rate": result["new_hourly_rate"],
+            "upgrades": result["upgrades"]
         }), 200
 
     except Exception as e:
