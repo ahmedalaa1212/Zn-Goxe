@@ -10,6 +10,9 @@ from firebase_admin import firestore
 
 tasks_bp = Blueprint('tasks', __name__)
 
+# 🔒 الحد الأدنى لتكلفة أي حملة إعلانية (250 عملة AdZN)
+MIN_AD_CAMPAIGN_COST = 250.0
+
 def is_task_completed_by_user(task, user_completed_data):
     """
     التحقق الآمن من إكمال المستخدم للمهمة،
@@ -117,7 +120,7 @@ def get_campaigns():
 def create_campaign():
     """
     إنشاء حملة ترويجية بخصم آمن عبر Firestore Transaction
-    لمنع السحب المضاعف ورصيد AdZN بالسالب.
+    مع اشتراط ألا تقل التكلفة الإجمالية عن 250 AdZN.
     """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
@@ -147,6 +150,13 @@ def create_campaign():
         return jsonify({"success": False, "error": "قيم الكلفة والأعضاء غير صحيحة"}), 400
 
     total_cost = reward * users_needed
+
+    # 🔒 تطبيق شرط الحد الأدنى لإنشاء أي إعلان
+    if total_cost < MIN_AD_CAMPAIGN_COST:
+        return jsonify({
+            "success": False,
+            "error": f"عذراً، الحد الأدنى لتكلفة إنشاء أي حملة إعلانية هو {int(MIN_AD_CAMPAIGN_COST)} عملة AdZN."
+        }), 400
 
     @firestore.transactional
     def run_create_transaction(transaction):
@@ -191,7 +201,8 @@ def create_campaign():
         return jsonify({
             "success": True, 
             "campaign": campaign_data,
-            "new_ad_balance": updated_ad_balance
+            "new_ad_balance": updated_ad_balance,
+            "message": "تم إنشاء الإعلان ونشره بنجاح!"
         }), 200
 
     except ValueError as ve:
