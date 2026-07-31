@@ -12,69 +12,48 @@ shop_bp = Blueprint('shop', __name__)
 
 PROJECT_TON_WALLET = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"
 
-# إعدادات المتجر الكاملة
-DEFAULT_SHOP_SETTINGS = {
-    "mining_config": {
-        "1": {"price": 2000, "rate": 5, "max": 10},
-        "2": {"price": 7000, "rate": 15, "max": 10},
-        "3": {"price": 18000, "rate": 35, "max": 10},
-        "4": {"price": 45000, "rate": 80, "max": 10},
-        "5": {"price": 110000, "rate": 180, "max": 10},
-        "6": {"price": 260000, "rate": 400, "max": 10},
-        "7": {"price": 600000, "rate": 900, "max": 10},
-        "8": {"price": 1400000, "rate": 2000, "max": 10},
-        "9": {"price": 3200000, "rate": 4500, "max": 10}
-    },
-    "storage_config": {
-        "1": {"price": 3000, "capacity": 600},
-        "2": {"price": 10000, "capacity": 1500},
-        "3": {"price": 25000, "capacity": 3500},
-        "4": {"price": 65000, "capacity": 8000},
-        "5": {"price": 160000, "capacity": 18000},
-        "6": {"price": 400000, "capacity": 40000},
-        "7": {"price": 950000, "capacity": 90000},
-        "8": {"price": 2200000, "capacity": 200000},
-        "9": {"price": 5000000, "capacity": 450000},
-        "10": {"price": 12000000, "capacity": 1000000}
-    },
-    "usdt_packages": {
-        "pkg_1": {"usdt": 1, "rate_add": 150, "storage_add": 2000, "zn_add": 30000, "title": "البرونزية"},
-        "pkg_2": {"usdt": 3, "rate_add": 540, "storage_add": 7200, "zn_add": 108000, "title": "الفضية"},
-        "pkg_3": {"usdt": 6, "rate_add": 1350, "storage_add": 18000, "zn_add": 270000, "title": "الذهبية"},
-        "pkg_4": {"usdt": 10, "rate_add": 2850, "storage_add": 38000, "zn_add": 570000, "title": "باقة الحيتان"}
-    }
+# باقات USDT الافتراضية لحفظها في الفايربيس إذا لم تكن موجودة في game_settings
+DEFAULT_USDT_PACKAGES = {
+    "pkg_1": {"usdt": 1, "rate_add": 150, "storage_add": 2000, "zn_add": 30000, "title": "البرونزية"},
+    "pkg_2": {"usdt": 3, "rate_add": 540, "storage_add": 7200, "zn_add": 108000, "title": "الفضية"},
+    "pkg_3": {"usdt": 6, "rate_add": 1350, "storage_add": 18000, "zn_add": 270000, "title": "الذهبية"},
+    "pkg_4": {"usdt": 10, "rate_add": 2850, "storage_add": 38000, "zn_add": 570000, "title": "باقة الحيتان"}
 }
 
-def get_shop_settings():
+def get_game_config():
+    """قراءة الإعدادات ديناميكياً من config/game_settings"""
     try:
-        config_ref = db.collection('config').document('shop_settings')
-        doc = config_ref.get()
+        doc_ref = db.collection('config').document('game_settings')
+        doc = doc_ref.get()
         
         if doc.exists:
             data = doc.to_dict() or {}
-            # التأكد من وجود مفتاح usdt_packages، وإذا لم يوجد يتم تحديثه في الفايربيس فوراً
-            if 'usdt_packages' not in data or not data['usdt_packages']:
-                config_ref.set(DEFAULT_SHOP_SETTINGS, merge=True)
-                return DEFAULT_SHOP_SETTINGS
+            # إذا لم تكن باقات USDT موجودة في game_settings نضيفها بنفس المستند
+            if 'usdt_packages' not in data:
+                doc_ref.set({'usdt_packages': DEFAULT_USDT_PACKAGES}, merge=True)
+                data['usdt_packages'] = DEFAULT_USDT_PACKAGES
             return data
         else:
-            # إنشاء المستند لأول مرة في الفايربيس
-            config_ref.set(DEFAULT_SHOP_SETTINGS)
-            return DEFAULT_SHOP_SETTINGS
+            # في حال عدم وجود المستند إطلاقاً
+            initial_data = {'usdt_packages': DEFAULT_USDT_PACKAGES}
+            doc_ref.set(initial_data)
+            return initial_data
     except Exception as e:
-        print(f"❌ Error fetching shop settings: {e}")
-        return DEFAULT_SHOP_SETTINGS
+        print(f"❌ Error reading Firestore config/game_settings: {e}")
+        return {'usdt_packages': DEFAULT_USDT_PACKAGES}
 
 @shop_bp.route('/get_config', methods=['GET'])
 def get_config():
-    settings = get_shop_settings()
+    # جلب البيانات الحية المباشرة من الفايربيس
+    settings = get_game_config()
     ton_price_usd = get_live_ton_price()
     if ton_price_usd <= 0:
         ton_price_usd = 5.50
 
+    usdt_pkgs = settings.get('usdt_packages', {})
     packages_with_ton = {}
-    usdt_pkgs = settings.get('usdt_packages', DEFAULT_SHOP_SETTINGS['usdt_packages'])
     
+    # حساب قيمة TON ديناميكياً بناءً على السعر الحالي للعملة وباقات الفايربيس
     for pkg_id, pkg_info in usdt_pkgs.items():
         usd_val = float(pkg_info.get('usdt', 1))
         ton_needed = round(usd_val / ton_price_usd, 4)
@@ -104,8 +83,8 @@ def prepare_ton_pay():
         data = request.get_json() or {}
         pkg_id = data.get('package_id')
         
-        settings = get_shop_settings()
-        packages = settings.get('usdt_packages', DEFAULT_SHOP_SETTINGS['usdt_packages'])
+        settings = get_game_config()
+        packages = settings.get('usdt_packages', {})
         
         if pkg_id not in packages:
             return jsonify({"success": False, "error": "باقة غير صالحة."}), 400
@@ -189,8 +168,8 @@ def verify_and_apply_package():
         if not pkg_key or not tx_boc:
             return jsonify({"success": False, "error": "بيانات الدفع ناقصة."}), 400
 
-        settings = get_shop_settings()
-        packages = settings.get('usdt_packages', DEFAULT_SHOP_SETTINGS['usdt_packages'])
+        settings = get_game_config()
+        packages = settings.get('usdt_packages', {})
 
         if pkg_key not in packages:
             return jsonify({"success": False, "error": "باقة غير صالحة."}), 400
@@ -252,7 +231,7 @@ def buy_upgrade():
         if not is_auth:
             return error_response
 
-        settings = get_shop_settings()
+        settings = get_game_config()
         user_ref = db.collection('users').document(str(user_id))
         user_doc = user_ref.get()
 
@@ -287,13 +266,13 @@ def buy_upgrade():
         new_last_claim_time = now_dt.isoformat()
 
         if upgrade_type == 'mining':
-            mining_cfg = settings.get('mining_config', DEFAULT_SHOP_SETTINGS['mining_config'])
+            mining_cfg = settings.get('mining_config', {})
             if level_num not in mining_cfg:
                 return jsonify({"success": False, "error": "مستوى غير صالح."}), 400
 
             config = mining_cfg[level_num]
             price = float(config['price'])
-            max_limit = int(config['max'])
+            max_limit = int(config.get('max', 10))
 
             lvl_key = f"lvl{level_num}"
             current_lvl_count = int(upgrades.get(lvl_key, 0))
@@ -338,7 +317,7 @@ def buy_upgrade():
             }), 200
 
         elif upgrade_type == 'storage':
-            storage_cfg = settings.get('storage_config', DEFAULT_SHOP_SETTINGS['storage_config'])
+            storage_cfg = settings.get('storage_config', {})
             if level_num not in storage_cfg:
                 return jsonify({"success": False, "error": "مستوى مخزن غير صالح."}), 400
 
