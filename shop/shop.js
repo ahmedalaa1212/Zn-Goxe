@@ -312,7 +312,6 @@
         const rateElem = document.getElementById('shop-rate-text');
         if (rateElem) rateElem.innerText = `${parseFloat(pData.hourly_rate || 0).toLocaleString()}/h`;
 
-        // الإعدادات الافتراضية للسرعة (9 مستويات كاملاً)
         const defaultMiningCfg = {
             "1": {"rate": 5, "price": 2000, "max": 10},
             "2": {"rate": 15, "price": 7000, "max": 10},
@@ -357,7 +356,6 @@
         }
         miningSec.innerHTML = miningHtml;
 
-        // الإعدادات الافتراضية للمخزن المحدثة (10 مستويات)
         const defaultStorageCfg = {
             "1": {"capacity": 600, "price": 3000},
             "2": {"capacity": 1500, "price": 10000},
