@@ -1,6 +1,3 @@
-/* ==========================================
-   1. Initial Setup & Telegram WebApp Bridge
-   ========================================== */
 const tg = window.Telegram?.WebApp;
 
 if (tg) {
@@ -10,7 +7,6 @@ if (tg) {
     if (tg.setHeaderColor) tg.setHeaderColor('secondary_bg_color');
 }
 
-// تهيئة سعر TON العالمي من التخزين المحلي فوراً لمنع التأخير
 window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 0;
 
 const rawUserState = {
@@ -62,9 +58,6 @@ window.userState = new Proxy(rawUserState, {
     }
 });
 
-/* ==========================================
-   2. API Communication Utility
-   ========================================== */
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
 
@@ -94,9 +87,6 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     }
 };
 
-/* ==========================================
-   3. Global Live TON Price Fetcher
-   ========================================== */
 window.globalFetchTonPrice = async function() {
     const apis = [
         async () => {
@@ -123,7 +113,6 @@ window.globalFetchTonPrice = async function() {
                 window.currentTonPriceUSD = price;
                 localStorage.setItem('last_ton_price', price.toString());
                 
-                // تحديث الواجهات فور وصول السعر
                 if (typeof window.updateUI === 'function') window.updateUI();
                 return price;
             }
@@ -131,9 +120,6 @@ window.globalFetchTonPrice = async function() {
     }
 };
 
-/* ==========================================
-   4. UI Builders & Formatters (التحديث اللحظي الموحد)
-   ========================================== */
 window.updateUI = function() {
     try {
         const rawBalance = parseFloat(window.userState.balance || 0);
@@ -175,7 +161,6 @@ window.updateUI = function() {
             else el.innerText = energyFormatted;
         });
 
-        // تحديث أي عنصر في HTML يعرض سعر TON مباشرة
         document.querySelectorAll('[data-bind="ton_price"]').forEach(el => {
             if (el.tagName === 'INPUT') el.value = tonPriceFormatted;
             else el.innerText = tonPriceFormatted;
@@ -191,9 +176,6 @@ window.updateUI = function() {
     }
 };
 
-/* ==========================================
-   5. Fetch Latest User Data from Server
-   ========================================== */
 let isUserDataFetching = false;
 
 window.loadUserData = async function() {
@@ -220,9 +202,6 @@ window.loadUserData = async function() {
     }
 };
 
-/* ==========================================
-   6. Actions (Convert, Withdraw, Wallet History)
-   ========================================== */
 window.loadWalletHistory = async function() {
     const historyList = document.getElementById('wallet-history-list');
     if (!historyList) return;
@@ -311,17 +290,12 @@ window.executeWithdraw = async function(amountUSD, address) {
     }
 };
 
-/* ==========================================
-   7. Realtime Initialization & Background Sync
-   ========================================== */
 document.addEventListener('DOMContentLoaded', () => {
     const historyBtn = document.getElementById('open-history-btn');
     if (historyBtn) historyBtn.addEventListener('click', window.loadWalletHistory);
 
-    // 1. جلب سعر TON المباشر فوراً عند فتح التطبيق
     window.globalFetchTonPrice();
 
-    // 2. فحص دوري كل 15 ثانية لجلب بيانات المستخدم وسعر العملة
     setInterval(() => {
         window.loadUserData();
         window.globalFetchTonPrice();
