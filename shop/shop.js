@@ -190,12 +190,11 @@
                 triggerHaptic('notification', 'success');
                 alert("🎉 تم تأكيد الدفع وتفعيل الباقة تلقائياً!");
 
-                if (window.userState) {
-                    window.userState.balance = verifyData.result.balance;
-                    window.userState.hourly_rate = verifyData.result.hourly_rate;
-                    window.userState.max_cap = verifyData.result.max_cap;
-                    window.userState.usd_balance = verifyData.result.usd_balance;
-                }
+                if (!window.userState) window.userState = {};
+                window.userState.balance = verifyData.result.balance;
+                window.userState.hourly_rate = verifyData.result.hourly_rate;
+                window.userState.max_cap = verifyData.result.max_cap;
+                window.userState.usd_balance = verifyData.result.usd_balance;
 
                 window.updateShopUI();
             } else {
@@ -300,7 +299,7 @@
         const storageSec = document.getElementById('shop-storage-section');
         if (!miningSec || !storageSec) return;
 
-        const pData = window.userState || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 1, usd_balance: 0 };
+        const pData = window.userState || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0, usd_balance: 0 };
         let totalBal = parseFloat(pData.balance || 0);
 
         const usdElem = document.getElementById('shop-usd-text');
@@ -313,24 +312,23 @@
         const rateElem = document.getElementById('shop-rate-text');
         if (rateElem) rateElem.innerText = `${parseFloat(pData.hourly_rate || 0).toLocaleString()}/h`;
 
-        // الإعدادات الافتراضية الكاملة للسرعة (9 مستويات كاملة)
+        // الإعدادات الافتراضية للسرعة (9 مستويات كاملاً)
         const defaultMiningCfg = {
             "1": {"rate": 5, "price": 2000, "max": 10},
             "2": {"rate": 15, "price": 7000, "max": 10},
-            "3": {"rate": 35, "price": 20000, "max": 10},
-            "4": {"rate": 80, "price": 50000, "max": 10},
-            "5": {"rate": 180, "price": 120000, "max": 10},
-            "6": {"rate": 400, "price": 300000, "max": 10},
-            "7": {"rate": 900, "price": 700000, "max": 10},
-            "8": {"rate": 2000, "price": 1500000, "max": 10},
-            "9": {"rate": 4500, "price": 3500000, "max": 10}
+            "3": {"rate": 35, "price": 18000, "max": 10},
+            "4": {"rate": 80, "price": 45000, "max": 10},
+            "5": {"rate": 180, "price": 110000, "max": 10},
+            "6": {"rate": 400, "price": 260000, "max": 10},
+            "7": {"rate": 900, "price": 600000, "max": 10},
+            "8": {"rate": 2000, "price": 1400000, "max": 10},
+            "9": {"rate": 4500, "price": 3200000, "max": 10}
         };
 
         const miningCfg = shopDynamicSettings?.mining_config || defaultMiningCfg;
 
         let miningHtml = '';
         for (const [key, cfg] of Object.entries(miningCfg)) {
-            // فلترة أي عنصر غير عددي لمنع ظهور daily_boost_reward في الواجهة
             if (isNaN(parseInt(key))) continue;
 
             let i = parseInt(key);
@@ -359,24 +357,24 @@
         }
         miningSec.innerHTML = miningHtml;
 
-        // الإعدادات الافتراضية الكاملة للمخزن (10 مستويات كاملة)
+        // الإعدادات الافتراضية للمخزن المحدثة (10 مستويات)
         const defaultStorageCfg = {
-            "1": {"capacity": 200, "price": 0},
-            "2": {"capacity": 500, "price": 5000},
-            "3": {"capacity": 1500, "price": 15000},
-            "4": {"capacity": 4000, "price": 40000},
-            "5": {"capacity": 10000, "price": 90000},
-            "6": {"capacity": 25000, "price": 200000},
-            "7": {"capacity": 60000, "price": 450000},
-            "8": {"capacity": 150000, "price": 1000000},
-            "9": {"capacity": 400000, "price": 2500000},
-            "10": {"capacity": 1000000, "price": 6000000}
+            "1": {"capacity": 600, "price": 3000},
+            "2": {"capacity": 1500, "price": 10000},
+            "3": {"capacity": 3500, "price": 25000},
+            "4": {"capacity": 8000, "price": 65000},
+            "5": {"capacity": 18000, "price": 160000},
+            "6": {"capacity": 40000, "price": 400000},
+            "7": {"capacity": 90000, "price": 950000},
+            "8": {"capacity": 200000, "price": 2200000},
+            "9": {"capacity": 450000, "price": 5000000},
+            "10": {"capacity": 1000000, "price": 12000000}
         };
 
         const storageCfg = shopDynamicSettings?.storage_config || defaultStorageCfg;
 
         let storageHtml = '';
-        let currentStorageLvl = parseInt(pData.storage_level || 1); 
+        let currentStorageLvl = parseInt(pData.storage_level || 0); 
 
         for (const [key, cfg] of Object.entries(storageCfg)) {
             if (isNaN(parseInt(key))) continue;
@@ -403,7 +401,7 @@
                     <div>
                         <div style="font-size: 26px;">📦</div>
                         <div style="color: #ffffff; font-weight: bold; font-size: 14px;">مخزن مستوى ${i}</div>
-                        <div style="color: #0088cc; font-size: 12px; margin: 4px 0 10px 0;">السعة: ${capacity.toLocaleString()}</div>
+                        <div style="color: #0088cc; font-size: 12px; margin: 4px 0 10px 0;">السعة: ${capacity.toLocaleString()} ZN</div>
                     </div>
                     <button id="btn-storage-${i}" onclick="requestShopPurchase('storage', ${i}, ${price})" 
                         style="width: 100%; padding: 9px; background: ${btnBg}; color: ${btnColor}; border: none; border-radius: 6px; font-weight: bold; cursor: ${!isDisabled ? 'pointer' : 'not-allowed'};" ${isDisabled ? 'disabled' : ''}>
@@ -425,7 +423,6 @@
 
         triggerHaptic('impact', 'light');
 
-        // تحديث معلومات نافذة التأكيد بالسعر واسم الترقية المحددة
         const modalTitle = document.getElementById('shop-modal-title');
         const modalDesc = document.getElementById('shop-modal-desc');
         const modalPrice = document.getElementById('shop-modal-price');
@@ -480,18 +477,17 @@
             if (response.ok && resData.success) {
                 triggerHaptic('notification', 'success');
 
-                if (window.userState) {
-                    window.userState.balance = resData.balance;
-                    if (apiType === 'mining') {
-                        window.userState.hourly_rate = resData.hourly_rate;
-                        window.userState.upgrades = resData.upgrades;
-                    } else {
-                        window.userState.storage_level = resData.storage_level;
-                        window.userState.max_cap = resData.max_cap;
-                    }
-                    if (resData.usd_balance !== undefined) {
-                        window.userState.usd_balance = resData.usd_balance;
-                    }
+                if (!window.userState) window.userState = {};
+                window.userState.balance = resData.balance;
+                if (apiType === 'mining') {
+                    window.userState.hourly_rate = resData.hourly_rate;
+                    window.userState.upgrades = resData.upgrades;
+                } else {
+                    window.userState.storage_level = resData.storage_level;
+                    window.userState.max_cap = resData.max_cap;
+                }
+                if (resData.usd_balance !== undefined) {
+                    window.userState.usd_balance = resData.usd_balance;
                 }
 
                 window.updateShopUI();
