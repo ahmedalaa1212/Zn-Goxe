@@ -7,12 +7,12 @@
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 10,
         dailyRewards: [
-            3000, 4000, 5000, 6000, 7500,          
-            10000, 12000, 15000, 18000, 20000,     
-            25000, 30000, 35000, 40000, 50000,     
-            60000, 70000, 80000, 90000, 100000,    
-            120000, 150000, 180000, 220000, 250000,
-            300000, 400000, 500000, 750000, 1000000
+            100, 150, 200, 250, 300, 
+            350, 400, 450, 500, 550, 
+            600, 600, 650, 650, 700, 
+            700, 750, 750, 800, 800, 
+            850, 850, 900, 900, 950, 
+            950, 1000, 1000, 1100, 1250
         ]
     };
 
@@ -135,19 +135,20 @@
         const todayStr = getTodayUTCStr();
         const canClaim = pData.last_daily_claim_date !== todayStr; 
         const currentDailyDay = parseInt(pData.daily_day || 1);
+        const activeDayIndex = Math.min(currentDailyDay, 30);
 
         for (let i = 0; i < 30; i++) {
             let dayNum = i + 1;
-            let rawReward = GAME_CONFIG.dailyRewards[i] || 1000;
+            let rawReward = GAME_CONFIG.dailyRewards[i] || 1250;
             let displayReward = formatCompactNumber(rawReward);
 
-            if (dayNum < currentDailyDay) {
+            if (dayNum < activeDayIndex) {
                 html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div style="font-size: 12px;">✔️</div><div style="font-size: 9px; font-weight: bold;">تم</div></div>`;
-            } else if (dayNum === currentDailyDay) {
+            } else if (dayNum === activeDayIndex) {
                 if (canClaim) {
-                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward} ZN</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${dayNum})" style="background: #2ecc71; color: white; border: none; border-radius: 4px; padding: 4px 0; font-size: 10px; cursor: pointer; width: 90%; animation: pulseGreen 2s infinite;">📺 استلام</button></div>`;
+                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}${currentDailyDay > 30 ? '+' : ''}</div><div class="day-amount">${displayReward} ZN</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${currentDailyDay})" style="background: #2ecc71; color: white; border: none; border-radius: 4px; padding: 4px 0; font-size: 10px; cursor: pointer; width: 90%; animation: pulseGreen 2s infinite;">📺 استلام</button></div>`;
                 } else {
-                    html += `<div class="reward-day-card" style="border-color: #555;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward} ZN</div><div id="daily-timer" style="color: #e74c3c; font-size: 9px; font-weight: bold;">⏳</div></div>`;
+                    html += `<div class="reward-day-card" style="border-color: #555;"><div class="day-title">يوم ${dayNum}${currentDailyDay > 30 ? '+' : ''}</div><div class="day-amount">${displayReward} ZN</div><div id="daily-timer" style="color: #e74c3c; font-size: 9px; font-weight: bold;">⏳</div></div>`;
                 }
             } else {
                 html += `<div class="reward-day-card" style="opacity: 0.5;"><div class="day-title">يوم ${dayNum}</div><div style="font-size: 12px; color: #555;">🔒</div><div class="day-amount">${displayReward}</div></div>`;
@@ -162,7 +163,7 @@
         if (!pData) return;
         
         let unclaim = parseFloat(pData.unclaimed || 0);
-        let maxC = parseFloat(pData.max_cap || 100);
+        let maxC = parseFloat(pData.max_cap || 200);
         let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0); 
         
         if (unclaim < maxC) {
@@ -217,7 +218,7 @@
                     boostBtn.disabled = false;
                     boostBtn.style.background = "linear-gradient(135deg, #f39c12, #e67e22)";
                     boostBtn.style.boxShadow = "0 4px 12px rgba(243, 156, 18, 0.4)";
-                    boostBtn.innerHTML = `<span style="font-size: 20px; margin-bottom: 2px;">🚀</span><span style="font-size: 10px; font-weight: bold;">+1/h</span>`; 
+                    boostBtn.innerHTML = `<span style="font-size: 20px; margin-bottom: 2px;">🚀</span><span style="font-size: 10px; font-weight: bold;">+2/h</span>`; 
                 }
             }
         }
@@ -229,7 +230,6 @@
 
     }, 1000);
 
-    // توحيد حدث التفعيل والرجوع للواجهة دون تكرار الأسطر
     function syncOnVisibility() {
         window.updateFarmUI();
         window.fetchPlayerDataFromServer();
@@ -308,7 +308,7 @@
                 if (response.ok && resData.success) {
                     if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
                     if (resData.new_rate !== undefined) window.userState.hourly_rate = resData.new_rate;
-                    showToast(`🚀 تمت زيادة معدل التعدين بنجاح!`);
+                    showToast(`🚀 تمت زيادة معدل التعدين بنجاح بمقدار +2/h دائماً!`);
                     await window.fetchPlayerDataFromServer(); 
                 } else if (resData.error) {
                     showToast(resData.error);
@@ -329,7 +329,7 @@
         const todayStr = getTodayUTCStr();
         if (pData.last_daily_claim_date === todayStr) return;
 
-        const btn = document.getElementById(`daily-btn-${day}`);
+        const btn = document.getElementById(`daily-btn-${Math.min(day, 30)}`);
         isClaimingDaily = true;
         
         try {
