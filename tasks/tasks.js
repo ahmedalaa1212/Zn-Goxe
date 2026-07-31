@@ -4,6 +4,9 @@
         window.Telegram.WebApp.ready();
     }
 
+    // الحد الأدنى لتكلفة إنشاء أي حملة إعلانية
+    const MIN_AD_CAMPAIGN_COST = 250;
+
     // دوال المزامنة المركزية (الـ Cache) - من القواعد الذهبية
     function getStoredBalance() {
         let bal = localStorage.getItem('userBalance');
@@ -581,6 +584,13 @@
         }
 
         let totalCost = reward * users;
+
+        // 🔒 تطبيق شرط الحد الأدنى لتكلفة إنشاء الحملة الإعلانية (250 AdZN)
+        if (totalCost < MIN_AD_CAMPAIGN_COST) {
+            alert(`⚠️ عذراً، الحد الأدنى لتكلفة إنشاء أي حملة إعلانية هو ${MIN_AD_CAMPAIGN_COST} عملة AdZN.`);
+            return;
+        }
+
         let currentAdBalance = getStoredAdBalance();
 
         if (currentAdBalance < totalCost) {
