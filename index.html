@@ -4,7 +4,7 @@
     <meta name='admaven-placement' content='BqTU9qjgH'>
     <meta name="clckd" content="33fdc2db6d7c74829748874cd984ec1d" />
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Zn Goxe - Crypto Mining</title>
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -17,7 +17,6 @@
 </head>
 <body>
 
-    <!-- رسالة التنبيه العائمة -->
     <div id="global-toast">
         <span style="font-size: 30px;">💰</span>
         <div style="display: flex; flex-direction: column; flex-grow: 1;">
@@ -27,13 +26,11 @@
         <button onclick="document.getElementById('global-toast').style.display='none'" style="background: none; border: none; color: #fff; font-size: 24px; cursor: pointer;">&times;</button>
     </div>
 
-    <!-- شاشة التحميل الكاملة (تظل ظاهرة لحين اكتمال التحميل 100%) -->
     <div id="loading-screen">
         <div class="loader-rocket">🚀</div>
         <h2>جاري تحميل اللعبة...</h2>
     </div>
 
-    <!-- الحاوية الرئيسية للقوائم -->
     <div id="app" style="display: none;">
         <div id="view-friends" class="game-view"></div>
         <div id="view-wallet" class="game-view"></div>
@@ -44,7 +41,6 @@
         <div id="view-settings" class="game-view"></div>
     </div>
 
-    <!-- شريط التنقل السفلي -->
     <nav class="bottom-nav" id="main-nav" style="display: none;">
         <button class="nav-item" onclick="switchView('friends')" id="nav-friends">
             <i class="fas fa-users"></i><span>الأصدقاء</span>
@@ -55,10 +51,14 @@
         <button class="nav-item" onclick="switchView('tasks')" id="nav-tasks">
             <i class="fas fa-list-check"></i><span>المهام</span>
         </button>
+        
         <button class="nav-item nav-center-btn active" onclick="switchView('farm')" id="nav-farm">
-            <i class="fas fa-screwdriver-wrench"></i>
-            <span class="nav-center-text">المزرعة</span>
+            <div class="farm-btn-inner">
+                <i class="fas fa-screwdriver-wrench"></i>
+                <span>المزرعة</span>
+            </div>
         </button>
+
         <button class="nav-item" onclick="switchView('games')" id="nav-games">
             <i class="fas fa-gamepad"></i><span>الألعاب</span>
         </button>
@@ -71,7 +71,6 @@
     </nav>
 
     <script>
-        // بدء تشغيل وتزامن اللعبة الموحد
         async function verifyAndStartGame() {
             if (window.Telegram && window.Telegram.WebApp) {
                 window.Telegram.WebApp.ready(); 
@@ -80,36 +79,36 @@
 
             const cacheVersion = new Date().getTime();
 
-            // 1. تحميل كل واجهات HTML الخاصة بالقوائم
+            // 1. تحميل واجهات القوائم
             await loadAllViews(cacheVersion);
 
-            // 2. تحميل المحرك الرئيسي game.js أولاً
+            // 2. تحميل المحرك الرئيسي game.js
             await loadScriptPromise(`game.js?v=${cacheVersion}`);
 
-            // 3. تحميل باقي سكريبتات القوائم
+            // 3. تحميل سكريبتات القوائم الفرعية
             const scripts = [
                 'friends/friends.js', 'wallet/wallet.js', 'tasks/tasks.js',
                 'farm/farm.js', 'games/games.js', 'shop/shop.js', 'settings/settings.js'
             ];
             await Promise.all(scripts.map(jsPath => loadScriptPromise(`${jsPath}?v=${cacheVersion}`)));
 
-            // 4. جلب بيانات المستخدم الفعلية من السيرفر قبل إظهار الواجهة
+            // 4. جلب البيانات الأساسية للبروفايل والواجهة
             if (typeof window.loadUserData === 'function') {
                 await window.loadUserData();
             }
 
-            // 5. تحديث كافة عناصر الواجهة بالبيانات المحملة
+            // 5. تحديث كافة النصوص والأرقام في الواجهة
             if (typeof window.updateUI === 'function') {
                 window.updateUI();
             }
 
-            // 6. التحقق من الإشعارات المستردة
+            // 6. فحص الإشعارات المرتجعة
             await checkGlobalNotifications();
 
-            // 7. حقن إعلانات Onclicka
+            // 7. إدراج إعلانات أونليكا
             injectOnclickaScript();
 
-            // 8. إخفاء شاشة التحميل بسلاسة بعد اكتمال كل شيء 100%
+            // 8. إخفاء شاشة التحميل بعد الجاهزية 100%
             const loadingScreen = document.getElementById('loading-screen');
             if (loadingScreen) {
                 loadingScreen.classList.add('fade-out');
@@ -181,9 +180,7 @@
                         setTimeout(() => { toast.style.display = 'none'; }, 7000);
                     }
                 }
-            } catch(e) { 
-                console.error("Error checking notifications:", e); 
-            }
+            } catch(e) { console.error("Error checking notifications:", e); }
         }
 
         function injectOnclickaScript() {
@@ -195,6 +192,11 @@
         }
 
         function switchView(viewName) {
+            // إضافة اهتزاز تفاعلي خفيف لخدمة لمس تليجرام عند التنقل
+            if (window.Telegram?.WebApp?.HapticFeedback) {
+                window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
+            }
+
             document.querySelectorAll('.game-view').forEach(v => {
                 v.classList.remove('active');
                 v.style.setProperty('display', 'none', 'important');
