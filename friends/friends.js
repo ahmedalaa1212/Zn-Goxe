@@ -15,7 +15,6 @@
 
     const BOT_USERNAME = "zngoxe_bot";
 
-    // --- أدوات المزامنة الموحدة والمطابقة تماماً لكود المزرعة ---
     function getStoredBalance() {
         if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
             return parseFloat(window.GameState.balance);
@@ -66,7 +65,6 @@
             }
         }
 
-        // تهيئة البيانات المحلية فوراً من الكاش لمنع التصفير لقيمة 8000
         const cachedBal = getStoredBalance();
         window.PlayerData = { balance: cachedBal, pending_ref_earnings: 0, invited_friends_count: 0 };
         
@@ -81,7 +79,6 @@
         loadFriendsData();
     }
 
-    // جلب بيانات الأصدقاء مع إرسال التوثيق الآمن في البودي
     async function loadFriendsData() {
         if (!INIT_DATA) return;
         try {
@@ -106,7 +103,6 @@
         await fetchAndRenderFriendsList();
     }
 
-    // تحديث الواجهة وتوحيد عناصر الرصيد مع المزرعة والأصدقاء
     window.updateFriendsUI = function() {
         const pData = window.PlayerData || {};
         let balance = getStoredBalance();
@@ -117,7 +113,6 @@
         let totalInvited = parseInt(pData.invited_friends_count || 0);
         let eligibleForTasks = parseInt(pData.eligible_task_friends_count || 0);
 
-        // تحديث كل عناصر الرصيد اللي تحمل كلاس المزرعة أو الأصدقاء
         const elBalances = document.querySelectorAll('.zn-balance-display, #top-balance-friends, #farm-balance');
         elBalances.forEach(el => {
             if (el.id === 'farm-balance' || el.innerText.includes('ZN')) {
@@ -137,13 +132,13 @@
         if (btnClaim) {
             if (pending <= 0) {
                 btnClaim.disabled = true;
-                btnClaim.className = "btn-cooldown";
-                btnClaim.style.background = "#333";
+                btnClaim.style.background = "#222226";
+                btnClaim.style.color = "#666666";
                 btnClaim.innerText = "لا توجد أرباح للسحب";
             } else {
                 btnClaim.disabled = false;
-                btnClaim.className = "btn-ready";
-                btnClaim.style.background = "linear-gradient(45deg, #2ecc71, #27ae60)";
+                btnClaim.style.background = "#2ecc71";
+                btnClaim.style.color = "#000000";
                 btnClaim.innerText = "سحب الأرباح الآن 💰";
             }
         }
@@ -163,25 +158,25 @@
 
             let btnHtml = '';
             if (isClaimed) {
-                btnHtml = `<button disabled style="background:#333; color:#777; border:none; padding:6px 10px; border-radius:6px; font-size:11px;">✅ مستلمة</button>`;
+                btnHtml = `<button disabled style="background:#222226; color:#777; border:none; padding:6px 10px; border-radius:6px; font-size:11px;">✅ مستلمة</button>`;
             } else if (isReady) {
-                btnHtml = `<button onclick="claimRefTask(${task.id}, ${task.reward}, ${task.reqFriends})" style="background: linear-gradient(45deg, #2ecc71, #27ae60); color: white; border:none; padding:6px 10px; border-radius:6px; font-size:11px; cursor: pointer; font-weight:bold;">🎁 استلام</button>`;
+                btnHtml = `<button onclick="claimRefTask(${task.id}, ${task.reward}, ${task.reqFriends})" style="background:#2ecc71; color:#000; border:none; padding:6px 10px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:bold;">🎁 استلام</button>`;
             } else {
                 let remaining = task.reqFriends - eligibleFriendsCount;
-                btnHtml = `<button disabled style="background:#222; color:#555; border:1px solid #333; padding:6px 10px; border-radius:6px; font-size:11px;">🔒 باقي ${remaining}</button>`;
+                btnHtml = `<button disabled style="background:#18181c; color:#555; border:1px solid #2a2a2e; padding:6px 10px; border-radius:6px; font-size:11px;">🔒 باقي ${remaining}</button>`;
             }
 
             html += `
-                <li style="background:#1a1a1a; border:1px solid #333; border-radius:12px; padding:12px; margin-bottom:10px; list-style:none; direction:rtl;">
-                    <div style="display:flex; justify-content:between; align-items:center; display:-webkit-box; display:-webkit-flex; justify-content:space-between;">
+                <li style="background:#121215; border:1px solid #26262b; border-radius:12px; padding:12px; margin-bottom:10px; list-style:none; direction:rtl;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
                         <div>
                             <h4 style="margin:0; color:#fff; font-size:13px;">دعوة ${task.reqFriends} أصدقاء (3+ ترقيات)</h4>
                             <p style="margin:4px 0 0 0; color:#f39c12; font-size:11px; font-weight:bold;">مكافأة: ${Math.floor(task.reward).toLocaleString()} ZN</p>
                         </div>
                         <div>${btnHtml}</div>
                     </div>
-                    <div style="width:100%; background:#222; height:6px; border-radius:4px; overflow:hidden; margin-top:8px;">
-                        <div style="width:${progressPercent}%; height:100%; background:#f39c12;"></div>
+                    <div style="width:100%; background:#1c1c20; height:6px; border-radius:4px; overflow:hidden; margin-top:8px;">
+                        <div style="width:${progressPercent}%; height:100%; background:#f39c12; border-radius:4px;"></div>
                     </div>
                 </li>
             `;
@@ -220,7 +215,6 @@
         }
     };
 
-    // عملية سحب الأرباح مع إرسال توثيق initData لحل مشكلة فشل السحب
     window.claimRefEarnings = async function() {
         if (!INIT_DATA) return;
         const btn = document.getElementById('btn-claim-ref');
@@ -256,7 +250,6 @@
         }
     };
 
-    // استلام مهمة الأصدقاء مع إرسال توثيق initData
     window.claimRefTask = async function(taskId, reward, reqFriends) {
         if (!INIT_DATA) return;
         try {
@@ -299,7 +292,7 @@
 
             if (response.ok && data.success) {
                 if (!data.friends || data.friends.length === 0) {
-                    container.innerHTML = '<div class="empty-state" style="text-align:center; color:#777; padding:20px;">لم تقم بدعوة أي أصدقاء حتى الآن.</div>';
+                    container.innerHTML = '<div class="empty-state">لم تقم بدعوة أي أصدقاء حتى الآن.</div>';
                     return;
                 }
                 
@@ -311,11 +304,11 @@
                         : `<span style="color: #f39c12; font-size:11px;">ينقصه ${3 - cnt} ترقية (${cnt}/3) ⏳</span>`;
                     
                     html += `
-                        <li style="display:flex; justify-content:space-between; align-items:center; background:#1a1a1a; padding:10px; border-radius:10px; margin-bottom:8px; border:1px solid #333;">
+                        <li style="display:flex; justify-content:space-between; align-items:center; background:#121215; padding:10px 12px; border-radius:10px; margin-bottom:8px; border:1px solid #26262b;">
                             <div style="display:flex; align-items:center; gap:10px;">
-                                <div style="width:35px; height:35px; background:#f39c12; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#000; font-weight:bold;">${(f.name || 'U').charAt(0).toUpperCase()}</div>
+                                <div style="width:34px; height:34px; background:#f39c12; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#000; font-weight:bold; font-size:13px;">${(f.name || 'U').charAt(0).toUpperCase()}</div>
                                 <div style="display:flex; flex-direction:column;">
-                                    <span style="color:#fff; font-size:13px; font-weight:bold;">${f.name || 'مستخدم مجهول'}</span>
+                                    <span style="color:#fff; font-size:13px; font-weight:600;">${f.name || 'مستخدم مجهول'}</span>
                                     ${statusHtml}
                                 </div>
                             </div>
@@ -326,26 +319,23 @@
                 html += '</ul>';
                 container.innerHTML = html;
             } else {
-                container.innerHTML = '<div class="empty-state" style="text-align:center; color:#777;">فشل في تحميل قائمة الأصدقاء.</div>';
+                container.innerHTML = '<div class="empty-state">فشل في تحميل قائمة الأصدقاء.</div>';
             }
         } catch (e) {
-            container.innerHTML = '<div class="empty-state" style="text-align:center; color:#777;">خطأ في الاتصال بالخادم.</div>';
+            container.innerHTML = '<div class="empty-state">خطأ في الاتصال بالخادم.</div>';
         }
     }
 
-    // --- التايمر السحري للمزامنة اللحظية الفائقة والربط بين القوائم بدون ريفريش ---
     setInterval(() => {
         const cachedBal = getStoredBalance();
-        // إذا اختلف الرصيد في الكاش المحلي عن الرصيد الحالي المسجل بالواجهة، يتم التحديث فوراً
         if (window.PlayerData && Math.floor(window.PlayerData.balance) !== Math.floor(cachedBal)) {
             window.PlayerData.balance = cachedBal;
             if (typeof window.updateFriendsUI === 'function') {
                 window.updateFriendsUI();
             }
         }
-    }, 1000); // يفحص كل 1 ثانية لمزامنة فائقة السرعة
+    }, 1000);
 
-    // المزامنة عند التبديل التقليدي بين النوافذ
     window.addEventListener('pageshow', () => {
         const stored = getStoredBalance();
         if (window.PlayerData) window.PlayerData.balance = stored;
