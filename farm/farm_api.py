@@ -283,7 +283,7 @@ def upgrade_level():
 
             if level > 1:
                 prev_count = int(upgrades.get(f"lvl{level-1}", 0))
-                if prev_count <= 0:
+                if prev_count <= 0 and current_count <= 0:
                     return None, "يجب فتح المستوى السابق أولاً", 400
 
             cfg = UPGRADE_CONFIG.get(level, {"base_cost": 1000.0, "rate_bonus": 1.0})
