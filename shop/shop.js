@@ -3,14 +3,7 @@
 
     let tonConnectUI = null;
     let isBuying = false;
-
-    // أسعار الباقات بالدولار للحساب الفوري المباشر
-    const PACKAGE_USD_PRICES = {
-        'pkg_1': 1.00,
-        'pkg_2': 3.00,
-        'pkg_3': 6.00,
-        'pkg_4': 10.00
-    };
+    let shopDynamicSettings = null;
 
     function triggerHaptic(type = 'impact', style = 'medium') {
         if (window.Telegram?.WebApp?.HapticFeedback) {
@@ -19,52 +12,102 @@
         }
     }
 
+    // تهيئة نظام الربط بالمحفظة تلقائياً مع محاولات إعادة التهيئة الآمنة
     function initTonConnect() {
+        if (tonConnectUI) return tonConnectUI;
+
         try {
             if (window.TON_CONNECT_UI) {
                 tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
                     manifestUrl: `${window.location.origin}/tonconnect-manifest.json`,
                     buttonRootId: 'ton-connect-btn'
                 });
+                console.log("✅ TonConnect UI Intialized!");
+                return tonConnectUI;
             }
         } catch (e) {
             console.error("TonConnect Init Error:", e);
         }
+        return null;
     }
 
-    // حساب وعرض قيم TON للباقات بناءً على سعر TON العالمي الحالي
-    function updatePackageTonPrices() {
-        const tonPrice = parseFloat(window.currentTonPriceUSD || 0);
-        
-        for (const [pkgId, usdVal] of Object.entries(PACKAGE_USD_PRICES)) {
-            const el = document.getElementById(`ton-amt-${pkgId}`);
-            if (el) {
-                if (tonPrice > 0) {
-                    const tonAmt = (usdVal / tonPrice).toFixed(3);
-                    el.innerText = `~${tonAmt} TON`;
-                } else {
-                    el.innerText = `~0 TON`;
-                }
-            }
+    // الانتظار الآمن في حالة الضغط على الشراء وكانت المحفظة لم تكتمل في الخلفية
+    async function ensureTonConnectReady() {
+        if (tonConnectUI) return tonConnectUI;
+        initTonConnect();
+        if (tonConnectUI) return tonConnectUI;
+
+        let retries = 0;
+        while (!window.TON_CONNECT_UI && retries < 15) {
+            await new Promise(res => setTimeout(res, 200));
+            retries++;
         }
+
+        return initTonConnect();
     }
 
     async function loadShopConfig() {
         try {
             const res = await fetch('/api/shop/get_config');
             const data = await res.json();
-            if (data.success && data.packages) {
-                for (const [pkgId, pkg] of Object.entries(data.packages)) {
-                    const el = document.getElementById(`ton-amt-${pkgId}`);
-                    if (el && pkg.ton_amount) {
-                        el.innerText = `~${pkg.ton_amount} TON`;
-                    }
+            if (data.success) {
+                shopDynamicSettings = data.settings;
+                
+                // تحديث سعر TON المباشر في الصفحة
+                const tonPriceElem = document.getElementById('ton-live-rate-text');
+                if (tonPriceElem && data.ton_price_usd) {
+                    tonPriceElem.innerText = `$${parseFloat(data.ton_price_usd).toFixed(2)}`;
                 }
+
+                // عرض الباقات المجلوبة ديناميكياً من قاعدة البيانات
+                renderDynamicPackages(data.packages);
+
+                // تحديث واجهة السرعات والمخازن بحسب قيم الداتا بيز
+                window.updateShopUI();
             }
         } catch (e) {
-            console.warn("استخدام الحساب المباشر لسعر TON للباقات:", e);
-            updatePackageTonPrices();
+            console.error("خطأ في تحميل إعدادات المتجر من الداتا بيز:", e);
         }
+    }
+
+    // بناء كروت الباقات المميزة ديناميكياً من الداتا بيز (حتى لو أضاف الأدمن باقة جديدة من البوت)
+    function renderDynamicPackages(packages) {
+        const container = document.getElementById('usdt-packages-container');
+        if (!container || !packages) return;
+
+        let html = '';
+        const colorThemes = [
+            { bg: 'linear-gradient(135deg, #1c1c1c, #2a2a2a)', border: 'var(--primary)', btn: 'var(--primary)', icon: '📦' },
+            { bg: 'linear-gradient(135deg, #1c1c1c, #1f3a2b)', border: 'var(--accent-green)', btn: 'var(--accent-green)', icon: '🚀' },
+            { bg: 'linear-gradient(135deg, #1c1c1c, #332b00)', border: 'var(--gold)', btn: 'var(--gold)', icon: '👑', textColor: '#000' },
+            { bg: 'linear-gradient(135deg, #1c1c1c, #3a1c1c)', border: 'var(--accent-red)', btn: 'var(--accent-red)', icon: '🐋' }
+        ];
+
+        let index = 0;
+        for (const [pkgId, pkg] of Object.entries(packages)) {
+            const theme = colorThemes[index % colorThemes.length];
+            const btnTextColor = theme.textColor || '#fff';
+
+            html += `
+                <div class="usdt-card" style="background: ${theme.bg}; border: 1px solid ${theme.border};">
+                    <div>
+                        <div style="font-size: 24px;">${theme.icon}</div>
+                        <div style="color: #fff; font-weight: bold; font-size: 13px;">${pkg.title || 'باقة مميزة'}</div>
+                        <div style="color: ${theme.border}; font-weight: bold; font-size: 15px; margin: 2px 0;">$${pkg.usdt}</div>
+                        <div style="color: var(--ton-blue); font-size: 11px; font-weight: bold;">~${pkg.ton_amount} TON</div>
+                    </div>
+                    <div class="usdt-perks">
+                        ⚡ +${Number(pkg.rate_add).toLocaleString()} ZN/h<br>
+                        📦 +${Number(pkg.storage_add).toLocaleString()} مخزن<br>
+                        🪙 +${Number(pkg.zn_add).toLocaleString()} ZN
+                    </div>
+                    <button class="btn-ton-pay" style="background: ${theme.btn}; color: ${btnTextColor};" onclick="buyPackageWithTon('${pkgId}')">شراء تلقائي</button>
+                </div>
+            `;
+            index++;
+        }
+
+        container.innerHTML = html;
     }
 
     window.buyPackageWithTon = async function(packageId) {
@@ -76,25 +119,26 @@
             return;
         }
 
-        if (!tonConnectUI) {
-            alert("⚠️ جاري تهيئة نظام المحفظة، يرجى المحاولة بعد ثوانٍ.");
+        triggerHaptic('impact', 'medium');
+        
+        const tcInstance = await ensureTonConnectReady();
+        if (!tcInstance) {
+            alert("⚠️ جاري إعداد الاتصال بالمحفظة، يرجى المحاولة بعد ثوانٍ.");
             return;
         }
 
         try {
-            triggerHaptic('impact', 'medium');
-
-            if (!tonConnectUI.connected) {
-                await tonConnectUI.openModal();
+            if (!tcInstance.connected) {
+                await tcInstance.openModal();
 
                 let attempts = 0;
-                while (!tonConnectUI.connected && attempts < 40) {
+                while (!tcInstance.connected && attempts < 40) {
                     await new Promise(resolve => setTimeout(resolve, 500));
                     attempts++;
                 }
 
-                if (!tonConnectUI.connected) {
-                    alert("⚠️ يجب ربط المحفظة أولاً لإتمام عملية الدفع.");
+                if (!tcInstance.connected) {
+                    alert("⚠️ يجب ربط المحفظة إولاً لإتمام عملية الشراء.");
                     return;
                 }
             }
@@ -126,7 +170,7 @@
                 }]
             };
 
-            const result = await tonConnectUI.sendTransaction(transaction);
+            const result = await tcInstance.sendTransaction(transaction);
 
             const verifyRes = await fetch('/api/shop/verify_and_apply_package', {
                 method: 'POST',
@@ -143,12 +187,13 @@
             const verifyData = await verifyRes.json();
             if (verifyData.success) {
                 triggerHaptic('notification', 'success');
-                alert("🎉 تم تأكيد الدفع وتفعيل الباقة فوراً بنجاح!");
+                alert("🎉 تم تأكيد الدفع وتفعيل الباقة وحفظ المعاملة بنجاح!");
 
                 if (window.userState) {
                     window.userState.balance = verifyData.result.balance;
                     window.userState.hourly_rate = verifyData.result.hourly_rate;
                     window.userState.max_cap = verifyData.result.max_cap;
+                    window.userState.usd_balance = verifyData.result.usd_balance;
                 }
 
                 window.updateShopUI();
@@ -159,18 +204,10 @@
         } catch (e) {
             console.error("Payment Flow Error:", e);
             triggerHaptic('notification', 'error');
-            alert("❌ تم إلغاء المعاملة أو حدث خطأ أثناء الدفع.");
+            alert("❌ تم إلغاء المعاملة أو حدث خطأ أثناء الاتصال بالمحفظة.");
         } finally {
             isBuying = false;
         }
-    };
-
-    const SHOP_CONFIG = {
-        maxMiningUpgrades: { 1: 10, 2: 10, 3: 10, 4: 10, 5: 10, 6: 10, 7: 10, 8: 10, 9: 10 },
-        miningPrices: { 1: 2000, 2: 7000, 3: 18000, 4: 45000, 5: 110000, 6: 260000, 7: 600000, 8: 1400000, 9: 3200000 },
-        miningRates: { 1: 5, 2: 15, 3: 35, 4: 80, 5: 180, 6: 400, 7: 900, 8: 2000, 9: 4500 },
-        storagePrices: { 1: 3000, 2: 10000, 3: 25000, 4: 65000, 5: 160000, 6: 400000, 7: 950000, 8: 2200000, 9: 5000000, 10: 12000000 },
-        storageCapacities: { 1: 600, 2: 1500, 3: 3500, 4: 8000, 5: 18000, 6: 40000, 7: 90000, 8: 200000, 9: 450000, 10: 1000000 }
     };
 
     const injectModalUI = () => {
@@ -258,9 +295,6 @@
     };
 
     window.updateShopUI = function() {
-        // 1. تحديث أسعار الباقات بـ TON حياً
-        updatePackageTonPrices();
-
         const miningSec = document.getElementById('shop-mining-section');
         const storageSec = document.getElementById('shop-storage-section');
         if (!miningSec || !storageSec) return;
@@ -268,18 +302,42 @@
         const pData = window.userState || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0, usd_balance: 0 };
         let totalBal = parseFloat(pData.balance || 0);
 
+        // تحديث إحصائيات أعلى الصفحة المباشرة بما فيها الدولار USD
+        const usdElem = document.getElementById('shop-usd-text');
+        if (usdElem) {
+            usdElem.innerText = `$${parseFloat(pData.usd_balance || 0).toFixed(2)}`;
+        }
+        const balElem = document.getElementById('shop-balance-text');
+        if (balElem) balElem.innerText = Math.floor(totalBal).toLocaleString();
+        
+        const rateElem = document.getElementById('shop-rate-text');
+        if (rateElem) rateElem.innerText = `${parseFloat(pData.hourly_rate || 0).toLocaleString()}/h`;
+
+        // إعدادات الترقية من الداتا بيز
+        const miningCfg = shopDynamicSettings?.mining_config || {
+            "1": {"price": 2000, "rate": 5, "max": 10},
+            "2": {"price": 7000, "rate": 15, "max": 10},
+            "3": {"price": 18000, "rate": 35, "max": 10},
+            "4": {"price": 45000, "rate": 80, "max": 10},
+            "5": {"price": 110000, "rate": 180, "max": 10},
+            "6": {"price": 260000, "rate": 400, "max": 10},
+            "7": {"price": 600000, "rate": 900, "max": 10},
+            "8": {"price": 1400000, "rate": 2000, "max": 10},
+            "9": {"price": 3200000, "rate": 4500, "max": 10}
+        };
+
         let miningHtml = '';
-        for (let i = 1; i <= 9; i++) {
+        for (const [i, cfg] of Object.entries(miningCfg)) {
             let count = parseInt((pData.upgrades && pData.upgrades[`lvl${i}`]) || 0);
-            let price = parseFloat(SHOP_CONFIG.miningPrices[i]);
-            let speed = parseFloat(SHOP_CONFIG.miningRates[i]); 
-            let maxLimit = SHOP_CONFIG.maxMiningUpgrades[i];
+            let price = parseFloat(cfg.price);
+            let speed = parseFloat(cfg.rate); 
+            let maxLimit = parseInt(cfg.max || 10);
             let isMax = count >= maxLimit;
             let canAfford = totalBal >= price;
 
             miningHtml += `
                 <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 12px; text-align: center; position: relative; display: flex; flex-direction: column; justify-content: space-between;">
-                    ${isMax ? `<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00;">مكتمل MAX</div>` : ''}
+                    ${isMax ? `<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; border-radius: 12px;">مكتمل MAX</div>` : ''}
                     <div>
                         <div style="font-size: 26px;">⚡</div>
                         <div style="color: #fff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
@@ -295,12 +353,26 @@
         }
         miningSec.innerHTML = miningHtml;
 
+        const storageCfg = shopDynamicSettings?.storage_config || {
+            "1": {"price": 3000, "capacity": 600},
+            "2": {"price": 10000, "capacity": 1500},
+            "3": {"price": 25000, "capacity": 3500},
+            "4": {"price": 65000, "capacity": 8000},
+            "5": {"price": 160000, "capacity": 18000},
+            "6": {"price": 400000, "capacity": 40000},
+            "7": {"price": 950000, "capacity": 90000},
+            "8": {"price": 2200000, "capacity": 200000},
+            "9": {"price": 5000000, "capacity": 450000},
+            "10": {"price": 12000000, "capacity": 1000000}
+        };
+
         let storageHtml = '';
         let currentStorageLvl = parseInt(pData.storage_level || 0); 
 
-        for (let i = 1; i <= 10; i++) {
-            let price = parseFloat(SHOP_CONFIG.storagePrices[i]);
-            let capacity = parseFloat(SHOP_CONFIG.storageCapacities[i]);
+        for (const [iStr, cfg] of Object.entries(storageCfg)) {
+            let i = parseInt(iStr);
+            let price = parseFloat(cfg.price);
+            let capacity = parseFloat(cfg.capacity);
             let isOwned = i <= currentStorageLvl;
             let isNextUpgrade = i === currentStorageLvl + 1;
             let canAfford = totalBal >= price;
@@ -387,6 +459,9 @@
                         window.userState.storage_level = resData.storage_level;
                         window.userState.max_cap = resData.max_cap;
                     }
+                    if (resData.usd_balance !== undefined) {
+                        window.userState.usd_balance = resData.usd_balance;
+                    }
                 }
 
                 window.updateShopUI();
@@ -403,7 +478,6 @@
     document.addEventListener("DOMContentLoaded", () => {
         initTonConnect();
         loadShopConfig();
-        window.updateShopUI();
     });
 
 })();
