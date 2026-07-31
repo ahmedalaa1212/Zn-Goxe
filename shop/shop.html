@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>المتجر - Zn Goxe</title>
-    <!-- مكتبات تليجرام و TonConnect -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     
@@ -47,7 +46,6 @@
             margin: 0 auto; 
         }
 
-        /* شريط الإحصائيات والأرصدة */
         .shop-stats-bar {
             display: grid; 
             grid-template-columns: repeat(3, 1fr); 
@@ -73,7 +71,6 @@
         .stat-label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
         .stat-value { font-weight: 800; font-size: 13px; white-space: nowrap; }
 
-        /* شريط سعر TON */
         .ton-price-bar {
             background: rgba(0, 152, 234, 0.12); 
             border: 1px solid var(--ton-blue);
@@ -85,7 +82,6 @@
             align-items: center;
         }
 
-        /* حاوية باقات USDT/TON */
         .usdt-container {
             display: flex; 
             gap: 12px; 
@@ -139,8 +135,6 @@
 <body>
 
     <div class="shop-container">
-        
-        <!-- الشريط العلوي للإحصائيات المربوط ديناميكياً -->
         <div class="shop-stats-bar">
             <div class="stat-box">
                 <span class="stat-label">🪙 ZN</span>
@@ -156,7 +150,6 @@
             </div>
         </div>
 
-        <!-- شريط سعر TON المباشر -->
         <div class="ton-price-bar">
             <div style="font-size: 13px; font-weight: bold; color: var(--ton-blue);">
                 💎 سعر TON اللحظي المباشر:
@@ -164,31 +157,25 @@
             <div id="ton-live-rate-text" data-bind="ton_price" style="font-weight: 800; color: #fff; font-size: 14px;">جاري التحميل...</div>
         </div>
 
-        <!-- زر TonConnect المخفي ليتم استدعاؤه برمجياً -->
         <div id="ton-connect-btn" style="display:none;"></div>
 
         <h3 style="color: #fff; margin-bottom: 12px; font-size: 17px; font-weight: bold;">💎 باقات العروض المميزة (الدفع التلقائي)</h3>
         
-        <!-- حاوية الباقات الديناميكية -->
         <div class="usdt-container" id="usdt-packages-container">
             <div style="color: #888; font-size: 13px; text-align: center; width: 100%; padding: 20px;">جاري تحميل الباقات المتاحة...</div>
         </div>
 
-        <!-- أزرار التنقل بين التبويبات -->
         <div style="display: flex; gap: 10px; margin-bottom: 20px;">
             <button id="tab-mining" onclick="switchShopTab('mining')" style="flex: 1; padding: 12px; background: var(--telegram-blue); color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer;">⚡ ترقيات السرعة</button>
             <button id="tab-storage" onclick="switchShopTab('storage')" style="flex: 1; padding: 12px; background: #333333; color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer;">📦 ترقيات المخزن</button>
         </div>
 
-        <!-- شبكة ترقيات التعدين/السرعة -->
         <div id="shop-mining-section" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;"></div>
 
-        <!-- شبكة ترقيات المخزن -->
         <div id="shop-storage-section" style="display: none; grid-template-columns: repeat(2, 1fr); gap: 12px;"></div>
 
     </div>
 
-    <!-- كود الجافاسكريبت المباشر للمتجر -->
     <script src="shop.js?v=18.0"></script>
 </body>
 </html>
