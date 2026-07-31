@@ -1,18 +1,16 @@
-# shop/shop_api.py
 import time
 import requests
+import traceback
 from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 from google.cloud import firestore
 from database import db
 from core.security import get_authenticated_user
 from core.ton_price import get_live_ton_price
-import traceback
 
 shop_bp = Blueprint('shop', __name__)
 
-# عنوان محفظة TON الخاصة بالمشروع (ضع عنوان محفظتك هنا)
-PROJECT_TON_WALLET = "EQD...YOUR_PROJECT_TON_WALLET_HERE..."
+PROJECT_TON_WALLET = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"
 
 DEFAULT_SHOP_SETTINGS = {
     "mining_config": {
@@ -61,16 +59,19 @@ def get_shop_settings():
 
 @shop_bp.route('/get_config', methods=['GET'])
 def get_config():
-    """إرجاع إعدادات المتجر وسعر TON اللحظي وقيم الباقات المحسوبة"""
     settings = get_shop_settings()
     ton_price_usd = get_live_ton_price()
     
     packages_with_ton = {}
     for pkg_id, pkg_info in settings.get('usdt_packages', {}).items():
         usd_val = pkg_info.get('usdt', 1)
-        ton_needed = round(usd_val / ton_price_usd, 4)
+        ton_needed = round(usd_val / ton_price_usd, 4) if ton_price_usd > 0 else 0
         packages_with_ton[pkg_id] = {
-            **pkg_info,
+            "usdt": pkg_info.get('usdt', 0),
+            "rate_add": pkg_info.get('rate_add', 0),
+            "storage_add": pkg_info.get('storage_add', 0),
+            "zn_add": pkg_info.get('zn_add', 0),
+            "title": pkg_info.get('title', ''),
             "ton_amount": ton_needed
         }
 
@@ -83,7 +84,6 @@ def get_config():
 
 @shop_bp.route('/prepare_ton_pay', methods=['POST'])
 def prepare_ton_pay():
-    """تجهيز عملية الدفع وحساب المبلغ بالـ NanoTON وسيرفر الميمو لحماية المعاملة"""
     try:
         is_auth, user_id, error_response = get_authenticated_user(request, is_post=True)
         if not is_auth:
@@ -101,9 +101,8 @@ def prepare_ton_pay():
         pkg_info = packages[pkg_id]
         ton_price = get_live_ton_price()
         ton_amount = round(pkg_info['usdt'] / ton_price, 4)
-        nano_ton = int(ton_amount * 1_000_000_000)
+        nano_ton = int(ton_amount * 1000000000)
 
-        # ميمو فريد يربط المعاملة بالباك إند والمسخدم
         memo_payload = f"BUY_{pkg_id}_USER_{user_id}_{int(time.time())}"
 
         return jsonify({
@@ -148,7 +147,6 @@ def process_usdt_package_transaction(transaction, user_ref, package_data):
 
 @shop_bp.route('/verify_and_apply_package', methods=['POST'])
 def verify_and_apply_package():
-    """التحقق التلقائي المباشر من الدفع وتفعيل الباقة فوراً"""
     try:
         is_auth, user_id, error_response = get_authenticated_user(request, is_post=True)
         if not is_auth:
@@ -156,7 +154,7 @@ def verify_and_apply_package():
 
         data = request.get_json() or {}
         pkg_key = data.get('package_id')
-        tx_boc = data.get('boc') # التأكيد المرجّع من المحفظة
+        tx_boc = data.get('boc')
 
         if not pkg_key or not tx_boc:
             return jsonify({"success": False, "error": "بيانات الدفع ناقصة."}), 400
@@ -167,19 +165,17 @@ def verify_and_apply_package():
         if pkg_key not in packages:
             return jsonify({"success": False, "error": "باقة غير صالحة."}), 400
 
-        # حماية من التكرار: التأكد من أن المعاملة لم تُستخدم سابقاً
-        tx_ref = db.collection('processed_txs').document(str(tx_boc[:64]))
+        tx_doc_id = str(tx_boc[:64])
+        tx_ref = db.collection('processed_txs').document(tx_doc_id)
         if tx_ref.get().exists:
             return jsonify({"success": False, "error": "تم معالجة هذه المعاملة سابقاً."}), 400
 
-        # تسجيل المعاملة كتأكيد ناجح
         tx_ref.set({
             'user_id': str(user_id),
             'package_id': pkg_key,
             'timestamp': datetime.now(timezone.utc).isoformat()
         })
 
-        # تطبيق المزايا في قاعدة البيانات بشكل فوري وتراكمي
         user_ref = db.collection('users').document(str(user_id))
         transaction = db.transaction()
         updated_data = process_usdt_package_transaction(transaction, user_ref, packages[pkg_key])
@@ -254,7 +250,7 @@ def buy_upgrade():
             current_lvl_count = int(upgrades.get(lvl_key, 0))
 
             if current_lvl_count >= max_limit:
-                return jsonify({"success": False, "error": "وصلت للحد الأقصى للشراء في هذا المستوى (10 مرات)."}), 400
+                return jsonify({"success": False, "error": "وصلت للحد الأقصى للشراء في هذا المستوى."}), 400
 
             if total_balance < price:
                 return jsonify({"success": False, "error": "الرصيد غير كافي للشراء."}), 400
