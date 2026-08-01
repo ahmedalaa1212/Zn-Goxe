@@ -7,13 +7,13 @@ from firebase_admin import firestore
 friends_bp = Blueprint('friends', __name__)
 
 REF_TASKS_CONFIG = {
-    1: {"reqFriends": 1, "reward": 5000},
-    2: {"reqFriends": 5, "reward": 30000},
-    3: {"reqFriends": 10, "reward": 75000},
-    4: {"reqFriends": 25, "reward": 200000},
-    5: {"reqFriends": 50, "reward": 500000},
-    6: {"reqFriends": 100, "reward": 1500000},
-    7: {"reqFriends": 500, "reward": 10000000}
+    1: {"reqFriends": 1, "reward": 4000},
+    2: {"reqFriends": 5, "reward": 25000},
+    3: {"reqFriends": 10, "reward": 60000},
+    4: {"reqFriends": 25, "reward": 160000},
+    5: {"reqFriends": 50, "reward": 350000},
+    6: {"reqFriends": 100, "reward": 800000},
+    7: {"reqFriends": 500, "reward": 4500000}
 }
 
 def get_user_upgrades_count(user_data):
