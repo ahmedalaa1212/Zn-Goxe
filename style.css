@@ -310,3 +310,12 @@ body:has(textarea:focus) .bottom-nav,
 body:has(select:focus) .bottom-nav {
     display: none !important;
 }
+
+/* =========================================
+   تنسيق تصغير العلامة العشرية والأرقام العشرية
+   ========================================= */
+.small-decimal {
+    font-size: 0.7em !important;   /* تصغير حجم الكسر العشري بنسبة 30% */
+    opacity: 0.85;                  /* شفافية بسيطة لتوضيح الفرق عن الرقم الصحيح */
+    font-weight: normal !important; /* سمك خط عادي للتميز */
+}
