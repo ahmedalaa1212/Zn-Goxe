@@ -11,6 +11,11 @@ if (tg) {
 window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 0;
 
 function hideLoadingScreen() {
+    const appEl = document.getElementById('app');
+    const navEl = document.getElementById('main-nav');
+    if (appEl) appEl.style.display = 'block';
+    if (navEl) navEl.style.display = 'flex';
+
     const loaders = document.querySelectorAll('#loading-screen, .loading-screen, #loader, .loader-overlay');
     loaders.forEach(el => {
         el.style.opacity = '0';
@@ -74,7 +79,12 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     }
 
     try {
-        const res = await fetch(endpoint, { method, headers, body: bodyData ? JSON.stringify(bodyData) : null });
+        const fetchOptions = { method, headers };
+        if (method !== 'GET' && method !== 'HEAD' && bodyData) {
+            fetchOptions.body = JSON.stringify(bodyData);
+        }
+
+        const res = await fetch(endpoint, fetchOptions);
         const data = await res.json();
         
         if (!res.ok) {
@@ -135,7 +145,7 @@ window.initFirebaseRealtimeSync = function(userId) {
     
     window.db.collection('users').doc(String(userId)).onSnapshot(doc => {
         if (!doc.exists) return;
-        const d = doc.data();
+        const d = doc.data() or {};
         
         try {
             isFirebaseUpdating = true;
@@ -267,7 +277,11 @@ function applyBalanceToUI(val) {
     });
 }
 
+window._isUpdatingUI = false;
+
 window.updateUI = function() {
+    if (window._isUpdatingUI) return;
+    window._isUpdatingUI = true;
     try {
         const s = window.userState;
 
@@ -312,7 +326,11 @@ window.updateUI = function() {
             try { if (f.contentWindow?.document) updateDoc(f.contentWindow.document); } catch {}
         });
 
-    } catch (e) { console.error("UI Update Error:", e); }
+    } catch (e) { 
+        console.error("UI Update Error:", e); 
+    } finally {
+        window._isUpdatingUI = false;
+    }
 };
 
 // ==========================================
@@ -338,7 +356,7 @@ window.loadUserData = async function() {
     } finally { 
         isFetchingUser = false; 
         window.updateUI();
-        hideLoadingScreen(); // إخفاء شاشة التحميل فور جلب البيانات أو حدوث خطأ
+        hideLoadingScreen();
     }
 };
 
@@ -389,7 +407,7 @@ window.executeWithdraw = async (amountUSD, address) => {
 // ==========================================
 // 6. تشغيل التطبيق والاستماع المباشر
 // ==========================================
-document.addEventListener('DOMContentLoaded', () => {
+function initApp() {
     document.getElementById('open-history-btn')?.addEventListener('click', window.loadWalletHistory);
     
     window.updateUI();
@@ -399,9 +417,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (uid) window.initFirebaseRealtimeSync(uid);
     });
     
-    // إحتاطي: إخفاء اللودر بعد 4 ثوانٍ أقصاها لمنع تعلق الشاشة نهائياً
     setTimeout(hideLoadingScreen, 4000);
 
     setInterval(window.globalFetchTonPrice, 60000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) window.globalFetchTonPrice(); });
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+} else {
+    initApp();
+}
