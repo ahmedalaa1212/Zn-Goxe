@@ -52,11 +52,11 @@ def ensure_game_settings_exist():
             "10": {"capacity": 1000000, "price": 12000000}
         }
 
-        # 4. إعدادات نظام الأصدقاء والإحالة الديناميكية
+        # 4. إعدادات نظام الأصدقاء (تجهيز المكافآت المباشرة بـ 0 ZN)
         exact_friends_config = {
-            "direct_reward_inviter": 2500,    # مكافأة الداعي المباشرة عند انضمام صديق
-            "direct_reward_invitee": 1000,    # مكافأة الصديق الجديد فور تسجيله
-            "commission_percent": 10,         # نسبة الربح المستمر من تعدين الصديق (%)
+            "direct_reward_inviter": 0,       # 0 ZN مكافأة للداعي
+            "direct_reward_invitee": 0,       # 0 ZN مكافأة للمدعو
+            "commission_percent": 10,         # 10% فقط من تعدين المزرعة عند التجميع
             "claim_fee_percent": 1.5,         # رسوم سحب أرباح الإحالة (%)
             "min_upgrades_for_task": 3,       # الحد الأدنى للترقيات لاحتساب الصديق مؤهلاً للمهام
             "ref_tasks": {
@@ -70,20 +70,24 @@ def ensure_game_settings_exist():
             }
         }
 
-        # جلب الإعدادات الحالية لعدم مسح تعديلاتك في الفايرستور إذا كانت موجودة
         doc = settings_ref.get()
         current_data = doc.to_dict() or {} if doc.exists else {}
+
+        # تجديد وتصفير المكافآت المباشرة حتى لو كانت مخزنة سابقاً بقيمة 2500 أو 1000
+        friends_cfg = current_data.get("friends_config", exact_friends_config)
+        friends_cfg["direct_reward_inviter"] = 0
+        friends_cfg["direct_reward_invitee"] = 0
 
         update_payload = {
             "daily_rewards": current_data.get("daily_rewards", exact_daily_rewards),
             "speed_config": current_data.get("speed_config", exact_speed_config),
             "storage_config": current_data.get("storage_config", exact_storage_config),
             "daily_ad_boost_rate": current_data.get("daily_ad_boost_rate", 2),
-            "friends_config": current_data.get("friends_config", exact_friends_config)
+            "friends_config": friends_cfg
         }
 
         settings_ref.set(update_payload, merge=True)
-        print("✅ تم فحص وتحديث إعدادات اللعبة و system الأصدقاء في Firestore بنجاح!")
+        print("✅ تم تحديث Firestore: المكافآت المباشرة أصبحت 0 ZN والاعتماد على 10% من التعدين فقط!")
 
     except Exception as e:
         print(f"❌ خطأ أثناء تحديث إعدادات اللعبة تلقائياً: {e}")
@@ -158,19 +162,12 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
         
         if not user_doc.exists:
             valid_ref_id = str(ref_id) if ref_id and str(ref_id) != tg_id_str else None
-            
-            # جلب إعدادات المكافآت من الفايرستور
-            settings = get_game_settings()
-            f_config = settings.get('friends_config', {})
-            inviter_bonus = float(f_config.get('direct_reward_inviter', 2500))
-            invitee_bonus = float(f_config.get('direct_reward_invitee', 1000))
 
-            initial_balance = invitee_bonus if valid_ref_id else 0.0
-
+            # الجميع يبدأ برصيد أولي 0.0 ZN بالضبط بدعوة أو بدون دعوة
             new_user_data = {
                 "tg_id": tg_id_str,
                 "first_name": first_name,
-                "balance": initial_balance,
+                "balance": 0.0,
                 "ad_balance": 0.0,
                 "usd_balance": 0.0,
                 "hourly_rate": 0.0,
@@ -195,16 +192,12 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 if referrer_ref.get().exists:
                     is_new_referral = True
                     
-                    # تحديث عدد الأصدقاء وإضافة مكافأة الداعي المباشرة للرصيد الأساسي (balance) وليس الأرباح المعلقة
-                    update_payload = {
+                    # زيادة عدد الأصدقاء فقط بدون إضافة أي رصيد مباشر للداعي
+                    referrer_ref.update({
                         "invited_friends_count": firestore.Increment(1)
-                    }
-                    if inviter_bonus > 0:
-                        update_payload["balance"] = firestore.Increment(inviter_bonus)
-
-                    referrer_ref.update(update_payload)
+                    })
                     
-                    # إضافة الصديق للقائمة وتبدأ أرباح التعدين منه بـ 0.0
+                    # إدراج الصديق بقيمة مجمعة مبدئية 0.0 ZN
                     referrer_ref.collection('friends').document(tg_id_str).set({
                         "tg_id": tg_id_str,
                         "first_name": first_name,
@@ -266,7 +259,7 @@ def update_user_balance(tg_id, amount, balance_type="balance"):
 def add_referral_earnings(referrer_id, friend_id, amount):
     """
     تُستدعى حصرياً عند ضغط الصديق على زر تجميع المزرعة (Claim Farm).
-    تحسب نسبة العمولة (10%) من الكمية المجمعة من التعدين وتضيفها إلى الأرباح المعلقة والسجل.
+    تحسب 10% من التعدين فقط وتضيفها للأرباح المعلقة للسحب.
     """
     try:
         if not referrer_id or not amount or float(amount) <= 0: return False
@@ -274,19 +267,16 @@ def add_referral_earnings(referrer_id, friend_id, amount):
         ref_str = str(referrer_id)
         friend_str = str(friend_id)
         
-        # جلب نسبة العمولة ديناميكياً من الفايرستور (الافتراضي 10%)
         settings = get_game_settings()
         f_config = settings.get('friends_config', {})
         commission_percent = float(f_config.get('commission_percent', 10)) / 100.0
 
         ref_amount = float(amount) * commission_percent
         
-        # إضافة العمولة للأرباح المعلقة الخاصة بالداعي
         db.collection('users').document(ref_str).update({
             "pending_ref_earnings": firestore.Increment(ref_amount)
         })
         
-        # تحديث خانة المجمع منه داخل سجل الأصدقاء
         friend_ref = db.collection('users').document(ref_str).collection('friends').document(friend_str)
         if friend_ref.get().exists:
             friend_ref.update({"earned_from_him": firestore.Increment(ref_amount)})
