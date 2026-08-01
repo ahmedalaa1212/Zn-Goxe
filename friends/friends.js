@@ -2,18 +2,15 @@
 (function initFriendsModule() {
     const tele = window.Telegram?.WebApp;
     const INIT_DATA = tele?.initData || "";
-
-    const REF_TASKS = [
-        { id: 1, reqFriends: 1, reward: 4000 },
-        { id: 2, reqFriends: 5, reward: 25000 },
-        { id: 3, reqFriends: 10, reward: 60000 },
-        { id: 4, reqFriends: 25, reward: 160000 },
-        { id: 5, reqFriends: 50, reward: 350000 },
-        { id: 6, reqFriends: 100, reward: 800000 },
-        { id: 7, reqFriends: 500, reward: 4500000 }
-    ];
-
     const BOT_USERNAME = "zngoxe_bot";
+
+    // سيتم ملء المهام والإعدادات ديناميكياً من الفايرستور عبر الـ API
+    window.FriendsConfig = {
+        min_upgrades_for_task: 3,
+        commission_percent: 10,
+        claim_fee_percent: 1.5,
+        ref_tasks: {}
+    };
 
     function getStoredBalance() {
         if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
@@ -91,6 +88,9 @@
             
             if (response.ok && data.success && data.player) {
                 window.PlayerData = { ...window.PlayerData, ...data.player };
+                if (data.friends_config) {
+                    window.FriendsConfig = data.friends_config;
+                }
                 if (data.player.balance !== undefined) {
                     setStoredBalance(data.player.balance);
                 }
@@ -150,19 +150,36 @@
         const listEl = document.getElementById('ref-tasks-list');
         if (!listEl) return;
 
+        const rawTasks = window.FriendsConfig?.ref_tasks || {};
+        const minUpgrades = window.FriendsConfig?.min_upgrades_for_task || 3;
+
+        let taskKeys = Object.keys(rawTasks).sort((a, b) => {
+            return (parseInt(rawTasks[a].reqFriends) || 0) - (parseInt(rawTasks[b].reqFriends) || 0);
+        });
+
+        if (taskKeys.length === 0) {
+            listEl.innerHTML = '<li class="empty-state">لا توجد مهام إحالة متوفرة حالياً.</li>';
+            return;
+        }
+
         let html = '';
-        REF_TASKS.forEach(task => {
-            const isClaimed = claimedTasks.includes(task.id);
-            const isReady = eligibleFriendsCount >= task.reqFriends;
-            let progressPercent = Math.min((eligibleFriendsCount / task.reqFriends) * 100, 100);
+        taskKeys.forEach(key => {
+            const task = rawTasks[key];
+            const taskId = parseInt(key) || key;
+            const reqFriends = parseInt(task.reqFriends) || 1;
+            const reward = parseFloat(task.reward) || 0;
+
+            const isClaimed = claimedTasks.includes(taskId) || claimedTasks.includes(key);
+            const isReady = eligibleFriendsCount >= reqFriends;
+            let progressPercent = Math.min((eligibleFriendsCount / reqFriends) * 100, 100);
 
             let btnHtml = '';
             if (isClaimed) {
                 btnHtml = `<button disabled style="background:#222226; color:#777; border:none; padding:6px 10px; border-radius:6px; font-size:11px;">✅ مستلمة</button>`;
             } else if (isReady) {
-                btnHtml = `<button onclick="claimRefTask(${task.id}, ${task.reward}, ${task.reqFriends})" style="background:#2ecc71; color:#000; border:none; padding:6px 10px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:bold;">🎁 استلام</button>`;
+                btnHtml = `<button onclick="claimRefTask('${key}', ${reward}, ${reqFriends})" style="background:#2ecc71; color:#000; border:none; padding:6px 10px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:bold;">🎁 استلام</button>`;
             } else {
-                let remaining = task.reqFriends - eligibleFriendsCount;
+                let remaining = reqFriends - eligibleFriendsCount;
                 btnHtml = `<button disabled style="background:#18181c; color:#555; border:1px solid #2a2a2e; padding:6px 10px; border-radius:6px; font-size:11px;">🔒 باقي ${remaining}</button>`;
             }
 
@@ -170,8 +187,8 @@
                 <li style="background:#121215; border:1px solid #26262b; border-radius:12px; padding:12px; margin-bottom:10px; list-style:none; direction:rtl;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <div>
-                            <h4 style="margin:0; color:#fff; font-size:13px;">دعوة ${task.reqFriends} أصدقاء (3+ ترقيات)</h4>
-                            <p style="margin:4px 0 0 0; color:#f39c12; font-size:11px; font-weight:bold;">مكافأة: ${Math.floor(task.reward).toLocaleString()} ZN</p>
+                            <h4 style="margin:0; color:#fff; font-size:13px;">دعوة ${reqFriends} أصدقاء (${minUpgrades}+ ترقيات)</h4>
+                            <p style="margin:4px 0 0 0; color:#f39c12; font-size:11px; font-weight:bold;">مكافأة: ${Math.floor(reward).toLocaleString()} ZN</p>
                         </div>
                         <div>${btnHtml}</div>
                     </div>
@@ -282,6 +299,8 @@
         const container = document.getElementById('friends-list-container');
         if (!container || !INIT_DATA) return;
 
+        const minUpgrades = window.FriendsConfig?.min_upgrades_for_task || 3;
+
         try {
             let response = await fetch('/api/friends/list', {
                 method: 'POST',
@@ -299,9 +318,9 @@
                 let html = '<ul style="padding:0; margin:0;">';
                 data.friends.forEach(f => {
                     const cnt = f.upgrades_count || 0;
-                    let statusHtml = cnt >= 3 
-                        ? `<span style="color: #2ecc71; font-size:11px;">مؤهل للمهام (${cnt}/3 ترقيات) ✅</span>`
-                        : `<span style="color: #f39c12; font-size:11px;">ينقصه ${3 - cnt} ترقية (${cnt}/3) ⏳</span>`;
+                    let statusHtml = cnt >= minUpgrades 
+                        ? `<span style="color: #2ecc71; font-size:11px;">مؤهل للمهام (${cnt}/${minUpgrades} ترقيات) ✅</span>`
+                        : `<span style="color: #f39c12; font-size:11px;">ينقصه ${minUpgrades - cnt} ترقية (${cnt}/${minUpgrades}) ⏳</span>`;
                     
                     html += `
                         <li style="display:flex; justify-content:space-between; align-items:center; background:#121215; padding:10px 12px; border-radius:10px; margin-bottom:8px; border:1px solid #26262b;">
