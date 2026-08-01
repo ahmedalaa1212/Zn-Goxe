@@ -137,26 +137,55 @@ window.initFirebaseRealtimeSync = function(userId) {
 };
 
 // ==========================================
-// 4. تحديث عناصر الواجهة القائمة والـ IFrames
+// 4. تنسيق الأرقام وتحديث عناصر الواجهة القائمة والـ IFrames
 // ==========================================
+
+// دالة عامة لتنسيق أي رصيد بالكسور العشرية (بحد أقصى خانتين)
+window.formatBalance = function(val) {
+    if (val === undefined || val === null || isNaN(val)) return '0';
+    const num = parseFloat(val);
+    const hasDecimals = num % 1 !== 0;
+    return num.toLocaleString('en-US', {
+        minimumFractionDigits: hasDecimals ? 2 : 0,
+        maximumFractionDigits: 2
+    });
+};
+
 window.updateUI = function() {
     try {
         const s = window.userState;
+        const formattedBal = window.formatBalance(s.balance);
+
+        // 1. تشغيل دوال التحديث الفرعية للشاشات المختلفة أولاً
+        ['updateShopUI', 'updateFarmUI', 'updateTasksUI', 'updateWalletHeaderUI'].forEach(fn => {
+            if (typeof window[fn] === 'function') {
+                try { window[fn](); } catch (e) {}
+            }
+        });
+
+        // 2. تجهيز البيانات المنسقة لجميع الشاشات
         const fmt = {
-            // تم التعديل هنا للسماح بخانتين عشريتين كحد أقصى للرصيد
-            balance: parseFloat(s.balance || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
-            usd_balance: `$${parseFloat(s.usd_balance || 0).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`,
-            ad_balance: parseFloat(s.ad_balance || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }),
-            hourly_rate: `⚡ ${parseFloat(s.hourly_rate || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}/h`,
+            balance: formattedBal,
+            usd_balance: `$${parseFloat(s.usd_balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`,
+            ad_balance: window.formatBalance(s.ad_balance),
+            hourly_rate: `⚡ ${window.formatBalance(s.hourly_rate)}/h`,
             energy: parseFloat(s.energy || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }),
             ton_price: window.currentTonPriceUSD > 0 ? `$${window.currentTonPriceUSD.toFixed(2)}` : 'جاري التحميل...'
         };
 
+        // 3. تحديث عناصر المستند الرئيسي والـ IFrames مع المحافظة على البادئات مثل ZN:
         const updateDoc = (doc) => {
             Object.keys(fmt).forEach(key => {
                 doc.querySelectorAll(`[data-bind="${key}"]`).forEach(el => {
-                    if (el.tagName === 'INPUT') el.value = fmt[key].replace('$', '').replace('⚡ ', '').replace('/h', '');
-                    else el.innerText = fmt[key];
+                    if (el.tagName === 'INPUT') {
+                        el.value = fmt[key].replace('$', '').replace('⚡ ', '').replace('/h', '');
+                    } else {
+                        if (key === 'balance' && el.innerText.includes('ZN:')) {
+                            el.innerText = `ZN: ${fmt[key]}`;
+                        } else {
+                            el.innerText = fmt[key];
+                        }
+                    }
                 });
             });
         };
@@ -166,9 +195,17 @@ window.updateUI = function() {
             try { if (f.contentWindow?.document) updateDoc(f.contentWindow.document); } catch {}
         });
 
-        ['updateShopUI', 'updateFarmUI', 'updateTasksUI', 'updateWalletHeaderUI'].forEach(fn => {
-            if (typeof window[fn] === 'function') window[fn]();
+        // 4. حماية شاملة: إعادة إجبار عناصر رصيد ZN في كافة القوائم على إظهار الكسور
+        document.querySelectorAll('#farm-balance, .farm-balance, #user-balance, .user-balance, .zn-balance-text').forEach(el => {
+            if (el.tagName !== 'INPUT') {
+                if (el.innerText.includes('ZN:')) {
+                    el.innerText = `ZN: ${formattedBal}`;
+                } else {
+                    el.innerText = formattedBal;
+                }
+            }
         });
+
     } catch (e) { console.error("UI Update Error:", e); }
 };
 
