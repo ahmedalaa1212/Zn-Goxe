@@ -27,20 +27,28 @@ const lastLocalTimes = {};
 
 window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
+        const oldVal = target[prop];
         target[prop] = value;
+        
         if (!isFirebaseUpdating) lastLocalTimes[prop] = Date.now();
         
         if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'].includes(prop)) {
             try { localStorage.setItem('app_user_state', JSON.stringify(target)); } catch {}
+            
+            // تحديث فورى مباشر للواجهات
             if (typeof window.updateUI === 'function') window.updateUI();
-            window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: { prop, value, state: target } }));
+            
+            // إطلاق حدث التحديث اللحظي لجميع القوائم
+            window.dispatchEvent(new CustomEvent('userStateUpdated', { 
+                detail: { prop, value, oldVal, state: target } 
+            }));
         }
         return true;
     }
 });
 
 // ==========================================
-// 2. الاتصال بالسيرفر بدون تداخلات الرصيد العشوائية
+// 2. الاتصال بالسيرفر مع تحديث الرصيد اللحظي
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
@@ -58,23 +66,21 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
             throw new Error(data.error || `HTTP ${res.status}`);
         }
 
-        // تسجيل وقت التحديث المحلي لمنع الفايربيس من إرجاع القيمة للوراء
-        lastLocalTimes['balance'] = Date.now();
-
-        if (data.new_balance !== undefined) {
-            window.userState.balance = parseFloat(data.new_balance);
-        } else if (data.balance !== undefined) {
-            window.userState.balance = parseFloat(data.balance);
-        } else if (data.player && data.player.balance !== undefined) {
-            window.userState.balance = parseFloat(data.player.balance);
+        // تحديث الرصيد فوراً في حالة وجود قيمة جديدة مغايرة من السيرفر
+        let incomingBal = data.new_balance ?? data.balance ?? data.player?.balance;
+        if (incomingBal !== undefined && incomingBal !== null) {
+            const numBal = parseFloat(incomingBal);
+            if (!isNaN(numBal)) {
+                window.userState.balance = numBal;
+            }
         }
 
-        if (data.new_usd_balance !== undefined) {
-            window.userState.usd_balance = parseFloat(data.new_usd_balance);
-            lastLocalTimes['usd_balance'] = Date.now();
-        } else if (data.usd_balance !== undefined) {
-            window.userState.usd_balance = parseFloat(data.usd_balance);
-            lastLocalTimes['usd_balance'] = Date.now();
+        let incomingUsd = data.new_usd_balance ?? data.usd_balance;
+        if (incomingUsd !== undefined && incomingUsd !== null) {
+            const numUsd = parseFloat(incomingUsd);
+            if (!isNaN(numUsd)) {
+                window.userState.usd_balance = numUsd;
+            }
         }
 
         return data;
@@ -85,7 +91,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 };
 
 // ==========================================
-// 3. جلب سعر TON والمزامنة الذكية المحمية مع الفايربيس
+// 3. جلب سعر TON والمزامنة المباشرة الذكية بدون تأخير
 // ==========================================
 window.globalFetchTonPrice = async function() {
     const apis = [
@@ -110,6 +116,7 @@ window.globalFetchTonPrice = async function() {
 
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) return;
+    
     window.db.collection('users').doc(String(userId)).onSnapshot(doc => {
         if (!doc.exists) return;
         const d = doc.data();
@@ -117,16 +124,14 @@ window.initFirebaseRealtimeSync = function(userId) {
 
         if (d.balance !== undefined) {
             const fbBal = parseFloat(d.balance);
-            const timeSinceLastAction = Date.now() - (lastLocalTimes['balance'] || 0);
-            
-            // حماية حاسمة: لا يتم قراءة رصيد الفايربيس إذا كان أقل من المحلي خلال أول 10 ثواني من أي عملية محلياً
-            if (timeSinceLastAction > 10000 || fbBal >= window.userState.balance) {
+            if (!isNaN(fbBal)) {
+                // مزامنة لحظية فورية من الفايربيس بدون فترة إغلاق 10 ثواني
                 window.userState.balance = fbBal;
             }
         }
         if (d.usd_balance !== undefined) {
             const fbUsd = parseFloat(d.usd_balance);
-            if (Date.now() - (lastLocalTimes['usd_balance'] || 0) > 6000 || fbUsd >= window.userState.usd_balance) {
+            if (!isNaN(fbUsd)) {
                 window.userState.usd_balance = fbUsd;
             }
         }
@@ -142,7 +147,6 @@ window.initFirebaseRealtimeSync = function(userId) {
 // 4. دوال التنسيق ومحرك الحركة السلسة للعداد (Smooth Ticker)
 // ==========================================
 
-// دالة تنسيق الأرقام نصياً (تُستخدم مع الحقول مثل INPUT)
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0';
     const num = parseFloat(val);
@@ -153,7 +157,6 @@ window.formatBalance = function(val) {
     });
 };
 
-// دالة تنسيق HTML تضع العلامة والأرقام العشرية داخل tag صغير لضبط المظهر
 window.formatNumberHTML = function(val, minDec = 0, maxDec = 2) {
     if (val === undefined || val === null || isNaN(val)) return '0';
     const num = parseFloat(val);
@@ -172,7 +175,7 @@ window.formatNumberHTML = function(val, minDec = 0, maxDec = 2) {
     return parts[0];
 };
 
-// محرك الحركة السلسة للرصيد الرئيسي
+// محرك الحركة السلسة السريع للرصيد
 let animatedBalanceValue = null;
 let activeBalanceAnimFrame = null;
 
@@ -194,15 +197,13 @@ function renderSmoothBalance(targetVal) {
         return;
     }
 
-    const duration = 600; // مدة الانتقال بالملي ثانية
+    const duration = 300; // تم تقليل زمن الأنيماشن لـ 300ms ليكون الاستجابة سرسعة ولحظية
     const startTime = performance.now();
 
     function step(now) {
         const elapsed = now - startTime;
         const progress = Math.min(elapsed / duration, 1);
-        
-        // دالة التنعيم (Ease-Out Quad)
-        const ease = 1 - (1 - progress) * (1 - progress);
+        const ease = 1 - Math.pow(1 - progress, 3); // Ease-Out Cubic
         
         animatedBalanceValue = startVal + (diff * ease);
         applyBalanceToUI(animatedBalanceValue);
@@ -219,6 +220,7 @@ function renderSmoothBalance(targetVal) {
     activeBalanceAnimFrame = requestAnimationFrame(step);
 }
 
+// دالة شاملة لتحديث الرصيد في المزرعة، الهيدر، والألعاب
 function applyBalanceToUI(val) {
     const plainFormatted = window.formatBalance(val);
     const htmlFormatted = window.formatNumberHTML(val, 0, 2);
@@ -231,7 +233,18 @@ function applyBalanceToUI(val) {
                 if (el.textContent.includes('ZN:')) {
                     el.innerHTML = `ZN: ${htmlFormatted}`;
                 } else {
-                    el.innerHTML = htmlFormatted;
+                    el.innerHTML = `${htmlFormatted} ZN`;
+                }
+            }
+        });
+
+        // إضافة جميع عناصر الألعاب والمزرعة لضمان التحديث الشامل
+        doc.querySelectorAll('#farm-balance, .farm-balance, #user-balance, .user-balance, .zn-balance-text, #top-balance-games').forEach(el => {
+            if (el.tagName !== 'INPUT') {
+                if (el.textContent.includes('ZN:')) {
+                    el.innerHTML = `ZN: ${htmlFormatted}`;
+                } else {
+                    el.innerHTML = `${htmlFormatted} ZN`;
                 }
             }
         });
@@ -241,33 +254,20 @@ function applyBalanceToUI(val) {
     document.querySelectorAll('iframe').forEach(f => {
         try { if (f.contentWindow?.document) updateTargetElements(f.contentWindow.document); } catch {}
     });
-
-    document.querySelectorAll('#farm-balance, .farm-balance, #user-balance, .user-balance, .zn-balance-text').forEach(el => {
-        if (el.tagName !== 'INPUT') {
-            if (el.textContent.includes('ZN:')) {
-                el.innerHTML = `ZN: ${htmlFormatted}`;
-            } else {
-                el.innerHTML = htmlFormatted;
-            }
-        }
-    });
 }
 
 window.updateUI = function() {
     try {
         const s = window.userState;
 
-        // 1. تشغيل دوال التحديث الفرعية للشاشات المختلفة أولاً
         ['updateShopUI', 'updateFarmUI', 'updateTasksUI', 'updateWalletHeaderUI'].forEach(fn => {
             if (typeof window[fn] === 'function') {
                 try { window[fn](); } catch (e) {}
             }
         });
 
-        // 2. تحديث الرصيد الرئيسي عبر محرك الحركة السلسة
         renderSmoothBalance(parseFloat(s.balance || 0));
 
-        // 3. تجهيز وتحديث بقية العناصر المنسقة (HTML وحقول العرض)
         const fmtHTML = {
             usd_balance: `$${window.formatNumberHTML(s.usd_balance || 0, 2, 4)}`,
             ad_balance: window.formatNumberHTML(s.ad_balance, 0, 2),
@@ -367,7 +367,7 @@ window.executeWithdraw = async (amountUSD, address) => {
 };
 
 // ==========================================
-// 6. تشغيل التطبيق
+// 6. تشغيل التطبيق والاستماع المباشر
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('open-history-btn')?.addEventListener('click', window.loadWalletHistory);
