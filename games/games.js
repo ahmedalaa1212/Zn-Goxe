@@ -15,16 +15,16 @@
 
     const tele = window.Telegram?.WebApp;
 
-    // --- دالة تنسيق الأرقام (رقمين عشريين بحد أقصى) ---
-    function formatNumber(val) {
+    // --- دالة تنسيق الأرقام بـ HTML لتصغير الخانات العشرية ---
+    function formatNumberHTML(val, suffix = "") {
         const num = parseFloat(val) || 0;
-        return num.toLocaleString('en-US', {
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 2
-        });
+        const parts = num.toFixed(2).split('.');
+        const intPart = parseInt(parts[0], 10).toLocaleString('en-US');
+        const decPart = parts[1];
+        return `${intPart}<span class="small-decimal">.${decPart}</span>${suffix}`;
     }
 
-    // --- العداد البصري التدريجي الانسيابي (Speedometer Dynamic Counter) ---
+    // --- العداد البصري التدريجي الانسيابي (مع دعم تصغير الكسور العشرية) ---
     function animateCounter(elementId, startVal, endVal, duration = 800, suffix = " ZN") {
         const el = document.getElementById(elementId);
         if (!el) return;
@@ -34,7 +34,7 @@
         const endNum = parseFloat(endVal) || 0;
 
         if (startNum === endNum) {
-            el.innerText = `${formatNumber(endNum)}${suffix}`;
+            el.innerHTML = formatNumberHTML(endNum, suffix);
             return;
         }
 
@@ -42,16 +42,15 @@
             if (!startTimestamp) startTimestamp = timestamp;
             const progress = Math.min((timestamp - startTimestamp) / duration, 1);
             
-            // معادلة تباطؤ انسيابية (easeOutCubic) تشبه عداد السرعة
             const easeProgress = 1 - Math.pow(1 - progress, 3);
             const currentVal = startNum + (endNum - startNum) * easeProgress;
 
-            el.innerText = `${formatNumber(currentVal)}${suffix}`;
+            el.innerHTML = formatNumberHTML(currentVal, suffix);
 
             if (progress < 1) {
                 window.requestAnimationFrame(step);
             } else {
-                el.innerText = `${formatNumber(endNum)}${suffix}`;
+                el.innerHTML = formatNumberHTML(endNum, suffix);
             }
         };
 
@@ -67,7 +66,7 @@
     }
 
     function askForConfirmation(onConfirm) {
-        const msg = `هل أنت متأكد من خصم ${formatNumber(currentEntryFee)} ZN للاشتراك في الساحة الكبرى؟`;
+        const msg = `هل أنت متأكد من خصم ${parseInt(currentEntryFee, 10).toLocaleString('en-US')} ZN للاشتراك في الساحة الكبرى؟`;
         if (tele && tele.showConfirm) {
             tele.showConfirm(msg, (confirmed) => {
                 if (confirmed) onConfirm();
@@ -75,7 +74,7 @@
         } else {
             const modal = document.getElementById('confirm-modal');
             const feeText = document.getElementById('confirm-fee-text');
-            if (feeText) feeText.innerText = `${formatNumber(currentEntryFee)} ZN`;
+            if (feeText) feeText.innerHTML = formatNumberHTML(currentEntryFee, " ZN");
             if (modal) {
                 pendingConfirmCallback = onConfirm;
                 modal.style.display = 'flex';
@@ -117,7 +116,7 @@
                 animateCounter('top-balance-games', oldVal, numVal, 800, " ZN");
             } else {
                 const gameBalEl = document.getElementById('top-balance-games');
-                if (gameBalEl) gameBalEl.innerText = `${formatNumber(numVal)} ZN`;
+                if (gameBalEl) gameBalEl.innerHTML = formatNumberHTML(numVal, " ZN");
             }
             
             currentDisplayBalance = numVal;
@@ -180,7 +179,7 @@
                 if (data.lock_seconds) currentLockSeconds = data.lock_seconds;
 
                 const subtext = document.getElementById('arena-subtext');
-                if (subtext) subtext.innerText = `سحب تلقائي مستمر! رسوم الاشتراك: ${formatNumber(currentEntryFee)} ZN`;
+                if (subtext) subtext.innerText = `سحب تلقائي مستمر! رسوم الاشتراك: ${parseInt(currentEntryFee, 10).toLocaleString('en-US')} ZN`;
 
                 if (data.balance !== undefined) {
                     setStoredBalance(data.balance, true);
@@ -216,11 +215,11 @@
         const p4 = document.getElementById('prize-4');
         const p5 = document.getElementById('prize-5');
 
-        if (p1) p1.innerText = formatNumber(newPool * 0.30) + " ZN";
-        if (p2) p2.innerText = formatNumber(newPool * 0.25) + " ZN";
-        if (p3) p3.innerText = formatNumber(newPool * 0.20) + " ZN";
-        if (p4) p4.innerText = formatNumber(newPool * 0.15) + " ZN";
-        if (p5) p5.innerText = formatNumber(newPool * 0.10) + " ZN";
+        if (p1) p1.innerHTML = formatNumberHTML(newPool * 0.30, " ZN");
+        if (p2) p2.innerHTML = formatNumberHTML(newPool * 0.25, " ZN");
+        if (p3) p3.innerHTML = formatNumberHTML(newPool * 0.20, " ZN");
+        if (p4) p4.innerHTML = formatNumberHTML(newPool * 0.15, " ZN");
+        if (p5) p5.innerHTML = formatNumberHTML(newPool * 0.10, " ZN");
     }
 
     function startSmoothCountdown(hasJoined) {
@@ -271,7 +270,7 @@
             if (!hasJoined) {
                 btn.disabled = false;
                 btn.classList.remove('btn-disabled');
-                btn.innerText = `⚔️ دخول الساحة (${formatNumber(currentEntryFee)} ZN)`;
+                btn.innerText = `⚔️ دخول الساحة (${parseInt(currentEntryFee, 10).toLocaleString('en-US')} ZN)`;
             } else {
                 btn.disabled = true;
                 btn.classList.add('btn-disabled');
@@ -285,7 +284,7 @@
 
         const currentBal = getStoredBalance();
         if (currentBal < currentEntryFee) {
-            showNotification(`⚠️ رصيدك غير كافٍ للدخول في الساحة (تتطلب ${formatNumber(currentEntryFee)} ZN).`);
+            showNotification(`⚠️ رصيدك غير كافٍ للدخول في الساحة (تتطلب ${parseInt(currentEntryFee, 10).toLocaleString('en-US')} ZN).`);
             return;
         }
 
@@ -321,7 +320,6 @@
             const data = await response.json();
             
             if (data.success) {
-                // تطبيق القاعدة الذهبية: تحديث المكونات فوراً من الـ Response بدون إعادة جلب البيانات الشبكية
                 if (data.new_balance !== undefined) {
                     setStoredBalance(data.new_balance, true);
                 }
@@ -329,7 +327,6 @@
                     updateArenaPrizes(data);
                 }
 
-                // تحديث الزر موضعياً
                 if (btn) {
                     btn.disabled = true;
                     btn.classList.add('btn-disabled');
@@ -341,14 +338,14 @@
                 showNotification("⚠️ " + (data.message || data.error || "تعذر الاشتراك"));
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerText = `⚔️ دخول الساحة (${formatNumber(currentEntryFee)} ZN)`;
+                    btn.innerText = `⚔️ دخول الساحة (${parseInt(currentEntryFee, 10).toLocaleString('en-US')} ZN)`;
                 }
             }
         } catch (error) {
             showNotification("حدث خطأ في الاتصال بالخادم. حاول مجدداً.");
             if (btn) {
                 btn.disabled = false;
-                btn.innerText = `⚔️ دخول الساحة (${formatNumber(currentEntryFee)} ZN)`;
+                btn.innerText = `⚔️ دخول الساحة (${parseInt(currentEntryFee, 10).toLocaleString('en-US')} ZN)`;
             }
         } finally {
             isJoining = false;
@@ -408,7 +405,7 @@
 
                 if (data.status === 'refunded') {
                     const msgEl = document.getElementById('refund-msg-text');
-                    if (msgEl) msgEl.innerText = `تمت إعادة رسوم الدخول (${formatNumber(currentEntryFee)} ZN) بالكامل إلى محفظتك بدون أي خصم.`;
+                    if (msgEl) msgEl.innerText = `تمت إعادة رسوم الدخول (${parseInt(currentEntryFee, 10).toLocaleString('en-US')} ZN) بالكامل إلى محفظتك بدون أي خصم.`;
                     showDrawModal('refunded');
                 } else if (data.status === 'completed') {
                     renderWinners(data.winners || []);
@@ -432,7 +429,7 @@
         
         winners.forEach((winner, index) => {
             let name = winner.name || `مستخدم #${(winner.uid || '00000').substring(0,5)}`;
-            let prize = formatNumber(winner.prize || 0);
+            let prize = formatNumberHTML(winner.prize || 0);
             
             list.innerHTML += `
                 <div class="winner-item" style="animation-delay: ${index * 0.1}s;">
