@@ -20,15 +20,40 @@
     }
 
     // =================================================================
-    // 🧮 0. دالة التحديث البصري التدريجي للأرقام (Smooth Counter Animation)
+    // 🧮 0. تنسيق الأرقام واختصار الأرقام الضخمة مع فصل الأرقام العشرية
+    // =================================================================
+    function renderFormattedBalanceHTML(val, decimals = 2, prefix = '', suffix = '') {
+        let num = parseFloat(val);
+        if (isNaN(num)) num = 0;
+
+        // اختصار ذكي للأرقام المليونية والمليارية
+        if (num >= 1000000000) {
+            return prefix + (num / 1000000000).toFixed(2) + 'B' + suffix;
+        }
+        if (num >= 10000000) { // أطول من 10 مليون
+            return prefix + (num / 1000000).toFixed(2) + 'M' + suffix;
+        }
+
+        const parts = num.toFixed(decimals).split('.');
+        const intFormatted = Math.floor(parts[0]).toLocaleString('en-US');
+
+        if (decimals === 0 || !parts[1]) {
+            return `${prefix}<span class="int-part">${intFormatted}</span>${suffix}`;
+        }
+
+        return `${prefix}<span class="int-part">${intFormatted}</span>.<span class="dec-part">${parts[1]}</span>${suffix}`;
+    }
+
+    // =================================================================
+    // 🧮 1. دالة التحديث البصري التدريجي للأرقام (Smooth Counter Animation)
     // =================================================================
     function animateValue(element, start, end, duration = 800, decimals = 2, prefix = '', suffix = '') {
         if (!element) return;
         if (isNaN(start)) start = 0;
         if (isNaN(end)) end = 0;
-        
+
         if (Math.abs(start - end) < 0.001) {
-            element.innerText = prefix + (decimals === 0 ? Math.floor(end).toLocaleString('en-US') : end.toFixed(decimals)) + suffix;
+            element.innerHTML = renderFormattedBalanceHTML(end, decimals, prefix, suffix);
             element.dataset.currentVal = end;
             return;
         }
@@ -38,16 +63,13 @@
             if (!startTimestamp) startTimestamp = timestamp;
             const progress = Math.min((timestamp - startTimestamp) / duration, 1);
             const current = start + (end - start) * progress;
-            
-            if (decimals === 0) {
-                element.innerText = prefix + Math.floor(current).toLocaleString('en-US') + suffix;
-            } else {
-                element.innerText = prefix + current.toFixed(decimals) + suffix;
-            }
+
+            element.innerHTML = renderFormattedBalanceHTML(current, decimals, prefix, suffix);
 
             if (progress < 1) {
                 window.requestAnimationFrame(step);
             } else {
+                element.innerHTML = renderFormattedBalanceHTML(end, decimals, prefix, suffix);
                 element.dataset.currentVal = end;
             }
         };
@@ -142,10 +164,6 @@
 
     function renderDynamicPackages(packages) {
         let container = document.getElementById('usdt-packages-container');
-        if (!container) {
-            container = document.querySelector('.usdt-packages-scroll') || document.querySelector('[data-packages]');
-        }
-
         if (!container) return;
 
         if (!packages || Object.keys(packages).length === 0) {
@@ -167,7 +185,7 @@
             const btnTextColor = theme.textColor || '#ffffff';
 
             html += `
-                <div class="usdt-card" style="background: ${theme.bg}; border: 1px solid ${theme.border}; border-radius: 14px; padding: 14px; min-width: 140px; display: flex; flex-direction: column; justify-content: space-between; text-align: center; margin-right: 10px;">
+                <div class="usdt-card" style="background: ${theme.bg}; border: 1px solid ${theme.border}; border-radius: 14px; padding: 14px; min-width: 145px; display: flex; flex-direction: column; justify-content: space-between; text-align: center; margin-right: 10px;">
                     <div>
                         <div style="font-size: 24px;">${theme.icon}</div>
                         <div style="color: #ffffff; font-weight: bold; font-size: 13px;">${pkg.title || 'باقة مميزة'}</div>
@@ -277,7 +295,7 @@
                 triggerHaptic('notification', 'success');
                 alert("🎉 تم تأكيد الدفع وتفعيل الباقة بنجاح!");
 
-                // ⚡ تحديث الحافلة الموحدة بدون جلب البيانات مجدداً
+                // ⚡ تحديث الحافلة الموحدة مع الحفاظ على الاتساق
                 if (!window.GameState) window.GameState = {};
                 window.GameState.balance = verifyData.result.balance;
                 window.GameState.hourly_rate = verifyData.result.hourly_rate;
@@ -395,19 +413,19 @@
         const storageSec = document.getElementById('shop-storage-section');
         if (!miningSec || !storageSec) return;
 
-        const pData = window.GameState || window.userState || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0, usd_balance: 0 };
+        const pData = window.GameState || window.userState || window.PlayerData || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0, usd_balance: 0 };
         let totalBal = parseFloat(pData.balance || 0);
 
         const usdElem = document.getElementById('shop-usd-text');
         if (usdElem) {
-            const curUsd = parseFloat(usdElem.dataset.currentVal || usdElem.innerText.replace('$', '')) || 0;
+            const curUsd = parseFloat(usdElem.dataset.currentVal) || 0;
             animateValue(usdElem, curUsd, parseFloat(pData.usd_balance || 0), 600, 2, '$');
         }
 
         const balElem = document.getElementById('shop-balance-text');
         if (balElem) {
-            const curBal = parseFloat(balElem.dataset.currentVal || balElem.innerText.replace(/,/g, '')) || 0;
-            animateValue(balElem, curBal, totalBal, 600, 0);
+            const curBal = parseFloat(balElem.dataset.currentVal) || 0;
+            animateValue(balElem, curBal, totalBal, 600, 2);
         }
         
         const rateElem = document.getElementById('shop-rate-text');
@@ -516,7 +534,7 @@
     };
 
     window.requestShopPurchase = function(type, level, price) {
-        const curBal = parseFloat(window.GameState?.balance || window.userState?.balance || 0);
+        const curBal = parseFloat(window.GameState?.balance || window.userState?.balance || window.PlayerData?.balance || 0);
         if (curBal < parseFloat(price)) {
             triggerHaptic('notification', 'error');
             alert("⚠️ الرصيد غير كافي لشراء هذا التطوير!");
@@ -582,7 +600,7 @@
             if (response.ok && resData.success) {
                 triggerHaptic('notification', 'success');
 
-                // ⚡ تحديث الحافلة الموحدة مباشرة بالقيم الناتجة بدون طلب جلب كلي
+                // ⚡ مزامنة حالة اللعبة فورياً عبر الكائنات الموحدة
                 if (!window.GameState) window.GameState = {};
 
                 window.GameState.balance = resData.balance;
@@ -593,7 +611,7 @@
                 if (resData.usd_balance !== undefined) window.GameState.usd_balance = resData.usd_balance;
                 if (resData.last_claim_time !== undefined) window.GameState.last_claim_time = resData.last_claim_time;
 
-                // مزامنة المتغيرات القديمة للتوافق مع باقي البرمجيات
+                // التكيف مع الكائنات الأخرى إن وجدت
                 if (window.userState) Object.assign(window.userState, window.GameState);
                 if (window.PlayerData) Object.assign(window.PlayerData, window.GameState);
 
