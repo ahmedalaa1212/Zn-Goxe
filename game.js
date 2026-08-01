@@ -48,14 +48,12 @@ function getSavedState() {
 let isFirebaseUpdating = false;
 let lastSaveTime = 0;
 
-// نظام Proxy ذكي لتقليل الضغط على LocalStorage أثناء التعدين اللحظي
 window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
         target[prop] = value;
         
         if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'].includes(prop)) {
             const now = Date.now();
-            // حفظ في التخزين المحلي كل 2 ثانية كحد أقصى لتجنب تشنج المتصفح
             if (now - lastSaveTime > 2000 && !isFirebaseUpdating) {
                 try { localStorage.setItem('app_user_state', JSON.stringify(target)); } catch {}
                 lastSaveTime = now;
@@ -72,7 +70,7 @@ window.userState = new Proxy(getSavedState(), {
 });
 
 // ==========================================
-// 2. الاتصال بالسيرفر 
+// 2. الاتصال بالسيرفر مع تحديث الرصيد
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
@@ -97,9 +95,13 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 
         const targetObj = data.user || data.player || data.data || data;
         
-        isFirebaseUpdating = true; // لمنع التخزين المتكرر أثناء سحب البيانات
-        if (targetObj?.balance !== undefined) window.userState.balance = parseFloat(targetObj.balance);
-        if (targetObj?.usd_balance !== undefined) window.userState.usd_balance = parseFloat(targetObj.usd_balance);
+        isFirebaseUpdating = true;
+        let incomingBal = data.new_balance ?? targetObj?.balance;
+        if (incomingBal !== undefined && incomingBal !== null) window.userState.balance = parseFloat(incomingBal);
+
+        let incomingUsd = data.new_usd_balance ?? targetObj?.usd_balance;
+        if (incomingUsd !== undefined && incomingUsd !== null) window.userState.usd_balance = parseFloat(incomingUsd);
+        
         if (targetObj?.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate);
         isFirebaseUpdating = false;
 
@@ -111,19 +113,20 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 };
 
 // ==========================================
-// 3. مزامنة فايربيس (تم التعديل لتقليل القراءات)
+// 3. جلب سعر TON والمزامنة
 // ==========================================
 window.globalFetchTonPrice = async function() {
     const apis = [
         'https://tonapi.io/v2/rates?tokens=ton&currencies=usd',
+        'https://www.okx.com/api/v5/market/ticker?instId=TON-USDT',
         'https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd'
     ];
     for (const url of apis) {
         try {
             const r = await fetch(url);
             const d = await r.json();
-            const p = parseFloat(d?.rates?.TON?.prices?.USD || d['the-open-network']?.usd);
-            if (p > 0.1) {
+            const p = parseFloat(d?.rates?.TON?.prices?.USD || d?.data?.[0]?.last || d['the-open-network']?.usd);
+            if (p > 0.1 && p < 200) {
                 window.currentTonPriceUSD = p;
                 localStorage.setItem('last_ton_price', p.toString());
                 if (typeof window.updateUI === 'function') window.updateUI();
@@ -136,8 +139,6 @@ window.globalFetchTonPrice = async function() {
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) return;
     
-    // ملاحظة للحماية: السيرفر يجب ألا يحدث رصيد المستخدم في فايربيس باستمرار
-    // بل يحدثه فقط عند عمليات السحب، الشراء، أو الضغط على "تجميع" لتجنب تجاوز 50 ألف قراءة.
     window.db.collection('users').doc(String(userId)).onSnapshot(doc => {
         if (!doc.exists) return;
         const d = doc.data() || {};
@@ -157,27 +158,27 @@ window.initFirebaseRealtimeSync = function(userId) {
 };
 
 // ==========================================
-// 4. محرك الحركة السلسة للعداد (Visual Ticker)
+// 4. دوال التنسيق ومحرك الحركة السلسة للعداد
 // ==========================================
-
 window.formatBalance = function(val) {
     if (isNaN(val)) return '0';
     return parseFloat(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-// اختصار الأرقام الكبيرة جداً للحفاظ على التصميم
 window.formatNumberHTML = function(val, minDec = 0, maxDec = 2) {
-    if (isNaN(val)) return '0';
+    if (isNaN(val) || val === null || val === undefined) return '0';
     let num = parseFloat(val);
     
-    // اختصار الملايين والمليارات إذا كان الرقم كبيراً
     let suffix = '';
     if (num >= 1e9) { num = num / 1e9; suffix = 'B'; }
     else if (num >= 1e6) { num = num / 1e6; suffix = 'M'; }
 
+    const hasDecimals = num % 1 !== 0;
+    const minD = (minDec === 0 && hasDecimals && suffix === '') ? 2 : minDec;
+    
     const formattedStr = num.toLocaleString('en-US', {
-        minimumFractionDigits: (suffix === '') ? minDec : 2,
-        maximumFractionDigits: (suffix === '') ? maxDec : 2
+        minimumFractionDigits: suffix ? 2 : minD,
+        maximumFractionDigits: suffix ? 2 : maxDec
     });
 
     const parts = formattedStr.split('.');
@@ -191,7 +192,6 @@ window.formatNumberHTML = function(val, minDec = 0, maxDec = 2) {
 let visualBalance = null;
 let lastTickTime = performance.now();
 
-// محاكي التعدين المحلي (يضيف للرصيد المعروض فقط بناءً على سرعة الساعة بدون إرسال للسيرفر)
 function startLocalMiningSimulator() {
     requestAnimationFrame(function tick(currentTime) {
         const deltaSec = (currentTime - lastTickTime) / 1000;
@@ -199,7 +199,6 @@ function startLocalMiningSimulator() {
 
         if (window.userState && window.userState.hourly_rate > 0) {
             const ratePerSec = window.userState.hourly_rate / 3600;
-            // زيادة الرصيد الأساسي بصمت
             window.userState.balance += (ratePerSec * deltaSec);
         }
         
@@ -211,9 +210,8 @@ function startLocalMiningSimulator() {
 function renderSmoothUIBalance(targetVal) {
     if (visualBalance === null) visualBalance = targetVal;
     
-    // حركة انسيابية للوصول للرقم المستهدف
     const diff = targetVal - visualBalance;
-    visualBalance += diff * 0.1; // سرعة استجابة العداد البصري
+    visualBalance += diff * 0.1; 
 
     if (Math.abs(targetVal - visualBalance) < 0.001) {
         visualBalance = targetVal;
@@ -223,10 +221,20 @@ function renderSmoothUIBalance(targetVal) {
 }
 
 function applyBalanceToUI(val) {
-    const htmlFormatted = window.formatNumberHTML(val, 0, 4);
+    const plainFormatted = window.formatBalance(val);
+    const htmlFormatted = window.formatNumberHTML(val, 0, 2);
     
     const updateTargetElements = (doc) => {
-        doc.querySelectorAll('[data-bind="balance"], #farm-balance, .farm-balance, #user-balance, .user-balance, .zn-balance-text').forEach(el => {
+        doc.querySelectorAll('[data-bind="balance"]').forEach(el => {
+            if (el.tagName === 'INPUT') {
+                el.value = plainFormatted;
+            } else {
+                if (el.textContent.includes('ZN:')) el.innerHTML = `ZN: ${htmlFormatted}`;
+                else el.innerHTML = `${htmlFormatted} ZN`;
+            }
+        });
+
+        doc.querySelectorAll('#farm-balance, .farm-balance, #user-balance, .user-balance, .zn-balance-text, #top-balance-games').forEach(el => {
             if (el.tagName !== 'INPUT') {
                 if (el.textContent.includes('ZN:')) el.innerHTML = `ZN: ${htmlFormatted}`;
                 else el.innerHTML = `${htmlFormatted} ZN`;
@@ -235,31 +243,60 @@ function applyBalanceToUI(val) {
     };
 
     updateTargetElements(document);
+    document.querySelectorAll('iframe').forEach(f => {
+        try { if (f.contentWindow?.document) updateTargetElements(f.contentWindow.document); } catch {}
+    });
 }
 
 window._isUpdatingUI = false;
+
 window.updateUI = function() {
     if (window._isUpdatingUI) return;
     window._isUpdatingUI = true;
     try {
         const s = window.userState;
-        
+
+        ['updateShopUI', 'updateFarmUI', 'updateTasksUI', 'updateWalletHeaderUI'].forEach(fn => {
+            if (typeof window[fn] === 'function') {
+                try { window[fn](); } catch (e) {}
+            }
+        });
+
         const fmtHTML = {
             usd_balance: `$${window.formatNumberHTML(s.usd_balance || 0, 2, 4)}`,
             ad_balance: window.formatNumberHTML(s.ad_balance, 0, 2),
             hourly_rate: `⚡ ${window.formatNumberHTML(s.hourly_rate, 0, 2)}/h`,
-            ton_price: window.currentTonPriceUSD > 0 ? `$${window.formatNumberHTML(window.currentTonPriceUSD, 2, 2)}` : '...'
+            energy: parseFloat(s.energy || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }),
+            ton_price: window.currentTonPriceUSD > 0 ? `$${window.formatNumberHTML(window.currentTonPriceUSD, 2, 2)}` : 'جاري التحميل...'
+        };
+
+        const fmtPlain = {
+            usd_balance: window.formatBalance(s.usd_balance || 0),
+            ad_balance: window.formatBalance(s.ad_balance),
+            hourly_rate: window.formatBalance(s.hourly_rate),
+            energy: parseFloat(s.energy || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }),
+            ton_price: window.currentTonPriceUSD > 0 ? window.currentTonPriceUSD.toFixed(2) : 'جاري التحميل...'
         };
 
         const updateDoc = (doc) => {
             Object.keys(fmtHTML).forEach(key => {
                 doc.querySelectorAll(`[data-bind="${key}"]`).forEach(el => {
-                    if (el.tagName !== 'INPUT') el.innerHTML = fmtHTML[key];
+                    if (el.tagName === 'INPUT') {
+                        el.value = fmtPlain[key];
+                    } else {
+                        el.innerHTML = fmtHTML[key];
+                    }
                 });
             });
         };
 
         updateDoc(document);
+        document.querySelectorAll('iframe').forEach(f => {
+            try { if (f.contentWindow?.document) updateDoc(f.contentWindow.document); } catch {}
+        });
+
+    } catch (e) { 
+        console.error("UI Update Error:", e); 
     } finally {
         window._isUpdatingUI = false;
     }
@@ -273,7 +310,16 @@ window.loadUserData = async function() {
     if (isFetchingUser) return;
     isFetchingUser = true;
     try {
-        await window.fetchAPI('/api/user/info');
+        const d = await window.fetchAPI('/api/user/info');
+        if (d?.success) {
+            const u = d.user || d.player || d.data || d;
+            ['tg_id', 'balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades', 'wallet_address'].forEach(k => {
+                if (u[k] !== undefined && u[k] !== null) {
+                    window.userState[k] = u[k];
+                }
+            });
+            if (u.upgrades && window.PlayerData) window.PlayerData.upgrades = u.upgrades;
+        }
     } catch (err) {
         console.error("Error loading user data:", err);
     } finally { 
@@ -283,12 +329,36 @@ window.loadUserData = async function() {
     }
 };
 
+window.loadWalletHistory = async function() {
+    const el = document.getElementById('wallet-history-list');
+    if (!el) return;
+    el.innerHTML = `<div class="loading-spinner">جاري التحميل...</div>`;
+    try {
+        const d = await window.fetchAPI('/api/wallet/get_history');
+        if (d.success && d.history?.length) {
+            el.innerHTML = d.history.map(tx => {
+                const isW = tx.type === 'withdraw', isD = tx.type === 'deposit';
+                const badge = isW ? (tx.status === 'completed' ? 'badge-success' : 'badge-warning') : 'badge-success';
+                const title = isW ? 'سحب أرباح' : (isD ? 'إيداع رصيد' : 'تحويل ZN إلى USD');
+                const sign = isW ? '-' : '+';
+                const amtVal = parseFloat(tx.amount_usd || tx.gross_amount_usd || 0);
+                const amt = `${sign}$${window.formatNumberHTML(amtVal, 2, 2)}`;
+                return `<div class="history-item">
+                    <div class="history-info"><span class="history-title">${title}</span><span class="history-date">${tx.created_at ? new Date(tx.created_at).toLocaleString('ar-EG') : 'الآن'}</span></div>
+                    <div class="history-amount"><span class="amount-text">${amt}</span><span class="badge ${badge}">${tx.status || 'مكتمل'}</span></div>
+                </div>`;
+            }).join('');
+        } else { el.innerHTML = `<div class="empty-msg">لا توجد معاملات سابقة.</div>`; }
+    } catch (e) { el.innerHTML = `<div class="error-msg">${e.message}</div>`; }
+};
+
 window.executeConvertZN = async (amount) => {
     try {
         const res = await window.fetchAPI('/api/wallet/wallet_convert', 'POST', { amount: parseFloat(amount) });
         if (res.success) {
-            alert(`تم التحويل بنجاح!`); 
-            // تحديث الرصيد يتم تلقائياً عبر fetchAPI
+            window.userState.usd_balance = res.new_usd_balance;
+            window.userState.balance = res.new_balance;
+            alert(`تم التحويل بنجاح!`); window.loadWalletHistory();
         }
     } catch (e) { alert(`فشل التحويل: ${e.message}`); }
 };
@@ -296,14 +366,19 @@ window.executeConvertZN = async (amount) => {
 window.executeWithdraw = async (amountUSD, address) => {
     try {
         const res = await window.fetchAPI('/api/wallet/wallet_withdraw', 'POST', { amount: parseFloat(amountUSD), walletAddress: address });
-        if (res.success) alert(`تم إرسال طلب السحب بنجاح!`);
+        if (res.success) {
+            window.userState.usd_balance = res.new_usd_balance;
+            alert(`تم إرسال طلب السحب بنجاح!`); window.loadWalletHistory();
+        }
     } catch (e) { alert(`فشل السحب: ${e.message}`); }
 };
 
 // ==========================================
-// 6. تشغيل التطبيق
+// 6. تشغيل التطبيق والاستماع المباشر
 // ==========================================
 function initApp() {
+    document.getElementById('open-history-btn')?.addEventListener('click', window.loadWalletHistory);
+    
     window.updateUI();
     window.globalFetchTonPrice();
     window.loadUserData().then(() => {
@@ -311,8 +386,11 @@ function initApp() {
         if (uid) window.initFirebaseRealtimeSync(uid);
     });
     
-    startLocalMiningSimulator(); // تشغيل العداد البصري اللحظي
-    setTimeout(hideLoadingScreen, 2000);
+    startLocalMiningSimulator(); 
+    setTimeout(hideLoadingScreen, 4000);
+
+    setInterval(window.globalFetchTonPrice, 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) window.globalFetchTonPrice(); });
 }
 
 if (document.readyState === 'loading') {
