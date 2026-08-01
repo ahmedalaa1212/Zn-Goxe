@@ -11,8 +11,8 @@ from core.security import get_authenticated_user
 # ==========================================
 app = Flask(__name__)
 
-# تفعيل CORS لجميع مسارات الـ API بدون قيود
-CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+# تفعيل CORS لجميع مسارات الـ API (بدون تعارض supports_credentials مع Wildcard)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app').strip().rstrip('/')
 
@@ -64,13 +64,18 @@ def get_user_info_main():
         return jsonify({"success": False, "error": "خطأ في جلب البيانات"}), 500
 
 # ==========================================
-# 4. إعدادات الحماية وتمرير الهيدرز
+# 4. إعدادات الحماية والتخزين المؤقت الذكي (Smart Cache)
 # ==========================================
 @app.after_request
 def add_security_headers(response):
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, public, max-age=0'
-    response.headers['Pragma'] = 'no-cache'
-    response.headers['Expires'] = '0'
+    # ⚡ تطبيق منع الكاش على طلبات API وصفحات HTML الرئيسية فقط
+    if request.path.startswith('/api/') or request.path in ['/', '/index.html']:
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    else:
+        # 🚀 السماح للفرونت إند بتخزين الصور وملفات الجافاسكريبت والـ CSS لتسريع فتح اللعبة 10 أضعاف
+        response.headers['Cache-Control'] = 'public, max-age=86400'  # كاش لمدة يوم كامل للملفات الثابتة
     return response
 
 # ==========================================
@@ -81,7 +86,7 @@ def handle_500_error(e):
     return jsonify({
         "success": False,
         "error": "حدث خطأ داخلي في السيرفر (500). يرجى التأكد من الاتصال بقاعدة البيانات."
-    }), 500  # ✅ تم تعديل الكود إلى 500 لمنع تصفير الرصيد في الفرونت إند
+    }), 500
 
 @app.errorhandler(404)
 def handle_404_error(e):
@@ -89,11 +94,11 @@ def handle_404_error(e):
         return jsonify({
             "success": False,
             "error": "المسار المطلوب غير موجود في السيرفر (404)."
-        }), 404  # ✅ تم تعديل الكود إلى 404
+        }), 404
     return send_from_directory('.', 'index.html')
 
 # ==========================================
-# 6. مسارات TON Connect والصفحة الرئيسية
+# 6. مسارات TON Connect والصفحة الرئيسية والملفات الثابتة
 # ==========================================
 @app.route('/tonconnect-manifest.json')
 def serve_manifest():
@@ -114,10 +119,17 @@ def serve_static(path):
     if path == 'tonconnect-manifest.json':
         return serve_manifest()
 
-    forbidden_extensions = ('.py', '.env', '.md', '.txt')
-    forbidden_dirs = ('core/', 'admin_chat/', '.git/', '.github/')
-    
-    if any(path.startswith(d) for d in forbidden_dirs) or (path.endswith(forbidden_extensions) and path != 'favicon.ico'):
+    # 🔒 حماية أمنية مشددة للملفات والمجلدات الحساسة
+    path_lower = path.lower()
+    forbidden_extensions = ('.py', '.pyc', '.env', '.md', '.txt', '.json', '.yml', '.yaml', '.sh', '.lock')
+    forbidden_files = ('dockerfile', 'procfile', 'railway.toml', 'requirements.txt')
+    forbidden_dirs = ('core/', 'admin_chat/', '.git/', '.github/', '__pycache__/')
+
+    is_forbidden_dir = any(path_lower.startswith(d) for d in forbidden_dirs)
+    is_forbidden_file = any(path_lower == f for f in forbidden_files)
+    is_forbidden_ext = path_lower.endswith(forbidden_extensions) and path_lower != 'favicon.ico'
+
+    if is_forbidden_dir or is_forbidden_file or is_forbidden_ext:
         return jsonify({"error": "Access Denied", "message": "غير مصرح لك بالوصول لهذا الملف"}), 403
     
     try:
