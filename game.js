@@ -18,7 +18,16 @@ function getSavedState() {
     };
     try { 
         const saved = localStorage.getItem('app_user_state');
-        return saved ? { ...base, ...JSON.parse(saved) } : base; 
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            return {
+                ...base,
+                ...parsed,
+                balance: (parsed.balance !== undefined && !isNaN(parseFloat(parsed.balance))) ? parseFloat(parsed.balance) : base.balance,
+                usd_balance: (parsed.usd_balance !== undefined && !isNaN(parseFloat(parsed.usd_balance))) ? parseFloat(parsed.usd_balance) : base.usd_balance
+            };
+        }
+        return base; 
     } catch { return base; }
 }
 
@@ -48,7 +57,7 @@ window.userState = new Proxy(getSavedState(), {
 });
 
 // ==========================================
-// 2. الاتصال بالسيرفر مع تحديث الرصيد اللحظي
+// 2. الاتصال بالسيرفر مع تحديث الرصيد اللحظي الشامل
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
@@ -66,8 +75,9 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
             throw new Error(data.error || `HTTP ${res.status}`);
         }
 
-        // تحديث الرصيد فوراً في حالة وجود قيمة جديدة مغايرة من السيرفر
-        let incomingBal = data.new_balance ?? data.balance ?? data.player?.balance;
+        // فحص الرصيد من كافة الأشكال المحتملة للرد (سواء كان مباشر أو داخل user/player/data)
+        const targetObj = data.user || data.player || data.data || data;
+        let incomingBal = data.new_balance ?? targetObj?.balance;
         if (incomingBal !== undefined && incomingBal !== null) {
             const numBal = parseFloat(incomingBal);
             if (!isNaN(numBal)) {
@@ -75,7 +85,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
             }
         }
 
-        let incomingUsd = data.new_usd_balance ?? data.usd_balance;
+        let incomingUsd = data.new_usd_balance ?? targetObj?.usd_balance;
         if (incomingUsd !== undefined && incomingUsd !== null) {
             const numUsd = parseFloat(incomingUsd);
             if (!isNaN(numUsd)) {
@@ -91,7 +101,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 };
 
 // ==========================================
-// 3. جلب سعر TON والمزامنة المباشرة الذكية بدون تأخير
+// 3. جلب سعر TON والمزامنة المباشرة
 // ==========================================
 window.globalFetchTonPrice = async function() {
     const apis = [
@@ -125,7 +135,6 @@ window.initFirebaseRealtimeSync = function(userId) {
         if (d.balance !== undefined) {
             const fbBal = parseFloat(d.balance);
             if (!isNaN(fbBal)) {
-                // مزامنة لحظية فورية من الفايربيس بدون فترة إغلاق 10 ثواني
                 window.userState.balance = fbBal;
             }
         }
@@ -144,7 +153,7 @@ window.initFirebaseRealtimeSync = function(userId) {
 };
 
 // ==========================================
-// 4. دوال التنسيق ومحرك الحركة السلسة للعداد (Smooth Ticker)
+// 4. دوال التنسيق ومحرك الحركة السلسة للعداد
 // ==========================================
 
 window.formatBalance = function(val) {
@@ -175,7 +184,6 @@ window.formatNumberHTML = function(val, minDec = 0, maxDec = 2) {
     return parts[0];
 };
 
-// محرك الحركة السلسة السريع للرصيد
 let animatedBalanceValue = null;
 let activeBalanceAnimFrame = null;
 
@@ -197,13 +205,13 @@ function renderSmoothBalance(targetVal) {
         return;
     }
 
-    const duration = 300; // تم تقليل زمن الأنيماشن لـ 300ms ليكون الاستجابة سرسعة ولحظية
+    const duration = 300;
     const startTime = performance.now();
 
     function step(now) {
         const elapsed = now - startTime;
         const progress = Math.min(elapsed / duration, 1);
-        const ease = 1 - Math.pow(1 - progress, 3); // Ease-Out Cubic
+        const ease = 1 - Math.pow(1 - progress, 3);
         
         animatedBalanceValue = startVal + (diff * ease);
         applyBalanceToUI(animatedBalanceValue);
@@ -220,7 +228,6 @@ function renderSmoothBalance(targetVal) {
     activeBalanceAnimFrame = requestAnimationFrame(step);
 }
 
-// دالة شاملة لتحديث الرصيد في المزرعة، الهيدر، والألعاب
 function applyBalanceToUI(val) {
     const plainFormatted = window.formatBalance(val);
     const htmlFormatted = window.formatNumberHTML(val, 0, 2);
@@ -238,7 +245,6 @@ function applyBalanceToUI(val) {
             }
         });
 
-        // إضافة جميع عناصر الألعاب والمزرعة لضمان التحديث الشامل
         doc.querySelectorAll('#farm-balance, .farm-balance, #user-balance, .user-balance, .zn-balance-text, #top-balance-games').forEach(el => {
             if (el.tagName !== 'INPUT') {
                 if (el.textContent.includes('ZN:')) {
@@ -314,12 +320,21 @@ window.loadUserData = async function() {
     try {
         const d = await window.fetchAPI('/api/user/info');
         if (d?.success) {
+            // استخراج كائن بيانات المستخدم سواء تم إرجاعه على الجذر أو داخل user/player/data
+            const u = d.user || d.player || d.data || d;
             ['tg_id', 'balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades', 'wallet_address'].forEach(k => {
-                if (d[k] !== undefined) window.userState[k] = d[k];
+                if (u[k] !== undefined && u[k] !== null) {
+                    window.userState[k] = u[k];
+                }
             });
-            if (d.upgrades && window.PlayerData) window.PlayerData.upgrades = d.upgrades;
+            if (u.upgrades && window.PlayerData) window.PlayerData.upgrades = u.upgrades;
         }
-    } catch {} finally { isFetchingUser = false; window.updateUI(); }
+    } catch (err) {
+        console.error("Error loading user data:", err);
+    } finally { 
+        isFetchingUser = false; 
+        window.updateUI(); 
+    }
 };
 
 window.loadWalletHistory = async function() {
