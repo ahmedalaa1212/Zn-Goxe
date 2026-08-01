@@ -11,7 +11,7 @@ from core.security import get_authenticated_user
 support_bp = Blueprint('support', __name__)
 
 # ==========================================
-# دالة لتوليد رقم التذكرة خفيفة وسريعة (بدون Transaction مجهدة)
+# دالة لتوليد رقم التذكرة الخفيف (بدون Transaction مجهدة)
 # ==========================================
 def generate_fast_ticket_id(uid):
     short_uid = str(uid)[-4:] if uid else "0000"
@@ -19,46 +19,31 @@ def generate_fast_ticket_id(uid):
     return f"TK-{short_uid}-{timestamp_sec}"
 
 # ==========================================
-# مسار: جلب تذكرة المستخدم أو إنشاء واحدة جديدة
+# مسار: جلب آخر تذكرة للمستخدم
 # ==========================================
-@support_bp.route('/ticket', methods=['GET', 'POST'])
-def get_or_create_ticket():
+@support_bp.route('/ticket', methods=['GET'])
+def get_ticket():
     try:
-        is_post = (request.method == 'POST')
-        success, uid, error_res = get_authenticated_user(request, is_post=is_post)
+        success, uid, error_res = get_authenticated_user(request, is_post=False)
         if not success:
             return error_res
 
         tickets_ref = db.collection('support_tickets')
         
-        # قراءة التذاكر النشطة فقط مع حد أقصى (Limit 5) لمنع استنزاف Firestore
+        # قراءة أحدث 5 تذاكر فقط لتجنب استنزاف القراءات
         docs = list(tickets_ref.where('user_id', '==', str(uid)).limit(5).stream())
-        
         user_tickets = [d.to_dict() for d in docs]
         user_tickets.sort(key=lambda x: str(x.get('created_at', '')), reverse=True)
 
         latest_ticket = user_tickets[0] if user_tickets else None
-        now_iso = datetime.now(timezone.utc).isoformat()
 
-        # إنشاء تذكرة جديدة إذا لم تكن هناك تذكرة سابقة، أو إذا كانت الأخيرة مغلقة
-        if not latest_ticket or latest_ticket.get('status') == 'closed':
-            
-            # جلب معلومات خفيفة عن المستخدم
-            user_info = {"telegram_id": str(uid), "first_name": "لاعب"}
-            try:
-                u_doc = db.collection('users').document(str(uid)).get()
-                if u_doc.exists:
-                    u_data = u_doc.to_dict() or {}
-                    user_info["first_name"] = u_data.get('first_name', u_data.get('name', 'لاعب'))
-                    user_info["username"] = u_data.get('username', '')
-            except Exception:
-                pass
-
+        # إنشاء تذكرة أولى تلقائياً إذا لم توجد أي تذكرة سابقة
+        if not latest_ticket:
+            now_iso = datetime.now(timezone.utc).isoformat()
             new_ticket_id = generate_fast_ticket_id(uid)
             new_ticket_data = {
                 'ticket_id': new_ticket_id,
                 'user_id': str(uid),
-                'user_info': user_info,
                 'status': 'open',
                 'created_at': now_iso,
                 'updated_at': now_iso,
@@ -66,15 +51,15 @@ def get_or_create_ticket():
             }
             tickets_ref.document(new_ticket_id).set(new_ticket_data)
             return jsonify({
-                "success": True, 
-                "ticket_id": new_ticket_id, 
-                "status": "open", 
+                "success": True,
+                "ticket_id": new_ticket_id,
+                "status": "open",
                 "messages": []
             }), 200
 
         return jsonify({
             "success": True,
-            "ticket_id": latest_ticket['ticket_id'],
+            "ticket_id": latest_ticket.get('ticket_id'),
             "status": latest_ticket.get('status', 'open'),
             "messages": latest_ticket.get('messages', [])
         }), 200
@@ -85,7 +70,43 @@ def get_or_create_ticket():
         return jsonify({"success": False, "message": "حدث خطأ في الخادم أثناء جلب التذكرة."}), 500
 
 # ==========================================
-# مسار: إرسال رسالة من المستخدم
+# مسار: بدء محادثة / تذكرة جديدة فوراً
+# ==========================================
+@support_bp.route('/new_ticket', methods=['POST'])
+def create_new_ticket():
+    try:
+        success, uid, error_res = get_authenticated_user(request, is_post=True)
+        if not success:
+            return error_res
+
+        tickets_ref = db.collection('support_tickets')
+        now_iso = datetime.now(timezone.utc).isoformat()
+        new_ticket_id = generate_fast_ticket_id(uid)
+        
+        new_ticket_data = {
+            'ticket_id': new_ticket_id,
+            'user_id': str(uid),
+            'status': 'open',
+            'created_at': now_iso,
+            'updated_at': now_iso,
+            'messages': []
+        }
+        tickets_ref.document(new_ticket_id).set(new_ticket_data)
+
+        return jsonify({
+            "success": True,
+            "ticket_id": new_ticket_id,
+            "status": "open",
+            "messages": []
+        }), 200
+
+    except Exception as e:
+        print(f"Support API Error (New Ticket): {str(e)}")
+        traceback.print_exc()
+        return jsonify({"success": False, "message": "حدث خطأ أثناء إنشاء تذكرة جديدة."}), 500
+
+# ==========================================
+# مسار: إرسال رسالة داخل التذكرة
 # ==========================================
 @support_bp.route('/message', methods=['POST'])
 def send_message():
@@ -95,7 +116,6 @@ def send_message():
             return error_res
 
         req_data = request.get_json() or {}
-        
         ticket_id = req_data.get('ticket_id')
         text = req_data.get('text')
 
@@ -107,21 +127,21 @@ def send_message():
 
         if not ticket_doc.exists:
             return jsonify({"success": False, "message": "التذكرة غير موجودة."}), 404
-            
+
         ticket_data = ticket_doc.to_dict() or {}
-        
+
         if ticket_data.get('user_id') != str(uid):
             return jsonify({"success": False, "message": "غير مصرح لك بالإرسال لهذه التذكرة."}), 403
 
         if ticket_data.get('status') == 'closed':
-            return jsonify({"success": False, "message": "تم إغلاق هذه التذكرة ولا يمكن الإرسال بها."}), 400
+            return jsonify({"success": False, "message": "تم إنهاء هذه المحادثة من قبل الدعم الفني."}), 400
 
         new_msg = {
             'sender': 'user',
             'text': str(text).strip(),
             'timestamp': datetime.now(timezone.utc).isoformat()
         }
-        
+
         ticket_ref.update({
             'messages': firestore.ArrayUnion([new_msg]),
             'updated_at': datetime.now(timezone.utc).isoformat()
