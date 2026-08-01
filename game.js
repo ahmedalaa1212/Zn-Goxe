@@ -139,10 +139,10 @@ window.initFirebaseRealtimeSync = function(userId) {
 };
 
 // ==========================================
-// 4. دالة التنسيق ومحرك الحركة السلسة للعداد (Smooth Ticker)
+// 4. دوال التنسيق ومحرك الحركة السلسة للعداد (Smooth Ticker)
 // ==========================================
 
-// دالة تنسيق الأرقام بخانتين عشريتين كحد أقصى
+// دالة تنسيق الأرقام نصياً (تُستخدم مع الحقول مثل INPUT)
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0';
     const num = parseFloat(val);
@@ -151,6 +151,25 @@ window.formatBalance = function(val) {
         minimumFractionDigits: hasDecimals ? 2 : 0,
         maximumFractionDigits: 2
     });
+};
+
+// دالة تنسيق HTML تضع العلامة والأرقام العشرية داخل tag صغير لضبط المظهر
+window.formatNumberHTML = function(val, minDec = 0, maxDec = 2) {
+    if (val === undefined || val === null || isNaN(val)) return '0';
+    const num = parseFloat(val);
+    const hasDecimals = num % 1 !== 0;
+    const minD = (minDec === 0 && hasDecimals) ? 2 : minDec;
+    
+    const formattedStr = num.toLocaleString('en-US', {
+        minimumFractionDigits: minD,
+        maximumFractionDigits: maxDec
+    });
+
+    const parts = formattedStr.split('.');
+    if (parts.length > 1) {
+        return `${parts[0]}<span class="small-decimal">.${parts[1]}</span>`;
+    }
+    return parts[0];
 };
 
 // محرك الحركة السلسة للرصيد الرئيسي
@@ -175,7 +194,7 @@ function renderSmoothBalance(targetVal) {
         return;
     }
 
-    const duration = 600; // مده الانتهاء بالملي ثانية للحصول على سلاسة عالية
+    const duration = 600; // مدة الانتقال بالملي ثانية
     const startTime = performance.now();
 
     function step(now) {
@@ -201,17 +220,18 @@ function renderSmoothBalance(targetVal) {
 }
 
 function applyBalanceToUI(val) {
-    const formatted = window.formatBalance(val);
+    const plainFormatted = window.formatBalance(val);
+    const htmlFormatted = window.formatNumberHTML(val, 0, 2);
     
     const updateTargetElements = (doc) => {
         doc.querySelectorAll('[data-bind="balance"]').forEach(el => {
             if (el.tagName === 'INPUT') {
-                el.value = formatted;
+                el.value = plainFormatted;
             } else {
-                if (el.innerText.includes('ZN:')) {
-                    el.innerText = `ZN: ${formatted}`;
+                if (el.textContent.includes('ZN:')) {
+                    el.innerHTML = `ZN: ${htmlFormatted}`;
                 } else {
-                    el.innerText = formatted;
+                    el.innerHTML = htmlFormatted;
                 }
             }
         });
@@ -224,10 +244,10 @@ function applyBalanceToUI(val) {
 
     document.querySelectorAll('#farm-balance, .farm-balance, #user-balance, .user-balance, .zn-balance-text').forEach(el => {
         if (el.tagName !== 'INPUT') {
-            if (el.innerText.includes('ZN:')) {
-                el.innerText = `ZN: ${formatted}`;
+            if (el.textContent.includes('ZN:')) {
+                el.innerHTML = `ZN: ${htmlFormatted}`;
             } else {
-                el.innerText = formatted;
+                el.innerHTML = htmlFormatted;
             }
         }
     });
@@ -247,22 +267,30 @@ window.updateUI = function() {
         // 2. تحديث الرصيد الرئيسي عبر محرك الحركة السلسة
         renderSmoothBalance(parseFloat(s.balance || 0));
 
-        // 3. تجهيز وتحديث بقية العناصر المنسقة
-        const fmt = {
-            usd_balance: `$${parseFloat(s.usd_balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`,
-            ad_balance: window.formatBalance(s.ad_balance),
-            hourly_rate: `⚡ ${window.formatBalance(s.hourly_rate)}/h`,
+        // 3. تجهيز وتحديث بقية العناصر المنسقة (HTML وحقول العرض)
+        const fmtHTML = {
+            usd_balance: `$${window.formatNumberHTML(s.usd_balance || 0, 2, 4)}`,
+            ad_balance: window.formatNumberHTML(s.ad_balance, 0, 2),
+            hourly_rate: `⚡ ${window.formatNumberHTML(s.hourly_rate, 0, 2)}/h`,
             energy: parseFloat(s.energy || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }),
-            ton_price: window.currentTonPriceUSD > 0 ? `$${window.currentTonPriceUSD.toFixed(2)}` : 'جاري التحميل...'
+            ton_price: window.currentTonPriceUSD > 0 ? `$${window.formatNumberHTML(window.currentTonPriceUSD, 2, 2)}` : 'جاري التحميل...'
+        };
+
+        const fmtPlain = {
+            usd_balance: window.formatBalance(s.usd_balance || 0),
+            ad_balance: window.formatBalance(s.ad_balance),
+            hourly_rate: window.formatBalance(s.hourly_rate),
+            energy: parseFloat(s.energy || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }),
+            ton_price: window.currentTonPriceUSD > 0 ? window.currentTonPriceUSD.toFixed(2) : 'جاري التحميل...'
         };
 
         const updateDoc = (doc) => {
-            Object.keys(fmt).forEach(key => {
+            Object.keys(fmtHTML).forEach(key => {
                 doc.querySelectorAll(`[data-bind="${key}"]`).forEach(el => {
                     if (el.tagName === 'INPUT') {
-                        el.value = fmt[key].replace('$', '').replace('⚡ ', '').replace('/h', '');
+                        el.value = fmtPlain[key];
                     } else {
-                        el.innerText = fmt[key];
+                        el.innerHTML = fmtHTML[key];
                     }
                 });
             });
@@ -306,7 +334,8 @@ window.loadWalletHistory = async function() {
                 const badge = isW ? (tx.status === 'completed' ? 'badge-success' : 'badge-warning') : 'badge-success';
                 const title = isW ? 'سحب أرباح' : (isD ? 'إيداع رصيد' : 'تحويل ZN إلى USD');
                 const sign = isW ? '-' : '+';
-                const amt = `${sign}$${parseFloat(tx.amount_usd || tx.gross_amount_usd || 0).toFixed(2)}`;
+                const amtVal = parseFloat(tx.amount_usd || tx.gross_amount_usd || 0);
+                const amt = `${sign}$${window.formatNumberHTML(amtVal, 2, 2)}`;
                 return `<div class="history-item">
                     <div class="history-info"><span class="history-title">${title}</span><span class="history-date">${tx.created_at ? new Date(tx.created_at).toLocaleString('ar-EG') : 'الآن'}</span></div>
                     <div class="history-amount"><span class="amount-text">${amt}</span><span class="badge ${badge}">${tx.status || 'مكتمل'}</span></div>
