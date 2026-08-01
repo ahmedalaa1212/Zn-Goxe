@@ -28,7 +28,7 @@ function getSavedState() {
     const base = {
         tg_id: tg?.initDataUnsafe?.user?.id || null,
         first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب",
-        balance: 0, usd_balance: 0, ad_balance: 0, hourly_rate: 0, energy: 100, storage_level: 0, upgrades: {}, wallet_address: null
+        balance: 0, usd_balance: 0, ad_balance: 0, hourly_rate: 0, energy: 100, storage_level: 0, upgrades: {}, wallet_address: null, last_sync_time: Date.now()
     };
     try { 
         const saved = localStorage.getItem('app_user_state');
@@ -46,22 +46,25 @@ function getSavedState() {
 }
 
 let isFirebaseUpdating = false;
-const lastLocalTimes = {};
+let lastSaveTime = 0;
 
+// نظام Proxy ذكي لتقليل الضغط على LocalStorage أثناء التعدين اللحظي
 window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
-        const oldVal = target[prop];
         target[prop] = value;
         
-        if (!isFirebaseUpdating) lastLocalTimes[prop] = Date.now();
-        
         if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'].includes(prop)) {
-            try { localStorage.setItem('app_user_state', JSON.stringify(target)); } catch {}
+            const now = Date.now();
+            // حفظ في التخزين المحلي كل 2 ثانية كحد أقصى لتجنب تشنج المتصفح
+            if (now - lastSaveTime > 2000 && !isFirebaseUpdating) {
+                try { localStorage.setItem('app_user_state', JSON.stringify(target)); } catch {}
+                lastSaveTime = now;
+            }
             
             if (typeof window.updateUI === 'function') window.updateUI();
             
             window.dispatchEvent(new CustomEvent('userStateUpdated', { 
-                detail: { prop, value, oldVal, state: target } 
+                detail: { prop, value, state: target } 
             }));
         }
         return true;
@@ -69,7 +72,7 @@ window.userState = new Proxy(getSavedState(), {
 });
 
 // ==========================================
-// 2. الاتصال بالسيرفر مع تحديث الرصيد اللحظي الشامل
+// 2. الاتصال بالسيرفر 
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
@@ -93,21 +96,12 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         }
 
         const targetObj = data.user || data.player || data.data || data;
-        let incomingBal = data.new_balance ?? targetObj?.balance;
-        if (incomingBal !== undefined && incomingBal !== null) {
-            const numBal = parseFloat(incomingBal);
-            if (!isNaN(numBal)) {
-                window.userState.balance = numBal;
-            }
-        }
-
-        let incomingUsd = data.new_usd_balance ?? targetObj?.usd_balance;
-        if (incomingUsd !== undefined && incomingUsd !== null) {
-            const numUsd = parseFloat(incomingUsd);
-            if (!isNaN(numUsd)) {
-                window.userState.usd_balance = numUsd;
-            }
-        }
+        
+        isFirebaseUpdating = true; // لمنع التخزين المتكرر أثناء سحب البيانات
+        if (targetObj?.balance !== undefined) window.userState.balance = parseFloat(targetObj.balance);
+        if (targetObj?.usd_balance !== undefined) window.userState.usd_balance = parseFloat(targetObj.usd_balance);
+        if (targetObj?.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate);
+        isFirebaseUpdating = false;
 
         return data;
     } catch (err) {
@@ -117,20 +111,19 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 };
 
 // ==========================================
-// 3. جلب سعر TON والمزامنة المباشرة
+// 3. مزامنة فايربيس (تم التعديل لتقليل القراءات)
 // ==========================================
 window.globalFetchTonPrice = async function() {
     const apis = [
         'https://tonapi.io/v2/rates?tokens=ton&currencies=usd',
-        'https://www.okx.com/api/v5/market/ticker?instId=TON-USDT',
         'https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd'
     ];
     for (const url of apis) {
         try {
             const r = await fetch(url);
             const d = await r.json();
-            const p = parseFloat(d?.rates?.TON?.prices?.USD || d?.data?.[0]?.last || d['the-open-network']?.usd);
-            if (p > 0.1 && p < 200) {
+            const p = parseFloat(d?.rates?.TON?.prices?.USD || d['the-open-network']?.usd);
+            if (p > 0.1) {
                 window.currentTonPriceUSD = p;
                 localStorage.setItem('last_ton_price', p.toString());
                 if (typeof window.updateUI === 'function') window.updateUI();
@@ -143,25 +136,20 @@ window.globalFetchTonPrice = async function() {
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) return;
     
+    // ملاحظة للحماية: السيرفر يجب ألا يحدث رصيد المستخدم في فايربيس باستمرار
+    // بل يحدثه فقط عند عمليات السحب، الشراء، أو الضغط على "تجميع" لتجنب تجاوز 50 ألف قراءة.
     window.db.collection('users').doc(String(userId)).onSnapshot(doc => {
         if (!doc.exists) return;
-        // ✅ تم تصحيح الخطأ هنا (استبدال or بـ ||)
         const d = doc.data() || {};
         
         try {
             isFirebaseUpdating = true;
-
-            if (d.balance !== undefined) {
-                const fbBal = parseFloat(d.balance);
-                if (!isNaN(fbBal)) window.userState.balance = fbBal;
-            }
-            if (d.usd_balance !== undefined) {
-                const fbUsd = parseFloat(d.usd_balance);
-                if (!isNaN(fbUsd)) window.userState.usd_balance = fbUsd;
-            }
+            if (d.balance !== undefined) window.userState.balance = parseFloat(d.balance);
+            if (d.usd_balance !== undefined) window.userState.usd_balance = parseFloat(d.usd_balance);
             ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'].forEach(k => {
                 if (d[k] !== undefined) window.userState[k] = d[k];
             });
+            window.userState.last_sync_time = Date.now();
         } finally {
             isFirebaseUpdating = false;
         }
@@ -169,166 +157,109 @@ window.initFirebaseRealtimeSync = function(userId) {
 };
 
 // ==========================================
-// 4. دوال التنسيق ومحرك الحركة السلسة للعداد
+// 4. محرك الحركة السلسة للعداد (Visual Ticker)
 // ==========================================
 
 window.formatBalance = function(val) {
-    if (val === undefined || val === null || isNaN(val)) return '0';
-    const num = parseFloat(val);
-    const hasDecimals = num % 1 !== 0;
-    return num.toLocaleString('en-US', {
-        minimumFractionDigits: hasDecimals ? 2 : 0,
-        maximumFractionDigits: 2
-    });
+    if (isNaN(val)) return '0';
+    return parseFloat(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
+// اختصار الأرقام الكبيرة جداً للحفاظ على التصميم
 window.formatNumberHTML = function(val, minDec = 0, maxDec = 2) {
-    if (val === undefined || val === null || isNaN(val)) return '0';
-    const num = parseFloat(val);
-    const hasDecimals = num % 1 !== 0;
-    const minD = (minDec === 0 && hasDecimals) ? 2 : minDec;
+    if (isNaN(val)) return '0';
+    let num = parseFloat(val);
     
+    // اختصار الملايين والمليارات إذا كان الرقم كبيراً
+    let suffix = '';
+    if (num >= 1e9) { num = num / 1e9; suffix = 'B'; }
+    else if (num >= 1e6) { num = num / 1e6; suffix = 'M'; }
+
     const formattedStr = num.toLocaleString('en-US', {
-        minimumFractionDigits: minD,
-        maximumFractionDigits: maxDec
+        minimumFractionDigits: (suffix === '') ? minDec : 2,
+        maximumFractionDigits: (suffix === '') ? maxDec : 2
     });
 
     const parts = formattedStr.split('.');
+    let resultHTML = parts[0];
     if (parts.length > 1) {
-        return `${parts[0]}<span class="small-decimal">.${parts[1]}</span>`;
+        resultHTML += `<span class="small-decimal" style="font-size: 0.75em; opacity: 0.8;">.${parts[1]}</span>`;
     }
-    return parts[0];
+    return resultHTML + (suffix ? `<span class="suffix" style="font-weight: bold; margin-left: 2px;">${suffix}</span>` : '');
 };
 
-let animatedBalanceValue = null;
-let activeBalanceAnimFrame = null;
+let visualBalance = null;
+let lastTickTime = performance.now();
 
-function renderSmoothBalance(targetVal) {
-    if (animatedBalanceValue === null) {
-        animatedBalanceValue = targetVal;
-        applyBalanceToUI(animatedBalanceValue);
-        return;
-    }
+// محاكي التعدين المحلي (يضيف للرصيد المعروض فقط بناءً على سرعة الساعة بدون إرسال للسيرفر)
+function startLocalMiningSimulator() {
+    requestAnimationFrame(function tick(currentTime) {
+        const deltaSec = (currentTime - lastTickTime) / 1000;
+        lastTickTime = currentTime;
 
-    if (activeBalanceAnimFrame) cancelAnimationFrame(activeBalanceAnimFrame);
-
-    const startVal = animatedBalanceValue;
-    const diff = targetVal - startVal;
-
-    if (Math.abs(diff) < 0.01) {
-        animatedBalanceValue = targetVal;
-        applyBalanceToUI(animatedBalanceValue);
-        return;
-    }
-
-    const duration = 300;
-    const startTime = performance.now();
-
-    function step(now) {
-        const elapsed = now - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        const ease = 1 - Math.pow(1 - progress, 3);
-        
-        animatedBalanceValue = startVal + (diff * ease);
-        applyBalanceToUI(animatedBalanceValue);
-
-        if (progress < 1) {
-            activeBalanceAnimFrame = requestAnimationFrame(step);
-        } else {
-            animatedBalanceValue = targetVal;
-            applyBalanceToUI(animatedBalanceValue);
-            activeBalanceAnimFrame = null;
+        if (window.userState && window.userState.hourly_rate > 0) {
+            const ratePerSec = window.userState.hourly_rate / 3600;
+            // زيادة الرصيد الأساسي بصمت
+            window.userState.balance += (ratePerSec * deltaSec);
         }
+        
+        renderSmoothUIBalance(window.userState.balance);
+        requestAnimationFrame(tick);
+    });
+}
+
+function renderSmoothUIBalance(targetVal) {
+    if (visualBalance === null) visualBalance = targetVal;
+    
+    // حركة انسيابية للوصول للرقم المستهدف
+    const diff = targetVal - visualBalance;
+    visualBalance += diff * 0.1; // سرعة استجابة العداد البصري
+
+    if (Math.abs(targetVal - visualBalance) < 0.001) {
+        visualBalance = targetVal;
     }
 
-    activeBalanceAnimFrame = requestAnimationFrame(step);
+    applyBalanceToUI(visualBalance);
 }
 
 function applyBalanceToUI(val) {
-    const plainFormatted = window.formatBalance(val);
-    const htmlFormatted = window.formatNumberHTML(val, 0, 2);
+    const htmlFormatted = window.formatNumberHTML(val, 0, 4);
     
     const updateTargetElements = (doc) => {
-        doc.querySelectorAll('[data-bind="balance"]').forEach(el => {
-            if (el.tagName === 'INPUT') {
-                el.value = plainFormatted;
-            } else {
-                if (el.textContent.includes('ZN:')) {
-                    el.innerHTML = `ZN: ${htmlFormatted}`;
-                } else {
-                    el.innerHTML = `${htmlFormatted} ZN`;
-                }
-            }
-        });
-
-        doc.querySelectorAll('#farm-balance, .farm-balance, #user-balance, .user-balance, .zn-balance-text, #top-balance-games').forEach(el => {
+        doc.querySelectorAll('[data-bind="balance"], #farm-balance, .farm-balance, #user-balance, .user-balance, .zn-balance-text').forEach(el => {
             if (el.tagName !== 'INPUT') {
-                if (el.textContent.includes('ZN:')) {
-                    el.innerHTML = `ZN: ${htmlFormatted}`;
-                } else {
-                    el.innerHTML = `${htmlFormatted} ZN`;
-                }
+                if (el.textContent.includes('ZN:')) el.innerHTML = `ZN: ${htmlFormatted}`;
+                else el.innerHTML = `${htmlFormatted} ZN`;
             }
         });
     };
 
     updateTargetElements(document);
-    document.querySelectorAll('iframe').forEach(f => {
-        try { if (f.contentWindow?.document) updateTargetElements(f.contentWindow.document); } catch {}
-    });
 }
 
 window._isUpdatingUI = false;
-
 window.updateUI = function() {
     if (window._isUpdatingUI) return;
     window._isUpdatingUI = true;
     try {
         const s = window.userState;
-
-        ['updateShopUI', 'updateFarmUI', 'updateTasksUI', 'updateWalletHeaderUI'].forEach(fn => {
-            if (typeof window[fn] === 'function') {
-                try { window[fn](); } catch (e) {}
-            }
-        });
-
-        renderSmoothBalance(parseFloat(s.balance || 0));
-
+        
         const fmtHTML = {
             usd_balance: `$${window.formatNumberHTML(s.usd_balance || 0, 2, 4)}`,
             ad_balance: window.formatNumberHTML(s.ad_balance, 0, 2),
             hourly_rate: `⚡ ${window.formatNumberHTML(s.hourly_rate, 0, 2)}/h`,
-            energy: parseFloat(s.energy || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }),
-            ton_price: window.currentTonPriceUSD > 0 ? `$${window.formatNumberHTML(window.currentTonPriceUSD, 2, 2)}` : 'جاري التحميل...'
-        };
-
-        const fmtPlain = {
-            usd_balance: window.formatBalance(s.usd_balance || 0),
-            ad_balance: window.formatBalance(s.ad_balance),
-            hourly_rate: window.formatBalance(s.hourly_rate),
-            energy: parseFloat(s.energy || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }),
-            ton_price: window.currentTonPriceUSD > 0 ? window.currentTonPriceUSD.toFixed(2) : 'جاري التحميل...'
+            ton_price: window.currentTonPriceUSD > 0 ? `$${window.formatNumberHTML(window.currentTonPriceUSD, 2, 2)}` : '...'
         };
 
         const updateDoc = (doc) => {
             Object.keys(fmtHTML).forEach(key => {
                 doc.querySelectorAll(`[data-bind="${key}"]`).forEach(el => {
-                    if (el.tagName === 'INPUT') {
-                        el.value = fmtPlain[key];
-                    } else {
-                        el.innerHTML = fmtHTML[key];
-                    }
+                    if (el.tagName !== 'INPUT') el.innerHTML = fmtHTML[key];
                 });
             });
         };
 
         updateDoc(document);
-        document.querySelectorAll('iframe').forEach(f => {
-            try { if (f.contentWindow?.document) updateDoc(f.contentWindow.document); } catch {}
-        });
-
-    } catch (e) { 
-        console.error("UI Update Error:", e); 
     } finally {
         window._isUpdatingUI = false;
     }
@@ -342,16 +273,7 @@ window.loadUserData = async function() {
     if (isFetchingUser) return;
     isFetchingUser = true;
     try {
-        const d = await window.fetchAPI('/api/user/info');
-        if (d?.success) {
-            const u = d.user || d.player || d.data || d;
-            ['tg_id', 'balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades', 'wallet_address'].forEach(k => {
-                if (u[k] !== undefined && u[k] !== null) {
-                    window.userState[k] = u[k];
-                }
-            });
-            if (u.upgrades && window.PlayerData) window.PlayerData.upgrades = u.upgrades;
-        }
+        await window.fetchAPI('/api/user/info');
     } catch (err) {
         console.error("Error loading user data:", err);
     } finally { 
@@ -361,36 +283,12 @@ window.loadUserData = async function() {
     }
 };
 
-window.loadWalletHistory = async function() {
-    const el = document.getElementById('wallet-history-list');
-    if (!el) return;
-    el.innerHTML = `<div class="loading-spinner">جاري التحميل...</div>`;
-    try {
-        const d = await window.fetchAPI('/api/wallet/get_history');
-        if (d.success && d.history?.length) {
-            el.innerHTML = d.history.map(tx => {
-                const isW = tx.type === 'withdraw', isD = tx.type === 'deposit';
-                const badge = isW ? (tx.status === 'completed' ? 'badge-success' : 'badge-warning') : 'badge-success';
-                const title = isW ? 'سحب أرباح' : (isD ? 'إيداع رصيد' : 'تحويل ZN إلى USD');
-                const sign = isW ? '-' : '+';
-                const amtVal = parseFloat(tx.amount_usd || tx.gross_amount_usd || 0);
-                const amt = `${sign}$${window.formatNumberHTML(amtVal, 2, 2)}`;
-                return `<div class="history-item">
-                    <div class="history-info"><span class="history-title">${title}</span><span class="history-date">${tx.created_at ? new Date(tx.created_at).toLocaleString('ar-EG') : 'الآن'}</span></div>
-                    <div class="history-amount"><span class="amount-text">${amt}</span><span class="badge ${badge}">${tx.status || 'مكتمل'}</span></div>
-                </div>`;
-            }).join('');
-        } else { el.innerHTML = `<div class="empty-msg">لا توجد معاملات سابقة.</div>`; }
-    } catch (e) { el.innerHTML = `<div class="error-msg">${e.message}</div>`; }
-};
-
 window.executeConvertZN = async (amount) => {
     try {
         const res = await window.fetchAPI('/api/wallet/wallet_convert', 'POST', { amount: parseFloat(amount) });
         if (res.success) {
-            window.userState.usd_balance = res.new_usd_balance;
-            window.userState.balance = res.new_balance;
-            alert(`تم التحويل بنجاح!`); window.loadWalletHistory();
+            alert(`تم التحويل بنجاح!`); 
+            // تحديث الرصيد يتم تلقائياً عبر fetchAPI
         }
     } catch (e) { alert(`فشل التحويل: ${e.message}`); }
 };
@@ -398,19 +296,14 @@ window.executeConvertZN = async (amount) => {
 window.executeWithdraw = async (amountUSD, address) => {
     try {
         const res = await window.fetchAPI('/api/wallet/wallet_withdraw', 'POST', { amount: parseFloat(amountUSD), walletAddress: address });
-        if (res.success) {
-            window.userState.usd_balance = res.new_usd_balance;
-            alert(`تم إرسال طلب السحب بنجاح!`); window.loadWalletHistory();
-        }
+        if (res.success) alert(`تم إرسال طلب السحب بنجاح!`);
     } catch (e) { alert(`فشل السحب: ${e.message}`); }
 };
 
 // ==========================================
-// 6. تشغيل التطبيق والاستماع المباشر
+// 6. تشغيل التطبيق
 // ==========================================
 function initApp() {
-    document.getElementById('open-history-btn')?.addEventListener('click', window.loadWalletHistory);
-    
     window.updateUI();
     window.globalFetchTonPrice();
     window.loadUserData().then(() => {
@@ -418,10 +311,8 @@ function initApp() {
         if (uid) window.initFirebaseRealtimeSync(uid);
     });
     
-    setTimeout(hideLoadingScreen, 4000);
-
-    setInterval(window.globalFetchTonPrice, 60000);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) window.globalFetchTonPrice(); });
+    startLocalMiningSimulator(); // تشغيل العداد البصري اللحظي
+    setTimeout(hideLoadingScreen, 2000);
 }
 
 if (document.readyState === 'loading') {
