@@ -12,6 +12,10 @@ def validate_telegram_data(init_data: str):
     if not init_data or not token:
         return None
         
+    # إزالة كلمة Bearer إذا كانت مرافقة للـ initData
+    if init_data.startswith('Bearer '):
+        init_data = init_data[7:].strip()
+
     try:
         parsed_data = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
         
@@ -43,15 +47,20 @@ def get_authenticated_user(request, is_post=False):
         else:
             init_data = request.args.get('initData')
             
+        # البحث الشامل في الهيدرز (بما فيها Authorization)
         if not init_data:
-            init_data = request.headers.get('X-Telegram-Init-Data') or request.args.get('initData')
+            init_data = (
+                request.headers.get('X-Telegram-Init-Data') or 
+                request.headers.get('Authorization') or 
+                request.args.get('initData')
+            )
             
         telegram_id = None
 
         # 1. المصادقة عبر initData
         if init_data:
             user = validate_telegram_data(init_data)
-            if user:
+            if user and user.get('id'):
                 telegram_id = str(user.get('id')).strip()
 
         # 2. المصادقة الاحتياطية (Fallback) عبر X-TG-ID أو الـ Body/Query
