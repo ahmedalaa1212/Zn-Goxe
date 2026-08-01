@@ -124,11 +124,11 @@ def serve_static(path):
         return serve_manifest()
 
     path_lower = path.lower()
-    forbidden_extensions = ('.py', '.pyc', '.env', '.md', '.txt', '.json', '.yml', '.yaml', '.sh', '.lock')
+    forbidden_extensions = ('.py', '.pyc', '.env', '.md', '.yml', '.yaml', '.sh', '.lock')
     forbidden_files = ('dockerfile', 'procfile', 'railway.toml', 'requirements.txt')
     forbidden_dirs = ('core/', 'admin_chat/', '.git/', '.github/', '__pycache__/')
 
-    is_forbidden_dir = any(path_lower.startswith(d) for d in forbidden_dirs)
+    is_forbidden_dir = any(d in path_lower for d in forbidden_dirs)
     is_forbidden_file = any(path_lower == f for f in forbidden_files)
     is_forbidden_ext = path_lower.endswith(forbidden_extensions) and path_lower != 'favicon.ico'
 
