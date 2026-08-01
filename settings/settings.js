@@ -1,7 +1,6 @@
 // settings/settings.js
 (function initSettingsSystem() {
     
-    // --- أدوات المزامنة الموحدة مع النظام العام (game.js) ---
     function getStoredBalance() {
         if (window.userState && window.userState.balance !== undefined) {
             return parseFloat(window.userState.balance);
@@ -57,12 +56,8 @@
             }
             let storageLevelsCount = parseInt(state.storage_level || 0);
 
-            if (totalMiningEl) {
-                totalMiningEl.innerText = `${totalUpgradesCount} مستويات`;
-            }
-            if (totalStorageEl) {
-                totalStorageEl.innerText = `${storageLevelsCount} مستويات`;
-            }
+            if (totalMiningEl) totalMiningEl.innerText = `${totalUpgradesCount} مستويات`;
+            if (totalStorageEl) totalStorageEl.innerText = `${storageLevelsCount} مستويات`;
         }
     }
 
@@ -113,13 +108,13 @@
     }
 
     // ==========================================
-    // 🎧 وظائف الشات والدعم الفني (محسّنة وآمنة)
+    // 🎧 وظائف الشات والدعم الفني (المحسّنة بالكامل)
     // ==========================================
     let supportTicketId = null;
     let isSupportClosed = false;
     let supportPollInterval = null;
     let supportLastMsgCount = -1;
-    let isFetchingTicket = false; // مانع الطلبات المتزامنة
+    let isFetchingTicket = false;
 
     const chatBox = document.getElementById('support-chat-box');
     const msgInput = document.getElementById('support-msg-input');
@@ -145,7 +140,7 @@
         }
     };
 
-    async function fetchTicketData() {
+    window.fetchTicketData = async function() {
         if (isFetchingTicket) return;
         isFetchingTicket = true;
 
@@ -155,10 +150,6 @@
                 data = await window.fetchAPI('/api/support/ticket');
             } else {
                 const initData = window.Telegram?.WebApp?.initData || "";
-                if (!initData) {
-                    if (ticketDisplay) ticketDisplay.innerText = "يرجى فتح التطبيق داخل تليجرام";
-                    return;
-                }
                 const response = await fetch('/api/support/ticket', {
                     method: 'GET',
                     headers: { 
@@ -171,24 +162,37 @@
 
             if (data && data.success) {
                 supportTicketId = data.ticket_id;
-                isSupportClosed = data.status === 'closed';
+                isSupportClosed = (data.status === 'closed');
                 
                 if (ticketDisplay) ticketDisplay.innerText = `رقم التذكرة: #${supportTicketId}`;
                 renderMessages(data.messages);
                 
                 if (isSupportClosed) {
-                    disableSupportInput("تم إغلاق هذه التذكرة من الدعم الفني.");
+                    disableSupportInput("تم إنهاء هذه المحادثة. يمكنك بدء محادثة جديدة.");
                 } else {
                     enableSupportInput();
                     startSupportPolling();
                 }
             } else {
-                if (ticketDisplay) ticketDisplay.innerText = "خطأ: " + (data?.message || "فشل جلب التذكرة");
+                showChatError(data?.message || "فشل جلب التذكرة من السيرفر.");
             }
         } catch (error) {
-            if (ticketDisplay) ticketDisplay.innerText = "فشل الاتصال بالسيرفر";
+            showChatError("حدث خطأ في الاتصال بالشبكة.");
         } finally {
             isFetchingTicket = false;
+        }
+    };
+
+    function showChatError(errMsg) {
+        if (ticketDisplay) ticketDisplay.innerText = "تنبيه: " + errMsg;
+        if (chatBox) {
+            chatBox.innerHTML = `
+                <div class="msg-system" style="color: #ff5252; padding: 15px; text-align: center;">
+                    ⚠️ ${errMsg}<br><br>
+                    <button onclick="fetchTicketData()" style="padding: 8px 16px; background: #ff9800; border: none; border-radius: 8px; color: #fff; font-weight: bold; cursor: pointer;">
+                        إعادة المحاولة 🔄
+                    </button>
+                </div>`;
         }
     }
 
@@ -196,7 +200,7 @@
         messages = messages || [];
         if (!chatBox) return;
 
-        if (messages.length === supportLastMsgCount) return;
+        if (messages.length === supportLastMsgCount && !isSupportClosed) return;
         supportLastMsgCount = messages.length;
 
         chatBox.innerHTML = ''; 
@@ -212,16 +216,58 @@
             });
         }
 
+        // إذا كانت التذكرة مغلقة: إظهار الرسالة والزر التفاعلي
         if (isSupportClosed) {
-            const closedDiv = document.createElement('div');
-            closedDiv.className = 'msg-system';
-            closedDiv.innerText = '🔒 تم إغلاق هذه المحادثة.';
-            chatBox.appendChild(closedDiv);
-            disableSupportInput("تم إغلاق هذه التذكرة من الدعم الفني.");
+            const closedBox = document.createElement('div');
+            closedBox.className = 'msg-system';
+            closedBox.style.cssText = 'background: rgba(255, 82, 82, 0.15); border: 1px solid #ff5252; color: #ff5252; margin-top: 15px; padding: 12px; border-radius: 10px; text-align: center;';
+            closedBox.innerHTML = `
+                🔒 تم إنهاء هذه المحادثة من قبل الدعم الفني.<br>يرجى بدء محادثة جديدة لإرسال استفسار جديد.<br><br>
+                <button onclick="startNewTicket()" style="padding: 10px 20px; background: #2196F3; border: none; border-radius: 8px; color: #fff; font-weight: bold; cursor: pointer; font-size: 14px;">
+                    ➕ بدء محادثة جديدة
+                </button>
+            `;
+            chatBox.appendChild(closedBox);
+            disableSupportInput("تم إنهاء المحادثة. انقر فوق 'بدء محادثة جديدة'");
         }
 
         chatBox.scrollTop = chatBox.scrollHeight;
     }
+
+    window.startNewTicket = async function() {
+        if (chatBox) chatBox.innerHTML = '<div class="msg-system">جاري إنشاء محادثة جديدة...</div>';
+        try {
+            let data;
+            if (typeof window.fetchAPI === 'function') {
+                data = await window.fetchAPI('/api/support/new_ticket', 'POST', {});
+            } else {
+                const initData = window.Telegram?.WebApp?.initData || "";
+                const response = await fetch('/api/support/new_ticket', {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${initData}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                data = await response.json();
+            }
+
+            if (data && data.success) {
+                supportTicketId = data.ticket_id;
+                isSupportClosed = false;
+                if (ticketDisplay) ticketDisplay.innerText = `رقم التذكرة: #${supportTicketId}`;
+                enableSupportInput();
+                renderMessages([]);
+                startSupportPolling();
+            } else {
+                alert("فشل إنشاء تذكرة جديدة: " + (data?.message || "خطأ غير معروف"));
+                fetchTicketData();
+            }
+        } catch (e) {
+            alert("خطأ في الاتصال بالسيرفر.");
+            fetchTicketData();
+        }
+    };
 
     window.sendSupportMessage = async function() {
         if (!msgInput) return;
@@ -263,7 +309,7 @@
             } else {
                 tempDiv.remove();
                 alert("فشل الإرسال: " + (data?.message || "حدث خطأ"));
-                if (data?.message && data.message.includes("إغلاق")) {
+                if (data?.message && data.message.includes("إنهاء")) {
                     isSupportClosed = true;
                     fetchTicketData();
                 }
@@ -300,7 +346,6 @@
 
     function startSupportPolling() {
         if (supportPollInterval) clearInterval(supportPollInterval);
-        // التحديث الذكي كل 15 ثانية فقط بدلاً من 3 ثواني لتجنب حظر السيرفر
         supportPollInterval = setInterval(() => {
             const modal = document.getElementById('support-modal');
             if (!isSupportClosed && modal && modal.style.display === 'flex' && document.visibilityState === 'visible') {
@@ -353,7 +398,6 @@
         setTimeout(() => toast.style.display = 'none', 2000);
     }
 
-    // --- مستمعات التحديث والحدث ---
     window.addEventListener('userStateUpdated', updateStatsFromLocalData);
 
     window.addEventListener('pageshow', () => {
