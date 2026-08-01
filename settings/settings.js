@@ -1,51 +1,36 @@
 // settings/settings.js
 (function initSettingsSystem() {
     
-    // --- أدوات المزامنة الموحدة مع جميع الشاشات ---
+    // --- أدوات المزامنة الموحدة مع النظام العام (game.js) ---
     function getStoredBalance() {
-        if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
+        if (window.userState && window.userState.balance !== undefined) {
+            return parseFloat(window.userState.balance);
+        }
+        if (window.GameState && window.GameState.balance !== undefined) {
             return parseFloat(window.GameState.balance);
         }
         const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
         return bal !== null ? parseFloat(bal) : 0;
     }
 
-    function setStoredBalance(newBalance) {
-        if (newBalance !== undefined && newBalance !== null) {
-            const numVal = parseFloat(newBalance);
-            if (typeof window.setBalance === 'function') {
-                window.setBalance(numVal);
-            } else {
-                if (window.GameState) window.GameState.balance = numVal;
-                localStorage.setItem('zn_balance', numVal.toString());
-                localStorage.setItem('user_balance', numVal.toString());
-            }
-        }
-    }
-
     function syncTopBalance() {
         const stored = getStoredBalance();
         const topBalEl = document.getElementById('top-balance-settings');
         if (topBalEl) {
-            topBalEl.innerText = `ZN: ${Math.floor(stored).toLocaleString()}`;
-        }
-        if (typeof window.updateGlobalUI === 'function') {
-            window.updateGlobalUI();
+            topBalEl.innerText = `ZN: ${Math.floor(stored).toLocaleString('en-US')}`;
         }
     }
 
     function getTgUser() {
-        if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
-            if (window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
-                return window.Telegram.WebApp.initDataUnsafe.user;
-            }
+        if (window.Telegram?.WebApp?.initDataUnsafe?.user) {
+            return window.Telegram.WebApp.initDataUnsafe.user;
         }
         return null;
     }
 
     function getTgId() {
         const user = getTgUser();
-        return user ? String(user.id) : "5102387551"; 
+        return user ? String(user.id) : (window.userState?.tg_id || "5102387551"); 
     }
 
     function getPlayerName() {
@@ -53,31 +38,24 @@
         if (user) {
             return user.first_name + (user.last_name ? " " + user.last_name : "");
         }
-        return "اللاعب المحترف";
-    }
-
-    function getInitData() {
-        if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
-            return window.Telegram.WebApp.initData || "";
-        }
-        return "";
+        return window.userState?.first_name || "اللاعب المحترف";
     }
 
     function updateStatsFromLocalData() {
         syncTopBalance();
 
-        if (window.PlayerData || window.GameState) {
-            const data = window.PlayerData || window.GameState;
+        const state = window.userState || window.PlayerData || window.GameState;
+        if (state) {
             const totalMiningEl = document.getElementById('stat-total-mining');
             const totalStorageEl = document.getElementById('stat-total-storage');
             
             let totalUpgradesCount = 0;
-            if (data.upgrades) {
+            if (state.upgrades) {
                 for (let i = 1; i <= 9; i++) {
-                    totalUpgradesCount += parseInt(data.upgrades[`lvl${i}`] || 0);
+                    totalUpgradesCount += parseInt(state.upgrades[`lvl${i}`] || 0);
                 }
             }
-            let storageLevelsCount = parseInt(data.storage_level || 0);
+            let storageLevelsCount = parseInt(state.storage_level || 0);
 
             if (totalMiningEl) {
                 totalMiningEl.innerText = `${totalUpgradesCount} مستويات`;
@@ -90,8 +68,6 @@
 
     async function fetchAndRenderData() {
         const telegramId = getTgId();
-        const initData = getInitData();
-        
         const usernameEl = document.getElementById('player-username');
         const telegramIdEl = document.getElementById('player-telegram-id');
         const avatarEl = document.getElementById('player-avatar');
@@ -106,38 +82,44 @@
 
         updateStatsFromLocalData();
 
-        if (initData) {
-            try {
-                let response = await fetch('/api/settings/stats', {
+        try {
+            let data;
+            if (typeof window.fetchAPI === 'function') {
+                data = await window.fetchAPI('/api/settings/stats');
+            } else {
+                const initData = window.Telegram?.WebApp?.initData || "";
+                const res = await fetch('/api/settings/stats', {
                     headers: { 
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${initData}`
                     }
                 });
-                if (response.ok) {
-                    let result = await response.json();
-                    if (result.success) {
-                        if (result.balance !== undefined) {
-                            setStoredBalance(result.balance);
-                            syncTopBalance();
-                        }
-                        const miningEl = document.getElementById('stat-total-mining');
-                        const storageEl = document.getElementById('stat-total-storage');
-                        if (miningEl) miningEl.innerText = `${result.farm_levels_count} مستويات`;
-                        if (storageEl) storageEl.innerText = `${result.storage_levels_count} مستويات`;
-                    }
+                data = await res.json();
+            }
+
+            if (data && data.success) {
+                if (data.balance !== undefined && window.userState) {
+                    window.userState.balance = data.balance;
                 }
-            } catch (error) {}
+                const miningEl = document.getElementById('stat-total-mining');
+                const storageEl = document.getElementById('stat-total-storage');
+                if (miningEl) miningEl.innerText = `${data.farm_levels_count || 0} مستويات`;
+                if (storageEl) storageEl.innerText = `${data.storage_levels_count || 0} مستويات`;
+                syncTopBalance();
+            }
+        } catch (error) {
+            console.warn("Settings stats info:", error);
         }
     }
 
     // ==========================================
-    // 🎧 وظائف الشات والدعم الفني
+    // 🎧 وظائف الشات والدعم الفني (محسّنة وآمنة)
     // ==========================================
     let supportTicketId = null;
     let isSupportClosed = false;
     let supportPollInterval = null;
     let supportLastMsgCount = -1;
+    let isFetchingTicket = false; // مانع الطلبات المتزامنة
 
     const chatBox = document.getElementById('support-chat-box');
     const msgInput = document.getElementById('support-msg-input');
@@ -149,7 +131,7 @@
         const modal = document.getElementById('support-modal');
         if (modal) modal.style.display = 'flex';
         
-        if (chatBox) chatBox.innerHTML = '';
+        if (chatBox) chatBox.innerHTML = '<div class="msg-system">جاري جلب المحادثة...</div>';
         supportLastMsgCount = -1;
         fetchTicketData();
     };
@@ -157,27 +139,37 @@
     window.closeSupportModal = function() {
         const modal = document.getElementById('support-modal');
         if (modal) modal.style.display = 'none';
-        if (supportPollInterval) clearInterval(supportPollInterval);
+        if (supportPollInterval) {
+            clearInterval(supportPollInterval);
+            supportPollInterval = null;
+        }
     };
 
     async function fetchTicketData() {
-        const initData = getInitData();
-        if (!initData) {
-            if (ticketDisplay) ticketDisplay.innerText = "يرجى فتح التطبيق داخل تليجرام";
-            return;
-        }
+        if (isFetchingTicket) return;
+        isFetchingTicket = true;
 
         try {
-            const response = await fetch('/api/support/ticket', {
-                method: 'GET',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${initData}`
+            let data;
+            if (typeof window.fetchAPI === 'function') {
+                data = await window.fetchAPI('/api/support/ticket');
+            } else {
+                const initData = window.Telegram?.WebApp?.initData || "";
+                if (!initData) {
+                    if (ticketDisplay) ticketDisplay.innerText = "يرجى فتح التطبيق داخل تليجرام";
+                    return;
                 }
-            });
-            const data = await response.json();
+                const response = await fetch('/api/support/ticket', {
+                    method: 'GET',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${initData}`
+                    }
+                });
+                data = await response.json();
+            }
 
-            if (data.success) {
+            if (data && data.success) {
                 supportTicketId = data.ticket_id;
                 isSupportClosed = data.status === 'closed';
                 
@@ -191,10 +183,12 @@
                     startSupportPolling();
                 }
             } else {
-                if (ticketDisplay) ticketDisplay.innerText = "خطأ: " + (data.message || "فشل الاتصال");
+                if (ticketDisplay) ticketDisplay.innerText = "خطأ: " + (data?.message || "فشل جلب التذكرة");
             }
         } catch (error) {
             if (ticketDisplay) ticketDisplay.innerText = "فشل الاتصال بالسيرفر";
+        } finally {
+            isFetchingTicket = false;
         }
     }
 
@@ -208,7 +202,7 @@
         chatBox.innerHTML = ''; 
 
         if (messages.length === 0) {
-            chatBox.innerHTML = '<div class="msg-system">مرحباً بك! ارسل استفسارك وسيقوم فريق الدعم بالرد عليك.</div>';
+            chatBox.innerHTML = '<div class="msg-system">مرحباً بك! اكتب استفسارك وسيرد عليك فريق الدعم.</div>';
         } else {
             messages.forEach(msg => {
                 const div = document.createElement('div');
@@ -234,8 +228,6 @@
         const text = msgInput.value.trim();
         if (!text || isSupportClosed || !supportTicketId) return;
 
-        const initData = getInitData();
-        
         const tempDiv = document.createElement('div');
         tempDiv.className = 'chat-msg msg-user';
         tempDiv.innerText = text;
@@ -250,22 +242,28 @@
         if (sendBtn) sendBtn.disabled = true;
 
         try {
-            const response = await fetch('/api/support/message', {
-                method: 'POST',
-                headers: { 
-                    'Authorization': `Bearer ${initData}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ ticket_id: supportTicketId, text: text })
-            });
-            const data = await response.json();
+            let data;
+            if (typeof window.fetchAPI === 'function') {
+                data = await window.fetchAPI('/api/support/message', 'POST', { ticket_id: supportTicketId, text: text });
+            } else {
+                const initData = window.Telegram?.WebApp?.initData || "";
+                const response = await fetch('/api/support/message', {
+                    method: 'POST',
+                    headers: { 
+                        'Authorization': `Bearer ${initData}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ ticket_id: supportTicketId, text: text })
+                });
+                data = await response.json();
+            }
 
-            if (data.success) {
+            if (data && data.success) {
                 fetchTicketData();
             } else {
                 tempDiv.remove();
-                alert("فشل الإرسال: " + (data.message || "حدث خطأ"));
-                if (data.message && data.message.includes("إغلاق")) {
+                alert("فشل الإرسال: " + (data?.message || "حدث خطأ"));
+                if (data?.message && data.message.includes("إغلاق")) {
                     isSupportClosed = true;
                     fetchTicketData();
                 }
@@ -285,7 +283,10 @@
         }
         if (sendBtn) sendBtn.disabled = true;
         if (inputSection) inputSection.style.opacity = '0.5';
-        if (supportPollInterval) clearInterval(supportPollInterval);
+        if (supportPollInterval) {
+            clearInterval(supportPollInterval);
+            supportPollInterval = null;
+        }
     }
 
     function enableSupportInput() {
@@ -299,12 +300,13 @@
 
     function startSupportPolling() {
         if (supportPollInterval) clearInterval(supportPollInterval);
+        // التحديث الذكي كل 15 ثانية فقط بدلاً من 3 ثواني لتجنب حظر السيرفر
         supportPollInterval = setInterval(() => {
             const modal = document.getElementById('support-modal');
-            if (!isSupportClosed && modal && modal.style.display === 'flex') {
+            if (!isSupportClosed && modal && modal.style.display === 'flex' && document.visibilityState === 'visible') {
                 fetchTicketData();
             }
-        }, 3000);
+        }, 15000);
     }
 
     if (msgInput) {
@@ -351,7 +353,9 @@
         setTimeout(() => toast.style.display = 'none', 2000);
     }
 
-    // --- مستمعات التنقل والمزامنة اللحظية ---
+    // --- مستمعات التحديث والحدث ---
+    window.addEventListener('userStateUpdated', updateStatsFromLocalData);
+
     window.addEventListener('pageshow', () => {
         updateStatsFromLocalData();
         fetchAndRenderData();
