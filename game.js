@@ -1,460 +1,247 @@
 // ==========================================
-// 1. تهيئة تطبيق تليجرام (Telegram WebApp)
+// 1. التهيئة والتخزين المحلي (Local-First)
 // ==========================================
 const tg = window.Telegram?.WebApp;
-
 if (tg) {
-    tg.ready();
-    tg.expand();
+    tg.ready(); tg.expand();
     if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
     if (tg.setHeaderColor) tg.setHeaderColor('secondary_bg_color');
 }
 
 window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 0;
 
-// ==========================================
-// 2. حالة المستخدم الرئيسية وقراءة الكاش المحلي (Local-First)
-// ==========================================
-function getInitialState() {
-    const defaultState = {
+function getSavedState() {
+    const base = {
         tg_id: tg?.initDataUnsafe?.user?.id || null,
         first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب",
-        balance: 0.0,
-        usd_balance: 0.0,
-        ad_balance: 0.0,
-        hourly_rate: 0.0,
-        energy: 100.0,
-        storage_level: 0,
-        upgrades: {},
-        wallet_address: null
+        balance: 0, usd_balance: 0, ad_balance: 0, hourly_rate: 0, energy: 100, storage_level: 0, upgrades: {}, wallet_address: null
     };
-
-    try {
-        const saved = localStorage.getItem('app_user_state');
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            return { ...defaultState, ...parsed };
-        }
-    } catch (e) {
-        console.warn("تعذر قراءة LocalStorage", e);
-    }
-    return defaultState;
+    try { return { ...base, ...JSON.parse(localStorage.getItem('app_user_state') || '{}') }; }
+    catch { return base; }
 }
 
-const rawUserState = getInitialState();
-
-// حفظ البيانات محلياً فوراً بعد كل تعديل
-function saveLocalState() {
-    try {
-        localStorage.setItem('app_user_state', JSON.stringify(window.userState));
-    } catch (e) {
-        console.warn("تعذر الحفظ في LocalStorage", e);
-    }
-}
-
-// ==========================================
-// 3. متغيرات التحديث اللحظي والـ Proxy
-// ==========================================
 let isFirebaseUpdating = false;
-const lastLocalUpdateTimes = {};
+const lastLocalTimes = {};
 
-window.userState = new Proxy(rawUserState, {
+window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
         target[prop] = value;
-
-        if (!isFirebaseUpdating) {
-            lastLocalUpdateTimes[prop] = Date.now();
-        }
-
-        const monitoredProps = ['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'];
+        if (!isFirebaseUpdating) lastLocalTimes[prop] = Date.now();
         
-        if (monitoredProps.includes(prop)) {
-            saveLocalState(); // 💾 حفظ محلي فوراً في نفس اللحظة
+        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'].includes(prop)) {
+            try { localStorage.setItem('app_user_state', JSON.stringify(target)); } catch {}
             if (typeof window.updateUI === 'function') window.updateUI();
-
-            window.dispatchEvent(new CustomEvent('userStateUpdated', {
-                detail: { prop, value, state: target }
-            }));
+            window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: { prop, value, state: target } }));
         }
         return true;
     }
 });
 
 // ==========================================
-// 4. الاتصال بالباك إند مع الاعتماد المحلي المباشر
+// 2. الاتصال بالسيرفر مع التحديث اللحظي المباشر
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
-
-    if (tg && tg.initData) {
+    if (tg?.initData) {
         headers['X-Telegram-Init-Data'] = tg.initData;
         headers['Authorization'] = `Bearer ${tg.initData}`;
     }
 
-    const options = { method, headers };
-    if (bodyData) options.body = JSON.stringify(bodyData);
-
-    // ⚡ 1. التحديث المحلي الفوري في 0ms عند طلب التجميع
+    // زيادة الرصيد فوراً في الشاشة وفي LocalStorage عند التجميع
     if (endpoint.includes('/collect') || endpoint.includes('/claim')) {
-        lastLocalUpdateTimes['balance'] = Date.now();
-        
-        let uncollected = parseFloat(window.uncollectedBalance || window.pendingBalance || 0);
-        
-        if (!uncollected || uncollected <= 0) {
-            document.querySelectorAll('iframe').forEach(iframe => {
+        lastLocalTimes['balance'] = Date.now();
+        let pending = parseFloat(window.uncollectedBalance || window.pendingBalance || 0);
+        if (!pending) {
+            document.querySelectorAll('iframe').forEach(f => {
                 try {
-                    const win = iframe.contentWindow;
-                    if (win && (win.uncollectedBalance || win.pendingBalance)) {
-                        uncollected = parseFloat(win.uncollectedBalance || win.pendingBalance || 0);
-                        win.uncollectedBalance = 0;
-                        win.pendingBalance = 0;
+                    const w = f.contentWindow;
+                    if (w?.uncollectedBalance || w?.pendingBalance) {
+                        pending = parseFloat(w.uncollectedBalance || w.pendingBalance || 0);
+                        w.uncollectedBalance = 0; w.pendingBalance = 0;
                     }
-                } catch(e) {}
+                } catch {}
             });
         }
-
-        if (uncollected > 0) {
-            window.userState.balance += uncollected; // زاد محلياً فوراً وتم حفظه محلياً تلقائياً
-            window.uncollectedBalance = 0;
-            window.pendingBalance = 0;
+        if (pending > 0) {
+            window.userState.balance += pending;
+            window.uncollectedBalance = 0; window.pendingBalance = 0;
         }
     }
 
     try {
-        const response = await fetch(endpoint, options);
-        const result = await response.json();
-        
-        if (!response.ok) {
-            if (response.status === 403 && result.error && result.error.includes("محظور")) {
-                alert("تم حظر حسابك من استخدام التطبيق.");
-                if (tg) tg.close();
-            }
-            throw new Error(result.error || `Error HTTP ${response.status}`);
+        const res = await fetch(endpoint, { method, headers, body: bodyData ? JSON.stringify(bodyData) : null });
+        const data = await res.json();
+        if (!res.ok) {
+            if (res.status === 403 && data.error?.includes("محظور")) { alert("حسابك محظور."); tg?.close(); }
+            throw new Error(data.error || `HTTP ${res.status}`);
         }
-
-        // ⚡ 2. تثبيت الرصيد النهائي المؤكد من السيرفر
-        if (result) {
-            if (result.new_balance !== undefined) {
-                window.userState.balance = parseFloat(result.new_balance);
-            } else if (result.balance !== undefined) {
-                window.userState.balance = parseFloat(result.balance);
-            }
-
-            if (result.new_usd_balance !== undefined) {
-                window.userState.usd_balance = parseFloat(result.new_usd_balance);
-            } else if (result.usd_balance !== undefined) {
-                window.userState.usd_balance = parseFloat(result.usd_balance);
-            }
-        }
-
-        return result;
+        if (data.new_balance !== undefined) window.userState.balance = parseFloat(data.new_balance);
+        if (data.new_usd_balance !== undefined) window.userState.usd_balance = parseFloat(data.new_usd_balance);
+        return data;
     } catch (err) {
-        console.error(`[API Error] Path: ${endpoint} ->`, err);
+        console.error(`API Error [${endpoint}]:`, err);
         throw err;
     }
 };
 
 // ==========================================
-// 5. جلب سعر عملة TON المباشر
+// 3. جلب سعر TON والمزامنة الذكية مع الفايربيس
 // ==========================================
 window.globalFetchTonPrice = async function() {
     const apis = [
-        async () => {
-            let r = await fetch('https://tonapi.io/v2/rates?tokens=ton&currencies=usd');
-            let d = await r.json();
-            return parseFloat(d?.rates?.TON?.prices?.USD);
-        },
-        async () => {
-            let r = await fetch('https://www.okx.com/api/v5/market/ticker?instId=TON-USDT');
-            let d = await r.json();
-            return parseFloat(d?.data?.[0]?.last);
-        },
-        async () => {
-            let r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd');
-            let d = await r.json();
-            return parseFloat(d['the-open-network']?.usd);
-        }
+        'https://tonapi.io/v2/rates?tokens=ton&currencies=usd',
+        'https://www.okx.com/api/v5/market/ticker?instId=TON-USDT',
+        'https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd'
     ];
-
-    for (let fetchPrice of apis) {
+    for (const url of apis) {
         try {
-            let price = await fetchPrice();
-            if (price && price > 0.1 && price < 200) {
-                window.currentTonPriceUSD = price;
-                localStorage.setItem('last_ton_price', price.toString());
-                
+            const r = await fetch(url);
+            const d = await r.json();
+            const p = parseFloat(d?.rates?.TON?.prices?.USD || d?.data?.[0]?.last || d['the-open-network']?.usd);
+            if (p > 0.1 && p < 200) {
+                window.currentTonPriceUSD = p;
+                localStorage.setItem('last_ton_price', p.toString());
                 if (typeof window.updateUI === 'function') window.updateUI();
-                return price;
+                return p;
             }
-        } catch (e) { continue; }
+        } catch {}
     }
 };
 
-// ==========================================
-// 6. التزامن مع الفايربيس (مع حماية التخزين المحلي)
-// ==========================================
 window.initFirebaseRealtimeSync = function(userId) {
-    if (!window.db || !userId) {
-        console.warn("تنبيه: الفايربيس غير متاح أو معرف المستخدم غير موجود.");
-        return;
-    }
-
-    window.db.collection('users').doc(String(userId)).onSnapshot((doc) => {
+    if (!window.db || !userId) return;
+    window.db.collection('users').doc(String(userId)).onSnapshot(doc => {
         if (!doc.exists) return;
-        const data = doc.data();
-
+        const d = doc.data();
         isFirebaseUpdating = true;
 
-        if (data.balance !== undefined) {
-            const fbBalance = parseFloat(data.balance);
-            const lastTime = lastLocalUpdateTimes['balance'] || 0;
-            const timeDiff = Date.now() - lastTime;
-
-            // عدم السماح للفايربيس بإرجاع الرقم للخلف إذا جرى تعديل محلي مؤخراً (خلال 5 ثوانٍ)
-            if (timeDiff < 5000 && fbBalance < window.userState.balance) {
-                // احتفظ بالرصيد المحلي الأحدث
-            } else {
-                window.userState.balance = fbBalance;
+        if (d.balance !== undefined) {
+            const fbBal = parseFloat(d.balance);
+            if (Date.now() - (lastLocalTimes['balance'] || 0) > 5000 || fbBal >= window.userState.balance) {
+                window.userState.balance = fbBal;
             }
         }
-
-        if (data.usd_balance !== undefined) {
-            const fbUsd = parseFloat(data.usd_balance);
-            const lastTime = lastLocalUpdateTimes['usd_balance'] || 0;
-            if (Date.now() - lastTime < 5000 && fbUsd < window.userState.usd_balance) {
-                // احتفظ بالرصيد المحلي الأحدث
-            } else {
+        if (d.usd_balance !== undefined) {
+            const fbUsd = parseFloat(d.usd_balance);
+            if (Date.now() - (lastLocalTimes['usd_balance'] || 0) > 5000 || fbUsd >= window.userState.usd_balance) {
                 window.userState.usd_balance = fbUsd;
             }
         }
-
-        if (data.ad_balance !== undefined) window.userState.ad_balance = parseFloat(data.ad_balance);
-        if (data.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(data.hourly_rate);
-        if (data.energy !== undefined) window.userState.energy = parseFloat(data.energy);
-        if (data.storage_level !== undefined) window.userState.storage_level = parseInt(data.storage_level);
-        if (data.upgrades !== undefined) window.userState.upgrades = data.upgrades;
+        ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'].forEach(k => {
+            if (d[k] !== undefined) window.userState[k] = d[k];
+        });
 
         isFirebaseUpdating = false;
-    }, (error) => {
-        console.error("خطأ في مستمع الفايربيس اللحظي:", error);
-    });
+    }, err => console.error("Firebase Sync Error:", err));
 };
 
 // ==========================================
-// 7. دالة تحديث الواجهة الشاملة (الصفحة والـ IFrames)
+// 4. تحديث عناصر الواجهة القائمة والـ IFrames
 // ==========================================
 window.updateUI = function() {
     try {
-        const rawBalance = parseFloat(window.userState.balance || 0);
-        const rawUsd = parseFloat(window.userState.usd_balance || 0);
-        const rawAd = parseFloat(window.userState.ad_balance || 0);
-        const rawRate = parseFloat(window.userState.hourly_rate || 0);
-        const rawEnergy = parseFloat(window.userState.energy || 0);
-        const rawTonPrice = parseFloat(window.currentTonPriceUSD || 0);
+        const s = window.userState;
+        const fmt = {
+            balance: parseFloat(s.balance || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }),
+            usd_balance: `$${parseFloat(s.usd_balance || 0).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`,
+            ad_balance: parseFloat(s.ad_balance || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }),
+            hourly_rate: `⚡ ${parseFloat(s.hourly_rate || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}/h`,
+            energy: parseFloat(s.energy || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }),
+            ton_price: window.currentTonPriceUSD > 0 ? `$${window.currentTonPriceUSD.toFixed(2)}` : 'جاري التحميل...'
+        };
 
-        const znFormatted = rawBalance.toLocaleString('en-US', { maximumFractionDigits: 0 });
-        const usdFormatted = rawUsd.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-        const adFormatted = rawAd.toLocaleString('en-US', { maximumFractionDigits: 0 });
-        const hourlyFormatted = rawRate.toLocaleString('en-US', { maximumFractionDigits: 0 });
-        const energyFormatted = rawEnergy.toLocaleString('en-US', { maximumFractionDigits: 0 });
-        const tonPriceFormatted = rawTonPrice > 0 ? `$${rawTonPrice.toFixed(2)}` : 'جاري التحميل...';
-
-        const applyToDoc = (targetDoc) => {
-            targetDoc.querySelectorAll('[data-bind="balance"]').forEach(el => {
-                if (el.tagName === 'INPUT') el.value = znFormatted; else el.innerText = znFormatted;
-            });
-
-            targetDoc.querySelectorAll('[data-bind="usd_balance"]').forEach(el => {
-                if (el.tagName === 'INPUT') el.value = usdFormatted; else el.innerText = `$${usdFormatted}`;
-            });
-
-            targetDoc.querySelectorAll('[data-bind="ad_balance"]').forEach(el => {
-                if (el.tagName === 'INPUT') el.value = adFormatted; else el.innerText = adFormatted;
-            });
-
-            targetDoc.querySelectorAll('[data-bind="hourly_rate"]').forEach(el => {
-                if (el.tagName === 'INPUT') el.value = hourlyFormatted; else el.innerText = `⚡ ${hourlyFormatted}/h`;
-            });
-
-            targetDoc.querySelectorAll('[data-bind="energy"]').forEach(el => {
-                if (el.tagName === 'INPUT') el.value = energyFormatted; else el.innerText = energyFormatted;
-            });
-
-            targetDoc.querySelectorAll('[data-bind="ton_price"]').forEach(el => {
-                if (el.tagName === 'INPUT') el.value = tonPriceFormatted; else el.innerText = tonPriceFormatted;
+        const updateDoc = (doc) => {
+            Object.keys(fmt).forEach(key => {
+                doc.querySelectorAll(`[data-bind="${key}"]`).forEach(el => {
+                    if (el.tagName === 'INPUT') el.value = fmt[key].replace('$', '').replace('⚡ ', '').replace('/h', '');
+                    else el.innerText = fmt[key];
+                });
             });
         };
 
-        applyToDoc(document);
-
-        document.querySelectorAll('iframe').forEach(iframe => {
-            try {
-                if (iframe.contentWindow && iframe.contentWindow.document) {
-                    applyToDoc(iframe.contentWindow.document);
-                }
-            } catch(e) {}
+        updateDoc(document);
+        document.querySelectorAll('iframe').forEach(f => {
+            try { if (f.contentWindow?.document) updateDoc(f.contentWindow.document); } catch {}
         });
 
-        if (typeof window.updateShopUI === 'function') window.updateShopUI();
-        if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
-        if (typeof window.updateTasksUI === 'function') window.updateTasksUI();
-        if (typeof window.updateWalletHeaderUI === 'function') window.updateWalletHeaderUI();
-
-    } catch (error) {
-        console.error("خطأ في تحديث الواجهة:", error);
-    }
+        ['updateShopUI', 'updateFarmUI', 'updateTasksUI', 'updateWalletHeaderUI'].forEach(fn => {
+            if (typeof window[fn] === 'function') window[fn]();
+        });
+    } catch (e) { console.error("UI Update Error:", e); }
 };
 
 // ==========================================
-// 8. تحميل بيانات المستخدم الأوليّة من السيرفر
+// 5. جلب بيانات المستخدم وعمليات المحفظة
 // ==========================================
-let isUserDataFetching = false;
-
+let isFetchingUser = false;
 window.loadUserData = async function() {
-    if (!tg || !tg.initData || isUserDataFetching) return;
-    isUserDataFetching = true;
-
+    if (!tg?.initData || isFetchingUser) return;
+    isFetchingUser = true;
     try {
-        const data = await window.fetchAPI('/api/user/info');
-        if (data && data.success) {
-            if (data.tg_id !== undefined) window.userState.tg_id = data.tg_id;
-            if (data.balance !== undefined) window.userState.balance = parseFloat(data.balance);
-            if (data.usd_balance !== undefined) window.userState.usd_balance = parseFloat(data.usd_balance);
-            if (data.ad_balance !== undefined) window.userState.ad_balance = parseFloat(data.ad_balance);
-            if (data.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(data.hourly_rate);
-            if (data.energy !== undefined) window.userState.energy = parseFloat(data.energy);
-            if (data.storage_level !== undefined) window.userState.storage_level = parseInt(data.storage_level);
-            if (data.upgrades !== undefined) {
-                window.userState.upgrades = data.upgrades;
-                if (window.PlayerData) window.PlayerData.upgrades = data.upgrades;
-            }
-            if (data.wallet_address !== undefined) window.userState.wallet_address = data.wallet_address;
-        }
-    } catch (e) {
-        console.warn("تنبيه: فشل جلب البيانات من السيرفر.");
-    } finally {
-        isUserDataFetching = false;
-        window.updateUI();
-    }
-};
-
-// ==========================================
-// 9. عمليات المحفظة (سجل، تحويل، سحب)
-// ==========================================
-window.loadWalletHistory = async function() {
-    const historyList = document.getElementById('wallet-history-list');
-    if (!historyList) return;
-
-    historyList.innerHTML = `<div class="loading-spinner">جاري تحميل السجلات...</div>`;
-
-    try {
-        const data = await window.fetchAPI('/api/wallet/get_history');
-        if (data.success && Array.isArray(data.history)) {
-            if (data.history.length === 0) {
-                historyList.innerHTML = `<div class="empty-msg">لا توجد معاملات سابقة حتى الآن.</div>`;
-                return;
-            }
-
-            let html = '';
-            data.history.forEach(tx => {
-                let badgeClass = 'bg-secondary';
-                let txTitle = 'عملية';
-                let amountText = '';
-
-                if (tx.type === 'withdraw') {
-                    badgeClass = tx.status === 'completed' ? 'badge-success' : (tx.status === 'pending' ? 'badge-warning' : 'badge-danger');
-                    txTitle = 'سحب أرباح';
-                    amountText = `-$${(parseFloat(tx.amount_usd) || 0).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
-                } else if (tx.type === 'deposit') {
-                    badgeClass = 'badge-success';
-                    txTitle = 'إيداع رصيد';
-                    amountText = `+$${(parseFloat(tx.amount_usd || tx.gross_amount_usd) || 0).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
-                } else if (tx.type === 'convert') {
-                    badgeClass = 'badge-info';
-                    txTitle = 'تحويل ZN إلى USD';
-                    amountText = `+$${(parseFloat(tx.amount_usd) || 0).toLocaleString('en-US', {minimumFractionDigits: 4})}`;
-                }
-
-                const dateStr = tx.created_at ? new Date(tx.created_at).toLocaleString('ar-EG') : 'الآن';
-
-                html += `
-                    <div class="history-item">
-                        <div class="history-info">
-                            <span class="history-title">${txTitle}</span>
-                            <span class="history-date">${dateStr}</span>
-                        </div>
-                        <div class="history-amount">
-                            <span class="amount-text">${amountText}</span>
-                            <span class="badge ${badgeClass}">${tx.status || 'مكتمل'}</span>
-                        </div>
-                    </div>
-                `;
+        const d = await window.fetchAPI('/api/user/info');
+        if (d?.success) {
+            ['tg_id', 'balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades', 'wallet_address'].forEach(k => {
+                if (d[k] !== undefined) window.userState[k] = d[k];
             });
-            historyList.innerHTML = html;
-        } else {
-            historyList.innerHTML = `<div class="error-msg">فشل في جلب السجلات.</div>`;
+            if (d.upgrades && window.PlayerData) window.PlayerData.upgrades = d.upgrades;
         }
-    } catch (e) {
-        historyList.innerHTML = `<div class="error-msg">${e.message || 'خطأ في الاتصال بالشبكة'}</div>`;
-    }
+    } catch {} finally { isFetchingUser = false; window.updateUI(); }
 };
 
-window.executeConvertZN = async function(amount) {
+window.loadWalletHistory = async function() {
+    const el = document.getElementById('wallet-history-list');
+    if (!el) return;
+    el.innerHTML = `<div class="loading-spinner">جاري التحميل...</div>`;
+    try {
+        const d = await window.fetchAPI('/api/wallet/get_history');
+        if (d.success && d.history?.length) {
+            el.innerHTML = d.history.map(tx => {
+                const isW = tx.type === 'withdraw', isD = tx.type === 'deposit';
+                const badge = isW ? (tx.status === 'completed' ? 'badge-success' : 'badge-warning') : 'badge-success';
+                const title = isW ? 'سحب أرباح' : (isD ? 'إيداع رصيد' : 'تحويل ZN إلى USD');
+                const sign = isW ? '-' : '+';
+                const amt = `${sign}$${parseFloat(tx.amount_usd || tx.gross_amount_usd || 0).toFixed(2)}`;
+                return `<div class="history-item">
+                    <div class="history-info"><span class="history-title">${title}</span><span class="history-date">${tx.created_at ? new Date(tx.created_at).toLocaleString('ar-EG') : 'الآن'}</span></div>
+                    <div class="history-amount"><span class="amount-text">${amt}</span><span class="badge ${badge}">${tx.status || 'مكتمل'}</span></div>
+                </div>`;
+            }).join('');
+        } else { el.innerHTML = `<div class="empty-msg">لا توجد معاملات سابقة.</div>`; }
+    } catch (e) { el.innerHTML = `<div class="error-msg">${e.message}</div>`; }
+};
+
+window.executeConvertZN = async (amount) => {
     try {
         const res = await window.fetchAPI('/api/wallet/wallet_convert', 'POST', { amount: parseFloat(amount) });
         if (res.success) {
             window.userState.usd_balance = res.new_usd_balance;
             window.userState.balance = res.new_balance;
-            alert(`تم تحويل ${parseFloat(amount).toLocaleString()} ZN بنجاح!`);
-            window.loadWalletHistory();
+            alert(`تم التحويل بنجاح!`); window.loadWalletHistory();
         }
-    } catch (e) {
-        alert(`فشل التحويل: ${e.message}`);
-    }
+    } catch (e) { alert(`فشل التحويل: ${e.message}`); }
 };
 
-window.executeWithdraw = async function(amountUSD, address) {
+window.executeWithdraw = async (amountUSD, address) => {
     try {
-        const res = await window.fetchAPI('/api/wallet/wallet_withdraw', 'POST', { 
-            amount: parseFloat(amountUSD), 
-            walletAddress: address 
-        });
+        const res = await window.fetchAPI('/api/wallet/wallet_withdraw', 'POST', { amount: parseFloat(amountUSD), walletAddress: address });
         if (res.success) {
             window.userState.usd_balance = res.new_usd_balance;
-            alert(`تم إرسال طلب السحب بنجاح!`);
-            window.loadWalletHistory();
+            alert(`تم إرسال طلب السحب بنجاح!`); window.loadWalletHistory();
         }
-    } catch (e) {
-        alert(`فشل السحب: ${e.message}`);
-    }
+    } catch (e) { alert(`فشل السحب: ${e.message}`); }
 };
 
 // ==========================================
-// 10. تشغيل التطبيق وتفعيل التزامن اللحظي
+// 6. تشغيل التطبيق والتزامن اللحظي
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
-    const historyBtn = document.getElementById('open-history-btn');
-    if (historyBtn) historyBtn.addEventListener('click', window.loadWalletHistory);
-
-    // عرض البيانات المحفوظة محلياً فوراً عند تحضير الصفحة
-    if (typeof window.updateUI === 'function') window.updateUI();
-
+    document.getElementById('open-history-btn')?.addEventListener('click', window.loadWalletHistory);
+    window.updateUI();
     window.globalFetchTonPrice();
-
     window.loadUserData().then(() => {
-        const userId = window.userState.tg_id || tg?.initDataUnsafe?.user?.id;
-        if (userId) {
-            window.initFirebaseRealtimeSync(userId);
-        }
+        const uid = window.userState.tg_id || tg?.initDataUnsafe?.user?.id;
+        if (uid) window.initFirebaseRealtimeSync(uid);
     });
-
-    setInterval(() => {
-        window.globalFetchTonPrice();
-    }, 60000);
-
-    document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) {
-            window.globalFetchTonPrice();
-        }
-    });
+    setInterval(window.globalFetchTonPrice, 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) window.globalFetchTonPrice(); });
 });
