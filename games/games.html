@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>الألعاب والساحة - Zn Goxe</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="../style.css?v=13.2">
+    <link rel="stylesheet" href="../style.css?v=13.3">
     <style>
         :root {
             --bg-color: #0f0f0f;
@@ -100,7 +100,7 @@
             box-shadow: 0 0 15px var(--primary-glow);
         }
 
-        /* بطاقة الساحة الرئيسية المؤثرة */
+        /* بطاقة الساحة الرئيسية */
         .arena-card {
             background: linear-gradient(145deg, #161626, #0f172a);
             border: 1px solid #2a2a40;
@@ -234,15 +234,6 @@
             from { opacity: 0; transform: translateY(12px); }
             to { opacity: 1; transform: translateY(0); }
         }
-
-        .modal-animated {
-            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-        }
-
-        @keyframes popIn {
-            from { opacity: 0; transform: scale(0.85); }
-            to { opacity: 1; transform: scale(1); }
-        }
     </style>
 </head>
 <body>
@@ -279,7 +270,6 @@
 
                 <div class="prize-box">
                     <h3 style="color: var(--primary); font-size: 14px; margin: 0 0 8px 0;">🏆 إجمالي الجوائز الحالية</h3>
-                    <!-- عداد سليم ومباشر حركي -->
                     <div id="prize-pool" class="prize-pool-text">0 ZN</div>
                 </div>
 
@@ -317,26 +307,42 @@
             </div>
         </div>
 
-        <div id="draw-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.92); backdrop-filter: blur(6px); z-index: 2000; justify-content: center; align-items: center; flex-direction: column;">
-            
-            <div id="draw-refunded" class="modal-animated" style="display: none; text-align: center; padding: 22px; width: 85%; max-width: 380px; background: #161626; border: 1px solid #2a2a40; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.6);">
-                <div style="font-size: 46px; margin-bottom: 12px;">🛡️</div>
-                <h2 style="color: #fff; font-size: 17px; margin-bottom: 8px;">لم يكتمل النصاب المطلوب!</h2>
-                <p id="refund-msg-text" style="color: #aaa; font-size: 13px; line-height: 1.5;">تمت إعادة رسوم الدخول بالكامل إلى محفظتك بدون أي خصم.</p>
-                <button onclick="closeDrawModal()" style="margin-top: 18px; width: 100%; padding: 12px; background: #2a2a40; color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 14px;">حسناً، فهمت</button>
-            </div>
-
-            <div id="draw-winners" class="modal-animated" style="display: none; text-align: center; width: 88%; max-width: 380px;">
-                <h2 style="color: var(--primary); font-size: 19px; margin-bottom: 16px;">🎉 الفائزون في هذه الجولة 🎉</h2>
-                <div id="winners-list" style="background: #161626; border-radius: 16px; padding: 12px; border: 1px solid var(--primary); box-shadow: 0 10px 25px rgba(0,0,0,0.6);">
+        <!-- نافذة نتائج الساحة والإرجاع الاحترافية Web3 -->
+        <div id="draw-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-card">
+                
+                <!-- حالة إلغاء الجولة وإعادة الرسوم -->
+                <div id="draw-refunded" style="display: none;">
+                    <div class="modal-icon-shield">🛡️</div>
+                    <h3 class="modal-title-refund">تمت إعادة الرسوم للحساب</h3>
+                    <p class="modal-desc" id="refund-msg-text">
+                        لم يتم اكتمال العدد الأدنى للمشاركين. تم إرجاع كامل رسوم الدخول لرصيدك بنجاح!
+                    </p>
+                    <div class="refund-badge">
+                        <span>المبلغ المكتسب/المرتجع:</span>
+                        <strong id="refund-amount-display">+0 ZN</strong>
+                    </div>
+                    <button class="btn-modal-action btn-refund" onclick="closeDrawModal()">
+                        تأكيد وإغلاق 💰
+                    </button>
                 </div>
-                <button onclick="closeDrawModal()" style="margin-top: 18px; width: 100%; padding: 12px; background: var(--accent-green); color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 14px;">استمرار 🚀</button>
-            </div>
 
+                <!-- حالة إعلان الفائزين -->
+                <div id="draw-winners" style="display: none;">
+                    <div style="font-size: 44px; margin-bottom: 8px;">🏆</div>
+                    <h3 style="color: var(--primary); font-size: 18px; margin-bottom: 14px; font-weight: 800;">🎉 قائمة أبطال الساحة 🎉</h3>
+                    <div id="winners-list" style="background: rgba(0,0,0,0.4); border-radius: 14px; padding: 8px; border: 1px solid rgba(243, 156, 18, 0.3); margin-bottom: 15px;"></div>
+                    <button class="btn-modal-action" style="background: linear-gradient(135deg, #10b981, #059669); color: #fff;" onclick="closeDrawModal()">
+                        رائع! استمرار 🚀
+                    </button>
+                </div>
+
+            </div>
         </div>
 
-        <div id="confirm-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); backdrop-filter: blur(5px); z-index: 2500; justify-content: center; align-items: center;">
-            <div class="modal-animated" style="text-align: center; padding: 22px; width: 85%; max-width: 360px; background: #161626; border: 1px solid var(--primary); border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
+        <!-- نافذة تأكيد الاشتراك -->
+        <div id="confirm-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-card">
                 <div style="font-size: 42px; margin-bottom: 10px;">⚔️</div>
                 <h3 style="color: #fff; font-size: 17px; margin-bottom: 8px;">تأكيد الدخول للساحة</h3>
                 <p style="color: #ccc; font-size: 13px; line-height: 1.5; margin-bottom: 20px;">سيتم خصم <strong id="confirm-fee-text" style="color: var(--primary);">1,000 ZN</strong> من رصيدك للاشتراك في هذه الجولة. هل تريد المتابعة؟</p>
@@ -350,18 +356,20 @@
     </div>
 
     <nav class="bottom-nav">
-        <a href="../settings/settings.html"><i>⚙️</i><span>الإعدادات</span></a>
-        <a href="../shop/shop.html"><i>🏪</i><span>المتجر</span></a>
-        <a href="games.html" class="active"><i>🎮</i><span>الألعاب</span></a>
-        <a href="../index.html" class="nav-center-btn">
-            <i>⚒️</i>
-            <span>المزرعة</span>
+        <a href="../settings/settings.html" class="nav-item"><i>⚙️</i><span>الإعدادات</span></a>
+        <a href="../shop/shop.html" class="nav-item"><i>🏪</i><span>المتجر</span></a>
+        <a href="games.html" class="nav-item active"><i>🎮</i><span>الألعاب</span></a>
+        <a href="../index.html" class="nav-item nav-center-btn">
+            <div class="farm-btn-inner">
+                <i>⚒️</i>
+                <span>المزرعة</span>
+            </div>
         </a>
-        <a href="../tasks/tasks.html"><i>📋</i><span>المهام</span></a>
-        <a href="../wallet/wallet.html"><i>💳</i><span>المحفظة</span></a>
-        <a href="../friends/friends.html"><i>👥</i><span>الأصدقاء</span></a>
+        <a href="../tasks/tasks.html" class="nav-item"><i>📋</i><span>المهام</span></a>
+        <a href="../wallet/wallet.html" class="nav-item"><i>💳</i><span>المحفظة</span></a>
+        <a href="../friends/friends.html" class="nav-item"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
-    <script src="games.js?v=13.2"></script>
+    <script src="games.js?v=13.3"></script>
 </body>
 </html>
