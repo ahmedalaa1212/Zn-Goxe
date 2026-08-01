@@ -70,7 +70,7 @@ window.userState = new Proxy(rawUserState, {
 });
 
 // ==========================================
-// 4. الاتصال بالباك إند (Fetch API)
+// 4. الاتصال بالباك إند (Fetch API) المطور بالتحديث الفوري
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
@@ -83,6 +83,34 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const options = { method, headers };
     if (bodyData) options.body = JSON.stringify(bodyData);
 
+    // ⚡ 1. تحديث تفاؤلي فوري في 0ms عند طلبات التجميع أو المطالبة
+    if (endpoint.includes('/collect') || endpoint.includes('/claim')) {
+        lastLocalUpdateTimes['balance'] = Date.now();
+        
+        // البحث عن الرصيد المعلق غير المجمع من الصفحة أو من داخل أي iframe
+        let uncollected = parseFloat(window.uncollectedBalance || window.pendingBalance || 0);
+        
+        if (!uncollected || uncollected <= 0) {
+            document.querySelectorAll('iframe').forEach(iframe => {
+                try {
+                    const win = iframe.contentWindow;
+                    if (win && (win.uncollectedBalance || win.pendingBalance)) {
+                        uncollected = parseFloat(win.uncollectedBalance || win.pendingBalance || 0);
+                        win.uncollectedBalance = 0;
+                        win.pendingBalance = 0;
+                    }
+                } catch(e) {}
+            });
+        }
+
+        if (uncollected > 0) {
+            window.userState.balance += uncollected;
+            window.uncollectedBalance = 0;
+            window.pendingBalance = 0;
+            lastLocalValues['balance'] = window.userState.balance;
+        }
+    }
+
     try {
         const response = await fetch(endpoint, options);
         const result = await response.json();
@@ -94,6 +122,22 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
             }
             throw new Error(result.error || `Error HTTP ${response.status}`);
         }
+
+        // ⚡ 2. المزامنة النهائية الدقيقة فور وصول الاستجابة المؤكدة من السيرفر
+        if (result) {
+            if (result.new_balance !== undefined) {
+                window.userState.balance = parseFloat(result.new_balance);
+            } else if (result.balance !== undefined) {
+                window.userState.balance = parseFloat(result.balance);
+            }
+
+            if (result.new_usd_balance !== undefined) {
+                window.userState.usd_balance = parseFloat(result.new_usd_balance);
+            } else if (result.usd_balance !== undefined) {
+                window.userState.usd_balance = parseFloat(result.usd_balance);
+            }
+        }
+
         return result;
     } catch (err) {
         console.error(`[API Error] Path: ${endpoint} ->`, err);
@@ -138,7 +182,7 @@ window.globalFetchTonPrice = async function() {
 };
 
 // ==========================================
-// 6. الربط اللحظي مع الفايربيس (مع حماية ذكية ضد الوميض)
+// 6. الربط اللحظي مع الفايربيس (مع حماية حاطة ضد الارتداد والوميض)
 // ==========================================
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) {
@@ -150,40 +194,39 @@ window.initFirebaseRealtimeSync = function(userId) {
         if (!doc.exists) return;
         const data = doc.data();
 
-        // دالة الذكاء لمنع تحديثات الفايربيس المتأخرة المؤقتة
-        const shouldUpdateFromFirebase = (prop, firebaseValue) => {
-            if (firebaseValue === undefined) return false;
-            
-            const lastTime = lastLocalUpdateTimes[prop] || 0;
+        isFirebaseUpdating = true; // وضع علامة التحديث من الفايربيس
+
+        // ⚡ 3. حماية الرصيد ضد القفز للخلف
+        if (data.balance !== undefined) {
+            const fbBalance = parseFloat(data.balance);
+            const lastTime = lastLocalUpdateTimes['balance'] || 0;
             const timeDiff = Date.now() - lastTime;
 
-            // إذا أُجري تعديل محلي في التطبيق خلال آخر 3 ثوانٍ
-            if (timeDiff < 3000) {
-                // إذا كانت قيمة الفايربيس تختلف عن القيمة المحلية الحالية، يتجاهل الرقم القديم مؤقتاً
-                if (firebaseValue !== lastLocalValues[prop]) {
-                    return false;
-                }
+            // إذا أُجري تعديل محلي مؤخراً (خلال آخر 4 ثوانٍ) وكان رقم الفايربيس أقل من الرصيد الحقيقي المحلي، يتم تجاهله
+            if (timeDiff < 4000 && fbBalance < window.userState.balance) {
+                // منع ارتداد/قفز الرصيد للخلف
+            } else {
+                window.userState.balance = fbBalance;
             }
-            return true;
-        };
+        }
 
-        isFirebaseUpdating = true; // وضع علامة أن التحديث قادم من الفايربيس
+        if (data.usd_balance !== undefined) {
+            const fbUsd = parseFloat(data.usd_balance);
+            const lastTime = lastLocalUpdateTimes['usd_balance'] || 0;
+            if (Date.now() - lastTime < 4000 && fbUsd < window.userState.usd_balance) {
+                // منع ارتداد الرصيد المالي
+            } else {
+                window.userState.usd_balance = fbUsd;
+            }
+        }
 
-        if (shouldUpdateFromFirebase('balance', data.balance)) {
-            window.userState.balance = parseFloat(data.balance);
-        }
-        if (shouldUpdateFromFirebase('usd_balance', data.usd_balance)) {
-            window.userState.usd_balance = parseFloat(data.usd_balance);
-        }
-        if (shouldUpdateFromFirebase('ad_balance', data.ad_balance)) {
-            window.userState.ad_balance = parseFloat(data.ad_balance);
-        }
+        if (data.ad_balance !== undefined) window.userState.ad_balance = parseFloat(data.ad_balance);
         if (data.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(data.hourly_rate);
         if (data.energy !== undefined) window.userState.energy = parseFloat(data.energy);
         if (data.storage_level !== undefined) window.userState.storage_level = parseInt(data.storage_level);
         if (data.upgrades !== undefined) window.userState.upgrades = data.upgrades;
 
-        isFirebaseUpdating = false; // إعادة الوضع المباشر
+        isFirebaseUpdating = false; // إعادة الوضع العادي
     }, (error) => {
         console.error("خطأ في مستمع الفايربيس اللحظي:", error);
     });
