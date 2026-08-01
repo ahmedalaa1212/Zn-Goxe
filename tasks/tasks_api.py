@@ -63,7 +63,7 @@ def is_task_completed_by_user(task, user_completed_data):
 @tasks_bp.route('/get_campaigns', methods=['GET'])
 def get_campaigns():
     """
-    جلب الحملات النشطة مع بيانات المستخدم بصورة مصادق عليها وآمنة.
+    قراءة أرصدة المستخدم مباشرة وحصرياً من Firebase Firestore بدون استثناء.
     """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=False)
     if not is_auth:
@@ -81,7 +81,7 @@ def get_campaigns():
             ad_balance = float(u_data.get('ad_balance', 0.0))
             balance = float(u_data.get('balance', 0.0))
     except Exception as e:
-        print(f"Error fetching user data in get_campaigns: {e}")
+        print(f"Error fetching user data from Firestore in get_campaigns: {e}")
 
     campaigns = []
     user_completed_data = {}
@@ -101,7 +101,6 @@ def get_campaigns():
 
     result_campaigns = []
     for c in campaigns:
-        # استبعاد الحملات المكتملة ما لم يكن المستخدم هو منشئ الحملة
         if c.get('users_completed', 0) >= c.get('users_needed', 1) and str(c.get('creator_id')).strip() != telegram_id_str:
             continue
             
@@ -120,8 +119,7 @@ def get_campaigns():
 @tasks_bp.route('/create_campaign', methods=['POST'])
 def create_campaign():
     """
-    إنشاء حملة ترويجية بخصم آمن عبر Firestore Transaction
-    مع اشتراط ألا يقل سعر الضغطة أو التكلفة الإجمالية عن 250 AdZN.
+    خصم وتحديث الرصيد مباشرة في Firestore عبر Transaction.
     """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
@@ -138,7 +136,6 @@ def create_campaign():
     if not all([platform, url, description, reward, users_needed]):
         return jsonify({"success": False, "error": "جميع البيانات مطلوبة"}), 400
 
-    # الفحص الأمني للروابط
     if not isinstance(url, str) or not (url.startswith('http://') or url.startswith('https://')):
         return jsonify({"success": False, "error": "الرابط يجب أن يبدأ بـ http:// أو https://"}), 400
 
@@ -150,7 +147,6 @@ def create_campaign():
     except (ValueError, TypeError):
         return jsonify({"success": False, "error": "قيم الكلفة والأعضاء غير صحيحة"}), 400
 
-    # 🔒 1. فحص الحد الأدنى لسعر الضغطة الواحدة
     if reward < MIN_REWARD_PER_CLICK:
         return jsonify({
             "success": False,
@@ -159,7 +155,6 @@ def create_campaign():
 
     total_cost = reward * users_needed
 
-    # 🔒 2. فحص الحد الأدنى لإجمالي الحملة
     if total_cost < MIN_AD_CAMPAIGN_COST:
         return jsonify({
             "success": False,
@@ -172,7 +167,7 @@ def create_campaign():
         user_snapshot = user_ref.get(transaction=transaction)
 
         if not user_snapshot.exists:
-            raise ValueError("المستخدم غير موجود")
+            raise ValueError("المستخدم غير موجود في الفايربيس")
 
         user_data = user_snapshot.to_dict() or {}
         current_ad_balance = float(user_data.get('ad_balance', 0.0))
@@ -222,7 +217,7 @@ def create_campaign():
 @tasks_bp.route('/complete_task', methods=['POST'])
 def complete_task():
     """
-    إكمال المهمة وتحصيل المكافأة بضمان عدم التكرار عبر Firestore Transaction.
+    إضافة المكافأة وتحديث رصيد الفايربيس وإعادة الرصيد الجديد المعتمد.
     """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
@@ -308,7 +303,7 @@ def complete_task():
 @tasks_bp.route('/cancel_campaign', methods=['POST'])
 def cancel_campaign():
     """
-    إلغاء الحملة وإرجاع الميزانية المتبقية محصنة بـ Transaction.
+    إلغاء الحملة واسترداد الرصيد المتبقي مباشرة إلى الفايربيس.
     """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
@@ -374,8 +369,7 @@ def cancel_campaign():
 @tasks_bp.route('/convert_adzn', methods=['POST'])
 def convert_adzn():
     """
-    تحويل رصيد ZN إلى رصيد الإعلانات AdZN بخصم عمولة 10%
-    ومعاملة ذرية تضمن عدم إمكانية التلاعب بالأرصدة بالتوازي.
+    تحويل رصيد ZN إلى AdZN في الفايربيس فقط وإرجاع الأرصدة الحقيقية المحدثة.
     """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
