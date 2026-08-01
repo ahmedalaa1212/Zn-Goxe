@@ -9,6 +9,9 @@
     let statusRetryTimeout = null;
     let pendingConfirmCallback = null;
 
+    // متغير محلي لتتبع حالة الاشتراك في الجولة الحالية لحظياً
+    let hasJoinedCurrentRound = false;
+
     let currentEntryFee = 1000;
     let currentLockSeconds = 15;
     let currentDisplayBalance = 0;
@@ -245,8 +248,11 @@
                 arenaEndTime = parseInt(data.end_time) || 0;
                 hasCheckedResults = false;
                 
+                // تحديث حالة الاشتراك من السيرفر
+                hasJoinedCurrentRound = !!data.has_joined;
+                
                 updateArenaPrizes(data);
-                startSmoothCountdown(data.has_joined);
+                startSmoothCountdown();
             }
         } catch (error) {
             console.error("خطأ جلب حالة الساحة:", error);
@@ -278,13 +284,13 @@
         if (p5) p5.innerHTML = formatNumberHTML(newPool * 0.10, " ZN");
     }
 
-    function startSmoothCountdown(hasJoined) {
+    function startSmoothCountdown() {
         if (countdownInterval) clearInterval(countdownInterval);
-        timerTick(hasJoined);
-        countdownInterval = setInterval(() => timerTick(hasJoined), 1000);
+        timerTick();
+        countdownInterval = setInterval(() => timerTick(), 1000);
     }
 
-    function timerTick(hasJoined) {
+    function timerTick() {
         if (!arenaEndTime || arenaEndTime <= 0) return;
 
         const now = Math.floor(Date.now() / 1000);
@@ -323,7 +329,8 @@
                 fetchRoundResults(currentRoundId, 0);
             }
         } else {
-            if (!hasJoined) {
+            // اعتماد المتغير الديناميكي لحظياً
+            if (!hasJoinedCurrentRound) {
                 btn.disabled = false;
                 btn.classList.remove('btn-disabled');
                 btn.innerText = `⚔️ دخول الساحة (${parseInt(currentEntryFee, 10).toLocaleString('en-US')} ZN)`;
@@ -336,7 +343,7 @@
     }
 
     window.joinArena = function() {
-        if (isJoining) return;
+        if (isJoining || hasJoinedCurrentRound) return;
 
         const currentBal = getStoredBalance();
         if (currentBal < currentEntryFee) {
@@ -376,6 +383,10 @@
             const data = await response.json();
             
             if (data.success) {
+                // 1. تحديث متغير الاشتراك المحلي فوراً
+                hasJoinedCurrentRound = true;
+
+                // 2. تحديث الرصيد والجوائز
                 if (data.new_balance !== undefined) {
                     setStoredBalance(data.new_balance, true);
                 }
@@ -383,6 +394,7 @@
                     updateArenaPrizes(data);
                 }
 
+                // 3. تحديث زر الواجهة فوراً وقفله
                 if (btn) {
                     btn.disabled = true;
                     btn.classList.add('btn-disabled');
