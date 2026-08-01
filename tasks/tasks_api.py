@@ -15,12 +15,19 @@ tasks_bp = Blueprint('tasks', __name__)
 MIN_REWARD_PER_CLICK = 250.0
 MIN_AD_CAMPAIGN_COST = 250.0
 
+# 🚫 قائمة الكلمات المحظورة للمواقع والإعلانات المخالفة
+FORBIDDEN_KEYWORDS = ['porn', 'sexy', 'xnx', 'adult', 'gambling', 'casino', 'bet365', '1xbet', 'sex', 'إباحي', 'جنس', 'قمار']
+
 # ==================== In-Memory Cache for Campaigns ====================
 _CAMPAIGNS_CACHE = None
 _CAMPAIGNS_CACHE_TIME = 0
-CAMPAIGNS_CACHE_TTL = 120  # كاش قائمة الحملات والمهام (دقيقتين)
+CAMPAIGNS_CACHE_TTL = 300  # كاش قائمة الحملات لمدة 5 دقائق (300 ثانية)
 
 def get_cached_raw_campaigns():
+    """
+    جلب كافة الحملات الإعلانية من الذاكرة المؤقتة لـ RAM السيرفر.
+    يمنع قراءة الفايربيس في كل طلب عشوائي إلا مرة واحدة كل 5 دقائق.
+    """
     global _CAMPAIGNS_CACHE, _CAMPAIGNS_CACHE_TIME
     now = time.time()
     if _CAMPAIGNS_CACHE is not None and (now - _CAMPAIGNS_CACHE_TIME) < CAMPAIGNS_CACHE_TTL:
@@ -41,7 +48,7 @@ def get_cached_raw_campaigns():
         return _CAMPAIGNS_CACHE or []
 
 def invalidate_campaigns_cache():
-    """تفريغ الكاش لإجبار السيرفر على جلب التحديثات الجديدة من الفايربيس"""
+    """تفريغ الكاش لإجبار السيرفر على جلب التحديثات الجديدة فوراً عند إنشاء أو تجميل/إلغاء مهمة"""
     global _CAMPAIGNS_CACHE, _CAMPAIGNS_CACHE_TIME
     _CAMPAIGNS_CACHE = None
     _CAMPAIGNS_CACHE_TIME = 0
@@ -121,11 +128,12 @@ def get_campaigns():
     except Exception as e:
         print(f"Error fetching completed tasks for user {telegram_id_str}: {e}")
 
-    # قراءة المهام والحملات من الذاكرة المؤقتة لمنع النزيف
+    # قراءة المهام والحملات من الذاكرة المؤقتة لـ RAM لتقليل القراءات بنسبة 99%
     campaigns = get_cached_raw_campaigns()
 
     result_campaigns = []
     for c in campaigns:
+        # إخفاء المهام التي استكملت أعضائها باستثناء المهام المملوكة للمستخدم نفسه لمتابعة التقدم
         if c.get('users_completed', 0) >= c.get('users_needed', 1) and str(c.get('creator_id')).strip() != telegram_id_str:
             continue
             
@@ -149,17 +157,32 @@ def create_campaign():
 
     telegram_id_str = str(telegram_id).strip()
     req = request.get_json(silent=True) or {}
-    platform = req.get('platform')
-    url = req.get('url')
-    description = req.get('description')
+    platform = str(req.get('platform', '')).strip()
+    url = str(req.get('url', '')).strip()
+    description = str(req.get('description', '')).strip()
     reward = req.get('reward')
     users_needed = req.get('users_needed')
 
     if not all([platform, url, description, reward, users_needed]):
         return jsonify({"success": False, "error": "جميع البيانات مطلوبة"}), 400
 
-    if not isinstance(url, str) or not (url.startswith('http://') or url.startswith('https://')):
+    if not (url.startswith('http://') or url.startswith('https://')):
         return jsonify({"success": False, "error": "الرابط يجب أن يبدأ بـ http:// أو https://"}), 400
+
+    # 🛡️ الحماية والأمان على مستوى الباك إند للروابط المحظورة والمنصات
+    url_lower = url.lower()
+    if platform == 'يوتيوب' and not ('youtube.com' in url_lower or 'youtu.be' in url_lower):
+        return jsonify({"success": False, "error": "رابط يوتيوب غير صحيح"}), 400
+    if platform == 'تيليجرام' and 't.me' not in url_lower:
+        return jsonify({"success": False, "error": "رابط تيليجرام غير صحيح"}), 400
+    if platform == 'انستغرام' and 'instagram.com' not in url_lower:
+        return jsonify({"success": False, "error": "رابط انستغرام غير صحيح"}), 400
+    if platform == 'X' and not ('x.com' in url_lower or 'twitter.com' in url_lower):
+        return jsonify({"success": False, "error": "رابط منصة X غير صحيح"}), 400
+
+    if platform == 'موقع':
+        if any(bad_word in url_lower for bad_word in FORBIDDEN_KEYWORDS):
+            return jsonify({"success": False, "error": "الرابط يحتوي على محتوى مخالف للسياسات"}), 400
 
     try:
         reward = float(reward)
@@ -203,9 +226,9 @@ def create_campaign():
         new_campaign = {
             "id": camp_id,
             "creator_id": telegram_id_str,
-            "platform": str(platform).strip(),
-            "url": str(url).strip(),
-            "description": str(description).strip(),
+            "platform": platform,
+            "url": url,
+            "description": description,
             "reward": reward,
             "users_needed": users_needed,
             "users_completed": 0,
@@ -309,7 +332,7 @@ def complete_task():
         transaction = firestore_db.transaction()
         reward_amount, new_balance = run_complete_transaction(transaction)
 
-        # تفريغ كاش المهام ليتحدث عدد المكتملين
+        # تفريغ كاش المهام ليتحديث عدد المكتملين فوراً
         invalidate_campaigns_cache()
 
         return jsonify({
