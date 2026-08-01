@@ -10,6 +10,15 @@ if (tg) {
 
 window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 0;
 
+function hideLoadingScreen() {
+    const loaders = document.querySelectorAll('#loading-screen, .loading-screen, #loader, .loader-overlay');
+    loaders.forEach(el => {
+        el.style.opacity = '0';
+        el.style.transition = 'opacity 0.3s ease';
+        setTimeout(() => el.remove(), 300);
+    });
+}
+
 function getSavedState() {
     const base = {
         tg_id: tg?.initDataUnsafe?.user?.id || null,
@@ -44,10 +53,8 @@ window.userState = new Proxy(getSavedState(), {
         if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'].includes(prop)) {
             try { localStorage.setItem('app_user_state', JSON.stringify(target)); } catch {}
             
-            // تحديث فورى مباشر للواجهات
             if (typeof window.updateUI === 'function') window.updateUI();
             
-            // إطلاق حدث التحديث اللحظي لجميع القوائم
             window.dispatchEvent(new CustomEvent('userStateUpdated', { 
                 detail: { prop, value, oldVal, state: target } 
             }));
@@ -75,7 +82,6 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
             throw new Error(data.error || `HTTP ${res.status}`);
         }
 
-        // فحص الرصيد من كافة الأشكال المحتملة للرد
         const targetObj = data.user || data.player || data.data || data;
         let incomingBal = data.new_balance ?? targetObj?.balance;
         if (incomingBal !== undefined && incomingBal !== null) {
@@ -314,7 +320,7 @@ window.updateUI = function() {
 // ==========================================
 let isFetchingUser = false;
 window.loadUserData = async function() {
-    if (!tg?.initData || isFetchingUser) return;
+    if (isFetchingUser) return;
     isFetchingUser = true;
     try {
         const d = await window.fetchAPI('/api/user/info');
@@ -331,7 +337,8 @@ window.loadUserData = async function() {
         console.error("Error loading user data:", err);
     } finally { 
         isFetchingUser = false; 
-        window.updateUI(); 
+        window.updateUI();
+        hideLoadingScreen(); // إخفاء شاشة التحميل فور جلب البيانات أو حدوث خطأ
     }
 };
 
@@ -391,6 +398,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const uid = window.userState.tg_id || tg?.initDataUnsafe?.user?.id;
         if (uid) window.initFirebaseRealtimeSync(uid);
     });
+    
+    // إحتاطي: إخفاء اللودر بعد 4 ثوانٍ أقصاها لمنع تعلق الشاشة نهائياً
+    setTimeout(hideLoadingScreen, 4000);
+
     setInterval(window.globalFetchTonPrice, 60000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) window.globalFetchTonPrice(); });
 });
