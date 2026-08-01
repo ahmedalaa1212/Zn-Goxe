@@ -4,47 +4,139 @@
         window.Telegram.WebApp.ready();
     }
 
-    // الحد الأدنى لتكلفة إنشاء أي حملة إعلانية
+    // 🔒 الحد الأدنى لتكلفة إنشاء أي حملة إعلانية (250 عملة AdZN)
     const MIN_AD_CAMPAIGN_COST = 250;
 
-    // دوال المزامنة المركزية (الـ Cache) - من القواعد الذهبية
+    // ==========================================
+    // دوال المزامنة المركزية الشاملة (State Sync)
+    // ==========================================
     function getStoredBalance() {
         let bal = localStorage.getItem('userBalance');
-        return bal ? parseFloat(bal) : (window.GameState?.balance || 0);
+        if (bal !== null && bal !== undefined) return parseFloat(bal);
+        return window.PlayerData?.balance || window.userState?.balance || window.GameState?.balance || 0;
     }
 
     function setStoredBalance(val) {
         let numVal = parseFloat(val) || 0;
         localStorage.setItem('userBalance', numVal);
+        
+        // 1. تحديث الكائنات المحلية للفرونت إند (userState & PlayerData)
         if (window.GameState) window.GameState.balance = numVal;
+        if (window.PlayerData) window.PlayerData.balance = numVal;
+        if (window.userState) window.userState.balance = numVal;
+
+        // 2. تحديث النافذة الرئيسية (إذا كانت المهام تعمل داخل iframe أو إطار مدمج)
+        try {
+            if (window.parent && window.parent !== window) {
+                if (window.parent.GameState) window.parent.GameState.balance = numVal;
+                if (window.parent.PlayerData) window.parent.PlayerData.balance = numVal;
+                if (window.parent.userState) window.parent.userState.balance = numVal;
+                if (typeof window.parent.updateGlobalUI === 'function') {
+                    window.parent.updateGlobalUI();
+                }
+            }
+        } catch (e) {}
+
+        try {
+            if (window.top && window.top !== window && window.top !== window.parent) {
+                if (window.top.GameState) window.top.GameState.balance = numVal;
+                if (window.top.PlayerData) window.top.PlayerData.balance = numVal;
+                if (window.top.userState) window.top.userState.balance = numVal;
+                if (typeof window.top.updateGlobalUI === 'function') {
+                    window.top.updateGlobalUI();
+                }
+            }
+        } catch (e) {}
+
+        // 3. تحديث عناصر الرصيد في الواجهة مباشرة
+        updateBalanceElements(numVal);
+
+        // 4. إطلاق حدث مخصص (Custom Event) لإعلام كافة القوائم والتطبيقات الفرعية
+        window.dispatchEvent(new CustomEvent('balanceUpdated', { detail: { balance: numVal } }));
+        try {
+            if (window.parent && window.parent !== window) {
+                window.parent.dispatchEvent(new CustomEvent('balanceUpdated', { detail: { balance: numVal } }));
+            }
+        } catch(e) {}
+
+        if (typeof window.updateGlobalUI === 'function') {
+            window.updateGlobalUI();
+        }
     }
 
     function getStoredAdBalance() {
         let adBal = localStorage.getItem('userAdBalance');
-        return adBal ? parseFloat(adBal) : (window.GameState?.ad_balance || 0);
+        if (adBal !== null && adBal !== undefined) return parseFloat(adBal);
+        return window.PlayerData?.ad_balance || window.userState?.ad_balance || window.GameState?.ad_balance || 0;
     }
 
     function setStoredAdBalance(val) {
         let numVal = parseFloat(val) || 0;
         localStorage.setItem('userAdBalance', numVal);
+        
+        // 1. تحديث الكائنات المحلية
         if (window.GameState) window.GameState.ad_balance = numVal;
+        if (window.PlayerData) window.PlayerData.ad_balance = numVal;
+        if (window.userState) window.userState.ad_balance = numVal;
+
+        // 2. تحديث النافذة الأب
+        try {
+            if (window.parent && window.parent !== window) {
+                if (window.parent.GameState) window.parent.GameState.ad_balance = numVal;
+                if (window.parent.PlayerData) window.parent.PlayerData.ad_balance = numVal;
+                if (window.parent.userState) window.parent.userState.ad_balance = numVal;
+                if (typeof window.parent.updateGlobalUI === 'function') {
+                    window.parent.updateGlobalUI();
+                }
+            }
+        } catch (e) {}
+
+        updateAdBalanceElements(numVal);
+
+        window.dispatchEvent(new CustomEvent('adBalanceUpdated', { detail: { ad_balance: numVal } }));
+
+        if (typeof window.updateGlobalUI === 'function') {
+            window.updateGlobalUI();
+        }
+    }
+
+    function updateBalanceElements(numVal) {
+        const formatted = Math.floor(numVal).toLocaleString();
+        const topBal = document.getElementById('top-balance-tasks');
+        if (topBal) {
+            topBal.innerText = `ZN ${formatted}`;
+        }
+        
+        const selectors = ['.sync-balance', '#user-balance', '#main-balance', '#balance'];
+        selectors.forEach(sel => {
+            document.querySelectorAll(sel).forEach(el => {
+                if (el.id !== 'top-balance-tasks') el.innerText = formatted;
+            });
+            try {
+                if (window.parent && window.parent !== window && window.parent.document) {
+                    window.parent.document.querySelectorAll(sel).forEach(el => {
+                        if (el.id !== 'top-balance-tasks') el.innerText = formatted;
+                    });
+                }
+            } catch(e) {}
+        });
+    }
+
+    function updateAdBalanceElements(numVal) {
+        const formatted = Math.floor(numVal).toLocaleString();
+        const adBalDisplay = document.getElementById('ad-balance-display');
+        if (adBalDisplay) {
+            adBalDisplay.innerText = `AdZN ${formatted}`;
+        }
     }
 
     // التايمر السحري للمزامنة اللحظية للرصيد
     setInterval(() => {
         const currentBal = getStoredBalance();
         const currentAdBal = getStoredAdBalance();
-        
-        const topBal = document.getElementById('top-balance-tasks');
-        if (topBal) {
-            topBal.innerText = `ZN ${Math.floor(currentBal).toLocaleString()}`;
-        }
-        
-        const adBalDisplay = document.getElementById('ad-balance-display');
-        if (adBalDisplay) {
-            adBalDisplay.innerText = `AdZN ${Math.floor(currentAdBal).toLocaleString()}`;
-        }
-    }, 1000); // يفحص كل ثانية
+        updateBalanceElements(currentBal);
+        updateAdBalanceElements(currentAdBal);
+    }, 1000);
 
     window.taskStates = window.taskStates || {};
     window.accumulatedOutsideTime = window.accumulatedOutsideTime || {};
@@ -85,7 +177,7 @@
     };
 
     function getTgId() {
-        return window.GameState?.userId || window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || "";
+        return window.GameState?.userId || window.PlayerData?.userId || window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || "";
     }
 
     window.switchTasksTab = function(tab) {
@@ -142,10 +234,17 @@
                     if (data.user_id) {
                         myId = String(data.user_id).trim();
                         if (window.GameState) window.GameState.userId = myId;
+                        if (window.PlayerData) window.PlayerData.userId = myId;
                     }
 
                     if (data.ad_balance !== undefined) setStoredAdBalance(data.ad_balance);
-                    if (data.balance !== undefined) setStoredBalance(data.balance);
+                    if (data.balance !== undefined) {
+                        const currentLocal = getStoredBalance();
+                        // لا نستبدل الرصيد إذا كان المحلي أعلى بسبب التعدين اللحظي
+                        if (data.balance > currentLocal || currentLocal === 0) {
+                            setStoredBalance(data.balance);
+                        }
+                    }
                 }
             }
         } catch (e) { console.warn("خطأ جلب المهام", e); }
@@ -402,7 +501,7 @@
             let result = await response.json();
             
             if (response.ok && result.success) {
-                // مزامنة الرصيد الجديد عبر دوال الحفظ
+                // مزامنة الرصيد الجديد المرتجع عبر دوال الحفظ المركزية
                 if (result.new_balance !== undefined) {
                     setStoredBalance(result.new_balance);
                 }
@@ -445,7 +544,6 @@
             let result = await response.json();
             if (response.ok && result.success) {
                 alert(`✅ تم إلغاء حملتك بنجاح وإرجاع الميزانية المتبقية لمحفظتك!`);
-                // مزامنة رصيد الإعلانات
                 if (result.new_ad_balance !== undefined) {
                     setStoredAdBalance(result.new_ad_balance);
                 }
@@ -487,7 +585,7 @@
             if (response.ok && result.success) {
                 alert(`✅ شحن ناجح! تمت عملية التحويل لمحفظتك بنجاح.`);
                 
-                // تحديث الأرصدة المتزامنة
+                // تحديث وتوزيع الأرصدة المتزامنة فوراً
                 if (result.new_balance !== undefined) setStoredBalance(result.new_balance);
                 if (result.new_ad_balance !== undefined) setStoredAdBalance(result.new_ad_balance);
                 
