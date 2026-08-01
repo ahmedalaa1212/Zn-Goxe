@@ -9,7 +9,7 @@ from database import is_user_banned
 def validate_telegram_data(init_data: str):
     """دالة التحقق التام من التشفير والـ initData الخاص بتليجرام"""
     token = os.environ.get('BOT_TOKEN', '').strip()
-    if not init_data or not token:
+    if not init_data or not isinstance(init_data, str) or not token:
         return None
         
     if init_data.startswith('Bearer '):
@@ -40,12 +40,16 @@ def validate_telegram_data(init_data: str):
         return None
 
 def get_authenticated_user(request, is_post=False):
-    """استخراج والتحقق من هويّة المستخدم وفحص الحظر مباشرة (ترجع 3 عناصر للعلامة القياسية)"""
+    """
+    استخراج والتحقق من هويّة المستخدم وفحص الحظر مباشرة.
+    ترجع 4 عناصر: (success, telegram_id, user_info, error_res)
+    """
     try:
         init_data = None
         if is_post:
-            req_data = request.get_json(silent=True) or {}
-            init_data = req_data.get('initData')
+            req_data = request.get_json(silent=True)
+            if isinstance(req_data, dict):
+                init_data = req_data.get('initData')
             
         if not init_data:
             init_data = (
@@ -59,20 +63,20 @@ def get_authenticated_user(request, is_post=False):
 
         if init_data:
             user_info = validate_telegram_data(init_data)
-            if user_info and user_info.get('id'):
+            if user_info and isinstance(user_info, dict) and user_info.get('id'):
                 telegram_id = str(user_info.get('id')).strip()
 
         if not telegram_id:
-            return False, None, (jsonify({'success': False, 'error': 'غير مصرح: بيانات المصادقة غير صالحة أو مفقودة (initData)'}), 401)
+            return False, None, None, (jsonify({'success': False, 'error': 'غير مصرح: بيانات المصادقة غير صالحة أو مفقودة (initData)'}), 401)
 
         if is_user_banned(telegram_id):
-            return False, None, (jsonify({'success': False, 'error': 'تم حظر حسابك لمخالفة القوانين'}), 403)
+            return False, telegram_id, user_info, (jsonify({'success': False, 'error': 'تم حظر حسابك لمخالفة القوانين'}), 403)
 
         # حفظ بيانات user_info في كائن الطلب لتسهيل الوصول إليها عند الحاجة
         request.telegram_user = user_info
 
-        return True, telegram_id, None
+        return True, telegram_id, user_info, None
         
     except Exception as e:
         print(f"❌ Auth Exception: {e}")
-        return False, None, (jsonify({'success': False, 'error': 'حدث خطأ في عملية المصادقة'}), 500)
+        return False, None, None, (jsonify({'success': False, 'error': 'حدث خطأ في عملية المصادقة'}), 500)
