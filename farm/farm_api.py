@@ -38,7 +38,7 @@ DEFAULT_GAME_SETTINGS = {
 
 _SETTINGS_CACHE = None
 _SETTINGS_CACHE_TIME = 0
-SETTINGS_CACHE_TTL = 600  # Caching في الذاكرة لمدة 10 دقائق
+SETTINGS_CACHE_TTL = 600  # تخزين مؤقت لإعدادات اللعبة لمدة 10 دقائق لتقليل قراءات فايربيس
 
 def get_game_settings():
     global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
@@ -53,7 +53,6 @@ def get_game_settings():
         
         if config_doc.exists:
             data = config_doc.to_dict() or {}
-            # ضمان وجود كافة المفاتيح مع استخدام القيم الافتراضية عند النقص
             merged = {
                 "daily_rewards": data.get("daily_rewards", DEFAULT_GAME_SETTINGS["daily_rewards"]),
                 "mining_config": data.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"]),
@@ -181,7 +180,6 @@ def get_player_data():
 
         last_claim_str = user_data.get("last_claim_time")
         hourly_rate = float(user_data.get("hourly_rate", 0.0))
-        unclaimed = float(user_data.get("unclaimed", 0.0))
 
         if last_claim_str:
             try:
@@ -192,20 +190,18 @@ def get_player_data():
                 seconds_passed = (now - last_claim).total_seconds()
                 if seconds_passed > 0:
                     mined = (hourly_rate / 3600.0) * seconds_passed
-                    unclaimed = min(unclaimed + mined, max_cap)
+                    user_data["unclaimed"] = min(mined, max_cap)
             except Exception: 
                 pass
         else:
             user_data["last_claim_time"] = now.isoformat()
             user_ref.update({"last_claim_time": now.isoformat()})
 
-        user_data["unclaimed"] = unclaimed
         if not isinstance(user_data.get("upgrades"), dict):
             user_data["upgrades"] = {}
 
         parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
 
-        # تجهيز تكاليف التطويرات لإرسالها للواجهة بشكل ديناميكي
         upgrade_configs = game_settings.get("upgrade_config", DEFAULT_GAME_SETTINGS["upgrade_config"])
         upgrade_costs = {int(k): float(v.get("base_cost", 0)) for k, v in upgrade_configs.items()}
 
@@ -260,7 +256,7 @@ def claim_mined_tokens():
             hourly_rate = float(user_data.get("hourly_rate", 0.0))
             storage_level = user_data.get("storage_level", 0)
             max_cap = get_storage_capacity(storage_level, game_settings)
-            unclaimed = float(user_data.get("unclaimed", 0.0))
+            unclaimed = 0.0
 
             if last_claim_str:
                 try:
@@ -271,7 +267,7 @@ def claim_mined_tokens():
                     seconds_passed = (now - last_claim).total_seconds()
                     if seconds_passed > 0:
                         mined = (hourly_rate / 3600.0) * seconds_passed
-                        unclaimed = min(unclaimed + mined, max_cap)
+                        unclaimed = min(mined, max_cap)
                 except Exception: 
                     pass
 
@@ -301,7 +297,7 @@ def claim_mined_tokens():
                     }, merge=True)
 
             transaction.update(ref, update_data)
-            return {"new_balance": new_balance, "claimed_amount": unclaimed}, None, 200
+            return {"new_balance": new_balance, "claimed_amount": unclaimed, "last_claim_time": now_iso}, None, 200
 
         transaction = db.transaction()
         result_data, error_msg, status_code = run_claim_transaction(transaction, user_ref)
@@ -312,7 +308,8 @@ def claim_mined_tokens():
         return jsonify({
             "success": True,
             "new_balance": result_data["new_balance"],
-            "claimed_amount": result_data["claimed_amount"]
+            "claimed_amount": result_data["claimed_amount"],
+            "last_claim_time": result_data["last_claim_time"]
         }), 200
 
     except Exception as e:
