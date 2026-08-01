@@ -181,7 +181,6 @@
             // 2. إرسال المعاملة للمحفظة
             const result = await tcInstance.sendTransaction(transaction);
             
-            // تنظيف معرف المعاملة لتجنب أخطاء مسار الفايرستور
             let safeBoc = "TX_" + Date.now();
             if (result && result.boc) {
                 safeBoc = String(result.boc).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32);
@@ -209,7 +208,7 @@
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
 
-                // تحديث القيم في الواجهة فوراً
+                // تحديث القيم مباشرة (Optimistic Update)
                 window.userState.balance = verifyData.result.balance;
                 window.userState.hourly_rate = verifyData.result.hourly_rate;
                 window.userState.max_cap = verifyData.result.max_cap;
@@ -217,6 +216,9 @@
                 window.PlayerData.balance = verifyData.result.balance;
                 window.PlayerData.hourly_rate = verifyData.result.hourly_rate;
                 window.PlayerData.max_cap = verifyData.result.max_cap;
+
+                // إطلاق حدث التحديث للواجهات المختلفة دون إعادة جلب البيانات
+                window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
 
                 if (typeof window.updateUI === 'function') {
                     window.updateUI();
@@ -333,11 +335,25 @@
         if (usdElem) {
             usdElem.innerText = `$${parseFloat(pData.usd_balance || 0).toFixed(2)}`;
         }
+
+        // تطبيق تنسيق الرقم بخانتين عشريتين مع إظهار الفاصلة صغيرة
         const balElem = document.getElementById('shop-balance-text');
-        if (balElem) balElem.innerText = Math.floor(totalBal).toLocaleString();
+        if (balElem) {
+            if (typeof window.formatNumberHTML === 'function') {
+                balElem.innerHTML = window.formatNumberHTML(totalBal, 0, 2);
+            } else {
+                balElem.innerText = Number(totalBal.toFixed(2)).toLocaleString();
+            }
+        }
         
         const rateElem = document.getElementById('shop-rate-text');
-        if (rateElem) rateElem.innerText = `${parseFloat(pData.hourly_rate || 0).toLocaleString()}/h`;
+        if (rateElem) {
+            const hRate = parseFloat(pData.hourly_rate || 0);
+            const formattedRate = typeof window.formatNumberHTML === 'function' 
+                ? window.formatNumberHTML(hRate, 0, 2) 
+                : Number(hRate.toFixed(2)).toLocaleString();
+            rateElem.innerHTML = `${formattedRate}/h`;
+        }
 
         const defaultMiningCfg = {
             "1": {"rate": 5, "price": 2000, "max": 10},
@@ -508,6 +524,7 @@
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
 
+                // التحديث المباشر للرصيد والمحتويات محلياً
                 window.userState.balance = resData.balance;
                 window.PlayerData.balance = resData.balance;
 
@@ -524,10 +541,18 @@
                     window.PlayerData.storage_level = resData.storage_level;
                     window.PlayerData.max_cap = resData.max_cap;
                 }
+
                 if (resData.usd_balance !== undefined) {
                     window.userState.usd_balance = resData.usd_balance;
                     window.PlayerData.usd_balance = resData.usd_balance;
                 }
+                if (resData.last_claim_time) {
+                    window.userState.last_claim_time = resData.last_claim_time;
+                    window.PlayerData.last_claim_time = resData.last_claim_time;
+                }
+
+                // إرسال حدث التحديث لتحديث الرصيد العلوي والمزرعة فوراً وبسلاسة بدون إعادة طلب الفايربيس
+                window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
 
                 if (typeof window.updateUI === 'function') {
                     window.updateUI();
