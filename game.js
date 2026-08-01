@@ -143,7 +143,8 @@ window.updateUI = function() {
     try {
         const s = window.userState;
         const fmt = {
-            balance: parseFloat(s.balance || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }),
+            // تم التعديل هنا للسماح بخانتين عشريتين كحد أقصى للرصيد
+            balance: parseFloat(s.balance || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
             usd_balance: `$${parseFloat(s.usd_balance || 0).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`,
             ad_balance: parseFloat(s.ad_balance || 0).toLocaleString('en-US', { maximumFractionDigits: 0 }),
             hourly_rate: `⚡ ${parseFloat(s.hourly_rate || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}/h`,
