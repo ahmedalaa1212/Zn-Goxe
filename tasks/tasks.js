@@ -4,11 +4,12 @@
         window.Telegram.WebApp.ready();
     }
 
-    // 🔒 الحد الأدنى لتكلفة إنشاء أي حملة إعلانية (250 عملة AdZN)
-    const MIN_AD_CAMPAIGN_COST = 250;
+    // 🔒 الحدود الأدنى الصارمة لإنشاء الحملات الإعلانية
+    const MIN_REWARD_PER_CLICK = 250; // الحد الأدنى لتكلفة الضغطة الواحدة
+    const MIN_AD_CAMPAIGN_COST = 250;  // الحد الأدنى للميزانية الإجمالية للحملة
 
     // ==========================================
-    // دوال المزامنة المركزية الشاملة (State Sync)
+    // دوال المزامنة المركزية الشاملة واللحظية (State Sync)
     // ==========================================
     function getStoredBalance() {
         let bal = localStorage.getItem('userBalance');
@@ -20,12 +21,12 @@
         let numVal = parseFloat(val) || 0;
         localStorage.setItem('userBalance', numVal);
         
-        // 1. تحديث الكائنات المحلية للفرونت إند (userState & PlayerData & GameState)
+        // 1. تحديث الكائنات المحلية للفرونت إند في النافذة الحالية
         if (window.GameState) window.GameState.balance = numVal;
         if (window.PlayerData) window.PlayerData.balance = numVal;
         if (window.userState) window.userState.balance = numVal;
 
-        // 2. تحديث النافذة الرئيسية (إذا كانت المهام تعمل داخل iframe أو إطار مدمج)
+        // 2. تحديث النافذة الرئيسية الإطار الأب (Parent iframe/window)
         try {
             if (window.parent && window.parent !== window) {
                 if (window.parent.GameState) window.parent.GameState.balance = numVal;
@@ -37,6 +38,7 @@
             }
         } catch (e) {}
 
+        // 3. تحديث النافذة العليا (Top window)
         try {
             if (window.top && window.top !== window && window.top !== window.parent) {
                 if (window.top.GameState) window.top.GameState.balance = numVal;
@@ -48,10 +50,10 @@
             }
         } catch (e) {}
 
-        // 3. تحديث عناصر الرصيد في الواجهة مباشرة
+        // 4. تحديث عناصر الرصيد في الواجهة فوراً
         updateBalanceElements(numVal);
 
-        // 4. إطلاق حدث مخصص (Custom Event) لإعلام كافة القوائم والتطبيقات الفرعية
+        // 5. إطلاق أحداث مخصصة (Custom Events) للبث اللحظي لكافة الشاشات
         window.dispatchEvent(new CustomEvent('balanceUpdated', { detail: { balance: numVal } }));
         try {
             if (window.parent && window.parent !== window) {
@@ -94,6 +96,11 @@
         updateAdBalanceElements(numVal);
 
         window.dispatchEvent(new CustomEvent('adBalanceUpdated', { detail: { ad_balance: numVal } }));
+        try {
+            if (window.parent && window.parent !== window) {
+                window.parent.dispatchEvent(new CustomEvent('adBalanceUpdated', { detail: { ad_balance: numVal } }));
+            }
+        } catch(e) {}
 
         if (typeof window.updateGlobalUI === 'function') {
             window.updateGlobalUI();
@@ -130,7 +137,7 @@
         }
     }
 
-    // التايمر السحري للمزامنة اللحظية للرصيد
+    // تايمر المزامنة اللحظية المستمرة
     setInterval(() => {
         const currentBal = getStoredBalance();
         const currentAdBal = getStoredAdBalance();
@@ -502,8 +509,12 @@
             let result = await response.json();
             
             if (response.ok && result.success) {
+                // ⚡ تحديث وتسميع الرصيد لحظياً في كل الأماكن
                 if (result.new_balance !== undefined) {
                     setStoredBalance(result.new_balance);
+                } else {
+                    const currentBal = getStoredBalance();
+                    setStoredBalance(currentBal + reward);
                 }
                 
                 delete window.taskStates[taskId];
@@ -680,9 +691,15 @@
             }
         }
 
+        // 🔒 1. فحص الحد الأدنى لسعر الضغطة الواحدة (Reward per click)
+        if (reward < MIN_REWARD_PER_CLICK) {
+            alert(`⚠️ عذراً، الحد الأدنى لتكلفة الضغطة الواحدة للمستخدم هو ${MIN_REWARD_PER_CLICK} عملة AdZN.`);
+            return;
+        }
+
         let totalCost = reward * users;
 
-        // 🔒 تطبيق شرط الحد الأدنى لتكلفة إنشاء الحملة الإعلانية (250 AdZN)
+        // 🔒 2. فحص الحد الأدنى لميزانية الحملة الإجمالية
         if (totalCost < MIN_AD_CAMPAIGN_COST) {
             alert(`⚠️ عذراً، الحد الأدنى لتكلفة إنشاء أي حملة إعلانية هو ${MIN_AD_CAMPAIGN_COST} عملة AdZN.`);
             return;
