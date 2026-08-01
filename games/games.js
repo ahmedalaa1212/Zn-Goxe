@@ -7,6 +7,8 @@
     let hasCheckedResults = false;
     let statusRetryTimeout = null;
     let pendingConfirmCallback = null;
+    let currentEntryFee = 1000;
+    let displayedPool = 0; // للعداد الحركي التدريجي
 
     const tele = window.Telegram?.WebApp;
 
@@ -19,17 +21,19 @@
     }
 
     function askForConfirmation(onConfirm) {
+        const msg = `هل أنت متأكد من خصم ${currentEntryFee.toLocaleString('en-US')} ZN للاشتراك في الساحة الكبرى؟`;
         if (tele && tele.showConfirm) {
-            tele.showConfirm("هل أنت متأكد من خصم 1,000 ZN للاشتراك في الساحة الكبرى؟", (confirmed) => {
+            tele.showConfirm(msg, (confirmed) => {
                 if (confirmed) onConfirm();
             });
         } else {
-            // استخدام Modal مخصص في حال عدم توفر Telegram ShowConfirm
             const modal = document.getElementById('confirm-modal');
+            const descEl = document.getElementById('confirm-desc');
+            if (descEl) descEl.innerHTML = `سيتم خصم <strong style="color: var(--primary);">${currentEntryFee.toLocaleString('en-US')} ZN</strong> من رصيدك للاشتراك في هذه الجولة. هل تريد المتابعة؟`;
             if (modal) {
                 pendingConfirmCallback = onConfirm;
                 modal.style.display = 'flex';
-            } else if (confirm("هل أنت متأكد من خصم 1,000 ZN للاشتراك في الساحة الكبرى؟")) {
+            } else if (confirm(msg)) {
                 onConfirm();
             }
         }
@@ -44,7 +48,6 @@
         pendingConfirmCallback = null;
     };
 
-    // --- أدوات المزامنة الموحدة للرصيد ---
     function getStoredBalance() {
         if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
             const val = parseFloat(window.GameState.balance);
@@ -74,13 +77,38 @@
         const stored = getStoredBalance();
         const gameBalEl = document.getElementById('top-balance-games');
         if (gameBalEl) {
-            // عرض الرقم صحيح منسق بدون كسور لتنظيم شكل الهيدر
             const formatted = Math.floor(stored).toLocaleString('en-US');
             gameBalEl.innerText = `${formatted} ZN`;
         }
         if (typeof window.updateGlobalUI === 'function') {
             window.updateGlobalUI();
         }
+    }
+
+    // --- نظام العداد البصري التدريجي الاحترافي (مثل عداد السرعة) ---
+    function animateValue(elementId, start, end, duration) {
+        const obj = document.getElementById(elementId);
+        if (!obj) return;
+        if (start === end) {
+            obj.innerText = Math.floor(end).toLocaleString('en-US') + " ZN";
+            return;
+        }
+        
+        let startTimestamp = null;
+        const step = (timestamp) => {
+            if (!startTimestamp) startTimestamp = timestamp;
+            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+            // تأثير حركة سلسة (EaseOutExpo)
+            const easeProgress = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+            const currentVal = Math.floor(start + (end - start) * easeProgress);
+            
+            obj.innerText = currentVal.toLocaleString('en-US') + " ZN";
+            
+            if (progress < 1) {
+                window.requestAnimationFrame(step);
+            }
+        };
+        window.requestAnimationFrame(step);
     }
 
     window.switchGameTab = function(tabName) {
@@ -92,13 +120,11 @@
         if (tabName === 'arena') {
             if (arenaTab) { arenaTab.classList.add('active'); arenaTab.style.opacity = '1'; }
             if (soonTab) { soonTab.classList.remove('active'); soonTab.style.opacity = '0.6'; }
-            
             if (arenaContent) arenaContent.style.display = 'block';
             if (soonContent) soonContent.style.display = 'none';
         } else {
             if (soonTab) { soonTab.classList.add('active'); soonTab.style.opacity = '1'; }
             if (arenaTab) { arenaTab.classList.remove('active'); arenaTab.style.opacity = '0.6'; }
-            
             if (arenaContent) arenaContent.style.display = 'none';
             if (soonContent) soonContent.style.display = 'block';
         }
@@ -112,7 +138,6 @@
 
         try {
             const initData = tele?.initData || "";
-
             const response = await fetch('/api/games/status', {
                 method: 'POST',
                 headers: { 
@@ -132,6 +157,12 @@
                 }
                 syncGameBalance();
                 
+                if (data.entry_fee !== undefined) {
+                    currentEntryFee = data.entry_fee;
+                    const joinFeeText = document.getElementById('join-fee-text');
+                    if (joinFeeText) joinFeeText.innerText = `${currentEntryFee.toLocaleString('en-US')} ZN`;
+                }
+                
                 currentRoundId = data.round_id;
                 arenaEndTime = parseInt(data.end_time) || 0;
                 hasCheckedResults = false;
@@ -150,9 +181,11 @@
     }
 
     function updateArenaPrizes(data) {
-        const pool = data.prize_pool || 0;
-        const prizePoolEl = document.getElementById('prize-pool');
-        if (prizePoolEl) prizePoolEl.innerText = pool.toLocaleString('en-US') + " ZN";
+        const newPool = data.prize_pool || 0;
+        
+        // تشغيل عداد السرعة التدريجي لمجموع الجوائز
+        animateValue('prize-pool', displayedPool, newPool, 1000);
+        displayedPool = newPool;
         
         const p1 = document.getElementById('prize-1');
         const p2 = document.getElementById('prize-2');
@@ -160,11 +193,11 @@
         const p4 = document.getElementById('prize-4');
         const p5 = document.getElementById('prize-5');
 
-        if (p1) p1.innerText = Math.floor(pool * 0.30).toLocaleString('en-US') + " ZN";
-        if (p2) p2.innerText = Math.floor(pool * 0.25).toLocaleString('en-US') + " ZN";
-        if (p3) p3.innerText = Math.floor(pool * 0.20).toLocaleString('en-US') + " ZN";
-        if (p4) p4.innerText = Math.floor(pool * 0.15).toLocaleString('en-US') + " ZN";
-        if (p5) p5.innerText = Math.floor(pool * 0.10).toLocaleString('en-US') + " ZN";
+        if (p1) p1.innerText = Math.floor(newPool * 0.30).toLocaleString('en-US') + " ZN";
+        if (p2) p2.innerText = Math.floor(newPool * 0.25).toLocaleString('en-US') + " ZN";
+        if (p3) p3.innerText = Math.floor(newPool * 0.20).toLocaleString('en-US') + " ZN";
+        if (p4) p4.innerText = Math.floor(newPool * 0.15).toLocaleString('en-US') + " ZN";
+        if (p5) p5.innerText = Math.floor(newPool * 0.10).toLocaleString('en-US') + " ZN";
     }
 
     function startSmoothCountdown(hasJoined) {
@@ -215,7 +248,7 @@
             if (!hasJoined) {
                 btn.disabled = false;
                 btn.classList.remove('btn-disabled');
-                btn.innerText = "⚔️ دخول الساحة (1,000 ZN)";
+                btn.innerHTML = `⚔️ دخول الساحة (<span id="join-fee-text">${currentEntryFee.toLocaleString('en-US')}</span> ZN)`;
             } else {
                 btn.disabled = true;
                 btn.classList.add('btn-disabled');
@@ -228,8 +261,8 @@
         if (isJoining) return;
 
         const currentBal = getStoredBalance();
-        if (currentBal < 1000) {
-            showNotification("⚠️ رصيدك غير كافٍ للدخول في الساحة (تتطلب 1,000 ZN).");
+        if (currentBal < currentEntryFee) {
+            showNotification(`⚠️ رصيدك غير كافٍ للدخول في الساحة (تتطلب ${currentEntryFee.toLocaleString('en-US')} ZN).`);
             return;
         }
 
@@ -269,7 +302,7 @@
                 if (data.new_balance !== undefined) {
                     setStoredBalance(data.new_balance);
                 } else {
-                    setStoredBalance(currentBal - 1000);
+                    setStoredBalance(currentBal - currentEntryFee);
                 }
                 syncGameBalance();
                 showNotification("🎉 تم دخول الساحة بنجاح! نتمنى لك التوفيق.");
@@ -282,14 +315,14 @@
                 showNotification("⚠️ " + (data.message || data.error || "تعذر الاشتراك"));
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerText = "⚔️ دخول الساحة (1,000 ZN)";
+                    btn.innerHTML = `⚔️ دخول الساحة (<span id="join-fee-text">${currentEntryFee.toLocaleString('en-US')}</span> ZN)`;
                 }
             }
         } catch (error) {
             showNotification("حدث خطأ في الاتصال بالخادم. حاول مجدداً.");
             if (btn) {
                 btn.disabled = false;
-                btn.innerText = "⚔️ دخول الساحة (1,000 ZN)";
+                btn.innerHTML = `⚔️ دخول الساحة (<span id="join-fee-text">${currentEntryFee.toLocaleString('en-US')}</span> ZN)`;
             }
         } finally {
             isJoining = false;
@@ -391,7 +424,6 @@
         });
     }
 
-    // --- مستمعات المزامنة اللحظية ---
     window.addEventListener('pageshow', () => {
         syncGameBalance();
         fetchArenaStatus();
