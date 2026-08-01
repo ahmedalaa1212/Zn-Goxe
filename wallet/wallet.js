@@ -1,5 +1,6 @@
+// wallet/wallet.js
 // =================================================================
-// 💳 ZN Goxe - Wallet Module (Fully Integrated & Realtime Updated)
+// 💳 ZN Goxe - Wallet Module (Fully Secured & Realtime Synchronized)
 // =================================================================
 
 (function initWalletModule() {
@@ -10,13 +11,17 @@
     let currentWalletTab = localStorage.getItem('lastWalletTab') || 'withdraw';
     let tonConnectUI = null;
 
-    // 🛡️ تثبيت احتياطي آمن لدالة apiCall لتفادي توقف الكود إذا لم تكن معرفة في app.js
+    // 🛡️ تثبيت آمن لدالة apiCall لتفادي توقف الكود
     if (typeof window.apiCall !== 'function') {
         window.apiCall = async function(url, method = 'POST', payload = {}) {
             try {
+                const initData = window.Telegram?.WebApp?.initData || '';
                 const response = await fetch(url, {
                     method: method,
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${initData}`
+                    },
                     body: JSON.stringify(payload)
                 });
                 return await response.json();
@@ -26,15 +31,12 @@
         };
     }
 
-    // سعر TON المباشر المخزن
     window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 0;
     let priceIntervalTimer = null;
 
-    // التهيئة الأولى لتطبيق التليجرام
     const tgApp = window.Telegram?.WebApp;
     if (tgApp) tgApp.ready();
 
-    // 🛠️ التنبيهات الهزاز والاشعارات
     function showAppAlert(message) {
         if (tgApp && typeof tgApp.showAlert === 'function') {
             tgApp.showAlert(message);
@@ -50,7 +52,6 @@
         }
     }
 
-    // 🔑 دالة مساعدة لتجهيز حزمة المصادقة الآمنة لطلبات الـ API
     function getAuthPayload(extraData = {}) {
         const initData = window.Telegram?.WebApp?.initData || '';
         const rawUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || window.GameState?.user_id || '';
@@ -63,9 +64,8 @@
     }
 
     // =================================================================
-    // 📡 1. جلب سعر TON اللحظي المطابق لمحفظة تليجرام
+    // 📡 1. جلب سعر TON اللحظي
     // =================================================================
-
     function applyTonPrice(price) {
         let validPrice = parseFloat(price);
         if (isNaN(validPrice) || validPrice <= 0.1 || validPrice > 200) return;
@@ -84,42 +84,30 @@
     }
 
     async function fetchLiveTonPrice() {
-        // 1. TonAPI.io
         try {
             let res = await fetch('https://tonapi.io/v2/rates?tokens=ton&currencies=usd');
             if (res.ok) {
                 let data = await res.json();
                 let price = parseFloat(data?.rates?.TON?.prices?.USD);
-                if (price > 0) {
-                    applyTonPrice(price);
-                    return;
-                }
+                if (price > 0) return applyTonPrice(price);
             }
         } catch (e) {}
 
-        // 2. OKX Exchange API
         try {
             let res = await fetch('https://www.okx.com/api/v5/market/ticker?instId=TON-USDT');
             if (res.ok) {
                 let data = await res.json();
                 let price = parseFloat(data?.data?.[0]?.last);
-                if (price > 0) {
-                    applyTonPrice(price);
-                    return;
-                }
+                if (price > 0) return applyTonPrice(price);
             }
         } catch (e) {}
 
-        // 3. CoinGecko API
         try {
             let res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd');
             if (res.ok) {
                 let data = await res.json();
                 let price = parseFloat(data['the-open-network']?.usd);
-                if (price > 0) {
-                    applyTonPrice(price);
-                    return;
-                }
+                if (price > 0) return applyTonPrice(price);
             }
         } catch (e) {}
     }
@@ -127,13 +115,12 @@
     function startTonPriceSync() {
         fetchLiveTonPrice();
         if (priceIntervalTimer) clearInterval(priceIntervalTimer);
-        priceIntervalTimer = setInterval(fetchLiveTonPrice, 15000);
+        priceIntervalTimer = setInterval(fetchLiveTonPrice, 20000); // كل 20 ثانية لتخفيف الضغط
     }
 
     // =================================================================
-    // 🔄 2. ربط ومزامنة المحفظة المباشرة مع اللعبة
+    // 🔄 2. ربط ومزامنة المحفظة المباشرة
     // =================================================================
-
     const originalUpdateGlobalUI = window.updateGlobalUI;
     window.updateGlobalUI = function() {
         if (typeof originalUpdateGlobalUI === 'function') {
@@ -187,10 +174,9 @@
     // =================================================================
     // 🔗 3. تهيئة TON Connect
     // =================================================================
-
     function initTonConnect() {
         if (typeof window.TON_CONNECT_UI === 'undefined') {
-            setTimeout(initTonConnect, 100);
+            setTimeout(initTonConnect, 150);
             return;
         }
 
@@ -207,12 +193,7 @@
                             connectButton: { background: '#0098ea', foreground: '#ffffff' },
                             accent: '#0098ea',
                             iconOnAccent: '#ffffff',
-                            background: { 
-                                primary: '#0a0d14', 
-                                secondary: '#161c27', 
-                                qr: '#ffffff', 
-                                tint: '#1e293b' 
-                            },
+                            background: { primary: '#0a0d14', secondary: '#161c27', qr: '#ffffff', tint: '#1e293b' },
                             text: { primary: '#ffffff', secondary: '#94a3b8' }
                         }
                     }
@@ -262,9 +243,8 @@
     };
 
     // =================================================================
-    // 🎛️ 4. أزرار الاختيار السريع للكميات
+    // 🎛️ 4. أزرار الاختيار السريع
     // =================================================================
-
     window.selectDepositPackage = function(amountUsd, element) {
         triggerHapticFeedback('impact', 'light');
         document.querySelectorAll('.package-card').forEach(card => card.classList.remove('selected'));
@@ -300,60 +280,8 @@
     };
 
     // =================================================================
-    // 📥 دالة مساعدة لجلب السجلات المباشرة من Firestore عند الحاجة
-    // =================================================================
-
-    async function fetchHistoryFromFirestore() {
-        const rawUserId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || window.GameState?.user_id;
-        if (!rawUserId) return [];
-
-        const strUserId = String(rawUserId);
-        const numUserId = Number(rawUserId);
-        const firestore = window.db || (window.firebase && window.firebase.firestore ? window.firebase.firestore() : null);
-
-        if (!firestore) return [];
-
-        let combinedList = [];
-
-        try {
-            // 1. جلب طلبات السحب (withdrawals)
-            const wSnapStr = await firestore.collection("withdrawals").where("user_id", "==", strUserId).get();
-            wSnapStr.forEach(doc => combinedList.push({ id: doc.id, type: 'withdraw', ...doc.data() }));
-
-            if (wSnapStr.empty && !isNaN(numUserId)) {
-                const wSnapNum = await firestore.collection("withdrawals").where("user_id", "==", numUserId).get();
-                wSnapNum.forEach(doc => combinedList.push({ id: doc.id, type: 'withdraw', ...doc.data() }));
-            }
-
-            // 2. جلب طلبات الإيداع (deposits)
-            try {
-                const dSnapStr = await firestore.collection("deposits").where("user_id", "==", strUserId).get();
-                dSnapStr.forEach(doc => combinedList.push({ id: doc.id, type: 'deposit', ...doc.data() }));
-                
-                if (dSnapStr.empty && !isNaN(numUserId)) {
-                    const dSnapNum = await firestore.collection("deposits").where("user_id", "==", numUserId).get();
-                    dSnapNum.forEach(doc => combinedList.push({ id: doc.id, type: 'deposit', ...doc.data() }));
-                }
-            } catch (e) {}
-
-            // ترتيب حسب التاريخ تنازلياً
-            combinedList.sort((a, b) => {
-                const tA = new Date(a.created_at || a.date || a.timestamp || 0).getTime();
-                const tB = new Date(b.created_at || b.date || b.timestamp || 0).getTime();
-                return tB - tA;
-            });
-
-        } catch (err) {
-            console.error("Firestore history fetch error:", err);
-        }
-
-        return combinedList;
-    }
-
-    // =================================================================
     // 🖼️ 5. عرض محتوى التبويبات
     // =================================================================
-
     window.renderWalletTab = function(tab) {
         currentWalletTab = tab;
         localStorage.setItem('lastWalletTab', tab);
@@ -418,7 +346,7 @@
                     </div>
                     
                     <div class="input-group">
-                        <label class="input-label">أو أدخل مبلغ مخصص بالدولار ($)</label>
+                        <label class="input-label">أدخل مبلغ مخصص بالدولار ($)</label>
                         <input type="number" id="deposit-usd-input" class="input-field" placeholder="1.00" min="1" step="0.5" oninput="window.calculateDepositTon()">
                     </div>
                     
@@ -459,7 +387,7 @@
                         } else if (itemType === 'withdraw' || itemType === 'withdrawal') {
                             typeText = '🔴 سحب أرباح';
                             amountColor = '#ef4444';
-                        } else if (itemType === 'convert' || itemType === 'conversion' || itemType === 'points_convert') {
+                        } else if (itemType === 'convert' || itemType === 'conversion') {
                             typeText = '🔄 تحويل نقاط ZN';
                             amountColor = '#0098ea';
                         }
@@ -481,7 +409,7 @@
                             month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
                         }) : '';
 
-                        const rawAmount = parseFloat(item.amount_usd || item.amount || item.usd_amount || (item.amount_zn ? item.amount_zn / 1000000 : 0));
+                        const rawAmount = parseFloat(item.amount_usd || item.amount || (item.amount_zn ? item.amount_zn / 1000000 : 0));
                         const displayAmount = (rawAmount > 0 && rawAmount < 0.01) ? rawAmount.toFixed(5) : rawAmount.toFixed(2);
                         
                         html += `
@@ -507,26 +435,13 @@
                 }
             };
 
-            // المحاولة 1: طلب البيانات عبر POST مع تمرير بيانات المصادقة
-            if (typeof window.apiCall === 'function') {
-                const payload = getAuthPayload();
-                window.apiCall('/api/wallet/get_history', 'POST', payload).then(async (data) => {
-                    const rawList = data?.history || data?.transactions || data?.data || data?.logs || [];
-                    
-                    if (data && data.success && Array.isArray(rawList) && rawList.length > 0) {
-                        renderListUI(rawList);
-                    } else {
-                        const fsList = await fetchHistoryFromFirestore();
-                        renderListUI(fsList);
-                    }
-                }).catch(async () => {
-                    const fsList = await fetchHistoryFromFirestore();
-                    renderListUI(fsList);
-                });
-            } else {
-                // المحاولة 2: جلب مباشر من Firestore إذا لم تكن apiCall موجودة
-                fetchHistoryFromFirestore().then(fsList => renderListUI(fsList));
-            }
+            const payload = getAuthPayload();
+            window.apiCall('/api/wallet/get_history', 'POST', payload).then((data) => {
+                const rawList = data?.history || data?.transactions || data?.data || [];
+                renderListUI(rawList);
+            }).catch(() => {
+                renderListUI([]);
+            });
         }
         else if (tab === 'withdraw') {
             let withdrawHtml = `
@@ -597,7 +512,6 @@
     // =================================================================
     // 🧮 6. الحسابات التفاعلية
     // =================================================================
-
     window.calculateConversionPreview = function() {
         let inputElem = document.getElementById('zn-input');
         let infoDiv = document.getElementById('conversion-calc-info');
@@ -651,7 +565,6 @@
     // =================================================================
     // ⚡ 7. تنفيذ العمليات ومزامنة الرصيد فوراً
     // =================================================================
-
     window.executeDeposit = async function() {
         triggerHapticFeedback('impact', 'medium');
         let depositBtn = document.getElementById('deposit-btn');
@@ -683,31 +596,29 @@
 
             const netCredited = usdAmount * 0.97;
 
-            if (typeof window.apiCall === 'function') {
-                const payload = getAuthPayload({
-                    usdAmount: usdAmount, 
-                    netUsdAmount: netCredited,
-                    tonAmount: tonAmount, 
-                    boc: txResult.boc 
-                });
+            const payload = getAuthPayload({
+                usdAmount: usdAmount, 
+                netUsdAmount: netCredited,
+                tonAmount: tonAmount, 
+                boc: txResult.boc 
+            });
 
-                let result = await window.apiCall('/api/wallet/wallet_deposit_report', 'POST', payload);
-                
-                if (result && result.success) {
-                    if (!window.GameState) window.GameState = {};
-                    if (result.new_usd_balance !== undefined) {
-                        window.GameState.usd_balance = result.new_usd_balance;
-                    } else {
-                        window.GameState.usd_balance = (window.GameState.usd_balance || 0) + netCredited;
-                    }
-                    
-                    window.updateWalletHeaderUI();
-                    showAppAlert(`✅ تم الإيداع بنجاح!\nأضيفت $${netCredited.toFixed(2)} لرصيدك بعد خصم (3%).`);
+            let result = await window.apiCall('/api/wallet/wallet_deposit_report', 'POST', payload);
+            
+            if (result && result.success) {
+                if (!window.GameState) window.GameState = {};
+                if (result.new_usd_balance !== undefined) {
+                    window.GameState.usd_balance = result.new_usd_balance;
                 } else {
-                    showAppAlert("⚠️ " + (result?.error || result?.message || "فشل تأكيد الإيداع في السيرفر"));
+                    window.GameState.usd_balance = (window.GameState.usd_balance || 0) + netCredited;
                 }
+                
+                window.updateWalletHeaderUI();
+                showAppAlert(`✅ تم الإيداع بنجاح!\nأضيفت $${netCredited.toFixed(2)} لرصيدك بعد خصم (3%).`);
+                if (usdInput) usdInput.value = '';
+            } else {
+                showAppAlert("⚠️ " + (result?.error || result?.message || "فشل تأكيد الإيداع في السيرفر"));
             }
-            if (usdInput) usdInput.value = '';
         } catch (e) {
             triggerHapticFeedback('notification', 'warning');
             if (e && e.message !== "User rejected the transaction") {
@@ -743,13 +654,8 @@
                 triggerHapticFeedback('notification', 'success');
                 
                 if (!window.GameState) window.GameState = {};
-                window.GameState.balance = (window.GameState.balance || 0) - amount;
-                
-                if (result.new_usd_balance !== undefined) {
-                    window.GameState.usd_balance = result.new_usd_balance;
-                } else {
-                    window.GameState.usd_balance = (window.GameState.usd_balance || 0) + (result.usd_gained || (amount / 1000000));
-                }
+                if (result.new_balance !== undefined) window.GameState.balance = result.new_balance;
+                if (result.new_usd_balance !== undefined) window.GameState.usd_balance = result.new_usd_balance;
 
                 window.updateWalletHeaderUI();
                 showAppAlert(`🎉 تم تحويل النقاط بنجاح!\nأضيف لرصيدك $${(result.usd_gained || (amount/1000000)).toFixed(5)} USD`);
@@ -761,7 +667,7 @@
                 showAppAlert("⚠️ " + (result?.error || result?.message || "فشل التحويل."));
             }
         } catch (e) { 
-            const serverError = e?.message || e?.error || (typeof e === 'string' ? e : "خطأ في الاتصال بالسيرفر.");
+            const serverError = e?.message || e?.error || "خطأ في الاتصال بالسيرفر.";
             showAppAlert("⚠️ " + serverError); 
         } finally {
             if (convertBtn) { convertBtn.disabled = false; convertBtn.innerText = "تحويل النقاط الآن"; }
@@ -802,8 +708,6 @@
                 if (!window.GameState) window.GameState = {};
                 if (result.new_usd_balance !== undefined) {
                     window.GameState.usd_balance = result.new_usd_balance;
-                } else {
-                    window.GameState.usd_balance = (window.GameState.usd_balance || 0) - usdAmount;
                 }
 
                 window.updateWalletHeaderUI();
@@ -818,7 +722,7 @@
                 showAppAlert("⚠️ " + (result?.error || result?.message || "خطأ أثناء معالجة الطلب"));
             }
         } catch (e) { 
-            const serverError = e?.message || e?.error || (typeof e === 'string' ? e : "خطأ في الاتصال بالسيرفر.");
+            const serverError = e?.message || e?.error || "خطأ في الاتصال بالسيرفر.";
             showAppAlert("⚠️ " + serverError); 
         } finally {
             if (withdrawBtn) { withdrawBtn.disabled = false; withdrawBtn.innerText = "تقديم طلب السحب"; }
@@ -828,7 +732,6 @@
     // =================================================================
     // 🚀 8. بدء التشغيل التلقائي والمزامنة
     // =================================================================
-
     startTonPriceSync();
     window.syncWalletData();
     
