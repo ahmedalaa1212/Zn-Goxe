@@ -66,9 +66,10 @@ def get_user_upgrades_count(user_data):
 def get_friends_data():
     """جلب بيانات صفحة الأصدقاء مع RAM Caching لمسح استهلاك القراءات"""
     try:
-        is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
-        if not is_valid:
-            return error_resp
+        is_post = (request.method == 'POST')
+        success, user_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
+        if not success:
+            return error_res
             
         user_id_str = str(user_id)
         now = time.time()
@@ -124,9 +125,10 @@ def get_friends_data():
 def get_friends_list():
     """جلب سجل الأصدقاء بالتفصيل مع RAM Caching لحماية الفايرستور من الـ Streams المتكررة"""
     try:
-        is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
-        if not is_valid:
-            return error_resp
+        is_post = (request.method == 'POST')
+        success, user_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
+        if not success:
+            return error_res
             
         user_id_str = str(user_id)
         now = time.time()
@@ -202,9 +204,9 @@ def get_friends_list():
 def claim_ref_earnings():
     """سحب أرباح الإحالات مع الحفاظ على Transaction المباشر للفايرستور"""
     try:
-        is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
-        if not is_valid:
-            return error_resp
+        success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+        if not success:
+            return error_res
             
         user_ref = db.collection('users').document(str(user_id))
         friends_config = get_friends_config()
@@ -234,9 +236,9 @@ def claim_ref_earnings():
             return True, None, 200, new_balance, net_amount
 
         transaction = db.transaction()
-        success, error_msg, status_code, new_balance, net_amount = run_claim_earnings_transaction(transaction, user_ref)
+        success_tr, error_msg, status_code, new_balance, net_amount = run_claim_earnings_transaction(transaction, user_ref)
 
-        if not success:
+        if not success_tr:
             return jsonify({"success": False, "error": error_msg}), status_code
 
         # إبطال الكاش فوراً بعد المعاملة المالية الناجحة
@@ -257,11 +259,14 @@ def claim_ref_earnings():
 def claim_ref_task():
     """استلام مكافأة مهمة الإحالة مع الحفاظ على Transaction المباشر للفايرستور"""
     try:
-        is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
-        if not is_valid:
-            return error_resp
+        success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+        if not success:
+            return error_res
             
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            data = {}
+
         try:
             task_id = str(data.get('taskId', '0'))
         except (ValueError, TypeError):
@@ -319,9 +324,9 @@ def claim_ref_task():
             return True, None, 200, new_balance, claimed_tasks
 
         transaction = db.transaction()
-        success, error_msg, status_code, new_balance, updated_claimed_tasks = run_claim_task_transaction(transaction, user_ref)
+        success_tr, error_msg, status_code, new_balance, updated_claimed_tasks = run_claim_task_transaction(transaction, user_ref)
 
-        if not success:
+        if not success_tr:
             return jsonify({"success": False, "error": error_msg}), status_code
 
         # إبطال الكاش فوراً بعد المعاملة المالية الناجحة
