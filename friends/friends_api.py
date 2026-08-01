@@ -114,10 +114,23 @@ def get_friends_list():
             sub_data = sub_friends.get(f_id, {})
             total_upgrades = get_user_upgrades_count(main_data)
             
-            f_name = main_data.get('first_name') or main_data.get('name') or sub_data.get('first_name') or sub_data.get('name') or 'صديق'
-            generated_amount = float(sub_data.get('earned_from_him', main_data.get('ref_generated_amount', 0)))
+            f_name = (main_data.get('first_name') or 
+                      main_data.get('name') or 
+                      sub_data.get('first_name') or 
+                      sub_data.get('name') or 
+                      'صديق')
+            
+            earned_val = sub_data.get('earned_from_him')
+            if earned_val is None:
+                earned_val = main_data.get('ref_generated_amount', 0)
+            
+            try:
+                generated_amount = float(earned_val)
+            except (ValueError, TypeError):
+                generated_amount = 0.0
             
             friends_list.append({
+                "id": f_id,
                 "name": f_name,
                 "upgrades_count": total_upgrades,
                 "generated": generated_amount
@@ -231,7 +244,6 @@ def claim_ref_task():
             if not isinstance(claimed_tasks, list):
                 claimed_tasks = []
 
-            # التحقق بسلسلة النصوص والأرقام لتجنب الأخطاء
             task_id_parsed = int(task_id) if task_id.isdigit() else task_id
             if task_id in claimed_tasks or task_id_parsed in claimed_tasks:
                 return False, "تم استلام هذه المكافأة مسبقاً", 400, 0
