@@ -47,10 +47,14 @@ function getSavedState() {
 
 let isFirebaseUpdating = false;
 let lastSaveTime = 0;
+const lastLocalTimes = {};
 
 window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
+        const oldVal = target[prop];
         target[prop] = value;
+        
+        if (!isFirebaseUpdating) lastLocalTimes[prop] = Date.now();
         
         if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'].includes(prop)) {
             const now = Date.now();
@@ -62,7 +66,7 @@ window.userState = new Proxy(getSavedState(), {
             if (typeof window.updateUI === 'function') window.updateUI();
             
             window.dispatchEvent(new CustomEvent('userStateUpdated', { 
-                detail: { prop, value, state: target } 
+                detail: { prop, value, oldVal, state: target } 
             }));
         }
         return true;
@@ -70,7 +74,7 @@ window.userState = new Proxy(getSavedState(), {
 });
 
 // ==========================================
-// 2. الاتصال بالسيرفر مع تحديث الرصيد
+// 2. الاتصال بالسيرفر مع تحديث الرصيد اللحظي الشامل
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
@@ -97,12 +101,25 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         
         isFirebaseUpdating = true;
         let incomingBal = data.new_balance ?? targetObj?.balance;
-        if (incomingBal !== undefined && incomingBal !== null) window.userState.balance = parseFloat(incomingBal);
+        if (incomingBal !== undefined && incomingBal !== null) {
+            const numBal = parseFloat(incomingBal);
+            if (!isNaN(numBal)) {
+                window.userState.balance = numBal;
+            }
+        }
 
         let incomingUsd = data.new_usd_balance ?? targetObj?.usd_balance;
-        if (incomingUsd !== undefined && incomingUsd !== null) window.userState.usd_balance = parseFloat(incomingUsd);
-        
-        if (targetObj?.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate);
+        if (incomingUsd !== undefined && incomingUsd !== null) {
+            const numUsd = parseFloat(incomingUsd);
+            if (!isNaN(numUsd)) {
+                window.userState.usd_balance = numUsd;
+            }
+        }
+
+        if (targetObj?.hourly_rate !== undefined) {
+            const numRate = parseFloat(targetObj.hourly_rate);
+            if (!isNaN(numRate)) window.userState.hourly_rate = numRate;
+        }
         isFirebaseUpdating = false;
 
         return data;
@@ -113,7 +130,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 };
 
 // ==========================================
-// 3. جلب سعر TON والمزامنة
+// 3. جلب سعر TON والمزامنة المباشرة
 // ==========================================
 window.globalFetchTonPrice = async function() {
     const apis = [
@@ -145,8 +162,15 @@ window.initFirebaseRealtimeSync = function(userId) {
         
         try {
             isFirebaseUpdating = true;
-            if (d.balance !== undefined) window.userState.balance = parseFloat(d.balance);
-            if (d.usd_balance !== undefined) window.userState.usd_balance = parseFloat(d.usd_balance);
+
+            if (d.balance !== undefined) {
+                const fbBal = parseFloat(d.balance);
+                if (!isNaN(fbBal)) window.userState.balance = fbBal;
+            }
+            if (d.usd_balance !== undefined) {
+                const fbUsd = parseFloat(d.usd_balance);
+                if (!isNaN(fbUsd)) window.userState.usd_balance = fbUsd;
+            }
             ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'].forEach(k => {
                 if (d[k] !== undefined) window.userState[k] = d[k];
             });
@@ -160,13 +184,19 @@ window.initFirebaseRealtimeSync = function(userId) {
 // ==========================================
 // 4. دوال التنسيق ومحرك الحركة السلسة للعداد
 // ==========================================
+
 window.formatBalance = function(val) {
-    if (isNaN(val)) return '0';
-    return parseFloat(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (val === undefined || val === null || isNaN(val)) return '0';
+    const num = parseFloat(val);
+    const hasDecimals = num % 1 !== 0;
+    return num.toLocaleString('en-US', {
+        minimumFractionDigits: hasDecimals ? 2 : 0,
+        maximumFractionDigits: 2
+    });
 };
 
 window.formatNumberHTML = function(val, minDec = 0, maxDec = 2) {
-    if (isNaN(val) || val === null || val === undefined) return '0';
+    if (val === undefined || val === null || isNaN(val)) return '0';
     let num = parseFloat(val);
     
     let suffix = '';
@@ -174,19 +204,22 @@ window.formatNumberHTML = function(val, minDec = 0, maxDec = 2) {
     else if (num >= 1e6) { num = num / 1e6; suffix = 'M'; }
 
     const hasDecimals = num % 1 !== 0;
-    const minD = (minDec === 0 && hasDecimals && suffix === '') ? 2 : minDec;
+    const minD = (minDec === 0 && hasDecimals) ? 2 : minDec;
     
     const formattedStr = num.toLocaleString('en-US', {
-        minimumFractionDigits: suffix ? 2 : minD,
-        maximumFractionDigits: suffix ? 2 : maxDec
+        minimumFractionDigits: (suffix === '') ? minD : 2,
+        maximumFractionDigits: (suffix === '') ? maxDec : 2
     });
 
     const parts = formattedStr.split('.');
-    let resultHTML = parts[0];
+    let htmlResult = parts[0];
     if (parts.length > 1) {
-        resultHTML += `<span class="small-decimal" style="font-size: 0.75em; opacity: 0.8;">.${parts[1]}</span>`;
+        htmlResult += `<span class="small-decimal" style="font-size: 0.75em; opacity: 0.85;">.${parts[1]}</span>`;
     }
-    return resultHTML + (suffix ? `<span class="suffix" style="font-weight: bold; margin-left: 2px;">${suffix}</span>` : '');
+    if (suffix) {
+        htmlResult += `<span class="suffix" style="font-weight: bold; margin-left: 2px;">${suffix}</span>`;
+    }
+    return htmlResult;
 };
 
 let visualBalance = null;
@@ -202,16 +235,20 @@ function startLocalMiningSimulator() {
             window.userState.balance += (ratePerSec * deltaSec);
         }
         
-        renderSmoothUIBalance(window.userState.balance);
+        renderSmoothBalance(window.userState.balance);
         requestAnimationFrame(tick);
     });
 }
 
-function renderSmoothUIBalance(targetVal) {
-    if (visualBalance === null) visualBalance = targetVal;
-    
+function renderSmoothBalance(targetVal) {
+    if (visualBalance === null) {
+        visualBalance = targetVal;
+        applyBalanceToUI(visualBalance);
+        return;
+    }
+
     const diff = targetVal - visualBalance;
-    visualBalance += diff * 0.1; 
+    visualBalance += diff * 0.1;
 
     if (Math.abs(targetVal - visualBalance) < 0.001) {
         visualBalance = targetVal;
@@ -229,15 +266,21 @@ function applyBalanceToUI(val) {
             if (el.tagName === 'INPUT') {
                 el.value = plainFormatted;
             } else {
-                if (el.textContent.includes('ZN:')) el.innerHTML = `ZN: ${htmlFormatted}`;
-                else el.innerHTML = `${htmlFormatted} ZN`;
+                if (el.textContent.includes('ZN:')) {
+                    el.innerHTML = `ZN: ${htmlFormatted}`;
+                } else {
+                    el.innerHTML = `${htmlFormatted} ZN`;
+                }
             }
         });
 
         doc.querySelectorAll('#farm-balance, .farm-balance, #user-balance, .user-balance, .zn-balance-text, #top-balance-games').forEach(el => {
             if (el.tagName !== 'INPUT') {
-                if (el.textContent.includes('ZN:')) el.innerHTML = `ZN: ${htmlFormatted}`;
-                else el.innerHTML = `${htmlFormatted} ZN`;
+                if (el.textContent.includes('ZN:')) {
+                    el.innerHTML = `ZN: ${htmlFormatted}`;
+                } else {
+                    el.innerHTML = `${htmlFormatted} ZN`;
+                }
             }
         });
     };
@@ -261,6 +304,8 @@ window.updateUI = function() {
                 try { window[fn](); } catch (e) {}
             }
         });
+
+        renderSmoothBalance(parseFloat(s.balance || 0));
 
         const fmtHTML = {
             usd_balance: `$${window.formatNumberHTML(s.usd_balance || 0, 2, 4)}`,
@@ -386,7 +431,7 @@ function initApp() {
         if (uid) window.initFirebaseRealtimeSync(uid);
     });
     
-    startLocalMiningSimulator(); 
+    startLocalMiningSimulator();
     setTimeout(hideLoadingScreen, 4000);
 
     setInterval(window.globalFetchTonPrice, 60000);
