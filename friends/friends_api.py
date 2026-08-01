@@ -42,7 +42,7 @@ def get_user_upgrades_count(user_data):
 
 @friends_bp.route('/data', methods=['GET', 'POST'])
 def get_friends_data():
-    """جلب بيانات صفحة الأصدقاء وإحصائيات المهام ديناميكياً من الفايرستور"""
+    """جلب بيانات صفحة الأصدقاء وإحصائيات المهام (Read-Only)"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -74,8 +74,8 @@ def get_friends_data():
         return jsonify({
             "success": True,
             "player": {
-                "balance": float(user_data.get('balance', 0)),
-                "pending_ref_earnings": float(user_data.get('pending_ref_earnings', 0)),
+                "balance": round(float(user_data.get('balance', 0)), 2),
+                "pending_ref_earnings": round(float(user_data.get('pending_ref_earnings', 0)), 2),
                 "invited_friends_count": total_friends_count,
                 "eligible_task_friends_count": eligible_task_friends_count,
                 "claimed_ref_tasks": user_data.get('claimed_ref_tasks', [])
@@ -88,7 +88,7 @@ def get_friends_data():
 
 @friends_bp.route('/list', methods=['GET', 'POST'])
 def get_friends_list():
-    """جلب سجل الأصدقاء بالتفصيل الموحد وإمكانية تجميع الأرباح القديمة والحديثة"""
+    """جلب سجل الأصدقاء بالتفصيل الموحد (Read-Only)"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -102,12 +102,10 @@ def get_friends_list():
             referred_users[doc.id] = doc.to_dict() or {}
             
         sub_friends = {}
-        # 1. القراءة من مجلد friends الموحد
         sub_query = db.collection('users').document(user_id_str).collection('friends').stream()
         for doc in sub_query:
             sub_friends[doc.id] = doc.to_dict() or {}
 
-        # 2. القراءة من مجلد referrals تحسباً لوجود سجلات سابقة لضمان عدم ضياع أي أرباح
         old_ref_query = db.collection('users').document(user_id_str).collection('referrals').stream()
         for doc in old_ref_query:
             f_id = doc.id
@@ -138,7 +136,7 @@ def get_friends_list():
                           main_data.get('ref_generated_amount', 0))
             
             try:
-                generated_amount = float(earned_val)
+                generated_amount = round(float(earned_val), 2)
             except (ValueError, TypeError):
                 generated_amount = 0.0
             
@@ -158,7 +156,7 @@ def get_friends_list():
 
 @friends_bp.route('/claim_ref_earnings', methods=['POST'])
 def claim_ref_earnings():
-    """سحب أرباح الإحالات وتحويلها لرصيد حساب المستخدم بشكل آمن بالعمولة المحسوبة من الفايرستور"""
+    """سحب أرباح الإحالات وإرجاع البيانات المحدثة كاملة للفرونت إند"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -199,8 +197,9 @@ def claim_ref_earnings():
 
         return jsonify({
             "success": True, 
-            "new_balance": new_balance,
-            "net_amount": net_amount
+            "new_balance": round(new_balance, 2),
+            "net_amount": round(net_amount, 2),
+            "pending_ref_earnings": 0.0
         }), 200
 
     except Exception as e:
@@ -209,7 +208,7 @@ def claim_ref_earnings():
 
 @friends_bp.route('/claim_ref_task', methods=['POST'])
 def claim_ref_task():
-    """استلام مكافأة مهمة الإحالة بناءً على إعدادات الفايرستور الحية"""
+    """استلام مكافأة مهمة الإحالة وإرجاع البيانات المحدثة كاملة بدون جلب شبكة إضافي"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -250,7 +249,7 @@ def claim_ref_task():
         def run_claim_task_transaction(transaction, u_ref):
             snapshot = u_ref.get(transaction=transaction)
             if not snapshot.exists:
-                return False, "حساب المستخدم غير موجود", 404, 0
+                return False, "حساب المستخدم غير موجود", 404, 0, []
                 
             u_data = snapshot.to_dict() or {}
             claimed_tasks = u_data.get('claimed_ref_tasks', [])
@@ -259,7 +258,7 @@ def claim_ref_task():
 
             task_id_parsed = int(task_id) if task_id.isdigit() else task_id
             if task_id in claimed_tasks or task_id_parsed in claimed_tasks:
-                return False, "تم استلام هذه المكافأة مسبقاً", 400, 0
+                return False, "تم استلام هذه المكافأة مسبقاً", 400, 0, []
                 
             current_balance = float(u_data.get('balance', 0))
             new_balance = current_balance + task_reward
@@ -270,15 +269,19 @@ def claim_ref_task():
                 'claimed_ref_tasks': claimed_tasks
             })
             
-            return True, None, 200, new_balance
+            return True, None, 200, new_balance, claimed_tasks
 
         transaction = db.transaction()
-        success, error_msg, status_code, new_balance = run_claim_task_transaction(transaction, user_ref)
+        success, error_msg, status_code, new_balance, updated_claimed_tasks = run_claim_task_transaction(transaction, user_ref)
 
         if not success:
             return jsonify({"success": False, "error": error_msg}), status_code
 
-        return jsonify({"success": True, "new_balance": new_balance}), 200
+        return jsonify({
+            "success": True, 
+            "new_balance": round(new_balance, 2),
+            "claimed_ref_tasks": updated_claimed_tasks
+        }), 200
 
     except Exception as e:
         print(f"Error in claim_ref_task: {e}")
