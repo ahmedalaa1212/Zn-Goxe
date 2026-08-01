@@ -22,91 +22,93 @@ LEADERBOARD_CACHE_TTL = 180  # كاش لوحة الصدارة (3 دقائق)
 # ========================================================================
 
 def ensure_game_settings_exist():
-    """دالة الفحص والتحديث التلقائي لكافة إعدادات اللعبة في Firestore حسب الخطة الاقتصادية"""
+    """دالة الفحص والتحديث التلقائي لكافة إعدادات اللعبة في Firestore فقط عند الحاجة"""
     global db
     if not db:
         return
     try:
         settings_ref = db.collection('config').document('game_settings')
-
-        exact_daily_rewards = {
-            "day_1": 100,   "day_2": 150,   "day_3": 200,   "day_4": 250,   "day_5": 300,
-            "day_6": 350,   "day_7": 400,   "day_8": 450,   "day_9": 500,   "day_10": 550,
-            "day_11": 600,  "day_12": 600,  "day_13": 650,  "day_14": 650,  "day_15": 700,
-            "day_16": 700,  "day_17": 750,  "day_18": 750,  "day_19": 800,  "day_20": 800,
-            "day_21": 850,  "day_22": 850,  "day_23": 900,  "day_24": 900,  "day_25": 950,
-            "day_26": 950,  "day_27": 1000, "day_28": 1000, "day_29": 1100, "day_30": 1250
-        }
-
-        exact_speed_config = {
-            "1": {"price": 2000, "rate": 5, "max": 10},
-            "2": {"price": 7000, "rate": 15, "max": 10},
-            "3": {"price": 18000, "rate": 35, "max": 10},
-            "4": {"price": 45000, "rate": 80, "max": 10},
-            "5": {"price": 110000, "rate": 180, "max": 10},
-            "6": {"price": 260000, "rate": 400, "max": 10},
-            "7": {"price": 600000, "rate": 900, "max": 10},
-            "8": {"price": 1400000, "rate": 2000, "max": 10},
-            "9": {"price": 3200000, "rate": 4500, "max": 10}
-        }
-
-        exact_storage_config = {
-            "0": {"capacity": 200, "price": 0},
-            "1": {"capacity": 600, "price": 3000},
-            "2": {"capacity": 1500, "price": 10000},
-            "3": {"capacity": 3500, "price": 25000},
-            "4": {"capacity": 8000, "price": 65000},
-            "5": {"capacity": 18000, "price": 160000},
-            "6": {"capacity": 40000, "price": 400000},
-            "7": {"capacity": 90000, "price": 950000},
-            "8": {"capacity": 220000, "price": 2200000},
-            "9": {"capacity": 450000, "price": 5000000},
-            "10": {"capacity": 1000000, "price": 12000000}
-        }
-
-        exact_friends_config = {
-            "direct_reward_inviter": 0,
-            "direct_reward_invitee": 0,
-            "commission_percent": 10,
-            "claim_fee_percent": 1.5,
-            "min_upgrades_for_task": 3,
-            "ref_tasks": {
-                "1": {"reqFriends": 1, "reward": 4000},
-                "2": {"reqFriends": 5, "reward": 25000},
-                "3": {"reqFriends": 10, "reward": 60000},
-                "4": {"reqFriends": 25, "reward": 160000},
-                "5": {"reqFriends": 50, "reward": 350000},
-                "6": {"reqFriends": 100, "reward": 800000},
-                "7": {"reqFriends": 500, "reward": 4500000}
-            }
-        }
-
-        exact_arena_config = {
-            "entry_fee": 1000,
-            "min_participants": 20,
-            "prize_pool_percentage": 0.45,
-            "round_duration": 900,
-            "lock_seconds": 15
-        }
-
         doc = settings_ref.get()
+
         current_data = doc.to_dict() or {} if doc.exists else {}
+        
+        # إجراء التحديث فقط إذا كان المستند غير موجود أو يفتقر لإعدادات الساحة
+        if not doc.exists or 'arena_config' not in current_data:
+            exact_daily_rewards = {
+                "day_1": 100,   "day_2": 150,   "day_3": 200,   "day_4": 250,   "day_5": 300,
+                "day_6": 350,   "day_7": 400,   "day_8": 450,   "day_9": 500,   "day_10": 550,
+                "day_11": 600,  "day_12": 600,  "day_13": 650,  "day_14": 650,  "day_15": 700,
+                "day_16": 700,  "day_17": 750,  "day_18": 750,  "day_19": 800,  "day_20": 800,
+                "day_21": 850,  "day_22": 850,  "day_23": 900,  "day_24": 900,  "day_25": 950,
+                "day_26": 950,  "day_27": 1000, "day_28": 1000, "day_29": 1100, "day_30": 1250
+            }
 
-        friends_cfg = current_data.get("friends_config", exact_friends_config)
-        friends_cfg["direct_reward_inviter"] = 0
-        friends_cfg["direct_reward_invitee"] = 0
+            exact_speed_config = {
+                "1": {"price": 2000, "rate": 5, "max": 10},
+                "2": {"price": 7000, "rate": 15, "max": 10},
+                "3": {"price": 18000, "rate": 35, "max": 10},
+                "4": {"price": 45000, "rate": 80, "max": 10},
+                "5": {"price": 110000, "rate": 180, "max": 10},
+                "6": {"price": 260000, "rate": 400, "max": 10},
+                "7": {"price": 600000, "rate": 900, "max": 10},
+                "8": {"price": 1400000, "rate": 2000, "max": 10},
+                "9": {"price": 3200000, "rate": 4500, "max": 10}
+            }
 
-        update_payload = {
-            "daily_rewards": current_data.get("daily_rewards", exact_daily_rewards),
-            "speed_config": current_data.get("speed_config", exact_speed_config),
-            "storage_config": current_data.get("storage_config", exact_storage_config),
-            "daily_ad_boost_rate": current_data.get("daily_ad_boost_rate", 2),
-            "friends_config": friends_cfg,
-            "arena_config": current_data.get("arena_config", exact_arena_config)
-        }
+            exact_storage_config = {
+                "0": {"capacity": 200, "price": 0},
+                "1": {"capacity": 600, "price": 3000},
+                "2": {"capacity": 1500, "price": 10000},
+                "3": {"capacity": 3500, "price": 25000},
+                "4": {"capacity": 8000, "price": 65000},
+                "5": {"capacity": 18000, "price": 160000},
+                "6": {"capacity": 40000, "price": 400000},
+                "7": {"capacity": 90000, "price": 950000},
+                "8": {"capacity": 220000, "price": 2200000},
+                "9": {"capacity": 450000, "price": 5000000},
+                "10": {"capacity": 1000000, "price": 12000000}
+            }
 
-        settings_ref.set(update_payload, merge=True)
-        print("✅ تم تحديث Firestore: إضافة إعدادات arena_config الديناميكية بنجاح!")
+            exact_friends_config = {
+                "direct_reward_inviter": 0,
+                "direct_reward_invitee": 0,
+                "commission_percent": 10,
+                "claim_fee_percent": 1.5,
+                "min_upgrades_for_task": 3,
+                "ref_tasks": {
+                    "1": {"reqFriends": 1, "reward": 4000},
+                    "2": {"reqFriends": 5, "reward": 25000},
+                    "3": {"reqFriends": 10, "reward": 60000},
+                    "4": {"reqFriends": 25, "reward": 160000},
+                    "5": {"reqFriends": 50, "reward": 350000},
+                    "6": {"reqFriends": 100, "reward": 800000},
+                    "7": {"reqFriends": 500, "reward": 4500000}
+                }
+            }
+
+            exact_arena_config = {
+                "entry_fee": 1000,
+                "min_participants": 20,
+                "prize_pool_percentage": 0.45,
+                "round_duration": 900,
+                "lock_seconds": 15
+            }
+
+            friends_cfg = current_data.get("friends_config") or exact_friends_config
+            friends_cfg["direct_reward_inviter"] = 0
+            friends_cfg["direct_reward_invitee"] = 0
+
+            update_payload = {
+                "daily_rewards": current_data.get("daily_rewards", exact_daily_rewards),
+                "speed_config": current_data.get("speed_config", exact_speed_config),
+                "storage_config": current_data.get("storage_config", exact_storage_config),
+                "daily_ad_boost_rate": current_data.get("daily_ad_boost_rate", 2),
+                "friends_config": friends_cfg,
+                "arena_config": current_data.get("arena_config", exact_arena_config)
+            }
+
+            settings_ref.set(update_payload, merge=True)
+            print("✅ تم تحديث/تهيئة إعدادات اللعبة في Firestore بنجاح!")
 
     except Exception as e:
         print(f"❌ خطأ أثناء تحديث إعدادات اللعبة تلقائياً: {e}")
@@ -174,7 +176,6 @@ def is_user_banned(tg_id):
     tg_id_str = str(tg_id)
     now = time.time()
 
-    # استخدام الذاكرة المؤقتة لمنع نزيف القراءات
     if tg_id_str in _BAN_CACHE:
         is_banned, expire_time = _BAN_CACHE[tg_id_str]
         if now < expire_time:
@@ -182,7 +183,7 @@ def is_user_banned(tg_id):
 
     try:
         doc = db.collection('users').document(tg_id_str).get()
-        is_banned = bool(doc.to_dict().get('banned', False)) if doc.exists else False
+        is_banned = bool((doc.to_dict() or {}).get('banned', False)) if doc.exists else False
         _BAN_CACHE[tg_id_str] = (is_banned, now + BAN_CACHE_TTL)
         return is_banned
     except Exception as e:
@@ -278,7 +279,7 @@ def get_user(tg_id):
         if not tg_id: return None
         doc = db.collection('users').document(str(tg_id)).get()
         if doc.exists:
-            data = doc.to_dict()
+            data = doc.to_dict() or {}
             data['id'] = doc.id
             return data
         return None
@@ -397,7 +398,7 @@ def get_user_transactions(tg_id, limit=30):
         
         history = []
         for doc in docs:
-            item = doc.to_dict()
+            item = doc.to_dict() or {}
             item['id'] = doc.id
             if item.get('created_at') and hasattr(item['created_at'], 'isoformat'):
                 item['created_at'] = item['created_at'].isoformat()
@@ -414,7 +415,6 @@ def ban_user(tg_id, status=True):
         if not tg_id: return False
         tg_id_str = str(tg_id)
         db.collection('users').document(tg_id_str).update({"banned": bool(status)})
-        # تحديث الكاش فوراً
         _BAN_CACHE[tg_id_str] = (bool(status), time.time() + BAN_CACHE_TTL)
         return True
     except Exception as e:
@@ -432,7 +432,7 @@ def get_top_users(limit=50):
         docs = users_ref.stream()
         leaderboard = []
         for doc in docs:
-            data = doc.to_dict()
+            data = doc.to_dict() or {}
             leaderboard.append({
                 "tg_id": doc.id,
                 "first_name": data.get("first_name", "لاعب"),
