@@ -232,6 +232,7 @@ def get_results():
 
 @games_bp.route('/check_notifications', methods=['POST'])
 def check_notifications():
+    """التحقق من المرتجعات والإشعارات المباشرة مع إرجاع الرصيد المحدث لحظياً"""
     success, uid, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -240,16 +241,25 @@ def check_notifications():
         user_ref = db.collection('users').document(uid)
         user_doc = user_ref.get()
         if not user_doc.exists:
-            return jsonify({"success": True, "refund": 0})
+            return jsonify({"success": True, "refund": 0, "balance": 0.0})
         
         data = user_doc.to_dict()
         pending_refund = round(float(data.get('pending_refund', 0)), 2)
+        current_balance = round(float(data.get('balance', 0.0)), 2)
         
         if pending_refund > 0:
             user_ref.update({'pending_refund': 0})
-            return jsonify({"success": True, "refund": pending_refund})
+            return jsonify({
+                "success": True, 
+                "refund": pending_refund, 
+                "balance": current_balance
+            })
         
-        return jsonify({"success": True, "refund": 0})
+        return jsonify({
+            "success": True, 
+            "refund": 0, 
+            "balance": current_balance
+        })
     except Exception as e:
         print(f"Error checking notifications: {e}")
         return jsonify({"success": False, "message": "خطأ في جلب التنبيهات."}), 500
