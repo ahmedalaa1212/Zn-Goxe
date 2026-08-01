@@ -108,7 +108,7 @@ def serve_manifest():
     return jsonify({
         "url": WEB_URL,
         "name": "ZN Goxe Web3",
-        "iconUrl": f"{WEB_URL}/static/icon.png",
+        "iconUrl": f"{WEB_URL}/logo.png",
         "termsOfServiceUrl": f"{WEB_URL}/terms",
         "privacyPolicyUrl": f"{WEB_URL}/privacy"
     }), 200
@@ -125,7 +125,7 @@ def serve_static(path):
     path_lower = path.lower()
     forbidden_extensions = ('.py', '.pyc', '.env', '.md', '.yml', '.yaml', '.sh', '.lock')
     forbidden_files = ('dockerfile', 'procfile', 'railway.toml', 'requirements.txt')
-    forbidden_dirs = ('core/', 'admin_chat/', '.git/', '.github/', '__pycache__/')
+    forbidden_dirs = ('core/', 'admin_chat/', 'super_admin/', '.git/', '.github/', '__pycache__/')
 
     is_forbidden_dir = any(d in path_lower for d in forbidden_dirs)
     is_forbidden_file = any(path_lower == f for f in forbidden_files)
