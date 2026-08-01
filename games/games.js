@@ -24,7 +24,7 @@
         return `${intPart}<span class="small-decimal">.${decPart}</span>${suffix}`;
     }
 
-    // --- العداد البصري التدريجي الانسيابي (مع دعم تصغير الكسور العشرية) ---
+    // --- العداد البصري التدريجي الانسيابي ---
     function animateCounter(elementId, startVal, endVal, duration = 800, suffix = " ZN") {
         const el = document.getElementById(elementId);
         if (!el) return;
@@ -352,17 +352,27 @@
         }
     }
 
-    function showDrawModal(state) {
+    function showDrawModal(state, refundFee = 0) {
         const modal = document.getElementById('draw-modal');
         const refundedEl = document.getElementById('draw-refunded');
         const winnersEl = document.getElementById('draw-winners');
+        const refundAmountEl = document.getElementById('refund-amount-display');
 
         if (refundedEl) refundedEl.style.display = 'none';
         if (winnersEl) winnersEl.style.display = 'none';
         
+        if (state === 'refunded' && refundedEl) {
+            refundedEl.style.display = 'block';
+            if (refundAmountEl) {
+                refundAmountEl.innerHTML = `+${formatNumberHTML(refundFee, " ZN")}`;
+            }
+        }
+        
+        if (state === 'winners' && winnersEl) {
+            winnersEl.style.display = 'block';
+        }
+
         if (modal) modal.style.display = 'flex';
-        if (state === 'refunded' && refundedEl) refundedEl.style.display = 'block';
-        if (state === 'winners' && winnersEl) winnersEl.style.display = 'block';
     }
 
     window.closeDrawModal = function() {
@@ -374,8 +384,9 @@
     async function fetchRoundResults(roundId, retries = 0) {
         if (!roundId) return;
 
-        if (retries > 10) {
-            console.warn("تأخر السيرفر في إحراز النتائج.");
+        // في حالة تأخر النتائج لأكثر من 5 محاولات يتم الانتقال لتحديث الحالة تلقائياً
+        if (retries > 5) {
+            console.warn("تأخر السيرفر في إحراز النتائج، يتم تحديث الحالة...");
             fetchArenaStatus();
             return;
         }
@@ -404,13 +415,13 @@
                 }
 
                 if (data.status === 'refunded') {
-                    const msgEl = document.getElementById('refund-msg-text');
-                    if (msgEl) msgEl.innerText = `تمت إعادة رسوم الدخول (${parseInt(currentEntryFee, 10).toLocaleString('en-US')} ZN) بالكامل إلى محفظتك بدون أي خصم.`;
-                    showDrawModal('refunded');
+                    const refundFee = data.refund_amount || currentEntryFee;
+                    showDrawModal('refunded', refundFee);
                 } else if (data.status === 'completed') {
                     renderWinners(data.winners || []);
                     showDrawModal('winners');
                 } else {
+                    // السيرفر ما زال يجهز القرعة
                     setTimeout(() => { fetchRoundResults(roundId, retries + 1); }, 2000);
                 }
             }
