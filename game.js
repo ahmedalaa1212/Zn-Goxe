@@ -75,7 +75,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
             throw new Error(data.error || `HTTP ${res.status}`);
         }
 
-        // فحص الرصيد من كافة الأشكال المحتملة للرد (سواء كان مباشر أو داخل user/player/data)
+        // فحص الرصيد من كافة الأشكال المحتملة للرد
         const targetObj = data.user || data.player || data.data || data;
         let incomingBal = data.new_balance ?? targetObj?.balance;
         if (incomingBal !== undefined && incomingBal !== null) {
@@ -130,25 +130,24 @@ window.initFirebaseRealtimeSync = function(userId) {
     window.db.collection('users').doc(String(userId)).onSnapshot(doc => {
         if (!doc.exists) return;
         const d = doc.data();
-        isFirebaseUpdating = true;
+        
+        try {
+            isFirebaseUpdating = true;
 
-        if (d.balance !== undefined) {
-            const fbBal = parseFloat(d.balance);
-            if (!isNaN(fbBal)) {
-                window.userState.balance = fbBal;
+            if (d.balance !== undefined) {
+                const fbBal = parseFloat(d.balance);
+                if (!isNaN(fbBal)) window.userState.balance = fbBal;
             }
-        }
-        if (d.usd_balance !== undefined) {
-            const fbUsd = parseFloat(d.usd_balance);
-            if (!isNaN(fbUsd)) {
-                window.userState.usd_balance = fbUsd;
+            if (d.usd_balance !== undefined) {
+                const fbUsd = parseFloat(d.usd_balance);
+                if (!isNaN(fbUsd)) window.userState.usd_balance = fbUsd;
             }
+            ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'].forEach(k => {
+                if (d[k] !== undefined) window.userState[k] = d[k];
+            });
+        } finally {
+            isFirebaseUpdating = false;
         }
-        ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'].forEach(k => {
-            if (d[k] !== undefined) window.userState[k] = d[k];
-        });
-
-        isFirebaseUpdating = false;
     }, err => console.error("Firebase Sync Error:", err));
 };
 
@@ -320,7 +319,6 @@ window.loadUserData = async function() {
     try {
         const d = await window.fetchAPI('/api/user/info');
         if (d?.success) {
-            // استخراج كائن بيانات المستخدم سواء تم إرجاعه على الجذر أو داخل user/player/data
             const u = d.user || d.player || d.data || d;
             ['tg_id', 'balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades', 'wallet_address'].forEach(k => {
                 if (u[k] !== undefined && u[k] !== null) {
