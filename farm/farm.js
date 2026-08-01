@@ -47,7 +47,6 @@
         let startValue = currentDisplayedBalance !== null ? currentDisplayedBalance : getStoredBalance();
         if (isNaN(startValue)) startValue = 0;
 
-        // إذا كان الفارق ضئيل جداً أو مساوي يتم العرض المباشر
         if (Math.abs(targetValue - startValue) < 0.5) {
             currentDisplayedBalance = targetValue;
             balEl.innerText = `ZN: ${Math.floor(targetValue).toLocaleString()}`;
@@ -59,15 +58,13 @@
         }
 
         const diff = Math.abs(targetValue - startValue);
-        // احتساب مدة الحركة بحسب قيمة الفرق (تتراوح بين 600ms و 1500ms)
-        const duration = Math.min(Math.max(600, Math.log10(diff + 1) * 320), 1500);
+        const duration = Math.min(Math.max(400, Math.log10(diff + 1) * 250), 1200);
         const startTime = performance.now();
 
         function step(currentTime) {
             const elapsed = currentTime - startTime;
             const progress = Math.min(elapsed / duration, 1);
             
-            // منحنى الحركة (Ease-Out) لبدء سريع ثم التباطؤ
             const easeOut = 1 - Math.pow(1 - progress, 3);
             
             currentDisplayedBalance = startValue + (targetValue - startValue) * easeOut;
@@ -161,7 +158,7 @@
                 if (resData.game_config && resData.game_config.daily_rewards) {
                     GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
                 }
-                window.updateFarmUI();
+                window.updateFarmUI(false);
             }
         } catch (e) { 
             console.error("خطأ في مزامنة بيانات المزرعة:", e); 
@@ -217,7 +214,7 @@
     };
 
     window.onFarmTabOpen = function() {
-        window.updateFarmUI();
+        window.updateFarmUI(false);
         if (typeof window.fetchPlayerDataFromServer === 'function') {
             window.fetchPlayerDataFromServer();
         }
@@ -352,7 +349,7 @@
     }, 1000);
 
     function syncOnVisibility() {
-        window.updateFarmUI();
+        window.updateFarmUI(false);
         window.fetchPlayerDataFromServer();
     }
 
@@ -397,7 +394,11 @@
                     setStoredBalance(resData.new_balance);
                     animateBalance(resData.new_balance);
                 }
-                if (resData.new_hourly_rate !== undefined) window.userState.hourly_rate = resData.new_hourly_rate;
+                if (resData.new_hourly_rate !== undefined) {
+                    if (!window.userState) window.userState = {};
+                    window.userState.hourly_rate = resData.new_hourly_rate;
+                    if (window.PlayerData) window.PlayerData.hourly_rate = resData.new_hourly_rate;
+                }
                 
                 if (resData.upgrades) {
                     if (!window.PlayerData) window.PlayerData = {};
@@ -408,9 +409,7 @@
                 }
 
                 window.updateFarmUI(false);
-
                 showToast(`⚡ تم التحديث بنجاح للمستوى ${level}!`);
-                await window.fetchPlayerDataFromServer();
             } else if (resData.error) {
                 showToast(resData.error);
             }
@@ -449,16 +448,18 @@
                 });
                 let resData = await response.json();
                 if (response.ok && resData.success) {
-                    if (resData.new_balance !== undefined) {
-                        setStoredBalance(resData.new_balance);
-                        animateBalance(resData.new_balance);
+                    if (resData.new_rate !== undefined) {
+                        pData.hourly_rate = resData.new_rate;
+                        if (!window.userState) window.userState = {};
+                        window.userState.hourly_rate = resData.new_rate;
                     }
-                    if (resData.new_rate !== undefined) window.userState.hourly_rate = resData.new_rate;
+                    if (resData.last_boost_date) {
+                        pData.last_boost_date = resData.last_boost_date;
+                    }
+                    window.updateFarmUI(false);
                     showToast(`🚀 تمت زيادة معدل التعدين بنجاح بمقدار +2/h دائماً!`);
-                    await window.fetchPlayerDataFromServer(); 
                 } else if (resData.error) {
                     showToast(resData.error);
-                    await window.fetchPlayerDataFromServer();
                 }
             }
         } catch (e) {
@@ -499,9 +500,15 @@
                         setStoredBalance(resData.new_balance);
                         animateBalance(resData.new_balance);
                     }
+                    if (resData.daily_day !== undefined) {
+                        pData.daily_day = resData.daily_day;
+                    }
+                    if (resData.last_daily_claim_date) {
+                        pData.last_daily_claim_date = resData.last_daily_claim_date;
+                    }
+                    window.updateFarmUI(false);
                     showToast(`🎉 استلمت ${resData.reward.toLocaleString()} ZN!`);
                     if (resData.reset_msg) showToast(resData.reset_msg);
-                    await window.fetchPlayerDataFromServer(); 
                 } else if (resData.error) {
                     showToast(resData.error);
                 }
@@ -538,9 +545,10 @@
         const currentBal = getStoredBalance();
         const optimisticNewBal = currentBal + unclaimedAmount;
         
-        // تحديث وتفعيل العداد التصاعدي فوراً لإعطاء انطباع بالسرعة والاستجابة
+        // تحديث الرصيد محلياً فوراً لاستجابة لحظية وسريعة
         setStoredBalance(optimisticNewBal);
         pData.unclaimed = 0;
+        pData.last_claim_time = new Date().toISOString();
         animateBalance(optimisticNewBal);
         window.updateFarmUI(false);
 
@@ -557,7 +565,10 @@
                     setStoredBalance(resData.new_balance);
                     animateBalance(resData.new_balance);
                 }
-                await window.fetchPlayerDataFromServer(); 
+                if (resData.last_claim_time) {
+                    pData.last_claim_time = resData.last_claim_time;
+                }
+                pData.unclaimed = 0;
                 claimCooldown = 5; 
             } else {
                 setStoredBalance(currentBal);
