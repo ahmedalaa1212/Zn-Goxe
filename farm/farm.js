@@ -43,7 +43,7 @@
         if (newBalance !== undefined && newBalance !== null) {
             const val = parseFloat(newBalance);
             if (!window.userState) window.userState = {};
-            window.userState.balance = val; // تفعيل التغيير عبر Proxy ليعمل الـ Smooth Counter
+            window.userState.balance = val; // يقدّم تحديثاً سلسًا للرصيد عبر الـ Proxy
             if (window.PlayerData) window.PlayerData.balance = val;
         }
     }
@@ -103,7 +103,7 @@
                     window.userState.upgrades = resData.player.upgrades;
                 }
                 
-                // تحديث الإعدادات الديناميكية القادمة من بوت الأدمن / قاعدة البيانات
+                // تحديث الإعدادات الديناميكية القادمة من السيرفر
                 if (resData.game_config) {
                     if (resData.game_config.daily_rewards) {
                         GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
@@ -130,8 +130,12 @@
         let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
         
         const balEl = document.getElementById('farm-balance');
-        if (balEl && typeof window.formatNumberHTML === 'function') {
-            balEl.innerHTML = `ZN: ${window.formatNumberHTML(bal, 0, 2)}`;
+        if (balEl) {
+            if (typeof window.formatNumberHTML === 'function') {
+                balEl.innerHTML = `ZN: ${window.formatNumberHTML(bal, 0, 2)}`;
+            } else {
+                balEl.innerText = `ZN: ${bal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 2})}`;
+            }
         }
 
         const rateEl = document.getElementById('farm-rate');
@@ -218,19 +222,21 @@
         container.innerHTML = html;
     }
 
+    // العداد المحلي السلس المحسوب بناءً على Timestamp لتجنب أي استهلاك لـ Firebase
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
         const pData = window.PlayerData;
         if (!pData) return;
         
-        let unclaim = parseFloat(pData.unclaimed || 0);
         let maxC = parseFloat(window.userState?.max_cap || pData.max_cap || 200);
-        let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0); 
+        let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
         
-        if (unclaim < maxC) {
-            unclaim += hRate / 3600;
-            if (unclaim >= maxC) unclaim = maxC;
-        }
+        // حساب الفارق الزمني من آخر تجميع للحصول على قيمة غير مجمعة دقيقة 100% محلياً
+        let lastClaimTimeMs = pData.last_claim_time ? new Date(pData.last_claim_time).getTime() : Date.now();
+        let secondsPassed = Math.max(0, (Date.now() - lastClaimTimeMs) / 1000);
+        let unclaim = (hRate / 3600.0) * secondsPassed;
+
+        if (unclaim >= maxC) unclaim = maxC;
         pData.unclaimed = unclaim;
 
         const progressEl = document.getElementById('storage-progress');
