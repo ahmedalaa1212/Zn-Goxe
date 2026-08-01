@@ -20,7 +20,7 @@
         let numVal = parseFloat(val) || 0;
         localStorage.setItem('userBalance', numVal);
         
-        // 1. تحديث الكائنات المحلية للفرونت إند (userState & PlayerData)
+        // 1. تحديث الكائنات المحلية للفرونت إند (userState & PlayerData & GameState)
         if (window.GameState) window.GameState.balance = numVal;
         if (window.PlayerData) window.PlayerData.balance = numVal;
         if (window.userState) window.userState.balance = numVal;
@@ -240,7 +240,6 @@
                     if (data.ad_balance !== undefined) setStoredAdBalance(data.ad_balance);
                     if (data.balance !== undefined) {
                         const currentLocal = getStoredBalance();
-                        // لا نستبدل الرصيد إذا كان المحلي أعلى بسبب التعدين اللحظي
                         if (data.balance > currentLocal || currentLocal === 0) {
                             setStoredBalance(data.balance);
                         }
@@ -258,7 +257,7 @@
                     description: escapeHtml(task.description) || "برجاء اتباع الرابط لإكمال المهمة المطلوبة بنجاح التام.",
                     platform: task.platform || 'أخرى',
                     reward: Number(task.reward || 0),
-                    link: task.url,
+                    link: task.url || '',
                     is_completed: !!task.is_completed,
                     creator_id: String(task.creator_id || '').trim()
                 });
@@ -411,7 +410,7 @@
     };
 
     window.startTask = function(taskId, encodedLink, reward) {
-        const link = decodeURIComponent(encodedLink);
+        const link = decodeURIComponent(encodedLink || '');
         window.taskStates[taskId] = 'running';
         window.accumulatedOutsideTime[taskId] = 0;
         window.lastGoOutside[taskId] = Date.now();
@@ -493,6 +492,8 @@
         }
 
         try {
+            if (window.taskIntervals[taskId]) clearInterval(window.taskIntervals[taskId]);
+            
             let response = await fetch('/api/tasks/complete_task', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -501,7 +502,6 @@
             let result = await response.json();
             
             if (response.ok && result.success) {
-                // مزامنة الرصيد الجديد المرتجع عبر دوال الحفظ المركزية
                 if (result.new_balance !== undefined) {
                     setStoredBalance(result.new_balance);
                 }
@@ -585,7 +585,6 @@
             if (response.ok && result.success) {
                 alert(`✅ شحن ناجح! تمت عملية التحويل لمحفظتك بنجاح.`);
                 
-                // تحديث وتوزيع الأرصدة المتزامنة فوراً
                 if (result.new_balance !== undefined) setStoredBalance(result.new_balance);
                 if (result.new_ad_balance !== undefined) setStoredAdBalance(result.new_ad_balance);
                 
