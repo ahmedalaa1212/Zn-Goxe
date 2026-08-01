@@ -15,6 +15,15 @@
 
     const tele = window.Telegram?.WebApp;
 
+    // --- دالة تنسيق الأرقام (رقمين عشريين بحد أقصى) ---
+    function formatNumber(val) {
+        const num = parseFloat(val) || 0;
+        return num.toLocaleString('en-US', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 2
+        });
+    }
+
     // --- العداد البصري التدريجي الانسيابي (Speedometer Dynamic Counter) ---
     function animateCounter(elementId, startVal, endVal, duration = 800, suffix = " ZN") {
         const el = document.getElementById(elementId);
@@ -25,7 +34,7 @@
         const endNum = parseFloat(endVal) || 0;
 
         if (startNum === endNum) {
-            el.innerText = `${Math.floor(endNum).toLocaleString('en-US')}${suffix}`;
+            el.innerText = `${formatNumber(endNum)}${suffix}`;
             return;
         }
 
@@ -37,12 +46,12 @@
             const easeProgress = 1 - Math.pow(1 - progress, 3);
             const currentVal = startNum + (endNum - startNum) * easeProgress;
 
-            el.innerText = `${Math.floor(currentVal).toLocaleString('en-US')}${suffix}`;
+            el.innerText = `${formatNumber(currentVal)}${suffix}`;
 
             if (progress < 1) {
                 window.requestAnimationFrame(step);
             } else {
-                el.innerText = `${Math.floor(endNum).toLocaleString('en-US')}${suffix}`;
+                el.innerText = `${formatNumber(endNum)}${suffix}`;
             }
         };
 
@@ -58,7 +67,7 @@
     }
 
     function askForConfirmation(onConfirm) {
-        const msg = `هل أنت متأكد من خصم ${currentEntryFee.toLocaleString('en-US')} ZN للاشتراك في الساحة الكبرى؟`;
+        const msg = `هل أنت متأكد من خصم ${formatNumber(currentEntryFee)} ZN للاشتراك في الساحة الكبرى؟`;
         if (tele && tele.showConfirm) {
             tele.showConfirm(msg, (confirmed) => {
                 if (confirmed) onConfirm();
@@ -66,7 +75,7 @@
         } else {
             const modal = document.getElementById('confirm-modal');
             const feeText = document.getElementById('confirm-fee-text');
-            if (feeText) feeText.innerText = `${currentEntryFee.toLocaleString('en-US')} ZN`;
+            if (feeText) feeText.innerText = `${formatNumber(currentEntryFee)} ZN`;
             if (modal) {
                 pendingConfirmCallback = onConfirm;
                 modal.style.display = 'flex';
@@ -97,26 +106,24 @@
 
     function setStoredBalance(newBalance, animate = true) {
         if (newBalance !== undefined && newBalance !== null) {
-            const numVal = parseFloat(newBalance);
-            if (!isNaN(numVal)) {
-                const oldVal = currentDisplayBalance || getStoredBalance();
-                
-                if (window.GameState) window.GameState.balance = numVal;
-                localStorage.setItem('zn_balance', numVal.toString());
-                localStorage.setItem('user_balance', numVal.toString());
-                
-                if (animate) {
-                    animateCounter('top-balance-games', oldVal, numVal, 800, " ZN");
-                } else {
-                    const gameBalEl = document.getElementById('top-balance-games');
-                    if (gameBalEl) gameBalEl.innerText = `${Math.floor(numVal).toLocaleString('en-US')} ZN`;
-                }
-                
-                currentDisplayBalance = numVal;
+            const numVal = Math.round((parseFloat(newBalance) || 0) * 100) / 100;
+            const oldVal = currentDisplayBalance || getStoredBalance();
+            
+            if (window.GameState) window.GameState.balance = numVal;
+            localStorage.setItem('zn_balance', numVal.toString());
+            localStorage.setItem('user_balance', numVal.toString());
+            
+            if (animate) {
+                animateCounter('top-balance-games', oldVal, numVal, 800, " ZN");
+            } else {
+                const gameBalEl = document.getElementById('top-balance-games');
+                if (gameBalEl) gameBalEl.innerText = `${formatNumber(numVal)} ZN`;
+            }
+            
+            currentDisplayBalance = numVal;
 
-                if (typeof window.setBalance === 'function') {
-                    window.setBalance(numVal);
-                }
+            if (typeof window.setBalance === 'function') {
+                window.setBalance(numVal);
             }
         }
     }
@@ -173,7 +180,7 @@
                 if (data.lock_seconds) currentLockSeconds = data.lock_seconds;
 
                 const subtext = document.getElementById('arena-subtext');
-                if (subtext) subtext.innerText = `سحب تلقائي مستمر! رسوم الاشتراك: ${currentEntryFee.toLocaleString('en-US')} ZN`;
+                if (subtext) subtext.innerText = `سحب تلقائي مستمر! رسوم الاشتراك: ${formatNumber(currentEntryFee)} ZN`;
 
                 if (data.balance !== undefined) {
                     setStoredBalance(data.balance, true);
@@ -197,7 +204,7 @@
     }
 
     function updateArenaPrizes(data) {
-        const newPool = data.prize_pool || 0;
+        const newPool = parseFloat(data.prize_pool) || 0;
         const oldPool = currentPrizePool;
         
         animateCounter('prize-pool', oldPool, newPool, 900, " ZN");
@@ -209,11 +216,11 @@
         const p4 = document.getElementById('prize-4');
         const p5 = document.getElementById('prize-5');
 
-        if (p1) p1.innerText = Math.floor(newPool * 0.30).toLocaleString('en-US') + " ZN";
-        if (p2) p2.innerText = Math.floor(newPool * 0.25).toLocaleString('en-US') + " ZN";
-        if (p3) p3.innerText = Math.floor(newPool * 0.20).toLocaleString('en-US') + " ZN";
-        if (p4) p4.innerText = Math.floor(newPool * 0.15).toLocaleString('en-US') + " ZN";
-        if (p5) p5.innerText = Math.floor(newPool * 0.10).toLocaleString('en-US') + " ZN";
+        if (p1) p1.innerText = formatNumber(newPool * 0.30) + " ZN";
+        if (p2) p2.innerText = formatNumber(newPool * 0.25) + " ZN";
+        if (p3) p3.innerText = formatNumber(newPool * 0.20) + " ZN";
+        if (p4) p4.innerText = formatNumber(newPool * 0.15) + " ZN";
+        if (p5) p5.innerText = formatNumber(newPool * 0.10) + " ZN";
     }
 
     function startSmoothCountdown(hasJoined) {
@@ -264,7 +271,7 @@
             if (!hasJoined) {
                 btn.disabled = false;
                 btn.classList.remove('btn-disabled');
-                btn.innerText = `⚔️ دخول الساحة (${currentEntryFee.toLocaleString('en-US')} ZN)`;
+                btn.innerText = `⚔️ دخول الساحة (${formatNumber(currentEntryFee)} ZN)`;
             } else {
                 btn.disabled = true;
                 btn.classList.add('btn-disabled');
@@ -278,7 +285,7 @@
 
         const currentBal = getStoredBalance();
         if (currentBal < currentEntryFee) {
-            showNotification(`⚠️ رصيدك غير كافٍ للدخول في الساحة (تتطلب ${currentEntryFee.toLocaleString('en-US')} ZN).`);
+            showNotification(`⚠️ رصيدك غير كافٍ للدخول في الساحة (تتطلب ${formatNumber(currentEntryFee)} ZN).`);
             return;
         }
 
@@ -299,7 +306,6 @@
 
         try {
             const initData = tele?.initData || "";
-            const currentBal = getStoredBalance();
 
             const response = await fetch('/api/games/join', {
                 method: 'POST',
@@ -315,27 +321,34 @@
             const data = await response.json();
             
             if (data.success) {
-                // تطبيق القاعدة الذهبية: تحديث الواجهة والعداد البصري فوراً من الـ Response بدون إعادة جلب البيانات بالكامل
+                // تطبيق القاعدة الذهبية: تحديث المكونات فوراً من الـ Response بدون إعادة جلب البيانات الشبكية
                 if (data.new_balance !== undefined) {
                     setStoredBalance(data.new_balance, true);
-                } else {
-                    setStoredBalance(currentBal - currentEntryFee, true);
                 }
-                
+                if (data.prize_pool !== undefined) {
+                    updateArenaPrizes(data);
+                }
+
+                // تحديث الزر موضعياً
+                if (btn) {
+                    btn.disabled = true;
+                    btn.classList.add('btn-disabled');
+                    btn.innerText = "أنت مشترك بالفعل ✅";
+                }
+
                 showNotification("🎉 تم دخول الساحة بنجاح! نتمنى لك التوفيق.");
-                fetchArenaStatus(); 
             } else {
                 showNotification("⚠️ " + (data.message || data.error || "تعذر الاشتراك"));
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerText = `⚔️ دخول الساحة (${currentEntryFee.toLocaleString('en-US')} ZN)`;
+                    btn.innerText = `⚔️ دخول الساحة (${formatNumber(currentEntryFee)} ZN)`;
                 }
             }
         } catch (error) {
             showNotification("حدث خطأ في الاتصال بالخادم. حاول مجدداً.");
             if (btn) {
                 btn.disabled = false;
-                btn.innerText = `⚔️ دخول الساحة (${currentEntryFee.toLocaleString('en-US')} ZN)`;
+                btn.innerText = `⚔️ دخول الساحة (${formatNumber(currentEntryFee)} ZN)`;
             }
         } finally {
             isJoining = false;
@@ -389,14 +402,13 @@
             const data = await response.json();
             
             if (data.success) {
-                // القاعدة الذهبية: تحديث سلس بالعداد مباشرة بدون استدعاء شبكي خارجي
                 if (data.new_balance !== undefined) {
                     setStoredBalance(data.new_balance, true);
                 }
 
                 if (data.status === 'refunded') {
                     const msgEl = document.getElementById('refund-msg-text');
-                    if (msgEl) msgEl.innerText = `تمت إعادة رسوم الدخول (${currentEntryFee.toLocaleString('en-US')} ZN) بالكامل إلى محفظتك بدون أي خصم.`;
+                    if (msgEl) msgEl.innerText = `تمت إعادة رسوم الدخول (${formatNumber(currentEntryFee)} ZN) بالكامل إلى محفظتك بدون أي خصم.`;
                     showDrawModal('refunded');
                 } else if (data.status === 'completed') {
                     renderWinners(data.winners || []);
@@ -420,7 +432,7 @@
         
         winners.forEach((winner, index) => {
             let name = winner.name || `مستخدم #${(winner.uid || '00000').substring(0,5)}`;
-            let prize = (winner.prize || 0).toLocaleString('en-US');
+            let prize = formatNumber(winner.prize || 0);
             
             list.innerHTML += `
                 <div class="winner-item" style="animation-delay: ${index * 0.1}s;">
