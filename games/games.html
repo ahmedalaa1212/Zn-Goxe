@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>الألعاب والساحة - Zn Goxe</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="../style.css?v=13.3">
+    <link rel="stylesheet" href="../style.css?v=13.2">
     <style>
         :root {
             --bg-color: #0f0f0f;
             --card-bg: #1a1a2e;
             --primary: #f39c12;
-            --primary-glow: rgba(243, 156, 18, 0.4);
+            --primary-glow: rgba(243, 156, 18, 0.5);
             --text-main: #ffffff;
             --text-muted: #888888;
             --btn-disabled: #2a2a2a;
@@ -35,7 +35,7 @@
             padding-bottom: 95px;
         }
 
-        /* الرأس العائم للرصيد */
+        /* الرأس العائم للرصيد مع تأثير التوهج التدريجي */
         .balance-header-fixed {
             position: fixed;
             top: 12px;
@@ -44,18 +44,19 @@
             background: rgba(18, 18, 28, 0.95);
             backdrop-filter: blur(10px);
             border: 1px solid var(--primary);
-            padding: 6px 20px;
+            padding: 6px 22px;
             border-radius: 30px;
             z-index: 100;
-            box-shadow: 0 4px 18px var(--primary-glow);
+            box-shadow: 0 4px 20px var(--primary-glow);
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 8px;
             font-weight: bold;
-            font-size: 0.95rem;
+            font-size: 1.05rem;
             color: #ffffff;
             white-space: nowrap;
+            transition: all 0.3s ease;
         }
 
         .balance-header-fixed .coin-icon {
@@ -96,10 +97,10 @@
 
         .tab-card.active {
             border-color: var(--primary);
-            box-shadow: 0 0 12px var(--primary-glow);
+            box-shadow: 0 0 15px var(--primary-glow);
         }
 
-        /* بطاقة الساحة الرئيسية */
+        /* بطاقة الساحة الرئيسية المؤثرة */
         .arena-card {
             background: linear-gradient(145deg, #161626, #0f172a);
             border: 1px solid #2a2a40;
@@ -111,6 +112,23 @@
             box-shadow: 0 8px 24px rgba(0,0,0,0.6);
         }
 
+        .arena-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(243, 156, 18, 0.05) 0%, transparent 70%);
+            pointer-events: none;
+            animation: pulseBg 6s infinite alternate;
+        }
+
+        @keyframes pulseBg {
+            0% { transform: scale(0.9); opacity: 0.3; }
+            100% { transform: scale(1.1); opacity: 0.8; }
+        }
+
         .timer-box {
             background: rgba(0,0,0,0.6);
             border-radius: 12px;
@@ -118,6 +136,7 @@
             display: inline-block;
             margin-bottom: 18px;
             border: 1px solid rgba(233, 69, 96, 0.6);
+            box-shadow: 0 0 10px rgba(233, 69, 96, 0.2);
         }
 
         .timer-display {
@@ -142,22 +161,18 @@
         .prize-box {
             margin-bottom: 22px;
             background: rgba(0,0,0,0.35);
-            padding: 15px;
+            padding: 16px;
             border-radius: 14px;
             border: 1px solid #2a2a2a;
+            position: relative;
         }
 
         .prize-pool-text {
-            font-size: 2.1rem;
-            font-weight: bold;
+            font-size: 2.2rem;
+            font-weight: 800;
             color: var(--primary);
             text-shadow: 0 0 15px var(--primary-glow);
-            animation: prizeGlow 2.5s infinite alternate;
-        }
-
-        @keyframes prizeGlow {
-            0% { text-shadow: 0 0 10px rgba(243, 156, 18, 0.4); }
-            100% { text-shadow: 0 0 22px rgba(243, 156, 18, 0.9); }
+            transition: all 0.2s ease;
         }
 
         .btn-join {
@@ -220,7 +235,6 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
-        /* أنيميشن الحاوية للمودال */
         .modal-animated {
             animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
         }
@@ -233,6 +247,7 @@
 </head>
 <body>
 
+    <!-- الهيدر العائم برصيد ينبض حركياً -->
     <div class="balance-header-fixed">
         <span class="coin-icon">🪙</span>
         <span id="top-balance-games">0 ZN</span>
@@ -264,6 +279,7 @@
 
                 <div class="prize-box">
                     <h3 style="color: var(--primary); font-size: 14px; margin: 0 0 8px 0;">🏆 إجمالي الجوائز الحالية</h3>
+                    <!-- عداد سليم ومباشر حركي -->
                     <div id="prize-pool" class="prize-pool-text">0 ZN</div>
                 </div>
 
@@ -290,7 +306,7 @@
                     </div>
                 </div>
             </div>
-            <p style="color: #888; font-size: 12px; text-align: center; margin-top: 14px;">سحب كل 15 دقيقة! رسوم الاشتراك: <span id="footer-fee-text">1,000</span> ZN</p>
+            <p id="arena-subtext" style="color: #888; font-size: 12px; text-align: center; margin-top: 14px;">سحب تلقائي مستمر! رسوم الاشتراك: 1,000 ZN</p>
         </div>
 
         <div id="content-soon" style="display: none; padding-top: 15px;">
@@ -306,7 +322,7 @@
             <div id="draw-refunded" class="modal-animated" style="display: none; text-align: center; padding: 22px; width: 85%; max-width: 380px; background: #161626; border: 1px solid #2a2a40; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.6);">
                 <div style="font-size: 46px; margin-bottom: 12px;">🛡️</div>
                 <h2 style="color: #fff; font-size: 17px; margin-bottom: 8px;">لم يكتمل النصاب المطلوب!</h2>
-                <p style="color: #aaa; font-size: 13px; line-height: 1.5;">تمت إعادة رسوم الدخول بالكامل إلى محفظتك بدون أي خصم.</p>
+                <p id="refund-msg-text" style="color: #aaa; font-size: 13px; line-height: 1.5;">تمت إعادة رسوم الدخول بالكامل إلى محفظتك بدون أي خصم.</p>
                 <button onclick="closeDrawModal()" style="margin-top: 18px; width: 100%; padding: 12px; background: #2a2a40; color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 14px;">حسناً، فهمت</button>
             </div>
 
@@ -323,7 +339,7 @@
             <div class="modal-animated" style="text-align: center; padding: 22px; width: 85%; max-width: 360px; background: #161626; border: 1px solid var(--primary); border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
                 <div style="font-size: 42px; margin-bottom: 10px;">⚔️</div>
                 <h3 style="color: #fff; font-size: 17px; margin-bottom: 8px;">تأكيد الدخول للساحة</h3>
-                <p id="confirm-desc" style="color: #ccc; font-size: 13px; line-height: 1.5; margin-bottom: 20px;">سيتم خصم <strong style="color: var(--primary);">1,000 ZN</strong> من رصيدك للاشتراك في هذه الجولة. هل تريد المتابعة؟</p>
+                <p style="color: #ccc; font-size: 13px; line-height: 1.5; margin-bottom: 20px;">سيتم خصم <strong id="confirm-fee-text" style="color: var(--primary);">1,000 ZN</strong> من رصيدك للاشتراك في هذه الجولة. هل تريد المتابعة؟</p>
                 <div style="display: flex; gap: 10px;">
                     <button onclick="onConfirmJoin(true)" style="flex: 1; padding: 12px; background: linear-gradient(90deg, #f39c12, #d35400); color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer;">تأكيد الاشتراك</button>
                     <button onclick="onConfirmJoin(false)" style="flex: 1; padding: 12px; background: #2a2a3a; color: #aaa; border: none; border-radius: 10px; font-weight: bold; cursor: pointer;">إلغاء</button>
@@ -346,6 +362,6 @@
         <a href="../friends/friends.html"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
-    <script src="games.js?v=13.3"></script>
+    <script src="games.js?v=13.2"></script>
 </body>
 </html>
