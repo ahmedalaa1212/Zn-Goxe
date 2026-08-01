@@ -1,6 +1,6 @@
 # shop/shop_api.py
 import time
-import requests
+import hashlib
 import traceback
 from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
@@ -14,11 +14,11 @@ shop_bp = Blueprint('shop', __name__)
 
 PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
 
-# --- Server-Side RAM Caching Systems ---
+# --- Server-Side RAM Caching Systems (حماية الفايربيس من استنزاف القراءات) ---
 _SHOP_CONFIG_CACHE = {"data": None, "timestamp": 0}
 _TON_PRICE_CACHE = {"price": 0.0, "timestamp": 0}
 
-CACHE_TTL_CONFIG = 600  # 10 دقائق لكاش إعدادات المتجر بالكامل (يمنع آلاف قراءات Firestore)
+CACHE_TTL_CONFIG = 600  # 10 دقائق لكاش إعدادات المتجر بالكامل
 CACHE_TTL_TON = 60      # 60 ثانية لكاش سعر عملة TON المباشر
 
 DEFAULT_USDT_PACKAGES = {
@@ -54,7 +54,6 @@ DEFAULT_STORAGE_CONFIG = {
 }
 
 def safe_create_transaction(tg_id, tx_type, amount_usd=0.0, wallet_address="", status="completed", details=None):
-    """حاوية آمنة لإنشاء المعاملات تجنباً لأخطاء المسارات الفردية في Firestore"""
     try:
         clean_id = str(tg_id).strip() if tg_id else None
         if clean_id:
@@ -70,7 +69,6 @@ def safe_create_transaction(tg_id, tx_type, amount_usd=0.0, wallet_address="", s
         print(f"⚠️ [Transaction Warning] فشل تسجيل المعاملة: {e}")
 
 def get_cached_ton_price():
-    """جلب سعر عملة TON المباشر مع التخزين المؤقت بالسيرفر"""
     now = time.time()
     if _TON_PRICE_CACHE["price"] > 0 and (now - _TON_PRICE_CACHE["timestamp"] < CACHE_TTL_TON):
         return _TON_PRICE_CACHE["price"]
@@ -84,7 +82,6 @@ def get_cached_ton_price():
     return price
 
 def get_game_config():
-    """جلب إعدادات المتجر والتعدين والمخازن مع التخزين المؤقت في RAM السيرفر"""
     now = time.time()
     if _SHOP_CONFIG_CACHE["data"] and (now - _SHOP_CONFIG_CACHE["timestamp"] < CACHE_TTL_CONFIG):
         return _SHOP_CONFIG_CACHE["data"]
@@ -136,25 +133,8 @@ def get_game_config():
         _SHOP_CONFIG_CACHE["timestamp"] = now
         return fallback
 
-def ensure_user_shop_defaults(user_ref, user_data):
-    updates = {}
-    if 'storage_level' not in user_data:
-        updates['storage_level'] = 0
-        user_data['storage_level'] = 0
-    if 'max_cap' not in user_data:
-        updates['max_cap'] = 200.0
-        user_data['max_cap'] = 200.0
-    if 'upgrades' not in user_data or not isinstance(user_data['upgrades'], dict):
-        updates['upgrades'] = {}
-        user_data['upgrades'] = {}
-
-    if updates:
-        user_ref.set(updates, merge=True)
-    return user_data
-
 @shop_bp.route('/get_config', methods=['GET'])
 def get_config():
-    """عرض إعدادات المتجر وسعر TON المحدث باستخدام RAM Cache لحماية Firestore"""
     settings = get_game_config()
     ton_price_usd = get_cached_ton_price()
 
@@ -230,6 +210,9 @@ def prepare_ton_pay():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+# ==========================================
+# 💎 1. تأكيد وتفعيل باقات TON (معاملة معزولة)
+# ==========================================
 @shop_bp.route('/verify_and_apply_package', methods=['POST'])
 def verify_and_apply_package():
     try:
@@ -251,24 +234,24 @@ def verify_and_apply_package():
             return jsonify({"success": False, "error": "باقة غير صالحة."}), 400
 
         pkg_info = packages[pkg_key]
-        tx_doc_id = str(tx_boc[:64]) if len(str(tx_boc)) >= 64 else f"TX_{user_id}_{int(time.time())}"
+        user_id_str = str(user_id).strip()
+        tx_doc_id = hashlib.sha256(f"{user_id_str}_{tx_boc}".encode('utf-8')).hexdigest()[:32]
         
+        transaction = db.transaction()
         tx_ref = db.collection('processed_txs').document(tx_doc_id)
-        if tx_ref.get().exists:
-            return jsonify({"success": False, "error": "تم معالجة هذه المعاملة سابقاً."}), 400
+        user_ref = db.collection('users').document(user_id_str)
 
-        tx_ref.set({
-            'user_id': str(user_id),
-            'package_id': pkg_key,
-            'boc_short': tx_doc_id,
-            'timestamp': datetime.now(timezone.utc).isoformat()
-        })
+        @firestore.transactional
+        def secure_apply_package_tx(tx, u_ref, t_ref):
+            t_snap = t_ref.get(transaction=tx)
+            if t_snap.exists:
+                raise Exception("تم معالجة هذه المعاملة وتفعيل الباقة سابقاً.")
 
-        user_ref = db.collection('users').document(str(user_id))
-        user_doc = user_ref.get()
+            u_snap = u_ref.get(transaction=tx)
+            if not u_snap.exists:
+                raise Exception("حساب المستخدم غير موجود.")
 
-        if user_doc.exists:
-            u_data = user_doc.to_dict() or {}
+            u_data = u_snap.to_dict() or {}
             
             zn_add = float(pkg_info.get('zn_add', 0))
             rate_add = float(pkg_info.get('rate_add', 0))
@@ -278,42 +261,53 @@ def verify_and_apply_package():
             new_hourly_rate = round(float(u_data.get('hourly_rate', 0.0)) + rate_add, 2)
             new_max_cap = round(float(u_data.get('max_cap', 200.0)) + storage_add, 2)
 
-            user_ref.update({
+            tx.update(u_ref, {
                 'balance': new_balance,
                 'hourly_rate': new_hourly_rate,
                 'max_cap': new_max_cap
             })
 
-            safe_create_transaction(
-                tg_id=user_id,
-                tx_type="package_buy_success",
-                amount_usd=float(pkg_info.get('usdt', 0)),
-                status="completed",
-                details={
-                    "package_id": pkg_key,
-                    "title": pkg_info.get('title', ''),
-                    "zn_added": zn_add,
-                    "rate_added": rate_add,
-                    "storage_added": storage_add
-                }
-            )
+            tx.set(t_ref, {
+                'user_id': user_id_str,
+                'package_id': pkg_key,
+                'timestamp': datetime.now(timezone.utc).isoformat()
+            })
 
-            return jsonify({
-                "success": True,
-                "message": f"تم تفعيل باقة {pkg_info.get('title')} بنجاح!",
-                "result": {
-                    "balance": new_balance,
-                    "hourly_rate": new_hourly_rate,
-                    "max_cap": new_max_cap
-                }
-            }), 200
-        else:
-            return jsonify({"success": False, "error": "حساب المستخدم غير موجود."}), 404
+            return new_balance, new_hourly_rate, new_max_cap
+
+        new_bal, new_rate, new_cap = secure_apply_package_tx(transaction, user_ref, tx_ref)
+
+        safe_create_transaction(
+            tg_id=user_id_str,
+            tx_type="package_buy_success",
+            amount_usd=float(pkg_info.get('usdt', 0)),
+            status="completed",
+            details={
+                "package_id": pkg_key,
+                "title": pkg_info.get('title', ''),
+                "zn_added": pkg_info.get('zn_add', 0),
+                "rate_added": pkg_info.get('rate_add', 0),
+                "storage_added": pkg_info.get('storage_add', 0)
+            }
+        )
+
+        return jsonify({
+            "success": True,
+            "message": f"تم تفعيل باقة {pkg_info.get('title')} بنجاح!",
+            "result": {
+                "balance": new_bal,
+                "hourly_rate": new_rate,
+                "max_cap": new_cap
+            }
+        }), 200
 
     except Exception as e:
-        print(traceback.format_exc())
-        return jsonify({"success": False, "error": str(e)}), 500
+        print(f"[Shop Package Error]: {e}")
+        return jsonify({"success": False, "error": str(e)}), 200
 
+# ==========================================
+# 🛒 2. شراء ترقيات السرعة والمخازن (Transaction أمنية)
+# ==========================================
 @shop_bp.route('/buy', methods=['POST'])
 def buy_upgrade():
     try:
@@ -328,153 +322,144 @@ def buy_upgrade():
         if not is_auth:
             return error_response
 
-        # استخدام الإعدادات المخزنة بالـ RAM بدلاً من استعلام Firestore تكراري
         settings = get_game_config()
-        user_ref = db.collection('users').document(str(user_id))
-        user_doc = user_ref.get()
-
-        if not user_doc.exists:
-            initial_user_data = {
-                'balance': 0.0,
-                'hourly_rate': 0.0,
-                'max_cap': 200.0,
-                'usd_balance': 0.0,
-                'storage_level': 0,
-                'upgrades': {}
-            }
-            user_ref.set(initial_user_data, merge=True)
-            user_data = initial_user_data
-        else:
-            user_data = user_doc.to_dict() or {}
-            user_data = ensure_user_shop_defaults(user_ref, user_data)
-
-        current_balance = float(user_data.get('balance', 0.0))
-        hourly_rate = float(user_data.get('hourly_rate', 0.0))
-        max_cap = float(user_data.get('max_cap', 200.0)) 
-        usd_balance = float(user_data.get('usd_balance', 0.0))
+        user_id_str = str(user_id).strip()
+        user_ref = db.collection('users').document(user_id_str)
         
-        upgrades = user_data.get('upgrades', {})
-        if not isinstance(upgrades, dict):
-            upgrades = {}
+        transaction = db.transaction()
 
-        last_claim_str = user_data.get('last_claim_time')
-        now_dt = datetime.now(timezone.utc)
-        now_ts = now_dt.timestamp()
-        
-        pending_mined = 0.0
-        if last_claim_str:
-            try:
-                last_claim_dt = datetime.fromisoformat(last_claim_str.replace('Z', '+00:00'))
-                time_elapsed = max(0.0, now_ts - last_claim_dt.timestamp())
-                pending_mined = min(time_elapsed * (hourly_rate / 3600.0), max_cap)
-            except Exception:
-                pending_mined = 0.0
+        @firestore.transactional
+        def secure_buy_upgrade_tx(tx, u_ref):
+            u_snap = u_ref.get(transaction=tx)
+            if not u_snap.exists:
+                raise Exception("حساب المستخدم غير موجود.")
 
-        total_balance = current_balance + pending_mined
-        new_last_claim_time = now_dt.isoformat()
+            u_data = u_snap.to_dict() or {}
+            
+            current_balance = float(u_data.get('balance', 0.0))
+            hourly_rate = float(u_data.get('hourly_rate', 0.0))
+            max_cap = float(u_data.get('max_cap', 200.0)) 
+            usd_balance = float(u_data.get('usd_balance', 0.0))
+            upgrades = u_data.get('upgrades', {})
+            if not isinstance(upgrades, dict):
+                upgrades = {}
 
-        if upgrade_type == 'mining':
-            mining_cfg = settings.get('mining_config', DEFAULT_MINING_CONFIG)
-            if level_num not in mining_cfg:
-                return jsonify({"success": False, "error": "مستوى غير صالح."}), 400
+            # حساب التعدين المعلق لحظياً لضمان عدم ضياع الأرباح
+            last_claim_str = u_data.get('last_claim_time')
+            now_dt = datetime.now(timezone.utc)
+            now_ts = now_dt.timestamp()
+            
+            pending_mined = 0.0
+            if last_claim_str:
+                try:
+                    last_claim_dt = datetime.fromisoformat(last_claim_str.replace('Z', '+00:00'))
+                    time_elapsed = max(0.0, now_ts - last_claim_dt.timestamp())
+                    pending_mined = min(time_elapsed * (hourly_rate / 3600.0), max_cap)
+                except Exception:
+                    pending_mined = 0.0
 
-            config = mining_cfg[level_num]
-            price = float(config['price'])
-            max_limit = int(config.get('max', 10))
+            total_balance = current_balance + pending_mined
+            new_last_claim_time = now_dt.isoformat()
 
-            lvl_key = f"lvl{level_num}"
-            current_lvl_count = int(upgrades.get(lvl_key, 0))
+            if upgrade_type == 'mining':
+                mining_cfg = settings.get('mining_config', DEFAULT_MINING_CONFIG)
+                if level_num not in mining_cfg:
+                    raise Exception("مستوى ترقية غير صالح.")
 
-            if current_lvl_count >= max_limit:
-                return jsonify({"success": False, "error": "وصلت للحد الأقصى للشراء في هذا المستوى."}), 400
+                config = mining_cfg[level_num]
+                price = float(config['price'])
+                max_limit = int(config.get('max', 10))
 
-            if total_balance < price:
-                return jsonify({"success": False, "error": "الرصيد غير كافي للشراء."}), 400
+                lvl_key = f"lvl{level_num}"
+                current_lvl_count = int(upgrades.get(lvl_key, 0))
 
-            new_balance = round(total_balance - price, 2)
-            upgrades[lvl_key] = current_lvl_count + 1
+                if current_lvl_count >= max_limit:
+                    raise Exception("وصلت للحد الأقصى للشراء في هذا المستوى.")
 
-            new_hourly_rate = 0.0
-            for l_str, cfg in mining_cfg.items():
-                cnt = int(upgrades.get(f"lvl{l_str}", 0))
-                if cnt > 0:
-                    new_hourly_rate += cnt * float(cfg.get('rate', 0))
+                if total_balance < price:
+                    raise Exception("الرصيد غير كافي للشراء.")
 
-            new_hourly_rate = round(new_hourly_rate, 2)
+                new_balance = round(total_balance - price, 2)
+                upgrades[lvl_key] = current_lvl_count + 1
 
-            user_ref.update({
-                'balance': new_balance,
-                'upgrades': upgrades,
-                'hourly_rate': new_hourly_rate,
-                'last_claim_time': new_last_claim_time 
-            })
+                new_hourly_rate = 0.0
+                for l_str, cfg in mining_cfg.items():
+                    cnt = int(upgrades.get(f"lvl{l_str}", 0))
+                    if cnt > 0:
+                        new_hourly_rate += cnt * float(cfg.get('rate', 0))
 
-            safe_create_transaction(
-                tg_id=user_id,
-                tx_type="mining_upgrade",
-                amount_usd=0.0,
-                status="completed",
-                details={"level": level_num, "cost_zn": price, "new_rate": new_hourly_rate}
-            )
+                new_hourly_rate = round(new_hourly_rate, 2)
 
-            return jsonify({
-                "success": True, 
-                "balance": new_balance, 
-                "hourly_rate": new_hourly_rate,
-                "upgrades": upgrades,
-                "last_claim_time": new_last_claim_time,
-                "usd_balance": round(usd_balance, 2)
-            }), 200
+                tx.update(u_ref, {
+                    'balance': new_balance,
+                    'upgrades': upgrades,
+                    'hourly_rate': new_hourly_rate,
+                    'last_claim_time': new_last_claim_time 
+                })
 
-        elif upgrade_type == 'storage':
-            storage_cfg = settings.get('storage_config', DEFAULT_STORAGE_CONFIG)
-            if level_num not in storage_cfg:
-                return jsonify({"success": False, "error": "مستوى مخزن غير صالح."}), 400
+                return {
+                    "balance": new_balance,
+                    "hourly_rate": new_hourly_rate,
+                    "upgrades": upgrades,
+                    "last_claim_time": new_last_claim_time,
+                    "usd_balance": round(usd_balance, 2)
+                }
 
-            current_storage_lvl = int(user_data.get('storage_level', 0))
-            int_level = int(level_num)
+            elif upgrade_type == 'storage':
+                storage_cfg = settings.get('storage_config', DEFAULT_STORAGE_CONFIG)
+                if level_num not in storage_cfg:
+                    raise Exception("مستوى مخزن غير صالح.")
 
-            if int_level <= current_storage_lvl:
-                return jsonify({"success": False, "error": "تم شراء هذا المخزن بالفعل."}), 400
+                current_storage_lvl = int(u_data.get('storage_level', 0))
+                int_level = int(level_num)
 
-            if int_level > current_storage_lvl + 1:
-                return jsonify({"success": False, "error": "يجب شراء المخازن بالتسلسل."}), 400
+                if int_level <= current_storage_lvl:
+                    raise Exception("تم شراء هذا المخزن بالفعل.")
 
-            config = storage_cfg[level_num]
-            price = float(config['price'])
-            new_capacity = round(float(config['capacity']), 2)
+                if int_level > current_storage_lvl + 1:
+                    raise Exception("يجب شراء المخازن بالتسلسل.")
 
-            if total_balance < price:
-                return jsonify({"success": False, "error": "الرصيد غير كافي."}), 400
+                config = storage_cfg[level_num]
+                price = float(config['price'])
+                new_capacity = round(float(config['capacity']), 2)
 
-            new_balance = round(total_balance - price, 2)
+                if total_balance < price:
+                    raise Exception("الرصيد غير كافي لشراء المخزن.")
 
-            user_ref.update({
-                'balance': new_balance,
-                'storage_level': int_level,
-                'max_cap': new_capacity,
-                'last_claim_time': new_last_claim_time
-            })
+                new_balance = round(total_balance - price, 2)
 
-            safe_create_transaction(
-                tg_id=user_id,
-                tx_type="storage_upgrade",
-                amount_usd=0.0,
-                status="completed",
-                details={"level": level_num, "cost_zn": price, "new_capacity": new_capacity}
-            )
+                tx.update(u_ref, {
+                    'balance': new_balance,
+                    'storage_level': int_level,
+                    'max_cap': new_capacity,
+                    'last_claim_time': new_last_claim_time
+                })
 
-            return jsonify({
-                "success": True, 
-                "balance": new_balance, 
-                "storage_level": int_level, 
-                "max_cap": new_capacity,
-                "last_claim_time": new_last_claim_time,
-                "usd_balance": round(usd_balance, 2)
-            }), 200
+                return {
+                    "balance": new_balance,
+                    "storage_level": int_level,
+                    "max_cap": new_capacity,
+                    "last_claim_time": new_last_claim_time,
+                    "usd_balance": round(usd_balance, 2)
+                }
 
-        return jsonify({"success": False, "error": "نوع الترقية غير معروف."}), 400
+            raise Exception("نوع ترقية غير معروف.")
+
+        res_data = secure_buy_upgrade_tx(transaction, user_ref)
+
+        safe_create_transaction(
+            tg_id=user_id_str,
+            tx_type=f"{upgrade_type}_upgrade",
+            amount_usd=0.0,
+            status="completed",
+            details={"level": level_num}
+        )
+
+        return jsonify({
+            "success": True, 
+            **res_data
+        }), 200
 
     except Exception as e:
-        print(traceback.format_exc())
-        return jsonify({"success": False, "error": f"حدث خطأ داخلي: {str(e)}"}), 500
+        print(f"[Shop Buy Error]: {e}")
+        return jsonify({"success": False, "error": str(e)}), 200
