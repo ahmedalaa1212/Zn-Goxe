@@ -10,7 +10,8 @@ from firebase_admin import firestore
 
 tasks_bp = Blueprint('tasks', __name__)
 
-# 🔒 الحد الأدنى لتكلفة أي حملة إعلانية (250 عملة AdZN)
+# 🔒 الحد الأدنى لسعر الضغطة والميزانية الكلية للحملة
+MIN_REWARD_PER_CLICK = 250.0
 MIN_AD_CAMPAIGN_COST = 250.0
 
 def is_task_completed_by_user(task, user_completed_data):
@@ -120,7 +121,7 @@ def get_campaigns():
 def create_campaign():
     """
     إنشاء حملة ترويجية بخصم آمن عبر Firestore Transaction
-    مع اشتراط ألا تقل التكلفة الإجمالية عن 250 AdZN.
+    مع اشتراط ألا يقل سعر الضغطة أو التكلفة الإجمالية عن 250 AdZN.
     """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
@@ -149,9 +150,16 @@ def create_campaign():
     except (ValueError, TypeError):
         return jsonify({"success": False, "error": "قيم الكلفة والأعضاء غير صحيحة"}), 400
 
+    # 🔒 1. فحص الحد الأدنى لسعر الضغطة الواحدة
+    if reward < MIN_REWARD_PER_CLICK:
+        return jsonify({
+            "success": False,
+            "error": f"عذراً، الحد الأدنى لتكلفة الضغطة الواحدة هو {int(MIN_REWARD_PER_CLICK)} عملة AdZN."
+        }), 400
+
     total_cost = reward * users_needed
 
-    # 🔒 تطبيق شرط الحد الأدنى لإنشاء أي إعلان
+    # 🔒 2. فحص الحد الأدنى لإجمالي الحملة
     if total_cost < MIN_AD_CAMPAIGN_COST:
         return jsonify({
             "success": False,
