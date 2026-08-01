@@ -40,7 +40,7 @@ def validate_telegram_data(init_data: str):
         return None
 
 def get_authenticated_user(request, is_post=False):
-    """استخراج والتحقق من هويّة المستخدم وفحص الحظر مباشرة"""
+    """استخراج والتحقق من هويّة المستخدم وفحص الحظر مباشرة (ترجع 3 عناصر للعلامة القياسية)"""
     try:
         init_data = None
         if is_post:
@@ -57,21 +57,19 @@ def get_authenticated_user(request, is_post=False):
         telegram_id = None
         user_info = None
 
-        # المصادقة الآمنة والوحيدة عبر التوقيع التشفيري لـ initData
         if init_data:
             user_info = validate_telegram_data(init_data)
             if user_info and user_info.get('id'):
                 telegram_id = str(user_info.get('id')).strip()
-                # حفظ بيانات التليجرام في طلب الـ Flask لاستخدامها عند الحاجة
-                request.telegram_user = user_info
 
-        # إذا تعذر التعرف على المستخدم أو كان التوقيع غير صالح
         if not telegram_id:
             return False, None, (jsonify({'success': False, 'error': 'غير مصرح: بيانات المصادقة غير صالحة أو مفقودة (initData)'}), 401)
 
-        # فحص الحظر في قاعدة البيانات
         if is_user_banned(telegram_id):
             return False, None, (jsonify({'success': False, 'error': 'تم حظر حسابك لمخالفة القوانين'}), 403)
+
+        # حفظ بيانات user_info في كائن الطلب لتسهيل الوصول إليها عند الحاجة
+        request.telegram_user = user_info
 
         return True, telegram_id, None
         
