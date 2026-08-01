@@ -1,3 +1,4 @@
+# tasks/tasks_api.py
 import os
 import json
 import uuid
@@ -65,7 +66,7 @@ def is_task_completed_by_user(task, user_completed_data):
     if not user_completed_data or not task_id:
         return False
 
-    today_str = datetime.datetime.utcnow().strftime('%Y-%m-%d')
+    today_str = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
 
     if isinstance(user_completed_data, list):
         if task_id not in user_completed_data:
@@ -89,10 +90,10 @@ def is_task_completed_by_user(task, user_completed_data):
                     return task_date == today_str
                 ts = record.get('timestamp')
                 if ts:
-                    task_dt = datetime.datetime.utcfromtimestamp(ts).strftime('%Y-%m-%d')
+                    task_dt = datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).strftime('%Y-%m-%d')
                     return task_dt == today_str
             elif isinstance(record, (int, float)):
-                task_dt = datetime.datetime.utcfromtimestamp(record).strftime('%Y-%m-%d')
+                task_dt = datetime.datetime.fromtimestamp(record, datetime.timezone.utc).strftime('%Y-%m-%d')
                 return task_dt == today_str
             return False
         else:
@@ -102,9 +103,9 @@ def is_task_completed_by_user(task, user_completed_data):
 
 @tasks_bp.route('/get_campaigns', methods=['GET'])
 def get_campaigns():
-    is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=False)
-    if not is_auth:
-        return err_response
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
+    if not success:
+        return error_res
 
     telegram_id_str = str(telegram_id).strip()
 
@@ -134,7 +135,8 @@ def get_campaigns():
     result_campaigns = []
     for c in campaigns:
         # إخفاء المهام التي استكملت أعضائها باستثناء المهام المملوكة للمستخدم نفسه لمتابعة التقدم
-        if c.get('users_completed', 0) >= c.get('users_needed', 1) and str(c.get('creator_id')).strip() != telegram_id_str:
+        creator_id_str = str(c.get('creator_id') or '').strip()
+        if c.get('users_completed', 0) >= c.get('users_needed', 1) and creator_id_str != telegram_id_str:
             continue
             
         c_copy = dict(c)
@@ -151,9 +153,9 @@ def get_campaigns():
 
 @tasks_bp.route('/create_campaign', methods=['POST'])
 def create_campaign():
-    is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
-    if not is_auth:
-        return err_response
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success:
+        return error_res
 
     telegram_id_str = str(telegram_id).strip()
     req = request.get_json(silent=True) or {}
@@ -232,7 +234,7 @@ def create_campaign():
             "reward": reward,
             "users_needed": users_needed,
             "users_completed": 0,
-            "created_at": datetime.datetime.utcnow().isoformat()
+            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
         }
 
         camp_ref = firestore_db.collection('campaigns').document(camp_id)
@@ -264,9 +266,9 @@ def create_campaign():
 
 @tasks_bp.route('/complete_task', methods=['POST'])
 def complete_task():
-    is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
-    if not is_auth:
-        return err_response
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success:
+        return error_res
 
     telegram_id_str = str(telegram_id).strip()
     req = request.get_json(silent=True) or {}
@@ -316,7 +318,7 @@ def complete_task():
 
         new_balance = current_balance + reward_amount
 
-        now_utc = datetime.datetime.utcnow()
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
         task_record = {
             "date": now_utc.strftime('%Y-%m-%d'),
             "timestamp": now_utc.timestamp()
@@ -350,9 +352,9 @@ def complete_task():
 
 @tasks_bp.route('/cancel_campaign', methods=['POST'])
 def cancel_campaign():
-    is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
-    if not is_auth:
-        return err_response
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success:
+        return error_res
 
     telegram_id_str = str(telegram_id).strip()
     req = request.get_json(silent=True) or {}
@@ -416,9 +418,9 @@ def cancel_campaign():
 
 @tasks_bp.route('/convert_adzn', methods=['POST'])
 def convert_adzn():
-    is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
-    if not is_auth:
-        return err_response
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success:
+        return error_res
 
     telegram_id_str = str(telegram_id).strip()
     req = request.get_json(silent=True) or {}
