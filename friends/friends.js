@@ -4,7 +4,6 @@
     const INIT_DATA = tele?.initData || "";
     const BOT_USERNAME = "zngoxe_bot";
 
-    // سيتم ملء المهام والإعدادات ديناميكياً من الفايرستور عبر الـ API
     window.FriendsConfig = {
         min_upgrades_for_task: 3,
         commission_percent: 10,
@@ -126,7 +125,11 @@
         const elInvited = document.getElementById('invited-friends-count');
         const btnClaim = document.getElementById('btn-claim-ref');
 
-        if (elPending) elPending.innerText = Math.floor(pending).toLocaleString();
+        if (elPending) {
+            elPending.innerText = pending > 0 && pending < 1 
+                ? pending.toFixed(2) 
+                : Math.floor(pending).toLocaleString();
+        }
         if (elInvited) elInvited.innerText = totalInvited.toLocaleString();
 
         if (btnClaim) {
@@ -249,11 +252,11 @@
             let data = await response.json();
             
             if (response.ok && data.success) {
-                showToast(`🎉 تم السحب بنجاح!\nأُضيف ${Math.floor(data.net_amount).toLocaleString()} ZN إلى رصيدك.`);
+                showToast(`🎉 تم السحب بنجاح!\nأُضيف ${data.net_amount >= 1 ? Math.floor(data.net_amount).toLocaleString() : data.net_amount.toFixed(2)} ZN إلى رصيدك.`);
                 
                 setStoredBalance(data.new_balance);
                 if (!window.PlayerData) window.PlayerData = {};
-                window.PlayerData.balance = Math.floor(data.new_balance);
+                window.PlayerData.balance = data.new_balance;
                 window.PlayerData.pending_ref_earnings = 0;
                 
                 window.updateFriendsUI();
@@ -282,7 +285,7 @@
                 setStoredBalance(data.new_balance);
                 
                 if (!window.PlayerData) window.PlayerData = {};
-                window.PlayerData.balance = Math.floor(data.new_balance);
+                window.PlayerData.balance = data.new_balance;
                 if (!window.PlayerData.claimed_ref_tasks) window.PlayerData.claimed_ref_tasks = [];
                 window.PlayerData.claimed_ref_tasks.push(taskId);
                 
@@ -322,6 +325,11 @@
                         ? `<span style="color: #2ecc71; font-size:11px;">مؤهل للمهام (${cnt}/${minUpgrades} ترقيات) ✅</span>`
                         : `<span style="color: #f39c12; font-size:11px;">ينقصه ${minUpgrades - cnt} ترقية (${cnt}/${minUpgrades}) ⏳</span>`;
                     
+                    const genVal = parseFloat(f.generated || 0);
+                    const formattedGen = genVal > 0 && genVal < 1 
+                        ? genVal.toFixed(2) 
+                        : Math.floor(genVal).toLocaleString();
+
                     html += `
                         <li style="display:flex; justify-content:space-between; align-items:center; background:#121215; padding:10px 12px; border-radius:10px; margin-bottom:8px; border:1px solid #26262b;">
                             <div style="display:flex; align-items:center; gap:10px;">
@@ -332,7 +340,7 @@
                                 </div>
                             </div>
                             <div style="text-align: left;">
-                                <span style="display:block; color:#2ecc71; font-weight:bold; font-size:13px;">+${Math.floor(f.generated || 0).toLocaleString()} ZN</span>
+                                <span style="display:block; color:#2ecc71; font-weight:bold; font-size:13px;">+${formattedGen} ZN</span>
                                 <span style="font-size:10px; color:#888;">المجمع منه</span>
                             </div>
                         </li>
