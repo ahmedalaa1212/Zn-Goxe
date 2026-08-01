@@ -88,7 +88,7 @@ def get_friends_data():
 
 @friends_bp.route('/list', methods=['GET', 'POST'])
 def get_friends_list():
-    """جلب سجل الأصدقاء بالتفصيل وحل مشكلة عدم ظهور جميع الدعوات"""
+    """جلب سجل الأصدقاء بالتفصيل الموحد وإمكانية تجميع الأرباح القديمة والحديثة"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -102,9 +102,22 @@ def get_friends_list():
             referred_users[doc.id] = doc.to_dict() or {}
             
         sub_friends = {}
+        # 1. القراءة من مجلد friends الموحد
         sub_query = db.collection('users').document(user_id_str).collection('friends').stream()
         for doc in sub_query:
             sub_friends[doc.id] = doc.to_dict() or {}
+
+        # 2. القراءة من مجلد referrals تحسباً لوجود سجلات سابقة لضمان عدم ضياع أي أرباح
+        old_ref_query = db.collection('users').document(user_id_str).collection('referrals').stream()
+        for doc in old_ref_query:
+            f_id = doc.id
+            old_d = doc.to_dict() or {}
+            if f_id not in sub_friends:
+                sub_friends[f_id] = old_d
+            else:
+                current_val = float(sub_friends[f_id].get('earned_from_him', 0))
+                old_val = float(old_d.get('earned_from_friend') or old_d.get('earned_amount') or 0)
+                sub_friends[f_id]['earned_from_him'] = current_val + old_val
             
         friends_list = []
         all_friend_ids = set(referred_users.keys()).union(set(sub_friends.keys()))
@@ -120,9 +133,9 @@ def get_friends_list():
                       sub_data.get('name') or 
                       'صديق')
             
-            earned_val = sub_data.get('earned_from_him')
-            if earned_val is None:
-                earned_val = main_data.get('ref_generated_amount', 0)
+            earned_val = (sub_data.get('earned_from_him') if sub_data.get('earned_from_him') is not None else
+                          sub_data.get('earned_from_friend') if sub_data.get('earned_from_friend') is not None else
+                          main_data.get('ref_generated_amount', 0))
             
             try:
                 generated_amount = float(earned_val)
