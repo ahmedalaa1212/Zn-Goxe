@@ -101,12 +101,16 @@ def get_game_settings():
 
 @farm_bp.route('/player_data', methods=['GET', 'POST'])
 def get_player_data():
-    is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=(request.method == 'POST'))
-    if not is_auth: 
-        return error_response
+    is_post = (request.method == 'POST')
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
+    if not success: 
+        return error_res
 
-    req_data = request.get_json(silent=True) or {}
-    start_param = req_data.get('start_param', '')
+    req_data = request.get_json(silent=True)
+    if not isinstance(req_data, dict):
+        req_data = {}
+        
+    start_param = req_data.get('start_param') or (user_info.get('start_param') if isinstance(user_info, dict) else '')
     user_id_str = str(telegram_id)
 
     try:
@@ -126,10 +130,11 @@ def get_player_data():
                         if referrer_ref.get().exists:
                             referrer_ref.update({'invited_friends_count': firestore.Increment(1)})
                             
+                            first_name = user_info.get('first_name', 'صديق') if isinstance(user_info, dict) else 'صديق'
                             friend_ref_in_sub = referrer_ref.collection('friends').document(user_id_str)
                             friend_ref_in_sub.set({
                                 'tg_id': user_id_str,
-                                'first_name': 'صديق',
+                                'first_name': first_name,
                                 'joined_at': now.isoformat(),
                                 'earned_from_him': 0.0
                             }, merge=True)
@@ -219,9 +224,9 @@ def get_player_data():
 
 @farm_bp.route('/claim', methods=['POST'])
 def claim_mined_tokens():
-    is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=True)
-    if not is_auth: 
-        return error_response
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success: 
+        return error_res
 
     user_id_str = str(telegram_id)
     try:
@@ -311,11 +316,14 @@ def claim_mined_tokens():
 
 @farm_bp.route('/upgrade', methods=['POST'])
 def upgrade_field():
-    is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=True)
-    if not is_auth:
-        return error_response
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success:
+        return error_res
 
-    req_data = request.get_json(silent=True) or {}
+    req_data = request.get_json(silent=True)
+    if not isinstance(req_data, dict):
+        req_data = {}
+
     level = req_data.get('level')
 
     try:
@@ -389,9 +397,9 @@ def upgrade_field():
 
 @farm_bp.route('/daily_boost', methods=['POST'])
 def daily_boost():
-    is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=True)
-    if not is_auth:
-        return error_response
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success:
+        return error_res
 
     user_id_str = str(telegram_id)
     user_ref = db.collection('users').document(user_id_str)
@@ -437,9 +445,9 @@ def daily_boost():
 
 @farm_bp.route('/daily_claim', methods=['POST'])
 def daily_claim():
-    is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=True)
-    if not is_auth:
-        return error_response
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success:
+        return error_res
 
     user_id_str = str(telegram_id)
     user_ref = db.collection('users').document(user_id_str)
