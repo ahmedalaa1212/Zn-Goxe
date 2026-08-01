@@ -99,6 +99,7 @@ def ensure_game_settings_exist():
             friends_cfg["direct_reward_invitee"] = 0
 
             update_payload = {
+                "usd_to_zn_rate": current_data.get("usd_to_zn_rate", 10000000),
                 "daily_rewards": current_data.get("daily_rewards", exact_daily_rewards),
                 "speed_config": current_data.get("speed_config", exact_speed_config),
                 "storage_config": current_data.get("storage_config", exact_storage_config),
