@@ -7,32 +7,6 @@ from database import db
 
 farm_bp = Blueprint('farm', __name__)
 
-STORAGE_CAPACITIES = {
-    0: 200.0,
-    1: 600.0,
-    2: 1500.0,
-    3: 3500.0,
-    4: 8000.0,
-    5: 18000.0,
-    6: 40000.0,
-    7: 90000.0,
-    8: 200000.0,
-    9: 450000.0,
-    10: 1000000.0
-}
-
-UPGRADE_CONFIG = {
-    1: {"base_cost": 2000.0, "rate_bonus": 5.0},
-    2: {"base_cost": 7000.0, "rate_bonus": 15.0},
-    3: {"base_cost": 18000.0, "rate_bonus": 35.0},
-    4: {"base_cost": 45000.0, "rate_bonus": 80.0},
-    5: {"base_cost": 110000.0, "rate_bonus": 180.0},
-    6: {"base_cost": 260000.0, "rate_bonus": 400.0},
-    7: {"base_cost": 600000.0, "rate_bonus": 900.0},
-    8: {"base_cost": 1400000.0, "rate_bonus": 2000.0},
-    9: {"base_cost": 3200000.0, "rate_bonus": 4500.0}
-}
-
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
         100, 150, 200, 250, 300, 
@@ -44,32 +18,27 @@ DEFAULT_GAME_SETTINGS = {
     ],
     "mining_config": {
         "daily_boost_reward": 2.0
+    },
+    "storage_capacities": {
+        "0": 200.0, "1": 600.0, "2": 1500.0, "3": 3500.0, "4": 8000.0,
+        "5": 18000.0, "6": 40000.0, "7": 90000.0, "8": 200000.0, "9": 450000.0, "10": 1000000.0
+    },
+    "upgrade_config": {
+        "1": {"base_cost": 2000.0, "rate_bonus": 5.0},
+        "2": {"base_cost": 7000.0, "rate_bonus": 15.0},
+        "3": {"base_cost": 18000.0, "rate_bonus": 35.0},
+        "4": {"base_cost": 45000.0, "rate_bonus": 80.0},
+        "5": {"base_cost": 110000.0, "rate_bonus": 180.0},
+        "6": {"base_cost": 260000.0, "rate_bonus": 400.0},
+        "7": {"base_cost": 600000.0, "rate_bonus": 900.0},
+        "8": {"base_cost": 1400000.0, "rate_bonus": 2000.0},
+        "9": {"base_cost": 3200000.0, "rate_bonus": 4500.0}
     }
 }
 
 _SETTINGS_CACHE = None
 _SETTINGS_CACHE_TIME = 0
-SETTINGS_CACHE_TTL = 600  # RAM Caching لمدة 10 دقائق لتخفيف القراءات
-
-def parse_daily_rewards(rewards_data):
-    if isinstance(rewards_data, list):
-        return rewards_data
-    if isinstance(rewards_data, dict):
-        res = []
-        for i in range(1, 31):
-            val = rewards_data.get(f"day_{i}") or rewards_data.get(str(i)) or 100
-            res.append(int(val))
-        return res
-    return DEFAULT_GAME_SETTINGS["daily_rewards"]
-
-def get_storage_capacity(storage_level):
-    try:
-        lvl = int(storage_level)
-    except (ValueError, TypeError):
-        lvl = 0
-    if lvl < 0: lvl = 0
-    elif lvl > 10: lvl = 10
-    return STORAGE_CAPACITIES.get(lvl, 200.0)
+SETTINGS_CACHE_TTL = 600  # Caching في الذاكرة لمدة 10 دقائق
 
 def get_game_settings():
     global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
@@ -84,11 +53,14 @@ def get_game_settings():
         
         if config_doc.exists:
             data = config_doc.to_dict() or {}
-            if "daily_rewards" not in data:
-                data["daily_rewards"] = DEFAULT_GAME_SETTINGS["daily_rewards"]
-            if "mining_config" not in data:
-                data["mining_config"] = DEFAULT_GAME_SETTINGS["mining_config"]
-            _SETTINGS_CACHE = data
+            # ضمان وجود كافة المفاتيح مع استخدام القيم الافتراضية عند النقص
+            merged = {
+                "daily_rewards": data.get("daily_rewards", DEFAULT_GAME_SETTINGS["daily_rewards"]),
+                "mining_config": data.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"]),
+                "storage_capacities": data.get("storage_capacities", DEFAULT_GAME_SETTINGS["storage_capacities"]),
+                "upgrade_config": data.get("upgrade_config", DEFAULT_GAME_SETTINGS["upgrade_config"])
+            }
+            _SETTINGS_CACHE = merged
         else:
             config_ref.set(DEFAULT_GAME_SETTINGS)
             _SETTINGS_CACHE = DEFAULT_GAME_SETTINGS
@@ -98,6 +70,29 @@ def get_game_settings():
     except Exception as e:
         print(f"❌ Error reading game settings: {e}")
         return DEFAULT_GAME_SETTINGS
+
+def parse_daily_rewards(rewards_data):
+    if isinstance(rewards_data, list):
+        return rewards_data
+    if isinstance(rewards_data, dict):
+        res = []
+        for i in range(1, 31):
+            val = rewards_data.get(f"day_{i}") or rewards_data.get(str(i)) or 100
+            res.append(int(val))
+        return res
+    return DEFAULT_GAME_SETTINGS["daily_rewards"]
+
+def get_storage_capacity(storage_level, settings):
+    try:
+        lvl = int(storage_level)
+    except (ValueError, TypeError):
+        lvl = 0
+    if lvl < 0: lvl = 0
+    elif lvl > 10: lvl = 10
+    
+    caps = settings.get("storage_capacities", DEFAULT_GAME_SETTINGS["storage_capacities"])
+    val = caps.get(str(lvl)) or caps.get(lvl) or 200.0
+    return float(val)
 
 @farm_bp.route('/player_data', methods=['GET', 'POST'])
 def get_player_data():
@@ -117,6 +112,7 @@ def get_player_data():
         user_ref = db.collection('users').document(user_id_str)
         user_doc = user_ref.get()
         now = datetime.now(timezone.utc)
+        game_settings = get_game_settings()
 
         if not user_doc.exists:
             referred_by = None
@@ -150,7 +146,7 @@ def get_player_data():
                 "hourly_rate": 0.0,
                 "unclaimed": 0.0, 
                 "storage_level": 0,
-                "max_cap": 200.0, 
+                "max_cap": get_storage_capacity(0, game_settings), 
                 "daily_day": 1,
                 "last_claim_time": now.isoformat(), 
                 "last_daily_claim_date": None, 
@@ -169,7 +165,7 @@ def get_player_data():
             user_data = user_doc.to_dict() or {}
 
         storage_level = user_data.get("storage_level", 0)
-        max_cap = get_storage_capacity(storage_level)
+        max_cap = get_storage_capacity(storage_level, game_settings)
         user_data["max_cap"] = max_cap
 
         last_daily_date = user_data.get("last_daily_claim_date")
@@ -207,14 +203,22 @@ def get_player_data():
         if not isinstance(user_data.get("upgrades"), dict):
             user_data["upgrades"] = {}
 
-        game_settings = get_game_settings()
         parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
+
+        # تجهيز تكاليف التطويرات لإرسالها للواجهة بشكل ديناميكي
+        upgrade_configs = game_settings.get("upgrade_config", DEFAULT_GAME_SETTINGS["upgrade_config"])
+        upgrade_costs = {int(k): float(v.get("base_cost", 0)) for k, v in upgrade_configs.items()}
+
+        mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
+        daily_boost_reward = float(mining_cfg.get("daily_boost_reward", 2.0))
 
         return jsonify({
             "success": True, 
             "player": user_data, 
             "game_config": {
-                "daily_rewards": parsed_rewards
+                "daily_rewards": parsed_rewards,
+                "upgrade_costs": upgrade_costs,
+                "daily_boost_reward": daily_boost_reward
             }
         }), 200
 
@@ -231,6 +235,7 @@ def claim_mined_tokens():
     user_id_str = str(telegram_id)
     try:
         user_ref = db.collection('users').document(user_id_str)
+        game_settings = get_game_settings()
         
         @firestore.transactional
         def run_claim_transaction(transaction, ref):
@@ -254,7 +259,7 @@ def claim_mined_tokens():
             last_claim_str = user_data.get("last_claim_time")
             hourly_rate = float(user_data.get("hourly_rate", 0.0))
             storage_level = user_data.get("storage_level", 0)
-            max_cap = get_storage_capacity(storage_level)
+            max_cap = get_storage_capacity(storage_level, game_settings)
             unclaimed = float(user_data.get("unclaimed", 0.0))
 
             if last_claim_str:
@@ -333,7 +338,10 @@ def upgrade_field():
     except (TypeError, ValueError):
         return jsonify({"success": False, "error": "بيانات الترقية غير صالحة"}), 400
 
-    config = UPGRADE_CONFIG.get(level)
+    game_settings = get_game_settings()
+    upgrade_configs = game_settings.get("upgrade_config", DEFAULT_GAME_SETTINGS["upgrade_config"])
+    config = upgrade_configs.get(str(level)) or upgrade_configs.get(level)
+
     if not config:
         return jsonify({"success": False, "error": "إعدادات الترقية غير موجودة"}), 400
 
@@ -349,7 +357,7 @@ def upgrade_field():
 
             data = snapshot.to_dict() or {}
             current_bal = float(data.get("balance", 0.0))
-            cost = config["base_cost"]
+            cost = float(config.get("base_cost", 0.0))
 
             if current_bal < cost:
                 return None, f"رصيدك غير كافٍ! تحتاج إلى {cost:,.0f} ZN", 400
@@ -368,7 +376,8 @@ def upgrade_field():
 
             upgrades[lvl_key] = current_count + 1
             new_bal = current_bal - cost
-            new_rate = float(data.get("hourly_rate", 0.0)) + config["rate_bonus"]
+            rate_bonus = float(config.get("rate_bonus", 0.0))
+            new_rate = float(data.get("hourly_rate", 0.0)) + rate_bonus
 
             transaction.update(ref, {
                 "balance": new_bal,
@@ -404,6 +413,9 @@ def daily_boost():
     user_id_str = str(telegram_id)
     user_ref = db.collection('users').document(user_id_str)
     today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    game_settings = get_game_settings()
+    mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
+    boost_reward = float(mining_cfg.get("daily_boost_reward", 2.0))
 
     try:
         @firestore.transactional
@@ -417,7 +429,7 @@ def daily_boost():
                 return None, "لقد استخدمت التسريع اليومي بالفعل اليوم!", 400
 
             current_rate = float(data.get("hourly_rate", 0.0))
-            new_rate = current_rate + 2.0
+            new_rate = current_rate + boost_reward
 
             transaction.update(ref, {
                 "hourly_rate": new_rate,
@@ -425,7 +437,7 @@ def daily_boost():
                 "ads_watched": firestore.Increment(1)
             })
 
-            return {"new_rate": new_rate, "last_boost_date": today_str}, None, 200
+            return {"new_rate": new_rate, "last_boost_date": today_str, "added_rate": boost_reward}, None, 200
 
         transaction = db.transaction()
         res_data, err_msg, status_code = run_boost_transaction(transaction, user_ref)
@@ -436,7 +448,8 @@ def daily_boost():
         return jsonify({
             "success": True,
             "new_rate": res_data["new_rate"],
-            "last_boost_date": res_data["last_boost_date"]
+            "last_boost_date": res_data["last_boost_date"],
+            "added_rate": res_data["added_rate"]
         }), 200
 
     except Exception as e:
