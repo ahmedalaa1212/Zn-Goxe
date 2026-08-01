@@ -4,6 +4,7 @@
     let currentRoundId = null;
     let arenaEndTime = 0;
     let countdownInterval = null;
+    let backgroundSyncInterval = null;
     let hasCheckedResults = false;
     let statusRetryTimeout = null;
     let pendingConfirmCallback = null;
@@ -65,6 +66,46 @@
         }
     }
 
+    // --- عرض التنبيه العائم المباشر بدون إغلاق التطبيق ---
+    function triggerGlobalToast(msg, isSuccess = true) {
+        let toastBox = document.getElementById('global-toast-notification');
+        if (!toastBox) {
+            toastBox = document.createElement('div');
+            toastBox.id = 'global-toast-notification';
+            toastBox.style.cssText = `
+                position: fixed;
+                top: 15px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: linear-gradient(135deg, #1e293b, #0f172a);
+                border: 1.5px solid ${isSuccess ? '#38bdf8' : '#f59e0b'};
+                color: #ffffff;
+                padding: 12px 20px;
+                border-radius: 16px;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.8), 0 0 15px rgba(56, 189, 248, 0.3);
+                z-index: 99999999;
+                font-size: 13px;
+                font-weight: bold;
+                text-align: center;
+                width: 90%;
+                max-width: 360px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                animation: slideDownToast 0.4s ease-out;
+            `;
+            document.body.appendChild(toastBox);
+        }
+
+        toastBox.innerHTML = msg;
+        toastBox.style.display = 'flex';
+
+        setTimeout(() => {
+            if (toastBox) toastBox.style.display = 'none';
+        }, 5000);
+    }
+
     function askForConfirmation(onConfirm) {
         const msg = `هل أنت متأكد من خصم ${parseInt(currentEntryFee, 10).toLocaleString('en-US')} ZN للاشتراك في الساحة الكبرى؟`;
         if (tele && tele.showConfirm) {
@@ -94,24 +135,35 @@
     };
 
     function getStoredBalance() {
-        if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
-            const val = parseFloat(window.GameState.balance);
-            return isNaN(val) ? 0 : val;
+        if (window.userState && window.userState.balance !== undefined) {
+            return parseFloat(window.userState.balance) || 0;
+        }
+        if (window.PlayerData && window.PlayerData.balance !== undefined) {
+            return parseFloat(window.PlayerData.balance) || 0;
+        }
+        if (window.GameState && window.GameState.balance !== undefined) {
+            return parseFloat(window.GameState.balance) || 0;
         }
         const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
         const num = bal !== null ? parseFloat(bal) : 0;
         return isNaN(num) ? 0 : num;
     }
 
+    // --- إدارة تزامن الرصيد مع كافة المكونات اللحظية ---
     function setStoredBalance(newBalance, animate = true) {
         if (newBalance !== undefined && newBalance !== null) {
             const numVal = Math.round((parseFloat(newBalance) || 0) * 100) / 100;
             const oldVal = currentDisplayBalance || getStoredBalance();
             
+            // التحديث الشامل لكافة الكائنات
+            if (window.userState) window.userState.balance = numVal;
+            if (window.PlayerData) window.PlayerData.balance = numVal;
             if (window.GameState) window.GameState.balance = numVal;
+            
             localStorage.setItem('zn_balance', numVal.toString());
             localStorage.setItem('user_balance', numVal.toString());
             
+            // تحديث عناصر الواجهة
             if (animate) {
                 animateCounter('top-balance-games', oldVal, numVal, 800, " ZN");
             } else {
@@ -124,6 +176,10 @@
             if (typeof window.setBalance === 'function') {
                 window.setBalance(numVal);
             }
+
+            // تحديث رصيد الصفحة الرئيسية إن وجد
+            const mainBalEl = document.getElementById('user-balance') || document.querySelector('.user-balance');
+            if (mainBalEl) mainBalEl.innerHTML = formatNumberHTML(numVal, " ZN");
         }
     }
 
@@ -384,9 +440,7 @@
     async function fetchRoundResults(roundId, retries = 0) {
         if (!roundId) return;
 
-        // في حالة تأخر النتائج لأكثر من 5 محاولات يتم الانتقال لتحديث الحالة تلقائياً
         if (retries > 5) {
-            console.warn("تأخر السيرفر في إحراز النتائج، يتم تحديث الحالة...");
             fetchArenaStatus();
             return;
         }
@@ -421,13 +475,46 @@
                     renderWinners(data.winners || []);
                     showDrawModal('winners');
                 } else {
-                    // السيرفر ما زال يجهز القرعة
                     setTimeout(() => { fetchRoundResults(roundId, retries + 1); }, 2000);
                 }
             }
         } catch (e) {
             console.error("خطأ جلب النتائج:", e);
             setTimeout(() => { fetchRoundResults(roundId, retries + 1); }, 2000);
+        }
+    }
+
+    // --- خادم الفحص المباشر في الخلفية للتنبيه بالمرتجعات وحجم الرصيد ---
+    async function checkBackgroundNotifications() {
+        try {
+            const initData = tele?.initData || "";
+            if (!initData) return;
+
+            const response = await fetch('/api/games/check_notifications', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${initData}`
+                },
+                body: JSON.stringify({ initData: initData })
+            });
+
+            if (!response.ok) return;
+            const data = await response.json();
+
+            if (data.success) {
+                if (data.balance !== undefined) {
+                    setStoredBalance(data.balance, true);
+                }
+                
+                // التنبيه المباشر بالمرتجع عند توفره
+                if (data.refund && data.refund > 0) {
+                    triggerGlobalToast(`💰 تم استرداد المبلغ بنجاح لعدم اكتمال العدد المطلوب في الساحة (+${data.refund} ZN)`);
+                    showDrawModal('refunded', data.refund);
+                }
+            }
+        } catch (e) {
+            console.error("خطأ فحص المرتجعات الخلفية:", e);
         }
     }
 
@@ -455,22 +542,32 @@
         });
     }
 
+    // تشغيل الفحص الدوري كل 4 ثوانٍ لضمان المزامنة في الوقت الفعلي
+    if (backgroundSyncInterval) clearInterval(backgroundSyncInterval);
+    backgroundSyncInterval = setInterval(checkBackgroundNotifications, 4000);
+
     window.addEventListener('pageshow', () => {
         syncGameBalance();
         fetchArenaStatus();
+        checkBackgroundNotifications();
     });
 
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") {
             syncGameBalance();
             fetchArenaStatus();
+            checkBackgroundNotifications();
         }
     });
 
     syncGameBalance();
     if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", fetchArenaStatus);
+        document.addEventListener("DOMContentLoaded", () => {
+            fetchArenaStatus();
+            checkBackgroundNotifications();
+        });
     } else {
         fetchArenaStatus();
+        checkBackgroundNotifications();
     }
 })();
