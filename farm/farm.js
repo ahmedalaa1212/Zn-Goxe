@@ -33,6 +33,58 @@
     let isClaimingMain = false; 
     let isUpgrading = false;
 
+    // متغيرات العداد التصاعدي للرصيد
+    let currentDisplayedBalance = null;
+    let balanceAnimationId = null;
+
+    function animateBalance(targetValue) {
+        const balEl = document.getElementById('farm-balance');
+        if (!balEl) return;
+
+        targetValue = parseFloat(targetValue || 0);
+        if (isNaN(targetValue)) targetValue = 0;
+
+        let startValue = currentDisplayedBalance !== null ? currentDisplayedBalance : getStoredBalance();
+        if (isNaN(startValue)) startValue = 0;
+
+        // إذا كان الفارق ضئيل جداً أو مساوي يتم العرض المباشر
+        if (Math.abs(targetValue - startValue) < 0.5) {
+            currentDisplayedBalance = targetValue;
+            balEl.innerText = `ZN: ${Math.floor(targetValue).toLocaleString()}`;
+            return;
+        }
+
+        if (balanceAnimationId) {
+            cancelAnimationFrame(balanceAnimationId);
+        }
+
+        const diff = Math.abs(targetValue - startValue);
+        // احتساب مدة الحركة بحسب قيمة الفرق (تتراوح بين 600ms و 1500ms)
+        const duration = Math.min(Math.max(600, Math.log10(diff + 1) * 320), 1500);
+        const startTime = performance.now();
+
+        function step(currentTime) {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            // منحنى الحركة (Ease-Out) لبدء سريع ثم التباطؤ
+            const easeOut = 1 - Math.pow(1 - progress, 3);
+            
+            currentDisplayedBalance = startValue + (targetValue - startValue) * easeOut;
+            balEl.innerText = `ZN: ${Math.floor(currentDisplayedBalance).toLocaleString()}`;
+
+            if (progress < 1) {
+                balanceAnimationId = requestAnimationFrame(step);
+            } else {
+                currentDisplayedBalance = targetValue;
+                balEl.innerText = `ZN: ${Math.floor(targetValue).toLocaleString()}`;
+                balanceAnimationId = null;
+            }
+        }
+
+        balanceAnimationId = requestAnimationFrame(step);
+    }
+
     function showToast(message) {
         if (tele && tele.showAlert) tele.showAlert(message);
         else alert(message);
@@ -118,13 +170,20 @@
         }
     };
 
-    window.updateFarmUI = function() {
+    window.updateFarmUI = function(animate = true) {
         const pData = window.PlayerData || {};
         let bal = getStoredBalance();
         let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
         
-        const balEl = document.getElementById('farm-balance');
-        if (balEl) balEl.innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
+        if (animate) {
+            animateBalance(bal);
+        } else {
+            const balEl = document.getElementById('farm-balance');
+            if (balEl) {
+                currentDisplayedBalance = bal;
+                balEl.innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
+            }
+        }
 
         const rateEl = document.getElementById('farm-rate');
         if (rateEl) rateEl.innerText = `⚡ ${Math.floor(hRate).toLocaleString()}/h`; 
@@ -334,7 +393,10 @@
             });
             let resData = await response.json();
             if (response.ok && resData.success) {
-                if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                if (resData.new_balance !== undefined) {
+                    setStoredBalance(resData.new_balance);
+                    animateBalance(resData.new_balance);
+                }
                 if (resData.new_hourly_rate !== undefined) window.userState.hourly_rate = resData.new_hourly_rate;
                 
                 if (resData.upgrades) {
@@ -345,7 +407,7 @@
                     window.userState.upgrades = resData.upgrades;
                 }
 
-                window.updateFarmUI();
+                window.updateFarmUI(false);
 
                 showToast(`⚡ تم التحديث بنجاح للمستوى ${level}!`);
                 await window.fetchPlayerDataFromServer();
@@ -387,7 +449,10 @@
                 });
                 let resData = await response.json();
                 if (response.ok && resData.success) {
-                    if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                    if (resData.new_balance !== undefined) {
+                        setStoredBalance(resData.new_balance);
+                        animateBalance(resData.new_balance);
+                    }
                     if (resData.new_rate !== undefined) window.userState.hourly_rate = resData.new_rate;
                     showToast(`🚀 تمت زيادة معدل التعدين بنجاح بمقدار +2/h دائماً!`);
                     await window.fetchPlayerDataFromServer(); 
@@ -430,7 +495,10 @@
                 });
                 let resData = await response.json();
                 if (response.ok && resData.success) {
-                    if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                    if (resData.new_balance !== undefined) {
+                        setStoredBalance(resData.new_balance);
+                        animateBalance(resData.new_balance);
+                    }
                     showToast(`🎉 استلمت ${resData.reward.toLocaleString()} ZN!`);
                     if (resData.reset_msg) showToast(resData.reset_msg);
                     await window.fetchPlayerDataFromServer(); 
@@ -470,9 +538,11 @@
         const currentBal = getStoredBalance();
         const optimisticNewBal = currentBal + unclaimedAmount;
         
+        // تحديث وتفعيل العداد التصاعدي فوراً لإعطاء انطباع بالسرعة والاستجابة
         setStoredBalance(optimisticNewBal);
         pData.unclaimed = 0;
-        window.updateFarmUI();
+        animateBalance(optimisticNewBal);
+        window.updateFarmUI(false);
 
         try {
             let response = await fetch('/api/farm/claim', {
@@ -483,11 +553,15 @@
             let resData = await response.json();
             
             if (response.ok && resData.success) {
-                if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                if (resData.new_balance !== undefined) {
+                    setStoredBalance(resData.new_balance);
+                    animateBalance(resData.new_balance);
+                }
                 await window.fetchPlayerDataFromServer(); 
                 claimCooldown = 5; 
             } else {
                 setStoredBalance(currentBal);
+                animateBalance(currentBal);
                 if (resData.error) showToast(resData.error);
                 if (claimBtn) {
                     claimBtn.disabled = false;
@@ -496,6 +570,7 @@
             }
         } catch (e) {
             setStoredBalance(currentBal);
+            animateBalance(currentBal);
             if (claimBtn) {
                 claimBtn.disabled = false;
                 claimBtn.innerText = "تجميع الرصيد 💰";
