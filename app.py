@@ -11,7 +11,7 @@ from core.security import get_authenticated_user
 # ==========================================
 app = Flask(__name__)
 
-# تفعيل CORS لجميع مسارات الـ API (بدون تعارض supports_credentials)
+# تفعيل CORS لجميع مسارات الـ API
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app').strip().rstrip('/')
@@ -41,19 +41,25 @@ app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
 app.register_blueprint(support_bp, url_prefix='/api/support')
 
 # ==========================================
-# 3. مسار جلب بيانات المستخدم المباشر /api/user/info
+# 3. مسار جلب بيانات المستخدم المباشر /api/user/info (مع الإنشاء التلقائي)
 # ==========================================
 @app.route('/api/user/info', methods=['GET', 'POST'])
 def get_user_info_main():
     is_post = (request.method == 'POST')
-    success, telegram_id, error_res = get_authenticated_user(request, is_post=is_post)
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success:
         return error_res
         
     try:
         user_data = database.get_user(telegram_id)
+        
+        # إنشاء المستخدم تلقائياً إذا كان أول دخول له
         if not user_data:
-            return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
+            first_name = user_info.get('first_name', 'لاعب') if user_info else 'لاعب'
+            ref_id = user_info.get('start_param') if user_info else None
+            
+            database.init_user(telegram_id, ref_id=ref_id, first_name=first_name)
+            user_data = database.get_user(telegram_id)
             
         return jsonify({
             "success": True,
@@ -68,13 +74,11 @@ def get_user_info_main():
 # ==========================================
 @app.after_request
 def add_security_headers(response):
-    # تطبيق منع الكاش على طلبات API وصفحات HTML الرئيسية فقط
     if request.path.startswith('/api/') or request.path in ['/', '/index.html']:
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
     else:
-        # السماح بتخزين الصور وملفات الجافاسكريبت والـ CSS لتسريع اللعبة
         response.headers['Cache-Control'] = 'public, max-age=86400'
     return response
 
@@ -85,7 +89,7 @@ def add_security_headers(response):
 def handle_500_error(e):
     return jsonify({
         "success": False,
-        "error": "حدث خطأ داخلي في السيرفر (500). يرجى التأكد من الاتصال بقاعدة البيانات."
+        "error": "حدث خطأ داخلي في السيرفر (500)."
     }), 500
 
 @app.errorhandler(404)
@@ -119,7 +123,6 @@ def serve_static(path):
     if path == 'tonconnect-manifest.json':
         return serve_manifest()
 
-    # 🔒 حماية أمنية مشددة للملفات والمجلدات الحساسة
     path_lower = path.lower()
     forbidden_extensions = ('.py', '.pyc', '.env', '.md', '.txt', '.json', '.yml', '.yaml', '.sh', '.lock')
     forbidden_files = ('dockerfile', 'procfile', 'railway.toml', 'requirements.txt')
