@@ -29,7 +29,10 @@ def validate_telegram_data(init_data: str):
         
         if hmac.compare_digest(calculated_hash, hash_val):
             user_str = parsed_data.get('user', '{}')
-            return json.loads(user_str)
+            user_dict = json.loads(user_str)
+            if 'start_param' in parsed_data:
+                user_dict['start_param'] = parsed_data['start_param']
+            return user_dict
         return None
         
     except Exception as e:
@@ -52,23 +55,24 @@ def get_authenticated_user(request, is_post=False):
             )
             
         telegram_id = None
+        user_info = None
 
         # المصادقة الآمنة والوحيدة عبر التوقيع التشفيري لـ initData
         if init_data:
-            user = validate_telegram_data(init_data)
-            if user and user.get('id'):
-                telegram_id = str(user.get('id')).strip()
+            user_info = validate_telegram_data(init_data)
+            if user_info and user_info.get('id'):
+                telegram_id = str(user_info.get('id')).strip()
 
         # إذا تعذر التعرف على المستخدم أو كان التوقيع غير صالح
         if not telegram_id:
-            return False, None, (jsonify({'success': False, 'error': 'غير مصرح: بيانات المصادقة غير صالحة أو مفقودة (initData)'}), 401)
+            return False, None, None, (jsonify({'success': False, 'error': 'غير مصرح: بيانات المصادقة غير صالحة أو مفقودة (initData)'}), 401)
 
         # فحص الحظر في قاعدة البيانات
         if is_user_banned(telegram_id):
-            return False, None, (jsonify({'success': False, 'error': 'تم حظر حسابك لمخالفة القوانين'}), 403)
+            return False, None, None, (jsonify({'success': False, 'error': 'تم حظر حسابك لمخالفة القوانين'}), 403)
 
-        return True, telegram_id, None
+        return True, telegram_id, user_info, None
         
     except Exception as e:
         print(f"❌ Auth Exception: {e}")
-        return False, None, (jsonify({'success': False, 'error': 'حدث خطأ في عملية المصادقة'}), 500)
+        return False, None, None, (jsonify({'success': False, 'error': 'حدث خطأ في عملية المصادقة'}), 500)
