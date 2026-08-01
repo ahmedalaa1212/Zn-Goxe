@@ -33,6 +33,10 @@
     let isClaimingMain = false; 
     let isUpgrading = false;
 
+    // منع تكرار الاستدعاءات المتتالية للسيرفر عند التبديل السريع بين الشاشات
+    let lastFetchTime = 0;
+    const FETCH_THROTTLE_MS = 10000; // 10 ثوانٍ كحد أدنى بين طلبات المزامنة التلقائية
+
     function showToast(message) {
         if (tele && tele.showAlert) tele.showAlert(message);
         else alert(message);
@@ -77,12 +81,19 @@
         return num.toString();
     }
 
-    window.fetchPlayerDataFromServer = async function() {
+    window.fetchPlayerDataFromServer = async function(force = false) {
+        const now = Date.now();
         if (isFetching) return; 
+        if (!force && (now - lastFetchTime < FETCH_THROTTLE_MS)) {
+            window.updateFarmUI();
+            return;
+        }
+
         isFetching = true;
         try {
             let resData = await window.fetchAPI('/api/farm/player_data', 'POST', { start_param: START_PARAM });
             if (resData && resData.success) {
+                lastFetchTime = Date.now();
                 window.PlayerData = resData.player;
                 if (!window.userState) window.userState = {};
                 
@@ -216,6 +227,7 @@
         container.innerHTML = html;
     }
 
+    // المؤقت المحلي في الفرونت إند (بدون أي طلبات HTTP للسيرفر)
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
         const pData = window.PlayerData;
@@ -290,14 +302,14 @@
     }, 1000);
 
     function syncOnVisibility() {
-        window.updateFarmUI();
-        window.fetchPlayerDataFromServer();
+        if (document.visibilityState === "visible") {
+            window.updateFarmUI();
+            window.fetchPlayerDataFromServer();
+        }
     }
 
     window.addEventListener('pageshow', syncOnVisibility);
-    document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") syncOnVisibility();
-    });
+    document.addEventListener("visibilitychange", syncOnVisibility);
 
     function showTelegramAd(statusCallback) {
         return new Promise((resolve) => {
@@ -386,10 +398,13 @@
                     window.updateFarmUI();
                     showToast(`🚀 تمت زيادة معدل التعدين بنجاح بمقدار +2/h دائماً!`);
                 }
+            } else {
+                window.updateFarmUI();
             }
         } catch (e) {
             console.error("خطأ تسريع التعدين:", e);
             showToast(e.message || "فشل تفعيل التسريع.");
+            window.updateFarmUI();
         } finally {
             isBoosting = false;
         }
@@ -493,5 +508,5 @@
     };
 
     window.updateFarmUI();
-    window.fetchPlayerDataFromServer();
+    window.fetchPlayerDataFromServer(true);
 })();
