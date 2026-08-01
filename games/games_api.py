@@ -29,6 +29,78 @@ def get_current_round_info(round_duration):
     end_time = (round_id_num + 1) * round_duration
     return str(round_id_num), end_time, current_time, round_id_num
 
+def resolve_round(round_id):
+    """حسم الجولة بطريقة آمنة ومحمية من التعارضات Transactional"""
+    round_ref = db.collection('arena_rounds').document(str(round_id))
+    
+    @firestore.transactional
+    def resolve_transaction(transaction):
+        round_doc = round_ref.get(transaction=transaction)
+        
+        if not round_doc.exists:
+            return False
+            
+        data = round_doc.to_dict()
+        if data.get('status') != 'active':
+            return False  # تم حسم الجولة سابقاً
+            
+        cfg = get_arena_config()
+        participants = data.get('participants', [])
+        
+        # 1. إلغاء الجولة وإعادة المبالغ لعدم اكتمال النصاب
+        if len(participants) < cfg['min_participants']:
+            refund_fee = round(cfg['entry_fee'], 2)
+            for p in participants:
+                user_ref = db.collection('users').document(p['uid'])
+                transaction.update(user_ref, {
+                    'balance': firestore.Increment(refund_fee),
+                    'pending_refund': firestore.Increment(refund_fee)
+                })
+                
+            transaction.update(round_ref, {'status': 'refunded'})
+            return True
+
+        # 2. احتساب وتوزيع الجوائز عند اكتمال النصاب
+        total_collected = len(participants) * cfg['entry_fee']
+        visible_prize_pool = round(total_collected * cfg['prize_pool_percentage'], 2)
+        
+        shuffled_participants = list(participants)
+        random.shuffle(shuffled_participants)
+        
+        winners_count = min(len(shuffled_participants), 5)
+        winners_list = shuffled_participants[:winners_count]
+        
+        base_percentages = [0.30, 0.25, 0.20, 0.15, 0.10][:winners_count]
+        total_pct = sum(base_percentages)
+        normalized_percentages = [pct / total_pct for pct in base_percentages]
+        
+        final_winners = []
+        for i, winner in enumerate(winners_list):
+            prize_amount = round(visible_prize_pool * normalized_percentages[i], 2)
+            user_ref = db.collection('users').document(winner['uid'])
+            
+            transaction.update(user_ref, {
+                'balance': firestore.Increment(prize_amount)
+            })
+            
+            final_winners.append({
+                "uid": winner['uid'],
+                "name": winner['name'],
+                "prize": prize_amount
+            })
+            
+        transaction.update(round_ref, {
+            'status': 'completed',
+            'winners': final_winners
+        })
+        return True
+
+    try:
+        return resolve_transaction(db.transaction())
+    except Exception as e:
+        print(f"Error resolving round {round_id}: {e}")
+        return False
+
 @games_bp.route('/status', methods=['POST'])
 def arena_status():
     try:
@@ -39,13 +111,10 @@ def arena_status():
         cfg = get_arena_config()
         round_id, end_time, current_time, round_id_num = get_current_round_info(cfg['round_duration'])
         
-        # فحص الجولات السابقة وحسمها
+        # فحص الجولات السابقة وحسمها بأمان
         for i in range(1, 4):
             past_id = str(round_id_num - i)
-            past_round_ref = db.collection('arena_rounds').document(past_id)
-            past_doc = past_round_ref.get()
-            if past_doc.exists and past_doc.to_dict().get('status') == 'active':
-                resolve_round(past_id)
+            resolve_round(past_id)
 
         # جلب بيانات الجولة الحالية
         round_ref = db.collection('arena_rounds').document(round_id)
@@ -99,7 +168,7 @@ def join_arena():
         current_balance = round(float(user_data.get('balance', 0.0)), 2)
         
         if current_balance < cfg['entry_fee']:
-            return False, f"رصيدك غير كافٍ للاشتراك.", current_balance, 0
+            return False, "رصيدك غير كافٍ للاشتراك.", current_balance, 0
             
         round_doc = round_ref.get(transaction=transaction)
         participants = round_doc.to_dict().get('participants', []) if round_doc.exists else []
@@ -115,7 +184,6 @@ def join_arena():
         participants.append({"uid": uid, "name": player_name})
         transaction.set(round_ref, {'participants': participants, 'status': 'active'}, merge=True)
         
-        # حساب الجائزة المحدثة لإرجاعها في نفس الـ Response
         new_prize_pool = round(len(participants) * cfg['entry_fee'] * cfg['prize_pool_percentage'], 2)
         
         return True, "تم دخول الساحة بنجاح!", new_balance, new_prize_pool
@@ -131,55 +199,6 @@ def join_arena():
     except Exception as e:
         print(f"Error in join_arena: {e}")
         return jsonify({"success": False, "message": "حدث خطأ أثناء معالجة الطلب."}), 500
-
-def resolve_round(round_id):
-    round_ref = db.collection('arena_rounds').document(round_id)
-    round_doc = round_ref.get()
-    
-    if not round_doc.exists or round_doc.to_dict().get('status') != 'active':
-        return 
-        
-    cfg = get_arena_config()
-    data = round_doc.to_dict()
-    participants = data.get('participants', [])
-    batch = db.batch()
-    
-    # إلغاء الجولة لعدم اكتمال النصاب
-    if len(participants) < cfg['min_participants']:
-        refund_fee = round(cfg['entry_fee'], 2)
-        for p in participants:
-            user_ref = db.collection('users').document(p['uid'])
-            batch.update(user_ref, {
-                'balance': firestore.Increment(refund_fee),
-                'pending_refund': firestore.Increment(refund_fee)
-            })
-            
-        batch.update(round_ref, {'status': 'refunded'})
-        batch.commit()
-        return
-
-    # احتساب الفائزين برصيد وتوزيع الجوائز
-    total_collected = len(participants) * cfg['entry_fee']
-    visible_prize_pool = total_collected * cfg['prize_pool_percentage']
-    
-    random.shuffle(participants)
-    winners_list = participants[:5] if len(participants) >= 5 else participants
-    percentages = [0.30, 0.25, 0.20, 0.15, 0.10]
-    final_winners = []
-    
-    for i, winner in enumerate(winners_list):
-        prize_amount = round(visible_prize_pool * percentages[i], 2)
-        user_ref = db.collection('users').document(winner['uid'])
-        batch.update(user_ref, {'balance': firestore.Increment(prize_amount)})
-        
-        final_winners.append({
-            "uid": winner['uid'],
-            "name": winner['name'],
-            "prize": prize_amount
-        })
-        
-    batch.update(round_ref, {'status': 'completed', 'winners': final_winners})
-    batch.commit()
 
 @games_bp.route('/results', methods=['POST'])
 def get_results():
@@ -197,7 +216,7 @@ def get_results():
     round_doc = round_ref.get()
     
     if not round_doc.exists:
-        return jsonify({"success": False})
+        return jsonify({"success": False, "message": "الجولة غير موجودة."})
         
     r_data = round_doc.to_dict()
     
@@ -233,4 +252,4 @@ def check_notifications():
         return jsonify({"success": True, "refund": 0})
     except Exception as e:
         print(f"Error checking notifications: {e}")
-        return jsonify({"success": False}), 500
+        return jsonify({"success": False, "message": "خطأ في جلب التنبيهات."}), 500
