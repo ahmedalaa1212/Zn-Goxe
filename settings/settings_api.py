@@ -10,7 +10,7 @@ settings_bp = Blueprint('settings', __name__)
 def get_settings_stats():
     try:
         is_post = (request.method == 'POST')
-        success, uid, error_res = get_authenticated_user(request, is_post=is_post)
+        success, uid, user_info, error_res = get_authenticated_user(request, is_post=is_post)
         if not success:
             return error_res
 
