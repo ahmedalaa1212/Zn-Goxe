@@ -4,13 +4,13 @@
     const INIT_DATA = tele?.initData || "";
 
     const REF_TASKS = [
-        { id: 1, reqFriends: 1, reward: 5000 },
-        { id: 2, reqFriends: 5, reward: 30000 },
-        { id: 3, reqFriends: 10, reward: 75000 },
-        { id: 4, reqFriends: 25, reward: 200000 },
-        { id: 5, reqFriends: 50, reward: 500000 },
-        { id: 6, reqFriends: 100, reward: 1500000 },
-        { id: 7, reqFriends: 500, reward: 10000000 }
+        { id: 1, reqFriends: 1, reward: 4000 },
+        { id: 2, reqFriends: 5, reward: 25000 },
+        { id: 3, reqFriends: 10, reward: 60000 },
+        { id: 4, reqFriends: 25, reward: 160000 },
+        { id: 5, reqFriends: 50, reward: 350000 },
+        { id: 6, reqFriends: 100, reward: 800000 },
+        { id: 7, reqFriends: 500, reward: 4500000 }
     ];
 
     const BOT_USERNAME = "zngoxe_bot";
@@ -312,7 +312,10 @@
                                     ${statusHtml}
                                 </div>
                             </div>
-                            <div style="color:#2ecc71; font-weight:bold; font-size:13px;">+${Math.floor(f.generated || 0).toLocaleString()} ZN</div>
+                            <div style="text-align: left;">
+                                <span style="display:block; color:#2ecc71; font-weight:bold; font-size:13px;">+${Math.floor(f.generated || 0).toLocaleString()} ZN</span>
+                                <span style="font-size:10px; color:#888;">المجمع منه</span>
+                            </div>
                         </li>
                     `;
                 });
