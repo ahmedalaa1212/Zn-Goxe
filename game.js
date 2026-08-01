@@ -13,22 +13,37 @@ if (tg) {
 window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 0;
 
 // ==========================================
-// 2. حالة المستخدم الرئيسية (User State)
+// 2. حالة المستخدم الرئيسية وقراءة الكاش المحلي (Local-First)
 // ==========================================
-const rawUserState = {
-    tg_id: tg?.initDataUnsafe?.user?.id || null,
-    first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب",
-    balance: 0.0,
-    usd_balance: 0.0,
-    ad_balance: 0.0,
-    hourly_rate: 0.0,
-    energy: 100.0,
-    storage_level: 0,
-    upgrades: {},
-    wallet_address: null
-};
+function getInitialState() {
+    const defaultState = {
+        tg_id: tg?.initDataUnsafe?.user?.id || null,
+        first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب",
+        balance: 0.0,
+        usd_balance: 0.0,
+        ad_balance: 0.0,
+        hourly_rate: 0.0,
+        energy: 100.0,
+        storage_level: 0,
+        upgrades: {},
+        wallet_address: null
+    };
 
-// حفظ البيانات في LocalStorage بعد كل تحديث حقيقي
+    try {
+        const saved = localStorage.getItem('app_user_state');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            return { ...defaultState, ...parsed };
+        }
+    } catch (e) {
+        console.warn("تعذر قراءة LocalStorage", e);
+    }
+    return defaultState;
+}
+
+const rawUserState = getInitialState();
+
+// حفظ البيانات محلياً فوراً بعد كل تعديل
 function saveLocalState() {
     try {
         localStorage.setItem('app_user_state', JSON.stringify(window.userState));
@@ -38,27 +53,23 @@ function saveLocalState() {
 }
 
 // ==========================================
-// 3. متغبرات حماية التحديث اللحظي (داخل game.js حصراً)
+// 3. متغيرات التحديث اللحظي والـ Proxy
 // ==========================================
 let isFirebaseUpdating = false;
 const lastLocalUpdateTimes = {};
-const lastLocalValues = {};
 
-// كائن الـ Proxy للتحديث اللحظي وحساب توقيت العمليات المحلية تلقائياً
 window.userState = new Proxy(rawUserState, {
     set(target, prop, value) {
         target[prop] = value;
 
-        // إذا كان التعديل قادماً من التطبيق/الأزرار (وليس من مستمع الفايربيس)
         if (!isFirebaseUpdating) {
             lastLocalUpdateTimes[prop] = Date.now();
-            lastLocalValues[prop] = value;
         }
 
         const monitoredProps = ['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'];
         
         if (monitoredProps.includes(prop)) {
-            saveLocalState();
+            saveLocalState(); // 💾 حفظ محلي فوراً في نفس اللحظة
             if (typeof window.updateUI === 'function') window.updateUI();
 
             window.dispatchEvent(new CustomEvent('userStateUpdated', {
@@ -70,7 +81,7 @@ window.userState = new Proxy(rawUserState, {
 });
 
 // ==========================================
-// 4. الاتصال بالباك إند (Fetch API) المطور بالتحديث الفوري
+// 4. الاتصال بالباك إند مع الاعتماد المحلي المباشر
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
@@ -83,11 +94,10 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const options = { method, headers };
     if (bodyData) options.body = JSON.stringify(bodyData);
 
-    // ⚡ 1. تحديث تفاؤلي فوري في 0ms عند طلبات التجميع أو المطالبة
+    // ⚡ 1. التحديث المحلي الفوري في 0ms عند طلب التجميع
     if (endpoint.includes('/collect') || endpoint.includes('/claim')) {
         lastLocalUpdateTimes['balance'] = Date.now();
         
-        // البحث عن الرصيد المعلق غير المجمع من الصفحة أو من داخل أي iframe
         let uncollected = parseFloat(window.uncollectedBalance || window.pendingBalance || 0);
         
         if (!uncollected || uncollected <= 0) {
@@ -104,10 +114,9 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         }
 
         if (uncollected > 0) {
-            window.userState.balance += uncollected;
+            window.userState.balance += uncollected; // زاد محلياً فوراً وتم حفظه محلياً تلقائياً
             window.uncollectedBalance = 0;
             window.pendingBalance = 0;
-            lastLocalValues['balance'] = window.userState.balance;
         }
     }
 
@@ -123,7 +132,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
             throw new Error(result.error || `Error HTTP ${response.status}`);
         }
 
-        // ⚡ 2. المزامنة النهائية الدقيقة فور وصول الاستجابة المؤكدة من السيرفر
+        // ⚡ 2. تثبيت الرصيد النهائي المؤكد من السيرفر
         if (result) {
             if (result.new_balance !== undefined) {
                 window.userState.balance = parseFloat(result.new_balance);
@@ -182,7 +191,7 @@ window.globalFetchTonPrice = async function() {
 };
 
 // ==========================================
-// 6. الربط اللحظي مع الفايربيس (مع حماية حاطة ضد الارتداد والوميض)
+// 6. التزامن مع الفايربيس (مع حماية التخزين المحلي)
 // ==========================================
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) {
@@ -194,17 +203,16 @@ window.initFirebaseRealtimeSync = function(userId) {
         if (!doc.exists) return;
         const data = doc.data();
 
-        isFirebaseUpdating = true; // وضع علامة التحديث من الفايربيس
+        isFirebaseUpdating = true;
 
-        // ⚡ 3. حماية الرصيد ضد القفز للخلف
         if (data.balance !== undefined) {
             const fbBalance = parseFloat(data.balance);
             const lastTime = lastLocalUpdateTimes['balance'] || 0;
             const timeDiff = Date.now() - lastTime;
 
-            // إذا أُجري تعديل محلي مؤخراً (خلال آخر 4 ثوانٍ) وكان رقم الفايربيس أقل من الرصيد الحقيقي المحلي، يتم تجاهله
-            if (timeDiff < 4000 && fbBalance < window.userState.balance) {
-                // منع ارتداد/قفز الرصيد للخلف
+            // عدم السماح للفايربيس بإرجاع الرقم للخلف إذا جرى تعديل محلي مؤخراً (خلال 5 ثوانٍ)
+            if (timeDiff < 5000 && fbBalance < window.userState.balance) {
+                // احتفظ بالرصيد المحلي الأحدث
             } else {
                 window.userState.balance = fbBalance;
             }
@@ -213,8 +221,8 @@ window.initFirebaseRealtimeSync = function(userId) {
         if (data.usd_balance !== undefined) {
             const fbUsd = parseFloat(data.usd_balance);
             const lastTime = lastLocalUpdateTimes['usd_balance'] || 0;
-            if (Date.now() - lastTime < 4000 && fbUsd < window.userState.usd_balance) {
-                // منع ارتداد الرصيد المالي
+            if (Date.now() - lastTime < 5000 && fbUsd < window.userState.usd_balance) {
+                // احتفظ بالرصيد المحلي الأحدث
             } else {
                 window.userState.usd_balance = fbUsd;
             }
@@ -226,7 +234,7 @@ window.initFirebaseRealtimeSync = function(userId) {
         if (data.storage_level !== undefined) window.userState.storage_level = parseInt(data.storage_level);
         if (data.upgrades !== undefined) window.userState.upgrades = data.upgrades;
 
-        isFirebaseUpdating = false; // إعادة الوضع العادي
+        isFirebaseUpdating = false;
     }, (error) => {
         console.error("خطأ في مستمع الفايربيس اللحظي:", error);
     });
@@ -277,10 +285,8 @@ window.updateUI = function() {
             });
         };
 
-        // أ) تحديث عناصر الصفحة الرئيسية
         applyToDoc(document);
 
-        // ب) تحديث جميع القوائم الفرعية داخل (iframes)
         document.querySelectorAll('iframe').forEach(iframe => {
             try {
                 if (iframe.contentWindow && iframe.contentWindow.document) {
@@ -429,6 +435,9 @@ window.executeWithdraw = async function(amountUSD, address) {
 document.addEventListener('DOMContentLoaded', () => {
     const historyBtn = document.getElementById('open-history-btn');
     if (historyBtn) historyBtn.addEventListener('click', window.loadWalletHistory);
+
+    // عرض البيانات المحفوظة محلياً فوراً عند تحضير الصفحة
+    if (typeof window.updateUI === 'function') window.updateUI();
 
     window.globalFetchTonPrice();
 
