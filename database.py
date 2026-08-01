@@ -67,6 +67,15 @@ def ensure_game_settings_exist():
             }
         }
 
+        # إعدادات الساحة الكبرى الديناميكية في الفايربيس
+        exact_arena_config = {
+            "entry_fee": 1000,
+            "min_participants": 20,
+            "prize_pool_percentage": 0.45,
+            "round_duration": 900,  # 15 دقيقة بالثواني
+            "lock_seconds": 15
+        }
+
         doc = settings_ref.get()
         current_data = doc.to_dict() or {} if doc.exists else {}
 
@@ -79,11 +88,12 @@ def ensure_game_settings_exist():
             "speed_config": current_data.get("speed_config", exact_speed_config),
             "storage_config": current_data.get("storage_config", exact_storage_config),
             "daily_ad_boost_rate": current_data.get("daily_ad_boost_rate", 2),
-            "friends_config": friends_cfg
+            "friends_config": friends_cfg,
+            "arena_config": current_data.get("arena_config", exact_arena_config)
         }
 
         settings_ref.set(update_payload, merge=True)
-        print("✅ تم تحديث Firestore: المكافآت المباشرة أصبحت 0 ZN والاعتماد على 10% من التعدين فقط!")
+        print("✅ تم تحديث Firestore: إضافة إعدادات arena_config الديناميكية بنجاح!")
 
     except Exception as e:
         print(f"❌ خطأ أثناء تحديث إعدادات اللعبة تلقائياً: {e}")
@@ -270,10 +280,6 @@ def update_user_balance(tg_id, amount, balance_type="balance"):
         return False
 
 def add_referral_earnings(referrer_id, friend_id, amount):
-    """
-    تُستدعى عند ضغط الصديق على زر تجميع المزرعة (Claim Farm).
-    تحسب 10% من التعدين فقط وتضيفها للأرباح المعلقة للسحب ولفرع الأصدقاء.
-    """
     try:
         if not referrer_id or not amount or float(amount) <= 0: return False
             
