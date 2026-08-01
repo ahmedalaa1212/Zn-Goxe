@@ -23,9 +23,9 @@ def wallet_index():
 @wallet_bp.route('/get_history', methods=['GET', 'POST'])
 def get_history():
     is_post = (request.method == 'POST')
-    is_auth, user_id, err = get_authenticated_user(request, is_post=is_post)
-    if not is_auth: 
-        return jsonify({"success": False, "error": "فشل المصادقة، يرجى إعادة فتح التطبيق."}), 200
+    success, user_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
+    if not success: 
+        return error_res
 
     if is_user_banned(user_id):
         return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 200
@@ -79,9 +79,9 @@ def get_history():
 # ==========================================
 @wallet_bp.route('/wallet_convert', methods=['POST'])
 def wallet_convert():
-    is_auth, user_id, err = get_authenticated_user(request, is_post=True)
-    if not is_auth: 
-        return jsonify({"success": False, "error": "فشل المصادقة، يرجى إعادة فتح التطبيق."}), 200
+    success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success: 
+        return error_res
 
     if is_user_banned(user_id):
         return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 200
@@ -153,9 +153,9 @@ def wallet_convert():
 # ==========================================
 @wallet_bp.route('/wallet_withdraw', methods=['POST'])
 def wallet_withdraw():
-    is_auth, user_id, err = get_authenticated_user(request, is_post=True)
-    if not is_auth: 
-        return jsonify({"success": False, "error": "فشل المصادقة، يرجى إعادة فتح التطبيق."}), 200
+    success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success: 
+        return error_res
 
     if is_user_banned(user_id):
         return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 200
@@ -218,9 +218,9 @@ def wallet_withdraw():
 # ==========================================
 @wallet_bp.route('/wallet_deposit_report', methods=['POST'])
 def wallet_deposit_report():
-    is_auth, user_id, err = get_authenticated_user(request, is_post=True)
-    if not is_auth: 
-        return jsonify({"success": False, "error": "فشل المصادقة، يرجى إعادة فتح التطبيق."}), 200
+    success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success: 
+        return error_res
 
     if is_user_banned(user_id):
         return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 200
