@@ -33,55 +33,6 @@
     let isClaimingMain = false; 
     let isUpgrading = false;
 
-    // متغيرات العداد التصاعدي للرصيد
-    let currentDisplayedBalance = null;
-    let balanceAnimationId = null;
-
-    function animateBalance(targetValue) {
-        const balEl = document.getElementById('farm-balance');
-        if (!balEl) return;
-
-        targetValue = parseFloat(targetValue || 0);
-        if (isNaN(targetValue)) targetValue = 0;
-
-        let startValue = currentDisplayedBalance !== null ? currentDisplayedBalance : getStoredBalance();
-        if (isNaN(startValue)) startValue = 0;
-
-        if (Math.abs(targetValue - startValue) < 0.5) {
-            currentDisplayedBalance = targetValue;
-            balEl.innerText = `ZN: ${Math.floor(targetValue).toLocaleString()}`;
-            return;
-        }
-
-        if (balanceAnimationId) {
-            cancelAnimationFrame(balanceAnimationId);
-        }
-
-        const diff = Math.abs(targetValue - startValue);
-        const duration = Math.min(Math.max(400, Math.log10(diff + 1) * 250), 1200);
-        const startTime = performance.now();
-
-        function step(currentTime) {
-            const elapsed = currentTime - startTime;
-            const progress = Math.min(elapsed / duration, 1);
-            
-            const easeOut = 1 - Math.pow(1 - progress, 3);
-            
-            currentDisplayedBalance = startValue + (targetValue - startValue) * easeOut;
-            balEl.innerText = `ZN: ${Math.floor(currentDisplayedBalance).toLocaleString()}`;
-
-            if (progress < 1) {
-                balanceAnimationId = requestAnimationFrame(step);
-            } else {
-                currentDisplayedBalance = targetValue;
-                balEl.innerText = `ZN: ${Math.floor(targetValue).toLocaleString()}`;
-                balanceAnimationId = null;
-            }
-        }
-
-        balanceAnimationId = requestAnimationFrame(step);
-    }
-
     function showToast(message) {
         if (tele && tele.showAlert) tele.showAlert(message);
         else alert(message);
@@ -98,7 +49,7 @@
         if (newBalance !== undefined && newBalance !== null) {
             const val = parseFloat(newBalance);
             if (!window.userState) window.userState = {};
-            window.userState.balance = val;
+            window.userState.balance = val; // سيقوم Proxy في game.js بتحديث الواجهات بسلاسة فوراً
             if (window.PlayerData) window.PlayerData.balance = val;
         }
     }
@@ -127,16 +78,11 @@
     }
 
     window.fetchPlayerDataFromServer = async function() {
-        if (!INIT_DATA || isFetching) return; 
+        if (isFetching) return; 
         isFetching = true;
         try {
-            let response = await fetch('/api/farm/player_data', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: INIT_DATA, start_param: START_PARAM })
-            });
-            let resData = await response.json();
-            if (response.ok && resData.success) {
+            let resData = await window.fetchAPI('/api/farm/player_data', 'POST', { start_param: START_PARAM });
+            if (resData && resData.success) {
                 window.PlayerData = resData.player;
                 if (!window.userState) window.userState = {};
                 
@@ -158,7 +104,7 @@
                 if (resData.game_config && resData.game_config.daily_rewards) {
                     GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
                 }
-                window.updateFarmUI(false);
+                window.updateFarmUI();
             }
         } catch (e) { 
             console.error("خطأ في مزامنة بيانات المزرعة:", e); 
@@ -167,19 +113,14 @@
         }
     };
 
-    window.updateFarmUI = function(animate = true) {
+    window.updateFarmUI = function() {
         const pData = window.PlayerData || {};
         let bal = getStoredBalance();
         let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
         
-        if (animate) {
-            animateBalance(bal);
-        } else {
-            const balEl = document.getElementById('farm-balance');
-            if (balEl) {
-                currentDisplayedBalance = bal;
-                balEl.innerText = `ZN: ${Math.floor(bal).toLocaleString()}`;
-            }
+        const balEl = document.getElementById('farm-balance');
+        if (balEl && typeof window.formatNumberHTML === 'function') {
+            balEl.innerHTML = `ZN: ${window.formatNumberHTML(bal, 0, 2)}`;
         }
 
         const rateEl = document.getElementById('farm-rate');
@@ -214,7 +155,7 @@
     };
 
     window.onFarmTabOpen = function() {
-        window.updateFarmUI(false);
+        window.updateFarmUI();
         if (typeof window.fetchPlayerDataFromServer === 'function') {
             window.fetchPlayerDataFromServer();
         }
@@ -349,7 +290,7 @@
     }, 1000);
 
     function syncOnVisibility() {
-        window.updateFarmUI(false);
+        window.updateFarmUI();
         window.fetchPlayerDataFromServer();
     }
 
@@ -371,7 +312,7 @@
     }
 
     window.handleUpgrade = async function(level) {
-        if (!window.PlayerData || isUpgrading || !INIT_DATA) return;
+        if (!window.PlayerData || isUpgrading) return;
 
         const cost = GAME_CONFIG.upgradeCosts[level] || 0;
         const currentBal = getStoredBalance();
@@ -383,16 +324,10 @@
         isUpgrading = true;
 
         try {
-            let response = await fetch('/api/farm/upgrade', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ initData: INIT_DATA, level: level })
-            });
-            let resData = await response.json();
-            if (response.ok && resData.success) {
+            let resData = await window.fetchAPI('/api/farm/upgrade', 'POST', { level: level });
+            if (resData && resData.success) {
                 if (resData.new_balance !== undefined) {
                     setStoredBalance(resData.new_balance);
-                    animateBalance(resData.new_balance);
                 }
                 if (resData.new_hourly_rate !== undefined) {
                     if (!window.userState) window.userState = {};
@@ -403,26 +338,23 @@
                 if (resData.upgrades) {
                     if (!window.PlayerData) window.PlayerData = {};
                     window.PlayerData.upgrades = resData.upgrades;
-                    
                     if (!window.userState) window.userState = {};
                     window.userState.upgrades = resData.upgrades;
                 }
 
-                window.updateFarmUI(false);
+                window.updateFarmUI();
                 showToast(`⚡ تم التحديث بنجاح للمستوى ${level}!`);
-            } else if (resData.error) {
-                showToast(resData.error);
             }
         } catch (e) {
             console.error("خطأ في شراء الترقية:", e);
-            showToast("حدث خطأ أثناء الاتصال بالخادم.");
+            showToast(e.message || "حدث خطأ أثناء الاتصال بالخادم.");
         } finally {
             isUpgrading = false;
         }
     };
 
     window.handleDailyBoost = async function() {
-        if (!window.PlayerData || isBoosting || !INIT_DATA) return;
+        if (!window.PlayerData || isBoosting) return;
         
         const pData = window.PlayerData;
         const todayStr = getTodayUTCStr();
@@ -441,13 +373,8 @@
             
             if (adWatched) {
                 if (btn) btn.innerHTML = `<span style="font-size: 18px;">💾</span>`;
-                let response = await fetch('/api/farm/daily_boost', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ initData: INIT_DATA })
-                });
-                let resData = await response.json();
-                if (response.ok && resData.success) {
+                let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST');
+                if (resData && resData.success) {
                     if (resData.new_rate !== undefined) {
                         pData.hourly_rate = resData.new_rate;
                         if (!window.userState) window.userState = {};
@@ -456,21 +383,20 @@
                     if (resData.last_boost_date) {
                         pData.last_boost_date = resData.last_boost_date;
                     }
-                    window.updateFarmUI(false);
+                    window.updateFarmUI();
                     showToast(`🚀 تمت زيادة معدل التعدين بنجاح بمقدار +2/h دائماً!`);
-                } else if (resData.error) {
-                    showToast(resData.error);
                 }
             }
         } catch (e) {
             console.error("خطأ تسريع التعدين:", e);
+            showToast(e.message || "فشل تفعيل التسريع.");
         } finally {
             isBoosting = false;
         }
     };
 
     window.handleDailyClaim = async function(day) {
-        if (!window.PlayerData || isClaimingDaily || !INIT_DATA) return;
+        if (!window.PlayerData || isClaimingDaily) return;
         
         const pData = window.PlayerData;
         const todayStr = getTodayUTCStr();
@@ -489,16 +415,10 @@
             
             if (adWatched) {
                 if (btn) btn.innerHTML = "💾";
-                let response = await fetch('/api/farm/daily_claim', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ initData: INIT_DATA })
-                });
-                let resData = await response.json();
-                if (response.ok && resData.success) {
+                let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST');
+                if (resData && resData.success) {
                     if (resData.new_balance !== undefined) {
                         setStoredBalance(resData.new_balance);
-                        animateBalance(resData.new_balance);
                     }
                     if (resData.daily_day !== undefined) {
                         pData.daily_day = resData.daily_day;
@@ -506,11 +426,8 @@
                     if (resData.last_daily_claim_date) {
                         pData.last_daily_claim_date = resData.last_daily_claim_date;
                     }
-                    window.updateFarmUI(false);
+                    window.updateFarmUI();
                     showToast(`🎉 استلمت ${resData.reward.toLocaleString()} ZN!`);
-                    if (resData.reset_msg) showToast(resData.reset_msg);
-                } else if (resData.error) {
-                    showToast(resData.error);
                 }
             } else {
                 if (btn) {
@@ -520,6 +437,7 @@
             }
         } catch (e) {
             console.error("خطأ المكافأة اليومية:", e);
+            showToast(e.message || "فشل استلام المكافأة اليومية.");
             if (btn) {
                 btn.innerHTML = "📺 استلام";
                 btn.disabled = false;
@@ -531,7 +449,7 @@
 
     window.handleClaim = async function() {
         const pData = window.PlayerData;
-        if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0 || !INIT_DATA || isClaimingMain) return;
+        if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0 || isClaimingMain) return;
 
         isClaimingMain = true;
         const claimBtn = document.getElementById('claim-btn');
@@ -545,43 +463,26 @@
         const currentBal = getStoredBalance();
         const optimisticNewBal = currentBal + unclaimedAmount;
         
-        // تحديث الرصيد محلياً فوراً لاستجابة لحظية وسريعة
         setStoredBalance(optimisticNewBal);
         pData.unclaimed = 0;
         pData.last_claim_time = new Date().toISOString();
-        animateBalance(optimisticNewBal);
-        window.updateFarmUI(false);
+        window.updateFarmUI();
 
         try {
-            let response = await fetch('/api/farm/claim', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ initData: INIT_DATA })
-            });
-            let resData = await response.json();
-            
-            if (response.ok && resData.success) {
+            let resData = await window.fetchAPI('/api/farm/claim', 'POST');
+            if (resData && resData.success) {
                 if (resData.new_balance !== undefined) {
                     setStoredBalance(resData.new_balance);
-                    animateBalance(resData.new_balance);
                 }
                 if (resData.last_claim_time) {
                     pData.last_claim_time = resData.last_claim_time;
                 }
                 pData.unclaimed = 0;
                 claimCooldown = 5; 
-            } else {
-                setStoredBalance(currentBal);
-                animateBalance(currentBal);
-                if (resData.error) showToast(resData.error);
-                if (claimBtn) {
-                    claimBtn.disabled = false;
-                    claimBtn.innerText = "تجميع الرصيد 💰";
-                }
             }
         } catch (e) {
             setStoredBalance(currentBal);
-            animateBalance(currentBal);
+            showToast(e.message || "حدث خطأ في عملية التجميع");
             if (claimBtn) {
                 claimBtn.disabled = false;
                 claimBtn.innerText = "تجميع الرصيد 💰";
