@@ -15,6 +15,25 @@
     let lastTasksFetchTime = 0;
     const TASKS_CACHE_TTL = 30000; // كاش لمدة 30 ثانية للفرونت إند
 
+    // استرجاع الكاش المبدئي من sessionStorage لمنع الجلب عند التنقل السريع بين الصفحات
+    try {
+        const storedCache = sessionStorage.getItem('tasks_cache_data');
+        const storedTime = sessionStorage.getItem('tasks_cache_time');
+        if (storedCache && storedTime) {
+            cachedTasksData = JSON.parse(storedCache);
+            lastTasksFetchTime = parseInt(storedTime, 10) || 0;
+        }
+    } catch (e) {}
+
+    function saveTasksToSessionCache(data) {
+        cachedTasksData = data;
+        lastTasksFetchTime = Date.now();
+        try {
+            sessionStorage.setItem('tasks_cache_data', JSON.stringify(data));
+            sessionStorage.setItem('tasks_cache_time', lastTasksFetchTime.toString());
+        } catch (e) {}
+    }
+
     // ==========================================
     // دوال المزامنة المباشرة من الذاكرة والفايربيس (بدون localStorage)
     // ==========================================
@@ -238,8 +257,7 @@
                 if (response.ok) {
                     let data = await response.json();
                     if (data.success) { 
-                        cachedTasksData = data;
-                        lastTasksFetchTime = Date.now();
+                        saveTasksToSessionCache(data);
                         realTasks = data.campaigns || []; 
                         
                         if (data.user_id) {
