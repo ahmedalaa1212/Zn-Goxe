@@ -4,6 +4,10 @@
     const INIT_DATA = tele?.initData || "";
     const BOT_USERNAME = "zngoxe_bot";
 
+    // زمن آخر طلب شبكة لمنع النزيف عند التنقل السريع بين الصفحات
+    let lastFetchTimestamp = 0;
+    const FETCH_COOLDOWN_MS = 30000; // 30 ثانية كحد أدنى بين الطلبات الشبه ثابتة
+
     window.FriendsConfig = {
         min_upgrades_for_task: 3,
         commission_percent: 10,
@@ -11,7 +15,6 @@
         ref_tasks: {}
     };
 
-    // دالة تنسيق الأرقام بخانتين عشريتين بحد أقصى
     function formatNumber(num, maxDecimals = 2) {
         const val = parseFloat(num) || 0;
         if (Number.isInteger(val)) {
@@ -31,19 +34,16 @@
         return bal !== null ? parseFloat(bal) : 0;
     }
 
-    // حفظ وتحديث الرصيد مع تشغيل العداد البصري التدريجي
     function setStoredBalance(newBalance) {
         if (newBalance === undefined || newBalance === null) return;
         const numVal = parseFloat(newBalance);
         const currentVal = getStoredBalance();
 
-        // تحديث الذاكرة المحلية
         if (!window.GameState) window.GameState = {};
         window.GameState.balance = numVal;
         localStorage.setItem('zn_balance', numVal.toString());
         localStorage.setItem('user_balance', numVal.toString());
 
-        // تشغيل أنيميشن العداد البصري التدريجي إذا كان متوفراً
         if (typeof window.animateBalance === 'function' && currentVal !== numVal) {
             window.animateBalance(currentVal, numVal);
         } else if (typeof window.setBalance === 'function') {
@@ -93,8 +93,18 @@
         loadFriendsData();
     }
 
-    async function loadFriendsData() {
+    async function loadFriendsData(force = false) {
         if (!INIT_DATA) return;
+
+        const now = Date.now();
+        // حماية: عدم إرسال طلبات متكررة إذا تم التحميل مؤخراً، إلا في حالة الإجبار (force)
+        if (!force && (now - lastFetchTimestamp < FETCH_COOLDOWN_MS)) {
+            window.updateFriendsUI();
+            return;
+        }
+
+        lastFetchTimestamp = now;
+
         try {
             let response = await fetch('/api/friends/data', {
                 method: 'POST',
@@ -271,7 +281,6 @@
                 const formattedNet = formatNumber(data.net_amount, 2);
                 showToast(`🎉 تم السحب بنجاح!\nأُضيف ${formattedNet} ZN إلى رصيدك.`);
                 
-                // تحديث مباشر وحصري من الـ response بدون إعادة جلب الشبكة
                 setStoredBalance(data.new_balance);
                 if (!window.PlayerData) window.PlayerData = {};
                 window.PlayerData.balance = data.new_balance;
@@ -301,7 +310,6 @@
             if (response.ok && data.success) {
                 showToast(`🎊 مبروك! استلمت مكافأة ${formatNumber(reward, 2)} ZN.`);
                 
-                // تحديث مباشر وحصري من الـ response بدون إعادة جلب الشبكة
                 setStoredBalance(data.new_balance);
                 
                 if (!window.PlayerData) window.PlayerData = {};
@@ -378,6 +386,7 @@
         }
     }
 
+    // مزامنة واجهة المستخدم مع الذاكرة المحلية دون أي طلبات شبكة
     setInterval(() => {
         const cachedBal = getStoredBalance();
         if (window.PlayerData && Math.floor(window.PlayerData.balance) !== Math.floor(cachedBal)) {
@@ -392,7 +401,7 @@
         const stored = getStoredBalance();
         if (window.PlayerData) window.PlayerData.balance = stored;
         window.updateFriendsUI();
-        loadFriendsData();
+        loadFriendsData(false); // مراعاة الكولد داون
     });
 
     document.addEventListener("visibilitychange", () => {
@@ -400,7 +409,7 @@
             const stored = getStoredBalance();
             if (window.PlayerData) window.PlayerData.balance = stored;
             window.updateFriendsUI();
-            loadFriendsData();
+            loadFriendsData(false); // مراعاة الكولد داون
         }
     });
 
