@@ -112,7 +112,6 @@ def get_player_data():
                         if referrer_ref.get().exists:
                             referrer_ref.update({'invited_friends_count': firestore.Increment(1)})
                             
-                            # التوحيد: استخدام مجلد 'friends'
                             friend_ref_in_sub = referrer_ref.collection('friends').document(user_id_str)
                             friend_ref_in_sub.set({
                                 'tg_id': user_id_str,
@@ -124,6 +123,7 @@ def get_player_data():
                         print(f"Error updating referrer count: {e}")
 
             user_data = {
+                "tg_id": user_id_str,
                 "telegram_id": user_id_str, 
                 "balance": 0.0, 
                 "ad_balance": 0.0,
@@ -140,18 +140,20 @@ def get_player_data():
                 "upgrades": {},
                 "referred_by": referred_by,
                 "pending_ref_earnings": 0.0,
+                "total_ref_earnings": 0.0,
                 "invited_friends_count": 0,
                 "ref_generated_amount": 0.0,
                 "claimed_ref_tasks": []
             }
             user_ref.set(user_data)
         else:
-            user_data = user_doc.to_dict()
+            user_data = user_doc.to_dict() or {}
 
         storage_level = user_data.get("storage_level", 0)
         max_cap = get_storage_capacity(storage_level)
         user_data["max_cap"] = max_cap
 
+        # إعادة تصفير تسجيل الأيام اليومية في حال فوت يوماً
         last_daily_date = user_data.get("last_daily_claim_date")
         if last_daily_date:
             try:
@@ -163,6 +165,7 @@ def get_player_data():
             except Exception: 
                 pass
 
+        # حساب الرصيد القابل للتجميع ديناميكياً من وقت آخر تجميع بدون كتابة في الداتا بيز عند كل طلب قراءة
         last_claim_str = user_data.get("last_claim_time")
         hourly_rate = float(user_data.get("hourly_rate", 0.0))
         unclaimed = float(user_data.get("unclaimed", 0.0))
@@ -179,19 +182,14 @@ def get_player_data():
                     unclaimed = min(unclaimed + mined, max_cap)
             except Exception: 
                 pass
+        else:
+            user_data["last_claim_time"] = now.isoformat()
+            user_ref.update({"last_claim_time": now.isoformat()})
 
         user_data["unclaimed"] = unclaimed
-        user_data["last_claim_time"] = now.isoformat()
-        
         if not isinstance(user_data.get("upgrades"), dict):
             user_data["upgrades"] = {}
-        
-        user_ref.update({
-            "unclaimed": unclaimed, 
-            "max_cap": max_cap,
-            "last_claim_time": now.isoformat()
-        })
-        
+
         game_settings = get_game_settings()
         parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
 
@@ -223,7 +221,7 @@ def claim_mined_tokens():
             if not snapshot.exists:
                 return None, "الحساب غير موجود", 404
 
-            user_data = snapshot.to_dict()
+            user_data = snapshot.to_dict() or {}
             referred_by = user_data.get("referred_by")
             
             inviter_ref = None
@@ -260,34 +258,38 @@ def claim_mined_tokens():
 
             current_bal = float(user_data.get("balance", 0.0))
             new_balance = current_bal + unclaimed
-            
+            now_iso = now.isoformat()
+
             update_data = {
                 "balance": new_balance,
                 "unclaimed": 0.0,
                 "max_cap": max_cap,
-                "last_claim_time": now.isoformat()
+                "last_claim_time": now_iso
             }
 
             # احتساب 10% للداعي عند كل عملية تجميع فوراً
             if referred_by and inviter_snap and inviter_snap.exists:
                 bonus_for_inviter = unclaimed * 0.10
                 
-                # إضافة الأرباح المعلقة والإجمالية للداعي
                 transaction.update(inviter_ref, {
                     "pending_ref_earnings": firestore.Increment(bonus_for_inviter),
                     "total_ref_earnings": firestore.Increment(bonus_for_inviter)
                 })
                 
-                # تحديث مستند هذا الصديق داخل المجلد الموحد 'friends'
                 transaction.set(inviter_friend_doc, {
                     "tg_id": user_id_str,
                     "first_name": user_data.get('first_name', 'صديق'),
                     "earned_from_him": firestore.Increment(bonus_for_inviter),
-                    "last_claim_time": now.isoformat()
+                    "last_claim_time": now_iso
                 }, merge=True)
 
             transaction.update(ref, update_data)
-            return {"claimed": unclaimed, "new_balance": new_balance}, None, 200
+            return {
+                "claimed": unclaimed, 
+                "new_balance": new_balance, 
+                "last_claim_time": now_iso, 
+                "unclaimed": 0.0
+            }, None, 200
 
         transaction = db.transaction()
         result, err_msg, status_code = run_claim_transaction(transaction, user_ref)
@@ -295,7 +297,13 @@ def claim_mined_tokens():
         if err_msg:
             return jsonify({"success": False, "error": err_msg}), status_code
 
-        return jsonify({"success": True, "claimed": result["claimed"], "new_balance": result["new_balance"]}), 200
+        return jsonify({
+            "success": True, 
+            "claimed": result["claimed"], 
+            "new_balance": result["new_balance"],
+            "last_claim_time": result["last_claim_time"],
+            "unclaimed": 0.0
+        }), 200
 
     except Exception as e:
         print(f"Error in claim: {e}")
@@ -311,7 +319,7 @@ def upgrade_level():
     try:
         level = int(req_data.get('level', 0))
     except (ValueError, TypeError):
-        return jsonify({"success": False, "error": "مستوى غير صالحة"}), 400
+        return jsonify({"success": False, "error": "مستوى غير صالح"}), 400
 
     if level < 1 or level > 9:
         return jsonify({"success": False, "error": "مستوى ترقية غير معروف"}), 400
@@ -325,7 +333,7 @@ def upgrade_level():
             if not snapshot.exists:
                 return None, "الحساب غير موجود", 404
 
-            user_data = snapshot.to_dict()
+            user_data = snapshot.to_dict() or {}
             upgrades = user_data.get("upgrades", {})
             if not isinstance(upgrades, dict):
                 upgrades = {}
@@ -388,7 +396,7 @@ def daily_boost():
         if not user_doc.exists: 
             return jsonify({"success": False, "error": "الحساب غير موجود"}), 404
 
-        user_data = user_doc.to_dict()
+        user_data = user_doc.to_dict() or {}
         today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         
         if user_data.get("last_boost_date") == today_str:
@@ -406,7 +414,11 @@ def daily_boost():
             "last_boost_date": today_str,
             "ads_watched": ads_watched
         })
-        return jsonify({"success": True, "new_rate": new_rate}), 200
+        return jsonify({
+            "success": True, 
+            "new_rate": new_rate,
+            "last_boost_date": today_str
+        }), 200
     except Exception as e:
         print(f"Error in daily_boost: {e}")
         return jsonify({"success": False, "error": "خطأ في تفعيل التسريع"}), 500
@@ -423,7 +435,7 @@ def daily_claim():
         if not user_doc.exists: 
             return jsonify({"success": False, "error": "اللاعب غير مسجل"}), 404
 
-        user_data = user_doc.to_dict()
+        user_data = user_doc.to_dict() or {}
         now = datetime.now(timezone.utc)
         today_str = now.strftime('%Y-%m-%d')
         last_daily_date = user_data.get("last_daily_claim_date")
@@ -463,6 +475,8 @@ def daily_claim():
             "success": True, 
             "reward": reward_amount, 
             "new_balance": new_balance,
+            "daily_day": next_day,
+            "last_daily_claim_date": today_str,
             "reset_msg": reset_message
         }), 200
     except Exception as e:
