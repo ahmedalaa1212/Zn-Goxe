@@ -1,6 +1,6 @@
 // wallet/wallet.js
 // =================================================================
-// 💳 ZN Goxe - Wallet Module (Fully Secured & Realtime Synchronized)
+// 💳 ZN Goxe - Wallet Module (Optimized, Animated & Secured)
 // =================================================================
 
 (function initWalletModule() {
@@ -11,7 +11,12 @@
     let currentWalletTab = localStorage.getItem('lastWalletTab') || 'withdraw';
     let tonConnectUI = null;
 
-    // 🛡️ تثبيت آمن لدالة apiCall لتفادي توقف الكود
+    // 💾 ذاكرة مؤقتة لسجل المعاملات لتقليل طلبات السيرفر وقراءات الفايربيس
+    let historyCache = null;
+    let historyCacheTime = 0;
+    const HISTORY_CACHE_TTL = 120000; // 2 دقيقة
+
+    // 🛡️ تثبيت آمن لدالة apiCall
     if (typeof window.apiCall !== 'function') {
         window.apiCall = async function(url, method = 'POST', payload = {}) {
             try {
@@ -64,6 +69,42 @@
     }
 
     // =================================================================
+    // 🧮 0. دالة التحديث البصري التدريجي للأرقام (Smooth Counter Animation)
+    // =================================================================
+    function animateValue(element, start, end, duration = 800, decimals = 2, prefix = '', suffix = '') {
+        if (!element) return;
+        if (isNaN(start)) start = 0;
+        if (isNaN(end)) end = 0;
+        
+        // إذا كان الفارق ضئيل جداً نحدّث مباشرة بدون أنيميشن
+        if (Math.abs(start - end) < 0.001) {
+            element.innerText = prefix + (decimals === 0 ? Math.floor(end).toLocaleString('en-US') : end.toFixed(decimals)) + suffix;
+            element.dataset.currentVal = end;
+            return;
+        }
+
+        let startTimestamp = null;
+        const step = (timestamp) => {
+            if (!startTimestamp) startTimestamp = timestamp;
+            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+            const current = start + (end - start) * progress;
+            
+            if (decimals === 0) {
+                element.innerText = prefix + Math.floor(current).toLocaleString('en-US') + suffix;
+            } else {
+                element.innerText = prefix + current.toFixed(decimals) + suffix;
+            }
+
+            if (progress < 1) {
+                window.requestAnimationFrame(step);
+            } else {
+                element.dataset.currentVal = end;
+            }
+        };
+        window.requestAnimationFrame(step);
+    }
+
+    // =================================================================
     // 📡 1. جلب سعر TON اللحظي
     // =================================================================
     function applyTonPrice(price) {
@@ -75,7 +116,7 @@
 
         const tonPriceElem = document.getElementById('current-ton-price');
         if (tonPriceElem) {
-            tonPriceElem.innerText = validPrice.toFixed(3);
+            tonPriceElem.innerText = validPrice.toFixed(2);
         }
 
         if (typeof window.updateWalletHeaderUI === 'function') {
@@ -101,21 +142,12 @@
                 if (price > 0) return applyTonPrice(price);
             }
         } catch (e) {}
-
-        try {
-            let res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd');
-            if (res.ok) {
-                let data = await res.json();
-                let price = parseFloat(data['the-open-network']?.usd);
-                if (price > 0) return applyTonPrice(price);
-            }
-        } catch (e) {}
     }
 
     function startTonPriceSync() {
         fetchLiveTonPrice();
         if (priceIntervalTimer) clearInterval(priceIntervalTimer);
-        priceIntervalTimer = setInterval(fetchLiveTonPrice, 20000); // كل 20 ثانية لتخفيف الضغط
+        priceIntervalTimer = setInterval(fetchLiveTonPrice, 30000); // تحديث كل 30 ثانية لتخفيف الضغط
     }
 
     // =================================================================
@@ -140,34 +172,21 @@
         const tonElem = document.getElementById('wallet-ton-estimate');
         const tonPriceElem = document.getElementById('current-ton-price');
 
-        if (znElem) znElem.innerText = Math.floor(zn).toLocaleString('en-US');
+        // تطبيق الأنيميشن البصري والتأكد من تقييد الخانات العشرية إلى رقمين فقط للـ USD
+        if (znElem) {
+            const currentZn = parseFloat(znElem.dataset.currentVal || znElem.innerText.replace(/,/g, '')) || 0;
+            animateValue(znElem, currentZn, zn, 600, 0);
+        }
         
         if (usdElem) {
-            usdElem.innerText = "$" + (usd > 0 && usd < 0.01 ? usd.toFixed(5) : usd.toFixed(4));
+            const currentUsd = parseFloat(usdElem.dataset.currentVal || usdElem.innerText.replace('$', '')) || 0;
+            animateValue(usdElem, currentUsd, usd, 600, 2, '$');
         }
         
         if (window.currentTonPriceUSD > 0) {
             let estimateTon = (usd / window.currentTonPriceUSD);
-            if (tonElem) tonElem.innerText = "≈ " + estimateTon.toFixed(4) + " TON";
-            if (tonPriceElem) tonPriceElem.innerText = window.currentTonPriceUSD.toFixed(3);
-        }
-    };
-
-    window.syncWalletData = async function() {
-        if (typeof window.apiCall === 'function') {
-            try {
-                const payload = getAuthPayload();
-                const res = await window.apiCall('/api/farm/sync', 'POST', payload);
-                if (res && res.success && res.data) {
-                    if (!window.GameState) window.GameState = {};
-                    if (res.data.balance !== undefined) window.GameState.balance = res.data.balance;
-                    if (res.data.usd_balance !== undefined) window.GameState.usd_balance = res.data.usd_balance;
-                    if (res.data.ad_balance !== undefined) window.GameState.ad_balance = res.data.ad_balance;
-                    window.updateWalletHeaderUI();
-                }
-            } catch (e) {
-                console.log("Wallet Sync Pending...");
-            }
+            if (tonElem) tonElem.innerText = "≈ " + estimateTon.toFixed(2) + " TON";
+            if (tonPriceElem) tonPriceElem.innerText = window.currentTonPriceUSD.toFixed(2);
         }
     };
 
@@ -271,7 +290,7 @@
     window.setQuickUsd = function(percent) {
         triggerHapticFeedback('impact', 'light');
         const usd = Number(window.GameState?.usd_balance) || 0;
-        const amount = ((usd * percent) / 100).toFixed(4);
+        const amount = ((usd * percent) / 100).toFixed(2);
         const input = document.getElementById('usd-withdraw');
         if (input) {
             input.value = amount;
@@ -280,13 +299,11 @@
     };
 
     // =================================================================
-    // 🖼️ 5. عرض محتوى التبويبات
+    // 🖼️ 5. عرض محتوى التبويبات (بدون إعادة جلب البيانات بدون داعٍ)
     // =================================================================
     window.renderWalletTab = function(tab) {
         currentWalletTab = tab;
         localStorage.setItem('lastWalletTab', tab);
-
-        window.syncWalletData();
 
         const content = document.getElementById('wallet-content');
         if (!content) return;
@@ -361,12 +378,6 @@
             content.innerHTML = depositHtml;
         } 
         else if (tab === 'history') {
-            content.innerHTML = `
-                <div class="card" style="text-align:center; color:#94a3b8; padding:30px;">
-                    <div style="font-size:32px; margin-bottom:10px;">⏳</div>
-                    جاري جلب سجل المعاملات...
-                </div>`;
-            
             const renderListUI = (rawList) => {
                 if (currentWalletTab !== 'history') return;
 
@@ -410,7 +421,8 @@
                         }) : '';
 
                         const rawAmount = parseFloat(item.amount_usd || item.amount || (item.amount_zn ? item.amount_zn / 1000000 : 0));
-                        const displayAmount = (rawAmount > 0 && rawAmount < 0.01) ? rawAmount.toFixed(5) : rawAmount.toFixed(2);
+                        // 🔒 تقييد الخانات العشرية برقمين بحد أقصى (مثل 5.85)
+                        const displayAmount = rawAmount.toFixed(2);
                         
                         html += `
                             <div style="background: rgba(10, 13, 20, 0.5); padding: 12px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(255,255,255,0.05);">
@@ -435,13 +447,27 @@
                 }
             };
 
-            const payload = getAuthPayload();
-            window.apiCall('/api/wallet/get_history', 'POST', payload).then((data) => {
-                const rawList = data?.history || data?.transactions || data?.data || [];
-                renderListUI(rawList);
-            }).catch(() => {
-                renderListUI([]);
-            });
+            // ⚡ استخدام الكاش لمنع استنزاف قراءات الفايربيس عند فتح السجل بانتظام
+            const now = Date.now();
+            if (historyCache && (now - historyCacheTime < HISTORY_CACHE_TTL)) {
+                renderListUI(historyCache);
+            } else {
+                content.innerHTML = `
+                    <div class="card" style="text-align:center; color:#94a3b8; padding:30px;">
+                        <div style="font-size:32px; margin-bottom:10px;">⏳</div>
+                        جاري جلب سجل المعاملات...
+                    </div>`;
+
+                const payload = getAuthPayload();
+                window.apiCall('/api/wallet/get_history', 'POST', payload).then((data) => {
+                    const rawList = data?.history || data?.transactions || data?.data || [];
+                    historyCache = rawList;
+                    historyCacheTime = Date.now();
+                    renderListUI(rawList);
+                }).catch(() => {
+                    renderListUI([]);
+                });
+            }
         }
         else if (tab === 'withdraw') {
             let withdrawHtml = `
@@ -460,7 +486,7 @@
                     </div>
                     
                     <div id="conversion-calc-info" style="display:none; padding:10px; margin-bottom:15px; text-align:center; color:#10b981; background:rgba(16, 185, 129, 0.1); border:1px solid rgba(16, 185, 129, 0.2); border-radius:10px; font-weight:700;">
-                        ستحصل على: <b id="expected-usd-amount" class="num-en">$0.00000</b>
+                        ستحصل على: <b id="expected-usd-amount" class="num-en">$0.00</b>
                     </div>
 
                     <button id="convert-btn" onclick="window.convertManualPoints()" class="action-btn btn-green">تحويل النقاط الآن</button>
@@ -519,7 +545,7 @@
         
         let amount = parseFloat(inputElem?.value);
         if (amount > 0) {
-            let usdExpected = (amount / 1000000).toFixed(5);
+            let usdExpected = (amount / 1000000).toFixed(2);
             if (expectedElem) expectedElem.innerText = "$" + usdExpected;
             if (infoDiv) infoDiv.style.display = 'block';
         } else { 
@@ -537,7 +563,7 @@
 
         if (usd >= 1 && window.currentTonPriceUSD > 0) {
             let netUsd = usd * 0.97;
-            let tonRequired = (usd / window.currentTonPriceUSD).toFixed(4);
+            let tonRequired = (usd / window.currentTonPriceUSD).toFixed(2);
 
             if (netElem) netElem.innerText = "$" + netUsd.toFixed(2);
             if (requiredElem) requiredElem.innerText = tonRequired;
@@ -554,7 +580,7 @@
 
         let usd = parseFloat(inputElem?.value);
         if (usd > 0 && window.currentTonPriceUSD > 0) {
-            let tonReceive = (usd / window.currentTonPriceUSD).toFixed(4);
+            let tonReceive = (usd / window.currentTonPriceUSD).toFixed(2);
             if (receiveElem) receiveElem.innerText = tonReceive;
             if (infoDiv) infoDiv.style.display = 'block';
         } else { 
@@ -563,7 +589,7 @@
     };
 
     // =================================================================
-    // ⚡ 7. تنفيذ العمليات ومزامنة الرصيد فوراً
+    // ⚡ 7. تنفيذ العمليات ومزامنة الرصيد فوراً (مبدأ الرد المباشر بدون إعادة جلب)
     // =================================================================
     window.executeDeposit = async function() {
         triggerHapticFeedback('impact', 'medium');
@@ -606,6 +632,7 @@
             let result = await window.apiCall('/api/wallet/wallet_deposit_report', 'POST', payload);
             
             if (result && result.success) {
+                // ⚡ تحديث الـ State مباشرة
                 if (!window.GameState) window.GameState = {};
                 if (result.new_usd_balance !== undefined) {
                     window.GameState.usd_balance = result.new_usd_balance;
@@ -613,6 +640,7 @@
                     window.GameState.usd_balance = (window.GameState.usd_balance || 0) + netCredited;
                 }
                 
+                historyCache = null; // إبطال الكاش لإعادة جلب السجل مع العملية الجديدة عند فتح التبويب
                 window.updateWalletHeaderUI();
                 showAppAlert(`✅ تم الإيداع بنجاح!\nأضيفت $${netCredited.toFixed(2)} لرصيدك بعد خصم (3%).`);
                 if (usdInput) usdInput.value = '';
@@ -653,12 +681,16 @@
             if (result && result.success) {
                 triggerHapticFeedback('notification', 'success');
                 
+                // ⚡ تحديث مباشر للواجهة والعداد البصري
                 if (!window.GameState) window.GameState = {};
                 if (result.new_balance !== undefined) window.GameState.balance = result.new_balance;
                 if (result.new_usd_balance !== undefined) window.GameState.usd_balance = result.new_usd_balance;
 
+                historyCache = null; // تفريغ كاش السجل
                 window.updateWalletHeaderUI();
-                showAppAlert(`🎉 تم تحويل النقاط بنجاح!\nأضيف لرصيدك $${(result.usd_gained || (amount/1000000)).toFixed(5)} USD`);
+                
+                const usdAdded = (result.usd_gained || (amount / 1000000)).toFixed(2);
+                showAppAlert(`🎉 تم تحويل النقاط بنجاح!\nأضيف لرصيدك $${usdAdded} USD`);
                 
                 if (znInput) znInput.value = '';
                 const convInfo = document.getElementById('conversion-calc-info');
@@ -705,15 +737,17 @@
             if (result && result.success) {
                 triggerHapticFeedback('notification', 'success');
                 
+                // ⚡ تحديث مباشر بدون طلب بيانات شامل
                 if (!window.GameState) window.GameState = {};
                 if (result.new_usd_balance !== undefined) {
                     window.GameState.usd_balance = result.new_usd_balance;
                 }
 
+                historyCache = null;
                 window.updateWalletHeaderUI();
                 
-                let expectedTon = (usdAmount / (window.currentTonPriceUSD || 1)).toFixed(4);
-                showAppAlert(`✅ تم تقديم طلب السحب بقيمة $${usdAmount}.\nستصلك (≈ ${expectedTon} TON) بعد المراجعة.`);
+                let expectedTon = (usdAmount / (window.currentTonPriceUSD || 1)).toFixed(2);
+                showAppAlert(`✅ تم تقديم طلب السحب بقيمة $${usdAmount.toFixed(2)}.\nستصلك (≈ ${expectedTon} TON) بعد المراجعة.`);
                 
                 if (usdInput) usdInput.value = '';
                 const wInfo = document.getElementById('withdraw-calc-info');
@@ -730,10 +764,9 @@
     };
 
     // =================================================================
-    // 🚀 8. بدء التشغيل التلقائي والمزامنة
+    // 🚀 8. بدء التشغيل التلقائي
     // =================================================================
     startTonPriceSync();
-    window.syncWalletData();
     
     if (document.readyState === 'complete' || document.readyState === 'interactive') {
         window.renderWalletTab(currentWalletTab);
