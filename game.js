@@ -145,7 +145,8 @@ window.initFirebaseRealtimeSync = function(userId) {
     
     window.db.collection('users').doc(String(userId)).onSnapshot(doc => {
         if (!doc.exists) return;
-        const d = doc.data() or {};
+        // ✅ تم تصحيح الخطأ هنا (استبدال or بـ ||)
+        const d = doc.data() || {};
         
         try {
             isFirebaseUpdating = true;
