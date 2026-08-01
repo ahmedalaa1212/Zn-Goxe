@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import time
 import datetime
 import urllib.parse
 from flask import Blueprint, jsonify, request
@@ -13,6 +14,38 @@ tasks_bp = Blueprint('tasks', __name__)
 # 🔒 الحد الأدنى لسعر الضغطة والميزانية الكلية للحملة
 MIN_REWARD_PER_CLICK = 250.0
 MIN_AD_CAMPAIGN_COST = 250.0
+
+# ==================== In-Memory Cache for Campaigns ====================
+_CAMPAIGNS_CACHE = None
+_CAMPAIGNS_CACHE_TIME = 0
+CAMPAIGNS_CACHE_TTL = 120  # كاش قائمة الحملات والمهام (دقيقتين)
+
+def get_cached_raw_campaigns():
+    global _CAMPAIGNS_CACHE, _CAMPAIGNS_CACHE_TIME
+    now = time.time()
+    if _CAMPAIGNS_CACHE is not None and (now - _CAMPAIGNS_CACHE_TIME) < CAMPAIGNS_CACHE_TTL:
+        return _CAMPAIGNS_CACHE
+
+    try:
+        campaigns = []
+        docs = firestore_db.collection('campaigns').stream()
+        for doc in docs:
+            c_data = doc.to_dict() or {}
+            c_data['id'] = doc.id
+            campaigns.append(c_data)
+        _CAMPAIGNS_CACHE = campaigns
+        _CAMPAIGNS_CACHE_TIME = now
+        return campaigns
+    except Exception as e:
+        print(f"Error fetching campaigns from Firestore: {e}")
+        return _CAMPAIGNS_CACHE or []
+
+def invalidate_campaigns_cache():
+    """تفريغ الكاش لإجبار السيرفر على جلب التحديثات الجديدة من الفايربيس"""
+    global _CAMPAIGNS_CACHE, _CAMPAIGNS_CACHE_TIME
+    _CAMPAIGNS_CACHE = None
+    _CAMPAIGNS_CACHE_TIME = 0
+# ========================================================================
 
 def is_task_completed_by_user(task, user_completed_data):
     """
@@ -62,9 +95,6 @@ def is_task_completed_by_user(task, user_completed_data):
 
 @tasks_bp.route('/get_campaigns', methods=['GET'])
 def get_campaigns():
-    """
-    قراءة أرصدة المستخدم مباشرة وحصرياً من Firebase Firestore بدون استثناء.
-    """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=False)
     if not is_auth:
         return err_response
@@ -83,21 +113,16 @@ def get_campaigns():
     except Exception as e:
         print(f"Error fetching user data from Firestore in get_campaigns: {e}")
 
-    campaigns = []
     user_completed_data = {}
-
     try:
         completed_ref = firestore_db.collection('completed_tasks').document(telegram_id_str).get()
         if completed_ref.exists:
             user_completed_data = completed_ref.to_dict() or {}
-
-        docs = firestore_db.collection('campaigns').stream()
-        for doc in docs:
-            c_data = doc.to_dict() or {}
-            c_data['id'] = doc.id
-            campaigns.append(c_data)
     except Exception as e:
-        print(f"Error fetching campaigns from Firestore: {e}")
+        print(f"Error fetching completed tasks for user {telegram_id_str}: {e}")
+
+    # قراءة المهام والحملات من الذاكرة المؤقتة لمنع النزيف
+    campaigns = get_cached_raw_campaigns()
 
     result_campaigns = []
     for c in campaigns:
@@ -118,9 +143,6 @@ def get_campaigns():
 
 @tasks_bp.route('/create_campaign', methods=['POST'])
 def create_campaign():
-    """
-    خصم وتحديث الرصيد مباشرة في Firestore عبر Transaction.
-    """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
         return err_response
@@ -201,6 +223,9 @@ def create_campaign():
         transaction = firestore_db.transaction()
         campaign_data, updated_ad_balance = run_create_transaction(transaction)
 
+        # تفريغ كاش المهام لتظهر الحملة الجديدة للجميع فوراً
+        invalidate_campaigns_cache()
+
         return jsonify({
             "success": True, 
             "campaign": campaign_data,
@@ -216,9 +241,6 @@ def create_campaign():
 
 @tasks_bp.route('/complete_task', methods=['POST'])
 def complete_task():
-    """
-    إضافة المكافأة وتحديث رصيد الفايربيس وإعادة الرصيد الجديد المعتمد.
-    """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
         return err_response
@@ -287,6 +309,9 @@ def complete_task():
         transaction = firestore_db.transaction()
         reward_amount, new_balance = run_complete_transaction(transaction)
 
+        # تفريغ كاش المهام ليتحدث عدد المكتملين
+        invalidate_campaigns_cache()
+
         return jsonify({
             "success": True, 
             "reward": reward_amount,
@@ -302,9 +327,6 @@ def complete_task():
 
 @tasks_bp.route('/cancel_campaign', methods=['POST'])
 def cancel_campaign():
-    """
-    إلغاء الحملة واسترداد الرصيد المتبقي مباشرة إلى الفايربيس.
-    """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
         return err_response
@@ -353,6 +375,9 @@ def cancel_campaign():
         transaction = firestore_db.transaction()
         refund_amount, new_ad_balance = run_cancel_transaction(transaction)
 
+        # تفريغ كاش المهام فوراً عند إلغاء أي حملة
+        invalidate_campaigns_cache()
+
         return jsonify({
             "success": True, 
             "refund": refund_amount,
@@ -368,9 +393,6 @@ def cancel_campaign():
 
 @tasks_bp.route('/convert_adzn', methods=['POST'])
 def convert_adzn():
-    """
-    تحويل رصيد ZN إلى AdZN في الفايربيس فقط وإرجاع الأرصدة الحقيقية المحدثة.
-    """
     is_auth, telegram_id, err_response = get_authenticated_user(request, is_post=True)
     if not is_auth:
         return err_response
