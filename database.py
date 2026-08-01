@@ -197,7 +197,6 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
             u_data = user_doc.to_dict() or {}
             current_ref = u_data.get('referred_by')
             
-            # إصلاح: ربط المستخدم القديم برمز الدعوة إذا لم يكن مسجلاً لديه
             if valid_ref_id and not current_ref:
                 referrer_ref = db.collection('users').document(valid_ref_id)
                 if referrer_ref.get().exists:
@@ -263,7 +262,7 @@ def update_user_balance(tg_id, amount, balance_type="balance"):
 
 def add_referral_earnings(referrer_id, friend_id, amount):
     """
-    تُستدعى حصرياً عند ضغط الصديق على زر تجميع المزرعة (Claim Farm).
+    تُستدعى عند ضغط الصديق على زر تجميع المزرعة (Claim Farm).
     تحسب 10% من التعدين فقط وتضيفها للأرباح المعلقة للسحب ولفرع الأصدقاء.
     """
     try:
@@ -280,19 +279,16 @@ def add_referral_earnings(referrer_id, friend_id, amount):
         if ref_amount <= 0:
             return False
         
-        # إضافة الأرباح المعلقة والإجمالية للداعي
         db.collection('users').document(ref_str).update({
             "pending_ref_earnings": firestore.Increment(ref_amount),
             "total_ref_earnings": firestore.Increment(ref_amount)
         })
         
-        # تحديث الأرباح المجمعة من هذا الصديق بالتحديد
         friend_ref = db.collection('users').document(ref_str).collection('friends').document(friend_str)
         friend_doc = friend_ref.get()
         if friend_doc.exists:
             friend_ref.update({"earned_from_him": firestore.Increment(ref_amount)})
         else:
-            # جلب اسم الصديق إن أمكن
             f_user_doc = db.collection('users').document(friend_str).get()
             f_name = "صديق"
             if f_user_doc.exists:
