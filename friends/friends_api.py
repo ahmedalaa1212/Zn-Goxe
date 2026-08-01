@@ -1,20 +1,28 @@
 # friends/friends_api.py
 from flask import Blueprint, request, jsonify
 from core.security import get_authenticated_user
-from database import db
+from database import db, get_game_settings
 from firebase_admin import firestore
 
 friends_bp = Blueprint('friends', __name__)
 
-REF_TASKS_CONFIG = {
-    1: {"reqFriends": 1, "reward": 4000},
-    2: {"reqFriends": 5, "reward": 25000},
-    3: {"reqFriends": 10, "reward": 60000},
-    4: {"reqFriends": 25, "reward": 160000},
-    5: {"reqFriends": 50, "reward": 350000},
-    6: {"reqFriends": 100, "reward": 800000},
-    7: {"reqFriends": 500, "reward": 4500000}
-}
+def get_friends_config():
+    """جلب إعدادات نظام الإحالات والأصدقاء ديناميكياً من الفايرستور"""
+    settings = get_game_settings()
+    return settings.get('friends_config', {
+        "commission_percent": 10,
+        "claim_fee_percent": 1.5,
+        "min_upgrades_for_task": 3,
+        "ref_tasks": {
+            "1": {"reqFriends": 1, "reward": 4000},
+            "2": {"reqFriends": 5, "reward": 25000},
+            "3": {"reqFriends": 10, "reward": 60000},
+            "4": {"reqFriends": 25, "reward": 160000},
+            "5": {"reqFriends": 50, "reward": 350000},
+            "6": {"reqFriends": 100, "reward": 800000},
+            "7": {"reqFriends": 500, "reward": 4500000}
+        }
+    })
 
 def get_user_upgrades_count(user_data):
     """حساب إجمالي ترقيات سرعة التعدين للمستخدم"""
@@ -34,7 +42,7 @@ def get_user_upgrades_count(user_data):
 
 @friends_bp.route('/data', methods=['GET', 'POST'])
 def get_friends_data():
-    """جلب بيانات صفحة الأصدقاء وإحصائيات المهام"""
+    """جلب بيانات صفحة الأصدقاء وإحصائيات المهام ديناميكياً من الفايرستور"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -49,6 +57,9 @@ def get_friends_data():
         else:
             user_data = user_doc.to_dict() or {}
         
+        friends_config = get_friends_config()
+        min_upgrades = int(friends_config.get('min_upgrades_for_task', 3))
+
         friends_query = db.collection('users').where('referred_by', '==', user_id_str).stream()
         
         total_friends_count = 0
@@ -57,7 +68,7 @@ def get_friends_data():
         for doc in friends_query:
             total_friends_count += 1
             f_data = doc.to_dict() or {}
-            if get_user_upgrades_count(f_data) >= 3:
+            if get_user_upgrades_count(f_data) >= min_upgrades:
                 eligible_task_friends_count += 1
         
         return jsonify({
@@ -68,7 +79,8 @@ def get_friends_data():
                 "invited_friends_count": total_friends_count,
                 "eligible_task_friends_count": eligible_task_friends_count,
                 "claimed_ref_tasks": user_data.get('claimed_ref_tasks', [])
-            }
+            },
+            "friends_config": friends_config
         }), 200
     except Exception as e:
         print(f"Error in friends/data: {e}")
@@ -120,13 +132,15 @@ def get_friends_list():
 
 @friends_bp.route('/claim_ref_earnings', methods=['POST'])
 def claim_ref_earnings():
-    """سحب أرباح الإحالات وتحويلها لرصيد حساب المستخدم بشكل آمن"""
+    """سحب أرباح الإحالات وتحويلها لرصيد حساب المستخدم بشكل آمن بالعمولة المحسوبة من الفايرستور"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
             return error_resp
             
         user_ref = db.collection('users').document(str(user_id))
+        friends_config = get_friends_config()
+        fee_percentage = float(friends_config.get('claim_fee_percent', 1.5)) / 100.0
 
         @firestore.transactional
         def run_claim_earnings_transaction(transaction, u_ref):
@@ -141,7 +155,6 @@ def claim_ref_earnings():
             if pending_earnings <= 0:
                 return False, "لا توجد أرباح معلقة للسحب", 400, 0, 0
                 
-            fee_percentage = 0.015
             net_amount = pending_earnings * (1.0 - fee_percentage)
             new_balance = current_balance + net_amount
             
@@ -170,7 +183,7 @@ def claim_ref_earnings():
 
 @friends_bp.route('/claim_ref_task', methods=['POST'])
 def claim_ref_task():
-    """استلام مكافأة مهمة الإحالة"""
+    """استلام مكافأة مهمة الإحالة بناءً على إعدادات الفايرستور الحية"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -178,27 +191,31 @@ def claim_ref_task():
             
         data = request.get_json(silent=True) or {}
         try:
-            task_id = int(data.get('taskId', 0))
+            task_id = str(data.get('taskId', '0'))
         except (ValueError, TypeError):
             return jsonify({"success": False, "error": "معرف المهمة غير صالح"}), 400
             
-        task_config = REF_TASKS_CONFIG.get(task_id)
+        friends_config = get_friends_config()
+        ref_tasks = friends_config.get('ref_tasks', {})
+        
+        task_config = ref_tasks.get(task_id) or ref_tasks.get(int(task_id) if task_id.isdigit() else task_id)
         if not task_config:
             return jsonify({"success": False, "error": "المهمة غير موجودة"}), 404
 
-        req_friends = task_config['reqFriends']
-        task_reward = task_config['reward']
+        req_friends = int(task_config['reqFriends'])
+        task_reward = float(task_config['reward'])
+        min_upgrades = int(friends_config.get('min_upgrades_for_task', 3))
 
         friends_query = db.collection('users').where('referred_by', '==', str(user_id)).stream()
         eligible_friends = 0
         for doc in friends_query:
-            if get_user_upgrades_count(doc.to_dict() or {}) >= 3:
+            if get_user_upgrades_count(doc.to_dict() or {}) >= min_upgrades:
                 eligible_friends += 1
 
         if eligible_friends < req_friends:
             return jsonify({
                 "success": False, 
-                "error": f"يلزم {req_friends} أصدقاء قاموا بشراء 3 ترقيات على الأقل!"
+                "error": f"يلزم {req_friends} أصدقاء قاموا بشراء {min_upgrades} ترقيات على الأقل!"
             }), 400
 
         user_ref = db.collection('users').document(str(user_id))
@@ -214,12 +231,14 @@ def claim_ref_task():
             if not isinstance(claimed_tasks, list):
                 claimed_tasks = []
 
-            if task_id in claimed_tasks:
+            # التحقق بسلسلة النصوص والأرقام لتجنب الأخطاء
+            task_id_parsed = int(task_id) if task_id.isdigit() else task_id
+            if task_id in claimed_tasks or task_id_parsed in claimed_tasks:
                 return False, "تم استلام هذه المكافأة مسبقاً", 400, 0
                 
             current_balance = float(u_data.get('balance', 0))
             new_balance = current_balance + task_reward
-            claimed_tasks.append(task_id)
+            claimed_tasks.append(task_id_parsed)
             
             transaction.update(u_ref, {
                 'balance': new_balance,
