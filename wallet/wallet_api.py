@@ -1,9 +1,11 @@
+# wallet/wallet_api.py
 import datetime
 import hashlib
 from flask import Blueprint, jsonify, request
-from core.security import get_authenticated_user
-from database import db, is_user_banned
 from google.cloud import firestore
+
+from database import db, is_user_banned
+from core.security import get_authenticated_user
 
 wallet_bp = Blueprint('wallet', __name__)
 
@@ -13,8 +15,11 @@ MIN_CONVERT_ZN = 1000000
 
 @wallet_bp.route('/', methods=['GET', 'POST'])
 def wallet_index():
-    return jsonify({"success": True, "message": "Wallet API is Active!"}), 200
+    return jsonify({"success": True, "message": "Wallet API is Active & Secured!"}), 200
 
+# ==========================================
+# 📜 1. جلب سجل المعاملات (مقتصر ومحمي)
+# ==========================================
 @wallet_bp.route('/get_history', methods=['GET', 'POST'])
 def get_history():
     is_post = (request.method == 'POST')
@@ -30,37 +35,24 @@ def get_history():
         user_ids = [user_id_str]
         try:
             num_id = int(user_id_str)
-            if num_id not in user_ids: user_ids.append(num_id)
-        except (ValueError, TypeError): pass
+            if num_id not in user_ids: 
+                user_ids.append(num_id)
+        except (ValueError, TypeError): 
+            pass
 
         history = []
 
-        try:
-            w_docs = db.collection('withdrawals').where('user_id', 'in', user_ids).limit(20).get()
-            for doc in w_docs:
-                d = doc.to_dict() or {}
-                d['type'] = d.get('type', 'withdraw')
-                d['id'] = doc.id
-                history.append(d)
-        except Exception: pass
-
-        try:
-            d_docs = db.collection('deposits').where('user_id', 'in', user_ids).limit(20).get()
-            for doc in d_docs:
-                d = doc.to_dict() or {}
-                d['type'] = d.get('type', 'deposit')
-                d['id'] = doc.id
-                history.append(d)
-        except Exception: pass
-
-        try:
-            c_docs = db.collection('conversions').where('user_id', 'in', user_ids).limit(20).get()
-            for doc in c_docs:
-                d = doc.to_dict() or {}
-                d['type'] = d.get('type', 'convert')
-                d['id'] = doc.id
-                history.append(d)
-        except Exception: pass
+        # جلب أحدث 15 عملية من كل نوع لمنع استهلاك القراءات
+        for collection_name, type_label in [('withdrawals', 'withdraw'), ('deposits', 'deposit'), ('conversions', 'convert')]:
+            try:
+                docs = db.collection(collection_name).where('user_id', 'in', user_ids).limit(15).get()
+                for doc in docs:
+                    d = doc.to_dict() or {}
+                    d['type'] = d.get('type', type_label)
+                    d['id'] = doc.id
+                    history.append(d)
+            except Exception: 
+                pass
 
         def safe_date_key(item):
             val = item.get('created_at') or item.get('timestamp') or item.get('date') or ''
@@ -77,13 +69,16 @@ def get_history():
 
     except Exception as e:
         print(f"[Wallet API] Error fetching history: {e}")
-        return jsonify({"success": False, "error": "حدث خطأ أثناء جلب السجلات"}), 200
+        return jsonify({"success": False, "error": "حدث خطأ أثناء جلب سجل المعاملات"}), 200
 
+# ==========================================
+# 🔄 2. تحويل النقاط ZN إلى USD (معاملة معزولة وآمنة)
+# ==========================================
 @wallet_bp.route('/wallet_convert', methods=['POST'])
 def wallet_convert():
     is_auth, user_id, err = get_authenticated_user(request, is_post=True)
     if not is_auth: 
-        return jsonify({"success": False, "error": "فشل المصادقة، يرجى إعادة فتح التطبيق من التليجرام."}), 200
+        return jsonify({"success": False, "error": "فشل المصادقة، يرجى إعادة فتح التطبيق."}), 200
 
     if is_user_banned(user_id):
         return jsonify({"success": False, "error": "حسابك محظور من الاستخدام."}), 200
@@ -91,10 +86,10 @@ def wallet_convert():
     req = request.get_json(silent=True) or {}
     try:
         amount = float(req.get('amount', 0))
-        if amount < MIN_CONVERT_ZN or amount <= 0:
+        if amount < MIN_CONVERT_ZN or amount <= 0 or not float(amount).is_integer():
             return jsonify({
                 "success": False, 
-                "error": f"الحد الأدنى لتحويل ZN هو {MIN_CONVERT_ZN:,} نقطة."
+                "error": f"الحد الأدنى لتحويل ZN هو {MIN_CONVERT_ZN:,} نقطة أعداد صحيحة."
             }), 200
     except (ValueError, TypeError):
         return jsonify({"success": False, "error": "كمية نقاط غير صالحة"}), 200
@@ -107,10 +102,10 @@ def wallet_convert():
     conversion_ref = db.collection('conversions').document()
     
     @firestore.transactional
-    def secure_convert_tx(transaction, user_ref, conversion_ref):
-        snapshot = user_ref.get(transaction=transaction)
+    def secure_convert_tx(tx, u_ref, c_ref):
+        snapshot = u_ref.get(transaction=tx)
         if not snapshot.exists:
-            raise Exception("حساب المستخدم غير موجود في قاعدة البيانات")
+            raise Exception("حساب المستخدم غير موجود")
             
         user_data = snapshot.to_dict() or {}
         current_balance = float(user_data.get('balance', 0))
@@ -122,12 +117,12 @@ def wallet_convert():
         new_balance = round(current_balance - amount, 2)
         new_usd = round(current_usd + usd_gained, 5)
         
-        transaction.update(user_ref, {
+        tx.update(u_ref, {
             'balance': new_balance,
             'usd_balance': new_usd
         })
         
-        transaction.set(conversion_ref, {
+        tx.set(c_ref, {
             'user_id': user_id_str,
             'amount_zn': amount,
             'amount_usd': usd_gained,
@@ -150,6 +145,9 @@ def wallet_convert():
         print(f"[Wallet API] Conversion Error: {e}")
         return jsonify({"success": False, "error": str(e)}), 200
 
+# ==========================================
+# 📤 3. طلب سحب الأرباح (خصم حظي وتأكيد معزول)
+# ==========================================
 @wallet_bp.route('/wallet_withdraw', methods=['POST'])
 def wallet_withdraw():
     is_auth, user_id, err = get_authenticated_user(request, is_post=True)
@@ -161,23 +159,23 @@ def wallet_withdraw():
     
     req = request.get_json(silent=True) or {}
     try:
-        amount = float(req.get('amount', 0))
+        amount = round(float(req.get('amount', 0)), 4)
         if amount <= 0:
             return jsonify({"success": False, "error": "مبلغ سحب غير صالح"}), 200
     except (ValueError, TypeError):
         return jsonify({"success": False, "error": "مبلغ سحب غير صالح"}), 200
         
     wallet_address = str(req.get('walletAddress', '')).strip()
-    if not wallet_address:
-        return jsonify({"success": False, "error": "عنوان المحفظة مفقود"}), 200
+    if not wallet_address or len(wallet_address) < 20:
+        return jsonify({"success": False, "error": "عنوان المحفظة مفقود أو غير صحيح"}), 200
         
     user_id_str = str(user_id).strip()
     transaction = db.transaction()
     user_ref = db.collection('users').document(user_id_str)
     
     @firestore.transactional
-    def secure_withdraw_tx(transaction, user_ref):
-        snapshot = user_ref.get(transaction=transaction)
+    def secure_withdraw_tx(tx, u_ref):
+        snapshot = u_ref.get(transaction=tx)
         if not snapshot.exists:
             raise Exception("حساب المستخدم غير موجود")
             
@@ -188,10 +186,10 @@ def wallet_withdraw():
             raise Exception("رصيد الـ USD غير كافٍ للسحب")
             
         new_usd = round(current_usd - amount, 5)
-        transaction.update(user_ref, {'usd_balance': new_usd})
+        tx.update(u_ref, {'usd_balance': new_usd})
         
         withdraw_ref = db.collection('withdrawals').document()
-        transaction.set(withdraw_ref, {
+        tx.set(withdraw_ref, {
             'user_id': user_id_str,
             'amount_usd': amount,
             'wallet_address': wallet_address,
@@ -206,12 +204,15 @@ def wallet_withdraw():
         return jsonify({
             "success": True, 
             "new_usd_balance": new_usd,
-            "message": "تم إرسال طلب السحب بنجاح"
+            "message": "تم إرسال طلب السحب بنجاح!"
         }), 200
     except Exception as e:
         print(f"[Wallet API] Withdraw Error: {e}")
         return jsonify({"success": False, "error": str(e)}), 200
 
+# ==========================================
+# 📥 4. تأكيد الإيداع وتسجيل الرصيد (منع التكرار Replay Protected)
+# ==========================================
 @wallet_bp.route('/wallet_deposit_report', methods=['POST'])
 def wallet_deposit_report():
     is_auth, user_id, err = get_authenticated_user(request, is_post=True)
@@ -223,7 +224,7 @@ def wallet_deposit_report():
     
     req = request.get_json(silent=True) or {}
     try:
-        gross_usd = float(req.get('usdAmount', 0))
+        gross_usd = round(float(req.get('usdAmount', 0)), 2)
         ton_amount = float(req.get('tonAmount', 0))
         
         if gross_usd < MIN_DEPOSIT_USD:
@@ -241,6 +242,7 @@ def wallet_deposit_report():
     fee_usd = round(gross_usd * DEPOSIT_FEE_PERCENT, 4)
     net_usd = round(gross_usd - fee_usd, 4)
 
+    # إنشاء بصمة فريدة للمعاملة لتفادي إرسالها مجدداً (SHA-256 Anti-Replay)
     tx_hash = hashlib.sha256(str(boc).encode('utf-8')).hexdigest()
     deposit_ref = db.collection('deposits').document(tx_hash)
     
@@ -249,12 +251,12 @@ def wallet_deposit_report():
     user_ref = db.collection('users').document(user_id_str)
     
     @firestore.transactional
-    def secure_deposit_tx(transaction, user_ref):
-        deposit_snap = deposit_ref.get(transaction=transaction)
+    def secure_deposit_tx(tx, u_ref, d_ref):
+        deposit_snap = d_ref.get(transaction=tx)
         if deposit_snap.exists:
-            raise Exception("تم تسجيل هذه المعاملة مسبقاً")
+            raise Exception("تم تسجيل هذه المعاملة مسبقاً وتمرير الرصيد!")
 
-        snapshot = user_ref.get(transaction=transaction)
+        snapshot = u_ref.get(transaction=tx)
         if not snapshot.exists:
             raise Exception("حساب المستخدم غير موجود")
             
@@ -262,15 +264,15 @@ def wallet_deposit_report():
         current_usd = float(user_data.get('usd_balance', 0))
         new_usd = round(current_usd + net_usd, 5)
         
-        transaction.update(user_ref, {'usd_balance': new_usd})
+        tx.update(u_ref, {'usd_balance': new_usd})
         
-        transaction.set(deposit_ref, {
+        tx.set(d_ref, {
             'user_id': user_id_str,
             'gross_amount_usd': gross_usd,
             'amount_usd': net_usd,
             'fee_usd': fee_usd,
             'amount_ton': ton_amount,
-            'boc': boc,
+            'tx_hash': tx_hash,
             'type': 'deposit',
             'status': 'completed',
             'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -278,7 +280,7 @@ def wallet_deposit_report():
         return new_usd
         
     try:
-        new_usd = secure_deposit_tx(transaction, user_ref)
+        new_usd = secure_deposit_tx(transaction, user_ref, deposit_ref)
         return jsonify({
             "success": True, 
             "new_usd_balance": new_usd,
