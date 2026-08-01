@@ -58,16 +58,15 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
             throw new Error(data.error || `HTTP ${res.status}`);
         }
 
-        // مزامنة القيمة المؤكدة القادمة من الباك إند فقط
+        // تسجيل وقت التحديث المحلي لمنع الفايربيس من إرجاع القيمة للوراء
+        lastLocalTimes['balance'] = Date.now();
+
         if (data.new_balance !== undefined) {
             window.userState.balance = parseFloat(data.new_balance);
-            lastLocalTimes['balance'] = Date.now();
         } else if (data.balance !== undefined) {
             window.userState.balance = parseFloat(data.balance);
-            lastLocalTimes['balance'] = Date.now();
         } else if (data.player && data.player.balance !== undefined) {
             window.userState.balance = parseFloat(data.player.balance);
-            lastLocalTimes['balance'] = Date.now();
         }
 
         if (data.new_usd_balance !== undefined) {
@@ -86,7 +85,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 };
 
 // ==========================================
-// 3. جلب سعر TON والمزامنة الذكية مع الفايربيس
+// 3. جلب سعر TON والمزامنة الذكية المحمية مع الفايربيس
 // ==========================================
 window.globalFetchTonPrice = async function() {
     const apis = [
@@ -118,7 +117,10 @@ window.initFirebaseRealtimeSync = function(userId) {
 
         if (d.balance !== undefined) {
             const fbBal = parseFloat(d.balance);
-            if (Date.now() - (lastLocalTimes['balance'] || 0) > 6000 || fbBal >= window.userState.balance) {
+            const timeSinceLastAction = Date.now() - (lastLocalTimes['balance'] || 0);
+            
+            // حماية حاسمة: لا يتم قراءة رصيد الفايربيس إذا كان أقل من المحلي خلال أول 10 ثواني من أي عملية محلياً
+            if (timeSinceLastAction > 10000 || fbBal >= window.userState.balance) {
                 window.userState.balance = fbBal;
             }
         }
@@ -137,10 +139,10 @@ window.initFirebaseRealtimeSync = function(userId) {
 };
 
 // ==========================================
-// 4. تنسيق الأرقام وتحديث عناصر الواجهة القائمة والـ IFrames
+// 4. دالة التنسيق ومحرك الحركة السلسة للعداد (Smooth Ticker)
 // ==========================================
 
-// دالة عامة لتنسيق أي رصيد بالكسور العشرية (بحد أقصى خانتين)
+// دالة تنسيق الأرقام بخانتين عشريتين كحد أقصى
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0';
     const num = parseFloat(val);
@@ -151,10 +153,89 @@ window.formatBalance = function(val) {
     });
 };
 
+// محرك الحركة السلسة للرصيد الرئيسي
+let animatedBalanceValue = null;
+let activeBalanceAnimFrame = null;
+
+function renderSmoothBalance(targetVal) {
+    if (animatedBalanceValue === null) {
+        animatedBalanceValue = targetVal;
+        applyBalanceToUI(animatedBalanceValue);
+        return;
+    }
+
+    if (activeBalanceAnimFrame) cancelAnimationFrame(activeBalanceAnimFrame);
+
+    const startVal = animatedBalanceValue;
+    const diff = targetVal - startVal;
+
+    if (Math.abs(diff) < 0.01) {
+        animatedBalanceValue = targetVal;
+        applyBalanceToUI(animatedBalanceValue);
+        return;
+    }
+
+    const duration = 600; // مده الانتهاء بالملي ثانية للحصول على سلاسة عالية
+    const startTime = performance.now();
+
+    function step(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // دالة التنعيم (Ease-Out Quad)
+        const ease = 1 - (1 - progress) * (1 - progress);
+        
+        animatedBalanceValue = startVal + (diff * ease);
+        applyBalanceToUI(animatedBalanceValue);
+
+        if (progress < 1) {
+            activeBalanceAnimFrame = requestAnimationFrame(step);
+        } else {
+            animatedBalanceValue = targetVal;
+            applyBalanceToUI(animatedBalanceValue);
+            activeBalanceAnimFrame = null;
+        }
+    }
+
+    activeBalanceAnimFrame = requestAnimationFrame(step);
+}
+
+function applyBalanceToUI(val) {
+    const formatted = window.formatBalance(val);
+    
+    const updateTargetElements = (doc) => {
+        doc.querySelectorAll('[data-bind="balance"]').forEach(el => {
+            if (el.tagName === 'INPUT') {
+                el.value = formatted;
+            } else {
+                if (el.innerText.includes('ZN:')) {
+                    el.innerText = `ZN: ${formatted}`;
+                } else {
+                    el.innerText = formatted;
+                }
+            }
+        });
+    };
+
+    updateTargetElements(document);
+    document.querySelectorAll('iframe').forEach(f => {
+        try { if (f.contentWindow?.document) updateTargetElements(f.contentWindow.document); } catch {}
+    });
+
+    document.querySelectorAll('#farm-balance, .farm-balance, #user-balance, .user-balance, .zn-balance-text').forEach(el => {
+        if (el.tagName !== 'INPUT') {
+            if (el.innerText.includes('ZN:')) {
+                el.innerText = `ZN: ${formatted}`;
+            } else {
+                el.innerText = formatted;
+            }
+        }
+    });
+}
+
 window.updateUI = function() {
     try {
         const s = window.userState;
-        const formattedBal = window.formatBalance(s.balance);
 
         // 1. تشغيل دوال التحديث الفرعية للشاشات المختلفة أولاً
         ['updateShopUI', 'updateFarmUI', 'updateTasksUI', 'updateWalletHeaderUI'].forEach(fn => {
@@ -163,9 +244,11 @@ window.updateUI = function() {
             }
         });
 
-        // 2. تجهيز البيانات المنسقة لجميع الشاشات
+        // 2. تحديث الرصيد الرئيسي عبر محرك الحركة السلسة
+        renderSmoothBalance(parseFloat(s.balance || 0));
+
+        // 3. تجهيز وتحديث بقية العناصر المنسقة
         const fmt = {
-            balance: formattedBal,
             usd_balance: `$${parseFloat(s.usd_balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`,
             ad_balance: window.formatBalance(s.ad_balance),
             hourly_rate: `⚡ ${window.formatBalance(s.hourly_rate)}/h`,
@@ -173,18 +256,13 @@ window.updateUI = function() {
             ton_price: window.currentTonPriceUSD > 0 ? `$${window.currentTonPriceUSD.toFixed(2)}` : 'جاري التحميل...'
         };
 
-        // 3. تحديث عناصر المستند الرئيسي والـ IFrames مع المحافظة على البادئات مثل ZN:
         const updateDoc = (doc) => {
             Object.keys(fmt).forEach(key => {
                 doc.querySelectorAll(`[data-bind="${key}"]`).forEach(el => {
                     if (el.tagName === 'INPUT') {
                         el.value = fmt[key].replace('$', '').replace('⚡ ', '').replace('/h', '');
                     } else {
-                        if (key === 'balance' && el.innerText.includes('ZN:')) {
-                            el.innerText = `ZN: ${fmt[key]}`;
-                        } else {
-                            el.innerText = fmt[key];
-                        }
+                        el.innerText = fmt[key];
                     }
                 });
             });
@@ -193,17 +271,6 @@ window.updateUI = function() {
         updateDoc(document);
         document.querySelectorAll('iframe').forEach(f => {
             try { if (f.contentWindow?.document) updateDoc(f.contentWindow.document); } catch {}
-        });
-
-        // 4. حماية شاملة: إعادة إجبار عناصر رصيد ZN في كافة القوائم على إظهار الكسور
-        document.querySelectorAll('#farm-balance, .farm-balance, #user-balance, .user-balance, .zn-balance-text').forEach(el => {
-            if (el.tagName !== 'INPUT') {
-                if (el.innerText.includes('ZN:')) {
-                    el.innerText = `ZN: ${formattedBal}`;
-                } else {
-                    el.innerText = formattedBal;
-                }
-            }
         });
 
     } catch (e) { console.error("UI Update Error:", e); }
