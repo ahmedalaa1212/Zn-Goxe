@@ -7,10 +7,47 @@
     let hasCheckedResults = false;
     let statusRetryTimeout = null;
     let pendingConfirmCallback = null;
+
     let currentEntryFee = 1000;
-    let displayedPool = 0; // للعداد الحركي التدريجي
+    let currentLockSeconds = 15;
+    let currentDisplayBalance = 0;
+    let currentPrizePool = 0;
 
     const tele = window.Telegram?.WebApp;
+
+    // --- العداد البصري التدريجي الانسيابي (Speedometer Dynamic Counter) ---
+    function animateCounter(elementId, startVal, endVal, duration = 800, suffix = " ZN") {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+
+        let startTimestamp = null;
+        const startNum = parseFloat(startVal) || 0;
+        const endNum = parseFloat(endVal) || 0;
+
+        if (startNum === endNum) {
+            el.innerText = `${Math.floor(endNum).toLocaleString('en-US')}${suffix}`;
+            return;
+        }
+
+        const step = (timestamp) => {
+            if (!startTimestamp) startTimestamp = timestamp;
+            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+            
+            // معادلة تباطؤ انسيابية (easeOutCubic) تشبه عداد السرعة
+            const easeProgress = 1 - Math.pow(1 - progress, 3);
+            const currentVal = startNum + (endNum - startNum) * easeProgress;
+
+            el.innerText = `${Math.floor(currentVal).toLocaleString('en-US')}${suffix}`;
+
+            if (progress < 1) {
+                window.requestAnimationFrame(step);
+            } else {
+                el.innerText = `${Math.floor(endNum).toLocaleString('en-US')}${suffix}`;
+            }
+        };
+
+        window.requestAnimationFrame(step);
+    }
 
     function showNotification(msg) {
         if (tele && tele.showAlert) {
@@ -28,8 +65,8 @@
             });
         } else {
             const modal = document.getElementById('confirm-modal');
-            const descEl = document.getElementById('confirm-desc');
-            if (descEl) descEl.innerHTML = `سيتم خصم <strong style="color: var(--primary);">${currentEntryFee.toLocaleString('en-US')} ZN</strong> من رصيدك للاشتراك في هذه الجولة. هل تريد المتابعة؟`;
+            const feeText = document.getElementById('confirm-fee-text');
+            if (feeText) feeText.innerText = `${currentEntryFee.toLocaleString('en-US')} ZN`;
             if (modal) {
                 pendingConfirmCallback = onConfirm;
                 modal.style.display = 'flex';
@@ -58,14 +95,25 @@
         return isNaN(num) ? 0 : num;
     }
 
-    function setStoredBalance(newBalance) {
+    function setStoredBalance(newBalance, animate = true) {
         if (newBalance !== undefined && newBalance !== null) {
             const numVal = parseFloat(newBalance);
             if (!isNaN(numVal)) {
+                const oldVal = currentDisplayBalance || getStoredBalance();
+                
                 if (window.GameState) window.GameState.balance = numVal;
                 localStorage.setItem('zn_balance', numVal.toString());
                 localStorage.setItem('user_balance', numVal.toString());
                 
+                if (animate) {
+                    animateCounter('top-balance-games', oldVal, numVal, 800, " ZN");
+                } else {
+                    const gameBalEl = document.getElementById('top-balance-games');
+                    if (gameBalEl) gameBalEl.innerText = `${Math.floor(numVal).toLocaleString('en-US')} ZN`;
+                }
+                
+                currentDisplayBalance = numVal;
+
                 if (typeof window.setBalance === 'function') {
                     window.setBalance(numVal);
                 }
@@ -75,40 +123,8 @@
 
     function syncGameBalance() {
         const stored = getStoredBalance();
-        const gameBalEl = document.getElementById('top-balance-games');
-        if (gameBalEl) {
-            const formatted = Math.floor(stored).toLocaleString('en-US');
-            gameBalEl.innerText = `${formatted} ZN`;
-        }
-        if (typeof window.updateGlobalUI === 'function') {
-            window.updateGlobalUI();
-        }
-    }
-
-    // --- نظام العداد البصري التدريجي الاحترافي (مثل عداد السرعة) ---
-    function animateValue(elementId, start, end, duration) {
-        const obj = document.getElementById(elementId);
-        if (!obj) return;
-        if (start === end) {
-            obj.innerText = Math.floor(end).toLocaleString('en-US') + " ZN";
-            return;
-        }
-        
-        let startTimestamp = null;
-        const step = (timestamp) => {
-            if (!startTimestamp) startTimestamp = timestamp;
-            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-            // تأثير حركة سلسة (EaseOutExpo)
-            const easeProgress = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
-            const currentVal = Math.floor(start + (end - start) * easeProgress);
-            
-            obj.innerText = currentVal.toLocaleString('en-US') + " ZN";
-            
-            if (progress < 1) {
-                window.requestAnimationFrame(step);
-            }
-        };
-        window.requestAnimationFrame(step);
+        const oldVal = currentDisplayBalance;
+        setStoredBalance(stored, oldVal !== stored && oldVal !== 0);
     }
 
     window.switchGameTab = function(tabName) {
@@ -138,6 +154,7 @@
 
         try {
             const initData = tele?.initData || "";
+
             const response = await fetch('/api/games/status', {
                 method: 'POST',
                 headers: { 
@@ -152,15 +169,14 @@
             const data = await response.json();
             
             if (data.success) {
+                if (data.entry_fee) currentEntryFee = data.entry_fee;
+                if (data.lock_seconds) currentLockSeconds = data.lock_seconds;
+
+                const subtext = document.getElementById('arena-subtext');
+                if (subtext) subtext.innerText = `سحب تلقائي مستمر! رسوم الاشتراك: ${currentEntryFee.toLocaleString('en-US')} ZN`;
+
                 if (data.balance !== undefined) {
-                    setStoredBalance(data.balance);
-                }
-                syncGameBalance();
-                
-                if (data.entry_fee !== undefined) {
-                    currentEntryFee = data.entry_fee;
-                    const joinFeeText = document.getElementById('join-fee-text');
-                    if (joinFeeText) joinFeeText.innerText = `${currentEntryFee.toLocaleString('en-US')} ZN`;
+                    setStoredBalance(data.balance, true);
                 }
                 
                 currentRoundId = data.round_id;
@@ -182,10 +198,10 @@
 
     function updateArenaPrizes(data) {
         const newPool = data.prize_pool || 0;
+        const oldPool = currentPrizePool;
         
-        // تشغيل عداد السرعة التدريجي لمجموع الجوائز
-        animateValue('prize-pool', displayedPool, newPool, 1000);
-        displayedPool = newPool;
+        animateCounter('prize-pool', oldPool, newPool, 900, " ZN");
+        currentPrizePool = newPool;
         
         const p1 = document.getElementById('prize-1');
         const p2 = document.getElementById('prize-2');
@@ -231,7 +247,7 @@
 
         if (!btn) return;
 
-        if (timeLeft <= 15 && timeLeft > 0) {
+        if (timeLeft <= currentLockSeconds && timeLeft > 0) {
             btn.disabled = true;
             btn.classList.add('btn-disabled');
             btn.innerText = "🔒 تم إغلاق الاشتراك (جاري السحب⏳)";
@@ -248,7 +264,7 @@
             if (!hasJoined) {
                 btn.disabled = false;
                 btn.classList.remove('btn-disabled');
-                btn.innerHTML = `⚔️ دخول الساحة (<span id="join-fee-text">${currentEntryFee.toLocaleString('en-US')}</span> ZN)`;
+                btn.innerText = `⚔️ دخول الساحة (${currentEntryFee.toLocaleString('en-US')} ZN)`;
             } else {
                 btn.disabled = true;
                 btn.classList.add('btn-disabled');
@@ -299,30 +315,27 @@
             const data = await response.json();
             
             if (data.success) {
+                // تطبيق القاعدة الذهبية: تحديث الواجهة والعداد البصري فوراً من الـ Response بدون إعادة جلب البيانات بالكامل
                 if (data.new_balance !== undefined) {
-                    setStoredBalance(data.new_balance);
+                    setStoredBalance(data.new_balance, true);
                 } else {
-                    setStoredBalance(currentBal - currentEntryFee);
+                    setStoredBalance(currentBal - currentEntryFee, true);
                 }
-                syncGameBalance();
+                
                 showNotification("🎉 تم دخول الساحة بنجاح! نتمنى لك التوفيق.");
-
-                if (typeof window.fetchPlayerDataFromServer === 'function') {
-                    window.fetchPlayerDataFromServer();
-                }
                 fetchArenaStatus(); 
             } else {
                 showNotification("⚠️ " + (data.message || data.error || "تعذر الاشتراك"));
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerHTML = `⚔️ دخول الساحة (<span id="join-fee-text">${currentEntryFee.toLocaleString('en-US')}</span> ZN)`;
+                    btn.innerText = `⚔️ دخول الساحة (${currentEntryFee.toLocaleString('en-US')} ZN)`;
                 }
             }
         } catch (error) {
             showNotification("حدث خطأ في الاتصال بالخادم. حاول مجدداً.");
             if (btn) {
                 btn.disabled = false;
-                btn.innerHTML = `⚔️ دخول الساحة (<span id="join-fee-text">${currentEntryFee.toLocaleString('en-US')}</span> ZN)`;
+                btn.innerText = `⚔️ دخول الساحة (${currentEntryFee.toLocaleString('en-US')} ZN)`;
             }
         } finally {
             isJoining = false;
@@ -376,22 +389,20 @@
             const data = await response.json();
             
             if (data.success) {
+                // القاعدة الذهبية: تحديث سلس بالعداد مباشرة بدون استدعاء شبكي خارجي
                 if (data.new_balance !== undefined) {
-                    setStoredBalance(data.new_balance);
-                    syncGameBalance();
+                    setStoredBalance(data.new_balance, true);
                 }
 
                 if (data.status === 'refunded') {
+                    const msgEl = document.getElementById('refund-msg-text');
+                    if (msgEl) msgEl.innerText = `تمت إعادة رسوم الدخول (${currentEntryFee.toLocaleString('en-US')} ZN) بالكامل إلى محفظتك بدون أي خصم.`;
                     showDrawModal('refunded');
                 } else if (data.status === 'completed') {
                     renderWinners(data.winners || []);
                     showDrawModal('winners');
                 } else {
                     setTimeout(() => { fetchRoundResults(roundId, retries + 1); }, 2000);
-                }
-                
-                if (typeof window.fetchPlayerDataFromServer === 'function') {
-                    window.fetchPlayerDataFromServer();
                 }
             }
         } catch (e) {
