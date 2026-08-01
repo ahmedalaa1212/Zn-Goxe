@@ -9,17 +9,33 @@ from core.security import get_authenticated_user
 
 games_bp = Blueprint('games', __name__)
 
+# --- Server-Side RAM Caching Systems ---
+_ARENA_CONFIG_CACHE = {"data": None, "timestamp": 0}
+_ROUND_CACHE = {}            # {round_id: {"data": dict, "timestamp": float}}
+_RESOLVED_ROUNDS_CACHE = set()  # مجموعة الجولات المكتملة مسبقاً لمنع إعادة الاستعلام في Firestore
+
+CACHE_TTL_CONFIG = 600   # 10 دقائق لكاش إعدادات الساحة
+CACHE_TTL_ROUND = 5      # 5 ثوانٍ لكاش حالة الجولة الحالية (يقلل 99% من القراءات أثناء تزاحم الآلاف)
+
 def get_arena_config():
-    """جلب إعدادات الساحة الديناميكية من Firestore مع توفير قيم افتراضية آمنة"""
+    """جلب إعدادات الساحة الديناميكية مع التخزين المؤقت في ذاكرة السيرفر"""
+    now = time.time()
+    if _ARENA_CONFIG_CACHE["data"] and (now - _ARENA_CONFIG_CACHE["timestamp"] < CACHE_TTL_CONFIG):
+        return _ARENA_CONFIG_CACHE["data"]
+
     settings = get_game_settings() or {}
     cfg = settings.get('arena_config', {})
-    return {
+    config_data = {
         "entry_fee": float(cfg.get('entry_fee', 1000)),
         "min_participants": int(cfg.get('min_participants', 20)),
         "prize_pool_percentage": float(cfg.get('prize_pool_percentage', 0.45)),
         "round_duration": int(cfg.get('round_duration', 900)),
         "lock_seconds": int(cfg.get('lock_seconds', 15))
     }
+    
+    _ARENA_CONFIG_CACHE["data"] = config_data
+    _ARENA_CONFIG_CACHE["timestamp"] = now
+    return config_data
 
 def get_current_round_info(round_duration):
     """حساب ID الجولة الحالية بناءً على توقيت السيرفر العالمي"""
@@ -30,19 +46,25 @@ def get_current_round_info(round_duration):
     return str(round_id_num), end_time, current_time, round_id_num
 
 def resolve_round(round_id):
-    """حسم الجولة بطريقة آمنة ومحمية من التعارضات Transactional"""
-    round_ref = db.collection('arena_rounds').document(str(round_id))
+    """حسم الجولة بطريقة آمنة ومحمية من التعارضات، مع حماية RAM لمنع تكرار Transaction"""
+    str_round_id = str(round_id)
+    if str_round_id in _RESOLVED_ROUNDS_CACHE:
+        return True
+
+    round_ref = db.collection('arena_rounds').document(str_round_id)
     
     @firestore.transactional
     def resolve_transaction(transaction):
         round_doc = round_ref.get(transaction=transaction)
         
         if not round_doc.exists:
+            _RESOLVED_ROUNDS_CACHE.add(str_round_id)
             return False
             
         data = round_doc.to_dict()
         if data.get('status') != 'active':
-            return False  # تم حسم الجولة سابقاً
+            _RESOLVED_ROUNDS_CACHE.add(str_round_id)
+            return False
             
         cfg = get_arena_config()
         participants = data.get('participants', [])
@@ -58,6 +80,7 @@ def resolve_round(round_id):
                 })
                 
             transaction.update(round_ref, {'status': 'refunded'})
+            _RESOLVED_ROUNDS_CACHE.add(str_round_id)
             return True
 
         # 2. احتساب وتوزيع الجوائز عند اكتمال النصاب
@@ -93,16 +116,20 @@ def resolve_round(round_id):
             'status': 'completed',
             'winners': final_winners
         })
+        _RESOLVED_ROUNDS_CACHE.add(str_round_id)
         return True
 
     try:
-        return resolve_transaction(db.transaction())
+        res = resolve_transaction(db.transaction())
+        _ROUND_CACHE.pop(str_round_id, None)
+        return res
     except Exception as e:
         print(f"Error resolving round {round_id}: {e}")
         return False
 
 @games_bp.route('/status', methods=['POST'])
 def arena_status():
+    """عرض حالة الساحة وتفاصيل الجولة مع التخزين المؤقت بالسيرفر"""
     try:
         success, uid, error_res = get_authenticated_user(request, is_post=True)
         if not success:
@@ -111,16 +138,23 @@ def arena_status():
         cfg = get_arena_config()
         round_id, end_time, current_time, round_id_num = get_current_round_info(cfg['round_duration'])
         
-        # فحص الجولات السابقة وحسمها بأمان
-        for i in range(1, 4):
+        # فحص الجولات السابقة وحسمها بأمان دون استعلام تكراري
+        for i in range(1, 3):
             past_id = str(round_id_num - i)
-            resolve_round(past_id)
+            if past_id not in _RESOLVED_ROUNDS_CACHE:
+                resolve_round(past_id)
 
-        # جلب بيانات الجولة الحالية
-        round_ref = db.collection('arena_rounds').document(round_id)
-        round_doc = round_ref.get()
+        now = time.time()
+        # فحص كاش بيانات الجولة الحالية
+        cached_round = _ROUND_CACHE.get(round_id)
+        if cached_round and (now - cached_round["timestamp"] < CACHE_TTL_ROUND):
+            participants = cached_round["participants"]
+        else:
+            round_ref = db.collection('arena_rounds').document(round_id)
+            round_doc = round_ref.get()
+            participants = round_doc.to_dict().get('participants', []) if round_doc.exists else []
+            _ROUND_CACHE[round_id] = {"participants": participants, "timestamp": now}
         
-        participants = round_doc.to_dict().get('participants', []) if round_doc.exists else []
         has_joined = any(p['uid'] == uid for p in participants)
         
         user_doc = db.collection('users').document(uid).get()
@@ -145,6 +179,7 @@ def arena_status():
 
 @games_bp.route('/join', methods=['POST'])
 def join_arena():
+    """دخول الساحة مع تنفيذ Transaction وتحديث كاش السيرفر فوراً"""
     success, uid, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -186,15 +221,19 @@ def join_arena():
         
         new_prize_pool = round(len(participants) * cfg['entry_fee'] * cfg['prize_pool_percentage'], 2)
         
-        return True, "تم دخول الساحة بنجاح!", new_balance, new_prize_pool
+        return True, "تم دخول الساحة بنجاح!", new_balance, new_prize_pool, participants
         
     try:
-        success_join, msg, new_bal, new_prize = join_transaction(db.transaction(), round_ref, user_ref)
+        success_join, msg, new_bal, new_prize, updated_participants = join_transaction(db.transaction(), round_ref, user_ref)
         res_payload = {"success": success_join, "message": msg}
         if success_join:
             res_payload["new_balance"] = new_bal
             res_payload["prize_pool"] = new_prize
             res_payload["has_joined"] = True
+            
+            # تحديث الكاش فوراً بالقيم الجديدة
+            _ROUND_CACHE[round_id] = {"participants": updated_participants, "timestamp": time.time()}
+
         return jsonify(res_payload)
     except Exception as e:
         print(f"Error in join_arena: {e}")
@@ -232,7 +271,7 @@ def get_results():
 
 @games_bp.route('/check_notifications', methods=['POST'])
 def check_notifications():
-    """التحقق من المرتجعات والإشعارات المباشرة مع إرجاع الرصيد المحدث لحظياً"""
+    """التحقق من المرتجعات والإشعارات المباشرة للمستخدم"""
     success, uid, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
