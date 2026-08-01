@@ -9,19 +9,16 @@
     const MIN_AD_CAMPAIGN_COST = 250;  // الحد الأدنى للميزانية الإجمالية للحملة
 
     // ==========================================
-    // دوال المزامنة المركزية الشاملة واللحظية (State Sync)
+    // دوال المزامنة المباشرة من الذاكرة والفايربيس (بدون localStorage)
     // ==========================================
-    function getStoredBalance() {
-        let bal = localStorage.getItem('userBalance');
-        if (bal !== null && bal !== undefined) return parseFloat(bal);
-        return window.PlayerData?.balance || window.userState?.balance || window.GameState?.balance || 0;
+    function getUserBalance() {
+        return window.PlayerData?.balance ?? window.userState?.balance ?? window.GameState?.balance ?? 0;
     }
 
-    function setStoredBalance(val) {
+    function syncUserBalance(val) {
         let numVal = parseFloat(val) || 0;
-        localStorage.setItem('userBalance', numVal);
         
-        // 1. تحديث الكائنات المحلية للفرونت إند في النافذة الحالية
+        // 1. تحديث الكائنات الحية بالذاكرة في النافذة الحالية
         if (window.GameState) window.GameState.balance = numVal;
         if (window.PlayerData) window.PlayerData.balance = numVal;
         if (window.userState) window.userState.balance = numVal;
@@ -53,7 +50,7 @@
         // 4. تحديث عناصر الرصيد في الواجهة فوراً
         updateBalanceElements(numVal);
 
-        // 5. إطلاق أحداث مخصصة (Custom Events) للبث اللحظي لكافة الشاشات
+        // 5. بث حدث التحديث اللحظي للواجهات
         window.dispatchEvent(new CustomEvent('balanceUpdated', { detail: { balance: numVal } }));
         try {
             if (window.parent && window.parent !== window) {
@@ -66,17 +63,14 @@
         }
     }
 
-    function getStoredAdBalance() {
-        let adBal = localStorage.getItem('userAdBalance');
-        if (adBal !== null && adBal !== undefined) return parseFloat(adBal);
-        return window.PlayerData?.ad_balance || window.userState?.ad_balance || window.GameState?.ad_balance || 0;
+    function getUserAdBalance() {
+        return window.PlayerData?.ad_balance ?? window.userState?.ad_balance ?? window.GameState?.ad_balance ?? 0;
     }
 
-    function setStoredAdBalance(val) {
+    function syncUserAdBalance(val) {
         let numVal = parseFloat(val) || 0;
-        localStorage.setItem('userAdBalance', numVal);
         
-        // 1. تحديث الكائنات المحلية
+        // 1. تحديث الذاكرة المحلية
         if (window.GameState) window.GameState.ad_balance = numVal;
         if (window.PlayerData) window.PlayerData.ad_balance = numVal;
         if (window.userState) window.userState.ad_balance = numVal;
@@ -136,14 +130,6 @@
             adBalDisplay.innerText = `AdZN ${formatted}`;
         }
     }
-
-    // تايمر المزامنة اللحظية المستمرة
-    setInterval(() => {
-        const currentBal = getStoredBalance();
-        const currentAdBal = getStoredAdBalance();
-        updateBalanceElements(currentBal);
-        updateAdBalanceElements(currentAdBal);
-    }, 1000);
 
     window.taskStates = window.taskStates || {};
     window.accumulatedOutsideTime = window.accumulatedOutsideTime || {};
@@ -217,6 +203,7 @@
         window.fetchAndRenderTasks();
     };
 
+    // ⚡ الجلب المباشر للأرصدة والمهام من الفايربيس وتحديث الواجهة مباشرة
     window.fetchAndRenderTasks = async function() {
         const container = document.getElementById('tasks-list-container');
         const activeAdsContainer = document.getElementById('active-ads-container');
@@ -244,16 +231,12 @@
                         if (window.PlayerData) window.PlayerData.userId = myId;
                     }
 
-                    if (data.ad_balance !== undefined) setStoredAdBalance(data.ad_balance);
-                    if (data.balance !== undefined) {
-                        const currentLocal = getStoredBalance();
-                        if (data.balance > currentLocal || currentLocal === 0) {
-                            setStoredBalance(data.balance);
-                        }
-                    }
+                    // 💥 تحديث مباشر من الفايربيس بدون فحص localStorage أو اشتراطات قديمة
+                    if (data.ad_balance !== undefined) syncUserAdBalance(data.ad_balance);
+                    if (data.balance !== undefined) syncUserBalance(data.balance);
                 }
             }
-        } catch (e) { console.warn("خطأ جلب المهام", e); }
+        } catch (e) { console.warn("خطأ جلب المهام والفايربيس", e); }
 
         if (container) {
             let allTasks = [];
@@ -509,12 +492,9 @@
             let result = await response.json();
             
             if (response.ok && result.success) {
-                // ⚡ تحديث وتسميع الرصيد لحظياً في كل الأماكن
+                // ⚡ استقبال الرصيد الفعلي المحسوب من الفايربيس ومزامنته فوراً
                 if (result.new_balance !== undefined) {
-                    setStoredBalance(result.new_balance);
-                } else {
-                    const currentBal = getStoredBalance();
-                    setStoredBalance(currentBal + reward);
+                    syncUserBalance(result.new_balance);
                 }
                 
                 delete window.taskStates[taskId];
@@ -556,7 +536,7 @@
             if (response.ok && result.success) {
                 alert(`✅ تم إلغاء حملتك بنجاح وإرجاع الميزانية المتبقية لمحفظتك!`);
                 if (result.new_ad_balance !== undefined) {
-                    setStoredAdBalance(result.new_ad_balance);
+                    syncUserAdBalance(result.new_ad_balance);
                 }
                 window.fetchAndRenderTasks();
             } else { 
@@ -579,7 +559,7 @@
             return;
         }
 
-        let currentBal = getStoredBalance();
+        let currentBal = getUserBalance();
         if (currentBal < amount) {
             alert("⚠️ رصيد ZN الحالي غير كافٍ للعملية!");
             return;
@@ -596,8 +576,8 @@
             if (response.ok && result.success) {
                 alert(`✅ شحن ناجح! تمت عملية التحويل لمحفظتك بنجاح.`);
                 
-                if (result.new_balance !== undefined) setStoredBalance(result.new_balance);
-                if (result.new_ad_balance !== undefined) setStoredAdBalance(result.new_ad_balance);
+                if (result.new_balance !== undefined) syncUserBalance(result.new_balance);
+                if (result.new_ad_balance !== undefined) syncUserAdBalance(result.new_ad_balance);
                 
                 window.updateTasksUI();
             } else { alert("⚠️ فشل: " + (result.error || "خطأ في عملية التحويل")); }
@@ -705,7 +685,7 @@
             return;
         }
 
-        let currentAdBalance = getStoredAdBalance();
+        let currentAdBalance = getUserAdBalance();
 
         if (currentAdBalance < totalCost) {
             alert(`⚠️ رصيدك الإعلاني غير كافٍ! التكلفة المطلوبة: ${totalCost.toLocaleString()} AdZN`);
@@ -750,7 +730,7 @@
 
                     if (response.ok && result.success) {
                         if (result.new_ad_balance !== undefined) {
-                            setStoredAdBalance(result.new_ad_balance);
+                            syncUserAdBalance(result.new_ad_balance);
                         }
                         const successModal = document.getElementById('success-modal');
                         if (successModal) successModal.style.display = 'flex';
