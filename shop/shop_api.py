@@ -382,7 +382,7 @@ def buy_upgrade():
                 new_balance = round(total_balance - price, 2)
                 upgrades[lvl_key] = current_lvl_count + 1
 
-                # ✅ حماية وتعديل مهم جداً: إضافة السرعة المكتسبة فقط وعدم مسح سرعة الباقات المميزة!
+                # إضافة السرعة المكتسبة فقط وعدم مسح سرعة الباقات المميزة
                 speed_to_add = float(config.get('rate', 0.0))
                 new_hourly_rate = round(hourly_rate + speed_to_add, 2)
 
