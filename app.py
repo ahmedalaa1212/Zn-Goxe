@@ -2,7 +2,6 @@ import os
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 
-# استدعاء ملف database لتهيئة قواعد البيانات
 import database
 from core.security import get_authenticated_user
 
@@ -11,7 +10,6 @@ from core.security import get_authenticated_user
 # ==========================================
 app = Flask(__name__)
 
-# تفعيل CORS لجميع مسارات الـ API
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app').strip().rstrip('/')
@@ -46,12 +44,13 @@ app.register_blueprint(support_bp, url_prefix='/api/support')
 @app.route('/api/user/info', methods=['GET', 'POST'])
 def get_user_info_main():
     is_post = (request.method == 'POST')
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
+    success, telegram_id, error_res = get_authenticated_user(request, is_post=is_post)
     if not success:
         return error_res
         
     try:
         user_data = database.get_user(telegram_id)
+        user_info = getattr(request, 'telegram_user', None) or {}
         
         # إنشاء المستخدم تلقائياً إذا كان أول دخول له
         if not user_data:
