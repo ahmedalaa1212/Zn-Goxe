@@ -1,9 +1,11 @@
+# shop/shop_api.py
 import time
 import requests
 import traceback
 from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 from google.cloud import firestore
+
 from database import db, create_transaction
 from core.security import get_authenticated_user
 from core.ton_price import get_live_ton_price
@@ -11,6 +13,13 @@ from core.ton_price import get_live_ton_price
 shop_bp = Blueprint('shop', __name__)
 
 PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
+
+# --- Server-Side RAM Caching Systems ---
+_SHOP_CONFIG_CACHE = {"data": None, "timestamp": 0}
+_TON_PRICE_CACHE = {"price": 0.0, "timestamp": 0}
+
+CACHE_TTL_CONFIG = 600  # 10 دقائق لكاش إعدادات المتجر بالكامل (يمنع آلاف قراءات Firestore)
+CACHE_TTL_TON = 60      # 60 ثانية لكاش سعر عملة TON المباشر
 
 DEFAULT_USDT_PACKAGES = {
     "pkg_1": {"usdt": 1.0, "rate_add": 150.0, "storage_add": 2000.0, "zn_add": 30000.0, "title": "البرونزية"},
@@ -60,7 +69,26 @@ def safe_create_transaction(tg_id, tx_type, amount_usd=0.0, wallet_address="", s
     except Exception as e:
         print(f"⚠️ [Transaction Warning] فشل تسجيل المعاملة: {e}")
 
+def get_cached_ton_price():
+    """جلب سعر عملة TON المباشر مع التخزين المؤقت بالسيرفر"""
+    now = time.time()
+    if _TON_PRICE_CACHE["price"] > 0 and (now - _TON_PRICE_CACHE["timestamp"] < CACHE_TTL_TON):
+        return _TON_PRICE_CACHE["price"]
+
+    price = get_live_ton_price()
+    if price <= 0:
+        price = _TON_PRICE_CACHE["price"] if _TON_PRICE_CACHE["price"] > 0 else 5.50
+
+    _TON_PRICE_CACHE["price"] = price
+    _TON_PRICE_CACHE["timestamp"] = now
+    return price
+
 def get_game_config():
+    """جلب إعدادات المتجر والتعدين والمخازن مع التخزين المؤقت في RAM السيرفر"""
+    now = time.time()
+    if _SHOP_CONFIG_CACHE["data"] and (now - _SHOP_CONFIG_CACHE["timestamp"] < CACHE_TTL_CONFIG):
+        return _SHOP_CONFIG_CACHE["data"]
+
     try:
         doc_ref = db.collection('config').document('game_settings')
         doc = doc_ref.get()
@@ -93,14 +121,20 @@ def get_game_config():
         if updates:
             doc_ref.set(updates, merge=True)
 
+        _SHOP_CONFIG_CACHE["data"] = data
+        _SHOP_CONFIG_CACHE["timestamp"] = now
         return data
+
     except Exception as e:
         print(f"❌ [Shop Error] خطأ في قراءة إعدادات المتجر: {e}")
-        return {
+        fallback = {
             'usdt_packages': DEFAULT_USDT_PACKAGES,
             'storage_config': DEFAULT_STORAGE_CONFIG,
             'mining_config': DEFAULT_MINING_CONFIG
         }
+        _SHOP_CONFIG_CACHE["data"] = fallback
+        _SHOP_CONFIG_CACHE["timestamp"] = now
+        return fallback
 
 def ensure_user_shop_defaults(user_ref, user_data):
     updates = {}
@@ -120,10 +154,9 @@ def ensure_user_shop_defaults(user_ref, user_data):
 
 @shop_bp.route('/get_config', methods=['GET'])
 def get_config():
+    """عرض إعدادات المتجر وسعر TON المحدث باستخدام RAM Cache لحماية Firestore"""
     settings = get_game_config()
-    ton_price_usd = get_live_ton_price()
-    if ton_price_usd <= 0:
-        ton_price_usd = 5.50
+    ton_price_usd = get_cached_ton_price()
 
     usdt_pkgs = settings.get('usdt_packages', DEFAULT_USDT_PACKAGES)
     packages_with_ton = {}
@@ -164,9 +197,7 @@ def prepare_ton_pay():
             return jsonify({"success": False, "error": "باقة غير صالحة."}), 400
 
         pkg_info = packages[pkg_id]
-        ton_price = get_live_ton_price()
-        if ton_price <= 0:
-            ton_price = 5.50  
+        ton_price = get_cached_ton_price()
 
         ton_amount = round(float(pkg_info['usdt']) / ton_price, 4)
         nano_ton = int(ton_amount * 1000000000)
@@ -243,7 +274,6 @@ def verify_and_apply_package():
             rate_add = float(pkg_info.get('rate_add', 0))
             storage_add = float(pkg_info.get('storage_add', 0))
 
-            # تقريب النتائج بخانتين عشريتين دقيقتين
             new_balance = round(float(u_data.get('balance', 0.0)) + zn_add, 2)
             new_hourly_rate = round(float(u_data.get('hourly_rate', 0.0)) + rate_add, 2)
             new_max_cap = round(float(u_data.get('max_cap', 200.0)) + storage_add, 2)
@@ -298,6 +328,7 @@ def buy_upgrade():
         if not is_auth:
             return error_response
 
+        # استخدام الإعدادات المخزنة بالـ RAM بدلاً من استعلام Firestore تكراري
         settings = get_game_config()
         user_ref = db.collection('users').document(str(user_id))
         user_doc = user_ref.get()
@@ -386,7 +417,6 @@ def buy_upgrade():
                 details={"level": level_num, "cost_zn": price, "new_rate": new_hourly_rate}
             )
 
-            # إرجاع كافة البيانات المحدثة مباشرة للمستدعي دون الحاجة لطلب جلب جديد
             return jsonify({
                 "success": True, 
                 "balance": new_balance, 
