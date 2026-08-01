@@ -9,6 +9,10 @@
     let statusRetryTimeout = null;
     let pendingConfirmCallback = null;
 
+    // زمن آخر طلب حالة لمنع الضغط أثناء التنقل السريع بين التبويبات
+    let lastStatusFetchTimestamp = 0;
+    const STATUS_FETCH_COOLDOWN = 12000; // 12 ثانية كحد أدنى بين الطلبات الشبه ثابتة
+
     // متغير محلي لتتبع حالة الاشتراك في الجولة الحالية لحظياً
     let hasJoinedCurrentRound = false;
 
@@ -158,7 +162,6 @@
             const numVal = Math.round((parseFloat(newBalance) || 0) * 100) / 100;
             const oldVal = currentDisplayBalance || getStoredBalance();
             
-            // التحديث الشامل لكافة الكائنات
             if (window.userState) window.userState.balance = numVal;
             if (window.PlayerData) window.PlayerData.balance = numVal;
             if (window.GameState) window.GameState.balance = numVal;
@@ -166,7 +169,6 @@
             localStorage.setItem('zn_balance', numVal.toString());
             localStorage.setItem('user_balance', numVal.toString());
             
-            // تحديث عناصر الواجهة
             if (animate) {
                 animateCounter('top-balance-games', oldVal, numVal, 800, " ZN");
             } else {
@@ -180,7 +182,6 @@
                 window.setBalance(numVal);
             }
 
-            // تحديث رصيد الصفحة الرئيسية إن وجد
             const mainBalEl = document.getElementById('user-balance') || document.querySelector('.user-balance');
             if (mainBalEl) mainBalEl.innerHTML = formatNumberHTML(numVal, " ZN");
         }
@@ -211,11 +212,18 @@
         }
     };
 
-    async function fetchArenaStatus() {
+    async function fetchArenaStatus(force = false) {
         if (statusRetryTimeout) {
             clearTimeout(statusRetryTimeout);
             statusRetryTimeout = null;
         }
+
+        const now = Date.now();
+        // حماية: عدم تكرار طلب حالة الساحة إذا تم طلبها حديثاً لمنع نزيف الفايرستور
+        if (!force && (now - lastStatusFetchTimestamp < STATUS_FETCH_COOLDOWN)) {
+            return;
+        }
+        lastStatusFetchTimestamp = now;
 
         try {
             const initData = tele?.initData || "";
@@ -248,7 +256,6 @@
                 arenaEndTime = parseInt(data.end_time) || 0;
                 hasCheckedResults = false;
                 
-                // تحديث حالة الاشتراك من السيرفر
                 hasJoinedCurrentRound = !!data.has_joined;
                 
                 updateArenaPrizes(data);
@@ -260,7 +267,7 @@
             if (btn && btn.innerText.includes("جاري التحميل")) {
                 btn.innerText = "تعذر الاتصال، جاري إعادة المحاولة...";
             }
-            statusRetryTimeout = setTimeout(fetchArenaStatus, 4000);
+            statusRetryTimeout = setTimeout(() => fetchArenaStatus(true), 6000);
         }
     }
 
@@ -329,7 +336,6 @@
                 fetchRoundResults(currentRoundId, 0);
             }
         } else {
-            // اعتماد المتغير الديناميكي لحظياً
             if (!hasJoinedCurrentRound) {
                 btn.disabled = false;
                 btn.classList.remove('btn-disabled');
@@ -383,10 +389,8 @@
             const data = await response.json();
             
             if (data.success) {
-                // 1. تحديث متغير الاشتراك المحلي فوراً
                 hasJoinedCurrentRound = true;
 
-                // 2. تحديث الرصيد والجوائز
                 if (data.new_balance !== undefined) {
                     setStoredBalance(data.new_balance, true);
                 }
@@ -394,7 +398,6 @@
                     updateArenaPrizes(data);
                 }
 
-                // 3. تحديث زر الواجهة فوراً وقفله
                 if (btn) {
                     btn.disabled = true;
                     btn.classList.add('btn-disabled');
@@ -446,14 +449,14 @@
     window.closeDrawModal = function() {
         const modal = document.getElementById('draw-modal');
         if (modal) modal.style.display = 'none';
-        fetchArenaStatus();
+        fetchArenaStatus(true);
     };
 
     async function fetchRoundResults(roundId, retries = 0) {
         if (!roundId) return;
 
-        if (retries > 5) {
-            fetchArenaStatus();
+        if (retries > 4) {
+            fetchArenaStatus(true);
             return;
         }
 
@@ -469,7 +472,7 @@
             });
             
             if (!response.ok) {
-                setTimeout(() => { fetchRoundResults(roundId, retries + 1); }, 2000);
+                setTimeout(() => { fetchRoundResults(roundId, retries + 1); }, 2500);
                 return;
             }
             
@@ -487,16 +490,16 @@
                     renderWinners(data.winners || []);
                     showDrawModal('winners');
                 } else {
-                    setTimeout(() => { fetchRoundResults(roundId, retries + 1); }, 2000);
+                    setTimeout(() => { fetchRoundResults(roundId, retries + 1); }, 2500);
                 }
             }
         } catch (e) {
             console.error("خطأ جلب النتائج:", e);
-            setTimeout(() => { fetchRoundResults(roundId, retries + 1); }, 2000);
+            setTimeout(() => { fetchRoundResults(roundId, retries + 1); }, 2500);
         }
     }
 
-    // --- خادم الفحص المباشر في الخلفية للتنبيه بالمرتجعات وحجم الرصيد ---
+    // --- خادم الفحص المباشر في الخلفية للمرتجعات ---
     async function checkBackgroundNotifications() {
         try {
             const initData = tele?.initData || "";
@@ -519,7 +522,6 @@
                     setStoredBalance(data.balance, true);
                 }
                 
-                // التنبيه المباشر بالمرتجع عند توفره
                 if (data.refund && data.refund > 0) {
                     triggerGlobalToast(`💰 تم استرداد المبلغ بنجاح لعدم اكتمال العدد المطلوب في الساحة (+${data.refund} ZN)`);
                     showDrawModal('refunded', data.refund);
@@ -554,32 +556,30 @@
         });
     }
 
-    // تشغيل الفحص الدوري كل 4 ثوانٍ لضمان المزامنة في الوقت الفعلي
+    // رفع الاستعلام الدوري في الخلفية ليكون كل 25 ثانية بدلاً من 4 ثوانٍ لحماية السيرفر من النزيف
     if (backgroundSyncInterval) clearInterval(backgroundSyncInterval);
-    backgroundSyncInterval = setInterval(checkBackgroundNotifications, 4000);
+    backgroundSyncInterval = setInterval(checkBackgroundNotifications, 25000);
 
     window.addEventListener('pageshow', () => {
         syncGameBalance();
-        fetchArenaStatus();
-        checkBackgroundNotifications();
+        fetchArenaStatus(false);
     });
 
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") {
             syncGameBalance();
-            fetchArenaStatus();
-            checkBackgroundNotifications();
+            fetchArenaStatus(false);
         }
     });
 
     syncGameBalance();
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", () => {
-            fetchArenaStatus();
+            fetchArenaStatus(true);
             checkBackgroundNotifications();
         });
     } else {
-        fetchArenaStatus();
+        fetchArenaStatus(true);
         checkBackgroundNotifications();
     }
 })();
