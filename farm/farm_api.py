@@ -6,7 +6,6 @@ from database import db
 
 farm_bp = Blueprint('farm', __name__)
 
-# سعات المخازن المحددة
 STORAGE_CAPACITIES = {
     0: 200.0,
     1: 600.0,
@@ -21,7 +20,6 @@ STORAGE_CAPACITIES = {
     10: 1000000.0
 }
 
-# ترقيات سرعة التعدين المحددة
 UPGRADE_CONFIG = {
     1: {"base_cost": 2000.0, "rate_bonus": 5.0},
     2: {"base_cost": 7000.0, "rate_bonus": 15.0},
@@ -34,7 +32,6 @@ UPGRADE_CONFIG = {
     9: {"base_cost": 3200000.0, "rate_bonus": 4500.0}
 }
 
-# الإعدادات الافتراضية للعبة
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
         100, 150, 200, 250, 300, 
@@ -113,17 +110,15 @@ def get_player_data():
                     try:
                         referrer_ref = db.collection('users').document(potential_referrer)
                         if referrer_ref.get().exists:
-                            # زيادة عدد الأصدقاء للداعي
                             referrer_ref.update({'invited_friends_count': firestore.Increment(1)})
                             
-                            # إنشاء سجل للصديق الجديد في المجمّع الفرعي للداعي
-                            friend_ref_in_sub = referrer_ref.collection('referrals').document(user_id_str)
+                            # التوحيد: استخدام مجلد 'friends'
+                            friend_ref_in_sub = referrer_ref.collection('friends').document(user_id_str)
                             friend_ref_in_sub.set({
-                                'telegram_id': user_id_str,
+                                'tg_id': user_id_str,
+                                'first_name': 'صديق',
                                 'joined_at': now.isoformat(),
-                                'earned_from_friend': 0.0,
-                                'total_earned_from': 0.0,
-                                'earned_amount': 0.0
+                                'earned_from_him': 0.0
                             }, merge=True)
                     except Exception as e:
                         print(f"Error updating referrer count: {e}")
@@ -224,7 +219,6 @@ def claim_mined_tokens():
         
         @firestore.transactional
         def run_claim_transaction(transaction, ref):
-            # 1. تنفيذ كافة عمليات القراءة (Reads) أولاً قبل أي كتابة وفقاً لشروط Firestore
             snapshot = ref.get(transaction=transaction)
             if not snapshot.exists:
                 return None, "الحساب غير موجود", 404
@@ -239,7 +233,7 @@ def claim_mined_tokens():
             if referred_by:
                 inviter_ref = db.collection('users').document(str(referred_by))
                 inviter_snap = inviter_ref.get(transaction=transaction)
-                inviter_friend_doc = inviter_ref.collection('referrals').document(user_id_str)
+                inviter_friend_doc = inviter_ref.collection('friends').document(user_id_str)
 
             now = datetime.now(timezone.utc)
             last_claim_str = user_data.get("last_claim_time")
@@ -274,31 +268,21 @@ def claim_mined_tokens():
                 "last_claim_time": now.isoformat()
             }
 
-            # حساب عدد ترقيات الصديق للتأكد من شرط الـ 3 ترقيات
-            upgrades = user_data.get("upgrades", {})
-            total_upgrades = 0
-            if isinstance(upgrades, dict):
-                for v in upgrades.values():
-                    try:
-                        total_upgrades += int(v)
-                    except (ValueError, TypeError):
-                        pass
-
-            # 2. تنفيذ التحديثات (Writes)
-            if referred_by and total_upgrades >= 3 and inviter_snap and inviter_snap.exists:
+            # احتساب 10% للداعي عند كل عملية تجميع فوراً
+            if referred_by and inviter_snap and inviter_snap.exists:
                 bonus_for_inviter = unclaimed * 0.10
                 
-                # أ. إضافة الأرباح للرصيد المعلق للداعي والإجمالي
+                # إضافة الأرباح المعلقة والإجمالية للداعي
                 transaction.update(inviter_ref, {
                     "pending_ref_earnings": firestore.Increment(bonus_for_inviter),
-                    "ref_generated_amount": firestore.Increment(bonus_for_inviter)
+                    "total_ref_earnings": firestore.Increment(bonus_for_inviter)
                 })
                 
-                # ب. تحديث سجل هذا الصديق تحديداً في المجمّع الفرعي للداعي
+                # تحديث مستند هذا الصديق داخل المجلد الموحد 'friends'
                 transaction.set(inviter_friend_doc, {
-                    "earned_from_friend": firestore.Increment(bonus_for_inviter),
-                    "total_earned_from": firestore.Increment(bonus_for_inviter),
-                    "earned_amount": firestore.Increment(bonus_for_inviter),
+                    "tg_id": user_id_str,
+                    "first_name": user_data.get('first_name', 'صديق'),
+                    "earned_from_him": firestore.Increment(bonus_for_inviter),
                     "last_claim_time": now.isoformat()
                 }, merge=True)
 
