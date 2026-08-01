@@ -1,3 +1,6 @@
+// ==========================================
+// 1. تهيئة تطبيق تليجرام (Telegram WebApp)
+// ==========================================
 const tg = window.Telegram?.WebApp;
 
 if (tg) {
@@ -9,9 +12,12 @@ if (tg) {
 
 window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 0;
 
+// ==========================================
+// 2. حالة المستخدم الرئيسية (User State)
+// ==========================================
 const rawUserState = {
-    tg_id: null,
-    first_name: "لاعب",
+    tg_id: tg?.initDataUnsafe?.user?.id || null,
+    first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب",
     balance: 0.0,
     usd_balance: 0.0,
     ad_balance: 0.0,
@@ -22,6 +28,7 @@ const rawUserState = {
     wallet_address: null
 };
 
+// حفظ البيانات في LocalStorage بعد كل تحديث حقيقي
 function saveLocalState() {
     try {
         localStorage.setItem('app_user_state', JSON.stringify(window.userState));
@@ -30,21 +37,14 @@ function saveLocalState() {
     }
 }
 
-function loadLocalState() {
-    try {
-        const saved = localStorage.getItem('app_user_state');
-        if (saved) Object.assign(rawUserState, JSON.parse(saved));
-    } catch (e) {
-        console.warn("تعذر تحميل البيانات المحلية", e);
-    }
-}
+// ⚠️ تم إلغاء استدعاء loadLocalState() تلقائياً لمنع عرض أرقام قديمة قبل الفايربيس
 
-loadLocalState();
-
+// ==========================================
+// 3. كائن الـ Proxy للتحديث اللحظي للواجهة
+// ==========================================
 window.userState = new Proxy(rawUserState, {
     set(target, prop, value) {
         target[prop] = value;
-        // ⚡ تم إضافة upgrades للقائمة لتنشيط التحديث الفوري عند أي تعديل
         const monitoredProps = ['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'];
         
         if (monitoredProps.includes(prop)) {
@@ -59,6 +59,9 @@ window.userState = new Proxy(rawUserState, {
     }
 });
 
+// ==========================================
+// 4. الاتصال بالباك إند (Fetch API)
+// ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
 
@@ -88,6 +91,9 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     }
 };
 
+// ==========================================
+// 5. جلب سعر عملة TON المباشر
+// ==========================================
 window.globalFetchTonPrice = async function() {
     const apis = [
         async () => {
@@ -121,6 +127,37 @@ window.globalFetchTonPrice = async function() {
     }
 };
 
+// ==========================================
+// 6. الربط المباشر واللحظي مع الفايربيس (Realtime Sync)
+// ==========================================
+window.initFirebaseRealtimeSync = function(userId) {
+    if (!window.db || !userId) {
+        console.warn("تنبيه: الفايربيس غير متاح أو معرف المستخدم غير موجود.");
+        return;
+    }
+
+    // المستمع المباشر اللحظي من الفايربيس
+    window.db.collection('users').doc(String(userId)).onSnapshot((doc) => {
+        if (doc.exists) {
+            const data = doc.data();
+            
+            // تحديث الـ Proxy مباشرة بدون تأخير (الـ Proxy ينادي saveLocalState و updateUI تلقائياً)
+            if (data.balance !== undefined) window.userState.balance = parseFloat(data.balance);
+            if (data.usd_balance !== undefined) window.userState.usd_balance = parseFloat(data.usd_balance);
+            if (data.ad_balance !== undefined) window.userState.ad_balance = parseFloat(data.ad_balance);
+            if (data.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(data.hourly_rate);
+            if (data.energy !== undefined) window.userState.energy = parseFloat(data.energy);
+            if (data.storage_level !== undefined) window.userState.storage_level = parseInt(data.storage_level);
+            if (data.upgrades !== undefined) window.userState.upgrades = data.upgrades;
+        }
+    }, (error) => {
+        console.error("خطأ في مستمع الفايربيس اللحظي:", error);
+    });
+};
+
+// ==========================================
+// 7. دالة تحديث الواجهة الشاملة (الصفحة والـ IFrames)
+// ==========================================
 window.updateUI = function() {
     try {
         const rawBalance = parseFloat(window.userState.balance || 0);
@@ -137,36 +174,46 @@ window.updateUI = function() {
         const energyFormatted = rawEnergy.toLocaleString('en-US', { maximumFractionDigits: 0 });
         const tonPriceFormatted = rawTonPrice > 0 ? `$${rawTonPrice.toFixed(2)}` : 'جاري التحميل...';
 
-        document.querySelectorAll('[data-bind="balance"]').forEach(el => {
-            if (el.tagName === 'INPUT') el.value = znFormatted;
-            else el.innerText = znFormatted;
+        // دالة موحدة للتطبيق على أي Document
+        const applyToDoc = (targetDoc) => {
+            targetDoc.querySelectorAll('[data-bind="balance"]').forEach(el => {
+                if (el.tagName === 'INPUT') el.value = znFormatted; else el.innerText = znFormatted;
+            });
+
+            targetDoc.querySelectorAll('[data-bind="usd_balance"]').forEach(el => {
+                if (el.tagName === 'INPUT') el.value = usdFormatted; else el.innerText = `$${usdFormatted}`;
+            });
+
+            targetDoc.querySelectorAll('[data-bind="ad_balance"]').forEach(el => {
+                if (el.tagName === 'INPUT') el.value = adFormatted; else el.innerText = adFormatted;
+            });
+
+            targetDoc.querySelectorAll('[data-bind="hourly_rate"]').forEach(el => {
+                if (el.tagName === 'INPUT') el.value = hourlyFormatted; else el.innerText = `⚡ ${hourlyFormatted}/h`;
+            });
+
+            targetDoc.querySelectorAll('[data-bind="energy"]').forEach(el => {
+                if (el.tagName === 'INPUT') el.value = energyFormatted; else el.innerText = energyFormatted;
+            });
+
+            targetDoc.querySelectorAll('[data-bind="ton_price"]').forEach(el => {
+                if (el.tagName === 'INPUT') el.value = tonPriceFormatted; else el.innerText = tonPriceFormatted;
+            });
+        };
+
+        // أ) تحديث عناصر الصفحة الرئيسية
+        applyToDoc(document);
+
+        // ب) تحديث جميع القوائم الفرعية داخل (iframes) إن وجدت
+        document.querySelectorAll('iframe').forEach(iframe => {
+            try {
+                if (iframe.contentWindow && iframe.contentWindow.document) {
+                    applyToDoc(iframe.contentWindow.document);
+                }
+            } catch(e) {}
         });
 
-        document.querySelectorAll('[data-bind="usd_balance"]').forEach(el => {
-            if (el.tagName === 'INPUT') el.value = usdFormatted;
-            else el.innerText = `$${usdFormatted}`;
-        });
-
-        document.querySelectorAll('[data-bind="ad_balance"]').forEach(el => {
-            if (el.tagName === 'INPUT') el.value = adFormatted;
-            else el.innerText = adFormatted;
-        });
-
-        document.querySelectorAll('[data-bind="hourly_rate"]').forEach(el => {
-            if (el.tagName === 'INPUT') el.value = hourlyFormatted;
-            else el.innerText = `⚡ ${hourlyFormatted}/h`;
-        });
-
-        document.querySelectorAll('[data-bind="energy"]').forEach(el => {
-            if (el.tagName === 'INPUT') el.value = energyFormatted;
-            else el.innerText = energyFormatted;
-        });
-
-        document.querySelectorAll('[data-bind="ton_price"]').forEach(el => {
-            if (el.tagName === 'INPUT') el.value = tonPriceFormatted;
-            else el.innerText = tonPriceFormatted;
-        });
-
+        // جـ) استدعاء الدوال الفرعية إن كانت معرفة في الصفحة
         if (typeof window.updateShopUI === 'function') window.updateShopUI();
         if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
         if (typeof window.updateTasksUI === 'function') window.updateTasksUI();
@@ -177,6 +224,9 @@ window.updateUI = function() {
     }
 };
 
+// ==========================================
+// 8. تحميل بيانات المستخدم الأوليّة من السيرفر
+// ==========================================
 let isUserDataFetching = false;
 
 window.loadUserData = async function() {
@@ -186,6 +236,7 @@ window.loadUserData = async function() {
     try {
         const data = await window.fetchAPI('/api/user/info');
         if (data && data.success) {
+            if (data.tg_id !== undefined) window.userState.tg_id = data.tg_id;
             if (data.balance !== undefined) window.userState.balance = parseFloat(data.balance);
             if (data.usd_balance !== undefined) window.userState.usd_balance = parseFloat(data.usd_balance);
             if (data.ad_balance !== undefined) window.userState.ad_balance = parseFloat(data.ad_balance);
@@ -199,13 +250,16 @@ window.loadUserData = async function() {
             if (data.wallet_address !== undefined) window.userState.wallet_address = data.wallet_address;
         }
     } catch (e) {
-        console.warn("تنبيه: تم الاعتماد على البيانات المحلية مؤقتاً لحين الاتصال.");
+        console.warn("تنبيه: فشل جلب البيانات من السيرفر.");
     } finally {
         isUserDataFetching = false;
         window.updateUI();
     }
 };
 
+// ==========================================
+// 9. عمليات المحفظة (سجل، تحويل، سحب)
+// ==========================================
 window.loadWalletHistory = async function() {
     const historyList = document.getElementById('wallet-history-list');
     if (!historyList) return;
@@ -294,20 +348,32 @@ window.executeWithdraw = async function(amountUSD, address) {
     }
 };
 
+// ==========================================
+// 10. تشغيل التطبيق وتفعيل التزامن اللحظي
+// ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     const historyBtn = document.getElementById('open-history-btn');
     if (historyBtn) historyBtn.addEventListener('click', window.loadWalletHistory);
 
+    // 1. جلب سعر عملة TON فوراً
     window.globalFetchTonPrice();
 
-    setInterval(() => {
-        window.loadUserData();
-        window.globalFetchTonPrice();
-    }, 15000); 
+    // 2. تحميل بيانات المستخدم ثم تشغيل الفايربيس اللحظي فوراً
+    window.loadUserData().then(() => {
+        const userId = window.userState.tg_id || tg?.initDataUnsafe?.user?.id;
+        if (userId) {
+            window.initFirebaseRealtimeSync(userId);
+        }
+    });
 
+    // 3. تحديث سعر عملة TON كل 60 ثانية (بدل الـ 15 ثانية القديمة للرصيد)
+    setInterval(() => {
+        window.globalFetchTonPrice();
+    }, 60000);
+
+    // 4. عند العودة للتطبيق من الخفاء
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
-            window.loadUserData();
             window.globalFetchTonPrice();
         }
     });
