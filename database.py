@@ -1,6 +1,7 @@
 # database.py
 import os
 import json
+from datetime import datetime, timezone
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -155,17 +156,25 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
         
         is_new_referral = False
         valid_ref_id = str(ref_id) if ref_id and str(ref_id) != tg_id_str else None
-        
+        now_iso = datetime.now(timezone.utc).isoformat()
+
         if not user_doc.exists:
             new_user_data = {
                 "tg_id": tg_id_str,
+                "telegram_id": tg_id_str,
                 "first_name": first_name,
                 "balance": 0.0,
                 "ad_balance": 0.0,
                 "usd_balance": 0.0,
                 "hourly_rate": 0.0,
+                "unclaimed": 0.0,
                 "storage_level": 0,
                 "max_cap": 200.0,
+                "daily_day": 1,
+                "last_claim_time": now_iso,
+                "last_daily_claim_date": None,
+                "last_boost_date": None,
+                "ads_watched": 0,
                 "upgrades": {},
                 "banned": False,
                 "wallet_address": None,
