@@ -1,11 +1,25 @@
 # database.py
 import os
 import json
+import time
 from datetime import datetime, timezone
 import firebase_admin
 from firebase_admin import credentials, firestore
 
 db = None
+
+# ==================== Dynamic In-Memory Cache System ====================
+_SETTINGS_CACHE = None
+_SETTINGS_CACHE_TIME = 0
+SETTINGS_CACHE_TTL = 600  # كاش إعدادات اللعبة (10 دقائق)
+
+_BAN_CACHE = {}           # {tg_id: (is_banned, expire_time)}
+BAN_CACHE_TTL = 120       # كاش فحص الحظر (دقيقتين لكل مستخدم)
+
+_LEADERBOARD_CACHE = None
+_LEADERBOARD_CACHE_TIME = 0
+LEADERBOARD_CACHE_TTL = 180  # كاش لوحة الصدارة (3 دقائق)
+# ========================================================================
 
 def ensure_game_settings_exist():
     """دالة الفحص والتحديث التلقائي لكافة إعدادات اللعبة في Firestore حسب الخطة الاقتصادية"""
@@ -67,12 +81,11 @@ def ensure_game_settings_exist():
             }
         }
 
-        # إعدادات الساحة الكبرى الديناميكية في الفايربيس
         exact_arena_config = {
             "entry_fee": 1000,
             "min_participants": 20,
             "prize_pool_percentage": 0.45,
-            "round_duration": 900,  # 15 دقيقة بالثواني
+            "round_duration": 900,
             "lock_seconds": 15
         }
 
@@ -138,22 +151,44 @@ except Exception as e:
     print(f"⚠️ تنبيه أثناء تهيئة DB تلقائياً: {e}")
 
 def get_game_settings():
+    global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
+    now = time.time()
+    if _SETTINGS_CACHE is not None and (now - _SETTINGS_CACHE_TIME) < SETTINGS_CACHE_TTL:
+        return _SETTINGS_CACHE
+
     try:
         doc = db.collection('config').document('game_settings').get()
         if doc.exists:
-            return doc.to_dict() or {}
+            _SETTINGS_CACHE = doc.to_dict() or {}
+            _SETTINGS_CACHE_TIME = now
+            return _SETTINGS_CACHE
         return {}
     except Exception as e:
         print(f"❌ Error getting game settings: {e}")
-        return {}
+        return _SETTINGS_CACHE or {}
 
 def is_user_banned(tg_id):
+    if not tg_id: 
+        return False
+        
+    tg_id_str = str(tg_id)
+    now = time.time()
+
+    # استخدام الذاكرة المؤقتة لمنع نزيف القراءات
+    if tg_id_str in _BAN_CACHE:
+        is_banned, expire_time = _BAN_CACHE[tg_id_str]
+        if now < expire_time:
+            return is_banned
+
     try:
-        if not tg_id: return False
-        doc = db.collection('users').document(str(tg_id)).get()
-        return bool(doc.to_dict().get('banned', False)) if doc.exists else False
+        doc = db.collection('users').document(tg_id_str).get()
+        is_banned = bool(doc.to_dict().get('banned', False)) if doc.exists else False
+        _BAN_CACHE[tg_id_str] = (is_banned, now + BAN_CACHE_TTL)
+        return is_banned
     except Exception as e:
         print(f"❌ Error checking ban status for {tg_id}: {e}")
+        if tg_id_str in _BAN_CACHE:
+            return _BAN_CACHE[tg_id_str][0]
         return False
 
 def init_user(tg_id, ref_id=None, first_name="صديقي"):
@@ -377,13 +412,21 @@ def get_user_transactions(tg_id, limit=30):
 def ban_user(tg_id, status=True):
     try:
         if not tg_id: return False
-        db.collection('users').document(str(tg_id)).update({"banned": bool(status)})
+        tg_id_str = str(tg_id)
+        db.collection('users').document(tg_id_str).update({"banned": bool(status)})
+        # تحديث الكاش فوراً
+        _BAN_CACHE[tg_id_str] = (bool(status), time.time() + BAN_CACHE_TTL)
         return True
     except Exception as e:
         print(f"❌ Error changing ban status for {tg_id}: {e}")
         return False
 
 def get_top_users(limit=50):
+    global _LEADERBOARD_CACHE, _LEADERBOARD_CACHE_TIME
+    now = time.time()
+    if _LEADERBOARD_CACHE is not None and (now - _LEADERBOARD_CACHE_TIME) < LEADERBOARD_CACHE_TTL:
+        return _LEADERBOARD_CACHE
+
     try:
         users_ref = db.collection('users').order_by('balance', direction=firestore.Query.DESCENDING).limit(limit)
         docs = users_ref.stream()
@@ -396,7 +439,9 @@ def get_top_users(limit=50):
                 "balance": data.get("balance", 0.0),
                 "hourly_rate": data.get("hourly_rate", 0.0)
             })
+        _LEADERBOARD_CACHE = leaderboard
+        _LEADERBOARD_CACHE_TIME = now
         return leaderboard
     except Exception as e:
         print(f"❌ Error getting leaderboard: {e}")
-        return []
+        return _LEADERBOARD_CACHE or []
