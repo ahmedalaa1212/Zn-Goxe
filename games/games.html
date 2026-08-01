@@ -234,6 +234,11 @@
             from { opacity: 0; transform: translateY(12px); }
             to { opacity: 1; transform: translateY(0); }
         }
+
+        @keyframes slideDownToast {
+            0% { top: -60px; opacity: 0; }
+            100% { top: 15px; opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -314,9 +319,9 @@
                 <!-- حالة إلغاء الجولة وإعادة الرسوم -->
                 <div id="draw-refunded" style="display: none;">
                     <div class="modal-icon-shield">🛡️</div>
-                    <h3 class="modal-title-refund">تمت إعادة الرسوم للحساب</h3>
+                    <h3 class="modal-title-refund">تم استرداد المبلغ بنجاح</h3>
                     <p class="modal-desc" id="refund-msg-text">
-                        لم يتم اكتمال العدد الأدنى للمشاركين. تم إرجاع كامل رسوم الدخول لرصيدك بنجاح!
+                        تم استرداد المبلغ بنجاح لعدم اكتمال العدد المطلوب في الساحة. تم إرجاع الرسوم لحسابك فوراً!
                     </p>
                     <div class="refund-badge">
                         <span>المبلغ المكتسب/المرتجع:</span>
