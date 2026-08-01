@@ -11,7 +11,7 @@ from core.security import get_authenticated_user
 # ==========================================
 app = Flask(__name__)
 
-# تفعيل CORS لجميع مسارات الـ API (بدون تعارض supports_credentials مع Wildcard)
+# تفعيل CORS لجميع مسارات الـ API (بدون تعارض supports_credentials)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app').strip().rstrip('/')
@@ -68,18 +68,18 @@ def get_user_info_main():
 # ==========================================
 @app.after_request
 def add_security_headers(response):
-    # ⚡ تطبيق منع الكاش على طلبات API وصفحات HTML الرئيسية فقط
+    # تطبيق منع الكاش على طلبات API وصفحات HTML الرئيسية فقط
     if request.path.startswith('/api/') or request.path in ['/', '/index.html']:
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
     else:
-        # 🚀 السماح للفرونت إند بتخزين الصور وملفات الجافاسكريبت والـ CSS لتسريع فتح اللعبة 10 أضعاف
-        response.headers['Cache-Control'] = 'public, max-age=86400'  # كاش لمدة يوم كامل للملفات الثابتة
+        # السماح بتخزين الصور وملفات الجافاسكريبت والـ CSS لتسريع اللعبة
+        response.headers['Cache-Control'] = 'public, max-age=86400'
     return response
 
 # ==========================================
-# 5. معالجة الأخطاء العالمية (تصحيح أكواد الحالة)
+# 5. معالجة الأخطاء العالمية
 # ==========================================
 @app.errorhandler(500)
 def handle_500_error(e):
