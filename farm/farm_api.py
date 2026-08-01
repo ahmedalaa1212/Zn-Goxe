@@ -113,7 +113,18 @@ def get_player_data():
                     try:
                         referrer_ref = db.collection('users').document(potential_referrer)
                         if referrer_ref.get().exists:
+                            # زيادة عدد الأصدقاء للداعي
                             referrer_ref.update({'invited_friends_count': firestore.Increment(1)})
+                            
+                            # إنشاء سجل للصديق الجديد في المجمّع الفرعي للداعي
+                            friend_ref_in_sub = referrer_ref.collection('referrals').document(user_id_str)
+                            friend_ref_in_sub.set({
+                                'telegram_id': user_id_str,
+                                'joined_at': now.isoformat(),
+                                'earned_from_friend': 0.0,
+                                'total_earned_from': 0.0,
+                                'earned_amount': 0.0
+                            }, merge=True)
                     except Exception as e:
                         print(f"Error updating referrer count: {e}")
 
@@ -207,18 +218,30 @@ def claim_mined_tokens():
     if not is_auth: 
         return error_response
 
+    user_id_str = str(telegram_id)
     try:
-        user_ref = db.collection('users').document(str(telegram_id))
+        user_ref = db.collection('users').document(user_id_str)
         
         @firestore.transactional
         def run_claim_transaction(transaction, ref):
+            # 1. تنفيذ كافة عمليات القراءة (Reads) أولاً قبل أي كتابة وفقاً لشروط Firestore
             snapshot = ref.get(transaction=transaction)
             if not snapshot.exists:
                 return None, "الحساب غير موجود", 404
 
             user_data = snapshot.to_dict()
-            now = datetime.now(timezone.utc)
+            referred_by = user_data.get("referred_by")
             
+            inviter_ref = None
+            inviter_snap = None
+            inviter_friend_doc = None
+            
+            if referred_by:
+                inviter_ref = db.collection('users').document(str(referred_by))
+                inviter_snap = inviter_ref.get(transaction=transaction)
+                inviter_friend_doc = inviter_ref.collection('referrals').document(user_id_str)
+
+            now = datetime.now(timezone.utc)
             last_claim_str = user_data.get("last_claim_time")
             hourly_rate = float(user_data.get("hourly_rate", 0.0))
             storage_level = user_data.get("storage_level", 0)
@@ -251,22 +274,33 @@ def claim_mined_tokens():
                 "last_claim_time": now.isoformat()
             }
 
-            referred_by = user_data.get("referred_by")
+            # حساب عدد ترقيات الصديق للتأكد من شرط الـ 3 ترقيات
             upgrades = user_data.get("upgrades", {})
-            
-            total_upgrades = sum(int(v) for v in upgrades.values() if str(v).isdigit())
+            total_upgrades = 0
+            if isinstance(upgrades, dict):
+                for v in upgrades.values():
+                    try:
+                        total_upgrades += int(v)
+                    except (ValueError, TypeError):
+                        pass
 
-            if referred_by and total_upgrades >= 3:
+            # 2. تنفيذ التحديثات (Writes)
+            if referred_by and total_upgrades >= 3 and inviter_snap and inviter_snap.exists:
                 bonus_for_inviter = unclaimed * 0.10
-                try:
-                    inviter_ref = db.collection('users').document(str(referred_by))
-                    if inviter_ref.get().exists:
-                        transaction.update(inviter_ref, {
-                            "pending_ref_earnings": firestore.Increment(bonus_for_inviter),
-                            "ref_generated_amount": firestore.Increment(bonus_for_inviter)
-                        })
-                except Exception as e:
-                    print(f"Error updating inviter balance: {e}")
+                
+                # أ. إضافة الأرباح للرصيد المعلق للداعي والإجمالي
+                transaction.update(inviter_ref, {
+                    "pending_ref_earnings": firestore.Increment(bonus_for_inviter),
+                    "ref_generated_amount": firestore.Increment(bonus_for_inviter)
+                })
+                
+                # ب. تحديث سجل هذا الصديق تحديداً في المجمّع الفرعي للداعي
+                transaction.set(inviter_friend_doc, {
+                    "earned_from_friend": firestore.Increment(bonus_for_inviter),
+                    "total_earned_from": firestore.Increment(bonus_for_inviter),
+                    "earned_amount": firestore.Increment(bonus_for_inviter),
+                    "last_claim_time": now.isoformat()
+                }, merge=True)
 
             transaction.update(ref, update_data)
             return {"claimed": unclaimed, "new_balance": new_balance}, None, 200
