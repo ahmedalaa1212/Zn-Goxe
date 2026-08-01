@@ -1,4 +1,8 @@
 // shop/shop.js
+// =================================================================
+// 🛒 ZN Goxe - Shop Module (Optimized, Animated & Cash-Safe)
+// =================================================================
+
 (function initShop() {
     'use strict';
 
@@ -13,6 +17,41 @@
             if (type === 'impact') window.Telegram.WebApp.HapticFeedback.impactOccurred(style);
             else if (type === 'notification') window.Telegram.WebApp.HapticFeedback.notificationOccurred(style);
         }
+    }
+
+    // =================================================================
+    // 🧮 0. دالة التحديث البصري التدريجي للأرقام (Smooth Counter Animation)
+    // =================================================================
+    function animateValue(element, start, end, duration = 800, decimals = 2, prefix = '', suffix = '') {
+        if (!element) return;
+        if (isNaN(start)) start = 0;
+        if (isNaN(end)) end = 0;
+        
+        if (Math.abs(start - end) < 0.001) {
+            element.innerText = prefix + (decimals === 0 ? Math.floor(end).toLocaleString('en-US') : end.toFixed(decimals)) + suffix;
+            element.dataset.currentVal = end;
+            return;
+        }
+
+        let startTimestamp = null;
+        const step = (timestamp) => {
+            if (!startTimestamp) startTimestamp = timestamp;
+            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+            const current = start + (end - start) * progress;
+            
+            if (decimals === 0) {
+                element.innerText = prefix + Math.floor(current).toLocaleString('en-US') + suffix;
+            } else {
+                element.innerText = prefix + current.toFixed(decimals) + suffix;
+            }
+
+            if (progress < 1) {
+                window.requestAnimationFrame(step);
+            } else {
+                element.dataset.currentVal = end;
+            }
+        };
+        window.requestAnimationFrame(step);
     }
 
     function initTonConnect() {
@@ -49,7 +88,6 @@
     async function loadShopConfig(forceFetch = false) {
         const now = Date.now();
 
-        // 1. محاولة التحميل من الذاكرة المحلية أولاً للعرض الفوري
         if (!forceFetch && !shopDynamicSettings) {
             try {
                 const cached = sessionStorage.getItem('zn_shop_config');
@@ -65,7 +103,6 @@
             }
         }
 
-        // حماية من التكرار المفرط
         if (!forceFetch && shopDynamicSettings && (now - lastConfigFetchTime < CONFIG_CACHE_TTL)) {
             window.updateShopUI();
             return;
@@ -134,8 +171,8 @@
                     <div>
                         <div style="font-size: 24px;">${theme.icon}</div>
                         <div style="color: #ffffff; font-weight: bold; font-size: 13px;">${pkg.title || 'باقة مميزة'}</div>
-                        <div style="color: ${theme.border}; font-weight: bold; font-size: 16px; margin: 4px 0;">$${pkg.usdt}</div>
-                        <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${pkg.ton_amount} TON</div>
+                        <div style="color: ${theme.border}; font-weight: bold; font-size: 16px; margin: 4px 0;">$${parseFloat(pkg.usdt).toFixed(2)}</div>
+                        <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${parseFloat(pkg.ton_amount).toFixed(2)} TON</div>
                     </div>
                     <div class="usdt-perks" style="font-size: 11px; color: #cccccc; line-height: 1.4; margin-bottom: 10px; background: rgba(0,0,0,0.3); padding: 6px; border-radius: 8px;">
                         ⚡ +${Number(pkg.rate_add).toLocaleString()} ZN/h<br>
@@ -186,7 +223,6 @@
 
             isBuying = true;
 
-            // 1. تجهيز المعاملة
             const prepRes = await fetch('/api/shop/prepare_ton_pay', {
                 method: 'POST',
                 headers: { 
@@ -216,7 +252,6 @@
                 }]
             };
 
-            // 2. إرسال المعاملة للمحفظة
             const result = await tcInstance.sendTransaction(transaction);
             
             let safeBoc = "TX_" + Date.now();
@@ -224,7 +259,6 @@
                 safeBoc = String(result.boc).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32);
             }
 
-            // 3. تأكيد المعاملة وتطبيق الباقة فوراً
             const verifyRes = await fetch('/api/shop/verify_and_apply_package', {
                 method: 'POST',
                 headers: { 
@@ -243,26 +277,21 @@
                 triggerHaptic('notification', 'success');
                 alert("🎉 تم تأكيد الدفع وتفعيل الباقة بنجاح!");
 
-                if (!window.userState) window.userState = {};
-                if (!window.PlayerData) window.PlayerData = {};
+                // ⚡ تحديث الحافلة الموحدة بدون جلب البيانات مجدداً
+                if (!window.GameState) window.GameState = {};
+                window.GameState.balance = verifyData.result.balance;
+                window.GameState.hourly_rate = verifyData.result.hourly_rate;
+                window.GameState.max_cap = verifyData.result.max_cap;
 
-                // تحديث القيم مباشرة (Optimistic Update)
-                window.userState.balance = verifyData.result.balance;
-                window.userState.hourly_rate = verifyData.result.hourly_rate;
-                window.userState.max_cap = verifyData.result.max_cap;
+                if (window.userState) Object.assign(window.userState, window.GameState);
+                if (window.PlayerData) Object.assign(window.PlayerData, window.GameState);
 
-                window.PlayerData.balance = verifyData.result.balance;
-                window.PlayerData.hourly_rate = verifyData.result.hourly_rate;
-                window.PlayerData.max_cap = verifyData.result.max_cap;
+                window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.GameState }));
 
-                // إطلاق حدث التحديث للواجهات المختلفة دون إعادة جلب البيانات
-                window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
-
-                if (typeof window.updateUI === 'function') {
-                    window.updateUI();
+                if (typeof window.updateGlobalUI === 'function') {
+                    window.updateGlobalUI();
                 } else {
                     window.updateShopUI();
-                    if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
                 }
             } else {
                 alert("⚠️ " + (verifyData.error || verifyData.message));
@@ -366,30 +395,25 @@
         const storageSec = document.getElementById('shop-storage-section');
         if (!miningSec || !storageSec) return;
 
-        const pData = window.userState || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0, usd_balance: 0 };
+        const pData = window.GameState || window.userState || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0, usd_balance: 0 };
         let totalBal = parseFloat(pData.balance || 0);
 
         const usdElem = document.getElementById('shop-usd-text');
         if (usdElem) {
-            usdElem.innerText = `$${parseFloat(pData.usd_balance || 0).toFixed(2)}`;
+            const curUsd = parseFloat(usdElem.dataset.currentVal || usdElem.innerText.replace('$', '')) || 0;
+            animateValue(usdElem, curUsd, parseFloat(pData.usd_balance || 0), 600, 2, '$');
         }
 
         const balElem = document.getElementById('shop-balance-text');
         if (balElem) {
-            if (typeof window.formatNumberHTML === 'function') {
-                balElem.innerHTML = window.formatNumberHTML(totalBal, 0, 2);
-            } else {
-                balElem.innerText = Number(totalBal.toFixed(2)).toLocaleString();
-            }
+            const curBal = parseFloat(balElem.dataset.currentVal || balElem.innerText.replace(/,/g, '')) || 0;
+            animateValue(balElem, curBal, totalBal, 600, 0);
         }
         
         const rateElem = document.getElementById('shop-rate-text');
         if (rateElem) {
             const hRate = parseFloat(pData.hourly_rate || 0);
-            const formattedRate = typeof window.formatNumberHTML === 'function' 
-                ? window.formatNumberHTML(hRate, 0, 2) 
-                : Number(hRate.toFixed(2)).toLocaleString();
-            rateElem.innerHTML = `${formattedRate}/h`;
+            rateElem.innerText = `+${hRate.toFixed(2)}/h`;
         }
 
         const defaultMiningCfg = {
@@ -492,7 +516,7 @@
     };
 
     window.requestShopPurchase = function(type, level, price) {
-        const curBal = parseFloat(window.userState?.balance || 0);
+        const curBal = parseFloat(window.GameState?.balance || window.userState?.balance || 0);
         if (curBal < parseFloat(price)) {
             triggerHaptic('notification', 'error');
             alert("⚠️ الرصيد غير كافي لشراء هذا التطوير!");
@@ -558,47 +582,30 @@
             if (response.ok && resData.success) {
                 triggerHaptic('notification', 'success');
 
-                if (!window.userState) window.userState = {};
-                if (!window.PlayerData) window.PlayerData = {};
+                // ⚡ تحديث الحافلة الموحدة مباشرة بالقيم الناتجة بدون طلب جلب كلي
+                if (!window.GameState) window.GameState = {};
 
-                // التحديث المباشر للرصيد والمحتويات محلياً
-                window.userState.balance = resData.balance;
-                window.PlayerData.balance = resData.balance;
+                window.GameState.balance = resData.balance;
+                if (resData.hourly_rate !== undefined) window.GameState.hourly_rate = resData.hourly_rate;
+                if (resData.upgrades !== undefined) window.GameState.upgrades = resData.upgrades;
+                if (resData.storage_level !== undefined) window.GameState.storage_level = resData.storage_level;
+                if (resData.max_cap !== undefined) window.GameState.max_cap = resData.max_cap;
+                if (resData.usd_balance !== undefined) window.GameState.usd_balance = resData.usd_balance;
+                if (resData.last_claim_time !== undefined) window.GameState.last_claim_time = resData.last_claim_time;
 
-                if (apiType === 'mining') {
-                    window.userState.hourly_rate = resData.hourly_rate;
-                    window.userState.upgrades = resData.upgrades;
+                // مزامنة المتغيرات القديمة للتوافق مع باقي البرمجيات
+                if (window.userState) Object.assign(window.userState, window.GameState);
+                if (window.PlayerData) Object.assign(window.PlayerData, window.GameState);
 
-                    window.PlayerData.hourly_rate = resData.hourly_rate;
-                    window.PlayerData.upgrades = resData.upgrades;
-                } else {
-                    window.userState.storage_level = resData.storage_level;
-                    window.userState.max_cap = resData.max_cap;
+                window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.GameState }));
 
-                    window.PlayerData.storage_level = resData.storage_level;
-                    window.PlayerData.max_cap = resData.max_cap;
-                }
-
-                if (resData.usd_balance !== undefined) {
-                    window.userState.usd_balance = resData.usd_balance;
-                    window.PlayerData.usd_balance = resData.usd_balance;
-                }
-                if (resData.last_claim_time) {
-                    window.userState.last_claim_time = resData.last_claim_time;
-                    window.PlayerData.last_claim_time = resData.last_claim_time;
-                }
-
-                // إرسال حدث التحديث لتحديث الرصيد العلوي والمزرعة فوراً وبسلاسة دون إعادة طلب الفايربيس
-                window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
-
-                if (typeof window.updateUI === 'function') {
-                    window.updateUI();
+                if (typeof window.updateGlobalUI === 'function') {
+                    window.updateGlobalUI();
                 } else {
                     window.updateShopUI();
-                    if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
                 }
             } else {
-                alert(resData.error || resData.message || "حدث خطأ أثناء الشراء.");
+                alert("⚠️ " + (resData.error || resData.message || "حدث خطأ أثناء الشراء."));
             }
         } catch (e) {
             console.error("Shop Purchase Error:", e);
