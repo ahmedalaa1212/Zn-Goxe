@@ -62,17 +62,19 @@ def get_authenticated_user(request, is_post=False):
             user_info = validate_telegram_data(init_data)
             if user_info and user_info.get('id'):
                 telegram_id = str(user_info.get('id')).strip()
+                # حفظ بيانات التليجرام في طلب الـ Flask لاستخدامها عند الحاجة
+                request.telegram_user = user_info
 
         # إذا تعذر التعرف على المستخدم أو كان التوقيع غير صالح
         if not telegram_id:
-            return False, None, None, (jsonify({'success': False, 'error': 'غير مصرح: بيانات المصادقة غير صالحة أو مفقودة (initData)'}), 401)
+            return False, None, (jsonify({'success': False, 'error': 'غير مصرح: بيانات المصادقة غير صالحة أو مفقودة (initData)'}), 401)
 
         # فحص الحظر في قاعدة البيانات
         if is_user_banned(telegram_id):
-            return False, None, None, (jsonify({'success': False, 'error': 'تم حظر حسابك لمخالفة القوانين'}), 403)
+            return False, None, (jsonify({'success': False, 'error': 'تم حظر حسابك لمخالفة القوانين'}), 403)
 
-        return True, telegram_id, user_info, None
+        return True, telegram_id, None
         
     except Exception as e:
         print(f"❌ Auth Exception: {e}")
-        return False, None, None, (jsonify({'success': False, 'error': 'حدث خطأ في عملية المصادقة'}), 500)
+        return False, None, (jsonify({'success': False, 'error': 'حدث خطأ في عملية المصادقة'}), 500)
