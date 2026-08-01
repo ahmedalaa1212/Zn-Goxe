@@ -14,7 +14,7 @@ def get_arena_config():
     settings = get_game_settings() or {}
     cfg = settings.get('arena_config', {})
     return {
-        "entry_fee": int(cfg.get('entry_fee', 1000)),
+        "entry_fee": float(cfg.get('entry_fee', 1000)),
         "min_participants": int(cfg.get('min_participants', 20)),
         "prize_pool_percentage": float(cfg.get('prize_pool_percentage', 0.45)),
         "round_duration": int(cfg.get('round_duration', 900)),
@@ -22,7 +22,7 @@ def get_arena_config():
     }
 
 def get_current_round_info(round_duration):
-    """حساب ID الجولة الحالية بناءً على توقيت السيرفر العالمي والمدة المحددة في الإعدادات"""
+    """حساب ID الجولة الحالية بناءً على توقيت السيرفر العالمي"""
     current_time = int(time.time())
     round_duration = max(round_duration, 60)
     round_id_num = current_time // round_duration
@@ -55,10 +55,10 @@ def arena_status():
         has_joined = any(p['uid'] == uid for p in participants)
         
         user_doc = db.collection('users').document(uid).get()
-        balance = user_doc.to_dict().get('balance', 0.0) if user_doc.exists else 0.0
+        balance = round(float(user_doc.to_dict().get('balance', 0.0)), 2) if user_doc.exists else 0.0
 
         total_collected = len(participants) * cfg['entry_fee']
-        visible_prize_pool = int(total_collected * cfg['prize_pool_percentage'])
+        visible_prize_pool = round(total_collected * cfg['prize_pool_percentage'], 2)
 
         return jsonify({
             "success": True,
@@ -93,34 +93,40 @@ def join_arena():
     def join_transaction(transaction, round_ref, user_ref):
         user_doc = user_ref.get(transaction=transaction)
         if not user_doc.exists:
-            return False, "المستخدم غير موجود.", 0
+            return False, "المستخدم غير موجود.", 0, 0
             
         user_data = user_doc.to_dict()
-        current_balance = user_data.get('balance', 0.0)
+        current_balance = round(float(user_data.get('balance', 0.0)), 2)
         
         if current_balance < cfg['entry_fee']:
-            return False, f"رصيدك غير كافٍ للاشتراك (تحتاج {cfg['entry_fee']:,} ZN).", current_balance
+            return False, f"رصيدك غير كافٍ للاشتراك.", current_balance, 0
             
         round_doc = round_ref.get(transaction=transaction)
         participants = round_doc.to_dict().get('participants', []) if round_doc.exists else []
             
         if any(p['uid'] == uid for p in participants):
-            return False, "أنت مشترك بالفعل في هذه الجولة.", current_balance
+            return False, "أنت مشترك بالفعل في هذه الجولة.", current_balance, 0
             
         player_name = user_data.get('first_name') or user_data.get('name') or f"لاعب #{uid[:5]}"
-        new_balance = current_balance - cfg['entry_fee']
+        new_balance = round(current_balance - cfg['entry_fee'], 2)
         
         transaction.update(user_ref, {'balance': new_balance})
         
         participants.append({"uid": uid, "name": player_name})
         transaction.set(round_ref, {'participants': participants, 'status': 'active'}, merge=True)
-        return True, "تم دخول الساحة بنجاح!", new_balance
+        
+        # حساب الجائزة المحدثة لإرجاعها في نفس الـ Response
+        new_prize_pool = round(len(participants) * cfg['entry_fee'] * cfg['prize_pool_percentage'], 2)
+        
+        return True, "تم دخول الساحة بنجاح!", new_balance, new_prize_pool
         
     try:
-        success_join, msg, new_bal = join_transaction(db.transaction(), round_ref, user_ref)
+        success_join, msg, new_bal, new_prize = join_transaction(db.transaction(), round_ref, user_ref)
         res_payload = {"success": success_join, "message": msg}
         if success_join:
             res_payload["new_balance"] = new_bal
+            res_payload["prize_pool"] = new_prize
+            res_payload["has_joined"] = True
         return jsonify(res_payload)
     except Exception as e:
         print(f"Error in join_arena: {e}")
@@ -138,13 +144,14 @@ def resolve_round(round_id):
     participants = data.get('participants', [])
     batch = db.batch()
     
-    # إلغاء الجولة لعدم اكتمال النصاب المحدد في الفايربيس
+    # إلغاء الجولة لعدم اكتمال النصاب
     if len(participants) < cfg['min_participants']:
+        refund_fee = round(cfg['entry_fee'], 2)
         for p in participants:
             user_ref = db.collection('users').document(p['uid'])
             batch.update(user_ref, {
-                'balance': firestore.Increment(cfg['entry_fee']),
-                'pending_refund': firestore.Increment(cfg['entry_fee'])
+                'balance': firestore.Increment(refund_fee),
+                'pending_refund': firestore.Increment(refund_fee)
             })
             
         batch.update(round_ref, {'status': 'refunded'})
@@ -153,7 +160,7 @@ def resolve_round(round_id):
 
     # احتساب الفائزين برصيد وتوزيع الجوائز
     total_collected = len(participants) * cfg['entry_fee']
-    visible_prize_pool = int(total_collected * cfg['prize_pool_percentage'])
+    visible_prize_pool = total_collected * cfg['prize_pool_percentage']
     
     random.shuffle(participants)
     winners_list = participants[:5] if len(participants) >= 5 else participants
@@ -161,7 +168,7 @@ def resolve_round(round_id):
     final_winners = []
     
     for i, winner in enumerate(winners_list):
-        prize_amount = int(visible_prize_pool * percentages[i])
+        prize_amount = round(visible_prize_pool * percentages[i], 2)
         user_ref = db.collection('users').document(winner['uid'])
         batch.update(user_ref, {'balance': firestore.Increment(prize_amount)})
         
@@ -195,7 +202,7 @@ def get_results():
     r_data = round_doc.to_dict()
     
     user_doc = db.collection('users').document(uid).get()
-    current_bal = user_doc.to_dict().get('balance', 0.0) if user_doc.exists else 0.0
+    current_bal = round(float(user_doc.to_dict().get('balance', 0.0)), 2) if user_doc.exists else 0.0
     
     return jsonify({
         "success": True,
@@ -217,7 +224,7 @@ def check_notifications():
             return jsonify({"success": True, "refund": 0})
         
         data = user_doc.to_dict()
-        pending_refund = data.get('pending_refund', 0)
+        pending_refund = round(float(data.get('pending_refund', 0)), 2)
         
         if pending_refund > 0:
             user_ref.update({'pending_refund': 0})
