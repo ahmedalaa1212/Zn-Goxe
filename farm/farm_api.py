@@ -6,7 +6,7 @@ from database import db
 
 farm_bp = Blueprint('farm', __name__)
 
-# سعات المخازن الجديدة المحددة
+# سعات المخازن المحددة
 STORAGE_CAPACITIES = {
     0: 200.0,
     1: 600.0,
@@ -34,7 +34,7 @@ UPGRADE_CONFIG = {
     9: {"base_cost": 3200000.0, "rate_bonus": 4500.0}
 }
 
-# الإعدادات الافتراضية الكاملة للمزرعة (20,000 ZN إجمالي 30 يوماً)
+# الإعدادات الافتراضية للعبة
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
         100, 150, 200, 250, 300, 
@@ -45,12 +45,11 @@ DEFAULT_GAME_SETTINGS = {
         950, 1000, 1000, 1100, 1250
     ],
     "mining_config": {
-        "daily_boost_reward": 2.0  # زيادة السرعة الدائمة
+        "daily_boost_reward": 2.0
     }
 }
 
 def parse_daily_rewards(rewards_data):
-    """تحويل بيانات المكافآت سواء كانت مصفوفة أو خريطة في Firestore إلى مصفوفة مرتبة"""
     if isinstance(rewards_data, list):
         return rewards_data
     if isinstance(rewards_data, dict):
@@ -71,7 +70,6 @@ def get_storage_capacity(storage_level):
     return STORAGE_CAPACITIES.get(lvl, 200.0)
 
 def get_game_settings():
-    """قراءة إعدادات اللعبة من Firebase وإنشاؤها تلقائياً إذا كانت محذوفة"""
     try:
         config_ref = db.collection('config').document('game_settings')
         config_doc = config_ref.get()
@@ -148,7 +146,6 @@ def get_player_data():
         max_cap = get_storage_capacity(storage_level)
         user_data["max_cap"] = max_cap
 
-        # عقوبة عدم الدخول يومياً: إعادة العداد لليوم 1 إذا مرت أكثر من 24 ساعة بدون استلام
         last_daily_date = user_data.get("last_daily_claim_date")
         if last_daily_date:
             try:
@@ -330,7 +327,7 @@ def upgrade_level():
 
             current_balance = float(user_data.get("balance", 0.0))
             if current_balance < cost:
-                return None, "رصيدك غير كافٍ لإجراء الترقية", 400
+                return None, f"رصيدك غير كافٍ. سعر الترقية {int(cost):,} ZN", 400
 
             new_balance = current_balance - cost
             upgrades[f"lvl{level}"] = current_count + 1
@@ -383,7 +380,6 @@ def daily_boost():
         mining_cfg = game_settings.get("mining_config", {})
         boost_amount = float(mining_cfg.get("daily_boost_reward", 2.0))
 
-        # زيادة سرعة التعدين الأساسية دائماً مدى الحياة
         new_rate = float(user_data.get("hourly_rate", 0.0)) + boost_amount
         ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
@@ -419,7 +415,6 @@ def daily_claim():
         if last_daily_date == today_str:
             return jsonify({"success": False, "error": "لقد استلمت المكافأة اليوم بالفعل!"}), 400
 
-        # شرط العودة للصفر: إذا فات يوم بدون استلام، يتم التصفير لليوم 1
         if last_daily_date:
             try:
                 last_date_obj = datetime.strptime(last_daily_date, '%Y-%m-%d').date()
@@ -432,13 +427,10 @@ def daily_claim():
         game_settings = get_game_settings()
         daily_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
 
-        # جلب المكافأة حسب اليوم الحالي (بحد أقصى اليوم 30)
         reward_index = min(current_day - 1, len(daily_rewards) - 1)
         reward_amount = daily_rewards[reward_index]
 
         new_balance = float(user_data.get("balance", 0.0)) + reward_amount
-        
-        # بعد اليوم 30، يستمر في الحصول على مكافأة اليوم 30 طالما لم يقطع السلسلة
         next_day = current_day + 1
         ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
