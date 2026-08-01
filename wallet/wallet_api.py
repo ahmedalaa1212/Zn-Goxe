@@ -18,7 +18,7 @@ def wallet_index():
     return jsonify({"success": True, "message": "Wallet API is Active & Secured!"}), 200
 
 # ==========================================
-# 📜 1. جلب سجل المعاملات (مقتصر ومحمي)
+# 📜 1. جلب سجل المعاملات (قراءة فقط وبقائم محددة)
 # ==========================================
 @wallet_bp.route('/get_history', methods=['GET', 'POST'])
 def get_history():
@@ -42,10 +42,10 @@ def get_history():
 
         history = []
 
-        # جلب أحدث 15 عملية من كل نوع لمنع استهلاك القراءات
+        # جلب أحدث 10 عمليات فقط لمنع استهلاك قراءات الفايربيس
         for collection_name, type_label in [('withdrawals', 'withdraw'), ('deposits', 'deposit'), ('conversions', 'convert')]:
             try:
-                docs = db.collection(collection_name).where('user_id', 'in', user_ids).limit(15).get()
+                docs = db.collection(collection_name).where('user_id', 'in', user_ids).limit(10).get()
                 for doc in docs:
                     d = doc.to_dict() or {}
                     d['type'] = d.get('type', type_label)
@@ -61,8 +61,11 @@ def get_history():
         history.sort(key=safe_date_key, reverse=True)
 
         clean_history = []
-        for item in history[:30]:
+        for item in history[:20]:
             clean_item = {k: (v.isoformat() if hasattr(v, 'isoformat') else v) for k, v in item.items()}
+            # تقريب قيم المبلغ مسبقاً قبل إرسالها للفرونت إند
+            if 'amount_usd' in clean_item and clean_item['amount_usd'] is not None:
+                clean_item['amount_usd'] = round(float(clean_item['amount_usd']), 2)
             clean_history.append(clean_item)
 
         return jsonify({"success": True, "history": clean_history}), 200
@@ -72,7 +75,7 @@ def get_history():
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب سجل المعاملات"}), 200
 
 # ==========================================
-# 🔄 2. تحويل النقاط ZN إلى USD (معاملة معزولة وآمنة)
+# 🔄 2. تحويل النقاط ZN إلى USD (معاملة معزولة ومباشرة)
 # ==========================================
 @wallet_bp.route('/wallet_convert', methods=['POST'])
 def wallet_convert():
@@ -94,7 +97,7 @@ def wallet_convert():
     except (ValueError, TypeError):
         return jsonify({"success": False, "error": "كمية نقاط غير صالحة"}), 200
         
-    usd_gained = round(amount / 1000000.0, 5)
+    usd_gained = round(amount / 1000000.0, 2)
     user_id_str = str(user_id).strip()
     
     transaction = db.transaction()
@@ -115,7 +118,7 @@ def wallet_convert():
             raise Exception("رصيد النقاط غير كافٍ لإتمام التحويل")
             
         new_balance = round(current_balance - amount, 2)
-        new_usd = round(current_usd + usd_gained, 5)
+        new_usd = round(current_usd + usd_gained, 2)
         
         tx.update(u_ref, {
             'balance': new_balance,
@@ -146,7 +149,7 @@ def wallet_convert():
         return jsonify({"success": False, "error": str(e)}), 200
 
 # ==========================================
-# 📤 3. طلب سحب الأرباح (خصم حظي وتأكيد معزول)
+# 📤 3. طلب سحب الأرباح (خصم لحظي وتحديت مباشر)
 # ==========================================
 @wallet_bp.route('/wallet_withdraw', methods=['POST'])
 def wallet_withdraw():
@@ -159,7 +162,7 @@ def wallet_withdraw():
     
     req = request.get_json(silent=True) or {}
     try:
-        amount = round(float(req.get('amount', 0)), 4)
+        amount = round(float(req.get('amount', 0)), 2)
         if amount <= 0:
             return jsonify({"success": False, "error": "مبلغ سحب غير صالح"}), 200
     except (ValueError, TypeError):
@@ -185,7 +188,7 @@ def wallet_withdraw():
         if current_usd < amount:
             raise Exception("رصيد الـ USD غير كافٍ للسحب")
             
-        new_usd = round(current_usd - amount, 5)
+        new_usd = round(current_usd - amount, 2)
         tx.update(u_ref, {'usd_balance': new_usd})
         
         withdraw_ref = db.collection('withdrawals').document()
@@ -211,7 +214,7 @@ def wallet_withdraw():
         return jsonify({"success": False, "error": str(e)}), 200
 
 # ==========================================
-# 📥 4. تأكيد الإيداع وتسجيل الرصيد (منع التكرار Replay Protected)
+# 📥 4. تأكيد الإيداع ورصيد المستخدم (Anti-Replay Protection)
 # ==========================================
 @wallet_bp.route('/wallet_deposit_report', methods=['POST'])
 def wallet_deposit_report():
@@ -239,10 +242,9 @@ def wallet_deposit_report():
     if not boc:
         return jsonify({"success": False, "error": "رمز إثبات المعاملة (BOC) مفقود"}), 200
 
-    fee_usd = round(gross_usd * DEPOSIT_FEE_PERCENT, 4)
-    net_usd = round(gross_usd - fee_usd, 4)
+    fee_usd = round(gross_usd * DEPOSIT_FEE_PERCENT, 2)
+    net_usd = round(gross_usd - fee_usd, 2)
 
-    # إنشاء بصمة فريدة للمعاملة لتفادي إرسالها مجدداً (SHA-256 Anti-Replay)
     tx_hash = hashlib.sha256(str(boc).encode('utf-8')).hexdigest()
     deposit_ref = db.collection('deposits').document(tx_hash)
     
@@ -262,7 +264,7 @@ def wallet_deposit_report():
             
         user_data = snapshot.to_dict() or {}
         current_usd = float(user_data.get('usd_balance', 0))
-        new_usd = round(current_usd + net_usd, 5)
+        new_usd = round(current_usd + net_usd, 2)
         
         tx.update(u_ref, {'usd_balance': new_usd})
         
