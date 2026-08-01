@@ -61,7 +61,7 @@ def resolve_round(round_id):
             _RESOLVED_ROUNDS_CACHE.add(str_round_id)
             return False
             
-        data = round_doc.to_dict()
+        data = round_doc.to_dict() or {}
         if data.get('status') != 'active':
             _RESOLVED_ROUNDS_CACHE.add(str_round_id)
             return False
@@ -73,7 +73,7 @@ def resolve_round(round_id):
         if len(participants) < cfg['min_participants']:
             refund_fee = round(cfg['entry_fee'], 2)
             for p in participants:
-                user_ref = db.collection('users').document(p['uid'])
+                user_ref = db.collection('users').document(str(p['uid']))
                 transaction.update(user_ref, {
                     'balance': firestore.Increment(refund_fee),
                     'pending_refund': firestore.Increment(refund_fee)
@@ -94,21 +94,21 @@ def resolve_round(round_id):
         winners_list = shuffled_participants[:winners_count]
         
         base_percentages = [0.30, 0.25, 0.20, 0.15, 0.10][:winners_count]
-        total_pct = sum(base_percentages)
+        total_pct = sum(base_percentages) or 1.0
         normalized_percentages = [pct / total_pct for pct in base_percentages]
         
         final_winners = []
         for i, winner in enumerate(winners_list):
             prize_amount = round(visible_prize_pool * normalized_percentages[i], 2)
-            user_ref = db.collection('users').document(winner['uid'])
+            user_ref = db.collection('users').document(str(winner['uid']))
             
             transaction.update(user_ref, {
                 'balance': firestore.Increment(prize_amount)
             })
             
             final_winners.append({
-                "uid": winner['uid'],
-                "name": winner['name'],
+                "uid": str(winner['uid']),
+                "name": winner.get('name', ''),
                 "prize": prize_amount
             })
             
@@ -131,10 +131,11 @@ def resolve_round(round_id):
 def arena_status():
     """عرض حالة الساحة وتفاصيل الجولة مع التخزين المؤقت بالسيرفر"""
     try:
-        success, uid, error_res = get_authenticated_user(request, is_post=True)
+        success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
         if not success:
             return error_res
         
+        uid_str = str(uid)
         cfg = get_arena_config()
         round_id, end_time, current_time, round_id_num = get_current_round_info(cfg['round_duration'])
         
@@ -152,13 +153,13 @@ def arena_status():
         else:
             round_ref = db.collection('arena_rounds').document(round_id)
             round_doc = round_ref.get()
-            participants = round_doc.to_dict().get('participants', []) if round_doc.exists else []
+            participants = (round_doc.to_dict() or {}).get('participants', []) if round_doc.exists else []
             _ROUND_CACHE[round_id] = {"participants": participants, "timestamp": now}
         
-        has_joined = any(p['uid'] == uid for p in participants)
+        has_joined = any(str(p.get('uid')) == uid_str for p in participants)
         
-        user_doc = db.collection('users').document(uid).get()
-        balance = round(float(user_doc.to_dict().get('balance', 0.0)), 2) if user_doc.exists else 0.0
+        user_doc = db.collection('users').document(uid_str).get()
+        balance = round(float((user_doc.to_dict() or {}).get('balance', 0.0)), 2) if user_doc.exists else 0.0
 
         total_collected = len(participants) * cfg['entry_fee']
         visible_prize_pool = round(total_collected * cfg['prize_pool_percentage'], 2)
@@ -180,10 +181,11 @@ def arena_status():
 @games_bp.route('/join', methods=['POST'])
 def join_arena():
     """دخول الساحة مع تنفيذ Transaction وتحديث كاش السيرفر فوراً"""
-    success, uid, error_res = get_authenticated_user(request, is_post=True)
+    success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
 
+    uid_str = str(uid)
     cfg = get_arena_config()
     round_id, end_time, current_time, _ = get_current_round_info(cfg['round_duration'])
     
@@ -191,32 +193,32 @@ def join_arena():
         return jsonify({"success": False, "message": "تم إغلاق باب الاشتراك لهذه الجولة! انتظر الجولة القادمة."})
         
     round_ref = db.collection('arena_rounds').document(round_id)
-    user_ref = db.collection('users').document(uid)
+    user_ref = db.collection('users').document(uid_str)
     
     @firestore.transactional
     def join_transaction(transaction, round_ref, user_ref):
         user_doc = user_ref.get(transaction=transaction)
         if not user_doc.exists:
-            return False, "المستخدم غير موجود.", 0, 0
+            return False, "المستخدم غير موجود.", 0, 0, []
             
-        user_data = user_doc.to_dict()
+        user_data = user_doc.to_dict() or {}
         current_balance = round(float(user_data.get('balance', 0.0)), 2)
         
         if current_balance < cfg['entry_fee']:
-            return False, "رصيدك غير كافٍ للاشتراك.", current_balance, 0
+            return False, "رصيدك غير كافٍ للاشتراك.", current_balance, 0, []
             
         round_doc = round_ref.get(transaction=transaction)
-        participants = round_doc.to_dict().get('participants', []) if round_doc.exists else []
+        participants = (round_doc.to_dict() or {}).get('participants', []) if round_doc.exists else []
             
-        if any(p['uid'] == uid for p in participants):
-            return False, "أنت مشترك بالفعل في هذه الجولة.", current_balance, 0
+        if any(str(p.get('uid')) == uid_str for p in participants):
+            return False, "أنت مشترك بالفعل في هذه الجولة.", current_balance, 0, []
             
-        player_name = user_data.get('first_name') or user_data.get('name') or f"لاعب #{uid[:5]}"
+        player_name = user_data.get('first_name') or user_data.get('name') or f"لاعب #{uid_str[:5]}"
         new_balance = round(current_balance - cfg['entry_fee'], 2)
         
         transaction.update(user_ref, {'balance': new_balance})
         
-        participants.append({"uid": uid, "name": player_name})
+        participants.append({"uid": uid_str, "name": player_name})
         transaction.set(round_ref, {'participants': participants, 'status': 'active'}, merge=True)
         
         new_prize_pool = round(len(participants) * cfg['entry_fee'] * cfg['prize_pool_percentage'], 2)
@@ -241,26 +243,30 @@ def join_arena():
 
 @games_bp.route('/results', methods=['POST'])
 def get_results():
-    success, uid, error_res = get_authenticated_user(request, is_post=True)
+    success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
     
-    data = request.get_json() or {}
+    uid_str = str(uid)
+    data = request.get_json(silent=True) or {}
     req_round_id = data.get('round_id')
     
-    if req_round_id:
-        resolve_round(str(req_round_id))
+    if not req_round_id:
+        return jsonify({"success": False, "message": "معرف الجولة مطلوب."}), 400
+
+    str_round_id = str(req_round_id)
+    resolve_round(str_round_id)
     
-    round_ref = db.collection('arena_rounds').document(str(req_round_id))
+    round_ref = db.collection('arena_rounds').document(str_round_id)
     round_doc = round_ref.get()
     
     if not round_doc.exists:
         return jsonify({"success": False, "message": "الجولة غير موجودة."})
         
-    r_data = round_doc.to_dict()
+    r_data = round_doc.to_dict() or {}
     
-    user_doc = db.collection('users').document(uid).get()
-    current_bal = round(float(user_doc.to_dict().get('balance', 0.0)), 2) if user_doc.exists else 0.0
+    user_doc = db.collection('users').document(uid_str).get()
+    current_bal = round(float((user_doc.to_dict() or {}).get('balance', 0.0)), 2) if user_doc.exists else 0.0
     
     return jsonify({
         "success": True,
@@ -272,17 +278,18 @@ def get_results():
 @games_bp.route('/check_notifications', methods=['POST'])
 def check_notifications():
     """التحقق من المرتجعات والإشعارات المباشرة للمستخدم"""
-    success, uid, error_res = get_authenticated_user(request, is_post=True)
+    success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
     
     try:
-        user_ref = db.collection('users').document(uid)
+        uid_str = str(uid)
+        user_ref = db.collection('users').document(uid_str)
         user_doc = user_ref.get()
         if not user_doc.exists:
             return jsonify({"success": True, "refund": 0, "balance": 0.0})
         
-        data = user_doc.to_dict()
+        data = user_doc.to_dict() or {}
         pending_refund = round(float(data.get('pending_refund', 0)), 2)
         current_balance = round(float(data.get('balance', 0.0)), 2)
         
