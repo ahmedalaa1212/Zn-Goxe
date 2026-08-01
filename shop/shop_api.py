@@ -174,7 +174,7 @@ def prepare_ton_pay():
         packages = settings.get('usdt_packages', DEFAULT_USDT_PACKAGES)
         
         if pkg_id not in packages:
-            return jsonify({"success": False, "error": "باقة غير صالحة."}), 400
+            return jsonify({"success": False, "error": "باقة غير صالحة."}), 200
 
         pkg_info = packages[pkg_id]
         ton_price = get_cached_ton_price()
@@ -208,7 +208,7 @@ def prepare_ton_pay():
         }), 200
 
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": str(e)}), 200
 
 # ==========================================
 # 💎 1. تأكيد وتفعيل باقات TON (معاملة معزولة)
@@ -225,13 +225,13 @@ def verify_and_apply_package():
         tx_boc = data.get('boc') or data.get('tx_hash') or "MANUAL_OR_TEST"
 
         if not pkg_key:
-            return jsonify({"success": False, "error": "بيانات الباقة غير مكتملة."}), 400
+            return jsonify({"success": False, "error": "بيانات الباقة غير مكتملة."}), 200
 
         settings = get_game_config()
         packages = settings.get('usdt_packages', DEFAULT_USDT_PACKAGES)
 
         if pkg_key not in packages:
-            return jsonify({"success": False, "error": "باقة غير صالحة."}), 400
+            return jsonify({"success": False, "error": "باقة غير صالحة."}), 200
 
         pkg_info = packages[pkg_key]
         user_id_str = str(user_id).strip()
@@ -311,16 +311,16 @@ def verify_and_apply_package():
 @shop_bp.route('/buy', methods=['POST'])
 def buy_upgrade():
     try:
+        is_auth, user_id, error_response = get_authenticated_user(request, is_post=True)
+        if not is_auth:
+            return error_response
+
         data = request.get_json() or {}
         upgrade_type = data.get('type')  
         level_num = str(data.get('level_num'))
 
         if not upgrade_type or not level_num:
-            return jsonify({"success": False, "error": "بيانات الطلب غير مكتملة."}), 400
-
-        is_auth, user_id, error_response = get_authenticated_user(request, is_post=True)
-        if not is_auth:
-            return error_response
+            return jsonify({"success": False, "error": "بيانات الطلب غير مكتملة."}), 200
 
         settings = get_game_config()
         user_id_str = str(user_id).strip()
@@ -382,13 +382,9 @@ def buy_upgrade():
                 new_balance = round(total_balance - price, 2)
                 upgrades[lvl_key] = current_lvl_count + 1
 
-                new_hourly_rate = 0.0
-                for l_str, cfg in mining_cfg.items():
-                    cnt = int(upgrades.get(f"lvl{l_str}", 0))
-                    if cnt > 0:
-                        new_hourly_rate += cnt * float(cfg.get('rate', 0))
-
-                new_hourly_rate = round(new_hourly_rate, 2)
+                # ✅ حماية وتعديل مهم جداً: إضافة السرعة المكتسبة فقط وعدم مسح سرعة الباقات المميزة!
+                speed_to_add = float(config.get('rate', 0.0))
+                new_hourly_rate = round(hourly_rate + speed_to_add, 2)
 
                 tx.update(u_ref, {
                     'balance': new_balance,
