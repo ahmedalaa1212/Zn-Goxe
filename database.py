@@ -14,7 +14,6 @@ def ensure_game_settings_exist():
     try:
         settings_ref = db.collection('config').document('game_settings')
 
-        # 1. مكافآت الـ 30 يوم الدقيقة (إجمالي 20,000 ZN)
         exact_daily_rewards = {
             "day_1": 100,   "day_2": 150,   "day_3": 200,   "day_4": 250,   "day_5": 300,
             "day_6": 350,   "day_7": 400,   "day_8": 450,   "day_9": 500,   "day_10": 550,
@@ -24,7 +23,6 @@ def ensure_game_settings_exist():
             "day_26": 950,  "day_27": 1000, "day_28": 1000, "day_29": 1100, "day_30": 1250
         }
 
-        # 2. ترقيات سرعة التعدين (9 مستويات - حد أقصى 10 شراء لكل مستوى)
         exact_speed_config = {
             "1": {"price": 2000, "rate": 5, "max": 10},
             "2": {"price": 7000, "rate": 15, "max": 10},
@@ -37,7 +35,6 @@ def ensure_game_settings_exist():
             "9": {"price": 3200000, "rate": 4500, "max": 10}
         }
 
-        # 3. سعات وأسعار المخازن (المستوى الافتراضي + 10 مستويات)
         exact_storage_config = {
             "0": {"capacity": 200, "price": 0},
             "1": {"capacity": 600, "price": 3000},
@@ -52,13 +49,12 @@ def ensure_game_settings_exist():
             "10": {"capacity": 1000000, "price": 12000000}
         }
 
-        # 4. إعدادات نظام الأصدقاء (تجهيز المكافآت المباشرة بـ 0 ZN)
         exact_friends_config = {
-            "direct_reward_inviter": 0,       # 0 ZN مكافأة للداعي
-            "direct_reward_invitee": 0,       # 0 ZN مكافأة للمدعو
-            "commission_percent": 10,         # 10% فقط من تعدين المزرعة عند التجميع
-            "claim_fee_percent": 1.5,         # رسوم سحب أرباح الإحالة (%)
-            "min_upgrades_for_task": 3,       # الحد الأدنى للترقيات لاحتساب الصديق مؤهلاً للمهام
+            "direct_reward_inviter": 0,
+            "direct_reward_invitee": 0,
+            "commission_percent": 10,
+            "claim_fee_percent": 1.5,
+            "min_upgrades_for_task": 3,
             "ref_tasks": {
                 "1": {"reqFriends": 1, "reward": 4000},
                 "2": {"reqFriends": 5, "reward": 25000},
@@ -73,7 +69,6 @@ def ensure_game_settings_exist():
         doc = settings_ref.get()
         current_data = doc.to_dict() or {} if doc.exists else {}
 
-        # تجديد وتصفير المكافآت المباشرة حتى لو كانت مخزنة سابقاً بقيمة 2500 أو 1000
         friends_cfg = current_data.get("friends_config", exact_friends_config)
         friends_cfg["direct_reward_inviter"] = 0
         friends_cfg["direct_reward_invitee"] = 0
@@ -159,11 +154,9 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
         user_doc = user_ref.get()
         
         is_new_referral = False
+        valid_ref_id = str(ref_id) if ref_id and str(ref_id) != tg_id_str else None
         
         if not user_doc.exists:
-            valid_ref_id = str(ref_id) if ref_id and str(ref_id) != tg_id_str else None
-
-            # الجميع يبدأ برصيد أولي 0.0 ZN بالضبط بدعوة أو بدون دعوة
             new_user_data = {
                 "tg_id": tg_id_str,
                 "first_name": first_name,
@@ -191,20 +184,32 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 referrer_ref = db.collection('users').document(valid_ref_id)
                 if referrer_ref.get().exists:
                     is_new_referral = True
-                    
-                    # زيادة عدد الأصدقاء فقط بدون إضافة أي رصيد مباشر للداعي
                     referrer_ref.update({
                         "invited_friends_count": firestore.Increment(1)
                     })
-                    
-                    # إدراج الصديق بقيمة مجمعة مبدئية 0.0 ZN
                     referrer_ref.collection('friends').document(tg_id_str).set({
                         "tg_id": tg_id_str,
                         "first_name": first_name,
                         "earned_from_him": 0.0,
                         "joined_at": firestore.SERVER_TIMESTAMP
-                    })
+                    }, merge=True)
         else:
+            u_data = user_doc.to_dict() or {}
+            current_ref = u_data.get('referred_by')
+            
+            # إصلاح: ربط المستخدم القديم برمز الدعوة إذا لم يكن مسجلاً لديه
+            if valid_ref_id and not current_ref:
+                referrer_ref = db.collection('users').document(valid_ref_id)
+                if referrer_ref.get().exists:
+                    user_ref.update({"referred_by": valid_ref_id})
+                    referrer_ref.update({"invited_friends_count": firestore.Increment(1)})
+                    referrer_ref.collection('friends').document(tg_id_str).set({
+                        "tg_id": tg_id_str,
+                        "first_name": first_name,
+                        "earned_from_him": 0.0,
+                        "joined_at": firestore.SERVER_TIMESTAMP
+                    }, merge=True)
+            
             user_ref.update({
                 "first_name": first_name,
                 "last_active": firestore.SERVER_TIMESTAMP
@@ -259,7 +264,7 @@ def update_user_balance(tg_id, amount, balance_type="balance"):
 def add_referral_earnings(referrer_id, friend_id, amount):
     """
     تُستدعى حصرياً عند ضغط الصديق على زر تجميع المزرعة (Claim Farm).
-    تحسب 10% من التعدين فقط وتضيفها للأرباح المعلقة للسحب.
+    تحسب 10% من التعدين فقط وتضيفها للأرباح المعلقة للسحب ولفرع الأصدقاء.
     """
     try:
         if not referrer_id or not amount or float(amount) <= 0: return False
@@ -272,17 +277,31 @@ def add_referral_earnings(referrer_id, friend_id, amount):
         commission_percent = float(f_config.get('commission_percent', 10)) / 100.0
 
         ref_amount = float(amount) * commission_percent
+        if ref_amount <= 0:
+            return False
         
+        # إضافة الأرباح المعلقة والإجمالية للداعي
         db.collection('users').document(ref_str).update({
-            "pending_ref_earnings": firestore.Increment(ref_amount)
+            "pending_ref_earnings": firestore.Increment(ref_amount),
+            "total_ref_earnings": firestore.Increment(ref_amount)
         })
         
+        # تحديث الأرباح المجمعة من هذا الصديق بالتحديد
         friend_ref = db.collection('users').document(ref_str).collection('friends').document(friend_str)
-        if friend_ref.get().exists:
+        friend_doc = friend_ref.get()
+        if friend_doc.exists:
             friend_ref.update({"earned_from_him": firestore.Increment(ref_amount)})
         else:
+            # جلب اسم الصديق إن أمكن
+            f_user_doc = db.collection('users').document(friend_str).get()
+            f_name = "صديق"
+            if f_user_doc.exists:
+                f_data = f_user_doc.to_dict() or {}
+                f_name = f_data.get('first_name') or f_data.get('name') or "صديق"
+
             friend_ref.set({
                 "tg_id": friend_str,
+                "first_name": f_name,
                 "earned_from_him": ref_amount,
                 "joined_at": firestore.SERVER_TIMESTAMP
             }, merge=True)
