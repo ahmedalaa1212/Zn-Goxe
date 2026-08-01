@@ -16,8 +16,10 @@ function getSavedState() {
         first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب",
         balance: 0, usd_balance: 0, ad_balance: 0, hourly_rate: 0, energy: 100, storage_level: 0, upgrades: {}, wallet_address: null
     };
-    try { return { ...base, ...JSON.parse(localStorage.getItem('app_user_state') || '{}') }; }
-    catch { return base; }
+    try { 
+        const saved = localStorage.getItem('app_user_state');
+        return saved ? { ...base, ...JSON.parse(saved) } : base; 
+    } catch { return base; }
 }
 
 let isFirebaseUpdating = false;
@@ -38,7 +40,7 @@ window.userState = new Proxy(getSavedState(), {
 });
 
 // ==========================================
-// 2. الاتصال بالسيرفر مع التحديث اللحظي المباشر
+// 2. الاتصال بالسيرفر + التحديث المحلي اللحظي القوي (0ms)
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
@@ -47,36 +49,58 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         headers['Authorization'] = `Bearer ${tg.initData}`;
     }
 
-    // زيادة الرصيد فوراً في الشاشة وفي LocalStorage عند التجميع
-    if (endpoint.includes('/collect') || endpoint.includes('/claim')) {
+    // ⚡ التجميع الفوري المحلي قبل انتظار الشبكة
+    if (endpoint.includes('/collect') || endpoint.includes('/claim') || endpoint.includes('/farm')) {
         lastLocalTimes['balance'] = Date.now();
+        
         let pending = parseFloat(window.uncollectedBalance || window.pendingBalance || 0);
-        if (!pending) {
-            document.querySelectorAll('iframe').forEach(f => {
-                try {
-                    const w = f.contentWindow;
-                    if (w?.uncollectedBalance || w?.pendingBalance) {
+
+        // إذا لم نجد المتغير جاهزاً، نبحث داخل الـ IFrames وعناصر الواجهة
+        document.querySelectorAll('iframe').forEach(f => {
+            try {
+                const w = f.contentWindow;
+                if (w) {
+                    if (w.uncollectedBalance || w.pendingBalance) {
                         pending = parseFloat(w.uncollectedBalance || w.pendingBalance || 0);
                         w.uncollectedBalance = 0; w.pendingBalance = 0;
                     }
-                } catch {}
-            });
-        }
+                    // البحث في عناصر النص الخاصة بالعداد المجمع
+                    const minedEl = w.document.querySelector('[data-bind="uncollected"], .mined-amount, #mined-balance, #farm-balance');
+                    if (minedEl && minedEl.innerText) {
+                        const val = parseFloat(minedEl.innerText.replace(/[^0-9.]/g, ''));
+                        if (val > 0) {
+                            pending = Math.max(pending, val);
+                            minedEl.innerText = "0";
+                        }
+                    }
+                }
+            } catch {}
+        });
+
+        // زيادة الرصيد فوراً وحفظه محلياً في نفس الملي ثانية
         if (pending > 0) {
             window.userState.balance += pending;
-            window.uncollectedBalance = 0; window.pendingBalance = 0;
+            window.uncollectedBalance = 0;
+            window.pendingBalance = 0;
         }
     }
 
     try {
         const res = await fetch(endpoint, { method, headers, body: bodyData ? JSON.stringify(bodyData) : null });
         const data = await res.json();
+        
         if (!res.ok) {
             if (res.status === 403 && data.error?.includes("محظور")) { alert("حسابك محظور."); tg?.close(); }
             throw new Error(data.error || `HTTP ${res.status}`);
         }
+
+        // مزامنة القيمة المؤكدة القادمة من الباك إند
         if (data.new_balance !== undefined) window.userState.balance = parseFloat(data.new_balance);
+        else if (data.balance !== undefined) window.userState.balance = parseFloat(data.balance);
+
         if (data.new_usd_balance !== undefined) window.userState.usd_balance = parseFloat(data.new_usd_balance);
+        else if (data.usd_balance !== undefined) window.userState.usd_balance = parseFloat(data.usd_balance);
+
         return data;
     } catch (err) {
         console.error(`API Error [${endpoint}]:`, err);
@@ -115,15 +139,16 @@ window.initFirebaseRealtimeSync = function(userId) {
         const d = doc.data();
         isFirebaseUpdating = true;
 
+        // حماية الرصيد المحلي: تجاهل الفايربيس إذا حاول إرجاع قيمة أقل بعد التجميع المباشر
         if (d.balance !== undefined) {
             const fbBal = parseFloat(d.balance);
-            if (Date.now() - (lastLocalTimes['balance'] || 0) > 5000 || fbBal >= window.userState.balance) {
+            if (Date.now() - (lastLocalTimes['balance'] || 0) > 6000 || fbBal >= window.userState.balance) {
                 window.userState.balance = fbBal;
             }
         }
         if (d.usd_balance !== undefined) {
             const fbUsd = parseFloat(d.usd_balance);
-            if (Date.now() - (lastLocalTimes['usd_balance'] || 0) > 5000 || fbUsd >= window.userState.usd_balance) {
+            if (Date.now() - (lastLocalTimes['usd_balance'] || 0) > 6000 || fbUsd >= window.userState.usd_balance) {
                 window.userState.usd_balance = fbUsd;
             }
         }
@@ -232,11 +257,14 @@ window.executeWithdraw = async (amountUSD, address) => {
 };
 
 // ==========================================
-// 6. تشغيل التطبيق والتزامن اللحظي
+// 6. تشغيل التطبيق وقراءة التخزين محلياً فوراً
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('open-history-btn')?.addEventListener('click', window.loadWalletHistory);
+    
+    // إجبار التحديث الفوري المباشر من التخزين المحلي في أول ملي ثانية
     window.updateUI();
+    
     window.globalFetchTonPrice();
     window.loadUserData().then(() => {
         const uid = window.userState.tg_id || tg?.initDataUnsafe?.user?.id;
