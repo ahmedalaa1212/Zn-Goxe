@@ -47,12 +47,9 @@ DEFAULT_GAME_SETTINGS = {
     }
 }
 
-# ==========================================
-# ⚡ Memory Cache لإعدادات اللعبة لمنع قراءة Firestore في كل طلب
-# ==========================================
 _SETTINGS_CACHE = None
 _SETTINGS_CACHE_TIME = 0
-SETTINGS_CACHE_TTL = 600  # 10 دقائق (600 ثانية)
+SETTINGS_CACHE_TTL = 600
 
 def parse_daily_rewards(rewards_data):
     if isinstance(rewards_data, list):
@@ -78,7 +75,6 @@ def get_game_settings():
     global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     now_ts = time.time()
     
-    # إرجاع الإعدادات من الذاكرة إذا كانت سارية
     if _SETTINGS_CACHE is not None and (now_ts - _SETTINGS_CACHE_TIME) < SETTINGS_CACHE_TTL:
         return _SETTINGS_CACHE
 
@@ -171,7 +167,6 @@ def get_player_data():
         max_cap = get_storage_capacity(storage_level)
         user_data["max_cap"] = max_cap
 
-        # إعادة تصفير تسجيل الأيام اليومية في حال فوت يوماً
         last_daily_date = user_data.get("last_daily_claim_date")
         if last_daily_date:
             try:
@@ -183,7 +178,6 @@ def get_player_data():
             except Exception: 
                 pass
 
-        # حساب الرصيد القابل للتجميع ديناميكياً بدون كتابة في الداتا بيز عند كل طلب قراءة
         last_claim_str = user_data.get("last_claim_time")
         hourly_rate = float(user_data.get("hourly_rate", 0.0))
         unclaimed = float(user_data.get("unclaimed", 0.0))
@@ -285,7 +279,6 @@ def claim_mined_tokens():
                 "last_claim_time": now_iso
             }
 
-            # احتساب 10% للداعي عند كل عملية تجميع فوراً
             if referred_by and inviter_snap and inviter_snap.exists:
                 ref_bonus = unclaimed * 0.10
                 transaction.update(inviter_ref, {
@@ -315,3 +308,173 @@ def claim_mined_tokens():
     except Exception as e:
         print(f"Error claim: {e}")
         return jsonify({"success": False, "error": "حدث خطأ في عملية التجميع"}), 500
+
+# ==========================================
+# 🚀 المسارات المضافة: الترقية، التسريع، واستلام المكافأة اليومية
+# ==========================================
+
+@farm_bp.route('/upgrade', methods=['POST'])
+def upgrade_field():
+    is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=True)
+    if not is_auth:
+        return error_response
+
+    req_data = request.get_json(silent=True) or {}
+    level = req_data.get('level')
+
+    try:
+        level = int(level)
+        if level < 1 or level > 9:
+            return jsonify({"success": False, "error": "مستوى ترقية غير صالح"}), 400
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "بيانات الترقية غير صالحة"}), 400
+
+    config = UPGRADE_CONFIG.get(level)
+    if not config:
+        return jsonify({"success": False, "error": "إعدادات الترقية غير موجودة"}), 400
+
+    user_id_str = str(telegram_id)
+    user_ref = db.collection('users').document(user_id_str)
+
+    try:
+        @firestore.transactional
+        def run_upgrade_transaction(transaction, ref):
+            snapshot = ref.get(transaction=transaction)
+            if not snapshot.exists:
+                return None, "المستخدم غير موجود", 404
+
+            data = snapshot.to_dict() or {}
+            current_bal = float(data.get("balance", 0.0))
+            cost = config["base_cost"]
+
+            if current_bal < cost:
+                return None, f"رصيدك غير كافٍ! تحتاج إلى {cost:,.0f} ZN", 400
+
+            upgrades = data.get("upgrades") or {}
+            lvl_key = f"lvl{level}"
+            current_count = int(upgrades.get(lvl_key, 0))
+
+            if current_count >= 10:
+                return None, "وصلت للحد الأقصى من الترقية لهذا المستوى", 400
+
+            # التحقق من فتح المستوى
+            if level > 1:
+                prev_lvl_count = int(upgrades.get(f"lvl{level-1}", 0))
+                if prev_lvl_count <= 0:
+                    return None, "يجب فتح المستوى السابق أولاً", 400
+
+            upgrades[lvl_key] = current_count + 1
+            new_bal = current_bal - cost
+            new_rate = float(data.get("hourly_rate", 0.0)) + config["rate_bonus"]
+
+            transaction.update(ref, {
+                "balance": new_bal,
+                "hourly_rate": new_rate,
+                "upgrades": upgrades
+            })
+
+            return {"new_balance": new_bal, "new_hourly_rate": new_rate, "upgrades": upgrades}, None, 200
+
+        transaction = db.transaction()
+        res_data, err_msg, status_code = run_upgrade_transaction(transaction, user_ref)
+
+        if err_msg:
+            return jsonify({"success": False, "error": err_msg}), status_code
+
+        return jsonify({
+            "success": True,
+            "new_balance": res_data["new_balance"],
+            "new_hourly_rate": res_data["new_hourly_rate"],
+            "upgrades": res_data["upgrades"]
+        }), 200
+
+    except Exception as e:
+        print(f"Error in upgrade: {e}")
+        return jsonify({"success": False, "error": "حدث خطأ أثناء تنفيذ الترقية"}), 500
+
+@farm_bp.route('/daily_boost', methods=['POST'])
+def daily_boost():
+    is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=True)
+    if not is_auth:
+        return error_response
+
+    user_id_str = str(telegram_id)
+    user_ref = db.collection('users').document(user_id_str)
+    today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+    try:
+        user_doc = user_ref.get()
+        if not user_doc.exists:
+            return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
+
+        data = user_doc.to_dict() or {}
+        if data.get("last_boost_date") == today_str:
+            return jsonify({"success": False, "error": "لقد استخدمت التسريع اليومي بالفعل اليوم!"}), 400
+
+        current_rate = float(data.get("hourly_rate", 0.0))
+        new_rate = current_rate + 2.0
+
+        user_ref.update({
+            "hourly_rate": new_rate,
+            "last_boost_date": today_str,
+            "ads_watched": firestore.Increment(1)
+        })
+
+        return jsonify({
+            "success": True,
+            "new_rate": new_rate,
+            "last_boost_date": today_str
+        }), 200
+
+    except Exception as e:
+        print(f"Error daily_boost: {e}")
+        return jsonify({"success": False, "error": "حدث خطأ أثناء تفعيل التسريع"}), 500
+
+@farm_bp.route('/daily_claim', methods=['POST'])
+def daily_claim():
+    is_auth, telegram_id, error_response = get_authenticated_user(request, is_post=True)
+    if not is_auth:
+        return error_response
+
+    user_id_str = str(telegram_id)
+    user_ref = db.collection('users').document(user_id_str)
+    today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+    try:
+        user_doc = user_ref.get()
+        if not user_doc.exists:
+            return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
+
+        data = user_doc.to_dict() or {}
+        if data.get("last_daily_claim_date") == today_str:
+            return jsonify({"success": False, "error": "لقد استلمت مكافأتك اليومية بالفعل!"}), 400
+
+        current_day = int(data.get("daily_day", 1))
+        game_settings = get_game_settings()
+        rewards_list = parse_daily_rewards(game_settings.get("daily_rewards"))
+
+        day_index = min(current_day - 1, len(rewards_list) - 1)
+        reward_amount = float(rewards_list[day_index])
+
+        current_bal = float(data.get("balance", 0.0))
+        new_balance = current_bal + reward_amount
+        next_day = current_day + 1
+
+        user_ref.update({
+            "balance": new_balance,
+            "daily_day": next_day,
+            "last_daily_claim_date": today_str,
+            "ads_watched": firestore.Increment(1)
+        })
+
+        return jsonify({
+            "success": True,
+            "reward": reward_amount,
+            "new_balance": new_balance,
+            "daily_day": next_day,
+            "last_daily_claim_date": today_str
+        }), 200
+
+    except Exception as e:
+        print(f"Error daily_claim: {e}")
+        return jsonify({"success": False, "error": "حدث خطأ أثناء استلام المكافأة اليومية"}), 500
