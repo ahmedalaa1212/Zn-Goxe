@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>الألعاب والساحة - Zn Goxe</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="../style.css?v=13.2">
+    <link rel="stylesheet" href="../style.css?v=13.3">
     <style>
         :root {
             --bg-color: #0f0f0f;
@@ -290,7 +290,7 @@
                     </div>
                 </div>
             </div>
-            <p style="color: #888; font-size: 12px; text-align: center; margin-top: 14px;">سحب كل 15 دقيقة! رسوم الاشتراك: 1,000 ZN</p>
+            <p style="color: #888; font-size: 12px; text-align: center; margin-top: 14px;">سحب كل 15 دقيقة! رسوم الاشتراك: <span id="footer-fee-text">1,000</span> ZN</p>
         </div>
 
         <div id="content-soon" style="display: none; padding-top: 15px;">
@@ -306,7 +306,7 @@
             <div id="draw-refunded" class="modal-animated" style="display: none; text-align: center; padding: 22px; width: 85%; max-width: 380px; background: #161626; border: 1px solid #2a2a40; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.6);">
                 <div style="font-size: 46px; margin-bottom: 12px;">🛡️</div>
                 <h2 style="color: #fff; font-size: 17px; margin-bottom: 8px;">لم يكتمل النصاب المطلوب!</h2>
-                <p style="color: #aaa; font-size: 13px; line-height: 1.5;">تمت إعادة رسوم الدخول (1,000 ZN) بالكامل إلى محفظتك بدون أي خصم.</p>
+                <p style="color: #aaa; font-size: 13px; line-height: 1.5;">تمت إعادة رسوم الدخول بالكامل إلى محفظتك بدون أي خصم.</p>
                 <button onclick="closeDrawModal()" style="margin-top: 18px; width: 100%; padding: 12px; background: #2a2a40; color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 14px;">حسناً، فهمت</button>
             </div>
 
@@ -323,7 +323,7 @@
             <div class="modal-animated" style="text-align: center; padding: 22px; width: 85%; max-width: 360px; background: #161626; border: 1px solid var(--primary); border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.8);">
                 <div style="font-size: 42px; margin-bottom: 10px;">⚔️</div>
                 <h3 style="color: #fff; font-size: 17px; margin-bottom: 8px;">تأكيد الدخول للساحة</h3>
-                <p style="color: #ccc; font-size: 13px; line-height: 1.5; margin-bottom: 20px;">سيتم خصم <strong style="color: var(--primary);">1,000 ZN</strong> من رصيدك للاشتراك في هذه الجولة. هل تريد المتابعة؟</p>
+                <p id="confirm-desc" style="color: #ccc; font-size: 13px; line-height: 1.5; margin-bottom: 20px;">سيتم خصم <strong style="color: var(--primary);">1,000 ZN</strong> من رصيدك للاشتراك في هذه الجولة. هل تريد المتابعة؟</p>
                 <div style="display: flex; gap: 10px;">
                     <button onclick="onConfirmJoin(true)" style="flex: 1; padding: 12px; background: linear-gradient(90deg, #f39c12, #d35400); color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer;">تأكيد الاشتراك</button>
                     <button onclick="onConfirmJoin(false)" style="flex: 1; padding: 12px; background: #2a2a3a; color: #aaa; border: none; border-radius: 10px; font-weight: bold; cursor: pointer;">إلغاء</button>
@@ -346,6 +346,6 @@
         <a href="../friends/friends.html"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
-    <script src="games.js?v=13.2"></script>
+    <script src="games.js?v=13.3"></script>
 </body>
 </html>
