@@ -37,14 +37,24 @@ function saveLocalState() {
     }
 }
 
-// ⚠️ تم إلغاء استدعاء loadLocalState() تلقائياً لمنع عرض أرقام قديمة قبل الفايربيس
+// ==========================================
+// 3. متغبرات حماية التحديث اللحظي (داخل game.js حصراً)
+// ==========================================
+let isFirebaseUpdating = false;
+const lastLocalUpdateTimes = {};
+const lastLocalValues = {};
 
-// ==========================================
-// 3. كائن الـ Proxy للتحديث اللحظي للواجهة
-// ==========================================
+// كائن الـ Proxy للتحديث اللحظي وحساب توقيت العمليات المحلية تلقائياً
 window.userState = new Proxy(rawUserState, {
     set(target, prop, value) {
         target[prop] = value;
+
+        // إذا كان التعديل قادماً من التطبيق/الأزرار (وليس من مستمع الفايربيس)
+        if (!isFirebaseUpdating) {
+            lastLocalUpdateTimes[prop] = Date.now();
+            lastLocalValues[prop] = value;
+        }
+
         const monitoredProps = ['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'];
         
         if (monitoredProps.includes(prop)) {
@@ -128,7 +138,7 @@ window.globalFetchTonPrice = async function() {
 };
 
 // ==========================================
-// 6. الربط المباشر واللحظي مع الفايربيس (Realtime Sync)
+// 6. الربط اللحظي مع الفايربيس (مع حماية ذكية ضد الوميض)
 // ==========================================
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) {
@@ -136,20 +146,44 @@ window.initFirebaseRealtimeSync = function(userId) {
         return;
     }
 
-    // المستمع المباشر اللحظي من الفايربيس
     window.db.collection('users').doc(String(userId)).onSnapshot((doc) => {
-        if (doc.exists) {
-            const data = doc.data();
+        if (!doc.exists) return;
+        const data = doc.data();
+
+        // دالة الذكاء لمنع تحديثات الفايربيس المتأخرة المؤقتة
+        const shouldUpdateFromFirebase = (prop, firebaseValue) => {
+            if (firebaseValue === undefined) return false;
             
-            // تحديث الـ Proxy مباشرة بدون تأخير (الـ Proxy ينادي saveLocalState و updateUI تلقائياً)
-            if (data.balance !== undefined) window.userState.balance = parseFloat(data.balance);
-            if (data.usd_balance !== undefined) window.userState.usd_balance = parseFloat(data.usd_balance);
-            if (data.ad_balance !== undefined) window.userState.ad_balance = parseFloat(data.ad_balance);
-            if (data.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(data.hourly_rate);
-            if (data.energy !== undefined) window.userState.energy = parseFloat(data.energy);
-            if (data.storage_level !== undefined) window.userState.storage_level = parseInt(data.storage_level);
-            if (data.upgrades !== undefined) window.userState.upgrades = data.upgrades;
+            const lastTime = lastLocalUpdateTimes[prop] || 0;
+            const timeDiff = Date.now() - lastTime;
+
+            // إذا أُجري تعديل محلي في التطبيق خلال آخر 3 ثوانٍ
+            if (timeDiff < 3000) {
+                // إذا كانت قيمة الفايربيس تختلف عن القيمة المحلية الحالية، يتجاهل الرقم القديم مؤقتاً
+                if (firebaseValue !== lastLocalValues[prop]) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        isFirebaseUpdating = true; // وضع علامة أن التحديث قادم من الفايربيس
+
+        if (shouldUpdateFromFirebase('balance', data.balance)) {
+            window.userState.balance = parseFloat(data.balance);
         }
+        if (shouldUpdateFromFirebase('usd_balance', data.usd_balance)) {
+            window.userState.usd_balance = parseFloat(data.usd_balance);
+        }
+        if (shouldUpdateFromFirebase('ad_balance', data.ad_balance)) {
+            window.userState.ad_balance = parseFloat(data.ad_balance);
+        }
+        if (data.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(data.hourly_rate);
+        if (data.energy !== undefined) window.userState.energy = parseFloat(data.energy);
+        if (data.storage_level !== undefined) window.userState.storage_level = parseInt(data.storage_level);
+        if (data.upgrades !== undefined) window.userState.upgrades = data.upgrades;
+
+        isFirebaseUpdating = false; // إعادة الوضع المباشر
     }, (error) => {
         console.error("خطأ في مستمع الفايربيس اللحظي:", error);
     });
@@ -174,7 +208,6 @@ window.updateUI = function() {
         const energyFormatted = rawEnergy.toLocaleString('en-US', { maximumFractionDigits: 0 });
         const tonPriceFormatted = rawTonPrice > 0 ? `$${rawTonPrice.toFixed(2)}` : 'جاري التحميل...';
 
-        // دالة موحدة للتطبيق على أي Document
         const applyToDoc = (targetDoc) => {
             targetDoc.querySelectorAll('[data-bind="balance"]').forEach(el => {
                 if (el.tagName === 'INPUT') el.value = znFormatted; else el.innerText = znFormatted;
@@ -204,7 +237,7 @@ window.updateUI = function() {
         // أ) تحديث عناصر الصفحة الرئيسية
         applyToDoc(document);
 
-        // ب) تحديث جميع القوائم الفرعية داخل (iframes) إن وجدت
+        // ب) تحديث جميع القوائم الفرعية داخل (iframes)
         document.querySelectorAll('iframe').forEach(iframe => {
             try {
                 if (iframe.contentWindow && iframe.contentWindow.document) {
@@ -213,7 +246,6 @@ window.updateUI = function() {
             } catch(e) {}
         });
 
-        // جـ) استدعاء الدوال الفرعية إن كانت معرفة في الصفحة
         if (typeof window.updateShopUI === 'function') window.updateShopUI();
         if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
         if (typeof window.updateTasksUI === 'function') window.updateTasksUI();
@@ -355,10 +387,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const historyBtn = document.getElementById('open-history-btn');
     if (historyBtn) historyBtn.addEventListener('click', window.loadWalletHistory);
 
-    // 1. جلب سعر عملة TON فوراً
     window.globalFetchTonPrice();
 
-    // 2. تحميل بيانات المستخدم ثم تشغيل الفايربيس اللحظي فوراً
     window.loadUserData().then(() => {
         const userId = window.userState.tg_id || tg?.initDataUnsafe?.user?.id;
         if (userId) {
@@ -366,12 +396,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 3. تحديث سعر عملة TON كل 60 ثانية (بدل الـ 15 ثانية القديمة للرصيد)
     setInterval(() => {
         window.globalFetchTonPrice();
     }, 60000);
 
-    // 4. عند العودة للتطبيق من الخفاء
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
             window.globalFetchTonPrice();
