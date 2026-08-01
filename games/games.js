@@ -17,7 +17,19 @@
         }
     }
 
-    // --- أدوات المزامنة الموحدة للرصيد ---
+    function showConfirmModal(msg, onConfirm) {
+        if (tele && tele.showConfirm) {
+            tele.showConfirm(msg, (confirmed) => {
+                if (confirmed) onConfirm();
+            });
+        } else {
+            if (confirm(msg)) {
+                onConfirm();
+            }
+        }
+    }
+
+    // --- أدوات المزامنة الموحدة للرصيد بتنسيق أنيق ---
     function getStoredBalance() {
         if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
             const val = parseFloat(window.GameState.balance);
@@ -47,7 +59,9 @@
         const stored = getStoredBalance();
         const gameBalEl = document.getElementById('top-balance-games');
         if (gameBalEl) {
-            gameBalEl.innerText = `ZN: ${Math.floor(stored).toLocaleString()}`;
+            // تنسيق الرصيد بدون كسور عشرية مزعجة لضبط الواجهة
+            const formatted = Math.floor(stored).toLocaleString('en-US');
+            gameBalEl.innerHTML = `<span class="bal-icon">🪙</span> <span class="bal-num">${formatted}</span> <span class="bal-unit">ZN</span>`;
         }
         if (typeof window.updateGlobalUI === 'function') {
             window.updateGlobalUI();
@@ -64,14 +78,20 @@
             if (arenaTab) { arenaTab.classList.add('active'); arenaTab.style.opacity = '1'; }
             if (soonTab) { soonTab.classList.remove('active'); soonTab.style.opacity = '0.6'; }
             
-            if (arenaContent) arenaContent.style.display = 'block';
+            if (arenaContent) {
+                arenaContent.style.display = 'block';
+                arenaContent.classList.add('fade-in-anim');
+            }
             if (soonContent) soonContent.style.display = 'none';
         } else {
             if (soonTab) { soonTab.classList.add('active'); soonTab.style.opacity = '1'; }
             if (arenaTab) { arenaTab.classList.remove('active'); arenaTab.style.opacity = '0.6'; }
             
             if (arenaContent) arenaContent.style.display = 'none';
-            if (soonContent) soonContent.style.display = 'block';
+            if (soonContent) {
+                soonContent.style.display = 'block';
+                soonContent.classList.add('fade-in-anim');
+            }
         }
     };
 
@@ -123,7 +143,10 @@
     function updateArenaPrizes(data) {
         const pool = data.prize_pool || 0;
         const prizePoolEl = document.getElementById('prize-pool');
-        if (prizePoolEl) prizePoolEl.innerText = pool.toLocaleString() + " ZN";
+        if (prizePoolEl) {
+            prizePoolEl.innerText = pool.toLocaleString('en-US') + " ZN";
+            prizePoolEl.classList.add('pulse-glow');
+        }
         
         const p1 = document.getElementById('prize-1');
         const p2 = document.getElementById('prize-2');
@@ -131,11 +154,11 @@
         const p4 = document.getElementById('prize-4');
         const p5 = document.getElementById('prize-5');
 
-        if (p1) p1.innerText = Math.floor(pool * 0.30).toLocaleString() + " ZN";
-        if (p2) p2.innerText = Math.floor(pool * 0.25).toLocaleString() + " ZN";
-        if (p3) p3.innerText = Math.floor(pool * 0.20).toLocaleString() + " ZN";
-        if (p4) p4.innerText = Math.floor(pool * 0.15).toLocaleString() + " ZN";
-        if (p5) p5.innerText = Math.floor(pool * 0.10).toLocaleString() + " ZN";
+        if (p1) p1.innerText = Math.floor(pool * 0.30).toLocaleString('en-US') + " ZN";
+        if (p2) p2.innerText = Math.floor(pool * 0.25).toLocaleString('en-US') + " ZN";
+        if (p3) p3.innerText = Math.floor(pool * 0.20).toLocaleString('en-US') + " ZN";
+        if (p4) p4.innerText = Math.floor(pool * 0.15).toLocaleString('en-US') + " ZN";
+        if (p5) p5.innerText = Math.floor(pool * 0.10).toLocaleString('en-US') + " ZN";
     }
 
     function startSmoothCountdown(hasJoined) {
@@ -159,6 +182,13 @@
             let m = Math.floor(timeLeft / 60);
             let s = timeLeft % 60;
             timerEl.innerText = `${m < 10 ? '0'+m : m}:${s < 10 ? '0'+s : s}`;
+            
+            // إضافة تأثير التوهج عند بقاء أقل من دقيقة
+            if (timeLeft <= 60 && timeLeft > 0) {
+                timerEl.classList.add('timer-warning');
+            } else {
+                timerEl.classList.remove('timer-warning');
+            }
         }
 
         if (!btn) return;
@@ -166,11 +196,11 @@
         if (timeLeft <= 15 && timeLeft > 0) {
             btn.disabled = true;
             btn.classList.add('btn-disabled');
-            btn.innerText = "تم إغلاق الاشتراك (جاري السحب⏳)";
+            btn.innerText = "🔒 تم إغلاق الاشتراك (جاري السحب⏳)";
         } else if (timeLeft === 0) {
             btn.disabled = true;
             btn.classList.add('btn-disabled');
-            btn.innerText = "جاري إعلان النتائج... 🔄";
+            btn.innerText = "🔄 جاري إعلان النتائج...";
             
             if (!hasCheckedResults && currentRoundId) {
                 hasCheckedResults = true;
@@ -180,7 +210,7 @@
             if (!hasJoined) {
                 btn.disabled = false;
                 btn.classList.remove('btn-disabled');
-                btn.innerText = "دخول الساحة (1,000 ZN)";
+                btn.innerText = "⚔️ دخول الساحة (1,000 ZN)";
             } else {
                 btn.disabled = true;
                 btn.classList.add('btn-disabled');
@@ -189,24 +219,35 @@
         }
     }
 
-    window.joinArena = async function() {
+    // --- إجراء الدخول مع التأكيد ---
+    window.joinArena = function() {
         if (isJoining) return;
-        const initData = tele?.initData || "";
-        
+
         const currentBal = getStoredBalance();
         if (currentBal < 1000) {
-            showNotification("⚠️ رصيدك غير كافٍ للدخول في الساحة (تطلب 1,000 ZN).");
+            showNotification("⚠️ رصيدك غير كافٍ للدخول في الساحة (تتطلب 1,000 ZN).");
             return;
         }
+
+        showConfirmModal("هل أنت متأكد من رغبتك في خصم 1,000 ZN للاشتراك في جولة الساحة الكبرى؟", async () => {
+            executeJoinArena();
+        });
+    };
+
+    async function executeJoinArena() {
+        if (isJoining) return;
+        isJoining = true;
 
         const btn = document.getElementById('btn-join-arena');
         if (btn) {
             btn.disabled = true;
-            btn.innerText = "جاري الدخول... ⏳";
+            btn.innerText = "جاري الاشتراك... ⏳";
         }
-        isJoining = true;
 
         try {
+            const initData = tele?.initData || "";
+            const currentBal = getStoredBalance();
+
             const response = await fetch('/api/games/join', {
                 method: 'POST',
                 headers: { 
@@ -227,6 +268,7 @@
                     setStoredBalance(currentBal - 1000);
                 }
                 syncGameBalance();
+                showNotification("🎉 تم دخول الساحة بنجاح! بالتوفيق.");
 
                 if (typeof window.fetchPlayerDataFromServer === 'function') {
                     window.fetchPlayerDataFromServer();
@@ -236,19 +278,19 @@
                 showNotification("⚠️ " + (data.message || data.error || "تعذر الاشتراك"));
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerText = "دخول الساحة (1,000 ZN)";
+                    btn.innerText = "⚔️ دخول الساحة (1,000 ZN)";
                 }
             }
         } catch (error) {
             showNotification("حدث خطأ في الاتصال بالخادم. حاول مجدداً.");
             if (btn) {
                 btn.disabled = false;
-                btn.innerText = "دخول الساحة (1,000 ZN)";
+                btn.innerText = "⚔️ دخول الساحة (1,000 ZN)";
             }
         } finally {
             isJoining = false;
         }
-    };
+    }
 
     function showDrawModal(state) {
         const modal = document.getElementById('draw-modal');
@@ -258,14 +300,20 @@
         if (refundedEl) refundedEl.style.display = 'none';
         if (winnersEl) winnersEl.style.display = 'none';
         
-        if (modal) modal.style.display = 'flex';
+        if (modal) {
+            modal.style.display = 'flex';
+            modal.classList.add('pop-in-anim');
+        }
         if (state === 'refunded' && refundedEl) refundedEl.style.display = 'block';
         if (state === 'winners' && winnersEl) winnersEl.style.display = 'block';
     }
 
     window.closeDrawModal = function() {
         const modal = document.getElementById('draw-modal');
-        if (modal) modal.style.display = 'none';
+        if (modal) {
+            modal.classList.remove('pop-in-anim');
+            modal.style.display = 'none';
+        }
         fetchArenaStatus();
     };
 
@@ -330,14 +378,14 @@
         
         winners.forEach((winner, index) => {
             let name = winner.name || `مستخدم #${(winner.uid || '00000').substring(0,5)}`;
-            let prize = (winner.prize || 0).toLocaleString();
+            let prize = (winner.prize || 0).toLocaleString('en-US');
             
             list.innerHTML += `
-                <div class="winner-item">
-                    <span style="color: #fff; font-weight: bold; font-size: 13px;">
+                <div class="winner-item anim-slide-up" style="animation-delay: ${index * 0.15}s;">
+                    <span style="color: #fff; font-weight: bold; font-size: 14px;">
                         ${medals[index] || '🏅'} ${name}
                     </span>
-                    <span style="color: #2ecc71; font-weight: bold; font-size: 13px;">
+                    <span style="color: #2ecc71; font-weight: bold; font-size: 14px; text-shadow: 0 0 5px rgba(46,204,113,0.4);">
                         +${prize} ZN
                     </span>
                 </div>
@@ -345,7 +393,7 @@
         });
     }
 
-    // --- مستمعات المزامنة اللحظية عند التبديل ---
+    // --- مستمعات المزامنة اللحظية ---
     window.addEventListener('pageshow', () => {
         syncGameBalance();
         fetchArenaStatus();
@@ -358,7 +406,6 @@
         }
     });
 
-    // التحديث الفوري المبدئي
     syncGameBalance();
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", fetchArenaStatus);
