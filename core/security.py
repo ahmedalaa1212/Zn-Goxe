@@ -12,7 +12,6 @@ def validate_telegram_data(init_data: str):
     if not init_data or not token:
         return None
         
-    # إزالة كلمة Bearer إذا كانت مرافقة للـ initData
     if init_data.startswith('Bearer '):
         init_data = init_data[7:].strip()
 
@@ -40,14 +39,11 @@ def validate_telegram_data(init_data: str):
 def get_authenticated_user(request, is_post=False):
     """استخراج والتحقق من هويّة المستخدم وفحص الحظر مباشرة"""
     try:
-        req_data = {}
+        init_data = None
         if is_post:
             req_data = request.get_json(silent=True) or {}
             init_data = req_data.get('initData')
-        else:
-            init_data = request.args.get('initData')
             
-        # البحث الشامل في الهيدرز (بما فيها Authorization)
         if not init_data:
             init_data = (
                 request.headers.get('X-Telegram-Init-Data') or 
@@ -57,27 +53,17 @@ def get_authenticated_user(request, is_post=False):
             
         telegram_id = None
 
-        # 1. المصادقة عبر initData
+        # المصادقة الآمنة والوحيدة عبر التوقيع التشفيري لـ initData
         if init_data:
             user = validate_telegram_data(init_data)
             if user and user.get('id'):
                 telegram_id = str(user.get('id')).strip()
 
-        # 2. المصادقة الاحتياطية (Fallback) عبر X-TG-ID أو الـ Body/Query
+        # إذا تعذر التعرف على المستخدم أو كان التوقيع غير صالح
         if not telegram_id:
-            telegram_id = (
-                request.headers.get('X-TG-ID') or 
-                req_data.get('tg_id') or 
-                request.args.get('tg_id')
-            )
-            if telegram_id:
-                telegram_id = str(telegram_id).strip()
+            return False, None, (jsonify({'success': False, 'error': 'غير مصرح: بيانات المصادقة غير صالحة أو مفقودة (initData)'}), 401)
 
-        # إذا تعذر التعرف على المستخدم نهائياً
-        if not telegram_id:
-            return False, None, (jsonify({'success': False, 'error': 'بيانات المصادقة مفقودة (initData)'}), 401)
-
-        # ✅ حماية قصوى: فحص الحظر قبل السماح بأي عملية في السيرفر
+        # فحص الحظر في قاعدة البيانات
         if is_user_banned(telegram_id):
             return False, None, (jsonify({'success': False, 'error': 'تم حظر حسابك لمخالفة القوانين'}), 403)
 
