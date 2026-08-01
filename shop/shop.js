@@ -1,9 +1,12 @@
+// shop/shop.js
 (function initShop() {
     'use strict';
 
     let tonConnectUI = null;
     let isBuying = false;
     let shopDynamicSettings = null;
+    let lastConfigFetchTime = 0;
+    const CONFIG_CACHE_TTL = 300000; // 5 دقائق كاش محلي بالمتصفح
 
     function triggerHaptic(type = 'impact', style = 'medium') {
         if (window.Telegram?.WebApp?.HapticFeedback) {
@@ -42,27 +45,62 @@
         return initTonConnect();
     }
 
-    async function loadShopConfig() {
+    // --- تحميل إعدادات المتجر مع التخزين المحلي السريع ---
+    async function loadShopConfig(forceFetch = false) {
+        const now = Date.now();
+
+        // 1. محاولة التحميل من الذاكرة المحلية أولاً للعرض الفوري
+        if (!forceFetch && !shopDynamicSettings) {
+            try {
+                const cached = sessionStorage.getItem('zn_shop_config');
+                const cachedTime = sessionStorage.getItem('zn_shop_config_time');
+                if (cached && cachedTime && (now - parseInt(cachedTime) < CONFIG_CACHE_TTL)) {
+                    const parsed = JSON.parse(cached);
+                    shopDynamicSettings = parsed.settings;
+                    applyConfigToUI(parsed);
+                    return;
+                }
+            } catch (e) {
+                console.warn("فشل قراءة كاش المتجر المحلي:", e);
+            }
+        }
+
+        // حماية من التكرار المفرط
+        if (!forceFetch && shopDynamicSettings && (now - lastConfigFetchTime < CONFIG_CACHE_TTL)) {
+            window.updateShopUI();
+            return;
+        }
+
         try {
             const res = await fetch('/api/shop/get_config');
             const data = await res.json();
             if (data && data.success) {
                 shopDynamicSettings = data.settings;
-                
-                const tonPriceElem = document.getElementById('ton-live-rate-text');
-                if (tonPriceElem && data.ton_price_usd) {
-                    tonPriceElem.innerText = `$${parseFloat(data.ton_price_usd).toFixed(2)}`;
-                }
+                lastConfigFetchTime = now;
 
-                if (data.packages) {
-                    renderDynamicPackages(data.packages);
-                }
-                
-                window.updateShopUI();
+                try {
+                    sessionStorage.setItem('zn_shop_config', JSON.stringify(data));
+                    sessionStorage.setItem('zn_shop_config_time', now.toString());
+                } catch (e) {}
+
+                applyConfigToUI(data);
             }
         } catch (e) {
             console.error("خطأ في تحميل إعدادات المتجر:", e);
         }
+    }
+
+    function applyConfigToUI(data) {
+        const tonPriceElem = document.getElementById('ton-live-rate-text');
+        if (tonPriceElem && data.ton_price_usd) {
+            tonPriceElem.innerText = `$${parseFloat(data.ton_price_usd).toFixed(2)}`;
+        }
+
+        if (data.packages) {
+            renderDynamicPackages(data.packages);
+        }
+        
+        window.updateShopUI();
     }
 
     function renderDynamicPackages(packages) {
@@ -163,7 +201,7 @@
 
             const prepData = await prepRes.json();
             if (!prepData.success) {
-                alert("خطأ: " + prepData.error);
+                alert("خطأ: " + (prepData.error || prepData.message));
                 isBuying = false;
                 return;
             }
@@ -227,7 +265,7 @@
                     if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
                 }
             } else {
-                alert("⚠️ " + verifyData.error);
+                alert("⚠️ " + (verifyData.error || verifyData.message));
             }
 
         } catch (e) {
@@ -336,7 +374,6 @@
             usdElem.innerText = `$${parseFloat(pData.usd_balance || 0).toFixed(2)}`;
         }
 
-        // تطبيق تنسيق الرقم بخانتين عشريتين مع إظهار الفاصلة صغيرة
         const balElem = document.getElementById('shop-balance-text');
         if (balElem) {
             if (typeof window.formatNumberHTML === 'function') {
@@ -551,7 +588,7 @@
                     window.PlayerData.last_claim_time = resData.last_claim_time;
                 }
 
-                // إرسال حدث التحديث لتحديث الرصيد العلوي والمزرعة فوراً وبسلاسة بدون إعادة طلب الفايربيس
+                // إرسال حدث التحديث لتحديث الرصيد العلوي والمزرعة فوراً وبسلاسة دون إعادة طلب الفايربيس
                 window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
 
                 if (typeof window.updateUI === 'function') {
@@ -561,7 +598,7 @@
                     if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
                 }
             } else {
-                alert(resData.error || "حدث خطأ أثناء الشراء.");
+                alert(resData.error || resData.message || "حدث خطأ أثناء الشراء.");
             }
         } catch (e) {
             console.error("Shop Purchase Error:", e);
@@ -573,7 +610,7 @@
 
     function boot() {
         initTonConnect();
-        loadShopConfig();
+        loadShopConfig(false);
     }
 
     if (document.readyState === 'loading') {
