@@ -118,7 +118,7 @@ def ensure_user_shop_defaults(user_ref, user_data):
         user_ref.set(updates, merge=True)
     return user_data
 
-@shop_bp.route('/get_config', methods=['GET', 'POST'])
+@shop_bp.route('/get_config', methods=['GET'])
 def get_config():
     settings = get_game_config()
     ton_price_usd = get_live_ton_price()
@@ -143,7 +143,7 @@ def get_config():
     return jsonify({
         "success": True, 
         "settings": settings,
-        "ton_price_usd": ton_price_usd,
+        "ton_price_usd": round(ton_price_usd, 2),
         "packages": packages_with_ton
     }), 200
 
@@ -226,7 +226,6 @@ def verify_and_apply_package():
         if tx_ref.get().exists:
             return jsonify({"success": False, "error": "تم معالجة هذه المعاملة سابقاً."}), 400
 
-        # تسجيل المعاملة لمنع التكرار
         tx_ref.set({
             'user_id': str(user_id),
             'package_id': pkg_key,
@@ -234,7 +233,6 @@ def verify_and_apply_package():
             'timestamp': datetime.now(timezone.utc).isoformat()
         })
 
-        # إضافة المميزات مباشرة للمستخدم
         user_ref = db.collection('users').document(str(user_id))
         user_doc = user_ref.get()
 
@@ -245,9 +243,10 @@ def verify_and_apply_package():
             rate_add = float(pkg_info.get('rate_add', 0))
             storage_add = float(pkg_info.get('storage_add', 0))
 
-            new_balance = float(u_data.get('balance', 0.0)) + zn_add
-            new_hourly_rate = float(u_data.get('hourly_rate', 0.0)) + rate_add
-            new_max_cap = float(u_data.get('max_cap', 200.0)) + storage_add
+            # تقريب النتائج بخانتين عشريتين دقيقتين
+            new_balance = round(float(u_data.get('balance', 0.0)) + zn_add, 2)
+            new_hourly_rate = round(float(u_data.get('hourly_rate', 0.0)) + rate_add, 2)
+            new_max_cap = round(float(u_data.get('max_cap', 200.0)) + storage_add, 2)
 
             user_ref.update({
                 'balance': new_balance,
@@ -361,7 +360,7 @@ def buy_upgrade():
             if total_balance < price:
                 return jsonify({"success": False, "error": "الرصيد غير كافي للشراء."}), 400
 
-            new_balance = total_balance - price
+            new_balance = round(total_balance - price, 2)
             upgrades[lvl_key] = current_lvl_count + 1
 
             new_hourly_rate = 0.0
@@ -369,6 +368,8 @@ def buy_upgrade():
                 cnt = int(upgrades.get(f"lvl{l_str}", 0))
                 if cnt > 0:
                     new_hourly_rate += cnt * float(cfg.get('rate', 0))
+
+            new_hourly_rate = round(new_hourly_rate, 2)
 
             user_ref.update({
                 'balance': new_balance,
@@ -385,13 +386,14 @@ def buy_upgrade():
                 details={"level": level_num, "cost_zn": price, "new_rate": new_hourly_rate}
             )
 
+            # إرجاع كافة البيانات المحدثة مباشرة للمستدعي دون الحاجة لطلب جلب جديد
             return jsonify({
                 "success": True, 
                 "balance": new_balance, 
                 "hourly_rate": new_hourly_rate,
                 "upgrades": upgrades,
                 "last_claim_time": new_last_claim_time,
-                "usd_balance": usd_balance
+                "usd_balance": round(usd_balance, 2)
             }), 200
 
         elif upgrade_type == 'storage':
@@ -410,12 +412,12 @@ def buy_upgrade():
 
             config = storage_cfg[level_num]
             price = float(config['price'])
-            new_capacity = float(config['capacity'])
+            new_capacity = round(float(config['capacity']), 2)
 
             if total_balance < price:
                 return jsonify({"success": False, "error": "الرصيد غير كافي."}), 400
 
-            new_balance = total_balance - price
+            new_balance = round(total_balance - price, 2)
 
             user_ref.update({
                 'balance': new_balance,
@@ -438,7 +440,7 @@ def buy_upgrade():
                 "storage_level": int_level, 
                 "max_cap": new_capacity,
                 "last_claim_time": new_last_claim_time,
-                "usd_balance": usd_balance
+                "usd_balance": round(usd_balance, 2)
             }), 200
 
         return jsonify({"success": False, "error": "نوع الترقية غير معروف."}), 400
