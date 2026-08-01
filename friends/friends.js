@@ -128,7 +128,7 @@
         if (elPending) {
             elPending.innerText = pending > 0 && pending < 1 
                 ? pending.toFixed(2) 
-                : Math.floor(pending).toLocaleString();
+                : pending.toLocaleString(undefined, { maximumFractionDigits: 2 });
         }
         if (elInvited) elInvited.innerText = totalInvited.toLocaleString();
 
@@ -328,7 +328,7 @@
                     const genVal = parseFloat(f.generated || 0);
                     const formattedGen = genVal > 0 && genVal < 1 
                         ? genVal.toFixed(2) 
-                        : Math.floor(genVal).toLocaleString();
+                        : genVal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
                     html += `
                         <li style="display:flex; justify-content:space-between; align-items:center; background:#121215; padding:10px 12px; border-radius:10px; margin-bottom:8px; border:1px solid #26262b;">
