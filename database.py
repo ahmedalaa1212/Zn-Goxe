@@ -194,15 +194,21 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 referrer_ref = db.collection('users').document(valid_ref_id)
                 if referrer_ref.get().exists:
                     is_new_referral = True
-                    # تحديث عدد الأصدقاء وإضافة مكافأة الداعي الفورية وإضافة الصديق للقائمة
-                    referrer_ref.update({
-                        "invited_friends_count": firestore.Increment(1),
-                        "pending_ref_earnings": firestore.Increment(inviter_bonus)
-                    })
+                    
+                    # تحديث عدد الأصدقاء وإضافة مكافأة الداعي المباشرة للرصيد الأساسي (balance) وليس الأرباح المعلقة
+                    update_payload = {
+                        "invited_friends_count": firestore.Increment(1)
+                    }
+                    if inviter_bonus > 0:
+                        update_payload["balance"] = firestore.Increment(inviter_bonus)
+
+                    referrer_ref.update(update_payload)
+                    
+                    # إضافة الصديق للقائمة وتبدأ أرباح التعدين منه بـ 0.0
                     referrer_ref.collection('friends').document(tg_id_str).set({
                         "tg_id": tg_id_str,
                         "first_name": first_name,
-                        "earned_from_him": inviter_bonus,
+                        "earned_from_him": 0.0,
                         "joined_at": firestore.SERVER_TIMESTAMP
                     })
         else:
@@ -258,26 +264,39 @@ def update_user_balance(tg_id, amount, balance_type="balance"):
         return False
 
 def add_referral_earnings(referrer_id, friend_id, amount):
+    """
+    تُستدعى حصرياً عند ضغط الصديق على زر تجميع المزرعة (Claim Farm).
+    تحسب نسبة العمولة (10%) من الكمية المجمعة من التعدين وتضيفها إلى الأرباح المعلقة والسجل.
+    """
     try:
         if not referrer_id or not amount or float(amount) <= 0: return False
             
         ref_str = str(referrer_id)
         friend_str = str(friend_id)
         
-        # جلب نسبة العمولة ديناميكياً من الفايرستور
+        # جلب نسبة العمولة ديناميكياً من الفايرستور (الافتراضي 10%)
         settings = get_game_settings()
         f_config = settings.get('friends_config', {})
         commission_percent = float(f_config.get('commission_percent', 10)) / 100.0
 
         ref_amount = float(amount) * commission_percent
         
+        # إضافة العمولة للأرباح المعلقة الخاصة بالداعي
         db.collection('users').document(ref_str).update({
             "pending_ref_earnings": firestore.Increment(ref_amount)
         })
         
+        # تحديث خانة المجمع منه داخل سجل الأصدقاء
         friend_ref = db.collection('users').document(ref_str).collection('friends').document(friend_str)
         if friend_ref.get().exists:
             friend_ref.update({"earned_from_him": firestore.Increment(ref_amount)})
+        else:
+            friend_ref.set({
+                "tg_id": friend_str,
+                "earned_from_him": ref_amount,
+                "joined_at": firestore.SERVER_TIMESTAMP
+            }, merge=True)
+
         return True
     except Exception as e:
         print(f"❌ Error adding referral earnings: {e}")
