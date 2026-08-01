@@ -5,6 +5,17 @@
 
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 10,
+        upgradeCosts: {
+            1: 2000,
+            2: 7000,
+            3: 18000,
+            4: 45000,
+            5: 110000,
+            6: 260000,
+            7: 600000,
+            8: 1400000,
+            9: 3200000
+        },
         dailyRewards: [
             100, 150, 200, 250, 300, 
             350, 400, 450, 500, 550, 
@@ -28,13 +39,18 @@
     }
 
     function getStoredBalance() {
-        return parseFloat(window.userState?.balance || 0);
+        if (window.userState && window.userState.balance !== undefined) {
+            return parseFloat(window.userState.balance || 0);
+        }
+        return parseFloat(window.PlayerData?.balance || 0);
     }
 
     function setStoredBalance(newBalance) {
         if (newBalance !== undefined && newBalance !== null) {
+            const val = parseFloat(newBalance);
             if (!window.userState) window.userState = {};
-            window.userState.balance = parseFloat(newBalance);
+            window.userState.balance = val;
+            if (window.PlayerData) window.PlayerData.balance = val;
         }
     }
 
@@ -53,6 +69,12 @@
         let s = seconds % 60;
         
         return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+
+    function formatCompactCost(num) {
+        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+        if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
+        return num.toString();
     }
 
     window.fetchPlayerDataFromServer = async function() {
@@ -109,20 +131,23 @@
         
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
-            // ⚡ الاعتماد على userState أولاً ثم PlayerData لضمان المزامنة المباشرة مع المتجر
             const currentUpgrades = window.userState?.upgrades || pData.upgrades || {};
             let fieldsHTML = '';
             for (let i = 1; i <= 9; i++) {
                 let count = parseInt(currentUpgrades[`lvl${i}`] || 0);
                 let isUnlocked = (i === 1) || (parseInt(currentUpgrades[`lvl${i-1}`] || 0) > 0);
                 let isMax = count >= GAME_CONFIG.maxUpgradesPerLevel;
+                let cost = GAME_CONFIG.upgradeCosts[i] || 0;
+                let costStr = formatCompactCost(cost);
+                let canAfford = bal >= cost;
+                let btnStyle = canAfford ? "" : "background: #555; opacity: 0.8;";
                 
                 if (isMax) {
                     fieldsHTML += `<div class="mining-card" style="position: relative; overflow: hidden; opacity: 0.8;"><div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #f39c12; font-size: 14px; transform: rotate(-15deg); z-index: 2;">MAX</div><div style="font-size: 22px; margin-bottom: 4px; opacity: 0.3;">🏛️</div><div class="mining-card-title">مستوى ${i}</div><div class="mining-card-level">مكتمل</div></div>`;
                 } else if (count > 0) {
-                    fieldsHTML += `<div class="mining-card" onclick="handleUpgrade(${i})" style="cursor: pointer; border-color: #f39c12; position: relative;"><div style="position: absolute; top: -6px; right: -6px; background: #f39c12; color: #000; font-weight: bold; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px; border: 2px solid #121212;">x${count}</div><div style="width: 28px; height: 28px; background: #f39c12; border-radius: 50%; margin: 0 auto 5px auto; display: flex; align-items: center; justify-content: center;"><span style="font-size: 14px;">🏛️</span></div><div class="mining-card-title">مستوى ${i}</div><button class="mining-card-btn">ترقية ⚡</button></div>`;
+                    fieldsHTML += `<div class="mining-card" onclick="handleUpgrade(${i})" style="cursor: pointer; border-color: #f39c12; position: relative;"><div style="position: absolute; top: -6px; right: -6px; background: #f39c12; color: #000; font-weight: bold; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px; border: 2px solid #121212;">x${count}</div><div style="width: 28px; height: 28px; background: #f39c12; border-radius: 50%; margin: 0 auto 5px auto; display: flex; align-items: center; justify-content: center;"><span style="font-size: 14px;">🏛️</span></div><div class="mining-card-title">مستوى ${i}</div><button class="mining-card-btn" style="${btnStyle}">ترقية (${costStr}) ⚡</button></div>`;
                 } else if (isUnlocked) {
-                    fieldsHTML += `<div class="mining-card" onclick="handleUpgrade(${i})" style="cursor: pointer; border: 1px dashed #555;"><div style="font-size: 20px; color: #777; margin-bottom: 4px;">🏛️</div><div class="mining-card-title">مستوى ${i}</div><button class="mining-card-btn">شراء ⚡</button></div>`;
+                    fieldsHTML += `<div class="mining-card" onclick="handleUpgrade(${i})" style="cursor: pointer; border: 1px dashed #555;"><div style="font-size: 20px; color: #777; margin-bottom: 4px;">🏛️</div><div class="mining-card-title">مستوى ${i}</div><button class="mining-card-btn" style="${btnStyle}">شراء (${costStr}) ⚡</button></div>`;
                 } else {
                     fieldsHTML += `<div class="mining-card" style="opacity: 0.4; cursor: not-allowed;"><div style="font-size: 20px; color: #555; margin-bottom: 4px;">🔒</div><div class="mining-card-title">مستوى ${i}</div><div class="mining-card-level" style="color:#666;">مغلق</div></div>`;
                 }
@@ -132,7 +157,6 @@
         renderDailyRewards(); 
     };
 
-    // ⚡ دالة استدعاء المزامنة عند فتح قسم المزرعة
     window.onFarmTabOpen = function() {
         window.updateFarmUI();
         if (typeof window.fetchPlayerDataFromServer === 'function') {
@@ -292,6 +316,14 @@
 
     window.handleUpgrade = async function(level) {
         if (!window.PlayerData || isUpgrading || !INIT_DATA) return;
+
+        const cost = GAME_CONFIG.upgradeCosts[level] || 0;
+        const currentBal = getStoredBalance();
+        if (currentBal < cost) {
+            showToast(`❌ رصيدك غير كافٍ! سعر الترقية ${cost.toLocaleString()} ZN (رصيدك الحالي: ${Math.floor(currentBal).toLocaleString()} ZN)`);
+            return;
+        }
+
         isUpgrading = true;
 
         try {
@@ -341,7 +373,7 @@
         try {
             const adWatched = await showTelegramAd(() => {
                 if (btn) {
-                    btn.innerHTML = `<span style="font-size: 18px;">🎬</span>`;
+                    btn.innerHTML = `<span style="font-size: 18px;">⏳</span>`;
                     btn.disabled = true;
                 }
             });
