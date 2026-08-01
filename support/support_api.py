@@ -1,5 +1,6 @@
 # support/support_api.py
 import traceback
+import time
 from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 from firebase_admin import firestore
@@ -10,26 +11,12 @@ from core.security import get_authenticated_user
 support_bp = Blueprint('support', __name__)
 
 # ==========================================
-# دالة لتوليد رقم التذكرة المتسلسل الآمن
+# دالة لتوليد رقم التذكرة خفيفة وسريعة (بدون Transaction مجهدة)
 # ==========================================
-def generate_next_ticket_id():
-    tracker_ref = db.collection('system').document('ticket_tracker')
-    
-    @firestore.transactional
-    def get_and_increment_transaction(transaction, ref):
-        snapshot = ref.get(transaction=transaction)
-        if not snapshot.exists:
-            transaction.set(ref, {'last_id': 1})
-            new_id = 1
-        else:
-            data = snapshot.to_dict() or {}
-            new_id = data.get('last_id', 0) + 1
-            transaction.update(ref, {'last_id': new_id})
-        return new_id
-
-    transaction = db.transaction()
-    new_id = get_and_increment_transaction(transaction, tracker_ref)
-    return f"{new_id:010d}"
+def generate_fast_ticket_id(uid):
+    short_uid = str(uid)[-4:] if uid else "0000"
+    timestamp_sec = int(time.time()) % 100000
+    return f"TK-{short_uid}-{timestamp_sec}"
 
 # ==========================================
 # مسار: جلب تذكرة المستخدم أو إنشاء واحدة جديدة
@@ -42,40 +29,35 @@ def get_or_create_ticket():
         if not success:
             return error_res
 
-        # جلب بيانات المستخدم لإرفاقها مع التذكرة
-        user_doc = db.collection('users').document(uid).get()
-        user_info = {
-            "telegram_id": uid,
-            "first_name": "غير محدد",
-            "username": "لا يوجد",
-            "joined_at": "غير معروف",
-            "storage_level": 1,
-            "upgrades": {}
-        }
-        
-        if user_doc.exists:
-            u_data = user_doc.to_dict() or {}
-            user_info["first_name"] = u_data.get('first_name', u_data.get('name', 'غير محدد'))
-            user_info["username"] = u_data.get('username', 'لا يوجد')
-            user_info["joined_at"] = u_data.get('created_at', u_data.get('joined_at', 'غير محدد'))
-            user_info["storage_level"] = u_data.get('storage_level', 1)
-            user_info["upgrades"] = u_data.get('upgrades', {})
-
         tickets_ref = db.collection('support_tickets')
-        docs = list(tickets_ref.where('user_id', '==', uid).stream())
+        
+        # قراءة التذاكر النشطة فقط مع حد أقصى (Limit 5) لمنع استنزاف Firestore
+        docs = list(tickets_ref.where('user_id', '==', str(uid)).limit(5).stream())
         
         user_tickets = [d.to_dict() for d in docs]
-        user_tickets.sort(key=lambda x: x.get('ticket_id', ''), reverse=True)
+        user_tickets.sort(key=lambda x: str(x.get('created_at', '')), reverse=True)
 
         latest_ticket = user_tickets[0] if user_tickets else None
         now_iso = datetime.now(timezone.utc).isoformat()
 
-        # إنشاء تذكرة جديدة إذا لم تكن هناك تذكرة سابقة، أو إذا كانت التذكرة الأخيرة مغلقة
+        # إنشاء تذكرة جديدة إذا لم تكن هناك تذكرة سابقة، أو إذا كانت الأخيرة مغلقة
         if not latest_ticket or latest_ticket.get('status') == 'closed':
-            new_ticket_id = generate_next_ticket_id()
+            
+            # جلب معلومات خفيفة عن المستخدم
+            user_info = {"telegram_id": str(uid), "first_name": "لاعب"}
+            try:
+                u_doc = db.collection('users').document(str(uid)).get()
+                if u_doc.exists:
+                    u_data = u_doc.to_dict() or {}
+                    user_info["first_name"] = u_data.get('first_name', u_data.get('name', 'لاعب'))
+                    user_info["username"] = u_data.get('username', '')
+            except Exception:
+                pass
+
+            new_ticket_id = generate_fast_ticket_id(uid)
             new_ticket_data = {
                 'ticket_id': new_ticket_id,
-                'user_id': uid,
+                'user_id': str(uid),
                 'user_info': user_info,
                 'status': 'open',
                 'created_at': now_iso,
@@ -89,14 +71,11 @@ def get_or_create_ticket():
                 "status": "open", 
                 "messages": []
             }), 200
-        
-        # تحديث بيانات المستخدم المرفقة في التذكرة النشطة
-        tickets_ref.document(latest_ticket['ticket_id']).update({'user_info': user_info})
 
         return jsonify({
             "success": True,
             "ticket_id": latest_ticket['ticket_id'],
-            "status": latest_ticket['status'],
+            "status": latest_ticket.get('status', 'open'),
             "messages": latest_ticket.get('messages', [])
         }), 200
 
@@ -131,7 +110,7 @@ def send_message():
             
         ticket_data = ticket_doc.to_dict() or {}
         
-        if ticket_data.get('user_id') != uid:
+        if ticket_data.get('user_id') != str(uid):
             return jsonify({"success": False, "message": "غير مصرح لك بالإرسال لهذه التذكرة."}), 403
 
         if ticket_data.get('status') == 'closed':
@@ -143,7 +122,6 @@ def send_message():
             'timestamp': datetime.now(timezone.utc).isoformat()
         }
         
-        # إضافة الرسالة ذرياً لضمان عدم الضياع
         ticket_ref.update({
             'messages': firestore.ArrayUnion([new_msg]),
             'updated_at': datetime.now(timezone.utc).isoformat()
