@@ -5,24 +5,15 @@
 
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 10,
+        dailyBoostReward: 2.0,
         upgradeCosts: {
-            1: 2000,
-            2: 7000,
-            3: 18000,
-            4: 45000,
-            5: 110000,
-            6: 260000,
-            7: 600000,
-            8: 1400000,
-            9: 3200000
+            1: 2000, 2: 7000, 3: 18000, 4: 45000, 5: 110000,
+            6: 260000, 7: 600000, 8: 1400000, 9: 3200000
         },
         dailyRewards: [
-            100, 150, 200, 250, 300, 
-            350, 400, 450, 500, 550, 
-            600, 600, 650, 650, 700, 
-            700, 750, 750, 800, 800, 
-            850, 850, 900, 900, 950, 
-            950, 1000, 1000, 1100, 1250
+            100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 
+            600, 600, 650, 650, 700, 700, 750, 750, 800, 800, 
+            850, 850, 900, 900, 950, 950, 1000, 1000, 1100, 1250
         ]
     };
 
@@ -33,9 +24,8 @@
     let isClaimingMain = false; 
     let isUpgrading = false;
 
-    // منع تكرار الاستدعاءات المتتالية للسيرفر عند التبديل السريع بين الشاشات
     let lastFetchTime = 0;
-    const FETCH_THROTTLE_MS = 10000; // 10 ثوانٍ كحد أدنى بين طلبات المزامنة التلقائية
+    const FETCH_THROTTLE_MS = 10000;
 
     function showToast(message) {
         if (tele && tele.showAlert) tele.showAlert(message);
@@ -53,7 +43,7 @@
         if (newBalance !== undefined && newBalance !== null) {
             const val = parseFloat(newBalance);
             if (!window.userState) window.userState = {};
-            window.userState.balance = val; // سيقوم Proxy في game.js بتحديث الواجهات بسلاسة فوراً
+            window.userState.balance = val; // تفعيل التغيير عبر Proxy ليعمل الـ Smooth Counter
             if (window.PlayerData) window.PlayerData.balance = val;
         }
     }
@@ -112,8 +102,18 @@
                 if (resData.player && resData.player.upgrades !== undefined) {
                     window.userState.upgrades = resData.player.upgrades;
                 }
-                if (resData.game_config && resData.game_config.daily_rewards) {
-                    GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
+                
+                // تحديث الإعدادات الديناميكية القادمة من بوت الأدمن / قاعدة البيانات
+                if (resData.game_config) {
+                    if (resData.game_config.daily_rewards) {
+                        GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
+                    }
+                    if (resData.game_config.upgrade_costs) {
+                        GAME_CONFIG.upgradeCosts = resData.game_config.upgrade_costs;
+                    }
+                    if (resData.game_config.daily_boost_reward) {
+                        GAME_CONFIG.dailyBoostReward = resData.game_config.daily_boost_reward;
+                    }
                 }
                 window.updateFarmUI();
             }
@@ -181,18 +181,9 @@
     function getRewardForDayIndex(index) {
         const rewards = GAME_CONFIG.dailyRewards;
         if (!rewards) return 100;
-
         if (Array.isArray(rewards)) {
             return rewards[index] !== undefined ? rewards[index] : 1250;
         }
-
-        if (typeof rewards === 'object') {
-            const dayKey = `day_${index + 1}`;
-            if (rewards[dayKey] !== undefined) return rewards[dayKey];
-            if (rewards[index + 1] !== undefined) return rewards[index + 1];
-            if (rewards[index] !== undefined) return rewards[index];
-        }
-
         return 1250;
     }
 
@@ -227,7 +218,6 @@
         container.innerHTML = html;
     }
 
-    // المؤقت المحلي في الفرونت إند (بدون أي طلبات HTTP للسيرفر)
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
         const pData = window.PlayerData;
@@ -284,12 +274,12 @@
                 boostBtn.disabled = true;
                 boostBtn.innerHTML = `<span style="font-size: 16px; margin-bottom:2px;">⏳</span><span class="timer-text">${timeLeftStr}</span>`;
             } else {
-                if(!isBoosting) {
+                if (!isBoosting) {
                     boostBtn.className = "";
                     boostBtn.disabled = false;
                     boostBtn.style.background = "linear-gradient(135deg, #f39c12, #e67e22)";
                     boostBtn.style.boxShadow = "0 4px 12px rgba(243, 156, 18, 0.4)";
-                    boostBtn.innerHTML = `<span style="font-size: 20px; margin-bottom: 2px;">🚀</span><span style="font-size: 10px; font-weight: bold;">+2/h</span>`; 
+                    boostBtn.innerHTML = `<span style="font-size: 20px; margin-bottom: 2px;">🚀</span><span style="font-size: 10px; font-weight: bold;">+${GAME_CONFIG.dailyBoostReward}/h</span>`; 
                 }
             }
         }
@@ -396,7 +386,7 @@
                         pData.last_boost_date = resData.last_boost_date;
                     }
                     window.updateFarmUI();
-                    showToast(`🚀 تمت زيادة معدل التعدين بنجاح بمقدار +2/h دائماً!`);
+                    showToast(`🚀 تمت زيادة معدل التعدين بنجاح بمقدار +${resData.added_rate || GAME_CONFIG.dailyBoostReward}/h دائماً!`);
                 }
             } else {
                 window.updateFarmUI();
