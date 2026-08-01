@@ -1,3 +1,4 @@
+# database.py
 import os
 import json
 import firebase_admin
@@ -51,15 +52,38 @@ def ensure_game_settings_exist():
             "10": {"capacity": 1000000, "price": 12000000}
         }
 
-        # تحديث المستند في الفايرستور وإعادة كتابة الخرائط بالبيانات الصحيحة
-        settings_ref.set({
-            "daily_rewards": exact_daily_rewards,
-            "speed_config": exact_speed_config,
-            "storage_config": exact_storage_config,
-            "daily_ad_boost_rate": 2
-        }, merge=True)
+        # 4. إعدادات نظام الأصدقاء والإحالة الديناميكية
+        exact_friends_config = {
+            "direct_reward_inviter": 2500,    # مكافأة الداعي المباشرة عند انضمام صديق
+            "direct_reward_invitee": 1000,    # مكافأة الصديق الجديد فور تسجيله
+            "commission_percent": 10,         # نسبة الربح المستمر من تعدين الصديق (%)
+            "claim_fee_percent": 1.5,         # رسوم سحب أرباح الإحالة (%)
+            "min_upgrades_for_task": 3,       # الحد الأدنى للترقيات لاحتساب الصديق مؤهلاً للمهام
+            "ref_tasks": {
+                "1": {"reqFriends": 1, "reward": 4000},
+                "2": {"reqFriends": 5, "reward": 25000},
+                "3": {"reqFriends": 10, "reward": 60000},
+                "4": {"reqFriends": 25, "reward": 160000},
+                "5": {"reqFriends": 50, "reward": 350000},
+                "6": {"reqFriends": 100, "reward": 800000},
+                "7": {"reqFriends": 500, "reward": 4500000}
+            }
+        }
 
-        print("✅ تم تحديث بيانات game_settings في Firestore بالقيم الاقتصادية الصحيحة!")
+        # جلب الإعدادات الحالية لعدم مسح تعديلاتك في الفايرستور إذا كانت موجودة
+        doc = settings_ref.get()
+        current_data = doc.to_dict() or {} if doc.exists else {}
+
+        update_payload = {
+            "daily_rewards": current_data.get("daily_rewards", exact_daily_rewards),
+            "speed_config": current_data.get("speed_config", exact_speed_config),
+            "storage_config": current_data.get("storage_config", exact_storage_config),
+            "daily_ad_boost_rate": current_data.get("daily_ad_boost_rate", 2),
+            "friends_config": current_data.get("friends_config", exact_friends_config)
+        }
+
+        settings_ref.set(update_payload, merge=True)
+        print("✅ تم فحص وتحديث إعدادات اللعبة و system الأصدقاء في Firestore بنجاح!")
 
     except Exception as e:
         print(f"❌ خطأ أثناء تحديث إعدادات اللعبة تلقائياً: {e}")
@@ -97,7 +121,6 @@ def initialize_firebase():
         db = firestore.client()
     return db
 
-# تشغيل التهيئة وفحص الخرائط فور استدعاء الملف
 try:
     db = initialize_firebase()
     ensure_game_settings_exist()
@@ -136,10 +159,18 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
         if not user_doc.exists:
             valid_ref_id = str(ref_id) if ref_id and str(ref_id) != tg_id_str else None
             
+            # جلب إعدادات المكافآت من الفايرستور
+            settings = get_game_settings()
+            f_config = settings.get('friends_config', {})
+            inviter_bonus = float(f_config.get('direct_reward_inviter', 2500))
+            invitee_bonus = float(f_config.get('direct_reward_invitee', 1000))
+
+            initial_balance = invitee_bonus if valid_ref_id else 0.0
+
             new_user_data = {
                 "tg_id": tg_id_str,
                 "first_name": first_name,
-                "balance": 0.0,
+                "balance": initial_balance,
                 "ad_balance": 0.0,
                 "usd_balance": 0.0,
                 "hourly_rate": 0.0,
@@ -163,11 +194,15 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 referrer_ref = db.collection('users').document(valid_ref_id)
                 if referrer_ref.get().exists:
                     is_new_referral = True
-                    referrer_ref.update({"invited_friends_count": firestore.Increment(1)})
+                    # تحديث عدد الأصدقاء وإضافة مكافأة الداعي الفورية وإضافة الصديق للقائمة
+                    referrer_ref.update({
+                        "invited_friends_count": firestore.Increment(1),
+                        "pending_ref_earnings": firestore.Increment(inviter_bonus)
+                    })
                     referrer_ref.collection('friends').document(tg_id_str).set({
                         "tg_id": tg_id_str,
                         "first_name": first_name,
-                        "earned_from_him": 0.0,
+                        "earned_from_him": inviter_bonus,
                         "joined_at": firestore.SERVER_TIMESTAMP
                     })
         else:
@@ -228,7 +263,13 @@ def add_referral_earnings(referrer_id, friend_id, amount):
             
         ref_str = str(referrer_id)
         friend_str = str(friend_id)
-        ref_amount = float(amount) * 0.10
+        
+        # جلب نسبة العمولة ديناميكياً من الفايرستور
+        settings = get_game_settings()
+        f_config = settings.get('friends_config', {})
+        commission_percent = float(f_config.get('commission_percent', 10)) / 100.0
+
+        ref_amount = float(amount) * commission_percent
         
         db.collection('users').document(ref_str).update({
             "pending_ref_earnings": firestore.Increment(ref_amount)
