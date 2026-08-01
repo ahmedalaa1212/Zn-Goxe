@@ -34,7 +34,7 @@ def arena_status():
         
         round_id, end_time, current_time, round_id_num = get_current_round_info()
         
-        # فحص الجولات السابقة (حتى 3 جولات) لضمان عدم وجود جولة معلقة
+        # فحص الجولات السابقة (حتى 3 جولات للوراء) لضمان عدم وجود جولة معلقة
         for i in range(1, 4):
             past_id = str(round_id_num - i)
             past_round_ref = db.collection('arena_rounds').document(past_id)
@@ -137,6 +137,7 @@ def resolve_round(round_id):
     if len(participants) < MIN_PARTICIPANTS:
         for p in participants:
             user_ref = db.collection('users').document(p['uid'])
+            # إعادة الرصيد + تسجيل إشعار الاسترداد
             batch.update(user_ref, {
                 'balance': firestore.Increment(ENTRY_FEE),
                 'pending_refund': firestore.Increment(ENTRY_FEE)
@@ -189,6 +190,7 @@ def get_results():
         
     r_data = round_doc.to_dict()
     
+    # جلب رصيد المستخدم الحالي لتحديث واجهته اللحظية
     user_doc = db.collection('users').document(uid).get()
     current_bal = user_doc.to_dict().get('balance', 0) if user_doc.exists else 0
     
@@ -199,6 +201,9 @@ def get_results():
         "new_balance": current_bal
     })
 
+# ==========================================
+# التحقق من الإشعارات المعلقة (المرتجعات)
+# ==========================================
 @games_bp.route('/check_notifications', methods=['POST'])
 def check_notifications():
     success, uid, error_res = get_authenticated_user(request, is_post=True)
