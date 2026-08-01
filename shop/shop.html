@@ -71,6 +71,10 @@
         .stat-label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
         .stat-value { font-weight: 800; font-size: 13px; white-space: nowrap; }
 
+        /* تنسيقات الأرقام الصحيحة والعشرية للحصول على مظهر احترافي */
+        .int-part { font-size: 1em; font-weight: 800; }
+        .dec-part { font-size: 0.78em; opacity: 0.65; font-weight: 600; margin-right: 1px; }
+
         .ton-price-bar {
             background: rgba(0, 152, 234, 0.12); 
             border: 1px solid var(--ton-blue);
@@ -142,7 +146,7 @@
             </div>
             <div class="stat-box" style="border-color: rgba(255, 204, 0, 0.2); background: rgba(255, 204, 0, 0.05);">
                 <span class="stat-label" style="color: var(--gold);">⚡ السرعة</span>
-                <span data-bind="hourly_rate" id="shop-rate-text" class="stat-value" style="color: var(--gold);">0/h</span>
+                <span data-bind="hourly_rate" id="shop-rate-text" class="stat-value" style="color: var(--gold);">+0/h</span>
             </div>
             <div class="stat-box">
                 <span class="stat-label" style="color: var(--accent-green);">💵 USD</span>
@@ -152,7 +156,7 @@
 
         <div class="ton-price-bar">
             <div style="font-size: 13px; font-weight: bold; color: var(--ton-blue);">
-                💎 سعر TON اللحظي المباشر:
+                💎 سعر TON المباشر:
             </div>
             <div id="ton-live-rate-text" data-bind="ton_price" style="font-weight: 800; color: #fff; font-size: 14px;">جاري التحميل...</div>
         </div>
@@ -176,6 +180,6 @@
 
     </div>
 
-    <script src="shop.js?v=19.0"></script>
+    <script src="shop.js?v=20.0"></script>
 </body>
 </html>
