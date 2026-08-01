@@ -2,8 +2,9 @@ import os
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 
-# استدعاء ملف database لتهيئة قواعد البيانات والتحقق من الإعدادات تلقائياً
+# استدعاء ملف database لتهيئة قواعد البيانات
 import database
+from core.security import get_authenticated_user
 
 # ==========================================
 # 1. إعداد التطبيق والمتغيرات الأساسية
@@ -40,7 +41,30 @@ app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
 app.register_blueprint(support_bp, url_prefix='/api/support')
 
 # ==========================================
-# 3. إعدادات الحماية وتمرير الهيدرز
+# 3. مسار جلب بيانات المستخدم المباشر /api/user/info
+# ==========================================
+@app.route('/api/user/info', methods=['GET', 'POST'])
+def get_user_info_main():
+    is_post = (request.method == 'POST')
+    success, telegram_id, error_res = get_authenticated_user(request, is_post=is_post)
+    if not success:
+        return error_res
+        
+    try:
+        user_data = database.get_user(telegram_id)
+        if not user_data:
+            return jsonify({"success": False, "error": "المستخدم غير موجود"}), 404
+            
+        return jsonify({
+            "success": True,
+            "user": user_data
+        }), 200
+    except Exception as e:
+        print(f"Error fetching user info: {e}")
+        return jsonify({"success": False, "error": "خطأ في جلب البيانات"}), 500
+
+# ==========================================
+# 4. إعدادات الحماية وتمرير الهيدرز
 # ==========================================
 @app.after_request
 def add_security_headers(response):
@@ -50,14 +74,14 @@ def add_security_headers(response):
     return response
 
 # ==========================================
-# 4. معالجة الأخطاء العالمية (Global Error Handlers)
+# 5. معالجة الأخطاء العالمية (تصحيح أكواد الحالة)
 # ==========================================
 @app.errorhandler(500)
 def handle_500_error(e):
     return jsonify({
         "success": False,
         "error": "حدث خطأ داخلي في السيرفر (500). يرجى التأكد من الاتصال بقاعدة البيانات."
-    }), 200
+    }), 500  # ✅ تم تعديل الكود إلى 500 لمنع تصفير الرصيد في الفرونت إند
 
 @app.errorhandler(404)
 def handle_404_error(e):
@@ -65,15 +89,14 @@ def handle_404_error(e):
         return jsonify({
             "success": False,
             "error": "المسار المطلوب غير موجود في السيرفر (404)."
-        }), 200
+        }), 404  # ✅ تم تعديل الكود إلى 404
     return send_from_directory('.', 'index.html')
 
 # ==========================================
-# 5. مسارات تطبيق TON Connect والصفحة الرئيسية
+# 6. مسارات TON Connect والصفحة الرئيسية
 # ==========================================
 @app.route('/tonconnect-manifest.json')
 def serve_manifest():
-    """ملف البيان المعتمد لاتصال محفظة TON Connect"""
     return jsonify({
         "url": WEB_URL,
         "name": "ZN Goxe Web3",
@@ -91,7 +114,6 @@ def serve_static(path):
     if path == 'tonconnect-manifest.json':
         return serve_manifest()
 
-    # حظر الامتدادات والمجلدات الحساسة مع السماح بالملفات العامة
     forbidden_extensions = ('.py', '.env', '.md', '.txt')
     forbidden_dirs = ('core/', 'admin_chat/', '.git/', '.github/')
     
@@ -104,7 +126,7 @@ def serve_static(path):
         return send_from_directory('.', 'index.html')
 
 # ==========================================
-# 6. فحص حالة السيرفر (Health Check)
+# 7. فحص حالة السيرفر والتشغيل
 # ==========================================
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -114,9 +136,6 @@ def health_check():
         "service": "ZN Goxe Backend"
     }), 200
 
-# ==========================================
-# 7. نقطة التشغيل الرئيسية
-# ==========================================
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     print(f"🚀 Server is running on port {port}...")
