@@ -44,18 +44,18 @@ app.register_blueprint(support_bp, url_prefix='/api/support')
 @app.route('/api/user/info', methods=['GET', 'POST'])
 def get_user_info_main():
     is_post = (request.method == 'POST')
-    success, telegram_id, error_res = get_authenticated_user(request, is_post=is_post)
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success:
         return error_res
         
     try:
         user_data = database.get_user(telegram_id)
-        user_info = getattr(request, 'telegram_user', None) or {}
+        user_info = user_info or getattr(request, 'telegram_user', None) or {}
         
         # إنشاء المستخدم تلقائياً إذا كان أول دخول له
         if not user_data:
-            first_name = user_info.get('first_name', 'لاعب') if user_info else 'لاعب'
-            ref_id = user_info.get('start_param') if user_info else None
+            first_name = user_info.get('first_name', 'لاعب') if isinstance(user_info, dict) else 'لاعب'
+            ref_id = user_info.get('start_param') if isinstance(user_info, dict) else None
             
             database.init_user(telegram_id, ref_id=ref_id, first_name=first_name)
             user_data = database.get_user(telegram_id)
