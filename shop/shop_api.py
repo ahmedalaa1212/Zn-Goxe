@@ -91,7 +91,7 @@ def get_game_config():
         doc = doc_ref.get()
         
         updates = {}
-        data = doc.to_dict() if (doc.exists and doc.to_dict()) else {}
+        data = doc.to_dict() if (doc.exists and doc.to_dict() is not None) else {}
 
         if 'usdt_packages' not in data or not isinstance(data.get('usdt_packages'), dict) or len(data['usdt_packages']) == 0:
             updates['usdt_packages'] = DEFAULT_USDT_PACKAGES
@@ -163,9 +163,9 @@ def get_config():
 @shop_bp.route('/prepare_ton_pay', methods=['POST'])
 def prepare_ton_pay():
     try:
-        is_auth, user_id, error_response = get_authenticated_user(request, is_post=True)
-        if not is_auth:
-            return error_response
+        success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+        if not success:
+            return error_res
 
         data = request.get_json() or {}
         pkg_id = data.get('package_id')
@@ -216,9 +216,9 @@ def prepare_ton_pay():
 @shop_bp.route('/verify_and_apply_package', methods=['POST'])
 def verify_and_apply_package():
     try:
-        is_auth, user_id, error_response = get_authenticated_user(request, is_post=True)
-        if not is_auth:
-            return error_response
+        success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+        if not success:
+            return error_res
 
         data = request.get_json() or {}
         pkg_key = data.get('package_id')
@@ -311,9 +311,9 @@ def verify_and_apply_package():
 @shop_bp.route('/buy', methods=['POST'])
 def buy_upgrade():
     try:
-        is_auth, user_id, error_response = get_authenticated_user(request, is_post=True)
-        if not is_auth:
-            return error_response
+        success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+        if not success:
+            return error_res
 
         data = request.get_json() or {}
         upgrade_type = data.get('type')  
