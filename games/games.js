@@ -6,6 +6,7 @@
     let countdownInterval = null;
     let hasCheckedResults = false;
     let statusRetryTimeout = null;
+    let pendingConfirmCallback = null;
 
     const tele = window.Telegram?.WebApp;
 
@@ -17,19 +18,33 @@
         }
     }
 
-    function showConfirmModal(msg, onConfirm) {
+    function askForConfirmation(onConfirm) {
         if (tele && tele.showConfirm) {
-            tele.showConfirm(msg, (confirmed) => {
+            tele.showConfirm("هل أنت متأكد من خصم 1,000 ZN للاشتراك في الساحة الكبرى؟", (confirmed) => {
                 if (confirmed) onConfirm();
             });
         } else {
-            if (confirm(msg)) {
+            // استخدام Modal مخصص في حال عدم توفر Telegram ShowConfirm
+            const modal = document.getElementById('confirm-modal');
+            if (modal) {
+                pendingConfirmCallback = onConfirm;
+                modal.style.display = 'flex';
+            } else if (confirm("هل أنت متأكد من خصم 1,000 ZN للاشتراك في الساحة الكبرى؟")) {
                 onConfirm();
             }
         }
     }
 
-    // --- أدوات المزامنة الموحدة للرصيد بتنسيق أنيق ---
+    window.onConfirmJoin = function(confirmed) {
+        const modal = document.getElementById('confirm-modal');
+        if (modal) modal.style.display = 'none';
+        if (confirmed && typeof pendingConfirmCallback === 'function') {
+            pendingConfirmCallback();
+        }
+        pendingConfirmCallback = null;
+    };
+
+    // --- أدوات المزامنة الموحدة للرصيد ---
     function getStoredBalance() {
         if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
             const val = parseFloat(window.GameState.balance);
@@ -59,9 +74,9 @@
         const stored = getStoredBalance();
         const gameBalEl = document.getElementById('top-balance-games');
         if (gameBalEl) {
-            // تنسيق الرصيد بدون كسور عشرية مزعجة لضبط الواجهة
+            // عرض الرقم صحيح منسق بدون كسور لتنظيم شكل الهيدر
             const formatted = Math.floor(stored).toLocaleString('en-US');
-            gameBalEl.innerHTML = `<span class="bal-icon">🪙</span> <span class="bal-num">${formatted}</span> <span class="bal-unit">ZN</span>`;
+            gameBalEl.innerText = `${formatted} ZN`;
         }
         if (typeof window.updateGlobalUI === 'function') {
             window.updateGlobalUI();
@@ -78,20 +93,14 @@
             if (arenaTab) { arenaTab.classList.add('active'); arenaTab.style.opacity = '1'; }
             if (soonTab) { soonTab.classList.remove('active'); soonTab.style.opacity = '0.6'; }
             
-            if (arenaContent) {
-                arenaContent.style.display = 'block';
-                arenaContent.classList.add('fade-in-anim');
-            }
+            if (arenaContent) arenaContent.style.display = 'block';
             if (soonContent) soonContent.style.display = 'none';
         } else {
             if (soonTab) { soonTab.classList.add('active'); soonTab.style.opacity = '1'; }
             if (arenaTab) { arenaTab.classList.remove('active'); arenaTab.style.opacity = '0.6'; }
             
             if (arenaContent) arenaContent.style.display = 'none';
-            if (soonContent) {
-                soonContent.style.display = 'block';
-                soonContent.classList.add('fade-in-anim');
-            }
+            if (soonContent) soonContent.style.display = 'block';
         }
     };
 
@@ -143,10 +152,7 @@
     function updateArenaPrizes(data) {
         const pool = data.prize_pool || 0;
         const prizePoolEl = document.getElementById('prize-pool');
-        if (prizePoolEl) {
-            prizePoolEl.innerText = pool.toLocaleString('en-US') + " ZN";
-            prizePoolEl.classList.add('pulse-glow');
-        }
+        if (prizePoolEl) prizePoolEl.innerText = pool.toLocaleString('en-US') + " ZN";
         
         const p1 = document.getElementById('prize-1');
         const p2 = document.getElementById('prize-2');
@@ -183,7 +189,6 @@
             let s = timeLeft % 60;
             timerEl.innerText = `${m < 10 ? '0'+m : m}:${s < 10 ? '0'+s : s}`;
             
-            // إضافة تأثير التوهج عند بقاء أقل من دقيقة
             if (timeLeft <= 60 && timeLeft > 0) {
                 timerEl.classList.add('timer-warning');
             } else {
@@ -219,7 +224,6 @@
         }
     }
 
-    // --- إجراء الدخول مع التأكيد ---
     window.joinArena = function() {
         if (isJoining) return;
 
@@ -229,7 +233,7 @@
             return;
         }
 
-        showConfirmModal("هل أنت متأكد من رغبتك في خصم 1,000 ZN للاشتراك في جولة الساحة الكبرى؟", async () => {
+        askForConfirmation(() => {
             executeJoinArena();
         });
     };
@@ -241,7 +245,7 @@
         const btn = document.getElementById('btn-join-arena');
         if (btn) {
             btn.disabled = true;
-            btn.innerText = "جاري الاشتراك... ⏳";
+            btn.innerText = "جاري الدخول... ⏳";
         }
 
         try {
@@ -268,7 +272,7 @@
                     setStoredBalance(currentBal - 1000);
                 }
                 syncGameBalance();
-                showNotification("🎉 تم دخول الساحة بنجاح! بالتوفيق.");
+                showNotification("🎉 تم دخول الساحة بنجاح! نتمنى لك التوفيق.");
 
                 if (typeof window.fetchPlayerDataFromServer === 'function') {
                     window.fetchPlayerDataFromServer();
@@ -300,20 +304,14 @@
         if (refundedEl) refundedEl.style.display = 'none';
         if (winnersEl) winnersEl.style.display = 'none';
         
-        if (modal) {
-            modal.style.display = 'flex';
-            modal.classList.add('pop-in-anim');
-        }
+        if (modal) modal.style.display = 'flex';
         if (state === 'refunded' && refundedEl) refundedEl.style.display = 'block';
         if (state === 'winners' && winnersEl) winnersEl.style.display = 'block';
     }
 
     window.closeDrawModal = function() {
         const modal = document.getElementById('draw-modal');
-        if (modal) {
-            modal.classList.remove('pop-in-anim');
-            modal.style.display = 'none';
-        }
+        if (modal) modal.style.display = 'none';
         fetchArenaStatus();
     };
 
@@ -381,11 +379,11 @@
             let prize = (winner.prize || 0).toLocaleString('en-US');
             
             list.innerHTML += `
-                <div class="winner-item anim-slide-up" style="animation-delay: ${index * 0.15}s;">
-                    <span style="color: #fff; font-weight: bold; font-size: 14px;">
+                <div class="winner-item" style="animation-delay: ${index * 0.1}s;">
+                    <span style="color: #fff; font-weight: bold; font-size: 13px;">
                         ${medals[index] || '🏅'} ${name}
                     </span>
-                    <span style="color: #2ecc71; font-weight: bold; font-size: 14px; text-shadow: 0 0 5px rgba(46,204,113,0.4);">
+                    <span style="color: #2ecc71; font-weight: bold; font-size: 13px;">
                         +${prize} ZN
                     </span>
                 </div>
