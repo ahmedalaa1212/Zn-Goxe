@@ -1,4 +1,5 @@
 # friends/friends_api.py
+import time
 from flask import Blueprint, request, jsonify
 from core.security import get_authenticated_user
 from database import db, get_game_settings
@@ -6,10 +7,28 @@ from firebase_admin import firestore
 
 friends_bp = Blueprint('friends', __name__)
 
+# --- Server-Side RAM Caching Systems ---
+_CONFIG_CACHE = {"data": None, "timestamp": 0}
+_USER_DATA_CACHE = {}  # {user_id: {"data": response_dict, "timestamp": float}}
+_USER_LIST_CACHE = {}  # {user_id: {"data": response_dict, "timestamp": float}}
+
+CACHE_TTL_CONFIG = 600  # 10 دقائق لكاش الإعدادات العامة
+CACHE_TTL_USER = 180    # 3 دقائق لكاش استعلامات الأصدقاء غير الحساسة
+
+def invalidate_user_cache(user_id):
+    """إبطال كاش المستخدم فوراً عند إجراء عملية مالية حية"""
+    user_id_str = str(user_id)
+    _USER_DATA_CACHE.pop(user_id_str, None)
+    _USER_LIST_CACHE.pop(user_id_str, None)
+
 def get_friends_config():
-    """جلب إعدادات نظام الإحالات والأصدقاء ديناميكياً من الفايرستور"""
-    settings = get_game_settings()
-    return settings.get('friends_config', {
+    """جلب إعدادات نظام الإحالات مع التخزين المؤقت بالسيرفر (10 دقائق)"""
+    now = time.time()
+    if _CONFIG_CACHE["data"] and (now - _CONFIG_CACHE["timestamp"] < CACHE_TTL_CONFIG):
+        return _CONFIG_CACHE["data"]
+
+    settings = get_game_settings() or {}
+    config = settings.get('friends_config', {
         "commission_percent": 10,
         "claim_fee_percent": 1.5,
         "min_upgrades_for_task": 3,
@@ -23,6 +42,9 @@ def get_friends_config():
             "7": {"reqFriends": 500, "reward": 4500000}
         }
     })
+    _CONFIG_CACHE["data"] = config
+    _CONFIG_CACHE["timestamp"] = now
+    return config
 
 def get_user_upgrades_count(user_data):
     """حساب إجمالي ترقيات سرعة التعدين للمستخدم"""
@@ -42,13 +64,20 @@ def get_user_upgrades_count(user_data):
 
 @friends_bp.route('/data', methods=['GET', 'POST'])
 def get_friends_data():
-    """جلب بيانات صفحة الأصدقاء وإحصائيات المهام (Read-Only)"""
+    """جلب بيانات صفحة الأصدقاء مع RAM Caching لمسح استهلاك القراءات"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
             return error_resp
             
         user_id_str = str(user_id)
+        now = time.time()
+
+        # الفحص من الذاكرة العشوائية أولاً
+        cached_entry = _USER_DATA_CACHE.get(user_id_str)
+        if cached_entry and (now - cached_entry["timestamp"] < CACHE_TTL_USER):
+            return jsonify(cached_entry["data"]), 200
+
         user_ref = db.collection('users').document(user_id_str)
         user_doc = user_ref.get()
         
@@ -71,7 +100,7 @@ def get_friends_data():
             if get_user_upgrades_count(f_data) >= min_upgrades:
                 eligible_task_friends_count += 1
         
-        return jsonify({
+        res_data = {
             "success": True,
             "player": {
                 "balance": round(float(user_data.get('balance', 0)), 2),
@@ -81,20 +110,31 @@ def get_friends_data():
                 "claimed_ref_tasks": user_data.get('claimed_ref_tasks', [])
             },
             "friends_config": friends_config
-        }), 200
+        }
+
+        # حفظ النتيجة في RAM Caching
+        _USER_DATA_CACHE[user_id_str] = {"data": res_data, "timestamp": now}
+
+        return jsonify(res_data), 200
     except Exception as e:
         print(f"Error in friends/data: {e}")
         return jsonify({"success": False, "error": "حدث خطأ في الخادم"}), 500
 
 @friends_bp.route('/list', methods=['GET', 'POST'])
 def get_friends_list():
-    """جلب سجل الأصدقاء بالتفصيل الموحد (Read-Only)"""
+    """جلب سجل الأصدقاء بالتفصيل مع RAM Caching لحماية الفايرستور من الـ Streams المتكررة"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
             return error_resp
             
         user_id_str = str(user_id)
+        now = time.time()
+
+        # الفحص من الذاكرة العشوائية أولاً
+        cached_entry = _USER_LIST_CACHE.get(user_id_str)
+        if cached_entry and (now - cached_entry["timestamp"] < CACHE_TTL_USER):
+            return jsonify(cached_entry["data"]), 200
         
         referred_users = {}
         users_query = db.collection('users').where('referred_by', '==', user_id_str).stream()
@@ -148,15 +188,19 @@ def get_friends_list():
             })
             
         friends_list.sort(key=lambda x: x['generated'], reverse=True)
+        res_data = {"success": True, "friends": friends_list}
+
+        # حفظ النتيجة في RAM Caching
+        _USER_LIST_CACHE[user_id_str] = {"data": res_data, "timestamp": now}
             
-        return jsonify({"success": True, "friends": friends_list}), 200
+        return jsonify(res_data), 200
     except Exception as e:
         print(f"Error in friends/list: {e}")
         return jsonify({"success": False, "error": "حدث خطأ في الخادم"}), 500
 
 @friends_bp.route('/claim_ref_earnings', methods=['POST'])
 def claim_ref_earnings():
-    """سحب أرباح الإحالات وإرجاع البيانات المحدثة كاملة للفرونت إند"""
+    """سحب أرباح الإحالات مع الحفاظ على Transaction المباشر للفايرستور"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -195,6 +239,9 @@ def claim_ref_earnings():
         if not success:
             return jsonify({"success": False, "error": error_msg}), status_code
 
+        # إبطال الكاش فوراً بعد المعاملة المالية الناجحة
+        invalidate_user_cache(user_id)
+
         return jsonify({
             "success": True, 
             "new_balance": round(new_balance, 2),
@@ -208,7 +255,7 @@ def claim_ref_earnings():
 
 @friends_bp.route('/claim_ref_task', methods=['POST'])
 def claim_ref_task():
-    """استلام مكافأة مهمة الإحالة وإرجاع البيانات المحدثة كاملة بدون جلب شبكة إضافي"""
+    """استلام مكافأة مهمة الإحالة مع الحفاظ على Transaction المباشر للفايرستور"""
     try:
         is_valid, user_id, error_resp = get_authenticated_user(request, is_post=True)
         if not is_valid:
@@ -276,6 +323,9 @@ def claim_ref_task():
 
         if not success:
             return jsonify({"success": False, "error": error_msg}), status_code
+
+        # إبطال الكاش فوراً بعد المعاملة المالية الناجحة
+        invalidate_user_cache(user_id)
 
         return jsonify({
             "success": True, 
