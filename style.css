@@ -1,6 +1,3 @@
-/* =========================================
-   تنسيقات عامة للعبة
-   ========================================= */
 * {
     margin: 0;
     padding: 0;
@@ -14,82 +11,43 @@ body {
     color: #ffffff;
     min-height: 100vh;
     overflow-x: hidden;
-    position: relative;
 }
 
 #app {
     min-height: calc(100vh - 75px);
     padding: 15px;
     padding-bottom: 90px;
-    overflow-y: auto;
-    overflow-x: hidden;
 }
 
-::-webkit-scrollbar {
-    width: 4px;
-}
-::-webkit-scrollbar-thumb {
-    background: #333;
-    border-radius: 10px;
-}
-
-/* =========================================
-   شاشة التحميل الاحترافية
-   ========================================= */
+/* شاشة التحميل */
 #loading-screen {
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
+    top: 0; left: 0; width: 100vw; height: 100vh;
     background: #0f172a;
-    z-index: 9999999;
+    z-index: 99999;
     display: flex;
     justify-content: center;
     align-items: center;
     flex-direction: column;
-    color: white;
-    opacity: 1;
-    transition: opacity 0.3s ease, visibility 0.3s ease;
-}
-
-#loading-screen.fade-out {
-    opacity: 0;
-    visibility: hidden;
 }
 
 .loader-rocket {
     font-size: 50px;
-    margin-bottom: 20px;
     animation: pulse 1.5s infinite ease-in-out;
 }
 
-#loading-screen h2 {
-    color: #f59e0b;
-    margin: 0;
-    font-family: Tahoma, sans-serif;
-    font-size: 18px;
-    font-weight: bold;
-}
-
 @keyframes pulse {
-    0% { transform: scale(1); }
+    0%, 100% { transform: scale(1); }
     50% { transform: scale(1.15); }
-    100% { transform: scale(1); }
 }
 
-/* =========================================
-   إدارة العروض والواجهات
-   ========================================= */
+/* إدارة الواجهات */
 .game-view {
-    display: none !important;
-    padding-bottom: 20px;
-    width: 100%;
-    box-sizing: border-box;
+    display: none;
 }
 
 .game-view.active {
-    display: block !important;
+    display: block;
     animation: fadeIn 0.3s ease;
 }
 
@@ -98,315 +56,50 @@ body {
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* =========================================
-   شريط التنقل السفلي - Web3 Glassmorphism UI
-   ========================================= */
+/* شريط التنقل السفلي */
 .bottom-nav {
-    position: fixed !important;
-    bottom: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    width: 100% !important;
-    height: 70px !important;
-    background: rgba(15, 23, 42, 0.88) !important;
-    backdrop-filter: blur(16px) !important;
-    -webkit-backdrop-filter: blur(16px) !important;
-    display: flex !important;
-    justify-content: space-between !important;
-    align-items: center !important;
-    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
-    padding: 0 4px calc(env(safe-area-inset-bottom, 0px) + 2px) 4px !important;
-    z-index: 999999 !important;
-    box-sizing: border-box !important;
-    box-shadow: 0 -8px 25px rgba(0, 0, 0, 0.5) !important;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 70px;
+    background: rgba(15, 23, 42, 0.9);
+    backdrop-filter: blur(12px);
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    z-index: 9999;
 }
 
 .nav-item {
-    background: none !important;
-    border: none !important;
-    color: #94a3b8 !important;
-    text-decoration: none !important;
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    justify-content: center !important;
-    cursor: pointer !important;
-    flex: 1 !important;
-    min-width: 0 !important;
-    height: 100% !important;
-    transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    padding: 4px 0 !important;
-    position: relative !important;
-    outline: none !important;
-}
-
-.nav-item:active {
-    transform: scale(0.9) !important;
-}
-
-.nav-item i {
-    font-size: 17px !important;
-    margin-bottom: 3px !important;
-    transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
-}
-
-.nav-item span {
-    font-size: 9px !important;
-    font-weight: 500 !important;
-    white-space: nowrap !important;
-    transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
-}
-
-/* حالة الأزرار النشطة */
-.nav-item.active {
-    color: #f59e0b !important;
-}
-
-.nav-item.active i {
-    color: #f59e0b !important;
-    transform: translateY(-2px) scale(1.15) !important;
-    filter: drop-shadow(0 2px 8px rgba(245, 158, 11, 0.5)) !important;
-}
-
-.nav-item.active span {
-    color: #f59e0b !important;
-    font-weight: 700 !important;
-}
-
-/* مؤشر نيون مضيء أعلى العنصر النشط */
-.nav-item.active::before {
-    content: '' !important;
-    position: absolute !important;
-    top: 0 !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    width: 18px !important;
-    height: 3px !important;
-    background: linear-gradient(90deg, #f59e0b, #fbbf24) !important;
-    border-radius: 0 0 4px 4px !important;
-    box-shadow: 0 2px 10px rgba(245, 158, 11, 0.8) !important;
-}
-
-/* =========================================
-   زر المزرعة المركزي المميز (3D Glowing Farm Dock)
-   ========================================= */
-.nav-item.nav-center-btn {
-    position: relative !important;
-    top: -14px !important;
-    flex: 0 0 58px !important;
-    width: 58px !important;
-    height: 58px !important;
-    border-radius: 50% !important;
-    background: linear-gradient(135deg, #1e293b, #0f172a) !important;
-    border: 3px solid #f59e0b !important;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6), 0 0 15px rgba(245, 158, 11, 0.3) !important;
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    justify-content: center !important;
-    padding: 0 !important;
-    z-index: 10 !important;
-    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-}
-
-/* هالة النبض التفاعلية حول زر المزرعة */
-.nav-item.nav-center-btn::after {
-    content: '' !important;
-    position: absolute !important;
-    top: -6px !important;
-    left: -6px !important;
-    right: -6px !important;
-    bottom: -6px !important;
-    border-radius: 50% !important;
-    border: 2px solid rgba(245, 158, 11, 0.4) !important;
-    animation: pulseAura 2s infinite ease-in-out !important;
-    pointer-events: none !important;
-}
-
-@keyframes pulseAura {
-    0% { transform: scale(0.95); opacity: 0.8; }
-    50% { transform: scale(1.12); opacity: 0.2; }
-    100% { transform: scale(0.95); opacity: 0.8; }
-}
-
-.farm-btn-inner {
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    justify-content: center !important;
-}
-
-.nav-item.nav-center-btn i {
-    font-size: 20px !important;
-    color: #f59e0b !important;
-    margin-bottom: 1px !important;
-    filter: drop-shadow(0 2px 6px rgba(245, 158, 11, 0.6)) !important;
-    transition: all 0.3s ease !important;
-}
-
-.nav-item.nav-center-btn span {
-    font-size: 8.5px !important;
-    color: #f8fafc !important;
-    font-weight: 700 !important;
-}
-
-/* حالة زر المزرعة عند التفعيل (المزرعة هي القائمة النشطة) */
-.nav-item.nav-center-btn.active {
-    background: linear-gradient(135deg, #f59e0b, #d97706) !important;
-    border-color: #ffffff !important;
-    transform: scale(1.08) !important;
-    box-shadow: 0 8px 25px rgba(245, 158, 11, 0.7), 0 0 30px rgba(245, 158, 11, 0.5) !important;
-}
-
-.nav-item.nav-center-btn.active i {
-    color: #0f172a !important;
-    transform: rotate(-12deg) scale(1.1) !important;
-    filter: none !important;
-}
-
-.nav-item.nav-center-btn.active span {
-    color: #0f172a !important;
-    font-weight: 800 !important;
-}
-
-.nav-item.nav-center-btn.active::before {
-    display: none !important;
-}
-
-/* =========================================
-   ستايل الرسالة العائمة للمرتجعات
-   ========================================= */
-#global-toast {
-    position: fixed;
-    top: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: linear-gradient(135deg, #1e3c72, #2a5298);
-    border: 2px solid #ffcc00;
-    color: #fff;
-    padding: 15px 25px;
-    border-radius: 12px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-    z-index: 99999999;
-    display: none;
+    background: none;
+    border: none;
+    color: #94a3b8;
+    display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 15px;
-    font-family: Tahoma, sans-serif;
-    width: 85%;
-    max-width: 350px;
-    animation: slideDown 0.5s ease-out;
+    cursor: pointer;
+    font-size: 10px;
 }
 
-@keyframes slideDown {
-    0% { top: -50px; opacity: 0; }
-    100% { top: 20px; opacity: 1; }
+.nav-item.active {
+    color: #f59e0b;
 }
 
-/* =========================================
-   إخفاء القائمة عند فتح الكتابة في الموبايل
-   ========================================= */
-body:has(input:focus) .bottom-nav,
-body:has(textarea:focus) .bottom-nav,
-body:has(select:focus) .bottom-nav {
-    display: none !important;
-}
-
-/* =========================================
-   تنسيق تصغير العلامة العشرية والأرقام العشرية
-   ========================================= */
-.small-decimal {
-    font-size: 0.7em !important;   /* تصغير حجم الكسر العشري بنسبة 30% */
-    opacity: 0.85;                  /* شفافية بسيطة لتوضيح الفرق عن الرقم الصحيح */
-    font-weight: normal !important; /* سمك خط عادي للتميز */
-}
-
-/* =========================================
-   تنسيقات نافذة الإرجاع والنتائج الاحترافية (Web3 Style)
-   ========================================= */
-.modal-overlay {
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(11, 15, 25, 0.88);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    z-index: 9999999;
+/* زر المزرعة المركزي المميز */
+.nav-item.nav-center-btn {
+    position: relative;
+    top: -12px;
+    width: 58px;
+    height: 58px;
+    border-radius: 50%;
+    background: #1e293b;
+    border: 3px solid #f59e0b;
     display: flex;
     justify-content: center;
     align-items: center;
-    padding: 20px;
 }
 
-.modal-card {
-    background: linear-gradient(145deg, #1e293b, #0f172a);
-    border: 1.5px solid rgba(56, 189, 248, 0.3);
-    box-shadow: 0 20px 50px rgba(0,0,0,0.8), 0 0 25px rgba(56, 189, 248, 0.15);
-    border-radius: 24px;
-    padding: 25px 20px;
-    width: 100%;
-    max-width: 340px;
-    text-align: center;
-    animation: modalPop 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
-@keyframes modalPop {
-    from { transform: scale(0.8); opacity: 0; }
-    to { transform: scale(1); opacity: 1; }
-}
-
-.modal-icon-shield {
-    font-size: 52px;
-    margin-bottom: 10px;
-    filter: drop-shadow(0 4px 12px rgba(56, 189, 248, 0.5));
-}
-
-.modal-title-refund {
-    color: #38bdf8;
-    font-size: 18px;
-    font-weight: 800;
-    margin-bottom: 8px;
-}
-
-.modal-desc {
-    color: #94a3b8;
-    font-size: 12.5px;
-    line-height: 1.5;
-    margin-bottom: 15px;
-}
-
-.refund-badge {
-    background: rgba(56, 189, 248, 0.08);
-    border: 1px dashed #38bdf8;
-    padding: 12px 15px;
-    border-radius: 14px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 18px;
-    font-size: 13px;
-    color: #e2e8f0;
-}
-
-.refund-badge strong {
-    color: #4ade80;
-    font-size: 16px;
-    font-weight: 800;
-}
-
-.btn-modal-action {
-    width: 100%;
-    padding: 13px;
-    border: none;
-    border-radius: 14px;
-    font-weight: 700;
-    font-size: 14px;
-    cursor: pointer;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.btn-modal-action:active { transform: scale(0.96); }
-
-.btn-refund {
-    background: linear-gradient(135deg, #0284c7, #0369a1);
-    color: #fff;
-    box-shadow: 0 4px 15px rgba(2, 132, 199, 0.4);
+.small-decimal {
+    font-size: 0.75em;
+    opacity: 0.85;
 }
