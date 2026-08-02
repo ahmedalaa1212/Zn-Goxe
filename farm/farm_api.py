@@ -6,6 +6,8 @@ from database import db, get_game_settings
 
 farm_bp = Blueprint('farm', __name__)
 
+COOLDOWN_SECONDS = 15  # مدة الانتظار الإجبارية بين كل تجميع بالثواني
+
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
         100, 150, 200, 250, 300, 
@@ -73,7 +75,6 @@ def get_player_data():
     if not isinstance(req_data, dict):
         req_data = {}
         
-    start_param = req_data.get('start_param') or (user_info.get('start_param') if isinstance(user_info, dict) else '')
     user_id_str = str(telegram_id)
 
     try:
@@ -113,8 +114,6 @@ def get_player_data():
         storage_level = user_data.get("storage_level", 0)
         max_cap = get_storage_capacity(storage_level, game_settings)
         user_data["max_cap"] = max_cap
-
-        # تقريب الرصيد لتجنب أخطاء الفلوت بالـ Firestore
         user_data["balance"] = round(float(user_data.get("balance", 0.0)), 2)
 
         last_claim_str = user_data.get("last_claim_time")
@@ -134,7 +133,6 @@ def get_player_data():
                 pass
 
         parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
-
         upgrade_configs = game_settings.get("upgrade_config") or game_settings.get("speed_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
         upgrade_costs = {}
         for k, v in upgrade_configs.items():
@@ -147,6 +145,8 @@ def get_player_data():
         return jsonify({
             "success": True, 
             "player": user_data, 
+            "server_time": now.isoformat(),
+            "cooldown_seconds": COOLDOWN_SECONDS,
             "game_config": {
                 "daily_rewards": parsed_rewards,
                 "upgrade_costs": upgrade_costs,
@@ -190,9 +190,14 @@ def claim_mined_tokens():
                         last_claim = last_claim.replace(tzinfo=timezone.utc)
                         
                     seconds_passed = (now - last_claim).total_seconds()
-                    if seconds_passed > 0:
-                        mined = (hourly_rate / 3600.0) * seconds_passed
-                        unclaimed = min(mined, max_cap)
+                    
+                    # 🔒 حماية أمنية صارمة: منع التجميع إذا لم تنقضِ الـ 15 ثانية
+                    if seconds_passed < COOLDOWN_SECONDS:
+                        remaining = int(COOLDOWN_SECONDS - seconds_passed)
+                        return None, f"انتظر {remaining} ثانية ⏳", 400
+
+                    mined = (hourly_rate / 3600.0) * seconds_passed
+                    unclaimed = min(mined, max_cap)
                 except Exception: 
                     pass
 
@@ -223,26 +228,26 @@ def claim_mined_tokens():
             "success": True,
             "new_balance": result_data["new_balance"],
             "claimed_amount": result_data["claimed_amount"],
-            "last_claim_time": result_data["last_claim_time"]
+            "last_claim_time": result_data["last_claim_time"],
+            "server_time": datetime.now(timezone.utc).isoformat()
         }), 200
 
     except Exception as e:
         print(f"Error claim: {e}")
         return jsonify({"success": False, "error": "حدث خطأ في عملية التجميع"}), 500
 
+# باقي الـ Endpoints كما هي بدون تغيير
 @farm_bp.route('/upgrade', methods=['POST'])
 def upgrade_field():
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
-    if not success:
-        return error_res
+    if not success: return error_res
 
     req_data = request.get_json(silent=True) or {}
     level = req_data.get('level')
 
     try:
         level = int(level)
-        if level < 1 or level > 9:
-            return jsonify({"success": False, "error": "مستوى ترقية غير صالح"}), 400
+        if level < 1 or level > 9: return jsonify({"success": False, "error": "مستوى ترقية غير صالح"}), 400
     except (TypeError, ValueError):
         return jsonify({"success": False, "error": "بيانات الترقية غير صالحة"}), 400
 
@@ -250,8 +255,7 @@ def upgrade_field():
     upgrade_configs = game_settings.get("upgrade_config") or game_settings.get("speed_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
     config = upgrade_configs.get(str(level)) or upgrade_configs.get(level)
 
-    if not config:
-        return jsonify({"success": False, "error": "إعدادات الترقية غير موجودة"}), 400
+    if not config: return jsonify({"success": False, "error": "إعدادات الترقية غير موجودة"}), 400
 
     user_id_str = str(telegram_id)
     user_ref = db.collection('users').document(user_id_str)
@@ -260,27 +264,23 @@ def upgrade_field():
         @firestore.transactional
         def run_upgrade_transaction(transaction, ref):
             snapshot = ref.get(transaction=transaction)
-            if not snapshot.exists:
-                return None, "المستخدم غير موجود", 404
+            if not snapshot.exists: return None, "المستخدم غير موجود", 404
 
             data = snapshot.to_dict() or {}
             current_bal = float(data.get("balance", 0.0))
             cost = float(config.get("base_cost") or config.get("price", 0.0))
 
-            if current_bal < cost:
-                return None, f"رصيدك غير كافٍ! تحتاج إلى {cost:,.0f} ZN", 400
+            if current_bal < cost: return None, f"رصيدك غير كافٍ! تحتاج إلى {cost:,.0f} ZN", 400
 
             upgrades = data.get("upgrades") or {}
             lvl_key = f"lvl{level}"
             current_count = int(upgrades.get(lvl_key, 0))
 
-            if current_count >= 10:
-                return None, "وصلت للحد الأقصى من الترقية لهذا المستوى", 400
+            if current_count >= 10: return None, "وصلت للحد الأقصى من الترقية لهذا المستوى", 400
 
             if level > 1:
                 prev_lvl_count = int(upgrades.get(f"lvl{level-1}", 0))
-                if prev_lvl_count <= 0:
-                    return None, "يجب فتح المستوى السابق أولاً", 400
+                if prev_lvl_count <= 0: return None, "يجب فتح المستوى السابق أولاً", 400
 
             upgrades[lvl_key] = current_count + 1
             new_bal = round(current_bal - cost, 2)
@@ -298,8 +298,7 @@ def upgrade_field():
         transaction = db.transaction()
         res_data, err_msg, status_code = run_upgrade_transaction(transaction, user_ref)
 
-        if err_msg:
-            return jsonify({"success": False, "error": err_msg}), status_code
+        if err_msg: return jsonify({"success": False, "error": err_msg}), status_code
 
         return jsonify({
             "success": True,
@@ -315,8 +314,7 @@ def upgrade_field():
 @farm_bp.route('/daily_boost', methods=['POST'])
 def daily_boost():
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
-    if not success:
-        return error_res
+    if not success: return error_res
 
     user_id_str = str(telegram_id)
     user_ref = db.collection('users').document(user_id_str)
@@ -329,8 +327,7 @@ def daily_boost():
         @firestore.transactional
         def run_boost_transaction(transaction, ref):
             snapshot = ref.get(transaction=transaction)
-            if not snapshot.exists:
-                return None, "المستخدم غير موجود", 404
+            if not snapshot.exists: return None, "المستخدم غير موجود", 404
 
             data = snapshot.to_dict() or {}
             if data.get("last_boost_date") == today_str:
@@ -350,8 +347,7 @@ def daily_boost():
         transaction = db.transaction()
         res_data, err_msg, status_code = run_boost_transaction(transaction, user_ref)
 
-        if err_msg:
-            return jsonify({"success": False, "error": err_msg}), status_code
+        if err_msg: return jsonify({"success": False, "error": err_msg}), status_code
 
         return jsonify({
             "success": True,
@@ -367,8 +363,7 @@ def daily_boost():
 @farm_bp.route('/daily_claim', methods=['POST'])
 def daily_claim():
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
-    if not success:
-        return error_res
+    if not success: return error_res
 
     user_id_str = str(telegram_id)
     user_ref = db.collection('users').document(user_id_str)
@@ -378,8 +373,7 @@ def daily_claim():
         @firestore.transactional
         def run_daily_claim_transaction(transaction, ref):
             snapshot = ref.get(transaction=transaction)
-            if not snapshot.exists:
-                return None, "المستخدم غير موجود", 404
+            if not snapshot.exists: return None, "المستخدم غير موجود", 404
 
             data = snapshot.to_dict() or {}
             if data.get("last_daily_claim_date") == today_str:
@@ -413,8 +407,7 @@ def daily_claim():
         transaction = db.transaction()
         res_data, err_msg, status_code = run_daily_claim_transaction(transaction, user_ref)
 
-        if err_msg:
-            return jsonify({"success": False, "error": err_msg}), status_code
+        if err_msg: return jsonify({"success": False, "error": err_msg}), status_code
 
         return jsonify({
             "success": True,
