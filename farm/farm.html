@@ -6,7 +6,7 @@
             <div class="stat-icon-wrapper">⚡</div>
             <div class="stat-info">
                 <span class="stat-label">معدل التعدين</span>
-                <span id="farm-rate" data-bind="hourly_rate" class="stat-value">⚡ 0/h</span>
+                <span id="farm-rate" class="stat-value"><span dir="ltr">0 /h</span> ⚡</span>
             </div>
         </div>
 
@@ -16,16 +16,16 @@
             <div class="stat-icon-wrapper coin-icon-sm">💎</div>
             <div class="stat-info">
                 <span class="stat-label">إجمالي الرصيد</span>
-                <span id="farm-balance" data-bind="balance" class="stat-value">ZN: 0</span>
+                <span id="farm-balance" class="stat-value">0.00 ZN</span>
             </div>
         </div>
     </div>
 
     <!-- 2. القسم الأوسط: العملة ثلاثية الأبعاد وزر التعزيز -->
     <div class="hero-mining-section">
-        <button id="boost-btn" disabled class="btn-cooldown boost-circle-btn" onclick="handleDailyBoost()">
-            <span id="boost-icon" class="boost-icon-style">⏳</span>
-            <span id="boost-text" class="boost-text-style">تحميل...</span>
+        <button id="boost-btn" disabled class="boost-floating-btn btn-cooldown" onclick="handleDailyBoost()">
+            <span id="boost-icon" class="boost-icon-style">🚀</span>
+            <span id="boost-text" class="boost-text-style">+2.0/h</span>
         </button>
 
         <div class="coin-3d-wrapper">
@@ -47,14 +47,17 @@
                 <span class="storage-icon">📦</span>
                 <span>سعة التخزين المؤقت</span>
             </div>
-            <div id="storage-text" class="storage-badge">0 / 200</div>
+            <div class="storage-live-counter">
+                <span id="storage-mined-counter" class="mined-counter-text">0.0000 ZN</span>
+                <span id="storage-text" class="storage-badge" dir="ltr">0 / 200</span>
+            </div>
         </div>
 
         <div class="storage-bar-outer">
             <div id="storage-progress" class="storage-bar-inner"></div>
         </div>
 
-        <button id="claim-btn" disabled class="btn-cooldown main-claim-btn" onclick="handleClaim()">
+        <button id="claim-btn" disabled class="main-claim-btn btn-cooldown" onclick="handleClaim()">
             جاري التحميل... ⏳
         </button>
     </div>
@@ -87,34 +90,32 @@
 
 <style>
 /* ==========================================
-   التنسيقات الأساسية والمتغيرات
+   التنسيقات الأساسية المتطورة (Modern Dark Neon)
    ========================================== */
 .farm-container {
     padding: 16px;
     direction: rtl;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     padding-bottom: 110px;
-    max-width: 500px;
+    max-width: 480px;
     margin: 0 auto;
     box-sizing: border-box;
     color: #ffffff;
 }
 
-/* ==========================================
-   1. شريط الرصيد العلوي
-   ========================================== */
+/* 1. شريط الرصيد العلوي */
 .farm-header-card {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 14px 18px;
-    background: rgba(22, 27, 40, 0.75);
+    padding: 12px 16px;
+    background: rgba(15, 23, 42, 0.75);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    border-radius: 18px;
-    margin-bottom: 24px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    border-radius: 20px;
+    margin-bottom: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
 .stat-box {
@@ -126,26 +127,26 @@
 
 .stat-divider {
     width: 1px;
-    height: 30px;
-    background: rgba(255, 255, 255, 0.1);
-    margin: 0 12px;
+    height: 32px;
+    background: rgba(255, 255, 255, 0.12);
+    margin: 0 10px;
 }
 
 .stat-icon-wrapper {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
     background: rgba(243, 156, 18, 0.15);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
-    border: 1px solid rgba(243, 156, 18, 0.25);
+    font-size: 20px;
+    border: 1px solid rgba(243, 156, 18, 0.3);
 }
 
 .coin-icon-sm {
-    background: rgba(46, 204, 113, 0.15);
-    border-color: rgba(46, 204, 113, 0.25);
+    background: rgba(16, 185, 129, 0.15);
+    border-color: rgba(16, 185, 129, 0.3);
 }
 
 .stat-info {
@@ -156,7 +157,7 @@
 .stat-label {
     font-size: 11px;
     color: #94a3b8;
-    font-weight: 500;
+    font-weight: 600;
 }
 
 .stat-value {
@@ -167,42 +168,47 @@
 }
 
 .balance-box .stat-value {
-    color: #2ecc71;
+    color: #10b981;
 }
 
-/* ==========================================
-   2. العملة ثلاثية الأبعاد وزر التعزيز
-   ========================================== */
+/* 2. القسم الأوسط: العملة ثلاثية الأبعاد وزر التعزيز */
 .hero-mining-section {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin: 15px 0 25px 0;
+    margin: 10px 0 20px 0;
     position: relative;
 }
 
 .boost-spacer {
-    width: 70px;
+    width: 65px;
 }
 
-.boost-circle-btn {
-    width: 70px;
-    height: 70px;
+.boost-floating-btn {
+    width: 65px;
+    height: 65px;
     border-radius: 50%;
-    border: 1.5px solid rgba(255, 255, 255, 0.15);
+    border: 1.5px solid rgba(243, 156, 18, 0.4);
+    background: linear-gradient(135deg, rgba(243, 156, 18, 0.2), rgba(230, 126, 34, 0.3));
     color: white;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.3s ease;
     outline: none;
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(8px);
+    box-shadow: 0 4px 15px rgba(243, 156, 18, 0.25);
 }
 
-.boost-icon-style { font-size: 20px; margin-bottom: 2px; }
-.boost-text-style { font-size: 10px; font-weight: 700; }
+.boost-floating-btn:not(:disabled):hover {
+    transform: scale(1.08);
+    box-shadow: 0 0 20px rgba(243, 156, 18, 0.6);
+}
+
+.boost-icon-style { font-size: 18px; margin-bottom: 2px; }
+.boost-text-style { font-size: 10px; font-weight: 800; color: #fbbf24; }
 
 .coin-3d-wrapper {
     position: relative;
@@ -214,106 +220,118 @@
 
 .coin-glow-ring {
     position: absolute;
-    width: 140px;
-    height: 140px;
+    width: 130px;
+    height: 130px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(243, 156, 18, 0.35) 0%, rgba(0, 0, 0, 0) 70%);
+    background: radial-gradient(circle, rgba(243, 156, 18, 0.4) 0%, rgba(0, 0, 0, 0) 70%);
     z-index: 0;
     animation: glowPulse 3s infinite ease-in-out;
 }
 
 .coin-3d {
-    width: 120px;
-    height: 120px;
+    width: 110px;
+    height: 110px;
     background: radial-gradient(circle at 35% 35%, #ffe066, #f39c12 60%, #995c00);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     border: 3px solid #fffb00;
-    box-shadow: 0 10px 30px rgba(243, 156, 18, 0.4), inset 0 0 15px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 10px 30px rgba(243, 156, 18, 0.5), inset 0 0 15px rgba(0, 0, 0, 0.5);
     animation: floatAndSpin 6s ease-in-out infinite;
-    transform-style: preserve-3d;
     z-index: 1;
 }
 
 .coin-inner-ring {
-    width: 96px;
-    height: 96px;
+    width: 88px;
+    height: 88px;
     border-radius: 50%;
-    border: 2px dashed rgba(255, 255, 255, 0.5);
+    border: 2px dashed rgba(255, 255, 255, 0.6);
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
 .coin-symbol {
-    font-size: 34px;
+    font-size: 30px;
     font-weight: 900;
     color: #ffffff;
-    text-shadow: 0 3px 6px rgba(0, 0, 0, 0.5);
-    letter-spacing: 1px;
+    text-shadow: 0 3px 6px rgba(0, 0, 0, 0.6);
 }
 
 @keyframes floatAndSpin {
     0% { transform: translateY(0) rotateY(0deg); }
-    50% { transform: translateY(-8px) rotateY(180deg); }
+    50% { transform: translateY(-6px) rotateY(180deg); }
     100% { transform: translateY(0) rotateY(360deg); }
 }
 
 @keyframes glowPulse {
-    0%, 100% { transform: scale(1); opacity: 0.6; }
-    50% { transform: scale(1.15); opacity: 0.9; }
+    0%, 100% { transform: scale(1); opacity: 0.5; }
+    50% { transform: scale(1.15); opacity: 0.8; }
 }
 
-/* ==========================================
-   3. بطاقات المخزن والأزرار الرئيسية
-   ========================================== */
+/* 3. بطاقة المخزن المحلي والأزرار */
 .storage-card {
-    background: rgba(22, 27, 40, 0.75);
+    background: rgba(15, 23, 42, 0.75);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    border-radius: 18px;
+    border-radius: 20px;
     padding: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    margin-bottom: 22px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    margin-bottom: 20px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
 }
 
 .storage-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
 }
 
 .storage-title {
     font-size: 13px;
     font-weight: 700;
-    color: #e2e8f0;
+    color: #f1f5f9;
     display: flex;
     align-items: center;
     gap: 6px;
 }
 
-.storage-badge {
+.storage-live-counter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mined-counter-text {
     font-size: 12px;
-    color: #f39c12;
+    font-weight: 800;
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.12);
+    padding: 2px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.storage-badge {
+    font-size: 11px;
+    color: #fbbf24;
     background: rgba(243, 156, 18, 0.12);
-    padding: 3px 10px;
-    border-radius: 12px;
+    padding: 2px 8px;
+    border-radius: 8px;
     font-weight: 700;
-    border: 1px solid rgba(243, 156, 18, 0.2);
+    border: 1px solid rgba(243, 156, 18, 0.25);
 }
 
 .storage-bar-outer {
     width: 100%;
-    background: rgba(15, 20, 32, 0.8);
+    background: rgba(30, 41, 59, 0.9);
     height: 14px;
     border-radius: 10px;
     overflow: hidden;
     margin-bottom: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     padding: 2px;
     box-sizing: border-box;
 }
@@ -322,9 +340,9 @@
     width: 0%;
     height: 100%;
     border-radius: 8px;
-    transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease;
+    transition: width 0.3s ease, background 0.3s ease;
     background: linear-gradient(90deg, #f39c12, #f1c40f);
-    box-shadow: 0 0 10px rgba(243, 156, 18, 0.5);
+    box-shadow: 0 0 12px rgba(243, 156, 18, 0.6);
 }
 
 .main-claim-btn {
@@ -335,51 +353,45 @@
     font-weight: 800;
     font-size: 15px;
     cursor: pointer;
-    transition: all 0.25s ease;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     outline: none;
 }
 
-/* ==========================================
-   4. الأزرار والحالات (Cooldown & Ready)
-   ========================================== */
+/* 4. الأزرار والحالات الاحترافية */
 .btn-cooldown { 
-    background: rgba(255, 255, 255, 0.05) !important; 
+    background: rgba(30, 41, 59, 0.6) !important; 
     cursor: not-allowed !important; 
     color: #64748b !important; 
     box-shadow: none !important; 
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid rgba(255, 255, 255, 0.05) !important;
 }
 
 .btn-ready { 
     background: linear-gradient(135deg, #10b981, #059669) !important; 
-    animation: pulseGreenGlow 2s infinite ease-in-out; 
     color: #ffffff !important;
-    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.35) !important;
+    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4) !important;
+    animation: pulseGreenGlow 2s infinite ease-in-out;
+}
+
+.btn-ready:active {
+    transform: scale(0.98);
 }
 
 @keyframes pulseGreenGlow {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
-    50% { box-shadow: 0 0 0 12px rgba(16, 185, 129, 0); }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+    50% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
 }
 
-.timer-text { 
-    font-size: 10px !important; 
-    font-weight: 700; 
-    color: #e2e8f0; 
-}
-
-/* ==========================================
-   5. بطاقات الأقسام والـ Grids
-   ========================================== */
+/* 5. بطاقات الأقسام والشبكات */
 .section-card {
-    background: rgba(22, 27, 40, 0.75);
+    background: rgba(15, 23, 42, 0.75);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    border-radius: 18px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
     padding: 16px;
-    margin-bottom: 22px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    margin-bottom: 20px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
 }
 
 .section-header {
@@ -388,7 +400,7 @@
     align-items: center;
     margin-bottom: 14px;
     padding-bottom: 10px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .section-title {
@@ -422,42 +434,48 @@
 .daily-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
-    gap: 6px;
+    gap: 8px;
 }
 
-/* ==========================================
-   6. التنسيقات الفردية التي يتم إنشاؤها بـ JS
-   ========================================== */
+/* 6. تصميم بطاقات الترقية الاحترافية */
 .mining-card {
-    background: rgba(15, 20, 32, 0.6);
+    background: rgba(30, 41, 59, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 14px;
-    padding: 12px 8px;
+    padding: 10px 6px;
     text-align: center;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: space-between;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    min-height: 105px;
+    transition: all 0.2s ease;
+    min-height: 110px;
     box-sizing: border-box;
 }
 
 .mining-card:hover { 
     border-color: rgba(243, 156, 18, 0.5); 
     transform: translateY(-2px);
+    background: rgba(30, 41, 59, 0.8);
+}
+
+.mining-card-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(243, 156, 18, 0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    margin-bottom: 4px;
+    border: 1px solid rgba(243, 156, 18, 0.3);
 }
 
 .mining-card-title { 
     color: #f1f5f9; 
-    font-size: 12px; 
+    font-size: 11.5px; 
     font-weight: 700; 
-    margin-bottom: 4px; 
-}
-
-.mining-card-level { 
-    color: #f39c12; 
-    font-size: 11px; 
     margin-bottom: 6px; 
 }
 
@@ -472,21 +490,28 @@
     font-size: 10.5px;
     cursor: pointer;
     transition: all 0.2s ease;
+    box-shadow: 0 4px 10px rgba(243, 156, 18, 0.2);
+}
+
+.mining-card-btn:active {
+    transform: scale(0.95);
 }
 
 .mining-card-btn:disabled { 
-    background: rgba(255, 255, 255, 0.1); 
-    color: #64748b; 
-    cursor: not-allowed; 
+    background: rgba(255, 255, 255, 0.08) !important; 
+    color: #64748b !important; 
+    cursor: not-allowed !important; 
+    box-shadow: none !important;
 }
 
+/* 7. بطاقات اليومية */
 .reward-day-card {
-    background: rgba(15, 20, 32, 0.6);
+    background: rgba(30, 41, 59, 0.4);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 10px;
+    border-radius: 12px;
     padding: 8px 4px;
     text-align: center;
-    font-size: 11px;
+    font-size: 10px;
     color: #94a3b8;
     display: flex;
     flex-direction: column;
@@ -505,7 +530,6 @@
     background: rgba(243, 156, 18, 0.15); 
     border-color: #f39c12; 
     color: #fbbf24; 
-    animation: pulseGreenGlow 2s infinite ease-in-out; 
 }
 
 .reward-day-card .day-title { font-weight: 700; font-size: 10px; }
