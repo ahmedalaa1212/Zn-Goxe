@@ -6,7 +6,7 @@ from database import db, get_game_settings
 
 farm_bp = Blueprint('farm', __name__)
 
-COOLDOWN_SECONDS = 15  # مدة الانتظار الإجبارية بين كل تجميع بالثواني
+COOLDOWN_SECONDS = 15  # مدة الانتظار الإجبارية بين كل عملية تجميع بالثواني
 
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
@@ -216,27 +216,30 @@ def claim_mined_tokens():
             }
 
             transaction.update(ref, update_data)
-            return {"new_balance": new_balance, "claimed_amount": unclaimed, "last_claim_time": now_iso}, None, 200
+            return {"new_balance": new_balance, "claimed_amount": unclaimed, "last_claim_time": now_iso, "server_time": now_iso}, None, 200
 
         transaction = db.transaction()
         result_data, error_msg, status_code = run_claim_transaction(transaction, user_ref)
         
         if error_msg:
-            return jsonify({"success": False, "error": error_msg}), status_code
+            return jsonify({
+                "success": False, 
+                "error": error_msg,
+                "server_time": datetime.now(timezone.utc).isoformat()
+            }), status_code
 
         return jsonify({
             "success": True,
             "new_balance": result_data["new_balance"],
             "claimed_amount": result_data["claimed_amount"],
             "last_claim_time": result_data["last_claim_time"],
-            "server_time": datetime.now(timezone.utc).isoformat()
+            "server_time": result_data["server_time"]
         }), 200
 
     except Exception as e:
         print(f"Error claim: {e}")
         return jsonify({"success": False, "error": "حدث خطأ في عملية التجميع"}), 500
 
-# باقي الـ Endpoints كما هي بدون تغيير
 @farm_bp.route('/upgrade', methods=['POST'])
 def upgrade_field():
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
@@ -287,13 +290,14 @@ def upgrade_field():
             rate_bonus = float(config.get("rate_bonus") or config.get("rate", 0.0))
             new_rate = float(data.get("hourly_rate", 0.0)) + rate_bonus
 
+            now_iso = datetime.now(timezone.utc).isoformat()
             transaction.update(ref, {
                 "balance": new_bal,
                 "hourly_rate": new_rate,
                 "upgrades": upgrades
             })
 
-            return {"new_balance": new_bal, "new_hourly_rate": new_rate, "upgrades": upgrades}, None, 200
+            return {"new_balance": new_bal, "new_hourly_rate": new_rate, "upgrades": upgrades, "server_time": now_iso}, None, 200
 
         transaction = db.transaction()
         res_data, err_msg, status_code = run_upgrade_transaction(transaction, user_ref)
@@ -304,7 +308,8 @@ def upgrade_field():
             "success": True,
             "new_balance": res_data["new_balance"],
             "new_hourly_rate": res_data["new_hourly_rate"],
-            "upgrades": res_data["upgrades"]
+            "upgrades": res_data["upgrades"],
+            "server_time": res_data["server_time"]
         }), 200
 
     except Exception as e:
@@ -318,7 +323,8 @@ def daily_boost():
 
     user_id_str = str(telegram_id)
     user_ref = db.collection('users').document(user_id_str)
-    today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    now_dt = datetime.now(timezone.utc)
+    today_str = now_dt.strftime('%Y-%m-%d')
     game_settings = get_game_settings() or DEFAULT_GAME_SETTINGS
     mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
     boost_reward = float(mining_cfg.get("daily_boost_reward", 2.0))
@@ -342,7 +348,7 @@ def daily_boost():
                 "ads_watched": firestore.Increment(1)
             })
 
-            return {"new_rate": new_rate, "last_boost_date": today_str, "added_rate": boost_reward}, None, 200
+            return {"new_rate": new_rate, "last_boost_date": today_str, "added_rate": boost_reward, "server_time": now_dt.isoformat()}, None, 200
 
         transaction = db.transaction()
         res_data, err_msg, status_code = run_boost_transaction(transaction, user_ref)
@@ -353,7 +359,8 @@ def daily_boost():
             "success": True,
             "new_rate": res_data["new_rate"],
             "last_boost_date": res_data["last_boost_date"],
-            "added_rate": res_data["added_rate"]
+            "added_rate": res_data["added_rate"],
+            "server_time": res_data["server_time"]
         }), 200
 
     except Exception as e:
@@ -367,7 +374,8 @@ def daily_claim():
 
     user_id_str = str(telegram_id)
     user_ref = db.collection('users').document(user_id_str)
-    today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    now_dt = datetime.now(timezone.utc)
+    today_str = now_dt.strftime('%Y-%m-%d')
 
     try:
         @firestore.transactional
@@ -401,7 +409,8 @@ def daily_claim():
                 "reward": reward_amount,
                 "new_balance": new_balance,
                 "daily_day": next_day,
-                "last_daily_claim_date": today_str
+                "last_daily_claim_date": today_str,
+                "server_time": now_dt.isoformat()
             }, None, 200
 
         transaction = db.transaction()
@@ -414,7 +423,8 @@ def daily_claim():
             "reward": res_data["reward"],
             "new_balance": res_data["new_balance"],
             "daily_day": res_data["daily_day"],
-            "last_daily_claim_date": res_data["last_daily_claim_date"]
+            "last_daily_claim_date": res_data["last_daily_claim_date"],
+            "server_time": res_data["server_time"]
         }), 200
 
     except Exception as e:
