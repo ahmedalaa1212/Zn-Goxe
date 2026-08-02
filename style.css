@@ -72,27 +72,33 @@ body {
 }
 
 /* ==========================================
-   شريط التنقل السفلي الاحترافي والمستجيب
+   شريط التنقل السفلي المضبوط (توزيع Flex متناسق)
    ========================================== */
 .bottom-nav {
     position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
-    height: calc(66px + env(safe-area-inset-bottom, 0px));
+    width: 100%;
+    height: calc(62px + env(safe-area-inset-bottom, 0px));
     padding-bottom: env(safe-area-inset-bottom, 0px);
-    background: rgba(15, 23, 42, 0.94);
+    background: rgba(15, 23, 42, 0.96);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
+    display: flex;
+    justify-content: space-between;
     align-items: center;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     z-index: 9999;
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
+    padding-left: 2px;
+    padding-right: 2px;
 }
 
+/* أزرار القائمة العادية */
 .nav-item {
+    flex: 1;
+    min-width: 0; /* أهم خاصية لمنع تداخل العناصر والعناوين */
     background: none;
     border: none;
     color: #64748b;
@@ -101,114 +107,109 @@ body {
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    padding: 4px 0;
-    min-width: 0; /* منع خروج النص خارج الخلية */
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    padding: 2px 0;
+    transition: all 0.2s ease;
     position: relative;
     height: 100%;
+    text-decoration: none;
 }
 
 .nav-item i {
-    font-size: clamp(14px, 3.8vw, 17px);
-    margin-bottom: 3px;
+    font-size: 14px;
+    margin-bottom: 2px;
     transition: transform 0.2s ease, color 0.2s ease;
+    display: block;
 }
 
 .nav-item span {
-    font-size: clamp(8.5px, 2.2vw, 10.5px);
+    font-size: 8.5px;
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 100%;
+    width: 100%;
+    text-align: center;
+    display: block;
     padding: 0 1px;
 }
 
-/* حالة التفعيل للأزرار العادية */
+/* حالة التفعيل */
 .nav-item.active {
     color: #f59e0b;
 }
 
 .nav-item.active i {
-    transform: translateY(-2px) scale(1.1);
+    transform: translateY(-1px) scale(1.1);
     color: #f59e0b;
-    filter: drop-shadow(0 2px 6px rgba(245, 158, 11, 0.4));
+    filter: drop-shadow(0 2px 4px rgba(245, 158, 11, 0.5));
+}
+
+.nav-item.active::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 16px;
+    height: 3px;
+    background: #f59e0b;
+    border-radius: 0 0 4px 4px;
+    box-shadow: 0 2px 6px #f59e0b;
 }
 
 .nav-item:active {
     transform: scale(0.92);
 }
 
-/* مؤشر أعلى الزر النشط */
-.nav-item.active::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    width: 20px;
-    height: 3px;
-    background: #f59e0b;
-    border-radius: 0 0 4px 4px;
-    box-shadow: 0 2px 8px #f59e0b;
-}
-
 /* ==========================================
-   زر المزرعة المركزى المميز (Floating Center Button)
+   زر المزرعة المركزي المميز
    ========================================== */
 .nav-item.nav-center-btn {
+    flex: 0 0 50px; /* حجم ثابت للزر بدون التعدي على المساحات المجاورة */
+    height: 50px;
     position: relative;
-    top: -14px;
-    justify-self: center;
-    width: clamp(54px, 14vw, 62px);
-    height: clamp(54px, 14vw, 62px);
+    top: -10px;
     border-radius: 50%;
     background: linear-gradient(145deg, #1e293b, #0f172a);
     border: 2px solid #f59e0b;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5), 0 0 12px rgba(245, 158, 11, 0.3);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6), 0 0 10px rgba(245, 158, 11, 0.3);
     padding: 0;
-    overflow: visible;
-    color: #cbd5e1;
+    margin: 0 2px;
 }
 
 .nav-item.nav-center-btn::before {
-    display: none; /* إلغاء الشريط العلوي للزر الأوسط */
+    display: none;
 }
 
 .farm-btn-inner {
     width: 100%;
     height: 100%;
-    border-radius: 50%;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 1px;
+    border-radius: 50%;
 }
 
 .nav-item.nav-center-btn i {
-    font-size: clamp(15px, 4vw, 19px);
+    font-size: 15px;
     margin-bottom: 1px;
     color: #f59e0b;
 }
 
 .nav-item.nav-center-btn span {
-    font-size: clamp(8px, 2vw, 9.5px);
+    font-size: 8px;
     font-weight: 700;
     color: #ffffff;
 }
 
-/* الحالة النشطة للزر الأوسط */
 .nav-item.nav-center-btn.active {
-    background: radial-gradient(circle at 50% 30%, #2a374e, #131c2e);
     border-color: #ffd700;
-    box-shadow: 0 8px 22px rgba(245, 158, 11, 0.5), 0 0 15px rgba(255, 215, 0, 0.4);
+    box-shadow: 0 6px 18px rgba(245, 158, 11, 0.6), 0 0 12px rgba(255, 215, 0, 0.5);
+    background: radial-gradient(circle, #253346, #0f172a);
 }
 
-.nav-item.nav-center-btn.active i {
-    color: #ffd700;
-    transform: scale(1.15) rotate(-5deg);
-    filter: drop-shadow(0 2px 8px rgba(255, 215, 0, 0.6));
-}
-
+.nav-item.nav-center-btn.active i,
 .nav-item.nav-center-btn.active span {
     color: #ffd700;
 }
