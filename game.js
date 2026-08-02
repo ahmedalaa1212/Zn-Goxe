@@ -196,7 +196,68 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 5. تحميل بيانات المستخدم وتشغيل التطبيق
+// 5. محرك تحميل القوائم والتنقل الديناميكي (Dynamic Page Loader)
+// ==========================================
+const loadedModules = new Set();
+
+window.switchView = async function(viewName) {
+    // 1. تحديث الأزرار النشطة في الشريط السفلي
+    document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
+    const targetNav = document.getElementById(`nav-${viewName}`);
+    if (targetNav) targetNav.classList.add('active');
+
+    // 2. تحديث الحاويات
+    document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
+    const targetView = document.getElementById(`view-${viewName}`);
+    if (!targetView) return;
+    
+    targetView.classList.add('active');
+
+    // 3. التحقق مما إذا كان القسم قد تم تحميل محتواه سابقاً
+    if (!loadedModules.has(viewName)) {
+        try {
+            // جلب ملف ה-HTML المخصص من المجلد المخصص لكل قسم
+            const res = await fetch(`${viewName}/${viewName}.html`);
+            if (res.ok) {
+                const htmlContent = await res.text();
+                targetView.innerHTML = htmlContent;
+                
+                // جلب وتحميل سكريبت JS الخاص بالقسم
+                await loadModuleScript(`${viewName}/${viewName}.js`);
+                loadedModules.add(viewName);
+            } else {
+                console.warn(`تعذر تحميل الملف: ${viewName}/${viewName}.html`);
+            }
+        } catch (err) {
+            console.error(`خطأ أثناء تحميل قسم ${viewName}:`, err);
+        }
+    }
+
+    // 4. استدعاء دالة التهيئة المخصصة للقسم إن وجِدت (مثلاً initFarmView أو initWalletView)
+    const initFuncName = `init${viewName.charAt(0).toUpperCase() + viewName.slice(1)}View`;
+    if (typeof window[initFuncName] === 'function') {
+        window[initFuncName]();
+    }
+    
+    window.updateUI();
+};
+
+function loadModuleScript(scriptUrl) {
+    return new Promise((resolve, reject) => {
+        if (document.querySelector(`script[src="${scriptUrl}"]`)) {
+            resolve();
+            return;
+        }
+        const script = document.createElement('script');
+        script.src = scriptUrl;
+        script.onload = () => resolve();
+        script.onerror = () => resolve(); // يتجاوز الخطأ إذا كان الملف غير موجود لبعض القوائم البسيطة
+        document.body.appendChild(script);
+    });
+}
+
+// ==========================================
+// 6. تحميل بيانات المستخدم وتشغيل التطبيق
 // ==========================================
 window.loadUserData = async function() {
     try {
@@ -215,6 +276,9 @@ window.loadUserData = async function() {
 
 function initApp() {
     window.updateUI();
+    // تحميل قسم المزرعة المبدئي افتراضياً
+    window.switchView('farm');
+    
     window.loadUserData().then(() => {
         const uid = window.userState.tg_id || tg?.initDataUnsafe?.user?.id;
         if (uid) window.initFirebaseRealtimeSync(uid);
