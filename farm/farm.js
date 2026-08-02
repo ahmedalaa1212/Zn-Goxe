@@ -31,7 +31,7 @@
         else alert(message);
     }
 
-    // قراءة الرصيد الأساسي بدقة بدون التلاعب به في العداد المحترق
+    // قراءة الرصيد الأساسي بدقة بدون التلاعب به
     function getStoredBalance() {
         if (window.userState && window.userState.balance !== undefined) {
             return parseFloat(window.userState.balance || 0);
@@ -128,7 +128,7 @@
         let bal = getStoredBalance();
         let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
         
-        // رسم الرصيد الأساسي بدقة منسقة 2 كسر عشري بدون انحراف عشوائي
+        // رسم الرصيد الأساسي بدقة منسقة 2 كسر عشري بدون تلاعب محلي
         const balEl = document.getElementById('farm-balance');
         if (balEl) {
             balEl.innerText = `${bal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} ZN`;
@@ -242,7 +242,7 @@
         container.innerHTML = html;
     }
 
-    // العداد المحلي المستقل: يعرض التجمع المؤقت في المخزن فقط ولا يمس الرصيد الأساسي
+    // العداد المحلي المستقل: يزيد التجمع المؤقت في المخزن فقط بدون المساس بالرصيد الأساسي
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
         const pData = window.PlayerData;
@@ -258,7 +258,7 @@
         if (unclaim >= maxC) unclaim = maxC;
         pData.unclaimed = unclaim;
 
-        // تحديث شريط التخزين والعداد الحقيقي اللحظي
+        // تحديث شريط التخزين والعداد الحقيقي اللحظي في المخزن المؤقت فقط
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
         const minedCounterEl = document.getElementById('storage-mined-counter');
@@ -274,23 +274,23 @@
                 progressEl.style.background = 'linear-gradient(90deg, #f39c12, #f1c40f)';
             }
             
-            storageTextEl.innerText = `${Math.floor(unclaim)} / ${maxC.toLocaleString()}`;
+            storageTextEl.innerText = `${unclaim.toFixed(2)} / ${maxC.toLocaleString()}`;
         }
 
         if (minedCounterEl) {
             minedCounterEl.innerText = `+${unclaim.toFixed(4)} ZN`;
         }
 
+        // تحديث حالة الزر بنص أنيق وواضح بدون أرقام متغيرة بداخل الزر
         const claimBtn = document.getElementById('claim-btn');
         if (claimBtn) {
             if (claimCooldown > 0) {
-                claimCooldown--;
                 claimBtn.innerText = `انتظر ${claimCooldown} ثانية ⏳`;
                 claimBtn.className = "main-claim-btn btn-cooldown";
                 claimBtn.disabled = true;
             } else if (!isClaimingMain) {
                 if (unclaim > 0) {
-                    claimBtn.innerText = `تجميع الرصيد (${unclaim.toFixed(2)} ZN) 💰`;
+                    claimBtn.innerText = "تجميع الرصيد 💰";
                     claimBtn.className = "main-claim-btn btn-ready";
                     claimBtn.disabled = false;
                 } else {
@@ -503,7 +503,7 @@
         const currentBal = getStoredBalance();
         const optimisticNewBal = currentBal + unclaimedAmount;
         
-        // تحديث سلس محلي فور الضغط على الزر
+        // تحديث محلي فوري عند التجميع
         setStoredBalance(optimisticNewBal);
         pData.unclaimed = 0;
         pData.last_claim_time = new Date().toISOString();
