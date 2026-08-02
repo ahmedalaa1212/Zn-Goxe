@@ -1,30 +1,15 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-    <meta name='admaven-placement' content='BqTU9qjgH'>
-    <meta name="clckd" content="33fdc2db6d7c74829748874cd984ec1d" />
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Zn Goxe - Crypto Mining</title>
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://libtl.com/sdk.js" data-zone="11322720" data-sdk="show_11322720"></script>
-    <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
-    
-    <link rel="stylesheet" href="farm/farm.css">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-    <div id="global-toast">
-        <span style="font-size: 30px;">💰</span>
-        <div style="display: flex; flex-direction: column; flex-grow: 1;">
-            <span style="font-size: 15px; color: #ffcc00; font-weight: bold; margin-bottom: 3px;">تم استرجاع رصيدك!</span>
-            <span id="toast-msg" style="font-size: 12px; color: #ddd;">تم رد الرصيد لعدم اكتمال الساحة.</span>
-        </div>
-        <button onclick="document.getElementById('global-toast').style.display='none'" style="background: none; border: none; color: #fff; font-size: 24px; cursor: pointer;">&times;</button>
-    </div>
 
     <div id="loading-screen">
         <div class="loader-rocket">🚀</div>
@@ -42,15 +27,9 @@
     </div>
 
     <nav class="bottom-nav" id="main-nav" style="display: none;">
-        <button class="nav-item" onclick="switchView('friends')" id="nav-friends">
-            <i class="fas fa-users"></i><span>الأصدقاء</span>
-        </button>
-        <button class="nav-item" onclick="switchView('wallet')" id="nav-wallet">
-            <i class="fas fa-wallet"></i><span>المحفظة</span>
-        </button>
-        <button class="nav-item" onclick="switchView('tasks')" id="nav-tasks">
-            <i class="fas fa-list-check"></i><span>المهام</span>
-        </button>
+        <button class="nav-item" onclick="switchView('friends')" id="nav-friends"><i class="fas fa-users"></i><span>الأصدقاء</span></button>
+        <button class="nav-item" onclick="switchView('wallet')" id="nav-wallet"><i class="fas fa-wallet"></i><span>المحفظة</span></button>
+        <button class="nav-item" onclick="switchView('tasks')" id="nav-tasks"><i class="fas fa-list-check"></i><span>المهام</span></button>
         
         <button class="nav-item nav-center-btn active" onclick="switchView('farm')" id="nav-farm">
             <div class="farm-btn-inner">
@@ -59,166 +38,22 @@
             </div>
         </button>
 
-        <button class="nav-item" onclick="switchView('games')" id="nav-games">
-            <i class="fas fa-gamepad"></i><span>الألعاب</span>
-        </button>
-        <button class="nav-item" onclick="switchView('shop')" id="nav-shop">
-            <i class="fas fa-store"></i><span>المتجر</span>
-        </button>
-        <button class="nav-item" onclick="switchView('settings')" id="nav-settings">
-            <i class="fas fa-cog"></i><span>الإعدادات</span>
-        </button>
+        <button class="nav-item" onclick="switchView('games')" id="nav-games"><i class="fas fa-gamepad"></i><span>الألعاب</span></button>
+        <button class="nav-item" onclick="switchView('shop')" id="nav-shop"><i class="fas fa-store"></i><span>المتجر</span></button>
+        <button class="nav-item" onclick="switchView('settings')" id="nav-settings"><i class="fas fa-cog"></i><span>الإعدادات</span></button>
     </nav>
 
+    <script src="game.js"></script>
     <script>
-        async function verifyAndStartGame() {
-            if (window.Telegram && window.Telegram.WebApp) {
-                window.Telegram.WebApp.ready(); 
-                window.Telegram.WebApp.expand(); 
-            }
-
-            const cacheVersion = new Date().getTime();
-
-            // 1. تحميل واجهات القوائم
-            await loadAllViews(cacheVersion);
-
-            // 2. تحميل المحرك الرئيسي game.js
-            await loadScriptPromise(`game.js?v=${cacheVersion}`);
-
-            // 3. تحميل سكريبتات القوائم الفرعية
-            const scripts = [
-                'friends/friends.js', 'wallet/wallet.js', 'tasks/tasks.js',
-                'farm/farm.js', 'games/games.js', 'shop/shop.js', 'settings/settings.js'
-            ];
-            await Promise.all(scripts.map(jsPath => loadScriptPromise(`${jsPath}?v=${cacheVersion}`)));
-
-            // 4. جلب البيانات الأساسية للبروفايل والواجهة
-            if (typeof window.loadUserData === 'function') {
-                await window.loadUserData();
-            }
-
-            // 5. تحديث كافة النصوص والأرقام في الواجهة
-            if (typeof window.updateUI === 'function') {
-                window.updateUI();
-            }
-
-            // 6. فحص الإشعارات المرتجعة
-            await checkGlobalNotifications();
-
-            // 7. إدراج إعلانات أونليكا
-            injectOnclickaScript();
-
-            // 8. إخفاء شاشة التحميل بعد الجاهزية 100%
-            const loadingScreen = document.getElementById('loading-screen');
-            if (loadingScreen) {
-                loadingScreen.classList.add('fade-out');
-                setTimeout(() => {
-                    loadingScreen.style.display = 'none';
-                    document.getElementById('app').style.display = 'block';
-                    document.getElementById('main-nav').style.display = 'flex';
-                }, 300);
-            }
-        }
-
-        async function loadAllViews(cacheVersion) {
-            const views = [
-                { id: 'view-friends', path: 'friends/friends.html' },
-                { id: 'view-wallet', path: 'wallet/wallet.html' },
-                { id: 'view-tasks', path: 'tasks/tasks.html' },
-                { id: 'view-farm', path: 'farm/farm.html' },
-                { id: 'view-games', path: 'games/games.html' },
-                { id: 'view-shop', path: 'shop/shop.html' },
-                { id: 'view-settings', path: 'settings/settings.html' }
-            ];
-
-            for (let view of views) {
-                try {
-                    let response = await fetch(`${view.path}?v=${cacheVersion}`);
-                    if (response.ok) {
-                        let html = await response.text();
-                        document.getElementById(view.id).innerHTML = html;
-                    } else {
-                        console.error(`❌ خطأ في تحميل ${view.path}: كود ${response.status}`);
-                    }
-                } catch (error) {
-                    console.error("❌ فشل الاتصال لتحميل العرض:", view.path, error);
-                }
-            }
-        }
-
-        function loadScriptPromise(src) {
-            return new Promise((resolve) => {
-                let script = document.createElement('script');
-                script.src = src;
-                script.async = false;
-                script.onload = () => resolve();
-                script.onerror = () => {
-                    console.error(`❌ فشل تحميل السكريبت: ${src}`);
-                    resolve(); 
-                };
-                document.body.appendChild(script);
-            });
-        }
-
-        async function checkGlobalNotifications() {
-            const initData = window.Telegram?.WebApp?.initData;
-            if (!initData) return;
-            try {
-                let response = await fetch('/api/games/check_notifications', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ initData: initData })
-                });
-                let resData = await response.json();
-                if (resData.success && resData.refund > 0) {
-                    let msgEl = document.getElementById('toast-msg');
-                    if (msgEl) msgEl.innerText = `تم رد ${resData.refund.toLocaleString()} ZN لعدم اكتمال النصاب.`;
-                    
-                    let toast = document.getElementById('global-toast');
-                    if (toast) {
-                        toast.style.display = 'flex';
-                        setTimeout(() => { toast.style.display = 'none'; }, 7000);
-                    }
-                }
-            } catch(e) { console.error("Error checking notifications:", e); }
-        }
-
-        function injectOnclickaScript() {
-            let onlickaScript = document.createElement('script');
-            onlickaScript.src = "https://js.onclckmn.com/static/onclicka.js";
-            onlickaScript.setAttribute('data-admpid', '449096');
-            onlickaScript.async = true;
-            document.body.appendChild(onlickaScript);
-        }
-
         function switchView(viewName) {
-            if (window.Telegram?.WebApp?.HapticFeedback) {
-                window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
-            }
-
-            document.querySelectorAll('.game-view').forEach(v => {
-                v.classList.remove('active');
-                v.style.setProperty('display', 'none', 'important');
-            });
-
+            document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
             let targetView = document.getElementById(`view-${viewName}`);
-            if (targetView) {
-                targetView.classList.add('active');
-                targetView.style.setProperty('display', 'block', 'important');
-            }
+            if (targetView) targetView.classList.add('active');
             
             document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
             let targetNav = document.getElementById(`nav-${viewName}`);
             if (targetNav) targetNav.classList.add('active');
-
-            window.scrollTo(0, 0);
-
-            if (typeof window.updateUI === 'function') {
-                window.updateUI();
-            }
         }
-
-        document.addEventListener('DOMContentLoaded', verifyAndStartGame);
     </script>
 </body>
 </html>
