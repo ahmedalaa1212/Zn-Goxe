@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 from google.cloud import firestore
 
-from database import db, create_transaction
+from database import db, create_transaction, get_game_settings
 from core.security import get_authenticated_user
 from core.ton_price import get_live_ton_price
 
@@ -14,12 +14,12 @@ shop_bp = Blueprint('shop', __name__)
 
 PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
 
-# --- Server-Side RAM Caching Systems (حماية الفايربيس من استنزاف القراءات) ---
+# --- Server-Side RAM Caching Systems ---
 _SHOP_CONFIG_CACHE = {"data": None, "timestamp": 0}
 _TON_PRICE_CACHE = {"price": 0.0, "timestamp": 0}
 
-CACHE_TTL_CONFIG = 600  # 10 دقائق لكاش إعدادات المتجر بالكامل
-CACHE_TTL_TON = 60      # 60 ثانية لكاش سعر عملة TON المباشر
+CACHE_TTL_CONFIG = 600  # 10 دقائق لكاش إعدادات المتجر
+CACHE_TTL_TON = 60      # 60 ثانية لكاش سعر عملة TON
 
 DEFAULT_USDT_PACKAGES = {
     "pkg_1": {"usdt": 1.0, "rate_add": 150.0, "storage_add": 2000.0, "zn_add": 30000.0, "title": "البرونزية"},
@@ -87,36 +87,17 @@ def get_game_config():
         return _SHOP_CONFIG_CACHE["data"]
 
     try:
-        doc_ref = db.collection('config').document('game_settings')
-        doc = doc_ref.get()
-        
-        updates = {}
-        data = doc.to_dict() if (doc.exists and doc.to_dict() is not None) else {}
+        data = get_game_settings() or {}
 
-        if 'usdt_packages' not in data or not isinstance(data.get('usdt_packages'), dict) or len(data['usdt_packages']) == 0:
-            updates['usdt_packages'] = DEFAULT_USDT_PACKAGES
+        # التوافق مع مسمى speed_config أو mining_config
+        mining_cfg = data.get('mining_config') or data.get('speed_config') or DEFAULT_MINING_CONFIG
+        data['mining_config'] = mining_cfg
+        data['speed_config'] = mining_cfg
+
+        if 'usdt_packages' not in data:
             data['usdt_packages'] = DEFAULT_USDT_PACKAGES
-
-        if 'storage_config' not in data or not isinstance(data.get('storage_config'), dict):
-            updates['storage_config'] = DEFAULT_STORAGE_CONFIG
+        if 'storage_config' not in data:
             data['storage_config'] = DEFAULT_STORAGE_CONFIG
-
-        current_mining = data.get('mining_config')
-        if not isinstance(current_mining, dict):
-            current_mining = {}
-        
-        mining_updated = False
-        for lvl_key, lvl_val in DEFAULT_MINING_CONFIG.items():
-            if lvl_key not in current_mining:
-                current_mining[lvl_key] = lvl_val
-                mining_updated = True
-
-        if mining_updated or 'mining_config' not in data:
-            updates['mining_config'] = current_mining
-            data['mining_config'] = current_mining
-
-        if updates:
-            doc_ref.set(updates, merge=True)
 
         _SHOP_CONFIG_CACHE["data"] = data
         _SHOP_CONFIG_CACHE["timestamp"] = now
@@ -127,7 +108,8 @@ def get_game_config():
         fallback = {
             'usdt_packages': DEFAULT_USDT_PACKAGES,
             'storage_config': DEFAULT_STORAGE_CONFIG,
-            'mining_config': DEFAULT_MINING_CONFIG
+            'mining_config': DEFAULT_MINING_CONFIG,
+            'speed_config': DEFAULT_MINING_CONFIG
         }
         _SHOP_CONFIG_CACHE["data"] = fallback
         _SHOP_CONFIG_CACHE["timestamp"] = now
@@ -210,9 +192,6 @@ def prepare_ton_pay():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 200
 
-# ==========================================
-# 💎 1. تأكيد وتفعيل باقات TON (معاملة معزولة)
-# ==========================================
 @shop_bp.route('/verify_and_apply_package', methods=['POST'])
 def verify_and_apply_package():
     try:
@@ -305,9 +284,6 @@ def verify_and_apply_package():
         print(f"[Shop Package Error]: {e}")
         return jsonify({"success": False, "error": str(e)}), 200
 
-# ==========================================
-# 🛒 2. شراء ترقيات السرعة والمخازن (Transaction أمنية)
-# ==========================================
 @shop_bp.route('/buy', methods=['POST'])
 def buy_upgrade():
     try:
@@ -362,7 +338,7 @@ def buy_upgrade():
             new_last_claim_time = now_dt.isoformat()
 
             if upgrade_type == 'mining':
-                mining_cfg = settings.get('mining_config', DEFAULT_MINING_CONFIG)
+                mining_cfg = settings.get('mining_config') or settings.get('speed_config') or DEFAULT_MINING_CONFIG
                 if level_num not in mining_cfg:
                     raise Exception("مستوى ترقية غير صالح.")
 
@@ -382,7 +358,6 @@ def buy_upgrade():
                 new_balance = round(total_balance - price, 2)
                 upgrades[lvl_key] = current_lvl_count + 1
 
-                # إضافة السرعة المكتسبة فقط وعدم مسح سرعة الباقات المميزة
                 speed_to_add = float(config.get('rate', 0.0))
                 new_hourly_rate = round(hourly_rate + speed_to_add, 2)
 
