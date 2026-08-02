@@ -44,16 +44,5 @@
     </nav>
 
     <script src="game.js"></script>
-    <script>
-        function switchView(viewName) {
-            document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
-            let targetView = document.getElementById(`view-${viewName}`);
-            if (targetView) targetView.classList.add('active');
-            
-            document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
-            let targetNav = document.getElementById(`nav-${viewName}`);
-            if (targetNav) targetNav.classList.add('active');
-        }
-    </script>
 </body>
 </html>
