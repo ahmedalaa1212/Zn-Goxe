@@ -10,6 +10,7 @@ if (tg) {
 }
 
 window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 0;
+window.serverTimeOffset = 0; // الفرق الملي-ثاني بين توقيت جهاز المستخدم الخادم
 
 function hideLoadingScreen() {
     const appEl = document.getElementById('app');
@@ -29,7 +30,8 @@ function getSavedState() {
     const base = {
         tg_id: tg?.initDataUnsafe?.user?.id || null,
         first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب",
-        balance: 0, usd_balance: 0, ad_balance: 0, hourly_rate: 0, energy: 100, storage_level: 0, upgrades: {}, wallet_address: null, last_sync_time: Date.now()
+        balance: 0, usd_balance: 0, ad_balance: 0, hourly_rate: 0, energy: 100, storage_level: 0, upgrades: {}, wallet_address: null, 
+        last_claim_time: null, last_sync_time: Date.now()
     };
     try { 
         const saved = localStorage.getItem('app_user_state');
@@ -47,7 +49,7 @@ let lastSaveTime = 0;
 window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
         target[prop] = value;
-        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'].includes(prop)) {
+        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades', 'last_claim_time'].includes(prop)) {
             const now = Date.now();
             if (now - lastSaveTime > 2000 && !isFirebaseUpdating) {
                 try { localStorage.setItem('app_user_state', JSON.stringify(target)); } catch {}
@@ -83,12 +85,18 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
             throw new Error(data.error || `HTTP ${res.status}`);
         }
 
-        const targetObj = data.user || data.player || data.data || data;
+        if (data.server_time) {
+            const serverMs = new Date(data.server_time).getTime();
+            window.serverTimeOffset = serverMs - Date.now();
+        }
+
+        const targetObj = data.player || data.user || data.data || data;
         
         isFirebaseUpdating = true;
         if (targetObj?.balance !== undefined) window.userState.balance = parseFloat(targetObj.balance);
         if (targetObj?.usd_balance !== undefined) window.userState.usd_balance = parseFloat(targetObj.usd_balance);
         if (targetObj?.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate);
+        if (targetObj?.last_claim_time !== undefined) window.userState.last_claim_time = targetObj.last_claim_time;
         isFirebaseUpdating = false;
 
         return data;
@@ -112,7 +120,7 @@ window.initFirebaseRealtimeSync = function(userId) {
             isFirebaseUpdating = true;
             if (d.balance !== undefined) window.userState.balance = parseFloat(d.balance);
             if (d.usd_balance !== undefined) window.userState.usd_balance = parseFloat(d.usd_balance);
-            ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades'].forEach(k => {
+            ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades', 'last_claim_time'].forEach(k => {
                 if (d[k] !== undefined) window.userState[k] = d[k];
             });
             window.userState.last_sync_time = Date.now();
@@ -123,7 +131,65 @@ window.initFirebaseRealtimeSync = function(userId) {
 };
 
 // ==========================================
-// 4. تنسيق العداد والمحرك السلس (Local Math)
+// 4. دالة إدارة العداد المحمية من السيرفر (15 ثانية)
+// ==========================================
+let claimCooldownTimer = null;
+
+window.updateClaimButtonState = function() {
+    const claimButtons = document.querySelectorAll('#claim-btn, .claim-btn, [data-action="claim"]');
+    if (!claimButtons.length) return;
+
+    const COOLDOWN_SECONDS = 15;
+    const lastClaimStr = window.userState.last_claim_time;
+
+    if (!lastClaimStr) {
+        claimButtons.forEach(btn => {
+            btn.disabled = false;
+            btn.innerHTML = `تجميع الرصيد 💰`;
+        });
+        return;
+    }
+
+    const lastClaimMs = new Date(lastClaimStr).getTime();
+    const currentServerMs = Date.now() + window.serverTimeOffset;
+    const secondsPassed = Math.floor((currentServerMs - lastClaimMs) / 1000);
+    const remainingSeconds = COOLDOWN_SECONDS - secondsPassed;
+
+    if (claimCooldownTimer) clearInterval(claimCooldownTimer);
+
+    if (remainingSeconds > 0) {
+        let currentCountdown = remainingSeconds;
+        
+        claimButtons.forEach(btn => {
+            btn.disabled = true;
+            btn.innerHTML = `انتظر ${currentCountdown} ثانية ⏳`;
+        });
+
+        claimCooldownTimer = setInterval(() => {
+            currentCountdown--;
+            if (currentCountdown > 0) {
+                claimButtons.forEach(btn => {
+                    btn.disabled = true;
+                    btn.innerHTML = `انتظر ${currentCountdown} ثانية ⏳`;
+                });
+            } else {
+                clearInterval(claimCooldownTimer);
+                claimButtons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.innerHTML = `تجميع الرصيد 💰`;
+                });
+            }
+        }, 1000);
+    } else {
+        claimButtons.forEach(btn => {
+            btn.disabled = false;
+            btn.innerHTML = `تجميع الرصيد 💰`;
+        });
+    }
+};
+
+// ==========================================
+// 5. تنسيق العداد والمحرك السلس (Local Math)
 // ==========================================
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0';
@@ -157,7 +223,6 @@ let visualBalance = null;
 
 function startLocalMiningSimulator() {
     requestAnimationFrame(function tick() {
-        // تم إلغاء إضافة التعدين محلياً للرصيد الرئيسي حتى يظل ثابتاً كلياً ولا يزداد إلا عند الضغط على "تجميع"
         renderSmoothBalance(window.userState.balance);
         requestAnimationFrame(tick);
     });
@@ -185,36 +250,31 @@ function applyBalanceToUI(val) {
 
 window.updateUI = function() {
     renderSmoothBalance(parseFloat(window.userState.balance || 0));
+    window.updateClaimButtonState();
 };
 
 // ==========================================
-// 5. محرك تحميل القوائم والتنقل الديناميكي (Dynamic Page Loader)
+// 6. محرك تحميل القوائم والتنقل الديناميكي
 // ==========================================
 const loadedModules = new Set();
 
 window.switchView = async function(viewName) {
-    // 1. تحديث الأزرار النشطة في الشريط السفلي
     document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
     const targetNav = document.getElementById(`nav-${viewName}`);
     if (targetNav) targetNav.classList.add('active');
 
-    // 2. تحديث الحاويات
     document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
     const targetView = document.getElementById(`view-${viewName}`);
     if (!targetView) return;
     
     targetView.classList.add('active');
 
-    // 3. التحقق مما إذا كان القسم قد تم تحميل محتواه سابقاً
     if (!loadedModules.has(viewName)) {
         try {
-            // جلب ملف HTML المخصص من المجلد المخصص لكل قسم
             const res = await fetch(`${viewName}/${viewName}.html`);
             if (res.ok) {
                 const htmlContent = await res.text();
                 targetView.innerHTML = htmlContent;
-                
-                // جلب وتحميل سكريبت JS الخاص بالقسم
                 await loadModuleScript(`${viewName}/${viewName}.js`);
                 loadedModules.add(viewName);
             } else {
@@ -225,7 +285,6 @@ window.switchView = async function(viewName) {
         }
     }
 
-    // 4. استدعاء دالة التهيئة المخصصة للقسم إن وجِدت
     const initFuncName = `init${viewName.charAt(0).toUpperCase() + viewName.slice(1)}View`;
     if (typeof window[initFuncName] === 'function') {
         window[initFuncName]();
@@ -249,13 +308,13 @@ function loadModuleScript(scriptUrl) {
 }
 
 // ==========================================
-// 6. تحميل بيانات المستخدم وتشغيل التطبيق
+// 7. تحميل بيانات المستخدم وتشغيل التطبيق
 // ==========================================
 window.loadUserData = async function() {
     try {
         const d = await window.fetchAPI('/api/user/info');
         if (d?.success) {
-            const u = d.user || d.data || {};
+            const u = d.player || d.user || d.data || {};
             Object.assign(window.userState, u);
         }
     } catch (err) {
@@ -268,7 +327,6 @@ window.loadUserData = async function() {
 
 function initApp() {
     window.updateUI();
-    // تحميل قسم المزرعة المبدئي افتراضياً
     window.switchView('farm');
     
     window.loadUserData().then(() => {
