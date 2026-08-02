@@ -136,7 +136,7 @@ window.initFarmView = function() {
                 window.updateFarmUI();
             }
         } catch (e) { 
-            console.error("خطأ في مزامنة بيانات المزرعة:", e); 
+            console.error("خطأ مزامنة المزرعة:", e); 
         } finally { 
             isFetching = false; 
         }
@@ -149,7 +149,7 @@ window.initFarmView = function() {
         
         const balEl = document.getElementById('farm-balance');
         if (balEl) {
-            balEl.innerText = `${bal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} ZN`;
+            balEl.innerHTML = `<span dir="ltr">${bal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} ZN</span>`;
         }
 
         const rateEl = document.getElementById('farm-rate');
@@ -168,35 +168,32 @@ window.initFarmView = function() {
                 let cost = GAME_CONFIG.upgradeCosts[i] || 0;
                 let costStr = formatCompactCost(cost);
                 let canAfford = bal >= cost;
-                let btnStyle = canAfford ? "" : "opacity: 0.5;";
                 
                 if (isMax) {
                     fieldsHTML += `
-                    <div class="mining-card" style="opacity: 0.7; position: relative;">
-                        <div style="position: absolute; top: -6px; right: -6px; background: #f39c12; color: #000; font-weight: bold; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px;">MAX</div>
+                    <div class="mining-card">
                         <div class="mining-card-icon">🏛️</div>
                         <div class="mining-card-title">مستوى ${i}</div>
-                        <button class="mining-card-btn" disabled>مكتمل ⚡</button>
+                        <button class="mining-card-btn" disabled>MAX</button>
                     </div>`;
                 } else if (count > 0) {
                     fieldsHTML += `
-                    <div class="mining-card" onclick="handleUpgrade(${i})" style="cursor: pointer; border-color: rgba(243, 156, 18, 0.4); position: relative;">
-                        <div style="position: absolute; top: -6px; right: -6px; background: #f39c12; color: #000; font-weight: bold; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px;">x${count}</div>
+                    <div class="mining-card" onclick="handleUpgrade(${i})">
                         <div class="mining-card-icon">🏛️</div>
-                        <div class="mining-card-title">مستوى ${i}</div>
-                        <button class="mining-card-btn" ${!canAfford ? 'disabled' : ''} style="${btnStyle}">ترقية (${costStr}) ⚡</button>
+                        <div class="mining-card-title">مستوى ${i} (x${count})</div>
+                        <button class="mining-card-btn" ${!canAfford ? 'disabled' : ''}>ترقية (${costStr})</button>
                     </div>`;
                 } else if (isUnlocked) {
                     fieldsHTML += `
-                    <div class="mining-card" onclick="handleUpgrade(${i})" style="cursor: pointer;">
-                        <div class="mining-card-icon" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1);">🏛️</div>
+                    <div class="mining-card" onclick="handleUpgrade(${i})">
+                        <div class="mining-card-icon">🏛️</div>
                         <div class="mining-card-title">مستوى ${i}</div>
-                        <button class="mining-card-btn" ${!canAfford ? 'disabled' : ''} style="${btnStyle}">شراء (${costStr}) ⚡</button>
+                        <button class="mining-card-btn" ${!canAfford ? 'disabled' : ''}>شراء (${costStr})</button>
                     </div>`;
                 } else {
                     fieldsHTML += `
-                    <div class="mining-card" style="opacity: 0.4; cursor: not-allowed;">
-                        <div class="mining-card-icon" style="background: transparent; border-color: transparent;">🔒</div>
+                    <div class="mining-card" style="opacity: 0.4;">
+                        <div class="mining-card-icon">🔒</div>
                         <div class="mining-card-title">مستوى ${i}</div>
                         <button class="mining-card-btn" disabled>مغلق</button>
                     </div>`;
@@ -215,18 +212,15 @@ window.initFarmView = function() {
     };
 
     function formatCompactNumber(num) {
-        if (num >= 1000000) return (num / 1000000).toFixed(num % 1000000 === 0 ? 0 : 1) + 'M';
-        if (num >= 1000) return (num / 1000).toFixed(num % 1000 === 0 ? 0 : 1) + 'K';
+        if (num >= 1000000) return (num / 1000000).toFixed(0) + 'M';
+        if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
         return num.toString();
     }
 
     function getRewardForDayIndex(index) {
         const rewards = GAME_CONFIG.dailyRewards;
         if (!rewards) return 100;
-        if (Array.isArray(rewards)) {
-            return rewards[index] !== undefined ? rewards[index] : 1250;
-        }
-        return 1250;
+        return Array.isArray(rewards) ? (rewards[index] ?? 1250) : 1250;
     }
 
     function renderDailyRewards() {
@@ -246,15 +240,15 @@ window.initFarmView = function() {
             let displayReward = formatCompactNumber(rawReward);
 
             if (dayNum < activeDayIndex) {
-                html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div style="font-size: 12px;">✔️</div><div style="font-size: 9px; font-weight: bold;">تم</div></div>`;
+                html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div>✓</div></div>`;
             } else if (dayNum === activeDayIndex) {
                 if (canClaim) {
-                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}${currentDailyDay > 30 ? '+' : ''}</div><div class="day-amount">${displayReward} ZN</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 6px; padding: 4px 0; font-size: 10px; cursor: pointer; width: 90%; font-weight: bold;">📺 استلام</button></div>`;
+                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%;">استلام</button></div>`;
                 } else {
-                    html += `<div class="reward-day-card" style="border-color: rgba(255,255,255,0.1);"><div class="day-title">يوم ${dayNum}${currentDailyDay > 30 ? '+' : ''}</div><div class="day-amount">${displayReward} ZN</div><div id="daily-timer" style="color: #ef4444; font-size: 9px; font-weight: bold;">⏳</div></div>`;
+                    html += `<div class="reward-day-card"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><div id="daily-timer" style="color: #ef4444; font-size: 8px;">⏳</div></div>`;
                 }
             } else {
-                html += `<div class="reward-day-card" style="opacity: 0.4;"><div class="day-title">يوم ${dayNum}</div><div style="font-size: 12px; color: #555;">🔒</div><div class="day-amount">${displayReward}</div></div>`;
+                html += `<div class="reward-day-card" style="opacity: 0.4;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div></div>`;
             }
         }
         container.innerHTML = html;
@@ -284,13 +278,6 @@ window.initFarmView = function() {
             let pct = (unclaim / maxC) * 100;
             pct = Math.max(0, Math.min(pct, 100)); 
             progressEl.style.width = `${pct}%`;
-            
-            if (pct >= 100) {
-                progressEl.style.background = 'linear-gradient(90deg, #ef4444, #dc2626)';
-            } else {
-                progressEl.style.background = 'linear-gradient(90deg, #f39c12, #f1c40f)';
-            }
-            
             storageTextEl.innerText = `${unclaim.toFixed(2)} / ${maxC.toLocaleString()}`;
         }
 
@@ -300,19 +287,19 @@ window.initFarmView = function() {
 
             if (isClaimingMain) {
                 claimBtn.innerText = "جاري الحفظ... 💾";
-                claimBtn.className = "main-claim-btn btn-cooldown";
+                claimBtn.className = "claim-action-btn btn-disabled";
                 claimBtn.disabled = true;
             } else if (remainingCooldown > 0) {
                 claimBtn.innerText = `انتظر ${remainingCooldown} ثانية ⏳`;
-                claimBtn.className = "main-claim-btn btn-cooldown";
+                claimBtn.className = "claim-action-btn btn-disabled";
                 claimBtn.disabled = true;
             } else if (unclaim > 0) {
                 claimBtn.innerText = "تجميع الرصيد 💰";
-                claimBtn.className = "main-claim-btn btn-ready";
+                claimBtn.className = "claim-action-btn btn-ready";
                 claimBtn.disabled = false;
             } else {
                 claimBtn.innerText = "المخزن فارغ ⏳";
-                claimBtn.className = "main-claim-btn btn-cooldown";
+                claimBtn.className = "claim-action-btn btn-disabled";
                 claimBtn.disabled = true;
             }
         }
@@ -323,14 +310,14 @@ window.initFarmView = function() {
         const boostBtn = document.getElementById('boost-btn');
         if (boostBtn) {
             if (pData.last_boost_date === todayStr) {
-                boostBtn.className = "boost-floating-btn btn-cooldown";
+                boostBtn.className = "boost-btn btn-disabled";
                 boostBtn.disabled = true;
-                boostBtn.innerHTML = `<span style="font-size: 14px;">⏳</span><span style="font-size: 8px; font-weight: bold;">${timeLeftStr}</span>`;
+                boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 8px;">${timeLeftStr}</span>`;
             } else {
                 if (!isBoosting) {
-                    boostBtn.className = "boost-floating-btn";
+                    boostBtn.className = "boost-btn";
                     boostBtn.disabled = false;
-                    boostBtn.innerHTML = `<span class="boost-icon-style">🚀</span><span class="boost-text-style">+${GAME_CONFIG.dailyBoostReward}/h</span>`; 
+                    boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">+${GAME_CONFIG.dailyBoostReward}/h</span>`; 
                 }
             }
         }
@@ -358,7 +345,7 @@ window.initFarmView = function() {
                 if (statusCallback) statusCallback();
                 window.show_11322720().then(() => resolve(true)).catch(() => resolve(false));
             } else {
-                showToast("⚠️ لم يتم تحميل الإعلان بعد. حاول مجدداً بعد ثوانٍ.");
+                showToast("⚠️ لم يتم تحميل الإعلان بعد.");
                 resolve(false);
             }
         });
@@ -370,7 +357,7 @@ window.initFarmView = function() {
         const cost = GAME_CONFIG.upgradeCosts[level] || 0;
         const currentBal = getStoredBalance();
         if (currentBal < cost) {
-            showToast(`❌ رصيدك غير كافٍ! سعر الترقية ${cost.toLocaleString()} ZN (رصيدك الحالي: ${Math.floor(currentBal).toLocaleString()} ZN)`);
+            showToast(`❌ رصيدك غير كافٍ! سعر الترقية ${cost.toLocaleString()} ZN`);
             return;
         }
 
@@ -380,28 +367,24 @@ window.initFarmView = function() {
             let resData = await window.fetchAPI('/api/farm/upgrade', 'POST', { level: level });
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
-                if (resData.new_balance !== undefined) {
-                    setStoredBalance(resData.new_balance);
-                }
+                if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
                 if (resData.new_hourly_rate !== undefined) {
                     if (!window.userState) window.userState = {};
                     window.userState.hourly_rate = resData.new_hourly_rate;
                     if (window.PlayerData) window.PlayerData.hourly_rate = resData.new_hourly_rate;
                 }
-                
                 if (resData.upgrades) {
                     if (!window.PlayerData) window.PlayerData = {};
                     window.PlayerData.upgrades = resData.upgrades;
                     if (!window.userState) window.userState = {};
                     window.userState.upgrades = resData.upgrades;
                 }
-
                 window.updateFarmUI();
-                showToast(`⚡ تم التحديث بنجاح للمستوى ${level}!`);
+                showToast(`⚡ تم التحديث للمستوى ${level}!`);
             }
         } catch (e) {
-            console.error("خطأ في شراء الترقية:", e);
-            showToast(e.message || "حدث خطأ أثناء الاتصال بالخادم.");
+            console.error("خطأ الترقية:", e);
+            showToast(e.message || "حدث خطأ أثناء الترقية.");
         } finally {
             isUpgrading = false;
         }
@@ -419,14 +402,11 @@ window.initFarmView = function() {
         
         try {
             const adWatched = await showTelegramAd(() => {
-                if (btn) {
-                    btn.innerHTML = `<span style="font-size: 16px;">⏳</span>`;
-                    btn.disabled = true;
-                }
+                if (btn) { btn.innerHTML = `⏳`; btn.disabled = true; }
             });
             
             if (adWatched) {
-                if (btn) btn.innerHTML = `<span style="font-size: 16px;">💾</span>`;
+                if (btn) btn.innerHTML = `💾`;
                 let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST');
                 if (resData && resData.success) {
                     if (resData.server_time) syncServerTime(resData.server_time);
@@ -435,18 +415,16 @@ window.initFarmView = function() {
                         if (!window.userState) window.userState = {};
                         window.userState.hourly_rate = resData.new_rate;
                     }
-                    if (resData.last_boost_date) {
-                        pData.last_boost_date = resData.last_boost_date;
-                    }
+                    if (resData.last_boost_date) pData.last_boost_date = resData.last_boost_date;
                     window.updateFarmUI();
-                    showToast(`🚀 تمت زيادة معدل التعدين بنجاح بمقدار +${resData.added_rate || GAME_CONFIG.dailyBoostReward}/h دائماً!`);
+                    showToast(`🚀 تمت زيادة معدل التعدين!`);
                 }
             } else {
                 window.updateFarmUI();
             }
         } catch (e) {
             console.error("خطأ تسريع التعدين:", e);
-            showToast(e.message || "فشل تفعيل التسريع.");
+            showToast(e.message || "فشل التسريع.");
             window.updateFarmUI();
         } finally {
             isBoosting = false;
@@ -465,10 +443,7 @@ window.initFarmView = function() {
         
         try {
             const adWatched = await showTelegramAd(() => {
-                if (btn) {
-                    btn.innerHTML = "⏳";
-                    btn.disabled = true;
-                }
+                if (btn) { btn.innerHTML = "⏳"; btn.disabled = true; }
             });
             
             if (adWatched) {
@@ -476,31 +451,19 @@ window.initFarmView = function() {
                 let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST');
                 if (resData && resData.success) {
                     if (resData.server_time) syncServerTime(resData.server_time);
-                    if (resData.new_balance !== undefined) {
-                        setStoredBalance(resData.new_balance);
-                    }
-                    if (resData.daily_day !== undefined) {
-                        pData.daily_day = resData.daily_day;
-                    }
-                    if (resData.last_daily_claim_date) {
-                        pData.last_daily_claim_date = resData.last_daily_claim_date;
-                    }
+                    if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                    if (resData.daily_day !== undefined) pData.daily_day = resData.daily_day;
+                    if (resData.last_daily_claim_date) pData.last_daily_claim_date = resData.last_daily_claim_date;
                     window.updateFarmUI();
-                    showToast(`🎉 استلمت ${resData.reward.toLocaleString()} ZN!`);
+                    showToast(`🎉 تم الاستلام!`);
                 }
             } else {
-                if (btn) {
-                    btn.innerHTML = "📺 استلام";
-                    btn.disabled = false;
-                }
+                if (btn) { btn.innerHTML = "استلام"; btn.disabled = false; }
             }
         } catch (e) {
             console.error("خطأ المكافأة اليومية:", e);
-            showToast(e.message || "فشل استلام المكافأة اليومية.");
-            if (btn) {
-                btn.innerHTML = "📺 استلام";
-                btn.disabled = false;
-            }
+            showToast(e.message || "فشل استلام المكافأة.");
+            if (btn) { btn.innerHTML = "استلام"; btn.disabled = false; }
         } finally {
             isClaimingDaily = false;
         }
@@ -515,7 +478,7 @@ window.initFarmView = function() {
         let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimTimeMs) / 1000);
 
         if (secondsPassed < MIN_CLAIM_INTERVAL) {
-            showToast(`⚠️ يجب الانتظار ${Math.ceil(MIN_CLAIM_INTERVAL - secondsPassed)} ثانية قبل التجميع مجدداً.`);
+            showToast(`⚠️ يجب الانتظار قبل التجميع مجدداً.`);
             return;
         }
 
@@ -525,7 +488,7 @@ window.initFarmView = function() {
         const claimBtn = document.getElementById('claim-btn');
         if (claimBtn) {
             claimBtn.disabled = true;
-            claimBtn.className = "main-claim-btn btn-cooldown";
+            claimBtn.className = "claim-action-btn btn-disabled";
             claimBtn.innerText = "جاري الحفظ... 💾";
         }
 
@@ -547,18 +510,14 @@ window.initFarmView = function() {
             let resData = await window.fetchAPI('/api/farm/claim', 'POST');
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
-                if (resData.new_balance !== undefined) {
-                    setStoredBalance(resData.new_balance);
-                }
+                if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
                 if (resData.last_claim_time) {
                     pData.last_claim_time = resData.last_claim_time;
                     window.userState.last_claim_time = resData.last_claim_time;
                 }
                 pData.unclaimed = 0;
-            } else {
-                if (resData && resData.error) {
-                    showToast(resData.error);
-                }
+            } else if (resData && resData.error) {
+                showToast(resData.error);
             }
         } catch (e) {
             setStoredBalance(currentBal);
