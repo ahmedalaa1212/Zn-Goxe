@@ -1,3 +1,9 @@
+window.initFarmView = function() {
+    if (typeof window.onFarmTabOpen === 'function') {
+        window.onFarmTabOpen();
+    }
+};
+
 (function initFarm() {
     const tele = window.Telegram?.WebApp;
     const START_PARAM = tele?.initDataUnsafe?.start_param || "";
@@ -16,8 +22,8 @@
         ]
     };
 
-    const MIN_CLAIM_INTERVAL = 15; // 15 ثانية حد أدنى بين كل عملية تجميع
-    let serverTimeOffset = 0; // الفرق بين توقيت جهاز المستخدم وتوقيت السيرفر (بالمللي ثانية)
+    const MIN_CLAIM_INTERVAL = 15;
+    let serverTimeOffset = 0;
 
     let isClaimingDaily = false;
     let isBoosting = false; 
@@ -33,12 +39,10 @@
         else alert(message);
     }
 
-    // حساب الوقت الحالي المعدل بناءً على توقيت السيرفر لضمان دقة العداد
     function getAdjustedNowMs() {
         return Date.now() - serverTimeOffset;
     }
 
-    // تحديث فارق التوقيت بين الجهاز والسيرفر
     function syncServerTime(serverTimeStr) {
         if (!serverTimeStr) return;
         try {
@@ -51,7 +55,6 @@
         }
     }
 
-    // قراءة الرصيد الأساسي بدقة
     function getStoredBalance() {
         if (window.userState && window.userState.balance !== undefined) {
             return parseFloat(window.userState.balance || 0);
@@ -144,7 +147,6 @@
         let bal = getStoredBalance();
         let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
         
-        // رسم الرصيد الأساسي بدقة منسقة 2 كسر عشري
         const balEl = document.getElementById('farm-balance');
         if (balEl) {
             balEl.innerText = `${bal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} ZN`;
@@ -258,7 +260,6 @@
         container.innerHTML = html;
     }
 
-    // العداد المحلي المستقل وحساب الوقت المنقضي بدقة متناهية (يعتمد على الطابع الزمني ليمنع التعليق تماماً)
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
         const pData = window.PlayerData;
@@ -267,18 +268,15 @@
         let maxC = parseFloat(window.userState?.max_cap || pData.max_cap || 200);
         let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
         
-        // جلب آخر توقيت تجميع وتصحيحه بناءً على فارق توقيت السيرفر
         let lastClaimStr = window.userState?.last_claim_time || pData.last_claim_time;
         let lastClaimTimeMs = lastClaimStr ? new Date(lastClaimStr).getTime() : getAdjustedNowMs();
         
-        // حساب الوقت المنقضي منذ آخر تجميع
         let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimTimeMs) / 1000);
         let unclaim = (hRate / 3600.0) * secondsPassed;
 
         if (unclaim >= maxC) unclaim = maxC;
         pData.unclaimed = unclaim;
 
-        // تحديث شريط التخزين والعداد الحقيقي
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
 
@@ -293,11 +291,9 @@
                 progressEl.style.background = 'linear-gradient(90deg, #f39c12, #f1c40f)';
             }
             
-            // عرض العداد المنسق فقط وإزالة العداد الأخضر الجانبي
             storageTextEl.innerText = `${unclaim.toFixed(2)} / ${maxC.toLocaleString()}`;
         }
 
-        // تحديث حالة الزر والعداد التنازلي الأمني (15 ثانية) - لن يعلق أبدًا لأنه يعتمد على الوقت الفعلي
         const claimBtn = document.getElementById('claim-btn');
         if (claimBtn) {
             const remainingCooldown = Math.max(0, Math.ceil(MIN_CLAIM_INTERVAL - secondsPassed));
@@ -514,7 +510,6 @@
         const pData = window.PlayerData;
         if (!pData || isClaimingMain) return;
 
-        // التحقق المحلي السريع من مرور 15 ثانية
         let lastClaimStr = window.userState?.last_claim_time || pData.last_claim_time;
         let lastClaimTimeMs = lastClaimStr ? new Date(lastClaimStr).getTime() : getAdjustedNowMs();
         let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimTimeMs) / 1000);
@@ -538,7 +533,6 @@
         const currentBal = getStoredBalance();
         const optimisticNewBal = currentBal + unclaimedAmount;
         
-        // تحديث محلي فوري عند التجميع
         setStoredBalance(optimisticNewBal);
         pData.unclaimed = 0;
         
