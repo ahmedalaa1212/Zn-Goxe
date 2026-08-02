@@ -1,9 +1,8 @@
 from flask import Blueprint, request, jsonify
 from datetime import datetime, timezone
-import time
 from google.cloud import firestore
 from core.security import get_authenticated_user
-from database import db
+from database import db, get_game_settings
 
 farm_bp = Blueprint('farm', __name__)
 
@@ -36,40 +35,6 @@ DEFAULT_GAME_SETTINGS = {
     }
 }
 
-_SETTINGS_CACHE = None
-_SETTINGS_CACHE_TIME = 0
-SETTINGS_CACHE_TTL = 600  # تخزين مؤقت لإعدادات اللعبة لمدة 10 دقائق لتقليل قراءات فايربيس
-
-def get_game_settings():
-    global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
-    now_ts = time.time()
-    
-    if _SETTINGS_CACHE is not None and (now_ts - _SETTINGS_CACHE_TIME) < SETTINGS_CACHE_TTL:
-        return _SETTINGS_CACHE
-
-    try:
-        config_ref = db.collection('config').document('game_settings')
-        config_doc = config_ref.get()
-        
-        if config_doc.exists:
-            data = config_doc.to_dict() or {}
-            merged = {
-                "daily_rewards": data.get("daily_rewards", DEFAULT_GAME_SETTINGS["daily_rewards"]),
-                "mining_config": data.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"]),
-                "storage_capacities": data.get("storage_capacities", DEFAULT_GAME_SETTINGS["storage_capacities"]),
-                "upgrade_config": data.get("upgrade_config", DEFAULT_GAME_SETTINGS["upgrade_config"])
-            }
-            _SETTINGS_CACHE = merged
-        else:
-            config_ref.set(DEFAULT_GAME_SETTINGS)
-            _SETTINGS_CACHE = DEFAULT_GAME_SETTINGS
-            
-        _SETTINGS_CACHE_TIME = now_ts
-        return _SETTINGS_CACHE
-    except Exception as e:
-        print(f"❌ Error reading game settings: {e}")
-        return DEFAULT_GAME_SETTINGS
-
 def parse_daily_rewards(rewards_data):
     if isinstance(rewards_data, list):
         return rewards_data
@@ -89,7 +54,11 @@ def get_storage_capacity(storage_level, settings):
     if lvl < 0: lvl = 0
     elif lvl > 10: lvl = 10
     
-    caps = settings.get("storage_capacities", DEFAULT_GAME_SETTINGS["storage_capacities"])
+    caps = settings.get("storage_capacities") or settings.get("storage_config") or DEFAULT_GAME_SETTINGS["storage_capacities"]
+    
+    if str(lvl) in caps and isinstance(caps[str(lvl)], dict):
+        return float(caps[str(lvl)].get("capacity", 200.0))
+        
     val = caps.get(str(lvl)) or caps.get(lvl) or 200.0
     return float(val)
 
@@ -111,7 +80,7 @@ def get_player_data():
         user_ref = db.collection('users').document(user_id_str)
         user_doc = user_ref.get()
         now = datetime.now(timezone.utc)
-        game_settings = get_game_settings()
+        game_settings = get_game_settings() or DEFAULT_GAME_SETTINGS
 
         if not user_doc.exists:
             referred_by = None
@@ -183,7 +152,7 @@ def get_player_data():
 
         if last_claim_str:
             try:
-                last_claim = datetime.fromisoformat(str(last_claim_str))
+                last_claim = datetime.fromisoformat(str(last_claim_str).replace('Z', '+00:00'))
                 if last_claim.tzinfo is None: 
                     last_claim = last_claim.replace(tzinfo=timezone.utc)
                 
@@ -202,8 +171,11 @@ def get_player_data():
 
         parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
 
-        upgrade_configs = game_settings.get("upgrade_config", DEFAULT_GAME_SETTINGS["upgrade_config"])
-        upgrade_costs = {int(k): float(v.get("base_cost", 0)) for k, v in upgrade_configs.items()}
+        upgrade_configs = game_settings.get("upgrade_config") or game_settings.get("speed_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
+        upgrade_costs = {}
+        for k, v in upgrade_configs.items():
+            cost_val = v.get("base_cost") if isinstance(v, dict) and "base_cost" in v else v.get("price", 0)
+            upgrade_costs[int(k)] = float(cost_val)
 
         mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
         daily_boost_reward = float(mining_cfg.get("daily_boost_reward", 2.0))
@@ -231,7 +203,7 @@ def claim_mined_tokens():
     user_id_str = str(telegram_id)
     try:
         user_ref = db.collection('users').document(user_id_str)
-        game_settings = get_game_settings()
+        game_settings = get_game_settings() or DEFAULT_GAME_SETTINGS
         
         @firestore.transactional
         def run_claim_transaction(transaction, ref):
@@ -260,7 +232,7 @@ def claim_mined_tokens():
 
             if last_claim_str:
                 try:
-                    last_claim = datetime.fromisoformat(str(last_claim_str))
+                    last_claim = datetime.fromisoformat(str(last_claim_str).replace('Z', '+00:00'))
                     if last_claim.tzinfo is None: 
                         last_claim = last_claim.replace(tzinfo=timezone.utc)
                         
@@ -335,8 +307,8 @@ def upgrade_field():
     except (TypeError, ValueError):
         return jsonify({"success": False, "error": "بيانات الترقية غير صالحة"}), 400
 
-    game_settings = get_game_settings()
-    upgrade_configs = game_settings.get("upgrade_config", DEFAULT_GAME_SETTINGS["upgrade_config"])
+    game_settings = get_game_settings() or DEFAULT_GAME_SETTINGS
+    upgrade_configs = game_settings.get("upgrade_config") or game_settings.get("speed_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
     config = upgrade_configs.get(str(level)) or upgrade_configs.get(level)
 
     if not config:
@@ -354,7 +326,7 @@ def upgrade_field():
 
             data = snapshot.to_dict() or {}
             current_bal = float(data.get("balance", 0.0))
-            cost = float(config.get("base_cost", 0.0))
+            cost = float(config.get("base_cost") or config.get("price", 0.0))
 
             if current_bal < cost:
                 return None, f"رصيدك غير كافٍ! تحتاج إلى {cost:,.0f} ZN", 400
@@ -373,7 +345,7 @@ def upgrade_field():
 
             upgrades[lvl_key] = current_count + 1
             new_bal = current_bal - cost
-            rate_bonus = float(config.get("rate_bonus", 0.0))
+            rate_bonus = float(config.get("rate_bonus") or config.get("rate", 0.0))
             new_rate = float(data.get("hourly_rate", 0.0)) + rate_bonus
 
             transaction.update(ref, {
@@ -410,7 +382,7 @@ def daily_boost():
     user_id_str = str(telegram_id)
     user_ref = db.collection('users').document(user_id_str)
     today_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-    game_settings = get_game_settings()
+    game_settings = get_game_settings() or DEFAULT_GAME_SETTINGS
     mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
     boost_reward = float(mining_cfg.get("daily_boost_reward", 2.0))
 
@@ -475,7 +447,7 @@ def daily_claim():
                 return None, "لقد استلمت مكافأتك اليومية بالفعل!", 400
 
             current_day = int(data.get("daily_day", 1))
-            game_settings = get_game_settings()
+            game_settings = get_game_settings() or DEFAULT_GAME_SETTINGS
             rewards_list = parse_daily_rewards(game_settings.get("daily_rewards"))
 
             day_index = min(current_day - 1, len(rewards_list) - 1)
