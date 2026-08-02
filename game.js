@@ -6,11 +6,10 @@ if (tg) {
     tg.ready(); 
     tg.expand();
     if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
-    if (tg.setHeaderColor) tg.setHeaderColor('secondary_bg_color');
 }
 
 window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 0;
-window.serverTimeOffset = 0; // الفرق الملي-ثاني بين توقيت جهاز المستخدم الخادم
+window.serverTimeOffset = 0;
 
 function hideLoadingScreen() {
     const appEl = document.getElementById('app');
@@ -62,7 +61,7 @@ window.userState = new Proxy(getSavedState(), {
 });
 
 // ==========================================
-// 2. الاتصال بالسيرفر مع تحديث الرصيد اللحظي
+// 2. الاتصال بالسيرفر
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
@@ -107,7 +106,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 };
 
 // ==========================================
-// 3. الاستماع اللحظي بـ Firestore (1 Read لكل جلسة)
+// 3. الاستماع اللحظي Firestore
 // ==========================================
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) return;
@@ -131,7 +130,7 @@ window.initFirebaseRealtimeSync = function(userId) {
 };
 
 // ==========================================
-// 4. دالة إدارة العداد المحمية من السيرفر (15 ثانية)
+// 4. دالة إدارة العداد (15 ثانية)
 // ==========================================
 let claimCooldownTimer = null;
 
@@ -189,7 +188,7 @@ window.updateClaimButtonState = function() {
 };
 
 // ==========================================
-// 5. تنسيق العداد والمحرك السلس (Local Math)
+// 5. تنسيق الرصيد (بدون انكسار الأسطر)
 // ==========================================
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0';
@@ -200,24 +199,14 @@ window.formatBalance = function(val) {
 };
 
 window.formatNumberHTML = function(val) {
-    if (val === undefined || val === null || isNaN(val)) return '0';
+    if (val === undefined || val === null || isNaN(val)) return '0.00';
     let num = parseFloat(val);
     let suffix = '';
     if (num >= 1e9) { num /= 1e9; suffix = 'B'; }
     else if (num >= 1e6) { num /= 1e6; suffix = 'M'; }
 
     const formattedStr = num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const parts = formattedStr.split('.');
-    
-    let htmlResult = `<span style="white-space: nowrap; inline-size: max-content;">${parts[0]}`;
-    if (parts.length > 1) {
-        htmlResult += `<span class="small-decimal" style="font-size: 0.75em; opacity: 0.85;">.${parts[1]}</span>`;
-    }
-    if (suffix) {
-        htmlResult += `<span class="suffix" style="font-weight: bold; margin-left: 2px;">${suffix}</span>`;
-    }
-    htmlResult += `</span>`;
-    return htmlResult;
+    return `${formattedStr}${suffix}`;
 };
 
 let visualBalance = null;
@@ -241,10 +230,10 @@ function renderSmoothBalance(targetVal) {
 }
 
 function applyBalanceToUI(val) {
-    const htmlFormatted = window.formatNumberHTML(val);
+    const formatted = window.formatNumberHTML(val);
     document.querySelectorAll('[data-bind="balance"], #farm-balance, .user-balance').forEach(el => {
         if (el.tagName !== 'INPUT') {
-            el.innerHTML = `${htmlFormatted} ZN`;
+            el.innerHTML = `<span dir="ltr">${formatted} ZN</span>`;
         }
     });
 }
@@ -255,7 +244,7 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 6. محرك تحميل القوائم والتنقل الديناميكي
+// 6. التنقل بين القوائم
 // ==========================================
 const loadedModules = new Set();
 
@@ -278,11 +267,9 @@ window.switchView = async function(viewName) {
                 targetView.innerHTML = htmlContent;
                 await loadModuleScript(`${viewName}/${viewName}.js`);
                 loadedModules.add(viewName);
-            } else {
-                console.warn(`تعذر تحميل الملف: ${viewName}/${viewName}.html`);
             }
         } catch (err) {
-            console.error(`خطأ أثناء تحميل قسم ${viewName}:`, err);
+            console.error(`خطأ تحميل ${viewName}:`, err);
         }
     }
 
@@ -313,7 +300,7 @@ function loadModuleScript(scriptUrl) {
 }
 
 // ==========================================
-// 7. تحميل بيانات المستخدم وتشغيل التطبيق
+// 7. بدء التطبيق
 // ==========================================
 window.loadUserData = async function() {
     try {
@@ -323,7 +310,7 @@ window.loadUserData = async function() {
             Object.assign(window.userState, u);
         }
     } catch (err) {
-        console.error("Error loading user data:", err);
+        console.error("Error user info:", err);
     } finally { 
         window.updateUI();
         hideLoadingScreen();
