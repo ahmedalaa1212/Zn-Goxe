@@ -281,13 +281,14 @@
             minedCounterEl.innerText = `+${unclaim.toFixed(4)} ZN`;
         }
 
-        // تحديث حالة الزر بنص أنيق وواضح بدون أرقام متغيرة بداخل الزر
+        // تحديث حالة الزر وتناقص العداد الثواني
         const claimBtn = document.getElementById('claim-btn');
         if (claimBtn) {
             if (claimCooldown > 0) {
                 claimBtn.innerText = `انتظر ${claimCooldown} ثانية ⏳`;
                 claimBtn.className = "main-claim-btn btn-cooldown";
                 claimBtn.disabled = true;
+                claimCooldown--; // إنقاص العداد ثانية واحدة في كل دورة
             } else if (!isClaimingMain) {
                 if (unclaim > 0) {
                     claimBtn.innerText = "تجميع الرصيد 💰";
