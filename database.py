@@ -27,39 +27,43 @@ def ensure_game_settings_exist():
         return
     try:
         config_ref = db.collection('app_config').document('game_settings')
-        doc = config_ref.get()
+        
+        # جدول مكافآت 30 يوم المكتمل
+        daily_rewards_30_days = {
+            f"day_{i}": val for i, val in enumerate([
+                100, 150, 200, 250, 300, 350, 400, 500, 600, 700,
+                800, 900, 1000, 1200, 1400, 1600, 1800, 2000, 2300, 2600,
+                3000, 3500, 4000, 4500, 5000, 6000, 7000, 8000, 9000, 10000
+            ], start=1)
+        }
 
-        if not doc.exists:
-            initial_settings = {
-                "usd_to_zn_rate": 10000000,
-                "daily_rewards": {
-                    "day_1": 100, "day_2": 150, "day_3": 200, "day_4": 250, "day_5": 300,
-                    "day_6": 350, "day_7": 400, "day_8": 450, "day_9": 500, "day_10": 550,
-                    "day_20": 800, "day_30": 1250
-                },
-                "speed_config": {
-                    "1": {"price": 2000, "rate": 5},
-                    "2": {"price": 7000, "rate": 15},
-                    "3": {"price": 18000, "rate": 35},
-                    "4": {"price": 45000, "rate": 80}
-                },
-                "storage_config": {
-                    "0": {"capacity": 200, "price": 0},
-                    "1": {"capacity": 600, "price": 3000},
-                    "2": {"capacity": 1500, "price": 10000}
-                },
-                "friends_config": {
-                    "commission_percent": 10,
-                    "claim_fee_percent": 1.5
-                },
-                "arena_config": {
-                    "entry_fee": 1000,
-                    "min_participants": 20,
-                    "prize_pool_percentage": 0.45
-                }
+        initial_settings = {
+            "usd_to_zn_rate": 10000000,
+            "ad_reward_boost": 2.0,  # +2 ZN/h عند مشاهدة إعلان مونيتاج
+            "daily_rewards": daily_rewards_30_days,
+            "speed_config": {
+                "1": {"price": 2000, "rate": 5},
+                "2": {"price": 7000, "rate": 15},
+                "3": {"price": 18000, "rate": 35},
+                "4": {"price": 45000, "rate": 80}
+            },
+            "storage_config": {
+                "0": {"capacity": 200, "price": 0},
+                "1": {"capacity": 600, "price": 3000},
+                "2": {"capacity": 1500, "price": 10000}
+            },
+            "friends_config": {
+                "commission_percent": 10,
+                "claim_fee_percent": 1.5
+            },
+            "arena_config": {
+                "entry_fee": 1000,
+                "min_participants": 20,
+                "prize_pool_percentage": 0.45
             }
-            config_ref.set(initial_settings, merge=True)
-            print("✅ تم إنشاء تهيئة app_config/game_settings بنجاح!")
+        }
+        config_ref.set(initial_settings, merge=True)
+        print("✅ تم تحديث تهيئة app_config/game_settings مع جدول الـ 30 يوم بنجاح!")
     except Exception as e:
         print(f"❌ خطأ أثناء تهيئة الإعدادات: {e}")
 
@@ -162,6 +166,8 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "storage_level": 0,
                 "max_cap": 200.0,
                 "last_claim_time": now_iso,
+                "daily_streak": 0,
+                "last_daily_claim_date": None, # صيغة YYYY-MM-DD
                 "upgrades": {},
                 "banned": False,
                 "wallet_address": None,
