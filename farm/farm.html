@@ -1,80 +1,72 @@
 <div class="farm-container">
     
-    <div class="farm-header-card">
-        <div class="stat-box rate-box">
-            <div class="stat-icon-wrapper">⚡</div>
-            <div class="stat-info">
-                <span class="stat-label">معدل التعدين</span>
-                <span id="farm-rate" class="stat-value"><span dir="ltr">0 /h</span> ⚡</span>
+    <!-- الكروت العلوية: الرصيد ومعدل التعدين -->
+    <div class="farm-stats-grid">
+        <div class="stat-card">
+            <div class="stat-text">
+                <span class="stat-label">إجمالي الرصيد</span>
+                <div id="farm-balance" class="stat-value">0.00 ZN</div>
             </div>
+            <div class="stat-icon-box coin-bg">💎</div>
         </div>
 
-        <div class="stat-divider"></div>
-
-        <div class="stat-box balance-box">
-            <div class="stat-icon-wrapper coin-icon-sm">💎</div>
-            <div class="stat-info">
-                <span class="stat-label">إجمالي الرصيد</span>
-                <span id="farm-balance" class="stat-value">0.00 ZN</span>
+        <div class="stat-card">
+            <div class="stat-text">
+                <span class="stat-label">معدل التعدين</span>
+                <div id="farm-rate" class="stat-value"><span dir="ltr">0 /h</span> ⚡</div>
             </div>
+            <div class="stat-icon-box rate-bg">⚡</div>
         </div>
     </div>
 
-    <div class="hero-mining-section">
-        <button id="boost-btn" disabled class="boost-floating-btn btn-cooldown" onclick="handleDailyBoost()">
-            <span id="boost-icon" class="boost-icon-style">🚀</span>
-            <span id="boost-text" class="boost-text-style">+2.0/h</span>
+    <!-- القسم الأوسط: العملة وزر التعزيز -->
+    <div class="hero-section">
+        <button id="boost-btn" disabled class="boost-btn btn-disabled" onclick="handleDailyBoost()">
+            <span id="boost-icon">🚀</span>
+            <span id="boost-text">+2.0/h</span>
         </button>
 
-        <div class="coin-3d-wrapper">
-            <div class="coin-glow-ring"></div>
-            <div class="coin-3d">
-                <div class="coin-inner-ring">
-                    <span class="coin-symbol">ZN</span>
+        <div class="coin-wrapper">
+            <div class="coin-glow"></div>
+            <div class="main-coin">
+                <div class="coin-ring">
+                    <span class="coin-text">ZN</span>
                 </div>
             </div>
         </div>
 
-        <div class="boost-spacer"></div>
+        <div class="hero-spacer"></div>
     </div>
     
-    <div class="storage-card">
-        <div class="storage-header">
-            <div class="storage-title">
-                <span class="storage-icon">📦</span>
-                <span>سعة التخزين المؤقت</span>
-            </div>
-            <div class="storage-live-counter">
-                <span id="storage-text" class="storage-badge" dir="ltr">0 / 200</span>
-            </div>
+    <!-- بطاقة المخزن المؤقت -->
+    <div class="card-box">
+        <div class="card-header">
+            <span class="card-title">📦 سعة التخزين المؤقت</span>
+            <span id="storage-text" class="storage-badge" dir="ltr">0 / 200</span>
         </div>
 
-        <div class="storage-bar-outer">
-            <div id="storage-progress" class="storage-bar-inner"></div>
+        <div class="progress-outer">
+            <div id="storage-progress" class="progress-inner"></div>
         </div>
 
-        <button id="claim-btn" disabled class="main-claim-btn btn-cooldown" onclick="handleClaim()">
+        <button id="claim-btn" disabled class="claim-action-btn btn-disabled" onclick="handleClaim()">
             جاري التحميل... ⏳
         </button>
     </div>
 
-    <div class="section-card">
-        <div class="section-header">
-            <div class="section-title">
-                <span class="section-icon">🏛️</span>
-                <span>ترقيات ومستويات التعدين</span>
-            </div>
-            <span class="section-badge">أقصى حد: 10 / مستوى</span>
+    <!-- ترقيات ومستويات التعدين -->
+    <div class="card-box">
+        <div class="card-header">
+            <span class="card-title">🏛️ ترقيات ومستويات التعدين</span>
+            <span class="card-subtitle">أقصى حد: 10 / مستوى</span>
         </div>
         <div id="mining-fields" class="mining-grid"></div>
     </div>
 
-    <div class="section-card">
-        <div class="section-header">
-            <div class="section-title">
-                <span class="section-icon">📅</span>
-                <span>المكافآت اليومية (30 يوم)</span>
-            </div>
+    <!-- المكافآت اليومية -->
+    <div class="card-box">
+        <div class="card-header">
+            <span class="card-title">📅 المكافآت اليومية (30 يوم)</span>
         </div>
         <div id="daily-rewards-container" class="daily-grid"></div>
     </div>
@@ -83,449 +75,304 @@
 
 <style>
 /* ==========================================
-   التنسيقات الأساسية المتطورة (Modern Dark Neon)
+   تنسيقات شاشة المزرعة المتناسقة والأصلية
    ========================================== */
 .farm-container {
-    padding: 16px;
+    padding: 12px;
     direction: rtl;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    padding-bottom: 110px;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     max-width: 480px;
     margin: 0 auto;
     box-sizing: border-box;
     color: #ffffff;
-    position: relative;
 }
 
-/* 1. شريط الرصيد العلوي الثابت (Sticky Header) */
-.farm-header-card {
-    position: sticky;
-    top: 10px;
-    z-index: 100;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 16px;
-    background: rgba(15, 23, 42, 0.92);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border-radius: 20px;
-    margin-bottom: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    transform: translateZ(0);
-}
-
-.stat-box {
-    display: flex;
-    align-items: center;
+/* 1. الكروت العلوية */
+.farm-stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 10px;
-    flex: 1;
-    min-width: 0;
+    margin-bottom: 16px;
 }
 
-.stat-divider {
-    width: 1px;
-    height: 32px;
-    background: rgba(255, 255, 255, 0.12);
-    margin: 0 10px;
-}
-
-.stat-icon-wrapper {
-    width: 40px;
-    height: 40px;
-    border-radius: 12px;
-    background: rgba(243, 156, 18, 0.15);
+.stat-card {
+    background: #151c2c;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 12px;
     display: flex;
     align-items: center;
-    justify-content: center;
-    font-size: 20px;
-    border: 1px solid rgba(243, 156, 18, 0.3);
-    flex-shrink: 0;
+    justify-content: space-between;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
 }
 
-.coin-icon-sm {
-    background: rgba(16, 185, 129, 0.15);
-    border-color: rgba(16, 185, 129, 0.3);
-}
-
-.stat-info {
+.stat-text {
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    gap: 4px;
     min-width: 0;
 }
 
 .stat-label {
     font-size: 11px;
-    color: #94a3b8;
+    color: #8e9baf;
     font-weight: 600;
     white-space: nowrap;
 }
 
 .stat-value {
-    color: #f39c12;
+    color: #ffffff;
     font-weight: 800;
-    font-size: 14px;
-    letter-spacing: 0.3px;
+    font-size: 13.5px;
     white-space: nowrap;
-}
-
-.balance-box .stat-value {
-    color: #10b981;
-}
-
-#farm-balance {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 4px;
-    white-space: nowrap;
     direction: ltr;
 }
 
-/* 2. القسم الأوسط: العملة ثلاثية الأبعاد وزر التعزيز */
-.hero-mining-section {
+.stat-icon-box {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.rate-bg { background: rgba(243, 156, 18, 0.15); border: 1px solid rgba(243, 156, 18, 0.3); }
+.coin-bg { background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); }
+
+/* 2. العملة وزر التعزيز */
+.hero-section {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin: 10px 0 20px 0;
-    position: relative;
+    margin: 15px 0 25px 0;
 }
 
-.boost-spacer {
-    width: 65px;
-}
+.hero-spacer { width: 60px; }
 
-.boost-floating-btn {
-    width: 65px;
-    height: 65px;
+.boost-btn {
+    width: 62px;
+    height: 62px;
     border-radius: 50%;
-    border: 1.5px solid rgba(243, 156, 18, 0.4);
-    background: linear-gradient(135deg, rgba(243, 156, 18, 0.2), rgba(230, 126, 34, 0.3));
+    border: 1px solid #f39c12;
+    background: radial-gradient(circle, rgba(243, 156, 18, 0.25), rgba(15, 23, 42, 0.8));
     color: white;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     cursor: pointer;
-    transition: all 0.3s ease;
-    outline: none;
-    backdrop-filter: blur(8px);
-    box-shadow: 0 4px 15px rgba(243, 156, 18, 0.25);
+    box-shadow: 0 0 12px rgba(243, 156, 18, 0.3);
 }
 
-.boost-floating-btn:not(:disabled):hover {
-    transform: scale(1.08);
-    box-shadow: 0 0 20px rgba(243, 156, 18, 0.6);
-}
+#boost-icon { font-size: 16px; }
+#boost-text { font-size: 10px; font-weight: 800; color: #f39c12; white-space: nowrap; direction: ltr; }
 
-.boost-icon-style { font-size: 18px; margin-bottom: 2px; }
-.boost-text-style { font-size: 10px; font-weight: 800; color: #fbbf24; }
-
-.coin-3d-wrapper {
+.coin-wrapper {
     position: relative;
-    perspective: 1000px;
     display: flex;
     justify-content: center;
     align-items: center;
 }
 
-.coin-glow-ring {
+.coin-glow {
     position: absolute;
-    width: 130px;
-    height: 130px;
+    width: 120px;
+    height: 120px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(243, 156, 18, 0.4) 0%, rgba(0, 0, 0, 0) 70%);
-    z-index: 0;
-    animation: glowPulse 3s infinite ease-in-out;
+    background: radial-gradient(circle, rgba(243, 156, 18, 0.35) 0%, rgba(0,0,0,0) 70%);
 }
 
-.coin-3d {
-    width: 110px;
-    height: 110px;
-    background: radial-gradient(circle at 35% 35%, #ffe066, #f39c12 60%, #995c00);
+.main-coin {
+    width: 105px;
+    height: 105px;
+    background: radial-gradient(circle at 35% 35%, #ffe066, #f39c12 65%, #995c00);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     border: 3px solid #fffb00;
-    box-shadow: 0 10px 30px rgba(243, 156, 18, 0.5), inset 0 0 15px rgba(0, 0, 0, 0.5);
-    animation: floatAndSpin 6s ease-in-out infinite;
+    box-shadow: 0 8px 25px rgba(243, 156, 18, 0.4);
+    animation: floatCoin 3s ease-in-out infinite;
     z-index: 1;
 }
 
-.coin-inner-ring {
-    width: 88px;
-    height: 88px;
+.coin-ring {
+    width: 84px;
+    height: 84px;
     border-radius: 50%;
-    border: 2px dashed rgba(255, 255, 255, 0.6);
+    border: 2px dashed rgba(255, 255, 255, 0.7);
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
-.coin-symbol {
-    font-size: 30px;
+.coin-text {
+    font-size: 28px;
     font-weight: 900;
     color: #ffffff;
-    text-shadow: 0 3px 6px rgba(0, 0, 0, 0.6);
+    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
 }
 
-@keyframes floatAndSpin {
-    0% { transform: translateY(0) rotateY(0deg); }
-    50% { transform: translateY(-6px) rotateY(180deg); }
-    100% { transform: translateY(0) rotateY(360deg); }
+@keyframes floatCoin {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-7px); }
 }
 
-@keyframes glowPulse {
-    0%, 100% { transform: scale(1); opacity: 0.5; }
-    50% { transform: scale(1.15); opacity: 0.8; }
+/* 3. كروت التخزين والترقيات */
+.card-box {
+    background: #151c2c;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 14px;
+    margin-bottom: 14px;
 }
 
-/* 3. بطاقة المخزن المحلي والأزرار */
-.storage-card {
-    background: rgba(15, 23, 42, 0.75);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border-radius: 20px;
-    padding: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    margin-bottom: 20px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-}
-
-.storage-header {
+.card-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
 }
 
-.storage-title {
+.card-title {
     font-size: 13px;
     font-weight: 700;
     color: #f1f5f9;
-    display: flex;
-    align-items: center;
-    gap: 6px;
 }
 
-.storage-live-counter {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+.card-subtitle {
+    font-size: 10.5px;
+    color: #8e9baf;
 }
 
 .storage-badge {
     font-size: 11px;
-    color: #fbbf24;
-    background: rgba(243, 156, 18, 0.12);
+    color: #f39c12;
+    background: rgba(243, 156, 18, 0.1);
     padding: 2px 8px;
-    border-radius: 8px;
+    border-radius: 6px;
     font-weight: 700;
-    border: 1px solid rgba(243, 156, 18, 0.25);
 }
 
-.storage-bar-outer {
+.progress-outer {
     width: 100%;
-    background: rgba(30, 41, 59, 0.9);
-    height: 14px;
-    border-radius: 10px;
+    background: #0b0f19;
+    height: 12px;
+    border-radius: 8px;
     overflow: hidden;
-    margin-bottom: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    padding: 2px;
-    box-sizing: border-box;
+    margin-bottom: 12px;
 }
 
-.storage-bar-inner {
+.progress-inner {
     width: 0%;
     height: 100%;
     border-radius: 8px;
-    transition: width 0.3s ease, background 0.3s ease;
+    transition: width 0.3s ease;
     background: linear-gradient(90deg, #f39c12, #f1c40f);
-    box-shadow: 0 0 12px rgba(243, 156, 18, 0.6);
 }
 
-.main-claim-btn {
+.claim-action-btn {
     width: 100%;
-    padding: 14px;
+    padding: 12px;
     border: none;
-    border-radius: 14px;
+    border-radius: 12px;
     font-weight: 800;
-    font-size: 15px;
-    cursor: pointer;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    outline: none;
-}
-
-/* 4. الأزرار والحالات الاحترافية */
-.btn-cooldown { 
-    background: rgba(30, 41, 59, 0.6) !important; 
-    cursor: not-allowed !important; 
-    color: #64748b !important; 
-    box-shadow: none !important; 
-    border: 1px solid rgba(255, 255, 255, 0.05) !important;
-}
-
-.btn-ready { 
-    background: linear-gradient(135deg, #10b981, #059669) !important; 
-    color: #ffffff !important;
-    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4) !important;
-    animation: pulseGreenGlow 2s infinite ease-in-out;
-}
-
-.btn-ready:active {
-    transform: scale(0.98);
-}
-
-@keyframes pulseGreenGlow {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
-    50% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
-}
-
-/* 5. بطاقات الأقسام والشبكات */
-.section-card {
-    background: rgba(15, 23, 42, 0.75);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border-radius: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    padding: 16px;
-    margin-bottom: 20px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-}
-
-.section-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 14px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.section-title {
-    color: #ffffff;
-    font-weight: 700;
     font-size: 14px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    cursor: pointer;
 }
 
-.section-badge {
-    font-size: 11px;
-    color: #94a3b8;
+.btn-disabled {
+    background: #1e293b !important;
+    color: #64748b !important;
+    cursor: not-allowed !important;
+    box-shadow: none !important;
 }
 
+.btn-ready {
+    background: #10b981 !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3) !important;
+}
+
+/* 4. شبكة المستويات والمكافآت */
 .mining-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
+    gap: 8px;
 }
 
 .daily-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
-    gap: 8px;
+    gap: 6px;
 }
 
-/* 6. تصميم بطاقات الترقية الاحترافية */
 .mining-card {
-    background: rgba(30, 41, 59, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 14px;
-    padding: 10px 6px;
+    background: #0b0f19;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    padding: 8px 4px;
     text-align: center;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: space-between;
-    transition: all 0.2s ease;
-    min-height: 110px;
+    min-height: 100px;
     box-sizing: border-box;
 }
 
-.mining-card:hover { 
-    border-color: rgba(243, 156, 18, 0.5); 
-    transform: translateY(-2px);
-    background: rgba(30, 41, 59, 0.8);
-}
-
 .mining-card-icon {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: rgba(243, 156, 18, 0.15);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    margin-bottom: 4px;
-    border: 1px solid rgba(243, 156, 18, 0.3);
+    font-size: 18px;
+    margin-bottom: 2px;
 }
 
-.mining-card-title { 
-    color: #f1f5f9; 
-    font-size: 11.5px; 
-    font-weight: 700; 
-    margin-bottom: 6px; 
+.mining-card-title {
+    color: #cbd5e1;
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 4px;
 }
 
 .mining-card-btn {
     width: 100%;
-    padding: 6px 0;
+    padding: 5px 0;
     border: none;
-    border-radius: 8px;
-    background: linear-gradient(135deg, #f39c12, #e67e22);
-    color: #000000;
+    border-radius: 6px;
+    background: #f39c12;
+    color: #000;
     font-weight: 800;
-    font-size: 10.5px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    box-shadow: 0 4px 10px rgba(243, 156, 18, 0.2);
-}
-
-.mining-card-btn:active {
-    transform: scale(0.95);
-}
-
-.mining-card-btn:disabled { 
-    background: rgba(255, 255, 255, 0.08) !important; 
-    color: #64748b !important; 
-    cursor: not-allowed !important; 
-    box-shadow: none !important;
-}
-
-/* 7. بطاقات اليومية */
-.reward-day-card {
-    background: rgba(30, 41, 59, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 12px;
-    padding: 8px 4px;
-    text-align: center;
     font-size: 10px;
-    color: #94a3b8;
+    cursor: pointer;
+}
+
+.mining-card-btn:disabled {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #475569 !important;
+    cursor: not-allowed !important;
+}
+
+.reward-day-card {
+    background: #0b0f19;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 6px 2px;
+    text-align: center;
+    font-size: 9.5px;
+    color: #8e9baf;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
-    transition: all 0.2s ease;
+    gap: 2px;
 }
 
-.reward-day-card.claimed { 
-    background: rgba(16, 185, 129, 0.12); 
-    border-color: rgba(16, 185, 129, 0.3); 
-    color: #10b981; 
-}
-
-.reward-day-card.active { 
-    background: rgba(243, 156, 18, 0.15); 
-    border-color: #f39c12; 
-    color: #fbbf24; 
-}
-
-.reward-day-card .day-title { font-weight: 700; font-size: 10px; }
+.reward-day-card.claimed { background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.2); color: #10b981; }
+.reward-day-card.active { border-color: #f39c12; color: #f39c12; }
+.reward-day-card .day-title { font-weight: 700; }
 .reward-day-card .day-amount { color: #ffffff; font-weight: 800; }
 </style>
