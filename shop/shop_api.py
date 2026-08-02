@@ -1,7 +1,5 @@
-# shop/shop_api.py
 import time
 import hashlib
-import traceback
 from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 from google.cloud import firestore
@@ -57,13 +55,17 @@ def safe_create_transaction(tg_id, tx_type, amount_usd=0.0, wallet_address="", s
     try:
         clean_id = str(tg_id).strip() if tg_id else None
         if clean_id:
+            tx_details = details or {}
+            tx_details.update({
+                "wallet_address": wallet_address,
+                "status": status,
+                "amount_usd": float(amount_usd)
+            })
             create_transaction(
                 tg_id=clean_id,
+                amount=float(amount_usd),
                 tx_type=tx_type,
-                amount_usd=float(amount_usd),
-                wallet_address=wallet_address,
-                status=status,
-                details=details or {}
+                details=tx_details
             )
     except Exception as e:
         print(f"⚠️ [Transaction Warning] فشل تسجيل المعاملة: {e}")
@@ -89,7 +91,6 @@ def get_game_config():
     try:
         data = get_game_settings() or {}
 
-        # التوافق مع مسمى speed_config أو mining_config
         mining_cfg = data.get('mining_config') or data.get('speed_config') or DEFAULT_MINING_CONFIG
         data['mining_config'] = mining_cfg
         data['speed_config'] = mining_cfg
@@ -320,7 +321,6 @@ def buy_upgrade():
             if not isinstance(upgrades, dict):
                 upgrades = {}
 
-            # حساب التعدين المعلق لحظياً لضمان عدم ضياع الأرباح
             last_claim_str = u_data.get('last_claim_time')
             now_dt = datetime.now(timezone.utc)
             now_ts = now_dt.timestamp()
