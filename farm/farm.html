@@ -45,7 +45,6 @@
                 <span>سعة التخزين المؤقت</span>
             </div>
             <div class="storage-live-counter">
-                <span id="storage-mined-counter" class="mined-counter-text">0.0000 ZN</span>
                 <span id="storage-text" class="storage-badge" dir="ltr">0 / 200</span>
             </div>
         </div>
@@ -76,7 +75,6 @@
                 <span class="section-icon">📅</span>
                 <span>المكافآت اليومية (30 يوم)</span>
             </div>
-            <span class="total-bonus-tag">+20,000 ZN</span>
         </div>
         <div id="daily-rewards-container" class="daily-grid"></div>
     </div>
@@ -96,21 +94,26 @@
     margin: 0 auto;
     box-sizing: border-box;
     color: #ffffff;
+    position: relative;
 }
 
-/* 1. شريط الرصيد العلوي */
+/* 1. شريط الرصيد العلوي الثابت (Sticky Header) */
 .farm-header-card {
+    position: sticky;
+    top: 10px;
+    z-index: 100;
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 12px 16px;
-    background: rgba(15, 23, 42, 0.75);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    background: rgba(15, 23, 42, 0.92);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     border-radius: 20px;
     margin-bottom: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    transform: translateZ(0); /* تسريع وتثبيت العرض عبر كارت الشاشة GPU */
 }
 
 .stat-box {
@@ -299,16 +302,6 @@
     gap: 8px;
 }
 
-.mined-counter-text {
-    font-size: 12px;
-    font-weight: 800;
-    color: #10b981;
-    background: rgba(16, 185, 129, 0.12);
-    padding: 2px 8px;
-    border-radius: 8px;
-    border: 1px solid rgba(16, 185, 129, 0.25);
-}
-
 .storage-badge {
     font-size: 11px;
     color: #fbbf24;
@@ -407,17 +400,9 @@
     gap: 8px;
 }
 
-.section-badge, .total-bonus-tag {
+.section-badge {
     font-size: 11px;
     color: #94a3b8;
-}
-
-.total-bonus-tag {
-    color: #10b981;
-    background: rgba(16, 185, 129, 0.12);
-    padding: 2px 8px;
-    border-radius: 8px;
-    font-weight: 700;
 }
 
 .mining-grid {
