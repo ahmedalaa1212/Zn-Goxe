@@ -29,7 +29,8 @@ function getSavedState() {
     const base = {
         tg_id: tg?.initDataUnsafe?.user?.id || null,
         first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب",
-        balance: 0, usd_balance: 0, ad_balance: 0, hourly_rate: 0, energy: 100, storage_level: 0, upgrades: {}, wallet_address: null, 
+        balance: 0, usd_balance: 0, ad_balance: 0, hourly_rate: 0, energy: 100, storage_level: 0, 
+        daily_streak: 0, last_daily_claim_date: null, upgrades: {}, wallet_address: null, 
         last_claim_time: null, last_sync_time: Date.now()
     };
     try { 
@@ -48,7 +49,7 @@ let lastSaveTime = 0;
 window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
         target[prop] = value;
-        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades', 'last_claim_time'].includes(prop)) {
+        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'daily_streak', 'upgrades', 'last_claim_time'].includes(prop)) {
             const now = Date.now();
             if (now - lastSaveTime > 2000 && !isFirebaseUpdating) {
                 try { localStorage.setItem('app_user_state', JSON.stringify(target)); } catch {}
@@ -95,6 +96,8 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         if (targetObj?.balance !== undefined) window.userState.balance = parseFloat(targetObj.balance);
         if (targetObj?.usd_balance !== undefined) window.userState.usd_balance = parseFloat(targetObj.usd_balance);
         if (targetObj?.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate);
+        if (targetObj?.daily_streak !== undefined) window.userState.daily_streak = parseInt(targetObj.daily_streak);
+        if (targetObj?.last_daily_claim_date !== undefined) window.userState.last_daily_claim_date = targetObj.last_daily_claim_date;
         if (targetObj?.last_claim_time !== undefined) window.userState.last_claim_time = targetObj.last_claim_time;
         isFirebaseUpdating = false;
 
@@ -106,7 +109,47 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 };
 
 // ==========================================
-// 3. الاستماع اللحظي Firestore
+// 3. مشاهدة إعلان مونيتاج (+2 ZN/ساعة)
+// ==========================================
+window.watchMonetagAd = async function() {
+    if (typeof window.show_11322720 !== 'function') {
+        alert('جاري تحميل مكتبة الإعلانات، يرجى المحاولة بعد قليل...');
+        return;
+    }
+
+    try {
+        await window.show_11322720();
+        // تسجيل المكافأة بعد الانتهاء من الإعلان
+        const res = await window.fetchAPI('/api/farm/watch-ad', 'POST');
+        if (res.success) {
+            alert(`🎉 تم زيادة سرعة التعدين بنجاح! (+2 ZN/ساعة)`);
+        } else {
+            alert(res.error || 'حدث خطأ أثناء إضافة المكافأة.');
+        }
+    } catch (err) {
+        console.error("Ad cancelled or error:", err);
+        alert('يجب إكمال الإعلان للنهاية للحصول على المكافأة.');
+    }
+};
+
+// ==========================================
+// 4. استلام المكافأة اليومية (UTC Checked)
+// ==========================================
+window.claimDailyReward = async function() {
+    try {
+        const res = await window.fetchAPI('/api/farm/daily-claim', 'POST');
+        if (res.success) {
+            alert(`🎁 مبروك! استلمت مكافأة اليوم (${res.reward} ZN). العداد الحالي: ${res.daily_streak} أيام!`);
+        } else {
+            alert(res.error || 'لا يمكنك الاستلام الآن.');
+        }
+    } catch (err) {
+        alert(err.message || 'حدث خطأ أثناء استلام المكافأة.');
+    }
+};
+
+// ==========================================
+// 5. الاستماع اللحظي Firestore
 // ==========================================
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) return;
@@ -119,7 +162,7 @@ window.initFirebaseRealtimeSync = function(userId) {
             isFirebaseUpdating = true;
             if (d.balance !== undefined) window.userState.balance = parseFloat(d.balance);
             if (d.usd_balance !== undefined) window.userState.usd_balance = parseFloat(d.usd_balance);
-            ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'upgrades', 'last_claim_time'].forEach(k => {
+            ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'daily_streak', 'last_daily_claim_date', 'upgrades', 'last_claim_time'].forEach(k => {
                 if (d[k] !== undefined) window.userState[k] = d[k];
             });
             window.userState.last_sync_time = Date.now();
@@ -130,7 +173,7 @@ window.initFirebaseRealtimeSync = function(userId) {
 };
 
 // ==========================================
-// 4. دالة إدارة العداد (15 ثانية)
+// 6. دالة إدارة العداد (15 ثانية)
 // ==========================================
 let claimCooldownTimer = null;
 
@@ -188,7 +231,7 @@ window.updateClaimButtonState = function() {
 };
 
 // ==========================================
-// 5. تنسيق الرصيد (بدون انكسار الأسطر)
+// 7. تنسيق الرصيد (بدون انكسار الأسطر)
 // ==========================================
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0';
@@ -244,7 +287,7 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 6. التنقل بين القوائم
+// 8. التنقل بين القوائم
 // ==========================================
 const loadedModules = new Set();
 
@@ -300,7 +343,7 @@ function loadModuleScript(scriptUrl) {
 }
 
 // ==========================================
-// 7. بدء التطبيق
+// 9. بدء التطبيق
 // ==========================================
 window.loadUserData = async function() {
     try {
