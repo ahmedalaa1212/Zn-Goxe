@@ -2,8 +2,9 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
     -webkit-tap-highlight-color: transparent;
+    user-select: none;
 }
 
 body {
@@ -14,89 +15,202 @@ body {
 }
 
 #app {
-    min-height: calc(100vh - 75px);
-    padding: 15px;
-    padding-bottom: 90px;
+    min-height: 100vh;
+    padding: 12px;
+    padding-bottom: calc(85px + env(safe-area-inset-bottom, 0px));
 }
 
-/* شاشة التحميل */
+/* ==========================================
+   شاشة التحميل
+   ========================================== */
 #loading-screen {
     position: fixed;
-    top: 0; left: 0; width: 100vw; height: 100vh;
+    top: 0; 
+    left: 0; 
+    width: 100vw; 
+    height: 100vh;
     background: #0f172a;
     z-index: 99999;
     display: flex;
     justify-content: center;
     align-items: center;
     flex-direction: column;
+    gap: 15px;
 }
 
 .loader-rocket {
-    font-size: 50px;
+    font-size: 55px;
     animation: pulse 1.5s infinite ease-in-out;
 }
 
 @keyframes pulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.15); }
+    0%, 100% { 
+        transform: scale(1); 
+        filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.4)); 
+    }
+    50% { 
+        transform: scale(1.15); 
+        filter: drop-shadow(0 0 25px rgba(245, 158, 11, 0.8)); 
+    }
 }
 
-/* إدارة الواجهات */
+/* ==========================================
+   إدارة الواجهات
+   ========================================== */
 .game-view {
     display: none;
 }
 
 .game-view.active {
     display: block;
-    animation: fadeIn 0.3s ease;
+    animation: fadeIn 0.25s ease-out;
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
+    from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* شريط التنقل السفلي */
+/* ==========================================
+   شريط التنقل السفلي الاحترافي والمستجيب
+   ========================================== */
 .bottom-nav {
     position: fixed;
-    bottom: 0; left: 0; right: 0;
-    height: 70px;
-    background: rgba(15, 23, 42, 0.9);
-    backdrop-filter: blur(12px);
-    display: flex;
-    justify-content: space-around;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: calc(66px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: rgba(15, 23, 42, 0.94);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
     align-items: center;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     z-index: 9999;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
 }
 
 .nav-item {
     background: none;
     border: none;
-    color: #94a3b8;
+    color: #64748b;
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     cursor: pointer;
-    font-size: 10px;
+    padding: 4px 0;
+    min-width: 0; /* منع خروج النص خارج الخلية */
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    height: 100%;
 }
 
+.nav-item i {
+    font-size: clamp(14px, 3.8vw, 17px);
+    margin-bottom: 3px;
+    transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.nav-item span {
+    font-size: clamp(8.5px, 2.2vw, 10.5px);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    padding: 0 1px;
+}
+
+/* حالة التفعيل للأزرار العادية */
 .nav-item.active {
     color: #f59e0b;
 }
 
-/* زر المزرعة المركزي المميز */
+.nav-item.active i {
+    transform: translateY(-2px) scale(1.1);
+    color: #f59e0b;
+    filter: drop-shadow(0 2px 6px rgba(245, 158, 11, 0.4));
+}
+
+.nav-item:active {
+    transform: scale(0.92);
+}
+
+/* مؤشر أعلى الزر النشط */
+.nav-item.active::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    width: 20px;
+    height: 3px;
+    background: #f59e0b;
+    border-radius: 0 0 4px 4px;
+    box-shadow: 0 2px 8px #f59e0b;
+}
+
+/* ==========================================
+   زر المزرعة المركزى المميز (Floating Center Button)
+   ========================================== */
 .nav-item.nav-center-btn {
     position: relative;
-    top: -12px;
-    width: 58px;
-    height: 58px;
+    top: -14px;
+    justify-self: center;
+    width: clamp(54px, 14vw, 62px);
+    height: clamp(54px, 14vw, 62px);
     border-radius: 50%;
-    background: #1e293b;
-    border: 3px solid #f59e0b;
+    background: linear-gradient(145deg, #1e293b, #0f172a);
+    border: 2px solid #f59e0b;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5), 0 0 12px rgba(245, 158, 11, 0.3);
+    padding: 0;
+    overflow: visible;
+    color: #cbd5e1;
+}
+
+.nav-item.nav-center-btn::before {
+    display: none; /* إلغاء الشريط العلوي للزر الأوسط */
+}
+
+.farm-btn-inner {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
     display: flex;
-    justify-content: center;
+    flex-direction: column;
     align-items: center;
+    justify-content: center;
+    gap: 1px;
+}
+
+.nav-item.nav-center-btn i {
+    font-size: clamp(15px, 4vw, 19px);
+    margin-bottom: 1px;
+    color: #f59e0b;
+}
+
+.nav-item.nav-center-btn span {
+    font-size: clamp(8px, 2vw, 9.5px);
+    font-weight: 700;
+    color: #ffffff;
+}
+
+/* الحالة النشطة للزر الأوسط */
+.nav-item.nav-center-btn.active {
+    background: radial-gradient(circle at 50% 30%, #2a374e, #131c2e);
+    border-color: #ffd700;
+    box-shadow: 0 8px 22px rgba(245, 158, 11, 0.5), 0 0 15px rgba(255, 215, 0, 0.4);
+}
+
+.nav-item.nav-center-btn.active i {
+    color: #ffd700;
+    transform: scale(1.15) rotate(-5deg);
+    filter: drop-shadow(0 2px 8px rgba(255, 215, 0, 0.6));
+}
+
+.nav-item.nav-center-btn.active span {
+    color: #ffd700;
 }
 
 .small-decimal {
