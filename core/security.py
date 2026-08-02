@@ -17,11 +17,10 @@ def validate_telegram_data(init_data: str):
 
     try:
         parsed_data = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
-        
         if 'hash' not in parsed_data:
             return None
+            
         hash_val = parsed_data.pop('hash')
-        
         data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed_data.items()))
         
         secret_key = hmac.new(b"WebAppData", token.encode('utf-8'), hashlib.sha256).digest()
@@ -34,16 +33,12 @@ def validate_telegram_data(init_data: str):
                 user_dict['start_param'] = parsed_data['start_param']
             return user_dict
         return None
-        
     except Exception as e:
-        print(f"⚠️ Security validation exception: {e}")
+        print(f"⚠️ Security validation error: {e}")
         return None
 
 def get_authenticated_user(request, is_post=False):
-    """
-    استخراج والتحقق من هويّة المستخدم وفحص الحظر مباشرة.
-    ترجع 4 عناصر: (success, telegram_id, user_info, error_res)
-    """
+    """استخراج والتحقق من هوية المستخدم وفحص الحظر مباشرة"""
     try:
         init_data = None
         if is_post:
@@ -67,14 +62,12 @@ def get_authenticated_user(request, is_post=False):
                 telegram_id = str(user_info.get('id')).strip()
 
         if not telegram_id:
-            return False, None, None, (jsonify({'success': False, 'error': 'غير مصرح: بيانات المصادقة غير صالحة أو مفقودة (initData)'}), 401)
+            return False, None, None, (jsonify({'success': False, 'error': 'غير مصرح: بيانات المصادقة غير صالحة'}), 401)
 
         if is_user_banned(telegram_id):
             return False, telegram_id, user_info, (jsonify({'success': False, 'error': 'تم حظر حسابك لمخالفة القوانين'}), 403)
 
-        # حفظ بيانات user_info في كائن الطلب لتسهيل الوصول إليها عند الحاجة
         request.telegram_user = user_info
-
         return True, telegram_id, user_info, None
         
     except Exception as e:
