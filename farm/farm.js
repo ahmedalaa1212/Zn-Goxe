@@ -33,7 +33,7 @@
         else alert(message);
     }
 
-    // حساب الوقت الحالي المعدل بناءً على توقيت السيرفر
+    // حساب الوقت الحالي المعدل بناءً على توقيت السيرفر لضمان دقة العداد
     function getAdjustedNowMs() {
         return Date.now() - serverTimeOffset;
     }
@@ -144,6 +144,7 @@
         let bal = getStoredBalance();
         let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
         
+        // رسم الرصيد الأساسي بدقة منسقة 2 كسر عشري
         const balEl = document.getElementById('farm-balance');
         if (balEl) {
             balEl.innerText = `${bal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} ZN`;
@@ -257,7 +258,7 @@
         container.innerHTML = html;
     }
 
-    // العداد المحلي المستقل وحساب الوقت المنقضي بدقة متناهية
+    // العداد المحلي المستقل وحساب الوقت المنقضي بدقة متناهية (يعتمد على الطابع الزمني ليمنع التعليق تماماً)
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
         const pData = window.PlayerData;
@@ -270,6 +271,7 @@
         let lastClaimStr = window.userState?.last_claim_time || pData.last_claim_time;
         let lastClaimTimeMs = lastClaimStr ? new Date(lastClaimStr).getTime() : getAdjustedNowMs();
         
+        // حساب الوقت المنقضي منذ آخر تجميع
         let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimTimeMs) / 1000);
         let unclaim = (hRate / 3600.0) * secondsPassed;
 
@@ -279,7 +281,6 @@
         // تحديث شريط التخزين والعداد الحقيقي
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
-        const minedCounterEl = document.getElementById('storage-mined-counter');
 
         if (progressEl && storageTextEl) {
             let pct = (unclaim / maxC) * 100;
@@ -292,14 +293,11 @@
                 progressEl.style.background = 'linear-gradient(90deg, #f39c12, #f1c40f)';
             }
             
+            // عرض العداد المنسق فقط وإزالة العداد الأخضر الجانبي
             storageTextEl.innerText = `${unclaim.toFixed(2)} / ${maxC.toLocaleString()}`;
         }
 
-        if (minedCounterEl) {
-            minedCounterEl.innerText = `+${unclaim.toFixed(4)} ZN`;
-        }
-
-        // تحديث حالة الزر والعداد التنازلي الأمني (15 ثانية)
+        // تحديث حالة الزر والعداد التنازلي الأمني (15 ثانية) - لن يعلق أبدًا لأنه يعتمد على الوقت الفعلي
         const claimBtn = document.getElementById('claim-btn');
         if (claimBtn) {
             const remainingCooldown = Math.max(0, Math.ceil(MIN_CLAIM_INTERVAL - secondsPassed));
