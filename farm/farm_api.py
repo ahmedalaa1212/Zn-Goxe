@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from google.cloud import firestore
 from core.security import get_authenticated_user
 from database import db, get_game_settings
@@ -317,6 +317,7 @@ def upgrade_field():
         return jsonify({"success": False, "error": "حدث خطأ أثناء تنفيذ الترقية"}), 500
 
 @farm_bp.route('/daily_boost', methods=['POST'])
+@farm_bp.route('/watch-ad', methods=['POST'])
 def daily_boost():
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success: return error_res
@@ -353,13 +354,14 @@ def daily_boost():
         transaction = db.transaction()
         res_data, err_msg, status_code = run_boost_transaction(transaction, user_ref)
 
-        if err_msg: return jsonify({"success": False, "error": err_msg}), status_code
+        if err_msg: return jsonify({"success": False, "error": err_msg, "server_time": now_dt.isoformat()}), status_code
 
         return jsonify({
             "success": True,
             "new_rate": res_data["new_rate"],
             "last_boost_date": res_data["last_boost_date"],
             "added_rate": res_data["added_rate"],
+            "hourly_rate": res_data["new_rate"],
             "server_time": res_data["server_time"]
         }), 200
 
@@ -368,6 +370,7 @@ def daily_boost():
         return jsonify({"success": False, "error": "حدث خطأ أثناء تفعيل التسريع"}), 500
 
 @farm_bp.route('/daily_claim', methods=['POST'])
+@farm_bp.route('/daily-claim', methods=['POST'])
 def daily_claim():
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success: return error_res
@@ -376,6 +379,7 @@ def daily_claim():
     user_ref = db.collection('users').document(user_id_str)
     now_dt = datetime.now(timezone.utc)
     today_str = now_dt.strftime('%Y-%m-%d')
+    yesterday_str = (now_dt - timedelta(days=1)).strftime('%Y-%m-%d')
 
     try:
         @firestore.transactional
@@ -384,23 +388,35 @@ def daily_claim():
             if not snapshot.exists: return None, "المستخدم غير موجود", 404
 
             data = snapshot.to_dict() or {}
-            if data.get("last_daily_claim_date") == today_str:
-                return None, "لقد استلمت مكافأتك اليومية بالفعل!", 400
+            last_claim_date = data.get("last_daily_claim_date")
+
+            if last_claim_date == today_str:
+                return None, "لقد استلمت مكافأتك اليومية بالفعل اليوم! عد غداً ⌛", 400
 
             current_day = int(data.get("daily_day", 1))
+
+            # فحص استمرارية السلسلة (Streak) بتوقيت UTC العالمي
+            if last_claim_date == yesterday_str:
+                new_day = current_day + 1
+                if new_day > 30: # عند الوصول لليوم الـ 30، يبدأ العداد مجدداً من اليوم الأول
+                    new_day = 1
+            else:
+                # تفويت يوم أدى لقطع السلسلة وإعادتها لليوم الأول
+                new_day = 1
+
             game_settings = get_game_settings() or DEFAULT_GAME_SETTINGS
             rewards_list = parse_daily_rewards(game_settings.get("daily_rewards"))
 
-            day_index = min(current_day - 1, len(rewards_list) - 1)
+            day_index = min(new_day - 1, len(rewards_list) - 1)
             reward_amount = float(rewards_list[day_index])
 
             current_bal = float(data.get("balance", 0.0))
             new_balance = round(current_bal + reward_amount, 2)
-            next_day = current_day + 1
 
             transaction.update(ref, {
                 "balance": new_balance,
-                "daily_day": next_day,
+                "daily_day": new_day,
+                "daily_streak": new_day,
                 "last_daily_claim_date": today_str,
                 "ads_watched": firestore.Increment(1)
             })
@@ -408,7 +424,7 @@ def daily_claim():
             return {
                 "reward": reward_amount,
                 "new_balance": new_balance,
-                "daily_day": next_day,
+                "daily_day": new_day,
                 "last_daily_claim_date": today_str,
                 "server_time": now_dt.isoformat()
             }, None, 200
@@ -416,13 +432,14 @@ def daily_claim():
         transaction = db.transaction()
         res_data, err_msg, status_code = run_daily_claim_transaction(transaction, user_ref)
 
-        if err_msg: return jsonify({"success": False, "error": err_msg}), status_code
+        if err_msg: return jsonify({"success": False, "error": err_msg, "server_time": now_dt.isoformat()}), status_code
 
         return jsonify({
             "success": True,
             "reward": res_data["reward"],
             "new_balance": res_data["new_balance"],
             "daily_day": res_data["daily_day"],
+            "daily_streak": res_data["daily_day"],
             "last_daily_claim_date": res_data["last_daily_claim_date"],
             "server_time": res_data["server_time"]
         }), 200
