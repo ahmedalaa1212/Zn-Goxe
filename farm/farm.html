@@ -113,7 +113,7 @@
     margin-bottom: 20px;
     border: 1px solid rgba(255, 255, 255, 0.12);
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    transform: translateZ(0); /* تسريع وتثبيت العرض عبر كارت الشاشة GPU */
+    transform: translateZ(0);
 }
 
 .stat-box {
@@ -121,6 +121,7 @@
     align-items: center;
     gap: 10px;
     flex: 1;
+    min-width: 0;
 }
 
 .stat-divider {
@@ -140,6 +141,7 @@
     justify-content: center;
     font-size: 20px;
     border: 1px solid rgba(243, 156, 18, 0.3);
+    flex-shrink: 0;
 }
 
 .coin-icon-sm {
@@ -150,23 +152,35 @@
 .stat-info {
     display: flex;
     flex-direction: column;
+    justify-content: center;
+    min-width: 0;
 }
 
 .stat-label {
     font-size: 11px;
     color: #94a3b8;
     font-weight: 600;
+    white-space: nowrap;
 }
 
 .stat-value {
     color: #f39c12;
     font-weight: 800;
-    font-size: 15px;
+    font-size: 14px;
     letter-spacing: 0.3px;
+    white-space: nowrap;
 }
 
 .balance-box .stat-value {
     color: #10b981;
+}
+
+#farm-balance {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    direction: ltr;
 }
 
 /* 2. القسم الأوسط: العملة ثلاثية الأبعاد وزر التعزيز */
