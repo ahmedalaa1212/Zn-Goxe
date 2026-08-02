@@ -209,13 +209,14 @@ window.formatNumberHTML = function(val) {
     const formattedStr = num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const parts = formattedStr.split('.');
     
-    let htmlResult = parts[0];
+    let htmlResult = `<span style="white-space: nowrap; inline-size: max-content;">${parts[0]}`;
     if (parts.length > 1) {
         htmlResult += `<span class="small-decimal" style="font-size: 0.75em; opacity: 0.85;">.${parts[1]}</span>`;
     }
     if (suffix) {
         htmlResult += `<span class="suffix" style="font-weight: bold; margin-left: 2px;">${suffix}</span>`;
     }
+    htmlResult += `</span>`;
     return htmlResult;
 };
 
@@ -283,6 +284,10 @@ window.switchView = async function(viewName) {
         } catch (err) {
             console.error(`خطأ أثناء تحميل قسم ${viewName}:`, err);
         }
+    }
+
+    if (viewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
+        window.onFarmTabOpen();
     }
 
     const initFuncName = `init${viewName.charAt(0).toUpperCase() + viewName.slice(1)}View`;
