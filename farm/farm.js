@@ -16,7 +16,9 @@
         ]
     };
 
-    let claimCooldown = 0; 
+    const MIN_CLAIM_INTERVAL = 15; // 15 ثانية حد أدنى بين كل عملية تجميع
+    let serverTimeOffset = 0; // الفرق بين توقيت جهاز المستخدم وتوقيت السيرفر (بالمللي ثانية)
+
     let isClaimingDaily = false;
     let isBoosting = false; 
     let isFetching = false;
@@ -31,7 +33,25 @@
         else alert(message);
     }
 
-    // قراءة الرصيد الأساسي بدقة بدون التلاعب به
+    // حساب الوقت الحالي المعدل بناءً على توقيت السيرفر
+    function getAdjustedNowMs() {
+        return Date.now() - serverTimeOffset;
+    }
+
+    // تحديث فارق التوقيت بين الجهاز والسيرفر
+    function syncServerTime(serverTimeStr) {
+        if (!serverTimeStr) return;
+        try {
+            const serverMs = new Date(serverTimeStr).getTime();
+            if (!isNaN(serverMs)) {
+                serverTimeOffset = Date.now() - serverMs;
+            }
+        } catch (e) {
+            console.error("خطأ مزامنة وقت السيرفر:", e);
+        }
+    }
+
+    // قراءة الرصيد الأساسي بدقة
     function getStoredBalance() {
         if (window.userState && window.userState.balance !== undefined) {
             return parseFloat(window.userState.balance || 0);
@@ -49,11 +69,12 @@
     }
 
     function getTodayUTCStr() {
-        return new Date().toISOString().split('T')[0];
+        const adjustedNow = new Date(getAdjustedNowMs());
+        return adjustedNow.toISOString().split('T')[0];
     }
     
     function getTimeUntilUTCMidnight() {
-        const now = new Date();
+        const now = new Date(getAdjustedNowMs());
         const nextMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
         const diff = nextMidnight.getTime() - now.getTime();
         
@@ -84,23 +105,18 @@
             let resData = await window.fetchAPI('/api/farm/player_data', 'POST', { start_param: START_PARAM });
             if (resData && resData.success) {
                 lastFetchTime = Date.now();
+                if (resData.server_time) syncServerTime(resData.server_time);
+
                 window.PlayerData = resData.player;
                 if (!window.userState) window.userState = {};
                 
-                if (resData.player && resData.player.balance !== undefined) {
-                    setStoredBalance(resData.player.balance);
-                }
-                if (resData.player && resData.player.hourly_rate !== undefined) {
-                    window.userState.hourly_rate = resData.player.hourly_rate;
-                }
-                if (resData.player && resData.player.max_cap !== undefined) {
-                    window.userState.max_cap = resData.player.max_cap;
-                }
-                if (resData.player && resData.player.storage_level !== undefined) {
-                    window.userState.storage_level = resData.player.storage_level;
-                }
-                if (resData.player && resData.player.upgrades !== undefined) {
-                    window.userState.upgrades = resData.player.upgrades;
+                if (resData.player) {
+                    if (resData.player.balance !== undefined) setStoredBalance(resData.player.balance);
+                    if (resData.player.hourly_rate !== undefined) window.userState.hourly_rate = resData.player.hourly_rate;
+                    if (resData.player.max_cap !== undefined) window.userState.max_cap = resData.player.max_cap;
+                    if (resData.player.storage_level !== undefined) window.userState.storage_level = resData.player.storage_level;
+                    if (resData.player.upgrades !== undefined) window.userState.upgrades = resData.player.upgrades;
+                    if (resData.player.last_claim_time !== undefined) window.userState.last_claim_time = resData.player.last_claim_time;
                 }
                 
                 if (resData.game_config) {
@@ -128,7 +144,6 @@
         let bal = getStoredBalance();
         let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
         
-        // رسم الرصيد الأساسي بدقة منسقة 2 كسر عشري بدون تلاعب محلي
         const balEl = document.getElementById('farm-balance');
         if (balEl) {
             balEl.innerText = `${bal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} ZN`;
@@ -242,7 +257,7 @@
         container.innerHTML = html;
     }
 
-    // العداد المحلي المستقل: يزيد التجمع المؤقت في المخزن فقط بدون المساس بالرصيد الأساسي
+    // العداد المحلي المستقل وحساب الوقت المنقضي بدقة متناهية
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
         const pData = window.PlayerData;
@@ -251,14 +266,17 @@
         let maxC = parseFloat(window.userState?.max_cap || pData.max_cap || 200);
         let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
         
-        let lastClaimTimeMs = pData.last_claim_time ? new Date(pData.last_claim_time).getTime() : Date.now();
-        let secondsPassed = Math.max(0, (Date.now() - lastClaimTimeMs) / 1000);
+        // جلب آخر توقيت تجميع وتصحيحه بناءً على فارق توقيت السيرفر
+        let lastClaimStr = window.userState?.last_claim_time || pData.last_claim_time;
+        let lastClaimTimeMs = lastClaimStr ? new Date(lastClaimStr).getTime() : getAdjustedNowMs();
+        
+        let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimTimeMs) / 1000);
         let unclaim = (hRate / 3600.0) * secondsPassed;
 
         if (unclaim >= maxC) unclaim = maxC;
         pData.unclaimed = unclaim;
 
-        // تحديث شريط التخزين والعداد الحقيقي اللحظي في المخزن المؤقت فقط
+        // تحديث شريط التخزين والعداد الحقيقي
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
         const minedCounterEl = document.getElementById('storage-mined-counter');
@@ -281,24 +299,27 @@
             minedCounterEl.innerText = `+${unclaim.toFixed(4)} ZN`;
         }
 
-        // تحديث حالة الزر وتناقص العداد الثواني
+        // تحديث حالة الزر والعداد التنازلي الأمني (15 ثانية)
         const claimBtn = document.getElementById('claim-btn');
         if (claimBtn) {
-            if (claimCooldown > 0) {
-                claimBtn.innerText = `انتظر ${claimCooldown} ثانية ⏳`;
+            const remainingCooldown = Math.max(0, Math.ceil(MIN_CLAIM_INTERVAL - secondsPassed));
+
+            if (isClaimingMain) {
+                claimBtn.innerText = "جاري الحفظ... 💾";
                 claimBtn.className = "main-claim-btn btn-cooldown";
                 claimBtn.disabled = true;
-                claimCooldown--; // إنقاص العداد ثانية واحدة في كل دورة
-            } else if (!isClaimingMain) {
-                if (unclaim > 0) {
-                    claimBtn.innerText = "تجميع الرصيد 💰";
-                    claimBtn.className = "main-claim-btn btn-ready";
-                    claimBtn.disabled = false;
-                } else {
-                    claimBtn.innerText = "المخزن فارغ ⏳";
-                    claimBtn.className = "main-claim-btn btn-cooldown";
-                    claimBtn.disabled = true;
-                }
+            } else if (remainingCooldown > 0) {
+                claimBtn.innerText = `انتظر ${remainingCooldown} ثانية ⏳`;
+                claimBtn.className = "main-claim-btn btn-cooldown";
+                claimBtn.disabled = true;
+            } else if (unclaim > 0) {
+                claimBtn.innerText = "تجميع الرصيد 💰";
+                claimBtn.className = "main-claim-btn btn-ready";
+                claimBtn.disabled = false;
+            } else {
+                claimBtn.innerText = "المخزن فارغ ⏳";
+                claimBtn.className = "main-claim-btn btn-cooldown";
+                claimBtn.disabled = true;
             }
         }
 
@@ -364,6 +385,7 @@
         try {
             let resData = await window.fetchAPI('/api/farm/upgrade', 'POST', { level: level });
             if (resData && resData.success) {
+                if (resData.server_time) syncServerTime(resData.server_time);
                 if (resData.new_balance !== undefined) {
                     setStoredBalance(resData.new_balance);
                 }
@@ -413,6 +435,7 @@
                 if (btn) btn.innerHTML = `<span style="font-size: 16px;">💾</span>`;
                 let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST');
                 if (resData && resData.success) {
+                    if (resData.server_time) syncServerTime(resData.server_time);
                     if (resData.new_rate !== undefined) {
                         pData.hourly_rate = resData.new_rate;
                         if (!window.userState) window.userState = {};
@@ -458,6 +481,7 @@
                 if (btn) btn.innerHTML = "💾";
                 let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST');
                 if (resData && resData.success) {
+                    if (resData.server_time) syncServerTime(resData.server_time);
                     if (resData.new_balance !== undefined) {
                         setStoredBalance(resData.new_balance);
                     }
@@ -490,7 +514,19 @@
 
     window.handleClaim = async function() {
         const pData = window.PlayerData;
-        if (!pData || parseFloat(pData.unclaimed || 0) <= 0 || claimCooldown > 0 || isClaimingMain) return;
+        if (!pData || isClaimingMain) return;
+
+        // التحقق المحلي السريع من مرور 15 ثانية
+        let lastClaimStr = window.userState?.last_claim_time || pData.last_claim_time;
+        let lastClaimTimeMs = lastClaimStr ? new Date(lastClaimStr).getTime() : getAdjustedNowMs();
+        let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimTimeMs) / 1000);
+
+        if (secondsPassed < MIN_CLAIM_INTERVAL) {
+            showToast(`⚠️ يجب الانتظار ${Math.ceil(MIN_CLAIM_INTERVAL - secondsPassed)} ثانية قبل التجميع مجدداً.`);
+            return;
+        }
+
+        if (parseFloat(pData.unclaimed || 0) <= 0) return;
 
         isClaimingMain = true;
         const claimBtn = document.getElementById('claim-btn');
@@ -507,30 +543,37 @@
         // تحديث محلي فوري عند التجميع
         setStoredBalance(optimisticNewBal);
         pData.unclaimed = 0;
-        pData.last_claim_time = new Date().toISOString();
+        
+        const nowISO = new Date(getAdjustedNowMs()).toISOString();
+        pData.last_claim_time = nowISO;
+        if (!window.userState) window.userState = {};
+        window.userState.last_claim_time = nowISO;
+        
         window.updateFarmUI();
 
         try {
             let resData = await window.fetchAPI('/api/farm/claim', 'POST');
             if (resData && resData.success) {
+                if (resData.server_time) syncServerTime(resData.server_time);
                 if (resData.new_balance !== undefined) {
                     setStoredBalance(resData.new_balance);
                 }
                 if (resData.last_claim_time) {
                     pData.last_claim_time = resData.last_claim_time;
+                    window.userState.last_claim_time = resData.last_claim_time;
                 }
                 pData.unclaimed = 0;
-                claimCooldown = 3; 
+            } else {
+                if (resData && resData.error) {
+                    showToast(resData.error);
+                }
             }
         } catch (e) {
             setStoredBalance(currentBal);
             showToast(e.message || "حدث خطأ في عملية التجميع");
-            if (claimBtn) {
-                claimBtn.disabled = false;
-                claimBtn.innerText = "تجميع الرصيد 💰";
-            }
         } finally {
             isClaimingMain = false;
+            window.updateFarmUI();
         }
     };
 
