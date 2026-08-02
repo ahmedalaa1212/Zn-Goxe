@@ -123,7 +123,7 @@ window.initFarmView = function() {
                 }
                 
                 if (resData.game_config) {
-                    if (resData.game_config.daily_rewards) {
+                    if (resData.game_config.daily_rewards && Array.isArray(resData.game_config.daily_rewards)) {
                         GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
                     }
                     if (resData.game_config.upgrade_costs) {
@@ -219,8 +219,8 @@ window.initFarmView = function() {
 
     function getRewardForDayIndex(index) {
         const rewards = GAME_CONFIG.dailyRewards;
-        if (!rewards) return 100;
-        return Array.isArray(rewards) ? (rewards[index] ?? 1250) : 1250;
+        if (!rewards || !Array.isArray(rewards)) return 100;
+        return rewards[index] ?? 1250;
     }
 
     function renderDailyRewards() {
@@ -230,24 +230,27 @@ window.initFarmView = function() {
 
         let html = '';
         const todayStr = getTodayUTCStr();
-        const canClaim = pData.last_daily_claim_date !== todayStr; 
-        const currentDailyDay = parseInt(pData.daily_day || 1);
-        const activeDayIndex = Math.min(currentDailyDay, 30);
+        const claimedToday = (pData.last_daily_claim_date === todayStr); 
+        let currentDailyDay = parseInt(pData.daily_day || 1);
 
         for (let i = 0; i < 30; i++) {
             let dayNum = i + 1;
             let rawReward = getRewardForDayIndex(i);
             let displayReward = formatCompactNumber(rawReward);
 
-            if (dayNum < activeDayIndex) {
+            if (dayNum < currentDailyDay) {
+                // الأيام المستلمة سابقاً
                 html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div>✓</div></div>`;
-            } else if (dayNum === activeDayIndex) {
-                if (canClaim) {
-                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%;">استلام</button></div>`;
-                } else {
+            } else if (dayNum === currentDailyDay) {
+                if (claimedToday) {
+                    // إذا كان المستطيل هو اليوم القادم بعد الاستلام، يُعرض العداد التنازلي عليه
                     html += `<div class="reward-day-card"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><div id="daily-timer" style="color: #ef4444; font-size: 8px;">⏳</div></div>`;
+                } else {
+                    // إذا لم يتم الاستلام اليوم بعد، يُعرض زر الاستلام
+                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%;">استلام</button></div>`;
                 }
             } else {
+                // الأيام القادمة المغلقة
                 html += `<div class="reward-day-card" style="opacity: 0.4;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div></div>`;
             }
         }
