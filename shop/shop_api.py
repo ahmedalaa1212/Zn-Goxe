@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 from google.cloud import firestore
 
-from database import db, create_transaction, get_game_settings
+from database import db, get_game_settings
 from core.security import get_authenticated_user
 from core.ton_price import get_live_ton_price
 
@@ -50,25 +50,6 @@ DEFAULT_STORAGE_CONFIG = {
     "9": {"capacity": 450000.0, "price": 5000000.0},
     "10": {"capacity": 1000000.0, "price": 12000000.0}
 }
-
-def safe_create_transaction(tg_id, tx_type, amount_usd=0.0, wallet_address="", status="completed", details=None):
-    try:
-        clean_id = str(tg_id).strip() if tg_id else None
-        if clean_id:
-            tx_details = details or {}
-            tx_details.update({
-                "wallet_address": wallet_address,
-                "status": status,
-                "amount_usd": float(amount_usd)
-            })
-            create_transaction(
-                tg_id=clean_id,
-                amount=float(amount_usd),
-                tx_type=tx_type,
-                details=tx_details
-            )
-    except Exception as e:
-        print(f"⚠️ [Transaction Warning] فشل تسجيل المعاملة: {e}")
 
 def get_cached_ton_price():
     now = time.time()
@@ -167,19 +148,6 @@ def prepare_ton_pay():
 
         memo_payload = f"BUY_{pkg_id}_USER_{user_id}_{int(time.time())}"
 
-        safe_create_transaction(
-            tg_id=user_id,
-            tx_type="package_buy_pending",
-            amount_usd=float(pkg_info['usdt']),
-            wallet_address=PROJECT_TON_WALLET,
-            status="pending",
-            details={
-                "package_id": pkg_id,
-                "ton_amount": ton_amount,
-                "memo": memo_payload
-            }
-        )
-
         return jsonify({
             "success": True,
             "package_id": pkg_id,
@@ -256,20 +224,6 @@ def verify_and_apply_package():
             return new_balance, new_hourly_rate, new_max_cap
 
         new_bal, new_rate, new_cap = secure_apply_package_tx(transaction, user_ref, tx_ref)
-
-        safe_create_transaction(
-            tg_id=user_id_str,
-            tx_type="package_buy_success",
-            amount_usd=float(pkg_info.get('usdt', 0)),
-            status="completed",
-            details={
-                "package_id": pkg_key,
-                "title": pkg_info.get('title', ''),
-                "zn_added": pkg_info.get('zn_add', 0),
-                "rate_added": pkg_info.get('rate_add', 0),
-                "storage_added": pkg_info.get('storage_add', 0)
-            }
-        )
 
         return jsonify({
             "success": True,
@@ -417,14 +371,6 @@ def buy_upgrade():
             raise Exception("نوع ترقية غير معروف.")
 
         res_data = secure_buy_upgrade_tx(transaction, user_ref)
-
-        safe_create_transaction(
-            tg_id=user_id_str,
-            tx_type=f"{upgrade_type}_upgrade",
-            amount_usd=0.0,
-            status="completed",
-            details={"level": level_num}
-        )
 
         return jsonify({
             "success": True, 
