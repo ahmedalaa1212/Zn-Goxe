@@ -154,18 +154,10 @@ window.formatNumberHTML = function(val) {
 };
 
 let visualBalance = null;
-let lastTickTime = performance.now();
 
 function startLocalMiningSimulator() {
-    requestAnimationFrame(function tick(currentTime) {
-        const deltaSec = (currentTime - lastTickTime) / 1000;
-        lastTickTime = currentTime;
-
-        if (window.userState && window.userState.hourly_rate > 0) {
-            const ratePerSec = window.userState.hourly_rate / 3600;
-            window.userState.balance += (ratePerSec * deltaSec);
-        }
-        
+    requestAnimationFrame(function tick() {
+        // تم إلغاء إضافة التعدين محلياً للرصيد الرئيسي حتى يظل ثابتاً كلياً ولا يزداد إلا عند الضغط على "تجميع"
         renderSmoothBalance(window.userState.balance);
         requestAnimationFrame(tick);
     });
@@ -216,7 +208,7 @@ window.switchView = async function(viewName) {
     // 3. التحقق مما إذا كان القسم قد تم تحميل محتواه سابقاً
     if (!loadedModules.has(viewName)) {
         try {
-            // جلب ملف ה-HTML المخصص من المجلد المخصص لكل قسم
+            // جلب ملف HTML المخصص من المجلد المخصص لكل قسم
             const res = await fetch(`${viewName}/${viewName}.html`);
             if (res.ok) {
                 const htmlContent = await res.text();
@@ -233,7 +225,7 @@ window.switchView = async function(viewName) {
         }
     }
 
-    // 4. استدعاء دالة التهيئة المخصصة للقسم إن وجِدت (مثلاً initFarmView أو initWalletView)
+    // 4. استدعاء دالة التهيئة المخصصة للقسم إن وجِدت
     const initFuncName = `init${viewName.charAt(0).toUpperCase() + viewName.slice(1)}View`;
     if (typeof window[initFuncName] === 'function') {
         window[initFuncName]();
@@ -243,7 +235,7 @@ window.switchView = async function(viewName) {
 };
 
 function loadModuleScript(scriptUrl) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         if (document.querySelector(`script[src="${scriptUrl}"]`)) {
             resolve();
             return;
@@ -251,7 +243,7 @@ function loadModuleScript(scriptUrl) {
         const script = document.createElement('script');
         script.src = scriptUrl;
         script.onload = () => resolve();
-        script.onerror = () => resolve(); // يتجاوز الخطأ إذا كان الملف غير موجود لبعض القوائم البسيطة
+        script.onerror = () => resolve(); 
         document.body.appendChild(script);
     });
 }
