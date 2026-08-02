@@ -1,4 +1,3 @@
-# friends/friends_api.py
 import time
 from flask import Blueprint, request, jsonify
 from core.security import get_authenticated_user
@@ -64,7 +63,6 @@ def get_user_upgrades_count(user_data):
 
 @friends_bp.route('/data', methods=['GET', 'POST'])
 def get_friends_data():
-    """جلب بيانات صفحة الأصدقاء مع RAM Caching لمسح استهلاك القراءات"""
     try:
         is_post = (request.method == 'POST')
         success, user_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
@@ -74,7 +72,6 @@ def get_friends_data():
         user_id_str = str(user_id)
         now = time.time()
 
-        # الفحص من الذاكرة العشوائية أولاً
         cached_entry = _USER_DATA_CACHE.get(user_id_str)
         if cached_entry and (now - cached_entry["timestamp"] < CACHE_TTL_USER):
             return jsonify(cached_entry["data"]), 200
@@ -113,7 +110,6 @@ def get_friends_data():
             "friends_config": friends_config
         }
 
-        # حفظ النتيجة في RAM Caching
         _USER_DATA_CACHE[user_id_str] = {"data": res_data, "timestamp": now}
 
         return jsonify(res_data), 200
@@ -123,7 +119,6 @@ def get_friends_data():
 
 @friends_bp.route('/list', methods=['GET', 'POST'])
 def get_friends_list():
-    """جلب سجل الأصدقاء بالتفصيل مع RAM Caching لحماية الفايرستور من الـ Streams المتكررة"""
     try:
         is_post = (request.method == 'POST')
         success, user_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
@@ -133,7 +128,6 @@ def get_friends_list():
         user_id_str = str(user_id)
         now = time.time()
 
-        # الفحص من الذاكرة العشوائية أولاً
         cached_entry = _USER_LIST_CACHE.get(user_id_str)
         if cached_entry and (now - cached_entry["timestamp"] < CACHE_TTL_USER):
             return jsonify(cached_entry["data"]), 200
@@ -192,7 +186,6 @@ def get_friends_list():
         friends_list.sort(key=lambda x: x['generated'], reverse=True)
         res_data = {"success": True, "friends": friends_list}
 
-        # حفظ النتيجة في RAM Caching
         _USER_LIST_CACHE[user_id_str] = {"data": res_data, "timestamp": now}
             
         return jsonify(res_data), 200
@@ -202,7 +195,6 @@ def get_friends_list():
 
 @friends_bp.route('/claim_ref_earnings', methods=['POST'])
 def claim_ref_earnings():
-    """سحب أرباح الإحالات مع الحفاظ على Transaction المباشر للفايرستور"""
     try:
         success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
         if not success:
@@ -241,7 +233,6 @@ def claim_ref_earnings():
         if not success_tr:
             return jsonify({"success": False, "error": error_msg}), status_code
 
-        # إبطال الكاش فوراً بعد المعاملة المالية الناجحة
         invalidate_user_cache(user_id)
 
         return jsonify({
@@ -257,7 +248,6 @@ def claim_ref_earnings():
 
 @friends_bp.route('/claim_ref_task', methods=['POST'])
 def claim_ref_task():
-    """استلام مكافأة مهمة الإحالة مع الحفاظ على Transaction المباشر للفايرستور"""
     try:
         success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
         if not success:
@@ -329,7 +319,6 @@ def claim_ref_task():
         if not success_tr:
             return jsonify({"success": False, "error": error_msg}), status_code
 
-        # إبطال الكاش فوراً بعد المعاملة المالية الناجحة
         invalidate_user_cache(user_id)
 
         return jsonify({
