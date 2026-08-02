@@ -83,28 +83,6 @@ def get_player_data():
         game_settings = get_game_settings() or DEFAULT_GAME_SETTINGS
 
         if not user_doc.exists:
-            referred_by = None
-            if start_param and isinstance(start_param, str) and start_param.startswith('ref_'):
-                parts = start_param.split('_')
-                if len(parts) > 1 and parts[1] != user_id_str:
-                    potential_referrer = str(parts[1])
-                    referred_by = potential_referrer
-                    try:
-                        referrer_ref = db.collection('users').document(potential_referrer)
-                        if referrer_ref.get().exists:
-                            referrer_ref.update({'invited_friends_count': firestore.Increment(1)})
-                            
-                            first_name = user_info.get('first_name', 'صديق') if isinstance(user_info, dict) else 'صديق'
-                            friend_ref_in_sub = referrer_ref.collection('friends').document(user_id_str)
-                            friend_ref_in_sub.set({
-                                'tg_id': user_id_str,
-                                'first_name': first_name,
-                                'joined_at': now.isoformat(),
-                                'earned_from_him': 0.0
-                            }, merge=True)
-                    except Exception as e:
-                        print(f"Error updating referrer count: {e}")
-
             user_data = {
                 "tg_id": user_id_str,
                 "telegram_id": user_id_str, 
@@ -121,7 +99,7 @@ def get_player_data():
                 "last_boost_date": None,
                 "ads_watched": 0, 
                 "upgrades": {},
-                "referred_by": referred_by,
+                "referred_by": None,
                 "pending_ref_earnings": 0.0,
                 "total_ref_earnings": 0.0,
                 "invited_friends_count": 0,
@@ -136,16 +114,8 @@ def get_player_data():
         max_cap = get_storage_capacity(storage_level, game_settings)
         user_data["max_cap"] = max_cap
 
-        last_daily_date = user_data.get("last_daily_claim_date")
-        if last_daily_date:
-            try:
-                last_date_obj = datetime.strptime(last_daily_date, '%Y-%m-%d').date()
-                days_diff = (now.date() - last_date_obj).days
-                if days_diff > 1:
-                    user_data["daily_day"] = 1
-                    user_ref.update({"daily_day": 1})
-            except Exception: 
-                pass
+        # تقريب الرصيد لتجنب أخطاء الفلوت بالـ Firestore
+        user_data["balance"] = round(float(user_data.get("balance", 0.0)), 2)
 
         last_claim_str = user_data.get("last_claim_time")
         hourly_rate = float(user_data.get("hourly_rate", 0.0))
@@ -159,15 +129,9 @@ def get_player_data():
                 seconds_passed = (now - last_claim).total_seconds()
                 if seconds_passed > 0:
                     mined = (hourly_rate / 3600.0) * seconds_passed
-                    user_data["unclaimed"] = min(mined, max_cap)
+                    user_data["unclaimed"] = round(min(mined, max_cap), 4)
             except Exception: 
                 pass
-        else:
-            user_data["last_claim_time"] = now.isoformat()
-            user_ref.update({"last_claim_time": now.isoformat()})
-
-        if not isinstance(user_data.get("upgrades"), dict):
-            user_data["upgrades"] = {}
 
         parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
 
@@ -212,17 +176,6 @@ def claim_mined_tokens():
                 return None, "الحساب غير موجود", 404
 
             user_data = snapshot.to_dict() or {}
-            referred_by = user_data.get("referred_by")
-            
-            inviter_ref = None
-            inviter_snap = None
-            inviter_friend_doc = None
-            
-            if referred_by:
-                inviter_ref = db.collection('users').document(str(referred_by))
-                inviter_snap = inviter_ref.get(transaction=transaction)
-                inviter_friend_doc = inviter_ref.collection('friends').document(user_id_str)
-
             now = datetime.now(timezone.utc)
             last_claim_str = user_data.get("last_claim_time")
             hourly_rate = float(user_data.get("hourly_rate", 0.0))
@@ -247,7 +200,7 @@ def claim_mined_tokens():
                 return None, "لا يوجد رصيد حالياً في المخزن.", 400
 
             current_bal = float(user_data.get("balance", 0.0))
-            new_balance = current_bal + unclaimed
+            new_balance = round(current_bal + unclaimed, 2)
             now_iso = now.isoformat()
 
             update_data = {
@@ -256,17 +209,6 @@ def claim_mined_tokens():
                 "max_cap": max_cap,
                 "last_claim_time": now_iso
             }
-
-            if referred_by and inviter_snap and inviter_snap.exists:
-                ref_bonus = unclaimed * 0.10
-                transaction.update(inviter_ref, {
-                    "pending_ref_earnings": firestore.Increment(ref_bonus),
-                    "total_ref_earnings": firestore.Increment(ref_bonus)
-                })
-                if inviter_friend_doc:
-                    transaction.set(inviter_friend_doc, {
-                        "earned_from_him": firestore.Increment(ref_bonus)
-                    }, merge=True)
 
             transaction.update(ref, update_data)
             return {"new_balance": new_balance, "claimed_amount": unclaimed, "last_claim_time": now_iso}, None, 200
@@ -294,10 +236,7 @@ def upgrade_field():
     if not success:
         return error_res
 
-    req_data = request.get_json(silent=True)
-    if not isinstance(req_data, dict):
-        req_data = {}
-
+    req_data = request.get_json(silent=True) or {}
     level = req_data.get('level')
 
     try:
@@ -344,7 +283,7 @@ def upgrade_field():
                     return None, "يجب فتح المستوى السابق أولاً", 400
 
             upgrades[lvl_key] = current_count + 1
-            new_bal = current_bal - cost
+            new_bal = round(current_bal - cost, 2)
             rate_bonus = float(config.get("rate_bonus") or config.get("rate", 0.0))
             new_rate = float(data.get("hourly_rate", 0.0)) + rate_bonus
 
@@ -454,7 +393,7 @@ def daily_claim():
             reward_amount = float(rewards_list[day_index])
 
             current_bal = float(data.get("balance", 0.0))
-            new_balance = current_bal + reward_amount
+            new_balance = round(current_bal + reward_amount, 2)
             next_day = current_day + 1
 
             transaction.update(ref, {
