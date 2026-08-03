@@ -8,7 +8,6 @@ farm_bp = Blueprint('farm', __name__)
 
 COOLDOWN_SECONDS = 15  # مدة الانتظار الإجبارية بين كل عملية تجميع بالثواني
 
-# الإعدادات الافتراضية المطابقة تماماً لـ 30 يوم والترقيات
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
         100, 150, 200, 250, 300, 350, 400, 500, 600, 700,
@@ -112,7 +111,6 @@ def get_player_data():
 
         storage_level = user_data.get("storage_level", 0)
         
-        # 🎯 الحفاظ على max_cap المخزنة بدلاً من إعادة كتابتها من الإعدادات
         if "max_cap" in user_data and user_data["max_cap"] is not None:
             max_cap = float(user_data["max_cap"])
         else:
@@ -137,6 +135,21 @@ def get_player_data():
                     user_data["unclaimed"] = round(min(mined, max_cap), 4)
             except Exception: 
                 pass
+
+        # 🎯 حساب اليوم اليومي الفعال لضمان تطابق الواجهة مع السيرفر
+        today_str = now.strftime('%Y-%m-%d')
+        yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+        last_daily_claim = user_data.get("last_daily_claim_date")
+        raw_daily_day = int(user_data.get("daily_day") or user_data.get("daily_streak") or 1)
+
+        if last_daily_claim == today_str:
+            effective_daily_day = raw_daily_day
+        elif last_daily_claim == yesterday_str:
+            effective_daily_day = raw_daily_day + 1 if raw_daily_day < 30 else 1
+        else:
+            effective_daily_day = 1
+
+        user_data["daily_day"] = effective_daily_day
 
         parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
         upgrade_configs = game_settings.get("upgrade_config") or game_settings.get("speed_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
@@ -187,7 +200,6 @@ def claim_mined_tokens():
             hourly_rate = float(user_data.get("hourly_rate", 0.0))
             storage_level = user_data.get("storage_level", 0)
 
-            # 🎯 اعتماد السعة المسجلة للمستخدم
             if "max_cap" in user_data and user_data["max_cap"] is not None:
                 max_cap = float(user_data["max_cap"])
             else:
@@ -203,11 +215,12 @@ def claim_mined_tokens():
                         
                     seconds_passed = (now - last_claim).total_seconds()
                     
-                    if seconds_passed < COOLDOWN_SECONDS:
+                    # سماحية زمنية بسيطة (1.5 ثانية) لمقابلة تفاوت وقت المتصفحات
+                    if seconds_passed < (COOLDOWN_SECONDS - 1.5):
                         remaining = int(COOLDOWN_SECONDS - seconds_passed)
                         return None, f"انتظر {remaining} ثانية ⏳", 400
 
-                    mined = (hourly_rate / 3600.0) * seconds_passed
+                    mined = (hourly_rate / 3600.0) * max(0, seconds_passed)
                     unclaimed = min(mined, max_cap)
                 except Exception: 
                     pass
@@ -219,7 +232,6 @@ def claim_mined_tokens():
             new_balance = round(current_bal + unclaimed, 2)
             now_iso = now.isoformat()
 
-            # 🎯 لا نضع "max_cap" هنا حتى لا يعيد كتابة قيم الفايربيس اليدوية
             update_data = {
                 "balance": new_balance,
                 "unclaimed": 0.0,
@@ -406,15 +418,11 @@ def daily_claim():
 
             current_day = int(data.get("daily_day") or data.get("daily_streak") or 1)
 
-            # فحص استمرارية السلسلة (Streak) بتوقيت UTC
             if last_claim_date == yesterday_str:
                 new_day = current_day + 1
-                if new_day > 30: # عند الوصول لليوم الـ 30، يبدأ العداد مجدداً من اليوم الأول
+                if new_day > 30:
                     new_day = 1
-            elif last_claim_date is None:
-                new_day = 1
             else:
-                # تفويت يوم أدى لقطع السلسلة وإعادتها لليوم الأول
                 new_day = 1
 
             game_settings = get_game_settings() or DEFAULT_GAME_SETTINGS
