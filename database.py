@@ -60,7 +60,7 @@ def ensure_game_settings_exist():
                 "0": {"capacity": 200.0, "price": 0},
                 "1": {"capacity": 600.0, "price": 3000},
                 "2": {"capacity": 1500.0, "price": 10000},
-                "3": {"capacity": 3500.0, "price": 25000},
+                "3": {"capacity": 25000, "price": 25000},
                 "4": {"capacity": 8000.0, "price": 60000},
                 "5": {"capacity": 18000.0, "price": 150000},
                 "6": {"capacity": 40000.0, "price": 350000},
@@ -193,7 +193,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "hourly_rate": 0.0,
                 "energy": 100.0,
                 "storage_level": 0,
-                "max_cap": 200.0, # السعة المبدئية عند إنشاء الحساب لأول مرة
+                "max_cap": 200.0,
                 "last_claim_time": now_iso,
                 "daily_streak": 0,
                 "daily_day": 1,
@@ -220,11 +220,21 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                         "joined_at": firestore.SERVER_TIMESTAMP
                     }, merge=True)
         else:
-            # ✅ تحديث البيانات دون مسح أو تعديل max_cap المعدلة يدوياً
-            user_ref.update({
+            user_data = user_doc.to_dict() or {}
+            updates = {
                 "first_name": first_name,
                 "last_active": firestore.SERVER_TIMESTAMP
-            })
+            }
+            if "max_cap" not in user_data:
+                updates["max_cap"] = 200.0
+            if "storage_level" not in user_data:
+                updates["storage_level"] = 0
+            if "upgrades" not in user_data:
+                updates["upgrades"] = {}
+            if "hourly_rate" not in user_data:
+                updates["hourly_rate"] = 0.0
+                
+            user_ref.update(updates)
         
         return is_new_referral
     except Exception as e:
@@ -276,18 +286,16 @@ def update_user_storage_level(tg_id, target_level=None):
         current_balance = float(user_data.get("balance", 0.0))
         current_max_cap = float(user_data.get("max_cap", 200.0))
 
-        # تحديد المستوى المراد الوصول إليه
         next_level = int(target_level) if target_level is not None else current_level + 1
 
         if next_level <= current_level:
             return False, "أنت بالفعل في هذا المستوى أو مستوى أعلى!", current_max_cap, current_balance
 
-        # جلب إعدادات التخزين
         settings = get_game_settings()
         storage_cfg = settings.get("storage_config", {})
 
-        curr_cfg = storage_cfg.get(str(current_level), {"capacity": 200.0})
-        next_cfg = storage_cfg.get(str(next_level))
+        curr_cfg = storage_cfg.get(str(current_level)) or storage_cfg.get(current_level) or {"capacity": 200.0}
+        next_cfg = storage_cfg.get(str(next_level)) or storage_cfg.get(next_level)
 
         if not next_cfg:
             return False, "لقد وصلت إلى الحد الأقصى لمستويات المخزن!", current_max_cap, current_balance
@@ -297,16 +305,14 @@ def update_user_storage_level(tg_id, target_level=None):
         if current_balance < price:
             return False, "رصيدك غير كافٍ لإجراء الترقية!", current_max_cap, current_balance
 
-        # 💡 حساب فارق السعة النقي بين المستويين (Delta)
         curr_base_cap = float(curr_cfg.get("capacity", 200.0))
         next_base_cap = float(next_cfg.get("capacity", 600.0))
         capacity_boost = next_base_cap - curr_base_cap
 
-        # ⚡ تحديث الفايربيس بأمان: خصم المبلغ + رفع المستوى + زيادة السعة تراكمياً
         user_ref.update({
             "balance": firestore.Increment(-price),
             "storage_level": next_level,
-            "max_cap": firestore.Increment(capacity_boost) # إضافة فارق المستوى دون المساس بالسعة المخصصة
+            "max_cap": firestore.Increment(capacity_boost)
         })
 
         new_max_cap = current_max_cap + capacity_boost
