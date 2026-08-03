@@ -30,7 +30,7 @@ function getSavedState() {
         tg_id: tg?.initDataUnsafe?.user?.id || null,
         first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب",
         balance: 0, usd_balance: 0, ad_balance: 0, hourly_rate: 0, energy: 100, storage_level: 0, 
-        max_cap: 200, // ✅ السعة كقيمة مستقلة بالكامل
+        max_cap: 200, unclaimed: 0,
         daily_streak: 1, daily_day: 1, last_daily_claim_date: null, upgrades: {}, wallet_address: null, 
         last_claim_time: null, last_sync_time: Date.now()
     };
@@ -50,7 +50,6 @@ let lastSaveTime = 0;
 window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
         target[prop] = value;
-        // ✅ مراقبة max_cap وتحديث الشاشة فور تغير قيمتها
         if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'max_cap', 'daily_streak', 'daily_day', 'upgrades', 'last_claim_time'].includes(prop)) {
             const now = Date.now();
             if (now - lastSaveTime > 2000 && !isFirebaseUpdating) {
@@ -99,12 +98,12 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         if (targetObj?.usd_balance !== undefined) window.userState.usd_balance = parseFloat(targetObj.usd_balance);
         if (targetObj?.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate);
         if (targetObj?.storage_level !== undefined) window.userState.storage_level = parseInt(targetObj.storage_level);
-        // ✅ مزامنة max_cap فوراً من الاستجابة
         if (targetObj?.max_cap !== undefined) window.userState.max_cap = parseFloat(targetObj.max_cap);
         if (targetObj?.daily_streak !== undefined) window.userState.daily_streak = parseInt(targetObj.daily_streak);
         if (targetObj?.daily_day !== undefined) window.userState.daily_day = parseInt(targetObj.daily_day);
         if (targetObj?.last_daily_claim_date !== undefined) window.userState.last_daily_claim_date = targetObj.last_daily_claim_date;
         if (targetObj?.last_claim_time !== undefined) window.userState.last_claim_time = targetObj.last_claim_time;
+        if (targetObj?.upgrades !== undefined) window.userState.upgrades = targetObj.upgrades;
         isFirebaseUpdating = false;
 
         return data;
@@ -125,9 +124,9 @@ window.watchMonetagAd = async function() {
 
     try {
         await window.show_11322720();
-        const res = await window.fetchAPI('/api/farm/watch-ad', 'POST');
+        const res = await window.fetchAPI('/api/farm/daily_boost', 'POST');
         if (res.success) {
-            alert(`🎉 تم زيادة سرعة التعدين بنجاح! (+2 ZN/ساعة)`);
+            alert(`🎉 تم زيادة سرعة التعدين بنجاح!`);
         } else {
             alert(res.error || 'حدث خطأ أثناء إضافة المكافأة.');
         }
@@ -142,14 +141,14 @@ window.watchMonetagAd = async function() {
 // ==========================================
 window.claimDailyReward = async function() {
     try {
-        const res = await window.fetchAPI('/api/farm/daily-claim', 'POST');
+        const res = await window.fetchAPI('/api/farm/daily_claim', 'POST');
         if (res.success) {
             if (res.new_balance !== undefined) window.userState.balance = parseFloat(res.new_balance);
             if (res.daily_day !== undefined) {
                 window.userState.daily_day = res.daily_day;
                 window.userState.daily_streak = res.daily_day;
             }
-            alert(`🎁 مبروك! استلمت مكافأة اليوم (${res.reward.toLocaleString()} ZN). اليوم الحالي: ${res.daily_day}`);
+            alert(`🎁 مبروك! استلمت مكافأة اليوم. اليوم الحالي: ${res.daily_day}`);
             if (typeof window.onFarmTabOpen === 'function') window.onFarmTabOpen();
         } else {
             alert(res.error || 'لا يمكنك الاستلام الآن.');
@@ -175,7 +174,6 @@ window.initFirebaseRealtimeSync = function(userId) {
                 if (d.balance !== undefined) window.userState.balance = parseFloat(d.balance);
                 if (d.usd_balance !== undefined) window.userState.usd_balance = parseFloat(d.usd_balance);
                 
-                // ✅ تحديث max_cap في كسر من الثانية فور تعديلها بالفايربيس
                 ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'max_cap', 'daily_streak', 'daily_day', 'last_daily_claim_date', 'upgrades', 'last_claim_time'].forEach(k => {
                     if (d[k] !== undefined) window.userState[k] = d[k];
                 });
@@ -200,17 +198,29 @@ window.updateClaimButtonState = function() {
 
     const COOLDOWN_SECONDS = 15;
     const lastClaimStr = window.userState.last_claim_time;
+    const unclaimed = parseFloat(window.PlayerData?.unclaimed || window.userState?.unclaimed || 0);
+
+    const isFarmTab = document.getElementById('view-farm')?.classList.contains('active');
+
+    function renderButton(btn, disabled, text, className) {
+        btn.disabled = disabled;
+        btn.innerHTML = text;
+        if (className) btn.className = className;
+    }
 
     if (!lastClaimStr) {
         claimButtons.forEach(btn => {
-            btn.disabled = false;
-            btn.innerHTML = `تجميع الرصيد 💰`;
+            if (isFarmTab && unclaimed <= 0) {
+                renderButton(btn, true, `المخزن فارغ ⏳`, "claim-action-btn btn-disabled");
+            } else {
+                renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready");
+            }
         });
         return;
     }
 
     const lastClaimMs = new Date(lastClaimStr).getTime();
-    const currentServerMs = Date.now() + window.serverTimeOffset;
+    const currentServerMs = Date.now() + (window.serverTimeOffset || 0);
     const secondsPassed = Math.floor((currentServerMs - lastClaimMs) / 1000);
     const remainingSeconds = COOLDOWN_SECONDS - secondsPassed;
 
@@ -220,29 +230,34 @@ window.updateClaimButtonState = function() {
         let currentCountdown = remainingSeconds;
         
         claimButtons.forEach(btn => {
-            btn.disabled = true;
-            btn.innerHTML = `انتظر ${currentCountdown} ثانية ⏳`;
+            renderButton(btn, true, `انتظر ${currentCountdown} ثانية ⏳`, "claim-action-btn btn-disabled");
         });
 
         claimCooldownTimer = setInterval(() => {
             currentCountdown--;
             if (currentCountdown > 0) {
                 claimButtons.forEach(btn => {
-                    btn.disabled = true;
-                    btn.innerHTML = `انتظر ${currentCountdown} ثانية ⏳`;
+                    renderButton(btn, true, `انتظر ${currentCountdown} ثانية ⏳`, "claim-action-btn btn-disabled");
                 });
             } else {
                 clearInterval(claimCooldownTimer);
+                const latestUnclaimed = parseFloat(window.PlayerData?.unclaimed || window.userState?.unclaimed || 0);
                 claimButtons.forEach(btn => {
-                    btn.disabled = false;
-                    btn.innerHTML = `تجميع الرصيد 💰`;
+                    if (isFarmTab && latestUnclaimed <= 0) {
+                        renderButton(btn, true, `المخزن فارغ ⏳`, "claim-action-btn btn-disabled");
+                    } else {
+                        renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready");
+                    }
                 });
             }
         }, 1000);
     } else {
         claimButtons.forEach(btn => {
-            btn.disabled = false;
-            btn.innerHTML = `تجميع الرصيد 💰`;
+            if (isFarmTab && unclaimed <= 0) {
+                renderButton(btn, true, `المخزن فارغ ⏳`, "claim-action-btn btn-disabled");
+            } else {
+                renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready");
+            }
         });
     }
 };
@@ -285,7 +300,11 @@ function renderSmoothBalance(targetVal) {
         return;
     }
 
-    visualBalance += (targetVal - visualBalance) * 0.1;
+    if (Math.abs(targetVal - visualBalance) < 0.001) {
+        visualBalance = targetVal;
+    } else {
+        visualBalance += (targetVal - visualBalance) * 0.1;
+    }
     applyBalanceToUI(visualBalance);
 }
 
@@ -302,7 +321,6 @@ window.updateUI = function() {
     renderSmoothBalance(parseFloat(window.userState.balance || 0));
     window.updateClaimButtonState();
 
-    // ✅ تحديث عرض سعة التخزين القصوى مباشرة من max_cap
     const currentMaxCap = window.userState.max_cap || 200;
     document.querySelectorAll('#storage-max, .max-storage-val, [data-bind="max_cap"]').forEach(el => {
         if (el.tagName === 'INPUT') {
@@ -378,6 +396,8 @@ window.loadUserData = async function() {
         if (d?.success) {
             const u = d.player || d.user || d.data || {};
             Object.assign(window.userState, u);
+            if (!window.PlayerData) window.PlayerData = {};
+            Object.assign(window.PlayerData, u);
         }
     } catch (err) {
         console.error("Error player_data:", err);
