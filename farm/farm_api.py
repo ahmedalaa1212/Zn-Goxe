@@ -311,7 +311,7 @@ def upgrade_field():
             now = datetime.now(timezone.utc)
             max_cap = float(data.get("max_cap") or get_storage_capacity(data.get("storage_level", 0), game_settings))
             
-            # 💡 حساب وتثبيت الأرباح المجمعة بالسرعة القديمة قبل زيادة التعدين
+            # حساب وتثبيت الأرباح المجمعة بالسرعة القديمة قبل زيادة التعدين
             accrued = calculate_accrued_mined(data, now, max_cap)
 
             current_bal = float(data.get("balance", 0.0))
@@ -321,12 +321,21 @@ def upgrade_field():
 
             upgrades = data.get("upgrades") or {}
             lvl_key = f"lvl{level}"
-            current_count = int(upgrades.get(lvl_key) ?? upgrades.get(str(level)) ?? 0)
+            
+            # جلب قيمة الترقية بالحماية من قيم None بدلاً من ??
+            val = upgrades.get(lvl_key)
+            if val is None:
+                val = upgrades.get(str(level))
+            current_count = int(val or 0)
 
             if current_count >= 10: return None, "وصلت للحد الأقصى من الترقية لهذا المستوى", 400
 
             if level > 1:
-                prev_lvl_count = int(upgrades.get(f"lvl{level-1}") ?? upgrades.get(str(level-1)) ?? 0)
+                prev_val = upgrades.get(f"lvl{level-1}")
+                if prev_val is None:
+                    prev_val = upgrades.get(str(level-1))
+                prev_lvl_count = int(prev_val or 0)
+                
                 if prev_lvl_count <= 0: return None, "يجب فتح المستوى السابق أولاً", 400
 
             upgrades[lvl_key] = current_count + 1
