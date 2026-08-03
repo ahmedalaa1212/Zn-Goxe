@@ -26,12 +26,15 @@ function hideLoadingScreen() {
 }
 
 function getSavedState() {
+    const startParam = tg?.initDataUnsafe?.start_param || null;
     const base = {
         tg_id: tg?.initDataUnsafe?.user?.id || null,
         first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب",
+        referred_by_param: startParam,
         balance: 0, usd_balance: 0, ad_balance: 0, hourly_rate: 0, energy: 100, storage_level: 0, 
         extra_storage: 0, max_cap: 200, unclaimed: 0,
         daily_streak: 1, daily_day: 1, last_daily_claim_date: null, upgrades: {}, wallet_address: null, 
+        boost_multiplier: 1, boost_active: false, boost_expires_at: null,
         last_claim_time: null, last_sync_time: Date.now()
     };
     try { 
@@ -55,7 +58,7 @@ window.userState = new Proxy(getSavedState(), {
         if (!window.PlayerData) window.PlayerData = {};
         window.PlayerData[prop] = value;
 
-        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'upgrades', 'last_claim_time', 'unclaimed'].includes(prop)) {
+        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'upgrades', 'last_claim_time', 'unclaimed', 'boost_multiplier', 'boost_active', 'boost_expires_at'].includes(prop)) {
             const now = Date.now();
             if (now - lastSaveTime > 2000 && !isFirebaseUpdating) {
                 try { localStorage.setItem('app_user_state', JSON.stringify(target)); } catch {}
@@ -117,6 +120,9 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
             if (targetObj.last_claim_time !== undefined) window.userState.last_claim_time = targetObj.last_claim_time;
             if (targetObj.upgrades !== undefined) window.userState.upgrades = targetObj.upgrades;
             if (targetObj.unclaimed !== undefined) window.userState.unclaimed = parseFloat(targetObj.unclaimed);
+            if (targetObj.boost_multiplier !== undefined) window.userState.boost_multiplier = parseInt(targetObj.boost_multiplier);
+            if (targetObj.boost_active !== undefined) window.userState.boost_active = Boolean(targetObj.boost_active);
+            if (targetObj.boost_expires_at !== undefined) window.userState.boost_expires_at = targetObj.boost_expires_at;
         }
         isFirebaseUpdating = false;
 
@@ -173,7 +179,28 @@ window.claimDailyReward = async function() {
 };
 
 // ==========================================
-// 5. الاستماع اللحظي Firestore (Realtime Sync)
+// 5. تفعيل 10x Boost
+// ==========================================
+window.activateTenXBoost = async function(durationHours = 1) {
+    try {
+        const res = await window.fetchAPI('/api/farm/activate_boost', 'POST', { duration_hours: durationHours });
+        if (res.success || res.status === "success") {
+            alert('🚀 تم تفعيل مضاعف الأرباح 10x بنجاح!');
+            if (typeof window.loadUserData === 'function') window.loadUserData();
+            return true;
+        } else {
+            alert(res.error || res.message || 'حدث خطأ أثناء تفعيل البوست.');
+            return false;
+        }
+    } catch (err) {
+        console.error("Boost activation error:", err);
+        alert('حدث خطأ أثناء الاتصال بالسيرفر لتفعيل البوست.');
+        return false;
+    }
+};
+
+// ==========================================
+// 6. الاستماع اللحظي Firestore (Realtime Sync)
 // ==========================================
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) return;
@@ -197,7 +224,7 @@ window.initFirebaseRealtimeSync = function(userId) {
                 }
                 if (d.usd_balance !== undefined) window.userState.usd_balance = parseFloat(d.usd_balance);
                 
-                ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'last_daily_claim_date', 'upgrades', 'last_claim_time', 'unclaimed'].forEach(k => {
+                ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'last_daily_claim_date', 'upgrades', 'last_claim_time', 'unclaimed', 'boost_multiplier', 'boost_active', 'boost_expires_at'].forEach(k => {
                     if (d[k] !== undefined) {
                         window.userState[k] = d[k];
                         window.PlayerData[k] = d[k];
@@ -218,7 +245,7 @@ window.initFirebaseRealtimeSync = function(userId) {
 };
 
 // ==========================================
-// 6. دالة إدارة العداد (15 ثانية)
+// 7. دالة إدارة العداد (15 ثانية)
 // ==========================================
 let claimCooldownTimer = null;
 
@@ -293,7 +320,7 @@ window.updateClaimButtonState = function() {
 };
 
 // ==========================================
-// 7. تنسيق الرصيد والواجهة (عرض الأرقام الحقيقية)
+// 8. تنسيق الرصيد والواجهة (عرض الأرقام الحقيقية)
 // ==========================================
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0';
@@ -363,7 +390,7 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 8. التنقل بين القوائم
+// 9. التنقل بين القوائم
 // ==========================================
 const loadedModules = new Set();
 
@@ -419,11 +446,15 @@ function loadModuleScript(scriptUrl) {
 }
 
 // ==========================================
-// 9. بدء التطبيق
+// 10. بدء التطبيق
 // ==========================================
 window.loadUserData = async function() {
     try {
-        const d = await window.fetchAPI('/api/farm/player_data');
+        const startParam = tg?.initDataUnsafe?.start_param || null;
+        const d = await window.fetchAPI('/api/farm/player_data', 'POST', {
+            referrer_id: startParam,
+            first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب"
+        });
         if (d?.success) {
             const u = d.player || d.user || d.data || {};
             if (!window.PlayerData) window.PlayerData = {};
