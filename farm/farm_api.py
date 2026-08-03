@@ -109,7 +109,7 @@ def get_player_data():
                 "extra_storage": 0.0,
                 "max_cap": get_base_storage_capacity(0, game_settings), 
                 "daily_day": 1,
-                "daily_streak": 0,
+                "daily_streak": 1,
                 "last_claim_time": now.isoformat(), 
                 "last_daily_claim_date": None, 
                 "last_boost_date": None,
@@ -148,6 +148,7 @@ def get_player_data():
             effective_daily_day = 1
 
         user_data["daily_day"] = effective_daily_day
+        user_data["daily_streak"] = effective_daily_day
 
         parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
         upgrade_configs = game_settings.get("upgrade_config") or game_settings.get("speed_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
