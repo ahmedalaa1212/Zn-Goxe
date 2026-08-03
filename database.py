@@ -10,14 +10,14 @@ db = None
 # ==================== Dynamic In-Memory Cache System ====================
 _SETTINGS_CACHE = None
 _SETTINGS_CACHE_TIME = 0
-SETTINGS_CACHE_TTL = 600  # كاش إعدادات اللعبة (10 دقائق)
+SETTINGS_CACHE_TTL = 600  
 
-_BAN_CACHE = {}           # {tg_id: (is_banned, expire_time)}
-BAN_CACHE_TTL = 120       # كاش فحص الحظر (دقيقتين لكل مستخدم)
+_BAN_CACHE = {}           
+BAN_CACHE_TTL = 120       
 
 _LEADERBOARD_CACHE = None
 _LEADERBOARD_CACHE_TIME = 0
-LEADERBOARD_CACHE_TTL = 180  # كاش لوحة الصدارة (3 دقائق)
+LEADERBOARD_CACHE_TTL = 180  
 # ========================================================================
 
 def initialize_firebase():
@@ -302,7 +302,7 @@ def update_user_storage_level(tg_id, target_level=None):
 
             next_level = int(target_level) if target_level is not None else current_level + 1
 
-            if next_level <= current_level and target_level is None:
+            if target_level is None and next_level <= current_level:
                 return False, "أنت بالفعل في هذا المستوى أو مستوى أعلى!", user_data.get("max_cap", 200.0), current_balance
 
             next_cfg = storage_cfg.get(str(next_level)) or storage_cfg.get(next_level)
@@ -311,7 +311,7 @@ def update_user_storage_level(tg_id, target_level=None):
 
             price = float(next_cfg.get("price", 0))
 
-            if current_balance < price and target_level is None:
+            if target_level is None and current_balance < price:
                 return False, "رصيدك غير كافٍ لإجراء الترقية!", user_data.get("max_cap", 200.0), current_balance
 
             base_next_cap = float(next_cfg.get("capacity", 200.0))
