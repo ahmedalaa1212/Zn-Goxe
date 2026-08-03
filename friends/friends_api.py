@@ -11,7 +11,7 @@ _USER_DATA_CACHE = {}
 _USER_LIST_CACHE = {}  
 
 CACHE_TTL_CONFIG = 600  
-CACHE_TTL_USER = 10     
+CACHE_TTL_USER = 5     
 
 def invalidate_user_cache(user_id):
     user_id_str = str(user_id)
@@ -57,6 +57,71 @@ def get_user_upgrades_count(user_data):
         total = int(upgrades)
     return total
 
+def add_referral_commission(user_id, claimed_amount):
+    """
+    تُستدعى هذه الدالة من كود التجميع الرئيسي عندما يقوم أي مستخدم بتجميع أرباح التعدين.
+    تقوم بتزويد pending_ref_earnings و total_ref_earnings للمُحيل تلقائياً.
+    """
+    try:
+        if not user_id or float(claimed_amount) <= 0:
+            return False
+
+        user_id_str = str(user_id)
+        user_ref = db.collection('users').document(user_id_str)
+        user_doc = user_ref.get()
+
+        if not user_doc.exists:
+            return False
+
+        user_data = user_doc.to_dict() or {}
+        referrer_id = user_data.get('referred_by')
+
+        if not referrer_id or str(referrer_id).strip() == "" or str(referrer_id) == "null":
+            return False
+
+        referrer_id_str = str(referrer_id)
+        config = get_friends_config()
+        commission_percent = float(config.get('commission_percent', 10))
+        commission = round((float(claimed_amount) * commission_percent) / 100.0, 4)
+
+        if commission <= 0:
+            return False
+
+        ref_user_ref = db.collection('users').document(referrer_id_str)
+        ref_user_doc = ref_user_ref.get()
+
+        if not ref_user_doc.exists:
+            return False
+
+        ref_user_ref.update({
+            'pending_ref_earnings': firestore.Increment(commission),
+            'total_ref_earnings': firestore.Increment(commission)
+        })
+
+        sub_friend_ref = ref_user_ref.collection('friends').document(user_id_str)
+        sub_friend_doc = sub_friend_ref.get()
+
+        user_display_name = user_data.get('first_name') or user_data.get('name') or 'صديق'
+
+        if sub_friend_doc.exists:
+            sub_friend_ref.update({
+                'earned_from_him': firestore.Increment(commission),
+                'name': user_display_name
+            })
+        else:
+            sub_friend_ref.set({
+                'earned_from_him': commission,
+                'name': user_display_name,
+                'joined_at': firestore.SERVER_TIMESTAMP
+            }, merge=True)
+
+        invalidate_user_cache(referrer_id_str)
+        return True
+
+    except Exception as e:
+        print(f"Error adding referral commission: {e}")
+        return False
+
 @friends_bp.route('/data', methods=['GET', 'POST'])
 def get_friends_data():
     try:
@@ -79,7 +144,6 @@ def get_friends_data():
             user_data = {'balance': 0, 'pending_ref_earnings': 0.0, 'total_ref_earnings': 0.0, 'claimed_ref_tasks': []}
         else:
             user_data = user_doc.to_dict() or {}
-            # للتأكد التام من كتابتها فوراً لو كانت مفقودة
             if "pending_ref_earnings" not in user_data or "total_ref_earnings" not in user_data:
                 p_val = float(user_data.get('pending_ref_earnings', 0.0))
                 t_val = float(user_data.get('total_ref_earnings', 0.0))
