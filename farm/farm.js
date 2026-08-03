@@ -23,7 +23,6 @@ window.initFarmView = function() {
     };
 
     const MIN_CLAIM_INTERVAL = 15;
-    let serverTimeOffset = 0;
 
     let isClaimingDaily = false;
     let isBoosting = false; 
@@ -40,7 +39,7 @@ window.initFarmView = function() {
     }
 
     function getAdjustedNowMs() {
-        return Date.now() - serverTimeOffset;
+        return Date.now() + (window.serverTimeOffset || 0);
     }
 
     function syncServerTime(serverTimeStr) {
@@ -48,7 +47,7 @@ window.initFarmView = function() {
         try {
             const serverMs = new Date(serverTimeStr).getTime();
             if (!isNaN(serverMs)) {
-                serverTimeOffset = Date.now() - serverMs;
+                window.serverTimeOffset = serverMs - Date.now();
             }
         } catch (e) {
             console.error("خطأ مزامنة وقت السيرفر:", e);
@@ -81,7 +80,7 @@ window.initFarmView = function() {
         const nextMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
         const diff = nextMidnight.getTime() - now.getTime();
         
-        let seconds = Math.floor(diff / 1000);
+        let seconds = Math.floor(Math.max(0, diff) / 1000);
         let h = Math.floor(seconds / 3600);
         let m = Math.floor((seconds % 3600) / 60);
         let s = seconds % 60;
@@ -162,8 +161,9 @@ window.initFarmView = function() {
             const currentUpgrades = window.userState?.upgrades || pData.upgrades || {};
             let fieldsHTML = '';
             for (let i = 1; i <= 9; i++) {
-                let count = parseInt(currentUpgrades[`lvl${i}`] || 0);
-                let isUnlocked = (i === 1) || (parseInt(currentUpgrades[`lvl${i-1}`] || 0) > 0);
+                let count = parseInt(currentUpgrades[`lvl${i}`] || currentUpgrades[i] || currentUpgrades[String(i)] || 0);
+                let prevCount = parseInt(currentUpgrades[`lvl${i-1}`] || currentUpgrades[i-1] || currentUpgrades[String(i-1)] || 0);
+                let isUnlocked = (i === 1) || (prevCount > 0);
                 let isMax = count >= GAME_CONFIG.maxUpgradesPerLevel;
                 let cost = GAME_CONFIG.upgradeCosts[i] || 0;
                 let costStr = formatCompactCost(cost);
@@ -239,18 +239,14 @@ window.initFarmView = function() {
             let displayReward = formatCompactNumber(rawReward);
 
             if (dayNum < currentDailyDay) {
-                // الأيام المستلمة سابقاً
                 html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div>✓</div></div>`;
             } else if (dayNum === currentDailyDay) {
                 if (claimedToday) {
-                    // إذا كان المستطيل هو اليوم القادم بعد الاستلام، يُعرض العداد التنازلي عليه
                     html += `<div class="reward-day-card"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><div id="daily-timer" style="color: #ef4444; font-size: 8px;">⏳</div></div>`;
                 } else {
-                    // إذا لم يتم الاستلام اليوم بعد، يُعرض زر الاستلام
                     html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%;">استلام</button></div>`;
                 }
             } else {
-                // الأيام القادمة المغلقة
                 html += `<div class="reward-day-card" style="opacity: 0.4;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div></div>`;
             }
         }
@@ -273,6 +269,7 @@ window.initFarmView = function() {
 
         if (unclaim >= maxC) unclaim = maxC;
         pData.unclaimed = unclaim;
+        if (window.userState) window.userState.unclaimed = unclaim;
 
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
