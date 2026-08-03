@@ -159,6 +159,8 @@ window.initFarmView = function() {
         const balEl = document.getElementById('farm-balance');
         if (balEl && typeof window.formatNumberHTML === 'function') {
             balEl.innerHTML = `<span dir="ltr">${window.formatNumberHTML(bal)} ZN</span>`;
+        } else if (balEl) {
+            balEl.innerText = `ZN: ${bal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 2})}`;
         }
 
         const rateEl = document.getElementById('farm-rate');
