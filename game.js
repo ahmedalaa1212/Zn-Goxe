@@ -30,7 +30,7 @@ function getSavedState() {
         tg_id: tg?.initDataUnsafe?.user?.id || null,
         first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب",
         balance: 0, usd_balance: 0, ad_balance: 0, hourly_rate: 0, energy: 100, storage_level: 0, 
-        daily_streak: 0, last_daily_claim_date: null, upgrades: {}, wallet_address: null, 
+        daily_streak: 1, daily_day: 1, last_daily_claim_date: null, upgrades: {}, wallet_address: null, 
         last_claim_time: null, last_sync_time: Date.now()
     };
     try { 
@@ -49,7 +49,7 @@ let lastSaveTime = 0;
 window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
         target[prop] = value;
-        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'daily_streak', 'upgrades', 'last_claim_time'].includes(prop)) {
+        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'daily_streak', 'daily_day', 'upgrades', 'last_claim_time'].includes(prop)) {
             const now = Date.now();
             if (now - lastSaveTime > 2000 && !isFirebaseUpdating) {
                 try { localStorage.setItem('app_user_state', JSON.stringify(target)); } catch {}
@@ -97,6 +97,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         if (targetObj?.usd_balance !== undefined) window.userState.usd_balance = parseFloat(targetObj.usd_balance);
         if (targetObj?.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate);
         if (targetObj?.daily_streak !== undefined) window.userState.daily_streak = parseInt(targetObj.daily_streak);
+        if (targetObj?.daily_day !== undefined) window.userState.daily_day = parseInt(targetObj.daily_day);
         if (targetObj?.last_daily_claim_date !== undefined) window.userState.last_daily_claim_date = targetObj.last_daily_claim_date;
         if (targetObj?.last_claim_time !== undefined) window.userState.last_claim_time = targetObj.last_claim_time;
         isFirebaseUpdating = false;
@@ -119,7 +120,6 @@ window.watchMonetagAd = async function() {
 
     try {
         await window.show_11322720();
-        // تسجيل المكافأة بعد الانتهاء من الإعلان
         const res = await window.fetchAPI('/api/farm/watch-ad', 'POST');
         if (res.success) {
             alert(`🎉 تم زيادة سرعة التعدين بنجاح! (+2 ZN/ساعة)`);
@@ -139,7 +139,13 @@ window.claimDailyReward = async function() {
     try {
         const res = await window.fetchAPI('/api/farm/daily-claim', 'POST');
         if (res.success) {
-            alert(`🎁 مبروك! استلمت مكافأة اليوم (${res.reward} ZN). العداد الحالي: ${res.daily_streak} أيام!`);
+            if (res.new_balance !== undefined) window.userState.balance = parseFloat(res.new_balance);
+            if (res.daily_day !== undefined) {
+                window.userState.daily_day = res.daily_day;
+                window.userState.daily_streak = res.daily_day;
+            }
+            alert(`🎁 مبروك! استلمت مكافأة اليوم (${res.reward.toLocaleString()} ZN). اليوم الحالي: ${res.daily_day}`);
+            if (typeof window.onFarmTabOpen === 'function') window.onFarmTabOpen();
         } else {
             alert(res.error || 'لا يمكنك الاستلام الآن.');
         }
@@ -149,27 +155,31 @@ window.claimDailyReward = async function() {
 };
 
 // ==========================================
-// 5. الاستماع اللحظي Firestore
+// 5. الاستماع اللحظي Firestore (إذا تم تفعيل Firebase Client)
 // ==========================================
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) return;
     
-    window.db.collection('users').doc(String(userId)).onSnapshot(doc => {
-        if (!doc.exists) return;
-        const d = doc.data() || {};
-        
-        try {
-            isFirebaseUpdating = true;
-            if (d.balance !== undefined) window.userState.balance = parseFloat(d.balance);
-            if (d.usd_balance !== undefined) window.userState.usd_balance = parseFloat(d.usd_balance);
-            ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'daily_streak', 'last_daily_claim_date', 'upgrades', 'last_claim_time'].forEach(k => {
-                if (d[k] !== undefined) window.userState[k] = d[k];
-            });
-            window.userState.last_sync_time = Date.now();
-        } finally {
-            isFirebaseUpdating = false;
-        }
-    }, err => console.error("Firebase Sync Error:", err));
+    try {
+        window.db.collection('users').doc(String(userId)).onSnapshot(doc => {
+            if (!doc.exists) return;
+            const d = doc.data() || {};
+            
+            try {
+                isFirebaseUpdating = true;
+                if (d.balance !== undefined) window.userState.balance = parseFloat(d.balance);
+                if (d.usd_balance !== undefined) window.userState.usd_balance = parseFloat(d.usd_balance);
+                ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'daily_streak', 'daily_day', 'last_daily_claim_date', 'upgrades', 'last_claim_time'].forEach(k => {
+                    if (d[k] !== undefined) window.userState[k] = d[k];
+                });
+                window.userState.last_sync_time = Date.now();
+            } finally {
+                isFirebaseUpdating = false;
+            }
+        }, err => console.error("Firebase Sync Error:", err));
+    } catch (e) {
+        console.warn("Realtime sync omitted:", e);
+    }
 };
 
 // ==========================================
@@ -231,7 +241,7 @@ window.updateClaimButtonState = function() {
 };
 
 // ==========================================
-// 7. تنسيق الرصيد (بدون انكسار الأسطر)
+// 7. تنسيق الرصيد (عرض الأرقام الحقيقية)
 // ==========================================
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0';
@@ -347,13 +357,13 @@ function loadModuleScript(scriptUrl) {
 // ==========================================
 window.loadUserData = async function() {
     try {
-        const d = await window.fetchAPI('/api/user/info');
+        const d = await window.fetchAPI('/api/farm/player_data');
         if (d?.success) {
             const u = d.player || d.user || d.data || {};
             Object.assign(window.userState, u);
         }
     } catch (err) {
-        console.error("Error user info:", err);
+        console.error("Error player_data:", err);
     } finally { 
         window.updateUI();
         hideLoadingScreen();
