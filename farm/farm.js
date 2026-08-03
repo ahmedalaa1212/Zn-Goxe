@@ -16,9 +16,9 @@ window.initFarmView = function() {
             6: 260000, 7: 600000, 8: 1400000, 9: 3200000
         },
         dailyRewards: [
-            100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 
-            600, 600, 650, 650, 700, 700, 750, 750, 800, 800, 
-            850, 850, 900, 900, 950, 950, 1000, 1000, 1100, 1250
+            100, 150, 200, 250, 300, 350, 400, 500, 600, 700,
+            800, 900, 1000, 1200, 1400, 1600, 1800, 2000, 2300, 2600,
+            3000, 3500, 4000, 4500, 5000, 6000, 7000, 8000, 9000, 10000
         ]
     };
 
@@ -220,7 +220,7 @@ window.initFarmView = function() {
     function getRewardForDayIndex(index) {
         const rewards = GAME_CONFIG.dailyRewards;
         if (!rewards || !Array.isArray(rewards)) return 100;
-        return rewards[index] ?? 1250;
+        return rewards[index] ?? 10000;
     }
 
     function renderDailyRewards() {
@@ -242,7 +242,7 @@ window.initFarmView = function() {
                 html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div>✓</div></div>`;
             } else if (dayNum === currentDailyDay) {
                 if (claimedToday) {
-                    html += `<div class="reward-day-card"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><div id="daily-timer" style="color: #ef4444; font-size: 8px;">⏳</div></div>`;
+                    html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><div id="daily-timer" style="color: #ef4444; font-size: 8px;">⏳</div></div>`;
                 } else {
                     html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%;">استلام</button></div>`;
                 }
@@ -345,8 +345,8 @@ window.initFarmView = function() {
                 if (statusCallback) statusCallback();
                 window.show_11322720().then(() => resolve(true)).catch(() => resolve(false));
             } else {
-                showToast("⚠️ لم يتم تحميل الإعلان بعد.");
-                resolve(false);
+                if (statusCallback) statusCallback();
+                resolve(true); // السماح بالتجاوز في حالة عدم التوفر للتجربة بدون تعطيل المستخدم
             }
         });
     }
@@ -381,6 +381,8 @@ window.initFarmView = function() {
                 }
                 window.updateFarmUI();
                 showToast(`⚡ تم التحديث للمستوى ${level}!`);
+            } else if (resData && resData.error) {
+                showToast(resData.error);
             }
         } catch (e) {
             console.error("خطأ الترقية:", e);
@@ -418,6 +420,9 @@ window.initFarmView = function() {
                     if (resData.last_boost_date) pData.last_boost_date = resData.last_boost_date;
                     window.updateFarmUI();
                     showToast(`🚀 تمت زيادة معدل التعدين!`);
+                } else if (resData && resData.error) {
+                    showToast(resData.error);
+                    window.updateFarmUI();
                 }
             } else {
                 window.updateFarmUI();
@@ -455,7 +460,10 @@ window.initFarmView = function() {
                     if (resData.daily_day !== undefined) pData.daily_day = resData.daily_day;
                     if (resData.last_daily_claim_date) pData.last_daily_claim_date = resData.last_daily_claim_date;
                     window.updateFarmUI();
-                    showToast(`🎉 تم الاستلام!`);
+                    showToast(`🎉 تم استلام مكافأة اليوم!`);
+                } else if (resData && resData.error) {
+                    showToast(resData.error);
+                    if (btn) { btn.innerHTML = "استلام"; btn.disabled = false; }
                 }
             } else {
                 if (btn) { btn.innerHTML = "استلام"; btn.disabled = false; }
@@ -517,6 +525,7 @@ window.initFarmView = function() {
                 }
                 pData.unclaimed = 0;
             } else if (resData && resData.error) {
+                setStoredBalance(currentBal);
                 showToast(resData.error);
             }
         } catch (e) {
