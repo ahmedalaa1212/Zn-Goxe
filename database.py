@@ -52,7 +52,6 @@ def initialize_firebase():
     return db
 
 def ensure_game_settings_exist():
-    """تحديث وإعداد وثائق التحكم الأساسية في Firestore داخل مجموعة app_config تلقائياً"""
     global db, _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     if not db:
         try:
@@ -141,35 +140,28 @@ def get_game_settings():
         return _SETTINGS_CACHE
 
     try:
-        if not db:
-            initialize_firebase()
-
+        if not db: initialize_firebase()
         doc = db.collection('app_config').document('game_settings').get()
         if doc.exists:
             _SETTINGS_CACHE = doc.to_dict() or {}
             _SETTINGS_CACHE_TIME = now
             return _SETTINGS_CACHE
         else:
-            print("⚠️ app_config/game_settings غير موجودة في Firestore، جاري إنشاؤها فوراً...")
             new_settings = ensure_game_settings_exist()
-            if new_settings:
-                return new_settings
+            if new_settings: return new_settings
         return {}
     except Exception as e:
         print(f"❌ Error getting game settings: {e}")
         return _SETTINGS_CACHE or {}
 
 def is_user_banned(tg_id):
-    if not tg_id: 
-        return False
-        
+    if not tg_id: return False
     tg_id_str = str(tg_id)
     now = time.time()
 
     if tg_id_str in _BAN_CACHE:
         is_banned, expire_time = _BAN_CACHE[tg_id_str]
-        if now < expire_time:
-            return is_banned
+        if now < expire_time: return is_banned
 
     try:
         doc = db.collection('users').document(tg_id_str).get()
@@ -234,14 +226,10 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "first_name": first_name,
                 "last_active": firestore.SERVER_TIMESTAMP
             }
-            if "max_cap" not in user_data:
-                updates["max_cap"] = 200.0
-            if "storage_level" not in user_data:
-                updates["storage_level"] = 0
-            if "upgrades" not in user_data:
-                updates["upgrades"] = {}
-            if "hourly_rate" not in user_data:
-                updates["hourly_rate"] = 0.0
+            if "max_cap" not in user_data: updates["max_cap"] = 200.0
+            if "storage_level" not in user_data: updates["storage_level"] = 0
+            if "upgrades" not in user_data: updates["upgrades"] = {}
+            if "hourly_rate" not in user_data: updates["hourly_rate"] = 0.0
                 
             user_ref.update(updates)
         
@@ -251,7 +239,6 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
         return False
 
 def get_user(tg_id):
-    """جلب بيانات المستخدم مع التحقق من مزامنة max_cap تلقائياً بحسب storage_level"""
     try:
         if not tg_id: return None
         user_ref = db.collection('users').document(str(tg_id))
@@ -288,22 +275,17 @@ def update_user(tg_id, update_data):
         return False
 
 def update_user_storage_level(tg_id, target_level=None):
-    """ترقية وتحديث المخزن مع ضمان التوافق التام للـ max_cap باستخدام المعاملات المأمونة"""
     try:
-        if not tg_id:
-            return False, "معرف المستخدم غير صحيح", 0, 0
-
+        if not tg_id: return False, "معرف المستخدم غير صحيح", 0, 0
         tg_id_str = str(tg_id)
         user_ref = db.collection('users').document(tg_id_str)
-
         settings = get_game_settings()
         storage_cfg = settings.get("storage_config", {})
 
         @firestore.transactional
         def run_storage_upgrade_transaction(transaction, ref):
             snapshot = ref.get(transaction=transaction)
-            if not snapshot.exists:
-                return False, "المستخدم غير موجود", 0, 0
+            if not snapshot.exists: return False, "المستخدم غير موجود", 0, 0
 
             user_data = snapshot.to_dict() or {}
             current_level = int(user_data.get("storage_level", 0))
@@ -315,7 +297,6 @@ def update_user_storage_level(tg_id, target_level=None):
                 return False, "أنت بالفعل في هذا المستوى أو مستوى أعلى!", user_data.get("max_cap", 200.0), current_balance
 
             next_cfg = storage_cfg.get(str(next_level)) or storage_cfg.get(next_level)
-
             if not next_cfg:
                 return False, "لقد وصلت إلى الحد الأقصى لمستويات المخزن!", user_data.get("max_cap", 200.0), current_balance
 
@@ -325,11 +306,7 @@ def update_user_storage_level(tg_id, target_level=None):
                 return False, "رصيدك غير كافٍ لإجراء الترقية!", user_data.get("max_cap", 200.0), current_balance
 
             new_max_cap = float(next_cfg.get("capacity", 200.0))
-
-            update_payload = {
-                "storage_level": next_level,
-                "max_cap": new_max_cap
-            }
+            update_payload = {"storage_level": next_level, "max_cap": new_max_cap}
 
             if target_level is None:
                 new_balance = round(current_balance - price, 2)
