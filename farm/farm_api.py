@@ -111,8 +111,15 @@ def get_player_data():
             user_data = user_doc.to_dict() or {}
 
         storage_level = user_data.get("storage_level", 0)
-        max_cap = get_storage_capacity(storage_level, game_settings)
-        user_data["max_cap"] = max_cap
+        
+        # 🎯 الحفاظ على max_cap المخزنة بدلاً من إعادة كتابتها من الإعدادات
+        if "max_cap" in user_data and user_data["max_cap"] is not None:
+            max_cap = float(user_data["max_cap"])
+        else:
+            max_cap = get_storage_capacity(storage_level, game_settings)
+            user_data["max_cap"] = max_cap
+            user_ref.update({"max_cap": max_cap})
+
         user_data["balance"] = round(float(user_data.get("balance", 0.0)), 2)
 
         last_claim_str = user_data.get("last_claim_time")
@@ -179,7 +186,13 @@ def claim_mined_tokens():
             last_claim_str = user_data.get("last_claim_time")
             hourly_rate = float(user_data.get("hourly_rate", 0.0))
             storage_level = user_data.get("storage_level", 0)
-            max_cap = get_storage_capacity(storage_level, game_settings)
+
+            # 🎯 اعتماد السعة المسجلة للمستخدم
+            if "max_cap" in user_data and user_data["max_cap"] is not None:
+                max_cap = float(user_data["max_cap"])
+            else:
+                max_cap = get_storage_capacity(storage_level, game_settings)
+
             unclaimed = 0.0
 
             if last_claim_str:
@@ -206,10 +219,10 @@ def claim_mined_tokens():
             new_balance = round(current_bal + unclaimed, 2)
             now_iso = now.isoformat()
 
+            # 🎯 لا نضع "max_cap" هنا حتى لا يعيد كتابة قيم الفايربيس اليدوية
             update_data = {
                 "balance": new_balance,
                 "unclaimed": 0.0,
-                "max_cap": max_cap,
                 "last_claim_time": now_iso
             }
 
