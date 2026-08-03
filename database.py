@@ -194,6 +194,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "hourly_rate": 0.0,
                 "energy": 100.0,
                 "storage_level": 0,
+                "extra_storage": 0.0,
                 "max_cap": 200.0,
                 "last_claim_time": now_iso,
                 "daily_streak": 0,
@@ -228,6 +229,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
             }
             if "max_cap" not in user_data: updates["max_cap"] = 200.0
             if "storage_level" not in user_data: updates["storage_level"] = 0
+            if "extra_storage" not in user_data: updates["extra_storage"] = 0.0
             if "upgrades" not in user_data: updates["upgrades"] = {}
             if "hourly_rate" not in user_data: updates["hourly_rate"] = 0.0
                 
@@ -250,14 +252,20 @@ def get_user(tg_id):
             stg_lvl = str(data.get("storage_level", 0))
             settings = get_game_settings()
             stg_cfg = settings.get("storage_config", {})
+            caps_cfg = settings.get("storage_capacities", {})
             
-            if stg_lvl in stg_cfg:
-                cfg_cap = float(stg_cfg[stg_lvl].get("capacity", 200.0))
-                current_max = float(data.get("max_cap", 0.0))
-                
-                if current_max < cfg_cap:
-                    user_ref.update({"max_cap": cfg_cap})
-                    data["max_cap"] = cfg_cap
+            base_cap = 200.0
+            if stg_lvl in stg_cfg and isinstance(stg_cfg[stg_lvl], dict):
+                base_cap = float(stg_cfg[stg_lvl].get("capacity", 200.0))
+            elif stg_lvl in caps_cfg:
+                base_cap = float(caps_cfg[stg_lvl])
+
+            extra_cap = float(data.get("extra_storage", 0.0))
+            expected_max = base_cap + extra_cap
+            
+            if data.get("max_cap") != expected_max:
+                user_ref.update({"max_cap": expected_max})
+                data["max_cap"] = expected_max
 
             return data
         return None
@@ -290,6 +298,7 @@ def update_user_storage_level(tg_id, target_level=None):
             user_data = snapshot.to_dict() or {}
             current_level = int(user_data.get("storage_level", 0))
             current_balance = float(user_data.get("balance", 0.0))
+            extra_cap = float(user_data.get("extra_storage", 0.0))
 
             next_level = int(target_level) if target_level is not None else current_level + 1
 
@@ -305,8 +314,9 @@ def update_user_storage_level(tg_id, target_level=None):
             if current_balance < price and target_level is None:
                 return False, "رصيدك غير كافٍ لإجراء الترقية!", user_data.get("max_cap", 200.0), current_balance
 
-            new_max_cap = float(next_cfg.get("capacity", 200.0))
-            update_payload = {"storage_level": next_level, "max_cap": new_max_cap}
+            base_next_cap = float(next_cfg.get("capacity", 200.0))
+            new_total_max_cap = base_next_cap + extra_cap
+            update_payload = {"storage_level": next_level, "max_cap": new_total_max_cap}
 
             if target_level is None:
                 new_balance = round(current_balance - price, 2)
@@ -315,7 +325,7 @@ def update_user_storage_level(tg_id, target_level=None):
                 new_balance = current_balance
 
             transaction.update(ref, update_payload)
-            return True, "تمت ترقية المخزن بنجاح!", new_max_cap, new_balance
+            return True, "تمت ترقية المخزن بنجاح!", new_total_max_cap, new_balance
 
         transaction = db.transaction()
         return run_storage_upgrade_transaction(transaction, user_ref)
