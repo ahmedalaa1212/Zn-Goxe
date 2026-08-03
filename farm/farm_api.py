@@ -50,8 +50,7 @@ def get_storage_capacity(storage_level, settings):
         lvl = int(storage_level)
     except (ValueError, TypeError):
         lvl = 0
-    if lvl < 0: lvl = 0
-    elif lvl > 10: lvl = 10
+    lvl = max(0, min(lvl, 10))
     
     caps = settings.get("storage_capacities") or settings.get("storage_config") or DEFAULT_GAME_SETTINGS["storage_capacities"]
     
@@ -62,7 +61,6 @@ def get_storage_capacity(storage_level, settings):
     return float(val)
 
 def calculate_accrued_mined(data, now, max_cap):
-    """حساب الأرباح المعلقة بالسرعة الحالية لتفادي الضياع عند تغيير السرعة"""
     last_claim_str = data.get("last_claim_time")
     hourly_rate = float(data.get("hourly_rate", 0.0))
     if not last_claim_str or hourly_rate <= 0:
@@ -84,10 +82,6 @@ def get_player_data():
     if not success: 
         return error_res
 
-    req_data = request.get_json(silent=True)
-    if not isinstance(req_data, dict):
-        req_data = {}
-        
     user_id_str = str(telegram_id)
 
     try:
@@ -135,23 +129,7 @@ def get_player_data():
             user_ref.update({"max_cap": max_cap})
 
         user_data["balance"] = round(float(user_data.get("balance", 0.0)), 2)
-
-        last_claim_str = user_data.get("last_claim_time")
-        hourly_rate = float(user_data.get("hourly_rate", 0.0))
-        user_data["unclaimed"] = 0.0
-
-        if last_claim_str:
-            try:
-                last_claim = datetime.fromisoformat(str(last_claim_str).replace('Z', '+00:00'))
-                if last_claim.tzinfo is None: 
-                    last_claim = last_claim.replace(tzinfo=timezone.utc)
-                
-                seconds_passed = max(0.0, (now - last_claim).total_seconds())
-                if seconds_passed > 0:
-                    mined = (hourly_rate / 3600.0) * seconds_passed
-                    user_data["unclaimed"] = round(min(mined, max_cap), 4)
-            except Exception: 
-                pass
+        user_data["unclaimed"] = calculate_accrued_mined(user_data, now, max_cap)
 
         today_str = now.strftime('%Y-%m-%d')
         yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
@@ -169,10 +147,7 @@ def get_player_data():
 
         parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
         upgrade_configs = game_settings.get("upgrade_config") or game_settings.get("speed_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
-        upgrade_costs = {}
-        for k, v in upgrade_configs.items():
-            cost_val = v.get("base_cost") if isinstance(v, dict) and "base_cost" in v else v.get("price", 0)
-            upgrade_costs[int(k)] = float(cost_val)
+        upgrade_costs = {int(k): float(v.get("base_cost", v.get("price", 0))) for k, v in upgrade_configs.items()}
 
         mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
         daily_boost_reward = float(mining_cfg.get("daily_boost_reward", 2.0))
@@ -215,11 +190,7 @@ def claim_mined_tokens():
             last_claim_str = user_data.get("last_claim_time")
             hourly_rate = float(user_data.get("hourly_rate", 0.0))
             storage_level = user_data.get("storage_level", 0)
-
-            if "max_cap" in user_data and user_data["max_cap"] is not None:
-                max_cap = float(user_data["max_cap"])
-            else:
-                max_cap = get_storage_capacity(storage_level, game_settings)
+            max_cap = float(user_data.get("max_cap") or get_storage_capacity(storage_level, game_settings))
 
             unclaimed = 0.0
 
@@ -231,7 +202,7 @@ def claim_mined_tokens():
                         
                     seconds_passed = (now - last_claim).total_seconds()
                     
-                    if seconds_passed < (COOLDOWN_SECONDS - 1.5):
+                    if seconds_passed < (COOLDOWN_SECONDS - 2.0):
                         remaining = int(COOLDOWN_SECONDS - seconds_passed)
                         return None, f"انتظر {remaining} ثانية ⏳", 400
 
@@ -247,13 +218,11 @@ def claim_mined_tokens():
             new_balance = round(current_bal + unclaimed, 2)
             now_iso = now.isoformat()
 
-            update_data = {
+            transaction.update(ref, {
                 "balance": new_balance,
                 "unclaimed": 0.0,
                 "last_claim_time": now_iso
-            }
-
-            transaction.update(ref, update_data)
+            })
             return {"new_balance": new_balance, "claimed_amount": unclaimed, "last_claim_time": now_iso, "server_time": now_iso}, None, 200
 
         transaction = db.transaction()
@@ -284,10 +253,8 @@ def upgrade_field():
     if not success: return error_res
 
     req_data = request.get_json(silent=True) or {}
-    level = req_data.get('level')
-
     try:
-        level = int(level)
+        level = int(req_data.get('level'))
         if level < 1 or level > 9: return jsonify({"success": False, "error": "مستوى ترقية غير صالح"}), 400
     except (TypeError, ValueError):
         return jsonify({"success": False, "error": "بيانات الترقية غير صالحة"}), 400
@@ -311,9 +278,7 @@ def upgrade_field():
             now = datetime.now(timezone.utc)
             max_cap = float(data.get("max_cap") or get_storage_capacity(data.get("storage_level", 0), game_settings))
             
-            # حساب وتثبيت الأرباح المجمعة بالسرعة القديمة قبل زيادة التعدين
             accrued = calculate_accrued_mined(data, now, max_cap)
-
             current_bal = float(data.get("balance", 0.0))
             cost = float(config.get("base_cost") or config.get("price", 0.0))
 
@@ -322,20 +287,14 @@ def upgrade_field():
             upgrades = data.get("upgrades") or {}
             lvl_key = f"lvl{level}"
             
-            # جلب قيمة الترقية بالحماية من قيم None بدلاً من ??
-            val = upgrades.get(lvl_key)
-            if val is None:
-                val = upgrades.get(str(level))
-            current_count = int(val or 0)
+            val = upgrades.get(lvl_key, upgrades.get(str(level), 0))
+            current_count = int(val) if val is not None else 0
 
             if current_count >= 10: return None, "وصلت للحد الأقصى من الترقية لهذا المستوى", 400
 
             if level > 1:
-                prev_val = upgrades.get(f"lvl{level-1}")
-                if prev_val is None:
-                    prev_val = upgrades.get(str(level-1))
-                prev_lvl_count = int(prev_val or 0)
-                
+                prev_val = upgrades.get(f"lvl{level-1}", upgrades.get(str(level-1), 0))
+                prev_lvl_count = int(prev_val) if prev_val is not None else 0
                 if prev_lvl_count <= 0: return None, "يجب فتح المستوى السابق أولاً", 400
 
             upgrades[lvl_key] = current_count + 1
@@ -462,8 +421,7 @@ def daily_claim():
 
             if last_claim_date == yesterday_str:
                 new_day = current_day + 1
-                if new_day > 30:
-                    new_day = 1
+                if new_day > 30: new_day = 1
             else:
                 new_day = 1
 
