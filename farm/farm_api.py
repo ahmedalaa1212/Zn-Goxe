@@ -61,6 +61,22 @@ def get_storage_capacity(storage_level, settings):
     val = caps.get(str(lvl)) or caps.get(lvl) or 200.0
     return float(val)
 
+def calculate_accrued_mined(data, now, max_cap):
+    """حساب الأرباح المعلقة بالسرعة الحالية لتفادي الضياع عند تغيير السرعة"""
+    last_claim_str = data.get("last_claim_time")
+    hourly_rate = float(data.get("hourly_rate", 0.0))
+    if not last_claim_str or hourly_rate <= 0:
+        return 0.0
+    try:
+        last_claim = datetime.fromisoformat(str(last_claim_str).replace('Z', '+00:00'))
+        if last_claim.tzinfo is None:
+            last_claim = last_claim.replace(tzinfo=timezone.utc)
+        seconds_passed = max(0.0, (now - last_claim).total_seconds())
+        mined = (hourly_rate / 3600.0) * seconds_passed
+        return min(mined, max_cap)
+    except Exception:
+        return 0.0
+
 @farm_bp.route('/player_data', methods=['GET', 'POST'])
 def get_player_data():
     is_post = (request.method == 'POST')
@@ -122,6 +138,7 @@ def get_player_data():
 
         last_claim_str = user_data.get("last_claim_time")
         hourly_rate = float(user_data.get("hourly_rate", 0.0))
+        user_data["unclaimed"] = 0.0
 
         if last_claim_str:
             try:
@@ -129,14 +146,13 @@ def get_player_data():
                 if last_claim.tzinfo is None: 
                     last_claim = last_claim.replace(tzinfo=timezone.utc)
                 
-                seconds_passed = (now - last_claim).total_seconds()
+                seconds_passed = max(0.0, (now - last_claim).total_seconds())
                 if seconds_passed > 0:
                     mined = (hourly_rate / 3600.0) * seconds_passed
                     user_data["unclaimed"] = round(min(mined, max_cap), 4)
             except Exception: 
                 pass
 
-        # 🎯 حساب اليوم اليومي الفعال لضمان تطابق الواجهة مع السيرفر
         today_str = now.strftime('%Y-%m-%d')
         yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
         last_daily_claim = user_data.get("last_daily_claim_date")
@@ -215,12 +231,11 @@ def claim_mined_tokens():
                         
                     seconds_passed = (now - last_claim).total_seconds()
                     
-                    # سماحية زمنية بسيطة (1.5 ثانية) لمقابلة تفاوت وقت المتصفحات
                     if seconds_passed < (COOLDOWN_SECONDS - 1.5):
                         remaining = int(COOLDOWN_SECONDS - seconds_passed)
                         return None, f"انتظر {remaining} ثانية ⏳", 400
 
-                    mined = (hourly_rate / 3600.0) * max(0, seconds_passed)
+                    mined = (hourly_rate / 3600.0) * max(0.0, seconds_passed)
                     unclaimed = min(mined, max_cap)
                 except Exception: 
                     pass
@@ -293,6 +308,12 @@ def upgrade_field():
             if not snapshot.exists: return None, "المستخدم غير موجود", 404
 
             data = snapshot.to_dict() or {}
+            now = datetime.now(timezone.utc)
+            max_cap = float(data.get("max_cap") or get_storage_capacity(data.get("storage_level", 0), game_settings))
+            
+            # 💡 حساب وتثبيت الأرباح المجمعة بالسرعة القديمة قبل زيادة التعدين
+            accrued = calculate_accrued_mined(data, now, max_cap)
+
             current_bal = float(data.get("balance", 0.0))
             cost = float(config.get("base_cost") or config.get("price", 0.0))
 
@@ -300,24 +321,26 @@ def upgrade_field():
 
             upgrades = data.get("upgrades") or {}
             lvl_key = f"lvl{level}"
-            current_count = int(upgrades.get(lvl_key, 0))
+            current_count = int(upgrades.get(lvl_key) ?? upgrades.get(str(level)) ?? 0)
 
             if current_count >= 10: return None, "وصلت للحد الأقصى من الترقية لهذا المستوى", 400
 
             if level > 1:
-                prev_lvl_count = int(upgrades.get(f"lvl{level-1}", 0))
+                prev_lvl_count = int(upgrades.get(f"lvl{level-1}") ?? upgrades.get(str(level-1)) ?? 0)
                 if prev_lvl_count <= 0: return None, "يجب فتح المستوى السابق أولاً", 400
 
             upgrades[lvl_key] = current_count + 1
-            new_bal = round(current_bal - cost, 2)
+            new_bal = round((current_bal - cost) + accrued, 2)
             rate_bonus = float(config.get("rate_bonus") or config.get("rate", 0.0))
             new_rate = float(data.get("hourly_rate", 0.0)) + rate_bonus
 
-            now_iso = datetime.now(timezone.utc).isoformat()
+            now_iso = now.isoformat()
             transaction.update(ref, {
                 "balance": new_bal,
                 "hourly_rate": new_rate,
-                "upgrades": upgrades
+                "upgrades": upgrades,
+                "last_claim_time": now_iso,
+                "unclaimed": 0.0
             })
 
             return {"new_balance": new_bal, "new_hourly_rate": new_rate, "upgrades": upgrades, "server_time": now_iso}, None, 200
@@ -363,16 +386,25 @@ def daily_boost():
             if data.get("last_boost_date") == today_str:
                 return None, "لقد استخدمت التسريع اليومي بالفعل اليوم!", 400
 
+            max_cap = float(data.get("max_cap") or get_storage_capacity(data.get("storage_level", 0), game_settings))
+            accrued = calculate_accrued_mined(data, now_dt, max_cap)
+            
             current_rate = float(data.get("hourly_rate", 0.0))
             new_rate = current_rate + boost_reward
+            current_bal = float(data.get("balance", 0.0))
+            new_balance = round(current_bal + accrued, 2)
 
+            now_iso = now_dt.isoformat()
             transaction.update(ref, {
+                "balance": new_balance,
                 "hourly_rate": new_rate,
                 "last_boost_date": today_str,
+                "last_claim_time": now_iso,
+                "unclaimed": 0.0,
                 "ads_watched": firestore.Increment(1)
             })
 
-            return {"new_rate": new_rate, "last_boost_date": today_str, "added_rate": boost_reward, "server_time": now_dt.isoformat()}, None, 200
+            return {"new_rate": new_rate, "new_balance": new_balance, "last_boost_date": today_str, "added_rate": boost_reward, "server_time": now_iso}, None, 200
 
         transaction = db.transaction()
         res_data, err_msg, status_code = run_boost_transaction(transaction, user_ref)
@@ -382,6 +414,7 @@ def daily_boost():
         return jsonify({
             "success": True,
             "new_rate": res_data["new_rate"],
+            "new_balance": res_data["new_balance"],
             "last_boost_date": res_data["last_boost_date"],
             "added_rate": res_data["added_rate"],
             "hourly_rate": res_data["new_rate"],
