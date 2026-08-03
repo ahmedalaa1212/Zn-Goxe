@@ -249,6 +249,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
             if "upgrades" not in user_data: updates["upgrades"] = {}
             if "hourly_rate" not in user_data: updates["hourly_rate"] = 0.0
             if "pending_ref_earnings" not in user_data: updates["pending_ref_earnings"] = 0.0
+            if "total_ref_earnings" not in user_data: updates["total_ref_earnings"] = 0.0
             if "claimed_ref_tasks" not in user_data: updates["claimed_ref_tasks"] = []
             if "boost_multiplier" not in user_data: updates["boost_multiplier"] = 1
             if "boost_active" not in user_data: updates["boost_active"] = False
@@ -291,6 +292,14 @@ def get_user(tg_id):
             if "boost_expires_at" not in data:
                 auto_updates["boost_expires_at"] = None
                 data["boost_expires_at"] = None
+
+            if "pending_ref_earnings" not in data:
+                auto_updates["pending_ref_earnings"] = 0.0
+                data["pending_ref_earnings"] = 0.0
+
+            if "total_ref_earnings" not in data:
+                auto_updates["total_ref_earnings"] = 0.0
+                data["total_ref_earnings"] = 0.0
 
             stg_lvl = str(data.get("storage_level", 0))
             settings = get_game_settings()
