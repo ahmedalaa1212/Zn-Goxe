@@ -8,14 +8,12 @@ farm_bp = Blueprint('farm', __name__)
 
 COOLDOWN_SECONDS = 15  # مدة الانتظار الإجبارية بين كل عملية تجميع بالثواني
 
+# الإعدادات الافتراضية المطابقة تماماً لـ 30 يوم والترقيات
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
-        100, 150, 200, 250, 300, 
-        350, 400, 450, 500, 550, 
-        600, 600, 650, 650, 700, 
-        700, 750, 750, 800, 800, 
-        850, 850, 900, 900, 950, 
-        950, 1000, 1000, 1100, 1250
+        100, 150, 200, 250, 300, 350, 400, 500, 600, 700,
+        800, 900, 1000, 1200, 1400, 1600, 1800, 2000, 2300, 2600,
+        3000, 3500, 4000, 4500, 5000, 6000, 7000, 8000, 9000, 10000
     ],
     "mining_config": {
         "daily_boost_reward": 2.0
@@ -25,25 +23,25 @@ DEFAULT_GAME_SETTINGS = {
         "5": 18000.0, "6": 40000.0, "7": 90000.0, "8": 200000.0, "9": 450000.0, "10": 1000000.0
     },
     "upgrade_config": {
-        "1": {"base_cost": 2000.0, "rate_bonus": 5.0},
-        "2": {"base_cost": 7000.0, "rate_bonus": 15.0},
-        "3": {"base_cost": 18000.0, "rate_bonus": 35.0},
-        "4": {"base_cost": 45000.0, "rate_bonus": 80.0},
-        "5": {"base_cost": 110000.0, "rate_bonus": 180.0},
-        "6": {"base_cost": 260000.0, "rate_bonus": 400.0},
-        "7": {"base_cost": 600000.0, "rate_bonus": 900.0},
-        "8": {"base_cost": 1400000.0, "rate_bonus": 2000.0},
-        "9": {"base_cost": 3200000.0, "rate_bonus": 4500.0}
+        "1": {"base_cost": 2000.0, "rate_bonus": 5.0, "price": 2000.0, "rate": 5.0},
+        "2": {"base_cost": 7000.0, "rate_bonus": 15.0, "price": 7000.0, "rate": 15.0},
+        "3": {"base_cost": 18000.0, "rate_bonus": 35.0, "price": 18000.0, "rate": 35.0},
+        "4": {"base_cost": 45000.0, "rate_bonus": 80.0, "price": 45000.0, "rate": 80.0},
+        "5": {"base_cost": 110000.0, "rate_bonus": 180.0, "price": 110000.0, "rate": 180.0},
+        "6": {"base_cost": 260000.0, "rate_bonus": 400.0, "price": 260000.0, "rate": 400.0},
+        "7": {"base_cost": 600000.0, "rate_bonus": 900.0, "price": 600000.0, "rate": 900.0},
+        "8": {"base_cost": 1400000.0, "rate_bonus": 2000.0, "price": 1400000.0, "rate": 2000.0},
+        "9": {"base_cost": 3200000.0, "rate_bonus": 4500.0, "price": 3200000.0, "rate": 4500.0}
     }
 }
 
 def parse_daily_rewards(rewards_data):
-    if isinstance(rewards_data, list):
-        return rewards_data
+    if isinstance(rewards_data, list) and len(rewards_data) > 0:
+        return [int(x) for x in rewards_data]
     if isinstance(rewards_data, dict):
         res = []
         for i in range(1, 31):
-            val = rewards_data.get(f"day_{i}") or rewards_data.get(str(i)) or 100
+            val = rewards_data.get(f"day_{i}") or rewards_data.get(str(i)) or DEFAULT_GAME_SETTINGS["daily_rewards"][i-1]
             res.append(int(val))
         return res
     return DEFAULT_GAME_SETTINGS["daily_rewards"]
@@ -95,6 +93,7 @@ def get_player_data():
                 "storage_level": 0,
                 "max_cap": get_storage_capacity(0, game_settings), 
                 "daily_day": 1,
+                "daily_streak": 0,
                 "last_claim_time": now.isoformat(), 
                 "last_daily_claim_date": None, 
                 "last_boost_date": None,
@@ -191,7 +190,6 @@ def claim_mined_tokens():
                         
                     seconds_passed = (now - last_claim).total_seconds()
                     
-                    # 🔒 حماية أمنية صارمة: منع التجميع إذا لم تنقضِ الـ 15 ثانية
                     if seconds_passed < COOLDOWN_SECONDS:
                         remaining = int(COOLDOWN_SECONDS - seconds_passed)
                         return None, f"انتظر {remaining} ثانية ⏳", 400
@@ -393,13 +391,15 @@ def daily_claim():
             if last_claim_date == today_str:
                 return None, "لقد استلمت مكافأتك اليومية بالفعل اليوم! عد غداً ⌛", 400
 
-            current_day = int(data.get("daily_day", 1))
+            current_day = int(data.get("daily_day") or data.get("daily_streak") or 1)
 
-            # فحص استمرارية السلسلة (Streak) بتوقيت UTC العالمي
+            # فحص استمرارية السلسلة (Streak) بتوقيت UTC
             if last_claim_date == yesterday_str:
                 new_day = current_day + 1
                 if new_day > 30: # عند الوصول لليوم الـ 30، يبدأ العداد مجدداً من اليوم الأول
                     new_day = 1
+            elif last_claim_date is None:
+                new_day = 1
             else:
                 # تفويت يوم أدى لقطع السلسلة وإعادتها لليوم الأول
                 new_day = 1
@@ -407,7 +407,7 @@ def daily_claim():
             game_settings = get_game_settings() or DEFAULT_GAME_SETTINGS
             rewards_list = parse_daily_rewards(game_settings.get("daily_rewards"))
 
-            day_index = min(new_day - 1, len(rewards_list) - 1)
+            day_index = min(max(0, new_day - 1), len(rewards_list) - 1)
             reward_amount = float(rewards_list[day_index])
 
             current_bal = float(data.get("balance", 0.0))
