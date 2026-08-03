@@ -110,7 +110,17 @@ def ensure_game_settings_exist():
             },
             "friends_config": {
                 "commission_percent": 10,
-                "claim_fee_percent": 1.5
+                "claim_fee_percent": 1.5,
+                "min_upgrades_for_task": 3,
+                "ref_tasks": {
+                    "1": {"reqFriends": 1, "reward": 4000},
+                    "2": {"reqFriends": 5, "reward": 25000},
+                    "3": {"reqFriends": 10, "reward": 60000},
+                    "4": {"reqFriends": 25, "reward": 160000},
+                    "5": {"reqFriends": 50, "reward": 350000},
+                    "6": {"reqFriends": 100, "reward": 800000},
+                    "7": {"reqFriends": 500, "reward": 4500000}
+                }
             },
             "arena_config": {
                 "entry_fee": 1000,
@@ -204,7 +214,10 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "banned": False,
                 "wallet_address": None,
                 "referred_by": valid_ref_id,
+                "pending_ref_earnings": 0.0,
+                "total_ref_earnings": 0.0,
                 "invited_friends_count": 0,
+                "claimed_ref_tasks": [],
                 "last_active": firestore.SERVER_TIMESTAMP,
                 "joined_at": firestore.SERVER_TIMESTAMP
             }
@@ -232,6 +245,8 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
             if "extra_storage" not in user_data: updates["extra_storage"] = 0.0
             if "upgrades" not in user_data: updates["upgrades"] = {}
             if "hourly_rate" not in user_data: updates["hourly_rate"] = 0.0
+            if "pending_ref_earnings" not in user_data: updates["pending_ref_earnings"] = 0.0
+            if "claimed_ref_tasks" not in user_data: updates["claimed_ref_tasks"] = []
                 
             user_ref.update(updates)
         
@@ -273,20 +288,16 @@ def get_user(tg_id):
             current_max = float(data.get("max_cap", base_cap))
             current_extra = float(data.get("extra_storage", 0.0))
 
-            # ==================== المزامنة الذكية للتخزين والباقات ====================
-            # 1. لو غيّرت max_cap يدويًا من الفايربيس (مثلاً خليتها 25000 بدلاً من 18000)
+            # المزامنة الذكية للتخزين
             if current_max != (base_cap + current_extra):
                 if current_max > base_cap and current_extra == 0:
-                    # الآدمن غيّر قيمة max_cap يدويًا من اللوحة -> نحسب الـ extra_storage التلقائي
                     new_extra = current_max - base_cap
                     auto_updates["extra_storage"] = new_extra
                     data["extra_storage"] = new_extra
                 else:
-                    # تم إضافة extra_storage من باقة أو دالة خارجية -> نحدث max_cap الكلية
                     new_max = base_cap + current_extra
                     auto_updates["max_cap"] = new_max
                     data["max_cap"] = new_max
-            # =======================================================================
 
             if auto_updates:
                 user_ref.update(auto_updates)
@@ -298,10 +309,6 @@ def get_user(tg_id):
         return None
 
 def apply_package_to_user(tg_id, added_storage=0.0, added_balance=0.0, added_hourly_rate=0.0):
-    """
-    دالة موحدة لشحن أي باقة عرض (Dollar Offer / Promo Package)
-    تسمح بإضافة أي سعة تخزينية إضافية فوق مستوى اللاعب وسرعات وعملات فوراً.
-    """
     try:
         if not tg_id: return False, "معرف غير صالح"
         user_ref = db.collection('users').document(str(tg_id))
