@@ -249,10 +249,8 @@ def get_user(tg_id):
             data = doc.to_dict() or {}
             data['id'] = doc.id
             
-            # حاوية للتعديلات التلقائية إذا كانت هناك حقول ناقصة في Firebase
             auto_updates = {}
 
-            # الإنشاء التلقائي لحقل extra_storage في حال عدم وجوده
             if "extra_storage" not in data:
                 auto_updates["extra_storage"] = 0.0
                 data["extra_storage"] = 0.0
@@ -272,14 +270,24 @@ def get_user(tg_id):
             elif stg_lvl in caps_cfg:
                 base_cap = float(caps_cfg[stg_lvl])
 
-            extra_cap = float(data.get("extra_storage", 0.0))
-            expected_max = base_cap + extra_cap
-            
-            if data.get("max_cap") != expected_max:
-                auto_updates["max_cap"] = expected_max
-                data["max_cap"] = expected_max
+            current_max = float(data.get("max_cap", base_cap))
+            current_extra = float(data.get("extra_storage", 0.0))
 
-            # حفظ التعديلات أوتوماتيكياً في Firestore دون تدخّل يدوي
+            # ==================== المزامنة الذكية للتخزين والباقات ====================
+            # 1. لو غيّرت max_cap يدويًا من الفايربيس (مثلاً خليتها 25000 بدلاً من 18000)
+            if current_max != (base_cap + current_extra):
+                if current_max > base_cap and current_extra == 0:
+                    # الآدمن غيّر قيمة max_cap يدويًا من اللوحة -> نحسب الـ extra_storage التلقائي
+                    new_extra = current_max - base_cap
+                    auto_updates["extra_storage"] = new_extra
+                    data["extra_storage"] = new_extra
+                else:
+                    # تم إضافة extra_storage من باقة أو دالة خارجية -> نحدث max_cap الكلية
+                    new_max = base_cap + current_extra
+                    auto_updates["max_cap"] = new_max
+                    data["max_cap"] = new_max
+            # =======================================================================
+
             if auto_updates:
                 user_ref.update(auto_updates)
 
@@ -289,10 +297,10 @@ def get_user(tg_id):
         print(f"❌ Error getting user {tg_id}: {e}")
         return None
 
-def add_extra_storage(tg_id, extra_amount):
+def apply_package_to_user(tg_id, added_storage=0.0, added_balance=0.0, added_hourly_rate=0.0):
     """
-    دالة للأدمن لإضافة سعة تخزينية إضافية برمجياً لأي مستخدم باستهداف ID الخاص به.
-    تقوم بحساب السعة الكلية الجديدة وتحديث Firebase تلقائياً.
+    دالة موحدة لشحن أي باقة عرض (Dollar Offer / Promo Package)
+    تسمح بإضافة أي سعة تخزينية إضافية فوق مستوى اللاعب وسرعات وعملات فوراً.
     """
     try:
         if not tg_id: return False, "معرف غير صالح"
@@ -300,32 +308,37 @@ def add_extra_storage(tg_id, extra_amount):
         doc = user_ref.get()
         if not doc.exists:
             return False, "المستخدم غير موجود"
-        
+
         user_data = doc.to_dict() or {}
-        current_extra = float(user_data.get("extra_storage", 0.0))
-        new_extra = current_extra + float(extra_amount)
-        
         stg_lvl = str(user_data.get("storage_level", 0))
         settings = get_game_settings()
         stg_cfg = settings.get("storage_config", {})
-        caps_cfg = settings.get("storage_capacities", {})
         
         base_cap = 200.0
         if stg_lvl in stg_cfg and isinstance(stg_cfg[stg_lvl], dict):
             base_cap = float(stg_cfg[stg_lvl].get("capacity", 200.0))
-        elif stg_lvl in caps_cfg:
-            base_cap = float(caps_cfg[stg_lvl])
-            
+
+        current_extra = float(user_data.get("extra_storage", 0.0))
+        new_extra = current_extra + float(added_storage)
         new_max_cap = base_cap + new_extra
-        
-        user_ref.update({
+
+        updates = {
             "extra_storage": new_extra,
             "max_cap": new_max_cap
-        })
-        return True, f"تمت إضافة {extra_amount} سعة بنجاح! السعة الكلية الجديدة: {new_max_cap}"
+        }
+        if added_balance > 0:
+            updates["balance"] = firestore.Increment(float(added_balance))
+        if added_hourly_rate > 0:
+            updates["hourly_rate"] = firestore.Increment(float(added_hourly_rate))
+
+        user_ref.update(updates)
+        return True, f"تمت إضافة الباقة بنجاح! السعة الجديدة: {new_max_cap}"
     except Exception as e:
-        print(f"❌ Error adding extra storage: {e}")
+        print(f"❌ Error applying package: {e}")
         return False, f"حدث خطأ: {e}"
+
+def add_extra_storage(tg_id, extra_amount):
+    return apply_package_to_user(tg_id, added_storage=extra_amount)
 
 def update_user(tg_id, update_data):
     try:
