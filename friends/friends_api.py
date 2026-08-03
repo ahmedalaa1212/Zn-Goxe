@@ -6,22 +6,19 @@ from firebase_admin import firestore
 
 friends_bp = Blueprint('friends', __name__)
 
-# --- Server-Side RAM Caching Systems ---
 _CONFIG_CACHE = {"data": None, "timestamp": 0}
-_USER_DATA_CACHE = {}  # {user_id: {"data": response_dict, "timestamp": float}}
-_USER_LIST_CACHE = {}  # {user_id: {"data": response_dict, "timestamp": float}}
+_USER_DATA_CACHE = {}  
+_USER_LIST_CACHE = {}  
 
-CACHE_TTL_CONFIG = 600  # 10 دقائق لكاش الإعدادات العامة
-CACHE_TTL_USER = 180    # 3 دقائق لكاش استعلامات الأصدقاء غير الحساسة
+CACHE_TTL_CONFIG = 600  
+CACHE_TTL_USER = 10     
 
 def invalidate_user_cache(user_id):
-    """إبطال كاش المستخدم فوراً عند إجراء عملية مالية حية"""
     user_id_str = str(user_id)
     _USER_DATA_CACHE.pop(user_id_str, None)
     _USER_LIST_CACHE.pop(user_id_str, None)
 
 def get_friends_config():
-    """جلب إعدادات نظام الإحالات مع التخزين المؤقت بالسيرفر (10 دقائق)"""
     now = time.time()
     if _CONFIG_CACHE["data"] and (now - _CONFIG_CACHE["timestamp"] < CACHE_TTL_CONFIG):
         return _CONFIG_CACHE["data"]
@@ -46,7 +43,6 @@ def get_friends_config():
     return config
 
 def get_user_upgrades_count(user_data):
-    """حساب إجمالي ترقيات سرعة التعدين للمستخدم"""
     upgrades = user_data.get('upgrades', {})
     total = 0
     if isinstance(upgrades, dict):
