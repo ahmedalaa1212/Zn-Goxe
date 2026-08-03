@@ -122,6 +122,7 @@ window.initFarmView = function() {
                     if (resData.player.balance !== undefined) setStoredBalance(resData.player.balance);
                     if (resData.player.hourly_rate !== undefined) window.userState.hourly_rate = resData.player.hourly_rate;
                     if (resData.player.max_cap !== undefined) window.userState.max_cap = resData.player.max_cap;
+                    if (resData.player.extra_storage !== undefined) window.userState.extra_storage = resData.player.extra_storage;
                     if (resData.player.storage_level !== undefined) window.userState.storage_level = resData.player.storage_level;
                     if (resData.player.upgrades !== undefined) window.userState.upgrades = resData.player.upgrades;
                     if (resData.player.last_claim_time !== undefined) window.userState.last_claim_time = resData.player.last_claim_time;
@@ -259,8 +260,8 @@ window.initFarmView = function() {
         const pData = window.PlayerData;
         if (!pData) return;
         
-        let maxC = parseFloat(window.userState?.max_cap || pData.max_cap || 200);
-        let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
+        let maxC = parseFloat(window.userState?.max_cap ?? pData.max_cap ?? 200);
+        let hRate = parseFloat(window.userState?.hourly_rate ?? pData.hourly_rate ?? 0);
         
         let lastClaimStr = window.userState?.last_claim_time || pData.last_claim_time;
         let lastClaimTimeMs = lastClaimStr ? new Date(lastClaimStr).getTime() : getAdjustedNowMs();
