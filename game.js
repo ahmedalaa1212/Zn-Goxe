@@ -30,7 +30,7 @@ function getSavedState() {
         tg_id: tg?.initDataUnsafe?.user?.id || null,
         first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب",
         balance: 0, usd_balance: 0, ad_balance: 0, hourly_rate: 0, energy: 100, storage_level: 0, 
-        max_cap: 200, unclaimed: 0,
+        extra_storage: 0, max_cap: 200, unclaimed: 0,
         daily_streak: 1, daily_day: 1, last_daily_claim_date: null, upgrades: {}, wallet_address: null, 
         last_claim_time: null, last_sync_time: Date.now()
     };
@@ -50,7 +50,7 @@ let lastSaveTime = 0;
 window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
         target[prop] = value;
-        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'max_cap', 'daily_streak', 'daily_day', 'upgrades', 'last_claim_time'].includes(prop)) {
+        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'upgrades', 'last_claim_time'].includes(prop)) {
             const now = Date.now();
             if (now - lastSaveTime > 2000 && !isFirebaseUpdating) {
                 try { localStorage.setItem('app_user_state', JSON.stringify(target)); } catch {}
@@ -98,6 +98,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         if (targetObj?.usd_balance !== undefined) window.userState.usd_balance = parseFloat(targetObj.usd_balance);
         if (targetObj?.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate);
         if (targetObj?.storage_level !== undefined) window.userState.storage_level = parseInt(targetObj.storage_level);
+        if (targetObj?.extra_storage !== undefined) window.userState.extra_storage = parseFloat(targetObj.extra_storage);
         if (targetObj?.max_cap !== undefined) window.userState.max_cap = parseFloat(targetObj.max_cap);
         if (targetObj?.daily_streak !== undefined) window.userState.daily_streak = parseInt(targetObj.daily_streak);
         if (targetObj?.daily_day !== undefined) window.userState.daily_day = parseInt(targetObj.daily_day);
@@ -174,7 +175,7 @@ window.initFirebaseRealtimeSync = function(userId) {
                 if (d.balance !== undefined) window.userState.balance = parseFloat(d.balance);
                 if (d.usd_balance !== undefined) window.userState.usd_balance = parseFloat(d.usd_balance);
                 
-                ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'max_cap', 'daily_streak', 'daily_day', 'last_daily_claim_date', 'upgrades', 'last_claim_time'].forEach(k => {
+                ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'last_daily_claim_date', 'upgrades', 'last_claim_time'].forEach(k => {
                     if (d[k] !== undefined) window.userState[k] = d[k];
                 });
                 window.userState.last_sync_time = Date.now();
@@ -326,7 +327,7 @@ window.updateUI = function() {
     renderSmoothBalance(parseFloat(window.userState.balance || 0));
     window.updateClaimButtonState();
 
-    const currentMaxCap = window.userState.max_cap || 200;
+    const currentMaxCap = window.userState.max_cap ?? 200;
     document.querySelectorAll('#storage-max, .max-storage-val, [data-bind="max_cap"], #farm-storage-max').forEach(el => {
         if (el.tagName === 'INPUT') {
             el.value = currentMaxCap;
