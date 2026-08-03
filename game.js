@@ -180,6 +180,10 @@ window.initFirebaseRealtimeSync = function(userId) {
                 window.userState.last_sync_time = Date.now();
             } finally {
                 isFirebaseUpdating = false;
+                window.updateUI();
+                if (document.getElementById('view-farm')?.classList.contains('active') && typeof window.onFarmTabOpen === 'function') {
+                    window.onFarmTabOpen();
+                }
             }
         }, err => console.error("Firebase Sync Error:", err));
     } catch (e) {
@@ -322,7 +326,7 @@ window.updateUI = function() {
     window.updateClaimButtonState();
 
     const currentMaxCap = window.userState.max_cap || 200;
-    document.querySelectorAll('#storage-max, .max-storage-val, [data-bind="max_cap"]').forEach(el => {
+    document.querySelectorAll('#storage-max, .max-storage-val, [data-bind="max_cap"], #farm-storage-max').forEach(el => {
         if (el.tagName === 'INPUT') {
             el.value = currentMaxCap;
         } else {
