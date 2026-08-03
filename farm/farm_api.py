@@ -6,7 +6,7 @@ from database import db, get_game_settings
 
 farm_bp = Blueprint('farm', __name__)
 
-COOLDOWN_SECONDS = 15  # مدة الانتظار الإجبارية بين كل عملية تجميع بالثواني
+COOLDOWN_SECONDS = 15
 
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
@@ -61,7 +61,6 @@ def get_base_storage_capacity(storage_level, settings):
     return float(val)
 
 def calculate_user_max_cap(user_data, settings):
-    """حساب السعة الإجمالية = سعة المستوى + السعة الإضافية المخصصة (extra_storage)"""
     stg_lvl = user_data.get("storage_level", 0)
     base_cap = get_base_storage_capacity(stg_lvl, settings)
     extra_cap = float(user_data.get("extra_storage", 0.0))
@@ -127,7 +126,6 @@ def get_player_data():
         else:
             user_data = user_doc.to_dict() or {}
 
-        # إعادة حساب السعة الكلية تلقائياً ومطابقتها مع الفايربيس
         expected_max_cap = calculate_user_max_cap(user_data, game_settings)
         if user_data.get("max_cap") != expected_max_cap:
             user_data["max_cap"] = expected_max_cap
@@ -299,7 +297,8 @@ def upgrade_field():
             if current_count >= 10: return None, "وصلت للحد الأقصى من الترقية لهذا المستوى", 400
 
             if level > 1:
-                prev_val = upgrades.get(f"lvl{level-1}", upgrades.get(str(level-1), 0))
+                prev_lvl_key = f"lvl{level-1}"
+                prev_val = upgrades.get(prev_lvl_key, upgrades.get(str(level-1), 0))
                 prev_lvl_count = int(prev_val) if prev_val is not None else 0
                 if prev_lvl_count <= 0: return None, "يجب فتح المستوى السابق أولاً", 400
 
