@@ -193,7 +193,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "hourly_rate": 0.0,
                 "energy": 100.0,
                 "storage_level": 0,
-                "max_cap": 200.0,
+                "max_cap": 200.0, # السعة المبدئية عند إنشاء الحساب لأول مرة
                 "last_claim_time": now_iso,
                 "daily_streak": 0,
                 "daily_day": 1,
@@ -220,7 +220,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                         "joined_at": firestore.SERVER_TIMESTAMP
                     }, merge=True)
         else:
-            # ✅ تحديث البيانات دون مسح أو مس قيمة max_cap المعدلة يدوياً
+            # ✅ تحديث البيانات دون مسح أو تعديل max_cap المعدلة يدوياً
             user_ref.update({
                 "first_name": first_name,
                 "last_active": firestore.SERVER_TIMESTAMP
@@ -253,27 +253,70 @@ def update_user(tg_id, update_data):
         print(f"❌ Error updating user {tg_id}: {e}")
         return False
 
-def update_user_storage_level(tg_id, level):
+def update_user_storage_level(tg_id, target_level=None):
     """
-    ✅ دالة مخصصة لترقية المخزن من المتجر تلقائياً
-    تقوم بترقية المستوى storage_level وتحديث max_cap تلقائياً وفقاً للإعدادات
+    🚀 ترقية المخزن بالتراكم الديناميكي (Dynamic Storage Delta):
+    - تحسب الفارق الصافي (capacity_boost) بين المستوى القديم والجديد.
+    - تضيف هذا الفارق باستعمال firestore.Increment فوق max_cap الحالية.
+    - تضمن عدم ضياع أي تغيير يدوي من الفايربيس أو باقة سعة مسبقة.
     """
     try:
+        if not tg_id:
+            return False, "معرف المستخدم غير صحيح", 0, 0
+
+        tg_id_str = str(tg_id)
+        user_ref = db.collection('users').document(tg_id_str)
+        user_doc = user_ref.get()
+
+        if not user_doc.exists:
+            return False, "المستخدم غير موجود", 0, 0
+
+        user_data = user_doc.to_dict() or {}
+        current_level = int(user_data.get("storage_level", 0))
+        current_balance = float(user_data.get("balance", 0.0))
+        current_max_cap = float(user_data.get("max_cap", 200.0))
+
+        # تحديد المستوى المراد الوصول إليه
+        next_level = int(target_level) if target_level is not None else current_level + 1
+
+        if next_level <= current_level:
+            return False, "أنت بالفعل في هذا المستوى أو مستوى أعلى!", current_max_cap, current_balance
+
+        # جلب إعدادات التخزين
         settings = get_game_settings()
         storage_cfg = settings.get("storage_config", {})
-        lvl_str = str(level)
-        
-        if lvl_str in storage_cfg:
-            new_cap = float(storage_cfg[lvl_str].get("capacity", 200.0))
-            db.collection('users').document(str(tg_id)).update({
-                "storage_level": int(level),
-                "max_cap": new_cap
-            })
-            return True, new_cap
-        return False, 0
+
+        curr_cfg = storage_cfg.get(str(current_level), {"capacity": 200.0})
+        next_cfg = storage_cfg.get(str(next_level))
+
+        if not next_cfg:
+            return False, "لقد وصلت إلى الحد الأقصى لمستويات المخزن!", current_max_cap, current_balance
+
+        price = float(next_cfg.get("price", 0))
+
+        if current_balance < price:
+            return False, "رصيدك غير كافٍ لإجراء الترقية!", current_max_cap, current_balance
+
+        # 💡 حساب فارق السعة النقي بين المستويين (Delta)
+        curr_base_cap = float(curr_cfg.get("capacity", 200.0))
+        next_base_cap = float(next_cfg.get("capacity", 600.0))
+        capacity_boost = next_base_cap - curr_base_cap
+
+        # ⚡ تحديث الفايربيس بأمان: خصم المبلغ + رفع المستوى + زيادة السعة تراكمياً
+        user_ref.update({
+            "balance": firestore.Increment(-price),
+            "storage_level": next_level,
+            "max_cap": firestore.Increment(capacity_boost) # إضافة فارق المستوى دون المساس بالسعة المخصصة
+        })
+
+        new_max_cap = current_max_cap + capacity_boost
+        new_balance = current_balance - price
+
+        return True, "تمت ترقية المخزن بنجاح!", new_max_cap, new_balance
+
     except Exception as e:
-        print(f"❌ Error updating storage level for {tg_id}: {e}")
-        return False, 0
+        print(f"❌ Error in update_user_storage_level for {tg_id}: {e}")
+        return False, "حدث خطأ أثناء تنفيذ ترقية المخزن", 0, 0
 
 def update_user_balance(tg_id, amount, balance_type="balance"):
     try:
