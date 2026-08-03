@@ -109,7 +109,7 @@ def ensure_game_settings_exist():
                 "daily_boost_reward": 2.0
             },
             "friends_config": {
-                "commission_percent": 10.0,
+                "commission_percent": 10,
                 "claim_fee_percent": 1.5,
                 "min_upgrades_for_task": 3,
                 "ref_tasks": {
@@ -199,7 +199,6 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "tg_id": tg_id_str,
                 "first_name": first_name,
                 "balance": 0.0,
-                "unclaimed": 0.0,
                 "ad_balance": 0.0,
                 "usd_balance": 0.0,
                 "hourly_rate": 0.0,
@@ -244,7 +243,6 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "first_name": first_name,
                 "last_active": firestore.SERVER_TIMESTAMP
             }
-            if "unclaimed" not in user_data: updates["unclaimed"] = 0.0
             if "max_cap" not in user_data: updates["max_cap"] = 200.0
             if "storage_level" not in user_data: updates["storage_level"] = 0
             if "extra_storage" not in user_data: updates["extra_storage"] = 0.0
@@ -275,10 +273,6 @@ def get_user(tg_id):
             
             auto_updates = {}
 
-            if "unclaimed" not in data:
-                auto_updates["unclaimed"] = 0.0
-                data["unclaimed"] = 0.0
-
             if "extra_storage" not in data:
                 auto_updates["extra_storage"] = 0.0
                 data["extra_storage"] = 0.0
@@ -299,7 +293,6 @@ def get_user(tg_id):
                 auto_updates["boost_expires_at"] = None
                 data["boost_expires_at"] = None
 
-            # التجميع التلقائي والتأكد من وجود خانات الأرباح المعلقة
             if "pending_ref_earnings" not in data:
                 auto_updates["pending_ref_earnings"] = 0.0
                 data["pending_ref_earnings"] = 0.0
@@ -340,102 +333,6 @@ def get_user(tg_id):
     except Exception as e:
         print(f"❌ Error getting user {tg_id}: {e}")
         return None
-
-def process_referral_commission(user_id, mined_amount):
-    """حساب إضافة نسبة الـ 10% إلى حساب الداعي عند تجميع التعدين"""
-    try:
-        if not user_id or mined_amount <= 0:
-            return False
-
-        user_id_str = str(user_id)
-        user_ref = db.collection('users').document(user_id_str)
-        user_doc = user_ref.get()
-
-        if not user_doc.exists:
-            return False
-
-        user_data = user_doc.to_dict() or {}
-        referrer_id = user_data.get("referred_by")
-
-        if not referrer_id:
-            return False
-
-        referrer_ref = db.collection('users').document(str(referrer_id))
-        referrer_doc = referrer_ref.get()
-
-        if not referrer_doc.exists:
-            return False
-
-        settings = get_game_settings()
-        friends_cfg = settings.get("friends_config", {})
-        comm_percent = float(friends_cfg.get("commission_percent", 10.0)) / 100.0
-
-        commission_amount = round(mined_amount * comm_percent, 4)
-
-        if commission_amount <= 0:
-            return False
-
-        # إضافة 10% إلى أرباح الداعي المعلقة
-        referrer_ref.update({
-            "pending_ref_earnings": firestore.Increment(commission_amount)
-        })
-
-        # تحديث المجموع المحقق من هذا الصديق بالذات داخل subcollection الأصدقاء
-        friend_subdoc_ref = referrer_ref.collection('friends').document(user_id_str)
-        if friend_subdoc_ref.get().exists:
-            friend_subdoc_ref.update({
-                "earned_from_him": firestore.Increment(commission_amount)
-            })
-
-        print(f"✅ تم إضافة عمولة إحالة قدرها {commission_amount} إلى المستخدم {referrer_id} من {user_id_str}")
-        return True
-
-    except Exception as e:
-        print(f"❌ Error processing referral commission for user {user_id}: {e}")
-        return False
-
-def claim_referral_earnings(tg_id):
-    """سحب أرباح الإحالات المعلقة بنسبة خصم 1.5% ونقلها للرصيد الرئيسي"""
-    try:
-        if not tg_id:
-            return False, "معرف غير صالح", 0.0
-
-        tg_id_str = str(tg_id)
-        user_ref = db.collection('users').document(tg_id_str)
-
-        @firestore.transactional
-        def run_claim_transaction(transaction, ref):
-            snapshot = ref.get(transaction=transaction)
-            if not snapshot.exists:
-                return False, "المستخدم غير موجود", 0.0
-
-            data = snapshot.to_dict() or {}
-            pending = float(data.get("pending_ref_earnings", 0.0))
-
-            if pending <= 0:
-                return False, "لا توجد أرباح معلقة للسحب!", 0.0
-
-            settings = get_game_settings()
-            friends_cfg = settings.get("friends_config", {})
-            fee_percent = float(friends_cfg.get("claim_fee_percent", 1.5)) / 100.0
-
-            fee_amount = round(pending * fee_percent, 4)
-            net_amount = round(pending - fee_amount, 4)
-
-            transaction.update(ref, {
-                "pending_ref_earnings": 0.0,
-                "balance": firestore.Increment(net_amount),
-                "total_ref_earnings": firestore.Increment(net_amount)
-            })
-
-            return True, f"تم سحب {net_amount} ZN بنجاح إلى رصيدك! (الرسوم: {fee_amount})", net_amount
-
-        transaction = db.transaction()
-        return run_claim_transaction(transaction, user_ref)
-
-    except Exception as e:
-        print(f"❌ Error claiming ref earnings for {tg_id}: {e}")
-        return False, f"حدث خطأ أثناء السحب: {e}", 0.0
 
 def apply_package_to_user(tg_id, added_storage=0.0, added_balance=0.0, added_hourly_rate=0.0):
     try:
