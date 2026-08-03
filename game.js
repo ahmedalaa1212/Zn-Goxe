@@ -30,6 +30,7 @@ function getSavedState() {
         tg_id: tg?.initDataUnsafe?.user?.id || null,
         first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب",
         balance: 0, usd_balance: 0, ad_balance: 0, hourly_rate: 0, energy: 100, storage_level: 0, 
+        max_cap: 200, // ✅ تم إضافة max_cap هنا لضمان قراءته
         daily_streak: 1, daily_day: 1, last_daily_claim_date: null, upgrades: {}, wallet_address: null, 
         last_claim_time: null, last_sync_time: Date.now()
     };
@@ -49,7 +50,8 @@ let lastSaveTime = 0;
 window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
         target[prop] = value;
-        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'daily_streak', 'daily_day', 'upgrades', 'last_claim_time'].includes(prop)) {
+        // ✅ إضافة max_cap للقائمة لتحديث الواجهة وحفظ الحالة فور التغير
+        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'max_cap', 'daily_streak', 'daily_day', 'upgrades', 'last_claim_time'].includes(prop)) {
             const now = Date.now();
             if (now - lastSaveTime > 2000 && !isFirebaseUpdating) {
                 try { localStorage.setItem('app_user_state', JSON.stringify(target)); } catch {}
@@ -96,6 +98,9 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         if (targetObj?.balance !== undefined) window.userState.balance = parseFloat(targetObj.balance);
         if (targetObj?.usd_balance !== undefined) window.userState.usd_balance = parseFloat(targetObj.usd_balance);
         if (targetObj?.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate);
+        if (targetObj?.storage_level !== undefined) window.userState.storage_level = parseInt(targetObj.storage_level);
+        // ✅ مزامنة max_cap فوراً من الباك إند
+        if (targetObj?.max_cap !== undefined) window.userState.max_cap = parseFloat(targetObj.max_cap);
         if (targetObj?.daily_streak !== undefined) window.userState.daily_streak = parseInt(targetObj.daily_streak);
         if (targetObj?.daily_day !== undefined) window.userState.daily_day = parseInt(targetObj.daily_day);
         if (targetObj?.last_daily_claim_date !== undefined) window.userState.last_daily_claim_date = targetObj.last_daily_claim_date;
@@ -155,7 +160,7 @@ window.claimDailyReward = async function() {
 };
 
 // ==========================================
-// 5. الاستماع اللحظي Firestore (إذا تم تفعيل Firebase Client)
+// 5. الاستماع اللحظي Firestore
 // ==========================================
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) return;
@@ -169,7 +174,8 @@ window.initFirebaseRealtimeSync = function(userId) {
                 isFirebaseUpdating = true;
                 if (d.balance !== undefined) window.userState.balance = parseFloat(d.balance);
                 if (d.usd_balance !== undefined) window.userState.usd_balance = parseFloat(d.usd_balance);
-                ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'daily_streak', 'daily_day', 'last_daily_claim_date', 'upgrades', 'last_claim_time'].forEach(k => {
+                // ✅ أضيفت max_cap هنا لتُقرأ فوراً عند تعديلها من الفايربيس في وقت التشغيل
+                ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'max_cap', 'daily_streak', 'daily_day', 'last_daily_claim_date', 'upgrades', 'last_claim_time'].forEach(k => {
                     if (d[k] !== undefined) window.userState[k] = d[k];
                 });
                 window.userState.last_sync_time = Date.now();
@@ -241,7 +247,7 @@ window.updateClaimButtonState = function() {
 };
 
 // ==========================================
-// 7. تنسيق الرصيد (عرض الأرقام الحقيقية)
+// 7. تنسيق الرصيد والواجهة (عرض الأرقام الحقيقية)
 // ==========================================
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0';
@@ -294,6 +300,12 @@ function applyBalanceToUI(val) {
 window.updateUI = function() {
     renderSmoothBalance(parseFloat(window.userState.balance || 0));
     window.updateClaimButtonState();
+
+    // ✅ تحديث سعة التخزين المؤقت تلقائياً في الواجهة
+    const currentMaxCap = window.userState.max_cap || 200;
+    document.querySelectorAll('#storage-max, .max-storage-val, [data-bind="max_cap"]').forEach(el => {
+        el.innerText = window.formatBalance(currentMaxCap);
+    });
 };
 
 // ==========================================
