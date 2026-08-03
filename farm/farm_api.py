@@ -211,7 +211,7 @@ def claim_mined_tokens():
             if mined_amount <= 0:
                 return {"success": False, "error": "المخزن فارغ حالياً"}
                 
-            # 3. تحديث الرصيد (مقرب لخانتين عشريتين)
+            # 3. تحديث الرصيد
             current_balance = float(user_data.get("balance", 0.0))
             new_balance = round(current_balance + mined_amount, 2)
             now_iso = now.isoformat()
@@ -222,7 +222,7 @@ def claim_mined_tokens():
                 "last_claim_time": now_iso
             })
 
-            # 5. احتساب عمولة الإحالة للداعي فوراً وإضافتها لقائمة الأصدقاء
+            # 5. احتساب عمولة الإحالة (10%) للداعي فوراً وتحديث مستند الأصدقاء
             referred_by = user_data.get("referred_by")
             if referred_by and mined_amount > 0:
                 try:
@@ -238,13 +238,14 @@ def claim_mined_tokens():
                                 "total_ref_earnings": firestore.Increment(commission)
                             })
                             friend_sub_ref = referrer_ref.collection('friends').document(user_id_str)
+                            friend_name = user_data.get('first_name') or user_data.get('name') or 'صديق'
                             transaction.set(friend_sub_ref, {
-                                "earned_from_him": firestore.Increment(commission)
+                                "earned_from_him": firestore.Increment(commission),
+                                "name": friend_name
                             }, merge=True)
                 except Exception as ref_err:
                     print(f"⚠️ Error updating referral commission: {ref_err}")
             
-            # 6. الرد الشامل للفرونت إند (Single-Response Pattern)
             return {
                 "success": True,
                 "new_balance": new_balance,
@@ -307,7 +308,6 @@ def buy_upgrade():
             if current_count >= 10:
                 return {"success": False, "error": "لقد وصلت للحد الأقصى لهذا المستوى"}
                 
-            # الترقيم التسلسلي: تأكد من شراء المستوى السابق إذا لم يكن الأول
             if int(level) > 1:
                 prev_lvl = str(int(level) - 1)
                 prev_key = f"lvl{prev_lvl}"
@@ -337,7 +337,7 @@ def buy_upgrade():
                 "last_claim_time": now_iso
             })
 
-            # احتساب عمولة الداعي إذا كان هناك رصيد مجمع تم تحويله
+            # 3. احتساب عمولة الإحالة (10%) للداعي عن الأرباح المتراكمة المجمعة عند الترقية
             referred_by = user_data.get("referred_by")
             if referred_by and mined_amount > 0:
                 try:
@@ -353,8 +353,10 @@ def buy_upgrade():
                                 "total_ref_earnings": firestore.Increment(commission)
                             })
                             friend_sub_ref = referrer_ref.collection('friends').document(user_id_str)
+                            friend_name = user_data.get('first_name') or user_data.get('name') or 'صديق'
                             transaction.set(friend_sub_ref, {
-                                "earned_from_him": firestore.Increment(commission)
+                                "earned_from_him": firestore.Increment(commission),
+                                "name": friend_name
                             }, merge=True)
                 except Exception as ref_err:
                     print(f"⚠️ Error updating referral commission on upgrade: {ref_err}")
