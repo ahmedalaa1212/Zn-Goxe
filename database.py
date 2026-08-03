@@ -33,7 +33,6 @@ def ensure_game_settings_exist():
     try:
         config_ref = db.collection('app_config').document('game_settings')
         
-        # جدول مكافآت 30 يوم المكتمل والمطابق للشاشة (من 100 إلى 10,000 ZN)
         daily_rewards_30_days = {
             f"day_{i}": val for i, val in enumerate([
                 100, 150, 200, 250, 300, 350, 400, 500, 600, 700,
@@ -44,7 +43,7 @@ def ensure_game_settings_exist():
 
         initial_settings = {
             "usd_to_zn_rate": 10000000,
-            "ad_reward_boost": 2.0,  # +2 ZN/h عند مشاهدة إعلان
+            "ad_reward_boost": 2.0,
             "daily_rewards": daily_rewards_30_days,
             "speed_config": {
                 "1": {"price": 2000, "rate": 5, "rate_bonus": 5.0, "base_cost": 2000.0},
@@ -221,6 +220,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                         "joined_at": firestore.SERVER_TIMESTAMP
                     }, merge=True)
         else:
+            # ✅ تحديث البيانات دون مسح أو مس قيمة max_cap المعدلة يدوياً
             user_ref.update({
                 "first_name": first_name,
                 "last_active": firestore.SERVER_TIMESTAMP
@@ -252,6 +252,28 @@ def update_user(tg_id, update_data):
     except Exception as e:
         print(f"❌ Error updating user {tg_id}: {e}")
         return False
+
+def update_user_storage_level(tg_id, level):
+    """
+    ✅ دالة مخصصة لترقية المخزن من المتجر تلقائياً
+    تقوم بترقية المستوى storage_level وتحديث max_cap تلقائياً وفقاً للإعدادات
+    """
+    try:
+        settings = get_game_settings()
+        storage_cfg = settings.get("storage_config", {})
+        lvl_str = str(level)
+        
+        if lvl_str in storage_cfg:
+            new_cap = float(storage_cfg[lvl_str].get("capacity", 200.0))
+            db.collection('users').document(str(tg_id)).update({
+                "storage_level": int(level),
+                "max_cap": new_cap
+            })
+            return True, new_cap
+        return False, 0
+    except Exception as e:
+        print(f"❌ Error updating storage level for {tg_id}: {e}")
+        return False, 0
 
 def update_user_balance(tg_id, amount, balance_type="balance"):
     try:
