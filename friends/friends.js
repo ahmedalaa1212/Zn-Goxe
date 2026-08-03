@@ -5,7 +5,7 @@
     const BOT_USERNAME = "zngoxe_bot";
 
     let lastFetchTimestamp = 0;
-    const FETCH_COOLDOWN_MS = 15000;
+    const FETCH_COOLDOWN_MS = 5000;
 
     window.FriendsConfig = {
         min_upgrades_for_task: 3,
@@ -79,7 +79,7 @@
         }
 
         const cachedBal = getStoredBalance();
-        window.PlayerData = { balance: cachedBal, pending_ref_earnings: 0, invited_friends_count: 0 };
+        window.PlayerData = { balance: cachedBal, pending_ref_earnings: 0, total_ref_earnings: 0, invited_friends_count: 0 };
         
         window.updateFriendsUI();
 
@@ -135,6 +135,7 @@
         if (window.PlayerData) window.PlayerData.balance = balance;
         
         let pending = parseFloat(pData.pending_ref_earnings || 0);
+        let totalEarnings = parseFloat(pData.total_ref_earnings || 0);
         let totalInvited = parseInt(pData.invited_friends_count || 0);
         let eligibleForTasks = parseInt(pData.eligible_task_friends_count || 0);
 
@@ -148,12 +149,12 @@
         });
 
         const elPending = document.getElementById('pending-ref-earnings');
+        const elTotal = document.getElementById('total-ref-earnings');
         const elInvited = document.getElementById('invited-friends-count');
         const btnClaim = document.getElementById('btn-claim-ref');
 
-        if (elPending) {
-            elPending.innerText = formatNumber(pending, 2);
-        }
+        if (elPending) elPending.innerText = formatNumber(pending, 2);
+        if (elTotal) elTotal.innerText = formatNumber(totalEarnings, 2);
         if (elInvited) elInvited.innerText = totalInvited.toLocaleString();
 
         if (btnClaim) {
