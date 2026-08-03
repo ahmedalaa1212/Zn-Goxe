@@ -1,7 +1,7 @@
 import os
 import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -218,6 +218,9 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "total_ref_earnings": 0.0,
                 "invited_friends_count": 0,
                 "claimed_ref_tasks": [],
+                "boost_multiplier": 1,
+                "boost_active": False,
+                "boost_expires_at": None,
                 "last_active": firestore.SERVER_TIMESTAMP,
                 "joined_at": firestore.SERVER_TIMESTAMP
             }
@@ -247,6 +250,9 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
             if "hourly_rate" not in user_data: updates["hourly_rate"] = 0.0
             if "pending_ref_earnings" not in user_data: updates["pending_ref_earnings"] = 0.0
             if "claimed_ref_tasks" not in user_data: updates["claimed_ref_tasks"] = []
+            if "boost_multiplier" not in user_data: updates["boost_multiplier"] = 1
+            if "boost_active" not in user_data: updates["boost_active"] = False
+            if "boost_expires_at" not in user_data: updates["boost_expires_at"] = None
                 
             user_ref.update(updates)
         
@@ -273,6 +279,18 @@ def get_user(tg_id):
             if "storage_level" not in data:
                 auto_updates["storage_level"] = 0
                 data["storage_level"] = 0
+
+            if "boost_multiplier" not in data:
+                auto_updates["boost_multiplier"] = 1
+                data["boost_multiplier"] = 1
+
+            if "boost_active" not in data:
+                auto_updates["boost_active"] = False
+                data["boost_active"] = False
+
+            if "boost_expires_at" not in data:
+                auto_updates["boost_expires_at"] = None
+                data["boost_expires_at"] = None
 
             stg_lvl = str(data.get("storage_level", 0))
             settings = get_game_settings()
@@ -426,6 +444,26 @@ def update_user_balance(tg_id, amount, balance_type="balance"):
     except Exception as e:
         print(f"❌ Error updating balance for {tg_id}: {e}")
         return False
+
+def activate_user_boost(tg_id, multiplier=10, duration_hours=1):
+    try:
+        if not tg_id: return False, "معرف المستخدم غير صالح"
+        tg_id_str = str(tg_id)
+        user_ref = db.collection('users').document(tg_id_str)
+        doc = user_ref.get()
+        if not doc.exists:
+            return False, "المستخدم غير موجود"
+        
+        expires_at = (datetime.now(timezone.utc) + timedelta(hours=duration_hours)).isoformat()
+        user_ref.update({
+            "boost_multiplier": multiplier,
+            "boost_active": True,
+            "boost_expires_at": expires_at
+        })
+        return True, "تمت مضاعفة الأرباح بنجاح!"
+    except Exception as e:
+        print(f"❌ Error activating boost for {tg_id}: {e}")
+        return False, f"حدث خطأ أثناء التفعيل: {e}"
 
 def ban_user(tg_id, status=True):
     try:
