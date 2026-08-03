@@ -221,8 +221,30 @@ def claim_mined_tokens():
                 "balance": new_balance,
                 "last_claim_time": now_iso
             })
+
+            # 5. احتساب عمولة الإحالة للداعي فوراً وإضافتها لقائمة الأصدقاء
+            referred_by = user_data.get("referred_by")
+            if referred_by and mined_amount > 0:
+                try:
+                    friends_cfg = game_settings.get("friends_config", {})
+                    comm_pct = float(friends_cfg.get("commission_percent", 10))
+                    commission = round(mined_amount * (comm_pct / 100.0), 2)
+                    if commission > 0:
+                        referrer_ref = db.collection('users').document(str(referred_by))
+                        referrer_doc = referrer_ref.get(transaction=transaction)
+                        if referrer_doc.exists:
+                            transaction.update(referrer_ref, {
+                                "pending_ref_earnings": firestore.Increment(commission),
+                                "total_ref_earnings": firestore.Increment(commission)
+                            })
+                            friend_sub_ref = referrer_ref.collection('friends').document(user_id_str)
+                            transaction.set(friend_sub_ref, {
+                                "earned_from_him": firestore.Increment(commission)
+                            }, merge=True)
+                except Exception as ref_err:
+                    print(f"⚠️ Error updating referral commission: {ref_err}")
             
-            # 5. الرد الشامل للفرونت إند (Single-Response Pattern)
+            # 6. الرد الشامل للفرونت إند (Single-Response Pattern)
             return {
                 "success": True,
                 "new_balance": new_balance,
@@ -306,7 +328,7 @@ def buy_upgrade():
             new_hourly_rate = round(current_hourly_rate + rate_bonus, 2)
             
             upgrades[lvl_key] = current_count + 1
-            upgrades[level] = current_count + 1 # للحفاظ على التوافق مع الكود القديم إن وُجد
+            upgrades[level] = current_count + 1
             
             transaction.update(ref, {
                 "balance": new_balance,
@@ -314,6 +336,28 @@ def buy_upgrade():
                 "upgrades": upgrades,
                 "last_claim_time": now_iso
             })
+
+            # احتساب عمولة الداعي إذا كان هناك رصيد مجمع تم تحويله
+            referred_by = user_data.get("referred_by")
+            if referred_by and mined_amount > 0:
+                try:
+                    friends_cfg = game_settings.get("friends_config", {})
+                    comm_pct = float(friends_cfg.get("commission_percent", 10))
+                    commission = round(mined_amount * (comm_pct / 100.0), 2)
+                    if commission > 0:
+                        referrer_ref = db.collection('users').document(str(referred_by))
+                        referrer_doc = referrer_ref.get(transaction=transaction)
+                        if referrer_doc.exists:
+                            transaction.update(referrer_ref, {
+                                "pending_ref_earnings": firestore.Increment(commission),
+                                "total_ref_earnings": firestore.Increment(commission)
+                            })
+                            friend_sub_ref = referrer_ref.collection('friends').document(user_id_str)
+                            transaction.set(friend_sub_ref, {
+                                "earned_from_him": firestore.Increment(commission)
+                            }, merge=True)
+                except Exception as ref_err:
+                    print(f"⚠️ Error updating referral commission on upgrade: {ref_err}")
             
             return {
                 "success": True,
