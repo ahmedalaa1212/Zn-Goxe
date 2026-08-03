@@ -125,6 +125,18 @@ def get_player_data():
         else:
             user_data = user_doc.to_dict() or {}
             
+            # ضمان وجود خانات الإحالة تلقائياً في الفايربيس للمستخدمين القدامى
+            auto_fix = {}
+            if "pending_ref_earnings" not in user_data:
+                auto_fix["pending_ref_earnings"] = 0.0
+                user_data["pending_ref_earnings"] = 0.0
+            if "total_ref_earnings" not in user_data:
+                auto_fix["total_ref_earnings"] = 0.0
+                user_data["total_ref_earnings"] = 0.0
+            
+            if auto_fix:
+                user_ref.update(auto_fix)
+            
         expected_max_cap = calculate_user_max_cap(user_data, game_settings)
         if user_data.get("max_cap") != expected_max_cap:
             user_data["max_cap"] = expected_max_cap
@@ -222,7 +234,7 @@ def claim_mined_tokens():
                 "last_claim_time": now_iso
             })
 
-            # 5. احتساب عمولة الإحالة (10%) للداعي فوراً وتحديث مستند الأصدقاء
+            # 5. احتساب عمولة الإحالة (10%) للداعي فوراً وتحديث المستندات بالفايربيس
             referred_by = user_data.get("referred_by")
             if referred_by and mined_amount > 0:
                 try:
