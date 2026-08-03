@@ -21,14 +21,19 @@ LEADERBOARD_CACHE_TTL = 180  # كاش لوحة الصدارة (3 دقائق)
 # ========================================================================
 
 def ensure_game_settings_exist():
-    """تحديث وإعداد وثائق التحكم الأساسية في Firestore داخل مجموعة app_config"""
-    global db
+    """تحديث وإعداد وثائق التحكم الأساسية في Firestore داخل مجموعة app_config تلقائياً"""
+    global db, _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     if not db:
-        return
+        try:
+            db = initialize_firebase()
+        except Exception as e:
+            print(f"❌ Error initializing firebase inside ensure_game_settings_exist: {e}")
+            return None
+
     try:
         config_ref = db.collection('app_config').document('game_settings')
         
-        # جدول مكافآت 30 يوم المكتمل
+        # جدول مكافآت 30 يوم المكتمل والمطابق للشاشة (من 100 إلى 10,000 ZN)
         daily_rewards_30_days = {
             f"day_{i}": val for i, val in enumerate([
                 100, 150, 200, 250, 300, 350, 400, 500, 600, 700,
@@ -39,18 +44,31 @@ def ensure_game_settings_exist():
 
         initial_settings = {
             "usd_to_zn_rate": 10000000,
-            "ad_reward_boost": 2.0,  # +2 ZN/h عند مشاهدة إعلان مونيتاج
+            "ad_reward_boost": 2.0,  # +2 ZN/h عند مشاهدة إعلان
             "daily_rewards": daily_rewards_30_days,
             "speed_config": {
-                "1": {"price": 2000, "rate": 5},
-                "2": {"price": 7000, "rate": 15},
-                "3": {"price": 18000, "rate": 35},
-                "4": {"price": 45000, "rate": 80}
+                "1": {"price": 2000, "rate": 5, "rate_bonus": 5.0, "base_cost": 2000.0},
+                "2": {"price": 7000, "rate": 15, "rate_bonus": 15.0, "base_cost": 7000.0},
+                "3": {"price": 18000, "rate": 35, "rate_bonus": 35.0, "base_cost": 18000.0},
+                "4": {"price": 45000, "rate": 80, "rate_bonus": 80.0, "base_cost": 45000.0},
+                "5": {"price": 110000, "rate": 180, "rate_bonus": 180.0, "base_cost": 110000.0},
+                "6": {"price": 260000, "rate": 400, "rate_bonus": 400.0, "base_cost": 260000.0},
+                "7": {"price": 600000, "rate": 900, "rate_bonus": 900.0, "base_cost": 600000.0},
+                "8": {"price": 1400000, "rate": 2000, "rate_bonus": 2000.0, "base_cost": 1400000.0},
+                "9": {"price": 3200000, "rate": 4500, "rate_bonus": 4500.0, "base_cost": 3200000.0}
             },
             "storage_config": {
-                "0": {"capacity": 200, "price": 0},
-                "1": {"capacity": 600, "price": 3000},
-                "2": {"capacity": 1500, "price": 10000}
+                "0": {"capacity": 200.0, "price": 0},
+                "1": {"capacity": 600.0, "price": 3000},
+                "2": {"capacity": 1500.0, "price": 10000},
+                "3": {"capacity": 3500.0, "price": 25000},
+                "4": {"capacity": 8000.0, "price": 60000},
+                "5": {"capacity": 18000.0, "price": 150000},
+                "6": {"capacity": 40000.0, "price": 350000},
+                "7": {"capacity": 90000.0, "price": 800000},
+                "8": {"capacity": 200000.0, "price": 1800000},
+                "9": {"capacity": 450000.0, "price": 4000000},
+                "10": {"capacity": 1000000.0, "price": 10000000}
             },
             "friends_config": {
                 "commission_percent": 10,
@@ -63,9 +81,13 @@ def ensure_game_settings_exist():
             }
         }
         config_ref.set(initial_settings, merge=True)
-        print("✅ تم تحديث تهيئة app_config/game_settings مع جدول الـ 30 يوم بنجاح!")
+        _SETTINGS_CACHE = initial_settings
+        _SETTINGS_CACHE_TIME = time.time()
+        print("✅ تم إنشاء وتحديث app_config/game_settings في Firestore بنجاح!")
+        return initial_settings
     except Exception as e:
         print(f"❌ خطأ أثناء تهيئة الإعدادات: {e}")
+        return None
 
 def initialize_firebase():
     global db
@@ -111,11 +133,19 @@ def get_game_settings():
         return _SETTINGS_CACHE
 
     try:
+        if not db:
+            initialize_firebase()
+
         doc = db.collection('app_config').document('game_settings').get()
         if doc.exists:
             _SETTINGS_CACHE = doc.to_dict() or {}
             _SETTINGS_CACHE_TIME = now
             return _SETTINGS_CACHE
+        else:
+            print("⚠️ app_config/game_settings غير موجودة في Firestore، جاري إنشاؤها فوراً...")
+            new_settings = ensure_game_settings_exist()
+            if new_settings:
+                return new_settings
         return {}
     except Exception as e:
         print(f"❌ Error getting game settings: {e}")
@@ -167,7 +197,8 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "max_cap": 200.0,
                 "last_claim_time": now_iso,
                 "daily_streak": 0,
-                "last_daily_claim_date": None, # صيغة YYYY-MM-DD
+                "daily_day": 1,
+                "last_daily_claim_date": None,
                 "upgrades": {},
                 "banned": False,
                 "wallet_address": None,
