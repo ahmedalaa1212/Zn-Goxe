@@ -60,7 +60,7 @@ def ensure_game_settings_exist():
                 "0": {"capacity": 200.0, "price": 0},
                 "1": {"capacity": 600.0, "price": 3000},
                 "2": {"capacity": 1500.0, "price": 10000},
-                "3": {"capacity": 25000, "price": 25000},
+                "3": {"capacity": 3500.0, "price": 25000},
                 "4": {"capacity": 8000.0, "price": 60000},
                 "5": {"capacity": 18000.0, "price": 150000},
                 "6": {"capacity": 40000.0, "price": 350000},
@@ -242,12 +242,29 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
         return False
 
 def get_user(tg_id):
+    """جلب بيانات المستخدم مع التحقق من مزامنة max_cap تلقائياً بحسب storage_level"""
     try:
         if not tg_id: return None
-        doc = db.collection('users').document(str(tg_id)).get()
+        user_ref = db.collection('users').document(str(tg_id))
+        doc = user_ref.get()
         if doc.exists:
             data = doc.to_dict() or {}
             data['id'] = doc.id
+
+            # 🔄 المزامنة التلقائية لـ max_cap مع storage_level في حال التعديل اليدوي في الفايربيس
+            stg_lvl = str(data.get("storage_level", 0))
+            settings = get_game_settings()
+            stg_cfg = settings.get("storage_config", {})
+            
+            if stg_lvl in stg_cfg:
+                cfg_cap = float(stg_cfg[stg_lvl].get("capacity", 200.0))
+                current_max = float(data.get("max_cap", 0.0))
+                
+                # إذا كانت قيمة max_cap القديمة أذكر من سعة المستوى المحدد، نحدثها فوراً
+                if current_max < cfg_cap:
+                    user_ref.update({"max_cap": cfg_cap})
+                    data["max_cap"] = cfg_cap
+
             return data
         return None
     except Exception as e:
@@ -264,12 +281,7 @@ def update_user(tg_id, update_data):
         return False
 
 def update_user_storage_level(tg_id, target_level=None):
-    """
-    🚀 ترقية المخزن بالتراكم الديناميكي (Dynamic Storage Delta):
-    - تحسب الفارق الصافي (capacity_boost) بين المستوى القديم والجديد.
-    - تضيف هذا الفارق باستعمال firestore.Increment فوق max_cap الحالية.
-    - تضمن عدم ضياع أي تغيير يدوي من الفايربيس أو باقة سعة مسبقة.
-    """
+    """ترقية وتحديث المخزن مع ضمان التوافق التام للـ max_cap"""
     try:
         if not tg_id:
             return False, "معرف المستخدم غير صحيح", 0, 0
@@ -284,39 +296,39 @@ def update_user_storage_level(tg_id, target_level=None):
         user_data = user_doc.to_dict() or {}
         current_level = int(user_data.get("storage_level", 0))
         current_balance = float(user_data.get("balance", 0.0))
-        current_max_cap = float(user_data.get("max_cap", 200.0))
 
         next_level = int(target_level) if target_level is not None else current_level + 1
 
-        if next_level <= current_level:
-            return False, "أنت بالفعل في هذا المستوى أو مستوى أعلى!", current_max_cap, current_balance
+        if next_level <= current_level and target_level is None:
+            return False, "أنت بالفعل في هذا المستوى أو مستوى أعلى!", user_data.get("max_cap", 200), current_balance
 
         settings = get_game_settings()
         storage_cfg = settings.get("storage_config", {})
 
-        curr_cfg = storage_cfg.get(str(current_level)) or storage_cfg.get(current_level) or {"capacity": 200.0}
         next_cfg = storage_cfg.get(str(next_level)) or storage_cfg.get(next_level)
 
         if not next_cfg:
-            return False, "لقد وصلت إلى الحد الأقصى لمستويات المخزن!", current_max_cap, current_balance
+            return False, "لقد وصلت إلى الحد الأقصى لمستويات المخزن!", user_data.get("max_cap", 200), current_balance
 
         price = float(next_cfg.get("price", 0))
 
-        if current_balance < price:
-            return False, "رصيدك غير كافٍ لإجراء الترقية!", current_max_cap, current_balance
+        if current_balance < price and target_level is None:
+            return False, "رصيدك غير كافٍ لإجراء الترقية!", user_data.get("max_cap", 200), current_balance
 
-        curr_base_cap = float(curr_cfg.get("capacity", 200.0))
-        next_base_cap = float(next_cfg.get("capacity", 600.0))
-        capacity_boost = next_base_cap - curr_base_cap
+        new_max_cap = float(next_cfg.get("capacity", 200.0))
 
-        user_ref.update({
-            "balance": firestore.Increment(-price),
+        update_payload = {
             "storage_level": next_level,
-            "max_cap": firestore.Increment(capacity_boost)
-        })
+            "max_cap": new_max_cap
+        }
 
-        new_max_cap = current_max_cap + capacity_boost
-        new_balance = current_balance - price
+        if target_level is None:
+            update_payload["balance"] = firestore.Increment(-price)
+            new_balance = current_balance - price
+        else:
+            new_balance = current_balance
+
+        user_ref.update(update_payload)
 
         return True, "تمت ترقية المخزن بنجاح!", new_max_cap, new_balance
 
