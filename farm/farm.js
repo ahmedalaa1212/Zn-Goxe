@@ -188,14 +188,14 @@ window.initFarmView = function() {
                     <div class="mining-card" onclick="handleUpgrade(${i})">
                         <div class="mining-card-icon">🏛️</div>
                         <div class="mining-card-title">مستوى ${i} (x${count})</div>
-                        <button class="mining-card-btn" ${!canAfford ? 'disabled' : ''}>ترقية (${costStr})</button>
+                        <button class="mining-card-btn" ${!canAfford || isUpgrading ? 'disabled' : ''}>ترقية (${costStr})</button>
                     </div>`;
                 } else if (isUnlocked) {
                     fieldsHTML += `
                     <div class="mining-card" onclick="handleUpgrade(${i})">
                         <div class="mining-card-icon">🏛️</div>
                         <div class="mining-card-title">مستوى ${i}</div>
-                        <button class="mining-card-btn" ${!canAfford ? 'disabled' : ''}>شراء (${costStr})</button>
+                        <button class="mining-card-btn" ${!canAfford || isUpgrading ? 'disabled' : ''}>شراء (${costStr})</button>
                     </div>`;
                 } else {
                     fieldsHTML += `
@@ -245,7 +245,7 @@ window.initFarmView = function() {
                 if (claimedToday) {
                     html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><div id="daily-timer" style="color: #ef4444; font-size: 8px;">⏳</div></div>`;
                 } else {
-                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%;">استلام</button></div>`;
+                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%;" ${isClaimingDaily ? 'disabled' : ''}>استلام</button></div>`;
                 }
             } else {
                 html += `<div class="reward-day-card" style="opacity: 0.4;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div></div>`;
@@ -363,6 +363,7 @@ window.initFarmView = function() {
         }
 
         isUpgrading = true;
+        window.updateFarmUI();
 
         try {
             let resData = await window.fetchAPI('/api/farm/upgrade', 'POST', { level: level });
@@ -380,7 +381,6 @@ window.initFarmView = function() {
                     if (!window.userState) window.userState = {};
                     window.userState.upgrades = resData.upgrades;
                 }
-                window.updateFarmUI();
                 showToast(`⚡ تم التحديث للمستوى ${level}!`);
             } else if (resData && resData.error) {
                 showToast(resData.error);
@@ -390,6 +390,7 @@ window.initFarmView = function() {
             showToast(e.message || "حدث خطأ أثناء الترقية.");
         } finally {
             isUpgrading = false;
+            window.updateFarmUI();
         }
     };
 
@@ -419,21 +420,17 @@ window.initFarmView = function() {
                         window.userState.hourly_rate = resData.new_rate;
                     }
                     if (resData.last_boost_date) pData.last_boost_date = resData.last_boost_date;
-                    window.updateFarmUI();
                     showToast(`🚀 تمت زيادة معدل التعدين!`);
                 } else if (resData && resData.error) {
                     showToast(resData.error);
-                    window.updateFarmUI();
                 }
-            } else {
-                window.updateFarmUI();
             }
         } catch (e) {
             console.error("خطأ تسريع التعدين:", e);
             showToast(e.message || "فشل التسريع.");
-            window.updateFarmUI();
         } finally {
             isBoosting = false;
+            window.updateFarmUI();
         }
     };
 
@@ -446,10 +443,11 @@ window.initFarmView = function() {
 
         const btn = document.getElementById(`daily-btn-${Math.min(day, 30)}`);
         isClaimingDaily = true;
+        if(btn) btn.disabled = true;
         
         try {
             const adWatched = await showTelegramAd(() => {
-                if (btn) { btn.innerHTML = "⏳"; btn.disabled = true; }
+                if (btn) { btn.innerHTML = "⏳"; }
             });
             
             if (adWatched) {
@@ -464,7 +462,6 @@ window.initFarmView = function() {
                         window.userState.daily_day = resData.daily_day;
                     }
                     if (resData.last_daily_claim_date) pData.last_daily_claim_date = resData.last_daily_claim_date;
-                    window.updateFarmUI();
                     showToast(`🎉 تم استلام مكافأة اليوم!`);
                 } else if (resData && resData.error) {
                     showToast(resData.error);
@@ -479,6 +476,7 @@ window.initFarmView = function() {
             if (btn) { btn.innerHTML = "استلام"; btn.disabled = false; }
         } finally {
             isClaimingDaily = false;
+            window.updateFarmUI();
         }
     };
 
