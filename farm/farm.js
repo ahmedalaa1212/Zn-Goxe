@@ -348,7 +348,7 @@ window.initFarmView = function() {
                 window.show_11322720().then(() => resolve(true)).catch(() => resolve(false));
             } else {
                 if (statusCallback) statusCallback();
-                resolve(true);
+                resolve(true); // تخطي الإعلان إذا لم تكن المكتبة محملة لضمان عمل اللعبة
             }
         });
     }
@@ -371,6 +371,7 @@ window.initFarmView = function() {
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                
                 if (resData.new_hourly_rate !== undefined) {
                     if (!window.userState) window.userState = {};
                     window.userState.hourly_rate = resData.new_hourly_rate;
@@ -382,6 +383,13 @@ window.initFarmView = function() {
                     if (!window.userState) window.userState = {};
                     window.userState.upgrades = resData.upgrades;
                 }
+                
+                // تحديث وقت الجمع نظراً لأن السيرفر يقوم بجمع الرصيد تلقائياً عند الترقية
+                if (resData.server_time) {
+                    if (window.PlayerData) window.PlayerData.last_claim_time = resData.server_time;
+                    if (window.userState) window.userState.last_claim_time = resData.server_time;
+                }
+
                 showToast(`⚡ تم التحديث للمستوى ${level}!`);
             } else if (resData && resData.error) {
                 showToast(resData.error);
@@ -466,15 +474,11 @@ window.initFarmView = function() {
                     showToast(`🎉 تم استلام مكافأة اليوم!`);
                 } else if (resData && resData.error) {
                     showToast(resData.error);
-                    if (btn) { btn.innerHTML = "استلام"; btn.disabled = false; }
                 }
-            } else {
-                if (btn) { btn.innerHTML = "استلام"; btn.disabled = false; }
             }
         } catch (e) {
             console.error("خطأ المكافأة اليومية:", e);
             showToast(e.message || "فشل استلام المكافأة.");
-            if (btn) { btn.innerHTML = "استلام"; btn.disabled = false; }
         } finally {
             isClaimingDaily = false;
             window.updateFarmUI();
@@ -507,12 +511,13 @@ window.initFarmView = function() {
 
         const currentBal = getStoredBalance();
         const optimisticNewBal = currentBal + unclaimedAmount;
+        const prevLastClaim = pData.last_claim_time;
         
+        // التحديث المبكر للواجهة لتجنب التأخير الوهمي
         setStoredBalance(optimisticNewBal);
         pData.unclaimed = 0;
         
         const nowISO = new Date(getAdjustedNowMs()).toISOString();
-        const prevLastClaim = pData.last_claim_time;
         pData.last_claim_time = nowISO;
         if (!window.userState) window.userState = {};
         window.userState.last_claim_time = nowISO;
@@ -530,6 +535,7 @@ window.initFarmView = function() {
                 }
                 pData.unclaimed = 0;
             } else if (resData && resData.error) {
+                // التراجع عن التحديث إذا فشل السيرفر
                 setStoredBalance(currentBal);
                 pData.unclaimed = unclaimedAmount;
                 pData.last_claim_time = prevLastClaim;
