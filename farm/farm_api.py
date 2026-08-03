@@ -45,7 +45,7 @@ def parse_daily_rewards(rewards_data):
         return res
     return DEFAULT_GAME_SETTINGS["daily_rewards"]
 
-def get_storage_capacity(storage_level, settings):
+def get_base_storage_capacity(storage_level, settings):
     try:
         lvl = int(storage_level)
     except (ValueError, TypeError):
@@ -59,6 +59,13 @@ def get_storage_capacity(storage_level, settings):
         
     val = caps.get(str(lvl)) or caps.get(lvl) or 200.0
     return float(val)
+
+def calculate_user_max_cap(user_data, settings):
+    """حساب السعة الإجمالية = سعة المستوى + السعة الإضافية المخصصة (extra_storage)"""
+    stg_lvl = user_data.get("storage_level", 0)
+    base_cap = get_base_storage_capacity(stg_lvl, settings)
+    extra_cap = float(user_data.get("extra_storage", 0.0))
+    return base_cap + extra_cap
 
 def calculate_accrued_mined(data, now, max_cap):
     last_claim_str = data.get("last_claim_time")
@@ -100,7 +107,8 @@ def get_player_data():
                 "hourly_rate": 0.0,
                 "unclaimed": 0.0, 
                 "storage_level": 0,
-                "max_cap": get_storage_capacity(0, game_settings), 
+                "extra_storage": 0.0,
+                "max_cap": get_base_storage_capacity(0, game_settings), 
                 "daily_day": 1,
                 "daily_streak": 0,
                 "last_claim_time": now.isoformat(), 
@@ -119,15 +127,13 @@ def get_player_data():
         else:
             user_data = user_doc.to_dict() or {}
 
-        storage_level = user_data.get("storage_level", 0)
-        
-        if "max_cap" in user_data and user_data["max_cap"] is not None:
-            max_cap = float(user_data["max_cap"])
-        else:
-            max_cap = get_storage_capacity(storage_level, game_settings)
-            user_data["max_cap"] = max_cap
-            user_ref.update({"max_cap": max_cap})
+        # إعادة حساب السعة الكلية تلقائياً ومطابقتها مع الفايربيس
+        expected_max_cap = calculate_user_max_cap(user_data, game_settings)
+        if user_data.get("max_cap") != expected_max_cap:
+            user_data["max_cap"] = expected_max_cap
+            user_ref.update({"max_cap": expected_max_cap})
 
+        max_cap = expected_max_cap
         user_data["balance"] = round(float(user_data.get("balance", 0.0)), 2)
         user_data["unclaimed"] = calculate_accrued_mined(user_data, now, max_cap)
 
@@ -189,9 +195,8 @@ def claim_mined_tokens():
             now = datetime.now(timezone.utc)
             last_claim_str = user_data.get("last_claim_time")
             hourly_rate = float(user_data.get("hourly_rate", 0.0))
-            storage_level = user_data.get("storage_level", 0)
-            max_cap = float(user_data.get("max_cap") or get_storage_capacity(storage_level, game_settings))
-
+            
+            max_cap = calculate_user_max_cap(user_data, game_settings)
             unclaimed = 0.0
 
             if last_claim_str:
@@ -221,6 +226,7 @@ def claim_mined_tokens():
             transaction.update(ref, {
                 "balance": new_balance,
                 "unclaimed": 0.0,
+                "max_cap": max_cap,
                 "last_claim_time": now_iso
             })
             return {"new_balance": new_balance, "claimed_amount": unclaimed, "last_claim_time": now_iso, "server_time": now_iso}, None, 200
@@ -276,7 +282,7 @@ def upgrade_field():
 
             data = snapshot.to_dict() or {}
             now = datetime.now(timezone.utc)
-            max_cap = float(data.get("max_cap") or get_storage_capacity(data.get("storage_level", 0), game_settings))
+            max_cap = calculate_user_max_cap(data, game_settings)
             
             accrued = calculate_accrued_mined(data, now, max_cap)
             current_bal = float(data.get("balance", 0.0))
@@ -307,6 +313,7 @@ def upgrade_field():
                 "balance": new_bal,
                 "hourly_rate": new_rate,
                 "upgrades": upgrades,
+                "max_cap": max_cap,
                 "last_claim_time": now_iso,
                 "unclaimed": 0.0
             })
@@ -354,7 +361,7 @@ def daily_boost():
             if data.get("last_boost_date") == today_str:
                 return None, "لقد استخدمت التسريع اليومي بالفعل اليوم!", 400
 
-            max_cap = float(data.get("max_cap") or get_storage_capacity(data.get("storage_level", 0), game_settings))
+            max_cap = calculate_user_max_cap(data, game_settings)
             accrued = calculate_accrued_mined(data, now_dt, max_cap)
             
             current_rate = float(data.get("hourly_rate", 0.0))
@@ -368,6 +375,7 @@ def daily_boost():
                 "hourly_rate": new_rate,
                 "last_boost_date": today_str,
                 "last_claim_time": now_iso,
+                "max_cap": max_cap,
                 "unclaimed": 0.0,
                 "ads_watched": firestore.Increment(1)
             })
