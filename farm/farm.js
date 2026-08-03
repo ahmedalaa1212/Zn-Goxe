@@ -94,6 +94,12 @@ window.initFarmView = function() {
         return num.toString();
     }
 
+    function formatCompactNumber(num) {
+        if (num >= 1000000) return (num / 1000000).toFixed(0) + 'M';
+        if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
+        return num.toString();
+    }
+
     window.fetchPlayerDataFromServer = async function(force = false) {
         const now = Date.now();
         if (isFetching) return; 
@@ -119,6 +125,7 @@ window.initFarmView = function() {
                     if (resData.player.storage_level !== undefined) window.userState.storage_level = resData.player.storage_level;
                     if (resData.player.upgrades !== undefined) window.userState.upgrades = resData.player.upgrades;
                     if (resData.player.last_claim_time !== undefined) window.userState.last_claim_time = resData.player.last_claim_time;
+                    if (resData.player.daily_day !== undefined) window.userState.daily_day = resData.player.daily_day;
                 }
                 
                 if (resData.game_config) {
@@ -147,8 +154,8 @@ window.initFarmView = function() {
         let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
         
         const balEl = document.getElementById('farm-balance');
-        if (balEl) {
-            balEl.innerHTML = `<span dir="ltr">${bal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} ZN</span>`;
+        if (balEl && typeof window.formatNumberHTML === 'function') {
+            balEl.innerHTML = `<span dir="ltr">${window.formatNumberHTML(bal)} ZN</span>`;
         }
 
         const rateEl = document.getElementById('farm-rate');
@@ -161,8 +168,8 @@ window.initFarmView = function() {
             const currentUpgrades = window.userState?.upgrades || pData.upgrades || {};
             let fieldsHTML = '';
             for (let i = 1; i <= 9; i++) {
-                let count = parseInt(currentUpgrades[`lvl${i}`] || currentUpgrades[i] || currentUpgrades[String(i)] || 0);
-                let prevCount = parseInt(currentUpgrades[`lvl${i-1}`] || currentUpgrades[i-1] || currentUpgrades[String(i-1)] || 0);
+                let count = parseInt(currentUpgrades[`lvl${i}`] ?? currentUpgrades[i] ?? currentUpgrades[String(i)] ?? 0);
+                let prevCount = parseInt(currentUpgrades[`lvl${i-1}`] ?? currentUpgrades[i-1] ?? currentUpgrades[String(i-1)] ?? 0);
                 let isUnlocked = (i === 1) || (prevCount > 0);
                 let isMax = count >= GAME_CONFIG.maxUpgradesPerLevel;
                 let cost = GAME_CONFIG.upgradeCosts[i] || 0;
@@ -211,12 +218,6 @@ window.initFarmView = function() {
         }
     };
 
-    function formatCompactNumber(num) {
-        if (num >= 1000000) return (num / 1000000).toFixed(0) + 'M';
-        if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
-        return num.toString();
-    }
-
     function getRewardForDayIndex(index) {
         const rewards = GAME_CONFIG.dailyRewards;
         if (!rewards || !Array.isArray(rewards)) return 100;
@@ -231,7 +232,7 @@ window.initFarmView = function() {
         let html = '';
         const todayStr = getTodayUTCStr();
         const claimedToday = (pData.last_daily_claim_date === todayStr); 
-        let currentDailyDay = parseInt(pData.daily_day || 1);
+        let currentDailyDay = parseInt(pData.daily_day || window.userState?.daily_day || 1);
 
         for (let i = 0; i < 30; i++) {
             let dayNum = i + 1;
@@ -275,7 +276,7 @@ window.initFarmView = function() {
         const storageTextEl = document.getElementById('storage-text');
 
         if (progressEl && storageTextEl) {
-            let pct = (unclaim / maxC) * 100;
+            let pct = maxC > 0 ? (unclaim / maxC) * 100 : 0;
             pct = Math.max(0, Math.min(pct, 100)); 
             progressEl.style.width = `${pct}%`;
             storageTextEl.innerText = `${unclaim.toFixed(2)} / ${maxC.toLocaleString()}`;
@@ -346,7 +347,7 @@ window.initFarmView = function() {
                 window.show_11322720().then(() => resolve(true)).catch(() => resolve(false));
             } else {
                 if (statusCallback) statusCallback();
-                resolve(true); // السماح بالتجاوز في حالة عدم التوفر للتجربة بدون تعطيل المستخدم
+                resolve(true);
             }
         });
     }
@@ -457,7 +458,11 @@ window.initFarmView = function() {
                 if (resData && resData.success) {
                     if (resData.server_time) syncServerTime(resData.server_time);
                     if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
-                    if (resData.daily_day !== undefined) pData.daily_day = resData.daily_day;
+                    if (resData.daily_day !== undefined) {
+                        pData.daily_day = resData.daily_day;
+                        if (!window.userState) window.userState = {};
+                        window.userState.daily_day = resData.daily_day;
+                    }
                     if (resData.last_daily_claim_date) pData.last_daily_claim_date = resData.last_daily_claim_date;
                     window.updateFarmUI();
                     showToast(`🎉 تم استلام مكافأة اليوم!`);
@@ -490,7 +495,8 @@ window.initFarmView = function() {
             return;
         }
 
-        if (parseFloat(pData.unclaimed || 0) <= 0) return;
+        const unclaimedAmount = parseFloat(pData.unclaimed || 0);
+        if (unclaimedAmount <= 0) return;
 
         isClaimingMain = true;
         const claimBtn = document.getElementById('claim-btn');
@@ -500,7 +506,6 @@ window.initFarmView = function() {
             claimBtn.innerText = "جاري الحفظ... 💾";
         }
 
-        const unclaimedAmount = parseFloat(pData.unclaimed || 0);
         const currentBal = getStoredBalance();
         const optimisticNewBal = currentBal + unclaimedAmount;
         
@@ -508,6 +513,7 @@ window.initFarmView = function() {
         pData.unclaimed = 0;
         
         const nowISO = new Date(getAdjustedNowMs()).toISOString();
+        const prevLastClaim = pData.last_claim_time;
         pData.last_claim_time = nowISO;
         if (!window.userState) window.userState = {};
         window.userState.last_claim_time = nowISO;
@@ -526,10 +532,16 @@ window.initFarmView = function() {
                 pData.unclaimed = 0;
             } else if (resData && resData.error) {
                 setStoredBalance(currentBal);
+                pData.unclaimed = unclaimedAmount;
+                pData.last_claim_time = prevLastClaim;
+                window.userState.last_claim_time = prevLastClaim;
                 showToast(resData.error);
             }
         } catch (e) {
             setStoredBalance(currentBal);
+            pData.unclaimed = unclaimedAmount;
+            pData.last_claim_time = prevLastClaim;
+            window.userState.last_claim_time = prevLastClaim;
             showToast(e.message || "حدث خطأ في عملية التجميع");
         } finally {
             isClaimingMain = false;
