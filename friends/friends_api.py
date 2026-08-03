@@ -76,10 +76,20 @@ def get_friends_data():
         user_doc = user_ref.get()
         
         if not user_doc.exists:
-            user_data = {'balance': 0, 'pending_ref_earnings': 0, 'claimed_ref_tasks': []}
+            user_data = {'balance': 0, 'pending_ref_earnings': 0.0, 'total_ref_earnings': 0.0, 'claimed_ref_tasks': []}
         else:
             user_data = user_doc.to_dict() or {}
-        
+            # للتأكد التام من كتابتها فوراً لو كانت مفقودة
+            if "pending_ref_earnings" not in user_data or "total_ref_earnings" not in user_data:
+                p_val = float(user_data.get('pending_ref_earnings', 0.0))
+                t_val = float(user_data.get('total_ref_earnings', 0.0))
+                user_ref.update({
+                    "pending_ref_earnings": p_val,
+                    "total_ref_earnings": t_val
+                })
+                user_data["pending_ref_earnings"] = p_val
+                user_data["total_ref_earnings"] = t_val
+
         friends_config = get_friends_config()
         min_upgrades = int(friends_config.get('min_upgrades_for_task', 3))
 
@@ -99,6 +109,7 @@ def get_friends_data():
             "player": {
                 "balance": round(float(user_data.get('balance', 0)), 2),
                 "pending_ref_earnings": round(float(user_data.get('pending_ref_earnings', 0)), 2),
+                "total_ref_earnings": round(float(user_data.get('total_ref_earnings', 0)), 2),
                 "invited_friends_count": total_friends_count,
                 "eligible_task_friends_count": eligible_task_friends_count,
                 "claimed_ref_tasks": user_data.get('claimed_ref_tasks', [])
@@ -218,7 +229,7 @@ def claim_ref_earnings():
             
             transaction.update(u_ref, {
                 'balance': new_balance,
-                'pending_ref_earnings': 0
+                'pending_ref_earnings': 0.0
             })
             
             return True, None, 200, new_balance, net_amount
