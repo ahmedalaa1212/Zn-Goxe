@@ -314,7 +314,8 @@ function renderSmoothBalance(targetVal) {
 
 function applyBalanceToUI(val) {
     const formatted = window.formatNumberHTML(val);
-    document.querySelectorAll('[data-bind="balance"], #farm-balance, .user-balance').forEach(el => {
+    document.querySelectorAll('[data-bind="balance"], .user-balance').forEach(el => {
+        if (el.id === 'farm-balance') return;
         if (el.tagName !== 'INPUT') {
             el.innerHTML = `<span dir="ltr">${formatted} ZN</span>`;
         }
