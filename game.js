@@ -50,13 +50,19 @@ let lastSaveTime = 0;
 window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
         target[prop] = value;
-        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'upgrades', 'last_claim_time'].includes(prop)) {
+        
+        // مزامنة تلقائية مع window.PlayerData لضمان استجابة واجهة المزرعة
+        if (!window.PlayerData) window.PlayerData = {};
+        window.PlayerData[prop] = value;
+
+        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'upgrades', 'last_claim_time', 'unclaimed'].includes(prop)) {
             const now = Date.now();
             if (now - lastSaveTime > 2000 && !isFirebaseUpdating) {
                 try { localStorage.setItem('app_user_state', JSON.stringify(target)); } catch {}
                 lastSaveTime = now;
             }
             if (typeof window.updateUI === 'function') window.updateUI();
+            if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
         }
         return true;
     }
@@ -94,17 +100,24 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         const targetObj = data.player || data.user || data.data || data;
         
         isFirebaseUpdating = true;
-        if (targetObj?.balance !== undefined) window.userState.balance = parseFloat(targetObj.balance);
-        if (targetObj?.usd_balance !== undefined) window.userState.usd_balance = parseFloat(targetObj.usd_balance);
-        if (targetObj?.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate);
-        if (targetObj?.storage_level !== undefined) window.userState.storage_level = parseInt(targetObj.storage_level);
-        if (targetObj?.extra_storage !== undefined) window.userState.extra_storage = parseFloat(targetObj.extra_storage);
-        if (targetObj?.max_cap !== undefined) window.userState.max_cap = parseFloat(targetObj.max_cap);
-        if (targetObj?.daily_streak !== undefined) window.userState.daily_streak = parseInt(targetObj.daily_streak);
-        if (targetObj?.daily_day !== undefined) window.userState.daily_day = parseInt(targetObj.daily_day);
-        if (targetObj?.last_daily_claim_date !== undefined) window.userState.last_daily_claim_date = targetObj.last_daily_claim_date;
-        if (targetObj?.last_claim_time !== undefined) window.userState.last_claim_time = targetObj.last_claim_time;
-        if (targetObj?.upgrades !== undefined) window.userState.upgrades = targetObj.upgrades;
+        if (!window.PlayerData) window.PlayerData = {};
+        
+        if (targetObj) {
+            Object.assign(window.PlayerData, targetObj);
+            
+            if (targetObj.balance !== undefined) window.userState.balance = parseFloat(targetObj.balance);
+            if (targetObj.usd_balance !== undefined) window.userState.usd_balance = parseFloat(targetObj.usd_balance);
+            if (targetObj.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate);
+            if (targetObj.storage_level !== undefined) window.userState.storage_level = parseInt(targetObj.storage_level);
+            if (targetObj.extra_storage !== undefined) window.userState.extra_storage = parseFloat(targetObj.extra_storage);
+            if (targetObj.max_cap !== undefined) window.userState.max_cap = parseFloat(targetObj.max_cap);
+            if (targetObj.daily_streak !== undefined) window.userState.daily_streak = parseInt(targetObj.daily_streak);
+            if (targetObj.daily_day !== undefined) window.userState.daily_day = parseInt(targetObj.daily_day);
+            if (targetObj.last_daily_claim_date !== undefined) window.userState.last_daily_claim_date = targetObj.last_daily_claim_date;
+            if (targetObj.last_claim_time !== undefined) window.userState.last_claim_time = targetObj.last_claim_time;
+            if (targetObj.upgrades !== undefined) window.userState.upgrades = targetObj.upgrades;
+            if (targetObj.unclaimed !== undefined) window.userState.unclaimed = parseFloat(targetObj.unclaimed);
+        }
         isFirebaseUpdating = false;
 
         return data;
@@ -172,18 +185,30 @@ window.initFirebaseRealtimeSync = function(userId) {
             
             try {
                 isFirebaseUpdating = true;
-                if (d.balance !== undefined) window.userState.balance = parseFloat(d.balance);
+                if (!window.PlayerData) window.PlayerData = {};
+                
+                // دمج البيانات مباشرة في PlayerData
+                Object.assign(window.PlayerData, d);
+
+                if (d.balance !== undefined) {
+                    const bal = parseFloat(d.balance);
+                    window.userState.balance = bal;
+                    window.PlayerData.balance = bal;
+                }
                 if (d.usd_balance !== undefined) window.userState.usd_balance = parseFloat(d.usd_balance);
                 
-                ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'last_daily_claim_date', 'upgrades', 'last_claim_time'].forEach(k => {
-                    if (d[k] !== undefined) window.userState[k] = d[k];
+                ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'last_daily_claim_date', 'upgrades', 'last_claim_time', 'unclaimed'].forEach(k => {
+                    if (d[k] !== undefined) {
+                        window.userState[k] = d[k];
+                        window.PlayerData[k] = d[k];
+                    }
                 });
                 window.userState.last_sync_time = Date.now();
             } finally {
                 isFirebaseUpdating = false;
                 window.updateUI();
-                if (document.getElementById('view-farm')?.classList.contains('active') && typeof window.onFarmTabOpen === 'function') {
-                    window.onFarmTabOpen();
+                if (typeof window.updateFarmUI === 'function') {
+                    window.updateFarmUI();
                 }
             }
         }, err => console.error("Firebase Sync Error:", err));
@@ -202,7 +227,7 @@ window.updateClaimButtonState = function() {
     if (!claimButtons.length) return;
 
     const COOLDOWN_SECONDS = 15;
-    const lastClaimStr = window.userState.last_claim_time;
+    const lastClaimStr = window.userState.last_claim_time || window.PlayerData?.last_claim_time;
     const unclaimed = parseFloat(window.PlayerData?.unclaimed || window.userState?.unclaimed || 0);
 
     const isFarmTab = document.getElementById('view-farm')?.classList.contains('active');
@@ -401,14 +426,15 @@ window.loadUserData = async function() {
         const d = await window.fetchAPI('/api/farm/player_data');
         if (d?.success) {
             const u = d.player || d.user || d.data || {};
-            Object.assign(window.userState, u);
             if (!window.PlayerData) window.PlayerData = {};
             Object.assign(window.PlayerData, u);
+            Object.assign(window.userState, u);
         }
     } catch (err) {
         console.error("Error player_data:", err);
     } finally { 
         window.updateUI();
+        if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
         hideLoadingScreen();
     }
 };
