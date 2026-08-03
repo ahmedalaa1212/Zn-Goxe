@@ -4,9 +4,8 @@
     const INIT_DATA = tele?.initData || "";
     const BOT_USERNAME = "zngoxe_bot";
 
-    // زمن آخر طلب شبكة لمنع النزيف عند التنقل السريع بين الصفحات
     let lastFetchTimestamp = 0;
-    const FETCH_COOLDOWN_MS = 30000; // 30 ثانية كحد أدنى بين الطلبات الشبه ثابتة
+    const FETCH_COOLDOWN_MS = 15000;
 
     window.FriendsConfig = {
         min_upgrades_for_task: 3,
@@ -97,7 +96,6 @@
         if (!INIT_DATA) return;
 
         const now = Date.now();
-        // حماية: عدم إرسال طلبات متكررة إذا تم التحميل مؤخراً، إلا في حالة الإجبار (force)
         if (!force && (now - lastFetchTimestamp < FETCH_COOLDOWN_MS)) {
             window.updateFriendsUI();
             return;
@@ -386,7 +384,6 @@
         }
     }
 
-    // مزامنة واجهة المستخدم مع الذاكرة المحلية دون أي طلبات شبكة
     setInterval(() => {
         const cachedBal = getStoredBalance();
         if (window.PlayerData && Math.floor(window.PlayerData.balance) !== Math.floor(cachedBal)) {
@@ -401,7 +398,7 @@
         const stored = getStoredBalance();
         if (window.PlayerData) window.PlayerData.balance = stored;
         window.updateFriendsUI();
-        loadFriendsData(false); // مراعاة الكولد داون
+        loadFriendsData(true);
     });
 
     document.addEventListener("visibilitychange", () => {
@@ -409,7 +406,7 @@
             const stored = getStoredBalance();
             if (window.PlayerData) window.PlayerData.balance = stored;
             window.updateFriendsUI();
-            loadFriendsData(false); // مراعاة الكولد داون
+            loadFriendsData(true);
         }
     });
 
