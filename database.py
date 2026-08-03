@@ -248,6 +248,18 @@ def get_user(tg_id):
         if doc.exists:
             data = doc.to_dict() or {}
             data['id'] = doc.id
+            
+            # حاوية للتعديلات التلقائية إذا كانت هناك حقول ناقصة في Firebase
+            auto_updates = {}
+
+            # الإنشاء التلقائي لحقل extra_storage في حال عدم وجوده
+            if "extra_storage" not in data:
+                auto_updates["extra_storage"] = 0.0
+                data["extra_storage"] = 0.0
+
+            if "storage_level" not in data:
+                auto_updates["storage_level"] = 0
+                data["storage_level"] = 0
 
             stg_lvl = str(data.get("storage_level", 0))
             settings = get_game_settings()
@@ -264,14 +276,56 @@ def get_user(tg_id):
             expected_max = base_cap + extra_cap
             
             if data.get("max_cap") != expected_max:
-                user_ref.update({"max_cap": expected_max})
+                auto_updates["max_cap"] = expected_max
                 data["max_cap"] = expected_max
+
+            # حفظ التعديلات أوتوماتيكياً في Firestore دون تدخّل يدوي
+            if auto_updates:
+                user_ref.update(auto_updates)
 
             return data
         return None
     except Exception as e:
         print(f"❌ Error getting user {tg_id}: {e}")
         return None
+
+def add_extra_storage(tg_id, extra_amount):
+    """
+    دالة للأدمن لإضافة سعة تخزينية إضافية برمجياً لأي مستخدم باستهداف ID الخاص به.
+    تقوم بحساب السعة الكلية الجديدة وتحديث Firebase تلقائياً.
+    """
+    try:
+        if not tg_id: return False, "معرف غير صالح"
+        user_ref = db.collection('users').document(str(tg_id))
+        doc = user_ref.get()
+        if not doc.exists:
+            return False, "المستخدم غير موجود"
+        
+        user_data = doc.to_dict() or {}
+        current_extra = float(user_data.get("extra_storage", 0.0))
+        new_extra = current_extra + float(extra_amount)
+        
+        stg_lvl = str(user_data.get("storage_level", 0))
+        settings = get_game_settings()
+        stg_cfg = settings.get("storage_config", {})
+        caps_cfg = settings.get("storage_capacities", {})
+        
+        base_cap = 200.0
+        if stg_lvl in stg_cfg and isinstance(stg_cfg[stg_lvl], dict):
+            base_cap = float(stg_cfg[stg_lvl].get("capacity", 200.0))
+        elif stg_lvl in caps_cfg:
+            base_cap = float(caps_cfg[stg_lvl])
+            
+        new_max_cap = base_cap + new_extra
+        
+        user_ref.update({
+            "extra_storage": new_extra,
+            "max_cap": new_max_cap
+        })
+        return True, f"تمت إضافة {extra_amount} سعة بنجاح! السعة الكلية الجديدة: {new_max_cap}"
+    except Exception as e:
+        print(f"❌ Error adding extra storage: {e}")
+        return False, f"حدث خطأ: {e}"
 
 def update_user(tg_id, update_data):
     try:
