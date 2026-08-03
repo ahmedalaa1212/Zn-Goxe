@@ -125,7 +125,6 @@ def get_player_data():
         else:
             user_data = user_doc.to_dict() or {}
             
-            # ضمان وجود خانات الإحالة تلقائياً في الفايربيس للمستخدمين القدامى
             auto_fix = {}
             if "pending_ref_earnings" not in user_data:
                 auto_fix["pending_ref_earnings"] = 0.0
@@ -196,6 +195,7 @@ def claim_mined_tokens():
         
         @firestore.transactional
         def run_claim_transaction(transaction, ref):
+            # 1. قراءة بيانات المستخدم الحالي أولاً
             snapshot = ref.get(transaction=transaction)
             if not snapshot.exists:
                 return {"success": False, "error": "المستخدم غير موجود"}
@@ -203,7 +203,7 @@ def claim_mined_tokens():
             user_data = snapshot.to_dict() or {}
             now = datetime.now(timezone.utc)
             
-            # 1. التحقق من وقت آخر تجميع لمنع السبام
+            # 2. التحقق من وقت آخر تجميع لمنع السبام
             last_claim_str = user_data.get("last_claim_time")
             if last_claim_str:
                 try:
@@ -216,27 +216,20 @@ def claim_mined_tokens():
                 except Exception:
                     pass
                     
-            # 2. حساب الرصيد المتراكم
+            # 3. حساب الرصيد المتراكم
             max_cap = calculate_user_max_cap(user_data, game_settings)
             mined_amount = calculate_accrued_mined(user_data, now, max_cap)
             
             if mined_amount <= 0:
                 return {"success": False, "error": "المخزن فارغ حالياً"}
-                
-            # 3. تحديث الرصيد
-            current_balance = float(user_data.get("balance", 0.0))
-            new_balance = round(current_balance + mined_amount, 2)
-            now_iso = now.isoformat()
-            
-            # 4. الحفظ في الداتا بيز
-            transaction.update(ref, {
-                "balance": new_balance,
-                "last_claim_time": now_iso
-            })
 
-            # 5. احتساب عمولة الإحالة (10%) للداعي فوراً وتحديث المستندات بالفايربيس
+            # 4. قراءة مستند المُحيل الآن قبل تنفيذ أي عملية كتابة (ضروري في Firestore)
             referred_by = user_data.get("referred_by")
-            if referred_by and mined_amount > 0:
+            referrer_ref = None
+            referrer_doc = None
+            commission = 0.0
+            
+            if referred_by and str(referred_by).strip() != "" and str(referred_by) != "null":
                 try:
                     friends_cfg = game_settings.get("friends_config", {})
                     comm_pct = float(friends_cfg.get("commission_percent", 10))
@@ -244,17 +237,32 @@ def claim_mined_tokens():
                     if commission > 0:
                         referrer_ref = db.collection('users').document(str(referred_by))
                         referrer_doc = referrer_ref.get(transaction=transaction)
-                        if referrer_doc.exists:
-                            transaction.update(referrer_ref, {
-                                "pending_ref_earnings": firestore.Increment(commission),
-                                "total_ref_earnings": firestore.Increment(commission)
-                            })
-                            friend_sub_ref = referrer_ref.collection('friends').document(user_id_str)
-                            friend_name = user_data.get('first_name') or user_data.get('name') or 'صديق'
-                            transaction.set(friend_sub_ref, {
-                                "earned_from_him": firestore.Increment(commission),
-                                "name": friend_name
-                            }, merge=True)
+                except Exception as ref_read_err:
+                    print(f"⚠️ Error reading referrer document: {ref_read_err}")
+
+            # 5. تنفد عمليات الكتابة والتحديث بعد اكتمال جميع القراءات
+            current_balance = float(user_data.get("balance", 0.0))
+            new_balance = round(current_balance + mined_amount, 2)
+            now_iso = now.isoformat()
+            
+            transaction.update(ref, {
+                "balance": new_balance,
+                "last_claim_time": now_iso
+            })
+
+            # إضافة عمولة الإحالة لحساب المُحيل
+            if referrer_ref and referrer_doc and referrer_doc.exists and commission > 0:
+                try:
+                    transaction.update(referrer_ref, {
+                        "pending_ref_earnings": firestore.Increment(commission),
+                        "total_ref_earnings": firestore.Increment(commission)
+                    })
+                    friend_sub_ref = referrer_ref.collection('friends').document(user_id_str)
+                    friend_name = user_data.get('first_name') or user_data.get('name') or 'صديق'
+                    transaction.set(friend_sub_ref, {
+                        "earned_from_him": firestore.Increment(commission),
+                        "name": friend_name
+                    }, merge=True)
                 except Exception as ref_err:
                     print(f"⚠️ Error updating referral commission: {ref_err}")
             
@@ -303,6 +311,7 @@ def buy_upgrade():
         
         @firestore.transactional
         def run_upgrade_transaction(transaction, ref):
+            # 1. قراءة مستند المستخدم
             snapshot = ref.get(transaction=transaction)
             if not snapshot.exists:
                 return {"success": False, "error": "المستخدم غير موجود"}
@@ -330,11 +339,27 @@ def buy_upgrade():
             now = datetime.now(timezone.utc)
             now_iso = now.isoformat()
             
-            # 1. تجميع الأرباح المتراكمة تلقائياً قبل ترقية السرعة
             max_cap = calculate_user_max_cap(user_data, game_settings)
             mined_amount = calculate_accrued_mined(user_data, now, max_cap)
             
-            # 2. الخصم والإضافة وإعادة تعيين وقت التجميع
+            # 2. قراءة مستند المُحيل قبل أي عمليات تحديث (لتفادي تعارض Firestore)
+            referred_by = user_data.get("referred_by")
+            referrer_ref = None
+            referrer_doc = None
+            commission = 0.0
+            
+            if referred_by and str(referred_by).strip() != "" and str(referred_by) != "null" and mined_amount > 0:
+                try:
+                    friends_cfg = game_settings.get("friends_config", {})
+                    comm_pct = float(friends_cfg.get("commission_percent", 10))
+                    commission = round(mined_amount * (comm_pct / 100.0), 2)
+                    if commission > 0:
+                        referrer_ref = db.collection('users').document(str(referred_by))
+                        referrer_doc = referrer_ref.get(transaction=transaction)
+                except Exception as ref_read_err:
+                    print(f"⚠️ Error reading referrer on upgrade: {ref_read_err}")
+
+            # 3. خصم التكلفة وإضافة الأرباح وتحديث المستوى
             new_balance = round((current_balance + mined_amount) - cost, 2)
             current_hourly_rate = float(user_data.get("hourly_rate", 0.0))
             new_hourly_rate = round(current_hourly_rate + rate_bonus, 2)
@@ -349,27 +374,19 @@ def buy_upgrade():
                 "last_claim_time": now_iso
             })
 
-            # 3. احتساب عمولة الإحالة (10%) للداعي عن الأرباح المتراكمة المجمعة عند الترقية
-            referred_by = user_data.get("referred_by")
-            if referred_by and mined_amount > 0:
+            # 4. تحديث أرباح المُحيل إن وجدت
+            if referrer_ref and referrer_doc and referrer_doc.exists and commission > 0:
                 try:
-                    friends_cfg = game_settings.get("friends_config", {})
-                    comm_pct = float(friends_cfg.get("commission_percent", 10))
-                    commission = round(mined_amount * (comm_pct / 100.0), 2)
-                    if commission > 0:
-                        referrer_ref = db.collection('users').document(str(referred_by))
-                        referrer_doc = referrer_ref.get(transaction=transaction)
-                        if referrer_doc.exists:
-                            transaction.update(referrer_ref, {
-                                "pending_ref_earnings": firestore.Increment(commission),
-                                "total_ref_earnings": firestore.Increment(commission)
-                            })
-                            friend_sub_ref = referrer_ref.collection('friends').document(user_id_str)
-                            friend_name = user_data.get('first_name') or user_data.get('name') or 'صديق'
-                            transaction.set(friend_sub_ref, {
-                                "earned_from_him": firestore.Increment(commission),
-                                "name": friend_name
-                            }, merge=True)
+                    transaction.update(referrer_ref, {
+                        "pending_ref_earnings": firestore.Increment(commission),
+                        "total_ref_earnings": firestore.Increment(commission)
+                    })
+                    friend_sub_ref = referrer_ref.collection('friends').document(user_id_str)
+                    friend_name = user_data.get('first_name') or user_data.get('name') or 'صديق'
+                    transaction.set(friend_sub_ref, {
+                        "earned_from_him": firestore.Increment(commission),
+                        "name": friend_name
+                    }, merge=True)
                 except Exception as ref_err:
                     print(f"⚠️ Error updating referral commission on upgrade: {ref_err}")
             
