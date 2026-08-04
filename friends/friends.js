@@ -26,7 +26,13 @@
     }
 
     function getStoredBalance() {
-        if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null) {
+        if (window.userState && window.userState.balance !== undefined && window.userState.balance !== null && !isNaN(window.userState.balance)) {
+            return parseFloat(window.userState.balance);
+        }
+        if (window.PlayerData && window.PlayerData.balance !== undefined && window.PlayerData.balance !== null && !isNaN(window.PlayerData.balance)) {
+            return parseFloat(window.PlayerData.balance);
+        }
+        if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null && !isNaN(window.GameState.balance)) {
             return parseFloat(window.GameState.balance);
         }
         const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
@@ -34,19 +40,35 @@
     }
 
     function setStoredBalance(newBalance) {
-        if (newBalance === undefined || newBalance === null) return;
+        if (newBalance === undefined || newBalance === null || isNaN(newBalance)) return;
         const numVal = parseFloat(newBalance);
         const currentVal = getStoredBalance();
 
+        // 1. تحديث الحالة المركزية للتطبيق (game.js Proxy) لتحديث الرصيد فوراً في جميع الشاشات
+        if (window.userState) {
+            window.userState.balance = numVal;
+        }
+
+        // 2. تحديث كائنات البيانات المرافقة
+        if (!window.PlayerData) window.PlayerData = {};
+        window.PlayerData.balance = numVal;
+
         if (!window.GameState) window.GameState = {};
         window.GameState.balance = numVal;
+
+        // 3. التخزين المحلي
         localStorage.setItem('zn_balance', numVal.toString());
         localStorage.setItem('user_balance', numVal.toString());
 
+        // 4. إطلاق التأثيرات البصرية وتحديث الواجهات اللحظية
         if (typeof window.animateBalance === 'function' && currentVal !== numVal) {
             window.animateBalance(currentVal, numVal);
         } else if (typeof window.setBalance === 'function') {
             window.setBalance(numVal);
+        }
+
+        if (typeof window.updateUI === 'function') {
+            window.updateUI();
         }
     }
 
@@ -79,7 +101,7 @@
         }
 
         const cachedBal = getStoredBalance();
-        window.PlayerData = { balance: cachedBal, pending_ref_earnings: 0, total_ref_earnings: 0, invited_friends_count: 0 };
+        window.PlayerData = { balance: cachedBal, pending_ref_earnings: 0, total_ref_earnings: 0, invited_friends_count: 0, ...window.PlayerData };
         
         window.updateFriendsUI();
 
@@ -133,6 +155,7 @@
         let balance = getStoredBalance();
         
         if (window.PlayerData) window.PlayerData.balance = balance;
+        if (window.userState) window.userState.balance = balance;
         
         let pending = parseFloat(pData.pending_ref_earnings || 0);
         let totalEarnings = parseFloat(pData.total_ref_earnings || 0);
@@ -280,11 +303,14 @@
                 const formattedNet = formatNumber(data.net_amount, 2);
                 showToast(`🎉 تم السحب بنجاح!\nأُضيف ${formattedNet} ZN إلى رصيدك.`);
                 
-                setStoredBalance(data.new_balance);
+                // 1. تصفير الأرباح المعلقة فوراً
                 if (!window.PlayerData) window.PlayerData = {};
-                window.PlayerData.balance = data.new_balance;
-                window.PlayerData.pending_ref_earnings = data.pending_ref_earnings !== undefined ? data.pending_ref_earnings : 0;
+                window.PlayerData.pending_ref_earnings = 0;
+
+                // 2. تحديث الرصيد الجديد فاقترانه بالحالة اللحظية
+                setStoredBalance(data.new_balance);
                 
+                // 3. إعادة رسم الواجهة اللحظية
                 window.updateFriendsUI();
             } else {
                 showToast(data.error || "فشل السحب من السيرفر");
@@ -309,17 +335,19 @@
             if (response.ok && data.success) {
                 showToast(`🎊 مبروك! استلمت مكافأة ${formatNumber(reward, 2)} ZN.`);
                 
-                setStoredBalance(data.new_balance);
-                
+                // 1. إضافة المهمة إلى قائمة المستلمة فوراً
                 if (!window.PlayerData) window.PlayerData = {};
-                window.PlayerData.balance = data.new_balance;
                 if (data.claimed_ref_tasks) {
                     window.PlayerData.claimed_ref_tasks = data.claimed_ref_tasks;
                 } else {
                     if (!window.PlayerData.claimed_ref_tasks) window.PlayerData.claimed_ref_tasks = [];
                     window.PlayerData.claimed_ref_tasks.push(taskId);
                 }
+
+                // 2. تحديث الرصيد الجديد فاقترانه بالحالة اللحظية
+                setStoredBalance(data.new_balance);
                 
+                // 3. إعادة رسم الواجهة اللحظية
                 window.updateFriendsUI();
             } else {
                 showToast(data.error || "خطأ في استلام المكافأة");
