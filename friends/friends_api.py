@@ -29,13 +29,13 @@ def get_friends_config():
         "claim_fee_percent": 1.5,
         "min_upgrades_for_task": 3,
         "ref_tasks": {
-            "1": {"reqFriends": 1, "reward": 4000},
-            "2": {"reqFriends": 5, "reward": 25000},
-            "3": {"reqFriends": 10, "reward": 60000},
-            "4": {"reqFriends": 25, "reward": 160000},
-            "5": {"reqFriends": 50, "reward": 350000},
-            "6": {"reqFriends": 100, "reward": 800000},
-            "7": {"reqFriends": 500, "reward": 4500000}
+            "1": {"reqFriends": 1, "reward": 3000},
+            "2": {"reqFriends": 5, "reward": 18000},
+            "3": {"reqFriends": 10, "reward": 40000},
+            "4": {"reqFriends": 25, "reward": 110000},
+            "5": {"reqFriends": 50, "reward": 250000},
+            "6": {"reqFriends": 100, "reward": 600000},
+            "7": {"reqFriends": 500, "reward": 3500000}
         }
     })
     _CONFIG_CACHE["data"] = config
