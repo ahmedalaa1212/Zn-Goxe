@@ -31,6 +31,10 @@ app.register_blueprint(shop_bp, url_prefix='/api/shop')
 app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
 app.register_blueprint(support_bp, url_prefix='/api/support')
 
+@app.route('/tonconnect-manifest.json')
+def serve_tonconnect_manifest():
+    return send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
+
 @app.route('/api/user/info', methods=['GET', 'POST'])
 def get_user_info_main():
     is_post = (request.method == 'POST')
@@ -75,6 +79,8 @@ def serve_index():
 @app.route('/<path:path>')
 def serve_static(path):
     path_lower = path.lower()
+    if path_lower == 'tonconnect-manifest.json':
+        return send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
     forbidden = ('.py', '.env', '.json', '.sh', '.git')
     if any(path_lower.endswith(ext) for ext in forbidden):
         return jsonify({"error": "Access Denied"}), 403
