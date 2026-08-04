@@ -72,15 +72,15 @@ def ensure_game_settings_exist():
         }
 
         speed_cfg = {
-            "1": {"price": 3500.0, "rate": 5.0, "rate_bonus": 5.0, "base_cost": 3500.0},
-            "2": {"price": 11500.0, "rate": 15.0, "rate_bonus": 15.0, "base_cost": 11500.0},
-            "3": {"price": 28000.0, "rate": 35.0, "rate_bonus": 35.0, "base_cost": 28000.0},
-            "4": {"price": 68000.0, "rate": 80.0, "rate_bonus": 80.0, "base_cost": 68000.0},
-            "5": {"price": 165000.0, "rate": 180.0, "rate_bonus": 180.0, "base_cost": 165000.0},
-            "6": {"price": 390000.0, "rate": 400.0, "rate_bonus": 400.0, "base_cost": 390000.0},
-            "7": {"price": 950000.0, "rate": 900.0, "rate_bonus": 900.0, "base_cost": 950000.0},
-            "8": {"price": 2300000.0, "rate": 2000.0, "rate_bonus": 2000.0, "base_cost": 2300000.0},
-            "9": {"price": 5500000.0, "rate": 4500.0, "rate_bonus": 4500.0, "base_cost": 5500000.0}
+            "1": {"price": 3500.0, "rate": 5.0, "rate_bonus": 5.0, "base_cost": 3500.0, "max": 10},
+            "2": {"price": 11500.0, "rate": 15.0, "rate_bonus": 15.0, "base_cost": 11500.0, "max": 10},
+            "3": {"price": 28000.0, "rate": 35.0, "rate_bonus": 35.0, "base_cost": 28000.0, "max": 10},
+            "4": {"price": 68000.0, "rate": 80.0, "rate_bonus": 80.0, "base_cost": 68000.0, "max": 10},
+            "5": {"price": 165000.0, "rate": 180.0, "rate_bonus": 180.0, "base_cost": 165000.0, "max": 10},
+            "6": {"price": 390000.0, "rate": 400.0, "rate_bonus": 400.0, "base_cost": 390000.0, "max": 10},
+            "7": {"price": 950000.0, "rate": 900.0, "rate_bonus": 900.0, "base_cost": 950000.0, "max": 10},
+            "8": {"price": 2300000.0, "rate": 2000.0, "rate_bonus": 2000.0, "base_cost": 2300000.0, "max": 10},
+            "9": {"price": 5500000.0, "rate": 4500.0, "rate_bonus": 4500.0, "base_cost": 5500000.0, "max": 10}
         }
 
         storage_cfg = {
@@ -102,12 +102,10 @@ def ensure_game_settings_exist():
             "ad_reward_boost": 0.5,
             "daily_rewards": daily_rewards_30_days,
             "speed_config": speed_cfg,
+            "mining_config": speed_cfg,
             "upgrade_config": speed_cfg,
             "storage_config": storage_cfg,
             "storage_capacities": {k: v["capacity"] for k, v in storage_cfg.items()},
-            "mining_config": {
-                "daily_boost_reward": 0.5
-            },
             "friends_config": {
                 "commission_percent": 10,
                 "claim_fee_percent": 1.5,
@@ -296,9 +294,12 @@ def get_user(tg_id):
                 try: data["usd_balance"] = float(data["usd_balance"])
                 except Exception: data["usd_balance"] = 0.0
 
-            if "extra_storage" not in data:
+            if "extra_storage" not in data or data["extra_storage"] is None:
                 auto_updates["extra_storage"] = 0.0
                 data["extra_storage"] = 0.0
+            else:
+                try: data["extra_storage"] = float(data["extra_storage"])
+                except Exception: data["extra_storage"] = 0.0
 
             if "ad_balance" not in data:
                 auto_updates["ad_balance"] = 0.0
@@ -351,18 +352,12 @@ def get_user(tg_id):
             elif stg_lvl in caps_cfg:
                 base_cap = float(caps_cfg[stg_lvl])
 
-            current_max = float(data.get("max_cap", base_cap))
             current_extra = float(data.get("extra_storage", 0.0))
+            expected_total_max = base_cap + current_extra
 
-            if current_max != (base_cap + current_extra):
-                if current_max > base_cap and current_extra == 0:
-                    new_extra = current_max - base_cap
-                    auto_updates["extra_storage"] = new_extra
-                    data["extra_storage"] = new_extra
-                else:
-                    new_max = base_cap + current_extra
-                    auto_updates["max_cap"] = new_max
-                    data["max_cap"] = new_max
+            if float(data.get("max_cap", 0.0)) != expected_total_max:
+                auto_updates["max_cap"] = expected_total_max
+                data["max_cap"] = expected_total_max
 
             if auto_updates:
                 user_ref.update(auto_updates)
@@ -581,7 +576,7 @@ def apply_package_to_user(tg_id, added_storage=0.0, added_balance=0.0, added_hou
 
         current_extra = float(user_data.get("extra_storage", 0.0))
         new_extra = current_extra + float(added_storage)
-        new_max_cap = base_cap + new_extra
+        new_max_cap = round(base_cap + new_extra, 2)
 
         updates = {
             "extra_storage": new_extra,
@@ -643,7 +638,7 @@ def update_user_storage_level(tg_id, target_level=None):
                 return False, "رصيدك غير كافٍ لإجراء الترقية!", user_data.get("max_cap", 100.0), current_balance
 
             base_next_cap = float(next_cfg.get("capacity", 100.0))
-            new_total_max_cap = base_next_cap + extra_cap
+            new_total_max_cap = round(base_next_cap + extra_cap, 2)
             update_payload = {"storage_level": next_level, "max_cap": new_total_max_cap}
 
             if target_level is None:
