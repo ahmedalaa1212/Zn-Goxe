@@ -109,6 +109,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
             
             if (targetObj.balance !== undefined) window.userState.balance = parseFloat(targetObj.balance);
             if (targetObj.usd_balance !== undefined) window.userState.usd_balance = parseFloat(targetObj.usd_balance);
+            if (targetObj.ad_balance !== undefined) window.userState.ad_balance = parseFloat(targetObj.ad_balance);
             if (targetObj.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate);
             if (targetObj.storage_level !== undefined) window.userState.storage_level = parseInt(targetObj.storage_level);
             if (targetObj.extra_storage !== undefined) window.userState.extra_storage = parseFloat(targetObj.extra_storage);
@@ -330,7 +331,7 @@ window.formatNumberHTML = function(val) {
     if (Math.abs(num) >= 1e9) { num /= 1e9; suffix = 'B'; }
     else if (Math.abs(num) >= 1e6) { num /= 1e6; suffix = 'M'; }
 
-    // تقييد إجباري برقمين عشريين فقط
+    // تقييد إجباري برقمين عشريين فقط (5.85 ZN)
     const formattedStr = num.toLocaleString('en-US', { 
         minimumFractionDigits: 2, 
         maximumFractionDigits: 2 
