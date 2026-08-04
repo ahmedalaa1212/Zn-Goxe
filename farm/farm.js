@@ -16,9 +16,9 @@ window.initFarmView = function() {
             6: 260000, 7: 600000, 8: 1400000, 9: 3200000
         },
         dailyRewards: [
-            100, 150, 200, 250, 300, 350, 400, 500, 600, 700,
-            800, 900, 1000, 1200, 1400, 1600, 1800, 2000, 2300, 2600,
-            3000, 3500, 4000, 4500, 5000, 6000, 7000, 8000, 9000, 10000
+            100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
+            600, 600, 650, 650, 700, 700, 750, 750, 800, 800,
+            850, 850, 900, 900, 950, 950, 1000, 1000, 1100, 1250
         ]
     };
 
@@ -95,7 +95,7 @@ window.initFarmView = function() {
     }
 
     function formatCompactNumber(num) {
-        if (num >= 1000000) return (num / 1000000).toFixed(0) + 'M';
+        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
         if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
         return num.toString();
     }
@@ -219,7 +219,7 @@ window.initFarmView = function() {
     function getRewardForDayIndex(index) {
         const rewards = GAME_CONFIG.dailyRewards;
         if (!rewards || !Array.isArray(rewards)) return 100;
-        return rewards[index] ?? 10000;
+        return rewards[index] ?? 1250;
     }
 
     function renderDailyRewards() {
@@ -353,9 +353,6 @@ window.initFarmView = function() {
         });
     }
 
-    // ==========================================
-    // معالجة الأكشنز بالرد المباشر (Single Response Updates)
-    // ==========================================
     window.handleUpgrade = async function(level) {
         if (isUpgrading) return;
 
@@ -520,7 +517,6 @@ window.initFarmView = function() {
         const optimisticNewBal = currentBal + unclaimedAmount;
         const prevLastClaim = pData.last_claim_time;
         
-        // التحديث المباشر للواجهة (Optimistic Update)
         setStoredBalance(optimisticNewBal);
         pData.unclaimed = 0;
         if (window.userState) window.userState.unclaimed = 0;
@@ -542,7 +538,6 @@ window.initFarmView = function() {
                 pData.unclaimed = 0;
                 if (window.userState) window.userState.unclaimed = 0;
             } else if (resData && resData.error) {
-                // تراجع عند حدوث خطأ
                 setStoredBalance(currentBal);
                 pData.unclaimed = unclaimedAmount;
                 if (window.userState) window.userState.unclaimed = unclaimedAmount;
