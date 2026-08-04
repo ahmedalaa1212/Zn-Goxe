@@ -97,6 +97,12 @@ def ensure_game_settings_exist():
             "10": {"capacity": 800000.0, "price": 18000000}
         }
 
+        packages_cfg = [
+            {"id": "pkg_starter", "title": "باقة المبتدئ", "price_usd": 1.0, "added_zn": 100000.0, "added_storage": 200.0, "active": True},
+            {"id": "pkg_pro", "title": "باقة المحترف", "price_usd": 5.0, "added_zn": 600000.0, "added_storage": 1000.0, "active": True},
+            {"id": "pkg_vip", "title": "باقة الحوت VIP", "price_usd": 15.0, "added_zn": 2000000.0, "added_storage": 5000.0, "active": True}
+        ]
+
         initial_settings = {
             "usd_to_zn_rate": 1000000,
             "ad_reward_boost": 0.5,
@@ -105,6 +111,7 @@ def ensure_game_settings_exist():
             "mining_config": speed_cfg,
             "upgrade_config": speed_cfg,
             "storage_config": storage_cfg,
+            "packages_config": packages_cfg,
             "storage_capacities": {k: v["capacity"] for k, v in storage_cfg.items()},
             "friends_config": {
                 "commission_percent": 10,
