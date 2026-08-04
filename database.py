@@ -72,41 +72,41 @@ def ensure_game_settings_exist():
         }
 
         speed_cfg = {
-            "1": {"price": 2000.0, "rate": 5.0, "rate_bonus": 5.0, "base_cost": 2000.0},
-            "2": {"price": 7000.0, "rate": 15.0, "rate_bonus": 15.0, "base_cost": 7000.0},
-            "3": {"price": 18000.0, "rate": 35.0, "rate_bonus": 35.0, "base_cost": 18000.0},
-            "4": {"price": 45000.0, "rate": 80.0, "rate_bonus": 80.0, "base_cost": 45000.0},
-            "5": {"price": 110000.0, "rate": 180.0, "rate_bonus": 180.0, "base_cost": 110000.0},
-            "6": {"price": 260000.0, "rate": 400.0, "rate_bonus": 400.0, "base_cost": 260000.0},
-            "7": {"price": 600000.0, "rate": 900.0, "rate_bonus": 900.0, "base_cost": 600000.0},
-            "8": {"price": 1400000.0, "rate": 2000.0, "rate_bonus": 2000.0, "base_cost": 1400000.0},
-            "9": {"price": 3200000.0, "rate": 4500.0, "rate_bonus": 4500.0, "base_cost": 3200000.0}
+            "1": {"price": 3500.0, "rate": 5.0, "rate_bonus": 5.0, "base_cost": 3500.0},
+            "2": {"price": 11500.0, "rate": 15.0, "rate_bonus": 15.0, "base_cost": 11500.0},
+            "3": {"price": 28000.0, "rate": 35.0, "rate_bonus": 35.0, "base_cost": 28000.0},
+            "4": {"price": 68000.0, "rate": 80.0, "rate_bonus": 80.0, "base_cost": 68000.0},
+            "5": {"price": 165000.0, "rate": 180.0, "rate_bonus": 180.0, "base_cost": 165000.0},
+            "6": {"price": 390000.0, "rate": 400.0, "rate_bonus": 400.0, "base_cost": 390000.0},
+            "7": {"price": 950000.0, "rate": 900.0, "rate_bonus": 900.0, "base_cost": 950000.0},
+            "8": {"price": 2300000.0, "rate": 2000.0, "rate_bonus": 2000.0, "base_cost": 2300000.0},
+            "9": {"price": 5500000.0, "rate": 4500.0, "rate_bonus": 4500.0, "base_cost": 5500000.0}
         }
 
         storage_cfg = {
-            "0": {"capacity": 200.0, "price": 0},
-            "1": {"capacity": 600.0, "price": 3000},
-            "2": {"capacity": 1500.0, "price": 10000},
-            "3": {"capacity": 3500.0, "price": 25000},
-            "4": {"capacity": 8000.0, "price": 65000},
-            "5": {"capacity": 18000.0, "price": 160000},
-            "6": {"capacity": 40000.0, "price": 400000},
-            "7": {"capacity": 90000.0, "price": 950000},
-            "8": {"capacity": 200000.0, "price": 2200000},
-            "9": {"capacity": 450000.0, "price": 5000000},
-            "10": {"capacity": 1000000.0, "price": 12000000}
+            "0": {"capacity": 100.0, "price": 0},
+            "1": {"capacity": 300.0, "price": 3000},
+            "2": {"capacity": 800.0, "price": 8500},
+            "3": {"capacity": 2000.0, "price": 25000},
+            "4": {"capacity": 5000.0, "price": 70000},
+            "5": {"capacity": 12000.0, "price": 180000},
+            "6": {"capacity": 28000.0, "price": 450000},
+            "7": {"capacity": 65000.0, "price": 1100000},
+            "8": {"capacity": 150000.0, "price": 2800000},
+            "9": {"capacity": 350000.0, "price": 7000000},
+            "10": {"capacity": 800000.0, "price": 18000000}
         }
 
         initial_settings = {
             "usd_to_zn_rate": 1000000,
-            "ad_reward_boost": 2.0,
+            "ad_reward_boost": 0.5,
             "daily_rewards": daily_rewards_30_days,
             "speed_config": speed_cfg,
             "upgrade_config": speed_cfg,
             "storage_config": storage_cfg,
             "storage_capacities": {k: v["capacity"] for k, v in storage_cfg.items()},
             "mining_config": {
-                "daily_boost_reward": 2.0
+                "daily_boost_reward": 0.5
             },
             "friends_config": {
                 "commission_percent": 10,
@@ -205,7 +205,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "energy": 100.0,
                 "storage_level": 0,
                 "extra_storage": 0.0,
-                "max_cap": 200.0,
+                "max_cap": 100.0,
                 "last_claim_time": now_iso,
                 "daily_streak": 0,
                 "daily_day": 1,
@@ -243,7 +243,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "first_name": first_name,
                 "last_active": firestore.SERVER_TIMESTAMP
             }
-            if "max_cap" not in user_data: updates["max_cap"] = 200.0
+            if "max_cap" not in user_data: updates["max_cap"] = 100.0
             if "storage_level" not in user_data: updates["storage_level"] = 0
             if "extra_storage" not in user_data: updates["extra_storage"] = 0.0
             if "upgrades" not in user_data: updates["upgrades"] = {}
@@ -306,9 +306,9 @@ def get_user(tg_id):
             stg_cfg = settings.get("storage_config", {})
             caps_cfg = settings.get("storage_capacities", {})
             
-            base_cap = 200.0
+            base_cap = 100.0
             if stg_lvl in stg_cfg and isinstance(stg_cfg[stg_lvl], dict):
-                base_cap = float(stg_cfg[stg_lvl].get("capacity", 200.0))
+                base_cap = float(stg_cfg[stg_lvl].get("capacity", 100.0))
             elif stg_lvl in caps_cfg:
                 base_cap = float(caps_cfg[stg_lvl])
 
@@ -347,9 +347,9 @@ def apply_package_to_user(tg_id, added_storage=0.0, added_balance=0.0, added_hou
         settings = get_game_settings()
         stg_cfg = settings.get("storage_config", {})
         
-        base_cap = 200.0
+        base_cap = 100.0
         if stg_lvl in stg_cfg and isinstance(stg_cfg[stg_lvl], dict):
-            base_cap = float(stg_cfg[stg_lvl].get("capacity", 200.0))
+            base_cap = float(stg_cfg[stg_lvl].get("capacity", 100.0))
 
         current_extra = float(user_data.get("extra_storage", 0.0))
         new_extra = current_extra + float(added_storage)
@@ -403,18 +403,18 @@ def update_user_storage_level(tg_id, target_level=None):
             next_level = int(target_level) if target_level is not None else current_level + 1
 
             if target_level is None and next_level <= current_level:
-                return False, "أنت بالفعل في هذا المستوى أو مستوى أعلى!", user_data.get("max_cap", 200.0), current_balance
+                return False, "أنت بالفعل في هذا المستوى أو مستوى أعلى!", user_data.get("max_cap", 100.0), current_balance
 
             next_cfg = storage_cfg.get(str(next_level)) or storage_cfg.get(next_level)
             if not next_cfg:
-                return False, "لقد وصلت إلى الحد الأقصى لمستويات المخزن!", user_data.get("max_cap", 200.0), current_balance
+                return False, "لقد وصلت إلى الحد الأقصى لمستويات المخزن!", user_data.get("max_cap", 100.0), current_balance
 
             price = float(next_cfg.get("price", 0))
 
             if target_level is None and current_balance < price:
-                return False, "رصيدك غير كافٍ لإجراء الترقية!", user_data.get("max_cap", 200.0), current_balance
+                return False, "رصيدك غير كافٍ لإجراء الترقية!", user_data.get("max_cap", 100.0), current_balance
 
-            base_next_cap = float(next_cfg.get("capacity", 200.0))
+            base_next_cap = float(next_cfg.get("capacity", 100.0))
             new_total_max_cap = base_next_cap + extra_cap
             update_payload = {"storage_level": next_level, "max_cap": new_total_max_cap}
 
