@@ -15,7 +15,6 @@
     let lastTasksFetchTime = 0;
     const TASKS_CACHE_TTL = 30000; // كاش لمدة 30 ثانية للفرونت إند
 
-    // استرجاع الكاش المبدئي من sessionStorage لمنع الجلب عند التنقل السريع بين الصفحات
     try {
         const storedCache = sessionStorage.getItem('tasks_cache_data');
         const storedTime = sessionStorage.getItem('tasks_cache_time');
@@ -44,12 +43,10 @@
     function syncUserBalance(val) {
         let numVal = parseFloat(val) || 0;
         
-        // 1. تحديث الكائنات الحية بالذاكرة في النافذة الحالية
         if (window.GameState) window.GameState.balance = numVal;
         if (window.PlayerData) window.PlayerData.balance = numVal;
         if (window.userState) window.userState.balance = numVal;
 
-        // 2. تحديث النافذة الرئيسية الإطار الأب (Parent iframe/window)
         try {
             if (window.parent && window.parent !== window) {
                 if (window.parent.GameState) window.parent.GameState.balance = numVal;
@@ -61,7 +58,6 @@
             }
         } catch (e) {}
 
-        // 3. تحديث النافذة العليا (Top window)
         try {
             if (window.top && window.top !== window && window.top !== window.parent) {
                 if (window.top.GameState) window.top.GameState.balance = numVal;
@@ -73,17 +69,8 @@
             }
         } catch (e) {}
 
-        // 4. تحديث عناصر الرصيد في الواجهة فوراً
         updateBalanceElements(numVal);
-
-        // 5. بث حدث التحديث اللحظي للواجهات
         window.dispatchEvent(new CustomEvent('balanceUpdated', { detail: { balance: numVal } }));
-        try {
-            if (window.parent && window.parent !== window) {
-                window.parent.dispatchEvent(new CustomEvent('balanceUpdated', { detail: { balance: numVal } }));
-            }
-        } catch(e) {}
-
         if (typeof window.updateGlobalUI === 'function') {
             window.updateGlobalUI();
         }
@@ -96,12 +83,10 @@
     function syncUserAdBalance(val) {
         let numVal = parseFloat(val) || 0;
         
-        // 1. تحديث الذاكرة المحلية
         if (window.GameState) window.GameState.ad_balance = numVal;
         if (window.PlayerData) window.PlayerData.ad_balance = numVal;
         if (window.userState) window.userState.ad_balance = numVal;
 
-        // 2. تحديث النافذة الأب
         try {
             if (window.parent && window.parent !== window) {
                 if (window.parent.GameState) window.parent.GameState.ad_balance = numVal;
@@ -114,21 +99,14 @@
         } catch (e) {}
 
         updateAdBalanceElements(numVal);
-
         window.dispatchEvent(new CustomEvent('adBalanceUpdated', { detail: { ad_balance: numVal } }));
-        try {
-            if (window.parent && window.parent !== window) {
-                window.parent.dispatchEvent(new CustomEvent('adBalanceUpdated', { detail: { ad_balance: numVal } }));
-            }
-        } catch(e) {}
-
         if (typeof window.updateGlobalUI === 'function') {
             window.updateGlobalUI();
         }
     }
 
     function updateBalanceElements(numVal) {
-        const formatted = Math.floor(numVal).toLocaleString();
+        const formatted = numVal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
         const topBal = document.getElementById('top-balance-tasks');
         if (topBal) {
             topBal.innerText = `ZN ${formatted}`;
@@ -139,18 +117,11 @@
             document.querySelectorAll(sel).forEach(el => {
                 if (el.id !== 'top-balance-tasks') el.innerText = formatted;
             });
-            try {
-                if (window.parent && window.parent !== window && window.parent.document) {
-                    window.parent.document.querySelectorAll(sel).forEach(el => {
-                        if (el.id !== 'top-balance-tasks') el.innerText = formatted;
-                    });
-                }
-            } catch(e) {}
         });
     }
 
     function updateAdBalanceElements(numVal) {
-        const formatted = Math.floor(numVal).toLocaleString();
+        const formatted = numVal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
         const adBalDisplay = document.getElementById('ad-balance-display');
         if (adBalDisplay) {
             adBalDisplay.innerText = `AdZN ${formatted}`;
@@ -208,14 +179,8 @@
         if (earnSection) earnSection.style.display = tab === 'earn' ? 'block' : 'none';
         if (promoteSection) promoteSection.style.display = tab === 'promote' ? 'block' : 'none';
 
-        if (btnEarn) {
-            if (tab === 'earn') btnEarn.classList.add('active');
-            else btnEarn.classList.remove('active');
-        }
-        if (btnPromote) {
-            if (tab === 'promote') btnPromote.classList.add('active');
-            else btnPromote.classList.remove('active');
-        }
+        if (btnEarn) btnEarn.classList.toggle('active', tab === 'earn');
+        if (btnPromote) btnPromote.classList.toggle('active', tab === 'promote');
         
         if (tab === 'earn' || tab === 'promote') {
             window.fetchAndRenderTasks(false); 
@@ -223,9 +188,7 @@
     };
 
     window.updateTasksUI = function(forceRefresh = false) {
-        if (typeof window.updateGlobalUI === 'function') {
-            window.updateGlobalUI();
-        }
+        if (typeof window.updateGlobalUI === 'function') window.updateGlobalUI();
         window.fetchAndRenderTasks(forceRefresh);
     };
 
@@ -239,7 +202,6 @@
         let realTasks = [];
         const now = Date.now();
 
-        // الاستفادة من الذاكرة إذا كانت الفترة أقل من 30 ثانية ولم يطلب إجبار تحديث
         if (!forceRefresh && cachedTasksData && (now - lastTasksFetchTime < TASKS_CACHE_TTL)) {
             realTasks = cachedTasksData.campaigns || [];
             if (cachedTasksData.ad_balance !== undefined) syncUserAdBalance(cachedTasksData.ad_balance);
@@ -352,7 +314,7 @@
                                     <div style="color: #ffffff; font-size: 13px; font-weight: 700; line-height: 1.4; margin-bottom: 2px;">${task.title}</div>
                                     <div style="color: #94a3b8; font-size: 11px; margin-bottom: 4px; font-weight: 500; line-height: 1.3;">${task.description}</div>
                                     <div style="color: #ffcc00; font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 4px;">
-                                        <span>+${task.reward.toLocaleString()}</span> <span style="font-size: 10px; color: #64748b; font-weight: 500;">ZN</span>
+                                        <span>+${task.reward.toLocaleString('en-US', {maximumFractionDigits: 2})}</span> <span style="font-size: 10px; color: #64748b; font-weight: 500;">ZN</span>
                                     </div>
                                 </div>
                             </div>
@@ -434,29 +396,28 @@
         }
     };
 
-    // ⚡ تعديل ذكي: تحديث زر الواجهة محلياً فقط عند البدء دون استعلام السيرفر
+    // ⚡ بدء المهمة وحساب عداد الـ 15 ثانية خارج الشاشة محلياً
     window.startTask = function(taskId, encodedLink, reward) {
         const link = decodeURIComponent(encodedLink || '');
         window.taskStates[taskId] = 'running';
         window.accumulatedOutsideTime[taskId] = 0;
         window.lastGoOutside[taskId] = Date.now();
 
-        if (window.Telegram?.WebApp) { 
+        if (window.Telegram?.WebApp?.openLink) { 
             window.Telegram.WebApp.openLink(link); 
         } else { 
             window.open(link, '_blank'); 
         }
-        
-        // تحديث زر الواجهة محلياً
+
         const btn = document.getElementById(`btn-task-${taskId}`);
         if (btn) {
-            btn.innerText = `عُد للمهمة.. 15ث⏳`;
-            btn.style.background = "rgba(239,68,68,0.15)";
-            btn.style.color = "#ef4444";
-            btn.style.border = "1px solid rgba(239,68,68,0.3)";
             btn.disabled = true;
+            btn.innerText = 'عُد للمهمة.. 15ث⏳';
+            btn.style.background = 'rgba(239,68,68,0.15)';
+            btn.style.color = '#ef4444';
+            btn.style.border = '1px solid rgba(239,68,68,0.3)';
         }
-        
+
         if (window.taskIntervals[taskId]) clearInterval(window.taskIntervals[taskId]);
 
         window.taskIntervals[taskId] = setInterval(() => {
@@ -464,366 +425,326 @@
             if (document.visibilityState === 'hidden') {
                 currentTotalOutside += (Date.now() - (window.lastGoOutside[taskId] || Date.now())) / 1000;
             }
-            
-            let remaining = 15 - Math.floor(currentTotalOutside);
-            let btnEl = document.getElementById(`btn-task-${taskId}`);
-            
-            if (remaining <= 0) {
+            let remaining = Math.max(0, 15 - Math.floor(currentTotalOutside));
+
+            const taskBtn = document.getElementById(`btn-task-${taskId}`);
+            if (remaining <= 0 || currentTotalOutside >= 15) {
                 clearInterval(window.taskIntervals[taskId]);
                 window.taskStates[taskId] = 'ready';
-                if (btnEl) {
-                    btnEl.innerText = "تحقق ✅";
-                    btnEl.disabled = false;
-                    btnEl.style.background = "#ffcc00";
-                    btnEl.style.color = "#000";
-                    btnEl.style.border = "none";
-                    btnEl.style.boxShadow = "0 0 10px rgba(255, 204, 0, 0.3)";
-                    btnEl.onclick = function() { verifyTask(taskId, reward); };
+                if (taskBtn) {
+                    taskBtn.disabled = false;
+                    taskBtn.innerHTML = 'تحقق ✅';
+                    taskBtn.setAttribute('onclick', `verifyTask('${taskId}', ${reward})`);
+                    taskBtn.style.background = '#ffcc00';
+                    taskBtn.style.color = '#000';
+                    taskBtn.style.border = 'none';
+                    taskBtn.style.boxShadow = '0 0 10px rgba(255, 204, 0, 0.3)';
                 }
-            } else {
-                if (btnEl) {
-                    if (document.visibilityState === 'visible') {
-                        btnEl.innerText = `عُد للمهمة.. ${remaining}ث⏳`;
-                        btnEl.style.background = "rgba(239,68,68,0.15)";
-                        btnEl.style.color = "#ef4444";
-                        btnEl.style.border = "1px solid rgba(239,68,68,0.3)";
-                    } else {
-                        btnEl.innerText = `جاري التنفيذ.. ${remaining}ث⏳`;
-                    }
+            } else if (taskBtn) {
+                if (document.visibilityState === 'visible') {
+                    taskBtn.innerText = `عُد للمهمة.. ${remaining}ث⏳`;
+                } else {
+                    taskBtn.innerText = `جاري التنفيذ.. ${remaining}ث⏳`;
                 }
             }
         }, 1000);
     };
 
-    if (!window.visibilityListenerAdded) {
-        document.addEventListener('visibilitychange', () => {
-            const now = Date.now();
-            for (let taskId in window.taskStates) {
-                if (window.taskStates[taskId] === 'running') {
-                    if (document.visibilityState === 'visible') {
-                        let timeSpentOutside = (now - (window.lastGoOutside[taskId] || now)) / 1000;
-                        window.accumulatedOutsideTime[taskId] = (window.accumulatedOutsideTime[taskId] || 0) + timeSpentOutside;
-                        window.lastGoOutside[taskId] = now;
-                    } else if (document.visibilityState === 'hidden') {
-                        window.lastGoOutside[taskId] = now;
-                    }
-                }
-            }
-        });
-        window.visibilityListenerAdded = true;
-    }
-
+    // ⚡ التحقق من تنفيذ المهمة واستلام المكافأة مباشرة
     window.verifyTask = async function(taskId, reward) {
         if (isVerifyingTask) return;
-        
-        const initData = window.Telegram?.WebApp?.initData;
-        if (!initData) {
-            alert("⚠️ يجب فتح البوت من تليجرام للتحقق الحقيقي.");
-            return;
-        }
-
         isVerifyingTask = true;
+
         const btn = document.getElementById(`btn-task-${taskId}`);
-        if (btn) { 
-            btn.innerText = "فحص التفاعل..."; 
-            btn.disabled = true; 
-            btn.style.opacity = "0.5"; 
+        if (btn) {
+            btn.disabled = true;
+            btn.innerText = 'جاري التحقق... ⏳';
         }
 
         try {
-            if (window.taskIntervals[taskId]) clearInterval(window.taskIntervals[taskId]);
+            const initData = window.Telegram?.WebApp?.initData || "";
+            const tgId = getTgId();
             
-            let response = await fetch('/api/tasks/complete_task', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: initData, taskId: taskId })
+            const res = await window.fetchAPI('/api/tasks/complete_task', 'POST', {
+                task_id: taskId,
+                telegram_id: tgId,
+                initData: initData
             });
-            let result = await response.json();
-            
-            if (response.ok && result.success) {
-                if (result.new_balance !== undefined) {
-                    syncUserBalance(result.new_balance);
+
+            if (res.success) {
+                if (res.new_balance !== undefined) {
+                    syncUserBalance(res.new_balance);
+                } else if (reward) {
+                    syncUserBalance(getUserBalance() + reward);
                 }
-                
-                delete window.taskStates[taskId];
-                delete window.accumulatedOutsideTime[taskId];
-                delete window.lastGoOutside[taskId];
-                
-                alert(`🎉 مبارك! تم تأكيد التفاعل وإضافة رصيد بقيمة ${reward.toLocaleString()} ZN`);
+
+                window.taskStates[taskId] = 'completed';
+                if (btn) {
+                    btn.disabled = true;
+                    btn.innerText = 'مكتمل ✔️';
+                    btn.style.background = 'rgba(40, 167, 69, 0.12)';
+                    btn.style.color = '#28a745';
+                    btn.style.border = '1px solid rgba(40, 167, 69, 0.25)';
+                    btn.style.boxShadow = 'none';
+                }
+
+                if (cachedTasksData && cachedTasksData.campaigns) {
+                    const item = cachedTasksData.campaigns.find(c => String(c.id) === String(taskId));
+                    if (item) item.is_completed = true;
+                    cachedTasksData.balance = res.new_balance;
+                    saveTasksToSessionCache(cachedTasksData);
+                }
+
+                alert(`🎉 مبروك! تم التحقق بنجاح وإضافة ${reward} ZN إلى رصيدك!`);
             } else {
-                alert("⚠️ فشل التحقق: " + (result.error || "تأكد من إتمام التفاعل الفعلي أولاً"));
-                window.taskStates[taskId] = 'ready';
+                alert(res.error || 'فشل التحقق من تنفيذ المهمة.');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = 'تحقق ✅';
+                }
             }
-        } catch (e) {
-            alert("حدث خطأ في الاتصال بالسيرفر الرئيسي.");
-            window.taskStates[taskId] = 'ready';
+        } catch (err) {
+            console.error('Verify Task Error:', err);
+            alert(err.message || 'حدث خطأ أثناء الاتصال بالسيرفر.');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = 'تحقق ✅';
+            }
         } finally {
             isVerifyingTask = false;
-            // ⚡ إجبار تحديث كاش المهام لتعكس حذف المهمة المكتملة
-            await window.fetchAndRenderTasks(true);
         }
     };
 
-    window.cancelServerCampaign = async function(campId) {
-        const initData = window.Telegram?.WebApp?.initData;
-        if (!initData) return alert("⚠️ غير مصرح بالعملية خارج التليجرام.");
-
-        if (isCancelingCampaign) return;
-        if (!confirm("هل أنت متأكد من إلغاء الحملة؟ سيتم إرجاع رصيد النقاط غير المستهلكة فوراً.")) return;
-        
-        isCancelingCampaign = true;
-        const btn = document.getElementById(`btn-cancel-${campId}`);
-        if (btn) { btn.innerText = "جاري الحذف والرد..."; btn.disabled = true; }
-
-        try {
-            let response = await fetch('/api/tasks/cancel_campaign', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: initData, campaignId: campId })
-            });
-            let result = await response.json();
-            if (response.ok && result.success) {
-                alert(`✅ تم إلغاء حملتك بنجاح وإرجاع الميزانية المتبقية لمحفظتك!`);
-                if (result.new_ad_balance !== undefined) {
-                    syncUserAdBalance(result.new_ad_balance);
-                }
-                window.fetchAndRenderTasks(true);
-            } else { 
-                alert("⚠️ خطأ بالإلغاء: " + (result.error || "عذراً تعذر الإلغاء")); 
-            }
-        } catch (e) { alert("حدث خطأ في الاتصال بالسيرفر."); }
-        finally { isCancelingCampaign = false; }
-    };
-
-    window.convertZnToAdZn = async function() {
-        const initData = window.Telegram?.WebApp?.initData;
-        if (!initData) return alert("⚠️ يجب فتح اللعبة من داخل التليجرام أولاً.");
-
-        if (isConvertingBalance) return;
-        let inputVal = prompt("أدخل رصيد ZN المراد تحويله لرصيد الإعلانات:\n* سيتم تطبيق عمولة تداول 10%.");
-        if (!inputVal) return;
-        let amount = parseFloat(inputVal.trim());
-        if (isNaN(amount) || amount <= 0) {
-            alert("⚠️ يرجى إدخال مبلغ صحيح وموجب.");
-            return;
-        }
-
-        let currentBal = getUserBalance();
-        if (currentBal < amount) {
-            alert("⚠️ رصيد ZN الحالي غير كافٍ للعملية!");
-            return;
-        }
-
-        isConvertingBalance = true;
-        try {
-            let response = await fetch('/api/tasks/convert_adzn', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: initData, amount: amount })
-            });
-            let result = await response.json();
-            if (response.ok && result.success) {
-                alert(`✅ شحن ناجح! تمت عملية التحويل لمحفظتك بنجاح.`);
-                
-                if (result.new_balance !== undefined) syncUserBalance(result.new_balance);
-                if (result.new_ad_balance !== undefined) syncUserAdBalance(result.new_ad_balance);
-                
-                window.updateTasksUI(true);
-            } else { alert("⚠️ فشل: " + (result.error || "خطأ في عملية التحويل")); }
-        } catch (e) { alert("خطأ شبكة أثناء تحويل الرصيد."); }
-        finally { isConvertingBalance = false; }
-    };
-
-    window.openAdModal = function(type) {
-        currentAdType = type;
-        const modalTitle = document.getElementById('ad-modal-title');
-        if (modalTitle) modalTitle.innerText = `إطلاق حملة ${type} حقيقية`;
-        
-        const linkEl = document.getElementById('ad-link');
-        const rewardEl = document.getElementById('ad-reward');
-        const usersEl = document.getElementById('ad-users');
-        if (linkEl) linkEl.value = '';
-        if (rewardEl) rewardEl.value = '';
-        if (usersEl) usersEl.value = '';
-        
-        const selectContainer = document.getElementById('ad-desc-select');
-        if (selectContainer) {
-            selectContainer.innerHTML = '';
-            let optionsHtml = '';
-            let optionsList = preDefinedDescriptions[type] || ["برجاء اتباع الرابط لإكمال التفاعل الإعلاني."];
-            optionsList.forEach(descText => {
-                optionsHtml += `<option value="${escapeHtml(descText)}">${escapeHtml(descText)}</option>`;
-            });
-            selectContainer.innerHTML = optionsHtml;
-        }
-
-        const submitBtn = document.getElementById('btn-submit-campaign-action');
-        if (submitBtn) {
-            submitBtn.innerText = "نشر الحملة";
-            submitBtn.disabled = false;
-            submitBtn.style.opacity = "1";
-        }
-        const adModal = document.getElementById('ad-modal');
-        if (adModal) adModal.style.display = 'flex';
-    };
-
-    window.closeAdModal = function() {
-        if (isSubmittingCampaign) return;
-        const adModal = document.getElementById('ad-modal');
-        if (adModal) adModal.style.display = 'none';
-    };
-
-    window.submitAdCampaign = async function() {
-        const initData = window.Telegram?.WebApp?.initData;
-        if (!initData) return alert("⚠️ عذراً لا يمكن إنتاج حملات إعلانية خارج تطبيق تليجرام الأصلي.");
-
+    // ⚡ تقديم حملة إعلانية جديدة
+    window.submitAdCampaign = async function(event) {
+        if (event) event.preventDefault();
         if (isSubmittingCampaign) return;
 
-        let link = document.getElementById('ad-link')?.value.trim() || '';
-        let desc = document.getElementById('ad-desc-select')?.value || ''; 
-        let reward = parseFloat(document.getElementById('ad-reward')?.value || '0');
-        let users = parseInt(document.getElementById('ad-users')?.value || '0', 10);
+        const platform = document.getElementById('ad-platform')?.value || currentAdType;
+        const description = document.getElementById('ad-description')?.value?.trim();
+        const url = document.getElementById('ad-url')?.value?.trim();
+        const rewardPerClick = parseFloat(document.getElementById('ad-reward-per-click')?.value || 0);
+        const totalCount = parseInt(document.getElementById('ad-total-count')?.value || 0, 10);
 
-        if (!link || !desc || isNaN(reward) || reward <= 0 || isNaN(users) || users <= 0) {
-            alert("⚠️ يرجى ملء كافة الخانات المالية وبيانات الرابط بشكل سليم.");
+        if (!description || !url) {
+            alert('يرجى ملء جميع الحقول المطلوبة!');
             return;
         }
 
-        if (!/^https?:\/\//i.test(link)) {
-            link = 'https://' + link;
-        }
-
-        let linkLower = link.toLowerCase();
-        if (currentAdType === 'يوتيوب' && !linkLower.includes("youtube.com") && !linkLower.includes("youtu.be")) {
-            alert("⚠️ خطأ أمني: يجب إدخال رابط فيديو أو قناة يوتيوب صحيح يبدأ بـ youtube.com أو youtu.be");
-            return;
-        }
-        if (currentAdType === 'تيليجرام' && !linkLower.includes("t.me")) {
-            alert("⚠️ خطأ أمني: يجب إدخال رابط قناة أو جروب تيليجرام صحيح يبدأ بـ t.me");
-            return;
-        }
-        if (currentAdType === 'انستغرام' && !linkLower.includes("instagram.com")) {
-            alert("⚠️ خطأ أمني: يجب إدخال رابط حساب أو منشور انستغرام صحيح يبدأ بـ instagram.com");
-            return;
-        }
-        if (currentAdType === 'X' && !linkLower.includes("twitter.com") && !linkLower.includes("x.com")) {
-            alert("⚠️ خطأ أمني: يجب إدخال رابط تفاعل لمنصة X يبدأ بـ x.com أو twitter.com");
+        if (rewardPerClick < MIN_REWARD_PER_CLICK) {
+            alert(`الحد الأدنى لتكلفة الضغطة هو ${MIN_REWARD_PER_CLICK} AdZN!`);
             return;
         }
 
-        if (currentAdType === 'موقع') {
-            const forbiddenKeywords = ['porn', 'sexy', 'xnx', 'adult', 'gambling', 'casino', 'bet365', '1xbet', 'sex', 'إباحي', 'جنس', 'قمار'];
-            let foundViolation = forbiddenKeywords.some(word => linkLower.includes(word));
-            if (foundViolation) {
-                alert("🚨 نظام الأمان التلقائي 🚨\nتم حظر الرابط فوراً لاحتوائه على محتوى مخالف لسياسة البوت!");
-                return;
-            }
-        }
-
-        if (reward < MIN_REWARD_PER_CLICK) {
-            alert(`⚠️ عذراً، الحد الأدنى لتكلفة الضغطة الواحدة للمستخدم هو ${MIN_REWARD_PER_CLICK} عملة AdZN.`);
-            return;
-        }
-
-        let totalCost = reward * users;
-
+        const totalCost = rewardPerClick * totalCount;
         if (totalCost < MIN_AD_CAMPAIGN_COST) {
-            alert(`⚠️ عذراً، الحد الأدنى لتكلفة إنشاء أي حملة إعلانية هو ${MIN_AD_CAMPAIGN_COST} عملة AdZN.`);
+            alert(`الحد الأدنى للميزانية الإجمالية للحملة هو ${MIN_AD_CAMPAIGN_COST} AdZN!`);
             return;
         }
 
-        let currentAdBalance = getUserAdBalance();
-
-        if (currentAdBalance < totalCost) {
-            alert(`⚠️ رصيدك الإعلاني غير كافٍ! التكلفة المطلوبة: ${totalCost.toLocaleString()} AdZN`);
+        const currentAdBal = getUserAdBalance();
+        if (currentAdBal < totalCost) {
+            alert(`رصيد الإعلانات (AdZN) غير كافٍ! تحتاج إلى ${totalCost.toLocaleString()} AdZN ولكن لديك ${currentAdBal.toLocaleString()} AdZN.`);
             return;
         }
 
         isSubmittingCampaign = true;
-        
-        const adModal = document.getElementById('ad-modal');
-        if (adModal) adModal.style.display = 'none';
+        const submitBtn = document.getElementById('btn-submit-campaign');
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerText = 'جاري إنشاء الحملة... ⏳';
+        }
 
-        const reviewModal = document.getElementById('review-modal');
-        if (reviewModal) reviewModal.style.display = 'flex';
-        
-        let remainingSeconds = 10;
-        const countdownTimerDisplay = document.getElementById('review-countdown-timer');
-        if (countdownTimerDisplay) countdownTimerDisplay.innerText = remainingSeconds;
+        try {
+            const initData = window.Telegram?.WebApp?.initData || "";
+            const tgId = getTgId();
 
-        let reviewInterval = setInterval(async () => {
-            remainingSeconds--;
-            if (countdownTimerDisplay) countdownTimerDisplay.innerText = remainingSeconds;
-            
-            if (remainingSeconds <= 0) {
-                clearInterval(reviewInterval);
+            const res = await window.fetchAPI('/api/tasks/create_campaign', 'POST', {
+                platform,
+                description,
+                url,
+                reward: rewardPerClick,
+                users_needed: totalCount,
+                telegram_id: tgId,
+                initData
+            });
+
+            if (res.success) {
+                if (res.new_ad_balance !== undefined) {
+                    syncUserAdBalance(res.new_ad_balance);
+                } else {
+                    syncUserAdBalance(currentAdBal - totalCost);
+                }
+
+                alert('🎉 تم إنشاء الحملة الإعلانية بنجاح وسيتم إظهارها للمستخدمين فوراً!');
                 
-                try {
-                    let response = await fetch('/api/tasks/create_campaign', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            initData: initData,
-                            platform: currentAdType,
-                            url: link,
-                            description: desc, 
-                            reward: reward,
-                            users_needed: users
-                        })
-                    });
-                    let result = await response.json();
-                    
-                    if (reviewModal) reviewModal.style.display = 'none'; 
+                if (document.getElementById('ad-description')) document.getElementById('ad-description').value = '';
+                if (document.getElementById('ad-url')) document.getElementById('ad-url').value = '';
+                
+                window.fetchAndRenderTasks(true);
+            } else {
+                alert(res.error || 'حدث خطأ أثناء إنشاء الحملة.');
+            }
+        } catch (err) {
+            console.error('Submit Campaign Error:', err);
+            alert(err.message || 'حدث خطأ في الاتصال بالسيرفر.');
+        } finally {
+            isSubmittingCampaign = false;
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerText = 'إطلاق الحملة الإعلانية 🚀';
+            }
+        }
+    };
 
-                    if (response.ok && result.success) {
-                        if (result.new_ad_balance !== undefined) {
-                            syncUserAdBalance(result.new_ad_balance);
-                        }
-                        const successModal = document.getElementById('success-modal');
-                        if (successModal) successModal.style.display = 'flex';
-                    } else {
-                        isSubmittingCampaign = false;
-                        alert("⚠️ رفض السيرفر إنشاء الحملة: " + (result.error || "تأكد من سلامة الحساب"));
-                    }
-                } catch (e) {
-                    if (reviewModal) reviewModal.style.display = 'none';
-                    isSubmittingCampaign = false;
-                    alert("حدث خطأ أثناء رفع الحملة للسيرفر الرئيسي.");
+    // ⚡ تحويل الرصيد الأساسي إلى رصيد إعلانات
+    window.convertMainToAdBalance = async function() {
+        if (isConvertingBalance) return;
+
+        const amountInput = document.getElementById('convert-amount-input');
+        const amount = parseFloat(amountInput?.value || 0);
+
+        if (!amount || amount <= 0) {
+            alert('يرجى إدخال مبلغ صحيح للتحويل!');
+            return;
+        }
+
+        const currentBal = getUserBalance();
+        if (currentBal < amount) {
+            alert(`رصيدك الأساسي غير كافٍ! لديك ${currentBal.toLocaleString()} ZN.`);
+            return;
+        }
+
+        isConvertingBalance = true;
+        const btn = document.getElementById('btn-convert-balance');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerText = 'جاري التحويل... ⏳';
+        }
+
+        try {
+            const initData = window.Telegram?.WebApp?.initData || "";
+            const tgId = getTgId();
+
+            const res = await window.fetchAPI('/api/tasks/convert_balance', 'POST', {
+                amount: amount,
+                telegram_id: tgId,
+                initData
+            });
+
+            if (res.success) {
+                if (res.new_balance !== undefined) syncUserBalance(res.new_balance);
+                if (res.new_ad_balance !== undefined) syncUserAdBalance(res.new_ad_balance);
+
+                alert(`🎉 تم تحويل ${amount.toLocaleString()} ZN إلى رصيد الإعلانات (AdZN) بنجاح!`);
+                if (amountInput) amountInput.value = '';
+            } else {
+                alert(res.error || 'حدث خطأ أثناء التحويل.');
+            }
+        } catch (err) {
+            console.error('Convert Balance Error:', err);
+            alert(err.message || 'حدث خطأ أثناء الاتصال بالسيرفر.');
+        } finally {
+            isConvertingBalance = false;
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = 'تحويل إلى رصيد الإعلانات 🔄';
+            }
+        }
+    };
+
+    // ⚡ إلغاء الحملة الإعلانية واسترداد المتبقي
+    window.cancelServerCampaign = async function(taskId) {
+        if (isCancelingCampaign) return;
+
+        if (!confirm('هل أنت تأكد من إلغاء هذه الحملة الإعلانية؟ سيتم استرداد المبلغ المتبقي غير المستهلك فوراً إلى رصيد الإعلانات الخاص بك.')) {
+            return;
+        }
+
+        isCancelingCampaign = true;
+        const btn = document.getElementById(`btn-cancel-${taskId}`);
+        if (btn) {
+            btn.disabled = true;
+            btn.innerText = 'جاري الإلغاء... ⏳';
+        }
+
+        try {
+            const initData = window.Telegram?.WebApp?.initData || "";
+            const tgId = getTgId();
+
+            const res = await window.fetchAPI('/api/tasks/cancel_campaign', 'POST', {
+                task_id: taskId,
+                telegram_id: tgId,
+                initData
+            });
+
+            if (res.success) {
+                if (res.new_ad_balance !== undefined) {
+                    syncUserAdBalance(res.new_ad_balance);
+                }
+                alert(`🎉 تم إلغاء الحملة بنجاح! تم استرداد ${res.refunded_amount || 0} AdZN إلى حسابك.`);
+                window.fetchAndRenderTasks(true);
+            } else {
+                alert(res.error || 'حدث خطأ أثناء إلغاء الحملة.');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = 'إلغاء الإعلان فوراً وسحب المتبقي لحسابك';
                 }
             }
-        }, 1000);
-    };
-
-    window.handleSuccessRedirect = function() {
-        const successModal = document.getElementById('success-modal');
-        const reviewModal = document.getElementById('review-modal');
-        const adModal = document.getElementById('ad-modal');
-        
-        if (successModal) successModal.style.display = 'none';
-        if (reviewModal) reviewModal.style.display = 'none';
-        if (adModal) adModal.style.display = 'none';
-        
-        isSubmittingCampaign = false;
-
-        window.switchTasksTab('promote');
-        window.updateTasksUI(true);
-
-        setTimeout(() => {
-            const container = document.getElementById('active-ads-container');
-            if (container) {
-                container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } catch (err) {
+            console.error('Cancel Campaign Error:', err);
+            alert(err.message || 'حدث خطأ أثناء التواصل مع السيرفر.');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = 'إلغاء الإعلان فوراً وسحب المتبقي لحسابك';
             }
-        }, 300);
+        } finally {
+            isCancelingCampaign = false;
+        }
     };
 
-    window.addEventListener('pageshow', () => {
-        window.updateTasksUI(false);
+    window.selectAdType = function(type) {
+        currentAdType = type;
+        const selectEl = document.getElementById('ad-platform');
+        if (selectEl) selectEl.value = type;
+
+        const descSelect = document.getElementById('ad-preset-description');
+        if (descSelect && preDefinedDescriptions[type]) {
+            let opts = `<option value="">-- اختر وصف جاهز أو اكتب وصفك الخاص --</option>`;
+            preDefinedDescriptions[type].forEach(desc => {
+                opts += `<option value="${escapeHtml(desc)}">${escapeHtml(desc)}</option>`;
+            });
+            descSelect.innerHTML = opts;
+        }
+    };
+
+    window.applyPresetDescription = function() {
+        const descSelect = document.getElementById('ad-preset-description');
+        const descInput = document.getElementById('ad-description');
+        if (descSelect && descInput && descSelect.value) {
+            descInput.value = descSelect.value;
+        }
+    };
+
+    // متابعة التواجد خارج الشاشة وحساب الـ 15 ثانية بدقة
+    document.addEventListener('visibilitychange', () => {
+        const isHidden = document.visibilityState === 'hidden';
+        const now = Date.now();
+
+        for (let taskId in window.taskStates) {
+            if (window.taskStates[taskId] === 'running') {
+                if (isHidden) {
+                    window.lastGoOutside[taskId] = now;
+                } else {
+                    if (window.lastGoOutside[taskId]) {
+                        const diffSeconds = (now - window.lastGoOutside[taskId]) / 1000;
+                        window.accumulatedOutsideTime[taskId] = (window.accumulatedOutsideTime[taskId] || 0) + diffSeconds;
+                    }
+                }
+            }
+        }
     });
 
-    if (document.readyState === 'complete' || document.readyState === 'interactive') {
-        window.updateTasksUI(false);
-    } else {
-        document.addEventListener('DOMContentLoaded', () => window.updateTasksUI(false));
-    }
-
+    // التهيئة التلقائية
+    window.fetchAndRenderTasks(false);
 })();
