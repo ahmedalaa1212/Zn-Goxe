@@ -72,6 +72,31 @@ body {
 }
 
 /* ==========================================
+   تنسيقات الأرقام العامة والشريط العلوي المحمي
+   ========================================== */
+.stat-value, [data-bind] {
+    direction: ltr !important;
+    unicode-bidi: isolate;
+    white-space: nowrap !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+}
+
+.int-part {
+    font-size: 1em;
+    font-weight: 800;
+    white-space: nowrap !important;
+}
+
+.dec-part {
+    font-size: 0.78em;
+    opacity: 0.75;
+    font-weight: 600;
+    white-space: nowrap !important;
+}
+
+/* ==========================================
    شريط التنقل السفلي المضبوط (توزيع Flex متناسق)
    ========================================== */
 .bottom-nav {
