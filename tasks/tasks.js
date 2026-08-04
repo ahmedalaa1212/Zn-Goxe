@@ -27,6 +27,53 @@
     let lastTasksFetchTime = 0;
     const TASKS_CACHE_TTL = 30000; 
 
+    // 🎨 حقن تنسيقات تلقائية لحل مشكلة ارتفاع القائمة فوق الكيبورد وتنسيق طبقات النوافذ
+    if (!document.getElementById('task-modal-fix-style')) {
+        const style = document.createElement('style');
+        style.id = 'task-modal-fix-style';
+        style.innerHTML = `
+            body.modal-open-fix .bottom-nav,
+            body.modal-open-fix #bottom-nav,
+            body.modal-open-fix .nav-bar,
+            body.modal-open-fix .bottom-menu,
+            body.modal-open-fix footer,
+            body.modal-open-fix nav,
+            body.modal-open-fix .footer-nav {
+                display: none !important;
+            }
+            #ad-modal, #review-modal, #success-modal {
+                z-index: 999999 !important;
+                position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // 🛠️ دوال التحكم بإخفاء وإظهار القائمة السفلية عند إدخال البيانات
+    function hideBottomNav() {
+        document.body.classList.add('modal-open-fix');
+        const selectors = ['.bottom-nav', '#bottom-nav', '.nav-bar', '.bottom-menu', 'footer', 'nav', '.footer-nav'];
+        selectors.forEach(sel => {
+            document.querySelectorAll(sel).forEach(el => {
+                el.style.setProperty('display', 'none', 'important');
+            });
+        });
+    }
+
+    function showBottomNav() {
+        document.body.classList.remove('modal-open-fix');
+        const selectors = ['.bottom-nav', '#bottom-nav', '.nav-bar', '.bottom-menu', 'footer', 'nav', '.footer-nav'];
+        selectors.forEach(sel => {
+            document.querySelectorAll(sel).forEach(el => {
+                el.style.removeProperty('display');
+            });
+        });
+    }
+
     try {
         const storedCache = sessionStorage.getItem('tasks_cache_data');
         const storedTime = sessionStorage.getItem('tasks_cache_time');
@@ -188,7 +235,7 @@
         window.fetchAndRenderTasks(forceRefresh);
     };
 
-    // ⚡ فتح النافذة المنبثقة لإنشاء الحملة
+    // ⚡ فتح النافذة المنبثقة لإنشاء الحملة وإخفاء القائمة السفلية
     window.openAdModal = function(type) {
         currentAdType = type || 'يوتيوب';
         const modal = document.getElementById('ad-modal');
@@ -219,11 +266,19 @@
         if (modal) {
             modal.style.display = 'flex';
         }
+
+        // إخفاء القائمة السفلية فوراً لمنع ارتفاهعا فوق الكيبورد
+        hideBottomNav();
     };
 
-    window.closeAdModal = function() {
+    window.closeAdModal = function(keepNavHidden = false) {
         const modal = document.getElementById('ad-modal');
         if (modal) modal.style.display = 'none';
+
+        // إعادة إظهار القائمة السفلية طالما لم نكن ننتقل لنافذة مراجعة أخرى
+        if (!keepNavHidden) {
+            showBottomNav();
+        }
     };
 
     // ⚡ شحن محفظة الإعلانات
@@ -323,8 +378,10 @@
             submitBtn.innerText = 'جاري الفحص... ⏳';
         }
 
-        // إغلاق نافذة الإدخال وإظهار نافذة الفحص الأمني التلقائي
-        window.closeAdModal();
+        // إغلاق نافذة الإدخال مع الحفاظ على إخفاء القائمة وإظهار نافذة الفحص
+        window.closeAdModal(true);
+        hideBottomNav();
+
         const reviewModal = document.getElementById('review-modal');
         const timerEl = document.getElementById('review-countdown-timer');
         if (reviewModal) reviewModal.style.display = 'flex';
@@ -367,17 +424,23 @@
 
                 // إظهار نافذة النجاح
                 const successModal = document.getElementById('success-modal');
-                if (successModal) successModal.style.display = 'flex';
-                else alert('🎉 تم إطلاق الحملة بنجاح!');
+                if (successModal) {
+                    successModal.style.display = 'flex';
+                } else {
+                    alert('🎉 تم إطلاق الحملة بنجاح!');
+                    showBottomNav();
+                }
 
                 window.fetchAndRenderTasks(true);
             } else {
                 alert(res.error || 'حدث خطأ أثناء إنشاء الحملة.');
+                showBottomNav();
             }
         } catch (err) {
             if (reviewModal) reviewModal.style.display = 'none';
             console.error('Submit Campaign Error:', err);
             alert(err.message || 'حدث خطأ في الاتصال بالسيرفر.');
+            showBottomNav();
         } finally {
             isSubmittingCampaign = false;
             if (submitBtn) {
@@ -390,6 +453,10 @@
     window.handleSuccessRedirect = function() {
         const successModal = document.getElementById('success-modal');
         if (successModal) successModal.style.display = 'none';
+        
+        // إعادة إظهار القائمة السفلية عند خروج نافذة النجاح
+        showBottomNav();
+
         window.switchTasksTab('promote');
         window.fetchAndRenderTasks(true);
     };
