@@ -440,3 +440,4 @@ def buy_upgrade():
     except Exception as e:
         print(f"[Shop Buy Error]: {e}")
         return jsonify({"success": False, "error": str(e)}), 200
+
