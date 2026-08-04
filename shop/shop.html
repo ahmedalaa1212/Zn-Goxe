@@ -20,57 +20,70 @@
         box-sizing: border-box;
     }
 
-    /* تثبيت هيكل شريط الإحصائيات لمنع انكسار العناصر عند التنقل */
+    /* تثبيت شريط الإحصائيات العلوي ومنع انكسار الأسطر نهائياً */
     .shop-stats-bar {
-        display: grid; 
-        grid-template-columns: repeat(3, minmax(0, 1fr)); 
-        gap: 6px;
-        padding: 8px 4px; 
-        background: #161616; 
-        border-radius: 14px;
-        margin-bottom: 15px; 
-        border: 1px solid #2a2a2a;
-        width: 100%;
-        box-sizing: border-box;
+        display: grid !important; 
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important; 
+        gap: 6px !important;
+        padding: 8px 4px !important; 
+        background: #161616 !important; 
+        border-radius: 14px !important;
+        margin-bottom: 15px !important; 
+        border: 1px solid #2a2a2a !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
     }
 
     .stat-box {
-        display: flex; 
-        flex-direction: column; 
-        align-items: center; 
-        justify-content: center;
-        background: rgba(255, 255, 255, 0.03); 
-        padding: 8px 2px;
-        border-radius: 10px; 
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        min-width: 0;
-        overflow: hidden;
-        box-sizing: border-box;
+        display: flex !important; 
+        flex-direction: column !important; 
+        align-items: center !important; 
+        justify-content: center !important;
+        background: rgba(255, 255, 255, 0.03) !important; 
+        padding: 8px 2px !important;
+        border-radius: 10px !important; 
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
     }
 
     .stat-label { 
-        font-size: 11px; 
-        color: var(--text-muted); 
-        margin-bottom: 4px; 
-        white-space: nowrap;
-        text-align: center;
+        font-size: 11px !important; 
+        color: var(--text-muted) !important; 
+        margin-bottom: 4px !important; 
+        white-space: nowrap !important;
+        text-align: center !important;
+        display: block !important;
     }
     
+    /* منع التكدس العمودي داخل خانة الرقم */
     .stat-value { 
-        font-weight: 800; 
-        font-size: 12px; 
-        white-space: nowrap;
+        font-weight: 800 !important; 
+        font-size: 12px !important; 
+        white-space: nowrap !important;
         direction: ltr !important;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 100%;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 100% !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        line-height: 1.2 !important;
     }
 
-    .int-part { font-size: 1em; font-weight: 800; }
-    .dec-part { font-size: 0.78em; opacity: 0.75; font-weight: 600; }
+    /* إجبار الأجزاء الرقمية على البقاء في سطر واحد أفقي */
+    .stat-value span,
+    .stat-value .int-part,
+    .stat-value .dec-part {
+        display: inline !important;
+        float: none !important;
+        white-space: nowrap !important;
+        direction: ltr !important;
+    }
+
+    .int-part { font-size: 1em !important; font-weight: 800 !important; }
+    .dec-part { font-size: 0.78em !important; opacity: 0.75 !important; font-weight: 600 !important; }
 
     .ton-price-bar {
         background: rgba(0, 152, 234, 0.12); 
@@ -135,7 +148,6 @@
     }
     .btn-ton-pay:active { opacity: 0.8; }
 
-    /* تثبيت الارتفاع الأدنى للشبكة لمنع قفز الصفحة أثناء التبديل */
     .shop-section-grid {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
