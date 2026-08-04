@@ -1,185 +1,173 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>المتجر - Zn Goxe</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
+<style>
+    :root {
+        --bg-color: #0f0f0f;
+        --card-bg: #1c1c1c;
+        --primary: #f39c12;
+        --telegram-blue: #0088cc;
+        --ton-blue: #0098ea;
+        --gold: #ffcc00;
+        --accent-green: #10b981;
+        --accent-red: #ff4444;
+        --text-main: #ffffff;
+        --text-muted: #aaaaaa;
+    }
+
+    .shop-container { 
+        padding: 15px; 
+        padding-top: 20px; 
+        max-width: 500px; 
+        margin: 0 auto; 
+        box-sizing: border-box;
+    }
+
+    .shop-stats-bar {
+        display: grid; 
+        grid-template-columns: repeat(3, 1fr); 
+        gap: 6px;
+        padding: 10px 6px; 
+        background: #161616; 
+        border-radius: 14px;
+        margin-bottom: 15px; 
+        border: 1px solid #2a2a2a;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .stat-box {
+        display: flex; 
+        flex-direction: column; 
+        align-items: center; 
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.03); 
+        padding: 8px 4px;
+        border-radius: 10px; 
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    .stat-label { 
+        font-size: 11px; 
+        color: var(--text-muted); 
+        margin-bottom: 4px; 
+        white-space: nowrap;
+    }
     
-    <link rel="stylesheet" href="../style.css?v=13.2">
-    <style>
-        :root {
-            --bg-color: #0f0f0f;
-            --card-bg: #1c1c1c;
-            --primary: #f39c12;
-            --telegram-blue: #0088cc;
-            --ton-blue: #0098ea;
-            --gold: #ffcc00;
-            --accent-green: #10b981;
-            --accent-red: #ff4444;
-            --text-main: #ffffff;
-            --text-muted: #aaaaaa;
-        }
+    .stat-value { 
+        font-weight: 800; 
+        font-size: 13px; 
+        white-space: nowrap;
+        direction: ltr !important;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
 
-        * { 
-            box-sizing: border-box; 
-            outline: none; 
-            -webkit-tap-highlight-color: transparent; 
-        }
+    /* تنسيقات الأرقام الصحيحة والعشرية للحصول على مظهر احترافي دون كسر أسطر */
+    .int-part { font-size: 1em; font-weight: 800; }
+    .dec-part { font-size: 0.78em; opacity: 0.75; font-weight: 600; }
 
-        body {
-            background-color: var(--bg-color); 
-            color: var(--text-main);
-            font-family: 'Segoe UI', system-ui, -apple-system, Roboto, Tahoma, sans-serif;
-            margin: 0; 
-            padding: 0; 
-            padding-bottom: 90px;
-            -webkit-user-select: none; 
-            user-select: none;
-        }
+    .ton-price-bar {
+        background: rgba(0, 152, 234, 0.12); 
+        border: 1px solid var(--ton-blue);
+        border-radius: 12px; 
+        padding: 12px 14px; 
+        margin-bottom: 20px;
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center;
+    }
 
-        .shop-container { 
-            padding: 15px; 
-            padding-top: 20px; 
-            max-width: 500px; 
-            margin: 0 auto; 
-        }
+    .usdt-container {
+        display: flex; 
+        gap: 12px; 
+        overflow-x: auto; 
+        padding-bottom: 10px;
+        margin-bottom: 25px; 
+        scrollbar-width: none;
+    }
+    .usdt-container::-webkit-scrollbar { display: none; }
 
-        .shop-stats-bar {
-            display: grid; 
-            grid-template-columns: repeat(3, 1fr); 
-            gap: 8px;
-            padding: 12px 10px; 
-            background: #161616; 
-            border-radius: 14px;
-            margin-bottom: 15px; 
-            border: 1px solid #2a2a2a;
-        }
+    .usdt-card {
+        min-width: 150px; 
+        flex: 1; 
+        border-radius: 12px; 
+        padding: 12px;
+        text-align: center; 
+        display: flex; 
+        flex-direction: column; 
+        justify-content: space-between;
+    }
 
-        .stat-box {
-            display: flex; 
-            flex-direction: column; 
-            align-items: center; 
-            justify-content: center;
-            background: rgba(255, 255, 255, 0.03); 
-            padding: 8px 4px;
-            border-radius: 10px; 
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
+    .usdt-perks {
+        font-size: 11px; 
+        color: #ccc; 
+        margin: 6px 0; 
+        line-height: 1.4;
+        text-align: right; 
+        background: rgba(0,0,0,0.3); 
+        padding: 6px; 
+        border-radius: 6px;
+    }
 
-        .stat-label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
-        .stat-value { font-weight: 800; font-size: 13px; white-space: nowrap; }
+    .btn-ton-pay {
+        width: 100%; 
+        border: none; 
+        padding: 10px 8px;
+        border-radius: 8px; 
+        font-weight: bold; 
+        cursor: pointer; 
+        margin-top: 5px;
+        display: flex; 
+        align-items: center; 
+        justify-content: center; 
+        gap: 4px;
+        font-size: 13px;
+        transition: opacity 0.2s;
+    }
+    .btn-ton-pay:active { opacity: 0.8; }
+</style>
 
-        /* تنسيقات الأرقام الصحيحة والعشرية للحصول على مظهر احترافي */
-        .int-part { font-size: 1em; font-weight: 800; }
-        .dec-part { font-size: 0.78em; opacity: 0.65; font-weight: 600; margin-right: 1px; }
-
-        .ton-price-bar {
-            background: rgba(0, 152, 234, 0.12); 
-            border: 1px solid var(--ton-blue);
-            border-radius: 12px; 
-            padding: 12px 14px; 
-            margin-bottom: 20px;
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center;
-        }
-
-        .usdt-container {
-            display: flex; 
-            gap: 12px; 
-            overflow-x: auto; 
-            padding-bottom: 10px;
-            margin-bottom: 25px; 
-            scrollbar-width: none;
-        }
-        .usdt-container::-webkit-scrollbar { display: none; }
-
-        .usdt-card {
-            min-width: 150px; 
-            flex: 1; 
-            border-radius: 12px; 
-            padding: 12px;
-            text-align: center; 
-            display: flex; 
-            flex-direction: column; 
-            justify-content: space-between;
-        }
-
-        .usdt-perks {
-            font-size: 11px; 
-            color: #ccc; 
-            margin: 6px 0; 
-            line-height: 1.4;
-            text-align: right; 
-            background: rgba(0,0,0,0.3); 
-            padding: 6px; 
-            border-radius: 6px;
-        }
-
-        .btn-ton-pay {
-            width: 100%; 
-            border: none; 
-            padding: 10px 8px;
-            border-radius: 8px; 
-            font-weight: bold; 
-            cursor: pointer; 
-            margin-top: 5px;
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
-            gap: 4px;
-            font-size: 13px;
-            transition: opacity 0.2s;
-        }
-        .btn-ton-pay:active { opacity: 0.8; }
-    </style>
-</head>
-<body>
-
-    <div class="shop-container">
-        <div class="shop-stats-bar">
-            <div class="stat-box">
-                <span class="stat-label">🪙 ZN</span>
-                <span data-bind="balance" id="shop-balance-text" class="stat-value" style="color: var(--primary);">0</span>
-            </div>
-            <div class="stat-box" style="border-color: rgba(255, 204, 0, 0.2); background: rgba(255, 204, 0, 0.05);">
-                <span class="stat-label" style="color: var(--gold);">⚡ السرعة</span>
-                <span data-bind="hourly_rate" id="shop-rate-text" class="stat-value" style="color: var(--gold);">+0/h</span>
-            </div>
-            <div class="stat-box">
-                <span class="stat-label" style="color: var(--accent-green);">💵 USD</span>
-                <span data-bind="usd_balance" id="shop-usd-text" class="stat-value" style="color: var(--accent-green);">$0.00</span>
-            </div>
+<div class="shop-container">
+    <div class="shop-stats-bar">
+        <div class="stat-box">
+            <span class="stat-label">🪙 ZN</span>
+            <span data-bind="balance" id="shop-balance-text" class="stat-value" style="color: var(--primary);">0</span>
         </div>
-
-        <div class="ton-price-bar">
-            <div style="font-size: 13px; font-weight: bold; color: var(--ton-blue);">
-                💎 سعر TON المباشر:
-            </div>
-            <div id="ton-live-rate-text" data-bind="ton_price" style="font-weight: 800; color: #fff; font-size: 14px;">جاري التحميل...</div>
+        <div class="stat-box" style="border-color: rgba(255, 204, 0, 0.2); background: rgba(255, 204, 0, 0.05);">
+            <span class="stat-label" style="color: var(--gold);">⚡ السرعة</span>
+            <span data-bind="hourly_rate" id="shop-rate-text" class="stat-value" style="color: var(--gold);">+0/h</span>
         </div>
-
-        <div id="ton-connect-btn" style="display:none;"></div>
-
-        <h3 style="color: #fff; margin-bottom: 12px; font-size: 17px; font-weight: bold;">💎 باقات العروض المميزة (الدفع التلقائي)</h3>
-        
-        <div class="usdt-container" id="usdt-packages-container">
-            <div style="color: #888; font-size: 13px; text-align: center; width: 100%; padding: 20px;">جاري تحميل الباقات المتاحة...</div>
+        <div class="stat-box">
+            <span class="stat-label" style="color: var(--accent-green);">💵 USD</span>
+            <span data-bind="usd_balance" id="shop-usd-text" class="stat-value" style="color: var(--accent-green);">$0.00</span>
         </div>
-
-        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-            <button id="tab-mining" onclick="switchShopTab('mining')" style="flex: 1; padding: 12px; background: var(--telegram-blue); color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer;">⚡ ترقيات السرعة</button>
-            <button id="tab-storage" onclick="switchShopTab('storage')" style="flex: 1; padding: 12px; background: #333333; color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer;">📦 ترقيات المخزن</button>
-        </div>
-
-        <div id="shop-mining-section" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;"></div>
-
-        <div id="shop-storage-section" style="display: none; grid-template-columns: repeat(2, 1fr); gap: 12px;"></div>
-
     </div>
 
-    <script src="shop.js?v=20.0"></script>
-</body>
-</html>
+    <div class="ton-price-bar">
+        <div style="font-size: 13px; font-weight: bold; color: var(--ton-blue);">
+            💎 سعر TON المباشر:
+        </div>
+        <div id="ton-live-rate-text" data-bind="ton_price" style="font-weight: 800; color: #fff; font-size: 14px; direction: ltr;">جاري التحميل...</div>
+    </div>
+
+    <div id="ton-connect-btn" style="display:none;"></div>
+
+    <h3 style="color: #fff; margin-bottom: 12px; font-size: 17px; font-weight: bold;">💎 باقات العروض المميزة (الدفع التلقائي)</h3>
+    
+    <div class="usdt-container" id="usdt-packages-container">
+        <div style="color: #888; font-size: 13px; text-align: center; width: 100%; padding: 20px;">جاري تحميل الباقات المتاحة...</div>
+    </div>
+
+    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+        <button id="tab-mining" onclick="switchShopTab('mining')" style="flex: 1; padding: 12px; background: var(--telegram-blue); color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer;">⚡ ترقيات السرعة</button>
+        <button id="tab-storage" onclick="switchShopTab('storage')" style="flex: 1; padding: 12px; background: #333333; color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer;">📦 ترقيات المخزن</button>
+    </div>
+
+    <div id="shop-mining-section" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;"></div>
+
+    <div id="shop-storage-section" style="display: none; grid-template-columns: repeat(2, 1fr); gap: 12px;"></div>
+</div>
