@@ -186,19 +186,19 @@
             const btnTextColor = theme.textColor || '#ffffff';
 
             html += `
-                <div class="usdt-card" style="background: ${theme.bg}; border: 1px solid ${theme.border}; border-radius: 14px; padding: 14px; min-width: 145px; display: flex; flex-direction: column; justify-content: space-between; text-align: center; margin-right: 10px;">
+                <div class="usdt-card" style="background: ${theme.bg}; border: 1px solid ${theme.border};">
                     <div>
                         <div style="font-size: 24px;">${theme.icon}</div>
                         <div style="color: #ffffff; font-weight: bold; font-size: 13px;">${pkg.title || 'باقة مميزة'}</div>
                         <div style="color: ${theme.border}; font-weight: bold; font-size: 16px; margin: 4px 0;">$${parseFloat(pkg.usdt).toFixed(2)}</div>
                         <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${parseFloat(pkg.ton_amount).toFixed(2)} TON</div>
                     </div>
-                    <div class="usdt-perks" style="font-size: 11px; color: #cccccc; line-height: 1.4; margin-bottom: 10px; background: rgba(0,0,0,0.3); padding: 6px; border-radius: 8px;">
+                    <div class="usdt-perks">
                         ⚡ +${Number(pkg.rate_add).toLocaleString()} ZN/h<br>
                         📦 +${Number(pkg.storage_add).toLocaleString()} مخزن<br>
                         🪙 +${Number(pkg.zn_add).toLocaleString()} ZN
                     </div>
-                    <button class="btn-ton-pay" style="background: ${theme.btn}; color: ${btnTextColor}; border: none; border-radius: 8px; padding: 8px; font-weight: bold; font-size: 12px; cursor: pointer;" onclick="buyPackageWithTon('${pkgId}')">شراء تلقائي</button>
+                    <button class="btn-ton-pay" style="background: ${theme.btn}; color: ${btnTextColor};" onclick="buyPackageWithTon('${pkgId}')">شراء تلقائي</button>
                 </div>
             `;
             index++;
@@ -384,6 +384,9 @@
 
     injectModalUI();
 
+    // =================================================================
+    // 🔄 5. التبديل النظيف بين التبويبات بدون إعادة حساب Layout متكررة
+    // =================================================================
     window.switchShopTab = function(tab) {
         triggerHaptic('impact', 'light');
         const miningSec = document.getElementById('shop-mining-section');
@@ -407,7 +410,7 @@
     };
 
     // =================================================================
-    // 🔄 5. تحديث واجهة المتجر (Render UI)
+    // 🔄 6. تحديث واجهة المتجر (Render UI)
     // =================================================================
     window.updateShopUI = function() {
         const miningSec = document.getElementById('shop-mining-section');
@@ -535,7 +538,7 @@
     };
 
     // =================================================================
-    // ⚡ 6. تنفيذ الشراء الفعلي والتحديث الفوري للحالة
+    // ⚡ 7. تنفيذ الشراء الفعلي والتحديث الفوري للحالة
     // =================================================================
     window.requestShopPurchase = function(type, level, price) {
         const curBal = parseFloat(window.userState?.balance || 0);
