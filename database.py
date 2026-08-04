@@ -203,6 +203,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "usd_balance": 0.0,
                 "hourly_rate": 0.0,
                 "daily_boost_rate": 0.0,
+                "ads_watched": 0,
                 "energy": 100.0,
                 "storage_level": 0,
                 "extra_storage": 0.0,
@@ -250,6 +251,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
             if "upgrades" not in user_data: updates["upgrades"] = {}
             if "hourly_rate" not in user_data: updates["hourly_rate"] = 0.0
             if "daily_boost_rate" not in user_data: updates["daily_boost_rate"] = 0.0
+            if "ads_watched" not in user_data: updates["ads_watched"] = 0
             if "pending_ref_earnings" not in user_data: updates["pending_ref_earnings"] = 0.0
             if "total_ref_earnings" not in user_data: updates["total_ref_earnings"] = 0.0
             if "claimed_ref_tasks" not in user_data: updates["claimed_ref_tasks"] = []
@@ -286,6 +288,10 @@ def get_user(tg_id):
             if "daily_boost_rate" not in data:
                 auto_updates["daily_boost_rate"] = 0.0
                 data["daily_boost_rate"] = 0.0
+
+            if "ads_watched" not in data:
+                auto_updates["ads_watched"] = 0
+                data["ads_watched"] = 0
 
             if "boost_multiplier" not in data:
                 auto_updates["boost_multiplier"] = 1
@@ -369,65 +375,12 @@ def apply_package_to_user(tg_id, added_storage=0.0, added_balance=0.0, added_hou
             updates["balance"] = firestore.Increment(float(added_balance))
         if added_hourly_rate > 0:
             updates["hourly_rate"] = firestore.Increment(float(added_hourly_rate))
-            updates["daily_boost_rate"] = firestore.Increment(float(added_hourly_rate))
 
         user_ref.update(updates)
         return True, f"تمت إضافة الباقة بنجاح! السعة الجديدة: {new_max_cap}"
     except Exception as e:
         print(f"❌ Error applying package: {e}")
         return False, f"حدث خطأ: {e}"
-
-def add_ad_boost_speed(tg_id, boost_amount=0.5):
-    """
-    دالة إضافة سرعة الإعلانات وإدارتها تلقائياً:
-    1. تزيد hourly_rate و daily_boost_rate بمقدار boost_amount.
-    2. تزيد عداد الإعلانات المشاهدة ads_watched بمقدار 1.
-    3. تفحص ما إذا وصل daily_boost_rate إلى 15.0/h لتمحن المستخدم 50 عملة ZN هدية.
-    """
-    try:
-        if not tg_id: return False, "معرف المستخدم غير صالح", False
-        tg_id_str = str(tg_id)
-        user_ref = db.collection('users').document(tg_id_str)
-        
-        @firestore.transactional
-        def run_boost_transaction(transaction, ref):
-            snapshot = ref.get(transaction=transaction)
-            if not snapshot.exists:
-                return False, "المستخدم غير موجود", False
-            
-            data = snapshot.to_dict() or {}
-            current_daily_boost = float(data.get("daily_boost_rate", 0.0))
-            current_hourly_rate = float(data.get("hourly_rate", 0.0))
-            milestone_claimed = bool(data.get("milestone_15_claimed", False))
-            
-            new_daily_boost = current_daily_boost + float(boost_amount)
-            
-            bonus_given = False
-            updates = {
-                "daily_boost_rate": firestore.Increment(float(boost_amount)),
-                "hourly_rate": firestore.Increment(float(boost_amount)),
-                "ads_watched": firestore.Increment(1),
-                "last_boost_date": datetime.now(timezone.utc).strftime('%Y-%m-%d')
-            }
-            
-            if new_daily_boost >= 15.0 and not milestone_claimed:
-                updates["balance"] = firestore.Increment(50.0)
-                updates["milestone_15_claimed"] = True
-                bonus_given = True
-                
-            transaction.update(ref, updates)
-            
-            msg = "تمت إضافة السرعة بنجاح!"
-            if bonus_given:
-                msg = "تهانينا! وصلت لسرعة 15/h وحصلت على 50 عملة هدية! 🎁"
-                
-            return True, msg, bonus_given
-
-        transaction = db.transaction()
-        return run_boost_transaction(transaction, user_ref)
-    except Exception as e:
-        print(f"❌ Error adding ad boost speed: {e}")
-        return False, f"حدث خطأ أثناء إضافة البوست: {e}", False
 
 def add_extra_storage(tg_id, extra_amount):
     return apply_package_to_user(tg_id, added_storage=extra_amount)
