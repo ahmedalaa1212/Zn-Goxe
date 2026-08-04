@@ -1,6 +1,6 @@
 // shop/shop.js
 // =================================================================
-// 🛒 ZN Goxe - Shop Module (Optimized, Animated & Cash-Safe)
+// 🛒 ZN Goxe - Shop Module (Optimized, Animated & Single Proxy State)
 // =================================================================
 
 (function initShop() {
@@ -26,11 +26,10 @@
         let num = parseFloat(val);
         if (isNaN(num)) num = 0;
 
-        // اختصار ذكي للأرقام المليونية والمليارية
         if (num >= 1000000000) {
             return prefix + (num / 1000000000).toFixed(2) + 'B' + suffix;
         }
-        if (num >= 10000000) { // أطول من 10 مليون
+        if (num >= 10000000) { 
             return prefix + (num / 1000000).toFixed(2) + 'M' + suffix;
         }
 
@@ -106,7 +105,9 @@
         return initTonConnect();
     }
 
-    // --- تحميل إعدادات المتجر مع التخزين المحلي السريع ---
+    // =================================================================
+    // 📦 2. تحميل إعدادات المتجر مع التخزين المحلي السريع
+    // =================================================================
     async function loadShopConfig(forceFetch = false) {
         const now = Date.now();
 
@@ -206,6 +207,9 @@
         container.innerHTML = html;
     }
 
+    // =================================================================
+    // 💎 3. شراء الباقات بـ TON والتحديث المباشر عبر Proxy
+    // =================================================================
     window.buyPackageWithTon = async function(packageId) {
         if (isBuying) return;
 
@@ -291,26 +295,18 @@
             });
 
             const verifyData = await verifyRes.json();
-            if (verifyData.success) {
+            if (verifyData.success && verifyData.result) {
                 triggerHaptic('notification', 'success');
                 alert("🎉 تم تأكيد الدفع وتفعيل الباقة بنجاح!");
 
-                // ⚡ تحديث الحافلة الموحدة مع الحفاظ على الاتساق
-                if (!window.GameState) window.GameState = {};
-                window.GameState.balance = verifyData.result.balance;
-                window.GameState.hourly_rate = verifyData.result.hourly_rate;
-                window.GameState.max_cap = verifyData.result.max_cap;
+                const res = verifyData.result;
+                // ⚡ تحديث المباشر لـ userState Proxy لتحفيز الحفظ اللحظي والـ UI
+                if (res.balance !== undefined) window.userState.balance = res.balance;
+                if (res.hourly_rate !== undefined) window.userState.hourly_rate = res.hourly_rate;
+                if (res.extra_storage !== undefined) window.userState.extra_storage = res.extra_storage;
+                if (res.max_cap !== undefined) window.userState.max_cap = res.max_cap;
 
-                if (window.userState) Object.assign(window.userState, window.GameState);
-                if (window.PlayerData) Object.assign(window.PlayerData, window.GameState);
-
-                window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.GameState }));
-
-                if (typeof window.updateGlobalUI === 'function') {
-                    window.updateGlobalUI();
-                } else {
-                    window.updateShopUI();
-                }
+                window.updateShopUI();
             } else {
                 alert("⚠️ " + (verifyData.error || verifyData.message));
             }
@@ -324,6 +320,9 @@
         }
     };
 
+    // =================================================================
+    // 🎨 4. نافذة التأكيد الشفافة (Modal UI)
+    // =================================================================
     const injectModalUI = () => {
         if (!document.getElementById('shop-modal-styles')) {
             const styleSheet = document.createElement("style");
@@ -408,12 +407,16 @@
         }
     };
 
+    // =================================================================
+    // 🔄 5. تحديث واجهة المتجر (Render UI)
+    // =================================================================
     window.updateShopUI = function() {
         const miningSec = document.getElementById('shop-mining-section');
         const storageSec = document.getElementById('shop-storage-section');
         if (!miningSec || !storageSec) return;
 
-        const pData = window.GameState || window.userState || window.PlayerData || { balance: 0, hourly_rate: 0, upgrades: {}, storage_level: 0, usd_balance: 0 };
+        // القراءة الصارمة والمباشرة من userState الموحد
+        const pData = window.userState || {};
         let totalBal = parseFloat(pData.balance || 0);
 
         const usdElem = document.getElementById('shop-usd-text');
@@ -434,19 +437,20 @@
             rateElem.innerText = `+${hRate.toFixed(2)}/h`;
         }
 
+        // المطابقة الصارمة مع database.py & shop_api.py
         const defaultMiningCfg = {
-            "1": {"rate": 5, "price": 2000, "max": 10},
-            "2": {"rate": 15, "price": 7000, "max": 10},
-            "3": {"rate": 35, "price": 18000, "max": 10},
-            "4": {"rate": 80, "price": 45000, "max": 10},
-            "5": {"rate": 180, "price": 110000, "max": 10},
-            "6": {"rate": 400, "price": 260000, "max": 10},
-            "7": {"rate": 900, "price": 600000, "max": 10},
-            "8": {"rate": 2000, "price": 1400000, "max": 10},
-            "9": {"rate": 4500, "price": 3200000, "max": 10}
+            "1": {"price": 3500, "rate": 5, "max": 10},
+            "2": {"price": 11500, "rate": 15, "max": 10},
+            "3": {"price": 28000, "rate": 35, "max": 10},
+            "4": {"price": 68000, "rate": 80, "max": 10},
+            "5": {"price": 165000, "rate": 180, "max": 10},
+            "6": {"price": 390000, "rate": 400, "max": 10},
+            "7": {"price": 950000, "rate": 900, "max": 10},
+            "8": {"price": 2300000, "rate": 2000, "max": 10},
+            "9": {"price": 5500000, "rate": 4500, "max": 10}
         };
 
-        const miningCfg = shopDynamicSettings?.mining_config || defaultMiningCfg;
+        const miningCfg = shopDynamicSettings?.mining_config || shopDynamicSettings?.speed_config || defaultMiningCfg;
 
         let miningHtml = '';
         for (const [key, cfg] of Object.entries(miningCfg)) {
@@ -478,17 +482,18 @@
         }
         miningSec.innerHTML = miningHtml;
 
+        // المطابقة الصارمة مع database.py & shop_api.py
         const defaultStorageCfg = {
-            "1": {"capacity": 600, "price": 3000},
-            "2": {"capacity": 1500, "price": 10000},
-            "3": {"capacity": 3500, "price": 25000},
-            "4": {"capacity": 8000, "price": 65000},
-            "5": {"capacity": 18000, "price": 160000},
-            "6": {"capacity": 40000, "price": 400000},
-            "7": {"capacity": 90000, "price": 950000},
-            "8": {"capacity": 200000, "price": 2200000},
-            "9": {"capacity": 450000, "price": 5000000},
-            "10": {"capacity": 1000000, "price": 12000000}
+            "1": {"capacity": 300, "price": 3000},
+            "2": {"capacity": 800, "price": 8500},
+            "3": {"capacity": 2000, "price": 25000},
+            "4": {"capacity": 5000, "price": 70000},
+            "5": {"capacity": 12000, "price": 180000},
+            "6": {"capacity": 28000, "price": 450000},
+            "7": {"capacity": 65000, "price": 1100000},
+            "8": {"capacity": 150000, "price": 2800000},
+            "9": {"capacity": 350000, "price": 7000000},
+            "10": {"capacity": 800000, "price": 18000000}
         };
 
         const storageCfg = shopDynamicSettings?.storage_config || defaultStorageCfg;
@@ -497,7 +502,7 @@
         let currentStorageLvl = parseInt(pData.storage_level || 0); 
 
         for (const [key, cfg] of Object.entries(storageCfg)) {
-            if (isNaN(parseInt(key))) continue;
+            if (isNaN(parseInt(key)) || key === "0") continue;
 
             let i = parseInt(key);
             let price = parseFloat(cfg.price);
@@ -533,8 +538,11 @@
         storageSec.innerHTML = storageHtml;
     };
 
+    // =================================================================
+    // ⚡ 6. تنفيذ الشراء الفعلي والتحديث الفوري للحالة
+    // =================================================================
     window.requestShopPurchase = function(type, level, price) {
-        const curBal = parseFloat(window.GameState?.balance || window.userState?.balance || window.PlayerData?.balance || 0);
+        const curBal = parseFloat(window.userState?.balance || 0);
         if (curBal < parseFloat(price)) {
             triggerHaptic('notification', 'error');
             alert("⚠️ الرصيد غير كافي لشراء هذا التطوير!");
@@ -600,28 +608,18 @@
             if (response.ok && resData.success) {
                 triggerHaptic('notification', 'success');
 
-                // ⚡ مزامنة حالة اللعبة فورياً عبر الكائنات الموحدة
-                if (!window.GameState) window.GameState = {};
+                // ⚡ تحديث مباشر وسلس لكائن userState Proxy لضمان الاستجابة والحفظ اللحظي
+                if (resData.balance !== undefined) window.userState.balance = resData.balance;
+                if (resData.hourly_rate !== undefined) window.userState.hourly_rate = resData.hourly_rate;
+                if (resData.upgrades !== undefined) window.userState.upgrades = resData.upgrades;
+                if (resData.storage_level !== undefined) window.userState.storage_level = resData.storage_level;
+                if (resData.extra_storage !== undefined) window.userState.extra_storage = resData.extra_storage;
+                if (resData.max_cap !== undefined) window.userState.max_cap = resData.max_cap;
+                if (resData.usd_balance !== undefined) window.userState.usd_balance = resData.usd_balance;
+                if (resData.last_claim_time !== undefined) window.userState.last_claim_time = resData.last_claim_time;
+                if (resData.unclaimed !== undefined) window.userState.unclaimed = resData.unclaimed;
 
-                window.GameState.balance = resData.balance;
-                if (resData.hourly_rate !== undefined) window.GameState.hourly_rate = resData.hourly_rate;
-                if (resData.upgrades !== undefined) window.GameState.upgrades = resData.upgrades;
-                if (resData.storage_level !== undefined) window.GameState.storage_level = resData.storage_level;
-                if (resData.max_cap !== undefined) window.GameState.max_cap = resData.max_cap;
-                if (resData.usd_balance !== undefined) window.GameState.usd_balance = resData.usd_balance;
-                if (resData.last_claim_time !== undefined) window.GameState.last_claim_time = resData.last_claim_time;
-
-                // التكيف مع الكائنات الأخرى إن وجدت
-                if (window.userState) Object.assign(window.userState, window.GameState);
-                if (window.PlayerData) Object.assign(window.PlayerData, window.GameState);
-
-                window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.GameState }));
-
-                if (typeof window.updateGlobalUI === 'function') {
-                    window.updateGlobalUI();
-                } else {
-                    window.updateShopUI();
-                }
+                window.updateShopUI();
             } else {
                 alert("⚠️ " + (resData.error || resData.message || "حدث خطأ أثناء الشراء."));
             }
