@@ -125,6 +125,7 @@ window.initFarmView = function() {
                     if (resData.player.balance !== undefined) setStoredBalance(resData.player.balance);
                     if (resData.player.hourly_rate !== undefined) window.userState.hourly_rate = resData.player.hourly_rate;
                     if (resData.player.daily_boost_rate !== undefined) window.userState.daily_boost_rate = resData.player.daily_boost_rate;
+                    if (resData.player.ads_watched !== undefined) window.userState.ads_watched = resData.player.ads_watched;
                     if (resData.player.max_cap !== undefined) window.userState.max_cap = resData.player.max_cap;
                     if (resData.player.extra_storage !== undefined) window.userState.extra_storage = resData.player.extra_storage;
                     if (resData.player.storage_level !== undefined) window.userState.storage_level = resData.player.storage_level;
@@ -366,7 +367,6 @@ window.initFarmView = function() {
     window.addEventListener('pageshow', syncOnVisibility);
     document.addEventListener("visibilitychange", syncOnVisibility);
 
-    // دالة الإعلان الصارمة - تضمن عدم إعطاء أي مكافأة بدون مشاهدة الإعلان بالكامل
     function showTelegramAd(statusCallback) {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
@@ -374,7 +374,7 @@ window.initFarmView = function() {
                 try {
                     window.show_11322720()
                         .then(() => {
-                            resolve(true); // تمت مشاهدة الإعلان بنجاح
+                            resolve(true); 
                         })
                         .catch((err) => {
                             console.warn("فشل أو تم إغلاق الإعلان:", err);
@@ -471,6 +471,11 @@ window.initFarmView = function() {
                         if (!window.userState) window.userState = {};
                         window.userState.daily_boost_rate = resData.daily_boost_rate;
                     }
+                    if (resData.ads_watched !== undefined) {
+                        if (window.PlayerData) window.PlayerData.ads_watched = resData.ads_watched;
+                        if (!window.userState) window.userState = {};
+                        window.userState.ads_watched = resData.ads_watched;
+                    }
                     if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
                     if (resData.last_boost_date) {
                         if (window.PlayerData) window.PlayerData.last_boost_date = resData.last_boost_date;
@@ -526,6 +531,11 @@ window.initFarmView = function() {
                         if (window.PlayerData) window.PlayerData.daily_day = resData.daily_day;
                         if (!window.userState) window.userState = {};
                         window.userState.daily_day = resData.daily_day;
+                    }
+                    if (resData.ads_watched !== undefined) {
+                        if (window.PlayerData) window.PlayerData.ads_watched = resData.ads_watched;
+                        if (!window.userState) window.userState = {};
+                        window.userState.ads_watched = resData.ads_watched;
                     }
                     if (resData.last_daily_claim_date) {
                         if (window.PlayerData) window.PlayerData.last_daily_claim_date = resData.last_daily_claim_date;
