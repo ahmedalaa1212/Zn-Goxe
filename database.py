@@ -669,3 +669,4 @@ def update_user_storage_level(tg_id, target_level=None):
     except Exception as e:
         print(f"❌ Error updating storage level for {tg_id}: {e}")
         return False, f"حدث خطأ: {e}", 0, 0
+
