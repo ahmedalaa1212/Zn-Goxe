@@ -213,6 +213,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "daily_day": 1,
                 "last_daily_claim_date": None,
                 "upgrades": {},
+                "completed_tasks": [],
                 "banned": False,
                 "wallet_address": None,
                 "referred_by": valid_ref_id,
@@ -248,6 +249,8 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
             if "max_cap" not in user_data: updates["max_cap"] = 100.0
             if "storage_level" not in user_data: updates["storage_level"] = 0
             if "extra_storage" not in user_data: updates["extra_storage"] = 0.0
+            if "ad_balance" not in user_data: updates["ad_balance"] = 0.0
+            if "completed_tasks" not in user_data: updates["completed_tasks"] = []
             if "upgrades" not in user_data: updates["upgrades"] = {}
             if "hourly_rate" not in user_data: updates["hourly_rate"] = 0.0
             if "daily_boost_rate" not in user_data: updates["daily_boost_rate"] = 0.0
@@ -280,6 +283,14 @@ def get_user(tg_id):
             if "extra_storage" not in data:
                 auto_updates["extra_storage"] = 0.0
                 data["extra_storage"] = 0.0
+
+            if "ad_balance" not in data:
+                auto_updates["ad_balance"] = 0.0
+                data["ad_balance"] = 0.0
+
+            if "completed_tasks" not in data:
+                auto_updates["completed_tasks"] = []
+                data["completed_tasks"] = []
 
             if "storage_level" not in data:
                 auto_updates["storage_level"] = 0
@@ -345,6 +356,197 @@ def get_user(tg_id):
     except Exception as e:
         print(f"❌ Error getting user {tg_id}: {e}")
         return None
+
+# ==================== Task & Campaign Database Functions ====================
+
+def get_active_campaigns(tg_id):
+    try:
+        if not db: initialize_firebase()
+        user_data = get_user(tg_id) or {}
+        completed_list = [str(x) for x in user_data.get("completed_tasks", [])]
+
+        campaigns_ref = db.collection('tasks').where('active', '==', True).limit(100)
+        docs = campaigns_ref.stream()
+
+        campaigns = []
+        for doc in docs:
+            d = doc.to_dict() or {}
+            cid = doc.id
+            comp_count = int(d.get('users_completed', 0))
+            need_count = int(d.get('users_needed', 1))
+
+            if comp_count >= need_count:
+                continue
+
+            campaigns.append({
+                "id": cid,
+                "creator_id": str(d.get("creator_id", "")),
+                "platform": d.get("platform", "أخرى"),
+                "description": d.get("description", ""),
+                "url": d.get("url", ""),
+                "reward": float(d.get("reward", 0)),
+                "users_needed": need_count,
+                "users_completed": comp_count,
+                "is_completed": (cid in completed_list)
+            })
+
+        return campaigns, float(user_data.get("balance", 0.0)), float(user_data.get("ad_balance", 0.0))
+    except Exception as e:
+        print(f"❌ Error fetching active campaigns: {e}")
+        return [], 0.0, 0.0
+
+def complete_user_task(tg_id, task_id):
+    try:
+        if not tg_id or not task_id:
+            return False, "بيانات غير صالحة", 0.0
+
+        tg_id_str = str(tg_id)
+        task_id_str = str(task_id)
+
+        user_ref = db.collection('users').document(tg_id_str)
+        task_ref = db.collection('tasks').document(task_id_str)
+
+        user_doc = user_ref.get()
+        task_doc = task_ref.get()
+
+        if not user_doc.exists:
+            return False, "المستخدم غير موجود", 0.0
+        if not task_doc.exists:
+            return False, "المهمة غير موجودة أو انتهت", 0.0
+
+        user_data = user_doc.to_dict() or {}
+        task_data = task_doc.to_dict() or {}
+
+        completed = [str(x) for x in user_data.get("completed_tasks", [])]
+        if task_id_str in completed:
+            return False, "لقد قمت بإكمال هذه المهمة من قبل!", float(user_data.get("balance", 0.0))
+
+        reward = float(task_data.get("reward", 0.0))
+        new_balance = round(float(user_data.get("balance", 0.0)) + reward, 2)
+
+        # Update task progress
+        task_ref.update({
+            "users_completed": firestore.Increment(1)
+        })
+
+        # Update user
+        user_ref.update({
+            "balance": new_balance,
+            "completed_tasks": firestore.ArrayUnion([task_id_str])
+        })
+
+        return True, "تم إكمال المهمة بنجاح!", new_balance
+    except Exception as e:
+        print(f"❌ Error completing task {task_id} for user {tg_id}: {e}")
+        return False, "حدث خطأ أثناء معالجة المهمة", 0.0
+
+def create_ad_campaign(tg_id, platform, description, url, reward, users_needed):
+    try:
+        if not tg_id: return False, "معرف غير صالح", 0.0
+        tg_id_str = str(tg_id)
+        
+        reward = float(reward)
+        users_needed = int(users_needed)
+        total_cost = reward * users_needed
+
+        if reward < 250 or total_cost < 250:
+            return False, "الحد الأدنى لتكلفة الضغطة والميزانية هو 250 AdZN", 0.0
+
+        user_ref = db.collection('users').document(tg_id_str)
+        user_doc = user_ref.get()
+        if not user_doc.exists: return False, "المستخدم غير موجود", 0.0
+
+        user_data = user_doc.to_dict() or {}
+        current_ad_bal = float(user_data.get("ad_balance", 0.0))
+
+        if current_ad_bal < total_cost:
+            return False, "رصيد الإعلانات غير كافٍ!", current_ad_bal
+
+        new_ad_bal = round(current_ad_bal - total_cost, 2)
+        user_ref.update({"ad_balance": new_ad_bal})
+
+        campaign_doc = {
+            "creator_id": tg_id_str,
+            "platform": platform,
+            "description": description,
+            "url": url,
+            "reward": reward,
+            "users_needed": users_needed,
+            "users_completed": 0,
+            "active": True,
+            "created_at": firestore.SERVER_TIMESTAMP
+        }
+        db.collection('tasks').add(campaign_doc)
+
+        return True, "تم إنشاء الحملة بنجاح!", new_ad_bal
+    except Exception as e:
+        print(f"❌ Error creating campaign: {e}")
+        return False, f"حدث خطأ: {e}", 0.0
+
+def cancel_ad_campaign(tg_id, task_id):
+    try:
+        if not tg_id or not task_id: return False, "بيانات غير صالحة", 0.0, 0.0
+        tg_id_str = str(tg_id)
+        task_id_str = str(task_id)
+
+        task_ref = db.collection('tasks').document(task_id_str)
+        task_doc = task_ref.get()
+
+        if not task_doc.exists: return False, "الحملة غير موجودة", 0.0, 0.0
+
+        task_data = task_doc.to_dict() or {}
+        if str(task_data.get("creator_id")) != tg_id_str:
+            return False, "غير مصرح لك بإلغاء هذه الحملة", 0.0, 0.0
+
+        reward = float(task_data.get("reward", 0.0))
+        needed = int(task_data.get("users_needed", 0))
+        completed = int(task_data.get("users_completed", 0))
+
+        remaining_count = max(0, needed - completed)
+        refund_amount = round(remaining_count * reward, 2)
+
+        user_ref = db.collection('users').document(tg_id_str)
+        user_doc = user_ref.get()
+        current_ad_bal = float((user_doc.to_dict() or {}).get("ad_balance", 0.0)) if user_doc.exists else 0.0
+
+        new_ad_bal = round(current_ad_bal + refund_amount, 2)
+
+        task_ref.update({"active": False})
+        user_ref.update({"ad_balance": new_ad_bal})
+
+        return True, "تم إلغاء الحملة واسترداد المتبقي!", new_ad_bal, refund_amount
+    except Exception as e:
+        print(f"❌ Error canceling campaign {task_id}: {e}")
+        return False, f"حدث خطأ: {e}", 0.0, 0.0
+
+def convert_balance_to_ad_balance(tg_id, amount):
+    try:
+        if not tg_id or amount <= 0: return False, "مبلغ غير صالح", 0.0, 0.0
+        tg_id_str = str(tg_id)
+        user_ref = db.collection('users').document(tg_id_str)
+        user_doc = user_ref.get()
+
+        if not user_doc.exists: return False, "المستخدم غير موجود", 0.0, 0.0
+
+        user_data = user_doc.to_dict() or {}
+        current_bal = float(user_data.get("balance", 0.0))
+        current_ad_bal = float(user_data.get("ad_balance", 0.0))
+
+        if current_bal < amount:
+            return False, "رصيدك الأساسي غير كافٍ!", current_bal, current_ad_bal
+
+        new_bal = round(current_bal - amount, 2)
+        new_ad_bal = round(current_ad_bal + amount, 2)
+
+        user_ref.update({
+            "balance": new_bal,
+            "ad_balance": new_ad_bal
+        })
+
+        return True, "تم التحويل بنجاح!", new_bal, new_ad_bal
+    except Exception as e:
+        print(f"❌ Error converting balance: {e}")
+        return False, f"حدث خطأ: {e}", 0.0, 0.0
 
 def apply_package_to_user(tg_id, added_storage=0.0, added_balance=0.0, added_hourly_rate=0.0):
     try:
