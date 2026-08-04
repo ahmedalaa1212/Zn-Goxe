@@ -206,7 +206,6 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "storage_level": 0,
                 "extra_storage": 0.0,
                 "max_cap": 200.0,
-                "unclaimed": 0.0,
                 "last_claim_time": now_iso,
                 "daily_streak": 0,
                 "daily_day": 1,
