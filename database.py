@@ -641,45 +641,43 @@ def update_user_storage_level(tg_id, target_level=None):
         if not tg_id: return False, "معرف المستخدم غير صحيح", 0, 0
         tg_id_str = str(tg_id)
         user_ref = db.collection('users').document(tg_id_str)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            return False, "المستخدم غير موجود", 0, 0
+
         settings = get_game_settings()
         storage_cfg = settings.get("storage_config", {})
 
-        @firestore.transactional
-        def run_storage_upgrade_transaction(transaction, ref):
-            snapshot = transaction.get(ref)
-            if not snapshot.exists: return False, "المستخدم غير موجود", 0, 0
+        user_data = user_doc.to_dict() or {}
+        current_level = int(user_data.get("storage_level", 0))
+        current_balance = float(user_data.get("balance", 0.0))
+        extra_cap = float(user_data.get("extra_storage", 0.0))
 
-            user_data = snapshot.to_dict() or {}
-            current_level = int(user_data.get("storage_level", 0))
-            current_balance = float(user_data.get("balance", 0.0))
-            extra_cap = float(user_data.get("extra_storage", 0.0))
+        next_level = int(target_level) if target_level is not None else current_level + 1
 
-            next_level = int(target_level) if target_level is not None else current_level + 1
+        if target_level is None and next_level <= current_level:
+            return False, "أنت بالفعل في هذا المستوى أو مستوى أعلى!", user_data.get("max_cap", 100.0), current_balance
 
-            if target_level is None and next_level <= current_level:
-                return False, "أنت بالفعل في هذا المستوى أو مستوى أعلى!", user_data.get("max_cap", 100.0), current_balance
+        next_cfg = storage_cfg.get(str(next_level)) or storage_cfg.get(next_level)
+        if not next_cfg:
+            return False, "لقد وصلت إلى الحد الأقصى لمستويات المخزن!", user_data.get("max_cap", 100.0), current_balance
 
-            next_cfg = storage_cfg.get(str(next_level)) or storage_cfg.get(next_level)
-            if not next_cfg:
-                return False, "لقد وصلت إلى الحد الأقصى لمستويات المخزن!", user_data.get("max_cap", 100.0), current_balance
+        price = float(next_cfg.get("price", 0))
 
-            price = float(next_cfg.get("price", 0))
+        if target_level is None and current_balance < price:
+            return False, "رصيدك غير كافٍ لإجراء الترقية!", user_data.get("max_cap", 100.0), current_balance
 
-            if target_level is None and current_balance < price:
-                return False, "رصيدك غير كافٍ لإجراء الترقية!", user_data.get("max_cap", 100.0), current_balance
+        base_next_cap = float(next_cfg.get("capacity", 100.0))
+        new_total_max_cap = round(base_next_cap + extra_cap, 2)
+        update_payload = {"storage_level": next_level, "max_cap": new_total_max_cap}
 
-            base_next_cap = float(next_cfg.get("capacity", 100.0))
-            new_total_max_cap = round(base_next_cap + extra_cap, 2)
-            update_payload = {"storage_level": next_level, "max_cap": new_total_max_cap}
+        if target_level is None:
+            new_balance = round(current_balance - price, 2)
+            update_payload["balance"] = new_balance
 
-            if target_level is None:
-                new_balance = round(current_balance - price, 2)
-                update_payload["balance"] = new_balance
-
-            transaction.update(ref, update_payload)
-            return True, "تمت الترقية بنجاح!", new_total_max_cap, update_payload.get("balance", current_balance)
-
-        return run_storage_upgrade_transaction(db.transaction(), user_ref)
+        user_ref.update(update_payload)
+        return True, "تمت الترقية بنجاح!", new_total_max_cap, update_payload.get("balance", current_balance)
     except Exception as e:
         print(f"❌ Error updating storage level for {tg_id}: {e}")
         return False, f"حدث خطأ: {e}", 0, 0
