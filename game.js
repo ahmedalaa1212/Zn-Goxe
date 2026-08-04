@@ -245,13 +245,44 @@ window.initFirebaseRealtimeSync = function(userId) {
 };
 
 // ==========================================
-// 7. دالة إدارة العداد (15 ثانية)
+// 7. دالة تجميع الأرباح وإدارة العداد (15 ثانية)
 // ==========================================
+window.claimTokens = async function() {
+    try {
+        const res = await window.fetchAPI('/api/farm/claim', 'POST');
+        if (res.success) {
+            if (res.new_balance !== undefined) window.userState.balance = parseFloat(res.new_balance);
+            if (res.last_claim_time !== undefined) window.userState.last_claim_time = res.last_claim_time;
+            window.userState.unclaimed = 0;
+            if (window.PlayerData) window.PlayerData.unclaimed = 0;
+            
+            alert(`🎉 تم تجميع ${window.formatBalance(res.claimed_amount || 0)} ZN بنجاح!`);
+            window.updateUI();
+            if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
+        } else {
+            alert(res.error || 'حدث خطأ أثناء التجميع.');
+        }
+    } catch (err) {
+        alert(err.message || 'حدث خطأ أثناء الاتصال بالسيرفر لتجميع الرصيد.');
+    }
+};
+
 let claimCooldownTimer = null;
 
 window.updateClaimButtonState = function() {
     const claimButtons = document.querySelectorAll('#claim-btn, .claim-btn, [data-action="claim"]');
     if (!claimButtons.length) return;
+
+    claimButtons.forEach(btn => {
+        if (!btn.dataset.claimListenerAttached) {
+            btn.addEventListener('click', () => {
+                if (!btn.disabled && typeof window.claimTokens === 'function') {
+                    window.claimTokens();
+                }
+            });
+            btn.dataset.claimListenerAttached = "true";
+        }
+    });
 
     const COOLDOWN_SECONDS = 15;
     const lastClaimStr = window.userState.last_claim_time || window.PlayerData?.last_claim_time;
