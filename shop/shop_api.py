@@ -10,7 +10,7 @@ from core.ton_price import get_live_ton_price
 
 shop_bp = Blueprint('shop', __name__)
 
-PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
+PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc-lcTrmxyELN1Y-syVGtc"
 
 # ==================== Server-Side RAM Caching Systems ====================
 _SHOP_CONFIG_CACHE = {"data": None, "timestamp": 0}
