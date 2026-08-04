@@ -404,6 +404,9 @@ function applyBalanceToUI(val) {
     const selectors = '[data-bind="balance"], .user-balance, #farm-balance, #user-balance, #main-balance, #balance, .sync-balance, #top-balance-tasks, .user-balance-val, [data-bind="user_balance"]';
     
     document.querySelectorAll(selectors).forEach(el => {
+        // عدم منافسة أنيميشن المتجر لضمان العرض السلس والمنسق
+        if (el.id === 'shop-balance-text') return;
+
         if (el.tagName === 'INPUT') {
             el.value = rawFormatted;
         } else if (el.id === 'top-balance-tasks') {
@@ -412,7 +415,7 @@ function applyBalanceToUI(val) {
             if (el.classList.contains('plain-text')) {
                 el.innerText = `${rawFormatted} ZN`;
             } else {
-                el.innerHTML = `<span dir="ltr">${formatted} ZN</span>`;
+                el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">${formatted} ZN</span>`;
             }
         }
     });
@@ -426,7 +429,7 @@ window.updateUI = function() {
         if (el.tagName === 'INPUT') {
             el.value = currentMaxCap.toFixed(2);
         } else {
-            el.innerText = window.formatBalance(currentMaxCap);
+            el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">${window.formatBalance(currentMaxCap)}</span>`;
         }
     });
 
@@ -434,16 +437,18 @@ window.updateUI = function() {
     const formattedAd = window.formatBalance(adBal);
     document.querySelectorAll('#ad-balance-display, .ad-balance-val, [data-bind="ad_balance"]').forEach(el => {
         if (el.id === 'ad-balance-display') {
-            el.innerText = `AdZN ${formattedAd}`;
+            el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">AdZN ${formattedAd}</span>`;
         } else {
-            el.innerText = formattedAd;
+            el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">${formattedAd}</span>`;
         }
     });
 
     const usdBal = parseFloat(window.userState.usd_balance || 0);
     const formattedUsd = window.formatBalance(usdBal);
     document.querySelectorAll('.usd-balance-val, [data-bind="usd_balance"]').forEach(el => {
-        el.innerText = `$${formattedUsd}`;
+        // تجنب دهس تنسيق كروت المتجر لضمان بقاء الأرقام مستقيمة ومحمية من الالتفاف
+        if (el.id === 'shop-usd-text') return;
+        el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">$${formattedUsd}</span>`;
     });
 
     if (visualBalance === null && window.userState?.balance !== undefined) {
@@ -484,6 +489,10 @@ window.switchView = async function(viewName) {
 
     if (viewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
         window.onFarmTabOpen();
+    }
+
+    if (viewName === 'shop' && typeof window.updateShopUI === 'function') {
+        window.updateShopUI();
     }
 
     const initFuncName = `init${viewName.charAt(0).toUpperCase() + viewName.slice(1)}View`;
