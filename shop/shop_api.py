@@ -223,14 +223,15 @@ def verify_and_apply_package():
 
         @firestore.transactional
         def secure_apply_package_tx(tx, u_ref, t_ref):
-            t_snap = tx.get(t_ref)
-            if t_snap.exists:
+            t_snaps = list(tx.get(t_ref))
+            if t_snaps and t_snaps[0].exists:
                 raise Exception("تم معالجة هذه المعاملة وتفعيل الباقة سابقاً.")
 
-            u_snap = tx.get(u_ref)
-            if not u_snap.exists:
+            u_snaps = list(tx.get(u_ref))
+            if not u_snaps or not u_snaps[0].exists:
                 raise Exception("حساب المستخدم غير موجود.")
 
+            u_snap = u_snaps[0]
             u_data = u_snap.to_dict() or {}
 
             zn_add = float(pkg_info.get('zn_add', 0))
@@ -306,10 +307,11 @@ def buy_upgrade():
 
         @firestore.transactional
         def secure_buy_upgrade_tx(tx, u_ref):
-            u_snap = tx.get(u_ref)
-            if not u_snap.exists:
+            u_snaps = list(tx.get(u_ref))
+            if not u_snaps or not u_snaps[0].exists:
                 raise Exception("حساب المستخدم غير موجود.")
 
+            u_snap = u_snaps[0]
             u_data = u_snap.to_dict() or {}
 
             current_balance = float(u_data.get('balance', 0.0))
