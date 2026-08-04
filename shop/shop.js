@@ -1,6 +1,6 @@
 // shop/shop.js
 // =================================================================
-// 🛒 ZN Goxe - Shop Module (Optimized, Animated & Single Proxy State)
+// 🛒 ZN Goxe - Shop Module (Optimized Layout & Safe Formatting)
 // =================================================================
 
 (function initShop() {
@@ -10,7 +10,7 @@
     let isBuying = false;
     let shopDynamicSettings = null;
     let lastConfigFetchTime = 0;
-    const CONFIG_CACHE_TTL = 300000; // 5 دقائق كاش محلي بالمتصفح
+    const CONFIG_CACHE_TTL = 300000;
 
     function triggerHaptic(type = 'impact', style = 'medium') {
         if (window.Telegram?.WebApp?.HapticFeedback) {
@@ -20,31 +20,31 @@
     }
 
     // =================================================================
-    // 🧮 0. تنسيق الأرقام واختصار الأرقام الضخمة مع فصل الأرقام العشرية بشكل آمن
+    // 🧮 0. تنسيق الأرقام مع إجبار العرض الأفقي المباشر لحل التكدس العمودي
     // =================================================================
     function renderFormattedBalanceHTML(val, decimals = 2, prefix = '', suffix = '') {
         let num = parseFloat(val);
         if (isNaN(num)) num = 0;
 
         if (num >= 1000000000) {
-            return `<span dir="ltr" style="white-space:nowrap;">${prefix}${(num / 1000000000).toFixed(2)}B${suffix}</span>`;
+            return `<span dir="ltr" style="white-space:nowrap; display:inline !important;">${prefix}${(num / 1000000000).toFixed(2)}B${suffix}</span>`;
         }
         if (num >= 10000000) { 
-            return `<span dir="ltr" style="white-space:nowrap;">${prefix}${(num / 1000000).toFixed(2)}M${suffix}</span>`;
+            return `<span dir="ltr" style="white-space:nowrap; display:inline !important;">${prefix}${(num / 1000000).toFixed(2)}M${suffix}</span>`;
         }
 
         const parts = num.toFixed(decimals).split('.');
         const intFormatted = Math.floor(parts[0]).toLocaleString('en-US');
 
         if (decimals === 0 || !parts[1]) {
-            return `<span dir="ltr" style="white-space:nowrap;">${prefix}<span class="int-part">${intFormatted}</span>${suffix}</span>`;
+            return `<span dir="ltr" style="white-space:nowrap; display:inline !important;">${prefix}<span class="int-part" style="display:inline !important; font-size:1em; font-weight:800;">${intFormatted}</span>${suffix}</span>`;
         }
 
-        return `<span dir="ltr" style="white-space:nowrap;">${prefix}<span class="int-part">${intFormatted}</span>.<span class="dec-part">${parts[1]}</span>${suffix}</span>`;
+        return `<span dir="ltr" style="white-space:nowrap; display:inline !important;">${prefix}<span class="int-part" style="display:inline !important; font-size:1em; font-weight:800;">${intFormatted}</span>.<span class="dec-part" style="display:inline !important; font-size:0.78em; opacity:0.75; font-weight:600;">${parts[1]}</span>${suffix}</span>`;
     }
 
     // =================================================================
-    // 🧮 1. دالة التحديث البصري التدريجي للأرقام (Smooth Counter Animation)
+    // 🧮 1. دالة التحديث البصري التدريجي للأرقام
     // =================================================================
     function animateValue(element, start, end, duration = 800, decimals = 2, prefix = '', suffix = '') {
         if (!element) return;
@@ -106,7 +106,7 @@
     }
 
     // =================================================================
-    // 📦 2. تحميل إعدادات المتجر مع التخزين المحلي السريع
+    // 📦 2. تحميل إعدادات المتجر
     // =================================================================
     async function loadShopConfig(forceFetch = false) {
         const now = Date.now();
@@ -208,7 +208,7 @@
     }
 
     // =================================================================
-    // 💎 3. شراء الباقات بـ TON والتحديث المباشر عبر Proxy
+    // 💎 3. شراء الباقات بـ TON
     // =================================================================
     window.buyPackageWithTon = async function(packageId) {
         if (isBuying) return;
@@ -320,7 +320,7 @@
     };
 
     // =================================================================
-    // 🎨 4. نافذة التأكيد الشفافة (Modal UI)
+    // 🎨 4. نافذة التأكيد (Modal UI)
     // =================================================================
     const injectModalUI = () => {
         if (!document.getElementById('shop-modal-styles')) {
@@ -385,7 +385,7 @@
     injectModalUI();
 
     // =================================================================
-    // 🔄 5. التبديل النظيف بين التبويبات بدون إعادة حساب Layout متكررة
+    // 🔄 5. التبديل بين التبويبات
     // =================================================================
     window.switchShopTab = function(tab) {
         triggerHaptic('impact', 'light');
@@ -435,7 +435,7 @@
         const rateElem = document.getElementById('shop-rate-text');
         if (rateElem) {
             const hRate = parseFloat(pData.hourly_rate || 0);
-            rateElem.innerHTML = `<span dir="ltr">+${hRate.toFixed(2)}/h</span>`;
+            rateElem.innerHTML = `<span dir="ltr" style="display:inline !important;">+${hRate.toFixed(2)}/h</span>`;
         }
 
         const defaultMiningCfg = {
@@ -538,7 +538,7 @@
     };
 
     // =================================================================
-    // ⚡ 7. تنفيذ الشراء الفعلي والتحديث الفوري للحالة
+    // ⚡ 7. طلب الشراء وتنفيذه
     // =================================================================
     window.requestShopPurchase = function(type, level, price) {
         const curBal = parseFloat(window.userState?.balance || 0);
