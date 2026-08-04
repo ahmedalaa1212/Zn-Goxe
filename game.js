@@ -31,11 +31,25 @@ function getSavedState() {
         tg_id: tg?.initDataUnsafe?.user?.id || null,
         first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب",
         referred_by_param: startParam,
-        balance: 0.00, usd_balance: 0.00, ad_balance: 0.00, hourly_rate: 0.00, energy: 100, storage_level: 0, 
-        extra_storage: 0.00, max_cap: 200.00, unclaimed: 0.00,
-        daily_streak: 1, daily_day: 1, last_daily_claim_date: null, upgrades: {}, wallet_address: null, 
-        boost_multiplier: 1, boost_active: false, boost_expires_at: null,
-        last_claim_time: null, last_sync_time: Date.now()
+        balance: 0.00, 
+        usd_balance: 0.00, 
+        ad_balance: 0.00, 
+        hourly_rate: 0.00, 
+        energy: 100, 
+        storage_level: 0, 
+        extra_storage: 0.00, 
+        max_cap: 100.00, 
+        unclaimed: 0.00,
+        daily_streak: 1, 
+        daily_day: 1, 
+        last_daily_claim_date: null, 
+        upgrades: {}, 
+        wallet_address: null, 
+        boost_multiplier: 1, 
+        boost_active: false, 
+        boost_expires_at: null,
+        last_claim_time: null, 
+        last_sync_time: Date.now()
     };
     try { 
         const saved = localStorage.getItem('app_user_state');
@@ -50,6 +64,7 @@ function getSavedState() {
 let isFirebaseUpdating = false;
 let lastSaveTime = 0;
 
+// ⚡ كائن إدارة الحالة الوحيد بالنمط الموحد (Single Source of Truth)
 window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
         if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'extra_storage', 'max_cap', 'unclaimed'].includes(prop)) {
@@ -70,13 +85,16 @@ window.userState = new Proxy(getSavedState(), {
             }
             if (typeof window.updateUI === 'function') window.updateUI();
             if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
+            
+            // ⚡ إرسال حدث موحد لجميع الموديولات الفرعية (مثل المتجر) للتحديث الفوري
+            window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: target }));
         }
         return true;
     }
 });
 
 // ==========================================
-// 2. الاتصال بالسيرفر ومعالجة الاستجابة
+// 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
@@ -107,11 +125,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         const targetObj = data.player || data.user || data.data || (data.balance !== undefined ? data : null);
         
         isFirebaseUpdating = true;
-        if (!window.PlayerData) window.PlayerData = {};
-        
         if (targetObj) {
-            Object.assign(window.PlayerData, targetObj);
-            
             if (targetObj.balance !== undefined && targetObj.balance !== null) {
                 const b = parseFloat(targetObj.balance);
                 if (!isNaN(b)) window.userState.balance = b;
@@ -127,7 +141,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
             if (targetObj.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate) || 0;
             if (targetObj.storage_level !== undefined) window.userState.storage_level = parseInt(targetObj.storage_level) || 0;
             if (targetObj.extra_storage !== undefined) window.userState.extra_storage = parseFloat(targetObj.extra_storage) || 0;
-            if (targetObj.max_cap !== undefined) window.userState.max_cap = parseFloat(targetObj.max_cap) || 200;
+            if (targetObj.max_cap !== undefined) window.userState.max_cap = parseFloat(targetObj.max_cap) || 100;
             if (targetObj.daily_streak !== undefined) window.userState.daily_streak = parseInt(targetObj.daily_streak) || 1;
             if (targetObj.daily_day !== undefined) window.userState.daily_day = parseInt(targetObj.daily_day) || 1;
             if (targetObj.last_daily_claim_date !== undefined) window.userState.last_daily_claim_date = targetObj.last_daily_claim_date;
@@ -208,7 +222,7 @@ window.activateTenXBoost = async function(durationHours = 1) {
 };
 
 // ==========================================
-// 4. الاستماع اللحظي Firestore (Realtime Sync)
+// 4. الاستماع اللحظي Firestore (Realtime Sync & Global Event)
 // ==========================================
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) return;
@@ -226,17 +240,13 @@ window.initFirebaseRealtimeSync = function(userId) {
 
                 if (d.balance !== undefined && d.balance !== null) {
                     const bal = parseFloat(d.balance);
-                    if (!isNaN(bal)) {
-                        window.userState.balance = bal;
-                        window.PlayerData.balance = bal;
-                    }
+                    if (!isNaN(bal)) window.userState.balance = bal;
                 }
                 if (d.usd_balance !== undefined) window.userState.usd_balance = parseFloat(d.usd_balance) || 0;
                 
                 ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'last_daily_claim_date', 'upgrades', 'last_claim_time', 'unclaimed', 'boost_multiplier', 'boost_active', 'boost_expires_at'].forEach(k => {
                     if (d[k] !== undefined) {
                         window.userState[k] = d[k];
-                        window.PlayerData[k] = d[k];
                     }
                 });
                 window.userState.last_sync_time = Date.now();
@@ -246,6 +256,8 @@ window.initFirebaseRealtimeSync = function(userId) {
                 if (typeof window.updateFarmUI === 'function') {
                     window.updateFarmUI();
                 }
+                // ⚡ تحديث كامل القوائم (بما فيها المتجر) لحظياً عند أي تغيير في Firestore
+                window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
             }
         }, err => console.error("Firebase Sync Error:", err));
     } catch (e) {
@@ -263,8 +275,8 @@ window.updateClaimButtonState = function() {
     if (!claimButtons.length) return;
 
     const COOLDOWN_SECONDS = 15;
-    const lastClaimStr = window.userState.last_claim_time || window.PlayerData?.last_claim_time;
-    const unclaimed = parseFloat(window.PlayerData?.unclaimed || window.userState?.unclaimed || 0);
+    const lastClaimStr = window.userState.last_claim_time;
+    const unclaimed = parseFloat(window.userState?.unclaimed || 0);
 
     const isFarmTab = document.getElementById('view-farm')?.classList.contains('active');
 
@@ -307,7 +319,7 @@ window.updateClaimButtonState = function() {
                 });
             } else {
                 clearInterval(claimCooldownTimer);
-                const latestUnclaimed = parseFloat(window.PlayerData?.unclaimed || window.userState?.unclaimed || 0);
+                const latestUnclaimed = parseFloat(window.userState?.unclaimed || 0);
                 claimButtons.forEach(btn => {
                     if (isFarmTab && latestUnclaimed <= 0) {
                         renderButton(btn, true, `المخزن فارغ ⏳`, "claim-action-btn btn-disabled");
@@ -409,7 +421,7 @@ function applyBalanceToUI(val) {
 window.updateUI = function() {
     window.updateClaimButtonState();
 
-    const currentMaxCap = parseFloat(window.userState.max_cap ?? 200);
+    const currentMaxCap = parseFloat(window.userState.max_cap ?? 100);
     document.querySelectorAll('#storage-max, .max-storage-val, [data-bind="max_cap"], #farm-storage-max').forEach(el => {
         if (el.tagName === 'INPUT') {
             el.value = currentMaxCap.toFixed(2);
@@ -508,8 +520,6 @@ window.loadUserData = async function() {
         });
         if (d?.success) {
             const u = d.player || d.user || d.data || {};
-            if (!window.PlayerData) window.PlayerData = {};
-            Object.assign(window.PlayerData, u);
             Object.assign(window.userState, u);
         }
     } catch (err) {
