@@ -65,9 +65,9 @@ def ensure_game_settings_exist():
         
         daily_rewards_30_days = {
             f"day_{i}": val for i, val in enumerate([
-                100, 150, 200, 250, 300, 350, 400, 500, 600, 700,
-                800, 900, 1000, 1200, 1400, 1600, 1800, 2000, 2300, 2600,
-                3000, 3500, 4000, 4500, 5000, 6000, 7000, 8000, 9000, 10000
+                100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
+                600, 600, 650, 650, 700, 700, 750, 750, 800, 800,
+                850, 850, 900, 900, 950, 950, 1000, 1000, 1100, 1250
             ], start=1)
         }
 
@@ -88,17 +88,17 @@ def ensure_game_settings_exist():
             "1": {"capacity": 600.0, "price": 3000},
             "2": {"capacity": 1500.0, "price": 10000},
             "3": {"capacity": 3500.0, "price": 25000},
-            "4": {"capacity": 8000.0, "price": 60000},
-            "5": {"capacity": 18000.0, "price": 150000},
-            "6": {"capacity": 40000.0, "price": 350000},
-            "7": {"capacity": 90000.0, "price": 800000},
-            "8": {"capacity": 200000.0, "price": 1800000},
-            "9": {"capacity": 450000.0, "price": 4000000},
-            "10": {"capacity": 1000000.0, "price": 10000000}
+            "4": {"capacity": 8000.0, "price": 65000},
+            "5": {"capacity": 18000.0, "price": 160000},
+            "6": {"capacity": 40000.0, "price": 400000},
+            "7": {"capacity": 90000.0, "price": 950000},
+            "8": {"capacity": 200000.0, "price": 2200000},
+            "9": {"capacity": 450000.0, "price": 5000000},
+            "10": {"capacity": 1000000.0, "price": 12000000}
         }
 
         initial_settings = {
-            "usd_to_zn_rate": 10000000,
+            "usd_to_zn_rate": 1000000,
             "ad_reward_boost": 2.0,
             "daily_rewards": daily_rewards_30_days,
             "speed_config": speed_cfg,
