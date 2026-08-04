@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime, timezone, timedelta
 from google.cloud import firestore
 from core.security import get_authenticated_user
-from database import db, get_game_settings
+from database import db, get_game_settings, activate_user_boost
 
 farm_bp = Blueprint('farm', __name__)
 
@@ -76,6 +76,21 @@ def calculate_accrued_mined(data, now, max_cap):
         if last_claim.tzinfo is None:
             last_claim = last_claim.replace(tzinfo=timezone.utc)
         seconds_passed = max(0.0, (now - last_claim).total_seconds())
+        
+        boost_active = data.get("boost_active", False)
+        boost_expires_at = data.get("boost_expires_at")
+        boost_multiplier = float(data.get("boost_multiplier", 1.0))
+        
+        if boost_active and boost_expires_at:
+            try:
+                boost_expires = datetime.fromisoformat(str(boost_expires_at).replace('Z', '+00:00'))
+                if boost_expires.tzinfo is None:
+                    boost_expires = boost_expires.replace(tzinfo=timezone.utc)
+                if now < boost_expires:
+                    hourly_rate *= boost_multiplier
+            except Exception:
+                pass
+
         mined = (hourly_rate / 3600.0) * seconds_passed
         return round(min(mined, max_cap), 2)
     except Exception:
@@ -119,7 +134,10 @@ def get_player_data():
                 "total_ref_earnings": 0.0,
                 "invited_friends_count": 0,
                 "ref_generated_amount": 0.0,
-                "claimed_ref_tasks": []
+                "claimed_ref_tasks": [],
+                "boost_multiplier": 1,
+                "boost_active": False,
+                "boost_expires_at": None
             }
             user_ref.set(user_data)
         else:
@@ -132,6 +150,19 @@ def get_player_data():
             if "total_ref_earnings" not in user_data:
                 auto_fix["total_ref_earnings"] = 0.0
                 user_data["total_ref_earnings"] = 0.0
+            
+            boost_active = user_data.get("boost_active", False)
+            boost_expires_at = user_data.get("boost_expires_at")
+            if boost_active and boost_expires_at:
+                try:
+                    boost_expires = datetime.fromisoformat(str(boost_expires_at).replace('Z', '+00:00'))
+                    if boost_expires.tzinfo is None:
+                        boost_expires = boost_expires.replace(tzinfo=timezone.utc)
+                    if now >= boost_expires:
+                        auto_fix["boost_active"] = False
+                        user_data["boost_active"] = False
+                except Exception:
+                    pass
             
             if auto_fix:
                 user_ref.update(auto_fix)
@@ -195,7 +226,6 @@ def claim_mined_tokens():
         
         @firestore.transactional
         def run_claim_transaction(transaction, ref):
-            # 1. قراءة بيانات المستخدم الحالي أولاً
             snapshot = ref.get(transaction=transaction)
             if not snapshot.exists:
                 return {"success": False, "error": "المستخدم غير موجود"}
@@ -203,7 +233,6 @@ def claim_mined_tokens():
             user_data = snapshot.to_dict() or {}
             now = datetime.now(timezone.utc)
             
-            # 2. التحقق من وقت آخر تجميع لمنع السبام
             last_claim_str = user_data.get("last_claim_time")
             if last_claim_str:
                 try:
@@ -216,14 +245,12 @@ def claim_mined_tokens():
                 except Exception:
                     pass
                     
-            # 3. حساب الرصيد المتراكم
             max_cap = calculate_user_max_cap(user_data, game_settings)
             mined_amount = calculate_accrued_mined(user_data, now, max_cap)
             
             if mined_amount <= 0:
                 return {"success": False, "error": "المخزن فارغ حالياً"}
 
-            # 4. قراءة مستند المُحيل الآن قبل تنفيذ أي عملية كتابة (ضروري في Firestore)
             referred_by = user_data.get("referred_by")
             referrer_ref = None
             referrer_doc = None
@@ -240,7 +267,6 @@ def claim_mined_tokens():
                 except Exception as ref_read_err:
                     print(f"⚠️ Error reading referrer document: {ref_read_err}")
 
-            # 5. تنفد عمليات الكتابة والتحديث بعد اكتمال جميع القراءات
             current_balance = float(user_data.get("balance", 0.0))
             new_balance = round(current_balance + mined_amount, 2)
             now_iso = now.isoformat()
@@ -250,7 +276,6 @@ def claim_mined_tokens():
                 "last_claim_time": now_iso
             })
 
-            # إضافة عمولة الإحالة لحساب المُحيل
             if referrer_ref and referrer_doc and referrer_doc.exists and commission > 0:
                 try:
                     transaction.update(referrer_ref, {
@@ -311,7 +336,6 @@ def buy_upgrade():
         
         @firestore.transactional
         def run_upgrade_transaction(transaction, ref):
-            # 1. قراءة مستند المستخدم
             snapshot = ref.get(transaction=transaction)
             if not snapshot.exists:
                 return {"success": False, "error": "المستخدم غير موجود"}
@@ -342,7 +366,6 @@ def buy_upgrade():
             max_cap = calculate_user_max_cap(user_data, game_settings)
             mined_amount = calculate_accrued_mined(user_data, now, max_cap)
             
-            # 2. قراءة مستند المُحيل قبل أي عمليات تحديث (لتفادي تعارض Firestore)
             referred_by = user_data.get("referred_by")
             referrer_ref = None
             referrer_doc = None
@@ -359,7 +382,6 @@ def buy_upgrade():
                 except Exception as ref_read_err:
                     print(f"⚠️ Error reading referrer on upgrade: {ref_read_err}")
 
-            # 3. خصم التكلفة وإضافة الأرباح وتحديث المستوى
             new_balance = round((current_balance + mined_amount) - cost, 2)
             current_hourly_rate = float(user_data.get("hourly_rate", 0.0))
             new_hourly_rate = round(current_hourly_rate + rate_bonus, 2)
@@ -374,7 +396,6 @@ def buy_upgrade():
                 "last_claim_time": now_iso
             })
 
-            # 4. تحديث أرباح المُحيل إن وجدت
             if referrer_ref and referrer_doc and referrer_doc.exists and commission > 0:
                 try:
                     transaction.update(referrer_ref, {
@@ -525,3 +546,18 @@ def claim_daily_boost():
     except Exception as e:
         print(f"Error daily boost: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء تفعيل التعزيز"}), 500
+
+@farm_bp.route('/activate_boost', methods=['POST'])
+def activate_boost():
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success:
+        return error_res
+        
+    data = request.json or {}
+    duration_hours = int(data.get("duration_hours", 1))
+    
+    is_ok, msg = activate_user_boost(telegram_id, multiplier=10, duration_hours=duration_hours)
+    if is_ok:
+        return jsonify({"success": True, "message": msg, "status": "success"}), 200
+    else:
+        return jsonify({"success": False, "error": msg}), 400
