@@ -94,9 +94,10 @@ window.initFarmView = function() {
         return num.toString();
     }
 
+    // تعديل الدالة لإظهار 1100 و 1250 بشكل صريح وبدون تقريب خاطئ
     function formatCompactNumber(num) {
         if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-        if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
+        if (num >= 1000 && num % 1000 === 0) return (num / 1000) + 'K';
         return num.toString();
     }
 
