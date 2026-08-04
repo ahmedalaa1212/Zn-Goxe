@@ -10,7 +10,7 @@ from core.ton_price import get_live_ton_price
 
 shop_bp = Blueprint('shop', __name__)
 
-PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc-lcTrmxyELN1Y-syVGtc"
+PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
 
 # ==================== Server-Side RAM Caching Systems ====================
 _SHOP_CONFIG_CACHE = {"data": None, "timestamp": 0}
@@ -19,8 +19,9 @@ _TON_PRICE_CACHE = {"price": 0.0, "timestamp": 0}
 CACHE_TTL_CONFIG = 600  # 10 دقائق لكاش إعدادات المتجر
 CACHE_TTL_TON = 60      # 60 ثانية لكاش سعر عملة TON
 
-# ==================== Default Configs (مطابقة تماماً لـ database.py) ====================
+# ==================== Default Configs ====================
 DEFAULT_USDT_PACKAGES = {
+    "pkg_0": {"usdt": 0.5, "rate_add": 70.0, "storage_add": 900.0, "zn_add": 13500.0, "title": "باقة التجربة"},
     "pkg_1": {"usdt": 1.0, "rate_add": 150.0, "storage_add": 2000.0, "zn_add": 30000.0, "title": "البرونزية"},
     "pkg_2": {"usdt": 3.0, "rate_add": 540.0, "storage_add": 7200.0, "zn_add": 108000.0, "title": "الفضية"},
     "pkg_3": {"usdt": 6.0, "rate_add": 1350.0, "storage_add": 18000.0, "zn_add": 270000.0, "title": "الذهبية"},
@@ -54,14 +55,13 @@ DEFAULT_STORAGE_CONFIG = {
 }
 
 def _normalize_config_dict(raw_data, fallback_default):
-    """دالة تحويل مصفوفات الفيربيس إلى قواميس آمنة لتفادي أخطاء الأساليب"""
     if not raw_data:
         return fallback_default
     if isinstance(raw_data, list):
         res = {}
         for idx, item in enumerate(raw_data):
             if isinstance(item, dict):
-                res[f"pkg_{idx+1}"] = item
+                res[f"pkg_{idx}"] = item
         return res if res else fallback_default
     if isinstance(raw_data, dict):
         return raw_data
@@ -92,7 +92,10 @@ def get_game_config():
         data['mining_config'] = mining_cfg
         data['speed_config'] = mining_cfg
 
-        data['usdt_packages'] = _normalize_config_dict(data.get('usdt_packages'), DEFAULT_USDT_PACKAGES)
+        pkgs = _normalize_config_dict(data.get('usdt_packages'), DEFAULT_USDT_PACKAGES)
+        if "pkg_0" not in pkgs:
+            pkgs["pkg_0"] = DEFAULT_USDT_PACKAGES["pkg_0"]
+        data['usdt_packages'] = pkgs
         data['storage_config'] = _normalize_config_dict(data.get('storage_config'), DEFAULT_STORAGE_CONFIG)
 
         _SHOP_CONFIG_CACHE["data"] = data
@@ -120,7 +123,10 @@ def get_config():
         usdt_pkgs = _normalize_config_dict(settings.get('usdt_packages'), DEFAULT_USDT_PACKAGES)
         packages_with_ton = {}
 
-        for pkg_id, pkg_info in usdt_pkgs.items():
+        # ترتيب الباقات حسب السعر
+        sorted_pkgs = sorted(usdt_pkgs.items(), key=lambda x: float(x[1].get('usdt', 0) if isinstance(x[1], dict) else 0))
+
+        for pkg_id, pkg_info in sorted_pkgs:
             if not isinstance(pkg_info, dict):
                 continue
             usd_val = float(pkg_info.get('usdt', 1))
