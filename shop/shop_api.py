@@ -53,6 +53,20 @@ DEFAULT_STORAGE_CONFIG = {
     "10": {"capacity": 800000.0, "price": 18000000}
 }
 
+def _normalize_config_dict(raw_data, fallback_default):
+    """دالة تحويل مصفوفات الفيربيس إلى قواميس آمنة لتفادي أخطاء الأساليب"""
+    if not raw_data:
+        return fallback_default
+    if isinstance(raw_data, list):
+        res = {}
+        for idx, item in enumerate(raw_data):
+            if isinstance(item, dict):
+                res[f"pkg_{idx+1}"] = item
+        return res if res else fallback_default
+    if isinstance(raw_data, dict):
+        return raw_data
+    return fallback_default
+
 def get_cached_ton_price():
     now = time.time()
     if _TON_PRICE_CACHE["price"] > 0 and (now - _TON_PRICE_CACHE["timestamp"] < CACHE_TTL_TON):
@@ -74,14 +88,12 @@ def get_game_config():
     try:
         data = get_game_settings() or {}
 
-        mining_cfg = data.get('mining_config') or data.get('speed_config') or DEFAULT_MINING_CONFIG
+        mining_cfg = _normalize_config_dict(data.get('mining_config') or data.get('speed_config'), DEFAULT_MINING_CONFIG)
         data['mining_config'] = mining_cfg
         data['speed_config'] = mining_cfg
 
-        if 'usdt_packages' not in data or not data['usdt_packages']:
-            data['usdt_packages'] = DEFAULT_USDT_PACKAGES
-        if 'storage_config' not in data or not data['storage_config']:
-            data['storage_config'] = DEFAULT_STORAGE_CONFIG
+        data['usdt_packages'] = _normalize_config_dict(data.get('usdt_packages'), DEFAULT_USDT_PACKAGES)
+        data['storage_config'] = _normalize_config_dict(data.get('storage_config'), DEFAULT_STORAGE_CONFIG)
 
         _SHOP_CONFIG_CACHE["data"] = data
         _SHOP_CONFIG_CACHE["timestamp"] = now
@@ -101,30 +113,42 @@ def get_game_config():
 
 @shop_bp.route('/get_config', methods=['GET'])
 def get_config():
-    settings = get_game_config()
-    ton_price_usd = get_cached_ton_price()
+    try:
+        settings = get_game_config()
+        ton_price_usd = get_cached_ton_price()
 
-    usdt_pkgs = settings.get('usdt_packages', DEFAULT_USDT_PACKAGES)
-    packages_with_ton = {}
+        usdt_pkgs = _normalize_config_dict(settings.get('usdt_packages'), DEFAULT_USDT_PACKAGES)
+        packages_with_ton = {}
 
-    for pkg_id, pkg_info in usdt_pkgs.items():
-        usd_val = float(pkg_info.get('usdt', 1))
-        ton_needed = round(usd_val / ton_price_usd, 4)
-        packages_with_ton[pkg_id] = {
-            "usdt": usd_val,
-            "rate_add": pkg_info.get('rate_add', 0),
-            "storage_add": pkg_info.get('storage_add', 0),
-            "zn_add": pkg_info.get('zn_add', 0),
-            "title": pkg_info.get('title', ''),
-            "ton_amount": ton_needed
-        }
+        for pkg_id, pkg_info in usdt_pkgs.items():
+            if not isinstance(pkg_info, dict):
+                continue
+            usd_val = float(pkg_info.get('usdt', 1))
+            ton_needed = round(usd_val / ton_price_usd, 4) if ton_price_usd > 0 else round(usd_val / 5.5, 4)
+            packages_with_ton[str(pkg_id)] = {
+                "usdt": usd_val,
+                "rate_add": float(pkg_info.get('rate_add', 0)),
+                "storage_add": float(pkg_info.get('storage_add', 0)),
+                "zn_add": float(pkg_info.get('zn_add', 0)),
+                "title": str(pkg_info.get('title', 'باقة مميزة')),
+                "ton_amount": ton_needed
+            }
 
-    return jsonify({
-        "success": True,
-        "settings": settings,
-        "ton_price_usd": round(ton_price_usd, 2),
-        "packages": packages_with_ton
-    }), 200
+        return jsonify({
+            "success": True,
+            "settings": settings,
+            "ton_price_usd": round(ton_price_usd, 2),
+            "packages": packages_with_ton
+        }), 200
+    except Exception as e:
+        print(f"❌ [Shop get_config Error]: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "settings": get_game_config(),
+            "ton_price_usd": 5.50,
+            "packages": DEFAULT_USDT_PACKAGES
+        }), 200
 
 @shop_bp.route('/prepare_ton_pay', methods=['POST'])
 def prepare_ton_pay():
@@ -134,10 +158,10 @@ def prepare_ton_pay():
             return error_res
 
         data = request.get_json() or {}
-        pkg_id = data.get('package_id')
+        pkg_id = str(data.get('package_id'))
 
         settings = get_game_config()
-        packages = settings.get('usdt_packages', DEFAULT_USDT_PACKAGES)
+        packages = _normalize_config_dict(settings.get('usdt_packages'), DEFAULT_USDT_PACKAGES)
 
         if pkg_id not in packages:
             return jsonify({"success": False, "error": "باقة غير صالحة."}), 200
@@ -171,14 +195,14 @@ def verify_and_apply_package():
             return error_res
 
         data = request.get_json() or {}
-        pkg_key = data.get('package_id')
+        pkg_key = str(data.get('package_id'))
         tx_boc = data.get('boc') or data.get('tx_hash') or "MANUAL_OR_TEST"
 
         if not pkg_key:
             return jsonify({"success": False, "error": "بيانات الباقة غير مكتملة."}), 200
 
         settings = get_game_config()
-        packages = settings.get('usdt_packages', DEFAULT_USDT_PACKAGES)
+        packages = _normalize_config_dict(settings.get('usdt_packages'), DEFAULT_USDT_PACKAGES)
 
         if pkg_key not in packages:
             return jsonify({"success": False, "error": "باقة غير صالحة."}), 200
@@ -212,7 +236,7 @@ def verify_and_apply_package():
             cur_extra_storage = float(u_data.get('extra_storage', 0.0))
             cur_storage_lvl = str(u_data.get('storage_level', 0))
 
-            storage_cfg = settings.get('storage_config', DEFAULT_STORAGE_CONFIG)
+            storage_cfg = _normalize_config_dict(settings.get('storage_config'), DEFAULT_STORAGE_CONFIG)
             base_cap = 100.0
             if cur_storage_lvl in storage_cfg and isinstance(storage_cfg[cur_storage_lvl], dict):
                 base_cap = float(storage_cfg[cur_storage_lvl].get('capacity', 100.0))
@@ -291,7 +315,7 @@ def buy_upgrade():
                 upgrades = {}
 
             current_storage_lvl = str(u_data.get('storage_level', 0))
-            storage_cfg = settings.get('storage_config', DEFAULT_STORAGE_CONFIG)
+            storage_cfg = _normalize_config_dict(settings.get('storage_config'), DEFAULT_STORAGE_CONFIG)
             base_cap = 100.0
             if current_storage_lvl in storage_cfg and isinstance(storage_cfg[current_storage_lvl], dict):
                 base_cap = float(storage_cfg[current_storage_lvl].get('capacity', 100.0))
@@ -315,7 +339,7 @@ def buy_upgrade():
             new_last_claim_time = now_dt.isoformat()
 
             if upgrade_type == 'mining':
-                mining_cfg = settings.get('mining_config') or settings.get('speed_config') or DEFAULT_MINING_CONFIG
+                mining_cfg = _normalize_config_dict(settings.get('mining_config') or settings.get('speed_config'), DEFAULT_MINING_CONFIG)
                 if level_num not in mining_cfg:
                     raise Exception("مستوى ترقية غير صالح.")
 
