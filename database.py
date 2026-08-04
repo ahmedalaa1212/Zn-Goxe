@@ -62,6 +62,8 @@ def ensure_game_settings_exist():
 
     try:
         config_ref = db.collection('app_config').document('game_settings')
+        doc_snap = config_ref.get()
+        existing_data = doc_snap.to_dict() if doc_snap.exists else {}
         
         daily_rewards_30_days = {
             f"day_{i}": val for i, val in enumerate([
@@ -97,6 +99,13 @@ def ensure_game_settings_exist():
             "10": {"capacity": 800000.0, "price": 18000000}
         }
 
+        usdt_pkgs = {
+            "pkg_1": {"usdt": 1.0, "rate_add": 150.0, "storage_add": 2000.0, "zn_add": 30000.0, "title": "البرونزية"},
+            "pkg_2": {"usdt": 3.0, "rate_add": 540.0, "storage_add": 7200.0, "zn_add": 108000.0, "title": "الفضية"},
+            "pkg_3": {"usdt": 6.0, "rate_add": 1350.0, "storage_add": 18000.0, "zn_add": 270000.0, "title": "الذهبية"},
+            "pkg_4": {"usdt": 10.0, "rate_add": 2850.0, "storage_add": 38000.0, "zn_add": 570000.0, "title": "باقة الحيتان"}
+        }
+
         packages_cfg = [
             {"id": "pkg_starter", "title": "باقة المبتدئ", "price_usd": 1.0, "added_zn": 100000.0, "added_storage": 200.0, "active": True},
             {"id": "pkg_pro", "title": "باقة المحترف", "price_usd": 5.0, "added_zn": 600000.0, "added_storage": 1000.0, "active": True},
@@ -111,6 +120,7 @@ def ensure_game_settings_exist():
             "mining_config": speed_cfg,
             "upgrade_config": speed_cfg,
             "storage_config": storage_cfg,
+            "usdt_packages": usdt_pkgs,
             "packages_config": packages_cfg,
             "storage_capacities": {k: v["capacity"] for k, v in storage_cfg.items()},
             "friends_config": {
@@ -133,11 +143,18 @@ def ensure_game_settings_exist():
                 "prize_pool_percentage": 0.45
             }
         }
-        config_ref.set(initial_settings, merge=True)
-        _SETTINGS_CACHE = initial_settings
+
+        full_settings = {**initial_settings, **existing_data}
+        if "usdt_packages" not in existing_data or not existing_data["usdt_packages"]:
+            full_settings["usdt_packages"] = usdt_pkgs
+        if "mining_config" not in existing_data or not existing_data["mining_config"]:
+            full_settings["mining_config"] = speed_cfg
+
+        config_ref.set(full_settings, merge=True)
+        _SETTINGS_CACHE = full_settings
         _SETTINGS_CACHE_TIME = time.time()
         print("✅ تم إنشاء وتحديث app_config/game_settings في Firestore بنجاح!")
-        return initial_settings
+        return full_settings
     except Exception as e:
         print(f"❌ خطأ أثناء تهيئة الإعدادات: {e}")
         return None
@@ -158,7 +175,10 @@ def get_game_settings():
         if not db: initialize_firebase()
         doc = db.collection('app_config').document('game_settings').get()
         if doc.exists:
-            _SETTINGS_CACHE = doc.to_dict() or {}
+            data = doc.to_dict() or {}
+            if "usdt_packages" not in data or "mining_config" not in data:
+                data = ensure_game_settings_exist() or data
+            _SETTINGS_CACHE = data
             _SETTINGS_CACHE_TIME = now
             return _SETTINGS_CACHE
         else:
@@ -622,7 +642,7 @@ def update_user_storage_level(tg_id, target_level=None):
 
         @firestore.transactional
         def run_storage_upgrade_transaction(transaction, ref):
-            snapshot = ref.get(transaction=transaction)
+            snapshot = transaction.get(ref)
             if not snapshot.exists: return False, "المستخدم غير موجود", 0, 0
 
             user_data = snapshot.to_dict() or {}
