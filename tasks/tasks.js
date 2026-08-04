@@ -4,16 +4,28 @@
         window.Telegram.WebApp.ready();
     }
 
-    // 🔒 الحدود الأدنى الصارمة لإنشاء الحملات الإعلانية
-    const MIN_REWARD_PER_CLICK = 250; // الحد الأدنى لتكلفة الضغطة الواحدة
-    const MIN_AD_CAMPAIGN_COST = 250;  // الحد الأدنى للميزانية الإجمالية للحملة
+    // 🛡️ دالة الحماية للتأكد من وجود دالة fetchAPI للاتصال بالخادم دائماً
+    if (typeof window.fetchAPI !== 'function') {
+        window.fetchAPI = async function(url, method = 'GET', data = null) {
+            const options = {
+                method: method,
+                headers: { 'Content-Type': 'application/json' }
+            };
+            if (data && (method === 'POST' || method === 'PUT')) {
+                options.body = JSON.stringify(data);
+            }
+            const response = await fetch(url, options);
+            return await response.json();
+        };
+    }
 
-    // ==========================================
-    // ⚡ ذاكرة كاش محلية لمنع الاستعلام المكرر للسيرفر
-    // ==========================================
+    // 🔒 الحدود الأدنى الصارمة لإنشاء الحملات الإعلانية
+    const MIN_REWARD_PER_CLICK = 250; 
+    const MIN_AD_CAMPAIGN_COST = 250;  
+
     let cachedTasksData = null;
     let lastTasksFetchTime = 0;
-    const TASKS_CACHE_TTL = 30000; // كاش لمدة 30 ثانية للفرونت إند
+    const TASKS_CACHE_TTL = 30000; 
 
     try {
         const storedCache = sessionStorage.getItem('tasks_cache_data');
@@ -33,9 +45,6 @@
         } catch (e) {}
     }
 
-    // ==========================================
-    // دوال المزامنة المباشرة من الذاكرة والفايربيس (بدون localStorage)
-    // ==========================================
     function getUserBalance() {
         return window.PlayerData?.balance ?? window.userState?.balance ?? window.GameState?.balance ?? 0;
     }
@@ -52,9 +61,7 @@
                 if (window.parent.GameState) window.parent.GameState.balance = numVal;
                 if (window.parent.PlayerData) window.parent.PlayerData.balance = numVal;
                 if (window.parent.userState) window.parent.userState.balance = numVal;
-                if (typeof window.parent.updateGlobalUI === 'function') {
-                    window.parent.updateGlobalUI();
-                }
+                if (typeof window.parent.updateGlobalUI === 'function') window.parent.updateGlobalUI();
             }
         } catch (e) {}
 
@@ -63,17 +70,13 @@
                 if (window.top.GameState) window.top.GameState.balance = numVal;
                 if (window.top.PlayerData) window.top.PlayerData.balance = numVal;
                 if (window.top.userState) window.top.userState.balance = numVal;
-                if (typeof window.top.updateGlobalUI === 'function') {
-                    window.top.updateGlobalUI();
-                }
+                if (typeof window.top.updateGlobalUI === 'function') window.top.updateGlobalUI();
             }
         } catch (e) {}
 
         updateBalanceElements(numVal);
         window.dispatchEvent(new CustomEvent('balanceUpdated', { detail: { balance: numVal } }));
-        if (typeof window.updateGlobalUI === 'function') {
-            window.updateGlobalUI();
-        }
+        if (typeof window.updateGlobalUI === 'function') window.updateGlobalUI();
     }
 
     function getUserAdBalance() {
@@ -92,25 +95,19 @@
                 if (window.parent.GameState) window.parent.GameState.ad_balance = numVal;
                 if (window.parent.PlayerData) window.parent.PlayerData.ad_balance = numVal;
                 if (window.parent.userState) window.parent.userState.ad_balance = numVal;
-                if (typeof window.parent.updateGlobalUI === 'function') {
-                    window.parent.updateGlobalUI();
-                }
+                if (typeof window.parent.updateGlobalUI === 'function') window.parent.updateGlobalUI();
             }
         } catch (e) {}
 
         updateAdBalanceElements(numVal);
         window.dispatchEvent(new CustomEvent('adBalanceUpdated', { detail: { ad_balance: numVal } }));
-        if (typeof window.updateGlobalUI === 'function') {
-            window.updateGlobalUI();
-        }
+        if (typeof window.updateGlobalUI === 'function') window.updateGlobalUI();
     }
 
     function updateBalanceElements(numVal) {
         const formatted = numVal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
         const topBal = document.getElementById('top-balance-tasks');
-        if (topBal) {
-            topBal.innerText = `ZN ${formatted}`;
-        }
+        if (topBal) topBal.innerText = `ZN ${formatted}`;
         
         const selectors = ['.sync-balance', '#user-balance', '#main-balance', '#balance'];
         selectors.forEach(sel => {
@@ -170,21 +167,20 @@
         return window.GameState?.userId || window.PlayerData?.userId || window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || "";
     }
 
+    // ⚡ التبديل بين تبويب مركز الأرباح وحملات الترويج
     window.switchTasksTab = function(tab) {
         const earnSection = document.getElementById('section-earn');
         const promoteSection = document.getElementById('section-promote');
         const btnEarn = document.getElementById('btn-tab-earn');
         const btnPromote = document.getElementById('btn-tab-promote');
 
-        if (earnSection) earnSection.style.display = tab === 'earn' ? 'block' : 'none';
-        if (promoteSection) promoteSection.style.display = tab === 'promote' ? 'block' : 'none';
+        if (earnSection) earnSection.style.display = (tab === 'earn') ? 'block' : 'none';
+        if (promoteSection) promoteSection.style.display = (tab === 'promote') ? 'block' : 'none';
 
         if (btnEarn) btnEarn.classList.toggle('active', tab === 'earn');
         if (btnPromote) btnPromote.classList.toggle('active', tab === 'promote');
         
-        if (tab === 'earn' || tab === 'promote') {
-            window.fetchAndRenderTasks(false); 
-        }
+        window.fetchAndRenderTasks(false); 
     };
 
     window.updateTasksUI = function(forceRefresh = false) {
@@ -192,7 +188,7 @@
         window.fetchAndRenderTasks(forceRefresh);
     };
 
-    // ⚡ الجلب الذكي مع الكاش لمنع استنزاف القراءات
+    // ⚡ جلب قائمة الحملات والمهام المتاحة
     window.fetchAndRenderTasks = async function(forceRefresh = false) {
         const container = document.getElementById('tasks-list-container');
         const activeAdsContainer = document.getElementById('active-ads-container');
@@ -283,7 +279,7 @@
                     } else {
                         let state = window.taskStates[task.id] || 'idle';
                         if (state === 'idle') {
-                            actionHtml = `<button type="button" id="btn-task-${task.id}" onclick="startTask('${task.id}', '${encodeURIComponent(task.link)}', ${task.reward})" style="background: #fff; color: #000; border: none; padding: 8px 22px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; transition: 0.2s;">ابدأ</button>`;
+                            actionHtml = `<button type="button" id="btn-task-${task.id}" onclick="window.startTask('${task.id}', '${encodeURIComponent(task.link)}', ${task.reward})" style="background: #fff; color: #000; border: none; padding: 8px 22px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; transition: 0.2s;">ابدأ</button>`;
                         } else if (state === 'running') {
                             let currentTotalOutside = window.accumulatedOutsideTime[task.id] || 0;
                             if (document.visibilityState === 'hidden') {
@@ -293,14 +289,14 @@
                             
                             if (remaining <= 1 && currentTotalOutside >= 15) {
                                 window.taskStates[task.id] = 'ready';
-                                actionHtml = `<button type="button" id="btn-task-${task.id}" onclick="verifyTask('${task.id}', ${task.reward})" style="background: #ffcc00; color: #000; border: none; padding: 8px 18px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">تحقق ✅</button>`;
+                                actionHtml = `<button type="button" id="btn-task-${task.id}" onclick="window.verifyTask('${task.id}', ${task.reward})" style="background: #ffcc00; color: #000; border: none; padding: 8px 18px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">تحقق ✅</button>`;
                             } else if (document.visibilityState === 'visible') {
                                 actionHtml = `<button type="button" id="btn-task-${task.id}" disabled style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); padding: 8px 14px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">عُد للمهمة.. ${remaining}ث⏳</button>`;
                             } else {
                                 actionHtml = `<button type="button" id="btn-task-${task.id}" disabled style="background: #222; color: #ffaa00; border: 1px solid #333; padding: 8px 14px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">جاري التنفيذ.. ${remaining}ث⏳</button>`;
                             }
                         } else if (state === 'ready') {
-                            actionHtml = `<button type="button" id="btn-task-${task.id}" onclick="verifyTask('${task.id}', ${task.reward})" style="background: #ffcc00; color: #000; border: none; padding: 8px 18px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">تحقق ✅</button>`;
+                            actionHtml = `<button type="button" id="btn-task-${task.id}" onclick="window.verifyTask('${task.id}', ${task.reward})" style="background: #ffcc00; color: #000; border: none; padding: 8px 18px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">تحقق ✅</button>`;
                         }
                     }
 
@@ -388,7 +384,7 @@
                                 </div>
                             </div>
                             <div style="color: #475569; font-size: 11px; margin-bottom: 12px; word-break: break-all; text-align: left; background: #090911; padding: 8px; border-radius: 8px; font-family: monospace;" dir="ltr">${escapeHtml(ad.url)}</div>
-                            <button type="button" id="btn-cancel-${ad.id}" onclick="cancelServerCampaign('${ad.id}')" style="width: 100%; background: rgba(239,68,68,0.05); border: 1px solid rgba(239,68,68,0.25); color: #ef4444; padding: 11px; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 12px; transition: 0.2s;">إلغاء الإعلان فوراً وسحب المتبقي لحسابك</button>
+                            <button type="button" id="btn-cancel-${ad.id}" onclick="window.cancelServerCampaign('${ad.id}')" style="width: 100%; background: rgba(239,68,68,0.05); border: 1px solid rgba(239,68,68,0.25); color: #ef4444; padding: 11px; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 12px; transition: 0.2s;">إلغاء الإعلان فوراً وسحب المتبقي لحسابك</button>
                         </div>`;
                 });
                 activeAdsContainer.innerHTML = adsHtml;
@@ -396,7 +392,7 @@
         }
     };
 
-    // ⚡ بدء المهمة وحساب عداد الـ 15 ثانية خارج الشاشة محلياً
+    // ⚡ بدء تنفيذ المهمة وفتح الرابط
     window.startTask = function(taskId, encodedLink, reward) {
         const link = decodeURIComponent(encodedLink || '');
         window.taskStates[taskId] = 'running';
@@ -434,7 +430,7 @@
                 if (taskBtn) {
                     taskBtn.disabled = false;
                     taskBtn.innerHTML = 'تحقق ✅';
-                    taskBtn.setAttribute('onclick', `verifyTask('${taskId}', ${reward})`);
+                    taskBtn.setAttribute('onclick', `window.verifyTask('${taskId}', ${reward})`);
                     taskBtn.style.background = '#ffcc00';
                     taskBtn.style.color = '#000';
                     taskBtn.style.border = 'none';
@@ -450,7 +446,7 @@
         }, 1000);
     };
 
-    // ⚡ التحقق من تنفيذ المهمة واستلام المكافأة مباشرة
+    // ⚡ التحقق من تنفيذ المهمة واستلام المكافأة
     window.verifyTask = async function(taskId, reward) {
         if (isVerifyingTask) return;
         isVerifyingTask = true;
@@ -466,6 +462,7 @@
             const tgId = getTgId();
             
             const res = await window.fetchAPI('/api/tasks/complete_task', 'POST', {
+                taskId: taskId,
                 task_id: taskId,
                 telegram_id: tgId,
                 initData: initData
@@ -581,6 +578,7 @@
                 if (document.getElementById('ad-description')) document.getElementById('ad-description').value = '';
                 if (document.getElementById('ad-url')) document.getElementById('ad-url').value = '';
                 
+                window.closeTaskModal('modal-create-ad');
                 window.fetchAndRenderTasks(true);
             } else {
                 alert(res.error || 'حدث خطأ أثناء إنشاء الحملة.');
@@ -597,7 +595,7 @@
         }
     };
 
-    // ⚡ تحويل الرصيد الأساسي إلى رصيد إعلانات
+    // ⚡ تحويل الرصيد الأساسي ZN إلى رصيد الإعلانات AdZN
     window.convertMainToAdBalance = async function() {
         if (isConvertingBalance) return;
 
@@ -626,7 +624,7 @@
             const initData = window.Telegram?.WebApp?.initData || "";
             const tgId = getTgId();
 
-            const res = await window.fetchAPI('/api/tasks/convert_balance', 'POST', {
+            const res = await window.fetchAPI('/api/tasks/convert_adzn', 'POST', {
                 amount: amount,
                 telegram_id: tgId,
                 initData
@@ -638,6 +636,7 @@
 
                 alert(`🎉 تم تحويل ${amount.toLocaleString()} ZN إلى رصيد الإعلانات (AdZN) بنجاح!`);
                 if (amountInput) amountInput.value = '';
+                window.closeTaskModal('modal-convert-adzn');
             } else {
                 alert(res.error || 'حدث خطأ أثناء التحويل.');
             }
@@ -673,6 +672,7 @@
             const tgId = getTgId();
 
             const res = await window.fetchAPI('/api/tasks/cancel_campaign', 'POST', {
+                campaignId: taskId,
                 task_id: taskId,
                 telegram_id: tgId,
                 initData
@@ -682,7 +682,8 @@
                 if (res.new_ad_balance !== undefined) {
                     syncUserAdBalance(res.new_ad_balance);
                 }
-                alert(`🎉 تم إلغاء الحملة بنجاح! تم استرداد ${res.refunded_amount || 0} AdZN إلى حسابك.`);
+                const refunded = res.refunded_amount ?? res.refund ?? 0;
+                alert(`🎉 تم إلغاء الحملة بنجاح! تم استرداد ${refunded} AdZN إلى حسابك.`);
                 window.fetchAndRenderTasks(true);
             } else {
                 alert(res.error || 'حدث خطأ أثناء إلغاء الحملة.');
@@ -703,6 +704,7 @@
         }
     };
 
+    // ⚡ فتح واجهة إدراج الإعلان عند الضغط على أي منصة (يوتيوب، تيليجرام، انستغرام، موقع، X)
     window.selectAdType = function(type) {
         currentAdType = type;
         const selectEl = document.getElementById('ad-platform');
@@ -716,6 +718,45 @@
             });
             descSelect.innerHTML = opts;
         }
+
+        // فتح نافذة الإعلان أو التمرير للنموذج
+        const modal = document.getElementById('modal-create-ad');
+        const formSection = document.getElementById('ad-form-section');
+        if (modal) {
+            modal.style.display = 'flex';
+        } else if (formSection) {
+            formSection.style.display = 'block';
+            formSection.scrollIntoView({ behavior: 'smooth' });
+        }
+    };
+
+    window.openCreateAdModal = function(type) {
+        window.selectAdType(type || 'يوتيوب');
+    };
+
+    // ⚡ فتح نافذة شحن محفظة الإعلانات
+    window.openConvertModal = function() {
+        const modal = document.getElementById('modal-convert-adzn');
+        const convertSec = document.getElementById('convert-section');
+        if (modal) {
+            modal.style.display = 'flex';
+        } else if (convertSec) {
+            convertSec.style.display = 'block';
+            convertSec.scrollIntoView({ behavior: 'smooth' });
+        } else {
+            // تنفيذ التحويل مباشرة عبر الموجه الإرترادي إن لم توجد نافذة
+            let inputAmount = prompt('أدخل مبلغ ZN المراد تحويله لرصيد الإعلانات (AdZN):');
+            if (inputAmount) {
+                const amountInput = document.getElementById('convert-amount-input');
+                if (amountInput) amountInput.value = inputAmount;
+                window.convertMainToAdBalance();
+            }
+        }
+    };
+
+    window.closeTaskModal = function(modalId) {
+        const modal = document.getElementById(modalId);
+        if (modal) modal.style.display = 'none';
     };
 
     window.applyPresetDescription = function() {
@@ -726,7 +767,7 @@
         }
     };
 
-    // متابعة التواجد خارج الشاشة وحساب الـ 15 ثانية بدقة
+    // ⚡ المتابعة الدقيقة للتواجد خارج الشاشة وحساب الـ 15 ثانية
     document.addEventListener('visibilitychange', () => {
         const isHidden = document.visibilityState === 'hidden';
         const now = Date.now();
@@ -745,6 +786,35 @@
         }
     });
 
-    // التهيئة التلقائية
+    // ⚡ الربط التلقائي لكل أزرار القائمة والشاشة فور تحميل الصفحة
+    document.addEventListener('DOMContentLoaded', () => {
+        // ربط أزرار التبويبات العلويين
+        document.getElementById('btn-tab-earn')?.addEventListener('click', () => window.switchTasksTab('earn'));
+        document.getElementById('btn-tab-promote')?.addEventListener('click', () => window.switchTasksTab('promote'));
+
+        // ربط أزرار المنصات الخمسة الموضحة في الصورة
+        const platformButtons = document.querySelectorAll('.platform-card, [data-platform]');
+        platformButtons.forEach(btn => {
+            btn.addEventListener('click', function() {
+                const platform = this.getAttribute('data-platform') || this.innerText;
+                if (platform.includes('يوتيوب') || platform.includes('مشاهدة')) window.openCreateAdModal('يوتيوب');
+                else if (platform.includes('تيليجرام') || platform.includes('قناة')) window.openCreateAdModal('تيليجرام');
+                else if (platform.includes('انستغرام') || platform.includes('متابعة حساب')) window.openCreateAdModal('انستغرام');
+                else if (platform.includes('موقع') || platform.includes('زيارة')) window.openCreateAdModal('موقع');
+                else if (platform.includes('X') || platform.includes('تفاعل')) window.openCreateAdModal('X');
+            });
+        });
+
+        // ربط زر "شحن محفظة الإعلانات" الموضح بالصورة
+        const chargeBtn = document.querySelector('.charge-ad-btn, [onclick*="convert"], button:has-text("شحن محفظة الإعلانات")');
+        if (chargeBtn) {
+            chargeBtn.onclick = function(e) {
+                e.preventDefault();
+                window.openConvertModal();
+            };
+        }
+    });
+
+    // التهيئة التلقائية الأولى
     window.fetchAndRenderTasks(false);
 })();
