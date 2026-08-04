@@ -10,6 +10,10 @@
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    
+    <!-- TON Connect SDK -->
+    <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
+    
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -27,7 +31,9 @@
         <div id="view-tasks" class="game-view"></div>
         <div id="view-farm" class="game-view active"></div>
         <div id="view-games" class="game-view"></div>
-        <div id="view-shop" class="game-view"></div>
+        <div id="view-shop" class="game-view">
+            <!-- سيتم تحميل shop/shop.html هنا ديناميكياً أو تضمينه -->
+        </div>
         <div id="view-settings" class="game-view"></div>
     </div>
 
@@ -71,6 +77,8 @@
         </button>
     </nav>
 
+    <!-- سكربتات التطبيق -->
     <script src="game.js"></script>
+    <script src="shop/shop.js"></script>
 </body>
 </html>
