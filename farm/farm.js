@@ -161,7 +161,6 @@ window.initFarmView = function() {
 
         const rateEl = document.getElementById('farm-rate');
         if (rateEl) {
-            // إظهار معدل السرعة بالكسور مثل 0.5 بدلاً من قصها بـ Math.floor
             let formattedRate = (hRate % 1 === 0) ? hRate.toString() : Number(hRate.toFixed(2)).toString();
             rateEl.innerHTML = `<span dir="ltr">${formattedRate} /h</span> ⚡`;
         }
@@ -188,14 +187,14 @@ window.initFarmView = function() {
                     </div>`;
                 } else if (count > 0) {
                     fieldsHTML += `
-                    <div class="mining-card" onclick="handleUpgrade(${i})">
+                    <div class="mining-card" onclick="window.handleUpgrade(${i})">
                         <div class="mining-card-icon">🏛️</div>
                         <div class="mining-card-title">مستوى ${i} (x${count})</div>
                         <button class="mining-card-btn" ${!canAfford || isUpgrading ? 'disabled' : ''}>ترقية (${costStr})</button>
                     </div>`;
                 } else if (isUnlocked) {
                     fieldsHTML += `
-                    <div class="mining-card" onclick="handleUpgrade(${i})">
+                    <div class="mining-card" onclick="window.handleUpgrade(${i})">
                         <div class="mining-card-icon">🏛️</div>
                         <div class="mining-card-title">مستوى ${i}</div>
                         <button class="mining-card-btn" ${!canAfford || isUpgrading ? 'disabled' : ''}>شراء (${costStr})</button>
@@ -236,7 +235,9 @@ window.initFarmView = function() {
         const todayStr = getTodayUTCStr();
         const lastClaimDate = pData.last_daily_claim_date || window.userState?.last_daily_claim_date;
         const claimedToday = (lastClaimDate === todayStr); 
-        let currentDailyDay = parseInt(pData.daily_day || window.userState?.daily_day || 1);
+        let currentDailyDay = parseInt(pData.daily_day || window.userState?.daily_day || 1, 10);
+        if (isNaN(currentDailyDay) || currentDailyDay < 1) currentDailyDay = 1;
+
         const timeLeftStr = getTimeUntilUTCMidnight();
 
         for (let i = 0; i < 30; i++) {
@@ -256,7 +257,7 @@ window.initFarmView = function() {
                 if (dayNum < currentDailyDay) {
                     html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div style="font-size: 14px; font-weight: bold; color: #10b981;">✓</div></div>`;
                 } else if (dayNum === currentDailyDay) {
-                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%; cursor: pointer;" ${isClaimingDaily ? 'disabled' : ''}>استلام</button></div>`;
+                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="window.handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%; cursor: pointer;" ${isClaimingDaily ? 'disabled' : ''}>استلام</button></div>`;
                 } else {
                     html += `<div class="reward-day-card" style="opacity: 0.4;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div></div>`;
                 }
@@ -365,14 +366,45 @@ window.initFarmView = function() {
     window.addEventListener('pageshow', syncOnVisibility);
     document.addEventListener("visibilitychange", syncOnVisibility);
 
+    // دالة حماية الإعلانات مع مهلة زمنية عدم التعطيل (Timeout Fallback)
     function showTelegramAd(statusCallback) {
         return new Promise((resolve) => {
+            let isResolved = false;
+            const safeResolve = (val) => {
+                if (!isResolved) {
+                    isResolved = true;
+                    resolve(val);
+                }
+            };
+
+            // مهلة زمنية 5 ثوانٍ لضمان عدم تعليق المستخدم في حال تعطل الإعلان
+            const adTimer = setTimeout(() => {
+                console.warn("تجاوز وقت انتهاء الإعلان، يتم المتابعة تلقائياً.");
+                safeResolve(true);
+            }, 5000);
+
             if (typeof window.show_11322720 === 'function') {
                 if (statusCallback) statusCallback();
-                window.show_11322720().then(() => resolve(true)).catch(() => resolve(false));
+                try {
+                    window.show_11322720()
+                        .then(() => {
+                            clearTimeout(adTimer);
+                            safeResolve(true);
+                        })
+                        .catch((err) => {
+                            console.warn("خطأ في تشغيل الإعلان:", err);
+                            clearTimeout(adTimer);
+                            safeResolve(true);
+                        });
+                } catch (e) {
+                    console.error("استثناء في الإعلانات:", e);
+                    clearTimeout(adTimer);
+                    safeResolve(true);
+                }
             } else {
                 if (statusCallback) statusCallback();
-                resolve(true);
+                clearTimeout(adTimer);
+                safeResolve(true);
             }
         });
     }
@@ -483,11 +515,17 @@ window.initFarmView = function() {
         
         const pData = window.PlayerData || window.userState || {};
         const todayStr = getTodayUTCStr();
-        if (pData.last_daily_claim_date === todayStr) return;
 
-        const btn = document.getElementById(`daily-btn-${Math.min(day, 30)}`);
+        if (pData.last_daily_claim_date === todayStr) {
+            showToast("⚠️ لقد قمت بالاستلام اليوم بالفعل!");
+            return;
+        }
+
+        const targetDay = parseInt(day || pData.daily_day || window.userState?.daily_day || 1, 10);
+        const btn = document.getElementById(`daily-btn-${Math.min(targetDay, 30)}`);
+        
         isClaimingDaily = true;
-        if(btn) btn.disabled = true;
+        if (btn) btn.disabled = true;
         
         try {
             const adWatched = await showTelegramAd(() => {
