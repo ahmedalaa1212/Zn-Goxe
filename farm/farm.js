@@ -32,6 +32,7 @@ window.initFarmView = function() {
 
     let lastFetchTime = 0;
     const FETCH_THROTTLE_MS = 10000;
+    let lastCheckedDate = "";
 
     function showToast(message) {
         if (tele && tele.showAlert) tele.showAlert(message);
@@ -130,6 +131,7 @@ window.initFarmView = function() {
                     if (resData.player.upgrades !== undefined) window.userState.upgrades = resData.player.upgrades;
                     if (resData.player.last_claim_time !== undefined) window.userState.last_claim_time = resData.player.last_claim_time;
                     if (resData.player.daily_day !== undefined) window.userState.daily_day = resData.player.daily_day;
+                    if (resData.player.last_daily_claim_date !== undefined) window.userState.last_daily_claim_date = resData.player.last_daily_claim_date;
                 }
                 
                 if (resData.game_config) {
@@ -233,22 +235,33 @@ window.initFarmView = function() {
         const lastClaimDate = pData.last_daily_claim_date || window.userState?.last_daily_claim_date;
         const claimedToday = (lastClaimDate === todayStr); 
         let currentDailyDay = parseInt(pData.daily_day || window.userState?.daily_day || 1);
+        const timeLeftStr = getTimeUntilUTCMidnight();
 
         for (let i = 0; i < 30; i++) {
             let dayNum = i + 1;
             let rawReward = getRewardForDayIndex(i);
             let displayReward = formatCompactNumber(rawReward);
 
-            if (dayNum < currentDailyDay) {
-                html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div>✓</div></div>`;
-            } else if (dayNum === currentDailyDay) {
-                if (claimedToday) {
-                    html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><div id="daily-timer" style="color: #ef4444; font-size: 8px;">⏳</div></div>`;
+            if (claimedToday) {
+                // تم الاستلام اليوم: الأيام حتى اليوم الحالي تظهر مكتملة ✓
+                if (dayNum <= currentDailyDay) {
+                    html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div style="font-size: 14px; font-weight: bold; color: #10b981;">✓</div></div>`;
+                } else if (dayNum === currentDailyDay + 1) {
+                    // اليوم التالي يظهر ومعه العداد التنازلي لمنتصف الليل ⏳
+                    html += `<div class="reward-day-card active" style="border: 1px dashed #ef4444;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><div id="daily-timer" style="color: #ef4444; font-size: 8px; font-weight: bold;">⏳ ${timeLeftStr}</div></div>`;
                 } else {
-                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%;" ${isClaimingDaily ? 'disabled' : ''}>استلام</button></div>`;
+                    // الأيام المستقبليّة مغلقة
+                    html += `<div class="reward-day-card" style="opacity: 0.4;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div></div>`;
                 }
             } else {
-                html += `<div class="reward-day-card" style="opacity: 0.4;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div></div>`;
+                // لم يتم الاستلام اليوم بعد: الأيام السابقة تظهر مكتملة واليوم الحالي قابل للاستلام
+                if (dayNum < currentDailyDay) {
+                    html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div style="font-size: 14px; font-weight: bold; color: #10b981;">✓</div></div>`;
+                } else if (dayNum === currentDailyDay) {
+                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%; cursor: pointer;" ${isClaimingDaily ? 'disabled' : ''}>استلام</button></div>`;
+                } else {
+                    html += `<div class="reward-day-card" style="opacity: 0.4;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div></div>`;
+                }
             }
         }
         container.innerHTML = html;
@@ -259,6 +272,17 @@ window.initFarmView = function() {
         const pData = window.PlayerData || window.userState;
         if (!pData) return;
         
+        const todayStr = getTodayUTCStr();
+
+        // إعادة مزامنة البيانات تلقائياً إذا دخل يوم جديد (UTC Midnight)
+        if (lastCheckedDate && lastCheckedDate !== todayStr) {
+            lastCheckedDate = todayStr;
+            if (typeof window.fetchPlayerDataFromServer === 'function') {
+                window.fetchPlayerDataFromServer(true);
+            }
+        }
+        lastCheckedDate = todayStr;
+
         let maxC = parseFloat(window.userState?.max_cap ?? pData.max_cap ?? 100);
         let hRate = parseFloat(window.userState?.hourly_rate ?? pData.hourly_rate ?? 0);
         
@@ -305,7 +329,6 @@ window.initFarmView = function() {
             }
         }
 
-        const todayStr = getTodayUTCStr();
         const timeLeftStr = getTimeUntilUTCMidnight();
         
         const boostBtn = document.getElementById('boost-btn');
@@ -330,7 +353,7 @@ window.initFarmView = function() {
         const dailyTimerEl = document.getElementById('daily-timer');
         const lastDailyClaim = pData.last_daily_claim_date || window.userState?.last_daily_claim_date;
         if (dailyTimerEl && lastDailyClaim === todayStr) {
-            dailyTimerEl.innerText = timeLeftStr;
+            dailyTimerEl.innerText = `⏳ ${timeLeftStr}`;
         }
 
     }, 1000);
