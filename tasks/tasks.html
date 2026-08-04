@@ -110,8 +110,8 @@
         
         <!-- أزرار التنقل -->
         <div class="tabs-header">
-            <button type="button" id="btn-tab-promote" onclick="switchTasksTab('promote')">📢 حملات الترويج</button>
-            <button type="button" id="btn-tab-earn" class="active" onclick="switchTasksTab('earn')">💰 مركز الأرباح</button>
+            <button type="button" id="btn-tab-promote" onclick="window.switchTasksTab('promote')">📢 حملات الترويج</button>
+            <button type="button" id="btn-tab-earn" class="active" onclick="window.switchTasksTab('earn')">💰 مركز الأرباح</button>
         </div>
 
         <!-- قسم تنفيذ المهام والربح -->
@@ -130,28 +130,28 @@
             <div style="background: linear-gradient(145deg, #0f172a, #1e293b); border: 1px solid #334155; border-radius: 18px; padding: 22px; margin-bottom: 22px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.3);">
                 <div style="color: #94a3b8; font-size: 13px; margin-bottom: 6px; font-weight: 500;">رصيدك المخصص للإعلانات والحملات</div>
                 <div id="ad-balance-display" style="color: #38bdf8; font-size: 32px; font-weight: 800; margin-bottom: 18px; text-shadow: 0 0 15px rgba(56,189,248,0.2);">AdZN 0</div>
-                <button type="button" onclick="convertZnToAdZn()" style="background: linear-gradient(90deg, #0284c7, #0369a1); border: none; color: #fff; padding: 12px 20px; border-radius: 10px; cursor: pointer; font-weight: 700; width: 100%; box-shadow: 0 4px 12px rgba(2,132,199,0.2); transition: 0.2s;">🔄 شحن محفظة الإعلانات (من رصيد ZN)</button>
+                <button type="button" onclick="window.convertZnToAdZn()" style="background: linear-gradient(90deg, #0284c7, #0369a1); border: none; color: #fff; padding: 12px 20px; border-radius: 10px; cursor: pointer; font-weight: 700; width: 100%; box-shadow: 0 4px 12px rgba(2,132,199,0.2); transition: 0.2s;">🔄 شحن محفظة الإعلانات (من رصيد ZN)</button>
             </div>
 
             <h4 style="color: #fff; margin-bottom: 15px; text-align: right; font-size: 14px; font-weight: 700;">إطلاق حملة ترويجيّة جديدة</h4>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 25px;">
-                <div onclick="openAdModal('يوتيوب')" style="background: var(--card-bg); border: 1px solid var(--card-border); padding: 18px; border-radius: 16px; text-align: center; cursor: pointer;">
+                <div onclick="window.openAdModal('يوتيوب')" style="background: var(--card-bg); border: 1px solid var(--card-border); padding: 18px; border-radius: 16px; text-align: center; cursor: pointer;">
                     <i class="fab fa-youtube" style="color: #ef4444; font-size: 28px; margin-bottom: 8px;"></i>
                     <div style="color: #fff; font-size: 13px; font-weight: 700;">مشاهدة / اشتراك</div>
                 </div>
-                <div onclick="openAdModal('تيليجرام')" style="background: var(--card-bg); border: 1px solid var(--card-border); padding: 18px; border-radius: 16px; text-align: center; cursor: pointer;">
+                <div onclick="window.openAdModal('تيليجرام')" style="background: var(--card-bg); border: 1px solid var(--card-border); padding: 18px; border-radius: 16px; text-align: center; cursor: pointer;">
                     <i class="fab fa-telegram" style="color: #38bdf8; font-size: 28px; margin-bottom: 8px;"></i>
                     <div style="color: #fff; font-size: 13px; font-weight: 700;">قناة / جروب ربحي</div>
                 </div>
-                <div onclick="openAdModal('موقع')" style="background: var(--card-bg); border: 1px solid var(--card-border); padding: 18px; border-radius: 16px; text-align: center; cursor: pointer;">
+                <div onclick="window.openAdModal('موقع')" style="background: var(--card-bg); border: 1px solid var(--card-border); padding: 18px; border-radius: 16px; text-align: center; cursor: pointer;">
                     <i class="fas fa-globe" style="color: #28a745; font-size: 28px; margin-bottom: 8px;"></i>
                     <div style="color: #fff; font-size: 13px; font-weight: 700;">زيارة موقع وفحص آمن</div>
                 </div>
-                <div onclick="openAdModal('انستغرام')" style="background: var(--card-bg); border: 1px solid var(--card-border); padding: 18px; border-radius: 16px; text-align: center; cursor: pointer;">
+                <div onclick="window.openAdModal('انستغرام')" style="background: var(--card-bg); border: 1px solid var(--card-border); padding: 18px; border-radius: 16px; text-align: center; cursor: pointer;">
                     <i class="fab fa-instagram" style="color: #e1306c; font-size: 28px; margin-bottom: 8px;"></i>
                     <div style="color: #fff; font-size: 13px; font-weight: 700;">متابعة حساب / لايك</div>
                 </div>
-                <div onclick="openAdModal('X')" style="background: var(--card-bg); border: 1px solid var(--card-border); padding: 18px; border-radius: 16px; text-align: center; cursor: pointer; grid-column: span 2;">
+                <div onclick="window.openAdModal('X')" style="background: var(--card-bg); border: 1px solid var(--card-border); padding: 18px; border-radius: 16px; text-align: center; cursor: pointer; grid-column: span 2;">
                     <i class="fab fa-twitter" style="color: #fff; font-size: 26px; margin-bottom: 8px;"></i>
                     <div style="color: #fff; font-size: 13px; font-weight: 700;">متابعة وتفاعل منصة X</div>
                 </div>
@@ -176,14 +176,14 @@
             </select>
 
             <label style="color: #94a3b8; font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">مكافأة العضو لكل تفاعل صحيح (AdZN):</label>
-            <input type="number" id="ad-reward" placeholder="مثال: 500" style="width: 100%; padding: 12px; margin-bottom: 14px; background: #0b0b12; border: 1px solid #2c2c3e; color: #fff; border-radius: 10px; box-sizing: border-box; font-size: 13px;">
+            <input type="number" id="ad-reward" placeholder="مثال: 250" style="width: 100%; padding: 12px; margin-bottom: 14px; background: #0b0b12; border: 1px solid #2c2c3e; color: #fff; border-radius: 10px; box-sizing: border-box; font-size: 13px;">
 
             <label style="color: #94a3b8; font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">إجمالي التفاعلات / الأعضاء المطلوبين:</label>
             <input type="number" id="ad-users" placeholder="مثال: 100" style="width: 100%; padding: 12px; margin-bottom: 20px; background: #0b0b12; border: 1px solid #2c2c3e; color: #fff; border-radius: 10px; box-sizing: border-box; font-size: 13px;">
             
             <div style="display: flex; gap: 12px;">
-                <button type="button" id="btn-submit-campaign-action" onclick="submitAdCampaign()" style="flex: 2; padding: 12px; background: linear-gradient(90deg, #38bdf8, #0284c7); color: #fff; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 13px;">نشر الحملة</button>
-                <button type="button" onclick="closeAdModal()" style="flex: 1; padding: 12px; background: #27273a; color: #a0a5b5; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 13px;">إلغاء</button>
+                <button type="button" id="btn-submit-campaign-action" onclick="window.submitAdCampaign()" style="flex: 2; padding: 12px; background: linear-gradient(90deg, #38bdf8, #0284c7); color: #fff; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 13px;">نشر الحملة</button>
+                <button type="button" onclick="window.closeAdModal()" style="flex: 1; padding: 12px; background: #27273a; color: #a0a5b5; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 13px;">إلغاء</button>
             </div>
         </div>
     </div>
@@ -196,7 +196,7 @@
             <p style="color: #94a3b8; font-size: 13px; line-height: 1.6; margin-bottom: 20px;">جاري مراجعة الرابط والتأكد من سلامة المحتوى وخلوه من المخالفات البرمجية لحماية المجتمع...</p>
             
             <div style="position: relative; width: 75px; height: 75px; margin: 0 auto 20px auto; display: flex; align-items: center; justify-content: center; background: rgba(56,189,248,0.05); border-radius: 50%; border: 2px dashed #38bdf8;">
-                <span id="review-countdown-timer" style="color: #38bdf8; font-size: 24px; font-weight: 800;">10</span>
+                <span id="review-countdown-timer" style="color: #38bdf8; font-size: 24px; font-weight: 800;">3</span>
                 <span style="font-size: 10px; color: #64748b; position: absolute; bottom: 6px;">ثانية</span>
             </div>
             <div style="color: #64748b; font-size: 11px; font-weight: 500;">يرجى الانتظار، لا تغلق التطبيق أو تخرج من الصفحة.</div>
@@ -211,11 +211,11 @@
             </div>
             <h3 style="color: #fff; margin: 0 0 10px 0; font-size: 19px; font-weight: 800;">تم اجتياز الفحص بنجاح!</h3>
             <p style="color: #a0a5b8; font-size: 12px; line-height: 1.6; margin-bottom: 22px; padding: 0 5px;">تهانينا! تم فحص الرابط والتأكد من سلامته، الحملة الآن نشطة ومتاحة لجميع الأعضاء، وتم خصم الميزانية من محفظتك بنجاح.</p>
-            <button type="button" onclick="handleSuccessRedirect()" style="width: 100%; padding: 13px; background: linear-gradient(90deg, #28a745, #1e7e34); color: #fff; border: none; border-radius: 12px; font-weight: 700; font-size: 13px; cursor: pointer; box-shadow: 0 5px 15px rgba(40,167,69,0.3); transition: 0.2s;">متابعة الحملات 📢</button>
+            <button type="button" onclick="window.handleSuccessRedirect()" style="width: 100%; padding: 13px; background: linear-gradient(90deg, #28a745, #1e7e34); color: #fff; border: none; border-radius: 12px; font-weight: 700; font-size: 13px; cursor: pointer; box-shadow: 0 5px 15px rgba(40,167,69,0.3); transition: 0.2s;">متابعة الحملات 📢</button>
         </div>
     </div>
 
     <!-- جافا سكريبت الخاص بالصفحة -->
-    <script src="tasks.js?v=17.0"></script>
+    <script src="tasks.js?v=18.0"></script>
 </body>
 </html>
