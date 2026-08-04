@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime, timezone, timedelta
 from google.cloud import firestore
 from core.security import get_authenticated_user
-from database import db, get_game_settings, activate_user_boost
+from database import db, get_game_settings
 
 farm_bp = Blueprint('farm', __name__)
 
@@ -76,21 +76,6 @@ def calculate_accrued_mined(data, now, max_cap):
         if last_claim.tzinfo is None:
             last_claim = last_claim.replace(tzinfo=timezone.utc)
         seconds_passed = max(0.0, (now - last_claim).total_seconds())
-        
-        boost_active = data.get("boost_active", False)
-        boost_expires_at = data.get("boost_expires_at")
-        boost_multiplier = float(data.get("boost_multiplier", 1.0))
-        
-        if boost_active and boost_expires_at:
-            try:
-                boost_expires = datetime.fromisoformat(str(boost_expires_at).replace('Z', '+00:00'))
-                if boost_expires.tzinfo is None:
-                    boost_expires = boost_expires.replace(tzinfo=timezone.utc)
-                if now < boost_expires:
-                    hourly_rate *= boost_multiplier
-            except Exception:
-                pass
-
         mined = (hourly_rate / 3600.0) * seconds_passed
         return round(min(mined, max_cap), 2)
     except Exception:
@@ -134,10 +119,7 @@ def get_player_data():
                 "total_ref_earnings": 0.0,
                 "invited_friends_count": 0,
                 "ref_generated_amount": 0.0,
-                "claimed_ref_tasks": [],
-                "boost_multiplier": 1,
-                "boost_active": False,
-                "boost_expires_at": None
+                "claimed_ref_tasks": []
             }
             user_ref.set(user_data)
         else:
@@ -150,19 +132,6 @@ def get_player_data():
             if "total_ref_earnings" not in user_data:
                 auto_fix["total_ref_earnings"] = 0.0
                 user_data["total_ref_earnings"] = 0.0
-            
-            boost_active = user_data.get("boost_active", False)
-            boost_expires_at = user_data.get("boost_expires_at")
-            if boost_active and boost_expires_at:
-                try:
-                    boost_expires = datetime.fromisoformat(str(boost_expires_at).replace('Z', '+00:00'))
-                    if boost_expires.tzinfo is None:
-                        boost_expires = boost_expires.replace(tzinfo=timezone.utc)
-                    if now >= boost_expires:
-                        auto_fix["boost_active"] = False
-                        user_data["boost_active"] = False
-                except Exception:
-                    pass
             
             if auto_fix:
                 user_ref.update(auto_fix)
@@ -347,8 +316,11 @@ def buy_upgrade():
                 return {"success": False, "error": "رصيدك غير كافٍ لإتمام الترقية"}
                 
             upgrades = user_data.get("upgrades", {})
+            if not isinstance(upgrades, dict):
+                upgrades = {}
+                
             lvl_key = f"lvl{level}"
-            current_count = int(upgrades.get(lvl_key) or upgrades.get(level) or 0)
+            current_count = int(upgrades.get(lvl_key, 0))
             
             if current_count >= 10:
                 return {"success": False, "error": "لقد وصلت للحد الأقصى لهذا المستوى"}
@@ -356,7 +328,7 @@ def buy_upgrade():
             if int(level) > 1:
                 prev_lvl = str(int(level) - 1)
                 prev_key = f"lvl{prev_lvl}"
-                prev_count = int(upgrades.get(prev_key) or upgrades.get(prev_lvl) or 0)
+                prev_count = int(upgrades.get(prev_key, 0))
                 if prev_count == 0:
                     return {"success": False, "error": "يجب شراء المستوى السابق أولاً"}
             
@@ -366,28 +338,11 @@ def buy_upgrade():
             max_cap = calculate_user_max_cap(user_data, game_settings)
             mined_amount = calculate_accrued_mined(user_data, now, max_cap)
             
-            referred_by = user_data.get("referred_by")
-            referrer_ref = None
-            referrer_doc = None
-            commission = 0.0
-            
-            if referred_by and str(referred_by).strip() != "" and str(referred_by) != "null" and mined_amount > 0:
-                try:
-                    friends_cfg = game_settings.get("friends_config", {})
-                    comm_pct = float(friends_cfg.get("commission_percent", 10))
-                    commission = round(mined_amount * (comm_pct / 100.0), 2)
-                    if commission > 0:
-                        referrer_ref = db.collection('users').document(str(referred_by))
-                        referrer_doc = referrer_ref.get(transaction=transaction)
-                except Exception as ref_read_err:
-                    print(f"⚠️ Error reading referrer on upgrade: {ref_read_err}")
-
             new_balance = round((current_balance + mined_amount) - cost, 2)
             current_hourly_rate = float(user_data.get("hourly_rate", 0.0))
             new_hourly_rate = round(current_hourly_rate + rate_bonus, 2)
             
             upgrades[lvl_key] = current_count + 1
-            upgrades[level] = current_count + 1
             
             transaction.update(ref, {
                 "balance": new_balance,
@@ -396,21 +351,6 @@ def buy_upgrade():
                 "last_claim_time": now_iso
             })
 
-            if referrer_ref and referrer_doc and referrer_doc.exists and commission > 0:
-                try:
-                    transaction.update(referrer_ref, {
-                        "pending_ref_earnings": firestore.Increment(commission),
-                        "total_ref_earnings": firestore.Increment(commission)
-                    })
-                    friend_sub_ref = referrer_ref.collection('friends').document(user_id_str)
-                    friend_name = user_data.get('first_name') or user_data.get('name') or 'صديق'
-                    transaction.set(friend_sub_ref, {
-                        "earned_from_him": firestore.Increment(commission),
-                        "name": friend_name
-                    }, merge=True)
-                except Exception as ref_err:
-                    print(f"⚠️ Error updating referral commission on upgrade: {ref_err}")
-            
             return {
                 "success": True,
                 "new_balance": new_balance,
@@ -546,18 +486,3 @@ def claim_daily_boost():
     except Exception as e:
         print(f"Error daily boost: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء تفعيل التعزيز"}), 500
-
-@farm_bp.route('/activate_boost', methods=['POST'])
-def activate_boost():
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
-    if not success:
-        return error_res
-        
-    data = request.json or {}
-    duration_hours = int(data.get("duration_hours", 1))
-    
-    is_ok, msg = activate_user_boost(telegram_id, multiplier=10, duration_hours=duration_hours)
-    if is_ok:
-        return jsonify({"success": True, "message": msg, "status": "success"}), 200
-    else:
-        return jsonify({"success": False, "error": msg}), 400
