@@ -223,11 +223,11 @@ def verify_and_apply_package():
 
         @firestore.transactional
         def secure_apply_package_tx(tx, u_ref, t_ref):
-            t_snap = transaction.get(t_ref)
+            t_snap = tx.get(t_ref)
             if t_snap.exists:
                 raise Exception("تم معالجة هذه المعاملة وتفعيل الباقة سابقاً.")
 
-            u_snap = transaction.get(u_ref)
+            u_snap = tx.get(u_ref)
             if not u_snap.exists:
                 raise Exception("حساب المستخدم غير موجود.")
 
@@ -306,7 +306,7 @@ def buy_upgrade():
 
         @firestore.transactional
         def secure_buy_upgrade_tx(tx, u_ref):
-            u_snap = transaction.get(u_ref)
+            u_snap = tx.get(u_ref)
             if not u_snap.exists:
                 raise Exception("حساب المستخدم غير موجود.")
 
