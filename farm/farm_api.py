@@ -468,19 +468,22 @@ def claim_daily_boost():
             now = datetime.now(timezone.utc)
             today_str = now.strftime('%Y-%m-%d')
             
+            # 1. التحقق مما إذا كان المستخدم قد استلم التعزيز اليوم
             last_boost = user_data.get("last_boost_date")
-            
             if last_boost == today_str:
                 return {"success": False, "error": "لقد حصلت على تعزيز اليوم بالفعل"}
                 
-            daily_boost_rate = float(user_data.get("daily_boost_rate", 0.0))
-            current_hourly_rate = float(user_data.get("hourly_rate", 0.0))
-            current_ads = int(user_data.get("ads_watched", 0))
+            # 2. قراءة القيم بمرونة لمنع أي خطأ
+            daily_boost_rate = float(user_data.get("daily_boost_rate", 0.0) or 0.0)
+            current_hourly_rate = float(user_data.get("hourly_rate", 0.0) or 0.0)
+            current_balance = float(user_data.get("balance", 0.0) or 0.0)
+            current_ads = int(user_data.get("ads_watched", 0) or 0)
             new_ads = current_ads + 1
             
+            # 3. الشرط يعتمد فقط وحصرياً على daily_boost_rate
             if daily_boost_rate < 15.0:
-                new_hourly_rate = round(current_hourly_rate + daily_boost_reward, 2)
                 new_daily_boost_rate = round(daily_boost_rate + daily_boost_reward, 2)
+                new_hourly_rate = round(current_hourly_rate + daily_boost_reward, 2)
                 
                 transaction.update(ref, {
                     "hourly_rate": new_hourly_rate,
@@ -488,6 +491,7 @@ def claim_daily_boost():
                     "last_boost_date": today_str,
                     "ads_watched": firestore.Increment(1)
                 })
+                
                 return {
                     "success": True,
                     "type": "speed",
@@ -498,13 +502,15 @@ def claim_daily_boost():
                     "server_time": now.isoformat()
                 }
             else:
-                current_balance = float(user_data.get("balance", 0.0))
+                # عند الوصول لسرعة 15 أو أكثر يتم منح 50 عملة
                 new_balance = round(current_balance + 50.0, 2)
+                
                 transaction.update(ref, {
                     "balance": new_balance,
                     "last_boost_date": today_str,
                     "ads_watched": firestore.Increment(1)
                 })
+                
                 return {
                     "success": True,
                     "type": "balance",
