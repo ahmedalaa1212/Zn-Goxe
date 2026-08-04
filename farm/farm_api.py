@@ -15,22 +15,22 @@ DEFAULT_GAME_SETTINGS = {
         850, 850, 900, 900, 950, 950, 1000, 1000, 1100, 1250
     ],
     "mining_config": {
-        "daily_boost_reward": 2.0
+        "daily_boost_reward": 0.5
     },
     "storage_capacities": {
-        "0": 200.0, "1": 600.0, "2": 1500.0, "3": 3500.0, "4": 8000.0,
-        "5": 18000.0, "6": 40000.0, "7": 90000.0, "8": 200000.0, "9": 450000.0, "10": 1000000.0
+        "0": 100.0, "1": 300.0, "2": 800.0, "3": 2000.0, "4": 5000.0,
+        "5": 12000.0, "6": 28000.0, "7": 65000.0, "8": 150000.0, "9": 350000.0, "10": 800000.0
     },
     "upgrade_config": {
-        "1": {"base_cost": 2000.0, "rate_bonus": 5.0, "price": 2000.0, "rate": 5.0},
-        "2": {"base_cost": 7000.0, "rate_bonus": 15.0, "price": 7000.0, "rate": 15.0},
-        "3": {"base_cost": 18000.0, "rate_bonus": 35.0, "price": 18000.0, "rate": 35.0},
-        "4": {"base_cost": 45000.0, "rate_bonus": 80.0, "price": 45000.0, "rate": 80.0},
-        "5": {"base_cost": 110000.0, "rate_bonus": 180.0, "price": 110000.0, "rate": 180.0},
-        "6": {"base_cost": 260000.0, "rate_bonus": 400.0, "price": 260000.0, "rate": 400.0},
-        "7": {"base_cost": 600000.0, "rate_bonus": 900.0, "price": 600000.0, "rate": 900.0},
-        "8": {"base_cost": 1400000.0, "rate_bonus": 2000.0, "price": 1400000.0, "rate": 2000.0},
-        "9": {"base_cost": 3200000.0, "rate_bonus": 4500.0, "price": 3200000.0, "rate": 4500.0}
+        "1": {"base_cost": 3500.0, "rate_bonus": 5.0, "price": 3500.0, "rate": 5.0},
+        "2": {"base_cost": 11500.0, "rate_bonus": 15.0, "price": 11500.0, "rate": 15.0},
+        "3": {"base_cost": 28000.0, "rate_bonus": 35.0, "price": 28000.0, "rate": 35.0},
+        "4": {"base_cost": 68000.0, "rate_bonus": 80.0, "price": 68000.0, "rate": 80.0},
+        "5": {"base_cost": 165000.0, "rate_bonus": 180.0, "price": 165000.0, "rate": 180.0},
+        "6": {"base_cost": 390000.0, "rate_bonus": 400.0, "price": 390000.0, "rate": 400.0},
+        "7": {"base_cost": 950000.0, "rate_bonus": 900.0, "price": 950000.0, "rate": 900.0},
+        "8": {"base_cost": 2300000.0, "rate_bonus": 2000.0, "price": 2300000.0, "rate": 2000.0},
+        "9": {"base_cost": 5500000.0, "rate_bonus": 4500.0, "price": 5500000.0, "rate": 4500.0}
     }
 }
 
@@ -55,9 +55,9 @@ def get_base_storage_capacity(storage_level, settings):
     caps = settings.get("storage_capacities") or settings.get("storage_config") or DEFAULT_GAME_SETTINGS["storage_capacities"]
     
     if str(lvl) in caps and isinstance(caps[str(lvl)], dict):
-        return float(caps[str(lvl)].get("capacity", 200.0))
+        return float(caps[str(lvl)].get("capacity", 100.0))
         
-    val = caps.get(str(lvl)) or caps.get(lvl) or 200.0
+    val = caps.get(str(lvl)) or caps.get(lvl) or 100.0
     return float(val)
 
 def calculate_user_max_cap(user_data, settings):
@@ -153,7 +153,7 @@ def get_player_data():
         if last_daily_claim == today_str:
             effective_daily_day = raw_daily_day
         elif last_daily_claim == yesterday_str:
-            effective_daily_day = min(raw_daily_day + 1, 30)
+            effective_daily_day = min(raw_daily_day + 1, 30) if raw_daily_day < 30 else 30
         else:
             effective_daily_day = 1
             
@@ -164,7 +164,7 @@ def get_player_data():
         upgrade_configs = game_settings.get("upgrade_config") or game_settings.get("speed_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
         upgrade_costs = {int(k): float(v.get("base_cost", v.get("price", 0))) for k, v in upgrade_configs.items()}
         mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
-        daily_boost_reward = round(float(mining_cfg.get("daily_boost_reward", 2.0)), 2)
+        daily_boost_reward = round(float(mining_cfg.get("daily_boost_reward", 0.5)), 2)
         
         return jsonify({
             "success": True, 
@@ -400,7 +400,7 @@ def claim_daily():
             raw_daily_day = int(user_data.get("daily_day") or user_data.get("daily_streak") or 1)
             
             if last_daily_claim == yesterday_str:
-                effective_daily_day = min(raw_daily_day + 1, 30)
+                effective_daily_day = min(raw_daily_day + 1, 30) if raw_daily_day < 30 else 30
             else:
                 effective_daily_day = 1
                 
@@ -446,7 +446,7 @@ def claim_daily_boost():
         user_ref = db.collection('users').document(user_id_str)
         game_settings = get_game_settings() or DEFAULT_GAME_SETTINGS
         mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
-        daily_boost_reward = round(float(mining_cfg.get("daily_boost_reward", 2.0)), 2)
+        daily_boost_reward = round(float(mining_cfg.get("daily_boost_reward", 0.5)), 2)
         
         @firestore.transactional
         def run_boost_transaction(transaction, ref):
@@ -464,19 +464,35 @@ def claim_daily_boost():
                 return {"success": False, "error": "لقد حصلت على تعزيز اليوم بالفعل"}
                 
             current_hourly_rate = float(user_data.get("hourly_rate", 0.0))
-            new_hourly_rate = round(current_hourly_rate + daily_boost_reward, 2)
             
-            transaction.update(ref, {
-                "hourly_rate": new_hourly_rate,
-                "last_boost_date": today_str
-            })
-            
-            return {
-                "success": True,
-                "new_rate": new_hourly_rate,
-                "last_boost_date": today_str,
-                "server_time": now.isoformat()
-            }
+            if current_hourly_rate < 15.0:
+                new_hourly_rate = round(current_hourly_rate + daily_boost_reward, 2)
+                transaction.update(ref, {
+                    "hourly_rate": new_hourly_rate,
+                    "last_boost_date": today_str
+                })
+                return {
+                    "success": True,
+                    "type": "speed",
+                    "new_rate": new_hourly_rate,
+                    "last_boost_date": today_str,
+                    "server_time": now.isoformat()
+                }
+            else:
+                current_balance = float(user_data.get("balance", 0.0))
+                new_balance = round(current_balance + 50.0, 2)
+                transaction.update(ref, {
+                    "balance": new_balance,
+                    "last_boost_date": today_str
+                })
+                return {
+                    "success": True,
+                    "type": "balance",
+                    "new_balance": new_balance,
+                    "new_rate": current_hourly_rate,
+                    "last_boost_date": today_str,
+                    "server_time": now.isoformat()
+                }
 
         transaction = db.transaction()
         result = run_boost_transaction(transaction, user_ref)
