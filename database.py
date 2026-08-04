@@ -39,12 +39,12 @@ def initialize_firebase():
                 if os.path.exists("firebase-adminsdk.json"):
                     cred = credentials.Certificate("firebase-adminsdk.json")
                 else:
-                    raise FileNotFoundError("ظ„ظ… ظٹطھظ… ط§ظ„ط¹ط«ظˆط± ط¹ظ„ظ‰ ط¨ظٹط§ظ†ط§طھ ط§ط¹طھظ…ط§ط¯ Firebase!")
+                    raise FileNotFoundError("لم يتم العثور على بيانات اعتماد Firebase!")
             
             firebase_admin.initialize_app(cred)
-            print("âœ… Firebase Initialized Successfully!")
+            print("✅ Firebase Initialized Successfully!")
         except Exception as e:
-            print(f"â‌Œ Critical Firebase Initialization Error: {e}")
+            print(f"❌ Critical Firebase Initialization Error: {e}")
             raise e
             
     if db is None:
@@ -57,7 +57,7 @@ def ensure_game_settings_exist():
         try:
             db = initialize_firebase()
         except Exception as e:
-            print(f"â‌Œ Error initializing firebase inside ensure_game_settings_exist: {e}")
+            print(f"❌ Error initializing firebase inside ensure_game_settings_exist: {e}")
             return None
 
     try:
@@ -131,17 +131,17 @@ def ensure_game_settings_exist():
         config_ref.set(initial_settings, merge=True)
         _SETTINGS_CACHE = initial_settings
         _SETTINGS_CACHE_TIME = time.time()
-        print("âœ… طھظ… ط¥ظ†ط´ط§ط، ظˆطھط­ط¯ظٹط« app_config/game_settings ظپظٹ Firestore ط¨ظ†ط¬ط§ط­!")
+        print("✅ تم إنشاء وتحديث app_config/game_settings في Firestore بنجاح!")
         return initial_settings
     except Exception as e:
-        print(f"â‌Œ ط®ط·ط£ ط£ط«ظ†ط§ط، طھظ‡ظٹط¦ط© ط§ظ„ط¥ط¹ط¯ط§ط¯ط§طھ: {e}")
+        print(f"❌ خطأ أثناء تهيئة الإعدادات: {e}")
         return None
 
 try:
     db = initialize_firebase()
     ensure_game_settings_exist()
 except Exception as e:
-    print(f"âڑ ï¸ڈ طھظ†ط¨ظٹظ‡ ط£ط«ظ†ط§ط، طھظ‡ظٹط¦ط© DB طھظ„ظ‚ط§ط¦ظٹط§ظ‹: {e}")
+    print(f"⚠️ تنبيه أثناء تهيئة DB تلقائياً: {e}")
 
 def get_game_settings():
     global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
@@ -161,7 +161,7 @@ def get_game_settings():
             if new_settings: return new_settings
         return {}
     except Exception as e:
-        print(f"â‌Œ Error getting game settings: {e}")
+        print(f"❌ Error getting game settings: {e}")
         return _SETTINGS_CACHE or {}
 
 def is_user_banned(tg_id):
@@ -179,10 +179,10 @@ def is_user_banned(tg_id):
         _BAN_CACHE[tg_id_str] = (is_banned, now + BAN_CACHE_TTL)
         return is_banned
     except Exception as e:
-        print(f"â‌Œ Error checking ban status: {e}")
+        print(f"❌ Error checking ban status: {e}")
         return False
 
-def init_user(tg_id, ref_id=None, first_name="طµط¯ظٹظ‚ظٹ"):
+def init_user(tg_id, ref_id=None, first_name="صديقي"):
     try:
         if not tg_id: return False
             
@@ -202,7 +202,7 @@ def init_user(tg_id, ref_id=None, first_name="طµط¯ظٹظ‚ظٹ"):
                 "ad_balance": 0.0,
                 "usd_balance": 0.0,
                 "hourly_rate": 0.0,
-                "daily_boost_speed": 0.0,
+                "daily_boost_rate": 0.0,
                 "energy": 100.0,
                 "storage_level": 0,
                 "extra_storage": 0.0,
@@ -249,7 +249,7 @@ def init_user(tg_id, ref_id=None, first_name="طµط¯ظٹظ‚ظٹ"):
             if "extra_storage" not in user_data: updates["extra_storage"] = 0.0
             if "upgrades" not in user_data: updates["upgrades"] = {}
             if "hourly_rate" not in user_data: updates["hourly_rate"] = 0.0
-            if "daily_boost_speed" not in user_data: updates["daily_boost_speed"] = 0.0
+            if "daily_boost_rate" not in user_data: updates["daily_boost_rate"] = 0.0
             if "pending_ref_earnings" not in user_data: updates["pending_ref_earnings"] = 0.0
             if "total_ref_earnings" not in user_data: updates["total_ref_earnings"] = 0.0
             if "claimed_ref_tasks" not in user_data: updates["claimed_ref_tasks"] = []
@@ -261,7 +261,7 @@ def init_user(tg_id, ref_id=None, first_name="طµط¯ظٹظ‚ظٹ"):
         
         return is_new_referral
     except Exception as e:
-        print(f"â‌Œ Error initializing user {tg_id}: {e}")
+        print(f"❌ Error initializing user {tg_id}: {e}")
         return False
 
 def get_user(tg_id):
@@ -283,9 +283,9 @@ def get_user(tg_id):
                 auto_updates["storage_level"] = 0
                 data["storage_level"] = 0
 
-            if "daily_boost_speed" not in data:
-                auto_updates["daily_boost_speed"] = 0.0
-                data["daily_boost_speed"] = 0.0
+            if "daily_boost_rate" not in data:
+                auto_updates["daily_boost_rate"] = 0.0
+                data["daily_boost_rate"] = 0.0
 
             if "boost_multiplier" not in data:
                 auto_updates["boost_multiplier"] = 1
@@ -337,16 +337,16 @@ def get_user(tg_id):
             return data
         return None
     except Exception as e:
-        print(f"â‌Œ Error getting user {tg_id}: {e}")
+        print(f"❌ Error getting user {tg_id}: {e}")
         return None
 
 def apply_package_to_user(tg_id, added_storage=0.0, added_balance=0.0, added_hourly_rate=0.0):
     try:
-        if not tg_id: return False, "ظ…ط¹ط±ظپ ط؛ظٹط± طµط§ظ„ط­"
+        if not tg_id: return False, "معرف غير صالح"
         user_ref = db.collection('users').document(str(tg_id))
         doc = user_ref.get()
         if not doc.exists:
-            return False, "ط§ظ„ظ…ط³طھط®ط¯ظ… ط؛ظٹط± ظ…ظˆط¬ظˆط¯"
+            return False, "المستخدم غير موجود"
 
         user_data = doc.to_dict() or {}
         stg_lvl = str(user_data.get("storage_level", 0))
@@ -371,10 +371,10 @@ def apply_package_to_user(tg_id, added_storage=0.0, added_balance=0.0, added_hou
             updates["hourly_rate"] = firestore.Increment(float(added_hourly_rate))
 
         user_ref.update(updates)
-        return True, f"طھظ…طھ ط¥ط¶ط§ظپط© ط§ظ„ط¨ط§ظ‚ط© ط¨ظ†ط¬ط§ط­! ط§ظ„ط³ط¹ط© ط§ظ„ط¬ط¯ظٹط¯ط©: {new_max_cap}"
+        return True, f"تمت إضافة الباقة بنجاح! السعة الجديدة: {new_max_cap}"
     except Exception as e:
-        print(f"â‌Œ Error applying package: {e}")
-        return False, f"ط­ط¯ط« ط®ط·ط£: {e}"
+        print(f"❌ Error applying package: {e}")
+        return False, f"حدث خطأ: {e}"
 
 def add_extra_storage(tg_id, extra_amount):
     return apply_package_to_user(tg_id, added_storage=extra_amount)
@@ -385,12 +385,12 @@ def update_user(tg_id, update_data):
         db.collection('users').document(str(tg_id)).update(update_data)
         return True
     except Exception as e:
-        print(f"â‌Œ Error updating user {tg_id}: {e}")
+        print(f"❌ Error updating user {tg_id}: {e}")
         return False
 
 def update_user_storage_level(tg_id, target_level=None):
     try:
-        if not tg_id: return False, "ظ…ط¹ط±ظپ ط§ظ„ظ…ط³طھط®ط¯ظ… ط؛ظٹط± طµط­ظٹط­", 0, 0
+        if not tg_id: return False, "معرف المستخدم غير صحيح", 0, 0
         tg_id_str = str(tg_id)
         user_ref = db.collection('users').document(tg_id_str)
         settings = get_game_settings()
@@ -399,7 +399,7 @@ def update_user_storage_level(tg_id, target_level=None):
         @firestore.transactional
         def run_storage_upgrade_transaction(transaction, ref):
             snapshot = ref.get(transaction=transaction)
-            if not snapshot.exists: return False, "ط§ظ„ظ…ط³طھط®ط¯ظ… ط؛ظٹط± ظ…ظˆط¬ظˆط¯", 0, 0
+            if not snapshot.exists: return False, "المستخدم غير موجود", 0, 0
 
             user_data = snapshot.to_dict() or {}
             current_level = int(user_data.get("storage_level", 0))
@@ -409,16 +409,16 @@ def update_user_storage_level(tg_id, target_level=None):
             next_level = int(target_level) if target_level is not None else current_level + 1
 
             if target_level is None and next_level <= current_level:
-                return False, "ط£ظ†طھ ط¨ط§ظ„ظپط¹ظ„ ظپظٹ ظ‡ط°ط§ ط§ظ„ظ…ط³طھظˆظ‰ ط£ظˆ ظ…ط³طھظˆظ‰ ط£ط¹ظ„ظ‰!", user_data.get("max_cap", 100.0), current_balance
+                return False, "أنت بالفعل في هذا المستوى أو مستوى أعلى!", user_data.get("max_cap", 100.0), current_balance
 
             next_cfg = storage_cfg.get(str(next_level)) or storage_cfg.get(next_level)
             if not next_cfg:
-                return False, "ظ„ظ‚ط¯ ظˆطµظ„طھ ط¥ظ„ظ‰ ط§ظ„ط­ط¯ ط§ظ„ط£ظ‚طµظ‰ ظ„ظ…ط³طھظˆظٹط§طھ ط§ظ„ظ…ط®ط²ظ†!", user_data.get("max_cap", 100.0), current_balance
+                return False, "لقد وصلت إلى الحد الأقصى لمستويات المخزن!", user_data.get("max_cap", 100.0), current_balance
 
             price = float(next_cfg.get("price", 0))
 
             if target_level is None and current_balance < price:
-                return False, "ط±طµظٹط¯ظƒ ط؛ظٹط± ظƒط§ظپظچ ظ„ط¥ط¬ط±ط§ط، ط§ظ„طھط±ظ‚ظٹط©!", user_data.get("max_cap", 100.0), current_balance
+                return False, "رصيدك غير كافٍ لإجراء الترقية!", user_data.get("max_cap", 100.0), current_balance
 
             base_next_cap = float(next_cfg.get("capacity", 100.0))
             new_total_max_cap = base_next_cap + extra_cap
@@ -431,14 +431,14 @@ def update_user_storage_level(tg_id, target_level=None):
                 new_balance = current_balance
 
             transaction.update(ref, update_payload)
-            return True, "طھظ…طھ طھط±ظ‚ظٹط© ط§ظ„ظ…ط®ط²ظ† ط¨ظ†ط¬ط§ط­!", new_total_max_cap, new_balance
+            return True, "تمت ترقية المخزن بنجاح!", new_total_max_cap, new_balance
 
         transaction = db.transaction()
         return run_storage_upgrade_transaction(transaction, user_ref)
 
     except Exception as e:
-        print(f"â‌Œ Error in update_user_storage_level for {tg_id}: {e}")
-        return False, "ط­ط¯ط« ط®ط·ط£ ط£ط«ظ†ط§ط، طھظ†ظپظٹط° طھط±ظ‚ظٹط© ط§ظ„ظ…ط®ط²ظ†", 0, 0
+        print(f"❌ Error in update_user_storage_level for {tg_id}: {e}")
+        return False, "حدث خطأ أثناء تنفيذ ترقية المخزن", 0, 0
 
 def update_user_balance(tg_id, amount, balance_type="balance"):
     try:
@@ -456,17 +456,17 @@ def update_user_balance(tg_id, amount, balance_type="balance"):
         })
         return True
     except Exception as e:
-        print(f"â‌Œ Error updating balance for {tg_id}: {e}")
+        print(f"❌ Error updating balance for {tg_id}: {e}")
         return False
 
 def activate_user_boost(tg_id, multiplier=10, duration_hours=1):
     try:
-        if not tg_id: return False, "ظ…ط¹ط±ظپ ط§ظ„ظ…ط³طھط®ط¯ظ… ط؛ظٹط± طµط§ظ„ط­"
+        if not tg_id: return False, "معرف المستخدم غير صالح"
         tg_id_str = str(tg_id)
         user_ref = db.collection('users').document(tg_id_str)
         doc = user_ref.get()
         if not doc.exists:
-            return False, "ط§ظ„ظ…ط³طھط®ط¯ظ… ط؛ظٹط± ظ…ظˆط¬ظˆط¯"
+            return False, "المستخدم غير موجود"
         
         expires_at = (datetime.now(timezone.utc) + timedelta(hours=duration_hours)).isoformat()
         user_ref.update({
@@ -474,10 +474,10 @@ def activate_user_boost(tg_id, multiplier=10, duration_hours=1):
             "boost_active": True,
             "boost_expires_at": expires_at
         })
-        return True, "طھظ…طھ ظ…ط¶ط§ط¹ظپط© ط§ظ„ط£ط±ط¨ط§ط­ ط¨ظ†ط¬ط§ط­!"
+        return True, "تمت مضاعفة الأرباح بنجاح!"
     except Exception as e:
-        print(f"â‌Œ Error activating boost for {tg_id}: {e}")
-        return False, f"ط­ط¯ط« ط®ط·ط£ ط£ط«ظ†ط§ط، ط§ظ„طھظپط¹ظٹظ„: {e}"
+        print(f"❌ Error activating boost for {tg_id}: {e}")
+        return False, f"حدث خطأ أثناء التفعيل: {e}"
 
 def ban_user(tg_id, status=True):
     try:
@@ -487,7 +487,7 @@ def ban_user(tg_id, status=True):
         _BAN_CACHE[tg_id_str] = (bool(status), time.time() + BAN_CACHE_TTL)
         return True
     except Exception as e:
-        print(f"â‌Œ Error changing ban status: {e}")
+        print(f"❌ Error changing ban status: {e}")
         return False
 
 def get_top_users(limit=50):
@@ -501,7 +501,7 @@ def get_top_users(limit=50):
         docs = users_ref.stream()
         leaderboard = [{
             "tg_id": doc.id,
-            "first_name": (doc.to_dict() or {}).get("first_name", "ظ„ط§ط¹ط¨"),
+            "first_name": (doc.to_dict() or {}).get("first_name", "لاعب"),
             "balance": (doc.to_dict() or {}).get("balance", 0.0),
             "hourly_rate": (doc.to_dict() or {}).get("hourly_rate", 0.0)
         } for doc in docs]
@@ -509,5 +509,5 @@ def get_top_users(limit=50):
         _LEADERBOARD_CACHE_TIME = now
         return leaderboard
     except Exception as e:
-        print(f"â‌Œ Error getting leaderboard: {e}")
+        print(f"❌ Error getting leaderboard: {e}")
         return _LEADERBOARD_CACHE or []
