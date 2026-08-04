@@ -300,6 +300,7 @@
                 alert("🎉 تم تأكيد الدفع وتفعيل الباقة بنجاح!");
 
                 const res = verifyData.result;
+                if (!window.userState) window.userState = {};
                 if (res.balance !== undefined) window.userState.balance = res.balance;
                 if (res.hourly_rate !== undefined) window.userState.hourly_rate = res.hourly_rate;
                 if (res.extra_storage !== undefined) window.userState.extra_storage = res.extra_storage;
@@ -607,6 +608,7 @@
             if (response.ok && resData.success) {
                 triggerHaptic('notification', 'success');
 
+                if (!window.userState) window.userState = {};
                 if (resData.balance !== undefined) window.userState.balance = resData.balance;
                 if (resData.hourly_rate !== undefined) window.userState.hourly_rate = resData.hourly_rate;
                 if (resData.upgrades !== undefined) window.userState.upgrades = resData.upgrades;
