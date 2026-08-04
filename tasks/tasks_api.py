@@ -134,12 +134,10 @@ def get_campaigns():
     except Exception as e:
         print(f"[FIRESTORE ERROR] Error fetching completed tasks for user {telegram_id_str}: {e}")
 
-    # قراءة المهام والحملات من الذاكرة المؤقتة لـ RAM
     campaigns = get_cached_raw_campaigns()
 
     result_campaigns = []
     for c in campaigns:
-        # إخفاء المهام التي اكتمال أعضاؤها باستثناء المهام المملوكة للمستخدم نفسه لمتابعة التقدم
         creator_id_str = str(c.get('creator_id') or '').strip()
         if c.get('users_completed', 0) >= c.get('users_needed', 1) and creator_id_str != telegram_id_str:
             continue
@@ -169,16 +167,15 @@ def create_campaign():
     platform = str(req.get('platform', '')).strip()
     url = str(req.get('url', '')).strip()
     description = str(req.get('description', '')).strip()
-    reward = req.get('reward')
-    users_needed = req.get('users_needed')
+    reward = req.get('reward') if req.get('reward') is not None else req.get('rewardPerClick')
+    users_needed = req.get('users_needed') if req.get('users_needed') is not None else (req.get('usersNeeded') or req.get('totalCount'))
 
-    if not all([platform, url, description, reward, users_needed]):
+    if not all([platform, url, description, reward is not None, users_needed is not None]):
         return jsonify({"success": False, "error": "جميع البيانات مطلوبة"}), 400
 
     if not (url.startswith('http://') or url.startswith('https://')):
         return jsonify({"success": False, "error": "الرابط يجب أن يبدأ بـ http:// أو https://"}), 400
 
-    # 🛡️ الحماية والأمان للروابط المحظورة والمنصات
     url_lower = url.lower()
     if platform == 'يوتيوب' and not ('youtube.com' in url_lower or 'youtu.be' in url_lower):
         return jsonify({"success": False, "error": "رابط يوتيوب غير صحيح"}), 400
@@ -255,7 +252,6 @@ def create_campaign():
         transaction = firestore_db.transaction()
         campaign_data, updated_ad_balance = run_create_transaction(transaction)
 
-        # تفريغ كاش المهام لتظهر الحملة الجديدة للجميع فوراً
         invalidate_campaigns_cache()
 
         return jsonify({
@@ -274,14 +270,14 @@ def create_campaign():
 
 @tasks_bp.route('/complete_task', methods=['POST'])
 def complete_task():
-    """تأكيد إكمال المهمة إضافة المكافأة إلى رصيد المستخدم بشكل آمن (Transaction)"""
+    """تأكيد إكمال المهمة إضافة المكافأة إلى رصيد المستخدم بشكل آمن"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
 
     telegram_id_str = str(telegram_id).strip()
     req = request.get_json(silent=True) or {}
-    task_id = req.get('taskId')
+    task_id = req.get('taskId') or req.get('task_id')
 
     if not task_id:
         return jsonify({"success": False, "error": "رقم المهمة مفقود"}), 400
@@ -343,7 +339,6 @@ def complete_task():
         transaction = firestore_db.transaction()
         reward_amount, new_balance = run_complete_transaction(transaction)
 
-        # تفريغ كاش المهام لتحديث عدد المكتملين فوراً
         invalidate_campaigns_cache()
 
         return jsonify({
@@ -369,7 +364,7 @@ def cancel_campaign():
 
     telegram_id_str = str(telegram_id).strip()
     req = request.get_json(silent=True) or {}
-    campaign_id = req.get('campaignId')
+    campaign_id = req.get('campaignId') or req.get('campaign_id') or req.get('task_id')
 
     if not campaign_id:
         return jsonify({"success": False, "error": "معرف الحملة مفقود"}), 400
@@ -411,12 +406,12 @@ def cancel_campaign():
         transaction = firestore_db.transaction()
         refund_amount, new_ad_balance = run_cancel_transaction(transaction)
 
-        # تفريغ كاش المهام فوراً عند إلغاء أي حملة
         invalidate_campaigns_cache()
 
         return jsonify({
             "success": True, 
             "refund": refund_amount,
+            "refunded_amount": refund_amount,
             "new_ad_balance": new_ad_balance,
             "message": "تم إلغاء الحملة وإرجاع الميزانية المتبقية"
         }), 200
@@ -429,6 +424,7 @@ def cancel_campaign():
 
 
 @tasks_bp.route('/convert_adzn', methods=['POST'])
+@tasks_bp.route('/convert_balance', methods=['POST'])
 def convert_adzn():
     """تحويل الرصيد العادي (ZN) إلى رصيد إعلانات (ad_balance) مع خصم عمولة 10%"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
