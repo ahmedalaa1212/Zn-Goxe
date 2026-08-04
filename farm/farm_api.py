@@ -130,6 +130,9 @@ def get_player_data():
             if "daily_boost_rate" not in user_data:
                 auto_fix["daily_boost_rate"] = 0.00
                 user_data["daily_boost_rate"] = 0.00
+            if "ads_watched" not in user_data:
+                auto_fix["ads_watched"] = 0
+                user_data["ads_watched"] = 0
             if "pending_ref_earnings" not in user_data:
                 auto_fix["pending_ref_earnings"] = 0.00
                 user_data["pending_ref_earnings"] = 0.00
@@ -413,12 +416,14 @@ def claim_daily():
             
             current_balance = float(user_data.get("balance", 0.0))
             new_balance = round(current_balance + reward_amount, 2)
+            new_ads_watched = int(user_data.get("ads_watched", 0)) + 1
             
             transaction.update(ref, {
                 "balance": new_balance,
                 "daily_day": effective_daily_day,
                 "daily_streak": effective_daily_day,
-                "last_daily_claim_date": today_str
+                "last_daily_claim_date": today_str,
+                "ads_watched": firestore.Increment(1)
             })
             
             return {
@@ -426,6 +431,7 @@ def claim_daily():
                 "new_balance": new_balance,
                 "daily_day": effective_daily_day,
                 "last_daily_claim_date": today_str,
+                "ads_watched": new_ads_watched,
                 "server_time": now.isoformat()
             }
 
@@ -469,6 +475,8 @@ def claim_daily_boost():
                 
             daily_boost_rate = float(user_data.get("daily_boost_rate", 0.0))
             current_hourly_rate = float(user_data.get("hourly_rate", 0.0))
+            current_ads = int(user_data.get("ads_watched", 0))
+            new_ads = current_ads + 1
             
             if daily_boost_rate < 15.0:
                 new_hourly_rate = round(current_hourly_rate + daily_boost_reward, 2)
@@ -477,13 +485,15 @@ def claim_daily_boost():
                 transaction.update(ref, {
                     "hourly_rate": new_hourly_rate,
                     "daily_boost_rate": new_daily_boost_rate,
-                    "last_boost_date": today_str
+                    "last_boost_date": today_str,
+                    "ads_watched": firestore.Increment(1)
                 })
                 return {
                     "success": True,
                     "type": "speed",
                     "new_rate": new_hourly_rate,
                     "daily_boost_rate": new_daily_boost_rate,
+                    "ads_watched": new_ads,
                     "last_boost_date": today_str,
                     "server_time": now.isoformat()
                 }
@@ -492,7 +502,8 @@ def claim_daily_boost():
                 new_balance = round(current_balance + 50.0, 2)
                 transaction.update(ref, {
                     "balance": new_balance,
-                    "last_boost_date": today_str
+                    "last_boost_date": today_str,
+                    "ads_watched": firestore.Increment(1)
                 })
                 return {
                     "success": True,
@@ -500,6 +511,7 @@ def claim_daily_boost():
                     "new_balance": new_balance,
                     "new_rate": current_hourly_rate,
                     "daily_boost_rate": daily_boost_rate,
+                    "ads_watched": new_ads,
                     "last_boost_date": today_str,
                     "server_time": now.isoformat()
                 }
