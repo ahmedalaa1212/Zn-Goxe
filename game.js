@@ -1,6 +1,5 @@
-
 // ==========================================
-// 1. التهيئة والتخزين المحلي (Local-First)
+// 1. التهيئة والتخزين المحلي (Local-First Architecture)
 // ==========================================
 const tg = window.Telegram?.WebApp;
 if (tg) {
@@ -32,8 +31,8 @@ function getSavedState() {
         tg_id: tg?.initDataUnsafe?.user?.id || null,
         first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب",
         referred_by_param: startParam,
-        balance: 0, usd_balance: 0, ad_balance: 0, hourly_rate: 0, energy: 100, storage_level: 0, 
-        extra_storage: 0, max_cap: 200, unclaimed: 0,
+        balance: 0.00, usd_balance: 0.00, ad_balance: 0.00, hourly_rate: 0.00, energy: 100, storage_level: 0, 
+        extra_storage: 0.00, max_cap: 200.00, unclaimed: 0.00,
         daily_streak: 1, daily_day: 1, last_daily_claim_date: null, upgrades: {}, wallet_address: null, 
         boost_multiplier: 1, boost_active: false, boost_expires_at: null,
         last_claim_time: null, last_sync_time: Date.now()
@@ -55,7 +54,6 @@ window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
         target[prop] = value;
         
-        // مزامنة تلقائية مع window.PlayerData لضمان استجابة واجهة المزرعة
         if (!window.PlayerData) window.PlayerData = {};
         window.PlayerData[prop] = value;
 
@@ -73,7 +71,7 @@ window.userState = new Proxy(getSavedState(), {
 });
 
 // ==========================================
-// 2. الاتصال بالسيرفر
+// 2. الاتصال بالسيرفر ومعالجة الاستجابة
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
@@ -135,7 +133,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 };
 
 // ==========================================
-// 3. مشاهدة إعلان مونيتاج (+2 ZN/ساعة)
+// 3. مشاهدة الإعلانات والمكافآت
 // ==========================================
 window.watchMonetagAd = async function() {
     if (typeof window.show_11322720 !== 'function') {
@@ -157,9 +155,6 @@ window.watchMonetagAd = async function() {
     }
 };
 
-// ==========================================
-// 4. استلام المكافأة اليومية (UTC Checked)
-// ==========================================
 window.claimDailyReward = async function() {
     try {
         const res = await window.fetchAPI('/api/farm/daily_claim', 'POST');
@@ -179,9 +174,6 @@ window.claimDailyReward = async function() {
     }
 };
 
-// ==========================================
-// 5. تفعيل 10x Boost
-// ==========================================
 window.activateTenXBoost = async function(durationHours = 1) {
     try {
         const res = await window.fetchAPI('/api/farm/activate_boost', 'POST', { duration_hours: durationHours });
@@ -201,7 +193,7 @@ window.activateTenXBoost = async function(durationHours = 1) {
 };
 
 // ==========================================
-// 6. الاستماع اللحظي Firestore (Realtime Sync)
+// 4. الاستماع اللحظي Firestore (Realtime Sync)
 // ==========================================
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) return;
@@ -215,7 +207,6 @@ window.initFirebaseRealtimeSync = function(userId) {
                 isFirebaseUpdating = true;
                 if (!window.PlayerData) window.PlayerData = {};
                 
-                // دمج البيانات مباشرة في PlayerData
                 Object.assign(window.PlayerData, d);
 
                 if (d.balance !== undefined) {
@@ -246,7 +237,7 @@ window.initFirebaseRealtimeSync = function(userId) {
 };
 
 // ==========================================
-// 7. دالة إدارة العداد (15 ثانية)
+// 5. دالة إدارة عداد التجميع
 // ==========================================
 let claimCooldownTimer = null;
 
@@ -321,12 +312,13 @@ window.updateClaimButtonState = function() {
 };
 
 // ==========================================
-// 8. تنسيق الرصيد والواجهة (عرض الأرقام الحقيقية)
+// 6. العداد البصري التدريجي + تقييد الخانات العشرية (Max 2 Decimals)
 // ==========================================
 window.formatBalance = function(val) {
-    if (val === undefined || val === null || isNaN(val)) return '0';
-    return parseFloat(val).toLocaleString('en-US', {
-        minimumFractionDigits: (val % 1 !== 0) ? 2 : 0,
+    if (val === undefined || val === null || isNaN(val)) return '0.00';
+    const num = parseFloat(val);
+    return num.toLocaleString('en-US', {
+        minimumFractionDigits: 0,
         maximumFractionDigits: 2
     });
 };
@@ -335,41 +327,53 @@ window.formatNumberHTML = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0.00';
     let num = parseFloat(val);
     let suffix = '';
-    if (num >= 1e9) { num /= 1e9; suffix = 'B'; }
-    else if (num >= 1e6) { num /= 1e6; suffix = 'M'; }
+    if (Math.abs(num) >= 1e9) { num /= 1e9; suffix = 'B'; }
+    else if (Math.abs(num) >= 1e6) { num /= 1e6; suffix = 'M'; }
 
-    const formattedStr = num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // تقييد إجباري برقمين عشريين فقط
+    const formattedStr = num.toLocaleString('en-US', { 
+        minimumFractionDigits: 2, 
+        maximumFractionDigits: 2 
+    });
     return `${formattedStr}${suffix}`;
 };
 
 let visualBalance = null;
+let animationFrameId = null;
 
 function startLocalMiningSimulator() {
-    requestAnimationFrame(function tick() {
-        renderSmoothBalance(window.userState.balance);
-        requestAnimationFrame(tick);
-    });
+    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    
+    function tick() {
+        const targetVal = parseFloat(window.userState?.balance || 0);
+        renderSmoothBalance(targetVal);
+        animationFrameId = requestAnimationFrame(tick);
+    }
+    animationFrameId = requestAnimationFrame(tick);
 }
 
 function renderSmoothBalance(targetVal) {
-    if (visualBalance === null) {
+    if (isNaN(targetVal)) targetVal = 0;
+
+    if (visualBalance === null || isNaN(visualBalance)) {
         visualBalance = targetVal;
         applyBalanceToUI(visualBalance);
         return;
     }
 
-    if (Math.abs(targetVal - visualBalance) < 0.001) {
+    const diff = targetVal - visualBalance;
+    if (Math.abs(diff) < 0.005) {
         visualBalance = targetVal;
     } else {
-        visualBalance += (targetVal - visualBalance) * 0.1;
+        // حركة تدريجية سلسة للغاية (Smooth Speedometer Interpolation)
+        visualBalance += diff * 0.08;
     }
     applyBalanceToUI(visualBalance);
 }
 
 function applyBalanceToUI(val) {
     const formatted = window.formatNumberHTML(val);
-    document.querySelectorAll('[data-bind="balance"], .user-balance').forEach(el => {
-        if (el.id === 'farm-balance') return;
+    document.querySelectorAll('[data-bind="balance"], .user-balance, #farm-balance').forEach(el => {
         if (el.tagName !== 'INPUT') {
             el.innerHTML = `<span dir="ltr">${formatted} ZN</span>`;
         }
@@ -377,13 +381,12 @@ function applyBalanceToUI(val) {
 }
 
 window.updateUI = function() {
-    renderSmoothBalance(parseFloat(window.userState.balance || 0));
     window.updateClaimButtonState();
 
-    const currentMaxCap = window.userState.max_cap ?? 200;
+    const currentMaxCap = parseFloat(window.userState.max_cap ?? 200);
     document.querySelectorAll('#storage-max, .max-storage-val, [data-bind="max_cap"], #farm-storage-max').forEach(el => {
         if (el.tagName === 'INPUT') {
-            el.value = currentMaxCap;
+            el.value = currentMaxCap.toFixed(2);
         } else {
             el.innerText = window.formatBalance(currentMaxCap);
         }
@@ -391,7 +394,7 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 9. التنقل بين القوائم
+// 7. التنقل بين القوائم
 // ==========================================
 const loadedModules = new Set();
 
@@ -447,7 +450,7 @@ function loadModuleScript(scriptUrl) {
 }
 
 // ==========================================
-// 10. بدء التطبيق
+// 8. بدء التطبيق
 // ==========================================
 window.loadUserData = async function() {
     try {
@@ -486,4 +489,4 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initApp);
 } else {
     initApp();
-} 
+}
