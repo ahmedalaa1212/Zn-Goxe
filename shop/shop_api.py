@@ -53,7 +53,6 @@ DEFAULT_STORAGE_CONFIG = {
     "10": {"capacity": 800000.0, "price": 18000000}
 }
 
-
 def get_cached_ton_price():
     now = time.time()
     if _TON_PRICE_CACHE["price"] > 0 and (now - _TON_PRICE_CACHE["timestamp"] < CACHE_TTL_TON):
@@ -67,7 +66,6 @@ def get_cached_ton_price():
     _TON_PRICE_CACHE["timestamp"] = now
     return price
 
-
 def get_game_config():
     now = time.time()
     if _SHOP_CONFIG_CACHE["data"] and (now - _SHOP_CONFIG_CACHE["timestamp"] < CACHE_TTL_CONFIG):
@@ -80,9 +78,9 @@ def get_game_config():
         data['mining_config'] = mining_cfg
         data['speed_config'] = mining_cfg
 
-        if 'usdt_packages' not in data:
+        if 'usdt_packages' not in data or not data['usdt_packages']:
             data['usdt_packages'] = DEFAULT_USDT_PACKAGES
-        if 'storage_config' not in data:
+        if 'storage_config' not in data or not data['storage_config']:
             data['storage_config'] = DEFAULT_STORAGE_CONFIG
 
         _SHOP_CONFIG_CACHE["data"] = data
@@ -100,7 +98,6 @@ def get_game_config():
         _SHOP_CONFIG_CACHE["data"] = fallback
         _SHOP_CONFIG_CACHE["timestamp"] = now
         return fallback
-
 
 @shop_bp.route('/get_config', methods=['GET'])
 def get_config():
@@ -128,7 +125,6 @@ def get_config():
         "ton_price_usd": round(ton_price_usd, 2),
         "packages": packages_with_ton
     }), 200
-
 
 @shop_bp.route('/prepare_ton_pay', methods=['POST'])
 def prepare_ton_pay():
@@ -167,7 +163,6 @@ def prepare_ton_pay():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 200
 
-
 @shop_bp.route('/verify_and_apply_package', methods=['POST'])
 def verify_and_apply_package():
     try:
@@ -198,11 +193,11 @@ def verify_and_apply_package():
 
         @firestore.transactional
         def secure_apply_package_tx(tx, u_ref, t_ref):
-            t_snap = t_ref.get(transaction=tx)
+            t_snap = transaction.get(t_ref)
             if t_snap.exists:
                 raise Exception("تم معالجة هذه المعاملة وتفعيل الباقة سابقاً.")
 
-            u_snap = u_ref.get(transaction=tx)
+            u_snap = transaction.get(u_ref)
             if not u_snap.exists:
                 raise Exception("حساب المستخدم غير موجود.")
 
@@ -259,7 +254,6 @@ def verify_and_apply_package():
         print(f"[Shop Package Error]: {e}")
         return jsonify({"success": False, "error": str(e)}), 200
 
-
 @shop_bp.route('/buy', methods=['POST'])
 def buy_upgrade():
     try:
@@ -282,7 +276,7 @@ def buy_upgrade():
 
         @firestore.transactional
         def secure_buy_upgrade_tx(tx, u_ref):
-            u_snap = u_ref.get(transaction=tx)
+            u_snap = transaction.get(u_ref)
             if not u_snap.exists:
                 raise Exception("حساب المستخدم غير موجود.")
 
@@ -296,7 +290,6 @@ def buy_upgrade():
             if not isinstance(upgrades, dict):
                 upgrades = {}
 
-            # 1. حساب السعة القصوى الحالية بدقة لحساب التعدين المعلق
             current_storage_lvl = str(u_data.get('storage_level', 0))
             storage_cfg = settings.get('storage_config', DEFAULT_STORAGE_CONFIG)
             base_cap = 100.0
@@ -305,7 +298,6 @@ def buy_upgrade():
 
             current_max_cap = float(u_data.get('max_cap', base_cap + extra_storage))
 
-            # 2. تجميع الأرباح المعلقة قبل الخصم
             last_claim_str = u_data.get('last_claim_time')
             now_dt = datetime.now(timezone.utc)
             now_ts = now_dt.timestamp()
@@ -322,7 +314,6 @@ def buy_upgrade():
             total_balance = current_balance + pending_mined
             new_last_claim_time = now_dt.isoformat()
 
-            # 3. معالجة ترقية السرعة (Mining Speed Upgrade)
             if upgrade_type == 'mining':
                 mining_cfg = settings.get('mining_config') or settings.get('speed_config') or DEFAULT_MINING_CONFIG
                 if level_num not in mining_cfg:
@@ -365,7 +356,6 @@ def buy_upgrade():
                     "usd_balance": round(usd_balance, 2)
                 }
 
-            # 4. معالجة ترقية المخزن (Storage Level Upgrade)
             elif upgrade_type == 'storage':
                 if level_num not in storage_cfg:
                     raise Exception("مستوى مخزن غير صالح.")
@@ -386,7 +376,6 @@ def buy_upgrade():
                 if total_balance < price:
                     raise Exception("الرصيد غير كافي لشراء المخزن.")
 
-                # الحفاظ الصارم على السعة الإضافية وعدم مسحها
                 new_max_cap = round(new_base_capacity + extra_storage, 2)
                 new_balance = round(total_balance - price, 2)
 
