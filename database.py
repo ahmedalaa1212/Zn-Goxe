@@ -246,6 +246,8 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "first_name": first_name,
                 "last_active": firestore.SERVER_TIMESTAMP
             }
+            if "balance" not in user_data: updates["balance"] = 0.0
+            if "usd_balance" not in user_data: updates["usd_balance"] = 0.0
             if "max_cap" not in user_data: updates["max_cap"] = 100.0
             if "storage_level" not in user_data: updates["storage_level"] = 0
             if "extra_storage" not in user_data: updates["extra_storage"] = 0.0
@@ -279,6 +281,20 @@ def get_user(tg_id):
             data['id'] = doc.id
             
             auto_updates = {}
+
+            if "balance" not in data or data["balance"] is None:
+                auto_updates["balance"] = 0.0
+                data["balance"] = 0.0
+            else:
+                try: data["balance"] = float(data["balance"])
+                except Exception: data["balance"] = 0.0
+
+            if "usd_balance" not in data or data["usd_balance"] is None:
+                auto_updates["usd_balance"] = 0.0
+                data["usd_balance"] = 0.0
+            else:
+                try: data["usd_balance"] = float(data["usd_balance"])
+                except Exception: data["usd_balance"] = 0.0
 
             if "extra_storage" not in data:
                 auto_updates["extra_storage"] = 0.0
@@ -424,12 +440,10 @@ def complete_user_task(tg_id, task_id):
         reward = float(task_data.get("reward", 0.0))
         new_balance = round(float(user_data.get("balance", 0.0)) + reward, 2)
 
-        # Update task progress
         task_ref.update({
             "users_completed": firestore.Increment(1)
         })
 
-        # Update user
         user_ref.update({
             "balance": new_balance,
             "completed_tasks": firestore.ArrayUnion([task_id_str])
@@ -710,8 +724,8 @@ def get_top_users(limit=50):
         leaderboard = [{
             "tg_id": doc.id,
             "first_name": (doc.to_dict() or {}).get("first_name", "لاعب"),
-            "balance": (doc.to_dict() or {}).get("balance", 0.0),
-            "hourly_rate": (doc.to_dict() or {}).get("hourly_rate", 0.0)
+            "balance": float((doc.to_dict() or {}).get("balance", 0.0)),
+            "hourly_rate": float((doc.to_dict() or {}).get("hourly_rate", 0.0))
         } for doc in docs]
         _LEADERBOARD_CACHE = leaderboard
         _LEADERBOARD_CACHE_TIME = now
