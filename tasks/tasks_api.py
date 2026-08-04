@@ -10,8 +10,10 @@ from core.security import get_authenticated_user
 from database import db as firestore_db
 from firebase_admin import firestore
 
+# إنشاء الـ Blueprint الخاص بمسارات المهام والحملات الإعلانية
 tasks_bp = Blueprint('tasks', __name__)
 
+# ==================== الإعدادات والثوابت ====================
 # 🔒 الحد الأدنى لسعر الضغطة والميزانية الكلية للحملة
 MIN_REWARD_PER_CLICK = 250.0
 MIN_AD_CAMPAIGN_COST = 250.0
@@ -45,11 +47,11 @@ def get_cached_raw_campaigns():
         _CAMPAIGNS_CACHE_TIME = now
         return campaigns
     except Exception as e:
-        print(f"Error fetching campaigns from Firestore: {e}")
+        print(f"[CACHE ERROR] Error fetching campaigns from Firestore: {e}")
         return _CAMPAIGNS_CACHE or []
 
 def invalidate_campaigns_cache():
-    """تفريغ الكاش لإجبار السيرفر على جلب التحديثات الجديدة فوراً عند إنشاء أو تجميل/إلغاء مهمة"""
+    """تفريغ الكاش لإجبار السيرفر على جلب التحديثات الجديدة فوراً عند إنشاء أو تجميد/إلغاء مهمة"""
     global _CAMPAIGNS_CACHE, _CAMPAIGNS_CACHE_TIME
     _CAMPAIGNS_CACHE = None
     _CAMPAIGNS_CACHE_TIME = 0
@@ -101,8 +103,11 @@ def is_task_completed_by_user(task, user_completed_data):
 
     return False
 
+# ==================== المسارات (Endpoints) ====================
+
 @tasks_bp.route('/get_campaigns', methods=['GET'])
 def get_campaigns():
+    """جلب قائمة الحملات المتاحة للمستخدم مع تحديث حالة الإكمال والرصيد"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
     if not success:
         return error_res
@@ -119,7 +124,7 @@ def get_campaigns():
             ad_balance = float(u_data.get('ad_balance', 0.0))
             balance = float(u_data.get('balance', 0.0))
     except Exception as e:
-        print(f"Error fetching user data from Firestore in get_campaigns: {e}")
+        print(f"[FIRESTORE ERROR] Error fetching user data in get_campaigns: {e}")
 
     user_completed_data = {}
     try:
@@ -127,14 +132,14 @@ def get_campaigns():
         if completed_ref.exists:
             user_completed_data = completed_ref.to_dict() or {}
     except Exception as e:
-        print(f"Error fetching completed tasks for user {telegram_id_str}: {e}")
+        print(f"[FIRESTORE ERROR] Error fetching completed tasks for user {telegram_id_str}: {e}")
 
-    # قراءة المهام والحملات من الذاكرة المؤقتة لـ RAM لتقليل القراءات بنسبة 99%
+    # قراءة المهام والحملات من الذاكرة المؤقتة لـ RAM
     campaigns = get_cached_raw_campaigns()
 
     result_campaigns = []
     for c in campaigns:
-        # إخفاء المهام التي استكملت أعضائها باستثناء المهام المملوكة للمستخدم نفسه لمتابعة التقدم
+        # إخفاء المهام التي اكتمال أعضاؤها باستثناء المهام المملوكة للمستخدم نفسه لمتابعة التقدم
         creator_id_str = str(c.get('creator_id') or '').strip()
         if c.get('users_completed', 0) >= c.get('users_needed', 1) and creator_id_str != telegram_id_str:
             continue
@@ -151,8 +156,10 @@ def get_campaigns():
         "campaigns": result_campaigns
     }), 200
 
+
 @tasks_bp.route('/create_campaign', methods=['POST'])
 def create_campaign():
+    """إنشاء حملة إعلانية جديدة وتخصيص الميزانية لها"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -171,7 +178,7 @@ def create_campaign():
     if not (url.startswith('http://') or url.startswith('https://')):
         return jsonify({"success": False, "error": "الرابط يجب أن يبدأ بـ http:// أو https://"}), 400
 
-    # 🛡️ الحماية والأمان على مستوى الباك إند للروابط المحظورة والمنصات
+    # 🛡️ الحماية والأمان للروابط المحظورة والمنصات
     url_lower = url.lower()
     if platform == 'يوتيوب' and not ('youtube.com' in url_lower or 'youtu.be' in url_lower):
         return jsonify({"success": False, "error": "رابط يوتيوب غير صحيح"}), 400
@@ -261,11 +268,13 @@ def create_campaign():
     except ValueError as ve:
         return jsonify({"success": False, "error": str(ve)}), 400
     except Exception as e:
-        print(f"Error creating campaign: {e}")
+        print(f"[TRANSACTION ERROR] Error creating campaign: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء حفظ الحملة"}), 500
+
 
 @tasks_bp.route('/complete_task', methods=['POST'])
 def complete_task():
+    """تأكيد إكمال المهمة إضافة المكافأة إلى رصيد المستخدم بشكل آمن (Transaction)"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -334,7 +343,7 @@ def complete_task():
         transaction = firestore_db.transaction()
         reward_amount, new_balance = run_complete_transaction(transaction)
 
-        # تفريغ كاش المهام ليتحديث عدد المكتملين فوراً
+        # تفريغ كاش المهام لتحديث عدد المكتملين فوراً
         invalidate_campaigns_cache()
 
         return jsonify({
@@ -347,11 +356,13 @@ def complete_task():
     except ValueError as ve:
         return jsonify({"success": False, "error": str(ve)}), 400
     except Exception as e:
-        print(f"Error completing task: {e}")
+        print(f"[TRANSACTION ERROR] Error completing task: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء إكمال المهمة"}), 500
+
 
 @tasks_bp.route('/cancel_campaign', methods=['POST'])
 def cancel_campaign():
+    """إلغاء الحملة وإرجاع ميزانية الأعضاء المتبقيين لرصيد صاحب الإعلان"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -413,11 +424,13 @@ def cancel_campaign():
     except ValueError as ve:
         return jsonify({"success": False, "error": str(ve)}), 400
     except Exception as e:
-        print(f"Error canceling campaign: {e}")
+        print(f"[TRANSACTION ERROR] Error canceling campaign: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء إلغاء الحملة"}), 500
+
 
 @tasks_bp.route('/convert_adzn', methods=['POST'])
 def convert_adzn():
+    """تحويل الرصيد العادي (ZN) إلى رصيد إعلانات (ad_balance) مع خصم عمولة 10%"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -476,5 +489,5 @@ def convert_adzn():
     except ValueError as ve:
         return jsonify({"success": False, "error": str(ve)}), 400
     except Exception as e:
-        print(f"Error in convert_adzn: {e}")
+        print(f"[TRANSACTION ERROR] Error in convert_adzn: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء إجراء التحويل في السيرفر"}), 500
