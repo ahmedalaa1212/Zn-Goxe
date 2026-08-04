@@ -52,10 +52,15 @@ let lastSaveTime = 0;
 
 window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
-        target[prop] = value;
+        if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'extra_storage', 'max_cap', 'unclaimed'].includes(prop)) {
+            const num = parseFloat(value);
+            target[prop] = isNaN(num) ? 0.0 : num;
+        } else {
+            target[prop] = value;
+        }
         
         if (!window.PlayerData) window.PlayerData = {};
-        window.PlayerData[prop] = value;
+        window.PlayerData[prop] = target[prop];
 
         if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'upgrades', 'last_claim_time', 'unclaimed', 'boost_multiplier', 'boost_active', 'boost_expires_at'].includes(prop)) {
             const now = Date.now();
@@ -99,7 +104,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
             window.serverTimeOffset = serverMs - Date.now();
         }
 
-        const targetObj = data.player || data.user || data.data || data;
+        const targetObj = data.player || data.user || data.data || (data.balance !== undefined ? data : null);
         
         isFirebaseUpdating = true;
         if (!window.PlayerData) window.PlayerData = {};
@@ -107,20 +112,29 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         if (targetObj) {
             Object.assign(window.PlayerData, targetObj);
             
-            if (targetObj.balance !== undefined) window.userState.balance = parseFloat(targetObj.balance);
-            if (targetObj.usd_balance !== undefined) window.userState.usd_balance = parseFloat(targetObj.usd_balance);
-            if (targetObj.ad_balance !== undefined) window.userState.ad_balance = parseFloat(targetObj.ad_balance);
-            if (targetObj.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate);
-            if (targetObj.storage_level !== undefined) window.userState.storage_level = parseInt(targetObj.storage_level);
-            if (targetObj.extra_storage !== undefined) window.userState.extra_storage = parseFloat(targetObj.extra_storage);
-            if (targetObj.max_cap !== undefined) window.userState.max_cap = parseFloat(targetObj.max_cap);
-            if (targetObj.daily_streak !== undefined) window.userState.daily_streak = parseInt(targetObj.daily_streak);
-            if (targetObj.daily_day !== undefined) window.userState.daily_day = parseInt(targetObj.daily_day);
+            if (targetObj.balance !== undefined && targetObj.balance !== null) {
+                const b = parseFloat(targetObj.balance);
+                if (!isNaN(b)) window.userState.balance = b;
+            }
+            if (targetObj.usd_balance !== undefined && targetObj.usd_balance !== null) {
+                const u = parseFloat(targetObj.usd_balance);
+                if (!isNaN(u)) window.userState.usd_balance = u;
+            }
+            if (targetObj.ad_balance !== undefined && targetObj.ad_balance !== null) {
+                const a = parseFloat(targetObj.ad_balance);
+                if (!isNaN(a)) window.userState.ad_balance = a;
+            }
+            if (targetObj.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate) || 0;
+            if (targetObj.storage_level !== undefined) window.userState.storage_level = parseInt(targetObj.storage_level) || 0;
+            if (targetObj.extra_storage !== undefined) window.userState.extra_storage = parseFloat(targetObj.extra_storage) || 0;
+            if (targetObj.max_cap !== undefined) window.userState.max_cap = parseFloat(targetObj.max_cap) || 200;
+            if (targetObj.daily_streak !== undefined) window.userState.daily_streak = parseInt(targetObj.daily_streak) || 1;
+            if (targetObj.daily_day !== undefined) window.userState.daily_day = parseInt(targetObj.daily_day) || 1;
             if (targetObj.last_daily_claim_date !== undefined) window.userState.last_daily_claim_date = targetObj.last_daily_claim_date;
             if (targetObj.last_claim_time !== undefined) window.userState.last_claim_time = targetObj.last_claim_time;
             if (targetObj.upgrades !== undefined) window.userState.upgrades = targetObj.upgrades;
-            if (targetObj.unclaimed !== undefined) window.userState.unclaimed = parseFloat(targetObj.unclaimed);
-            if (targetObj.boost_multiplier !== undefined) window.userState.boost_multiplier = parseInt(targetObj.boost_multiplier);
+            if (targetObj.unclaimed !== undefined) window.userState.unclaimed = parseFloat(targetObj.unclaimed) || 0;
+            if (targetObj.boost_multiplier !== undefined) window.userState.boost_multiplier = parseInt(targetObj.boost_multiplier) || 1;
             if (targetObj.boost_active !== undefined) window.userState.boost_active = Boolean(targetObj.boost_active);
             if (targetObj.boost_expires_at !== undefined) window.userState.boost_expires_at = targetObj.boost_expires_at;
         }
@@ -210,12 +224,14 @@ window.initFirebaseRealtimeSync = function(userId) {
                 
                 Object.assign(window.PlayerData, d);
 
-                if (d.balance !== undefined) {
+                if (d.balance !== undefined && d.balance !== null) {
                     const bal = parseFloat(d.balance);
-                    window.userState.balance = bal;
-                    window.PlayerData.balance = bal;
+                    if (!isNaN(bal)) {
+                        window.userState.balance = bal;
+                        window.PlayerData.balance = bal;
+                    }
                 }
-                if (d.usd_balance !== undefined) window.userState.usd_balance = parseFloat(d.usd_balance);
+                if (d.usd_balance !== undefined) window.userState.usd_balance = parseFloat(d.usd_balance) || 0;
                 
                 ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'last_daily_claim_date', 'upgrades', 'last_claim_time', 'unclaimed', 'boost_multiplier', 'boost_active', 'boost_expires_at'].forEach(k => {
                     if (d[k] !== undefined) {
@@ -331,7 +347,6 @@ window.formatNumberHTML = function(val) {
     if (Math.abs(num) >= 1e9) { num /= 1e9; suffix = 'B'; }
     else if (Math.abs(num) >= 1e6) { num /= 1e6; suffix = 'M'; }
 
-    // تقييد إجباري برقمين عشريين فقط (5.85 ZN)
     const formattedStr = num.toLocaleString('en-US', { 
         minimumFractionDigits: 2, 
         maximumFractionDigits: 2 
@@ -366,7 +381,6 @@ function renderSmoothBalance(targetVal) {
     if (Math.abs(diff) < 0.005) {
         visualBalance = targetVal;
     } else {
-        // حركة تدريجية سلسة للغاية (Smooth Speedometer Interpolation)
         visualBalance += diff * 0.08;
     }
     applyBalanceToUI(visualBalance);
@@ -374,9 +388,20 @@ function renderSmoothBalance(targetVal) {
 
 function applyBalanceToUI(val) {
     const formatted = window.formatNumberHTML(val);
-    document.querySelectorAll('[data-bind="balance"], .user-balance, #farm-balance').forEach(el => {
-        if (el.tagName !== 'INPUT') {
-            el.innerHTML = `<span dir="ltr">${formatted} ZN</span>`;
+    const rawFormatted = window.formatBalance(val);
+    const selectors = '[data-bind="balance"], .user-balance, #farm-balance, #user-balance, #main-balance, #balance, .sync-balance, #top-balance-tasks, .user-balance-val, [data-bind="user_balance"]';
+    
+    document.querySelectorAll(selectors).forEach(el => {
+        if (el.tagName === 'INPUT') {
+            el.value = rawFormatted;
+        } else if (el.id === 'top-balance-tasks') {
+            el.innerText = `ZN ${rawFormatted}`;
+        } else {
+            if (el.classList.contains('plain-text')) {
+                el.innerText = `${rawFormatted} ZN`;
+            } else {
+                el.innerHTML = `<span dir="ltr">${formatted} ZN</span>`;
+            }
         }
     });
 }
@@ -392,6 +417,27 @@ window.updateUI = function() {
             el.innerText = window.formatBalance(currentMaxCap);
         }
     });
+
+    const adBal = parseFloat(window.userState.ad_balance || 0);
+    const formattedAd = window.formatBalance(adBal);
+    document.querySelectorAll('#ad-balance-display, .ad-balance-val, [data-bind="ad_balance"]').forEach(el => {
+        if (el.id === 'ad-balance-display') {
+            el.innerText = `AdZN ${formattedAd}`;
+        } else {
+            el.innerText = formattedAd;
+        }
+    });
+
+    const usdBal = parseFloat(window.userState.usd_balance || 0);
+    const formattedUsd = window.formatBalance(usdBal);
+    document.querySelectorAll('.usd-balance-val, [data-bind="usd_balance"]').forEach(el => {
+        el.innerText = `$${formattedUsd}`;
+    });
+
+    if (visualBalance === null && window.userState?.balance !== undefined) {
+        visualBalance = parseFloat(window.userState.balance) || 0;
+        applyBalanceToUI(visualBalance);
+    }
 };
 
 // ==========================================
