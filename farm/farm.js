@@ -173,8 +173,9 @@ window.initFarmView = function() {
             const currentUpgrades = window.userState?.upgrades || pData.upgrades || {};
             let fieldsHTML = '';
             for (let i = 1; i <= 9; i++) {
-                let count = parseInt(currentUpgrades[`lvl${i}`] ?? currentUpgrades[i] ?? currentUpgrades[String(i)] ?? 0);
-                let prevCount = parseInt(currentUpgrades[`lvl${i-1}`] ?? currentUpgrades[i-1] ?? currentUpgrades[String(i-1)] ?? 0);
+                // الاعتماد الحصري على مفتاح "lvl" لمنع تداخل أرقام الترقيات مع التخزين
+                let count = parseInt(currentUpgrades[`lvl${i}`] || 0);
+                let prevCount = parseInt(currentUpgrades[`lvl${i-1}`] || 0);
                 let isUnlocked = (i === 1) || (prevCount > 0);
                 let isMax = count >= GAME_CONFIG.maxUpgradesPerLevel;
                 let cost = GAME_CONFIG.upgradeCosts[i] || 0;
