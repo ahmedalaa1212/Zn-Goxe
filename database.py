@@ -100,6 +100,7 @@ def ensure_game_settings_exist():
         }
 
         usdt_pkgs = {
+            "pkg_0": {"usdt": 0.5, "rate_add": 70.0, "storage_add": 900.0, "zn_add": 13500.0, "title": "باقة التجربة"},
             "pkg_1": {"usdt": 1.0, "rate_add": 150.0, "storage_add": 2000.0, "zn_add": 30000.0, "title": "البرونزية"},
             "pkg_2": {"usdt": 3.0, "rate_add": 540.0, "storage_add": 7200.0, "zn_add": 108000.0, "title": "الفضية"},
             "pkg_3": {"usdt": 6.0, "rate_add": 1350.0, "storage_add": 18000.0, "zn_add": 270000.0, "title": "الذهبية"},
@@ -147,6 +148,9 @@ def ensure_game_settings_exist():
         full_settings = {**initial_settings, **existing_data}
         if "usdt_packages" not in existing_data or not existing_data["usdt_packages"]:
             full_settings["usdt_packages"] = usdt_pkgs
+        else:
+            full_settings["usdt_packages"]["pkg_0"] = usdt_pkgs["pkg_0"]
+
         if "mining_config" not in existing_data or not existing_data["mining_config"]:
             full_settings["mining_config"] = speed_cfg
 
@@ -671,87 +675,11 @@ def update_user_storage_level(tg_id, target_level=None):
             if target_level is None:
                 new_balance = round(current_balance - price, 2)
                 update_payload["balance"] = new_balance
-            else:
-                new_balance = current_balance
 
             transaction.update(ref, update_payload)
-            return True, "تمت ترقية المخزن بنجاح!", new_total_max_cap, new_balance
+            return True, "تمت الترقية بنجاح!", new_total_max_cap, update_payload.get("balance", current_balance)
 
-        transaction = db.transaction()
-        return run_storage_upgrade_transaction(transaction, user_ref)
-
+        return run_storage_upgrade_transaction(db.transaction(), user_ref)
     except Exception as e:
-        print(f"❌ Error in update_user_storage_level for {tg_id}: {e}")
-        return False, "حدث خطأ أثناء تنفيذ ترقية المخزن", 0, 0
-
-def update_user_balance(tg_id, amount, balance_type="balance"):
-    try:
-        if not tg_id: return False
-        field_map = {
-            "balance": "balance",
-            "usd": "usd_balance",
-            "usd_balance": "usd_balance",
-            "ad": "ad_balance",
-            "ad_balance": "ad_balance"
-        }
-        target_field = field_map.get(balance_type, "balance")
-        db.collection('users').document(str(tg_id)).update({
-            target_field: firestore.Increment(float(amount))
-        })
-        return True
-    except Exception as e:
-        print(f"❌ Error updating balance for {tg_id}: {e}")
-        return False
-
-def activate_user_boost(tg_id, multiplier=10, duration_hours=1):
-    try:
-        if not tg_id: return False, "معرف المستخدم غير صالح"
-        tg_id_str = str(tg_id)
-        user_ref = db.collection('users').document(tg_id_str)
-        doc = user_ref.get()
-        if not doc.exists:
-            return False, "المستخدم غير موجود"
-        
-        expires_at = (datetime.now(timezone.utc) + timedelta(hours=duration_hours)).isoformat()
-        user_ref.update({
-            "boost_multiplier": multiplier,
-            "boost_active": True,
-            "boost_expires_at": expires_at
-        })
-        return True, "تمت مضاعفة الأرباح بنجاح!"
-    except Exception as e:
-        print(f"❌ Error activating boost for {tg_id}: {e}")
-        return False, f"حدث خطأ أثناء التفعيل: {e}"
-
-def ban_user(tg_id, status=True):
-    try:
-        if not tg_id: return False
-        tg_id_str = str(tg_id)
-        db.collection('users').document(tg_id_str).update({"banned": bool(status)})
-        _BAN_CACHE[tg_id_str] = (bool(status), time.time() + BAN_CACHE_TTL)
-        return True
-    except Exception as e:
-        print(f"❌ Error changing ban status: {e}")
-        return False
-
-def get_top_users(limit=50):
-    global _LEADERBOARD_CACHE, _LEADERBOARD_CACHE_TIME
-    now = time.time()
-    if _LEADERBOARD_CACHE is not None and (now - _LEADERBOARD_CACHE_TIME) < LEADERBOARD_CACHE_TTL:
-        return _LEADERBOARD_CACHE
-
-    try:
-        users_ref = db.collection('users').order_by('balance', direction=firestore.Query.DESCENDING).limit(limit)
-        docs = users_ref.stream()
-        leaderboard = [{
-            "tg_id": doc.id,
-            "first_name": (doc.to_dict() or {}).get("first_name", "لاعب"),
-            "balance": float((doc.to_dict() or {}).get("balance", 0.0)),
-            "hourly_rate": float((doc.to_dict() or {}).get("hourly_rate", 0.0))
-        } for doc in docs]
-        _LEADERBOARD_CACHE = leaderboard
-        _LEADERBOARD_CACHE_TIME = now
-        return leaderboard
-    except Exception as e:
-        print(f"❌ Error getting leaderboard: {e}")
-        return _LEADERBOARD_CACHE or []
+        print(f"❌ Error updating storage level for {tg_id}: {e}")
+        return False, f"حدث خطأ: {e}", 0, 0
