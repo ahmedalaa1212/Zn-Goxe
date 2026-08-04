@@ -20,27 +20,27 @@
     }
 
     // =================================================================
-    // 🧮 0. تنسيق الأرقام واختصار الأرقام الضخمة مع فصل الأرقام العشرية
+    // 🧮 0. تنسيق الأرقام واختصار الأرقام الضخمة مع فصل الأرقام العشرية بشكل آمن
     // =================================================================
     function renderFormattedBalanceHTML(val, decimals = 2, prefix = '', suffix = '') {
         let num = parseFloat(val);
         if (isNaN(num)) num = 0;
 
         if (num >= 1000000000) {
-            return prefix + (num / 1000000000).toFixed(2) + 'B' + suffix;
+            return `<span dir="ltr" style="white-space:nowrap;">${prefix}${(num / 1000000000).toFixed(2)}B${suffix}</span>`;
         }
         if (num >= 10000000) { 
-            return prefix + (num / 1000000).toFixed(2) + 'M' + suffix;
+            return `<span dir="ltr" style="white-space:nowrap;">${prefix}${(num / 1000000).toFixed(2)}M${suffix}</span>`;
         }
 
         const parts = num.toFixed(decimals).split('.');
         const intFormatted = Math.floor(parts[0]).toLocaleString('en-US');
 
         if (decimals === 0 || !parts[1]) {
-            return `${prefix}<span class="int-part">${intFormatted}</span>${suffix}`;
+            return `<span dir="ltr" style="white-space:nowrap;">${prefix}<span class="int-part">${intFormatted}</span>${suffix}</span>`;
         }
 
-        return `${prefix}<span class="int-part">${intFormatted}</span>.<span class="dec-part">${parts[1]}</span>${suffix}`;
+        return `<span dir="ltr" style="white-space:nowrap;">${prefix}<span class="int-part">${intFormatted}</span>.<span class="dec-part">${parts[1]}</span>${suffix}</span>`;
     }
 
     // =================================================================
@@ -300,7 +300,6 @@
                 alert("🎉 تم تأكيد الدفع وتفعيل الباقة بنجاح!");
 
                 const res = verifyData.result;
-                // ⚡ تحديث المباشر لـ userState Proxy لتحفيز الحفظ اللحظي والـ UI
                 if (res.balance !== undefined) window.userState.balance = res.balance;
                 if (res.hourly_rate !== undefined) window.userState.hourly_rate = res.hourly_rate;
                 if (res.extra_storage !== undefined) window.userState.extra_storage = res.extra_storage;
@@ -415,7 +414,6 @@
         const storageSec = document.getElementById('shop-storage-section');
         if (!miningSec || !storageSec) return;
 
-        // القراءة الصارمة والمباشرة من userState الموحد
         const pData = window.userState || {};
         let totalBal = parseFloat(pData.balance || 0);
 
@@ -434,10 +432,9 @@
         const rateElem = document.getElementById('shop-rate-text');
         if (rateElem) {
             const hRate = parseFloat(pData.hourly_rate || 0);
-            rateElem.innerText = `+${hRate.toFixed(2)}/h`;
+            rateElem.innerHTML = `<span dir="ltr">+${hRate.toFixed(2)}/h</span>`;
         }
 
-        // المطابقة الصارمة مع database.py & shop_api.py
         const defaultMiningCfg = {
             "1": {"price": 3500, "rate": 5, "max": 10},
             "2": {"price": 11500, "rate": 15, "max": 10},
@@ -470,7 +467,7 @@
                     <div>
                         <div style="font-size: 26px;">⚡</div>
                         <div style="color: #ffffff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
-                        <div style="color: #00cc66; font-size: 12px; margin: 4px 0;">⚡ +${speed.toLocaleString()}/h</div>
+                        <div style="color: #00cc66; font-size: 12px; margin: 4px 0;" dir="ltr">⚡ +${speed.toLocaleString()}/h</div>
                         <div style="color: #888888; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${maxLimit}</div>
                     </div>
                     <button id="btn-speed-${i}" onclick="requestShopPurchase('speed', ${i}, ${price})" 
@@ -482,7 +479,6 @@
         }
         miningSec.innerHTML = miningHtml;
 
-        // المطابقة الصارمة مع database.py & shop_api.py
         const defaultStorageCfg = {
             "1": {"capacity": 300, "price": 3000},
             "2": {"capacity": 800, "price": 8500},
@@ -608,7 +604,6 @@
             if (response.ok && resData.success) {
                 triggerHaptic('notification', 'success');
 
-                // ⚡ تحديث مباشر وسلس لكائن userState Proxy لضمان الاستجابة والحفظ اللحظي
                 if (resData.balance !== undefined) window.userState.balance = resData.balance;
                 if (resData.hourly_rate !== undefined) window.userState.hourly_rate = resData.hourly_rate;
                 if (resData.upgrades !== undefined) window.userState.upgrades = resData.upgrades;
