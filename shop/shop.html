@@ -13,18 +13,19 @@
     }
 
     .shop-container { 
-        padding: 15px; 
-        padding-top: 20px; 
-        max-width: 500px; 
+        padding: 4px 0 15px 0; 
+        width: 100%; 
+        max-width: 100%; 
         margin: 0 auto; 
         box-sizing: border-box;
     }
 
+    /* تثبيت هيكل شريط الإحصائيات لمنع انكسار العناصر عند التنقل */
     .shop-stats-bar {
         display: grid; 
-        grid-template-columns: repeat(3, 1fr); 
+        grid-template-columns: repeat(3, minmax(0, 1fr)); 
         gap: 6px;
-        padding: 10px 6px; 
+        padding: 8px 4px; 
         background: #161616; 
         border-radius: 14px;
         margin-bottom: 15px; 
@@ -39,11 +40,12 @@
         align-items: center; 
         justify-content: center;
         background: rgba(255, 255, 255, 0.03); 
-        padding: 8px 4px;
+        padding: 8px 2px;
         border-radius: 10px; 
         border: 1px solid rgba(255, 255, 255, 0.05);
         min-width: 0;
         overflow: hidden;
+        box-sizing: border-box;
     }
 
     .stat-label { 
@@ -51,22 +53,22 @@
         color: var(--text-muted); 
         margin-bottom: 4px; 
         white-space: nowrap;
+        text-align: center;
     }
     
     .stat-value { 
         font-weight: 800; 
-        font-size: 13px; 
+        font-size: 12px; 
         white-space: nowrap;
         direction: ltr !important;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        max-width: 100%;
+        width: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
     }
 
-    /* تنسيقات الأرقام الصحيحة والعشرية للحصول على مظهر احترافي دون كسر أسطر */
     .int-part { font-size: 1em; font-weight: 800; }
     .dec-part { font-size: 0.78em; opacity: 0.75; font-weight: 600; }
 
@@ -74,32 +76,35 @@
         background: rgba(0, 152, 234, 0.12); 
         border: 1px solid var(--ton-blue);
         border-radius: 12px; 
-        padding: 12px 14px; 
-        margin-bottom: 20px;
+        padding: 10px 14px; 
+        margin-bottom: 15px;
         display: flex; 
         justify-content: space-between; 
         align-items: center;
+        box-sizing: border-box;
     }
 
     .usdt-container {
         display: flex; 
-        gap: 12px; 
+        gap: 10px; 
         overflow-x: auto; 
         padding-bottom: 10px;
-        margin-bottom: 25px; 
+        margin-bottom: 20px; 
         scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
     }
     .usdt-container::-webkit-scrollbar { display: none; }
 
     .usdt-card {
-        min-width: 150px; 
-        flex: 1; 
+        min-width: 145px; 
+        flex: 0 0 145px; 
         border-radius: 12px; 
         padding: 12px;
         text-align: center; 
         display: flex; 
         flex-direction: column; 
         justify-content: space-between;
+        box-sizing: border-box;
     }
 
     .usdt-perks {
@@ -116,7 +121,7 @@
     .btn-ton-pay {
         width: 100%; 
         border: none; 
-        padding: 10px 8px;
+        padding: 8px 6px;
         border-radius: 8px; 
         font-weight: bold; 
         cursor: pointer; 
@@ -125,10 +130,19 @@
         align-items: center; 
         justify-content: center; 
         gap: 4px;
-        font-size: 13px;
+        font-size: 12px;
         transition: opacity 0.2s;
     }
     .btn-ton-pay:active { opacity: 0.8; }
+
+    /* تثبيت الارتفاع الأدنى للشبكة لمنع قفز الصفحة أثناء التبديل */
+    .shop-section-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        min-height: 280px;
+        align-content: start;
+    }
 </style>
 
 <div class="shop-container">
@@ -156,18 +170,18 @@
 
     <div id="ton-connect-btn" style="display:none;"></div>
 
-    <h3 style="color: #fff; margin-bottom: 12px; font-size: 17px; font-weight: bold;">💎 باقات العروض المميزة (الدفع التلقائي)</h3>
+    <h3 style="color: #fff; margin-bottom: 12px; font-size: 16px; font-weight: bold;">💎 باقات العروض المميزة (الدفع التلقائي)</h3>
     
     <div class="usdt-container" id="usdt-packages-container">
         <div style="color: #888; font-size: 13px; text-align: center; width: 100%; padding: 20px;">جاري تحميل الباقات المتاحة...</div>
     </div>
 
-    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-        <button id="tab-mining" onclick="switchShopTab('mining')" style="flex: 1; padding: 12px; background: var(--telegram-blue); color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer;">⚡ ترقيات السرعة</button>
-        <button id="tab-storage" onclick="switchShopTab('storage')" style="flex: 1; padding: 12px; background: #333333; color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer;">📦 ترقيات المخزن</button>
+    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+        <button id="tab-mining" onclick="switchShopTab('mining')" style="flex: 1; padding: 11px; background: var(--telegram-blue); color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; transition: background 0.2s;">⚡ ترقيات السرعة</button>
+        <button id="tab-storage" onclick="switchShopTab('storage')" style="flex: 1; padding: 11px; background: #333333; color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; transition: background 0.2s;">📦 ترقيات المخزن</button>
     </div>
 
-    <div id="shop-mining-section" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;"></div>
+    <div id="shop-mining-section" class="shop-section-grid"></div>
 
-    <div id="shop-storage-section" style="display: none; grid-template-columns: repeat(2, 1fr); gap: 12px;"></div>
+    <div id="shop-storage-section" class="shop-section-grid" style="display: none;"></div>
 </div>
