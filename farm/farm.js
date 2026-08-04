@@ -161,7 +161,9 @@ window.initFarmView = function() {
 
         const rateEl = document.getElementById('farm-rate');
         if (rateEl) {
-            rateEl.innerHTML = `<span dir="ltr">${Math.floor(hRate).toLocaleString()} /h</span> ⚡`;
+            // إظهار معدل السرعة بالكسور مثل 0.5 بدلاً من قصها بـ Math.floor
+            let formattedRate = (hRate % 1 === 0) ? hRate.toString() : Number(hRate.toFixed(2)).toString();
+            rateEl.innerHTML = `<span dir="ltr">${formattedRate} /h</span> ⚡`;
         }
         
         const fieldsContainer = document.getElementById('mining-fields');
@@ -243,18 +245,14 @@ window.initFarmView = function() {
             let displayReward = formatCompactNumber(rawReward);
 
             if (claimedToday) {
-                // تم الاستلام اليوم: الأيام حتى اليوم الحالي تظهر مكتملة ✓
                 if (dayNum <= currentDailyDay) {
                     html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div style="font-size: 14px; font-weight: bold; color: #10b981;">✓</div></div>`;
                 } else if (dayNum === currentDailyDay + 1) {
-                    // اليوم التالي يظهر ومعه العداد التنازلي لمنتصف الليل ⏳
                     html += `<div class="reward-day-card active" style="border: 1px dashed #ef4444;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><div id="daily-timer" style="color: #ef4444; font-size: 8px; font-weight: bold;">⏳ ${timeLeftStr}</div></div>`;
                 } else {
-                    // الأيام المستقبليّة مغلقة
                     html += `<div class="reward-day-card" style="opacity: 0.4;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div></div>`;
                 }
             } else {
-                // لم يتم الاستلام اليوم بعد: الأيام السابقة تظهر مكتملة واليوم الحالي قابل للاستلام
                 if (dayNum < currentDailyDay) {
                     html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div style="font-size: 14px; font-weight: bold; color: #10b981;">✓</div></div>`;
                 } else if (dayNum === currentDailyDay) {
@@ -274,7 +272,6 @@ window.initFarmView = function() {
         
         const todayStr = getTodayUTCStr();
 
-        // إعادة مزامنة البيانات تلقائياً إذا دخل يوم جديد (UTC Midnight)
         if (lastCheckedDate && lastCheckedDate !== todayStr) {
             lastCheckedDate = todayStr;
             if (typeof window.fetchPlayerDataFromServer === 'function') {
