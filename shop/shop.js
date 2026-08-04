@@ -9,6 +9,7 @@
     let tonConnectUI = null;
     let isBuying = false;
     let shopDynamicSettings = null;
+    let cachedPackagesData = null;
     let lastConfigFetchTime = 0;
     const CONFIG_CACHE_TTL = 300000;
 
@@ -118,6 +119,7 @@
                 if (cached && cachedTime && (now - parseInt(cachedTime) < CONFIG_CACHE_TTL)) {
                     const parsed = JSON.parse(cached);
                     shopDynamicSettings = parsed.settings;
+                    cachedPackagesData = parsed.packages;
                     applyConfigToUI(parsed);
                     return;
                 }
@@ -127,6 +129,9 @@
         }
 
         if (!forceFetch && shopDynamicSettings && (now - lastConfigFetchTime < CONFIG_CACHE_TTL)) {
+            if (cachedPackagesData) {
+                renderDynamicPackages(cachedPackagesData);
+            }
             window.updateShopUI();
             return;
         }
@@ -136,6 +141,7 @@
             const data = await res.json();
             if (data && data.success) {
                 shopDynamicSettings = data.settings;
+                cachedPackagesData = data.packages;
                 lastConfigFetchTime = now;
 
                 try {
@@ -152,11 +158,15 @@
 
     function applyConfigToUI(data) {
         const tonPriceElem = document.getElementById('ton-live-rate-text');
-        if (tonPriceElem && data.ton_price_usd) {
-            tonPriceElem.innerText = `$${parseFloat(data.ton_price_usd).toFixed(2)}`;
+        if (tonPriceElem) {
+            const livePrice = data.ton_price_usd || window.tonPrice || window.userState?.ton_price;
+            if (livePrice) {
+                tonPriceElem.innerText = `$${parseFloat(livePrice).toFixed(2)}`;
+            }
         }
 
         if (data.packages) {
+            cachedPackagesData = data.packages;
             renderDynamicPackages(data.packages);
         }
         
@@ -167,7 +177,16 @@
         let container = document.getElementById('usdt-packages-container');
         if (!container) return;
 
-        if (!packages || Object.keys(packages).length === 0) {
+        if (!packages || (typeof packages !== 'object')) {
+            container.innerHTML = '<div style="color: #aaaaaa; text-align: center; width: 100%; padding: 10px;">لا توجد باقات متاحة حالياً.</div>';
+            return;
+        }
+
+        const entries = Array.isArray(packages) 
+            ? packages.map((p, idx) => [`pkg_${idx + 1}`, p]) 
+            : Object.entries(packages);
+
+        if (entries.length === 0) {
             container.innerHTML = '<div style="color: #aaaaaa; text-align: center; width: 100%; padding: 10px;">لا توجد باقات متاحة حالياً.</div>';
             return;
         }
@@ -181,22 +200,26 @@
         ];
 
         let index = 0;
-        for (const [pkgId, pkg] of Object.entries(packages)) {
+        for (const [pkgId, pkg] of entries) {
+            if (!pkg) continue;
             const theme = colorThemes[index % colorThemes.length];
             const btnTextColor = theme.textColor || '#ffffff';
+
+            const usdtPrice = parseFloat(pkg.usdt || 0).toFixed(2);
+            const tonAmount = parseFloat(pkg.ton_amount || 0).toFixed(2);
 
             html += `
                 <div class="usdt-card" style="background: ${theme.bg}; border: 1px solid ${theme.border};">
                     <div>
                         <div style="font-size: 24px;">${theme.icon}</div>
                         <div style="color: #ffffff; font-weight: bold; font-size: 13px;">${pkg.title || 'باقة مميزة'}</div>
-                        <div style="color: ${theme.border}; font-weight: bold; font-size: 16px; margin: 4px 0;">$${parseFloat(pkg.usdt).toFixed(2)}</div>
-                        <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${parseFloat(pkg.ton_amount).toFixed(2)} TON</div>
+                        <div style="color: ${theme.border}; font-weight: bold; font-size: 16px; margin: 4px 0;">$${usdtPrice}</div>
+                        <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${tonAmount} TON</div>
                     </div>
                     <div class="usdt-perks">
-                        ⚡ +${Number(pkg.rate_add).toLocaleString()} ZN/h<br>
-                        📦 +${Number(pkg.storage_add).toLocaleString()} مخزن<br>
-                        🪙 +${Number(pkg.zn_add).toLocaleString()} ZN
+                        ⚡ +${Number(pkg.rate_add || 0).toLocaleString()} ZN/h<br>
+                        📦 +${Number(pkg.storage_add || 0).toLocaleString()} مخزن<br>
+                        🪙 +${Number(pkg.zn_add || 0).toLocaleString()} ZN
                     </div>
                     <button class="btn-ton-pay" style="background: ${theme.btn}; color: ${btnTextColor};" onclick="buyPackageWithTon('${pkgId}')">شراء تلقائي</button>
                 </div>
@@ -414,6 +437,10 @@
     // 🔄 6. تحديث واجهة المتجر (Render UI)
     // =================================================================
     window.updateShopUI = function() {
+        if (cachedPackagesData) {
+            renderDynamicPackages(cachedPackagesData);
+        }
+
         const miningSec = document.getElementById('shop-mining-section');
         const storageSec = document.getElementById('shop-storage-section');
         if (!miningSec || !storageSec) return;
