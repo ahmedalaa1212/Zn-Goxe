@@ -188,6 +188,212 @@
         window.fetchAndRenderTasks(forceRefresh);
     };
 
+    // ⚡ فتح النافذة المنبثقة لإنشاء الحملة
+    window.openAdModal = function(type) {
+        currentAdType = type || 'يوتيوب';
+        const modal = document.getElementById('ad-modal');
+        const titleEl = document.getElementById('ad-modal-title');
+        const descSelect = document.getElementById('ad-desc-select');
+
+        if (titleEl) {
+            titleEl.innerText = `إنشاء حملة (${currentAdType})`;
+        }
+
+        if (descSelect && preDefinedDescriptions[currentAdType]) {
+            let opts = `<option value="">-- اختر توجيهات المهمة المطلوبة --</option>`;
+            preDefinedDescriptions[currentAdType].forEach(desc => {
+                opts += `<option value="${escapeHtml(desc)}">${escapeHtml(desc)}</option>`;
+            });
+            descSelect.innerHTML = opts;
+        }
+
+        // تفريغ المدخلات
+        const linkInput = document.getElementById('ad-link');
+        const rewardInput = document.getElementById('ad-reward');
+        const usersInput = document.getElementById('ad-users');
+        
+        if (linkInput) linkInput.value = '';
+        if (rewardInput) rewardInput.value = '';
+        if (usersInput) usersInput.value = '';
+
+        if (modal) {
+            modal.style.display = 'flex';
+        }
+    };
+
+    window.closeAdModal = function() {
+        const modal = document.getElementById('ad-modal');
+        if (modal) modal.style.display = 'none';
+    };
+
+    // ⚡ شحن محفظة الإعلانات
+    window.convertZnToAdZn = async function() {
+        if (isConvertingBalance) return;
+
+        const inputVal = prompt('أدخل مبلغ ZN المراد تحويله إلى رصيد الإعلانات (AdZN):\n(ملاحظة: تخصم عمولة تحويل 10%)');
+        if (!inputVal) return;
+
+        const amount = parseFloat(inputVal);
+        if (isNaN(amount) || amount <= 0) {
+            alert('يرجى إدخال مبلغ صحيح للتحويل!');
+            return;
+        }
+
+        const currentBal = getUserBalance();
+        if (currentBal < amount) {
+            alert(`رصيدك الأساسي غير كافٍ! لديك ${currentBal.toLocaleString()} ZN.`);
+            return;
+        }
+
+        isConvertingBalance = true;
+
+        try {
+            const initData = window.Telegram?.WebApp?.initData || "";
+            const tgId = getTgId();
+
+            const res = await window.fetchAPI('/api/tasks/convert_adzn', 'POST', {
+                amount: amount,
+                telegram_id: tgId,
+                initData
+            });
+
+            if (res.success) {
+                if (res.new_balance !== undefined) syncUserBalance(res.new_balance);
+                if (res.new_ad_balance !== undefined) syncUserAdBalance(res.new_ad_balance);
+
+                alert(`🎉 تم تحويل ${amount.toLocaleString()} ZN إلى رصيد الإعلانات (AdZN) بنجاح!`);
+            } else {
+                alert(res.error || 'حدث خطأ أثناء التحويل.');
+            }
+        } catch (err) {
+            console.error('Convert Balance Error:', err);
+            alert(err.message || 'حدث خطأ أثناء الاتصال بالسيرفر.');
+        } finally {
+            isConvertingBalance = false;
+        }
+    };
+
+    // ⚡ تقديم ونشر الحملة الإعلانية
+    window.submitAdCampaign = async function(event) {
+        if (event) event.preventDefault();
+        if (isSubmittingCampaign) return;
+
+        const platform = currentAdType || 'يوتيوب';
+        const linkInput = document.getElementById('ad-link');
+        const descSelect = document.getElementById('ad-desc-select');
+        const rewardInput = document.getElementById('ad-reward');
+        const usersInput = document.getElementById('ad-users');
+
+        const url = linkInput?.value?.trim() || '';
+        const description = descSelect?.value?.trim() || '';
+        const rewardPerClick = parseFloat(rewardInput?.value || 0);
+        const totalCount = parseInt(usersInput?.value || 0, 10);
+
+        if (!url || !description) {
+            alert('يرجى إدخال رابط الحملة واختيار/كتابة توجيهات المهمة!');
+            return;
+        }
+
+        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+            alert('يجب أن يبدأ الرابط بـ http:// أو https://');
+            return;
+        }
+
+        if (rewardPerClick < MIN_REWARD_PER_CLICK) {
+            alert(`الحد الأدنى لتكلفة الضغطة الواحدة هو ${MIN_REWARD_PER_CLICK} AdZN!`);
+            return;
+        }
+
+        const totalCost = rewardPerClick * totalCount;
+        if (totalCost < MIN_AD_CAMPAIGN_COST) {
+            alert(`الحد الأدنى للميزانية الإجمالية للحملة هو ${MIN_AD_CAMPAIGN_COST} AdZN!`);
+            return;
+        }
+
+        const currentAdBal = getUserAdBalance();
+        if (currentAdBal < totalCost) {
+            alert(`رصيد الإعلانات (AdZN) غير كافٍ! تحتاج إلى ${totalCost.toLocaleString()} AdZN ولكن لديك ${currentAdBal.toLocaleString()} AdZN.`);
+            return;
+        }
+
+        isSubmittingCampaign = true;
+        const submitBtn = document.getElementById('btn-submit-campaign-action');
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerText = 'جاري الفحص... ⏳';
+        }
+
+        // إغلاق نافذة الإدخال وإظهار نافذة الفحص الأمني التلقائي
+        window.closeAdModal();
+        const reviewModal = document.getElementById('review-modal');
+        const timerEl = document.getElementById('review-countdown-timer');
+        if (reviewModal) reviewModal.style.display = 'flex';
+
+        let timeLeft = 3;
+        if (timerEl) timerEl.innerText = timeLeft;
+
+        const countdownInterval = setInterval(() => {
+            timeLeft--;
+            if (timerEl) timerEl.innerText = Math.max(0, timeLeft);
+            if (timeLeft <= 0) {
+                clearInterval(countdownInterval);
+            }
+        }, 1000);
+
+        try {
+            const initData = window.Telegram?.WebApp?.initData || "";
+            const tgId = getTgId();
+
+            const res = await window.fetchAPI('/api/tasks/create_campaign', 'POST', {
+                platform,
+                description,
+                url,
+                reward: rewardPerClick,
+                users_needed: totalCount,
+                telegram_id: tgId,
+                initData
+            });
+
+            await new Promise(r => setTimeout(r, 3200));
+
+            if (reviewModal) reviewModal.style.display = 'none';
+
+            if (res.success) {
+                if (res.new_ad_balance !== undefined) {
+                    syncUserAdBalance(res.new_ad_balance);
+                } else {
+                    syncUserAdBalance(currentAdBal - totalCost);
+                }
+
+                // إظهار نافذة النجاح
+                const successModal = document.getElementById('success-modal');
+                if (successModal) successModal.style.display = 'flex';
+                else alert('🎉 تم إطلاق الحملة بنجاح!');
+
+                window.fetchAndRenderTasks(true);
+            } else {
+                alert(res.error || 'حدث خطأ أثناء إنشاء الحملة.');
+            }
+        } catch (err) {
+            if (reviewModal) reviewModal.style.display = 'none';
+            console.error('Submit Campaign Error:', err);
+            alert(err.message || 'حدث خطأ في الاتصال بالسيرفر.');
+        } finally {
+            isSubmittingCampaign = false;
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerText = 'نشر الحملة';
+            }
+        }
+    };
+
+    window.handleSuccessRedirect = function() {
+        const successModal = document.getElementById('success-modal');
+        if (successModal) successModal.style.display = 'none';
+        window.switchTasksTab('promote');
+        window.fetchAndRenderTasks(true);
+    };
+
     // ⚡ جلب قائمة الحملات والمهام المتاحة
     window.fetchAndRenderTasks = async function(forceRefresh = false) {
         const container = document.getElementById('tasks-list-container');
@@ -512,146 +718,6 @@
         }
     };
 
-    // ⚡ تقديم حملة إعلانية جديدة
-    window.submitAdCampaign = async function(event) {
-        if (event) event.preventDefault();
-        if (isSubmittingCampaign) return;
-
-        const platform = document.getElementById('ad-platform')?.value || currentAdType;
-        const description = document.getElementById('ad-description')?.value?.trim();
-        const url = document.getElementById('ad-url')?.value?.trim();
-        const rewardPerClick = parseFloat(document.getElementById('ad-reward-per-click')?.value || 0);
-        const totalCount = parseInt(document.getElementById('ad-total-count')?.value || 0, 10);
-
-        if (!description || !url) {
-            alert('يرجى ملء جميع الحقول المطلوبة!');
-            return;
-        }
-
-        if (rewardPerClick < MIN_REWARD_PER_CLICK) {
-            alert(`الحد الأدنى لتكلفة الضغطة هو ${MIN_REWARD_PER_CLICK} AdZN!`);
-            return;
-        }
-
-        const totalCost = rewardPerClick * totalCount;
-        if (totalCost < MIN_AD_CAMPAIGN_COST) {
-            alert(`الحد الأدنى للميزانية الإجمالية للحملة هو ${MIN_AD_CAMPAIGN_COST} AdZN!`);
-            return;
-        }
-
-        const currentAdBal = getUserAdBalance();
-        if (currentAdBal < totalCost) {
-            alert(`رصيد الإعلانات (AdZN) غير كافٍ! تحتاج إلى ${totalCost.toLocaleString()} AdZN ولكن لديك ${currentAdBal.toLocaleString()} AdZN.`);
-            return;
-        }
-
-        isSubmittingCampaign = true;
-        const submitBtn = document.getElementById('btn-submit-campaign');
-        if (submitBtn) {
-            submitBtn.disabled = true;
-            submitBtn.innerText = 'جاري إنشاء الحملة... ⏳';
-        }
-
-        try {
-            const initData = window.Telegram?.WebApp?.initData || "";
-            const tgId = getTgId();
-
-            const res = await window.fetchAPI('/api/tasks/create_campaign', 'POST', {
-                platform,
-                description,
-                url,
-                reward: rewardPerClick,
-                users_needed: totalCount,
-                telegram_id: tgId,
-                initData
-            });
-
-            if (res.success) {
-                if (res.new_ad_balance !== undefined) {
-                    syncUserAdBalance(res.new_ad_balance);
-                } else {
-                    syncUserAdBalance(currentAdBal - totalCost);
-                }
-
-                alert('🎉 تم إنشاء الحملة الإعلانية بنجاح وسيتم إظهارها للمستخدمين فوراً!');
-                
-                if (document.getElementById('ad-description')) document.getElementById('ad-description').value = '';
-                if (document.getElementById('ad-url')) document.getElementById('ad-url').value = '';
-                
-                window.closeTaskModal('modal-create-ad');
-                window.fetchAndRenderTasks(true);
-            } else {
-                alert(res.error || 'حدث خطأ أثناء إنشاء الحملة.');
-            }
-        } catch (err) {
-            console.error('Submit Campaign Error:', err);
-            alert(err.message || 'حدث خطأ في الاتصال بالسيرفر.');
-        } finally {
-            isSubmittingCampaign = false;
-            if (submitBtn) {
-                submitBtn.disabled = false;
-                submitBtn.innerText = 'إطلاق الحملة الإعلانية 🚀';
-            }
-        }
-    };
-
-    // ⚡ تحويل الرصيد الأساسي ZN إلى رصيد الإعلانات AdZN
-    window.convertMainToAdBalance = async function() {
-        if (isConvertingBalance) return;
-
-        const amountInput = document.getElementById('convert-amount-input');
-        const amount = parseFloat(amountInput?.value || 0);
-
-        if (!amount || amount <= 0) {
-            alert('يرجى إدخال مبلغ صحيح للتحويل!');
-            return;
-        }
-
-        const currentBal = getUserBalance();
-        if (currentBal < amount) {
-            alert(`رصيدك الأساسي غير كافٍ! لديك ${currentBal.toLocaleString()} ZN.`);
-            return;
-        }
-
-        isConvertingBalance = true;
-        const btn = document.getElementById('btn-convert-balance');
-        if (btn) {
-            btn.disabled = true;
-            btn.innerText = 'جاري التحويل... ⏳';
-        }
-
-        try {
-            const initData = window.Telegram?.WebApp?.initData || "";
-            const tgId = getTgId();
-
-            const res = await window.fetchAPI('/api/tasks/convert_adzn', 'POST', {
-                amount: amount,
-                telegram_id: tgId,
-                initData
-            });
-
-            if (res.success) {
-                if (res.new_balance !== undefined) syncUserBalance(res.new_balance);
-                if (res.new_ad_balance !== undefined) syncUserAdBalance(res.new_ad_balance);
-
-                alert(`🎉 تم تحويل ${amount.toLocaleString()} ZN إلى رصيد الإعلانات (AdZN) بنجاح!`);
-                if (amountInput) amountInput.value = '';
-                window.closeTaskModal('modal-convert-adzn');
-            } else {
-                alert(res.error || 'حدث خطأ أثناء التحويل.');
-            }
-        } catch (err) {
-            console.error('Convert Balance Error:', err);
-            alert(err.message || 'حدث خطأ أثناء الاتصال بالسيرفر.');
-        } finally {
-            isConvertingBalance = false;
-            if (btn) {
-                btn.disabled = false;
-                btn.innerText = 'تحويل إلى رصيد الإعلانات 🔄';
-            }
-        }
-    };
-
     // ⚡ إلغاء الحملة الإعلانية واسترداد المتبقي
     window.cancelServerCampaign = async function(taskId) {
         if (isCancelingCampaign) return;
@@ -704,69 +770,6 @@
         }
     };
 
-    // ⚡ فتح واجهة إدراج الإعلان عند الضغط على أي منصة (يوتيوب، تيليجرام، انستغرام، موقع، X)
-    window.selectAdType = function(type) {
-        currentAdType = type;
-        const selectEl = document.getElementById('ad-platform');
-        if (selectEl) selectEl.value = type;
-
-        const descSelect = document.getElementById('ad-preset-description');
-        if (descSelect && preDefinedDescriptions[type]) {
-            let opts = `<option value="">-- اختر وصف جاهز أو اكتب وصفك الخاص --</option>`;
-            preDefinedDescriptions[type].forEach(desc => {
-                opts += `<option value="${escapeHtml(desc)}">${escapeHtml(desc)}</option>`;
-            });
-            descSelect.innerHTML = opts;
-        }
-
-        // فتح نافذة الإعلان أو التمرير للنموذج
-        const modal = document.getElementById('modal-create-ad');
-        const formSection = document.getElementById('ad-form-section');
-        if (modal) {
-            modal.style.display = 'flex';
-        } else if (formSection) {
-            formSection.style.display = 'block';
-            formSection.scrollIntoView({ behavior: 'smooth' });
-        }
-    };
-
-    window.openCreateAdModal = function(type) {
-        window.selectAdType(type || 'يوتيوب');
-    };
-
-    // ⚡ فتح نافذة شحن محفظة الإعلانات
-    window.openConvertModal = function() {
-        const modal = document.getElementById('modal-convert-adzn');
-        const convertSec = document.getElementById('convert-section');
-        if (modal) {
-            modal.style.display = 'flex';
-        } else if (convertSec) {
-            convertSec.style.display = 'block';
-            convertSec.scrollIntoView({ behavior: 'smooth' });
-        } else {
-            // تنفيذ التحويل مباشرة عبر الموجه الإرترادي إن لم توجد نافذة
-            let inputAmount = prompt('أدخل مبلغ ZN المراد تحويله لرصيد الإعلانات (AdZN):');
-            if (inputAmount) {
-                const amountInput = document.getElementById('convert-amount-input');
-                if (amountInput) amountInput.value = inputAmount;
-                window.convertMainToAdBalance();
-            }
-        }
-    };
-
-    window.closeTaskModal = function(modalId) {
-        const modal = document.getElementById(modalId);
-        if (modal) modal.style.display = 'none';
-    };
-
-    window.applyPresetDescription = function() {
-        const descSelect = document.getElementById('ad-preset-description');
-        const descInput = document.getElementById('ad-description');
-        if (descSelect && descInput && descSelect.value) {
-            descInput.value = descSelect.value;
-        }
-    };
-
     // ⚡ المتابعة الدقيقة للتواجد خارج الشاشة وحساب الـ 15 ثانية
     document.addEventListener('visibilitychange', () => {
         const isHidden = document.visibilityState === 'hidden';
@@ -786,35 +789,6 @@
         }
     });
 
-    // ⚡ الربط التلقائي لكل أزرار القائمة والشاشة فور تحميل الصفحة
-    document.addEventListener('DOMContentLoaded', () => {
-        // ربط أزرار التبويبات العلويين
-        document.getElementById('btn-tab-earn')?.addEventListener('click', () => window.switchTasksTab('earn'));
-        document.getElementById('btn-tab-promote')?.addEventListener('click', () => window.switchTasksTab('promote'));
-
-        // ربط أزرار المنصات الخمسة الموضحة في الصورة
-        const platformButtons = document.querySelectorAll('.platform-card, [data-platform]');
-        platformButtons.forEach(btn => {
-            btn.addEventListener('click', function() {
-                const platform = this.getAttribute('data-platform') || this.innerText;
-                if (platform.includes('يوتيوب') || platform.includes('مشاهدة')) window.openCreateAdModal('يوتيوب');
-                else if (platform.includes('تيليجرام') || platform.includes('قناة')) window.openCreateAdModal('تيليجرام');
-                else if (platform.includes('انستغرام') || platform.includes('متابعة حساب')) window.openCreateAdModal('انستغرام');
-                else if (platform.includes('موقع') || platform.includes('زيارة')) window.openCreateAdModal('موقع');
-                else if (platform.includes('X') || platform.includes('تفاعل')) window.openCreateAdModal('X');
-            });
-        });
-
-        // ربط زر "شحن محفظة الإعلانات" الموضح بالصورة
-        const chargeBtn = document.querySelector('.charge-ad-btn, [onclick*="convert"], button:has-text("شحن محفظة الإعلانات")');
-        if (chargeBtn) {
-            chargeBtn.onclick = function(e) {
-                e.preventDefault();
-                window.openConvertModal();
-            };
-        }
-    });
-
-    // التهيئة التلقائية الأولى
+    // التهيئة التلقائية الأولى عند تحميل الصفحة
     window.fetchAndRenderTasks(false);
 })();
