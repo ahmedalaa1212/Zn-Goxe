@@ -10,10 +10,10 @@ window.initFarmView = function() {
 
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 10,
-        dailyBoostReward: 2.0,
+        dailyBoostReward: 0.5,
         upgradeCosts: {
-            1: 2000, 2: 7000, 3: 18000, 4: 45000, 5: 110000,
-            6: 260000, 7: 600000, 8: 1400000, 9: 3200000
+            1: 3500, 2: 11500, 3: 28000, 4: 68000, 5: 165000,
+            6: 390000, 7: 950000, 8: 2300000, 9: 5500000
         },
         dailyRewards: [
             100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
@@ -94,7 +94,6 @@ window.initFarmView = function() {
         return num.toString();
     }
 
-    // تعديل الدالة لإظهار 1100 و 1250 بشكل صريح وبدون تقريب خاطئ
     function formatCompactNumber(num) {
         if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
         if (num >= 1000 && num % 1000 === 0) return (num / 1000) + 'K';
@@ -259,7 +258,7 @@ window.initFarmView = function() {
         const pData = window.PlayerData || window.userState;
         if (!pData) return;
         
-        let maxC = parseFloat(window.userState?.max_cap ?? pData.max_cap ?? 200);
+        let maxC = parseFloat(window.userState?.max_cap ?? pData.max_cap ?? 100);
         let hRate = parseFloat(window.userState?.hourly_rate ?? pData.hourly_rate ?? 0);
         
         let lastClaimStr = window.userState?.last_claim_time || pData.last_claim_time;
@@ -427,11 +426,16 @@ window.initFarmView = function() {
                         if (!window.userState) window.userState = {};
                         window.userState.hourly_rate = resData.new_rate;
                     }
+                    if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
                     if (resData.last_boost_date) {
                         if (window.PlayerData) window.PlayerData.last_boost_date = resData.last_boost_date;
                         if (window.userState) window.userState.last_boost_date = resData.last_boost_date;
                     }
-                    showToast(`🚀 تمت زيادة معدل التعدين!`);
+                    if (resData.type === 'balance') {
+                        showToast(`🎁 حصلت على 50 ZN مجاناً!`);
+                    } else {
+                        showToast(`🚀 تمت زيادة معدل التعدين (+0.5 ZN/h)!`);
+                    }
                 } else if (resData && resData.error) {
                     showToast(resData.error);
                 }
