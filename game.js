@@ -1,3 +1,4 @@
+
 // ==========================================
 // 1. التهيئة والتخزين المحلي (Local-First)
 // ==========================================
@@ -183,12 +184,8 @@ window.claimDailyReward = async function() {
 // ==========================================
 window.activateTenXBoost = async function(durationHours = 1) {
     try {
-        const res = await window.fetchAPI('/api/farm/activate_boost', 'POST', { duration_hours: durationHours, multiplier: 10 });
+        const res = await window.fetchAPI('/api/farm/activate_boost', 'POST', { duration_hours: durationHours });
         if (res.success || res.status === "success") {
-            if (res.boost_multiplier !== undefined) window.userState.boost_multiplier = res.boost_multiplier;
-            if (res.boost_active !== undefined) window.userState.boost_active = res.boost_active;
-            if (res.boost_expires_at !== undefined) window.userState.boost_expires_at = res.boost_expires_at;
-            
             alert('🚀 تم تفعيل مضاعف الأرباح 10x بنجاح!');
             if (typeof window.loadUserData === 'function') window.loadUserData();
             return true;
@@ -251,6 +248,8 @@ window.initFirebaseRealtimeSync = function(userId) {
 // ==========================================
 // 7. دالة إدارة العداد (15 ثانية)
 // ==========================================
+let claimCooldownTimer = null;
+
 window.updateClaimButtonState = function() {
     const claimButtons = document.querySelectorAll('#claim-btn, .claim-btn, [data-action="claim"]');
     if (!claimButtons.length) return;
@@ -283,10 +282,33 @@ window.updateClaimButtonState = function() {
     const secondsPassed = Math.floor((currentServerMs - lastClaimMs) / 1000);
     const remainingSeconds = COOLDOWN_SECONDS - secondsPassed;
 
+    if (claimCooldownTimer) clearInterval(claimCooldownTimer);
+
     if (remainingSeconds > 0) {
+        let currentCountdown = remainingSeconds;
+        
         claimButtons.forEach(btn => {
-            renderButton(btn, true, `انتظر ${remainingSeconds} ثانية ⏳`, "claim-action-btn btn-disabled");
+            renderButton(btn, true, `انتظر ${currentCountdown} ثانية ⏳`, "claim-action-btn btn-disabled");
         });
+
+        claimCooldownTimer = setInterval(() => {
+            currentCountdown--;
+            if (currentCountdown > 0) {
+                claimButtons.forEach(btn => {
+                    renderButton(btn, true, `انتظر ${currentCountdown} ثانية ⏳`, "claim-action-btn btn-disabled");
+                });
+            } else {
+                clearInterval(claimCooldownTimer);
+                const latestUnclaimed = parseFloat(window.PlayerData?.unclaimed || window.userState?.unclaimed || 0);
+                claimButtons.forEach(btn => {
+                    if (isFarmTab && latestUnclaimed <= 0) {
+                        renderButton(btn, true, `المخزن فارغ ⏳`, "claim-action-btn btn-disabled");
+                    } else {
+                        renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready");
+                    }
+                });
+            }
+        }, 1000);
     } else {
         claimButtons.forEach(btn => {
             if (isFarmTab && unclaimed <= 0) {
@@ -464,4 +486,4 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initApp);
 } else {
     initApp();
-}
+} 
