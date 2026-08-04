@@ -467,11 +467,9 @@ def claim_daily_boost():
             if last_boost == today_str:
                 return {"success": False, "error": "لقد حصلت على تعزيز اليوم بالفعل"}
                 
-            # حساب السرعة المحققة حتمياً من البوست اليومي فقط
             daily_boost_rate = float(user_data.get("daily_boost_rate", 0.0))
             current_hourly_rate = float(user_data.get("hourly_rate", 0.0))
             
-            # إذا كان مجموع سرعة البوست اليومي أقل من 15.0/h
             if daily_boost_rate < 15.0:
                 new_hourly_rate = round(current_hourly_rate + daily_boost_reward, 2)
                 new_daily_boost_rate = round(daily_boost_rate + daily_boost_reward, 2)
@@ -490,7 +488,6 @@ def claim_daily_boost():
                     "server_time": now.isoformat()
                 }
             else:
-                # بعد الوصول لسرعة 15/h من البوست اليومي تحول المكافأة لـ 50 عملة
                 current_balance = float(user_data.get("balance", 0.0))
                 new_balance = round(current_balance + 50.0, 2)
                 transaction.update(ref, {
