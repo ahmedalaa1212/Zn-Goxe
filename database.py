@@ -64,22 +64,12 @@ def ensure_game_settings_exist():
         config_ref = db.collection('app_config').document('game_settings')
         doc_snap = config_ref.get()
         
-        # إذا كانت الإعدادات موجودة مسبقاً في Firestore، نكتفي بقرائتها دون التعديل عليها نهائياً
         if doc_snap.exists:
             existing_data = doc_snap.to_dict() or {}
-            
-            # توحيد قراءة التعدين والسرعة لضمان قراءة أي تعديل تجريه على mining_config
-            primary_mining = existing_data.get("mining_config") or existing_data.get("speed_config") or existing_data.get("upgrade_config")
-            if primary_mining:
-                existing_data["mining_config"] = primary_mining
-                existing_data["speed_config"] = primary_mining
-                existing_data["upgrade_config"] = primary_mining
-
             _SETTINGS_CACHE = existing_data
             _SETTINGS_CACHE_TIME = time.time()
             return existing_data
 
-        # إنشاء البيانات الافتراضية لأول مرة فقط في حال كانت قاعدة البيانات فارغة تماماً
         daily_rewards_30_days = {
             f"day_{i}": val for i, val in enumerate([
                 100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
@@ -88,7 +78,7 @@ def ensure_game_settings_exist():
             ], start=1)
         }
 
-        speed_cfg = {
+        mining_cfg = {
             "1": {"price": 3500.0, "rate": 5.0, "rate_bonus": 5.0, "base_cost": 3500.0, "max": 10},
             "2": {"price": 11500.0, "rate": 15.0, "rate_bonus": 15.0, "base_cost": 11500.0, "max": 10},
             "3": {"price": 28000.0, "rate": 35.0, "rate_bonus": 35.0, "base_cost": 28000.0, "max": 10},
@@ -132,13 +122,10 @@ def ensure_game_settings_exist():
             "usd_to_zn_rate": 1000000,
             "ad_reward_boost": 0.5,
             "daily_rewards": daily_rewards_30_days,
-            "speed_config": speed_cfg,
-            "mining_config": speed_cfg,
-            "upgrade_config": speed_cfg,
+            "mining_config": mining_cfg,
             "storage_config": storage_cfg,
             "usdt_packages": usdt_pkgs,
             "packages_config": packages_cfg,
-            "storage_capacities": {k: v["capacity"] for k, v in storage_cfg.items()},
             "friends_config": {
                 "commission_percent": 10,
                 "claim_fee_percent": 1.5,
@@ -163,7 +150,7 @@ def ensure_game_settings_exist():
         config_ref.set(initial_settings)
         _SETTINGS_CACHE = initial_settings
         _SETTINGS_CACHE_TIME = time.time()
-        print("✅ تم إنشاء app_config/game_settings في Firestore بنجاح!")
+        print("✅ تم إنشاء app_config/game_settings في Firestore بنجاح وبدون تكرارات!")
         return initial_settings
     except Exception as e:
         print(f"❌ خطأ أثناء تهيئة الإعدادات: {e}")
@@ -186,14 +173,6 @@ def get_game_settings():
         doc = db.collection('app_config').document('game_settings').get()
         if doc.exists:
             data = doc.to_dict() or {}
-            
-            # توحيد إعدادات المعدن والسرعة تلقائياً في الذاكرة
-            primary_mining = data.get("mining_config") or data.get("speed_config") or data.get("upgrade_config")
-            if primary_mining:
-                data["mining_config"] = primary_mining
-                data["speed_config"] = primary_mining
-                data["upgrade_config"] = primary_mining
-
             _SETTINGS_CACHE = data
             _SETTINGS_CACHE_TIME = now
             return _SETTINGS_CACHE
@@ -387,13 +366,10 @@ def get_user(tg_id):
             stg_lvl = str(data.get("storage_level", 0))
             settings = get_game_settings()
             stg_cfg = settings.get("storage_config", {})
-            caps_cfg = settings.get("storage_capacities", {})
             
             base_cap = 100.0
             if stg_lvl in stg_cfg and isinstance(stg_cfg[stg_lvl], dict):
                 base_cap = float(stg_cfg[stg_lvl].get("capacity", 100.0))
-            elif stg_lvl in caps_cfg:
-                base_cap = float(caps_cfg[stg_lvl])
 
             current_extra = float(data.get("extra_storage", 0.0))
             expected_total_max = base_cap + current_extra
