@@ -10,9 +10,9 @@ COOLDOWN_SECONDS = 15
 
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
-        100, 150, 200, 250, 300, 350, 400, 500, 600, 700,
-        800, 900, 1000, 1200, 1400, 1600, 1800, 2000, 2300, 2600,
-        3000, 3500, 4000, 4500, 5000, 6000, 7000, 8000, 9000, 10000
+        100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
+        600, 600, 650, 650, 700, 700, 750, 750, 800, 800,
+        850, 850, 900, 900, 950, 950, 1000, 1000, 1100, 1250
     ],
     "mining_config": {
         "daily_boost_reward": 2.0
@@ -153,7 +153,7 @@ def get_player_data():
         if last_daily_claim == today_str:
             effective_daily_day = raw_daily_day
         elif last_daily_claim == yesterday_str:
-            effective_daily_day = raw_daily_day + 1 if raw_daily_day < 30 else 1
+            effective_daily_day = min(raw_daily_day + 1, 30)
         else:
             effective_daily_day = 1
             
@@ -400,7 +400,7 @@ def claim_daily():
             raw_daily_day = int(user_data.get("daily_day") or user_data.get("daily_streak") or 1)
             
             if last_daily_claim == yesterday_str:
-                effective_daily_day = raw_daily_day + 1 if raw_daily_day < 30 else 1
+                effective_daily_day = min(raw_daily_day + 1, 30)
             else:
                 effective_daily_day = 1
                 
@@ -461,7 +461,7 @@ def claim_daily_boost():
             last_boost = user_data.get("last_boost_date")
             
             if last_boost == today_str:
-                return {"success": False, "error": "لقدحصلت على تعزيز اليوم بالفعل"}
+                return {"success": False, "error": "لقد حصلت على تعزيز اليوم بالفعل"}
                 
             current_hourly_rate = float(user_data.get("hourly_rate", 0.0))
             new_hourly_rate = round(current_hourly_rate + daily_boost_reward, 2)
