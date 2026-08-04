@@ -155,13 +155,6 @@ window.initFarmView = function() {
         const pData = window.PlayerData || window.userState || {};
         let bal = getStoredBalance();
         let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
-        
-        const balEl = document.getElementById('farm-balance');
-        if (balEl && typeof window.formatNumberHTML === 'function') {
-            balEl.innerHTML = `<span dir="ltr">${window.formatNumberHTML(bal)} ZN</span>`;
-        } else if (balEl) {
-            balEl.innerText = `ZN: ${bal.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 2})}`;
-        }
 
         const rateEl = document.getElementById('farm-rate');
         if (rateEl) {
@@ -173,7 +166,6 @@ window.initFarmView = function() {
             const currentUpgrades = window.userState?.upgrades || pData.upgrades || {};
             let fieldsHTML = '';
             for (let i = 1; i <= 9; i++) {
-                // الاعتماد الحصري على مفتاح "lvl" لمنع تداخل أرقام الترقيات مع التخزين
                 let count = parseInt(currentUpgrades[`lvl${i}`] || 0);
                 let prevCount = parseInt(currentUpgrades[`lvl${i-1}`] || 0);
                 let isUnlocked = (i === 1) || (prevCount > 0);
@@ -286,7 +278,7 @@ window.initFarmView = function() {
             let pct = maxC > 0 ? (unclaim / maxC) * 100 : 0;
             pct = Math.max(0, Math.min(pct, 100)); 
             progressEl.style.width = `${pct}%`;
-            storageTextEl.innerText = `${unclaim.toFixed(2)} / ${maxC.toLocaleString()}`;
+            storageTextEl.innerText = `${unclaim.toFixed(2)} / ${maxC.toLocaleString('en-US', {maximumFractionDigits: 2})}`;
         }
 
         const claimBtn = document.getElementById('claim-btn');
@@ -361,6 +353,9 @@ window.initFarmView = function() {
         });
     }
 
+    // ==========================================
+    // معالجة الأكشنز بالرد المباشر (Single Response Updates)
+    // ==========================================
     window.handleUpgrade = async function(level) {
         if (isUpgrading) return;
 
@@ -372,7 +367,6 @@ window.initFarmView = function() {
         }
 
         isUpgrading = true;
-        window.updateFarmUI();
 
         try {
             let resData = await window.fetchAPI('/api/farm/upgrade', 'POST', { level: level });
@@ -526,6 +520,7 @@ window.initFarmView = function() {
         const optimisticNewBal = currentBal + unclaimedAmount;
         const prevLastClaim = pData.last_claim_time;
         
+        // التحديث المباشر للواجهة (Optimistic Update)
         setStoredBalance(optimisticNewBal);
         pData.unclaimed = 0;
         if (window.userState) window.userState.unclaimed = 0;
@@ -534,8 +529,6 @@ window.initFarmView = function() {
         pData.last_claim_time = nowISO;
         if (!window.userState) window.userState = {};
         window.userState.last_claim_time = nowISO;
-        
-        window.updateFarmUI();
 
         try {
             let resData = await window.fetchAPI('/api/farm/claim', 'POST');
@@ -549,6 +542,7 @@ window.initFarmView = function() {
                 pData.unclaimed = 0;
                 if (window.userState) window.userState.unclaimed = 0;
             } else if (resData && resData.error) {
+                // تراجع عند حدوث خطأ
                 setStoredBalance(currentBal);
                 pData.unclaimed = unclaimedAmount;
                 if (window.userState) window.userState.unclaimed = unclaimedAmount;
