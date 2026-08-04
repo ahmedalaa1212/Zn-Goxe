@@ -1,3 +1,4 @@
+
 // ==========================================
 // 1. التهيئة والتخزين المحلي (Local-First Architecture)
 // ==========================================
@@ -8,7 +9,7 @@ if (tg) {
     if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
 }
 
-window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 0;
+window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 6.50;
 window.serverTimeOffset = 0;
 
 function hideLoadingScreen() {
@@ -162,7 +163,41 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 };
 
 // ==========================================
-// 3. مشاهدة الإعلانات والمكافآت
+// 3. جلب سعر TON المباشر وتحديث الباقات
+// ==========================================
+window.fetchTonPrice = async function() {
+    try {
+        const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd');
+        if (res.ok) {
+            const data = await res.json();
+            if (data['the-open-network']?.usd) {
+                const price = parseFloat(data['the-open-network'].usd);
+                window.currentTonPriceUSD = price;
+                localStorage.setItem('last_ton_price', price);
+            }
+        }
+    } catch (err) {
+        console.warn("⚠️ لم يتم جلب سعر TON من CoinGecko، تم استخدام السعر المحلي المسجل:", window.currentTonPriceUSD);
+    } finally {
+        window.updateTonPriceUI();
+    }
+};
+
+window.updateTonPriceUI = function() {
+    const formattedPrice = `$${window.currentTonPriceUSD.toFixed(2)}`;
+    const tonContainers = document.querySelectorAll('#ton-price-display, .ton-price-val, [data-bind="ton_price"]');
+    tonContainers.forEach(el => {
+        el.innerHTML = `<span dir="ltr" style="white-space:nowrap; font-weight:bold; color:#0088cc;">${formattedPrice}</span>`;
+    });
+
+    const packagesStatus = document.querySelectorAll('#packages-loading-status, .packages-status');
+    packagesStatus.forEach(el => {
+        el.style.display = 'none';
+    });
+};
+
+// ==========================================
+// 4. مشاهدة الإعلانات والمكافآت
 // ==========================================
 window.watchMonetagAd = async function() {
     if (typeof window.show_11322720 !== 'function') {
@@ -222,7 +257,7 @@ window.activateTenXBoost = async function(durationHours = 1) {
 };
 
 // ==========================================
-// 4. الاستماع اللحظي Firestore (Realtime Sync & Global Event)
+// 5. الاستماع اللحظي Firestore (Realtime Sync & Global Event)
 // ==========================================
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) return;
@@ -266,7 +301,7 @@ window.initFirebaseRealtimeSync = function(userId) {
 };
 
 // ==========================================
-// 5. دالة إدارة عداد التجميع
+// 6. دالة إدارة عداد التجميع
 // ==========================================
 let claimCooldownTimer = null;
 
@@ -341,7 +376,7 @@ window.updateClaimButtonState = function() {
 };
 
 // ==========================================
-// 6. العداد البصري التدريجي + تقييد الخانات العشرية (Max 2 Decimals)
+// 7. العداد البصري التدريجي + تقييد الخانات العشرية (Max 2 Decimals)
 // ==========================================
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0.00';
@@ -404,7 +439,6 @@ function applyBalanceToUI(val) {
     const selectors = '[data-bind="balance"], .user-balance, #farm-balance, #user-balance, #main-balance, #balance, .sync-balance, #top-balance-tasks, .user-balance-val, [data-bind="user_balance"]';
     
     document.querySelectorAll(selectors).forEach(el => {
-        // عدم منافسة أنيميشن المتجر لضمان العرض السلس والمنسق
         if (el.id === 'shop-balance-text') return;
 
         if (el.tagName === 'INPUT') {
@@ -423,6 +457,7 @@ function applyBalanceToUI(val) {
 
 window.updateUI = function() {
     window.updateClaimButtonState();
+    window.updateTonPriceUI();
 
     const currentMaxCap = parseFloat(window.userState.max_cap ?? 100);
     document.querySelectorAll('#storage-max, .max-storage-val, [data-bind="max_cap"], #farm-storage-max').forEach(el => {
@@ -446,7 +481,6 @@ window.updateUI = function() {
     const usdBal = parseFloat(window.userState.usd_balance || 0);
     const formattedUsd = window.formatBalance(usdBal);
     document.querySelectorAll('.usd-balance-val, [data-bind="usd_balance"]').forEach(el => {
-        // تجنب دهس تنسيق كروت المتجر لضمان بقاء الأرقام مستقيمة ومحمية من الالتفاف
         if (el.id === 'shop-usd-text') return;
         el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">$${formattedUsd}</span>`;
     });
@@ -458,7 +492,7 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 7. التنقل بين القوائم
+// 8. التنقل بين القوائم
 // ==========================================
 const loadedModules = new Set();
 
@@ -518,7 +552,7 @@ function loadModuleScript(scriptUrl) {
 }
 
 // ==========================================
-// 8. بدء التطبيق
+// 9. بدء التطبيق
 // ==========================================
 window.loadUserData = async function() {
     try {
@@ -542,6 +576,7 @@ window.loadUserData = async function() {
 
 function initApp() {
     window.updateUI();
+    window.fetchTonPrice();
     window.switchView('farm');
     
     window.loadUserData().then(() => {
