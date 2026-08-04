@@ -366,45 +366,29 @@ window.initFarmView = function() {
     window.addEventListener('pageshow', syncOnVisibility);
     document.addEventListener("visibilitychange", syncOnVisibility);
 
-    // دالة حماية الإعلانات مع مهلة زمنية عدم التعطيل (Timeout Fallback)
+    // دالة الإعلان الصارمة - تضمن عدم إعطاء أي مكافأة بدون مشاهدة الإعلان بالكامل
     function showTelegramAd(statusCallback) {
         return new Promise((resolve) => {
-            let isResolved = false;
-            const safeResolve = (val) => {
-                if (!isResolved) {
-                    isResolved = true;
-                    resolve(val);
-                }
-            };
-
-            // مهلة زمنية 5 ثوانٍ لضمان عدم تعليق المستخدم في حال تعطل الإعلان
-            const adTimer = setTimeout(() => {
-                console.warn("تجاوز وقت انتهاء الإعلان، يتم المتابعة تلقائياً.");
-                safeResolve(true);
-            }, 5000);
-
             if (typeof window.show_11322720 === 'function') {
                 if (statusCallback) statusCallback();
                 try {
                     window.show_11322720()
                         .then(() => {
-                            clearTimeout(adTimer);
-                            safeResolve(true);
+                            resolve(true); // تمت مشاهدة الإعلان بنجاح
                         })
                         .catch((err) => {
-                            console.warn("خطأ في تشغيل الإعلان:", err);
-                            clearTimeout(adTimer);
-                            safeResolve(true);
+                            console.warn("فشل أو تم إغلاق الإعلان:", err);
+                            showToast("⚠️ يجب مشاهدة الإعلان حتى النهاية للحصول على المكافأة!");
+                            resolve(false);
                         });
                 } catch (e) {
                     console.error("استثناء في الإعلانات:", e);
-                    clearTimeout(adTimer);
-                    safeResolve(true);
+                    showToast("❌ تعذر عرض الإعلان. حاول مرة أخرى.");
+                    resolve(false);
                 }
             } else {
-                if (statusCallback) statusCallback();
-                clearTimeout(adTimer);
-                safeResolve(true);
+                showToast("⚠️ الإعلانات غير متوفرة حالياً، يرجى إعادة المحاولة لاحقاً.");
+                resolve(false);
             }
         });
     }
