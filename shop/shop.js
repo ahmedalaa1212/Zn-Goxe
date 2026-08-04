@@ -94,8 +94,16 @@
 
     async function ensureTonConnectReady() {
         if (tonConnectUI) return tonConnectUI;
-        initTonConnect();
-        if (tonConnectUI) return tonConnectUI;
+        
+        if (!window.TON_CONNECT_UI) {
+            await new Promise((resolve) => {
+                const script = document.createElement('script');
+                script.src = 'https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js';
+                script.onload = resolve;
+                script.onerror = resolve;
+                document.head.appendChild(script);
+            });
+        }
 
         let retries = 0;
         while (!window.TON_CONNECT_UI && retries < 10) {
@@ -183,7 +191,7 @@
         }
 
         const entries = Array.isArray(packages) 
-            ? packages.map((p, idx) => [`pkg_${idx + 1}`, p]) 
+            ? packages.map((p, idx) => [`pkg_${idx}`, p]) 
             : Object.entries(packages);
 
         if (entries.length === 0) {
@@ -193,6 +201,7 @@
 
         let html = '';
         const colorThemes = [
+            { bg: 'linear-gradient(135deg, #1c1c1c, #1f2937)', border: '#3b82f6', btn: '#3b82f6', icon: '🌱', textColor: '#ffffff' },
             { bg: 'linear-gradient(135deg, #1c1c1c, #2a2a2a)', border: '#ffcc00', btn: '#ffcc00', icon: '📦', textColor: '#000000' },
             { bg: 'linear-gradient(135deg, #1c1c1c, #1f3a2b)', border: '#00cc66', btn: '#00cc66', icon: '🚀', textColor: '#000000' },
             { bg: 'linear-gradient(135deg, #1c1c1c, #332b00)', border: '#ffd700', btn: '#ffd700', icon: '👑', textColor: '#000000' },
