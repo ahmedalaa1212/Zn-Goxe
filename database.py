@@ -63,8 +63,23 @@ def ensure_game_settings_exist():
     try:
         config_ref = db.collection('app_config').document('game_settings')
         doc_snap = config_ref.get()
-        existing_data = doc_snap.to_dict() if doc_snap.exists else {}
         
+        # إذا كانت الإعدادات موجودة مسبقاً في Firestore، نكتفي بقرائتها دون التعديل عليها نهائياً
+        if doc_snap.exists:
+            existing_data = doc_snap.to_dict() or {}
+            
+            # توحيد قراءة التعدين والسرعة لضمان قراءة أي تعديل تجريه على mining_config
+            primary_mining = existing_data.get("mining_config") or existing_data.get("speed_config") or existing_data.get("upgrade_config")
+            if primary_mining:
+                existing_data["mining_config"] = primary_mining
+                existing_data["speed_config"] = primary_mining
+                existing_data["upgrade_config"] = primary_mining
+
+            _SETTINGS_CACHE = existing_data
+            _SETTINGS_CACHE_TIME = time.time()
+            return existing_data
+
+        # إنشاء البيانات الافتراضية لأول مرة فقط في حال كانت قاعدة البيانات فارغة تماماً
         daily_rewards_30_days = {
             f"day_{i}": val for i, val in enumerate([
                 100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
@@ -145,20 +160,11 @@ def ensure_game_settings_exist():
             }
         }
 
-        full_settings = {**initial_settings, **existing_data}
-        if "usdt_packages" not in existing_data or not existing_data["usdt_packages"]:
-            full_settings["usdt_packages"] = usdt_pkgs
-        else:
-            full_settings["usdt_packages"]["pkg_0"] = usdt_pkgs["pkg_0"]
-
-        if "mining_config" not in existing_data or not existing_data["mining_config"]:
-            full_settings["mining_config"] = speed_cfg
-
-        config_ref.set(full_settings, merge=True)
-        _SETTINGS_CACHE = full_settings
+        config_ref.set(initial_settings)
+        _SETTINGS_CACHE = initial_settings
         _SETTINGS_CACHE_TIME = time.time()
-        print("✅ تم إنشاء وتحديث app_config/game_settings في Firestore بنجاح!")
-        return full_settings
+        print("✅ تم إنشاء app_config/game_settings في Firestore بنجاح!")
+        return initial_settings
     except Exception as e:
         print(f"❌ خطأ أثناء تهيئة الإعدادات: {e}")
         return None
@@ -180,8 +186,14 @@ def get_game_settings():
         doc = db.collection('app_config').document('game_settings').get()
         if doc.exists:
             data = doc.to_dict() or {}
-            if "usdt_packages" not in data or "mining_config" not in data:
-                data = ensure_game_settings_exist() or data
+            
+            # توحيد إعدادات المعدن والسرعة تلقائياً في الذاكرة
+            primary_mining = data.get("mining_config") or data.get("speed_config") or data.get("upgrade_config")
+            if primary_mining:
+                data["mining_config"] = primary_mining
+                data["speed_config"] = primary_mining
+                data["upgrade_config"] = primary_mining
+
             _SETTINGS_CACHE = data
             _SETTINGS_CACHE_TIME = now
             return _SETTINGS_CACHE
