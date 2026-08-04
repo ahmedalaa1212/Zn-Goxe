@@ -99,13 +99,13 @@ def get_player_data():
             user_data = {
                 "tg_id": user_id_str,
                 "telegram_id": user_id_str, 
-                "balance": 0.0, 
-                "ad_balance": 0.0,
-                "usd_balance": 0.0,
-                "hourly_rate": 0.0,
-                "unclaimed": 0.0, 
+                "balance": 0.00, 
+                "ad_balance": 0.00,
+                "usd_balance": 0.00,
+                "hourly_rate": 0.00,
+                "unclaimed": 0.00, 
                 "storage_level": 0,
-                "extra_storage": 0.0,
+                "extra_storage": 0.00,
                 "max_cap": get_base_storage_capacity(0, game_settings), 
                 "daily_day": 1,
                 "daily_streak": 1,
@@ -115,10 +115,10 @@ def get_player_data():
                 "ads_watched": 0, 
                 "upgrades": {},
                 "referred_by": None,
-                "pending_ref_earnings": 0.0,
-                "total_ref_earnings": 0.0,
+                "pending_ref_earnings": 0.00,
+                "total_ref_earnings": 0.00,
                 "invited_friends_count": 0,
-                "ref_generated_amount": 0.0,
+                "ref_generated_amount": 0.00,
                 "claimed_ref_tasks": []
             }
             user_ref.set(user_data)
@@ -127,11 +127,11 @@ def get_player_data():
             
             auto_fix = {}
             if "pending_ref_earnings" not in user_data:
-                auto_fix["pending_ref_earnings"] = 0.0
-                user_data["pending_ref_earnings"] = 0.0
+                auto_fix["pending_ref_earnings"] = 0.00
+                user_data["pending_ref_earnings"] = 0.00
             if "total_ref_earnings" not in user_data:
-                auto_fix["total_ref_earnings"] = 0.0
-                user_data["total_ref_earnings"] = 0.0
+                auto_fix["total_ref_earnings"] = 0.00
+                user_data["total_ref_earnings"] = 0.00
             
             if auto_fix:
                 user_ref.update(auto_fix)
@@ -461,7 +461,7 @@ def claim_daily_boost():
             last_boost = user_data.get("last_boost_date")
             
             if last_boost == today_str:
-                return {"success": False, "error": "لقد حصلت على تعزيز اليوم بالفعل"}
+                return {"success": False, "error": "لقدحصلت على تعزيز اليوم بالفعل"}
                 
             current_hourly_rate = float(user_data.get("hourly_rate", 0.0))
             new_hourly_rate = round(current_hourly_rate + daily_boost_reward, 2)
