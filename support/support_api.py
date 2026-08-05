@@ -4,7 +4,7 @@ import json
 import urllib.parse
 from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
-from firebase_admin import firestore
+from google.cloud import firestore
 
 import database
 from core.security import get_authenticated_user
@@ -63,7 +63,7 @@ WELCOME_NOTICE_TEXT = (
 )
 
 # ==========================================
-# مسار: جلب أحدث تذكرة للمستخدم
+# مسار: جلب أحدث تذكرة للمستخدم (معدّل للحد من القراءات)
 # ==========================================
 @support_bp.route('/ticket', methods=['GET'])
 def get_ticket():
@@ -75,7 +75,23 @@ def get_ticket():
         db_conn = get_db()
         tickets_ref = db_conn.collection('support_tickets')
         
-        docs = list(tickets_ref.where('user_id', '==', str(uid)).limit(10).stream())
+        requested_ticket_id = request.args.get('ticket_id')
+
+        # إذا أرسل العميل رقم التذكرة المتوفر لديه، يتم الجلب المباشر بالوثيقة (قراءة واحدة 1 Read)
+        if requested_ticket_id:
+            doc = tickets_ref.document(str(requested_ticket_id)).get()
+            if doc.exists:
+                ticket_data = doc.to_dict() or {}
+                if ticket_data.get('user_id') == str(uid):
+                    return jsonify({
+                        "success": True,
+                        "ticket_id": ticket_data.get('ticket_id'),
+                        "status": ticket_data.get('status', 'open'),
+                        "messages": ticket_data.get('messages', [])
+                    }), 200
+
+        # في حال عدم وجود رقم تذكرة مسبق أو تعذر الوصول إليها، يجلب أحدث تذكرة للمستخدم فقط
+        docs = list(tickets_ref.where('user_id', '==', str(uid)).limit(3).stream())
         user_tickets = [d.to_dict() for d in docs if d.exists]
         user_tickets.sort(key=lambda x: str(x.get('created_at', '')), reverse=True)
 
