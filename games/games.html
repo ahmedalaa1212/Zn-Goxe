@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>الألعاب والساحة - Zn Goxe</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://adsgram.ai/sdk.js"></script> <!-- SDK الإعلانات للإحياء -->
     <link rel="stylesheet" href="../style.css?v=13.3">
     <style>
         :root {
@@ -35,7 +36,6 @@
             padding-bottom: 95px;
         }
 
-        /* الرأس العائم للرصيد مع تأثير التوهج التدريجي */
         .balance-header-fixed {
             position: fixed;
             top: 12px;
@@ -77,7 +77,6 @@
             margin: auto;
         }
 
-        /* أزرار التبويب */
         .tabs-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -100,7 +99,121 @@
             box-shadow: 0 0 15px var(--primary-glow);
         }
 
-        /* بطاقة الساحة الرئيسية */
+        /* تنسيقات لعبة 36 صندوقاً */
+        .mines-card {
+            background: linear-gradient(145deg, #161626, #0f172a);
+            border: 1px solid #2a2a40;
+            border-radius: 18px;
+            padding: 18px 14px;
+            text-align: center;
+            position: relative;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+        }
+
+        .mines-header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0,0,0,0.4);
+            padding: 10px 14px;
+            border-radius: 12px;
+            border: 1px solid #28283d;
+            margin-bottom: 14px;
+        }
+
+        .mines-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 6px;
+            margin-bottom: 16px;
+        }
+
+        .mine-box {
+            aspect-ratio: 1;
+            background: linear-gradient(145deg, #222238, #19192b);
+            border: 1px solid #33334e;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            cursor: pointer;
+            user-select: none;
+            transition: transform 0.15s ease, background 0.3s ease;
+        }
+
+        .mine-box:active {
+            transform: scale(0.92);
+        }
+
+        .mine-box.revealed-safe {
+            background: linear-gradient(135deg, #10b981, #059669) !important;
+            border-color: #34d399 !important;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+            animation: popIn 0.25s ease;
+        }
+
+        .mine-box.revealed-bomb {
+            background: linear-gradient(135deg, #ef4444, #b91c1c) !important;
+            border-color: #f87171 !important;
+            box-shadow: 0 0 12px rgba(239, 68, 68, 0.6);
+            animation: shake 0.3s ease;
+        }
+
+        @keyframes popIn {
+            0% { transform: scale(0.6); }
+            100% { transform: scale(1); }
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-4px); }
+            75% { transform: translateX(4px); }
+        }
+
+        .bet-controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .bet-input {
+            flex: 1;
+            background: #0d0d18;
+            border: 1px solid #2a2a40;
+            color: #fff;
+            padding: 10px;
+            border-radius: 10px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 1rem;
+        }
+
+        .btn-quick-bet {
+            background: #202035;
+            border: 1px solid #333350;
+            color: #ccc;
+            padding: 0 12px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+
+        .btn-cashout {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(90deg, #10b981, #059669);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+            transition: all 0.2s ease;
+        }
+
+        /* الساحة */
         .arena-card {
             background: linear-gradient(145deg, #161626, #0f172a);
             border: 1px solid #2a2a40;
@@ -112,23 +225,6 @@
             box-shadow: 0 8px 24px rgba(0,0,0,0.6);
         }
 
-        .arena-card::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: radial-gradient(circle, rgba(243, 156, 18, 0.05) 0%, transparent 70%);
-            pointer-events: none;
-            animation: pulseBg 6s infinite alternate;
-        }
-
-        @keyframes pulseBg {
-            0% { transform: scale(0.9); opacity: 0.3; }
-            100% { transform: scale(1.1); opacity: 0.8; }
-        }
-
         .timer-box {
             background: rgba(0,0,0,0.6);
             border-radius: 12px;
@@ -136,7 +232,6 @@
             display: inline-block;
             margin-bottom: 18px;
             border: 1px solid rgba(233, 69, 96, 0.6);
-            box-shadow: 0 0 10px rgba(233, 69, 96, 0.2);
         }
 
         .timer-display {
@@ -144,18 +239,6 @@
             font-size: 1.8rem;
             font-weight: bold;
             font-family: 'Courier New', Courier, monospace;
-            letter-spacing: 2px;
-            transition: color 0.3s ease;
-        }
-
-        .timer-warning {
-            color: var(--accent-red) !important;
-            animation: pulseWarning 1s infinite alternate;
-        }
-
-        @keyframes pulseWarning {
-            0% { transform: scale(1); opacity: 1; }
-            100% { transform: scale(1.05); opacity: 0.7; }
         }
 
         .prize-box {
@@ -164,7 +247,6 @@
             padding: 16px;
             border-radius: 14px;
             border: 1px solid #2a2a2a;
-            position: relative;
         }
 
         .prize-pool-text {
@@ -172,7 +254,6 @@
             font-weight: 800;
             color: var(--primary);
             text-shadow: 0 0 15px var(--primary-glow);
-            transition: all 0.2s ease;
         }
 
         .btn-join {
@@ -186,12 +267,7 @@
             font-size: 1.05rem;
             cursor: pointer;
             box-shadow: 0 4px 15px var(--primary-glow);
-            transition: all 0.2s ease;
             margin-bottom: 18px;
-        }
-
-        .btn-join:active:not(:disabled) { 
-            transform: scale(0.97); 
         }
 
         .btn-disabled {
@@ -200,7 +276,6 @@
             cursor: not-allowed !important;
             border: 1px solid #333 !important;
             box-shadow: none !important;
-            transform: none !important;
         }
 
         .prize-distribution {
@@ -217,33 +292,33 @@
             font-size: 0.88rem;
             margin-bottom: 8px;
         }
-        .prize-row:last-child { margin-bottom: 0; }
 
-        .winner-item {
-            padding: 12px 10px;
-            border-bottom: 1px solid #282838;
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            opacity: 0;
-            animation: slideUp 0.35s ease-out forwards;
-        }
-        .winner-item:last-child { border-bottom: none; }
-
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateY(12px); }
-            to { opacity: 1; transform: translateY(0); }
+            justify-content: center;
+            padding: 20px;
         }
 
-        @keyframes slideDownToast {
-            0% { top: -60px; opacity: 0; }
-            100% { top: 15px; opacity: 1; }
+        .modal-card {
+            background: #161626;
+            border: 1px solid #2a2a40;
+            border-radius: 18px;
+            padding: 22px;
+            width: 100%;
+            max-width: 420px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
         }
     </style>
 </head>
 <body>
 
-    <!-- الهيدر العائم برصيد ينبض حركياً -->
     <div class="balance-header-fixed">
         <span class="coin-icon">🪙</span>
         <span id="top-balance-games">0 ZN</span>
@@ -258,16 +333,16 @@
                 <div style="color: var(--primary); font-size: 11px; margin-top: 4px;">متاحة الآن</div>
             </div>
             
-            <div id="tab-soon" onclick="switchGameTab('soon')" class="tab-card" style="opacity: 0.6;">
-                <div style="font-size: 22px; margin-bottom: 4px;">🎮</div>
-                <div style="color: #fff; font-size: 13px; font-weight: bold;">لعبة جديدة</div>
-                <div style="color: #00ffcc; font-size: 11px; margin-top: 4px;">قريباً...</div>
+            <div id="tab-mines" onclick="switchGameTab('mines')" class="tab-card">
+                <div style="font-size: 22px; margin-bottom: 4px;">💣</div>
+                <div style="color: #fff; font-size: 13px; font-weight: bold;">شبكة العملات (36)</div>
+                <div style="color: #00ffcc; font-size: 11px; margin-top: 4px;">مخاطرة وأرباح</div>
             </div>
         </div>
 
+        <!-- تبويب الساحة الكبرى -->
         <div id="content-arena" style="display: block;">
             <div class="arena-card">
-                
                 <div class="timer-box">
                     <span style="color: var(--accent-red); font-size: 11px; display: block; margin-bottom: 2px;">الوقت المتبقي للسحب</span>
                     <span id="arena-timer" class="timer-display">--:--</span>
@@ -284,64 +359,77 @@
 
                 <div class="prize-distribution">
                     <h4 style="color: #fff; font-size: 13px; text-align: center; margin: 0 0 10px 0; border-bottom: 1px solid #333; padding-bottom: 8px;">توزيع الجوائز المتوقع</h4>
-                    <div class="prize-row">
-                        <span style="color: var(--primary); font-weight: bold;">🥇 المركز الأول (30%)</span> <span id="prize-1" style="color: #fff; font-weight: bold;">0 ZN</span>
-                    </div>
-                    <div class="prize-row">
-                        <span style="color: #c0c0c0; font-weight: bold;">🥈 المركز الثاني (25%)</span> <span id="prize-2" style="color: #fff; font-weight: bold;">0 ZN</span>
-                    </div>
-                    <div class="prize-row">
-                        <span style="color: #cd7f32; font-weight: bold;">🥉 المركز الثالث (20%)</span> <span id="prize-3" style="color: #fff; font-weight: bold;">0 ZN</span>
-                    </div>
-                    <div class="prize-row">
-                        <span style="color: #aaa;">🏅 المركز الرابع (15%)</span> <span id="prize-4" style="color: #fff; font-weight: bold;">0 ZN</span>
-                    </div>
-                    <div class="prize-row">
-                        <span style="color: #aaa;">🏅 المركز الخامس (10%)</span> <span id="prize-5" style="color: #fff; font-weight: bold;">0 ZN</span>
-                    </div>
+                    <div class="prize-row"><span style="color: var(--primary); font-weight: bold;">🥇 المركز الأول (30%)</span> <span id="prize-1" style="color: #fff; font-weight: bold;">0 ZN</span></div>
+                    <div class="prize-row"><span style="color: #c0c0c0; font-weight: bold;">🥈 المركز الثاني (25%)</span> <span id="prize-2" style="color: #fff; font-weight: bold;">0 ZN</span></div>
+                    <div class="prize-row"><span style="color: #cd7f32; font-weight: bold;">🥉 المركز الثالث (20%)</span> <span id="prize-3" style="color: #fff; font-weight: bold;">0 ZN</span></div>
+                    <div class="prize-row"><span style="color: #aaa;">🏅 المركز الرابع (15%)</span> <span id="prize-4" style="color: #fff; font-weight: bold;">0 ZN</span></div>
+                    <div class="prize-row"><span style="color: #aaa;">🏅 المركز الخامس (10%)</span> <span id="prize-5" style="color: #fff; font-weight: bold;">0 ZN</span></div>
                 </div>
             </div>
             <p id="arena-subtext" style="color: #888; font-size: 12px; text-align: center; margin-top: 14px;">سحب تلقائي مستمر! رسوم الاشتراك: 1,000 ZN</p>
         </div>
 
-        <div id="content-soon" style="display: none; padding-top: 15px;">
-            <div style="text-align: center; padding: 35px 20px; background: rgba(0,0,0,0.4); border-radius: 16px; border: 1px dashed #333;">
-                <div style="font-size: 48px; opacity: 0.6; margin-bottom: 12px;">🚧</div>
-                <h3 style="color: #fff; font-size: 17px; margin-bottom: 8px;">لعبة جديدة قيد التطوير</h3>
-                <p style="color: #888; font-size: 13px; line-height: 1.5;">نعمل على إضافة ألعاب تفاعلية جديدة لتتمكن من مضاعفة عملاتك بسهولة، انتظرونا!</p>
+        <!-- تبويب لعبة شبكة العملات 36 صندوقاً -->
+        <div id="content-mines" style="display: none;">
+            <div class="mines-card">
+                <div class="mines-header-bar">
+                    <div>
+                        <span style="color: #aaa; font-size: 11px; display: block;">المضاعف الحالي</span>
+                        <strong id="mines-multiplier-val" style="color: #00ffcc; font-size: 1.2rem;">1.00x</strong>
+                    </div>
+                    <button onclick="openMinesSettings()" style="background: #25253e; border: 1px solid #3b3b5c; color: #fff; padding: 6px 12px; border-radius: 8px; font-size: 12px; cursor: pointer;">
+                        ⚙️ الإعدادات (<span id="mines-count-label">3 قنابل</span>)
+                    </button>
+                </div>
+
+                <!-- شبكة 6x6 (36 صندوق) -->
+                <div id="mines-grid" class="mines-grid"></div>
+
+                <div class="bet-controls">
+                    <input type="number" id="mines-bet-input" class="bet-input" value="100" min="100" step="100">
+                    <button class="btn-quick-bet" onclick="addBet(100)">+100</button>
+                    <button class="btn-quick-bet" onclick="addBet(500)">+500</button>
+                    <button class="btn-quick-bet" onclick="setBetMax()">الأقصى</button>
+                </div>
+
+                <button id="btn-mines-action" class="btn-cashout" style="background: linear-gradient(90deg, #f39c12, #d35400);" onclick="handleMinesAction()">
+                    بدء الرهان (100 ZN) 🚀
+                </button>
             </div>
         </div>
 
-        <!-- نافذة نتائج الساحة والإرجاع الاحترافية Web3 -->
+        <!-- نافذة إعدادات القنابل -->
+        <div id="mines-settings-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-card">
+                <h3 style="color: #fff; font-size: 16px; margin-bottom: 15px;">اختر عدد العملات المكسورة (القنابل)</h3>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px;">
+                    <button class="btn-quick-bet" style="padding: 12px;" onclick="selectMinesCount(3)">3 قنابل (20x)</button>
+                    <button class="btn-quick-bet" style="padding: 12px;" onclick="selectMinesCount(4)">4 قنابل (30x)</button>
+                    <button class="btn-quick-bet" style="padding: 12px;" onclick="selectMinesCount(5)">5 قنابل (40x)</button>
+                    <button class="btn-quick-bet" style="padding: 12px;" onclick="selectMinesCount(6)">6 قنابل (50x)</button>
+                    <button class="btn-quick-bet" style="padding: 12px;" onclick="selectMinesCount(7)">7 قنابل (60x)</button>
+                    <button class="btn-quick-bet" style="padding: 12px;" onclick="selectMinesCount(8)">8 قنابل (70x)</button>
+                </div>
+                <button onclick="closeMinesSettings()" style="width: 100%; padding: 10px; background: #2a2a3a; color: #fff; border: none; border-radius: 8px;">إغلاق</button>
+            </div>
+        </div>
+
+        <!-- نافذة نتائج الساحة والإرجاع -->
         <div id="draw-modal" class="modal-overlay" style="display: none;">
             <div class="modal-card">
-                
-                <!-- حالة إلغاء الجولة وإعادة الرسوم -->
                 <div id="draw-refunded" style="display: none;">
-                    <div class="modal-icon-shield">🛡️</div>
-                    <h3 class="modal-title-refund">تم استرداد المبلغ بنجاح</h3>
-                    <p class="modal-desc" id="refund-msg-text">
-                        تم استرداد المبلغ بنجاح لعدم اكتمال العدد المطلوب في الساحة. تم إرجاع الرسوم لحسابك فوراً!
-                    </p>
-                    <div class="refund-badge">
-                        <span>المبلغ المكتسب/المرتجع:</span>
-                        <strong id="refund-amount-display">+0 ZN</strong>
-                    </div>
-                    <button class="btn-modal-action btn-refund" onclick="closeDrawModal()">
-                        تأكيد وإغلاق 💰
-                    </button>
+                    <div style="font-size: 40px; margin-bottom: 10px;">🛡️</div>
+                    <h3 style="color: #fff; font-size: 16px; margin-bottom: 8px;">تم استرداد المبلغ بنجاح</h3>
+                    <p style="color: #aaa; font-size: 12px; margin-bottom: 15px;" id="refund-msg-text">تم إرجاع الرسوم لحسابك لعدم اكتمال النصاب.</p>
+                    <div style="background: rgba(0,0,0,0.4); padding: 10px; border-radius: 8px; margin-bottom: 15px; color: var(--primary); font-weight: bold;" id="refund-amount-display">+0 ZN</div>
+                    <button style="width: 100%; padding: 12px; background: #10b981; color: #fff; border: none; border-radius: 10px; font-weight: bold;" onclick="closeDrawModal()">تأكيد وإغلاق 💰</button>
                 </div>
-
-                <!-- حالة إعلان الفائزين -->
                 <div id="draw-winners" style="display: none;">
                     <div style="font-size: 44px; margin-bottom: 8px;">🏆</div>
                     <h3 style="color: var(--primary); font-size: 18px; margin-bottom: 14px; font-weight: 800;">🎉 قائمة أبطال الساحة 🎉</h3>
-                    <div id="winners-list" style="background: rgba(0,0,0,0.4); border-radius: 14px; padding: 8px; border: 1px solid rgba(243, 156, 18, 0.3); margin-bottom: 15px;"></div>
-                    <button class="btn-modal-action" style="background: linear-gradient(135deg, #10b981, #059669); color: #fff;" onclick="closeDrawModal()">
-                        رائع! استمرار 🚀
-                    </button>
+                    <div id="winners-list" style="background: rgba(0,0,0,0.4); border-radius: 14px; padding: 8px; margin-bottom: 15px;"></div>
+                    <button style="width: 100%; padding: 12px; background: #10b981; color: #fff; border: none; border-radius: 10px; font-weight: bold;" onclick="closeDrawModal()">رائع! استمرار 🚀</button>
                 </div>
-
             </div>
         </div>
 
@@ -350,10 +438,10 @@
             <div class="modal-card">
                 <div style="font-size: 42px; margin-bottom: 10px;">⚔️</div>
                 <h3 style="color: #fff; font-size: 17px; margin-bottom: 8px;">تأكيد الدخول للساحة</h3>
-                <p style="color: #ccc; font-size: 13px; line-height: 1.5; margin-bottom: 20px;">سيتم خصم <strong id="confirm-fee-text" style="color: var(--primary);">1,000 ZN</strong> من رصيدك للاشتراك في هذه الجولة. هل تريد المتابعة؟</p>
+                <p style="color: #ccc; font-size: 13px; margin-bottom: 20px;">سيتم خصم <strong id="confirm-fee-text" style="color: var(--primary);">1,000 ZN</strong> للاشتراك. متابعة؟</p>
                 <div style="display: flex; gap: 10px;">
-                    <button onclick="onConfirmJoin(true)" style="flex: 1; padding: 12px; background: linear-gradient(90deg, #f39c12, #d35400); color: white; border: none; border-radius: 10px; font-weight: bold; cursor: pointer;">تأكيد الاشتراك</button>
-                    <button onclick="onConfirmJoin(false)" style="flex: 1; padding: 12px; background: #2a2a3a; color: #aaa; border: none; border-radius: 10px; font-weight: bold; cursor: pointer;">إلغاء</button>
+                    <button onclick="onConfirmJoin(true)" style="flex: 1; padding: 12px; background: linear-gradient(90deg, #f39c12, #d35400); color: white; border: none; border-radius: 10px; font-weight: bold;">تأكيد الاشتراك</button>
+                    <button onclick="onConfirmJoin(false)" style="flex: 1; padding: 12px; background: #2a2a3a; color: #aaa; border: none; border-radius: 10px; font-weight: bold;">إلغاء</button>
                 </div>
             </div>
         </div>
@@ -364,17 +452,12 @@
         <a href="../settings/settings.html" class="nav-item"><i>⚙️</i><span>الإعدادات</span></a>
         <a href="../shop/shop.html" class="nav-item"><i>🏪</i><span>المتجر</span></a>
         <a href="games.html" class="nav-item active"><i>🎮</i><span>الألعاب</span></a>
-        <a href="../index.html" class="nav-item nav-center-btn">
-            <div class="farm-btn-inner">
-                <i>⚒️</i>
-                <span>المزرعة</span>
-            </div>
-        </a>
+        <a href="../index.html" class="nav-item nav-center-btn"><div class="farm-btn-inner"><i>⚒️</i><span>المزرعة</span></div></a>
         <a href="../tasks/tasks.html" class="nav-item"><i>📋</i><span>المهام</span></a>
         <a href="../wallet/wallet.html" class="nav-item"><i>💳</i><span>المحفظة</span></a>
         <a href="../friends/friends.html" class="nav-item"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
-    <script src="games.js?v=13.3"></script>
+    <script src="games.js?v=13.4"></script>
 </body>
 </html>
