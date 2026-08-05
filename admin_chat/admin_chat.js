@@ -4,13 +4,14 @@
     let adminPollInterval = null;
     let isFetching = false;
     let lastMsgCount = 0;
+    let tickCounter = 0;
 
+    // جلب كل التذاكر (يستدعى فقط أثناء التواجد في الشاشة الرئيسية)
     window.fetchAdminTickets = async function() {
-        if (isFetching) return;
+        if (isFetching || currentTicketId) return;
         isFetching = true;
 
         const container = document.getElementById('tickets-container');
-        
         try {
             const response = await fetch('/api/admin/chat/tickets', {
                 headers: { 'X-Telegram-Init-Data': window.Telegram?.WebApp?.initData || "" }
@@ -20,37 +21,46 @@
             if (data.success) {
                 allTickets = data.tickets || [];
                 updateUnreadBadge(allTickets);
-
-                // إذا كان الأدمن داخل محادثة حالياً، نقوم بتحديث الرسائل فورياً
-                if (currentTicketId) {
-                    const activeTicket = allTickets.find(t => t.ticket_id === currentTicketId);
-                    if (activeTicket) {
-                        const newMsgs = activeTicket.messages || [];
-                        if (newMsgs.length !== lastMsgCount) {
-                            renderChatMessages(newMsgs);
-                            // تميز المحادثة كمقروءة تلقائياً في الخلفية
-                            if (activeTicket.has_unread_admin || activeTicket.last_sender === 'user') {
-                                markTicketAsReadSilent(currentTicketId);
-                                activeTicket.has_unread_admin = false;
-                                updateUnreadBadge(allTickets);
-                            }
-                        }
-                    }
-                } else {
-                    // إذا كان الأدمن في القائمة الرئيسية، نحدث القائمة
-                    filterTickets();
-                }
-            } else if (container && !currentTicketId) {
+                filterTickets();
+            } else if (container) {
                 container.innerHTML = `<p style="color:#ef4444; text-align:center;">${data.message}</p>`;
             }
         } catch (e) {
-            if (container && !currentTicketId && allTickets.length === 0) {
+            if (container && allTickets.length === 0) {
                 container.innerHTML = '<p style="color:#ef4444; text-align:center;">فشل الاتصال بالسيرفر</p>';
             }
         } finally {
             isFetching = false;
         }
     };
+
+    // جلب تذكرة واحدة فقط بطلب اقتصادي (1 Read) أثناء فتح المحادثة
+    async function fetchSingleActiveTicket() {
+        if (!currentTicketId || isFetching) return;
+        isFetching = true;
+
+        try {
+            const response = await fetch(`/api/admin/chat/ticket/${currentTicketId}`, {
+                headers: { 'X-Telegram-Init-Data': window.Telegram?.WebApp?.initData || "" }
+            });
+            const data = await response.json();
+
+            if (data.success && data.ticket) {
+                const ticket = data.ticket;
+                const msgs = ticket.messages || [];
+
+                if (msgs.length !== lastMsgCount) {
+                    renderChatMessages(msgs);
+                    if (ticket.has_unread_admin || ticket.last_sender === 'user') {
+                        markTicketAsReadSilent(currentTicketId);
+                    }
+                }
+            }
+        } catch (e) {
+        } finally {
+            isFetching = false;
+        }
+    }
 
     async function markTicketAsReadSilent(ticketId) {
         try {
@@ -146,24 +156,23 @@
     window.openAdminChat = async function(ticketId) {
         currentTicketId = ticketId;
         const ticket = allTickets.find(t => t.ticket_id === ticketId);
-        if (!ticket) return;
-
+        
         markTicketAsReadSilent(ticketId);
-        ticket.has_unread_admin = false;
+        if (ticket) ticket.has_unread_admin = false;
         updateUnreadBadge(allTickets);
 
         document.getElementById('tickets-list-section').style.display = 'none';
         document.getElementById('chat-view-section').style.display = 'block';
 
-        const info = ticket.user_info || {};
-        document.getElementById('chat-user-name').innerText = `${info.first_name || 'مستخدم'} (@${info.username || 'بدون'})`;
-        document.getElementById('chat-ticket-id').innerText = `رقم التذكرة: #${ticket.ticket_id}`;
+        if (ticket) {
+            const info = ticket.user_info || {};
+            document.getElementById('chat-user-name').innerText = `${info.first_name || 'مستخدم'} (@${info.username || 'بدون'})`;
+            document.getElementById('chat-ticket-id').innerText = `رقم التذكرة: #${ticket.ticket_id}`;
+            lastMsgCount = 0;
+            renderChatMessages(ticket.messages || []);
+        }
 
-        lastMsgCount = 0;
-        renderChatMessages(ticket.messages || []);
-        
-        // استدعاء جلب بيانات فوري
-        fetchAdminTickets();
+        fetchSingleActiveTicket();
     };
 
     function renderChatMessages(messages) {
@@ -225,8 +234,7 @@
             });
             const data = await res.json();
             if (data.success) {
-                // استعلام فوري بعد الإرسال لإظهار الرسالة فوراً
-                fetchAdminTickets();
+                fetchSingleActiveTicket();
             } else {
                 alert("خطأ: " + data.message);
             }
@@ -258,17 +266,26 @@
         }
     };
 
-    // بدء نظام التحديث التلقائي الفوري كل ثانيتين (2000ms)
-    function startAdminPolling() {
+    // حلقة تحديث ذكية (3 ثوانٍ للمحادثة المفتوحة، و8 ثوانٍ للقائمة العامة)
+    function startSmartPolling() {
         if (adminPollInterval) clearInterval(adminPollInterval);
+        
         adminPollInterval = setInterval(() => {
-            if (document.visibilityState === 'visible') {
-                fetchAdminTickets();
+            if (document.visibilityState !== 'visible') return;
+
+            tickCounter++;
+            if (currentTicketId) {
+                // محادثة مفتوحة: جلب التذكرة المحددة فقط كل 3 ثوانٍ
+                fetchSingleActiveTicket();
+            } else {
+                // القائمة الرئيسية: التحديث كل 9 ثوانٍ (كل 3 دورات)
+                if (tickCounter % 3 === 0) {
+                    fetchAdminTickets();
+                }
             }
-        }, 2000);
+        }, 3000);
     }
 
-    // التشغيل التلقائي عند التحميل
     fetchAdminTickets();
-    startAdminPolling();
+    startSmartPolling();
 })();
