@@ -1,12 +1,19 @@
 from flask import Blueprint, jsonify, request
-from datetime import datetime
-from database import db
-from google.cloud import firestore
+from datetime import datetime, timezone
 import json, hmac, hashlib, urllib.parse, os, requests
+from google.cloud import firestore
+
+import database
 
 admin_chat_bp = Blueprint('admin_chat', __name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551")
+
+def get_db():
+    """ضمان الحصول على كائن قاعدة البيانات Firestore"""
+    if database.db is None:
+        return database.initialize_firebase()
+    return database.db
 
 def check_admin_auth():
     init_data = request.headers.get('X-Telegram-Init-Data')
@@ -15,7 +22,8 @@ def check_admin_auth():
     try:
         parsed_data = dict(urllib.parse.parse_qsl(init_data))
         hash_val = parsed_data.pop('hash', None)
-        if not hash_val: return None
+        if not hash_val: 
+            return None
         
         data_check_str = '\n'.join([f"{k}={v}" for k, v in sorted(parsed_data.items())])
         secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
@@ -24,7 +32,8 @@ def check_admin_auth():
         if calc_hash == hash_val:
             user_data = json.loads(parsed_data.get('user', '{}'))
             u_id = str(user_data.get('id'))
-            if u_id == str(ADMIN_ID) or (db and db.collection('moderators').document(u_id).get().exists):
+            db_conn = get_db()
+            if u_id == str(ADMIN_ID) or (db_conn and db_conn.collection('moderators').document(u_id).get().exists):
                 return u_id
         return None
     except Exception as e:
@@ -53,7 +62,8 @@ def get_tickets():
         return jsonify({"success": False, "message": "غير مصرح"}), 403
 
     try:
-        tickets_ref = db.collection('support_tickets').stream()
+        db_conn = get_db()
+        tickets_ref = db_conn.collection('support_tickets').stream()
         tickets = []
         for doc in tickets_ref:
             t = doc.to_dict() or {}
@@ -61,7 +71,7 @@ def get_tickets():
                 t['ticket_id'] = doc.id
             tickets.append(t)
             
-        tickets.sort(key=lambda x: x.get('updated_at', ''), reverse=True)
+        tickets.sort(key=lambda x: str(x.get('updated_at', '')), reverse=True)
         return jsonify({"success": True, "tickets": tickets}), 200
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
@@ -78,7 +88,8 @@ def mark_read():
         return jsonify({"success": False, "message": "رقم التذكرة مفقود"}), 400
 
     try:
-        t_ref = db.collection('support_tickets').document(ticket_id)
+        db_conn = get_db()
+        t_ref = db_conn.collection('support_tickets').document(str(ticket_id))
         if t_ref.get().exists:
             t_ref.update({'has_unread_admin': False})
         return jsonify({"success": True}), 200
@@ -99,7 +110,8 @@ def send_reply():
         return jsonify({"success": False, "message": "بيانات ناقصة"}), 400
 
     try:
-        t_ref = db.collection('support_tickets').document(ticket_id)
+        db_conn = get_db()
+        t_ref = db_conn.collection('support_tickets').document(str(ticket_id))
         t_doc = t_ref.get()
         if not t_doc.exists:
             return jsonify({"success": False, "message": "التذكرة غير موجودة"}), 404
@@ -107,10 +119,10 @@ def send_reply():
         ticket_data = t_doc.to_dict() or {}
         user_id = ticket_data.get('user_id') or ticket_data.get('user_info', {}).get('id')
 
-        now_str = datetime.utcnow().isoformat()
+        now_str = datetime.now(timezone.utc).isoformat()
         new_msg = {
             'sender': 'admin',
-            'text': text,
+            'text': str(text).strip(),
             'timestamp': now_str
         }
 
@@ -121,7 +133,6 @@ def send_reply():
             'last_sender': 'admin'
         })
 
-        # إرسال إشعار فوري للمستخدم في التليجرام
         if user_id:
             send_telegram_notification(user_id, text)
 
@@ -142,11 +153,12 @@ def close_ticket():
         return jsonify({"success": False, "message": "رقم التذكرة مفقود"}), 400
 
     try:
-        t_ref = db.collection('support_tickets').document(ticket_id)
+        db_conn = get_db()
+        t_ref = db_conn.collection('support_tickets').document(str(ticket_id))
         t_ref.update({
             'status': 'closed',
             'has_unread_admin': False,
-            'updated_at': datetime.utcnow().isoformat()
+            'updated_at': datetime.now(timezone.utc).isoformat()
         })
         return jsonify({"success": True}), 200
     except Exception as e:
