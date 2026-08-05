@@ -1,25 +1,6 @@
 // settings/settings.js
 (function initSettingsSystem() {
     
-    function getStoredBalance() {
-        if (window.userState && window.userState.balance !== undefined) {
-            return parseFloat(window.userState.balance);
-        }
-        if (window.GameState && window.GameState.balance !== undefined) {
-            return parseFloat(window.GameState.balance);
-        }
-        const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
-        return bal !== null ? parseFloat(bal) : 0;
-    }
-
-    function syncTopBalance() {
-        const stored = getStoredBalance();
-        const topBalEl = document.getElementById('top-balance-settings');
-        if (topBalEl) {
-            topBalEl.innerText = `ZN: ${Math.floor(stored).toLocaleString('en-US')}`;
-        }
-    }
-
     function getTgUser() {
         if (window.Telegram?.WebApp?.initDataUnsafe?.user) {
             return window.Telegram.WebApp.initDataUnsafe.user;
@@ -41,8 +22,6 @@
     }
 
     function updateStatsFromLocalData() {
-        syncTopBalance();
-
         const state = window.userState || window.PlayerData || window.GameState;
         if (state) {
             const totalMiningEl = document.getElementById('stat-total-mining');
@@ -93,14 +72,10 @@
             }
 
             if (data && data.success) {
-                if (data.balance !== undefined && window.userState) {
-                    window.userState.balance = data.balance;
-                }
                 const miningEl = document.getElementById('stat-total-mining');
                 const storageEl = document.getElementById('stat-total-storage');
                 if (miningEl) miningEl.innerText = `${data.farm_levels_count || 0} مستويات`;
                 if (storageEl) storageEl.innerText = `${data.storage_levels_count || 0} مستويات`;
-                syncTopBalance();
             }
         } catch (error) {
             console.warn("Settings stats info:", error);
@@ -108,7 +83,7 @@
     }
 
     // ==========================================
-    // 🎧 وظائف الشات والدعم الفني (المحسّنة بالكامل)
+    // 🎧 نظام الدعم الفني الاحترافي المنبثق
     // ==========================================
     let supportTicketId = null;
     let isSupportClosed = false;
@@ -124,16 +99,22 @@
 
     window.openSupportModal = function() {
         const modal = document.getElementById('support-modal');
-        if (modal) modal.style.display = 'flex';
+        if (modal) {
+            modal.style.display = 'flex';
+            document.body.style.overflow = 'hidden'; // منع التمرير للخلفية
+        }
         
-        if (chatBox) chatBox.innerHTML = '<div class="msg-system">جاري جلب المحادثة...</div>';
+        if (chatBox) chatBox.innerHTML = '<div class="msg-system">جاري جلب محادثة الدعم... ⏳</div>';
         supportLastMsgCount = -1;
         fetchTicketData();
     };
 
     window.closeSupportModal = function() {
         const modal = document.getElementById('support-modal');
-        if (modal) modal.style.display = 'none';
+        if (modal) {
+            modal.style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
         if (supportPollInterval) {
             clearInterval(supportPollInterval);
             supportPollInterval = null;
@@ -164,17 +145,17 @@
                 supportTicketId = data.ticket_id;
                 isSupportClosed = (data.status === 'closed');
                 
-                if (ticketDisplay) ticketDisplay.innerText = `رقم التذكرة: #${supportTicketId}`;
+                if (ticketDisplay) ticketDisplay.innerHTML = `تذكرة #${supportTicketId} 📋`;
                 renderMessages(data.messages);
                 
                 if (isSupportClosed) {
-                    disableSupportInput("تم إنهاء هذه المحادثة. يمكنك بدء محادثة جديدة.");
+                    disableSupportInput("تم إنهاء هذه المحادثة.");
                 } else {
                     enableSupportInput();
                     startSupportPolling();
                 }
             } else {
-                showChatError(data?.message || "فشل جلب التذكرة من السيرفر.");
+                showChatError(data?.message || "فشل جلب المحادثة.");
             }
         } catch (error) {
             showChatError("حدث خطأ في الاتصال بالشبكة.");
@@ -184,15 +165,25 @@
     };
 
     function showChatError(errMsg) {
-        if (ticketDisplay) ticketDisplay.innerText = "تنبيه: " + errMsg;
+        if (ticketDisplay) ticketDisplay.innerText = "خطأ في الاتصال";
         if (chatBox) {
             chatBox.innerHTML = `
-                <div class="msg-system" style="color: #ff5252; padding: 15px; text-align: center;">
+                <div class="msg-system" style="border-color:#e74c3c; color:#ff6b6b;">
                     ⚠️ ${errMsg}<br><br>
-                    <button onclick="fetchTicketData()" style="padding: 8px 16px; background: #ff9800; border: none; border-radius: 8px; color: #fff; font-weight: bold; cursor: pointer;">
+                    <button onclick="fetchTicketData()" style="padding: 8px 18px; background: var(--primary); border: none; border-radius: 8px; color: #000; font-weight: bold; cursor: pointer;">
                         إعادة المحاولة 🔄
                     </button>
                 </div>`;
+        }
+    }
+
+    function formatTime(isoString) {
+        if (!isoString) return '';
+        try {
+            const date = new Date(isoString);
+            return date.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+        } catch (e) {
+            return '';
         }
     }
 
@@ -206,36 +197,57 @@
         chatBox.innerHTML = ''; 
 
         if (messages.length === 0) {
-            chatBox.innerHTML = '<div class="msg-system">مرحباً بك! اكتب استفسارك وسيرد عليك فريق الدعم.</div>';
+            chatBox.innerHTML = `
+                <div class="msg-system">
+                    👋 <b>مرحباً بك في الدعم الفني المباشر!</b><br>
+                    اكتب استفسارك وسيقوم فريق الدعم بالرد عليك في أقرب وقت.
+                </div>`;
         } else {
             messages.forEach(msg => {
                 const div = document.createElement('div');
-                div.className = `chat-msg ${msg.sender === 'user' ? 'msg-user' : 'msg-admin'}`;
-                div.innerText = msg.text;
+                const isUser = (msg.sender === 'user');
+                div.className = `chat-msg ${isUser ? 'msg-user' : 'msg-admin'}`;
+                
+                const timeStr = formatTime(msg.timestamp);
+                div.innerHTML = `
+                    <div>${escapeHTML(msg.text)}</div>
+                    ${timeStr ? `<span class="msg-time">${timeStr}</span>` : ''}
+                `;
                 chatBox.appendChild(div);
             });
         }
 
-        // إذا كانت التذكرة مغلقة: إظهار الرسالة والزر التفاعلي
         if (isSupportClosed) {
             const closedBox = document.createElement('div');
             closedBox.className = 'msg-system';
-            closedBox.style.cssText = 'background: rgba(255, 82, 82, 0.15); border: 1px solid #ff5252; color: #ff5252; margin-top: 15px; padding: 12px; border-radius: 10px; text-align: center;';
+            closedBox.style.cssText = 'background: rgba(231, 76, 60, 0.12); border: 1px solid #e74c3c; color: #ff6b6b; margin-top: 15px; padding: 14px; border-radius: 12px; text-align: center;';
             closedBox.innerHTML = `
-                🔒 تم إنهاء هذه المحادثة من قبل الدعم الفني.<br>يرجى بدء محادثة جديدة لإرسال استفسار جديد.<br><br>
-                <button onclick="startNewTicket()" style="padding: 10px 20px; background: #2196F3; border: none; border-radius: 8px; color: #fff; font-weight: bold; cursor: pointer; font-size: 14px;">
-                    ➕ بدء محادثة جديدة
+                🔒 تم إنهاء هذه المحادثة من قبل الدعم الفني.<br><br>
+                <button onclick="startNewTicket()" style="padding: 10px 20px; background: linear-gradient(135deg, var(--primary), #e67e22); border: none; border-radius: 10px; color: #000; font-weight: bold; cursor: pointer; font-size: 13px;">
+                    ➕ بدء تذكرة محادثة جديدة
                 </button>
             `;
             chatBox.appendChild(closedBox);
-            disableSupportInput("تم إنهاء المحادثة. انقر فوق 'بدء محادثة جديدة'");
+            disableSupportInput("المحادثة مغلقة.");
         }
 
-        chatBox.scrollTop = chatBox.scrollHeight;
+        chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: 'smooth' });
     }
 
+    function escapeHTML(str) {
+        return String(str).replace(/[&<>"']/g, function(m) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+        });
+    }
+
+    window.sendQuickQuery = function(text) {
+        if (!msgInput) return;
+        msgInput.value = text;
+        sendSupportMessage();
+    };
+
     window.startNewTicket = async function() {
-        if (chatBox) chatBox.innerHTML = '<div class="msg-system">جاري إنشاء محادثة جديدة...</div>';
+        if (chatBox) chatBox.innerHTML = '<div class="msg-system">جاري تفعيل محادثة جديدة... ⏳</div>';
         try {
             let data;
             if (typeof window.fetchAPI === 'function') {
@@ -255,16 +267,16 @@
             if (data && data.success) {
                 supportTicketId = data.ticket_id;
                 isSupportClosed = false;
-                if (ticketDisplay) ticketDisplay.innerText = `رقم التذكرة: #${supportTicketId}`;
+                if (ticketDisplay) ticketDisplay.innerHTML = `تذكرة #${supportTicketId} 📋`;
                 enableSupportInput();
                 renderMessages([]);
                 startSupportPolling();
             } else {
-                alert("فشل إنشاء تذكرة جديدة: " + (data?.message || "خطأ غير معروف"));
+                alert("فشل إنشاء تذكرة: " + (data?.message || "خطأ غير معروف"));
                 fetchTicketData();
             }
         } catch (e) {
-            alert("خطأ في الاتصال بالسيرفر.");
+            alert("خطأ في الاتصال بالخادم.");
             fetchTicketData();
         }
     };
@@ -276,12 +288,12 @@
 
         const tempDiv = document.createElement('div');
         tempDiv.className = 'chat-msg msg-user';
-        tempDiv.innerText = text;
-        tempDiv.style.opacity = '0.5'; 
+        tempDiv.style.opacity = '0.6';
+        tempDiv.innerHTML = `<div>${escapeHTML(text)}</div><span class="msg-time">جاري الإرسال...</span>`;
         
         if (chatBox) {
             chatBox.appendChild(tempDiv);
-            chatBox.scrollTop = chatBox.scrollHeight;
+            chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: 'smooth' });
         }
         
         msgInput.value = '';
@@ -316,7 +328,7 @@
             }
         } catch (error) {
             tempDiv.remove();
-            alert("خطأ في الاتصال بالشبكة.");
+            alert("خطأ في الشبكة، لم يتم الإرسال.");
         } finally {
             if (sendBtn) sendBtn.disabled = false;
         }
@@ -338,7 +350,7 @@
     function enableSupportInput() {
         if (msgInput) {
             msgInput.disabled = false;
-            msgInput.placeholder = "اكتب رسالتك هنا...";
+            msgInput.placeholder = "اكتب استفسارك هنا...";
         }
         if (sendBtn) sendBtn.disabled = false;
         if (inputSection) inputSection.style.opacity = '1';
@@ -351,7 +363,7 @@
             if (!isSupportClosed && modal && modal.style.display === 'flex' && document.visibilityState === 'visible') {
                 fetchTicketData();
             }
-        }, 15000);
+        }, 10000); // استعلام كل 10 ثوانٍ لحفظ الموارد
     }
 
     if (msgInput) {
@@ -364,19 +376,28 @@
         const idEl = document.getElementById('player-telegram-id');
         if (!idEl) return;
         const idText = idEl.innerText;
-        if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(idText).then(() => showToast("تم نسخ الـ ID بنجاح!")).catch(() => fallbackCopy(idText));
-        } else {
-            fallbackCopy(idText);
-        }
+        copyTextToClipboard(idText, "تم نسخ ה-ID بنجاح!");
     };
 
-    function fallbackCopy(text) {
+    window.copyTicketId = function() {
+        if (!supportTicketId) return;
+        copyTextToClipboard(supportTicketId, "تم نسخ رقم التذكرة بنجاح!");
+    };
+
+    function copyTextToClipboard(text, successMsg) {
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(() => showToast(successMsg)).catch(() => fallbackCopy(text, successMsg));
+        } else {
+            fallbackCopy(text, successMsg);
+        }
+    }
+
+    function fallbackCopy(text, successMsg) {
         const textArea = document.createElement("textarea");
         textArea.value = text;
         document.body.appendChild(textArea);
         textArea.select();
-        try { document.execCommand('copy'); showToast("تم نسخ الـ ID بنجاح!"); } catch (err) {}
+        try { document.execCommand('copy'); showToast(successMsg); } catch (err) {}
         document.body.removeChild(textArea);
     }
 
@@ -395,7 +416,7 @@
         if (!toast) return;
         toast.innerText = text;
         toast.style.display = 'block';
-        setTimeout(() => toast.style.display = 'none', 2000);
+        setTimeout(() => toast.style.display = 'none', 2200);
     }
 
     window.addEventListener('userStateUpdated', updateStatsFromLocalData);
