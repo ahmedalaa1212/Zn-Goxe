@@ -84,7 +84,7 @@
     }
 
     // ==========================================
-    // 🎧 نظام الدعم الفني الاحترافي
+    // 🎧 نظام الدعم الفني المباشر
     // ==========================================
     let supportTicketId = null;
     let isSupportClosed = false;
@@ -98,6 +98,10 @@
     const sendBtn = document.getElementById('support-send-btn');
     const inputSection = document.getElementById('support-input-section');
     const ticketDisplay = document.getElementById('ticket-id-display');
+
+    function getWelcomeNoticeText(tId) {
+        return `مرحباً بك في مركز الدعم الفني! 🎧\nكودك المرجعي للمحادثة: ${tId}\n\n⚠️ تنبيه هام لجميع المستخدمين:\nيرجى التكرم بالالتزام بآداب الحوار والتعامل اللائق مع فريق الدعم. المحادثات مخصصة فقط للاستفسارات الفنية والمشكلات. أي إساءة لفظية أو تجاوز قد يعرض حسابك للحظر النهائي والمنع من الخدمة فوراً.\n\nتفضل بكتابة استفسارك وسيقوم الفريق بالرد عليك في أقرب وقت.`;
+    }
 
     function generateLocalTicketId() {
         const uid = getTgId();
@@ -147,7 +151,7 @@
             supportTicketId = generateLocalTicketId();
             localMessagesList = [{
                 sender: 'admin',
-                text: `مرحباً بك! كود المحادثة المرجعي الخاص بك هو: [ ${supportTicketId} ]. اكتب استفسارك وسنجيبك فوراً.`,
+                text: getWelcomeNoticeText(supportTicketId),
                 timestamp: new Date().toISOString()
             }];
             if (ticketDisplay) ticketDisplay.innerHTML = `تذكرة #${supportTicketId} 📋`;
@@ -158,6 +162,7 @@
 
         supportLastMsgCount = -1;
         fetchTicketData();
+        startSupportPolling();
     };
 
     window.closeSupportModal = function() {
@@ -206,11 +211,10 @@
                     disableSupportInput("تم إنهاء هذه المحادثة.");
                 } else {
                     enableSupportInput();
-                    startSupportPolling();
                 }
             }
         } catch (error) {
-            console.warn("وضع العمل بدون اتصال بالشبكة مفعل محلياً.");
+            console.warn("تعذر الاتصال المباشر بالسيرفر حالياً.");
         } finally {
             isFetchingTicket = false;
         }
@@ -250,7 +254,7 @@
                 
                 const timeStr = formatTime(msg.timestamp);
                 div.innerHTML = `
-                    <div>${escapeHTML(msg.text)}</div>
+                    <div style="white-space: pre-wrap;">${escapeHTML(msg.text)}</div>
                     ${timeStr ? `<span class="msg-time">${timeStr}</span>` : ''}
                 `;
                 chatBox.appendChild(div);
@@ -294,7 +298,7 @@
         isSupportClosed = false;
         localMessagesList = [{
             sender: 'admin',
-            text: `تم فتح تذكرة محادثة جديدة برقم مرجعي: [ ${newLocalId} ]. تفضل بكتابة سؤالك.`,
+            text: getWelcomeNoticeText(newLocalId),
             timestamp: new Date().toISOString()
         }];
         
@@ -329,7 +333,7 @@
                 startSupportPolling();
             }
         } catch (e) {
-            console.warn("تم إنشاء التذكرة محلياً وسيتم مزامنتها مع الخادم عند توفره.");
+            console.warn("تم إنشاء التذكرة محلياً وسيتم المزامنة تلقائياً.");
         }
     };
 
@@ -374,7 +378,7 @@
             }
 
             if (data && data.success) {
-                fetchTicketData();
+                setTimeout(fetchTicketData, 300);
             } else if (data?.message && data.message.includes("إنهاء")) {
                 isSupportClosed = true;
                 fetchTicketData();
@@ -408,6 +412,7 @@
         if (inputSection) inputSection.style.opacity = '1';
     }
 
+    // تحديث المحادثة كل ثانيتين (2000 مللي ثانية) للاستلام الفوري السريع
     function startSupportPolling() {
         if (supportPollInterval) clearInterval(supportPollInterval);
         supportPollInterval = setInterval(() => {
@@ -415,7 +420,7 @@
             if (!isSupportClosed && modal && modal.style.display === 'flex' && document.visibilityState === 'visible') {
                 fetchTicketData();
             }
-        }, 10000);
+        }, 2000);
     }
 
     if (msgInput) {
