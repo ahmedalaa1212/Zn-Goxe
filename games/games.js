@@ -14,7 +14,7 @@
     const STATUS_FETCH_COOLDOWN = 12000;
     let hasJoinedCurrentRound = false;
 
-    let currentEntryFee = 1000;
+    let currentEntryFee = 250;
     let currentLockSeconds = 15;
     let currentDisplayBalance = 0;
     let currentPrizePool = 0;
@@ -40,12 +40,24 @@
 
     const tele = window.Telegram?.WebApp;
 
+    function triggerHaptic(type = 'light') {
+        try {
+            if (tele?.HapticFeedback) {
+                if (type === 'light') tele.HapticFeedback.impactOccurred('light');
+                else if (type === 'medium') tele.HapticFeedback.impactOccurred('medium');
+                else if (type === 'heavy') tele.HapticFeedback.impactOccurred('heavy');
+                else if (type === 'success') tele.HapticFeedback.notificationOccurred('success');
+                else if (type === 'error') tele.HapticFeedback.notificationOccurred('error');
+            }
+        } catch (e) {}
+    }
+
     function formatNumberHTML(val, suffix = "") {
         const num = parseFloat(val) || 0;
         const parts = num.toFixed(2).split('.');
         const intPart = parseInt(parts[0], 10).toLocaleString('en-US');
         const decPart = parts[1];
-        return `${intPart}<span class="small-decimal">.${decPart}</span>${suffix}`;
+        return `${intPart}<span class="small-decimal" style="font-size:0.8em; opacity:0.85;">.${decPart}</span>${suffix}`;
     }
 
     function animateCounter(elementId, startVal, endVal, duration = 800, suffix = " ZN") {
@@ -73,6 +85,7 @@
     }
 
     function showNotification(msg) {
+        triggerHaptic('medium');
         if (tele && tele.showAlert) tele.showAlert(msg);
         else alert(msg);
     }
@@ -118,6 +131,7 @@
     }
 
     window.switchGameTab = function(tabName) {
+        triggerHaptic('light');
         const arenaTab = document.getElementById('tab-arena');
         const minesTab = document.getElementById('tab-mines');
         const arenaContent = document.getElementById('content-arena');
@@ -137,8 +151,9 @@
         }
     };
 
-    // --- محرك لعبة 36 صندوقاً (المحلي المحمي) ---
+    // --- محرك لعبة 36 صندوقاً ---
     function buildMultipliers(bombs) {
+        if (bombs === 3) return [...MULTIPLIERS_BASE_3];
         const totalSafe = 36 - bombs;
         const maxCap = 20.0 + (bombs - 3) * 10.0;
         let list = [];
@@ -165,15 +180,18 @@
     }
 
     window.openMinesSettings = () => {
+        triggerHaptic('light');
         if (minesState.active) return showNotification("لا يمكن تغيير الإعدادات أثناء الجولة الحالية!");
         document.getElementById('mines-settings-modal').style.display = 'flex';
     };
 
     window.closeMinesSettings = () => {
+        triggerHaptic('light');
         document.getElementById('mines-settings-modal').style.display = 'none';
     };
 
     window.selectMinesCount = (count) => {
+        triggerHaptic('medium');
         minesState.bombsCount = count;
         minesState.multipliers = buildMultipliers(count);
         document.getElementById('mines-count-label').innerText = `${count} قنابل`;
@@ -182,6 +200,7 @@
 
     window.addBet = (amt) => {
         if (minesState.active) return;
+        triggerHaptic('light');
         const input = document.getElementById('mines-bet-input');
         let val = (parseFloat(input.value) || 0) + amt;
         input.value = val;
@@ -190,6 +209,7 @@
 
     window.setBetMax = () => {
         if (minesState.active) return;
+        triggerHaptic('medium');
         const input = document.getElementById('mines-bet-input');
         input.value = Math.floor(getStoredBalance());
         updateMinesActionButton();
@@ -201,16 +221,19 @@
         if (!minesState.active) {
             const betInput = parseFloat(document.getElementById('mines-bet-input').value) || 100;
             btn.style.background = "linear-gradient(90deg, #f39c12, #d35400)";
+            btn.style.boxShadow = "0 6px 20px var(--primary-glow)";
             btn.innerText = `بدء الرهان (${betInput.toLocaleString('en-US')} ZN) 🚀`;
         } else {
             const currentMult = minesState.currentStep > 0 ? minesState.multipliers[minesState.currentStep - 1] : 1.0;
             const cashOutVal = Math.round(minesState.bet * currentMult * 100) / 100;
             btn.style.background = "linear-gradient(90deg, #10b981, #059669)";
+            btn.style.boxShadow = "0 6px 20px var(--accent-green-glow)";
             btn.innerText = `سحب الأرباح (${cashOutVal.toLocaleString('en-US')} ZN) 💰`;
         }
     }
 
     window.handleMinesAction = () => {
+        triggerHaptic('heavy');
         if (!minesState.active) startMinesRound();
         else cashOutMinesRound();
     };
@@ -222,7 +245,7 @@
 
         const btn = document.getElementById('btn-mines-action');
         btn.disabled = true;
-        btn.innerText = "جاري وبدء الجولة... ⏳";
+        btn.innerText = "جاري بدء الجولة... ⏳";
 
         try {
             const initData = tele?.initData || "";
@@ -234,6 +257,7 @@
 
             const data = await res.json();
             if (data.success) {
+                triggerHaptic('success');
                 minesState.active = true;
                 minesState.bet = betVal;
                 minesState.sessionToken = data.session_token;
@@ -245,10 +269,12 @@
                 document.getElementById('mines-multiplier-val').innerText = '1.00x';
                 updateMinesActionButton();
             } else {
+                triggerHaptic('error');
                 showNotification("⚠️ " + (data.message || "تعذر بدء الجولة"));
                 updateMinesActionButton();
             }
         } catch (e) {
+            triggerHaptic('error');
             showNotification("خطأ في الاتصال بالخادم.");
             updateMinesActionButton();
         } finally {
@@ -259,15 +285,15 @@
     function onBoxClick(boxIndex) {
         if (!minesState.active) return;
         const now = Date.now();
-        if (now - minesState.lastClickTime < 450) return; // حماية ضد الضغط السريع Spam lock 500ms
+        if (now - minesState.lastClickTime < 350) return;
         if (minesState.openedBoxes.has(boxIndex)) return;
 
         minesState.lastClickTime = now;
         minesState.openedBoxes.add(boxIndex);
 
+        triggerHaptic('light');
         const boxEl = document.querySelector(`.mine-box[data-index="${boxIndex}"]`);
         
-        // التحقق المحلي السريع (0 Reads / 0 Writes)
         minesState.currentStep++;
         const currentMult = minesState.multipliers[minesState.currentStep - 1] || 1.0;
 
@@ -300,15 +326,18 @@
 
             const data = await res.json();
             if (data.success) {
+                triggerHaptic('success');
                 setStoredBalance(data.new_balance, true);
                 triggerGlobalToast(`🎉 مبروك! كسبت ${data.payout.toLocaleString('en-US')} ZN (مضاعف ${data.multiplier}x)`, true);
                 revealAllBombs(data.bomb_positions, data.opened_boxes);
             } else if (data.status === 'exploded') {
                 handleBombExplosion(data);
             } else {
+                triggerHaptic('error');
                 showNotification(data.message || "حدث خطأ أثناء السحب.");
             }
         } catch (e) {
+            triggerHaptic('error');
             showNotification("خطأ في شبكة الاتصال.");
         } finally {
             minesState.active = false;
@@ -318,15 +347,11 @@
     }
 
     function handleBombExplosion(data) {
+        triggerHaptic('error');
         minesState.active = false;
         revealAllBombs(data.bomb_positions, Array.from(minesState.openedBoxes));
         
-        // إظهار خيار خاسر / إحياء عبر الإعلانات
-        if (window.Adsgram) {
-            triggerGlobalToast("💣 للأسف اصطدمت بعملة مكسورة!", false);
-        } else {
-            triggerGlobalToast("💣 حظاً أوفر في الجولة القادمة!", false);
-        }
+        triggerGlobalToast("💣 للأسف اصطدمت بعملة مكسورة!", false);
         updateMinesActionButton();
     }
 
@@ -337,13 +362,13 @@
                 box.classList.add('revealed-bomb');
                 box.innerText = '💣';
             } else if (!openedBoxes.includes(idx)) {
-                box.style.opacity = '0.5';
+                box.style.opacity = '0.4';
                 box.innerText = '🪙';
             }
         });
     }
 
-    // --- بقية منطق الساحة الكبرى والتحديثات الخلفية (بدون تغيير) ---
+    // --- منطق الساحة الكبرى والتحديثات الخلفية ---
     async function fetchArenaStatus(force = false) {
         if (statusRetryTimeout) { clearTimeout(statusRetryTimeout); statusRetryTimeout = null; }
         const now = Date.now();
@@ -442,6 +467,7 @@
     }
 
     window.joinArena = function() {
+        triggerHaptic('heavy');
         if (isJoining || hasJoinedCurrentRound) return;
         if (getStoredBalance() < currentEntryFee) {
             showNotification(`⚠️ رصيدك غير كافٍ للدخول في الساحة.`);
@@ -465,15 +491,18 @@
             });
             const data = await response.json();
             if (data.success) {
+                triggerHaptic('success');
                 hasJoinedCurrentRound = true;
                 if (data.new_balance !== undefined) setStoredBalance(data.new_balance, true);
                 if (data.prize_pool !== undefined) updateArenaPrizes(data);
                 if (btn) { btn.disabled = true; btn.classList.add('btn-disabled'); btn.innerText = "أنت مشترك بالفعل ✅"; }
                 showNotification("🎉 تم دخول الساحة بنجاح!");
             } else {
+                triggerHaptic('error');
                 showNotification("⚠️ " + (data.message || "تعذر الاشتراك"));
             }
         } catch (error) {
+            triggerHaptic('error');
             showNotification("حدث خطأ في الاتصال بالخادم.");
         } finally {
             isJoining = false;
@@ -486,19 +515,19 @@
             toastBox = document.createElement('div');
             toastBox.id = 'global-toast-notification';
             toastBox.style.cssText = `
-                position: fixed; top: 15px; left: 50%; transform: translateX(-50%);
-                background: linear-gradient(135deg, #1e293b, #0f172a);
-                border: 1.5px solid ${isSuccess ? '#38bdf8' : '#f59e0b'};
-                color: #ffffff; padding: 12px 20px; border-radius: 16px;
+                position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+                background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(12px);
+                border: 1.5px solid ${isSuccess ? '#10b981' : '#ef4444'};
+                color: #ffffff; padding: 12px 22px; border-radius: 50px;
                 box-shadow: 0 10px 30px rgba(0,0,0,0.8); z-index: 99999999;
-                font-size: 13px; font-weight: bold; text-align: center; width: 90%; max-width: 360px;
+                font-size: 13px; font-weight: 800; text-align: center; width: 90%; max-width: 380px;
                 display: flex; align-items: center; justify-content: center; gap: 8px;
             `;
             document.body.appendChild(toastBox);
         }
         toastBox.innerHTML = msg;
         toastBox.style.display = 'flex';
-        setTimeout(() => { if (toastBox) toastBox.style.display = 'none'; }, 5000);
+        setTimeout(() => { if (toastBox) toastBox.style.display = 'none'; }, 4500);
     }
 
     function askForConfirmation(onConfirm) {
@@ -509,6 +538,7 @@
     }
 
     window.onConfirmJoin = function(confirmed) {
+        triggerHaptic('light');
         const modal = document.getElementById('confirm-modal');
         if (modal) modal.style.display = 'none';
         if (confirmed && typeof pendingConfirmCallback === 'function') pendingConfirmCallback();
@@ -531,6 +561,7 @@
     }
 
     window.closeDrawModal = function() {
+        triggerHaptic('light');
         const modal = document.getElementById('draw-modal');
         if (modal) modal.style.display = 'none';
         fetchArenaStatus(true);
@@ -586,9 +617,9 @@
             let name = winner.name || `مستخدم #${(winner.uid || '00000').substring(0,5)}`;
             let prize = formatNumberHTML(winner.prize || 0);
             list.innerHTML += `
-                <div style="display:flex; justify-content:space-between; padding:8px; border-bottom:1px solid #333;">
-                    <span>${medals[index] || '🏅'} ${name}</span>
-                    <span style="color:#2ecc71;">+${prize} ZN</span>
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.06);">
+                    <span style="font-weight:700;">${medals[index] || '🏅'} ${name}</span>
+                    <span style="color:var(--accent-green); font-weight:800;">+${prize} ZN</span>
                 </div>
             `;
         });
