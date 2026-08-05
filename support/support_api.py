@@ -6,10 +6,16 @@ from datetime import datetime, timezone
 from flask import Blueprint, jsonify, request
 from firebase_admin import firestore
 
-from database import db
+import database
 from core.security import get_authenticated_user
 
 support_bp = Blueprint('support', __name__)
+
+def get_db():
+    """ضمان الحصول على قاعدة البيانات Firestore بدون أن تكون None"""
+    if database.db is None:
+        return database.initialize_firebase()
+    return database.db
 
 def generate_fast_ticket_id(uid):
     """توليد رقم تذكرة مرجعي سريع فريد"""
@@ -17,23 +23,34 @@ def generate_fast_ticket_id(uid):
     timestamp_sec = int(time.time()) % 100000
     return f"TK-{short_uid}-{timestamp_sec}"
 
-def get_telegram_user_info(req):
+def get_telegram_user_info(req, uid=None, auth_user_info=None):
     """استخراج اسم المستخدم ومعرفه من التليجرام لربطه باللوحة"""
+    if auth_user_info and isinstance(auth_user_info, dict):
+        return {
+            'id': str(auth_user_info.get('id', uid or '')),
+            'first_name': auth_user_info.get('first_name', 'مستخدم'),
+            'username': auth_user_info.get('username', 'بدون')
+        }
     try:
         init_data = req.headers.get('X-Telegram-Init-Data', '')
+        if not init_data:
+            auth_header = req.headers.get('Authorization', '')
+            if auth_header.startswith('Bearer '):
+                init_data = auth_header[7:]
+                
         if init_data:
             parsed_data = dict(urllib.parse.parse_qsl(init_data))
             user_raw = parsed_data.get('user')
             if user_raw:
                 u = json.loads(user_raw)
                 return {
-                    'id': str(u.get('id', '')),
+                    'id': str(u.get('id', uid or '')),
                     'first_name': u.get('first_name', 'مستخدم'),
                     'username': u.get('username', 'بدون')
                 }
     except Exception as e:
         print(f"⚠️ User Info Extract Warning: {e}")
-    return {}
+    return {'id': str(uid or ''), 'first_name': 'مستخدم', 'username': 'بدون'}
 
 # ==========================================
 # مسار: جلب أحدث تذكرة للمستخدم
@@ -41,15 +58,16 @@ def get_telegram_user_info(req):
 @support_bp.route('/ticket', methods=['GET'])
 def get_ticket():
     try:
-        success, uid, error_res = get_authenticated_user(request, is_post=False)
+        success, uid, user_info, error_res = get_authenticated_user(request, is_post=False)
         if not success:
             return error_res
 
-        tickets_ref = db.collection('support_tickets')
+        db_conn = get_db()
+        tickets_ref = db_conn.collection('support_tickets')
         
-        # قراءة أحدث 5 تذاكر فقط لتجنب استنزاف القراءات
-        docs = list(tickets_ref.where('user_id', '==', str(uid)).limit(5).stream())
-        user_tickets = [d.to_dict() for d in docs]
+        # قراءة أحدث التذاكر الخاصة بالمستخدم
+        docs = list(tickets_ref.where('user_id', '==', str(uid)).limit(10).stream())
+        user_tickets = [d.to_dict() for d in docs if d.exists]
         user_tickets.sort(key=lambda x: str(x.get('created_at', '')), reverse=True)
 
         latest_ticket = user_tickets[0] if user_tickets else None
@@ -58,9 +76,7 @@ def get_ticket():
         if not latest_ticket:
             now_iso = datetime.now(timezone.utc).isoformat()
             new_ticket_id = generate_fast_ticket_id(uid)
-            user_info = get_telegram_user_info(request)
-            if not user_info.get('id'):
-                user_info = {'id': str(uid), 'first_name': 'مستخدم', 'username': 'بدون'}
+            u_info = get_telegram_user_info(request, uid=uid, auth_user_info=user_info)
 
             welcome_msg = {
                 'sender': 'admin',
@@ -70,7 +86,7 @@ def get_ticket():
             new_ticket_data = {
                 'ticket_id': new_ticket_id,
                 'user_id': str(uid),
-                'user_info': user_info,
+                'user_info': u_info,
                 'status': 'open',
                 'has_unread_admin': False,
                 'last_sender': 'admin',
@@ -104,16 +120,15 @@ def get_ticket():
 @support_bp.route('/new_ticket', methods=['POST'])
 def create_new_ticket():
     try:
-        success, uid, error_res = get_authenticated_user(request, is_post=True)
+        success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
         if not success:
             return error_res
 
-        tickets_ref = db.collection('support_tickets')
+        db_conn = get_db()
+        tickets_ref = db_conn.collection('support_tickets')
         now_iso = datetime.now(timezone.utc).isoformat()
         new_ticket_id = generate_fast_ticket_id(uid)
-        user_info = get_telegram_user_info(request)
-        if not user_info.get('id'):
-            user_info = {'id': str(uid), 'first_name': 'مستخدم', 'username': 'بدون'}
+        u_info = get_telegram_user_info(request, uid=uid, auth_user_info=user_info)
         
         welcome_msg = {
             'sender': 'admin',
@@ -124,7 +139,7 @@ def create_new_ticket():
         new_ticket_data = {
             'ticket_id': new_ticket_id,
             'user_id': str(uid),
-            'user_info': user_info,
+            'user_info': u_info,
             'status': 'open',
             'has_unread_admin': False,
             'last_sender': 'admin',
@@ -152,7 +167,7 @@ def create_new_ticket():
 @support_bp.route('/message', methods=['POST'])
 def send_message():
     try:
-        success, uid, error_res = get_authenticated_user(request, is_post=True)
+        success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
         if not success:
             return error_res
 
@@ -163,13 +178,12 @@ def send_message():
         if not ticket_id or not text or not str(text).strip():
             return jsonify({"success": False, "message": "بيانات الرسالة غير مكتملة."}), 400
 
-        ticket_ref = db.collection('support_tickets').document(str(ticket_id))
+        db_conn = get_db()
+        ticket_ref = db_conn.collection('support_tickets').document(str(ticket_id))
         ticket_doc = ticket_ref.get()
 
         now_iso = datetime.now(timezone.utc).isoformat()
-        user_info = get_telegram_user_info(request)
-        if not user_info.get('id'):
-            user_info = {'id': str(uid), 'first_name': 'مستخدم', 'username': 'بدون'}
+        u_info = get_telegram_user_info(request, uid=uid, auth_user_info=user_info)
 
         new_msg = {
             'sender': 'user',
@@ -178,11 +192,10 @@ def send_message():
         }
 
         if not ticket_doc.exists:
-            # إنشاء التذكرة فوراً مع تحديد حقول الإشعار للأدمن
             ticket_ref.set({
                 'ticket_id': str(ticket_id),
                 'user_id': str(uid),
-                'user_info': user_info,
+                'user_info': u_info,
                 'status': 'open',
                 'has_unread_admin': True,
                 'last_sender': 'user',
@@ -200,13 +213,12 @@ def send_message():
         if ticket_data.get('status') == 'closed':
             return jsonify({"success": False, "message": "تم إنهاء هذه المحادثة من قبل الدعم الفني."}), 400
 
-        # تحديث الرسائل وإعلام لوحة الأدمن بوجود رسالة جديدة
         ticket_ref.update({
             'messages': firestore.ArrayUnion([new_msg]),
             'updated_at': now_iso,
             'has_unread_admin': True,
             'last_sender': 'user',
-            'user_info': user_info
+            'user_info': u_info
         })
 
         return jsonify({"success": True}), 200
