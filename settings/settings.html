@@ -8,15 +8,16 @@
     <link rel="stylesheet" href="../style.css?v=13.2">
     <style>
         :root {
-            --bg-color: #0f0f0f;
-            --card-bg: #1c1c1c;
+            --bg-color: #0c0d10;
+            --card-bg: #16181e;
             --primary: #f39c12;
-            --primary-glow: rgba(243, 156, 18, 0.3);
+            --primary-glow: rgba(243, 156, 18, 0.35);
             --telegram-blue: #0088cc;
-            --accent-red: #cc0000;
+            --accent-red: #e74c3c;
+            --accent-green: #2ecc71;
             --text-main: #ffffff;
-            --text-muted: #aaaaaa;
-            --border-color: #222222;
+            --text-muted: #9aa0a6;
+            --border-color: rgba(255, 255, 255, 0.08);
         }
 
         * {
@@ -28,84 +29,86 @@
         body {
             background-color: var(--bg-color);
             color: var(--text-main);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             margin: 0;
             padding: 0;
             padding-bottom: 90px;
             -webkit-user-select: none;
             user-select: none;
-        }
-
-        /* هيدر الرصيد الثابت */
-        .balance-header-fixed {
-            position: fixed;
-            top: 15px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.85);
-            border: 1px solid var(--primary);
-            padding: 8px 25px;
-            border-radius: 30px;
-            z-index: 100;
-            box-shadow: 0 4px 15px var(--primary-glow);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-weight: bold;
-            font-size: 1.1rem;
-            color: var(--primary);
+            overflow-x: hidden;
         }
 
         .settings-container {
-            padding: 15px;
-            padding-top: 70px;
+            padding: 20px 15px;
             max-width: 500px;
             margin: 0 auto;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .profile-card {
-            background: var(--card-bg);
-            padding: 20px 15px;
-            border-radius: 16px;
-            border: 1px solid #333;
+            background: linear-gradient(145deg, #181a20, #121318);
+            padding: 22px 18px;
+            border-radius: 20px;
+            border: 1px solid var(--border-color);
             text-align: center;
             margin-bottom: 18px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .profile-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, var(--primary-glow) 0%, transparent 60%);
+            opacity: 0.15;
+            pointer-events: none;
         }
 
         .avatar-box {
-            width: 75px;
-            height: 75px;
-            background: var(--telegram-blue);
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #1c2331, #0088cc);
             border-radius: 50%;
-            margin: 0 auto 10px auto;
+            margin: 0 auto 12px auto;
             display: flex;
             justify-content: center;
             align-items: center;
-            border: 2px solid var(--primary);
+            border: 3px solid var(--primary);
             overflow: hidden;
-            box-shadow: 0 0 10px var(--primary-glow);
+            box-shadow: 0 0 20px var(--primary-glow);
         }
 
         .stats-card {
             background: var(--card-bg);
-            padding: 15px;
-            border-radius: 16px;
+            padding: 16px;
+            border-radius: 18px;
             border: 1px solid var(--border-color);
             margin-bottom: 18px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }
 
         .stat-row {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            font-size: 0.85rem;
-            padding: 6px 0;
+            font-size: 0.9rem;
+            padding: 8px 0;
         }
 
         .links-group {
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 12px;
             margin-bottom: 20px;
         }
 
@@ -113,123 +116,438 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background: #222;
-            padding: 14px 16px;
-            border-radius: 12px;
+            background: var(--card-bg);
+            padding: 16px 18px;
+            border-radius: 14px;
             text-decoration: none;
             color: #fff;
+            font-weight: 600;
+            font-size: 0.95rem;
+            border: 1px solid var(--border-color);
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .action-link-btn:active {
+            transform: scale(0.97);
+            background: #1f222a;
+        }
+
+        .support-pulse-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(46, 204, 113, 0.15);
+            color: var(--accent-green);
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
             font-weight: bold;
-            font-size: 0.9rem;
+            border: 1px solid rgba(46, 204, 113, 0.3);
+        }
+
+        .pulse-dot {
+            width: 7px;
+            height: 7px;
+            background-color: var(--accent-green);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--accent-green);
+            animation: pulseDot 1.5s infinite;
+        }
+
+        @keyframes pulseDot {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(46, 204, 113, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(46, 204, 113, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(46, 204, 113, 0); }
+        }
+
+        /* 🎧 مودال الدعم الفني الاحترافي المنبثق */
+        .support-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            z-index: 99999;
+            justify-content: center;
+            align-items: flex-end;
+            animation: fadeInOverlay 0.3s ease-out;
+        }
+
+        @keyframes fadeInOverlay {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .support-dialog {
+            background: #12141a;
+            width: 100%;
+            max-width: 520px;
+            height: 90vh;
+            border-top-left-radius: 24px;
+            border-top-right-radius: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-bottom: none;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.8);
+            animation: slideUpDialog 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            overflow: hidden;
+        }
+
+        @keyframes slideUpDialog {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+
+        .support-header {
+            background: rgba(22, 24, 30, 0.95);
+            padding: 16px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .support-header-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .support-avatar-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary), #e67e22);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            box-shadow: 0 0 12px var(--primary-glow);
+        }
+
+        .ticket-badge-btn {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--border-color);
+            color: var(--primary);
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-top: 3px;
+        }
+
+        .support-close-btn {
+            background: rgba(231, 76, 60, 0.15);
+            border: 1px solid rgba(231, 76, 60, 0.3);
+            color: #ff6b6b;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .support-close-btn:active {
+            transform: scale(0.9);
+            background: rgba(231, 76, 60, 0.3);
+        }
+
+        .support-body {
+            flex: 1;
+            padding: 18px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            background: radial-gradient(circle at center, #15171f 0%, #0d0e12 100%);
+            scroll-behavior: smooth;
+        }
+
+        .chat-msg {
+            max-width: 82%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            font-size: 14px;
+            line-height: 1.5;
+            word-wrap: break-word;
+            position: relative;
+            animation: msgPop 0.25s ease-out;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+        }
+
+        @keyframes msgPop {
+            from { opacity: 0; transform: scale(0.92); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        .msg-user {
+            background: linear-gradient(135deg, var(--primary), #e67e22);
+            color: #000;
+            align-self: flex-start;
+            border-bottom-right-radius: 4px;
+            font-weight: 600;
+        }
+
+        .msg-admin {
+            background: #1e222d;
+            color: #fff;
+            align-self: flex-end;
+            border-bottom-left-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .msg-time {
+            font-size: 10px;
+            margin-top: 5px;
+            opacity: 0.75;
+            text-align: left;
+            display: block;
+        }
+
+        .msg-system {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px dashed rgba(255, 255, 255, 0.12);
+            color: var(--text-muted);
+            align-self: center;
+            font-size: 12px;
+            text-align: center;
+            width: 100%;
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 12px;
+        }
+
+        /* 💡 خيارات سريعة للاستفسار */
+        .quick-chips-wrapper {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding: 8px 15px;
+            background: rgba(0,0,0,0.3);
+            border-top: 1px solid var(--border-color);
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .quick-chips-wrapper::-webkit-scrollbar { display: none; }
+
+        .chip-btn {
+            background: rgba(243, 156, 18, 0.12);
+            border: 1px solid rgba(243, 156, 18, 0.3);
+            color: var(--primary);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .chip-btn:active {
+            background: var(--primary);
+            color: #000;
+        }
+
+        .support-footer {
+            background: #16181e;
+            padding: 12px 16px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .support-input {
+            flex: 1;
+            background: #0a0b0e;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #fff;
+            padding: 14px 18px;
+            border-radius: 25px;
+            outline: none;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .support-input:focus {
+            border-color: var(--primary);
+        }
+
+        .support-send-btn {
+            background: linear-gradient(135deg, var(--primary), #e67e22);
+            border: none;
+            border-radius: 50%;
+            width: 46px;
+            height: 46px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #000;
+            font-size: 18px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px var(--primary-glow);
             transition: transform 0.2s;
         }
 
-        .action-link-btn:active { transform: scale(0.98); }
-
-        /* شات الدعم */
-        .chat-msg { max-width: 80%; padding: 10px 15px; border-radius: 15px; font-size: 14px; line-height: 1.4; word-wrap: break-word; }
-        .msg-user { background: var(--primary); color: #000; align-self: flex-start; border-bottom-right-radius: 2px; font-weight: 600; }
-        .msg-admin { background: #222; color: #fff; align-self: flex-end; border-bottom-left-radius: 2px; border: 1px solid #333; }
-        .msg-system { background: transparent; color: #aaa; align-self: center; font-size: 12px; text-align: center; width: 100%; margin: 10px 0; }
+        .support-send-btn:active {
+            transform: scale(0.9);
+        }
     </style>
 </head>
 <body>
 
-    <div class="balance-header-fixed">
-        <span>🪙</span>
-        <span id="top-balance-settings" class="user-balance zn-balance-display">ZN: 0</span>
-    </div>
-
     <div id="main-settings-section" class="settings-container">
         
-        <div style="text-align:center; margin-bottom:15px;">
-            <h2 style="margin:0; color:var(--primary); font-size:22px;">الإعدادات ⚙️</h2>
+        <div style="text-align:center; margin-bottom:20px;">
+            <h2 style="margin:0; color:var(--primary); font-size:24px; font-weight:800;">الإعدادات ⚙️</h2>
+            <p style="margin:4px 0 0 0; color:var(--text-muted); font-size:13px;">إدارة بيانات حسابك والدعم الفني</p>
         </div>
 
+        <!-- بطاقة الشخصية -->
         <div class="profile-card">
             <div class="avatar-box">
-                <span id="player-avatar" style="font-size:32px; color:#fff; display:flex; align-items:center; justify-content:center; width:100%; height:100%;">👤</span>
+                <span id="player-avatar" style="font-size:36px; color:#fff; display:flex; align-items:center; justify-content:center; width:100%; height:100%;">👤</span>
             </div>
-            <h3 id="player-username" style="margin:5px 0; color:#fff; font-size:18px;">جاري التحميل...</h3>
-            <div style="display:flex; justify-content:center; align-items:center; gap:5px; background:#0f0f0f; padding:6px 12px; border-radius:8px; width:fit-content; margin:8px auto 0 auto; border:1px solid #222;">
+            <h3 id="player-username" style="margin:6px 0; color:#fff; font-size:19px; font-weight:700;">جاري التحميل...</h3>
+            
+            <div style="display:flex; justify-content:center; align-items:center; gap:6px; background:rgba(0,0,0,0.4); padding:7px 14px; border-radius:10px; width:fit-content; margin:10px auto 0 auto; border:1px solid rgba(255,255,255,0.08);">
                 <span style="color:#aaa; font-size:12px;">ID:</span>
-                <span id="player-telegram-id" style="color:var(--primary); font-weight:bold; font-size:13px; font-family:monospace;">00000000</span>
-                <button onclick="copyPlayerId()" style="background:none; border:none; color:var(--telegram-blue); cursor:pointer; font-size:14px; padding:0 0 0 5px;" title="نسخ">📋</button>
+                <span id="player-telegram-id" style="color:var(--primary); font-weight:bold; font-size:14px; font-family:monospace;">00000000</span>
+                <button onclick="copyPlayerId()" style="background:none; border:none; color:var(--telegram-blue); cursor:pointer; font-size:14px; padding:0 0 0 4px;" title="نسخ">📋</button>
             </div>
         </div>
 
+        <!-- الإحصائيات -->
         <div class="stats-card">
-            <h4 style="margin:0 0 10px 0; color:var(--primary); font-size:14px; border-bottom:1px solid #222; padding-bottom:8px;">📊 إحصائيات النشاط الحية</h4>
+            <h4 style="margin:0 0 12px 0; color:var(--primary); font-size:14px; border-bottom:1px solid var(--border-color); padding-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+                <span>📊 إحصائيات النشاط الحية</span>
+                <span style="font-size:10px; color:var(--accent-green);">مباشر 🟢</span>
+            </h4>
             <div class="stat-row">
-                <span style="color:#aaa;">مستويات المزرعة المفتوحة:</span>
+                <span style="color:var(--text-muted);">مستويات المزرعة المفتوحة:</span>
                 <span id="stat-total-mining" style="font-weight:bold; color:var(--primary);">جاري التحميل...</span>
             </div>
-            <div class="stat-row" style="border-top:1px solid #222; padding-top:8px;">
-                <span style="color:#aaa;">مستويات المخازن المفتوحة:</span>
+            <div class="stat-row" style="border-top:1px solid var(--border-color); padding-top:10px;">
+                <span style="color:var(--text-muted);">مستويات المخازن المفتوحة:</span>
                 <span id="stat-total-storage" style="font-weight:bold; color:var(--telegram-blue);">جاري التحميل...</span>
             </div>
         </div>
 
+        <!-- الأزرار الرئيسية -->
         <div class="links-group">
-            <a id="lnk-channel" href="https://t.me/YOUR_CHANNEL" target="_blank" class="action-link-btn" style="border-left:4px solid var(--telegram-blue);">
-                <span>📢 قناة التليجرام الرسمية</span><span>❯</span>
+            <a id="lnk-channel" href="https://t.me/YOUR_CHANNEL" target="_blank" class="action-link-btn" style="border-right:4px solid var(--telegram-blue);">
+                <span style="display:flex; align-items:center; gap:10px;">
+                    <span style="font-size:20px;">📢</span> قناة التليجرام الرسمية
+                </span>
+                <span style="color:var(--text-muted);">❮</span>
             </a>
             
-            <div onclick="openSupportModal()" class="action-link-btn" style="border-left:4px solid var(--primary); cursor:pointer;">
-                <span>🎧 الدعم الفني لحل المشاكل</span><span>❯</span>
+            <div onclick="openSupportModal()" class="action-link-btn" style="border-right:4px solid var(--primary); cursor:pointer; background: linear-gradient(90deg, #1c1f28, #16181e);">
+                <span style="display:flex; align-items:center; gap:10px;">
+                    <span style="font-size:20px;">🎧</span>
+                    <div>
+                        <div style="color:#fff;">الدعم الفني المباشر</div>
+                        <div style="font-size:11px; color:var(--text-muted); font-weight:normal;">حل المشاكل والاستفسارات</div>
+                    </div>
+                </span>
+                <span class="support-pulse-badge">
+                    <span class="pulse-dot"></span> متصل
+                </span>
             </div>
 
-            <a id="lnk-youtube" href="https://youtube.com/@YOUR_CHANNEL" target="_blank" class="action-link-btn" style="border-left:4px solid var(--accent-red);">
-                <span>▶️ قناة اليوتيوب وشروحاتنا</span><span>❯</span>
+            <a id="lnk-youtube" href="https://youtube.com/@YOUR_CHANNEL" target="_blank" class="action-link-btn" style="border-right:4px solid var(--accent-red);">
+                <span style="display:flex; align-items:center; gap:10px;">
+                    <span style="font-size:20px;">▶️</span> قناة اليوتيوب والشروحات
+                </span>
+                <span style="color:var(--text-muted);">❮</span>
             </a>
         </div>
 
         <div style="display:flex; gap:10px;">
-            <button onclick="showPrivacyModal()" style="width:100%; padding:12px; background:var(--card-bg); border:1px solid #333; color:#aaa; border-radius:10px; font-weight:bold; font-size:13px; cursor:pointer;">
-                ⚖️ سياسة الاستخدام
+            <button onclick="showPrivacyModal()" style="width:100%; padding:14px; background:var(--card-bg); border:1px solid var(--border-color); color:var(--text-muted); border-radius:12px; font-weight:bold; font-size:13px; cursor:pointer; transition:background 0.2s;">
+                ⚖️ شروط وسياسة الاستخدام
             </button>
         </div>
     </div>
 
-    <div id="support-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:#0f0f0f; z-index:10000; flex-direction:column; box-sizing: border-box;">
-        
-        <div style="background:#1c1c1c; padding:12px 15px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333;">
-            <div>
-                <h3 style="margin:0; color:var(--primary); font-size:16px; display:flex; align-items:center; gap:6px;">تواصل معنا 🎧</h3>
-                <span id="ticket-id-display" style="font-size:11px; color:#aaa;">جاري الاتصال بالدعم...</span>
-            </div>
+    <!-- 🎧 المودال المنبثق التفاعلي للدعم الفني -->
+    <div id="support-modal" class="support-overlay">
+        <div class="support-dialog">
             
-            <button onclick="closeSupportModal()" style="background:var(--accent-red); border:none; color:#fff; font-size:13px; font-weight:bold; padding:8px 14px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:5px; box-shadow: 0 2px 6px rgba(204, 0, 0, 0.4);">
-                <span>إغلاق</span>
-                <span style="font-size:16px; line-height:1;">✕</span>
-            </button>
-        </div>
-
-        <div id="support-chat-box" style="flex:1; padding:15px; overflow-y:auto; display:flex; flex-direction:column; gap:10px;">
-        </div>
-
-        <div id="support-input-section" style="background:#1c1c1c; padding:10px 15px; display:flex; gap:10px; align-items:center; border-top:1px solid #333;">
-            <input type="text" id="support-msg-input" placeholder="اكتب رسالتك هنا..." style="flex:1; background:#0f0f0f; border:1px solid #333; color:#fff; padding:12px 15px; border-radius:20px; outline:none; font-family:inherit;" autocomplete="off">
-            <button id="support-send-btn" onclick="sendSupportMessage()" style="background:var(--primary); border:none; border-radius:50%; width:42px; height:42px; display:flex; justify-content:center; align-items:center; color:#000; font-size:18px; cursor:pointer;">➤</button>
-        </div>
-
-    </div>
-
-    <div id="settings-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); justify-content:center; align-items:center; z-index:9999; padding:20px; box-sizing: border-box;">
-        <div style="background:#1c1c1c; padding:20px; border-radius:15px; width:100%; max-width:320px; border:1px solid #333; text-align:right; max-height:80vh; overflow-y:auto;">
-            <h3 style="color:var(--primary); margin-top:0; text-align:center; font-size:18px;">شروط وسياسة الاستخدام</h3>
-            <div style="color:#ccc; font-size:12px; line-height:1.6; margin:15px 0;">
-                <p style="margin:5px 0;">1. تطبيق Zn Goxe هو تطبيق مصغر ترفيهي مبني بالكامل داخل بيئة تليجرام الآمنة.</p>
-                <p style="margin:5px 0;">2. اللعبة لا تطلب أو تجمع أي صلاحيات سرية أو كلمات مرور أو بيانات بنكية خاصة بالمستخدمين.</p>
-                <p style="margin:5px 0;">3. كافة نقاط ورصيد العملة (ZN) داخل التطبيق هي رصيد افتراضي مخصص للتقدم والمحاكاة داخل اللعبة.</p>
+            <!-- الهيدر -->
+            <div class="support-header">
+                <div class="support-header-title">
+                    <div class="support-avatar-icon">🎧</div>
+                    <div>
+                        <div style="font-weight:bold; color:#fff; font-size:16px; display:flex; align-items:center; gap:8px;">
+                            <span>الدعم الفني M4</span>
+                            <span class="support-pulse-badge" style="padding: 2px 6px; font-size: 9px;">مباشر</span>
+                        </div>
+                        <button onclick="copyTicketId()" class="ticket-badge-btn" id="ticket-id-display">
+                            جاري الاتصال... 📋
+                        </button>
+                    </div>
+                </div>
+                
+                <button onclick="closeSupportModal()" class="support-close-btn" title="إغلاق">
+                    ✕
+                </button>
             </div>
-            <button onclick="closeSettingsModal()" style="width:100%; padding:10px; background:var(--primary); border:none; color:black; border-radius:8px; font-weight:bold; font-size:14px; cursor:pointer;">موافق وإغلاق</button>
+
+            <!-- جسم الشات -->
+            <div id="support-chat-box" class="support-body">
+                <div class="msg-system">جاري الاتصال بخادم الدعم... ⏳</div>
+            </div>
+
+            <!-- خيارات سريعة للإرسال بنقرة واحدة -->
+            <div class="quick-chips-wrapper">
+                <button class="chip-btn" onclick="sendQuickQuery('مرحباً، لدي استفسار حول رصيد التعدين')">⛏️ استفسار عن التعدين</button>
+                <button class="chip-btn" onclick="sendQuickQuery('لدي مشكلة في إكمال إحدى المهام')">📋 مشكلة المهام</button>
+                <button class="chip-btn" onclick="sendQuickQuery('أواجه تأخير في عمليات الشراء أو السحب')">💳 الشراء والسحب</button>
+            </div>
+
+            <!-- إدخال الرسالة -->
+            <div id="support-input-section" class="support-footer">
+                <input type="text" id="support-msg-input" class="support-input" placeholder="اكتب استفسارك هنا..." autocomplete="off">
+                <button id="support-send-btn" class="support-send-btn" onclick="sendSupportMessage()">➤</button>
+            </div>
+
         </div>
     </div>
 
-    <div id="toast-msg" style="display:none; position:fixed; bottom:80px; left:50%; transform:translateX(-50%); background:var(--primary); color:#000; padding:8px 16px; border-radius:20px; font-size:12px; font-weight:bold; z-index:10000; box-shadow:0 4px 10px rgba(0,0,0,0.5); text-align:center; min-width:220px;">
-        تم نسخ الـ ID بنجاح!
+    <!-- مودال سياسة الاستخدام -->
+    <div id="settings-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); backdrop-filter:blur(8px); justify-content:center; align-items:center; z-index:99999; padding:20px;">
+        <div style="background:#16181e; padding:22px; border-radius:20px; width:100%; max-width:340px; border:1px solid rgba(255,255,255,0.1); text-align:right;">
+            <h3 style="color:var(--primary); margin-top:0; text-align:center; font-size:18px;">شروط وسياسة الاستخدام ⚖️</h3>
+            <div style="color:#ccc; font-size:13px; line-height:1.6; margin:15px 0;">
+                <p style="margin:8px 0;">1. تطبيق <b>Zn Goxe</b> هو تطبيق مصغر ترفيهي مبني بالكامل داخل بيئة تليجرام الآمنة.</p>
+                <p style="margin:8px 0;">2. اللعبة لا تطلب أو تجمع أي صلاحيات سرية أو كلمات مرور أو بيانات بنكية الخاصة بالمستخدمين.</p>
+                <p style="margin:8px 0;">3. كافة نقاط ورصيد العملة (ZN) داخل التطبيق هي رصيد افتراضي مخصص للتقدم والمحاكاة داخل اللعبة.</p>
+            </div>
+            <button onclick="closeSettingsModal()" style="width:100%; padding:12px; background:linear-gradient(135deg, var(--primary), #e67e22); border:none; color:black; border-radius:10px; font-weight:bold; font-size:14px; cursor:pointer;">موافق وإغلاق</button>
+        </div>
     </div>
 
+    <!-- التنبيه المنسدل (Toast) -->
+    <div id="toast-msg" style="display:none; position:fixed; bottom:90px; left:50%; transform:translateX(-50%); background:var(--primary); color:#000; padding:10px 20px; border-radius:25px; font-size:13px; font-weight:bold; z-index:100000; box-shadow:0 6px 20px rgba(0,0,0,0.6); text-align:center; min-width:200px;">
+        تم النسخ بنجاح!
+    </div>
+
+    <!-- شريط التنقل السفلي -->
     <nav class="bottom-nav">
         <a href="settings.html" class="active"><i>⚙️</i><span>الإعدادات</span></a>
         <a href="../shop/shop.html"><i>🏪</i><span>المتجر</span></a>
@@ -243,6 +561,6 @@
         <a href="../friends/friends.html"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
-    <script src="settings.js?v=13.0"></script>
+    <script src="settings.js?v=13.5"></script>
 </body>
 </html>
