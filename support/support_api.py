@@ -52,6 +52,16 @@ def get_telegram_user_info(req, uid=None, auth_user_info=None):
         print(f"⚠️ User Info Extract Warning: {e}")
     return {'id': str(uid or ''), 'first_name': 'مستخدم', 'username': 'بدون'}
 
+# نص الترحيب الرسمي والتنبيه الانضباطي
+WELCOME_NOTICE_TEXT = (
+    "مرحباً بك في مركز الدعم الفني! 🎧\n"
+    "كودك المرجعي للمحادثة: {ticket_id}\n\n"
+    "⚠️ تنبيه هام لجميع المستخدمين:\n"
+    "يرجى التكرم بالالتزام بآداب الحوار والتعامل اللائق مع فريق الدعم. "
+    "المحادثات مخصصة فقط للاستفسارات الفنية والمشكلات. أي إساءة لفظية أو تجاوز قد يعرض حسابك للحظر النهائي والمنع من الخدمة فوراً.\n\n"
+    "تفضل بكتابة استفسارك وسيقوم الفريق بالرد عليك في أقرب وقت."
+)
+
 # ==========================================
 # مسار: جلب أحدث تذكرة للمستخدم
 # ==========================================
@@ -65,14 +75,12 @@ def get_ticket():
         db_conn = get_db()
         tickets_ref = db_conn.collection('support_tickets')
         
-        # قراءة أحدث التذاكر الخاصة بالمستخدم
         docs = list(tickets_ref.where('user_id', '==', str(uid)).limit(10).stream())
         user_tickets = [d.to_dict() for d in docs if d.exists]
         user_tickets.sort(key=lambda x: str(x.get('created_at', '')), reverse=True)
 
         latest_ticket = user_tickets[0] if user_tickets else None
 
-        # إنشاء تذكرة أولى تلقائياً إذا لم توجد أي تذكرة سابقة
         if not latest_ticket:
             now_iso = datetime.now(timezone.utc).isoformat()
             new_ticket_id = generate_fast_ticket_id(uid)
@@ -80,7 +88,7 @@ def get_ticket():
 
             welcome_msg = {
                 'sender': 'admin',
-                'text': f'مرحباً بك في الدعم الفني! كودك المرجعي للمحادثة هو: {new_ticket_id}. اكتب استفسارك وسيجيبك الفريق.',
+                'text': WELCOME_NOTICE_TEXT.format(ticket_id=new_ticket_id),
                 'timestamp': now_iso
             }
             new_ticket_data = {
@@ -132,7 +140,7 @@ def create_new_ticket():
         
         welcome_msg = {
             'sender': 'admin',
-            'text': f'تم فتح تذكرة محادثة جديدة برقم مرجعي: {new_ticket_id}. تفضل بكتابة استفسارك.',
+            'text': WELCOME_NOTICE_TEXT.format(ticket_id=new_ticket_id),
             'timestamp': now_iso
         }
 
