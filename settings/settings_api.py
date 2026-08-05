@@ -1,7 +1,6 @@
 # settings/settings_api.py
 import traceback
 from flask import Blueprint, jsonify, request
-
 import database
 from core.security import get_authenticated_user
 
@@ -35,10 +34,10 @@ def get_settings_stats():
 
         user_data = user_doc.to_dict() or {}
         
+        # حساب مستويات التعدين عبر الـ 9 مستويات
         farm_levels_count = 0
         upgrades_map = user_data.get('upgrades', {})
         if isinstance(upgrades_map, dict):
-            # حلقة تكرار لمستويات التعدين التسعة (lvl1 .. lvl9)
             for i in range(1, 10):
                 lvl_val = upgrades_map.get(f'lvl{i}')
                 if lvl_val is not None:
@@ -47,6 +46,7 @@ def get_settings_stats():
                     except (ValueError, TypeError):
                         pass
 
+        # حساب مستويات التخزين
         storage_levels_count = 0
         storage_val = user_data.get('storage_level')
         if storage_val is not None:
