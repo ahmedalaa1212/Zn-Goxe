@@ -65,7 +65,8 @@
                 const res = await fetch('/api/settings/stats', {
                     headers: { 
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${initData}`
+                        'Authorization': `Bearer ${initData}`,
+                        'X-Telegram-Init-Data': initData
                     }
                 });
                 data = await res.json();
@@ -83,7 +84,7 @@
     }
 
     // ==========================================
-    // 🎧 نظام الدعم الفني الاحترافي المزود بالوضع المحلي الاحتياطي
+    // 🎧 نظام الدعم الفني الاحترافي
     // ==========================================
     let supportTicketId = null;
     let isSupportClosed = false;
@@ -98,7 +99,6 @@
     const inputSection = document.getElementById('support-input-section');
     const ticketDisplay = document.getElementById('ticket-id-display');
 
-    // إنشاء رقم مرجعي محلي سريعات عند الانقطاع
     function generateLocalTicketId() {
         const uid = getTgId();
         const shortUid = uid.slice(-4);
@@ -106,7 +106,6 @@
         return `TK-${shortUid}-${randSec}`;
     }
 
-    // حفظ وقراءة المحادثة محلياً للحفاظ على الاستمرارية
     function getStoredSupportData() {
         try {
             const uid = getTgId();
@@ -133,20 +132,18 @@
         const modal = document.getElementById('support-modal');
         if (modal) {
             modal.style.display = 'flex';
-            document.body.style.overflow = 'hidden'; // منع التمرير للخلفية
+            document.body.style.overflow = 'hidden';
         }
         
-        // جلب البيانات من الكاش المحلي أولاً لاستجابة فورية بدون شاشة معطلة
         const cached = getStoredSupportData();
         if (cached && cached.ticket_id) {
             supportTicketId = cached.ticket_id;
             isSupportClosed = (cached.status === 'closed');
             localMessagesList = cached.messages || [];
             if (ticketDisplay) ticketDisplay.innerHTML = `تذكرة #${supportTicketId} 📋`;
-            renderMessages(localMessagesList);
+            renderMessages(localMessagesList, true);
             enableSupportInput();
         } else {
-            // كود افتراضي مؤقت في حال فتح لأول مرة بدون شبكة
             supportTicketId = generateLocalTicketId();
             localMessagesList = [{
                 sender: 'admin',
@@ -154,7 +151,7 @@
                 timestamp: new Date().toISOString()
             }];
             if (ticketDisplay) ticketDisplay.innerHTML = `تذكرة #${supportTicketId} 📋`;
-            renderMessages(localMessagesList);
+            renderMessages(localMessagesList, true);
             enableSupportInput();
             saveSupportDataLocally(supportTicketId, localMessagesList, 'open');
         }
@@ -189,7 +186,8 @@
                     method: 'GET',
                     headers: { 
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${initData}`
+                        'Authorization': `Bearer ${initData}`,
+                        'X-Telegram-Init-Data': initData
                     }
                 });
                 data = await response.json();
@@ -210,9 +208,6 @@
                     enableSupportInput();
                     startSupportPolling();
                 }
-            } else {
-                // استخدام البيانات المحلية بدلاً من إغلاق الشات
-                console.warn("تنبيه الخادم: يتم استعراض البيانات محلياً.");
             }
         } catch (error) {
             console.warn("وضع العمل بدون اتصال بالشبكة مفعل محلياً.");
@@ -231,11 +226,11 @@
         }
     }
 
-    function renderMessages(messages) {
+    function renderMessages(messages, forceRender = false) {
         messages = messages || [];
         if (!chatBox) return;
 
-        if (messages.length === supportLastMsgCount && !isSupportClosed) return;
+        if (!forceRender && messages.length === supportLastMsgCount && !isSupportClosed) return;
         supportLastMsgCount = messages.length;
 
         chatBox.innerHTML = ''; 
@@ -294,7 +289,6 @@
     window.startNewTicket = async function() {
         if (chatBox) chatBox.innerHTML = '<div class="msg-system">جاري تفعيل محادثة جديدة... ⏳</div>';
         
-        // توليد كود محلي جديد فوراً
         const newLocalId = generateLocalTicketId();
         supportTicketId = newLocalId;
         isSupportClosed = false;
@@ -306,7 +300,7 @@
         
         if (ticketDisplay) ticketDisplay.innerHTML = `تذكرة #${supportTicketId} 📋`;
         enableSupportInput();
-        renderMessages(localMessagesList);
+        renderMessages(localMessagesList, true);
         saveSupportDataLocally(supportTicketId, localMessagesList, 'open');
 
         try {
@@ -319,6 +313,7 @@
                     method: 'POST',
                     headers: { 
                         'Authorization': `Bearer ${initData}`,
+                        'X-Telegram-Init-Data': initData,
                         'Content-Type': 'application/json'
                     }
                 });
@@ -329,7 +324,7 @@
                 supportTicketId = data.ticket_id;
                 localMessagesList = data.messages || localMessagesList;
                 if (ticketDisplay) ticketDisplay.innerHTML = `تذكرة #${supportTicketId} 📋`;
-                renderMessages(localMessagesList);
+                renderMessages(localMessagesList, true);
                 saveSupportDataLocally(supportTicketId, localMessagesList, 'open');
                 startSupportPolling();
             }
@@ -353,9 +348,8 @@
             timestamp: new Date().toISOString()
         };
 
-        // إضافة الرسالة في واجهة المستخدم وحفظها فوراً
         localMessagesList.push(newMsgObj);
-        renderMessages(localMessagesList);
+        renderMessages(localMessagesList, true);
         saveSupportDataLocally(supportTicketId, localMessagesList, 'open');
 
         msgInput.value = '';
@@ -371,6 +365,7 @@
                     method: 'POST',
                     headers: { 
                         'Authorization': `Bearer ${initData}`,
+                        'X-Telegram-Init-Data': initData,
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ ticket_id: supportTicketId, text: text })
@@ -420,7 +415,7 @@
             if (!isSupportClosed && modal && modal.style.display === 'flex' && document.visibilityState === 'visible') {
                 fetchTicketData();
             }
-        }, 10000); // استعلام كل 10 ثوانٍ لحفظ الموارد
+        }, 10000);
     }
 
     if (msgInput) {
