@@ -146,7 +146,8 @@
             localMessagesList = cached.messages || [];
             if (ticketDisplay) ticketDisplay.innerHTML = `تذكرة #${supportTicketId} 📋`;
             renderMessages(localMessagesList, true);
-            enableSupportInput();
+            if (isSupportClosed) disableSupportInput("تم إنهاء هذه المحادثة.");
+            else enableSupportInput();
         } else {
             supportTicketId = generateLocalTicketId();
             localMessagesList = [{
@@ -412,7 +413,6 @@
         if (inputSection) inputSection.style.opacity = '1';
     }
 
-    // تحديث المحادثة كل ثانيتين (2000 مللي ثانية) للاستلام الفوري السريع
     function startSupportPolling() {
         if (supportPollInterval) clearInterval(supportPollInterval);
         supportPollInterval = setInterval(() => {
@@ -420,7 +420,7 @@
             if (!isSupportClosed && modal && modal.style.display === 'flex' && document.visibilityState === 'visible') {
                 fetchTicketData();
             }
-        }, 2000);
+        }, 3000); // تحديث متزن كل 3 ثوانٍ
     }
 
     if (msgInput) {
