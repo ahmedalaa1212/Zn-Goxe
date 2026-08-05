@@ -19,23 +19,21 @@
     let currentDisplayBalance = 0;
     let currentPrizePool = 0;
 
-    // --- متغيرات لعبة 36 صندوقاً (شبكة العملات والمخاطرة) ---
-    const MULTIPLIERS_BASE_3 = [
-        1.01, 1.03, 1.06, 1.10, 1.15, 1.21, 1.28, 1.36, 1.45, 1.55,
-        1.67, 1.81, 1.97, 2.15, 2.36, 2.60, 2.88, 3.20, 3.58, 4.02,
-        4.54, 5.14, 5.84, 6.66, 7.62, 8.75, 10.08, 11.65, 13.50, 15.65,
-        17.00, 18.40, 20.00
+    // --- متغيرات لعبة عجلة الحظ (Lucky Wheel) ---
+    const WHEEL_SLICES = [
+        { label: "0x", mult: 0.0, color: "#ef4444" },
+        { label: "0.5x", mult: 0.5, color: "#f59e0b" },
+        { label: "1x", mult: 1.0, color: "#3b82f6" },
+        { label: "1.5x", mult: 1.5, color: "#8b5cf6" },
+        { label: "2x", mult: 2.0, color: "#10b981" },
+        { label: "3x", mult: 3.0, color: "#ec4899" },
+        { label: "5x", mult: 5.0, color: "#00ffcc" },
+        { label: "10x", mult: 10.0, color: "#f39c12" }
     ];
 
-    let minesState = {
-        active: false,
-        bet: 100,
-        bombsCount: 3,
-        currentStep: 0,
-        sessionToken: null,
-        openedBoxes: new Set(),
-        lastClickTime: 0,
-        multipliers: [...MULTIPLIERS_BASE_3]
+    let wheelState = {
+        isSpinning: false,
+        currentRotation: 0
     };
 
     const tele = window.Telegram?.WebApp;
@@ -133,240 +131,159 @@
     window.switchGameTab = function(tabName) {
         triggerHaptic('light');
         const arenaTab = document.getElementById('tab-arena');
-        const minesTab = document.getElementById('tab-mines');
+        const wheelTab = document.getElementById('tab-wheel');
         const arenaContent = document.getElementById('content-arena');
-        const minesContent = document.getElementById('content-mines');
+        const wheelContent = document.getElementById('content-wheel');
 
         if (tabName === 'arena') {
             if (arenaTab) { arenaTab.classList.add('active'); arenaTab.style.opacity = '1'; }
-            if (minesTab) { minesTab.classList.remove('active'); minesTab.style.opacity = '0.6'; }
+            if (wheelTab) { wheelTab.classList.remove('active'); wheelTab.style.opacity = '0.6'; }
             if (arenaContent) arenaContent.style.display = 'block';
-            if (minesContent) minesContent.style.display = 'none';
+            if (wheelContent) wheelContent.style.display = 'none';
         } else {
-            if (minesTab) { minesTab.classList.add('active'); minesTab.style.opacity = '1'; }
+            if (wheelTab) { wheelTab.classList.add('active'); wheelTab.style.opacity = '1'; }
             if (arenaTab) { arenaTab.classList.remove('active'); arenaTab.style.opacity = '0.6'; }
             if (arenaContent) arenaContent.style.display = 'none';
-            if (minesContent) minesContent.style.display = 'block';
-            renderMinesGrid();
+            if (wheelContent) wheelContent.style.display = 'block';
+            drawWheel();
         }
     };
 
-    // --- محرك لعبة 36 صندوقاً ---
-    function buildMultipliers(bombs) {
-        if (bombs === 3) return [...MULTIPLIERS_BASE_3];
-        const totalSafe = 36 - bombs;
-        const maxCap = 20.0 + (bombs - 3) * 10.0;
-        let list = [];
-        for (let i = 1; i <= totalSafe; i++) {
-            let ratio = i / totalSafe;
-            let mult = 1.0 + (maxCap - 1.0) * Math.pow(ratio, 2.2);
-            list.push(parseFloat(mult.toFixed(2)));
+    // --- رسم وعرض عجلة الحظ ---
+    function drawWheel() {
+        const canvas = document.getElementById('wheel-canvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        const centerX = width / 2;
+        const centerY = height / 2;
+        const radius = width / 2 - 10;
+        const numSlices = WHEEL_SLICES.length;
+        const sliceAngle = (2 * Math.PI) / numSlices;
+
+        ctx.clearRect(0, 0, width, height);
+
+        for (let i = 0; i < numSlices; i++) {
+            const angle = i * sliceAngle;
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.arc(centerX, centerY, radius, angle, angle + sliceAngle);
+            ctx.closePath();
+
+            ctx.fillStyle = WHEEL_SLICES[i].color;
+            ctx.fill();
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = '#0f172a';
+            ctx.stroke();
+
+            // رسم النصوص داخل القطاعات
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.rotate(angle + sliceAngle / 2);
+            ctx.textAlign = 'right';
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 32px sans-serif';
+            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            ctx.shadowBlur = 6;
+            ctx.fillText(WHEEL_SLICES[i].label, radius - 30, 10);
+            ctx.restore();
         }
-        return list;
     }
 
-    function renderMinesGrid() {
-        const grid = document.getElementById('mines-grid');
-        if (!grid) return;
-        grid.innerHTML = '';
-        for (let i = 0; i < 36; i++) {
-            const box = document.createElement('div');
-            box.className = 'mine-box';
-            box.dataset.index = i;
-            box.innerText = '❓';
-            box.onclick = () => onBoxClick(i);
-            grid.appendChild(box);
-        }
-    }
-
-    window.openMinesSettings = () => {
+    window.addBetWheel = (amt) => {
+        if (wheelState.isSpinning) return;
         triggerHaptic('light');
-        if (minesState.active) return showNotification("لا يمكن تغيير الإعدادات أثناء الجولة الحالية!");
-        document.getElementById('mines-settings-modal').style.display = 'flex';
-    };
-
-    window.closeMinesSettings = () => {
-        triggerHaptic('light');
-        document.getElementById('mines-settings-modal').style.display = 'none';
-    };
-
-    window.selectMinesCount = (count) => {
-        triggerHaptic('medium');
-        minesState.bombsCount = count;
-        minesState.multipliers = buildMultipliers(count);
-        document.getElementById('mines-count-label').innerText = `${count} قنابل`;
-        closeMinesSettings();
-    };
-
-    window.addBet = (amt) => {
-        if (minesState.active) return;
-        triggerHaptic('light');
-        const input = document.getElementById('mines-bet-input');
+        const input = document.getElementById('wheel-bet-input');
         let val = (parseFloat(input.value) || 0) + amt;
         input.value = val;
-        updateMinesActionButton();
+        updateWheelSpinButton();
     };
 
-    window.setBetMax = () => {
-        if (minesState.active) return;
+    window.setBetMaxWheel = () => {
+        if (wheelState.isSpinning) return;
         triggerHaptic('medium');
-        const input = document.getElementById('mines-bet-input');
+        const input = document.getElementById('wheel-bet-input');
         input.value = Math.floor(getStoredBalance());
-        updateMinesActionButton();
+        updateWheelSpinButton();
     };
 
-    function updateMinesActionButton() {
-        const btn = document.getElementById('btn-mines-action');
-        if (!btn) return;
-        if (!minesState.active) {
-            const betInput = parseFloat(document.getElementById('mines-bet-input').value) || 100;
-            btn.style.background = "linear-gradient(90deg, #f39c12, #d35400)";
-            btn.style.boxShadow = "0 6px 20px var(--primary-glow)";
-            btn.innerText = `بدء الرهان (${betInput.toLocaleString('en-US')} ZN) 🚀`;
-        } else {
-            const currentMult = minesState.currentStep > 0 ? minesState.multipliers[minesState.currentStep - 1] : 1.0;
-            const cashOutVal = Math.round(minesState.bet * currentMult * 100) / 100;
-            btn.style.background = "linear-gradient(90deg, #10b981, #059669)";
-            btn.style.boxShadow = "0 6px 20px var(--accent-green-glow)";
-            btn.innerText = `سحب الأرباح (${cashOutVal.toLocaleString('en-US')} ZN) 💰`;
+    function updateWheelSpinButton() {
+        const btn = document.getElementById('btn-spin-wheel');
+        const betVal = parseFloat(document.getElementById('wheel-bet-input').value) || 100;
+        if (btn && !wheelState.isSpinning) {
+            btn.innerText = `لف العجلة الآن (${betVal.toLocaleString('en-US')} ZN) 🚀`;
         }
     }
 
-    window.handleMinesAction = () => {
-        triggerHaptic('heavy');
-        if (!minesState.active) startMinesRound();
-        else cashOutMinesRound();
-    };
-
-    async function startMinesRound() {
-        const betVal = parseFloat(document.getElementById('mines-bet-input').value) || 0;
+    window.spinWheel = async function() {
+        if (wheelState.isSpinning) return;
+        const betVal = parseFloat(document.getElementById('wheel-bet-input').value) || 0;
         if (betVal < 100) return showNotification("الحد الأدنى للرهان هو 100 ZN.");
-        if (getStoredBalance() < betVal) return showNotification("رصيدك غير كافٍ للرهان.");
+        if (getStoredBalance() < betVal) return showNotification("رصيدك غير كافٍ للف العجلة.");
 
-        const btn = document.getElementById('btn-mines-action');
+        wheelState.isSpinning = true;
+        triggerHaptic('heavy');
+
+        const btn = document.getElementById('btn-spin-wheel');
         btn.disabled = true;
-        btn.innerText = "جاري بدء الجولة... ⏳";
+        btn.innerText = "جاري الدوران... 🎰";
 
         try {
             const initData = tele?.initData || "";
-            const res = await fetch('/api/games/mines/start', {
+            const res = await fetch('/api/games/wheel/spin', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${initData}` },
-                body: JSON.stringify({ initData: initData, bet: betVal, bombs_count: minesState.bombsCount })
+                body: JSON.stringify({ initData: initData, bet: betVal })
             });
 
             const data = await res.json();
             if (data.success) {
-                triggerHaptic('success');
-                minesState.active = true;
-                minesState.bet = betVal;
-                minesState.sessionToken = data.session_token;
-                minesState.currentStep = 0;
-                minesState.openedBoxes.clear();
-                
                 setStoredBalance(data.new_balance, true);
-                renderMinesGrid();
-                document.getElementById('mines-multiplier-val').innerText = '1.00x';
-                updateMinesActionButton();
+                
+                // حساب زاوية الدوران بدقة للوصول للقطاع الفائز
+                const numSlices = WHEEL_SLICES.length;
+                const sliceDegree = 360 / numSlices;
+                const targetIndex = data.winning_index;
+
+                // تحضير اللفة السلسة عند أعلى نقطة (Pointer at 270 deg)
+                const targetDegree = 270 - (targetIndex * sliceDegree + sliceDegree / 2);
+                const extraSpins = 360 * 5; // 5 دورات كاملة للتأثير البصري
+                
+                wheelState.currentRotation += extraSpins + (targetDegree - (wheelState.currentRotation % 360));
+
+                const canvas = document.getElementById('wheel-canvas');
+                canvas.style.transform = `rotate(${wheelState.currentRotation}deg)`;
+
+                setTimeout(() => {
+                    wheelState.isSpinning = false;
+                    btn.disabled = false;
+                    updateWheelSpinButton();
+
+                    if (data.payout > 0) {
+                        triggerHaptic('success');
+                        triggerGlobalToast(`🎉 مبروك! كسبت ${data.payout.toLocaleString('en-US')} ZN (مضاعف ${data.multiplier}x)`, true);
+                    } else {
+                        triggerHaptic('error');
+                        triggerGlobalToast("😅 حظاً أوفير في المرة القادمة!", false);
+                    }
+                }, 4100);
+
             } else {
+                wheelState.isSpinning = false;
+                btn.disabled = false;
+                updateWheelSpinButton();
                 triggerHaptic('error');
-                showNotification("⚠️ " + (data.message || "تعذر بدء الجولة"));
-                updateMinesActionButton();
+                showNotification("⚠️ " + (data.message || "تعذر لف العجلة"));
             }
         } catch (e) {
+            wheelState.isSpinning = false;
+            btn.disabled = false;
+            updateWheelSpinButton();
             triggerHaptic('error');
             showNotification("خطأ في الاتصال بالخادم.");
-            updateMinesActionButton();
-        } finally {
-            btn.disabled = false;
         }
-    }
-
-    function onBoxClick(boxIndex) {
-        if (!minesState.active) return;
-        const now = Date.now();
-        if (now - minesState.lastClickTime < 350) return;
-        if (minesState.openedBoxes.has(boxIndex)) return;
-
-        minesState.lastClickTime = now;
-        minesState.openedBoxes.add(boxIndex);
-
-        triggerHaptic('light');
-        const boxEl = document.querySelector(`.mine-box[data-index="${boxIndex}"]`);
-        
-        minesState.currentStep++;
-        const currentMult = minesState.multipliers[minesState.currentStep - 1] || 1.0;
-
-        boxEl.classList.add('revealed-safe');
-        boxEl.innerText = '💎';
-        document.getElementById('mines-multiplier-val').innerText = `${currentMult.toFixed(2)}x`;
-        updateMinesActionButton();
-    }
-
-    async function cashOutMinesRound() {
-        if (!minesState.active || minesState.currentStep === 0) return;
-
-        const btn = document.getElementById('btn-mines-action');
-        btn.disabled = true;
-        btn.innerText = "جاري سحب الأرباح... 💰";
-
-        try {
-            const initData = tele?.initData || "";
-            const res = await fetch('/api/games/mines/end', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${initData}` },
-                body: JSON.stringify({
-                    initData: initData,
-                    session_token: minesState.sessionToken,
-                    step: minesState.currentStep,
-                    opened_boxes: Array.from(minesState.openedBoxes),
-                    action: 'cashout'
-                })
-            });
-
-            const data = await res.json();
-            if (data.success) {
-                triggerHaptic('success');
-                setStoredBalance(data.new_balance, true);
-                triggerGlobalToast(`🎉 مبروك! كسبت ${data.payout.toLocaleString('en-US')} ZN (مضاعف ${data.multiplier}x)`, true);
-                revealAllBombs(data.bomb_positions, data.opened_boxes);
-            } else if (data.status === 'exploded') {
-                handleBombExplosion(data);
-            } else {
-                triggerHaptic('error');
-                showNotification(data.message || "حدث خطأ أثناء السحب.");
-            }
-        } catch (e) {
-            triggerHaptic('error');
-            showNotification("خطأ في شبكة الاتصال.");
-        } finally {
-            minesState.active = false;
-            btn.disabled = false;
-            updateMinesActionButton();
-        }
-    }
-
-    function handleBombExplosion(data) {
-        triggerHaptic('error');
-        minesState.active = false;
-        revealAllBombs(data.bomb_positions, Array.from(minesState.openedBoxes));
-        
-        triggerGlobalToast("💣 للأسف اصطدمت بعملة مكسورة!", false);
-        updateMinesActionButton();
-    }
-
-    function revealAllBombs(bombPositions = [], openedBoxes = []) {
-        const gridBoxes = document.querySelectorAll('.mine-box');
-        gridBoxes.forEach((box, idx) => {
-            if (bombPositions.includes(idx)) {
-                box.classList.add('revealed-bomb');
-                box.innerText = '💣';
-            } else if (!openedBoxes.includes(idx)) {
-                box.style.opacity = '0.4';
-                box.innerText = '🪙';
-            }
-        });
-    }
+    };
 
     // --- منطق الساحة الكبرى والتحديثات الخلفية ---
     async function fetchArenaStatus(force = false) {
@@ -633,11 +550,15 @@
         document.addEventListener("DOMContentLoaded", () => {
             fetchArenaStatus(true);
             checkBackgroundNotifications();
-            renderMinesGrid();
+            drawWheel();
+            const input = document.getElementById('wheel-bet-input');
+            if (input) input.addEventListener('input', updateWheelSpinButton);
         });
     } else {
         fetchArenaStatus(true);
         checkBackgroundNotifications();
-        renderMinesGrid();
+        drawWheel();
+        const input = document.getElementById('wheel-bet-input');
+        if (input) input.addEventListener('input', updateWheelSpinButton);
     }
 })();
