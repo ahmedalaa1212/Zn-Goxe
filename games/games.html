@@ -45,7 +45,7 @@
             min-height: 100vh;
         }
 
-        /* شريط الرصيد العلوي المبتكر */
+        /* شريط الرصيد العلوي */
         .balance-header-fixed {
             position: fixed;
             top: 12px;
@@ -128,87 +128,68 @@
             box-shadow: 0 0 20px var(--primary-glow), inset 0 0 10px rgba(243, 156, 18, 0.1);
         }
 
-        .tab-card.active#tab-mines {
+        .tab-card.active#tab-wheel {
             border-color: var(--accent-cyan);
             box-shadow: 0 0 20px var(--accent-cyan-glow), inset 0 0 10px rgba(0, 255, 204, 0.1);
         }
 
-        /* كارت لعبة شبكة العملات / القنابل */
-        .mines-card {
+        /* كارت عجلة الحظ */
+        .wheel-card {
             background: linear-gradient(165deg, rgba(22, 22, 38, 0.9), rgba(11, 13, 20, 0.95));
             backdrop-filter: blur(16px);
             border: 1px solid rgba(0, 255, 204, 0.2);
             border-radius: 22px;
-            padding: 18px 14px;
+            padding: 20px 14px;
             text-align: center;
             position: relative;
             box-shadow: 0 12px 35px rgba(0, 0, 0, 0.6);
         }
 
-        .mines-header-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: rgba(15, 23, 42, 0.6);
-            padding: 10px 14px;
-            border-radius: 14px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            margin-bottom: 16px;
-        }
-
-        .mines-grid {
-            display: grid;
-            grid-template-columns: repeat(6, 1fr);
-            gap: 7px;
-            margin-bottom: 18px;
-        }
-
-        .mine-box {
-            aspect-ratio: 1;
-            background: linear-gradient(145deg, #1e1e32, #141424);
-            border: 1.5px solid rgba(255, 255, 255, 0.08);
-            border-radius: 10px;
+        .wheel-wrapper {
+            position: relative;
+            width: 280px;
+            height: 280px;
+            margin: 10px auto 20px auto;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.25rem;
-            cursor: pointer;
-            user-select: none;
-            transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-            box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.05), 0 4px 8px rgba(0,0,0,0.4);
         }
 
-        .mine-box:hover {
-            border-color: rgba(0, 255, 204, 0.4);
+        .wheel-pointer {
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 14px solid transparent;
+            border-right: 14px solid transparent;
+            border-top: 24px solid #ef4444;
+            z-index: 10;
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.6));
         }
 
-        .mine-box:active {
-            transform: scale(0.88);
+        canvas#wheel-canvas {
+            width: 280px;
+            height: 280px;
+            border-radius: 50%;
+            box-shadow: 0 0 25px rgba(0, 255, 204, 0.2), inset 0 0 15px rgba(0, 0, 0, 0.8);
+            transition: transform 4s cubic-bezier(0.15, 0.95, 0.35, 1);
         }
 
-        .mine-box.revealed-safe {
-            background: linear-gradient(135deg, #10b981, #047857) !important;
-            border-color: #34d399 !important;
-            box-shadow: 0 0 14px var(--accent-green-glow);
-            animation: popIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
-
-        .mine-box.revealed-bomb {
-            background: linear-gradient(135deg, #ef4444, #991b1b) !important;
-            border-color: #f87171 !important;
-            box-shadow: 0 0 16px var(--accent-red-glow);
-            animation: shake 0.4s ease-in-out;
-        }
-
-        @keyframes popIn {
-            0% { transform: scale(0.4) rotate(-10deg); }
-            100% { transform: scale(1) rotate(0deg); }
-        }
-
-        @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            20%, 60% { transform: translateX(-5px); }
-            40%, 80% { transform: translateX(5px); }
+        .wheel-center-cap {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            border: 3px solid var(--accent-cyan);
+            border-radius: 50%;
+            z-index: 5;
+            box-shadow: 0 0 15px var(--accent-cyan-glow);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
         }
 
         .bet-controls {
@@ -258,25 +239,22 @@
             color: #fff;
         }
 
-        .btn-cashout {
+        .btn-spin {
             width: 100%;
             padding: 15px;
-            background: linear-gradient(90deg, #10b981, #059669);
-            color: white;
+            background: linear-gradient(90deg, #00ffcc, #059669);
+            color: #0b0d14;
             border: none;
             border-radius: 14px;
-            font-weight: 800;
-            font-size: 1.1rem;
+            font-weight: 900;
+            font-size: 1.15rem;
             cursor: pointer;
-            box-shadow: 0 6px 20px var(--accent-green-glow);
+            box-shadow: 0 6px 20px var(--accent-cyan-glow);
             transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-            overflow: hidden;
         }
 
-        .btn-cashout:active {
+        .btn-spin:active {
             transform: translateY(2px);
-            box-shadow: 0 2px 10px var(--accent-green-glow);
         }
 
         /* كارت الساحة الكبرى */
@@ -418,7 +396,7 @@
 
     <div class="games-container">
         
-        <!-- أزرار التبديل بين الألعاب -->
+        <!-- أزرار التبديل بين اللعبتين فقط -->
         <div class="tabs-grid">
             <div id="tab-arena" onclick="switchGameTab('arena')" class="tab-card active">
                 <div style="font-size: 24px; margin-bottom: 4px;">⚔️</div>
@@ -426,10 +404,10 @@
                 <div style="color: var(--primary); font-size: 11px; margin-top: 4px; font-weight: 700;">متاحة الآن</div>
             </div>
             
-            <div id="tab-mines" onclick="switchGameTab('mines')" class="tab-card">
-                <div style="font-size: 24px; margin-bottom: 4px;">💣</div>
-                <div style="color: #fff; font-size: 13px; font-weight: 800;">شبكة العملات (36)</div>
-                <div style="color: var(--accent-cyan); font-size: 11px; margin-top: 4px; font-weight: 700;">مخاطرة وأرباح</div>
+            <div id="tab-wheel" onclick="switchGameTab('wheel')" class="tab-card">
+                <div style="font-size: 24px; margin-bottom: 4px;">🎰</div>
+                <div style="color: #fff; font-size: 13px; font-weight: 800;">عجلة الحظ</div>
+                <div style="color: var(--accent-cyan); font-size: 11px; margin-top: 4px; font-weight: 700;">لف واكسب فوراً</div>
             </div>
         </div>
 
@@ -462,50 +440,29 @@
             <p id="arena-subtext" style="color: var(--text-muted); font-size: 12px; text-align: center; margin-top: 16px; font-weight: 600;">سحب تلقائي مستمر! رسوم الاشتراك: 250 ZN</p>
         </div>
 
-        <!-- تبويب 2: لعبة شبكة العملات 36 صندوقاً -->
-        <div id="content-mines" style="display: none;">
-            <div class="mines-card">
-                <div class="mines-header-bar">
-                    <div style="text-align: right;">
-                        <span style="color: var(--text-muted); font-size: 11px; display: block; font-weight: 700;">المضاعف الحالي</span>
-                        <strong id="mines-multiplier-val" style="color: var(--accent-cyan); font-size: 1.25rem; font-weight: 900;">1.00x</strong>
-                    </div>
-                    <button onclick="openMinesSettings()" style="background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; padding: 7px 14px; border-radius: 10px; font-size: 12px; font-weight: 700; cursor: pointer;">
-                        ⚙️ الإعدادات (<span id="mines-count-label">3 قنابل</span>)
-                    </button>
+        <!-- تبويب 2: لعبة عجلة الحظ -->
+        <div id="content-wheel" style="display: none;">
+            <div class="wheel-card">
+                <h3 style="color: #fff; font-size: 16px; margin: 0 0 12px 0; font-weight: 800;">🎰 لف العجلة واكسب عملات ZN</h3>
+                
+                <div class="wheel-wrapper">
+                    <div class="wheel-pointer"></div>
+                    <canvas id="wheel-canvas" width="560" height="560"></canvas>
+                    <div class="wheel-center-cap">💎</div>
                 </div>
-
-                <!-- شبكة 6x6 (36 صندوق) -->
-                <div id="mines-grid" class="mines-grid"></div>
 
                 <div class="bet-controls">
                     <div class="bet-input-wrapper">
-                        <input type="number" id="mines-bet-input" class="bet-input" value="100" min="100" step="100">
+                        <input type="number" id="wheel-bet-input" class="bet-input" value="100" min="100" step="100">
                     </div>
-                    <button class="btn-quick-bet" onclick="addBet(100)">+100</button>
-                    <button class="btn-quick-bet" onclick="addBet(500)">+500</button>
-                    <button class="btn-quick-bet" onclick="setBetMax()">الأقصى</button>
+                    <button class="btn-quick-bet" onclick="addBetWheel(100)">+100</button>
+                    <button class="btn-quick-bet" onclick="addBetWheel(500)">+500</button>
+                    <button class="btn-quick-bet" onclick="setBetMaxWheel()">الأقصى</button>
                 </div>
 
-                <button id="btn-mines-action" class="btn-cashout" style="background: linear-gradient(90deg, #f39c12, #d35400); box-shadow: 0 6px 20px var(--primary-glow);" onclick="handleMinesAction()">
-                    بدء الرهان (100 ZN) 🚀
+                <button id="btn-spin-wheel" class="btn-spin" onclick="spinWheel()">
+                    لف العجلة الآن (100 ZN) 🚀
                 </button>
-            </div>
-        </div>
-
-        <!-- نافذة إعدادات القنابل -->
-        <div id="mines-settings-modal" class="modal-overlay" style="display: none;">
-            <div class="modal-card">
-                <h3 style="color: #fff; font-size: 16px; margin-bottom: 18px; font-weight: 800;">اختر عدد العملات المكسورة (القنابل)</h3>
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 22px;">
-                    <button class="btn-quick-bet" style="padding: 12px 6px;" onclick="selectMinesCount(3)">3 قنابل (20x)</button>
-                    <button class="btn-quick-bet" style="padding: 12px 6px;" onclick="selectMinesCount(4)">4 قنابل (30x)</button>
-                    <button class="btn-quick-bet" style="padding: 12px 6px;" onclick="selectMinesCount(5)">5 قنابل (40x)</button>
-                    <button class="btn-quick-bet" style="padding: 12px 6px;" onclick="selectMinesCount(6)">6 قنابل (50x)</button>
-                    <button class="btn-quick-bet" style="padding: 12px 6px;" onclick="selectMinesCount(7)">7 قنابل (60x)</button>
-                    <button class="btn-quick-bet" style="padding: 12px 6px;" onclick="selectMinesCount(8)">8 قنابل (70x)</button>
-                </div>
-                <button onclick="closeMinesSettings()" style="width: 100%; padding: 12px; background: rgba(30, 41, 59, 0.9); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; font-weight: 800; cursor: pointer;">إغلاق</button>
             </div>
         </div>
 
@@ -554,6 +511,6 @@
         <a href="../friends/friends.html" class="nav-item"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
-    <script src="games.js?v=13.5"></script>
+    <script src="games.js?v=14.0"></script>
 </body>
 </html>
