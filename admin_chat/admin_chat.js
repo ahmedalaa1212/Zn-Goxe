@@ -1,10 +1,15 @@
 (function initAdminChat() {
     let currentTicketId = null;
     let allTickets = [];
+    let adminPollInterval = null;
+    let isFetching = false;
+    let lastMsgCount = 0;
 
     window.fetchAdminTickets = async function() {
+        if (isFetching) return;
+        isFetching = true;
+
         const container = document.getElementById('tickets-container');
-        if (!container) return;
         
         try {
             const response = await fetch('/api/admin/chat/tickets', {
@@ -15,14 +20,50 @@
             if (data.success) {
                 allTickets = data.tickets || [];
                 updateUnreadBadge(allTickets);
-                filterTickets(); // عرض القائمة طبقاً لنص البحث الحالي
-            } else {
+
+                // إذا كان الأدمن داخل محادثة حالياً، نقوم بتحديث الرسائل فورياً
+                if (currentTicketId) {
+                    const activeTicket = allTickets.find(t => t.ticket_id === currentTicketId);
+                    if (activeTicket) {
+                        const newMsgs = activeTicket.messages || [];
+                        if (newMsgs.length !== lastMsgCount) {
+                            renderChatMessages(newMsgs);
+                            // تميز المحادثة كمقروءة تلقائياً في الخلفية
+                            if (activeTicket.has_unread_admin || activeTicket.last_sender === 'user') {
+                                markTicketAsReadSilent(currentTicketId);
+                                activeTicket.has_unread_admin = false;
+                                updateUnreadBadge(allTickets);
+                            }
+                        }
+                    }
+                } else {
+                    // إذا كان الأدمن في القائمة الرئيسية، نحدث القائمة
+                    filterTickets();
+                }
+            } else if (container && !currentTicketId) {
                 container.innerHTML = `<p style="color:#ef4444; text-align:center;">${data.message}</p>`;
             }
         } catch (e) {
-            container.innerHTML = '<p style="color:#ef4444; text-align:center;">فشل الاتصال بالسيرفر</p>';
+            if (container && !currentTicketId && allTickets.length === 0) {
+                container.innerHTML = '<p style="color:#ef4444; text-align:center;">فشل الاتصال بالسيرفر</p>';
+            }
+        } finally {
+            isFetching = false;
         }
     };
+
+    async function markTicketAsReadSilent(ticketId) {
+        try {
+            await fetch('/api/admin/chat/mark_read', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': window.Telegram?.WebApp?.initData || ""
+                },
+                body: JSON.stringify({ ticket_id: ticketId })
+            });
+        } catch (e) {}
+    }
 
     function updateUnreadBadge(tickets) {
         const badge = document.getElementById('unread-count-badge');
@@ -107,19 +148,9 @@
         const ticket = allTickets.find(t => t.ticket_id === ticketId);
         if (!ticket) return;
 
-        // إعلام السيرفر أن الأدمن فتح التذكرة لقراءتها
-        try {
-            fetch('/api/admin/chat/mark_read', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Telegram-Init-Data': window.Telegram?.WebApp?.initData || ""
-                },
-                body: JSON.stringify({ ticket_id: ticketId })
-            });
-            ticket.has_unread_admin = false;
-            updateUnreadBadge(allTickets);
-        } catch (e) {}
+        markTicketAsReadSilent(ticketId);
+        ticket.has_unread_admin = false;
+        updateUnreadBadge(allTickets);
 
         document.getElementById('tickets-list-section').style.display = 'none';
         document.getElementById('chat-view-section').style.display = 'block';
@@ -128,11 +159,18 @@
         document.getElementById('chat-user-name').innerText = `${info.first_name || 'مستخدم'} (@${info.username || 'بدون'})`;
         document.getElementById('chat-ticket-id').innerText = `رقم التذكرة: #${ticket.ticket_id}`;
 
+        lastMsgCount = 0;
         renderChatMessages(ticket.messages || []);
+        
+        // استدعاء جلب بيانات فوري
+        fetchAdminTickets();
     };
 
     function renderChatMessages(messages) {
         const box = document.getElementById('admin-chat-box');
+        if (!box) return;
+
+        lastMsgCount = messages.length;
         box.innerHTML = '';
 
         if (messages.length === 0) {
@@ -153,6 +191,7 @@
                 background: ${isAdmin ? '#f59e0b' : '#2d3345'};
                 color: ${isAdmin ? '#000' : '#fff'};
                 border-bottom-${isAdmin ? 'right' : 'left'}-radius: 2px;
+                white-space: pre-wrap;
             `;
             div.innerText = m.text;
             box.appendChild(div);
@@ -161,6 +200,8 @@
     }
 
     window.closeChatView = function() {
+        currentTicketId = null;
+        lastMsgCount = 0;
         document.getElementById('chat-view-section').style.display = 'none';
         document.getElementById('tickets-list-section').style.display = 'block';
         fetchAdminTickets();
@@ -184,15 +225,8 @@
             });
             const data = await res.json();
             if (data.success) {
-                const tRes = await fetch('/api/admin/chat/tickets', {
-                    headers: { 'X-Telegram-Init-Data': window.Telegram?.WebApp?.initData || "" }
-                });
-                const tData = await tRes.json();
-                if (tData.success) {
-                    allTickets = tData.tickets;
-                    const updatedTicket = allTickets.find(t => t.ticket_id === currentTicketId);
-                    if (updatedTicket) renderChatMessages(updatedTicket.messages || []);
-                }
+                // استعلام فوري بعد الإرسال لإظهار الرسالة فوراً
+                fetchAdminTickets();
             } else {
                 alert("خطأ: " + data.message);
             }
@@ -224,6 +258,17 @@
         }
     };
 
+    // بدء نظام التحديث التلقائي الفوري كل ثانيتين (2000ms)
+    function startAdminPolling() {
+        if (adminPollInterval) clearInterval(adminPollInterval);
+        adminPollInterval = setInterval(() => {
+            if (document.visibilityState === 'visible') {
+                fetchAdminTickets();
+            }
+        }, 2000);
+    }
+
     // التشغيل التلقائي عند التحميل
     fetchAdminTickets();
+    startAdminPolling();
 })();
