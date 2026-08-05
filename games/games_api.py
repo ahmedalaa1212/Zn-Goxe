@@ -1,8 +1,6 @@
 # games/games_api.py
 import time
 import random
-import hmac
-import hashlib
 import json
 from flask import Blueprint, jsonify, request
 from firebase_admin import firestore
@@ -12,9 +10,6 @@ from core.security import get_authenticated_user
 
 games_bp = Blueprint('games', __name__)
 
-# مفتاح التوقيع المشفر للجلسات (HMAC)
-HMAC_SECRET = b"ZN_GOXE_MINES_SAFE_GUARD_KEY_2026"
-
 # --- Server-Side RAM Caching Systems ---
 _ARENA_CONFIG_CACHE = {"data": None, "timestamp": 0}
 _ROUND_CACHE = {}            # {round_id: {"data": dict, "timestamp": float}}
@@ -23,11 +18,16 @@ _RESOLVED_ROUNDS_CACHE = set()
 CACHE_TTL_CONFIG = 600   
 CACHE_TTL_ROUND = 5      
 
-MULTIPLIERS_3 = [
-    1.01, 1.03, 1.06, 1.10, 1.15, 1.21, 1.28, 1.36, 1.45, 1.55,
-    1.67, 1.81, 1.97, 2.15, 2.36, 2.60, 2.88, 3.20, 3.58, 4.02,
-    4.54, 5.14, 5.84, 6.66, 7.62, 8.75, 10.08, 11.65, 13.50, 15.65,
-    17.00, 18.40, 20.00
+# إعدادات عجلة الحظ (المضاعفات والأوزان والاحتمالات)
+WHEEL_SLICES = [
+    {"index": 0, "label": "0x", "mult": 0.0, "weight": 35},
+    {"index": 1, "label": "0.5x", "mult": 0.5, "weight": 25},
+    {"index": 2, "label": "1x", "mult": 1.0, "weight": 20},
+    {"index": 3, "label": "1.5x", "mult": 1.5, "weight": 10},
+    {"index": 4, "label": "2x", "mult": 2.0, "weight": 6},
+    {"index": 5, "label": "3x", "mult": 3.0, "weight": 2.5},
+    {"index": 6, "label": "5x", "mult": 5.0, "weight": 1.0},
+    {"index": 7, "label": "10x", "mult": 10.0, "weight": 0.5}
 ]
 
 def get_arena_config():
@@ -55,40 +55,9 @@ def get_current_round_info(round_duration):
     end_time = (round_id_num + 1) * round_duration
     return str(round_id_num), end_time, current_time, round_id_num
 
-def generate_session_token(payload):
-    data_str = json.dumps(payload, sort_keys=True)
-    signature = hmac.new(HMAC_SECRET, data_str.encode('utf-8'), hashlib.sha256).hexdigest()
-    return f"{data_str}.{signature}"
-
-def verify_session_token(token):
-    try:
-        parts = token.rsplit('.', 1)
-        if len(parts) != 2:
-            return None
-        data_str, signature = parts[0], parts[1]
-        expected_sig = hmac.new(HMAC_SECRET, data_str.encode('utf-8'), hashlib.sha256).hexdigest()
-        if hmac.compare_digest(expected_sig, signature):
-            return json.loads(data_str)
-        return None
-    except Exception:
-        return None
-
-def calculate_multipliers(bombs_count):
-    if bombs_count == 3:
-        return MULTIPLIERS_3
-    total_safe = 36 - bombs_count
-    max_cap = 20.0 + (bombs_count - 3) * 10.0
-    res = []
-    for i in range(1, total_safe + 1):
-        ratio = i / float(total_safe)
-        mult = 1.0 + (max_cap - 1.0) * (ratio ** 2.2)
-        res.append(round(mult, 2))
-    return res
-
-# --- 1. بدء لعبة 36 صندوقاً / العملات المكسورة (Grid & Mines API) ---
-@games_bp.route('/grid/start', methods=['POST'])
-@games_bp.route('/mines/start', methods=['POST'])
-def start_grid_game():
+# --- 1. مسار لف عجلة الحظ (Lucky Wheel API) ---
+@games_bp.route('/wheel/spin', methods=['POST'])
+def spin_wheel():
     success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -97,153 +66,72 @@ def start_grid_game():
     data = request.get_json(silent=True) or {}
     
     settings = get_game_settings() or {}
-    grid_cfg = settings.get('grid_game_config', {})
-    min_bet = float(grid_cfg.get('min_bet', 250.0))
-    target_margin = float(grid_cfg.get('target_margin', 0.80))
+    wheel_cfg = settings.get('wheel_game_config', {})
+    min_bet = float(wheel_cfg.get('min_bet', 100.0))
+    target_margin = float(wheel_cfg.get('target_margin', 0.80))
     
     bet = round(float(data.get('bet', min_bet)), 2)
-    bombs_count = int(data.get('bombs_count', data.get('broken_coins', grid_cfg.get('default_broken_coins', 3))))
 
     if bet < min_bet:
         return jsonify({"success": False, "message": f"الحد الأدنى للرهان هو {int(min_bet)} ZN."})
 
-    if bombs_count < 3 or bombs_count > 8:
-        bombs_count = 3
-
     user_ref = db.collection('users').document(uid_str)
     
+    # اختيار القطاع بناءً على الأوزان والاحتمالات مع مراعاة هامش الخزينة
+    margin = get_system_profit_margin()
+    
+    # إذا انخفض هامش أرباح الخزينة، نرفع نسبة الخسارة لحماية النظام
+    current_slices = list(WHEEL_SLICES)
+    if margin < target_margin:
+        weights = [45, 30, 15, 7, 3, 0, 0, 0] # حماية من الجوائز العالية
+    else:
+        weights = [s['weight'] for s in current_slices]
+
+    winning_slice = random.choices(current_slices, weights=weights, k=1)[0]
+    winning_index = winning_slice['index']
+    multiplier = winning_slice['mult']
+    payout = round(bet * multiplier, 2)
+
     @firestore.transactional
-    def start_transaction(transaction):
+    def spin_transaction(transaction):
         user_doc = user_ref.get(transaction=transaction)
         if not user_doc.exists:
-            return False, "المستخدم غير موجود", 0
+            return False, "المستخدم غير موجود", 0, 0
 
         user_data = user_doc.to_dict() or {}
         bal = round(float(user_data.get('balance', 0.0)), 2)
         if bal < bet:
-            return False, "رصيدك غير كافٍ للرهان", bal
+            return False, "رصيدك غير كافٍ للف العجلة", bal, 0
 
-        new_bal = round(bal - bet, 2)
+        new_bal = round(bal - bet + payout, 2)
         transaction.update(user_ref, {
             'balance': new_bal,
             'total_bets': firestore.Increment(bet)
         })
 
-        # قراءة هامش أرباح الخزينة وتطبيق صمام الأمان (Zero-Loss Safe Guard)
-        margin = get_system_profit_margin()
-        force_fail_step = 0
-        
-        # إذا انخفض هامش أرباح النظام عن 80%، يتم إجبار الخسارة عند الضغطة 4 أو 5 تلقائياً
-        if margin < target_margin:
-            force_fail_step = random.choice([4, 5])
-
-        # توزيع 36 صندوقاً سراً
-        all_positions = list(range(36))
-        random.shuffle(all_positions)
-        bomb_positions = all_positions[:bombs_count]
-
-        session_payload = {
-            "uid": uid_str,
-            "bet": bet,
-            "bombs_count": bombs_count,
-            "bomb_positions": bomb_positions,
-            "force_fail_step": force_fail_step,
-            "created_at": time.time()
-        }
-        token = generate_session_token(session_payload)
-
-        return True, token, new_bal
+        return True, "نجاح", new_bal, payout
 
     try:
-        ok, token_or_msg, new_balance = start_transaction(db.transaction())
+        ok, msg, new_balance, final_payout = spin_transaction(db.transaction())
         if not ok:
-            return jsonify({"success": False, "message": token_or_msg})
+            return jsonify({"success": False, "message": msg})
 
-        # تحديث قيمة الرهانات الإجمالية في خزينة النظام
-        update_system_treasury(bet_amount=bet)
+        # تحديث الخزينة
+        update_system_treasury(bet_amount=bet, payout_amount=final_payout)
 
         return jsonify({
             "success": True,
-            "session_token": token_or_msg,
+            "winning_index": winning_index,
+            "multiplier": multiplier,
+            "payout": final_payout,
             "new_balance": new_balance
         })
     except Exception as e:
-        print(f"Error starting grid/mines game: {e}")
-        return jsonify({"success": False, "message": "خطأ في معالجة الرهان."}), 500
+        print(f"Error spinning wheel: {e}")
+        return jsonify({"success": False, "message": "خطأ أثناء معالجة لفة العجلة."}), 500
 
 
-# --- 2. إنهاء لعبة العملات المكسورة والتحقق من توقيع الجلسة والسحب (Grid & Mines API) ---
-@games_bp.route('/grid/end', methods=['POST'])
-@games_bp.route('/mines/end', methods=['POST'])
-def end_grid_game():
-    success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
-    if not success:
-        return error_res
-
-    uid_str = str(uid)
-    data = request.get_json(silent=True) or {}
-    token = data.get('session_token')
-    opened_boxes = data.get('opened_boxes', [])
-    step = int(data.get('step', 0))
-
-    payload = verify_session_token(token)
-    if not payload or payload.get('uid') != uid_str:
-        return jsonify({"success": False, "message": "جلسة غير صالحة أو منتهية."}), 400
-
-    bomb_positions = payload['bomb_positions']
-    bombs_count = payload['bombs_count']
-    bet = payload['bet']
-    force_fail = payload.get('force_fail_step', 0)
-
-    # 1. فحص الاصطدام بعملة مكسورة أو تفعيل صمام الأمان
-    hit_bomb = any(box in bomb_positions for box in opened_boxes)
-    if (force_fail > 0 and step >= force_fail) or hit_bomb:
-        return jsonify({
-            "success": False,
-            "status": "exploded",
-            "message": "💥 اصطدمت بعملة مكسورة!",
-            "bomb_positions": bomb_positions
-        })
-
-    # 2. حساب السحب الناجح (Cash Out)
-    multipliers = calculate_multipliers(bombs_count)
-    if step <= 0 or step > len(multipliers):
-        return jsonify({"success": False, "message": "عدد الخطوات غير صالح."}), 400
-
-    multiplier = multipliers[step - 1]
-    payout = round(bet * multiplier, 2)
-
-    user_ref = db.collection('users').document(uid_str)
-
-    @firestore.transactional
-    def cashout_transaction(transaction):
-        user_doc = user_ref.get(transaction=transaction)
-        bal = round(float((user_doc.to_dict() or {}).get('balance', 0.0)), 2) if user_doc.exists else 0.0
-        new_bal = round(bal + payout, 2)
-
-        transaction.update(user_ref, {'balance': new_bal})
-        return new_bal
-
-    try:
-        new_bal = cashout_transaction(db.transaction())
-        
-        # تحديث مدفوعات خزينة النظام بعد انسحاب اللاعب بنجاح
-        update_system_treasury(payout_amount=payout)
-
-        return jsonify({
-            "success": True,
-            "payout": payout,
-            "multiplier": multiplier,
-            "new_balance": new_bal,
-            "bomb_positions": bomb_positions,
-            "opened_boxes": opened_boxes
-        })
-    except Exception as e:
-        print(f"Error in grid/mines cashout transaction: {e}")
-        return jsonify({"success": False, "message": "خطأ أثناء تسوية الأرباح."}), 500
-
-
-# --- 3. مسارات الساحة الكبرى (Arena System) ---
+# --- 2. مسارات الساحة الكبرى (Arena System) المحمية تماماً ---
 def resolve_round(round_id):
     str_round_id = str(round_id)
     if str_round_id in _RESOLVED_ROUNDS_CACHE:
