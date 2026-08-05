@@ -76,7 +76,27 @@ def get_tickets():
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
-# 2. تعيين التذكرة كـ "مقروءة" عند فتحها
+# 2. جلب تذكرة واحدة فقط (لتوفير قراءات Firestore أثناء فتح المحادثة)
+@admin_chat_bp.route('/ticket/<ticket_id>', methods=['GET'])
+def get_single_ticket(ticket_id):
+    if not check_admin_auth():
+        return jsonify({"success": False, "message": "غير مصرح"}), 403
+
+    try:
+        db_conn = get_db()
+        t_doc = db_conn.collection('support_tickets').document(str(ticket_id)).get()
+        if not t_doc.exists:
+            return jsonify({"success": False, "message": "التذكرة غير موجودة"}), 404
+
+        ticket_data = t_doc.to_dict() or {}
+        if 'ticket_id' not in ticket_data:
+            ticket_data['ticket_id'] = t_doc.id
+
+        return jsonify({"success": True, "ticket": ticket_data}), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+# 3. تعيين التذكرة كـ "مقروءة" عند فتحها
 @admin_chat_bp.route('/mark_read', methods=['POST'])
 def mark_read():
     if not check_admin_auth():
@@ -96,7 +116,7 @@ def mark_read():
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
-# 3. إرسال رد الأدمن
+# 4. إرسال رد الأدمن
 @admin_chat_bp.route('/reply', methods=['POST'])
 def send_reply():
     if not check_admin_auth():
@@ -140,7 +160,7 @@ def send_reply():
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
-# 4. إغلاق التذكرة
+# 5. إغلاق التذكرة
 @admin_chat_bp.route('/close', methods=['POST'])
 def close_ticket():
     if not check_admin_auth():
