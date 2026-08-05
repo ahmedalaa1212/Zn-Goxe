@@ -18,6 +18,10 @@ BAN_CACHE_TTL = 120
 _LEADERBOARD_CACHE = None
 _LEADERBOARD_CACHE_TIME = 0
 LEADERBOARD_CACHE_TTL = 180  
+
+_TREASURY_CACHE = None
+_TREASURY_CACHE_TIME = 0
+TREASURY_CACHE_TTL = 30  # كاش الخزينة يُحدث كل 30 ثانية لتسريع الجولات
 # ========================================================================
 
 def initialize_firebase():
@@ -66,6 +70,17 @@ def ensure_game_settings_exist():
         
         if doc_snap.exists:
             existing_data = doc_snap.to_dict() or {}
+            
+            # التأكد من وجود إعدادات لعبة شبكة العملات المكسورة
+            if "grid_game_config" not in existing_data:
+                grid_cfg = {
+                    "min_bet": 250.0,
+                    "target_margin": 0.80,
+                    "default_broken_coins": 3
+                }
+                existing_data["grid_game_config"] = grid_cfg
+                config_ref.update({"grid_game_config": grid_cfg})
+
             _SETTINGS_CACHE = existing_data
             _SETTINGS_CACHE_TIME = time.time()
             return existing_data
@@ -126,6 +141,11 @@ def ensure_game_settings_exist():
             "storage_config": storage_cfg,
             "usdt_packages": usdt_pkgs,
             "packages_config": packages_cfg,
+            "grid_game_config": {
+                "min_bet": 250.0,
+                "target_margin": 0.80,
+                "default_broken_coins": 3
+            },
             "friends_config": {
                 "commission_percent": 10,
                 "claim_fee_percent": 1.5,
@@ -156,9 +176,105 @@ def ensure_game_settings_exist():
         print(f"❌ خطأ أثناء تهيئة الإعدادات: {e}")
         return None
 
+# ==================== Treasury & Safe Guard System ====================
+
+def ensure_treasury_exist():
+    global db, _TREASURY_CACHE, _TREASURY_CACHE_TIME
+    if not db:
+        try:
+            db = initialize_firebase()
+        except Exception as e:
+            print(f"❌ Error initializing firebase inside ensure_treasury_exist: {e}")
+            return None
+
+    try:
+        treasury_ref = db.collection('arena').document('current')
+        doc_snap = treasury_ref.get()
+
+        if doc_snap.exists:
+            data = doc_snap.to_dict() or {}
+            _TREASURY_CACHE = data
+            _TREASURY_CACHE_TIME = time.time()
+            return data
+
+        initial_treasury = {
+            "total_bets": 100000.0,
+            "total_payouts": 10000.0,
+            "prize_pool": 0.0,
+            "fees_collected": 0.0,
+            "last_updated": firestore.SERVER_TIMESTAMP
+        }
+        treasury_ref.set(initial_treasury)
+        _TREASURY_CACHE = initial_treasury
+        _TREASURY_CACHE_TIME = time.time()
+        return initial_treasury
+    except Exception as e:
+        print(f"❌ Error initializing treasury: {e}")
+        return None
+
+def get_system_treasury():
+    global _TREASURY_CACHE, _TREASURY_CACHE_TIME
+    now = time.time()
+    if _TREASURY_CACHE is not None and (now - _TREASURY_CACHE_TIME) < TREASURY_CACHE_TTL:
+        return _TREASURY_CACHE
+
+    try:
+        if not db: initialize_firebase()
+        doc = db.collection('arena').document('current').get()
+        if doc.exists:
+            data = doc.to_dict() or {}
+            _TREASURY_CACHE = data
+            _TREASURY_CACHE_TIME = now
+            return _TREASURY_CACHE
+        else:
+            return ensure_treasury_exist() or {}
+    except Exception as e:
+        print(f"❌ Error getting system treasury: {e}")
+        return _TREASURY_CACHE or {}
+
+def get_system_profit_margin():
+    treasury = get_system_treasury()
+    total_bets = float(treasury.get("total_bets", 100000.0))
+    total_payouts = float(treasury.get("total_payouts", 10000.0))
+
+    if total_bets <= 0:
+        return 1.0
+
+    margin = (total_bets - total_payouts) / total_bets
+    return margin
+
+def update_system_treasury(bet_amount=0.0, payout_amount=0.0):
+    global _TREASURY_CACHE, _TREASURY_CACHE_TIME
+    try:
+        if not db: initialize_firebase()
+        treasury_ref = db.collection('arena').document('current')
+        
+        updates = {
+            "last_updated": firestore.SERVER_TIMESTAMP
+        }
+        if bet_amount > 0:
+            updates["total_bets"] = firestore.Increment(float(bet_amount))
+        if payout_amount > 0:
+            updates["total_payouts"] = firestore.Increment(float(payout_amount))
+
+        treasury_ref.update(updates)
+
+        if _TREASURY_CACHE is not None:
+            _TREASURY_CACHE["total_bets"] = float(_TREASURY_CACHE.get("total_bets", 0.0)) + float(bet_amount)
+            _TREASURY_CACHE["total_payouts"] = float(_TREASURY_CACHE.get("total_payouts", 0.0)) + float(payout_amount)
+            _TREASURY_CACHE_TIME = time.time()
+
+        return True
+    except Exception as e:
+        print(f"❌ Error updating system treasury: {e}")
+        return False
+
+# ========================================================================
+
 try:
     db = initialize_firebase()
     ensure_game_settings_exist()
+    ensure_treasury_exist()
 except Exception as e:
     print(f"⚠️ تنبيه أثناء تهيئة DB تلقائياً: {e}")
 
