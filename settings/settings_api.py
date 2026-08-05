@@ -1,10 +1,17 @@
 # settings/settings_api.py
 import traceback
 from flask import Blueprint, jsonify, request
-from database import db
+
+import database
 from core.security import get_authenticated_user
 
 settings_bp = Blueprint('settings', __name__)
+
+def get_db():
+    """ضمان الحصول على كائن قاعدة البيانات Firestore"""
+    if database.db is None:
+        return database.initialize_firebase()
+    return database.db
 
 @settings_bp.route('/stats', methods=['GET', 'POST'])
 def get_settings_stats():
@@ -14,7 +21,8 @@ def get_settings_stats():
         if not success:
             return error_res
 
-        user_ref = db.collection('users').document(str(uid))
+        db_conn = get_db()
+        user_ref = db_conn.collection('users').document(str(uid))
         user_doc = user_ref.get()
 
         if not user_doc.exists:
@@ -30,6 +38,7 @@ def get_settings_stats():
         farm_levels_count = 0
         upgrades_map = user_data.get('upgrades', {})
         if isinstance(upgrades_map, dict):
+            # حلقة تكرار لمستويات التعدين التسعة (lvl1 .. lvl9)
             for i in range(1, 10):
                 lvl_val = upgrades_map.get(f'lvl{i}')
                 if lvl_val is not None:
