@@ -146,8 +146,7 @@
             localMessagesList = cached.messages || [];
             if (ticketDisplay) ticketDisplay.innerHTML = `تذكرة #${supportTicketId} 📋`;
             renderMessages(localMessagesList, true);
-            if (isSupportClosed) disableSupportInput("تم إنهاء هذه المحادثة.");
-            else enableSupportInput();
+            enableSupportInput();
         } else {
             supportTicketId = generateLocalTicketId();
             localMessagesList = [{
@@ -184,11 +183,15 @@
 
         try {
             let data;
+            const endpoint = supportTicketId 
+                ? `/api/support/ticket?ticket_id=${encodeURIComponent(supportTicketId)}`
+                : '/api/support/ticket';
+
             if (typeof window.fetchAPI === 'function') {
-                data = await window.fetchAPI('/api/support/ticket');
+                data = await window.fetchAPI(endpoint);
             } else {
                 const initData = window.Telegram?.WebApp?.initData || "";
-                const response = await fetch('/api/support/ticket', {
+                const response = await fetch(endpoint, {
                     method: 'GET',
                     headers: { 
                         'Content-Type': 'application/json',
@@ -413,6 +416,7 @@
         if (inputSection) inputSection.style.opacity = '1';
     }
 
+    // تحديث المحادثة كل 3 ثوانٍ أثناء فتح نافذة الدعم للحصول على رد فوري باستهلاك متدني للبيانات
     function startSupportPolling() {
         if (supportPollInterval) clearInterval(supportPollInterval);
         supportPollInterval = setInterval(() => {
@@ -420,7 +424,7 @@
             if (!isSupportClosed && modal && modal.style.display === 'flex' && document.visibilityState === 'visible') {
                 fetchTicketData();
             }
-        }, 3000); // تحديث متزن كل 3 ثوانٍ
+        }, 3000);
     }
 
     if (msgInput) {
