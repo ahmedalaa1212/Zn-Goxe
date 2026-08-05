@@ -41,20 +41,25 @@ def get_ticket():
         if not latest_ticket:
             now_iso = datetime.now(timezone.utc).isoformat()
             new_ticket_id = generate_fast_ticket_id(uid)
+            welcome_msg = {
+                'sender': 'admin',
+                'text': f'مرحباً بك في الدعم الفني! كودك المرجعي للمحادثة هو: {new_ticket_id}. اكتب استفسارك وسيجيبك الفريق.',
+                'timestamp': now_iso
+            }
             new_ticket_data = {
                 'ticket_id': new_ticket_id,
                 'user_id': str(uid),
                 'status': 'open',
                 'created_at': now_iso,
                 'updated_at': now_iso,
-                'messages': []
+                'messages': [welcome_msg]
             }
             tickets_ref.document(new_ticket_id).set(new_ticket_data)
             return jsonify({
                 "success": True,
                 "ticket_id": new_ticket_id,
                 "status": "open",
-                "messages": []
+                "messages": [welcome_msg]
             }), 200
 
         return jsonify({
@@ -83,13 +88,19 @@ def create_new_ticket():
         now_iso = datetime.now(timezone.utc).isoformat()
         new_ticket_id = generate_fast_ticket_id(uid)
         
+        welcome_msg = {
+            'sender': 'admin',
+            'text': f'تم فتح تذكرة محادثة جديدة برقم مرجعي: {new_ticket_id}. تفضل بكتابة استفسارك.',
+            'timestamp': now_iso
+        }
+
         new_ticket_data = {
             'ticket_id': new_ticket_id,
             'user_id': str(uid),
             'status': 'open',
             'created_at': now_iso,
             'updated_at': now_iso,
-            'messages': []
+            'messages': [welcome_msg]
         }
         tickets_ref.document(new_ticket_id).set(new_ticket_data)
 
@@ -97,7 +108,7 @@ def create_new_ticket():
             "success": True,
             "ticket_id": new_ticket_id,
             "status": "open",
-            "messages": []
+            "messages": [welcome_msg]
         }), 200
 
     except Exception as e:
@@ -126,7 +137,22 @@ def send_message():
         ticket_doc = ticket_ref.get()
 
         if not ticket_doc.exists:
-            return jsonify({"success": False, "message": "التذكرة غير موجودة."}), 404
+            # في حال عدم وجود التذكرة بالخادم، يتم إنشاؤها فوراً دون تعطيل المستخدم
+            now_iso = datetime.now(timezone.utc).isoformat()
+            new_msg = {
+                'sender': 'user',
+                'text': str(text).strip(),
+                'timestamp': now_iso
+            }
+            ticket_ref.set({
+                'ticket_id': str(ticket_id),
+                'user_id': str(uid),
+                'status': 'open',
+                'created_at': now_iso,
+                'updated_at': now_iso,
+                'messages': [new_msg]
+            })
+            return jsonify({"success": True, "message": "تم إرسال الرسالة وإنشاء التذكرة بنجاح."}), 200
 
         ticket_data = ticket_doc.to_dict() or {}
 
