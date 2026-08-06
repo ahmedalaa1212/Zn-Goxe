@@ -231,7 +231,7 @@
             background: linear-gradient(135deg, #24334a, #131c31);
         }
 
-        /* الوجه الخلفي عند الاكتشاف */
+        /* الوجه الخلفي عند الاكتشاف (تصميم الصندوق المفتوح المحدث) */
         .box-back {
             background: linear-gradient(135deg, #059669, #10b981);
             color: #ffffff;
@@ -244,6 +244,23 @@
             background: linear-gradient(135deg, #dc2626, #ef4444);
             border-color: #ef4444;
             box-shadow: 0 0 14px var(--accent-red-glow);
+        }
+
+        /* تنسيق العملات داخل الوجه الخلفي للصندوق المفتوح */
+        .coin-gold {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+        }
+
+        .coin-broken {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
         }
 
         .bet-controls {
@@ -516,7 +533,7 @@
                     <button id="btn-boxes-settings" class="btn-settings-icon" onclick="openBoxesSettings()">⚙️ الصعوبة</button>
                 </div>
 
-                <!-- شبكة الصناديق الـ 36 (تكون فارغة وجهياً كصناديق مغلقة) -->
+                <!-- شبكة الصناديق الـ 36 (تكون فارغة وجهياً كصناديق مغلقة وبدون ألماسة بداية) -->
                 <div id="boxes-grid" class="boxes-grid-6x6"></div>
 
                 <div class="bet-controls">
