@@ -167,12 +167,15 @@
             gap: 8px;
             margin-bottom: 16px;
             perspective: 1000px;
+            width: 100%;
         }
 
         .box-card {
+            width: 100%;
             aspect-ratio: 1;
             perspective: 1000px;
             cursor: pointer;
+            position: relative;
         }
 
         .box-inner {
@@ -191,6 +194,8 @@
 
         .box-front, .box-back {
             position: absolute;
+            top: 0;
+            left: 0;
             width: 100%;
             height: 100%;
             -webkit-backface-visibility: hidden;
@@ -201,6 +206,8 @@
             justify-content: center;
             font-size: 1.3rem;
             font-weight: 900;
+            overflow: hidden;
+            box-sizing: border-box;
         }
 
         /* الوجه الأمامي: مربع فاضي وفخم بدون أي أيقونات أو رموز */
@@ -209,7 +216,6 @@
             border: 1.5px solid rgba(0, 255, 204, 0.2);
             box-shadow: inset 0 0 8px rgba(255, 255, 255, 0.03), 0 4px 10px rgba(0,0,0,0.4);
             position: relative;
-            overflow: hidden;
         }
 
         /* شريط ضوئي جمالي خفيف جداً لإعطاء شعور بالعمق الزجاجي */
@@ -238,6 +244,11 @@
             transform: rotateY(180deg);
             border: 1.5px solid #10b981;
             box-shadow: 0 0 14px var(--accent-green-glow);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            margin: 0;
         }
 
         .box-card.broken .box-back {
@@ -246,21 +257,20 @@
             box-shadow: 0 0 14px var(--accent-red-glow);
         }
 
-        /* تنسيق العملات داخل الوجه الخلفي للصندوق المفتوح */
-        .coin-gold {
-            display: inline-flex;
+        /* تنسيق العملات والرموز داخل الوجه الخلفي لمنع الإزاحة والقص */
+        .coin-gold, .coin-broken {
+            display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.1rem;
+            width: 100%;
+            height: 100%;
+            font-size: 1.3rem;
+            line-height: 1;
+            margin: 0 !important;
+            padding: 0 !important;
             filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
-        }
-
-        .coin-broken {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.1rem;
-            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+            transform: none !important;
+            position: static !important;
         }
 
         .bet-controls {
@@ -533,7 +543,7 @@
                     <button id="btn-boxes-settings" class="btn-settings-icon" onclick="openBoxesSettings()">⚙️ الصعوبة</button>
                 </div>
 
-                <!-- شبكة الصناديق الـ 36 (تكون فارغة وجهياً كصناديق مغلقة وبدون ألماسة بداية) -->
+                <!-- شبكة الصناديق الـ 36 -->
                 <div id="boxes-grid" class="boxes-grid-6x6"></div>
 
                 <div class="bet-controls">
