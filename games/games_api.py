@@ -24,7 +24,7 @@ CACHE_TTL_CONFIG = 600
 CACHE_TTL_ROUND = 5      
 SESSION_MAX_AGE = 3600      # صلاحية الجلسة ساعة واحدة
 
-# مفتاح التوقيع المشفر (مع إمكانية القراءة من متغيرات البيئة)
+# مفتاح التوقيع المشفر
 HMAC_SECRET = os.environ.get('HMAC_SECRET', 'zn_goxe_boxes_security_key_2026_secure').encode('utf-8')
 
 # قائمة المضاعفات الأساسية لنظام 3 عملات مكسورة (33 ضغطة - سقف 20x)
@@ -54,7 +54,6 @@ def generate_multipliers(broken_count):
     multipliers = []
     for i in range(safe_steps):
         progress = i / max(1, (safe_steps - 1))
-        # منحنى تصاعدي ناعم exponential
         val = start_mult + (max_mult - start_mult) * (progress ** 2.2)
         multipliers.append(round(val, 2))
     return multipliers
@@ -67,7 +66,7 @@ def get_arena_config():
     settings = get_game_settings() or {}
     cfg = settings.get('arena_config', {})
     config_data = {
-        "entry_fee": float(cfg.get('entry_fee', 350)),  # الحد الأدنى الجديد 350 ZN
+        "entry_fee": float(cfg.get('entry_fee', 350)),  # الحد الأدنى 350 ZN
         "min_participants": int(cfg.get('min_participants', 20)),
         "prize_pool_percentage": float(cfg.get('prize_pool_percentage', 0.45)),
         "round_duration": int(cfg.get('round_duration', 900)),
@@ -109,8 +108,6 @@ def verify_session_token(token_str):
             return None
             
         data = json.loads(payload_bytes.decode('utf-8'))
-        
-        # التأكد من صلاحية الجلسة زمنياً (1 ساعة)
         if time.time() - data.get("timestamp", 0) > SESSION_MAX_AGE:
             return None
             
@@ -148,24 +145,25 @@ def start_boxes_game():
 
     user_ref = db.collection('users').document(uid_str)
     
-    # تفحص صمام الأمان لخزينة النظام (Zero-Loss Safe Guard)
+    # فحص هامش أرباح النظام (Target: 80% للبوت / 20% RTP للمستخدمين)
     margin = get_system_profit_margin()
     target_margin = 0.80
-    force_early_loss = (margin < target_margin)
 
-    # إنشاء الخريطة الـ 36 صندوقاً
     layout = [False] * 36  # False = عملة سليمة, True = عملة مكسورة
     
-    if force_early_loss:
-        # إذا كانت أرباح النظام تحت 80%، يتم فخ الصناديق في المراحل المبكرة (الصفوف الأولى 0-11)
-        broken_indices = random.sample(range(0, 12), broken_count)
+    # توزيع القنابل بالتزام صارم بالعدد المختار broken_count دون أي زيادة ديناميكية
+    if margin < target_margin:
+        preferred_indices = list(range(0, 18))
+        if len(preferred_indices) >= broken_count:
+            broken_indices = random.sample(preferred_indices, broken_count)
+        else:
+            broken_indices = random.sample(range(0, 36), broken_count)
     else:
         broken_indices = random.sample(range(0, 36), broken_count)
 
     for idx in broken_indices:
         layout[idx] = True
 
-    # خَصم قيمة الرهان وتوثيق بدء الجولة في الفايربيس (1 Write + 1 Read)
     @firestore.transactional
     def start_transaction(transaction):
         user_doc = user_ref.get(transaction=transaction)
@@ -190,18 +188,15 @@ def start_boxes_game():
         if not ok:
             return jsonify({"success": False, "message": msg})
 
-        # تسجيل دخول الرهان للخزينة
         update_system_treasury(bet_amount=bet, payout_amount=0.0)
 
         multipliers = generate_multipliers(broken_count)
         
-        # إنشاء جلسة مشفرة آمنة
         session_data = {
             "uid": uid_str,
             "bet": bet,
             "broken_count": broken_count,
             "layout": layout,
-            "force_early_loss": force_early_loss,
             "timestamp": time.time(),
             "nonce": random.randint(100000, 999999)
         }
@@ -220,10 +215,6 @@ def start_boxes_game():
 
 @games_bp.route('/boxes/pick', methods=['POST'])
 def pick_box():
-    """
-    مسار فحص اختيار الصندوق لحظياً (0 استهلاك لقواعد بيانات الفايربيس)
-    تتم عملية الفحص داخل الذاكرة بواسطة الرمز المشفر
-    """
     success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -235,7 +226,6 @@ def pick_box():
     if session_token is None or box_index is None:
         return jsonify({"success": False, "message": "بيانات غير مكتملة."}), 400
 
-    # التحقق من الجلسة في الذاكرة (بدون الاتصال بالفايربيس)
     session_data = verify_session_token(session_token)
     if not session_data or session_data.get('uid') != str(uid):
         return jsonify({"success": False, "message": "جلسة غير صالحة أو منتهية."}), 400
@@ -244,10 +234,12 @@ def pick_box():
     if not isinstance(box_index, int) or not (0 <= box_index < len(layout)):
         return jsonify({"success": False, "message": "رقم صندوق غير صالح."}), 400
 
+    user_doc = db.collection('users').document(str(uid)).get()
+    current_balance = round(float((user_doc.to_dict() or {}).get('balance', 0.0)), 2) if user_doc.exists else 0.0
+
     is_broken = layout[box_index]
 
     if is_broken:
-        # إبطال رمز الجلسة فوراً لمنع التلاعب وإرجاع الخريطة كاملة للخسارة الفورية
         token_hash = hashlib.sha256(session_token.encode('utf-8')).hexdigest()
         _USED_SESSION_TOKENS[token_hash] = time.time()
         _cleanup_expired_sessions()
@@ -256,14 +248,15 @@ def pick_box():
             "success": True,
             "is_broken": True,
             "layout": layout,
+            "new_balance": current_balance,
             "message": "عملة مكسورة! لقد خسرت الجولة."
         })
 
-    # عملة سليمة
     return jsonify({
         "success": True,
         "is_broken": False,
-        "box_index": box_index
+        "box_index": box_index,
+        "new_balance": current_balance
     })
 
 
@@ -277,13 +270,12 @@ def end_boxes_game():
     data = request.get_json(silent=True) or {}
     
     session_token = data.get('session_token')
-    raw_picks = data.get('picks', [])  # مصفوفة الفهارس التي تم ضغطها
-    action = data.get('action', 'cashout')  # cashout أو hit_broken
+    raw_picks = data.get('picks', [])
+    action = data.get('action', 'cashout')
     
     if not session_token:
         return jsonify({"success": False, "message": "رمز الجلسة مفقود."}), 400
 
-    # الحماية من هجمات التكرار (Replay Attacks)
     token_hash = hashlib.sha256(session_token.encode('utf-8')).hexdigest()
     if token_hash in _USED_SESSION_TOKENS:
         return jsonify({"success": False, "message": "تم إنهاء هذه الجولة بالفعل."}), 400
@@ -292,7 +284,6 @@ def end_boxes_game():
     if not session_data or session_data.get('uid') != uid_str:
         return jsonify({"success": False, "message": "جلسة لعب غير صالحة أو منتهية."}), 400
 
-    # تنظيف وتصفية الاختيارات لمنع التكرار (تجنب ثغرة إعادة تكرار نفس الصندوق)
     unique_picks = []
     if isinstance(raw_picks, list):
         for idx in raw_picks:
@@ -302,12 +293,10 @@ def end_boxes_game():
     bet = float(session_data['bet'])
     layout = list(session_data['layout'])
     broken_count = session_data['broken_count']
-    force_early_loss = session_data.get('force_early_loss', False)
     multipliers = generate_multipliers(broken_count)
     
     user_ref = db.collection('users').document(uid_str)
     
-    # فحص صحة الأفعال والنتائج
     hit_broken = False
     safe_picks_count = 0
 
@@ -317,13 +306,6 @@ def end_boxes_game():
             break
         else:
             safe_picks_count += 1
-
-    # إنفاذ صمام الأمان عند الضغطة 4 أو أكثر عند انخفاض أرباح النظام
-    if force_early_loss and safe_picks_count >= 4 and not hit_broken:
-        hit_broken = True
-        if unique_picks:
-            # تعديل الخريطة ليظهر الصندوق الأخير كمكسور اتساقاً مع النتيجة المرجعة للعميل
-            layout[unique_picks[-1]] = True
 
     payout = 0.0
     final_mult = 1.0
@@ -356,7 +338,6 @@ def end_boxes_game():
         if not ok:
             return jsonify({"success": False, "message": msg})
 
-        # تعليم الجلسة كمستخدمة لمنع إعادة الإرسال
         _USED_SESSION_TOKENS[token_hash] = time.time()
         _cleanup_expired_sessions()
 
@@ -368,14 +349,14 @@ def end_boxes_game():
             "payout": payout,
             "multiplier": final_mult,
             "new_balance": new_balance,
-            "layout": layout  # إرجاع الخريطة الكاملة لإظهار ميزة Near-Miss Effect
+            "layout": layout
         })
     except Exception as e:
         print(f"Error ending boxes game: {e}")
         return jsonify({"success": False, "message": "خطأ أثناء إنهاء الجولة."}), 500
 
 
-# --- 2. مسارات الساحة الكبرى (Arena System) المحمية تماماً ---
+# --- 2. مسارات الساحة الكبرى (Arena System) ---
 
 def resolve_round(round_id):
     str_round_id = str(round_id)
