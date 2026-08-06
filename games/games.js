@@ -184,15 +184,18 @@
         if (boxesState.inGame) return;
         triggerHaptic('light');
         const input = document.getElementById('boxes-bet-input');
+        if (!input) return;
         let val = (parseFloat(input.value) || 0) + amt;
-        input.value = val;
+        input.value = Math.max(100, Math.floor(val));
     };
 
     window.setBetMaxBoxes = () => {
         if (boxesState.inGame) return;
         triggerHaptic('medium');
         const input = document.getElementById('boxes-bet-input');
-        input.value = Math.floor(getStoredBalance());
+        if (!input) return;
+        const maxBal = Math.floor(getStoredBalance());
+        input.value = maxBal > 100 ? maxBal : 100;
     };
 
     function renderBoxesGrid() {
@@ -206,7 +209,6 @@
             boxCard.setAttribute('data-index', i);
             boxCard.onclick = () => onBoxClick(i);
 
-            // مربع خالي وفارغ في البداية بدلاً من الملاحظة السابقة
             boxCard.innerHTML = `
                 <div class="box-inner">
                     <div class="box-front"></div>
@@ -247,15 +249,17 @@
     window.startBoxesGame = async function() {
         if (boxesState.inGame) return;
         const betInput = document.getElementById('boxes-bet-input');
-        const betVal = parseFloat(betInput.value) || 0;
+        const betVal = parseFloat(betInput ? betInput.value : 100) || 0;
         
         if (betVal < 100) return showNotification("الحد الأدنى للرهان هو 100 ZN.");
         if (getStoredBalance() < betVal) return showNotification("رصيدك غير كافٍ للبدء.");
 
         triggerHaptic('heavy');
         const btnStart = document.getElementById('btn-start-boxes');
-        btnStart.disabled = true;
-        btnStart.innerText = "جاري فتح الشبكة... ⏳";
+        if (btnStart) {
+            btnStart.disabled = true;
+            btnStart.innerText = "جاري فتح الشبكة... ⏳";
+        }
 
         try {
             const initData = tele?.initData || "";
@@ -279,21 +283,28 @@
                 
                 renderBoxesGrid();
                 
-                btnStart.style.display = 'none';
-                document.getElementById('btn-cashout-boxes').style.display = 'block';
-                betInput.disabled = true;
-                document.getElementById('btn-boxes-settings').style.pointerEvents = 'none';
+                if (btnStart) btnStart.style.display = 'none';
+                const btnCashOut = document.getElementById('btn-cashout-boxes');
+                if (btnCashOut) btnCashOut.style.display = 'block';
+                if (betInput) betInput.disabled = true;
+                
+                const settingsBtn = document.getElementById('btn-boxes-settings');
+                if (settingsBtn) settingsBtn.style.pointerEvents = 'none';
                 
                 updateCashOutButton();
                 triggerGlobalToast("✨ بدأت الجولة! اختر صناديقك بحذر.", true);
             } else {
-                btnStart.disabled = false;
-                btnStart.innerText = "بدء الجولة 🚀";
+                if (btnStart) {
+                    btnStart.disabled = false;
+                    btnStart.innerText = "بدء الجولة 🚀";
+                }
                 showNotification("⚠️ " + (data.message || "تعذر بدء الجولة"));
             }
         } catch (e) {
-            btnStart.disabled = false;
-            btnStart.innerText = "بدء الجولة 🚀";
+            if (btnStart) {
+                btnStart.disabled = false;
+                btnStart.innerText = "بدء الجولة 🚀";
+            }
             showNotification("خطأ في الاتصال بالخادم.");
         }
     };
@@ -328,7 +339,6 @@
                 const backEl = boxCard.querySelector('.box-back');
 
                 if (!data.is_broken) {
-                    // عملة ذهبية ZN عند الاختيار الصحيح
                     if (backEl) backEl.innerHTML = '<span class="coin-gold">🟡 ZN</span>';
                     boxCard.classList.add('flipped', 'safe');
                     updateCashOutButton();
@@ -338,7 +348,6 @@
                         await cashOutBoxes();
                     }
                 } else {
-                    // عملة رمادية مكسورة عند الاختيار الخاطئ
                     handleBrokenCoinHit(index, data.layout);
                 }
             } else {
@@ -356,8 +365,10 @@
         triggerHaptic('heavy');
 
         const btnCashOut = document.getElementById('btn-cashout-boxes');
-        btnCashOut.disabled = true;
-        btnCashOut.innerText = "جاري تأكيد السحب... ⏳";
+        if (btnCashOut) {
+            btnCashOut.disabled = true;
+            btnCashOut.innerText = "جاري تأكيد السحب... ⏳";
+        }
 
         try {
             const initData = tele?.initData || "";
@@ -399,7 +410,6 @@
         const boxCard = document.querySelector(`.box-card[data-index="${index}"]`);
         if (boxCard) {
             const backEl = boxCard.querySelector('.box-back');
-            // إظهار عملة رمادية مكسورة
             if (backEl) backEl.innerHTML = '<span class="coin-broken">⚪💥</span>';
             boxCard.classList.add('flipped', 'broken');
         }
@@ -416,7 +426,7 @@
         if (modal) modal.style.display = 'flex';
         
         window.onConfirmRevive = async function(watchAd) {
-            modal.style.display = 'none';
+            if (modal) modal.style.display = 'none';
             if (watchAd) {
                 try {
                     const AdController = window.Adsgram?.init({ blockId: "100" });
