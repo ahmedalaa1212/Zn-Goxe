@@ -22,6 +22,7 @@
     // --- متغيرات لعبة شبكة العملات والمخاطرة (36 صندوقاً) ---
     let boxesState = {
         inGame: false,
+        isProcessingPick: false,
         bet: 100,
         brokenCount: 3,
         picks: [],
@@ -32,6 +33,8 @@
     };
 
     const tele = window.Telegram?.WebApp;
+
+    // --- 0. الأدوات المساعدة وحالة التطبيق ---
 
     function triggerHaptic(type = 'light') {
         try {
@@ -164,7 +167,6 @@
         triggerHaptic('medium');
         boxesState.brokenCount = count;
         
-        // تحديث حالة الأزرار في الواجهة
         document.querySelectorAll('.btn-broken-opt').forEach(btn => {
             btn.classList.remove('selected');
             if (parseInt(btn.getAttribute('data-count'), 10) === count) {
@@ -267,6 +269,7 @@
                 setStoredBalance(data.new_balance, true);
                 
                 boxesState.inGame = true;
+                boxesState.isProcessingPick = false;
                 boxesState.bet = betVal;
                 boxesState.picks = [];
                 boxesState.sessionToken = data.session_token;
@@ -295,23 +298,53 @@
     };
 
     async function onBoxClick(index) {
-        if (!boxesState.inGame || boxesState.picks.includes(index)) return;
+        if (!boxesState.inGame || boxesState.picks.includes(index) || boxesState.isProcessingPick) return;
         
+        boxesState.isProcessingPick = true;
         triggerHaptic('medium');
-        boxesState.picks.push(index);
-        
-        const boxCard = document.querySelector(`.box-card[data-index="${index}"]`);
-        if (!boxCard) return;
 
-        boxCard.classList.add('flipped');
-        
-        // فحص النتيجة مؤقتاً بصرياً والتواصل مع الباك إند عند السحب أو الاصطدام
-        updateCashOutButton();
-        
-        // التحقق مما إذا تم الوصول للحد الأقصى لعدد العملات السليمة
-        const safeCountTarget = 36 - boxesState.brokenCount;
-        if (boxesState.picks.length === safeCountTarget) {
-            cashOutBoxes();
+        const boxCard = document.querySelector(`.box-card[data-index="${index}"]`);
+        if (!boxCard) {
+            boxesState.isProcessingPick = false;
+            return;
+        }
+
+        try {
+            const initData = tele?.initData || "";
+            const res = await fetch('/api/games/boxes/pick', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${initData}` },
+                body: JSON.stringify({
+                    initData: initData,
+                    session_token: boxesState.sessionToken,
+                    pick: index
+                })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                boxesState.picks.push(index);
+                const backEl = boxCard.querySelector('.box-back');
+
+                if (data.status === 'safe') {
+                    if (backEl) backEl.innerHTML = '🪙';
+                    boxCard.classList.add('flipped', 'safe');
+                    updateCashOutButton();
+
+                    const safeCountTarget = 36 - boxesState.brokenCount;
+                    if (boxesState.picks.length === safeCountTarget) {
+                        await cashOutBoxes();
+                    }
+                } else if (data.status === 'broken') {
+                    handleBrokenCoinHit(index, data.layout);
+                }
+            } else {
+                showNotification("⚠️ " + (data.message || "خطأ أثناء اختيار الصندوق"));
+            }
+        } catch (e) {
+            showNotification("خطأ في الاتصال بالخادم أثناء الاختيار.");
+        } finally {
+            boxesState.isProcessingPick = false;
         }
     }
 
@@ -362,11 +395,11 @@
         
         const boxCard = document.querySelector(`.box-card[data-index="${index}"]`);
         if (boxCard) {
-            boxCard.querySelector('.box-back').innerHTML = '💥';
-            boxCard.classList.add('broken');
+            const backEl = boxCard.querySelector('.box-back');
+            if (backEl) backEl.innerHTML = '💥';
+            boxCard.classList.add('flipped', 'broken');
         }
 
-        // إتاحة فرصة الإحياء بالإعلان Adsgram إذا لم تُستخدم سابقاً
         if (!boxesState.reviveUsed && window.Adsgram) {
             showReviveModal(index, layout);
         } else {
@@ -382,17 +415,18 @@
             modal.style.display = 'none';
             if (watchAd) {
                 try {
-                    const AdController = window.Adsgram?.init({ blockId: "100" }); // Adsgram SDK
+                    const AdController = window.Adsgram?.init({ blockId: "100" });
                     const adResult = await AdController.show();
                     if (adResult && adResult.done) {
                         triggerHaptic('success');
                         boxesState.reviveUsed = true;
-                        // إلغاء الضغطة الخاطئة ومتابعة اللعب
+                        
                         boxesState.picks = boxesState.picks.filter(p => p !== hitIndex);
                         const card = document.querySelector(`.box-card[data-index="${hitIndex}"]`);
                         if (card) {
                             card.classList.remove('flipped', 'broken');
-                            card.querySelector('.box-back').innerHTML = '';
+                            const backEl = card.querySelector('.box-back');
+                            if (backEl) backEl.innerHTML = '';
                         }
                         updateCashOutButton();
                         triggerGlobalToast("🛡️ تم تفعيل ميزة الإحياء! تابع اختيار صناديقك.", true);
@@ -422,10 +456,10 @@
             const backEl = card.querySelector('.box-back');
             
             if (isBroken) {
-                backEl.innerHTML = '💥';
+                if (backEl) backEl.innerHTML = '💥';
                 card.classList.add('broken');
             } else {
-                backEl.innerHTML = '🪙';
+                if (backEl) backEl.innerHTML = '🪙';
                 card.classList.add('safe');
             }
             card.classList.add('flipped');
@@ -434,6 +468,7 @@
 
     function resetBoxesControls() {
         boxesState.inGame = false;
+        boxesState.isProcessingPick = false;
         const btnStart = document.getElementById('btn-start-boxes');
         const btnCashOut = document.getElementById('btn-cashout-boxes');
         const betInput = document.getElementById('boxes-bet-input');
@@ -445,9 +480,10 @@
         }
         if (btnCashOut) btnCashOut.style.display = 'none';
         if (betInput) betInput.disabled = false;
-        document.getElementById('btn-boxes-settings').style.pointerEvents = 'auto';
+        
+        const settingsBtn = document.getElementById('btn-boxes-settings');
+        if (settingsBtn) settingsBtn.style.pointerEvents = 'auto';
     }
-
 
     // --- 2. منطق الساحة الكبرى والتحديثات الخلفية الاحترافية ---
 
