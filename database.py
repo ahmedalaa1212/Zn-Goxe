@@ -58,6 +58,13 @@ def initialize_firebase():
     return db
 
 
+def clear_settings_cache():
+    """تفريغ وتصفير ذاكرة التخزين المؤقت للإعدادات فور تعديل النسب من الأدمن"""
+    global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
+    _SETTINGS_CACHE = None
+    _SETTINGS_CACHE_TIME = 0
+
+
 def ensure_game_settings_exist():
     """ضمان وجود مستند الإعدادات الأساسية للعبة في Firestore وإنشائه عند الحاجة"""
     global db, _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
@@ -75,15 +82,22 @@ def ensure_game_settings_exist():
         if doc_snap.exists:
             existing_data = doc_snap.to_dict() or {}
             
-            # التأكد من وجود إعدادات لعبة شبكة العملات المكسورة
+            # التأكد من وجود إعدادات لعبة شبكة العملات المكسورة مع ضبط نسبة ربح البوت (0.20 = 20% للبوت / 80% للاعبين)
             if "grid_game_config" not in existing_data:
                 grid_cfg = {
                     "min_bet": 250.0,
-                    "target_margin": 0.80,
+                    "target_margin": 0.20,  # 0.20 تعني 20% فائدة البوت و80% عوائد اللاعبين
                     "default_broken_coins": 3
                 }
                 existing_data["grid_game_config"] = grid_cfg
                 config_ref.update({"grid_game_config": grid_cfg})
+            else:
+                # التحقق من وجود مفتاح target_margin وتحديثه إن كان مفقوداً
+                grid_cfg = existing_data["grid_game_config"]
+                if "target_margin" not in grid_cfg or grid_cfg["target_margin"] == 0:
+                    grid_cfg["target_margin"] = 0.20
+                    config_ref.update({"grid_game_config.target_margin": 0.20})
+                    existing_data["grid_game_config"]["target_margin"] = 0.20
 
             _SETTINGS_CACHE = existing_data
             _SETTINGS_CACHE_TIME = time.time()
@@ -147,7 +161,7 @@ def ensure_game_settings_exist():
             "packages_config": packages_cfg,
             "grid_game_config": {
                 "min_bet": 250.0,
-                "target_margin": 0.80,
+                "target_margin": 0.20,  # 0.20 تعني 20% فائدة البوت و80% عوائد اللاعبين
                 "default_broken_coins": 3
             },
             "friends_config": {
@@ -167,7 +181,7 @@ def ensure_game_settings_exist():
             "arena_config": {
                 "entry_fee": 1000,
                 "min_participants": 20,
-                "prize_pool_percentage": 0.45
+                "prize_pool_percentage": 0.80  # 80% جوائز للاعبين و20% عمولة النظام
             }
         }
 
@@ -179,6 +193,46 @@ def ensure_game_settings_exist():
     except Exception as e:
         print(f"❌ خطأ أثناء تهيئة الإعدادات: {e}")
         return None
+
+
+def update_game_settings(new_settings_dict):
+    """تحديث مستند إعدادات اللعبة في Firestore وإعادة تعيين الكاش فوراً"""
+    global db, _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
+    try:
+        if not db: initialize_firebase()
+        config_ref = db.collection('app_config').document('game_settings')
+        config_ref.set(new_settings_dict, merge=True)
+        
+        # تصفير الكاش وإعادة تحديثه من الفايربيس مباشرة
+        clear_settings_cache()
+        doc_snap = config_ref.get()
+        if doc_snap.exists:
+            _SETTINGS_CACHE = doc_snap.to_dict() or {}
+            _SETTINGS_CACHE_TIME = time.time()
+            return True, "تم تحديث الإعدادات وتفريغ الكاش بنجاح!"
+        return True, "تم تحديث الإعدادات بنجاح!"
+    except Exception as e:
+        print(f"❌ Error updating game settings: {e}")
+        return False, f"حدث خطأ أثناء حفظ الإعدادات: {e}"
+
+
+def update_grid_game_config(min_bet=None, target_margin=None, default_broken_coins=None):
+    """تحديث خصائص لعبة شبكة العملات المكسورة بشكل مخصص (مثل تغيير نسبة ربح البوت)"""
+    try:
+        settings = get_game_settings() or {}
+        grid_cfg = settings.get("grid_game_config", {})
+        
+        if min_bet is not None:
+            grid_cfg["min_bet"] = float(min_bet)
+        if target_margin is not None:
+            grid_cfg["target_margin"] = float(target_margin)
+        if default_broken_coins is not None:
+            grid_cfg["default_broken_coins"] = int(default_broken_coins)
+
+        return update_game_settings({"grid_game_config": grid_cfg})
+    except Exception as e:
+        print(f"❌ Error updating grid game config: {e}")
+        return False, f"حدث خطأ: {e}"
 
 
 # ==================== Treasury & Safe Guard System ====================
