@@ -6,6 +6,7 @@ import hmac
 import hashlib
 import base64
 import os
+import math
 from flask import Blueprint, jsonify, request
 from firebase_admin import firestore
 
@@ -27,13 +28,6 @@ SESSION_MAX_AGE = 3600      # صلاحية الجلسة ساعة واحدة
 # مفتاح التوقيع المشفر
 HMAC_SECRET = os.environ.get('HMAC_SECRET', 'zn_goxe_boxes_security_key_2026_secure').encode('utf-8')
 
-# قائمة المضاعفات الأساسية لنظام 3 عملات مكسورة (33 ضغطة - سقف 20x)
-MULT_3_BROKEN = [
-    1.01, 1.03, 1.06, 1.10, 1.15, 1.21, 1.28, 1.36, 1.45, 1.55,
-    1.67, 1.81, 1.97, 2.15, 2.36, 2.60, 2.88, 3.20, 3.58, 4.02,
-    4.54, 5.14, 5.84, 6.66, 7.62, 8.75, 10.08, 11.65, 13.50, 15.65,
-    17.00, 18.40, 20.00
-]
 
 def _cleanup_expired_sessions():
     """تنظيف ذاكرة الجلسات المستخدمة القديمة لتفادي استهلاك الذاكرة"""
@@ -42,39 +36,72 @@ def _cleanup_expired_sessions():
     for k in expired:
         _USED_SESSION_TOKENS.pop(k, None)
 
-def generate_multipliers(broken_count):
-    """توليد جدول المضاعفات ديناميكياً بناءً على عدد العملات المكسورة مع زيادة 10x لكل مستوى صعوبة"""
-    if broken_count == 3:
-        return MULT_3_BROKEN
-    
+
+def generate_multipliers(broken_count, commission_percent=20):
+    """
+    توليد جدول المضاعفات ديناميكياً بناءً على عدد العملات المكسورة
+    مع خصم نسبة عمولة البوت (Commission / House Edge) تلقائياً من الأرباح.
+    """
     safe_steps = 36 - broken_count
-    max_mult = 20.0 + (broken_count - 3) * 10.0
-    start_mult = 1.01 + (broken_count - 3) * 0.02
-    
+    comm_ratio = commission_percent / 100.0 if commission_percent > 1.0 else commission_percent
+    user_rtp = max(0.1, 1.0 - comm_ratio)  # نسبة عائد المستخدمين (مثلاً: 0.80 في حال عمولة 20%)
+
     multipliers = []
-    for i in range(safe_steps):
-        progress = i / max(1, (safe_steps - 1))
-        val = start_mult + (max_mult - start_mult) * (progress ** 2.2)
-        multipliers.append(round(val, 2))
+    prev_mult = 1.0
+
+    for k in range(1, safe_steps + 1):
+        try:
+            # الاحتمالية الرياضية العادلة = C(36, k) / C(36 - broken_count, k)
+            fair_mult = math.comb(36, k) / math.comb(36 - broken_count, k)
+        except (ValueError, ZeroDivisionError):
+            fair_mult = 20.0
+
+        # خصم حصة البوت تلقائياً من المضاعف العادل
+        raw_mult = fair_mult * user_rtp
+
+        # ضمان أن المضاعف يتزايد تدريجياً وبشكل منطقي
+        min_allowed = round(prev_mult + 0.02, 2)
+        mult_val = max(min_allowed, round(raw_mult, 2))
+
+        # سقف للمضاعفات بناءً على الصعوبة
+        max_cap = 20.0 + (broken_count - 3) * 15.0 if broken_count > 3 else 25.0
+        mult_val = min(mult_val, max_cap)
+
+        multipliers.append(mult_val)
+        prev_mult = mult_val
+
     return multipliers
 
+
 def get_arena_config():
+    """جلب إعدادات الساحة وتطبيق خصم نسبة البوت على ميزانية جوائز المستخدمين"""
     now = time.time()
     if _ARENA_CONFIG_CACHE["data"] and (now - _ARENA_CONFIG_CACHE["timestamp"] < CACHE_TTL_CONFIG):
         return _ARENA_CONFIG_CACHE["data"]
 
     settings = get_game_settings() or {}
     cfg = settings.get('arena_config', {})
+    
+    # جلب نسبة عمولة البوت من الإعدادات العامة وحساب نسبة ميزانية الجوائز
+    comm_percent = float(settings.get('commission_percent', cfg.get('commission_percent', 20)))
+    comm_ratio = comm_percent / 100.0 if comm_percent > 1.0 else comm_percent
+    
+    default_prize_pct = max(0.10, 1.0 - comm_ratio)
+    prize_pool_pct = float(cfg.get('prize_pool_percentage', default_prize_pct))
+    if prize_pool_pct > 1.0:
+        prize_pool_pct = prize_pool_pct / 100.0
+
     config_data = {
         "entry_fee": float(cfg.get('entry_fee', 350)),  # الحد الأدنى 350 ZN
         "min_participants": int(cfg.get('min_participants', 20)),
-        "prize_pool_percentage": float(cfg.get('prize_pool_percentage', 0.45)),
+        "prize_pool_percentage": prize_pool_pct,
         "round_duration": int(cfg.get('round_duration', 900)),
         "lock_seconds": int(cfg.get('lock_seconds', 15))
     }
     _ARENA_CONFIG_CACHE["data"] = config_data
     _ARENA_CONFIG_CACHE["timestamp"] = now
     return config_data
+
 
 def get_current_round_info(round_duration):
     current_time = int(time.time())
@@ -83,12 +110,14 @@ def get_current_round_info(round_duration):
     end_time = (round_id_num + 1) * round_duration
     return str(round_id_num), end_time, current_time, round_id_num
 
+
 def create_session_token(data_dict):
     """إنشاء رمز توقيع مشفر HMAC لمنع التلاعب بخريطة الجولة"""
     payload_bytes = json.dumps(data_dict, separators=(',', ':')).encode('utf-8')
     sig = hmac.new(HMAC_SECRET, payload_bytes, hashlib.sha256).hexdigest()
     token_str = f"{base64.urlsafe_b64encode(payload_bytes).decode('utf-8')}.{sig}"
     return token_str
+
 
 def verify_session_token(token_str):
     """التحقق من صحة التوقيع المشفر للجلسة والتأكد من عدم انتهاء صلاحيتها"""
@@ -178,7 +207,10 @@ def start_boxes_game():
 
         update_system_treasury(bet_amount=bet, payout_amount=0.0)
 
-        multipliers = generate_multipliers(broken_count)
+        # جلب نسبة عمولة البوت وحساب المضاعفات الديناميكية المعدلة
+        settings = get_game_settings() or {}
+        comm_percent = float(settings.get('commission_percent', 20))
+        multipliers = generate_multipliers(broken_count, comm_percent)
         
         session_data = {
             "uid": uid_str,
@@ -225,19 +257,21 @@ def pick_box():
     user_doc = db.collection('users').document(str(uid)).get()
     current_balance = round(float((user_doc.to_dict() or {}).get('balance', 0.0)), 2) if user_doc.exists else 0.0
 
-    # 🔒 التحقق الحاسم من أرباح البوت (80% للبوت / 20% للمستخدمين)
-    margin = get_system_profit_margin()
-    target_margin = 0.80
+    # 🔒 جلب نسبة عمولة البوت المستهدفة ديناميكياً من الإعدادات
+    settings = get_game_settings() or {}
+    comm_percent = float(settings.get('commission_percent', 20))
+    target_margin = comm_percent / 100.0 if comm_percent > 1.0 else comm_percent
 
-    # إذا انخفضت أرباح البوت إلى أقل من 80% (مثل 79% فما دون)، يتحول الضغط إلى خسارة فورية تلقائياً
+    # التحقق من هامش أرباح النظام الحالي
+    margin = get_system_profit_margin()
+
+    # يتحول الضغط إلى خسارة فقط إذا هبط هامش أرباح النظام الفعلي عن الهامش المستهدف لحماية الخزينة
     force_loss = (margin < target_margin)
 
     is_broken = layout[box_index] or force_loss
 
     if force_loss and not layout[box_index]:
-        # إعادة تعديل الخريطة ليظهر صندوق الضغط كـ عملة مكسورة
         layout[box_index] = True
-        # نقل إحدى العملات المكسورة الأخرى لتظل الشبكة تحتفظ بنفس عدد العملات المكسورة
         other_broken = [i for i, val in enumerate(layout) if val and i != box_index]
         if other_broken:
             layout[other_broken[0]] = False
@@ -296,13 +330,16 @@ def end_boxes_game():
     bet = float(session_data['bet'])
     layout = list(session_data['layout'])
     broken_count = session_data['broken_count']
-    multipliers = generate_multipliers(broken_count)
+
+    settings = get_game_settings() or {}
+    comm_percent = float(settings.get('commission_percent', 20))
+    multipliers = generate_multipliers(broken_count, comm_percent)
     
     user_ref = db.collection('users').document(uid_str)
 
-    # التحقق من نسبة الأرباح عند طلب الانسحاب والتجميع
+    # التحقق الديناميكي من نسبة أرباح النظام عند طلب الانسحاب
+    target_margin = comm_percent / 100.0 if comm_percent > 1.0 else comm_percent
     margin = get_system_profit_margin()
-    target_margin = 0.80
     force_loss = (margin < target_margin)
 
     hit_broken = force_loss
@@ -401,6 +438,11 @@ def resolve_round(round_id):
         total_collected = len(participants) * cfg['entry_fee']
         visible_prize_pool = round(total_collected * cfg['prize_pool_percentage'], 2)
         
+        # تحويل حصة البوت المخصومة تلقائياً إلى خزينة النظام
+        bot_commission = round(total_collected - visible_prize_pool, 2)
+        if bot_commission > 0:
+            update_system_treasury(bet_amount=bot_commission, payout_amount=0.0)
+
         shuffled_participants = list(participants)
         random.shuffle(shuffled_participants)
         
@@ -433,6 +475,7 @@ def resolve_round(round_id):
     except Exception as e:
         print(f"Error resolving round {round_id}: {e}")
         return False
+
 
 @games_bp.route('/status', methods=['POST'])
 def arena_status():
@@ -479,6 +522,7 @@ def arena_status():
         })
     except Exception as e:
         return jsonify({"success": False, "message": "خطأ في الاتصال بالخادم."}), 500
+
 
 @games_bp.route('/join', methods=['POST'])
 def join_arena():
@@ -537,6 +581,7 @@ def join_arena():
     except Exception as e:
         return jsonify({"success": False, "message": "حدث خطأ أثناء معالجة الطلب."}), 500
 
+
 @games_bp.route('/results', methods=['POST'])
 def get_results():
     success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
@@ -569,6 +614,7 @@ def get_results():
         "winners": r_data.get('winners', []),
         "new_balance": current_bal
     })
+
 
 @games_bp.route('/check_notifications', methods=['POST'])
 def check_notifications():
