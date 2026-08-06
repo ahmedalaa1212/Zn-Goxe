@@ -1,4 +1,3 @@
-
 // ==========================================
 // 1. التهيئة والتخزين المحلي (Local-First Architecture)
 // ==========================================
@@ -11,6 +10,18 @@ if (tg) {
 
 window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 6.50;
 window.serverTimeOffset = 0;
+
+// دالة موحدة لتنسيق الوقت (باستخدام h للساعات، m للدقائق، s للثواني)
+window.formatTime = function(seconds) {
+    if (isNaN(seconds) || seconds <= 0) return '0s';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+};
 
 function hideLoadingScreen() {
     const appEl = document.getElementById('app');
@@ -87,7 +98,7 @@ window.userState = new Proxy(getSavedState(), {
             if (typeof window.updateUI === 'function') window.updateUI();
             if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
             
-            // ⚡ إرسال حدث موحد لجميع الموديولات الفرعية (مثل المتجر) للتحديث الفوري
+            // ⚡ إرسال حدث موحد لجميع الموديولات الفرعية للتحديث الفوري
             window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: target }));
         }
         return true;
@@ -114,7 +125,10 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         const data = await res.json();
         
         if (!res.ok) {
-            if (res.status === 403 && data.error?.includes("محظور")) { alert("حسابك محظور."); tg?.close(); }
+            if (res.status === 403 && data.error?.includes("محظور")) { 
+                alert("حسابك محظور."); 
+                tg?.close(); 
+            }
             throw new Error(data.error || `HTTP ${res.status}`);
         }
 
@@ -242,7 +256,7 @@ window.activateTenXBoost = async function(durationHours = 1) {
     try {
         const res = await window.fetchAPI('/api/farm/activate_boost', 'POST', { duration_hours: durationHours });
         if (res.success || res.status === "success") {
-            alert('🚀 تم تفعيل مضاعف الأرباح 10x بنجاح!');
+            alert(`🚀 تم تفعيل مضاعف الأرباح 10x بنجاح لمدة ${durationHours}h!`);
             if (typeof window.loadUserData === 'function') window.loadUserData();
             return true;
         } else {
@@ -291,7 +305,7 @@ window.initFirebaseRealtimeSync = function(userId) {
                 if (typeof window.updateFarmUI === 'function') {
                     window.updateFarmUI();
                 }
-                // ⚡ تحديث كامل القوائم (بما فيها المتجر) لحظياً عند أي تغيير في Firestore
+                // ⚡ تحديث كامل القوائم لحظياً عند أي تغيير في Firestore
                 window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
             }
         }, err => console.error("Firebase Sync Error:", err));
@@ -343,14 +357,14 @@ window.updateClaimButtonState = function() {
         let currentCountdown = remainingSeconds;
         
         claimButtons.forEach(btn => {
-            renderButton(btn, true, `انتظر ${currentCountdown} ثانية ⏳`, "claim-action-btn btn-disabled");
+            renderButton(btn, true, `انتظر ${window.formatTime(currentCountdown)} ⏳`, "claim-action-btn btn-disabled");
         });
 
         claimCooldownTimer = setInterval(() => {
             currentCountdown--;
             if (currentCountdown > 0) {
                 claimButtons.forEach(btn => {
-                    renderButton(btn, true, `انتظر ${currentCountdown} ثانية ⏳`, "claim-action-btn btn-disabled");
+                    renderButton(btn, true, `انتظر ${window.formatTime(currentCountdown)} ⏳`, "claim-action-btn btn-disabled");
                 });
             } else {
                 clearInterval(claimCooldownTimer);
@@ -382,7 +396,7 @@ window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0.00';
     const num = parseFloat(val);
     return num.toLocaleString('en-US', {
-        minimumFractionDigits: 0,
+        minimumFractionDigits: 2,
         maximumFractionDigits: 2
     });
 };
