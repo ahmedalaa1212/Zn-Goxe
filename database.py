@@ -785,3 +785,218 @@ def update_user_storage_level(tg_id, target_level=None):
     except Exception as e:
         print(f"❌ Error updating storage level for {tg_id}: {e}")
         return False, f"حدث خطأ: {e}", 0, 0
+
+# ==================== Leaderboard & Extended Game Functions ====================
+
+def get_leaderboard(limit=10):
+    global _LEADERBOARD_CACHE, _LEADERBOARD_CACHE_TIME
+    now = time.time()
+    if _LEADERBOARD_CACHE is not None and (now - _LEADERBOARD_CACHE_TIME) < LEADERBOARD_CACHE_TTL:
+        return _LEADERBOARD_CACHE
+
+    try:
+        if not db: initialize_firebase()
+        users_ref = db.collection('users').order_by('balance', direction=firestore.Query.DESCENDING).limit(limit)
+        docs = users_ref.stream()
+
+        leaderboard = []
+        for i, doc in enumerate(docs, start=1):
+            d = doc.to_dict() or {}
+            leaderboard.append({
+                "rank": i,
+                "tg_id": str(d.get("tg_id", doc.id)),
+                "first_name": d.get("first_name", "صديقي"),
+                "balance": float(d.get("balance", 0.0)),
+                "hourly_rate": float(d.get("hourly_rate", 0.0))
+            })
+
+        _LEADERBOARD_CACHE = leaderboard
+        _LEADERBOARD_CACHE_TIME = now
+        return leaderboard
+    except Exception as e:
+        print(f"❌ Error fetching leaderboard: {e}")
+        return _LEADERBOARD_CACHE or []
+
+def claim_daily_reward(tg_id):
+    try:
+        if not tg_id: return False, "معرف غير صالح", 0.0, 0
+        user_data = get_user(tg_id)
+        if not user_data: return False, "المستخدم غير موجود", 0.0, 0
+
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        last_claim_date = user_data.get("last_daily_claim_date")
+
+        if last_claim_date == today_str:
+            return False, "لقد استلمت المكافأة اليومية بالفعل اليوم!", user_data.get("balance", 0.0), user_data.get("daily_streak", 0)
+
+        current_streak = int(user_data.get("daily_streak", 0))
+        
+        # التأكد مما إذا كان الاستلام في اليوم التالي متتالياً أو انقطع
+        if last_claim_date:
+            last_dt = datetime.strptime(last_claim_date, "%Y-%m-%d")
+            today_dt = datetime.strptime(today_str, "%Y-%m-%d")
+            if (today_dt - last_dt).days == 1:
+                current_streak += 1
+            else:
+                current_streak = 1
+        else:
+            current_streak = 1
+
+        if current_streak > 30:
+            current_streak = 1
+
+        settings = get_game_settings()
+        rewards_map = settings.get("daily_rewards", {})
+        reward_amount = float(rewards_map.get(f"day_{current_streak}", 100))
+
+        new_balance = round(float(user_data.get("balance", 0.0)) + reward_amount, 2)
+
+        update_user(tg_id, {
+            "balance": new_balance,
+            "daily_streak": current_streak,
+            "last_daily_claim_date": today_str
+        })
+
+        return True, f"تم استلام مكافأة اليوم {current_streak} بنجاح (+{reward_amount} ZN)!", new_balance, current_streak
+    except Exception as e:
+        print(f"❌ Error claiming daily reward for {tg_id}: {e}")
+        return False, f"حدث خطأ: {e}", 0.0, 0
+
+def claim_mining_farm(tg_id):
+    try:
+        if not tg_id: return False, "معرف غير صالح", 0.0, 0.0
+        user_data = get_user(tg_id)
+        if not user_data: return False, "المستخدم غير موجود", 0.0, 0.0
+
+        hourly_rate = float(user_data.get("hourly_rate", 0.0))
+        if hourly_rate <= 0:
+            return False, "عدل سرعة التعدين أولاً لتتمكن من الجمع!", float(user_data.get("balance", 0.0)), 0.0
+
+        last_claim_str = user_data.get("last_claim_time")
+        now_dt = datetime.now(timezone.utc)
+
+        if isinstance(last_claim_str, str):
+            try:
+                last_claim_dt = datetime.fromisoformat(last_claim_str.replace('Z', '+00:00'))
+            except Exception:
+                last_claim_dt = now_dt
+        else:
+            last_claim_dt = now_dt
+
+        elapsed_hours = (now_dt - last_claim_dt).total_seconds() / 3600.0
+        if elapsed_hours < (1 / 60.0): # أقل من دقيقة
+            return False, "لا يوجد رصيد قابل للجمع بعد!", float(user_data.get("balance", 0.0)), 0.0
+
+        produced = elapsed_hours * hourly_rate
+        max_cap = float(user_data.get("max_cap", 100.0))
+
+        if produced > max_cap:
+            produced = max_cap
+
+        produced = round(produced, 2)
+        new_balance = round(float(user_data.get("balance", 0.0)) + produced, 2)
+
+        update_user(tg_id, {
+            "balance": new_balance,
+            "last_claim_time": now_dt.isoformat()
+        })
+
+        return True, f"تم جمع {produced} ZN بنجاح!", new_balance, produced
+    except Exception as e:
+        print(f"❌ Error claiming mining farm for {tg_id}: {e}")
+        return False, f"حدث خطأ: {e}", 0.0, 0.0
+
+def upgrade_mining_card(tg_id, card_id):
+    try:
+        if not tg_id or not card_id: return False, "بيانات غير صالحة", 0.0, 0.0
+        tg_id_str = str(tg_id)
+        card_id_str = str(card_id)
+
+        user_data = get_user(tg_id_str)
+        if not user_data: return False, "المستخدم غير موجود", 0.0, 0.0
+
+        settings = get_game_settings()
+        mining_cfg = settings.get("mining_config", {})
+
+        card_cfg = mining_cfg.get(card_id_str)
+        if not card_cfg: return False, "كرت التعدين غير موجود", 0.0, 0.0
+
+        upgrades = user_data.get("upgrades", {}) or {}
+        current_card_lvl = int(upgrades.get(card_id_str, 0))
+        max_lvl = int(card_cfg.get("max", 10))
+
+        if current_card_lvl >= max_lvl:
+            return False, "وصلت للحد الأقصى لمستوى هذا الكرت!", float(user_data.get("balance", 0.0)), float(user_data.get("hourly_rate", 0.0))
+
+        base_cost = float(card_cfg.get("base_cost", card_cfg.get("price", 3500.0)))
+        cost = base_cost * (1.5 ** current_card_lvl)
+        cost = round(cost, 2)
+
+        current_balance = float(user_data.get("balance", 0.0))
+        if current_balance < cost:
+            return False, f"رصيدك غير كافٍ! سعر الترقية {cost} ZN", current_balance, float(user_data.get("hourly_rate", 0.0))
+
+        rate_bonus = float(card_cfg.get("rate_bonus", 5.0))
+
+        new_balance = round(current_balance - cost, 2)
+        new_hourly_rate = round(float(user_data.get("hourly_rate", 0.0)) + rate_bonus, 2)
+
+        upgrades[card_id_str] = current_card_lvl + 1
+
+        update_user(tg_id_str, {
+            "balance": new_balance,
+            "hourly_rate": new_hourly_rate,
+            "upgrades": upgrades
+        })
+
+        return True, "تم ترقية كرت التعدين بنجاح!", new_balance, new_hourly_rate
+    except Exception as e:
+        print(f"❌ Error upgrading mining card {card_id} for {tg_id}: {e}")
+        return False, f"حدث خطأ: {e}", 0.0, 0.0
+
+def claim_referral_earnings(tg_id):
+    try:
+        if not tg_id: return False, "معرف غير صالح", 0.0
+        user_data = get_user(tg_id)
+        if not user_data: return False, "المستخدم غير موجود", 0.0
+
+        pending = float(user_data.get("pending_ref_earnings", 0.0))
+        if pending <= 0:
+            return False, "لا توجد أرباح إحالات معلقة لجمعها!", float(user_data.get("balance", 0.0))
+
+        current_bal = float(user_data.get("balance", 0.0))
+        total_ref = float(user_data.get("total_ref_earnings", 0.0))
+
+        new_bal = round(current_bal + pending, 2)
+        new_total_ref = round(total_ref + pending, 2)
+
+        update_user(tg_id, {
+            "balance": new_bal,
+            "pending_ref_earnings": 0.0,
+            "total_ref_earnings": new_total_ref
+        })
+
+        return True, f"تم جمع أرباح الإحالة (+{pending} ZN) بنجاح!", new_bal
+    except Exception as e:
+        print(f"❌ Error claiming referral earnings for {tg_id}: {e}")
+        return False, f"حدث خطأ: {e}", 0.0
+
+def get_user_friends(tg_id, limit=50):
+    try:
+        if not db or not tg_id: return []
+        friends_ref = db.collection('users').document(str(tg_id)).collection('friends').limit(limit)
+        docs = friends_ref.stream()
+
+        friends = []
+        for doc in docs:
+            d = doc.to_dict() or {}
+            friends.append({
+                "tg_id": str(d.get("tg_id", doc.id)),
+                "first_name": d.get("first_name", "صديقي"),
+                "earned_from_him": float(d.get("earned_from_him", 0.0))
+            })
+
+        return friends
+    except Exception as e:
+        print(f"❌ Error getting friends list for {tg_id}: {e}")
+        return []
