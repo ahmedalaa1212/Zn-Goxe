@@ -109,15 +109,6 @@
             overflow: hidden;
         }
 
-        .tab-card::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: radial-gradient(circle at center, rgba(255,255,255,0.05) 0%, transparent 70%);
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-
         .tab-card:active {
             transform: scale(0.97);
         }
@@ -128,68 +119,109 @@
             box-shadow: 0 0 20px var(--primary-glow), inset 0 0 10px rgba(243, 156, 18, 0.1);
         }
 
-        .tab-card.active#tab-wheel {
+        .tab-card.active#tab-boxes {
             border-color: var(--accent-cyan);
             box-shadow: 0 0 20px var(--accent-cyan-glow), inset 0 0 10px rgba(0, 255, 204, 0.1);
         }
 
-        /* كارت عجلة الحظ */
-        .wheel-card {
+        /* شبكة 36 صندوقاً (6x6) */
+        .boxes-card {
             background: linear-gradient(165deg, rgba(22, 22, 38, 0.9), rgba(11, 13, 20, 0.95));
             backdrop-filter: blur(16px);
             border: 1px solid rgba(0, 255, 204, 0.2);
             border-radius: 22px;
-            padding: 20px 14px;
-            text-align: center;
+            padding: 16px;
             position: relative;
             box-shadow: 0 12px 35px rgba(0, 0, 0, 0.6);
         }
 
-        .wheel-wrapper {
+        .boxes-header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+        }
+
+        .btn-settings-icon {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff;
+            padding: 6px 12px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .boxes-grid-6x6 {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 8px;
+            margin-bottom: 16px;
+            perspective: 1000px;
+        }
+
+        .box-card {
+            aspect-ratio: 1;
+            perspective: 1000px;
+            cursor: pointer;
+        }
+
+        .box-inner {
             position: relative;
-            width: 280px;
-            height: 280px;
-            margin: 10px auto 20px auto;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transform-style: preserve-3d;
+            border-radius: 12px;
+        }
+
+        .box-card.flipped .box-inner {
+            transform: rotateY(180deg);
+        }
+
+        .box-front, .box-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
+            border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
+            font-size: 1.3rem;
+            font-weight: 900;
         }
 
-        .wheel-pointer {
-            position: absolute;
-            top: -12px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 0;
-            height: 0;
-            border-left: 14px solid transparent;
-            border-right: 14px solid transparent;
-            border-top: 24px solid #ef4444;
-            z-index: 10;
-            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.6));
-        }
-
-        canvas#wheel-canvas {
-            width: 280px;
-            height: 280px;
-            border-radius: 50%;
-            box-shadow: 0 0 25px rgba(0, 255, 204, 0.2), inset 0 0 15px rgba(0, 0, 0, 0.8);
-            transition: transform 4s cubic-bezier(0.15, 0.95, 0.35, 1);
-        }
-
-        .wheel-center-cap {
-            position: absolute;
-            width: 50px;
-            height: 50px;
+        .box-front {
             background: linear-gradient(135deg, #1e293b, #0f172a);
-            border: 3px solid var(--accent-cyan);
-            border-radius: 50%;
-            z-index: 5;
-            box-shadow: 0 0 15px var(--accent-cyan-glow);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.2rem;
+            border: 1.5px solid rgba(0, 255, 204, 0.25);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+            color: var(--accent-cyan);
+        }
+
+        .box-front:hover {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 12px var(--accent-cyan-glow);
+        }
+
+        .box-back {
+            background: linear-gradient(135deg, #059669, #10b981);
+            color: #ffffff;
+            transform: rotateY(180deg);
+            border: 1.5px solid #10b981;
+            box-shadow: 0 0 14px var(--accent-green-glow);
+        }
+
+        .box-card.broken .box-back {
+            background: linear-gradient(135deg, #dc2626, #ef4444);
+            border-color: #ef4444;
+            box-shadow: 0 0 14px var(--accent-red-glow);
         }
 
         .bet-controls {
@@ -214,11 +246,6 @@
             text-align: center;
             font-weight: 800;
             font-size: 1.05rem;
-            transition: border-color 0.2s ease;
-        }
-
-        .bet-input:focus {
-            border-color: var(--accent-cyan);
         }
 
         .btn-quick-bet {
@@ -230,16 +257,9 @@
             font-size: 0.82rem;
             font-weight: 700;
             cursor: pointer;
-            transition: all 0.2s ease;
         }
 
-        .btn-quick-bet:active {
-            transform: scale(0.92);
-            background: rgba(51, 65, 85, 1);
-            color: #fff;
-        }
-
-        .btn-spin {
+        .btn-action-main {
             width: 100%;
             padding: 15px;
             background: linear-gradient(90deg, #00ffcc, #059669);
@@ -250,11 +270,21 @@
             font-size: 1.15rem;
             cursor: pointer;
             box-shadow: 0 6px 20px var(--accent-cyan-glow);
-            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.25s ease;
         }
 
-        .btn-spin:active {
-            transform: translateY(2px);
+        .btn-cashout-main {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(90deg, #10b981, #047857);
+            color: #ffffff;
+            border: none;
+            border-radius: 14px;
+            font-weight: 900;
+            font-size: 1.15rem;
+            cursor: pointer;
+            box-shadow: 0 6px 20px var(--accent-green-glow);
+            transition: all 0.25s ease;
         }
 
         /* كارت الساحة الكبرى */
@@ -317,10 +347,6 @@
             transition: all 0.25s ease;
         }
 
-        .btn-join:active {
-            transform: translateY(2px);
-        }
-
         .btn-disabled {
             background: var(--btn-disabled) !important;
             color: #64748b !important;
@@ -344,11 +370,25 @@
             margin-bottom: 9px;
         }
 
-        .prize-row:last-child {
-            margin-bottom: 0;
+        .btn-broken-opt {
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff;
+            padding: 12px;
+            border-radius: 12px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.2s ease;
         }
 
-        /* القوالب المنبثقة Modals */
+        .btn-broken-opt.selected {
+            background: linear-gradient(135deg, #00ffcc, #059669);
+            color: #0b0d14;
+            border-color: #00ffcc;
+            box-shadow: 0 0 12px var(--accent-cyan-glow);
+        }
+
+        /* Modals */
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -359,12 +399,6 @@
             align-items: center;
             justify-content: center;
             padding: 20px;
-            animation: fadeIn 0.25s ease;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
         }
 
         .modal-card {
@@ -376,13 +410,6 @@
             max-width: 420px;
             text-align: center;
             box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9);
-            transform: scale(1);
-            animation: modalScale 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
-
-        @keyframes modalScale {
-            0% { transform: scale(0.85); opacity: 0; }
-            100% { transform: scale(1); opacity: 1; }
         }
     </style>
 </head>
@@ -396,18 +423,18 @@
 
     <div class="games-container">
         
-        <!-- أزرار التبديل بين اللعبتين فقط -->
+        <!-- أزرار التبديل بين اللعبتين -->
         <div class="tabs-grid">
             <div id="tab-arena" onclick="switchGameTab('arena')" class="tab-card active">
                 <div style="font-size: 24px; margin-bottom: 4px;">⚔️</div>
                 <div style="color: #fff; font-size: 13px; font-weight: 800;">الساحة الكبرى</div>
-                <div style="color: var(--primary); font-size: 11px; margin-top: 4px; font-weight: 700;">متاحة الآن</div>
+                <div style="color: var(--primary); font-size: 11px; margin-top: 4px; font-weight: 700;">متاحة الآن (350 ZN)</div>
             </div>
             
-            <div id="tab-wheel" onclick="switchGameTab('wheel')" class="tab-card">
-                <div style="font-size: 24px; margin-bottom: 4px;">🎰</div>
-                <div style="color: #fff; font-size: 13px; font-weight: 800;">عجلة الحظ</div>
-                <div style="color: var(--accent-cyan); font-size: 11px; margin-top: 4px; font-weight: 700;">لف واكسب فوراً</div>
+            <div id="tab-boxes" onclick="switchGameTab('boxes')" class="tab-card">
+                <div style="font-size: 24px; margin-bottom: 4px;">📦</div>
+                <div style="color: #fff; font-size: 13px; font-weight: 800;">شبكة العملات (36)</div>
+                <div style="color: var(--accent-cyan); font-size: 11px; margin-top: 4px; font-weight: 700;">تحدي المخاطرة</div>
             </div>
         </div>
 
@@ -437,32 +464,66 @@
                     <div class="prize-row"><span style="color: #94a3b8;">🏅 المركز الخامس (10%)</span> <span id="prize-5" style="color: #fff; font-weight: bold;">0.00 ZN</span></div>
                 </div>
             </div>
-            <p id="arena-subtext" style="color: var(--text-muted); font-size: 12px; text-align: center; margin-top: 16px; font-weight: 600;">سحب تلقائي مستمر! رسوم الاشتراك: 250 ZN</p>
+            <p id="arena-subtext" style="color: var(--text-muted); font-size: 12px; text-align: center; margin-top: 16px; font-weight: 600;">سحب تلقائي مستمر! رسوم الاشتراك: 350 ZN</p>
         </div>
 
-        <!-- تبويب 2: لعبة عجلة الحظ -->
-        <div id="content-wheel" style="display: none;">
-            <div class="wheel-card">
-                <h3 style="color: #fff; font-size: 16px; margin: 0 0 12px 0; font-weight: 800;">🎰 لف العجلة واكسب عملات ZN</h3>
-                
-                <div class="wheel-wrapper">
-                    <div class="wheel-pointer"></div>
-                    <canvas id="wheel-canvas" width="560" height="560"></canvas>
-                    <div class="wheel-center-cap">💎</div>
+        <!-- تبويب 2: لعبة شبكة العملات والمخاطرة (36 صندوقاً) -->
+        <div id="content-boxes" style="display: none;">
+            <div class="boxes-card">
+                <div class="boxes-header-bar">
+                    <span id="selected-broken-text" style="color: var(--accent-cyan); font-size: 12px; font-weight: 800;">3 عملات مكسورة (سقف 🌟 20x)</span>
+                    <button id="btn-boxes-settings" class="btn-settings-icon" onclick="openBoxesSettings()">⚙️ الصعوبة</button>
                 </div>
+
+                <!-- شبكة الصناديق الـ 36 -->
+                <div id="boxes-grid" class="boxes-grid-6x6"></div>
 
                 <div class="bet-controls">
                     <div class="bet-input-wrapper">
-                        <input type="number" id="wheel-bet-input" class="bet-input" value="100" min="100" step="100">
+                        <input type="number" id="boxes-bet-input" class="bet-input" value="100" min="100" step="100">
                     </div>
-                    <button class="btn-quick-bet" onclick="addBetWheel(100)">+100</button>
-                    <button class="btn-quick-bet" onclick="addBetWheel(500)">+500</button>
-                    <button class="btn-quick-bet" onclick="setBetMaxWheel()">الأقصى</button>
+                    <button class="btn-quick-bet" onclick="addBetBoxes(100)">+100</button>
+                    <button class="btn-quick-bet" onclick="addBetBoxes(500)">+500</button>
+                    <button class="btn-quick-bet" onclick="setBetMaxBoxes()">الأقصى</button>
                 </div>
 
-                <button id="btn-spin-wheel" class="btn-spin" onclick="spinWheel()">
-                    لف العجلة الآن (100 ZN) 🚀
+                <button id="btn-start-boxes" class="btn-action-main" onclick="startBoxesGame()">
+                    بدء الجولة 🚀
                 </button>
+
+                <button id="btn-cashout-boxes" class="btn-cashout-main btn-disabled" onclick="cashOutBoxes()" style="display: none;" disabled>
+                    سحب الأرباح (0.00 ZN)
+                </button>
+            </div>
+        </div>
+
+        <!-- نافذة إعدادات عدد العملات المكسورة -->
+        <div id="boxes-settings-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-card">
+                <h3 style="color: #fff; font-size: 16px; margin-bottom: 12px; font-weight: 800;">اختر عدد العملات المكسورة بالجولة</h3>
+                <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 18px;">زيادة عدد العملات المكسورة يرفع سقف المضاعف بمقدار 10x إضافية!</p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
+                    <button class="btn-broken-opt selected" data-count="3" onclick="selectBrokenCount(3)">3 (20x max)</button>
+                    <button class="btn-broken-opt" data-count="4" onclick="selectBrokenCount(4)">4 (30x max)</button>
+                    <button class="btn-broken-opt" data-count="5" onclick="selectBrokenCount(5)">5 (40x max)</button>
+                    <button class="btn-broken-opt" data-count="6" onclick="selectBrokenCount(6)">6 (50x max)</button>
+                    <button class="btn-broken-opt" data-count="7" onclick="selectBrokenCount(7)">7 (60x max)</button>
+                    <button class="btn-broken-opt" data-count="8" onclick="selectBrokenCount(8)">8 (70x max)</button>
+                </div>
+                <button style="width: 100%; padding: 12px; background: rgba(30, 41, 59, 0.9); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; font-weight: 800; cursor: pointer;" onclick="closeBoxesSettings()">حفظ وإغلاق</button>
+            </div>
+        </div>
+
+        <!-- نافذة الإحياء بالإعلانات (Revive Pass Modal) -->
+        <div id="revive-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-card">
+                <div style="font-size: 46px; margin-bottom: 10px;">🛡️</div>
+                <h3 style="color: #fff; font-size: 17px; margin-bottom: 8px; font-weight: 800;">ميزة الإحياء من الخسارة</h3>
+                <p style="color: #cbd5e1; font-size: 13px; margin-bottom: 22px;">شاهد إعلان فيديو قصير لإلغاء الضغطة الخاطئة ومتابعة لعبتك الآن!</p>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="onConfirmRevive(true)" style="flex: 1; padding: 13px; background: linear-gradient(90deg, #10b981, #059669); color: white; border: none; border-radius: 12px; font-weight: 800; cursor: pointer;">مشاهدة إعلان 🎥</button>
+                    <button onclick="onConfirmRevive(false)" style="flex: 1; padding: 13px; background: rgba(30, 41, 59, 0.9); color: var(--text-muted); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; font-weight: 800; cursor: pointer;">تخطي الخسارة</button>
+                </div>
             </div>
         </div>
 
@@ -485,12 +546,12 @@
             </div>
         </div>
 
-        <!-- نافذة تأكيد الاشتراك -->
+        <!-- نافذة تأكيد الاشتراك بالساحة -->
         <div id="confirm-modal" class="modal-overlay" style="display: none;">
             <div class="modal-card">
                 <div style="font-size: 46px; margin-bottom: 10px;">⚔️</div>
                 <h3 style="color: #fff; font-size: 17px; margin-bottom: 8px; font-weight: 800;">تأكيد الدخول للساحة</h3>
-                <p style="color: #cbd5e1; font-size: 13px; margin-bottom: 22px;">سيتم خصم <strong id="confirm-fee-text" style="color: var(--primary);">250 ZN</strong> للاشتراك. متابعة؟</p>
+                <p style="color: #cbd5e1; font-size: 13px; margin-bottom: 22px;">سيتم خصم <strong id="confirm-fee-text" style="color: var(--primary);">350 ZN</strong> للاشتراك. متابعة؟</p>
                 <div style="display: flex; gap: 10px;">
                     <button onclick="onConfirmJoin(true)" style="flex: 1; padding: 13px; background: linear-gradient(90deg, #f39c12, #d35400); color: white; border: none; border-radius: 12px; font-weight: 800; cursor: pointer;">تأكيد الاشتراك</button>
                     <button onclick="onConfirmJoin(false)" style="flex: 1; padding: 13px; background: rgba(30, 41, 59, 0.9); color: var(--text-muted); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; font-weight: 800; cursor: pointer;">إلغاء</button>
@@ -511,6 +572,6 @@
         <a href="../friends/friends.html" class="nav-item"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
-    <script src="games.js?v=14.0"></script>
+    <script src="games.js?v=15.0"></script>
 </body>
 </html>
