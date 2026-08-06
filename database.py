@@ -1,3 +1,4 @@
+# database.py
 import os
 import json
 import time
@@ -25,6 +26,7 @@ TREASURY_CACHE_TTL = 30  # كاش الخزينة يُحدث كل 30 ثانية �
 # ========================================================================
 
 def initialize_firebase():
+    """تهيئة الاتصال بقاعدة بيانات Firebase Firestore مع حماية المفاتيح"""
     global db
     if not firebase_admin._apps:
         firebase_creds_json = os.environ.get('FIREBASE_CREDENTIALS')
@@ -55,7 +57,9 @@ def initialize_firebase():
         db = firestore.client()
     return db
 
+
 def ensure_game_settings_exist():
+    """ضمان وجود مستند الإعدادات الأساسية للعبة في Firestore وإنشائه عند الحاجة"""
     global db, _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     if not db:
         try:
@@ -176,9 +180,11 @@ def ensure_game_settings_exist():
         print(f"❌ خطأ أثناء تهيئة الإعدادات: {e}")
         return None
 
+
 # ==================== Treasury & Safe Guard System ====================
 
 def ensure_treasury_exist():
+    """ضمان مستند خزينة النظام لمراقبة نسب الأرباح وحمايتها"""
     global db, _TREASURY_CACHE, _TREASURY_CACHE_TIME
     if not db:
         try:
@@ -213,6 +219,7 @@ def ensure_treasury_exist():
         return None
 
 def get_system_treasury():
+    """جلب بيانات الخزينة المحدثة لاستخدامها في خوارزميات الأرباح"""
     global _TREASURY_CACHE, _TREASURY_CACHE_TIME
     now = time.time()
     if _TREASURY_CACHE is not None and (now - _TREASURY_CACHE_TIME) < TREASURY_CACHE_TTL:
@@ -233,6 +240,7 @@ def get_system_treasury():
         return _TREASURY_CACHE or {}
 
 def get_system_profit_margin():
+    """حساب هامش أرباح النظام المباشر (RTP Controller)"""
     treasury = get_system_treasury()
     total_bets = float(treasury.get("total_bets", 100000.0))
     total_payouts = float(treasury.get("total_payouts", 10000.0))
@@ -241,9 +249,10 @@ def get_system_profit_margin():
         return 1.0
 
     margin = (total_bets - total_payouts) / total_bets
-    return margin
+    return max(0.0, margin)
 
 def update_system_treasury(bet_amount=0.0, payout_amount=0.0):
+    """تحديث مبالغ الخزينة ذرياً (Atomically) فور كل رهان أو توزيع جوائز"""
     global _TREASURY_CACHE, _TREASURY_CACHE_TIME
     try:
         if not db: initialize_firebase()
@@ -279,6 +288,7 @@ except Exception as e:
     print(f"⚠️ تنبيه أثناء تهيئة DB تلقائياً: {e}")
 
 def get_game_settings():
+    """جلب إعدادات اللعبة من الكاش لتسريع الأداء"""
     global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     now = time.time()
     if _SETTINGS_CACHE is not None and (now - _SETTINGS_CACHE_TIME) < SETTINGS_CACHE_TTL:
@@ -301,6 +311,7 @@ def get_game_settings():
         return _SETTINGS_CACHE or {}
 
 def is_user_banned(tg_id):
+    """التحقق السريع من حالة حظر المستخدم"""
     if not tg_id: return False
     tg_id_str = str(tg_id)
     now = time.time()
@@ -319,6 +330,7 @@ def is_user_banned(tg_id):
         return False
 
 def init_user(tg_id, ref_id=None, first_name="صديقي"):
+    """إنشاء أو تحديث حساب مستخدم جديد بالتكامل مع نظام الإحالات"""
     try:
         if not tg_id: return False
             
@@ -408,6 +420,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
         return False
 
 def get_user(tg_id):
+    """جلب بيانات مستخدم محدد مع معالجة الحقول المفقودة تلقائياً"""
     try:
         if not tg_id: return None
         user_ref = db.collection('users').document(str(tg_id))
@@ -506,6 +519,7 @@ def get_user(tg_id):
 # ==================== Task & Campaign Database Functions ====================
 
 def get_active_campaigns(tg_id):
+    """جلب قائمة المهمات الإعلانية النشطة للمستخدم"""
     try:
         if not db: initialize_firebase()
         user_data = get_user(tg_id) or {}
@@ -542,6 +556,7 @@ def get_active_campaigns(tg_id):
         return [], 0.0, 0.0
 
 def complete_user_task(tg_id, task_id):
+    """تسجيل إكمال مهمة إضافة مكافأتها للمستخدم"""
     try:
         if not tg_id or not task_id:
             return False, "بيانات غير صالحة", 0.0
@@ -585,6 +600,7 @@ def complete_user_task(tg_id, task_id):
         return False, "حدث خطأ أثناء معالجة المهمة", 0.0
 
 def create_ad_campaign(tg_id, platform, description, url, reward, users_needed):
+    """إنشاء حملة إعلانية جديدة وخصم التكلفة من رصيد الإعلانات ad_balance"""
     try:
         if not tg_id: return False, "معرف غير صالح", 0.0
         tg_id_str = str(tg_id)
@@ -628,6 +644,7 @@ def create_ad_campaign(tg_id, platform, description, url, reward, users_needed):
         return False, f"حدث خطأ: {e}", 0.0
 
 def cancel_ad_campaign(tg_id, task_id):
+    """إلغاء حملة إعلانية واسترداد الرصيد المتبقي"""
     try:
         if not tg_id or not task_id: return False, "بيانات غير صالحة", 0.0, 0.0
         tg_id_str = str(tg_id)
@@ -664,6 +681,7 @@ def cancel_ad_campaign(tg_id, task_id):
         return False, f"حدث خطأ: {e}", 0.0, 0.0
 
 def convert_balance_to_ad_balance(tg_id, amount):
+    """تحويل من الرصيد الأساسي ZN إلى رصيد الإعلانات AdZN"""
     try:
         if not tg_id or amount <= 0: return False, "مبلغ غير صالح", 0.0, 0.0
         tg_id_str = str(tg_id)
@@ -693,6 +711,7 @@ def convert_balance_to_ad_balance(tg_id, amount):
         return False, f"حدث خطأ: {e}", 0.0, 0.0
 
 def apply_package_to_user(tg_id, added_storage=0.0, added_balance=0.0, added_hourly_rate=0.0):
+    """تطبيق مزايا الباقات على حساب المستخدم"""
     try:
         if not tg_id: return False, "معرف غير صالح"
         user_ref = db.collection('users').document(str(tg_id))
@@ -732,6 +751,7 @@ def add_extra_storage(tg_id, extra_amount):
     return apply_package_to_user(tg_id, added_storage=extra_amount)
 
 def update_user(tg_id, update_data):
+    """تحديث حقول بيانات المستخدم بشكل مباشر"""
     try:
         if not tg_id or not isinstance(update_data, dict): return False
         db.collection('users').document(str(tg_id)).update(update_data)
@@ -741,6 +761,7 @@ def update_user(tg_id, update_data):
         return False
 
 def update_user_storage_level(tg_id, target_level=None):
+    """ترقية مستوى سعة المخزن للمستخدم"""
     try:
         if not tg_id: return False, "معرف المستخدم غير صحيح", 0, 0
         tg_id_str = str(tg_id)
@@ -789,6 +810,7 @@ def update_user_storage_level(tg_id, target_level=None):
 # ==================== Leaderboard & Extended Game Functions ====================
 
 def get_leaderboard(limit=10):
+    """جلب قائمة المتصدرين مع ذاكرة التخزين المؤقت (Cache)"""
     global _LEADERBOARD_CACHE, _LEADERBOARD_CACHE_TIME
     now = time.time()
     if _LEADERBOARD_CACHE is not None and (now - _LEADERBOARD_CACHE_TIME) < LEADERBOARD_CACHE_TTL:
@@ -818,6 +840,7 @@ def get_leaderboard(limit=10):
         return _LEADERBOARD_CACHE or []
 
 def claim_daily_reward(tg_id):
+    """استلام المكافأة اليومية للمستخدم"""
     try:
         if not tg_id: return False, "معرف غير صالح", 0.0, 0
         user_data = get_user(tg_id)
@@ -831,7 +854,6 @@ def claim_daily_reward(tg_id):
 
         current_streak = int(user_data.get("daily_streak", 0))
         
-        # التأكد مما إذا كان الاستلام في اليوم التالي متتالياً أو انقطع
         if last_claim_date:
             last_dt = datetime.strptime(last_claim_date, "%Y-%m-%d")
             today_dt = datetime.strptime(today_str, "%Y-%m-%d")
@@ -863,6 +885,7 @@ def claim_daily_reward(tg_id):
         return False, f"حدث خطأ: {e}", 0.0, 0
 
 def claim_mining_farm(tg_id):
+    """جمع أرباح التعدين بناءً على سرعة التعدين والوقت المنقضي"""
     try:
         if not tg_id: return False, "معرف غير صالح", 0.0, 0.0
         user_data = get_user(tg_id)
@@ -907,6 +930,7 @@ def claim_mining_farm(tg_id):
         return False, f"حدث خطأ: {e}", 0.0, 0.0
 
 def upgrade_mining_card(tg_id, card_id):
+    """ترقية كرت التعدين وزيادة معدل التعدين بالساعة"""
     try:
         if not tg_id or not card_id: return False, "بيانات غير صالحة", 0.0, 0.0
         tg_id_str = str(tg_id)
@@ -955,6 +979,7 @@ def upgrade_mining_card(tg_id, card_id):
         return False, f"حدث خطأ: {e}", 0.0, 0.0
 
 def claim_referral_earnings(tg_id):
+    """تحويل أرباح الإحالات المعلقة إلى الرصيد الأساسي"""
     try:
         if not tg_id: return False, "معرف غير صالح", 0.0
         user_data = get_user(tg_id)
@@ -982,6 +1007,7 @@ def claim_referral_earnings(tg_id):
         return False, f"حدث خطأ: {e}", 0.0
 
 def get_user_friends(tg_id, limit=50):
+    """جلب قائمة الأصدقاء المدعوين من قبل المستخدم"""
     try:
         if not db or not tg_id: return []
         friends_ref = db.collection('users').document(str(tg_id)).collection('friends').limit(limit)
