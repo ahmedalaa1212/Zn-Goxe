@@ -14,26 +14,21 @@
     const STATUS_FETCH_COOLDOWN = 12000;
     let hasJoinedCurrentRound = false;
 
-    let currentEntryFee = 250;
+    let currentEntryFee = 350; // الحد الأدنى للاشتراك 350 ZN
     let currentLockSeconds = 15;
     let currentDisplayBalance = 0;
     let currentPrizePool = 0;
 
-    // --- متغيرات لعبة عجلة الحظ (Lucky Wheel) ---
-    const WHEEL_SLICES = [
-        { label: "0x", mult: 0.0, color: "#ef4444" },
-        { label: "0.5x", mult: 0.5, color: "#f59e0b" },
-        { label: "1x", mult: 1.0, color: "#3b82f6" },
-        { label: "1.5x", mult: 1.5, color: "#8b5cf6" },
-        { label: "2x", mult: 2.0, color: "#10b981" },
-        { label: "3x", mult: 3.0, color: "#ec4899" },
-        { label: "5x", mult: 5.0, color: "#00ffcc" },
-        { label: "10x", mult: 10.0, color: "#f39c12" }
-    ];
-
-    let wheelState = {
-        isSpinning: false,
-        currentRotation: 0
+    // --- متغيرات لعبة شبكة العملات والمخاطرة (36 صندوقاً) ---
+    let boxesState = {
+        inGame: false,
+        bet: 100,
+        brokenCount: 3,
+        picks: [],
+        sessionToken: null,
+        multipliers: [],
+        lastHitIndex: null,
+        reviveUsed: false
     };
 
     const tele = window.Telegram?.WebApp;
@@ -131,161 +126,331 @@
     window.switchGameTab = function(tabName) {
         triggerHaptic('light');
         const arenaTab = document.getElementById('tab-arena');
-        const wheelTab = document.getElementById('tab-wheel');
+        const boxesTab = document.getElementById('tab-boxes');
         const arenaContent = document.getElementById('content-arena');
-        const wheelContent = document.getElementById('content-wheel');
+        const boxesContent = document.getElementById('content-boxes');
 
         if (tabName === 'arena') {
             if (arenaTab) { arenaTab.classList.add('active'); arenaTab.style.opacity = '1'; }
-            if (wheelTab) { wheelTab.classList.remove('active'); wheelTab.style.opacity = '0.6'; }
+            if (boxesTab) { boxesTab.classList.remove('active'); boxesTab.style.opacity = '0.6'; }
             if (arenaContent) arenaContent.style.display = 'block';
-            if (wheelContent) wheelContent.style.display = 'none';
+            if (boxesContent) boxesContent.style.display = 'none';
         } else {
-            if (wheelTab) { wheelTab.classList.add('active'); wheelTab.style.opacity = '1'; }
+            if (boxesTab) { boxesTab.classList.add('active'); boxesTab.style.opacity = '1'; }
             if (arenaTab) { arenaTab.classList.remove('active'); arenaTab.style.opacity = '0.6'; }
             if (arenaContent) arenaContent.style.display = 'none';
-            if (wheelContent) wheelContent.style.display = 'block';
-            drawWheel();
+            if (boxesContent) boxesContent.style.display = 'block';
+            renderBoxesGrid();
         }
     };
 
-    // --- رسم وعرض عجلة الحظ ---
-    function drawWheel() {
-        const canvas = document.getElementById('wheel-canvas');
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        const width = canvas.width;
-        const height = canvas.height;
-        const centerX = width / 2;
-        const centerY = height / 2;
-        const radius = width / 2 - 10;
-        const numSlices = WHEEL_SLICES.length;
-        const sliceAngle = (2 * Math.PI) / numSlices;
+    // --- 1. منطق لعبة شبكة العملات والمخاطرة (36 صندوقاً) ---
 
-        ctx.clearRect(0, 0, width, height);
-
-        for (let i = 0; i < numSlices; i++) {
-            const angle = i * sliceAngle;
-            ctx.beginPath();
-            ctx.moveTo(centerX, centerY);
-            ctx.arc(centerX, centerY, radius, angle, angle + sliceAngle);
-            ctx.closePath();
-
-            ctx.fillStyle = WHEEL_SLICES[i].color;
-            ctx.fill();
-            ctx.lineWidth = 4;
-            ctx.strokeStyle = '#0f172a';
-            ctx.stroke();
-
-            // رسم النصوص داخل القطاعات
-            ctx.save();
-            ctx.translate(centerX, centerY);
-            ctx.rotate(angle + sliceAngle / 2);
-            ctx.textAlign = 'right';
-            ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 32px sans-serif';
-            ctx.shadowColor = 'rgba(0,0,0,0.8)';
-            ctx.shadowBlur = 6;
-            ctx.fillText(WHEEL_SLICES[i].label, radius - 30, 10);
-            ctx.restore();
-        }
-    }
-
-    window.addBetWheel = (amt) => {
-        if (wheelState.isSpinning) return;
+    window.openBoxesSettings = function() {
+        if (boxesState.inGame) return;
         triggerHaptic('light');
-        const input = document.getElementById('wheel-bet-input');
+        const modal = document.getElementById('boxes-settings-modal');
+        if (modal) modal.style.display = 'flex';
+    };
+
+    window.closeBoxesSettings = function() {
+        triggerHaptic('light');
+        const modal = document.getElementById('boxes-settings-modal');
+        if (modal) modal.style.display = 'none';
+    };
+
+    window.selectBrokenCount = function(count) {
+        if (boxesState.inGame) return;
+        triggerHaptic('medium');
+        boxesState.brokenCount = count;
+        
+        // تحديث حالة الأزرار في الواجهة
+        document.querySelectorAll('.btn-broken-opt').forEach(btn => {
+            btn.classList.remove('selected');
+            if (parseInt(btn.getAttribute('data-count'), 10) === count) {
+                btn.classList.add('selected');
+            }
+        });
+
+        const selectedText = document.getElementById('selected-broken-text');
+        if (selectedText) selectedText.innerText = `${count} عملات مكسورة (سقف 🌟 ${20 + (count - 3) * 10}x)`;
+        
+        closeBoxesSettings();
+    };
+
+    window.addBetBoxes = (amt) => {
+        if (boxesState.inGame) return;
+        triggerHaptic('light');
+        const input = document.getElementById('boxes-bet-input');
         let val = (parseFloat(input.value) || 0) + amt;
         input.value = val;
-        updateWheelSpinButton();
     };
 
-    window.setBetMaxWheel = () => {
-        if (wheelState.isSpinning) return;
+    window.setBetMaxBoxes = () => {
+        if (boxesState.inGame) return;
         triggerHaptic('medium');
-        const input = document.getElementById('wheel-bet-input');
+        const input = document.getElementById('boxes-bet-input');
         input.value = Math.floor(getStoredBalance());
-        updateWheelSpinButton();
     };
 
-    function updateWheelSpinButton() {
-        const btn = document.getElementById('btn-spin-wheel');
-        const betVal = parseFloat(document.getElementById('wheel-bet-input').value) || 100;
-        if (btn && !wheelState.isSpinning) {
-            btn.innerText = `لف العجلة الآن (${betVal.toLocaleString('en-US')} ZN) 🚀`;
+    function renderBoxesGrid() {
+        const gridEl = document.getElementById('boxes-grid');
+        if (!gridEl) return;
+        gridEl.innerHTML = '';
+        
+        for (let i = 0; i < 36; i++) {
+            const boxCard = document.createElement('div');
+            boxCard.className = 'box-card';
+            boxCard.setAttribute('data-index', i);
+            boxCard.onclick = () => onBoxClick(i);
+
+            boxCard.innerHTML = `
+                <div class="box-inner">
+                    <div class="box-front">💎</div>
+                    <div class="box-back"></div>
+                </div>
+            `;
+            gridEl.appendChild(boxCard);
+        }
+        updateCashOutButton();
+    }
+
+    function updateCashOutButton() {
+        const btn = document.getElementById('btn-cashout-boxes');
+        if (!btn) return;
+
+        if (!boxesState.inGame) {
+            btn.disabled = true;
+            btn.classList.add('btn-disabled');
+            btn.innerHTML = `سحب الأرباح (0.00 ZN)`;
+            return;
+        }
+
+        const picksCount = boxesState.picks.length;
+        if (picksCount === 0) {
+            btn.disabled = true;
+            btn.classList.add('btn-disabled');
+            btn.innerHTML = `اختر الصندوق الأول 🚀`;
+        } else {
+            btn.disabled = false;
+            btn.classList.remove('btn-disabled');
+            const multIndex = Math.min(picksCount - 1, boxesState.multipliers.length - 1);
+            const currentMult = boxesState.multipliers[multIndex] || 1.0;
+            const payout = (boxesState.bet * currentMult).toFixed(2);
+            btn.innerHTML = `💰 سحب الأرباح (${formatNumberHTML(payout)} ZN) <span style="font-size:0.85em; opacity:0.9;">(${currentMult}x)</span>`;
         }
     }
 
-    window.spinWheel = async function() {
-        if (wheelState.isSpinning) return;
-        const betVal = parseFloat(document.getElementById('wheel-bet-input').value) || 0;
+    window.startBoxesGame = async function() {
+        if (boxesState.inGame) return;
+        const betInput = document.getElementById('boxes-bet-input');
+        const betVal = parseFloat(betInput.value) || 0;
+        
         if (betVal < 100) return showNotification("الحد الأدنى للرهان هو 100 ZN.");
-        if (getStoredBalance() < betVal) return showNotification("رصيدك غير كافٍ للف العجلة.");
+        if (getStoredBalance() < betVal) return showNotification("رصيدك غير كافٍ للبدء.");
 
-        wheelState.isSpinning = true;
         triggerHaptic('heavy');
-
-        const btn = document.getElementById('btn-spin-wheel');
-        btn.disabled = true;
-        btn.innerText = "جاري الدوران... 🎰";
+        const btnStart = document.getElementById('btn-start-boxes');
+        btnStart.disabled = true;
+        btnStart.innerText = "جاري فتح الشبكة... ⏳";
 
         try {
             const initData = tele?.initData || "";
-            const res = await fetch('/api/games/wheel/spin', {
+            const res = await fetch('/api/games/boxes/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${initData}` },
-                body: JSON.stringify({ initData: initData, bet: betVal })
+                body: JSON.stringify({ initData: initData, bet: betVal, broken_count: boxesState.brokenCount })
             });
 
             const data = await res.json();
             if (data.success) {
                 setStoredBalance(data.new_balance, true);
                 
-                // حساب زاوية الدوران بدقة للوصول للقطاع الفائز
-                const numSlices = WHEEL_SLICES.length;
-                const sliceDegree = 360 / numSlices;
-                const targetIndex = data.winning_index;
-
-                // تحضير اللفة السلسة عند أعلى نقطة (Pointer at 270 deg)
-                const targetDegree = 270 - (targetIndex * sliceDegree + sliceDegree / 2);
-                const extraSpins = 360 * 5; // 5 دورات كاملة للتأثير البصري
+                boxesState.inGame = true;
+                boxesState.bet = betVal;
+                boxesState.picks = [];
+                boxesState.sessionToken = data.session_token;
+                boxesState.multipliers = data.multipliers || [];
+                boxesState.reviveUsed = false;
                 
-                wheelState.currentRotation += extraSpins + (targetDegree - (wheelState.currentRotation % 360));
-
-                const canvas = document.getElementById('wheel-canvas');
-                canvas.style.transform = `rotate(${wheelState.currentRotation}deg)`;
-
-                setTimeout(() => {
-                    wheelState.isSpinning = false;
-                    btn.disabled = false;
-                    updateWheelSpinButton();
-
-                    if (data.payout > 0) {
-                        triggerHaptic('success');
-                        triggerGlobalToast(`🎉 مبروك! كسبت ${data.payout.toLocaleString('en-US')} ZN (مضاعف ${data.multiplier}x)`, true);
-                    } else {
-                        triggerHaptic('error');
-                        triggerGlobalToast("😅 حظاً أوفير في المرة القادمة!", false);
-                    }
-                }, 4100);
-
+                renderBoxesGrid();
+                
+                btnStart.style.display = 'none';
+                document.getElementById('btn-cashout-boxes').style.display = 'block';
+                betInput.disabled = true;
+                document.getElementById('btn-boxes-settings').style.pointerEvents = 'none';
+                
+                updateCashOutButton();
+                triggerGlobalToast("✨ بدأت الجولة! اختر صناديقك بحذر.", true);
             } else {
-                wheelState.isSpinning = false;
-                btn.disabled = false;
-                updateWheelSpinButton();
-                triggerHaptic('error');
-                showNotification("⚠️ " + (data.message || "تعذر لف العجلة"));
+                btnStart.disabled = false;
+                btnStart.innerText = "بدء الجولة 🚀";
+                showNotification("⚠️ " + (data.message || "تعذر بدء الجولة"));
             }
         } catch (e) {
-            wheelState.isSpinning = false;
-            btn.disabled = false;
-            updateWheelSpinButton();
-            triggerHaptic('error');
+            btnStart.disabled = false;
+            btnStart.innerText = "بدء الجولة 🚀";
             showNotification("خطأ في الاتصال بالخادم.");
         }
     };
 
-    // --- منطق الساحة الكبرى والتحديثات الخلفية ---
+    async function onBoxClick(index) {
+        if (!boxesState.inGame || boxesState.picks.includes(index)) return;
+        
+        triggerHaptic('medium');
+        boxesState.picks.push(index);
+        
+        const boxCard = document.querySelector(`.box-card[data-index="${index}"]`);
+        if (!boxCard) return;
+
+        boxCard.classList.add('flipped');
+        
+        // فحص النتيجة مؤقتاً بصرياً والتواصل مع الباك إند عند السحب أو الاصطدام
+        updateCashOutButton();
+        
+        // التحقق مما إذا تم الوصول للحد الأقصى لعدد العملات السليمة
+        const safeCountTarget = 36 - boxesState.brokenCount;
+        if (boxesState.picks.length === safeCountTarget) {
+            cashOutBoxes();
+        }
+    }
+
+    window.cashOutBoxes = async function() {
+        if (!boxesState.inGame) return;
+        triggerHaptic('heavy');
+
+        const btnCashOut = document.getElementById('btn-cashout-boxes');
+        btnCashOut.disabled = true;
+        btnCashOut.innerText = "جاري تأكيد السحب... ⏳";
+
+        try {
+            const initData = tele?.initData || "";
+            const res = await fetch('/api/games/boxes/end', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${initData}` },
+                body: JSON.stringify({
+                    initData: initData,
+                    session_token: boxesState.sessionToken,
+                    picks: boxesState.picks,
+                    action: 'cashout'
+                })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                setStoredBalance(data.new_balance, true);
+                revealFullBoard(data.layout);
+
+                if (data.payout > 0) {
+                    triggerHaptic('success');
+                    triggerGlobalToast(`🎉 مبروك! سحبت ${data.payout.toLocaleString('en-US')} ZN (مضاعف ${data.multiplier}x)`, true);
+                }
+                resetBoxesControls();
+            } else {
+                showNotification("⚠️ " + (data.message || "تعذر إتمام السحب"));
+                resetBoxesControls();
+            }
+        } catch (e) {
+            showNotification("خطأ في الاتصال بالخادم.");
+            resetBoxesControls();
+        }
+    };
+
+    function handleBrokenCoinHit(index, layout) {
+        boxesState.lastHitIndex = index;
+        triggerHaptic('error');
+        
+        const boxCard = document.querySelector(`.box-card[data-index="${index}"]`);
+        if (boxCard) {
+            boxCard.querySelector('.box-back').innerHTML = '💥';
+            boxCard.classList.add('broken');
+        }
+
+        // إتاحة فرصة الإحياء بالإعلان Adsgram إذا لم تُستخدم سابقاً
+        if (!boxesState.reviveUsed && window.Adsgram) {
+            showReviveModal(index, layout);
+        } else {
+            finalizeLoss(layout);
+        }
+    }
+
+    function showReviveModal(hitIndex, layout) {
+        const modal = document.getElementById('revive-modal');
+        if (modal) modal.style.display = 'flex';
+        
+        window.onConfirmRevive = async function(watchAd) {
+            modal.style.display = 'none';
+            if (watchAd) {
+                try {
+                    const AdController = window.Adsgram?.init({ blockId: "100" }); // Adsgram SDK
+                    const adResult = await AdController.show();
+                    if (adResult && adResult.done) {
+                        triggerHaptic('success');
+                        boxesState.reviveUsed = true;
+                        // إلغاء الضغطة الخاطئة ومتابعة اللعب
+                        boxesState.picks = boxesState.picks.filter(p => p !== hitIndex);
+                        const card = document.querySelector(`.box-card[data-index="${hitIndex}"]`);
+                        if (card) {
+                            card.classList.remove('flipped', 'broken');
+                            card.querySelector('.box-back').innerHTML = '';
+                        }
+                        updateCashOutButton();
+                        triggerGlobalToast("🛡️ تم تفعيل ميزة الإحياء! تابع اختيار صناديقك.", true);
+                        return;
+                    }
+                } catch (err) {
+                    triggerGlobalToast("⚠️ تعذر تحميل الإعلان، تم تطبيق الخسارة.", false);
+                }
+            }
+            finalizeLoss(layout);
+        };
+    }
+
+    function finalizeLoss(layout) {
+        revealFullBoard(layout);
+        triggerGlobalToast("😅 اصطدمت بعملة مكسورة! حظاً أوفير في الجولة القادمة.", false);
+        resetBoxesControls();
+    }
+
+    function revealFullBoard(layout) {
+        if (!layout) return;
+        for (let i = 0; i < 36; i++) {
+            const card = document.querySelector(`.box-card[data-index="${i}"]`);
+            if (!card) continue;
+            
+            const isBroken = layout[i];
+            const backEl = card.querySelector('.box-back');
+            
+            if (isBroken) {
+                backEl.innerHTML = '💥';
+                card.classList.add('broken');
+            } else {
+                backEl.innerHTML = '🪙';
+                card.classList.add('safe');
+            }
+            card.classList.add('flipped');
+        }
+    }
+
+    function resetBoxesControls() {
+        boxesState.inGame = false;
+        const btnStart = document.getElementById('btn-start-boxes');
+        const btnCashOut = document.getElementById('btn-cashout-boxes');
+        const betInput = document.getElementById('boxes-bet-input');
+        
+        if (btnStart) {
+            btnStart.style.display = 'block';
+            btnStart.disabled = false;
+            btnStart.innerText = "بدء الجولة 🚀";
+        }
+        if (btnCashOut) btnCashOut.style.display = 'none';
+        if (betInput) betInput.disabled = false;
+        document.getElementById('btn-boxes-settings').style.pointerEvents = 'auto';
+    }
+
+
+    // --- 2. منطق الساحة الكبرى والتحديثات الخلفية الاحترافية ---
+
     async function fetchArenaStatus(force = false) {
         if (statusRetryTimeout) { clearTimeout(statusRetryTimeout); statusRetryTimeout = null; }
         const now = Date.now();
@@ -304,8 +469,10 @@
             if (data.success) {
                 if (data.entry_fee) currentEntryFee = data.entry_fee;
                 if (data.lock_seconds) currentLockSeconds = data.lock_seconds;
+                
                 const subtext = document.getElementById('arena-subtext');
                 if (subtext) subtext.innerText = `سحب تلقائي مستمر! رسوم الاشتراك: ${parseInt(currentEntryFee, 10).toLocaleString('en-US')} ZN`;
+                
                 if (data.balance !== undefined) setStoredBalance(data.balance, true);
                 currentRoundId = data.round_id;
                 arenaEndTime = parseInt(data.end_time) || 0;
@@ -387,7 +554,7 @@
         triggerHaptic('heavy');
         if (isJoining || hasJoinedCurrentRound) return;
         if (getStoredBalance() < currentEntryFee) {
-            showNotification(`⚠️ رصيدك غير كافٍ للدخول في الساحة.`);
+            showNotification(`⚠️ رصيدك غير كافٍ للدخول في الساحة (${currentEntryFee} ZN).`);
             return;
         }
         askForConfirmation(() => executeJoinArena());
@@ -550,15 +717,11 @@
         document.addEventListener("DOMContentLoaded", () => {
             fetchArenaStatus(true);
             checkBackgroundNotifications();
-            drawWheel();
-            const input = document.getElementById('wheel-bet-input');
-            if (input) input.addEventListener('input', updateWheelSpinButton);
+            renderBoxesGrid();
         });
     } else {
         fetchArenaStatus(true);
         checkBackgroundNotifications();
-        drawWheel();
-        const input = document.getElementById('wheel-bet-input');
-        if (input) input.addEventListener('input', updateWheelSpinButton);
+        renderBoxesGrid();
     }
 })();
