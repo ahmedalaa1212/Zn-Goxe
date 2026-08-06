@@ -1,3 +1,4 @@
+# app.py
 import os
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
@@ -6,6 +7,8 @@ import database
 from core.security import get_authenticated_user
 
 app = Flask(__name__)
+
+# إعداد CORS للوصول إلى مسارات API
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app').strip().rstrip('/')
@@ -21,7 +24,7 @@ from tasks.tasks_api import tasks_bp
 from shop.shop_api import shop_bp
 from wallet.wallet_api import wallet_bp
 from support.support_api import support_bp
-from admin_chat.admin_chat_api import admin_chat_bp  # 🔹 تم إضافة استيراد مسار الدعم للأدمن
+from admin_chat.admin_chat_api import admin_chat_bp
 
 app.register_blueprint(farm_bp, url_prefix='/api/farm')
 app.register_blueprint(settings_bp, url_prefix='/api/settings')
@@ -31,20 +34,39 @@ app.register_blueprint(tasks_bp, url_prefix='/api/tasks')
 app.register_blueprint(shop_bp, url_prefix='/api/shop')
 app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
 app.register_blueprint(support_bp, url_prefix='/api/support')
-app.register_blueprint(admin_chat_bp, url_prefix='/api/admin/chat')  # 🔹 تم تسجيل Blueprint محادثات الأدمن
+app.register_blueprint(admin_chat_bp, url_prefix='/api/admin/chat')
+
+# ==========================================
+# المسارات المباشرة والخدمية
+# ==========================================
 
 @app.route('/tonconnect-manifest.json')
 def serve_tonconnect_manifest():
-    return send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
+    """تقديم ملف البيانات الخاص بمحفظة TON Connect"""
+    try:
+        return send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
+    except Exception as e:
+        print(f"❌ Manifest Error: {e}")
+        return jsonify({"error": "Manifest file not found"}), 404
 
 @app.route('/api/user/info', methods=['GET', 'POST'])
 def get_user_info_main():
+    """جلب وتأكيد بيانات المستخدم والتحقق المباشر من حالة الحظر"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success:
         return error_res
         
     try:
+        # 1. التحقق الفوري من كاش الحظر قبل استهلاك الاستعلامات
+        if database.is_user_banned(telegram_id):
+            return jsonify({
+                "success": False, 
+                "error": "حسابك معطل حالياً بسبب مخالفة الشروط",
+                "banned": True
+            }), 403
+
+        # 2. جلب بيانات المستخدم أو إنشاؤه إذا كان جديداً
         user_data = database.get_user(telegram_id)
         if not user_data:
             first_name = user_info.get('first_name', 'لاعب') if isinstance(user_info, dict) else 'لاعب'
@@ -55,13 +77,20 @@ def get_user_info_main():
             
         return jsonify({"success": True, "user": user_data}), 200
     except Exception as e:
-        print(f"Error fetching user info: {e}")
-        return jsonify({"success": False, "error": "خطأ في جلب البيانات"}), 500
+        print(f"❌ Error fetching user info for {telegram_id}: {e}")
+        return jsonify({"success": False, "error": "حدث خطأ أثناء جلب بيانات الحساب"}), 500
+
+# ==========================================
+# الأمان والتحكم بالهيدرز والملفات الثابتة
+# ==========================================
 
 @app.after_request
 def add_security_headers(response):
+    """منع التخزين المؤقت (Cache) لمسارات الـ API"""
     if request.path.startswith('/api/'):
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
     return response
 
 @app.errorhandler(500)
@@ -80,12 +109,19 @@ def serve_index():
 
 @app.route('/<path:path>')
 def serve_static(path):
+    """تقديم الملفات الثابتة وتأمين الملفات البرمجية والحساسة تحديداً"""
     path_lower = path.lower()
+    
     if path_lower == 'tonconnect-manifest.json':
         return send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
-    forbidden = ('.py', '.env', '.json', '.sh', '.git')
-    if any(path_lower.endswith(ext) for ext in forbidden):
+    
+    # حظر الامتدادات والملفات الحساسة بوضوح بدلاً من حظر كل ملفات JSON
+    forbidden_extensions = ('.py', '.env', '.sh', '.git', '.pem', '.key')
+    forbidden_files = ('firebase-adminsdk.json', 'config.json', 'requirements.txt')
+    
+    if any(path_lower.endswith(ext) for ext in forbidden_extensions) or any(f in path_lower for f in forbidden_files):
         return jsonify({"error": "Access Denied"}), 403
+        
     try:
         return send_from_directory('.', path)
     except Exception:
