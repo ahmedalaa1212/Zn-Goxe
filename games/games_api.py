@@ -218,6 +218,55 @@ def start_boxes_game():
         return jsonify({"success": False, "message": "خطأ أثناء بدء الجولة."}), 500
 
 
+@games_bp.route('/boxes/pick', methods=['POST'])
+def pick_box():
+    """
+    مسار فحص اختيار الصندوق لحظياً (0 استهلاك لقواعد بيانات الفايربيس)
+    تتم عملية الفحص داخل الذاكرة بواسطة الرمز المشفر
+    """
+    success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success:
+        return error_res
+
+    data = request.get_json(silent=True) or {}
+    session_token = data.get('session_token')
+    box_index = data.get('box_index')
+
+    if session_token is None or box_index is None:
+        return jsonify({"success": False, "message": "بيانات غير مكتملة."}), 400
+
+    # التحقق من الجلسة في الذاكرة (بدون الاتصال بالفايربيس)
+    session_data = verify_session_token(session_token)
+    if not session_data or session_data.get('uid') != str(uid):
+        return jsonify({"success": False, "message": "جلسة غير صالحة أو منتهية."}), 400
+
+    layout = session_data.get('layout', [])
+    if not isinstance(box_index, int) or not (0 <= box_index < len(layout)):
+        return jsonify({"success": False, "message": "رقم صندوق غير صالح."}), 400
+
+    is_broken = layout[box_index]
+
+    if is_broken:
+        # إبطال رمز الجلسة فوراً لمنع التلاعب وإرجاع الخريطة كاملة للخسارة الفورية
+        token_hash = hashlib.sha256(session_token.encode('utf-8')).hexdigest()
+        _USED_SESSION_TOKENS[token_hash] = time.time()
+        _cleanup_expired_sessions()
+        
+        return jsonify({
+            "success": True,
+            "is_broken": True,
+            "layout": layout,
+            "message": "عملة مكسورة! لقد خسرت الجولة."
+        })
+
+    # عملة سليمة
+    return jsonify({
+        "success": True,
+        "is_broken": False,
+        "box_index": box_index
+    })
+
+
 @games_bp.route('/boxes/end', methods=['POST'])
 def end_boxes_game():
     success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
