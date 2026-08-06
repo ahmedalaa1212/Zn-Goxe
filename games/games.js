@@ -206,9 +206,10 @@
             boxCard.setAttribute('data-index', i);
             boxCard.onclick = () => onBoxClick(i);
 
+            // مربع خالي وفارغ في البداية بدلاً من الملاحظة السابقة
             boxCard.innerHTML = `
                 <div class="box-inner">
-                    <div class="box-front">💎</div>
+                    <div class="box-front"></div>
                     <div class="box-back"></div>
                 </div>
             `;
@@ -317,7 +318,7 @@
                 body: JSON.stringify({
                     initData: initData,
                     session_token: boxesState.sessionToken,
-                    pick: index
+                    box_index: index
                 })
             });
 
@@ -326,8 +327,9 @@
                 boxesState.picks.push(index);
                 const backEl = boxCard.querySelector('.box-back');
 
-                if (data.status === 'safe') {
-                    if (backEl) backEl.innerHTML = '🪙';
+                if (!data.is_broken) {
+                    // عملة ذهبية ZN عند الاختيار الصحيح
+                    if (backEl) backEl.innerHTML = '<span class="coin-gold">🟡 ZN</span>';
                     boxCard.classList.add('flipped', 'safe');
                     updateCashOutButton();
 
@@ -335,7 +337,8 @@
                     if (boxesState.picks.length === safeCountTarget) {
                         await cashOutBoxes();
                     }
-                } else if (data.status === 'broken') {
+                } else {
+                    // عملة رمادية مكسورة عند الاختيار الخاطئ
                     handleBrokenCoinHit(index, data.layout);
                 }
             } else {
@@ -396,7 +399,8 @@
         const boxCard = document.querySelector(`.box-card[data-index="${index}"]`);
         if (boxCard) {
             const backEl = boxCard.querySelector('.box-back');
-            if (backEl) backEl.innerHTML = '💥';
+            // إظهار عملة رمادية مكسورة
+            if (backEl) backEl.innerHTML = '<span class="coin-broken">⚪💥</span>';
             boxCard.classList.add('flipped', 'broken');
         }
 
@@ -456,10 +460,10 @@
             const backEl = card.querySelector('.box-back');
             
             if (isBroken) {
-                if (backEl) backEl.innerHTML = '💥';
+                if (backEl) backEl.innerHTML = '<span class="coin-broken">⚪💥</span>';
                 card.classList.add('broken');
             } else {
-                if (backEl) backEl.innerHTML = '🪙';
+                if (backEl) backEl.innerHTML = '<span class="coin-gold">🟡 ZN</span>';
                 card.classList.add('safe');
             }
             card.classList.add('flipped');
