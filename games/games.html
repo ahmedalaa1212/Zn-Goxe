@@ -154,6 +154,11 @@
             display: flex;
             align-items: center;
             gap: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-settings-icon:active {
+            transform: scale(0.95);
         }
 
         .boxes-grid-6x6 {
@@ -175,7 +180,7 @@
             width: 100%;
             height: 100%;
             text-align: center;
-            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transition: transform 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             transform-style: preserve-3d;
             border-radius: 12px;
         }
@@ -198,18 +203,35 @@
             font-weight: 900;
         }
 
+        /* الوجه الأمامي: مربع فاضي وفخم بدون أي أيقونات أو رموز */
         .box-front {
             background: linear-gradient(135deg, #1e293b, #0f172a);
-            border: 1.5px solid rgba(0, 255, 204, 0.25);
-            box-shadow: 0 4px 10px rgba(0,0,0,0.4);
-            color: var(--accent-cyan);
+            border: 1.5px solid rgba(0, 255, 204, 0.2);
+            box-shadow: inset 0 0 8px rgba(255, 255, 255, 0.03), 0 4px 10px rgba(0,0,0,0.4);
+            position: relative;
+            overflow: hidden;
         }
 
-        .box-front:hover {
+        /* شريط ضوئي جمالي خفيف جداً لإعطاء شعور بالعمق الزجاجي */
+        .box-front::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(45deg, transparent, rgba(0, 255, 204, 0.05), transparent);
+            transform: rotate(45deg);
+            pointer-events: none;
+        }
+
+        .box-front:hover, .box-front:active {
             border-color: var(--accent-cyan);
             box-shadow: 0 0 12px var(--accent-cyan-glow);
+            background: linear-gradient(135deg, #24334a, #131c31);
         }
 
+        /* الوجه الخلفي عند الاكتشاف */
         .box-back {
             background: linear-gradient(135deg, #059669, #10b981);
             color: #ffffff;
@@ -257,6 +279,12 @@
             font-size: 0.82rem;
             font-weight: 700;
             cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-quick-bet:active {
+            transform: scale(0.95);
+            background: rgba(51, 65, 85, 0.9);
         }
 
         .btn-action-main {
@@ -273,6 +301,10 @@
             transition: all 0.25s ease;
         }
 
+        .btn-action-main:active {
+            transform: scale(0.98);
+        }
+
         .btn-cashout-main {
             width: 100%;
             padding: 15px;
@@ -285,6 +317,10 @@
             cursor: pointer;
             box-shadow: 0 6px 20px var(--accent-green-glow);
             transition: all 0.25s ease;
+        }
+
+        .btn-cashout-main:active {
+            transform: scale(0.98);
         }
 
         /* كارت الساحة الكبرى */
@@ -347,12 +383,17 @@
             transition: all 0.25s ease;
         }
 
+        .btn-join:active {
+            transform: scale(0.98);
+        }
+
         .btn-disabled {
             background: var(--btn-disabled) !important;
             color: #64748b !important;
             cursor: not-allowed !important;
             border: 1px solid rgba(255, 255, 255, 0.05) !important;
             box-shadow: none !important;
+            transform: none !important;
         }
 
         .prize-distribution {
@@ -475,7 +516,7 @@
                     <button id="btn-boxes-settings" class="btn-settings-icon" onclick="openBoxesSettings()">⚙️ الصعوبة</button>
                 </div>
 
-                <!-- شبكة الصناديق الـ 36 -->
+                <!-- شبكة الصناديق الـ 36 (تكون فارغة وجهياً كصناديق مغلقة) -->
                 <div id="boxes-grid" class="boxes-grid-6x6"></div>
 
                 <div class="bet-controls">
