@@ -2,14 +2,75 @@
 // super_admin.js - كود الربط الفعلي مع سيرفرك على Railway
 // =========================================
 
-// ده الرابط الفعلي بتاعك اللي شغال على Railway
+// الرابط الفعلي الخاص بك على Railway
 const SERVER_URL = "https://admin-zn-production.up.railway.app"; 
 
-// تحميل البيانات فور فتح القائمة
+// تحميل كافة البيانات فور فتح القائمة
+loadHouseEdge();
 loadModerators();
 loadAdminLogs();
 
-// 1. دالة إضافة مشرف جديد
+// 1. دالة جلب نسبة أرباح البوت الحالية من السيرفر
+async function loadHouseEdge() {
+    const display = document.getElementById('houseEdgeDisplay');
+    const input = document.getElementById('commissionPercentInput');
+
+    try {
+        const response = await fetch(`${SERVER_URL}/api/game-settings`);
+        const result = await response.json();
+
+        if (result.success) {
+            const comm = result.commission_percent !== undefined ? result.commission_percent : 20;
+            const userRtp = 100 - comm;
+            display.innerText = `👥 نسبة المستخدمين: ${userRtp}% | 🤖 فائدة البوت: ${comm}%`;
+            if (input) input.value = comm;
+        } else {
+            display.innerText = `⚠️ تعذر جلب النسب الحالية.`;
+        }
+    } catch (error) {
+        console.error("خطأ في جلب نسبة أرباح البوت:", error);
+        display.innerText = `⚠️ فشل الاتصال بالسيرفر للجلب.`;
+    }
+}
+
+// 2. دالة تحديث نسبة أرباح البوت (House Edge / RTP)
+async function updateHouseEdge() {
+    const input = document.getElementById('commissionPercentInput');
+    const commVal = parseFloat(input.value);
+
+    if (isNaN(commVal) || commVal < 0 || commVal > 100) {
+        alert("⚠️ يرجى إدخال نسبة مئوية صحيحة بين 0 و 100!");
+        return;
+    }
+
+    const payload = {
+        commission_percent: commVal,
+        updatedBy: "المدير العام"
+    };
+
+    try {
+        const response = await fetch(`${SERVER_URL}/api/game-settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            alert(`✅ ${result.message || 'تم تحديث نسبة الأرباح بنجاح!'}`);
+            loadHouseEdge();
+            loadAdminLogs();
+        } else {
+            alert(`❌ خطأ: ${result.message || result.error}`);
+        }
+    } catch (error) {
+        console.error("خطأ أثناء تحديث النسب:", error);
+        alert("⚠️ فشل الاتصال بالسيرفر أثناء عملية الحفظ!");
+    }
+}
+
+// 3. دالة إضافة مشرف جديد
 async function addNewModerator() {
     const modId = document.getElementById('modTelegramId').value.trim();
     const modName = document.getElementById('modName').value.trim();
@@ -59,7 +120,7 @@ async function addNewModerator() {
     }
 }
 
-// 2. دالة جلب المشرفين
+// 4. دالة جلب المشرفين
 async function loadModerators() {
     const listContainer = document.getElementById('moderatorsList');
     listContainer.innerHTML = `<p class="empty-msg">⏳ جاري التحميل من قاعدة البيانات...</p>`;
@@ -98,7 +159,7 @@ async function loadModerators() {
     }
 }
 
-// 3. دالة حذف مشرف
+// 5. دالة حذف مشرف
 async function deleteModerator(modId, modName) {
     if (!confirm(`⚠️ هل أنت متأكد من حذف المشرف (${modName}) وسحب جميع صلاحياته؟`)) {
         return;
@@ -124,7 +185,7 @@ async function deleteModerator(modId, modName) {
     }
 }
 
-// 4. دالة جلب سجل النشاطات
+// 6. دالة جلب سجل النشاطات
 async function loadAdminLogs() {
     const logsContainer = document.getElementById('adminLogs');
     logsContainer.innerHTML = `<p class="empty-msg">⏳ جاري تحميل السجل...</p>`;
