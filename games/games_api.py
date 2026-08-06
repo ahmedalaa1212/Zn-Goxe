@@ -5,6 +5,7 @@ import json
 import hmac
 import hashlib
 import base64
+import os
 from flask import Blueprint, jsonify, request
 from firebase_admin import firestore
 
@@ -15,12 +16,16 @@ games_bp = Blueprint('games', __name__)
 
 # --- Server-Side RAM Caching Systems ---
 _ARENA_CONFIG_CACHE = {"data": None, "timestamp": 0}
-_ROUND_CACHE = {}            # {round_id: {"data": dict, "timestamp": float}}
+_ROUND_CACHE = {}            # {round_id: {"participants": list, "timestamp": float}}
 _RESOLVED_ROUNDS_CACHE = set()
+_USED_SESSION_TOKENS = {}    # {token_hash: timestamp} لمنع هجمات التكرار (Replay Attacks)
 
 CACHE_TTL_CONFIG = 600   
 CACHE_TTL_ROUND = 5      
-HMAC_SECRET = b"zn_goxe_boxes_security_key_2026_secure"
+SESSION_MAX_AGE = 3600      # صلاحية الجلسة ساعة واحدة
+
+# مفتاح التوقيع المشفر (مع إمكانية القراءة من متغيرات البيئة)
+HMAC_SECRET = os.environ.get('HMAC_SECRET', 'zn_goxe_boxes_security_key_2026_secure').encode('utf-8')
 
 # قائمة المضاعفات الأساسية لنظام 3 عملات مكسورة (33 ضغطة - سقف 20x)
 MULT_3_BROKEN = [
@@ -29,6 +34,13 @@ MULT_3_BROKEN = [
     4.54, 5.14, 5.84, 6.66, 7.62, 8.75, 10.08, 11.65, 13.50, 15.65,
     17.00, 18.40, 20.00
 ]
+
+def _cleanup_expired_sessions():
+    """تنظيف ذاكرة الجلسات المستخدمة القديمة لتفادي استهلاك الذاكرة"""
+    now = time.time()
+    expired = [k for k, v in _USED_SESSION_TOKENS.items() if now - v > SESSION_MAX_AGE]
+    for k in expired:
+        _USED_SESSION_TOKENS.pop(k, None)
 
 def generate_multipliers(broken_count):
     """توليد جدول المضاعفات ديناميكياً بناءً على عدد العملات المكسورة مع زيادة 10x لكل مستوى صعوبة"""
@@ -42,7 +54,7 @@ def generate_multipliers(broken_count):
     multipliers = []
     for i in range(safe_steps):
         progress = i / max(1, (safe_steps - 1))
-        # منحنى تصاعدي ناعم exponencial
+        # منحنى تصاعدي ناعم exponential
         val = start_mult + (max_mult - start_mult) * (progress ** 2.2)
         multipliers.append(round(val, 2))
     return multipliers
@@ -80,17 +92,29 @@ def create_session_token(data_dict):
     return token_str
 
 def verify_session_token(token_str):
-    """التحقق من صحة التوقيع المشفر للجلسة"""
+    """التحقق من صحة التوقيع المشفر للجلسة والتأكد من عدم انتهاء صلاحيتها"""
     try:
+        if not token_str or not isinstance(token_str, str):
+            return None
+            
         parts = token_str.split('.')
         if len(parts) != 2:
             return None
+            
         payload_bytes = base64.urlsafe_b64decode(parts[0].encode('utf-8'))
         sig = parts[1]
         expected_sig = hmac.new(HMAC_SECRET, payload_bytes, hashlib.sha256).hexdigest()
+        
         if not hmac.compare_digest(sig, expected_sig):
             return None
-        return json.loads(payload_bytes.decode('utf-8'))
+            
+        data = json.loads(payload_bytes.decode('utf-8'))
+        
+        # التأكد من صلاحية الجلسة زمنياً (1 ساعة)
+        if time.time() - data.get("timestamp", 0) > SESSION_MAX_AGE:
+            return None
+            
+        return data
     except Exception:
         return None
 
@@ -106,11 +130,19 @@ def start_boxes_game():
     uid_str = str(uid)
     data = request.get_json(silent=True) or {}
     
-    broken_count = int(data.get('broken_count', 3))
+    try:
+        broken_count = int(data.get('broken_count', 3))
+    except (ValueError, TypeError):
+        broken_count = 3
+
     if broken_count not in [3, 4, 5, 6, 7, 8]:
         broken_count = 3
 
-    bet = round(float(data.get('bet', 100.0)), 2)
+    try:
+        bet = round(float(data.get('bet', 100.0)), 2)
+    except (ValueError, TypeError):
+        bet = 100.0
+
     if bet < 100.0:
         return jsonify({"success": False, "message": "الحد الأدنى للرهان هو 100 ZN."})
 
@@ -125,7 +157,7 @@ def start_boxes_game():
     layout = [False] * 36  # False = عملة سليمة, True = عملة مكسورة
     
     if force_early_loss:
-        # إذا كانت أرباح النظام تحت 80%، يتم فخ الصناديق في المراحل المبكرة (الضغطة 4 أو 5)
+        # إذا كانت أرباح النظام تحت 80%، يتم فخ الصناديق في المراحل المبكرة (الصفوف الأولى 0-11)
         broken_indices = random.sample(range(0, 12), broken_count)
     else:
         broken_indices = random.sample(range(0, 36), broken_count)
@@ -196,15 +228,30 @@ def end_boxes_game():
     data = request.get_json(silent=True) or {}
     
     session_token = data.get('session_token')
-    picks = data.get('picks', [])  # مصفوفة الفهارس التي تم ضغطها
+    raw_picks = data.get('picks', [])  # مصفوفة الفهارس التي تم ضغطها
     action = data.get('action', 'cashout')  # cashout أو hit_broken
     
+    if not session_token:
+        return jsonify({"success": False, "message": "رمز الجلسة مفقود."}), 400
+
+    # الحماية من هجمات التكرار (Replay Attacks)
+    token_hash = hashlib.sha256(session_token.encode('utf-8')).hexdigest()
+    if token_hash in _USED_SESSION_TOKENS:
+        return jsonify({"success": False, "message": "تم إنهاء هذه الجولة بالفعل."}), 400
+
     session_data = verify_session_token(session_token)
     if not session_data or session_data.get('uid') != uid_str:
         return jsonify({"success": False, "message": "جلسة لعب غير صالحة أو منتهية."}), 400
 
+    # تنظيف وتصفية الاختيارات لمنع التكرار (تجنب ثغرة إعادة تكرار نفس الصندوق)
+    unique_picks = []
+    if isinstance(raw_picks, list):
+        for idx in raw_picks:
+            if isinstance(idx, int) and 0 <= idx < 36 and idx not in unique_picks:
+                unique_picks.append(idx)
+
     bet = float(session_data['bet'])
-    layout = session_data['layout']
+    layout = list(session_data['layout'])
     broken_count = session_data['broken_count']
     force_early_loss = session_data.get('force_early_loss', False)
     multipliers = generate_multipliers(broken_count)
@@ -215,17 +262,19 @@ def end_boxes_game():
     hit_broken = False
     safe_picks_count = 0
 
-    for idx in picks:
-        if 0 <= idx < 36:
-            if layout[idx]:
-                hit_broken = True
-                break
-            else:
-                safe_picks_count += 1
+    for idx in unique_picks:
+        if layout[idx]:
+            hit_broken = True
+            break
+        else:
+            safe_picks_count += 1
 
-    # إنفاذ صمام الأمان عند الضغطة 4 أو 5 عند انخفاض أرباح النظام
+    # إنفاذ صمام الأمان عند الضغطة 4 أو أكثر عند انخفاض أرباح النظام
     if force_early_loss and safe_picks_count >= 4 and not hit_broken:
         hit_broken = True
+        if unique_picks:
+            # تعديل الخريطة ليظهر الصندوق الأخير كمكسور اتساقاً مع النتيجة المرجعة للعميل
+            layout[unique_picks[-1]] = True
 
     payout = 0.0
     final_mult = 1.0
@@ -258,6 +307,10 @@ def end_boxes_game():
         if not ok:
             return jsonify({"success": False, "message": msg})
 
+        # تعليم الجلسة كمستخدمة لمنع إعادة الإرسال
+        _USED_SESSION_TOKENS[token_hash] = time.time()
+        _cleanup_expired_sessions()
+
         if payout > 0:
             update_system_treasury(bet_amount=0.0, payout_amount=payout)
 
@@ -286,13 +339,11 @@ def resolve_round(round_id):
     def resolve_transaction(transaction):
         round_doc = round_ref.get(transaction=transaction)
         if not round_doc.exists:
-            _RESOLVED_ROUNDS_CACHE.add(str_round_id)
-            return False
+            return False, "not_exists"
             
         data = round_doc.to_dict() or {}
         if data.get('status') != 'active':
-            _RESOLVED_ROUNDS_CACHE.add(str_round_id)
-            return False
+            return False, "not_active"
             
         cfg = get_arena_config()
         participants = data.get('participants', [])
@@ -306,8 +357,7 @@ def resolve_round(round_id):
                     'pending_refund': firestore.Increment(refund_fee)
                 })
             transaction.update(round_ref, {'status': 'refunded'})
-            _RESOLVED_ROUNDS_CACHE.add(str_round_id)
-            return True
+            return True, "refunded"
 
         total_collected = len(participants) * cfg['entry_fee']
         visible_prize_pool = round(total_collected * cfg['prize_pool_percentage'], 2)
@@ -334,11 +384,11 @@ def resolve_round(round_id):
             })
             
         transaction.update(round_ref, {'status': 'completed', 'winners': final_winners})
-        _RESOLVED_ROUNDS_CACHE.add(str_round_id)
-        return True
+        return True, "completed"
 
     try:
-        res = resolve_transaction(db.transaction())
+        res, status = resolve_transaction(db.transaction())
+        _RESOLVED_ROUNDS_CACHE.add(str_round_id)
         _ROUND_CACHE.pop(str_round_id, None)
         return res
     except Exception as e:
