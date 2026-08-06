@@ -101,13 +101,43 @@
     .log-time { color: #64748b; font-size: 9px; align-self: flex-end; }
     
     .empty-msg { text-align: center; font-size: 11px; color: #64748b; padding: 10px 0; }
+    
+    .status-badge {
+        background: #0f1117;
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid #232733;
+        margin-bottom: 10px;
+        text-align: center;
+    }
+    .status-badge span {
+        font-size: 12px;
+        font-weight: bold;
+        color: #f59e0b;
+    }
 </style>
 
 <div class="super-admin-container">
     
     <div class="section-header">
         <h2>👨‍💻 الإدارة العليا</h2>
-        <p>إدارة المشرفين، تحديد الصلاحيات، ومتابعة السجلات.</p>
+        <p>إدارة المشرفين، نسبة أرباح النظام، وتتبع السجلات.</p>
+    </div>
+
+    <!-- كارت نسبة أرباح البوت (House Edge / RTP) -->
+    <div class="admin-card">
+        <h3>🎯 نسبة أرباح البوت (House Edge / RTP)</h3>
+        
+        <div class="status-badge">
+            <span id="houseEdgeDisplay">🔄 جاري جلب النسب الحالية...</span>
+        </div>
+
+        <div class="form-group">
+            <label>نسبة فائدة البوت (Commission %):</label>
+            <input type="number" id="commissionPercentInput" placeholder="أدخل النسبة (مثال: 20 أو 30)" min="0" max="100">
+        </div>
+
+        <button class="btn-primary" onclick="updateHouseEdge()">💾 حفظ وتحديث النسب فوراً</button>
     </div>
 
     <!-- كارت إضافة مشرف -->
