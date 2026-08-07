@@ -215,6 +215,31 @@ def update_game_settings(new_settings_dict):
         return False, f"حدث خطأ أثناء الحفظ: {e}"
 
 
+def update_grid_game_config(min_bet=None, target_margin=None, default_broken_coins=None):
+    """تحديث إعدادات ألعاب الشبكة ونسب الأرباح بمرونة"""
+    try:
+        if not db: initialize_firebase()
+        config_ref = db.collection('app_config').document('game_settings')
+        doc = config_ref.get()
+        current_data = doc.to_dict() or {} if doc.exists else {}
+        grid_cfg = current_data.get("grid_game_config", {})
+
+        if min_bet is not None:
+            grid_cfg["min_bet"] = float(min_bet)
+        if target_margin is not None:
+            val = float(target_margin)
+            grid_cfg["target_margin"] = val / 100.0 if val > 1.0 else val
+        if default_broken_coins is not None:
+            grid_cfg["default_broken_coins"] = int(default_broken_coins)
+
+        config_ref.set({"grid_game_config": grid_cfg}, merge=True)
+        clear_settings_cache()
+        return True
+    except Exception as e:
+        print(f"❌ Error in update_grid_game_config: {e}")
+        return False
+
+
 def save_admin_settings(settings_dict):
     """حفظ الإعدادات المرسلة من لوحة التحكم وبوت الأدمن بسرعة ودون معالجة معقدة"""
     try:
@@ -226,6 +251,10 @@ def save_admin_settings(settings_dict):
 
         if "target_margin" in settings_dict:
             val = float(settings_dict["target_margin"])
+            grid_cfg["target_margin"] = val / 100.0 if val > 1.0 else val
+
+        if "bot_margin" in settings_dict:
+            val = float(settings_dict["bot_margin"])
             grid_cfg["target_margin"] = val / 100.0 if val > 1.0 else val
 
         if "min_bet" in settings_dict:
@@ -246,20 +275,28 @@ def save_admin_settings(settings_dict):
 
 
 def record_user_game_result(tg_id, bet_amount, win_amount):
-    """تحديث نتائج الرهان والأرباح ذرياً (Atomically) في مستند الإعدادات والمستخدم فوراً"""
+    """تحديث نتائج الرهان والأرباح ذرياً (Atomically) في مستند الإعدادات ومستند اللعبة الفعلي arena/current والمستخدم فوراً"""
     try:
         if not db: initialize_firebase()
         bet = float(bet_amount)
         win = float(win_amount)
 
-        # 1. تحديث الإحصائيات المركزية للنظام بضغطة واحدة O(1)
+        # 1. تحديث الإحصائيات المركزية في app_config/game_settings
         config_ref = db.collection('app_config').document('game_settings')
         config_ref.update({
             "global_total_bets": firestore.Increment(bet),
             "global_total_wins": firestore.Increment(win)
         })
 
-        # 2. تحديث إحصائيات الشخص الفردي في مستنده الخاص
+        # 2. تحديث مستند اللعبة المباشر arena/current للمزامنة الكاملة
+        arena_ref = db.collection('arena').document('current')
+        arena_ref.set({
+            "total_bets": firestore.Increment(bet),
+            "total_payouts": firestore.Increment(win),
+            "last_updated": firestore.SERVER_TIMESTAMP
+        }, merge=True)
+
+        # 3. تحديث إحصائيات المستخدم الفردي
         if tg_id:
             user_ref = db.collection('users').document(str(tg_id))
             user_ref.update({
@@ -275,20 +312,34 @@ def record_user_game_result(tg_id, bet_amount, win_amount):
 
 
 def get_game_profit_stats():
-    """حساب أرباح ونسب البوت واللاعبين بلحظية كاملة وبقراءة مستند واحد فقط"""
+    """حساب أرباح ونسب البوت واللاعبين بلحظية كاملة وبقراءة مستند arena/current المباشر"""
     try:
         settings = get_game_settings() or {}
         grid_cfg = settings.get("grid_game_config", {})
 
-        total_bets = float(settings.get("global_total_bets", 0.0))
-        total_wins = float(settings.get("global_total_wins", 0.0))
+        # القراءة المباشرة من arena/current (المكان الذي يحوي البيانات الحقيقية)
+        arena_bets = 0.0
+        arena_wins = 0.0
+        try:
+            if db:
+                arena_doc = db.collection('arena').document('current').get()
+                if arena_doc.exists:
+                    a_data = arena_doc.to_dict() or {}
+                    arena_bets = float(a_data.get('total_bets', 0.0))
+                    arena_wins = float(a_data.get('total_payouts', 0.0))
+        except Exception as e:
+            print(f"⚠️ Error reading arena/current: {e}")
+
+        # استخدام بيانات arena/current إذا وُجدت، أو العودة لبيانات app_config/game_settings
+        total_bets = arena_bets if arena_bets > 0 else float(settings.get("global_total_bets", 0.0))
+        total_wins = arena_wins if arena_wins > 0 else float(settings.get("global_total_wins", 0.0))
 
         # صافي ربح البوت بالنقاط = إجمالي الرهانات - إجمالي مبالغ الفوز
         bot_net_profit = max(0.0, total_bets - total_wins)
         target_margin = float(grid_cfg.get("target_margin", 0.70))
         target_margin_pct = target_margin * 100.0 if target_margin <= 1.0 else target_margin
 
-        # حساب نسبة ربح البوت الحلية %
+        # حساب نسبة ربح البوت الحالية %
         actual_bot_pct = round(((total_bets - total_wins) / total_bets * 100.0), 2) if total_bets > 0 else 100.0
         actual_bot_pct = max(0.0, actual_bot_pct)
         actual_user_pct = round(100.0 - actual_bot_pct, 2)
@@ -296,12 +347,14 @@ def get_game_profit_stats():
         return {
             "total_bets": total_bets,
             "total_wins": total_wins,
-            "total_bot_profit": bot_net_profit,
-            "total_user_profit": total_wins,
+            "total_bot_profit": round(bot_net_profit, 2),
+            "total_user_profit": round(total_wins, 2),
             "target_margin": target_margin,
             "target_margin_percent": target_margin_pct,
             "actual_bot_percent": actual_bot_pct,
-            "actual_user_percent": actual_user_pct
+            "actual_user_percent": actual_user_pct,
+            "global_total_bets": total_bets,
+            "global_total_wins": total_wins
         }
     except Exception as e:
         print(f"❌ Error fetching game profit stats: {e}")
@@ -313,7 +366,9 @@ def get_game_profit_stats():
             "target_margin": 0.70,
             "target_margin_percent": 70.0,
             "actual_bot_percent": 100.0,
-            "actual_user_percent": 0.0
+            "actual_user_percent": 0.0,
+            "global_total_bets": 0.0,
+            "global_total_wins": 0.0
         }
 
 
@@ -379,6 +434,7 @@ def ban_user(tg_id, ban_status=True):
         
         db.collection('users').document(tg_id_str).update({"banned": bool(ban_status)})
         _BAN_CACHE[tg_id_str] = (bool(ban_status), time.time() + BAN_CACHE_TTL)
+        log_admin_action("المدير العام", f"{'حظر' if ban_status else 'إلغاء حظر'} المستخدم {tg_id_str}")
         return True, "تم حظر المستخدم بنجاح" if ban_status else "تم إلغاء الحظر بنجاح"
     except Exception as e:
         print(f"❌ Error banning user {tg_id}: {e}")
@@ -507,6 +563,87 @@ def update_user(tg_id, update_data):
     except Exception as e:
         print(f"❌ Error updating user {tg_id}: {e}")
         return False
+
+
+# ==================== Moderators & Admin Logs ====================
+
+def get_moderators():
+    """جلب قائمة المشرفين للوحة التحكم العليا"""
+    try:
+        if not db: initialize_firebase()
+        docs = db.collection('moderators').stream()
+        mods = []
+        for d in docs:
+            data = d.to_dict() or {}
+            data['id'] = str(d.id)
+            mods.append(data)
+        return mods
+    except Exception as e:
+        print(f"❌ Error getting moderators: {e}")
+        return []
+
+
+def add_moderator(mod_id, name, permissions=None, added_by="المدير العام"):
+    """إضافة مشرف جديد مع تسجيل العملية في سجل الإدارة"""
+    try:
+        if not db: initialize_firebase()
+        mod_ref = db.collection('moderators').document(str(mod_id))
+        mod_data = {
+            "id": str(mod_id),
+            "name": name,
+            "permissions": permissions or {},
+            "addedBy": added_by,
+            "addedAt": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        }
+        mod_ref.set(mod_data, merge=True)
+        log_admin_action(added_by, f"إضافة المشرف: {name} ({mod_id})")
+        return True
+    except Exception as e:
+        print(f"❌ Error adding moderator: {e}")
+        return False
+
+
+def delete_moderator(mod_id, deleted_by="المدير العام"):
+    """حذف مشرف وسحب جميع صلاحياته مع تسجيل العملية"""
+    try:
+        if not db: initialize_firebase()
+        db.collection('moderators').document(str(mod_id)).delete()
+        log_admin_action(deleted_by, f"حذف المشرف ID: {mod_id}")
+        return True
+    except Exception as e:
+        print(f"❌ Error deleting moderator: {e}")
+        return False
+
+
+def get_admin_logs(limit=50):
+    """جلب سجل الأنشطة والتحركات الإدارية"""
+    try:
+        if not db: initialize_firebase()
+        logs_ref = db.collection('admin_logs').order_by('timestamp', direction=firestore.Query.DESCENDING).limit(limit)
+        docs = logs_ref.stream()
+        logs = []
+        for d in docs:
+            data = d.to_dict() or {}
+            logs.append(data)
+        return logs
+    except Exception as e:
+        print(f"❌ Error getting admin logs: {e}")
+        return []
+
+
+def log_admin_action(admin_name, action):
+    """تسجيل حركة جديدة داخل سجل الإدارة المركزية"""
+    try:
+        if not db: initialize_firebase()
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        db.collection('admin_logs').add({
+            "admin": admin_name or "المدير العام",
+            "action": action,
+            "timestamp": now_str,
+            "created_at": firestore.SERVER_TIMESTAMP
+        })
+    except Exception as e:
+        print(f"❌ Error logging admin action: {e}")
 
 
 # ==================== Task & Campaign Functions ====================
