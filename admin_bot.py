@@ -12,7 +12,7 @@ ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551")
 bot = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
 
 def is_user_authorized(user_id):
-    """فحص صلاحيات دخول بوت الأدمن (المدير الرئيسي أو المشرفين)"""
+    """فحص حي ومباشر لصلاحيات دخول بوت الأدمن"""
     if not user_id:
         return False
     user_id_str = str(user_id)
@@ -32,7 +32,7 @@ if bot:
         user_id = message.from_user.id
         
         if not is_user_authorized(user_id):
-            bot.reply_to(message, "⛔ عذراً، البوت مخصص للإدارة والمشرفين المصرح لهم فقط.")
+            bot.reply_to(message, "⛔ عذراً، هذا البوت مخصص للإدارة والمشرفين المصرح لهم فقط.")
             return
 
         markup = InlineKeyboardMarkup()
@@ -64,7 +64,6 @@ if bot:
             return
 
 def run_web_server():
-    """تشغيل سيرفر الفلاسك الموحد داخل Thread مستقل"""
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
