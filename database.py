@@ -97,7 +97,18 @@ def ensure_game_settings_exist():
                     existing_data["grid_game_config"]["target_margin"] = 0.70
                     needs_update = True
 
-            # 2. حقول الإحصائيات الموحدة التجميعية
+            # 2. إعدادات لعبة الساحة الكبرى (Arena Config)
+            if "arena_config" not in existing_data:
+                arena_cfg = {
+                    "entry_fee": 1000.0,
+                    "min_participants": 20,
+                    "prize_pool_percentage": 0.45
+                }
+                existing_data["arena_config"] = arena_cfg
+                updates["arena_config"] = arena_cfg
+                needs_update = True
+
+            # 3. حقول الإحصائيات الموحدة التجميعية
             if "global_total_bets" not in existing_data:
                 updates["global_total_bets"] = 0.0
                 existing_data["global_total_bets"] = 0.0
@@ -161,6 +172,11 @@ def ensure_game_settings_exist():
                 "min_bet": 250.0,
                 "target_margin": 0.70,
                 "default_broken_coins": 3
+            },
+            "arena_config": {
+                "entry_fee": 1000.0,
+                "min_participants": 20,
+                "prize_pool_percentage": 0.45
             }
         }
 
@@ -240,6 +256,53 @@ def update_grid_game_config(min_bet=None, target_margin=None, default_broken_coi
         return False
 
 
+# ==================== Arena Game Config Functions ====================
+
+def get_arena_config():
+    """جلب إعدادات الساحة الكبرى من الفايربيس (مع استخدام الكاش)"""
+    try:
+        settings = get_game_settings() or {}
+        return settings.get("arena_config", {
+            "entry_fee": 1000.0,
+            "min_participants": 20,
+            "prize_pool_percentage": 0.45
+        })
+    except Exception as e:
+        print(f"❌ Error fetching arena_config: {e}")
+        return {
+            "entry_fee": 1000.0,
+            "min_participants": 20,
+            "prize_pool_percentage": 0.45
+        }
+
+
+def update_arena_config(entry_fee=None, min_participants=None, prize_pool_percentage=None):
+    """تحديث إعدادات الساحة الكبرى في الفايربيس وتفريغ الكاش فوراً"""
+    try:
+        if not db: initialize_firebase()
+        config_ref = db.collection('app_config').document('game_settings')
+        doc = config_ref.get()
+        current_data = doc.to_dict() or {} if doc.exists else {}
+        arena_cfg = current_data.get("arena_config", {})
+
+        if entry_fee is not None:
+            arena_cfg["entry_fee"] = float(entry_fee)
+        if min_participants is not None:
+            arena_cfg["min_participants"] = int(min_participants)
+        if prize_pool_percentage is not None:
+            val = float(prize_pool_percentage)
+            arena_cfg["prize_pool_percentage"] = val / 100.0 if val > 1.0 else val
+
+        config_ref.set({"arena_config": arena_cfg}, merge=True)
+        clear_settings_cache()
+        return True
+    except Exception as e:
+        print(f"❌ Error in update_arena_config: {e}")
+        return False
+
+# =====================================================================
+
+
 def save_admin_settings(settings_dict):
     """حفظ الإعدادات المرسلة من لوحة تحكم الأدمن وتحديث النسب"""
     try:
@@ -267,6 +330,18 @@ def save_admin_settings(settings_dict):
 
         if "usd_to_zn_rate" in settings_dict:
             payload["usd_to_zn_rate"] = float(settings_dict["usd_to_zn_rate"])
+
+        # دعم تحديث الساحة عند إرسالها ضمن save_admin_settings
+        if "arena_entry_fee" in settings_dict or "arena_min_participants" in settings_dict or "arena_prize_pct" in settings_dict:
+            arena_cfg = current_settings.get("arena_config", {})
+            if "arena_entry_fee" in settings_dict:
+                arena_cfg["entry_fee"] = float(settings_dict["arena_entry_fee"])
+            if "arena_min_participants" in settings_dict:
+                arena_cfg["min_participants"] = int(settings_dict["arena_min_participants"])
+            if "arena_prize_pct" in settings_dict:
+                val = float(settings_dict["arena_prize_pct"])
+                arena_cfg["prize_pool_percentage"] = val / 100.0 if val > 1.0 else val
+            payload["arena_config"] = arena_cfg
 
         return update_game_settings(payload)
     except Exception as e:
