@@ -1,4 +1,3 @@
-# database.py
 import os
 import json
 import time
@@ -66,7 +65,7 @@ def clear_settings_cache():
 
 
 def ensure_game_settings_exist():
-    """ضمان وجود مستند الإعدادات الأساسية للعبة في Firestore وإنشائه عند الحاجة"""
+    """ضمان وجود مستند الإعدادات الأساسية للعبة في Firestore وإنشائه/تحديثه تلقائياً"""
     global db, _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     if not db:
         try:
@@ -81,28 +80,65 @@ def ensure_game_settings_exist():
         
         if doc_snap.exists:
             existing_data = doc_snap.to_dict() or {}
+            needs_update = False
+            updates = {}
             
-            # التأكد من وجود إعدادات لعبة شبكة العملات المكسورة مع ضبط نسبة ربح البوت (0.20 = 20% للبوت / 80% للاعبين)
+            # 1. التأكد من إعدادات لعبة شبكة العملات المكسورة وضبط نسبة البوت المستهدفة (0.70 = 70% للبوت / 30% للاعبين)
             if "grid_game_config" not in existing_data:
                 grid_cfg = {
                     "min_bet": 250.0,
-                    "target_margin": 0.20,  # 0.20 تعني 20% فائدة البوت و80% عوائد اللاعبين
+                    "target_margin": 0.70,  # 0.70 تعني 70% فائدة البوت و 30% عوائد اللاعبين
                     "default_broken_coins": 3
                 }
                 existing_data["grid_game_config"] = grid_cfg
-                config_ref.update({"grid_game_config": grid_cfg})
+                updates["grid_game_config"] = grid_cfg
+                needs_update = True
             else:
-                # التحقق من وجود مفتاح target_margin وتحديثه إن كان مفقوداً
                 grid_cfg = existing_data["grid_game_config"]
                 if "target_margin" not in grid_cfg or grid_cfg["target_margin"] == 0:
-                    grid_cfg["target_margin"] = 0.20
-                    config_ref.update({"grid_game_config.target_margin": 0.20})
-                    existing_data["grid_game_config"]["target_margin"] = 0.20
+                    grid_cfg["target_margin"] = 0.70
+                    updates["grid_game_config.target_margin"] = 0.70
+                    existing_data["grid_game_config"]["target_margin"] = 0.70
+                    needs_update = True
+
+            # 2. التأكد من وجود كائنات تتبع الأرباح المباشرة (Stats)
+            if "stats" not in existing_data:
+                stats_cfg = {
+                    "total_bot_profit": 0.0,
+                    "total_user_profit": 0.0
+                }
+                existing_data["stats"] = stats_cfg
+                updates["stats"] = stats_cfg
+                needs_update = True
+            else:
+                stats_cfg = existing_data["stats"]
+                if "total_bot_profit" not in stats_cfg:
+                    updates["stats.total_bot_profit"] = 0.0
+                    existing_data["stats"]["total_bot_profit"] = 0.0
+                    needs_update = True
+                if "total_user_profit" not in stats_cfg:
+                    updates["stats.total_user_profit"] = 0.0
+                    existing_data["stats"]["total_user_profit"] = 0.0
+                    needs_update = True
+
+            # 3. التأكد من وجود حقول الخسائر والجوائز التراكمية
+            if "total_user_losses" not in existing_data:
+                updates["total_user_losses"] = 0.0
+                existing_data["total_user_losses"] = 0.0
+                needs_update = True
+            if "total_user_wins" not in existing_data:
+                updates["total_user_wins"] = 0.0
+                existing_data["total_user_wins"] = 0.0
+                needs_update = True
+
+            if needs_update:
+                config_ref.update(updates)
 
             _SETTINGS_CACHE = existing_data
             _SETTINGS_CACHE_TIME = time.time()
             return existing_data
 
+        # إنشاء مستند الإعدادات من الصفر في حال عدم وجوده
         daily_rewards_30_days = {
             f"day_{i}": val for i, val in enumerate([
                 100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
@@ -159,9 +195,15 @@ def ensure_game_settings_exist():
             "storage_config": storage_cfg,
             "usdt_packages": usdt_pkgs,
             "packages_config": packages_cfg,
+            "total_user_losses": 0.0,
+            "total_user_wins": 0.0,
+            "stats": {
+                "total_bot_profit": 0.0,
+                "total_user_profit": 0.0
+            },
             "grid_game_config": {
                 "min_bet": 250.0,
-                "target_margin": 0.20,  # 0.20 تعني 20% فائدة البوت و80% عوائد اللاعبين
+                "target_margin": 0.70,  # 70% فائدة البوت و 30% عوائد اللاعبين
                 "default_broken_coins": 3
             },
             "friends_config": {
@@ -225,7 +267,9 @@ def update_grid_game_config(min_bet=None, target_margin=None, default_broken_coi
         if min_bet is not None:
             grid_cfg["min_bet"] = float(min_bet)
         if target_margin is not None:
-            grid_cfg["target_margin"] = float(target_margin)
+            val = float(target_margin)
+            # تحويل القيم النسبية إن كُتبت بصيغة مئوية (مثلاً 70 تعني 0.70)
+            grid_cfg["target_margin"] = val / 100.0 if val > 1.0 else val
         if default_broken_coins is not None:
             grid_cfg["default_broken_coins"] = int(default_broken_coins)
 
@@ -233,6 +277,71 @@ def update_grid_game_config(min_bet=None, target_margin=None, default_broken_coi
     except Exception as e:
         print(f"❌ Error updating grid game config: {e}")
         return False, f"حدث خطأ: {e}"
+
+
+def record_game_stats(bot_profit=0.0, user_profit=0.0):
+    """تسجيل أرباح وخسائر اللعبة تلقائياً بشكل ذري (Atomic Operations) لضمان الدقة ومنع التضارب"""
+    try:
+        if not db: initialize_firebase()
+        config_ref = db.collection('app_config').document('game_settings')
+        
+        updates = {}
+        b_prof = float(bot_profit)
+        u_prof = float(user_profit)
+
+        if b_prof > 0:
+            updates["stats.total_bot_profit"] = firestore.Increment(b_prof)
+            updates["total_user_losses"] = firestore.Increment(b_prof)
+        if u_prof > 0:
+            updates["stats.total_user_profit"] = firestore.Increment(u_prof)
+            updates["total_user_wins"] = firestore.Increment(u_prof)
+
+        if updates:
+            config_ref.update(updates)
+            clear_settings_cache()
+        return True
+    except Exception as e:
+        print(f"❌ Error recording game stats: {e}")
+        return False
+
+
+def get_game_profit_stats():
+    """جلب إحصائيات أرباح وخسائر اللعبة والنسب المئوية المحققة للوحة الإدارة العليا"""
+    try:
+        settings = get_game_settings() or {}
+        stats = settings.get("stats", {})
+        grid_cfg = settings.get("grid_game_config", {})
+
+        bot_profit = float(stats.get("total_bot_profit", settings.get("total_user_losses", 0.0)))
+        user_profit = float(stats.get("total_user_profit", settings.get("total_user_wins", 0.0)))
+        
+        raw_margin = float(grid_cfg.get("target_margin", 0.70))
+        target_margin_pct = raw_margin * 100.0 if raw_margin <= 1.0 else raw_margin
+
+        total_volume = bot_profit + user_profit
+        actual_bot_pct = round((bot_profit / total_volume * 100.0), 2) if total_volume > 0 else 0.0
+        actual_user_pct = round((user_profit / total_volume * 100.0), 2) if total_volume > 0 else 0.0
+
+        return {
+            "total_bot_profit": bot_profit,
+            "total_user_profit": user_profit,
+            "target_margin": raw_margin,
+            "target_margin_percent": target_margin_pct,
+            "actual_bot_percent": actual_bot_pct,
+            "actual_user_percent": actual_user_pct,
+            "total_volume": total_volume
+        }
+    except Exception as e:
+        print(f"❌ Error fetching game profit stats: {e}")
+        return {
+            "total_bot_profit": 0.0,
+            "total_user_profit": 0.0,
+            "target_margin": 0.70,
+            "target_margin_percent": 70.0,
+            "actual_bot_percent": 0.0,
+            "actual_user_percent": 0.0,
+            "total_volume": 0.0
+        }
 
 
 # ==================== Treasury & Safe Guard System ====================
