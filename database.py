@@ -10,7 +10,7 @@ db = None
 # ==================== Dynamic In-Memory Cache System ====================
 _SETTINGS_CACHE = None
 _SETTINGS_CACHE_TIME = 0
-SETTINGS_CACHE_TTL = 300  # 5 دقائق للكاش مع التفريغ الفوري عند التحديث
+SETTINGS_CACHE_TTL = 300  # 5 دقائق للكاش مع تفريغ فوري عند التحديث من الأدمن
 
 _BAN_CACHE = {}           
 BAN_CACHE_TTL = 120       
@@ -97,7 +97,7 @@ def ensure_game_settings_exist():
                     existing_data["grid_game_config"]["target_margin"] = 0.70
                     needs_update = True
 
-            # 2. حقول الإحصائيات الموحدة التجميعية (O(1) Global Totals)
+            # 2. حقول الإحصائيات الموحدة التجميعية
             if "global_total_bets" not in existing_data:
                 updates["global_total_bets"] = 0.0
                 existing_data["global_total_bets"] = 0.0
@@ -175,7 +175,7 @@ def ensure_game_settings_exist():
 
 
 def get_game_settings():
-    """جلب إعدادات اللعبة من الكاش لتسريع الاستجابة"""
+    """جلب إعدادات اللعبة من الكاش المؤقت لتوفير قراءات Firestore"""
     global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     now = time.time()
     if _SETTINGS_CACHE is not None and (now - _SETTINGS_CACHE_TIME) < SETTINGS_CACHE_TTL:
@@ -216,7 +216,7 @@ def update_game_settings(new_settings_dict):
 
 
 def update_grid_game_config(min_bet=None, target_margin=None, default_broken_coins=None):
-    """تحديث إعدادات ألعاب الشبكة ونسب الأرباح بمرونة"""
+    """تحديث إعدادات ألعاب الشبكة ونسب الأرباح من لوحة التحكم"""
     try:
         if not db: initialize_firebase()
         config_ref = db.collection('app_config').document('game_settings')
@@ -241,7 +241,7 @@ def update_grid_game_config(min_bet=None, target_margin=None, default_broken_coi
 
 
 def save_admin_settings(settings_dict):
-    """حفظ الإعدادات المرسلة من لوحة التحكم وبوت الأدمن بسرعة ودون معالجة معقدة"""
+    """حفظ الإعدادات المرسلة من لوحة تحكم الأدمن وتحديث النسب"""
     try:
         if not isinstance(settings_dict, dict):
             return False, "بيانات الإعدادات غير صالحة"
@@ -274,50 +274,111 @@ def save_admin_settings(settings_dict):
         return False, f"خطأ أثناء حفظ الإعدادات: {e}"
 
 
-def record_user_game_result(tg_id, bet_amount, win_amount):
-    """تحديث نتائج الرهان والأرباح ذرياً (Atomically) في مستند الإعدادات ومستند اللعبة الفعلي arena/current والمستخدم فوراً"""
+# ==================== Core Bet, Win & Loss System ====================
+
+def record_bet_placed(tg_id, bet_amount):
+    """1. دالة تسجيل الرهان الأساسي وخصمه من رصيد المستخدم"""
     try:
         if not db: initialize_firebase()
         bet = float(bet_amount)
-        win = float(win_amount)
+        if bet <= 0: return False, "مبلغ الرهان غير صالح"
 
-        # 1. تحديث الإحصائيات المركزية في app_config/game_settings
-        config_ref = db.collection('app_config').document('game_settings')
-        config_ref.update({
-            "global_total_bets": firestore.Increment(bet),
-            "global_total_wins": firestore.Increment(win)
+        tg_id_str = str(tg_id)
+        user_ref = db.collection('users').document(tg_id_str)
+        
+        # خصم الرهان وتحديث إجمالي مبالغ الرهان الخاصة بالمستخدم
+        user_ref.update({
+            "balance": firestore.Increment(-bet),
+            "total_bets": firestore.Increment(bet)
         })
 
-        # 2. تحديث مستند اللعبة المباشر arena/current للمزامنة الكاملة
+        # تحديث إجمالي الرهانات بالنظام العام ذرياً
+        config_ref = db.collection('app_config').document('game_settings')
+        config_ref.update({"global_total_bets": firestore.Increment(bet)})
+
         arena_ref = db.collection('arena').document('current')
         arena_ref.set({
             "total_bets": firestore.Increment(bet),
-            "total_payouts": firestore.Increment(win),
             "last_updated": firestore.SERVER_TIMESTAMP
         }, merge=True)
 
-        # 3. تحديث إحصائيات المستخدم الفردي
-        if tg_id:
-            user_ref = db.collection('users').document(str(tg_id))
-            user_ref.update({
-                "total_bets": firestore.Increment(bet),
-                "total_wins": firestore.Increment(win)
-            })
+        clear_settings_cache()
+        return True, "تم تسجيل الرهان بنجاح"
+    except Exception as e:
+        print(f"❌ Error recording bet placed: {e}")
+        return False, str(e)
+
+
+def record_game_loss(tg_id, bet_amount):
+    """2. دالة تسجيل الخسارة (عند خسارة المراهنة بالكامل للبوت)"""
+    try:
+        if not db: initialize_firebase()
+        bet = float(bet_amount)
+        tg_id_str = str(tg_id)
+
+        # تسجيل الخسارة في بيانات المستخدم (الرهان تم خصمه سابقاً في record_bet_placed)
+        user_ref = db.collection('users').document(tg_id_str)
+        user_ref.update({
+            "total_losses": firestore.Increment(bet)
+        })
+
+        # لا تتغير أرباح اللاعبين في arena لأن المبلغ بالكامل أصبح أرباحاً للبوت
+        arena_ref = db.collection('arena').document('current')
+        arena_ref.set({
+            "last_updated": firestore.SERVER_TIMESTAMP
+        }, merge=True)
 
         clear_settings_cache()
         return True
     except Exception as e:
-        print(f"❌ Error recording game result: {e}")
+        print(f"❌ Error recording game loss: {e}")
+        return False
+
+
+def record_game_win(tg_id, bet_amount, total_cashout_amount):
+    """3. دالة تسجيل الربح والسحب (إعادة مبلغ الرهان + إضافة الصافي لدالة الربح)"""
+    try:
+        if not db: initialize_firebase()
+        bet = float(bet_amount)
+        cashout = float(total_cashout_amount)
+        
+        # الربح الصافي = إجمالي السحب - المبلغ المراهن به (مثال: 110 - 100 = 10)
+        net_profit = max(0.0, cashout - bet)
+
+        tg_id_str = str(tg_id)
+        user_ref = db.collection('users').document(tg_id_str)
+
+        # 1. إرجاع المبلغ الإجمالي (الرهان الأصلي + الربح الصافي) لرصيد المستخدم
+        user_ref.update({
+            "balance": firestore.Increment(cashout),
+            "total_wins": firestore.Increment(net_profit)
+        })
+
+        # 2. إضافة الربح الصافي فقط لمستند الأرباح الإجمالية (payouts) للبوت واللعبة
+        config_ref = db.collection('app_config').document('game_settings')
+        config_ref.update({
+            "global_total_wins": firestore.Increment(net_profit)
+        })
+
+        arena_ref = db.collection('arena').document('current')
+        arena_ref.set({
+            "total_payouts": firestore.Increment(net_profit),
+            "last_updated": firestore.SERVER_TIMESTAMP
+        }, merge=True)
+
+        clear_settings_cache()
+        return True
+    except Exception as e:
+        print(f"❌ Error recording game win: {e}")
         return False
 
 
 def get_game_profit_stats():
-    """حساب أرباح ونسب البوت واللاعبين بلحظية كاملة وبقراءة مستند arena/current المباشر"""
+    """حساب أرباح ونسب البوت واللاعبين بدقة عالية وقراءة سريعة"""
     try:
         settings = get_game_settings() or {}
         grid_cfg = settings.get("grid_game_config", {})
 
-        # القراءة المباشرة من arena/current (المكان الذي يحوي البيانات الحقيقية)
         arena_bets = 0.0
         arena_wins = 0.0
         try:
@@ -330,16 +391,15 @@ def get_game_profit_stats():
         except Exception as e:
             print(f"⚠️ Error reading arena/current: {e}")
 
-        # استخدام بيانات arena/current إذا وُجدت، أو العودة لبيانات app_config/game_settings
         total_bets = arena_bets if arena_bets > 0 else float(settings.get("global_total_bets", 0.0))
         total_wins = arena_wins if arena_wins > 0 else float(settings.get("global_total_wins", 0.0))
 
-        # صافي ربح البوت بالنقاط = إجمالي الرهانات - إجمالي مبالغ الفوز
+        # صافي ربح البوت = إجمالي الرهانات - أرباح المستخدمين الصافية المدفوعة
         bot_net_profit = max(0.0, total_bets - total_wins)
         target_margin = float(grid_cfg.get("target_margin", 0.70))
         target_margin_pct = target_margin * 100.0 if target_margin <= 1.0 else target_margin
 
-        # حساب نسبة ربح البوت الحالية %
+        # حساب نسبة ربح البوت الحالية
         actual_bot_pct = round(((total_bets - total_wins) / total_bets * 100.0), 2) if total_bets > 0 else 100.0
         actual_bot_pct = max(0.0, actual_bot_pct)
         actual_user_pct = round(100.0 - actual_bot_pct, 2)
@@ -370,6 +430,22 @@ def get_game_profit_stats():
             "global_total_bets": 0.0,
             "global_total_wins": 0.0
         }
+
+
+def should_user_win_next_step():
+    """دالة ذكية توضع داخل محرك اللعبة للتحكم بنسبة 70% للبوت و30% للمستخدم"""
+    try:
+        stats = get_game_profit_stats()
+        actual_bot_pct = stats.get("actual_bot_percent", 100.0)
+        target_bot_pct = stats.get("target_margin_percent", 70.0)
+
+        # إذا كانت نسبة ربح البوت الحالية أقل من النسبة المستهدفة (مثلاً 70%)
+        # يتم توجيه اللعبة لإظهار القنبلة وخسارة المستخدم
+        if actual_bot_pct < target_bot_pct:
+            return False  # اجعل الخطوة خاسرة
+        return True       # اجعل الخطوة مسموحة للربح
+    except Exception:
+        return True
 
 
 def get_admin_dashboard_stats():
@@ -407,7 +483,7 @@ def get_admin_dashboard_stats():
 # ==================== User & Account Functions ====================
 
 def is_user_banned(tg_id):
-    """التحقق السريع من حالة حظر المستخدم"""
+    """التحقق السريع من حالة حظر المستخدم باستخدام الكاش"""
     if not tg_id: return False
     tg_id_str = str(tg_id)
     now = time.time()
@@ -482,6 +558,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "invited_friends_count": 0,
                 "total_bets": 0.0,
                 "total_wins": 0.0,
+                "total_losses": 0.0,
                 "last_active": firestore.SERVER_TIMESTAMP,
                 "joined_at": firestore.SERVER_TIMESTAMP
             }
@@ -511,7 +588,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
 
 
 def get_user(tg_id):
-    """جلب بيانات مستخدم محدد مع التأكد من وجود كافة الحقول الضرورية"""
+    """جلب بيانات مستخدم محدد"""
     try:
         if not tg_id: return None
         user_ref = db.collection('users').document(str(tg_id))
@@ -525,6 +602,7 @@ def get_user(tg_id):
             data["ad_balance"] = float(data.get("ad_balance", 0.0) or 0.0)
             data["total_bets"] = float(data.get("total_bets", 0.0) or 0.0)
             data["total_wins"] = float(data.get("total_wins", 0.0) or 0.0)
+            data["total_losses"] = float(data.get("total_losses", 0.0) or 0.0)
             return data
         return None
     except Exception as e:
@@ -533,7 +611,7 @@ def get_user(tg_id):
 
 
 def get_all_users_admin(limit=100):
-    """جلب قائمة سريعة بالمستخدمين للوحة الأدمن"""
+    """جلب قائمة للمستخدمين للوحة الأدمن"""
     try:
         if not db: initialize_firebase()
         users_ref = db.collection('users').limit(limit)
@@ -568,7 +646,7 @@ def update_user(tg_id, update_data):
 # ==================== Moderators & Admin Logs ====================
 
 def get_moderators():
-    """جلب قائمة المشرفين للوحة التحكم العليا"""
+    """جلب قائمة المشرفين للوحة التحكم"""
     try:
         if not db: initialize_firebase()
         docs = db.collection('moderators').stream()
@@ -584,7 +662,7 @@ def get_moderators():
 
 
 def add_moderator(mod_id, name, permissions=None, added_by="المدير العام"):
-    """إضافة مشرف جديد مع تسجيل العملية في سجل الإدارة"""
+    """إضافة مشرف جديد مع تسجيل العملية"""
     try:
         if not db: initialize_firebase()
         mod_ref = db.collection('moderators').document(str(mod_id))
@@ -604,7 +682,7 @@ def add_moderator(mod_id, name, permissions=None, added_by="المدير الع�
 
 
 def delete_moderator(mod_id, deleted_by="المدير العام"):
-    """حذف مشرف وسحب جميع صلاحياته مع تسجيل العملية"""
+    """حذف مشرف وتجريده من الصلاحيات"""
     try:
         if not db: initialize_firebase()
         db.collection('moderators').document(str(mod_id)).delete()
@@ -861,7 +939,7 @@ def claim_daily_reward(tg_id):
         return False, f"حدث خطأ: {e}", 0.0, 0
 
 
-# تهيئة التلقائية فور الاستدعاء
+# التهيئة التلقائية عند استدعاء الملف
 try:
     db = initialize_firebase()
     ensure_game_settings_exist()
