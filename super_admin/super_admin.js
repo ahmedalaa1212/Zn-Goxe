@@ -1,5 +1,5 @@
 // =========================================
-// super_admin.js - الربط التفاعلي المستقر للوحة الإدارة العليا
+// super_admin.js - الربط التفاعلي المستقر لوحة الإدارة العليا (إعدادات منفصلة للألعاب)
 // =========================================
 
 const API_BASE = "/api";
@@ -94,6 +94,8 @@ async function initSuperAdmin() {
     if (!isAuthorized) return;
 
     loadDashboardStats();
+    loadGrid36Settings();
+    loadBigArenaSettings();
     loadModerators();
     loadAdminLogs();
 }
@@ -110,131 +112,65 @@ if (document.readyState === "loading") {
  * ربط الأحداث التفاعلية لحقول الإدخال والنسب تلقائياً
  */
 function initEvents() {
-    // 1. ربط حقول الإعدادات العامة
-    const targetMarginInput = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
-    if (targetMarginInput && !targetMarginInput.dataset.bound) {
-        targetMarginInput.dataset.bound = "true";
-        targetMarginInput.addEventListener('input', calculateMargins);
+    // 1. ربط حقول لعبة شبكة الـ 36
+    const grid36BotInput = document.getElementById('grid36-bot-margin');
+    if (grid36BotInput && !grid36BotInput.dataset.bound) {
+        grid36BotInput.dataset.bound = "true";
+        grid36BotInput.addEventListener('input', calculateGrid36Margins);
     }
 
-    const updateRatioBtn = document.getElementById('update-ratio-btn') || document.getElementById('btnPublishMargin');
-    if (updateRatioBtn && !updateRatioBtn.dataset.bound) {
-        updateRatioBtn.dataset.bound = "true";
-        updateRatioBtn.addEventListener('click', updateGameSettings);
-    }
-
-    const btnEditMargin = document.getElementById('btnEditMargin');
-    if (btnEditMargin && !btnEditMargin.dataset.bound) {
-        btnEditMargin.dataset.bound = "true";
-        btnEditMargin.addEventListener('click', enableMarginEdit);
-    }
-
-    // 2. ربط حقول الساحة الكبرى (شبكة الـ 36)
-    const arenaBotMarginInput = document.getElementById('arena-bot-margin-input');
-    if (arenaBotMarginInput && !arenaBotMarginInput.dataset.bound) {
-        arenaBotMarginInput.dataset.bound = "true";
-        arenaBotMarginInput.addEventListener('input', calculateArenaMargins);
-    }
-
-    const btnEditArena = document.getElementById('btnEditArena');
-    if (btnEditArena && !btnEditArena.dataset.bound) {
-        btnEditArena.dataset.bound = "true";
-        btnEditArena.addEventListener('click', enableArena36Edit);
-    }
-
-    const btnPublishArena = document.getElementById('btnPublishArena');
-    if (btnPublishArena && !btnPublishArena.dataset.bound) {
-        btnPublishArena.dataset.bound = "true";
-        btnPublishArena.addEventListener('click', updateArena36Settings);
+    // 2. ربط حقول لعبة الساحة الكبرى
+    const bigArenaBotInput = document.getElementById('big-arena-bot-margin');
+    if (bigArenaBotInput && !bigArenaBotInput.dataset.bound) {
+        bigArenaBotInput.dataset.bound = "true";
+        bigArenaBotInput.addEventListener('input', calculateBigArenaMargins);
     }
 }
 window.initEvents = initEvents;
 
 /**
- * حساب نسبة اللاعبين تلقائياً (100 - نسبة البوت) للإعدادات العامة
+ * حساب نسبة اللاعبين تلقائياً (100 - نسبة البوت) لشبكة الـ 36
  */
-function calculateMargins() {
-    const targetMarginInput = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
-    const playerMarginInput = document.getElementById('user-margin-input') || document.getElementById('playerMarginInput');
+function calculateGrid36Margins() {
+    const botInput = document.getElementById('grid36-bot-margin');
+    const userInput = document.getElementById('grid36-user-margin');
     
-    if (!targetMarginInput || !playerMarginInput) return;
+    if (!botInput || !userInput) return;
 
-    let botMargin = parseFloat(targetMarginInput.value);
-    if (isNaN(botMargin)) { playerMarginInput.value = ''; return; }
+    let botMargin = parseFloat(botInput.value);
+    if (isNaN(botMargin)) { userInput.value = ''; return; }
     if (botMargin < 0) botMargin = 0;
     if (botMargin > 100) botMargin = 100;
 
-    playerMarginInput.value = parseFloat((100.0 - botMargin).toFixed(2));
+    userInput.value = parseFloat((100.0 - botMargin).toFixed(2));
 }
-window.calculateMargins = calculateMargins;
+window.calculateGrid36Margins = calculateGrid36Margins;
 
 /**
- * حساب نسبة اللاعبين تلقائياً للساحة الكبرى (شبكة الـ 36)
+ * حساب نسبة اللاعبين تلقائياً (100 - نسبة البوت) للساحة الكبرى
  */
-function calculateArenaMargins() {
-    const arenaBotMarginInput = document.getElementById('arena-bot-margin-input');
-    const arenaUserMarginInput = document.getElementById('arena-user-margin-input');
+function calculateBigArenaMargins() {
+    const botInput = document.getElementById('big-arena-bot-margin');
+    const userInput = document.getElementById('big-arena-user-margin');
     
-    if (!arenaBotMarginInput || !arenaUserMarginInput) return;
+    if (!botInput || !userInput) return;
 
-    let botMargin = parseFloat(arenaBotMarginInput.value);
-    if (isNaN(botMargin)) { arenaUserMarginInput.value = ''; return; }
+    let botMargin = parseFloat(botInput.value);
+    if (isNaN(botMargin)) { userInput.value = ''; return; }
     if (botMargin < 0) botMargin = 0;
     if (botMargin > 100) botMargin = 100;
 
-    arenaUserMarginInput.value = parseFloat((100.0 - botMargin).toFixed(2));
+    userInput.value = parseFloat((100.0 - botMargin).toFixed(2));
 }
-window.calculateArenaMargins = calculateArenaMargins;
+window.calculateBigArenaMargins = calculateBigArenaMargins;
 
 /**
- * تفعيل وضع التعديل وتفعيل حقول الإدخال للإعدادات العامة
- */
-function enableMarginEdit() {
-    const targetMarginInput = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
-    const minBetInput = document.getElementById('min-bet-input');
-    const btnEditMargin = document.getElementById('btnEditMargin');
-    const btnPublishMargin = document.getElementById('btnPublishMargin') || document.getElementById('update-ratio-btn');
-
-    if (targetMarginInput) {
-        targetMarginInput.disabled = false;
-        targetMarginInput.focus();
-        targetMarginInput.select();
-    }
-    if (minBetInput) minBetInput.disabled = false;
-
-    if (btnEditMargin) btnEditMargin.style.display = 'none';
-    if (btnPublishMargin) btnPublishMargin.style.display = 'block';
-}
-window.enableMarginEdit = enableMarginEdit;
-
-/**
- * تفعيل وضع التعديل للساحة الكبرى (شبكة الـ 36)
- */
-function enableArena36Edit() {
-    const arenaBotInput = document.getElementById('arena-bot-margin-input');
-    const arenaMinBetInput = document.getElementById('arena-min-bet-input');
-    const arenaToggle = document.getElementById('arena-status-toggle');
-    const btnEditArena = document.getElementById('btnEditArena');
-    const btnPublishArena = document.getElementById('btnPublishArena');
-
-    if (arenaBotInput) {
-        arenaBotInput.disabled = false;
-        arenaBotInput.focus();
-        arenaBotInput.select();
-    }
-    if (arenaMinBetInput) arenaMinBetInput.disabled = false;
-    if (arenaToggle) arenaToggle.disabled = false;
-
-    if (btnEditArena) btnEditArena.style.display = 'none';
-    if (btnPublishArena) btnPublishArena.style.display = 'block';
-}
-window.enableArena36Edit = enableArena36Edit;
-
-/**
- * زر التحديث (الريفرش) لجلب أحدث الأرقام من الفايربيس
+ * زر التحديث الشامل لجلب أحدث الأرقام والإعدادات من السيرفر
  */
 async function refreshDashboard() {
     await loadDashboardStats();
+    await loadGrid36Settings();
+    await loadBigArenaSettings();
     await loadModerators();
     await loadAdminLogs();
     alert("🔄 تم تحديث البيانات بنجاح من الفايربيس!");
@@ -242,231 +178,201 @@ async function refreshDashboard() {
 window.refreshDashboard = refreshDashboard;
 
 // ==========================================
-// 1. نظام التحكم بالألعاب وأرباح البوت (Game & Profit Control)
+// 1. جلب وحفظ إعدادات الألعاب بشكل منفصل (Grid 36 & Big Arena)
 // ==========================================
 
-/**
- * جلب إحصائيات الأرباح ونسبة أرباح البوت والساحة الكبرى من السيرفر والفايربيس
- */
 async function loadDashboardStats() {
-    initEvents();
-    
     const botProfitEl = document.getElementById('bot-profit-val');
     const userProfitEl = document.getElementById('user-profit-val');
     const actualMarginEl = document.getElementById('actual-profit-pct');
-    
-    const targetMarginInput = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
-    const playerMarginInput = document.getElementById('user-margin-input') || document.getElementById('playerMarginInput');
-    const minBetInput = document.getElementById('min-bet-input');
-    
-    const arenaBotInput = document.getElementById('arena-bot-margin-input');
-    const arenaUserInput = document.getElementById('arena-user-margin-input');
-    const arenaMinBetInput = document.getElementById('arena-min-bet-input');
-    const arenaToggle = document.getElementById('arena-status-toggle');
-
-    const btnEditMargin = document.getElementById('btnEditMargin');
-    const btnPublishMargin = document.getElementById('btnPublishMargin') || document.getElementById('update-ratio-btn');
-    const btnEditArena = document.getElementById('btnEditArena');
-    const btnPublishArena = document.getElementById('btnPublishArena');
 
     try {
-        let response = await apiFetch(`${API_BASE}/game-settings`, { method: 'GET' });
-
-        if (!response.ok) {
-            response = await apiFetch(`${API_BASE}/admin/dashboard-stats`, { method: 'GET' });
-        }
-
+        const response = await apiFetch(`${API_BASE}/admin/dashboard-stats`, { method: 'GET' });
         const result = await response.json();
 
         if (response.ok && (result.status === 'success' || result.success)) {
-            const stats = result.stats || result.data || {};
+            const stats = result.stats || {};
             
-            const botProfit = stats.total_bot_profit !== undefined ? stats.total_bot_profit : (result.total_bot_profit || 0);
-            const userProfit = stats.total_wins !== undefined ? stats.total_wins : (stats.total_user_profit !== undefined ? stats.total_user_profit : (result.total_user_profit || 0));
-            const actualMargin = stats.actual_bot_percent !== undefined ? stats.actual_bot_percent : (stats.actual_margin !== undefined ? stats.actual_margin : (result.actual_margin || 0));
-            const targetMargin = stats.target_margin_percent !== undefined ? stats.target_margin_percent : (result.target_margin !== undefined ? result.target_margin : (result.bot_margin || 70));
-            
-            const minBet = stats.min_bet !== undefined ? stats.min_bet : (result.min_bet !== undefined ? result.min_bet : (result.grid_game_config?.min_bet || 10));
+            const botProfit = stats.total_bot_profit || 0;
+            const userProfit = stats.total_user_profit || stats.total_wins || 0;
+            const actualMargin = stats.actual_bot_percent || stats.actual_margin || 0;
 
             if (botProfitEl) botProfitEl.innerText = Number(botProfit).toLocaleString('ar-EG');
             if (userProfitEl) userProfitEl.innerText = Number(userProfit).toLocaleString('ar-EG');
             if (actualMarginEl) actualMarginEl.innerText = `${actualMargin}%`;
 
-            // تحديث الحقول العامة
-            if (targetMarginInput) targetMarginInput.value = targetMargin;
-            if (playerMarginInput) playerMarginInput.value = parseFloat((100.0 - targetMargin).toFixed(2));
-            if (minBetInput) minBetInput.value = minBet;
-
-            if (targetMarginInput) targetMarginInput.disabled = true;
-            if (minBetInput) minBetInput.disabled = true;
-            if (btnEditMargin) btnEditMargin.style.display = 'block';
-            if (btnPublishMargin) btnPublishMargin.style.display = 'none';
-
-            // تحديث حقول الساحة الكبرى (شبكة الـ 36)
-            if (result.arena_36) {
-                const arenaData = result.arena_36;
-                if (arenaBotInput) arenaBotInput.value = arenaData.target_margin;
-                if (arenaUserInput) arenaUserInput.value = arenaData.player_margin;
-                if (arenaMinBetInput) arenaMinBetInput.value = arenaData.min_bet;
-                if (arenaToggle) arenaToggle.checked = arenaData.active;
+            // تعبئة البيانات المباشرة إن وجدت ضمن استجابة الداشبورد
+            if (result.grid_36) {
+                populateGrid36UI(result.grid_36);
             }
-
-            if (arenaBotInput) arenaBotInput.disabled = true;
-            if (arenaMinBetInput) arenaMinBetInput.disabled = true;
-            if (arenaToggle) arenaToggle.disabled = true;
-            if (btnEditArena) btnEditArena.style.display = 'block';
-            if (btnPublishArena) btnPublishArena.style.display = 'none';
-
-        } else {
-            console.warn("⚠️ تعذر جلب الإحصائيات من السيرفر:", result.message || result.error);
+            if (result.big_arena) {
+                populateBigArenaUI(result.big_arena);
+            }
         }
     } catch (error) {
-        console.error("❌ خطأ في جلب بيانات لوحة التحكم:", error);
+        console.error("❌ خطأ في جلب إحصائيات لوحة التحكم:", error);
     }
 }
 window.loadDashboardStats = loadDashboardStats;
 
-async function loadGameSettings() {
-    return await loadDashboardStats();
+/**
+ * جلب إعدادات لعبة شبكة الـ 36 حصرياً
+ */
+async function loadGrid36Settings() {
+    try {
+        const response = await apiFetch(`${API_BASE}/admin/settings/grid_36`, { method: 'GET' });
+        const result = await response.json();
+        if (response.ok && result.success && result.config) {
+            populateGrid36UI(result.config);
+        }
+    } catch (error) {
+        console.error("❌ خطأ في جلب إعدادات شبكة الـ 36:", error);
+    }
 }
-window.loadGameSettings = loadGameSettings;
+window.loadGrid36Settings = loadGrid36Settings;
+
+function populateGrid36UI(cfg) {
+    const botInput = document.getElementById('grid36-bot-margin');
+    const userInput = document.getElementById('grid36-user-margin');
+    const minBetInput = document.getElementById('grid36-min-bet');
+    const enabledToggle = document.getElementById('grid36-enabled');
+
+    if (botInput) botInput.value = cfg.bot_margin ?? 70;
+    if (userInput) userInput.value = cfg.player_margin ?? (100 - (cfg.bot_margin ?? 70));
+    if (minBetInput) minBetInput.value = cfg.min_bet ?? 10;
+    if (enabledToggle) enabledToggle.checked = cfg.enabled ?? true;
+}
 
 /**
- * تحديث نسبة أرباح البوت والحد الأدنى العامة ونشرها فوراً إلى قاعدة البيانات
+ * حفظ إعدادات لعبة شبكة الـ 36 عبر طلب fetch منفصل
  */
-async function updateGameSettings() {
-    const input = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
-    const minBetInput = document.getElementById('min-bet-input');
-    
-    if (!input) return;
+async function saveGrid36Settings() {
+    const botInput = document.getElementById('grid36-bot-margin');
+    const minBetInput = document.getElementById('grid36-min-bet');
+    const enabledToggle = document.getElementById('grid36-enabled');
 
-    const targetMarginVal = parseFloat(input.value);
-    const minBetVal = minBetInput ? parseFloat(minBetInput.value) : undefined;
+    if (!botInput || !minBetInput) return;
 
-    if (isNaN(targetMarginVal) || targetMarginVal < 0 || targetMarginVal > 100) {
-        alert("⚠️ يرجى إدخال نسبة مئوية صحيحة بين 0 و 100!");
+    const botMargin = parseFloat(botInput.value);
+    const minBet = parseFloat(minBetInput.value);
+    const enabled = enabledToggle ? enabledToggle.checked : true;
+
+    if (isNaN(botMargin) || botMargin < 0 || botMargin > 100) {
+        alert("⚠️ نسبة أرباح البوت لشبكة الـ 36 يجب أن تكون بين 0 و 100!");
         return;
     }
 
-    if (minBetInput && (isNaN(minBetVal) || minBetVal < 0)) {
-        alert("⚠️ يرجى إدخال حد أدنى صحيح للعب!");
+    if (isNaN(minBet) || minBet < 0) {
+        alert("⚠️ يرجى إدخال حد أدنى صحيح للرهان لشبكة الـ 36!");
         return;
     }
 
     const payload = {
         initData: getTelegramInitData(),
-        bot_margin: targetMarginVal,
-        target_margin: targetMarginVal,
-        player_margin: parseFloat((100.0 - targetMarginVal).toFixed(2)),
-        min_bet: minBetVal,
-        updatedBy: "المدير العام"
+        bot_margin: botMargin,
+        min_bet: minBet,
+        enabled: enabled
     };
 
     try {
-        let response = await apiFetch(`${API_BASE}/game-settings`, {
+        const response = await apiFetch(`${API_BASE}/admin/settings/grid_36`, {
             method: 'POST',
             body: JSON.stringify(payload)
         });
-
-        if (!response.ok) {
-            response = await apiFetch(`${API_BASE}/admin/update-margin`, {
-                method: 'POST',
-                body: JSON.stringify(payload)
-            });
-        }
-
         const result = await response.json();
 
-        if (response.ok && (result.status === 'success' || result.success)) {
-            alert(`✅ ${result.message || 'تم تحديث ونشر النسب والحد الأدنى بنجاح!'}`);
-            input.disabled = true;
-            if (minBetInput) minBetInput.disabled = true;
-            
-            const btnEditMargin = document.getElementById('btnEditMargin');
-            const btnPublishMargin = document.getElementById('btnPublishMargin') || document.getElementById('update-ratio-btn');
-            if (btnEditMargin) btnEditMargin.style.display = 'block';
-            if (btnPublishMargin) btnPublishMargin.style.display = 'none';
-
-            await loadDashboardStats();
+        if (response.ok && result.success) {
+            alert(`✅ ${result.message || 'تم حفظ إعدادات شبكة الـ 36 بنجاح!'}`);
+            loadGrid36Settings();
             loadAdminLogs();
         } else {
-            alert(`❌ خطأ (${response.status}): ${result.message || result.error || 'حدث خطأ أثناء حفظ الإعدادات'}`);
+            alert(`❌ خطأ: ${result.message || result.error || 'حدث خطأ أثناء الحفظ'}`);
         }
     } catch (error) {
-        console.error("❌ خطأ أثناء تحديث النسب:", error);
+        console.error("❌ خطأ أثناء حفظ إعدادات شبكة الـ 36:", error);
     }
 }
-window.updateGameSettings = updateGameSettings;
+window.saveGrid36Settings = saveGrid36Settings;
 
 /**
- * تحديث إعدادات الساحة الكبرى (شبكة الـ 36) ونشرها فوراً إلى الفايربيس
+ * جلب إعدادات لعبة الساحة الكبرى حصرياً
  */
-async function updateArena36Settings() {
-    const arenaBotInput = document.getElementById('arena-bot-margin-input');
-    const arenaMinBetInput = document.getElementById('arena-min-bet-input');
-    const arenaToggle = document.getElementById('arena-status-toggle');
+async function loadBigArenaSettings() {
+    try {
+        const response = await apiFetch(`${API_BASE}/admin/settings/big_arena`, { method: 'GET' });
+        const result = await response.json();
+        if (response.ok && result.success && result.config) {
+            populateBigArenaUI(result.config);
+        }
+    } catch (error) {
+        console.error("❌ خطأ في جلب إعدادات الساحة الكبرى:", error);
+    }
+}
+window.loadBigArenaSettings = loadBigArenaSettings;
 
-    if (!arenaBotInput) return;
+function populateBigArenaUI(cfg) {
+    const botInput = document.getElementById('big-arena-bot-margin');
+    const userInput = document.getElementById('big-arena-user-margin');
+    const minBetInput = document.getElementById('big-arena-min-bet');
+    const enabledToggle = document.getElementById('big-arena-enabled');
 
-    const targetMarginVal = parseFloat(arenaBotInput.value);
-    const minBetVal = arenaMinBetInput ? parseFloat(arenaMinBetInput.value) : 10;
-    const activeVal = arenaToggle ? arenaToggle.checked : true;
+    if (botInput) botInput.value = cfg.bot_margin ?? 70;
+    if (userInput) userInput.value = cfg.player_margin ?? (100 - (cfg.bot_margin ?? 70));
+    if (minBetInput) minBetInput.value = cfg.min_bet ?? 10;
+    if (enabledToggle) enabledToggle.checked = cfg.enabled ?? true;
+}
 
-    if (isNaN(targetMarginVal) || targetMarginVal < 0 || targetMarginVal > 100) {
-        alert("⚠️ يرجى إدخال نسبة مئوية صحيحة للساحة الكبرى بين 0 و 100!");
+/**
+ * حفظ إعدادات لعبة الساحة الكبرى عبر طلب fetch منفصل
+ */
+async function saveBigArenaSettings() {
+    const botInput = document.getElementById('big-arena-bot-margin');
+    const minBetInput = document.getElementById('big-arena-min-bet');
+    const enabledToggle = document.getElementById('big-arena-enabled');
+
+    if (!botInput || !minBetInput) return;
+
+    const botMargin = parseFloat(botInput.value);
+    const minBet = parseFloat(minBetInput.value);
+    const enabled = enabledToggle ? enabledToggle.checked : true;
+
+    if (isNaN(botMargin) || botMargin < 0 || botMargin > 100) {
+        alert("⚠️ نسبة أرباح البوت للساحة الكبرى يجب أن تكون بين 0 و 100!");
         return;
     }
 
-    if (isNaN(minBetVal) || minBetVal < 0) {
-        alert("⚠️ يرجى إدخال حد أدنى صحيح للرهان في الساحة الكبرى!");
+    if (isNaN(minBet) || minBet < 0) {
+        alert("⚠️ يرجى إدخال حد أدنى صحيح للرهان للساحة الكبرى!");
         return;
     }
 
     const payload = {
         initData: getTelegramInitData(),
-        bot_margin: targetMarginVal,
-        target_margin: targetMarginVal,
-        player_margin: parseFloat((100.0 - targetMarginVal).toFixed(2)),
-        min_bet: minBetVal,
-        active: activeVal,
-        updatedBy: "المدير العام"
+        bot_margin: botMargin,
+        min_bet: minBet,
+        enabled: enabled
     };
 
     try {
-        const response = await apiFetch(`${API_BASE}/admin/update-arena-36`, {
+        const response = await apiFetch(`${API_BASE}/admin/settings/big_arena`, {
             method: 'POST',
             body: JSON.stringify(payload)
         });
-
         const result = await response.json();
 
-        if (response.ok && (result.status === 'success' || result.success)) {
-            alert(`✅ ${result.message || 'تم تحديث ونشر إعدادات الساحة الكبرى بنجاح!'}`);
-            
-            arenaBotInput.disabled = true;
-            if (arenaMinBetInput) arenaMinBetInput.disabled = true;
-            if (arenaToggle) arenaToggle.disabled = true;
-
-            const btnEditArena = document.getElementById('btnEditArena');
-            const btnPublishArena = document.getElementById('btnPublishArena');
-            if (btnEditArena) btnEditArena.style.display = 'block';
-            if (btnPublishArena) btnPublishArena.style.display = 'none';
-
-            await loadDashboardStats();
+        if (response.ok && result.success) {
+            alert(`✅ ${result.message || 'تم حفظ إعدادات الساحة الكبرى بنجاح!'}`);
+            loadBigArenaSettings();
             loadAdminLogs();
         } else {
-            alert(`❌ خطأ (${response.status}): ${result.message || result.error || 'حدث خطأ أثناء حفظ إعدادات الساحة'}`);
+            alert(`❌ خطأ: ${result.message || result.error || 'حدث خطأ أثناء الحفظ'}`);
         }
     } catch (error) {
-        console.error("❌ خطأ أثناء تحديث إعدادات الساحة الكبرى:", error);
+        console.error("❌ خطأ أثناء حفظ إعدادات الساحة الكبرى:", error);
     }
 }
-window.updateArena36Settings = updateArena36Settings;
+window.saveBigArenaSettings = saveBigArenaSettings;
 
-function loadHouseEdge() { loadDashboardStats(); }
-function updateHouseEdge() { updateGameSettings(); }
-window.loadHouseEdge = loadHouseEdge;
-window.updateHouseEdge = updateHouseEdge;
 
 // ==========================================
 // 2. إدارة المشرفين والصلاحيات والسجلات (Admin & Mod Management)
