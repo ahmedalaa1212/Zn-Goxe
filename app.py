@@ -102,9 +102,97 @@ def verify_admin_access():
 # مسارات الإدارة العليا (Super Admin APIs)
 # ==========================================
 
+@app.route('/api/admin/dashboard-stats', methods=['GET'])
+def admin_dashboard_stats():
+    """تزويد لوحة الإدارة بأرقام أرباح البوت، أرباح اللاعبين، والربح الفعلي% لـ super_admin.js"""
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
+    if not success:
+        return error_res
+
+    try:
+        if hasattr(database, 'get_admin_dashboard_stats'):
+            data = database.get_admin_dashboard_stats() or {}
+            if isinstance(data, dict):
+                if "status" not in data:
+                    data["status"] = "success"
+                return jsonify(data), 200
+
+        # fallback التلقائي للبيانات في حال عدم وجود الدالة بالاسم المحدد مباشرة
+        settings = database.get_game_settings() or {}
+        stats_summary = database.get_game_profit_stats() or {}
+
+        target_margin_pct = float(settings.get('target_margin', stats_summary.get('target_margin_percent', 70.0)))
+
+        return jsonify({
+            "status": "success",
+            "success": True,
+            "stats": {
+                "total_bot_profit": stats_summary.get("total_bot_profit", 0.0),
+                "total_wins": stats_summary.get("total_user_profit", stats_summary.get("global_total_wins", 0.0)),
+                "actual_bot_percent": stats_summary.get("actual_bot_percent", 0.0),
+                "target_margin_percent": target_margin_pct
+            }
+        }), 200
+    except Exception as e:
+        print(f"❌ Error fetching dashboard stats: {e}")
+        return jsonify({"status": "error", "message": "حدث خطأ أثناء جلب بيانات لوحة التحكم"}), 500
+
+
+@app.route('/api/admin/update-margin', methods=['POST'])
+def update_margin():
+    """استقبال النسبة الجديدة من لوحة الأدمن وحفظها فوراً في الكاش وFirebase"""
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success:
+        return error_res
+
+    try:
+        req_data = request.get_json(silent=True) or {}
+        bot_margin = req_data.get('bot_margin')
+        if bot_margin is None:
+            bot_margin = req_data.get('target_margin')
+
+        if bot_margin is None:
+            return jsonify({"status": "error", "message": "يرجى تحديد نسبة أرباح البوت"}), 400
+
+        try:
+            bot_margin = float(bot_margin)
+        except (ValueError, TypeError):
+            return jsonify({"status": "error", "message": "قيمة النسبة غير صالحة"}), 400
+
+        if bot_margin < 0 or bot_margin > 100:
+            return jsonify({"status": "error", "message": "النسبة يجب أن تكون بين 0 و 100"}), 400
+
+        # الاستدعاء المباشر لدالة save_admin_settings إن وُجدت
+        if hasattr(database, 'save_admin_settings'):
+            ok, msg = database.save_admin_settings({"target_margin": bot_margin})
+            if ok:
+                return jsonify({"status": "success", "message": msg or "تم تعديل نسبة التحكم بنجاح"}), 200
+            return jsonify({"status": "error", "message": msg or "فشل حفظ النسبة"}), 400
+
+        # التحديث البديل المباشر في قاعدة البيانات
+        if hasattr(database, 'update_game_settings'):
+            database.update_game_settings({
+                'target_margin': bot_margin,
+                'player_margin': round(100.0 - bot_margin, 2),
+                'updated_by': telegram_id
+            })
+
+        if hasattr(database, 'update_grid_game_config'):
+            database.update_grid_game_config(target_margin=bot_margin)
+
+        if hasattr(database, 'clear_settings_cache'):
+            database.clear_settings_cache()
+
+        return jsonify({"status": "success", "message": "تم تعديل نسبة التحكم بنجاح"}), 200
+
+    except Exception as e:
+        print(f"❌ Error updating margin: {e}")
+        return jsonify({"status": "error", "message": "حدث خطأ أثناء تحديث نسبة التحكم"}), 500
+
+
 @app.route('/api/admin/stats', methods=['GET'])
 def get_admin_stats():
-    """تجميع وجلب إحصائيات الأرباح وننسب الألعاب للإدارة العليا بسرعة O(1)"""
+    """تجميع وجلب إحصائيات الأرباح ونسب الألعاب للإدارة العليا بسرعة O(1)"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
     if not success:
         return error_res
@@ -138,7 +226,7 @@ def get_admin_stats():
 
 
 @app.route('/api/admin/settings', methods=['POST'])
-def save_admin_settings():
+def save_admin_settings_route():
     """حفظ نسبة البوت ونسبة اللاعبين في إعدادات النظام الإدارية بأمان تام"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
