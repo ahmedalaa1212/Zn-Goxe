@@ -1,23 +1,69 @@
 import os
+import json
+import hmac
+import hashlib
+import urllib.parse
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 
 import database
 from core.security import get_authenticated_user
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='.')
 
 # إعداد CORS بالسماح للوحة الأدمن بالوصول لكافة المسارات
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# تسجيل شات الإدارة إن وجد
-from admin_chat.admin_chat_api import admin_chat_bp
-app.register_blueprint(admin_chat_bp, url_prefix='/api/admin/chat')
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551")
+
+# تسجيل blueprint شات الإدارة إن وجد
+try:
+    from admin_chat.admin_chat_api import admin_chat_bp
+    app.register_blueprint(admin_chat_bp, url_prefix='/api/admin/chat')
+    print("✅ تم تسجيل API الدردشة والدعم بنجاح")
+except Exception as e:
+    print(f"⚠️ لم يتم تسجيل admin_chat_bp: {e}")
+
+# ==========================================
+# 🛡️ دالة التحقق الأمني الرقمي لبيانات تليجرام (InitData)
+# ==========================================
+def validate_telegram_admin(init_data):
+    if not init_data or not BOT_TOKEN:
+        return None
+    try:
+        parsed_data = dict(urllib.parse.parse_qsl(init_data))
+        hash_from_telegram = parsed_data.pop('hash', None)
+        if not hash_from_telegram:
+            return None
+        
+        data_check_string = '\n'.join([f"{k}={v}" for k, v in sorted(parsed_data.items())])
+        secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+        calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+        
+        if calculated_hash == hash_from_telegram:
+            user_data = json.loads(parsed_data.get('user', '{}'))
+            user_id = str(user_data.get('id'))
+            
+            # 1. فحص هل هو الأدمن الرئيسي؟
+            if user_id == str(ADMIN_ID):
+                return {"user": user_data, "role": "المدير العام", "is_owner": True, "telegram_id": user_id}
+                
+            # 2. فحص هل هو مشرف مضاف في الفايربيس؟
+            if hasattr(database, 'db') and database.db:
+                mod_doc = database.db.collection('moderators').document(user_id).get()
+                if mod_doc.exists:
+                    mod_data = mod_doc.to_dict() or {}
+                    return {"user": user_data, "role": "مشرف", "is_owner": False, "permissions": mod_data.get('permissions', {}), "telegram_id": user_id}
+                    
+        return None
+    except Exception as e:
+        print(f"❌ Auth Error: {e}")
+        return None
 
 # ==========================================
 # دالة مساعدة لجلب البيانات المباشرة
 # ==========================================
-
 def _fetch_arena_current_stats():
     """جلب إحصائيات arena/current مباشرة من Firestore"""
     try:
@@ -37,11 +83,20 @@ def _fetch_arena_current_stats():
 @app.route('/api/verify_admin', methods=['POST'])
 def verify_admin_access():
     """التحقق المباشر من هويّة الأدمن وصلاحيات الدخول من التليجرام"""
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
-    if not success:
-        return error_res
+    init_data = request.headers.get('X-Telegram-Init-Data') or (request.get_json(silent=True) or {}).get('initData')
+    auth_info = validate_telegram_admin(init_data)
+    
+    if auth_info:
+        return jsonify({
+            "success": True,
+            "role": auth_info["role"],
+            "telegram_id": auth_info["telegram_id"],
+            "user": auth_info["user"]
+        }), 200
 
-    try:
+    # محاولة توثيق بديلة باستخدام دالة النظام الأمنية
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if success:
         user_data = database.get_user(telegram_id) or {}
         return jsonify({
             "success": True,
@@ -49,9 +104,8 @@ def verify_admin_access():
             "telegram_id": telegram_id,
             "user": user_data
         }), 200
-    except Exception as e:
-        print(f"❌ Error verifying admin {telegram_id}: {e}")
-        return jsonify({"success": False, "message": "فشل التحقق من صلاحيات المدير"}), 500
+
+    return jsonify({"success": False, "message": "غير مصرح لك بالدخول!"}), 403
 
 
 @app.route('/api/admin/dashboard-stats', methods=['GET'])
@@ -402,7 +456,7 @@ def get_admin_logs_route():
 
 
 # ==========================================
-# الأمان ومعالجة الملفات الثابتة والأخطاء
+# الأمان ومعالجة الملفات الثابتة والواجهة
 # ==========================================
 
 @app.after_request
@@ -422,18 +476,18 @@ def handle_500_error(e):
 def handle_404_error(e):
     if request.path.startswith('/api/'):
         return jsonify({"status": "error", "success": False, "error": "مسار الإدارة غير موجود"}), 404
-    return send_from_directory('.', 'index.html')
+    return send_from_directory('.', 'admin.html')
 
 @app.route('/')
 def serve_index():
-    return send_from_directory('.', 'index.html')
+    return send_from_directory('.', 'admin.html')
 
 @app.route('/<path:path>')
 def serve_static(path):
     try:
         return send_from_directory('.', path)
     except Exception:
-        return send_from_directory('.', 'index.html')
+        return send_from_directory('.', 'admin.html')
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
