@@ -244,7 +244,7 @@ def proxy_legacy_game_routes():
     return jsonify({"success": False, "message": "مسار غير معروف"}), 404
 
 # ==========================================
-# المسارات المباشرة والخدمية للمستخدم
+# المسارات المباشرة والخدمية للمستخدم والأدمن
 # ==========================================
 
 @app.route('/tonconnect-manifest.json')
@@ -306,7 +306,22 @@ def handle_500_error(e):
 def handle_404_error(e):
     if request.path.startswith('/api/'):
         return jsonify({"status": "error", "success": False, "error": "المسار غير موجود", "message": "خطأ في الاتصال بالخادم."}), 404
+    
+    # إذا كان الطلب يستهدف مسارات الأدمن غير الموجودة توجيهه لـ admin.html
+    if request.path.startswith('/admin'):
+        return send_from_directory('.', 'admin.html')
+        
     return send_from_directory('.', 'index.html')
+
+# ==========================================
+# توجيه صفحات الواجهة (Webpages Routing)
+# ==========================================
+
+@app.route('/admin')
+@app.route('/admin.html')
+def serve_admin():
+    """مسار صريح ومخصص لتقديم واجهة لوحة الأدمن"""
+    return send_from_directory('.', 'admin.html')
 
 @app.route('/')
 def serve_index():
@@ -317,6 +332,9 @@ def serve_static(path):
     """تقديم الملفات الثابتة وتأمين الملفات البرمجية والحساسة تحديداً"""
     path_lower = path.lower()
     
+    if path_lower in ['admin', 'admin.html']:
+        return send_from_directory('.', 'admin.html')
+        
     if path_lower == 'tonconnect-manifest.json':
         return send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
     
