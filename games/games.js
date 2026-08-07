@@ -27,12 +27,17 @@
         brokenCount: 3,
         picks: [],
         sessionToken: null,
-        multipliers: [],
+        multipliers: [1.2, 1.5, 2.0, 2.8, 3.8, 5.2, 7.5, 10.0, 14.0, 20.0, 28.0, 40.0],
         lastHitIndex: null,
         reviveUsed: false
     };
 
     const tele = window.Telegram?.WebApp;
+
+    // جلب معرّف تلجرام الخاص بالمستخدم
+    function getTgId() {
+        return tele?.initDataUnsafe?.user?.id || null;
+    }
 
     // --- 0. الأدوات المساعدة وحالة التطبيق ---
 
@@ -147,7 +152,7 @@
         }
     };
 
-    // --- 1. منطق لعبة شبكة العملات والمخاطرة (36 صندوقاً) ---
+    // --- 1. منطق لعبة شبكة العملات والمخاطرة (36 صندوقاً) - مرتبط بالـ Backend ---
 
     window.openBoxesSettings = function() {
         if (boxesState.inGame) return;
@@ -240,12 +245,13 @@
             btn.disabled = false;
             btn.classList.remove('btn-disabled');
             const multIndex = Math.min(picksCount - 1, boxesState.multipliers.length - 1);
-            const currentMult = boxesState.multipliers[multIndex] || 1.0;
+            const currentMult = boxesState.multipliers[multIndex] || 1.2;
             const payout = (boxesState.bet * currentMult).toFixed(2);
             btn.innerHTML = `💰 سحب الأرباح (${formatNumberHTML(payout)} ZN) <span style="font-size:0.85em; opacity:0.9;">(${currentMult}x)</span>`;
         }
     }
 
+    // 1️⃣ بدء الجولة - إرسال الطلب لمسار /api/game/start
     window.startBoxesGame = async function() {
         if (boxesState.inGame) return;
         const betInput = document.getElementById('boxes-bet-input');
@@ -263,22 +269,32 @@
 
         try {
             const initData = tele?.initData || "";
-            const res = await fetch('/api/games/boxes/start', {
+            const tgId = getTgId();
+
+            const res = await fetch('/api/game/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${initData}` },
-                body: JSON.stringify({ initData: initData, bet: betVal, broken_count: boxesState.brokenCount })
+                body: JSON.stringify({ 
+                    tg_id: tgId, 
+                    bet_amount: betVal, 
+                    broken_count: boxesState.brokenCount,
+                    initData: initData 
+                })
             });
 
             const data = await res.json();
-            if (data.success) {
-                setStoredBalance(data.new_balance, true);
+            if (data.status === 'success' || data.success) {
+                const newBal = data.new_balance !== undefined ? data.new_balance : (getStoredBalance() - betVal);
+                setStoredBalance(newBal, true);
                 
                 boxesState.inGame = true;
                 boxesState.isProcessingPick = false;
                 boxesState.bet = betVal;
                 boxesState.picks = [];
-                boxesState.sessionToken = data.session_token;
-                boxesState.multipliers = data.multipliers || [];
+                boxesState.sessionToken = data.session_token || null;
+                if (data.multipliers && data.multipliers.length > 0) {
+                    boxesState.multipliers = data.multipliers;
+                }
                 boxesState.reviveUsed = false;
                 
                 renderBoxesGrid();
@@ -309,6 +325,7 @@
         }
     };
 
+    // 2️⃣ ضغط مربع في شبكة اللعبة - إرسال الطلب لمسار /api/game/step
     async function onBoxClick(index) {
         if (!boxesState.inGame || boxesState.picks.includes(index) || boxesState.isProcessingPick) return;
         
@@ -323,35 +340,36 @@
 
         try {
             const initData = tele?.initData || "";
-            const res = await fetch('/api/games/boxes/pick', {
+            const tgId = getTgId();
+
+            const res = await fetch('/api/game/step', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${initData}` },
                 body: JSON.stringify({
-                    initData: initData,
+                    tg_id: tgId,
+                    bet_amount: boxesState.bet,
+                    box_index: index,
                     session_token: boxesState.sessionToken,
-                    box_index: index
+                    initData: initData
                 })
             });
 
             const data = await res.json();
-            if (data.success) {
+            const isBomb = data.is_bomb || data.status === 'loss' || data.is_broken;
+
+            if (!isBomb && (data.status === 'safe' || data.status === 'success' || data.success)) {
                 boxesState.picks.push(index);
                 const backEl = boxCard.querySelector('.box-back');
+                if (backEl) backEl.innerHTML = '<span class="coin-gold">🟡 ZN</span>';
+                boxCard.classList.add('flipped', 'safe');
+                updateCashOutButton();
 
-                if (!data.is_broken) {
-                    if (backEl) backEl.innerHTML = '<span class="coin-gold">🟡 ZN</span>';
-                    boxCard.classList.add('flipped', 'safe');
-                    updateCashOutButton();
-
-                    const safeCountTarget = 36 - boxesState.brokenCount;
-                    if (boxesState.picks.length === safeCountTarget) {
-                        await cashOutBoxes();
-                    }
-                } else {
-                    handleBrokenCoinHit(index, data.layout);
+                const safeCountTarget = 36 - boxesState.brokenCount;
+                if (boxesState.picks.length === safeCountTarget) {
+                    await cashOutBoxes();
                 }
             } else {
-                showNotification("⚠️ " + (data.message || "خطأ أثناء اختيار الصندوق"));
+                handleBrokenCoinHit(index, data.layout);
             }
         } catch (e) {
             showNotification("خطأ في الاتصال بالخادم أثناء الاختيار.");
@@ -360,6 +378,7 @@
         }
     }
 
+    // 3️⃣ سحب الأرباح (Cashout) - إرسال الطلب لمسار /api/game/cashout
     window.cashOutBoxes = async function() {
         if (!boxesState.inGame) return;
         triggerHaptic('heavy');
@@ -370,27 +389,44 @@
             btnCashOut.innerText = "جاري تأكيد السحب... ⏳";
         }
 
+        const picksCount = boxesState.picks.length;
+        const multIndex = Math.min(Math.max(0, picksCount - 1), boxesState.multipliers.length - 1);
+        const currentMult = boxesState.multipliers[multIndex] || 1.2;
+        const cashoutAmount = boxesState.bet * currentMult;
+
         try {
             const initData = tele?.initData || "";
-            const res = await fetch('/api/games/boxes/end', {
+            const tgId = getTgId();
+
+            const res = await fetch('/api/game/cashout', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${initData}` },
                 body: JSON.stringify({
-                    initData: initData,
+                    tg_id: tgId,
+                    bet_amount: boxesState.bet,
+                    cashout_amount: cashoutAmount,
                     session_token: boxesState.sessionToken,
                     picks: boxesState.picks,
-                    action: 'cashout'
+                    initData: initData
                 })
             });
 
             const data = await res.json();
-            if (data.success) {
-                setStoredBalance(data.new_balance, true);
+            if (data.status === 'success' || data.success) {
+                if (data.new_balance !== undefined) {
+                    setStoredBalance(data.new_balance, true);
+                } else {
+                    setStoredBalance(getStoredBalance() + cashoutAmount, true);
+                }
+                
                 revealFullBoard(data.layout);
 
-                if (data.payout > 0) {
+                const payout = data.payout !== undefined ? data.payout : cashoutAmount;
+                const mult = data.multiplier !== undefined ? data.multiplier : currentMult;
+
+                if (payout > 0) {
                     triggerHaptic('success');
-                    triggerGlobalToast(`🎉 مبروك! سحبت ${data.payout.toLocaleString('en-US')} ZN (مضاعف ${data.multiplier}x)`, true);
+                    triggerGlobalToast(`🎉 مبروك! سحبت ${payout.toLocaleString('en-US')} ZN (مضاعف ${mult}x)`, true);
                 }
                 resetBoxesControls();
             } else {
@@ -456,7 +492,7 @@
 
     function finalizeLoss(layout) {
         revealFullBoard(layout);
-        triggerGlobalToast("😅 اصطدمت بعملة مكسورة! حظاً أوفير في الجولة القادمة.", false);
+        triggerGlobalToast("😅 اصطدمت بقنبلة/عملة مكسورة! حظاً أوفير في الجولة القادمة.", false);
         resetBoxesControls();
     }
 
