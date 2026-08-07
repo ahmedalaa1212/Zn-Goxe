@@ -6,7 +6,11 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from admin_app import app, database
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-WEBAPP_URL = os.environ.get("WEB_URL", "https://admin-zn-production.up.railway.app/").strip().rstrip('/')
+
+# جلب رابط الموقع وإضافة مسار /admin لضمان فتح لوحة التحكم بدلاً من واجهة المستخدم
+BASE_URL = os.environ.get("WEB_URL", "https://admin-zn-production.up.railway.app/").strip().rstrip('/')
+ADMIN_WEBAPP_URL = BASE_URL if BASE_URL.endswith('/admin') else f"{BASE_URL}/admin"
+
 ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551")
 
 bot = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
@@ -36,7 +40,8 @@ if bot:
             return
 
         markup = InlineKeyboardMarkup()
-        webapp = WebAppInfo(url=WEBAPP_URL)
+        # توجيه الـ WebApp مباشرة لرابط لوحة الأدمن
+        webapp = WebAppInfo(url=ADMIN_WEBAPP_URL)
         btn = InlineKeyboardButton(text="💻 فتح لوحة التحكم", web_app=webapp)
         markup.add(btn)
 
