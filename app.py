@@ -1,4 +1,3 @@
-# app.py
 import os
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
@@ -87,7 +86,7 @@ def get_user_info_main():
 
 @app.route('/api/game-settings', methods=['GET', 'POST'])
 def manage_game_settings():
-    """جلب وتحديث إعدادات أرباح البوت ونسب التحكم في الألعاب"""
+    """جلب وتحديث إعدادات أرباح البوت ونسب التحكم في الألعاب بدون أخطاء 500"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success:
@@ -96,28 +95,24 @@ def manage_game_settings():
     if request.method == 'GET':
         try:
             settings = database.get_game_settings() or {}
+            stats_summary = database.get_game_profit_stats()
             grid_cfg = settings.get('grid_game_config', {})
-            stats = settings.get('stats', {})
 
-            # استخراج أرباح البوت والمستخدمين للحساب
-            bot_profit = float(stats.get('total_bot_profit', stats.get('total_user_losses', 0.0)))
-            user_profit = float(stats.get('total_user_profit', stats.get('total_user_wins', 0.0)))
-
-            total_turnover = bot_profit + user_profit
-            actual_margin = (bot_profit / total_turnover * 100.0) if total_turnover > 0 else 0.0
-
-            target_margin = float(grid_cfg.get('target_margin', settings.get('commission_percent', 70.0)))
-            commission_percent = float(settings.get('commission_percent', round(100.0 - target_margin, 2)))
+            target_margin_pct = float(stats_summary.get('target_margin_percent', 70.0))
+            player_margin_pct = round(max(0.0, 100.0 - target_margin_pct), 2)
 
             return jsonify({
                 "success": True,
-                "target_margin": target_margin,
-                "commission_percent": commission_percent,
+                "target_margin": target_margin_pct,
+                "player_margin": player_margin_pct,
+                "commission_percent": player_margin_pct,
                 "grid_game_config": grid_cfg,
                 "stats": {
-                    "total_bot_profit": bot_profit,
-                    "total_user_profit": user_profit,
-                    "actual_margin": round(actual_margin, 2)
+                    "total_bot_profit": stats_summary.get("total_bot_profit", 0.0),
+                    "total_user_profit": stats_summary.get("total_user_profit", 0.0),
+                    "actual_margin": stats_summary.get("actual_bot_percent", 0.0),
+                    "actual_bot_percent": stats_summary.get("actual_bot_percent", 0.0),
+                    "actual_user_percent": stats_summary.get("actual_user_percent", 0.0)
                 }
             }), 200
         except Exception as e:
@@ -131,32 +126,23 @@ def manage_game_settings():
             commission_input = data.get('commission_percent')
             min_bet_input = data.get('min_bet')
 
-            updates = {}
-            grid_updates = {}
+            # حساب نسبة البوت من العمول الممررة في حال غياب نسبة البوت الصريحة
+            if target_margin_input is None and commission_input is not None:
+                target_margin_input = round(100.0 - float(commission_input), 2)
 
-            if target_margin_input is not None:
-                t_margin = float(target_margin_input)
-                grid_updates['target_margin'] = t_margin
-                updates['commission_percent'] = round(100.0 - t_margin, 2)
+            if target_margin_input is not None or min_bet_input is not None:
+                ok, msg = database.update_grid_game_config(
+                    min_bet=min_bet_input,
+                    target_margin=target_margin_input
+                )
+                if not ok:
+                    return jsonify({"success": False, "error": msg}), 400
+            else:
+                if data:
+                    database.update_game_settings(data)
 
-            if commission_input is not None and target_margin_input is None:
-                comm_val = float(commission_input)
-                updates['commission_percent'] = comm_val
-                grid_updates['target_margin'] = round(100.0 - comm_val, 2)
-
-            if min_bet_input is not None:
-                grid_updates['min_bet'] = float(min_bet_input)
-
-            if grid_updates:
-                for k, v in grid_updates.items():
-                    updates[f'grid_game_config.{k}'] = v
-
-            if updates:
-                database.db.collection('app_config').document('game_settings').set(updates, merge=True)
-                
-                # تصفير الكاش في السيرفر لتحديث البيانات فوراً
-                if hasattr(database, '_GAME_SETTINGS_CACHE'):
-                    database._GAME_SETTINGS_CACHE = None
+            # تفريغ كاش الإعدادات لضمان تطبيق القيمة الجديدة مباشرة
+            database.clear_settings_cache()
 
             return jsonify({
                 "success": True,
@@ -201,7 +187,7 @@ def serve_static(path):
     if path_lower == 'tonconnect-manifest.json':
         return send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
     
-    # حظر الامتدادات والملفات الحساسة بوضوح بدلاً من حظر كل ملفات JSON
+    # حظر الامتدادات والملفات الحساسة بوضوح
     forbidden_extensions = ('.py', '.env', '.sh', '.git', '.pem', '.key')
     forbidden_files = ('firebase-adminsdk.json', 'config.json', 'requirements.txt')
     
