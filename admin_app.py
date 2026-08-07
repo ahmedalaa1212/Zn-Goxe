@@ -10,7 +10,7 @@ app = Flask(__name__)
 # إعداد CORS للوصول إلى كافة مسارات API
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app').strip().rstrip('/')
+WEB_URL = os.environ.get('WEB_URL', 'https://admin-zn-production.up.railway.app').strip().rstrip('/')
 
 # ==========================================
 # تسجيل المسارات (Blueprints) الخاصة ببرمجة المستخدم
@@ -225,7 +225,7 @@ def admin_logs_handler():
 
 
 # ==========================================
-# مسارات للتكيف المباشر مع استدعاءات الجافاسكريبت القديمة والجديدة
+# مسارات للتكيف المباشر مع استدعاءات الجافاسكريبت
 # ==========================================
 
 @app.route('/api/game/start', methods=['POST'])
@@ -244,7 +244,7 @@ def proxy_legacy_game_routes():
     return jsonify({"success": False, "message": "مسار غير معروف"}), 404
 
 # ==========================================
-# المسارات المباشرة والخدمية للمستخدم والأدمن
+# المسارات المباشرة والخدمية
 # ==========================================
 
 @app.route('/tonconnect-manifest.json')
@@ -307,63 +307,53 @@ def handle_404_error(e):
     if request.path.startswith('/api/'):
         return jsonify({"status": "error", "success": False, "error": "المسار غير موجود", "message": "خطأ في الاتصال بالخادم."}), 404
     
-    # إذا كان الطلب يستهدف مسارات الأدمن غير الموجودة توجيهه لـ admin.html
-    if request.path.startswith('/admin'):
-        return send_from_directory('.', 'admin.html')
-        
-    return send_from_directory('.', 'index.html')
+    # توجيه أي مسار غير معروف دائماً لوجهة الأدمن
+    return send_from_directory('.', 'admin.html')
 
 # ==========================================
 # توجيه صفحات الواجهة (Webpages Routing)
 # ==========================================
 
+# توجيه الرابط الرئيسي ورابط /admin كلاهما إلى admin.html حصراً
+@app.route('/')
 @app.route('/admin')
 @app.route('/admin.html')
 def serve_admin():
-    """مسار صريح ومخصص لتقديم واجهة لوحة الأدمن"""
+    """تقديم واجهة لوحة التحكم الإدارية دائماً"""
     return send_from_directory('.', 'admin.html')
-
-@app.route('/')
-def serve_index():
-    return send_from_directory('.', 'index.html')
 
 @app.route('/<path:path>')
 def serve_static(path):
-    """تقديم الملفات الثابتة مع نظام حماية صارم (القائمة البيضاء فقط)"""
-    path_lower = path.lower()
+    """تقديم الملفات الثابتة مع حظر كامل للملفات الحساسة"""
+    path_clean = path.strip('/').lower()
     
-    if path_lower in ['admin', 'admin.html']:
+    if path_clean in ['', 'admin', 'admin.html', 'index', 'index.html']:
         return send_from_directory('.', 'admin.html')
         
-    if path_lower == 'tonconnect-manifest.json':
+    if path_clean == 'tonconnect-manifest.json':
         return send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
     
-    # 🛡️ الحماية الجديدة: القائمة البيضاء (Whitelist)
-    # لا نسمح بمرور أي ملف إلا إذا كان ضمن هذه الامتدادات الخاصة بالواجهة الأمامية فقط
     allowed_extensions = (
         '.html', '.css', '.js', '.json', 
         '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico',
         '.woff', '.woff2', '.ttf', '.otf'
     )
     
-    # إذا كان الملف المطلوب ليس من ضمن الامتدادات المسموحة، يتم حظره فوراً.
-    # هذا يمنع تحميل ملفات مثل .pyc, .db, .sqlite, .log وأي ملفات باك إند حساسة لم تتوقعها.
-    if not any(path_lower.endswith(ext) for ext in allowed_extensions):
-        return jsonify({"error": "Access Denied - غير مصرح بالوصول لهذا النوع من الملفات"}), 403
+    if not any(path_clean.endswith(ext) for ext in allowed_extensions):
+        return jsonify({"error": "Access Denied"}), 403
         
-    # 🛡️ منع إضافي لملفات الإعدادات الحساسة حتى لو كانت بصيغة مسموحة مثل .json
     forbidden_files = (
         'firebase-adminsdk.json', 'config.json', 'credentials.json',
         'package.json', 'package-lock.json', 'requirements.txt'
     )
     
-    if any(f in path_lower for f in forbidden_files):
-        return jsonify({"error": "Access Denied - ملف حساس"}), 403
+    if any(f in path_clean for f in forbidden_files):
+        return jsonify({"error": "Access Denied"}), 403
         
     try:
         return send_from_directory('.', path)
     except Exception:
-        return send_from_directory('.', 'index.html')
+        return send_from_directory('.', 'admin.html')
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
