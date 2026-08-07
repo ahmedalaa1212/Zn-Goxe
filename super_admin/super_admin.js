@@ -2,8 +2,25 @@
 // super_admin.js - الربط التفاعلي للوحة الإدارة العليا
 // =========================================
 
-// استخدام المسار النسبي لضمان عمل الاتصال مع السيرفر تلقائياً دون مشاكل CORS
 const API_BASE = "/api";
+
+/**
+ * جلب بيانات التوثيق الخاصة بالتليجرام لتضمينها في طلبات الـ fetch
+ */
+function getTelegramInitData() {
+    return window.Telegram?.WebApp?.initData || "";
+}
+
+/**
+ * تجهيز الهيدرز الأساسية لمصادقة الأدمن مع السيرفر
+ */
+function getAuthHeaders() {
+    const initData = getTelegramInitData();
+    return {
+        'Content-Type': 'application/json',
+        'X-Telegram-Init-Data': initData
+    };
+}
 
 // تحميل كافة البيانات تلقائياً فور تحميل الصفحة
 document.addEventListener("DOMContentLoaded", () => {
@@ -90,7 +107,19 @@ async function loadGameSettings() {
     const btnPublishMargin = document.getElementById('btnPublishMargin');
 
     try {
-        const response = await fetch(`${API_BASE}/game-settings`);
+        let response = await fetch(`${API_BASE}/admin/stats`, {
+            method: 'GET',
+            headers: getAuthHeaders()
+        });
+
+        // تجربة المسار المباشر إذا لم يتوفر المسار الإداري المخصص
+        if (!response.ok) {
+            response = await fetch(`${API_BASE}/game-settings`, {
+                method: 'GET',
+                headers: getAuthHeaders()
+            });
+        }
+
         const result = await response.json();
 
         if (result.success) {
@@ -98,7 +127,7 @@ async function loadGameSettings() {
             const botProfit = stats.total_bot_profit || 0;
             const userProfit = stats.total_user_profit || 0;
             const actualMargin = stats.actual_margin !== undefined ? stats.actual_margin : (stats.actual_bot_percent || 0);
-            const targetMargin = result.target_margin !== undefined ? result.target_margin : 70;
+            const targetMargin = result.target_margin !== undefined ? result.target_margin : (result.bot_margin || 70);
 
             // تحديث كروت الإحصائيات الحية
             if (botProfitEl) botProfitEl.innerText = Number(botProfit).toLocaleString('ar-EG');
@@ -118,15 +147,16 @@ async function loadGameSettings() {
             if (btnEditMargin) btnEditMargin.style.display = 'block';
             if (btnPublishMargin) btnPublishMargin.style.display = 'none';
         } else {
-            if (botProfitEl) botProfitEl.innerText = "❌ خطأ";
-            if (userProfitEl) userProfitEl.innerText = "❌ خطأ";
-            if (actualMarginEl) actualMarginEl.innerText = "❌ خطأ";
+            console.warn("تعذر جلب الإحصائيات:", result.error);
+            if (botProfitEl) botProfitEl.innerText = "0";
+            if (userProfitEl) userProfitEl.innerText = "0";
+            if (actualMarginEl) actualMarginEl.innerText = "0%";
         }
     } catch (error) {
         console.error("خطأ في جلب إعدادات الأرباح:", error);
-        if (botProfitEl) botProfitEl.innerText = "⚠️ فشل";
-        if (userProfitEl) userProfitEl.innerText = "⚠️ فشل";
-        if (actualMarginEl) actualMarginEl.innerText = "⚠️ فشل";
+        if (botProfitEl) botProfitEl.innerText = "0";
+        if (userProfitEl) userProfitEl.innerText = "0";
+        if (actualMarginEl) actualMarginEl.innerText = "0%";
     }
 }
 
@@ -146,15 +176,25 @@ async function updateGameSettings() {
 
     const payload = {
         target_margin: targetMarginVal,
+        bot_margin: targetMarginVal,
+        player_margin: parseFloat((100.0 - targetMarginVal).toFixed(2)),
         updatedBy: "المدير العام"
     };
 
     try {
-        const response = await fetch(`${API_BASE}/game-settings`, {
+        let response = await fetch(`${API_BASE}/admin/settings`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders(),
             body: JSON.stringify(payload)
         });
+
+        if (!response.ok) {
+            response = await fetch(`${API_BASE}/game-settings`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(payload)
+            });
+        }
 
         const result = await response.json();
 
@@ -163,7 +203,7 @@ async function updateGameSettings() {
             await loadGameSettings();
             loadAdminLogs();
         } else {
-            alert(`❌ خطأ: ${result.message || result.error}`);
+            alert(`❌ خطأ: ${result.message || result.error || 'حدث خطأ أثناء حفظ الإعدادات'}`);
         }
     } catch (error) {
         console.error("خطأ أثناء تحديث النسب:", error);
@@ -214,7 +254,7 @@ async function addNewModerator() {
     try {
         const response = await fetch(`${API_BASE}/moderators`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders(),
             body: JSON.stringify(payload)
         });
 
@@ -245,7 +285,11 @@ async function loadModerators() {
     listContainer.innerHTML = `<p class="empty-msg">⏳ جاري التحميل من قاعدة البيانات...</p>`;
 
     try {
-        const response = await fetch(`${API_BASE}/moderators`);
+        const response = await fetch(`${API_BASE}/moderators`, {
+            method: 'GET',
+            headers: getAuthHeaders()
+        });
+
         const result = await response.json();
 
         if (!result.success || !result.moderators || result.moderators.length === 0) {
@@ -288,7 +332,8 @@ async function deleteModerator(modId, modName) {
 
     try {
         const response = await fetch(`${API_BASE}/moderators/${modId}?deletedBy=المدير العام`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: getAuthHeaders()
         });
 
         const result = await response.json();
@@ -316,7 +361,11 @@ async function loadAdminLogs() {
     logsContainer.innerHTML = `<p class="empty-msg">⏳ جاري تحميل السجل...</p>`;
 
     try {
-        const response = await fetch(`${API_BASE}/admin-logs`);
+        const response = await fetch(`${API_BASE}/admin-logs`, {
+            method: 'GET',
+            headers: getAuthHeaders()
+        });
+
         const result = await response.json();
 
         if (!result.success || !result.logs || result.logs.length === 0) {
