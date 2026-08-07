@@ -3,7 +3,6 @@ import threading
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
-# استيراد تطبيق الفلاسك وقواعد البيانات الموحدة من admin_app
 from admin_app import app, database
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -13,13 +12,16 @@ ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551")
 bot = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
 
 def is_user_authorized(user_id):
-    """فحص صلاحيات دخول بوت الأدمن"""
+    """فحص صلاحيات دخول بوت الأدمن (المدير الرئيسي أو المشرفين)"""
+    if not user_id:
+        return False
     user_id_str = str(user_id)
     if user_id_str == str(ADMIN_ID):
         return True
     try:
         if hasattr(database, 'db') and database.db:
-            return database.db.collection('moderators').document(user_id_str).get().exists
+            mod_doc = database.db.collection('moderators').document(user_id_str).get()
+            return mod_doc.exists
     except Exception as e:
         print(f"⚠️ Error checking moderator status: {e}")
     return False
@@ -30,7 +32,7 @@ if bot:
         user_id = message.from_user.id
         
         if not is_user_authorized(user_id):
-            bot.reply_to(message, "⛔ عذراً، هذا البوت مخصص للأدمن والمشرفين المصرح لهم فقط.")
+            bot.reply_to(message, "⛔ عذراً، البوت مخصص للإدارة والمشرفين المصرح لهم فقط.")
             return
 
         markup = InlineKeyboardMarkup()
@@ -44,6 +46,22 @@ if bot:
             reply_markup=markup,
             parse_mode="Markdown"
         )
+
+    @bot.message_handler(func=lambda message: True)
+    def handle_all_messages(message):
+        user_id = message.from_user.id
+        if not is_user_authorized(user_id):
+            bot.reply_to(message, "⛔ عذراً، البوت مخصص للإدارة والمشرفين المصرح لهم فقط.")
+            return
+        
+        bot.reply_to(message, "ℹ️ يرجى استخدام زر 'فتح لوحة التحكم' لإدارة المنظومة.")
+
+    @bot.callback_query_handler(func=lambda call: True)
+    def handle_callback_query(call):
+        user_id = call.from_user.id
+        if not is_user_authorized(user_id):
+            bot.answer_callback_query(call.id, "⛔ عذراً، البوت مخصص للإدارة فقط.", show_alert=True)
+            return
 
 def run_web_server():
     """تشغيل سيرفر الفلاسك الموحد داخل Thread مستقل"""
