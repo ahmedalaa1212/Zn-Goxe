@@ -643,7 +643,41 @@ def update_user(tg_id, update_data):
         return False
 
 
-# ==================== Moderators & Admin Logs ====================
+# ==================== Moderators & Admin Authorization ====================
+
+def is_admin(tg_id):
+    """التحقق مما إذا كان المستخدم هو المدير الرئيسي (عبر متغيّر البيئة ADMIN_ID)"""
+    if not tg_id:
+        return False
+    admin_id_env = os.environ.get('ADMIN_ID', '')
+    if not admin_id_env:
+        return False
+    
+    # يدعم إدخال أكثر من أدمن مفصولين بفاصلة في متغير البيئة
+    admin_ids = [a.strip() for a in admin_id_env.split(',') if a.strip()]
+    return str(tg_id) in admin_ids
+
+
+def is_moderator(tg_id):
+    """التحقق مما إذا كان المستخدم مشرفاً معتمداً في مجموعة moderators في الفايربيس"""
+    if not tg_id:
+        return False
+    try:
+        if not db:
+            initialize_firebase()
+        doc = db.collection('moderators').document(str(tg_id)).get()
+        return doc.exists
+    except Exception as e:
+        print(f"❌ Error checking moderator status for {tg_id}: {e}")
+        return False
+
+
+def is_admin_or_mod(tg_id):
+    """دالة شاملة للتحقق من صلاحية الوصول (مدير رئيسي أو مشرف) للبوت واللوحة"""
+    if not tg_id:
+        return False
+    return is_admin(tg_id) or is_moderator(tg_id)
+
 
 def get_moderators():
     """جلب قائمة المشرفين للوحة التحكم"""
