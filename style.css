@@ -18,7 +18,6 @@ body {
     min-height: 100vh;
     padding: 12px;
     padding-bottom: calc(85px + env(safe-area-inset-bottom, 0px));
-    transition: padding-bottom 0.2s ease;
 }
 
 /* ==========================================
@@ -94,13 +93,13 @@ body {
     box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
     padding-left: 2px;
     padding-right: 2px;
-    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, visibility 0.2s;
 }
 
 /* أزرار القائمة العادية */
 .nav-item {
     flex: 1;
-    min-width: 0; /* أهم خاصية لمنع تداخل العناصر والعناوين */
+    min-width: 0; /* منع تداخل العناصر والعناوين */
     background: none;
     border: none;
     color: #64748b;
@@ -167,7 +166,7 @@ body {
    زر المزرعة المركزي المميز
    ========================================== */
 .nav-item.nav-center-btn {
-    flex: 0 0 50px; /* حجم ثابت للزر بدون التعدي على المساحات المجاورة */
+    flex: 0 0 50px;
     height: 50px;
     position: relative;
     top: -10px;
@@ -222,31 +221,15 @@ body {
 }
 
 /* ==========================================
-   إخفاء القائمة السفلى تلقائياً عند فتح لوحة المفاتيح (Keyboard Active)
+   إخفاء القائمة السفلى بانسيابية أثناء فتح الكيبورد دون كسر التركيز أو إعادة التحميل
    ========================================== */
-body:has(input:focus),
-body:has(textarea:focus),
-body:has(select:focus),
+body:has(input:focus) .bottom-nav,
+body:has(textarea:focus) .bottom-nav,
+body:has(select:focus) .bottom-nav,
 body.keyboard-open .bottom-nav,
 .bottom-nav.hide-keyboard {
-    display: none !important;
+    transform: translateY(100%);
     opacity: 0;
     pointer-events: none;
-}
-
-body:has(input:focus) #app,
-body:has(textarea:focus) #app,
-body:has(select:focus) #app,
-body.keyboard-open #app {
-    padding-bottom: 12px !important;
-}
-
-/* معالجة إخفاء القائمة في الشاشات المنخفضة الارتفاع أثناء ظهور الكيبورد */
-@media (max-height: 480px) {
-    .bottom-nav {
-        display: none !important;
-    }
-    #app {
-        padding-bottom: 12px !important;
-    }
+    visibility: hidden;
 }
