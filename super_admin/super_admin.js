@@ -1,5 +1,5 @@
 // =========================================
-// super_admin.js - الربط التفاعلي المستقر لوحة الإدارة العليا (إعدادات منفصلة للألعاب)
+// super_admin.js - الربط التفاعلي المستقر للوحة الإدارة العليا (ZN Go & Big Arena)
 // =========================================
 
 const API_BASE = "/api";
@@ -94,7 +94,7 @@ async function initSuperAdmin() {
     if (!isAuthorized) return;
 
     loadDashboardStats();
-    loadGrid36Settings();
+    loadZnGoSettings();
     loadBigArenaSettings();
     loadModerators();
     loadAdminLogs();
@@ -112,11 +112,11 @@ if (document.readyState === "loading") {
  * ربط الأحداث التفاعلية لحقول الإدخال والنسب تلقائياً
  */
 function initEvents() {
-    // 1. ربط حقول لعبة شبكة الـ 36
+    // 1. ربط حقول لعبة شبكة ZN Go
     const grid36BotInput = document.getElementById('grid36-bot-margin');
     if (grid36BotInput && !grid36BotInput.dataset.bound) {
         grid36BotInput.dataset.bound = "true";
-        grid36BotInput.addEventListener('input', calculateGrid36Margins);
+        grid36BotInput.addEventListener('input', calculateZnGoMargins);
     }
 
     // 2. ربط حقول لعبة الساحة الكبرى
@@ -129,9 +129,9 @@ function initEvents() {
 window.initEvents = initEvents;
 
 /**
- * حساب نسبة اللاعبين تلقائياً (100 - نسبة البوت) لشبكة الـ 36
+ * حساب نسبة اللاعبين تلقائياً (100 - نسبة البوت) لشبكة ZN Go
  */
-function calculateGrid36Margins() {
+function calculateZnGoMargins() {
     const botInput = document.getElementById('grid36-bot-margin');
     const userInput = document.getElementById('grid36-user-margin');
     
@@ -144,7 +144,7 @@ function calculateGrid36Margins() {
 
     userInput.value = parseFloat((100.0 - botMargin).toFixed(2));
 }
-window.calculateGrid36Margins = calculateGrid36Margins;
+window.calculateZnGoMargins = calculateZnGoMargins;
 
 /**
  * حساب نسبة اللاعبين تلقائياً (100 - نسبة البوت) للساحة الكبرى
@@ -169,7 +169,7 @@ window.calculateBigArenaMargins = calculateBigArenaMargins;
  */
 async function refreshDashboard() {
     await loadDashboardStats();
-    await loadGrid36Settings();
+    await loadZnGoSettings();
     await loadBigArenaSettings();
     await loadModerators();
     await loadAdminLogs();
@@ -178,7 +178,7 @@ async function refreshDashboard() {
 window.refreshDashboard = refreshDashboard;
 
 // ==========================================
-// 1. جلب وحفظ إعدادات الألعاب بشكل منفصل (Grid 36 & Big Arena)
+// 1. جلب وحفظ إعدادات الألعاب بشكل منفصل (ZN Go & Big Arena)
 // ==========================================
 
 async function loadDashboardStats() {
@@ -201,9 +201,8 @@ async function loadDashboardStats() {
             if (userProfitEl) userProfitEl.innerText = Number(userProfit).toLocaleString('ar-EG');
             if (actualMarginEl) actualMarginEl.innerText = `${actualMargin}%`;
 
-            // تعبئة البيانات المباشرة إن وجدت ضمن استجابة الداشبورد
-            if (result.grid_36) {
-                populateGrid36UI(result.grid_36);
+            if (result.zn_go_config || result.grid_36) {
+                populateZnGoUI(result.zn_go_config || result.grid_36);
             }
             if (result.big_arena) {
                 populateBigArenaUI(result.big_arena);
@@ -216,86 +215,94 @@ async function loadDashboardStats() {
 window.loadDashboardStats = loadDashboardStats;
 
 /**
- * جلب إعدادات لعبة شبكة الـ 36 حصرياً
+ * جلب إعدادات لعبة شبكة ZN Go حصرياً المربوطة بـ Firestore
  */
-async function loadGrid36Settings() {
+async function loadZnGoSettings() {
     try {
-        const response = await apiFetch(`${API_BASE}/admin/settings/grid_36`, { method: 'GET' });
+        const response = await apiFetch(`${API_BASE}/admin/zn-go-settings`, { method: 'GET' });
         const result = await response.json();
         if (response.ok && result.success && result.config) {
-            populateGrid36UI(result.config);
+            populateZnGoUI(result.config);
+            if (result.stats && result.stats.actual_bot_percent !== undefined) {
+                const actualMarginEl = document.getElementById('actual-profit-pct');
+                if (actualMarginEl) actualMarginEl.innerText = `${result.stats.actual_bot_percent}%`;
+            }
         }
     } catch (error) {
-        console.error("❌ خطأ في جلب إعدادات شبكة الـ 36:", error);
+        console.error("❌ خطأ في جلب إعدادات شبكة ZN Go:", error);
     }
 }
-window.loadGrid36Settings = loadGrid36Settings;
+window.loadZnGoSettings = loadZnGoSettings;
+window.loadGrid36Settings = loadZnGoSettings; // الحفاظ على توافق الأسماء القديمة
 
-function populateGrid36UI(cfg) {
+function populateZnGoUI(cfg) {
     const botInput = document.getElementById('grid36-bot-margin');
     const userInput = document.getElementById('grid36-user-margin');
     const minBetInput = document.getElementById('grid36-min-bet');
-    const enabledToggle = document.getElementById('grid36-enabled');
 
-    if (botInput) botInput.value = cfg.bot_margin ?? 70;
-    if (userInput) userInput.value = cfg.player_margin ?? (100 - (cfg.bot_margin ?? 70));
+    const botMargin = cfg.bot_profit ?? cfg.bot_margin ?? 70;
+    const playerMargin = cfg.player_profit ?? cfg.player_margin ?? (100 - botMargin);
+
+    if (botInput) botInput.value = botMargin;
+    if (userInput) userInput.value = playerMargin;
     if (minBetInput) minBetInput.value = cfg.min_bet ?? 10;
-    if (enabledToggle) enabledToggle.checked = cfg.enabled ?? true;
 }
 
 /**
- * حفظ إعدادات لعبة شبكة الـ 36 عبر طلب fetch منفصل
+ * حفظ إعدادات لعبة شبكة ZN Go دون إرسال خيار التفعيل/الإيقاف
  */
-async function saveGrid36Settings() {
+async function saveZnGoSettings() {
     const botInput = document.getElementById('grid36-bot-margin');
     const minBetInput = document.getElementById('grid36-min-bet');
-    const enabledToggle = document.getElementById('grid36-enabled');
 
     if (!botInput || !minBetInput) return;
 
-    const botMargin = parseFloat(botInput.value);
+    const botProfit = parseFloat(botInput.value);
     const minBet = parseFloat(minBetInput.value);
-    const enabled = enabledToggle ? enabledToggle.checked : true;
+    const playerProfit = parseFloat((100.0 - botProfit).toFixed(2));
 
-    if (isNaN(botMargin) || botMargin < 0 || botMargin > 100) {
-        alert("⚠️ نسبة أرباح البوت لشبكة الـ 36 يجب أن تكون بين 0 و 100!");
+    if (isNaN(botProfit) || botProfit < 0 || botProfit > 100) {
+        alert("⚠️ نسبة أرباح البوت لشبكة ZN Go يجب أن تكون بين 0 و 100!");
         return;
     }
 
     if (isNaN(minBet) || minBet < 0) {
-        alert("⚠️ يرجى إدخال حد أدنى صحيح للرهان لشبكة الـ 36!");
+        alert("⚠️ يرجى إدخال حد أدنى صحيح للرهان لشبكة ZN Go!");
         return;
     }
 
     const payload = {
         initData: getTelegramInitData(),
-        bot_margin: botMargin,
-        min_bet: minBet,
-        enabled: enabled
+        bot_profit: botProfit,
+        bot_margin: botProfit,
+        player_profit: playerProfit,
+        player_margin: playerProfit,
+        min_bet: minBet
     };
 
     try {
-        const response = await apiFetch(`${API_BASE}/admin/settings/grid_36`, {
+        const response = await apiFetch(`${API_BASE}/admin/zn-go-settings`, {
             method: 'POST',
             body: JSON.stringify(payload)
         });
         const result = await response.json();
 
         if (response.ok && result.success) {
-            alert(`✅ ${result.message || 'تم حفظ إعدادات شبكة الـ 36 بنجاح!'}`);
-            loadGrid36Settings();
+            alert(`✅ ${result.message || 'تم حفظ إعدادات شبكة ZN Go بنجاح!'}`);
+            loadZnGoSettings();
             loadAdminLogs();
         } else {
             alert(`❌ خطأ: ${result.message || result.error || 'حدث خطأ أثناء الحفظ'}`);
         }
     } catch (error) {
-        console.error("❌ خطأ أثناء حفظ إعدادات شبكة الـ 36:", error);
+        console.error("❌ خطأ أثناء حفظ إعدادات شبكة ZN Go:", error);
     }
 }
-window.saveGrid36Settings = saveGrid36Settings;
+window.saveZnGoSettings = saveZnGoSettings;
+window.saveGrid36Settings = saveZnGoSettings; // التوافق مع الاستدعاء من HTML
 
 /**
- * جلب إعدادات لعبة الساحة الكبرى حصرياً
+ * جلب إعدادات لعبة الساحة الكبرى
  */
 async function loadBigArenaSettings() {
     try {
@@ -323,7 +330,7 @@ function populateBigArenaUI(cfg) {
 }
 
 /**
- * حفظ إعدادات لعبة الساحة الكبرى عبر طلب fetch منفصل
+ * حفظ إعدادات لعبة الساحة الكبرى
  */
 async function saveBigArenaSettings() {
     const botInput = document.getElementById('big-arena-bot-margin');
@@ -372,7 +379,6 @@ async function saveBigArenaSettings() {
     }
 }
 window.saveBigArenaSettings = saveBigArenaSettings;
-
 
 // ==========================================
 // 2. إدارة المشرفين والصلاحيات والسجلات (Admin & Mod Management)
