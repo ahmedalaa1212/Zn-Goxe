@@ -1,55 +1,87 @@
 // =========================================
-// super_admin.js - كود الربط الفعلي مع سيرفرك على Railway
+// super_admin.js - الربط التفاعلي للوحة الإدارة العليا
 // =========================================
 
-// الرابط الفعلي الخاص بك على Railway
-const SERVER_URL = "https://admin-zn-production.up.railway.app"; 
+// استخدام المسار النسبي لضمان عمل الاتصال مع السيرفر تلقائياً دون مشاكل CORS
+const API_BASE = "/api";
 
-// تحميل كافة البيانات فور فتح القائمة
-loadHouseEdge();
+// تحميل كافة البيانات تلقائياً فور تحميل الصفحة
+document.addEventListener("DOMContentLoaded", () => {
+    loadGameSettings();
+    loadModerators();
+    loadAdminLogs();
+});
+
+// تنفيذ أولي مباشر في حال استدعاء الملف بشكل ديناميكي
+loadGameSettings();
 loadModerators();
 loadAdminLogs();
 
-// 1. دالة جلب نسبة أرباح البوت الحالية من السيرفر
-async function loadHouseEdge() {
-    const display = document.getElementById('houseEdgeDisplay');
-    const input = document.getElementById('commissionPercentInput');
+// ==========================================
+// 1. نظام التحكم بالألعاب وأرباح البوت (Game & Profit Control)
+// ==========================================
+
+/**
+ * جلب إحصائيات الأرباح ونسبة أرباح البوت المستهدفة من السيرفر وعرضها حياً
+ */
+async function loadGameSettings() {
+    const botProfitEl = document.getElementById('statBotProfit');
+    const userProfitEl = document.getElementById('statUserProfit');
+    const actualMarginEl = document.getElementById('statActualMargin');
+    const targetMarginInput = document.getElementById('targetMarginInput');
 
     try {
-        const response = await fetch(`${SERVER_URL}/api/game-settings`);
+        const response = await fetch(`${API_BASE}/game-settings`);
         const result = await response.json();
 
         if (result.success) {
-            const comm = result.commission_percent !== undefined ? result.commission_percent : 20;
-            const userRtp = 100 - comm;
-            display.innerText = `👥 نسبة المستخدمين: ${userRtp}% | 🤖 فائدة البوت: ${comm}%`;
-            if (input) input.value = comm;
+            const stats = result.stats || {};
+            const botProfit = stats.total_bot_profit || 0;
+            const userProfit = stats.total_user_profit || 0;
+            const actualMargin = stats.actual_margin || 0;
+            const targetMargin = result.target_margin !== undefined ? result.target_margin : 70;
+
+            // تحديث كروت الإحصائيات الحية
+            if (botProfitEl) botProfitEl.innerText = Number(botProfit).toLocaleString('ar-EG');
+            if (userProfitEl) userProfitEl.innerText = Number(userProfit).toLocaleString('ar-EG');
+            if (actualMarginEl) actualMarginEl.innerText = `${actualMargin}%`;
+
+            // ملء حقل نسبة البوت المستهدفة
+            if (targetMarginInput) targetMarginInput.value = targetMargin;
         } else {
-            display.innerText = `⚠️ تعذر جلب النسب الحالية.`;
+            if (botProfitEl) botProfitEl.innerText = "❌ خطأ";
+            if (userProfitEl) userProfitEl.innerText = "❌ خطأ";
+            if (actualMarginEl) actualMarginEl.innerText = "❌ خطأ";
         }
     } catch (error) {
-        console.error("خطأ في جلب نسبة أرباح البوت:", error);
-        display.innerText = `⚠️ فشل الاتصال بالسيرفر للجلب.`;
+        console.error("خطأ في جلب إعدادات الأرباح:", error);
+        if (botProfitEl) botProfitEl.innerText = "⚠️ فشل";
+        if (userProfitEl) userProfitEl.innerText = "⚠️ فشل";
+        if (actualMarginEl) actualMarginEl.innerText = "⚠️ فشل";
     }
 }
 
-// 2. دالة تحديث نسبة أرباح البوت (House Edge / RTP)
-async function updateHouseEdge() {
-    const input = document.getElementById('commissionPercentInput');
-    const commVal = parseFloat(input.value);
+/**
+ * تحديث نسبة أرباح البوت المستهدفة (Target Bot Margin %) وحفظها في Firestore مباشرة
+ */
+async function updateGameSettings() {
+    const input = document.getElementById('targetMarginInput') || document.getElementById('commissionPercentInput');
+    if (!input) return;
 
-    if (isNaN(commVal) || commVal < 0 || commVal > 100) {
+    const targetMarginVal = parseFloat(input.value);
+
+    if (isNaN(targetMarginVal) || targetMarginVal < 0 || targetMarginVal > 100) {
         alert("⚠️ يرجى إدخال نسبة مئوية صحيحة بين 0 و 100!");
         return;
     }
 
     const payload = {
-        commission_percent: commVal,
+        target_margin: targetMarginVal,
         updatedBy: "المدير العام"
     };
 
     try {
-        const response = await fetch(`${SERVER_URL}/api/game-settings`, {
+        const response = await fetch(`${API_BASE}/game-settings`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -59,7 +91,7 @@ async function updateHouseEdge() {
 
         if (result.success) {
             alert(`✅ ${result.message || 'تم تحديث نسبة الأرباح بنجاح!'}`);
-            loadHouseEdge();
+            loadGameSettings();
             loadAdminLogs();
         } else {
             alert(`❌ خطأ: ${result.message || result.error}`);
@@ -70,10 +102,24 @@ async function updateHouseEdge() {
     }
 }
 
-// 3. دالة إضافة مشرف جديد
+// دالتان للتوافقية مع المسميات القديمة
+function loadHouseEdge() { loadGameSettings(); }
+function updateHouseEdge() { updateGameSettings(); }
+
+
+// ==========================================
+// 2. إدارة المشرفين والصلاحيات والسجلات (Admin & Mod Management)
+// ==========================================
+
+/**
+ * إضافة مشرف جديد مع الصلاحيات المحددة
+ */
 async function addNewModerator() {
-    const modId = document.getElementById('modTelegramId').value.trim();
-    const modName = document.getElementById('modName').value.trim();
+    const modIdInput = document.getElementById('modTelegramId');
+    const modNameInput = document.getElementById('modName');
+
+    const modId = modIdInput ? modIdInput.value.trim() : "";
+    const modName = modNameInput ? modNameInput.value.trim() : "";
 
     if (!modId || !modName) {
         alert("⚠️ يرجى إدخال ID المشرف والاسم بشكل صحيح!");
@@ -81,12 +127,12 @@ async function addNewModerator() {
     }
 
     const permissions = {
-        users: document.getElementById('perm_users').checked,
-        support: document.getElementById('perm_support').checked,
-        settings: document.getElementById('perm_settings').checked,
-        transactions: document.getElementById('perm_transactions').checked,
-        security: document.getElementById('perm_security').checked,
-        ads: document.getElementById('perm_ads').checked,
+        users: document.getElementById('perm_users')?.checked || false,
+        support: document.getElementById('perm_support')?.checked || false,
+        settings: document.getElementById('perm_settings')?.checked || false,
+        transactions: document.getElementById('perm_transactions')?.checked || false,
+        security: document.getElementById('perm_security')?.checked || false,
+        ads: document.getElementById('perm_ads')?.checked || false,
     };
 
     const payload = {
@@ -97,7 +143,7 @@ async function addNewModerator() {
     };
 
     try {
-        const response = await fetch(`${SERVER_URL}/api/moderators`, {
+        const response = await fetch(`${API_BASE}/moderators`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -106,27 +152,31 @@ async function addNewModerator() {
         const result = await response.json();
 
         if (result.success) {
-            alert(`✅ ${result.message}`);
-            document.getElementById('modTelegramId').value = '';
-            document.getElementById('modName').value = '';
+            alert(`✅ ${result.message || 'تمت إضافة المشرف بنجاح!'}`);
+            if (modIdInput) modIdInput.value = '';
+            if (modNameInput) modNameInput.value = '';
             loadModerators();
             loadAdminLogs();
         } else {
             alert(`❌ خطأ: ${result.message || result.error}`);
         }
     } catch (error) {
-        console.error("خطأ في الاتصال:", error);
-        alert("⚠️ فشل الاتصال بالسيرفر! جاري المحاولة...");
+        console.error("خطأ في الاتصال عند إضافة المشرف:", error);
+        alert("⚠️ فشل الاتصال بالسيرفر أثناء إضافة المشرف!");
     }
 }
 
-// 4. دالة جلب المشرفين
+/**
+ * جلب وعرض قائمة المشرفين الحالية
+ */
 async function loadModerators() {
     const listContainer = document.getElementById('moderatorsList');
+    if (!listContainer) return;
+
     listContainer.innerHTML = `<p class="empty-msg">⏳ جاري التحميل من قاعدة البيانات...</p>`;
 
     try {
-        const response = await fetch(`${SERVER_URL}/api/moderators`);
+        const response = await fetch(`${API_BASE}/moderators`);
         const result = await response.json();
 
         if (!result.success || !result.moderators || result.moderators.length === 0) {
@@ -144,7 +194,7 @@ async function loadModerators() {
                 <div class="mod-item">
                     <div class="mod-info">
                         <strong>👤 ${mod.name}</strong>
-                        <span>ID: ${mod.id} | أضيف في: ${mod.addedAt}</span>
+                        <span>ID: ${mod.id} | أضيف في: ${mod.addedAt || 'غير محدد'}</span>
                     </div>
                     ${deleteBtn}
                 </div>
@@ -154,26 +204,28 @@ async function loadModerators() {
         listContainer.innerHTML = html;
 
     } catch (error) {
-        console.error("خطأ في جلب البيانات:", error);
+        console.error("خطأ في جلب بيانات المشرفين:", error);
         listContainer.innerHTML = `<p class="empty-msg" style="color:#ef4444;">⚠️ تعذر جلب قائمة المشرفين.</p>`;
     }
 }
 
-// 5. دالة حذف مشرف
+/**
+ * حذف مشرف وسحب صلاحياته
+ */
 async function deleteModerator(modId, modName) {
     if (!confirm(`⚠️ هل أنت متأكد من حذف المشرف (${modName}) وسحب جميع صلاحياته؟`)) {
         return;
     }
 
     try {
-        const response = await fetch(`${SERVER_URL}/api/moderators/${modId}?deletedBy=المدير العام`, {
+        const response = await fetch(`${API_BASE}/moderators/${modId}?deletedBy=المدير العام`, {
             method: 'DELETE'
         });
 
         const result = await response.json();
 
         if (result.success) {
-            alert(`✅ ${result.message}`);
+            alert(`✅ ${result.message || 'تم حذف المشرف بنجاح'}`);
             loadModerators();
             loadAdminLogs();
         } else {
@@ -181,17 +233,21 @@ async function deleteModerator(modId, modName) {
         }
     } catch (error) {
         console.error("خطأ أثناء الحذف:", error);
-        alert("⚠️ فشل الاتصال بالسيرفر أثناء الحذف!");
+        alert("⚠️ فشل الاتصال بالسيرفر أثناء عملية الحذف!");
     }
 }
 
-// 6. دالة جلب سجل النشاطات
+/**
+ * جلب وعرض سجل النشاطات والتحركات
+ */
 async function loadAdminLogs() {
     const logsContainer = document.getElementById('adminLogs');
+    if (!logsContainer) return;
+
     logsContainer.innerHTML = `<p class="empty-msg">⏳ جاري تحميل السجل...</p>`;
 
     try {
-        const response = await fetch(`${SERVER_URL}/api/admin-logs`);
+        const response = await fetch(`${API_BASE}/admin-logs`);
         const result = await response.json();
 
         if (!result.success || !result.logs || result.logs.length === 0) {
@@ -203,9 +259,9 @@ async function loadAdminLogs() {
         result.logs.forEach(log => {
             html += `
                 <div class="log-item">
-                    <span class="log-admin">⚙️ ${log.admin}</span>
+                    <span class="log-admin">⚙️ ${log.admin || 'النظام'}</span>
                     <span style="color:#e2e8f0;">${log.action}</span>
-                    <span class="log-time">${log.timestamp}</span>
+                    <span class="log-time">${log.timestamp || ''}</span>
                 </div>
             `;
         });
