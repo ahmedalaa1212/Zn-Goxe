@@ -99,7 +99,7 @@ body {
 /* أزرار القائمة العادية */
 .nav-item {
     flex: 1;
-    min-width: 0; /* منع تداخل العناصر والعناوين */
+    min-width: 0; /* لمنع تداخل العناصر والعناوين */
     background: none;
     border: none;
     color: #64748b;
@@ -221,11 +221,8 @@ body {
 }
 
 /* ==========================================
-   إخفاء القائمة السفلى بانسيابية أثناء فتح الكيبورد دون كسر التركيز أو إعادة التحميل
+   إخفاء القائمة السفلى فقط عند وجود الكيبورد فعلياً
    ========================================== */
-body:has(input:focus) .bottom-nav,
-body:has(textarea:focus) .bottom-nav,
-body:has(select:focus) .bottom-nav,
 body.keyboard-open .bottom-nav,
 .bottom-nav.hide-keyboard {
     transform: translateY(100%);
