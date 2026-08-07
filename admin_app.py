@@ -329,7 +329,7 @@ def serve_index():
 
 @app.route('/<path:path>')
 def serve_static(path):
-    """تقديم الملفات الثابتة وتأمين الملفات البرمجية والحساسة تحديداً"""
+    """تقديم الملفات الثابتة مع نظام حماية صارم (القائمة البيضاء فقط)"""
     path_lower = path.lower()
     
     if path_lower in ['admin', 'admin.html']:
@@ -338,11 +338,27 @@ def serve_static(path):
     if path_lower == 'tonconnect-manifest.json':
         return send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
     
-    forbidden_extensions = ('.py', '.env', '.sh', '.git', '.pem', '.key')
-    forbidden_files = ('firebase-adminsdk.json', 'config.json', 'requirements.txt')
+    # 🛡️ الحماية الجديدة: القائمة البيضاء (Whitelist)
+    # لا نسمح بمرور أي ملف إلا إذا كان ضمن هذه الامتدادات الخاصة بالواجهة الأمامية فقط
+    allowed_extensions = (
+        '.html', '.css', '.js', '.json', 
+        '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico',
+        '.woff', '.woff2', '.ttf', '.otf'
+    )
     
-    if any(path_lower.endswith(ext) for ext in forbidden_extensions) or any(f in path_lower for f in forbidden_files):
-        return jsonify({"error": "Access Denied"}), 403
+    # إذا كان الملف المطلوب ليس من ضمن الامتدادات المسموحة، يتم حظره فوراً.
+    # هذا يمنع تحميل ملفات مثل .pyc, .db, .sqlite, .log وأي ملفات باك إند حساسة لم تتوقعها.
+    if not any(path_lower.endswith(ext) for ext in allowed_extensions):
+        return jsonify({"error": "Access Denied - غير مصرح بالوصول لهذا النوع من الملفات"}), 403
+        
+    # 🛡️ منع إضافي لملفات الإعدادات الحساسة حتى لو كانت بصيغة مسموحة مثل .json
+    forbidden_files = (
+        'firebase-adminsdk.json', 'config.json', 'credentials.json',
+        'package.json', 'package-lock.json', 'requirements.txt'
+    )
+    
+    if any(f in path_lower for f in forbidden_files):
+        return jsonify({"error": "Access Denied - ملف حساس"}), 403
         
     try:
         return send_from_directory('.', path)
