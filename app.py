@@ -80,6 +80,92 @@ def get_user_info_main():
         print(f"❌ Error fetching user info for {telegram_id}: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب بيانات الحساب"}), 500
 
+
+# ==========================================
+# مسارات التحكم بإعدادات الأرباح والألعاب (Game & Profit Control API)
+# ==========================================
+
+@app.route('/api/game-settings', methods=['GET', 'POST'])
+def manage_game_settings():
+    """جلب وتحديث إعدادات أرباح البوت ونسب التحكم في الألعاب"""
+    is_post = (request.method == 'POST')
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
+    if not success:
+        return error_res
+
+    if request.method == 'GET':
+        try:
+            settings = database.get_game_settings() or {}
+            grid_cfg = settings.get('grid_game_config', {})
+            stats = settings.get('stats', {})
+
+            # استخراج أرباح البوت والمستخدمين للحساب
+            bot_profit = float(stats.get('total_bot_profit', stats.get('total_user_losses', 0.0)))
+            user_profit = float(stats.get('total_user_profit', stats.get('total_user_wins', 0.0)))
+
+            total_turnover = bot_profit + user_profit
+            actual_margin = (bot_profit / total_turnover * 100.0) if total_turnover > 0 else 0.0
+
+            target_margin = float(grid_cfg.get('target_margin', settings.get('commission_percent', 70.0)))
+            commission_percent = float(settings.get('commission_percent', round(100.0 - target_margin, 2)))
+
+            return jsonify({
+                "success": True,
+                "target_margin": target_margin,
+                "commission_percent": commission_percent,
+                "grid_game_config": grid_cfg,
+                "stats": {
+                    "total_bot_profit": bot_profit,
+                    "total_user_profit": user_profit,
+                    "actual_margin": round(actual_margin, 2)
+                }
+            }), 200
+        except Exception as e:
+            print(f"❌ Error fetching game settings: {e}")
+            return jsonify({"success": False, "error": "حدث خطأ أثناء جلب إعدادات الأرباح"}), 500
+
+    elif request.method == 'POST':
+        try:
+            data = request.get_json(silent=True) or {}
+            target_margin_input = data.get('target_margin')
+            commission_input = data.get('commission_percent')
+            min_bet_input = data.get('min_bet')
+
+            updates = {}
+            grid_updates = {}
+
+            if target_margin_input is not None:
+                t_margin = float(target_margin_input)
+                grid_updates['target_margin'] = t_margin
+                updates['commission_percent'] = round(100.0 - t_margin, 2)
+
+            if commission_input is not None and target_margin_input is None:
+                comm_val = float(commission_input)
+                updates['commission_percent'] = comm_val
+                grid_updates['target_margin'] = round(100.0 - comm_val, 2)
+
+            if min_bet_input is not None:
+                grid_updates['min_bet'] = float(min_bet_input)
+
+            if grid_updates:
+                for k, v in grid_updates.items():
+                    updates[f'grid_game_config.{k}'] = v
+
+            if updates:
+                database.db.collection('app_config').document('game_settings').set(updates, merge=True)
+                
+                # تصفير الكاش في السيرفر لتحديث البيانات فوراً
+                if hasattr(database, '_GAME_SETTINGS_CACHE'):
+                    database._GAME_SETTINGS_CACHE = None
+
+            return jsonify({
+                "success": True,
+                "message": "تم تحديث إعدادات الأرباح ونسبة البوت بنجاح"
+            }), 200
+        except Exception as e:
+            print(f"❌ Error updating game settings: {e}")
+            return jsonify({"success": False, "error": "حدث خطأ أثناء حفظ إعدادات الأرباح"}), 500
+
 # ==========================================
 # الأمان والتحكم بالهيدرز والملفات الثابتة
 # ==========================================
