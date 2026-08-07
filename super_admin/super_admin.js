@@ -110,6 +110,7 @@ if (document.readyState === "loading") {
  * ربط الأحداث التفاعلية لحقول الإدخال والنسب تلقائياً
  */
 function initEvents() {
+    // 1. ربط حقول الإعدادات العامة
     const targetMarginInput = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
     if (targetMarginInput && !targetMarginInput.dataset.bound) {
         targetMarginInput.dataset.bound = "true";
@@ -127,11 +128,30 @@ function initEvents() {
         btnEditMargin.dataset.bound = "true";
         btnEditMargin.addEventListener('click', enableMarginEdit);
     }
+
+    // 2. ربط حقول الساحة الكبرى (شبكة الـ 36)
+    const arenaBotMarginInput = document.getElementById('arena-bot-margin-input');
+    if (arenaBotMarginInput && !arenaBotMarginInput.dataset.bound) {
+        arenaBotMarginInput.dataset.bound = "true";
+        arenaBotMarginInput.addEventListener('input', calculateArenaMargins);
+    }
+
+    const btnEditArena = document.getElementById('btnEditArena');
+    if (btnEditArena && !btnEditArena.dataset.bound) {
+        btnEditArena.dataset.bound = "true";
+        btnEditArena.addEventListener('click', enableArena36Edit);
+    }
+
+    const btnPublishArena = document.getElementById('btnPublishArena');
+    if (btnPublishArena && !btnPublishArena.dataset.bound) {
+        btnPublishArena.dataset.bound = "true";
+        btnPublishArena.addEventListener('click', updateArena36Settings);
+    }
 }
 window.initEvents = initEvents;
 
 /**
- * حساب نسبة اللاعبين تلقائياً (100 - نسبة البوت) فور كتابة النسبة
+ * حساب نسبة اللاعبين تلقائياً (100 - نسبة البوت) للإعدادات العامة
  */
 function calculateMargins() {
     const targetMarginInput = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
@@ -140,22 +160,34 @@ function calculateMargins() {
     if (!targetMarginInput || !playerMarginInput) return;
 
     let botMargin = parseFloat(targetMarginInput.value);
-    
-    if (isNaN(botMargin)) {
-        playerMarginInput.value = '';
-        return;
-    }
-
+    if (isNaN(botMargin)) { playerMarginInput.value = ''; return; }
     if (botMargin < 0) botMargin = 0;
     if (botMargin > 100) botMargin = 100;
 
-    const playerMargin = (100.0 - botMargin).toFixed(2);
-    playerMarginInput.value = parseFloat(playerMargin);
+    playerMarginInput.value = parseFloat((100.0 - botMargin).toFixed(2));
 }
 window.calculateMargins = calculateMargins;
 
 /**
- * تفعيل وضع التعديل وتفعيل حقول الإدخال
+ * حساب نسبة اللاعبين تلقائياً للساحة الكبرى (شبكة الـ 36)
+ */
+function calculateArenaMargins() {
+    const arenaBotMarginInput = document.getElementById('arena-bot-margin-input');
+    const arenaUserMarginInput = document.getElementById('arena-user-margin-input');
+    
+    if (!arenaBotMarginInput || !arenaUserMarginInput) return;
+
+    let botMargin = parseFloat(arenaBotMarginInput.value);
+    if (isNaN(botMargin)) { arenaUserMarginInput.value = ''; return; }
+    if (botMargin < 0) botMargin = 0;
+    if (botMargin > 100) botMargin = 100;
+
+    arenaUserMarginInput.value = parseFloat((100.0 - botMargin).toFixed(2));
+}
+window.calculateArenaMargins = calculateArenaMargins;
+
+/**
+ * تفعيل وضع التعديل وتفعيل حقول الإدخال للإعدادات العامة
  */
 function enableMarginEdit() {
     const targetMarginInput = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
@@ -168,15 +200,35 @@ function enableMarginEdit() {
         targetMarginInput.focus();
         targetMarginInput.select();
     }
-
-    if (minBetInput) {
-        minBetInput.disabled = false;
-    }
+    if (minBetInput) minBetInput.disabled = false;
 
     if (btnEditMargin) btnEditMargin.style.display = 'none';
     if (btnPublishMargin) btnPublishMargin.style.display = 'block';
 }
 window.enableMarginEdit = enableMarginEdit;
+
+/**
+ * تفعيل وضع التعديل للساحة الكبرى (شبكة الـ 36)
+ */
+function enableArena36Edit() {
+    const arenaBotInput = document.getElementById('arena-bot-margin-input');
+    const arenaMinBetInput = document.getElementById('arena-min-bet-input');
+    const arenaToggle = document.getElementById('arena-status-toggle');
+    const btnEditArena = document.getElementById('btnEditArena');
+    const btnPublishArena = document.getElementById('btnPublishArena');
+
+    if (arenaBotInput) {
+        arenaBotInput.disabled = false;
+        arenaBotInput.focus();
+        arenaBotInput.select();
+    }
+    if (arenaMinBetInput) arenaMinBetInput.disabled = false;
+    if (arenaToggle) arenaToggle.disabled = false;
+
+    if (btnEditArena) btnEditArena.style.display = 'none';
+    if (btnPublishArena) btnPublishArena.style.display = 'block';
+}
+window.enableArena36Edit = enableArena36Edit;
 
 /**
  * زر التحديث (الريفرش) لجلب أحدث الأرقام من الفايربيس
@@ -194,7 +246,7 @@ window.refreshDashboard = refreshDashboard;
 // ==========================================
 
 /**
- * جلب إحصائيات الأرباح ونسبة أرباح البوت والحد الأدنى للعب من السيرفر والفايربيس
+ * جلب إحصائيات الأرباح ونسبة أرباح البوت والساحة الكبرى من السيرفر والفايربيس
  */
 async function loadDashboardStats() {
     initEvents();
@@ -207,8 +259,15 @@ async function loadDashboardStats() {
     const playerMarginInput = document.getElementById('user-margin-input') || document.getElementById('playerMarginInput');
     const minBetInput = document.getElementById('min-bet-input');
     
+    const arenaBotInput = document.getElementById('arena-bot-margin-input');
+    const arenaUserInput = document.getElementById('arena-user-margin-input');
+    const arenaMinBetInput = document.getElementById('arena-min-bet-input');
+    const arenaToggle = document.getElementById('arena-status-toggle');
+
     const btnEditMargin = document.getElementById('btnEditMargin');
     const btnPublishMargin = document.getElementById('btnPublishMargin') || document.getElementById('update-ratio-btn');
+    const btnEditArena = document.getElementById('btnEditArena');
+    const btnPublishArena = document.getElementById('btnPublishArena');
 
     try {
         let response = await apiFetch(`${API_BASE}/game-settings`, { method: 'GET' });
@@ -233,21 +292,31 @@ async function loadDashboardStats() {
             if (userProfitEl) userProfitEl.innerText = Number(userProfit).toLocaleString('ar-EG');
             if (actualMarginEl) actualMarginEl.innerText = `${actualMargin}%`;
 
-            if (targetMarginInput) {
-                targetMarginInput.value = targetMargin;
-            }
-            if (playerMarginInput) {
-                playerMarginInput.value = parseFloat((100.0 - targetMargin).toFixed(2));
-            }
-            if (minBetInput) {
-                minBetInput.value = minBet;
-            }
+            // تحديث الحقول العامة
+            if (targetMarginInput) targetMarginInput.value = targetMargin;
+            if (playerMarginInput) playerMarginInput.value = parseFloat((100.0 - targetMargin).toFixed(2));
+            if (minBetInput) minBetInput.value = minBet;
 
             if (targetMarginInput) targetMarginInput.disabled = true;
             if (minBetInput) minBetInput.disabled = true;
-
             if (btnEditMargin) btnEditMargin.style.display = 'block';
             if (btnPublishMargin) btnPublishMargin.style.display = 'none';
+
+            // تحديث حقول الساحة الكبرى (شبكة الـ 36)
+            if (result.arena_36) {
+                const arenaData = result.arena_36;
+                if (arenaBotInput) arenaBotInput.value = arenaData.target_margin;
+                if (arenaUserInput) arenaUserInput.value = arenaData.player_margin;
+                if (arenaMinBetInput) arenaMinBetInput.value = arenaData.min_bet;
+                if (arenaToggle) arenaToggle.checked = arenaData.active;
+            }
+
+            if (arenaBotInput) arenaBotInput.disabled = true;
+            if (arenaMinBetInput) arenaMinBetInput.disabled = true;
+            if (arenaToggle) arenaToggle.disabled = true;
+            if (btnEditArena) btnEditArena.style.display = 'block';
+            if (btnPublishArena) btnPublishArena.style.display = 'none';
+
         } else {
             console.warn("⚠️ تعذر جلب الإحصائيات من السيرفر:", result.message || result.error);
         }
@@ -263,7 +332,7 @@ async function loadGameSettings() {
 window.loadGameSettings = loadGameSettings;
 
 /**
- * تحديث نسبة أرباح البوت والحد الأدنى للعب ونشرها فوراً إلى قاعدة البيانات
+ * تحديث نسبة أرباح البوت والحد الأدنى العامة ونشرها فوراً إلى قاعدة البيانات
  */
 async function updateGameSettings() {
     const input = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
@@ -328,6 +397,71 @@ async function updateGameSettings() {
     }
 }
 window.updateGameSettings = updateGameSettings;
+
+/**
+ * تحديث إعدادات الساحة الكبرى (شبكة الـ 36) ونشرها فوراً إلى الفايربيس
+ */
+async function updateArena36Settings() {
+    const arenaBotInput = document.getElementById('arena-bot-margin-input');
+    const arenaMinBetInput = document.getElementById('arena-min-bet-input');
+    const arenaToggle = document.getElementById('arena-status-toggle');
+
+    if (!arenaBotInput) return;
+
+    const targetMarginVal = parseFloat(arenaBotInput.value);
+    const minBetVal = arenaMinBetInput ? parseFloat(arenaMinBetInput.value) : 10;
+    const activeVal = arenaToggle ? arenaToggle.checked : true;
+
+    if (isNaN(targetMarginVal) || targetMarginVal < 0 || targetMarginVal > 100) {
+        alert("⚠️ يرجى إدخال نسبة مئوية صحيحة للساحة الكبرى بين 0 و 100!");
+        return;
+    }
+
+    if (isNaN(minBetVal) || minBetVal < 0) {
+        alert("⚠️ يرجى إدخال حد أدنى صحيح للرهان في الساحة الكبرى!");
+        return;
+    }
+
+    const payload = {
+        initData: getTelegramInitData(),
+        bot_margin: targetMarginVal,
+        target_margin: targetMarginVal,
+        player_margin: parseFloat((100.0 - targetMarginVal).toFixed(2)),
+        min_bet: minBetVal,
+        active: activeVal,
+        updatedBy: "المدير العام"
+    };
+
+    try {
+        const response = await apiFetch(`${API_BASE}/admin/update-arena-36`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        if (response.ok && (result.status === 'success' || result.success)) {
+            alert(`✅ ${result.message || 'تم تحديث ونشر إعدادات الساحة الكبرى بنجاح!'}`);
+            
+            arenaBotInput.disabled = true;
+            if (arenaMinBetInput) arenaMinBetInput.disabled = true;
+            if (arenaToggle) arenaToggle.disabled = true;
+
+            const btnEditArena = document.getElementById('btnEditArena');
+            const btnPublishArena = document.getElementById('btnPublishArena');
+            if (btnEditArena) btnEditArena.style.display = 'block';
+            if (btnPublishArena) btnPublishArena.style.display = 'none';
+
+            await loadDashboardStats();
+            loadAdminLogs();
+        } else {
+            alert(`❌ خطأ (${response.status}): ${result.message || result.error || 'حدث خطأ أثناء حفظ إعدادات الساحة'}`);
+        }
+    } catch (error) {
+        console.error("❌ خطأ أثناء تحديث إعدادات الساحة الكبرى:", error);
+    }
+}
+window.updateArena36Settings = updateArena36Settings;
 
 function loadHouseEdge() { loadDashboardStats(); }
 function updateHouseEdge() { updateGameSettings(); }
