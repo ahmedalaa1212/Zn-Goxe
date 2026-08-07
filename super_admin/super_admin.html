@@ -314,11 +314,11 @@
             </div>
         </div>
 
-        <!-- 🎮 الكارت الأول: لعبة شبكة الـ 36 -->
+        <!-- 🎮 الكارت الأول: لعبة شبكة ZN Go -->
         <div class="section-card">
             <div class="section-header">
-                <div class="section-title">🎮 لعبة شبكة الـ 36</div>
-                <button class="btn-refresh" onclick="loadGrid36Settings()">🔄 تحديث</button>
+                <div class="section-title">🎮 لعبة شبكة ZN Go</div>
+                <button class="btn-refresh" onclick="loadZnGoSettings()">🔄 تحديث</button>
             </div>
             
             <div class="margin-controls">
@@ -336,14 +336,7 @@
                 </div>
             </div>
 
-            <div class="input-group" style="margin-bottom: 12px; background: var(--input-bg); padding: 8px; border-radius: 8px; border: 1px solid var(--card-border);">
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-main); font-size: 11px;">
-                    <input type="checkbox" id="grid36-enabled" style="accent-color: var(--accent-gold); width: 16px; height: 16px;" checked>
-                    <span>تفعيل وتشغيل لعبة شبكة الـ 36</span>
-                </label>
-            </div>
-
-            <button class="btn-primary" id="btnSaveGrid36" onclick="saveGrid36Settings()" style="background: var(--accent-green); color: #fff;">💾 حفظ إعدادات شبكة الـ 36</button>
+            <button class="btn-primary" id="btnSaveGrid36" onclick="saveZnGoSettings()" style="background: var(--accent-green); color: #fff;">💾 حفظ إعدادات شبكة ZN Go</button>
         </div>
 
         <!-- 🏟️ الكارت الثاني: لعبة الساحة الكبرى -->
@@ -430,13 +423,13 @@
                 window.Telegram.WebApp.expand();
             }
 
-            // حساب نسبة اللاعب التلقائية لشبكة الـ 36
+            // حساب نسبة اللاعب التلقائية لشبكة ZN Go
             const gBot = document.getElementById('grid36-bot-margin');
             const gUser = document.getElementById('grid36-user-margin');
             if (gBot && gUser) {
                 gBot.addEventListener('input', () => {
                     const val = parseFloat(gBot.value) || 0;
-                    gUser.value = Math.max(0, 100 - val);
+                    gUser.value = Math.max(0, 100 - val).toFixed(2);
                 });
             }
 
@@ -446,7 +439,7 @@
             if (aBot && aUser) {
                 aBot.addEventListener('input', () => {
                     const val = parseFloat(aBot.value) || 0;
-                    aUser.value = Math.max(0, 100 - val);
+                    aUser.value = Math.max(0, 100 - val).toFixed(2);
                 });
             }
         });
