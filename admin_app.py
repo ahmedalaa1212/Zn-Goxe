@@ -97,6 +97,21 @@ def _fetch_arena_current_stats():
         print(f"⚠️ Error fetching arena/current doc: {e}")
     return {}
 
+def _serve_admin_ui():
+    """البحث المباشر والذكي عن ملف الواجهة لتفادي مشكلة 404"""
+    possible_targets = [
+        (BASE_DIR, 'admin.html'),
+        (BASE_DIR, 'super_admin.html'),
+        (os.path.join(BASE_DIR, 'super_admin'), 'super_admin.html'),
+        (os.path.join(BASE_DIR, 'super_admin'), 'admin.html'),
+        (os.path.join(BASE_DIR, 'templates'), 'super_admin.html'),
+        (os.path.join(BASE_DIR, 'templates'), 'admin.html'),
+    ]
+    for directory, filename in possible_targets:
+        if os.path.isfile(os.path.join(directory, filename)):
+            return send_from_directory(directory, filename)
+    return None
+
 # ==========================================
 # مسارات التوثيق وإحصائيات الأدمن (Super Admin APIs)
 # ==========================================
@@ -419,32 +434,45 @@ def handle_500_error(e):
 def handle_404_error(e):
     if request.path.startswith('/api/'):
         return jsonify({"status": "error", "success": False, "error": "مسار الإدارة غير موجود"}), 404
-    try:
-        if os.path.isfile(os.path.join(BASE_DIR, 'super_admin.html')):
-            return send_from_directory(BASE_DIR, 'super_admin.html')
-    except Exception:
-        pass
+    
+    ui_res = _serve_admin_ui()
+    if ui_res:
+        return ui_res
     return jsonify({"status": "error", "success": False, "error": "الصفحة غير موجودة"}), 404
 
 @app.route('/')
 def serve_index():
-    try:
-        return send_from_directory(BASE_DIR, 'super_admin.html')
-    except Exception:
-        return jsonify({"status": "error", "message": "ملف super_admin.html غير موجود"}), 404
+    ui_res = _serve_admin_ui()
+    if ui_res:
+        return ui_res
+    return jsonify({
+        "status": "error",
+        "message": "لم يتم العثور على ملف الواجهة (admin.html أو super_admin.html). يُرجى التأكد من مسار الملف في المشروع."
+    }), 404
 
 @app.route('/<path:path>')
 def serve_static(path):
+    # 1. البحث عن الملف مباشرة من BASE_DIR
     target_path = os.path.join(BASE_DIR, path)
     if os.path.isfile(target_path):
         return send_from_directory(BASE_DIR, path)
     
-    # Fallback to super_admin.html for non-API frontend routes safely
-    try:
-        if os.path.isfile(os.path.join(BASE_DIR, 'super_admin.html')):
-            return send_from_directory(BASE_DIR, 'super_admin.html')
-    except Exception:
-        pass
+    # 2. البحث داخل مجلد super_admin
+    super_admin_dir = os.path.join(BASE_DIR, 'super_admin')
+    if os.path.isfile(os.path.join(super_admin_dir, path)):
+        return send_from_directory(super_admin_dir, path)
+
+    # 3. البحث داخل مجلد templates
+    templates_dir = os.path.join(BASE_DIR, 'templates')
+    if os.path.isfile(os.path.join(templates_dir, path)):
+        return send_from_directory(templates_dir, path)
+
+    # Fallback to Admin UI for non-API frontend routes safely
+    if not path.startswith('api/'):
+        ui_res = _serve_admin_ui()
+        if ui_res:
+            return ui_res
+
     return jsonify({"status": "error", "error": "الملف غير موجود"}), 404
 
 if __name__ == '__main__':
