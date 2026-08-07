@@ -7,7 +7,7 @@ from core.security import get_authenticated_user
 
 app = Flask(__name__)
 
-# إعداد CORS للوصول إلى مسارات API
+# إعداد CORS للوصول إلى كافة مسارات API
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app').strip().rstrip('/')
@@ -34,6 +34,25 @@ app.register_blueprint(shop_bp, url_prefix='/api/shop')
 app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
 app.register_blueprint(support_bp, url_prefix='/api/support')
 app.register_blueprint(admin_chat_bp, url_prefix='/api/admin/chat')
+
+# ==========================================
+# مسارات للتكيف المباشر مع استدعاءات الجافاسكريبت القديمة والجديدة
+# ==========================================
+
+@app.route('/api/game/start', methods=['POST'])
+@app.route('/api/game/step', methods=['POST'])
+@app.route('/api/game/cashout', methods=['POST'])
+def proxy_legacy_game_routes():
+    """توجيه استدعاءات الفرونت إند الكلاسيكية تلقائياً إلى blueprint الألعاب"""
+    from games.games_api import start_boxes_game, pick_box, end_boxes_game
+    path = request.path
+    if path.endswith('/start'):
+        return start_boxes_game()
+    elif path.endswith('/step'):
+        return pick_box()
+    elif path.endswith('/cashout'):
+        return end_boxes_game()
+    return jsonify({"success": False, "message": "مسار غير معروف"}), 404
 
 # ==========================================
 # المسارات المباشرة والخدمية
@@ -442,12 +461,12 @@ def add_security_headers(response):
 
 @app.errorhandler(500)
 def handle_500_error(e):
-    return jsonify({"success": False, "error": "حدث خطأ داخلي في السيرفر"}), 500
+    return jsonify({"success": False, "error": "حدث خطأ داخلي في السيرفر", "message": "خطأ في الاتصال بالخادم."}), 500
 
 @app.errorhandler(404)
 def handle_404_error(e):
     if request.path.startswith('/api/'):
-        return jsonify({"success": False, "error": "المسار غير موجود"}), 404
+        return jsonify({"success": False, "error": "المسار غير موجود", "message": "خطأ في الاتصال بالخادم."}), 404
     return send_from_directory('.', 'index.html')
 
 @app.route('/')
