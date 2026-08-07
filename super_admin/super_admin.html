@@ -2,6 +2,7 @@
     .super-admin-container {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         color: #e2e8f0;
+        padding-bottom: 20px;
     }
     .section-header { text-align: center; margin-bottom: 16px; }
     .section-header h2 { color: #f59e0b; font-size: 18px; margin: 0; }
@@ -75,8 +76,28 @@
         outline: none;
         width: 100%;
         box-sizing: border-box;
+        transition: border-color 0.2s ease, opacity 0.2s ease;
     }
     .form-group input:focus { border-color: #f59e0b; }
+    .form-group input:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        background-color: #12141c;
+    }
+
+    .form-row {
+        display: flex;
+        gap: 10px;
+    }
+    .form-row .form-group {
+        flex: 1;
+    }
+
+    .action-btn-group {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+    }
     
     .permissions-grid {
         display: grid;
@@ -108,10 +129,37 @@
         width: 100%;
         cursor: pointer;
         font-size: 12px;
-        margin-top: 8px;
+        transition: transform 0.1s ease, background 0.2s ease;
     }
-
     .btn-primary:active { transform: scale(0.98); }
+
+    .btn-secondary {
+        background: #2563eb;
+        color: #ffffff;
+        font-weight: bold;
+        border: none;
+        border-radius: 8px;
+        padding: 11px;
+        width: 100%;
+        cursor: pointer;
+        font-size: 12px;
+        transition: transform 0.1s ease;
+    }
+    .btn-secondary:active { transform: scale(0.98); }
+
+    .btn-success {
+        background: linear-gradient(135deg, #10b981, #059669);
+        color: #ffffff;
+        font-weight: bold;
+        border: none;
+        border-radius: 8px;
+        padding: 11px;
+        width: 100%;
+        cursor: pointer;
+        font-size: 12px;
+        transition: transform 0.1s ease;
+    }
+    .btn-success:active { transform: scale(0.98); }
     
     .mod-item, .log-item {
         display: flex;
@@ -158,7 +206,7 @@
     </div>
 
     <div class="admin-card">
-        <h3>📊 إحصائيات الأرباح ونسبة فائدة البوت (Live Stats & Control)</h3>
+        <h3>📊 إحصائيات الأرباح ونسبة فائدة البوت واللاعبين</h3>
         
         <!-- كروت الإحصائيات الحية -->
         <div class="stats-grid">
@@ -176,13 +224,23 @@
             </div>
         </div>
 
-        <!-- تعديل نسبة أرباح البوت المستهدفة -->
-        <div class="form-group">
-            <label>نسبة أرباح البوت المستهدفة (Target Bot Margin %):</label>
-            <input type="number" id="targetMarginInput" placeholder="مثال: 70 (تعني 70% للبوت / 30% للمستخدمين)" min="0" max="100">
+        <!-- نسبة أرباح البوت ونسبة اللاعبين الموزعة -->
+        <div class="form-row">
+            <div class="form-group">
+                <label>🤖 نسبة البوت Target Bot %:</label>
+                <input type="number" id="targetMarginInput" placeholder="70" min="0" max="100" inputmode="decimal" disabled>
+            </div>
+            <div class="form-group">
+                <label>👥 نسبة اللاعبين Players %:</label>
+                <input type="number" id="playerMarginInput" placeholder="30" readonly disabled style="background-color: #0b0d12;">
+            </div>
         </div>
 
-        <button class="btn-primary" onclick="updateGameSettings()">💾 حفظ وتحديث نسبة الأرباح فوراً</button>
+        <!-- أزرار التحكم في وضع التعديل والنشر -->
+        <div class="action-btn-group">
+            <button type="button" class="btn-secondary" id="btnEditMargin" onclick="enableMarginEdit()">✏️ تعديل النسب</button>
+            <button type="button" class="btn-success" id="btnPublishMargin" onclick="updateGameSettings()" style="display: none;">🚀 موافق ونشر</button>
+        </div>
     </div>
 
     <!-- ==========================================
@@ -198,7 +256,7 @@
         
         <div class="form-group">
             <label>Telegram ID للمشرف:</label>
-            <input type="number" id="modTelegramId" placeholder="مثال: 987654321">
+            <input type="number" id="modTelegramId" placeholder="مثال: 987654321" inputmode="numeric">
         </div>
 
         <div class="form-group">
