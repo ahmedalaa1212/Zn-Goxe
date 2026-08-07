@@ -1,3 +1,4 @@
+
 import os
 import json
 import hmac
@@ -129,7 +130,6 @@ def verify_admin_access():
             "permissions": auth_info.get("permissions", {})
         }), 200
 
-    # ⛔ رفـض صـارم لأي شخص تم مسحه أو ليس مشرفاً
     return jsonify({
         "success": False,
         "message": "⛔ تم رفض الدخول! حسابك غير مصرح له بدخول لوحة التحكم الإدارية."
@@ -139,12 +139,13 @@ def verify_admin_access():
 @app.route('/api/admin/dashboard-stats', methods=['GET'])
 @require_telegram_admin
 def admin_dashboard_stats():
-    """تزويد لوحة الإدارة بأرقام أرباح البوت والأرباح الفعلية والحد الأدنى"""
+    """تزويد لوحة الإدارة بأرقام أرباح البوت والأرباح الفعلية وإعدادات الساحة الكبرى"""
     try:
         arena_data = _fetch_arena_current_stats()
         stats_summary = database.get_game_profit_stats() or {} if hasattr(database, 'get_game_profit_stats') else {}
         settings = database.get_game_settings() or {} if hasattr(database, 'get_game_settings') else {}
         grid_cfg = settings.get('grid_game_config', {})
+        arena_36_cfg = settings.get('arena_36_config', {})
 
         total_bets = float(arena_data.get('total_bets', stats_summary.get('global_total_bets', 0.0)))
         total_payouts = float(arena_data.get('total_payouts', stats_summary.get('global_total_wins', 0.0)))
@@ -159,11 +160,22 @@ def admin_dashboard_stats():
         target_margin_pct = float(settings.get('target_margin', stats_summary.get('target_margin_percent', 70.0)))
         min_bet = float(grid_cfg.get('min_bet', settings.get('min_bet', 10.0)))
 
+        # إعدادات الساحة الكبرى (شبكة الـ 36)
+        arena_target_margin = float(arena_36_cfg.get('target_margin', settings.get('arena_target_margin', 70.0)))
+        arena_min_bet = float(arena_36_cfg.get('min_bet', settings.get('arena_min_bet', 10.0)))
+        arena_active = bool(arena_36_cfg.get('active', settings.get('arena_active', True)))
+
         return jsonify({
             "status": "success",
             "success": True,
             "min_bet": min_bet,
             "target_margin": target_margin_pct,
+            "arena_36": {
+                "target_margin": arena_target_margin,
+                "player_margin": round(max(0.0, 100.0 - arena_target_margin), 2),
+                "min_bet": arena_min_bet,
+                "active": arena_active
+            },
             "stats": {
                 "total_bot_profit": bot_profit,
                 "total_wins": user_profit,
@@ -182,7 +194,7 @@ def admin_dashboard_stats():
 @app.route('/api/admin/update-margin', methods=['POST'])
 @require_telegram_admin
 def update_margin():
-    """تعديل وحفظ نسبة أرباح البوت والحد الأدنى للعب في الفايربيس"""
+    """تعديل وحفظ نسبة أرباح البوت والحد الأدنى العامة في الفايربيس"""
     try:
         telegram_id = request.telegram_user.get('telegram_id', 'unknown')
         req_data = request.get_json(silent=True) or {}
@@ -207,10 +219,7 @@ def update_margin():
                 return jsonify({"status": "error", "success": False, "message": "قيمة الحد الأدنى غير صالحة"}), 400
 
         if hasattr(database, 'update_grid_game_config'):
-            database.update_grid_game_config(
-                min_bet=min_bet,
-                target_margin=bot_margin
-            )
+            database.update_grid_game_config(min_bet=min_bet, target_margin=bot_margin)
 
         if hasattr(database, 'update_game_settings'):
             update_payload = {'updated_by': telegram_id}
@@ -231,6 +240,61 @@ def update_margin():
         return jsonify({"status": "error", "success": False, "message": "حدث خطأ أثناء تحديث نسبة التحكم"}), 500
 
 
+@app.route('/api/admin/update-arena-36', methods=['POST'])
+@require_telegram_admin
+def update_arena_36_settings():
+    """تعديل وحفظ إعدادات الساحة الكبرى (شبكة الـ 36) في الفايربيس"""
+    try:
+        telegram_id = request.telegram_user.get('telegram_id', 'unknown')
+        req_data = request.get_json(silent=True) or {}
+        bot_margin = req_data.get('bot_margin') or req_data.get('target_margin')
+        min_bet = req_data.get('min_bet')
+        active = req_data.get('active', True)
+
+        if bot_margin is None and min_bet is None and active is None:
+            return jsonify({"status": "error", "success": False, "message": "يرجى تحديد البيانات المراد تعديلها للساحة الكبرى"}), 400
+
+        arena_payload = {'updated_by': telegram_id}
+
+        if bot_margin is not None:
+            try:
+                bot_margin = float(bot_margin)
+                if bot_margin < 0 or bot_margin > 100:
+                    return jsonify({"status": "error", "success": False, "message": "النسبة يجب أن تكون بين 0 و 100"}), 400
+                arena_payload['target_margin'] = bot_margin
+                arena_payload['player_margin'] = round(100.0 - bot_margin, 2)
+            except (ValueError, TypeError):
+                return jsonify({"status": "error", "success": False, "message": "قيمة النسبة غير صالحة"}), 400
+
+        if min_bet is not None:
+            try:
+                arena_payload['min_bet'] = float(min_bet)
+            except (ValueError, TypeError):
+                return jsonify({"status": "error", "success": False, "message": "قيمة الحد الأدنى غير صالحة"}), 400
+
+        arena_payload['active'] = bool(active)
+
+        # حفظ في database.py
+        if hasattr(database, 'update_arena_36_config'):
+            database.update_arena_36_config(arena_payload)
+        elif hasattr(database, 'update_game_settings'):
+            database.update_game_settings({
+                'arena_36_config': arena_payload,
+                'arena_target_margin': arena_payload.get('target_margin'),
+                'arena_min_bet': arena_payload.get('min_bet'),
+                'arena_active': arena_payload.get('active')
+            })
+
+        if hasattr(database, 'clear_settings_cache'):
+            database.clear_settings_cache()
+
+        return jsonify({"status": "success", "success": True, "message": "تم تحديث إعدادات الساحة الكبرى (شبكة الـ 36) بنجاح"}), 200
+
+    except Exception as e:
+        print(f"❌ Error updating arena 36 settings: {e}")
+        return jsonify({"status": "error", "success": False, "message": "حدث خطأ أثناء تحديث إعدادات الساحة الكبرى"}), 500
+
+
 @app.route('/api/admin/stats', methods=['GET'])
 @require_telegram_admin
 def get_admin_stats():
@@ -240,6 +304,7 @@ def get_admin_stats():
         settings = database.get_game_settings() or {} if hasattr(database, 'get_game_settings') else {}
         stats_summary = database.get_game_profit_stats() or {} if hasattr(database, 'get_game_profit_stats') else {}
         grid_cfg = settings.get('grid_game_config', {})
+        arena_36_cfg = settings.get('arena_36_config', {})
 
         total_bets = float(arena_data.get('total_bets', stats_summary.get('global_total_bets', 0.0)))
         total_payouts = float(arena_data.get('total_payouts', stats_summary.get('global_total_wins', 0.0)))
@@ -255,6 +320,8 @@ def get_admin_stats():
         player_margin_pct = round(max(0.0, 100.0 - target_margin_pct), 2)
         min_bet = float(grid_cfg.get('min_bet', settings.get('min_bet', 10.0)))
 
+        arena_target_margin = float(arena_36_cfg.get('target_margin', settings.get('arena_target_margin', 70.0)))
+
         return jsonify({
             "status": "success",
             "success": True,
@@ -263,6 +330,12 @@ def get_admin_stats():
             "bot_margin": target_margin_pct,
             "commission_percent": player_margin_pct,
             "min_bet": min_bet,
+            "arena_36": {
+                "target_margin": arena_target_margin,
+                "player_margin": round(max(0.0, 100.0 - arena_target_margin), 2),
+                "min_bet": float(arena_36_cfg.get('min_bet', settings.get('arena_min_bet', 10.0))),
+                "active": bool(arena_36_cfg.get('active', settings.get('arena_active', True)))
+            },
             "stats": {
                 "total_bot_profit": bot_profit,
                 "total_user_profit": user_profit,
@@ -299,6 +372,7 @@ def manage_game_settings():
             settings = database.get_game_settings() or {} if hasattr(database, 'get_game_settings') else {}
             stats_summary = database.get_game_profit_stats() or {} if hasattr(database, 'get_game_profit_stats') else {}
             grid_cfg = settings.get('grid_game_config', {})
+            arena_36_cfg = settings.get('arena_36_config', {})
 
             total_bets = float(arena_data.get('total_bets', stats_summary.get('global_total_bets', 0.0)))
             total_payouts = float(arena_data.get('total_payouts', stats_summary.get('global_total_wins', 0.0)))
@@ -314,6 +388,8 @@ def manage_game_settings():
             player_margin_pct = round(max(0.0, 100.0 - target_margin_pct), 2)
             min_bet = float(grid_cfg.get('min_bet', settings.get('min_bet', 10.0)))
 
+            arena_target_margin = float(arena_36_cfg.get('target_margin', settings.get('arena_target_margin', 70.0)))
+
             return jsonify({
                 "status": "success",
                 "success": True,
@@ -322,6 +398,12 @@ def manage_game_settings():
                 "commission_percent": player_margin_pct,
                 "min_bet": min_bet,
                 "grid_game_config": grid_cfg,
+                "arena_36": {
+                    "target_margin": arena_target_margin,
+                    "player_margin": round(max(0.0, 100.0 - arena_target_margin), 2),
+                    "min_bet": float(arena_36_cfg.get('min_bet', settings.get('arena_min_bet', 10.0))),
+                    "active": bool(arena_36_cfg.get('active', settings.get('arena_active', True)))
+                },
                 "stats": {
                     "total_bot_profit": bot_profit,
                     "total_user_profit": user_profit,
