@@ -194,7 +194,6 @@ def start_boxes_game():
 
     user_ref = db.collection('users').document(uid_str)
 
-    # توزيع العملات المكسورة بشكل عشوائي تماماً عبر كافة الـ 36 صندوقاً
     layout = [False] * 36  # False = عملة سليمة, True = عملة مكسورة
     broken_indices = random.sample(range(0, 36), broken_count)
 
@@ -224,10 +223,8 @@ def start_boxes_game():
         if not ok:
             return jsonify({"success": False, "message": msg})
 
-        # تسجيل قيمة الرهان ذرياً في الإحصائيات الموحدة وفي حساب المستخدم
         record_user_game_result(uid_str, bet_amount=bet, win_amount=0.0)
 
-        # جلب نسبة أرباح البوت المستهدفة وحساب المضاعفات الديناميكية
         target_margin = _get_target_margin(settings)
         multipliers = generate_multipliers(broken_count, target_margin)
         
@@ -276,16 +273,13 @@ def pick_box():
     user_doc = db.collection('users').document(str(uid)).get()
     current_balance = round(float((user_doc.to_dict() or {}).get('balance', 0.0)), 2) if user_doc.exists else 0.0
 
-    # 🔒 جلب نسبة أرباح البوت المستهدفة والفاعلية ديناميكياً
     settings = get_game_settings() or {}
     target_margin = _get_target_margin(settings)
 
     profit_stats = get_game_profit_stats()
     actual_margin = profit_stats.get('actual_bot_percent', 100.0) / 100.0
 
-    # يتحول الضغط إلى خسارة فقط إذا هبط هامش أرباح البوت الفعلي عن الهامش المستهدف لحماية الخزينة
     force_loss = (actual_margin < target_margin)
-
     is_broken = layout[box_index] or force_loss
 
     if force_loss and not layout[box_index]:
@@ -355,7 +349,6 @@ def end_boxes_game():
     
     user_ref = db.collection('users').document(uid_str)
 
-    # التحقق الديناميكي من نسبة أرباح النظام عند طلب الانسحاب
     profit_stats = get_game_profit_stats()
     actual_margin = profit_stats.get('actual_bot_percent', 100.0) / 100.0
     force_loss = (actual_margin < target_margin)
@@ -405,7 +398,6 @@ def end_boxes_game():
         _cleanup_expired_sessions()
 
         if payout > 0:
-            # تسجيل مبلغ فوز المستخدم ذرياً O(1)
             record_user_game_result(uid_str, bet_amount=0.0, win_amount=payout)
 
         return jsonify({
@@ -478,7 +470,6 @@ def resolve_round(round_id):
                 "prize": prize_amount
             })
 
-            # تسجيل جائزة الفائز في إحصائيات النظام ذرياً
             if prize_amount > 0:
                 record_user_game_result(w_uid, bet_amount=0.0, win_amount=prize_amount)
             
@@ -595,7 +586,6 @@ def join_arena():
             res_payload["has_joined"] = True
             _ROUND_CACHE[round_id] = {"participants": updated_participants, "timestamp": time.time()}
 
-            # تسجيل رسم دخول الساحة ضمن الإحصائيات المركزية
             record_user_game_result(uid_str, bet_amount=cfg['entry_fee'], win_amount=0.0)
 
         return jsonify(res_payload)
