@@ -3,6 +3,7 @@ import json
 import hmac
 import hashlib
 import urllib.parse
+from functools import wraps
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 
@@ -59,6 +60,27 @@ def validate_telegram_admin(init_data):
         print(f"❌ Auth Error: {e}")
         return None
 
+
+def require_telegram_admin(f):
+    """ديكوريتور لحماية جميع مسارات API المخصصة للأدمن"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        init_data = request.headers.get('X-Telegram-Init-Data') or (request.get_json(silent=True) or {}).get('initData')
+        auth_info = validate_telegram_admin(init_data)
+        
+        if auth_info:
+            request.telegram_user = auth_info
+            return f(*args, **kwargs)
+
+        is_post = (request.method == 'POST')
+        success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
+        if success:
+            request.telegram_user = {"telegram_id": telegram_id, "role": "المدير العام", "user": user_info}
+            return f(*args, **kwargs)
+
+        return jsonify({"status": "error", "success": False, "message": "عذراً، البوت مخصص للإدارة فقط!"}), 403
+    return decorated_function
+
 # ==========================================
 # دالة مساعدة لجلب البيانات المباشرة
 # ==========================================
@@ -102,16 +124,13 @@ def verify_admin_access():
             "user": user_data
         }), 200
 
-    return jsonify({"success": False, "message": "غير مصرح لك بالدخول!"}), 403
+    return jsonify({"success": False, "message": "عذراً، البوت مخصص للإدارة فقط!"}), 403
 
 
 @app.route('/api/admin/dashboard-stats', methods=['GET'])
+@require_telegram_admin
 def admin_dashboard_stats():
     """تزويد لوحة الإدارة بأرقام أرباح البوت والأرباح الفعلية والحد الأدنى"""
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
-    if not success:
-        return error_res
-
     try:
         arena_data = _fetch_arena_current_stats()
         stats_summary = database.get_game_profit_stats() or {} if hasattr(database, 'get_game_profit_stats') else {}
@@ -152,13 +171,11 @@ def admin_dashboard_stats():
 
 
 @app.route('/api/admin/update-margin', methods=['POST'])
+@require_telegram_admin
 def update_margin():
     """تعديل وحفظ نسبة أرباح البوت والحد الأدنى للعب في الفايربيس"""
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
-    if not success:
-        return error_res
-
     try:
+        telegram_id = request.telegram_user.get('telegram_id', 'unknown')
         req_data = request.get_json(silent=True) or {}
         bot_margin = req_data.get('bot_margin') or req_data.get('target_margin')
         min_bet = req_data.get('min_bet')
@@ -206,12 +223,9 @@ def update_margin():
 
 
 @app.route('/api/admin/stats', methods=['GET'])
+@require_telegram_admin
 def get_admin_stats():
     """جلب تفاصيل إحصائيات التحكم بالأرباح للاستخدام المباشر"""
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
-    if not success:
-        return error_res
-
     try:
         arena_data = _fetch_arena_current_stats()
         settings = database.get_game_settings() or {} if hasattr(database, 'get_game_settings') else {}
@@ -258,6 +272,7 @@ def get_admin_stats():
 
 
 @app.route('/api/admin/settings', methods=['POST'])
+@require_telegram_admin
 def save_admin_settings_route():
     """حفظ الإعدادات الإدارية المباشرة"""
     return update_margin()
@@ -268,13 +283,9 @@ def save_admin_settings_route():
 # ==========================================
 
 @app.route('/api/game-settings', methods=['GET', 'POST'])
+@require_telegram_admin
 def manage_game_settings():
     """جلب وتحديث إعدادات الأرباح من واجهة الأدمن"""
-    is_post = (request.method == 'POST')
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
-    if not success:
-        return error_res
-
     if request.method == 'GET':
         try:
             arena_data = _fetch_arena_current_stats()
@@ -329,13 +340,10 @@ def manage_game_settings():
 # ==========================================
 
 @app.route('/api/moderators', methods=['GET', 'POST'])
+@require_telegram_admin
 def manage_moderators():
     """جلب وإضافة المشرفين من لوحة الأدمن"""
-    is_post = (request.method == 'POST')
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
-    if not success:
-        return error_res
-
+    telegram_id = request.telegram_user.get('telegram_id', 'unknown')
     if request.method == 'GET':
         try:
             moderators = database.get_moderators() if hasattr(database, 'get_moderators') else []
@@ -364,13 +372,11 @@ def manage_moderators():
 
 
 @app.route('/api/moderators/<mod_id>', methods=['DELETE'])
+@require_telegram_admin
 def delete_moderator_route(mod_id):
     """حذف مشرف وحظر صلاحياته"""
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
-    if not success:
-        return error_res
-
     try:
+        telegram_id = request.telegram_user.get('telegram_id', 'unknown')
         if hasattr(database, 'delete_moderator'):
             database.delete_moderator(mod_id, deleted_by=telegram_id)
         return jsonify({"status": "success", "success": True, "message": "تم حذف المشرف بنجاح"}), 200
@@ -380,12 +386,9 @@ def delete_moderator_route(mod_id):
 
 
 @app.route('/api/admin-logs', methods=['GET'])
+@require_telegram_admin
 def get_admin_logs_route():
     """جلب سجل التحركات والنشاطات الإدارية"""
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
-    if not success:
-        return error_res
-
     try:
         logs = database.get_admin_logs() if hasattr(database, 'get_admin_logs') else []
         return jsonify({"status": "success", "success": True, "logs": logs}), 200
@@ -415,18 +418,18 @@ def handle_500_error(e):
 def handle_404_error(e):
     if request.path.startswith('/api/'):
         return jsonify({"status": "error", "success": False, "error": "مسار الإدارة غير موجود"}), 404
-    return send_from_directory('.', 'admin.html')
+    return send_from_directory('.', 'super_admin.html')
 
 @app.route('/')
 def serve_index():
-    return send_from_directory('.', 'admin.html')
+    return send_from_directory('.', 'super_admin.html')
 
 @app.route('/<path:path>')
 def serve_static(path):
     try:
         return send_from_directory('.', path)
     except Exception:
-        return send_from_directory('.', 'admin.html')
+        return send_from_directory('.', 'super_admin.html')
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
