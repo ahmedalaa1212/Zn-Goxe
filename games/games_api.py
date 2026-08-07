@@ -22,13 +22,13 @@ try:
     from database import get_grid_36_config
 except ImportError:
     def get_grid_36_config():
-        return {"bot_margin": 70.0, "min_bet": 10.0, "enabled": True}
+        return {"bot_margin": 70.0, "player_profit_percentage": 30.0, "min_bet": 10.0, "enabled": True}
 
 try:
     from database import get_big_arena_config
 except ImportError:
     def get_big_arena_config():
-        return {"bot_margin": 70.0, "min_bet": 10.0, "enabled": True}
+        return {"bot_margin": 70.0, "player_profit_percentage": 30.0, "min_bet": 10.0, "enabled": True}
 
 try:
     from database import get_game_profit_stats
@@ -85,10 +85,38 @@ def _cleanup_expired_sessions():
         _USED_SESSION_TOKENS.pop(k, None)
 
 
+def _update_db_game_stats(bet_amount=0.0, win_amount=0.0):
+    """تحديث إجمالي أرباح البوت واللاعبين في قاعدة البيانات لتنعكس فوراً في السجل العلوي للأدمن"""
+    try:
+        stats_ref = db.collection('game_stats').document('summary')
+        bot_profit_change = bet_amount - win_amount
+
+        update_payload = {}
+        if bet_amount > 0:
+            update_payload['total_bets_amount'] = firestore.Increment(bet_amount)
+            update_payload['total_bets_count'] = firestore.Increment(1)
+        if win_amount > 0:
+            update_payload['total_player_profit'] = firestore.Increment(win_amount)
+            update_payload['total_wins_count'] = firestore.Increment(1)
+        if bot_profit_change != 0:
+            update_payload['total_bot_profit'] = firestore.Increment(bot_profit_change)
+
+        if update_payload:
+            stats_ref.set(update_payload, merge=True)
+    except Exception as e:
+        print(f"Error updating db game stats: {e}")
+
+
 def _get_grid_36_margin():
-    """جلب النسبة المئوية المستهدفة لأرباح البوت الخاصة بلعبة شبكة الـ 36"""
+    """جلب النسبة المئوية المستهدفة لأرباح البوت/اللاعبين الخاصة بلعبة شبكة ZN Go بناءً على إعدادات الأدمن"""
     try:
         cfg = get_grid_36_config() or {}
+        if 'player_profit_percentage' in cfg:
+            player_pct = float(cfg['player_profit_percentage'])
+            margin_pct = 100.0 - player_pct if player_pct <= 100.0 else (1.0 - player_pct) * 100.0
+            margin_pct = max(0.0, min(100.0, margin_pct))
+            return margin_pct / 100.0
+        
         raw_val = cfg.get('bot_margin', 70.0)
         val = float(raw_val)
         return val / 100.0 if val > 1.0 else val
@@ -97,9 +125,15 @@ def _get_grid_36_margin():
 
 
 def _get_big_arena_margin():
-    """جلب النسبة المئوية المستهدفة لأرباح البوت الخاصة بلعبة الساحة الكبرى"""
+    """جلب النسبة المئوية المستهدفة لأرباح البوت/اللاعبين الخاصة بلعبة الساحة الكبرى"""
     try:
         cfg = get_big_arena_config() or {}
+        if 'player_profit_percentage' in cfg:
+            player_pct = float(cfg['player_profit_percentage'])
+            margin_pct = 100.0 - player_pct if player_pct <= 100.0 else (1.0 - player_pct) * 100.0
+            margin_pct = max(0.0, min(100.0, margin_pct))
+            return margin_pct / 100.0
+
         raw_val = cfg.get('bot_margin', 70.0)
         val = float(raw_val)
         return val / 100.0 if val > 1.0 else val
@@ -108,7 +142,7 @@ def _get_big_arena_margin():
 
 
 def generate_multipliers(broken_count, target_margin=0.70):
-    """توليد جدول المضاعفات ديناميكياً مع تطبيق نسبة أرباح البوت المستهدفة"""
+    """توليد جدول المضاعفات ديناميكياً مع تطبيق نسبة أرباح البوت واللاعبين المستهدفة"""
     safe_steps = 36 - broken_count
     if target_margin > 1.0:
         target_margin = target_margin / 100.0
@@ -138,7 +172,7 @@ def generate_multipliers(broken_count, target_margin=0.70):
 
 
 def get_arena_config():
-    """جلب إعدادات الساحة وتطبيق خصم نسبة البوت المستقلة على ميزانية جوائز المستخدمين"""
+    """جلب إعدادات الساحة وتطبيق نسبة أرباح البوت واللاعبين المحددة من لوحة الأدمن"""
     now = time.time()
     if _ARENA_CONFIG_CACHE["data"] and (now - _ARENA_CONFIG_CACHE["timestamp"] < CACHE_TTL_CONFIG):
         return _ARENA_CONFIG_CACHE["data"]
@@ -147,17 +181,20 @@ def get_arena_config():
     cfg = settings.get('arena_config', {})
     big_arena_cfg = get_big_arena_config() or {}
     
-    # الاعتماد على إعدادات الساحة الكبرى المستقلة
-    bot_margin_val = float(big_arena_cfg.get('bot_margin', 70.0))
-    target_margin = bot_margin_val / 100.0 if bot_margin_val > 1.0 else bot_margin_val
-    
-    default_prize_pct = max(0.10, 1.0 - target_margin)
-    prize_pool_pct = float(cfg.get('prize_pool_percentage', default_prize_pct))
-    if prize_pool_pct > 1.0:
-        prize_pool_pct = prize_pool_pct / 100.0
+    # احتساب نسبة الجوائز بناءً على player_profit_percentage أو bot_margin من الأدمن
+    if 'player_profit_percentage' in big_arena_cfg:
+        player_pct = float(big_arena_cfg['player_profit_percentage'])
+        prize_pool_pct = player_pct / 100.0 if player_pct > 1.0 else player_pct
+    elif 'player_profit_percentage' in cfg:
+        player_pct = float(cfg['player_profit_percentage'])
+        prize_pool_pct = player_pct / 100.0 if player_pct > 1.0 else player_pct
+    else:
+        bot_margin_val = float(big_arena_cfg.get('bot_margin', 70.0))
+        target_margin = bot_margin_val / 100.0 if bot_margin_val > 1.0 else bot_margin_val
+        prize_pool_pct = max(0.10, 1.0 - target_margin)
 
     config_data = {
-        "entry_fee": float(big_arena_cfg.get('min_bet', cfg.get('entry_fee', 350))),
+        "entry_fee": float(big_arena_cfg.get('min_bet', big_arena_cfg.get('entry_fee', cfg.get('entry_fee', 350)))),
         "min_participants": int(cfg.get('min_participants', 20)),
         "prize_pool_percentage": prize_pool_pct,
         "round_duration": int(cfg.get('round_duration', 900)),
@@ -209,7 +246,7 @@ def verify_session_token(token_str):
         return None
 
 
-# --- 1. مسارات لعبة شبكة العملات والمخاطرة (36 صندوقاً) ---
+# --- 1. مسارات لعبة شبكة ZN Go (36 صندوقاً) ---
 
 @games_bp.route('/boxes/start', methods=['POST'])
 @games_bp.route('/start', methods=['POST'])
@@ -225,9 +262,10 @@ def start_boxes_game():
     
     # التحقق من حالة تفعيل اللعبة حصرياً
     if not grid_cfg.get('enabled', True):
-        return jsonify({"success": False, "status": "error", "message": "⚠️ لعبة شبكة الـ 36 متوقفة مؤقتاً من قبل الإدارة."})
+        return jsonify({"success": False, "status": "error", "message": "⚠️ لعبة شبكة ZN Go متوقفة مؤقتاً من قبل الإدارة."})
 
-    min_bet_allowed = float(grid_cfg.get('min_bet', 100.0))
+    # قراءة الحد الأدنى للرهان من Firestore المحدد من الأدمن
+    min_bet_allowed = float(grid_cfg.get('min_bet', get_game_settings().get('min_bet', 100.0)))
 
     try:
         broken_count = int(data.get('broken_count', 3))
@@ -242,8 +280,13 @@ def start_boxes_game():
     except (ValueError, TypeError):
         bet = min_bet_allowed
 
+    # التحقق المباشر من الحد الأدنى للرهان ورفض أي قيمة أقل منه
     if bet < min_bet_allowed:
-        return jsonify({"success": False, "status": "error", "message": f"الحد الأدنى للرهان في هذه اللعبة هو {int(min_bet_allowed)} ZN."})
+        return jsonify({
+            "success": False, 
+            "status": "error", 
+            "message": f"الحد الأدنى للرهان في هذه اللعبة هو {min_bet_allowed:g} ZN."
+        })
 
     user_ref = db.collection('users').document(uid_str)
 
@@ -276,8 +319,10 @@ def start_boxes_game():
         if not ok:
             return jsonify({"success": False, "status": "error", "message": msg})
 
+        # تسجيل الرهان وتحديث الإحصائيات والأرباح لتظهر في سجل الأدمن العلوي
         record_bet_placed(uid_str, bet)
         record_user_game_result(uid_str, bet_amount=bet, win_amount=0.0)
+        _update_db_game_stats(bet_amount=bet, win_amount=0.0)
 
         target_margin = _get_grid_36_margin()
         multipliers = generate_multipliers(broken_count, target_margin)
@@ -470,8 +515,10 @@ def end_boxes_game():
         _cleanup_expired_sessions()
 
         if payout > 0:
+            # تسجيل أرباح اللاعب والبوت في قاعدة البيانات للسجل العلوي في لوحة الأدمن
             record_game_win(uid_str, bet, payout)
             record_user_game_result(uid_str, bet_amount=0.0, win_amount=payout)
+            _update_db_game_stats(bet_amount=0.0, win_amount=payout)
 
         return jsonify({
             "success": True,
@@ -548,6 +595,7 @@ def resolve_round(round_id):
             if prize_amount > 0:
                 record_game_win(w_uid, 0.0, prize_amount)
                 record_user_game_result(w_uid, bet_amount=0.0, win_amount=prize_amount)
+                _update_db_game_stats(bet_amount=0.0, win_amount=prize_amount)
             
         transaction.update(round_ref, {'status': 'completed', 'winners': final_winners})
         return True, "completed"
@@ -644,7 +692,7 @@ def join_arena():
         current_balance = round(float(user_data.get('balance', 0.0)), 2)
         
         if current_balance < cfg['entry_fee']:
-            return False, f"رصيدك غير كافٍ للااشتراك (الحد الأدنى {int(cfg['entry_fee'])} ZN).", current_balance, 0, []
+            return False, f"رصيدك غير كافٍ للاشتراك (الحد الأدنى {int(cfg['entry_fee'])} ZN).", current_balance, 0, []
             
         round_doc = round_ref.get(transaction=transaction)
         participants = (round_doc.to_dict() or {}).get('participants', []) if round_doc.exists else []
@@ -673,6 +721,7 @@ def join_arena():
 
             record_bet_placed(uid_str, cfg['entry_fee'])
             record_user_game_result(uid_str, bet_amount=cfg['entry_fee'], win_amount=0.0)
+            _update_db_game_stats(bet_amount=cfg['entry_fee'], win_amount=0.0)
 
         return jsonify(res_payload)
     except Exception as e:
