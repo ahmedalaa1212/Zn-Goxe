@@ -19,6 +19,18 @@ except ImportError:
         return {}
 
 try:
+    from database import get_grid_36_config
+except ImportError:
+    def get_grid_36_config():
+        return {"bot_margin": 70.0, "min_bet": 10.0, "enabled": True}
+
+try:
+    from database import get_big_arena_config
+except ImportError:
+    def get_big_arena_config():
+        return {"bot_margin": 70.0, "min_bet": 10.0, "enabled": True}
+
+try:
     from database import get_game_profit_stats
 except ImportError:
     def get_game_profit_stats():
@@ -73,13 +85,22 @@ def _cleanup_expired_sessions():
         _USED_SESSION_TOKENS.pop(k, None)
 
 
-def _get_target_margin(settings):
-    """جلب النسبة المئوية المستهدفة لأرباح البوت ديناميكياً (مثلاً 0.70 = 70%)"""
-    if not settings:
-        settings = {}
-    grid_cfg = settings.get('grid_game_config', {})
-    raw_val = grid_cfg.get('target_margin', settings.get('commission_percent', 0.70))
+def _get_grid_36_margin():
+    """جلب النسبة المئوية المستهدفة لأرباح البوت الخاصة بلعبة شبكة الـ 36"""
     try:
+        cfg = get_grid_36_config() or {}
+        raw_val = cfg.get('bot_margin', 70.0)
+        val = float(raw_val)
+        return val / 100.0 if val > 1.0 else val
+    except (ValueError, TypeError):
+        return 0.70
+
+
+def _get_big_arena_margin():
+    """جلب النسبة المئوية المستهدفة لأرباح البوت الخاصة بلعبة الساحة الكبرى"""
+    try:
+        cfg = get_big_arena_config() or {}
+        raw_val = cfg.get('bot_margin', 70.0)
         val = float(raw_val)
         return val / 100.0 if val > 1.0 else val
     except (ValueError, TypeError):
@@ -87,7 +108,7 @@ def _get_target_margin(settings):
 
 
 def generate_multipliers(broken_count, target_margin=0.70):
-    """توليد جدول المضاعفات ديناميكياً مع تطبيق نسبة أرباح البوت المستهدفة (70%)"""
+    """توليد جدول المضاعفات ديناميكياً مع تطبيق نسبة أرباح البوت المستهدفة"""
     safe_steps = 36 - broken_count
     if target_margin > 1.0:
         target_margin = target_margin / 100.0
@@ -117,26 +138,31 @@ def generate_multipliers(broken_count, target_margin=0.70):
 
 
 def get_arena_config():
-    """جلب إعدادات الساحة وتطبيق خصم نسبة البوت على ميزانية جوائز المستخدمين"""
+    """جلب إعدادات الساحة وتطبيق خصم نسبة البوت المستقلة على ميزانية جوائز المستخدمين"""
     now = time.time()
     if _ARENA_CONFIG_CACHE["data"] and (now - _ARENA_CONFIG_CACHE["timestamp"] < CACHE_TTL_CONFIG):
         return _ARENA_CONFIG_CACHE["data"]
 
     settings = get_game_settings() or {}
     cfg = settings.get('arena_config', {})
+    big_arena_cfg = get_big_arena_config() or {}
     
-    target_margin = _get_target_margin(settings)
+    # الاعتماد على إعدادات الساحة الكبرى المستقلة
+    bot_margin_val = float(big_arena_cfg.get('bot_margin', 70.0))
+    target_margin = bot_margin_val / 100.0 if bot_margin_val > 1.0 else bot_margin_val
+    
     default_prize_pct = max(0.10, 1.0 - target_margin)
     prize_pool_pct = float(cfg.get('prize_pool_percentage', default_prize_pct))
     if prize_pool_pct > 1.0:
         prize_pool_pct = prize_pool_pct / 100.0
 
     config_data = {
-        "entry_fee": float(cfg.get('entry_fee', 350)),
+        "entry_fee": float(big_arena_cfg.get('min_bet', cfg.get('entry_fee', 350))),
         "min_participants": int(cfg.get('min_participants', 20)),
         "prize_pool_percentage": prize_pool_pct,
         "round_duration": int(cfg.get('round_duration', 900)),
-        "lock_seconds": int(cfg.get('lock_seconds', 15))
+        "lock_seconds": int(cfg.get('lock_seconds', 15)),
+        "enabled": bool(big_arena_cfg.get('enabled', True))
     }
     _ARENA_CONFIG_CACHE["data"] = config_data
     _ARENA_CONFIG_CACHE["timestamp"] = now
@@ -195,12 +221,16 @@ def start_boxes_game():
     uid_str = str(uid)
     data = request.get_json(silent=True) or {}
     
-    settings = get_game_settings() or {}
-    grid_cfg = settings.get('grid_game_config', {})
+    grid_cfg = get_grid_36_config() or {}
+    
+    # التحقق من حالة تفعيل اللعبة حصرياً
+    if not grid_cfg.get('enabled', True):
+        return jsonify({"success": False, "status": "error", "message": "⚠️ لعبة شبكة الـ 36 متوقفة مؤقتاً من قبل الإدارة."})
+
     min_bet_allowed = float(grid_cfg.get('min_bet', 100.0))
 
     try:
-        broken_count = int(data.get('broken_count', grid_cfg.get('default_broken_coins', 3)))
+        broken_count = int(data.get('broken_count', 3))
     except (ValueError, TypeError):
         broken_count = 3
 
@@ -213,7 +243,7 @@ def start_boxes_game():
         bet = min_bet_allowed
 
     if bet < min_bet_allowed:
-        return jsonify({"success": False, "status": "error", "message": f"الحد الأدنى للرهان هو {int(min_bet_allowed)} ZN."})
+        return jsonify({"success": False, "status": "error", "message": f"الحد الأدنى للرهان في هذه اللعبة هو {int(min_bet_allowed)} ZN."})
 
     user_ref = db.collection('users').document(uid_str)
 
@@ -249,7 +279,7 @@ def start_boxes_game():
         record_bet_placed(uid_str, bet)
         record_user_game_result(uid_str, bet_amount=bet, win_amount=0.0)
 
-        target_margin = _get_target_margin(settings)
+        target_margin = _get_grid_36_margin()
         multipliers = generate_multipliers(broken_count, target_margin)
         
         session_data = {
@@ -301,8 +331,7 @@ def pick_box():
     user_doc = db.collection('users').document(str(uid)).get()
     current_balance = round(float((user_doc.to_dict() or {}).get('balance', 0.0)), 2) if user_doc.exists else 0.0
 
-    settings = get_game_settings() or {}
-    target_margin = _get_target_margin(settings)
+    target_margin = _get_grid_36_margin()
 
     profit_stats = get_game_profit_stats()
     actual_margin = profit_stats.get('actual_bot_percent', 100.0) / 100.0
@@ -383,8 +412,7 @@ def end_boxes_game():
     layout = list(session_data['layout'])
     broken_count = session_data['broken_count']
 
-    settings = get_game_settings() or {}
-    target_margin = _get_target_margin(settings)
+    target_margin = _get_grid_36_margin()
     multipliers = generate_multipliers(broken_count, target_margin)
     
     user_ref = db.collection('users').document(uid_str)
@@ -543,6 +571,11 @@ def arena_status():
         
         uid_str = str(uid)
         cfg = get_arena_config()
+        
+        # فحص حالة التفعيل الخاصة بالساحة الكبرى
+        if not cfg.get('enabled', True):
+            return jsonify({"success": False, "message": "⚠️ لعبة الساحة الكبرى متوقفة مؤقتاً من قبل الإدارة."}), 403
+
         round_id, end_time, current_time, round_id_num = get_current_round_info(cfg['round_duration'])
         
         for i in range(1, 3):
@@ -589,6 +622,10 @@ def join_arena():
 
     uid_str = str(uid)
     cfg = get_arena_config()
+    
+    if not cfg.get('enabled', True):
+        return jsonify({"success": False, "message": "⚠️ لعبة الساحة الكبرى متوقفة مؤقتاً من قبل الإدارة."})
+
     round_id, end_time, current_time, _ = get_current_round_info(cfg['round_duration'])
     
     if current_time >= (end_time - cfg['lock_seconds']):
