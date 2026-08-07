@@ -26,21 +26,27 @@ function getAuthHeaders() {
 // تحميل كافة البيانات تلقائياً فور تحميل الصفحة
 document.addEventListener("DOMContentLoaded", () => {
     initEvents();
-    loadGameSettings();
+    loadDashboardStats();
     loadModerators();
     loadAdminLogs();
 });
-
-initEvents();
 
 /**
  * ربط الأحداث التفاعلية لحقول الإدخال والنسب تلقائياً
  */
 function initEvents() {
-    const targetMarginInput = document.getElementById('targetMarginInput');
+    // دعم كلا المعرفين للمدخلات
+    const targetMarginInput = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
     if (targetMarginInput && !targetMarginInput.dataset.bound) {
         targetMarginInput.dataset.bound = "true";
         targetMarginInput.addEventListener('input', calculateMargins);
+    }
+
+    // ربط زر "تعديل نسبة التحكم" بالمعرف الجديد إن وُجد
+    const updateRatioBtn = document.getElementById('update-ratio-btn');
+    if (updateRatioBtn && !updateRatioBtn.dataset.bound) {
+        updateRatioBtn.dataset.bound = "true";
+        updateRatioBtn.addEventListener('click', updateGameSettings);
     }
 }
 
@@ -48,8 +54,8 @@ function initEvents() {
  * حساب نسبة اللاعبين تلقائياً (100 - نسبة البوت) فور كتابة النسبة
  */
 function calculateMargins() {
-    const targetMarginInput = document.getElementById('targetMarginInput');
-    const playerMarginInput = document.getElementById('playerMarginInput');
+    const targetMarginInput = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
+    const playerMarginInput = document.getElementById('user-margin-input') || document.getElementById('playerMarginInput');
     
     if (!targetMarginInput || !playerMarginInput) return;
 
@@ -71,7 +77,7 @@ function calculateMargins() {
  * تفعيل وضع التعديل وتفعيل حقل إدخال نسبة البوت
  */
 function enableMarginEdit() {
-    const targetMarginInput = document.getElementById('targetMarginInput');
+    const targetMarginInput = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
     const btnEditMargin = document.getElementById('btnEditMargin');
     const btnPublishMargin = document.getElementById('btnPublishMargin');
 
@@ -92,21 +98,32 @@ function enableMarginEdit() {
 /**
  * جلب إحصائيات الأرباح ونسبة أرباح البوت المستهدفة من السيرفر وعرضها حياً
  */
-async function loadGameSettings() {
+async function loadDashboardStats() {
     initEvents();
-    const botProfitEl = document.getElementById('statBotProfit');
-    const userProfitEl = document.getElementById('statUserProfit');
-    const actualMarginEl = document.getElementById('statActualMargin');
-    const targetMarginInput = document.getElementById('targetMarginInput');
-    const playerMarginInput = document.getElementById('playerMarginInput');
+    
+    // ربط كافة معرفات الواجهات الممكنة (قديمة وجديدة)
+    const botProfitEl = document.getElementById('bot-profit-val') || document.getElementById('statBotProfit');
+    const userProfitEl = document.getElementById('user-profit-val') || document.getElementById('statUserProfit');
+    const actualMarginEl = document.getElementById('actual-profit-pct') || document.getElementById('statActualMargin');
+    
+    const targetMarginInput = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
+    const playerMarginInput = document.getElementById('user-margin-input') || document.getElementById('playerMarginInput');
+    
     const btnEditMargin = document.getElementById('btnEditMargin');
     const btnPublishMargin = document.getElementById('btnPublishMargin');
 
     try {
-        let response = await fetch(`${API_BASE}/admin/stats`, {
+        let response = await fetch(`${API_BASE}/admin/dashboard-stats`, {
             method: 'GET',
             headers: getAuthHeaders()
         });
+
+        if (!response.ok) {
+            response = await fetch(`${API_BASE}/admin/stats`, {
+                method: 'GET',
+                headers: getAuthHeaders()
+            });
+        }
 
         if (!response.ok) {
             response = await fetch(`${API_BASE}/game-settings`, {
@@ -117,12 +134,12 @@ async function loadGameSettings() {
 
         const result = await response.json();
 
-        if (result.success) {
+        if (result.status === 'success' || result.success) {
             const stats = result.stats || {};
             const botProfit = stats.total_bot_profit || 0;
-            const userProfit = stats.total_user_profit || 0;
-            const actualMargin = stats.actual_margin !== undefined ? stats.actual_margin : (stats.actual_bot_percent || 0);
-            const targetMargin = result.target_margin !== undefined ? result.target_margin : (result.bot_margin || 70);
+            const userProfit = stats.total_wins !== undefined ? stats.total_wins : (stats.total_user_profit || 0);
+            const actualMargin = stats.actual_bot_percent !== undefined ? stats.actual_bot_percent : (stats.actual_margin || 0);
+            const targetMargin = stats.target_margin_percent !== undefined ? stats.target_margin_percent : (result.target_margin !== undefined ? result.target_margin : (result.bot_margin || 70));
 
             if (botProfitEl) botProfitEl.innerText = Number(botProfit).toLocaleString('ar-EG');
             if (userProfitEl) userProfitEl.innerText = Number(userProfit).toLocaleString('ar-EG');
@@ -130,7 +147,6 @@ async function loadGameSettings() {
 
             if (targetMarginInput) {
                 targetMarginInput.value = targetMargin;
-                targetMarginInput.disabled = true;
             }
             if (playerMarginInput) {
                 playerMarginInput.value = parseFloat((100.0 - targetMargin).toFixed(2));
@@ -139,24 +155,29 @@ async function loadGameSettings() {
             if (btnEditMargin) btnEditMargin.style.display = 'block';
             if (btnPublishMargin) btnPublishMargin.style.display = 'none';
         } else {
-            console.warn("تعذر جلب الإحصائيات:", result.error);
+            console.warn("تعذر جلب الإحصائيات:", result.message || result.error);
             if (botProfitEl) botProfitEl.innerText = "0";
             if (userProfitEl) userProfitEl.innerText = "0";
             if (actualMarginEl) actualMarginEl.innerText = "0%";
         }
     } catch (error) {
-        console.error("خطأ في جلب إعدادات الأرباح:", error);
+        console.error("خطأ في جلب بيانات لوحة التحكم:", error);
         if (botProfitEl) botProfitEl.innerText = "0";
         if (userProfitEl) userProfitEl.innerText = "0";
         if (actualMarginEl) actualMarginEl.innerText = "0%";
     }
 }
 
+// للإنقاص والربط المباشر مع التسمية العامة
+async function loadGameSettings() {
+    return await loadDashboardStats();
+}
+
 /**
  * تحديث نسبة أرباح البوت المستهدفة ونشرها فوراً إلى قاعدة البيانات
  */
 async function updateGameSettings() {
-    const input = document.getElementById('targetMarginInput');
+    const input = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
     if (!input) return;
 
     const targetMarginVal = parseFloat(input.value);
@@ -167,18 +188,26 @@ async function updateGameSettings() {
     }
 
     const payload = {
-        target_margin: targetMarginVal,
         bot_margin: targetMarginVal,
+        target_margin: targetMarginVal,
         player_margin: parseFloat((100.0 - targetMarginVal).toFixed(2)),
         updatedBy: "المدير العام"
     };
 
     try {
-        let response = await fetch(`${API_BASE}/admin/settings`, {
+        let response = await fetch(`${API_BASE}/admin/update-margin`, {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify(payload)
         });
+
+        if (!response.ok) {
+            response = await fetch(`${API_BASE}/admin/settings`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(payload)
+            });
+        }
 
         if (!response.ok) {
             response = await fetch(`${API_BASE}/game-settings`, {
@@ -190,9 +219,9 @@ async function updateGameSettings() {
 
         const result = await response.json();
 
-        if (result.success) {
+        if (result.status === 'success' || result.success) {
             alert(`✅ ${result.message || 'تم تحديث ونشر النسب بنجاح!'}`);
-            await loadGameSettings();
+            await loadDashboardStats();
             loadAdminLogs();
         } else {
             alert(`❌ خطأ: ${result.message || result.error || 'حدث خطأ أثناء حفظ الإعدادات'}`);
@@ -203,7 +232,7 @@ async function updateGameSettings() {
     }
 }
 
-function loadHouseEdge() { loadGameSettings(); }
+function loadHouseEdge() { loadDashboardStats(); }
 function updateHouseEdge() { updateGameSettings(); }
 
 
