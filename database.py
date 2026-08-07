@@ -82,30 +82,35 @@ def ensure_game_settings_exist():
             needs_update = False
             updates = {}
 
-            # 1. إعدادات لعبة الشبكة ونسبة ربح البوت المستهدفة (0.70 = 70%)
-            if "grid_game_config" not in existing_data:
-                grid_cfg = {
-                    "min_bet": 250.0,
+            # 1. إعدادات لعبة شبكة ZN Go
+            if "zn_go_config" not in existing_data and "grid_game_config" not in existing_data:
+                zn_cfg = {
+                    "min_bet": 10.0,
                     "target_margin": 0.70,
                     "default_broken_coins": 3,
                 }
-                existing_data["grid_game_config"] = grid_cfg
-                updates["grid_game_config"] = grid_cfg
+                existing_data["zn_go_config"] = zn_cfg
+                updates["zn_go_config"] = zn_cfg
+                updates["grid_game_config"] = zn_cfg
                 needs_update = True
             else:
-                grid_cfg = existing_data["grid_game_config"]
-                if "target_margin" not in grid_cfg or grid_cfg["target_margin"] == 0:
-                    grid_cfg["target_margin"] = 0.70
-                    existing_data["grid_game_config"]["target_margin"] = 0.70
-                    updates["grid_game_config"] = grid_cfg
+                zn_cfg = existing_data.get("zn_go_config") or existing_data.get("grid_game_config", {})
+                if "target_margin" not in zn_cfg or zn_cfg["target_margin"] == 0:
+                    zn_cfg["target_margin"] = 0.70
+                    zn_cfg["min_bet"] = zn_cfg.get("min_bet", 10.0)
+                    zn_cfg["default_broken_coins"] = zn_cfg.get("default_broken_coins", 3)
+                    existing_data["zn_go_config"] = zn_cfg
+                    updates["zn_go_config"] = zn_cfg
+                    updates["grid_game_config"] = zn_cfg
                     needs_update = True
 
             # 2. إعدادات لعبة الساحة الكبرى (Arena Config)
             if "arena_config" not in existing_data:
                 arena_cfg = {
-                    "entry_fee": 1000.0,
+                    "entry_fee": 10.0,
                     "min_participants": 20,
-                    "prize_pool_percentage": 0.45,
+                    "prize_pool_percentage": 0.30,
+                    "target_margin": 0.70,
                 }
                 existing_data["arena_config"] = arena_cfg
                 updates["arena_config"] = arena_cfg
@@ -133,105 +138,24 @@ def ensure_game_settings_exist():
             f"day_{i}": val
             for i, val in enumerate(
                 [
-                    100,
-                    150,
-                    200,
-                    250,
-                    300,
-                    350,
-                    400,
-                    450,
-                    500,
-                    550,
-                    600,
-                    600,
-                    650,
-                    650,
-                    700,
-                    700,
-                    750,
-                    750,
-                    800,
-                    800,
-                    850,
-                    850,
-                    900,
-                    900,
-                    950,
-                    950,
-                    1000,
-                    1000,
-                    1100,
-                    1250,
+                    100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
+                    600, 600, 650, 650, 700, 700, 750, 750, 800, 800,
+                    850, 850, 900, 900, 950, 950, 1000, 1000, 1100, 1250,
                 ],
                 start=1,
             )
         }
 
         mining_cfg = {
-            "1": {
-                "price": 3500.0,
-                "rate": 5.0,
-                "rate_bonus": 5.0,
-                "base_cost": 3500.0,
-                "max": 10,
-            },
-            "2": {
-                "price": 11500.0,
-                "rate": 15.0,
-                "rate_bonus": 15.0,
-                "base_cost": 11500.0,
-                "max": 10,
-            },
-            "3": {
-                "price": 28000.0,
-                "rate": 35.0,
-                "rate_bonus": 35.0,
-                "base_cost": 28000.0,
-                "max": 10,
-            },
-            "4": {
-                "price": 68000.0,
-                "rate": 80.0,
-                "rate_bonus": 80.0,
-                "base_cost": 68000.0,
-                "max": 10,
-            },
-            "5": {
-                "price": 165000.0,
-                "rate": 180.0,
-                "rate_bonus": 180.0,
-                "base_cost": 165000.0,
-                "max": 10,
-            },
-            "6": {
-                "price": 390000.0,
-                "rate": 400.0,
-                "rate_bonus": 400.0,
-                "base_cost": 390000.0,
-                "max": 10,
-            },
-            "7": {
-                "price": 950000.0,
-                "rate": 900.0,
-                "rate_bonus": 900.0,
-                "base_cost": 950000.0,
-                "max": 10,
-            },
-            "8": {
-                "price": 2300000.0,
-                "rate": 2000.0,
-                "rate_bonus": 2000.0,
-                "base_cost": 2300000.0,
-                "max": 10,
-            },
-            "9": {
-                "price": 5500000.0,
-                "rate": 4500.0,
-                "rate_bonus": 4500.0,
-                "base_cost": 5500000.0,
-                "max": 10,
-            },
+            "1": {"price": 3500.0, "rate": 5.0, "rate_bonus": 5.0, "base_cost": 3500.0, "max": 10},
+            "2": {"price": 11500.0, "rate": 15.0, "rate_bonus": 15.0, "base_cost": 11500.0, "max": 10},
+            "3": {"price": 28000.0, "rate": 35.0, "rate_bonus": 35.0, "base_cost": 28000.0, "max": 10},
+            "4": {"price": 68000.0, "rate": 80.0, "rate_bonus": 80.0, "base_cost": 68000.0, "max": 10},
+            "5": {"price": 165000.0, "rate": 180.0, "rate_bonus": 180.0, "base_cost": 165000.0, "max": 10},
+            "6": {"price": 390000.0, "rate": 400.0, "rate_bonus": 400.0, "base_cost": 390000.0, "max": 10},
+            "7": {"price": 950000.0, "rate": 900.0, "rate_bonus": 900.0, "base_cost": 950000.0, "max": 10},
+            "8": {"price": 2300000.0, "rate": 2000.0, "rate_bonus": 2000.0, "base_cost": 2300000.0, "max": 10},
+            "9": {"price": 5500000.0, "rate": 4500.0, "rate_bonus": 4500.0, "base_cost": 5500000.0, "max": 10},
         }
 
         storage_cfg = {
@@ -248,6 +172,12 @@ def ensure_game_settings_exist():
             "10": {"capacity": 800000.0, "price": 18000000},
         }
 
+        zn_go_default = {
+            "min_bet": 10.0,
+            "target_margin": 0.70,
+            "default_broken_coins": 3,
+        }
+
         initial_settings = {
             "usd_to_zn_rate": 1000000,
             "ad_reward_boost": 0.5,
@@ -256,15 +186,13 @@ def ensure_game_settings_exist():
             "storage_config": storage_cfg,
             "global_total_bets": 0.0,
             "global_total_wins": 0.0,
-            "grid_game_config": {
-                "min_bet": 250.0,
-                "target_margin": 0.70,
-                "default_broken_coins": 3,
-            },
+            "zn_go_config": zn_go_default,
+            "grid_game_config": zn_go_default,
             "arena_config": {
-                "entry_fee": 1000.0,
+                "entry_fee": 10.0,
                 "min_participants": 20,
-                "prize_pool_percentage": 0.45,
+                "prize_pool_percentage": 0.30,
+                "target_margin": 0.70,
             },
         }
 
@@ -324,32 +252,36 @@ def update_game_settings(new_settings_dict):
         return False, f"حدث خطأ أثناء الحفظ: {e}"
 
 
-def update_grid_game_config(
+def update_zn_go_config(
     min_bet=None, target_margin=None, default_broken_coins=None
 ):
-    """تحديث إعدادات ألعاب الشبكة ونسب الأرباح من لوحة التحكم"""
+    """تحديث إعدادات لعبة شبكة ZN Go ونسب الأرباح من لوحة التحكم"""
     try:
         if not db:
             initialize_firebase()
         config_ref = db.collection("app_config").document("game_settings")
         doc = config_ref.get()
         current_data = doc.to_dict() or {} if doc.exists else {}
-        grid_cfg = current_data.get("grid_game_config", {})
+        zn_cfg = current_data.get("zn_go_config") or current_data.get("grid_game_config", {})
 
         if min_bet is not None:
-            grid_cfg["min_bet"] = float(min_bet)
+            zn_cfg["min_bet"] = float(min_bet)
         if target_margin is not None:
             val = float(target_margin)
-            grid_cfg["target_margin"] = val / 100.0 if val > 1.0 else val
+            zn_cfg["target_margin"] = val / 100.0 if val > 1.0 else val
         if default_broken_coins is not None:
-            grid_cfg["default_broken_coins"] = int(default_broken_coins)
+            zn_cfg["default_broken_coins"] = int(default_broken_coins)
 
-        config_ref.set({"grid_game_config": grid_cfg}, merge=True)
+        config_ref.set({"zn_go_config": zn_cfg, "grid_game_config": zn_cfg}, merge=True)
         clear_settings_cache()
         return True
     except Exception as e:
-        print(f"❌ Error in update_grid_game_config: {e}")
+        print(f"❌ Error in update_zn_go_config: {e}")
         return False
+
+
+# لضمان التوافق مع الكود القائم سابقاً
+update_grid_game_config = update_zn_go_config
 
 
 # ==================== Arena Game Config Functions ====================
@@ -362,22 +294,24 @@ def get_arena_config():
         return settings.get(
             "arena_config",
             {
-                "entry_fee": 1000.0,
+                "entry_fee": 10.0,
                 "min_participants": 20,
-                "prize_pool_percentage": 0.45,
+                "prize_pool_percentage": 0.30,
+                "target_margin": 0.70,
             },
         )
     except Exception as e:
         print(f"❌ Error fetching arena_config: {e}")
         return {
-            "entry_fee": 1000.0,
+            "entry_fee": 10.0,
             "min_participants": 20,
-            "prize_pool_percentage": 0.45,
+            "prize_pool_percentage": 0.30,
+            "target_margin": 0.70,
         }
 
 
 def update_arena_config(
-    entry_fee=None, min_participants=None, prize_pool_percentage=None
+    entry_fee=None, min_participants=None, prize_pool_percentage=None, target_margin=None
 ):
     """تحديث إعدادات الساحة الكبرى في الفايربيس وتفريغ الكاش فوراً"""
     try:
@@ -395,6 +329,9 @@ def update_arena_config(
         if prize_pool_percentage is not None:
             val = float(prize_pool_percentage)
             arena_cfg["prize_pool_percentage"] = val / 100.0 if val > 1.0 else val
+        if target_margin is not None:
+            val = float(target_margin)
+            arena_cfg["target_margin"] = val / 100.0 if val > 1.0 else val
 
         config_ref.set({"arena_config": arena_cfg}, merge=True)
         clear_settings_cache()
@@ -408,48 +345,42 @@ def update_arena_config(
 
 
 def save_admin_settings(settings_dict):
-    """حفظ الإعدادات المرسلة من لوحة تحكم الأدمن وتحديث النسب"""
+    """حفظ الإعدادات المرسلة من لوحة تحكم الأدمن للعبة شبكة ZN Go والساحة"""
     try:
         if not isinstance(settings_dict, dict):
             return False, "بيانات الإعدادات غير صالحة"
 
         current_settings = get_game_settings() or {}
-        grid_cfg = current_settings.get("grid_game_config", {})
+        zn_cfg = current_settings.get("zn_go_config") or current_settings.get("grid_game_config", {})
 
-        if "target_margin" in settings_dict:
-            val = float(settings_dict["target_margin"])
-            grid_cfg["target_margin"] = val / 100.0 if val > 1.0 else val
+        if "zn_go_bot_profit" in settings_dict or "bot_margin" in settings_dict or "target_margin" in settings_dict:
+            val = float(settings_dict.get("zn_go_bot_profit", settings_dict.get("bot_margin", settings_dict.get("target_margin", 70))))
+            zn_cfg["target_margin"] = val / 100.0 if val > 1.0 else val
 
-        if "bot_margin" in settings_dict:
-            val = float(settings_dict["bot_margin"])
-            grid_cfg["target_margin"] = val / 100.0 if val > 1.0 else val
-
-        if "min_bet" in settings_dict:
-            grid_cfg["min_bet"] = float(settings_dict["min_bet"])
+        if "zn_go_min_bet" in settings_dict or "min_bet" in settings_dict:
+            zn_cfg["min_bet"] = float(settings_dict.get("zn_go_min_bet", settings_dict.get("min_bet", 10)))
 
         if "default_broken_coins" in settings_dict:
-            grid_cfg["default_broken_coins"] = int(
-                settings_dict["default_broken_coins"]
-            )
+            zn_cfg["default_broken_coins"] = int(settings_dict["default_broken_coins"])
 
-        payload = {"grid_game_config": grid_cfg}
+        payload = {"zn_go_config": zn_cfg, "grid_game_config": zn_cfg}
 
         if "usd_to_zn_rate" in settings_dict:
             payload["usd_to_zn_rate"] = float(settings_dict["usd_to_zn_rate"])
 
-        # دعم تحديث الساحة عند إرسالها ضمن save_admin_settings
+        # دعم تحديث إعدادات الساحة الكبرى
         if (
-            "arena_entry_fee" in settings_dict
-            or "arena_min_participants" in settings_dict
+            "arena_bot_profit" in settings_dict
+            or "arena_min_bet" in settings_dict
+            or "arena_entry_fee" in settings_dict
             or "arena_prize_pct" in settings_dict
         ):
             arena_cfg = current_settings.get("arena_config", {})
-            if "arena_entry_fee" in settings_dict:
-                arena_cfg["entry_fee"] = float(settings_dict["arena_entry_fee"])
-            if "arena_min_participants" in settings_dict:
-                arena_cfg["min_participants"] = int(
-                    settings_dict["arena_min_participants"]
-                )
+            if "arena_bot_profit" in settings_dict:
+                val = float(settings_dict["arena_bot_profit"])
+                arena_cfg["target_margin"] = val / 100.0 if val > 1.0 else val
+            if "arena_min_bet" in settings_dict or "arena_entry_fee" in settings_dict:
+                arena_cfg["entry_fee"] = float(settings_dict.get("arena_min_bet", settings_dict.get("arena_entry_fee", 10)))
             if "arena_prize_pct" in settings_dict:
                 val = float(settings_dict["arena_prize_pct"])
                 arena_cfg["prize_pool_percentage"] = val / 100.0 if val > 1.0 else val
@@ -511,7 +442,6 @@ def record_game_loss(tg_id, bet_amount):
         user_ref = db.collection("users").document(tg_id_str)
         user_ref.update({"total_losses": firestore.Increment(bet)})
 
-        # لا تتغير أرباح اللاعبين في arena لأن المبلغ بالكامل أصبح أرباحاً للبوت
         arena_ref = db.collection("arena").document("current")
         arena_ref.set({"last_updated": firestore.SERVER_TIMESTAMP}, merge=True)
 
@@ -530,7 +460,7 @@ def record_game_win(tg_id, bet_amount, total_cashout_amount):
         bet = float(bet_amount)
         cashout = float(total_cashout_amount)
 
-        # الربح الصافي = إجمالي السحب - المبلغ المراهن به (مثال: 110 - 100 = 10)
+        # الربح الصافي = إجمالي السحب - المبلغ المراهن به
         net_profit = max(0.0, cashout - bet)
 
         tg_id_str = str(tg_id)
@@ -542,7 +472,7 @@ def record_game_win(tg_id, bet_amount, total_cashout_amount):
             "total_wins": firestore.Increment(net_profit),
         })
 
-        # 2. إضافة الربح الصافي فقط لمستند الأرباح الإجمالية (payouts) للبوت واللعبة
+        # 2. إضافة الربح الصافي فقط لمستند الأرباح الإجمالية للبوت واللعبة
         config_ref = db.collection("app_config").document("game_settings")
         config_ref.update({"global_total_wins": firestore.Increment(net_profit)})
 
@@ -563,7 +493,7 @@ def get_game_profit_stats():
     """حساب أرباح ونسب البوت واللاعبين بدقة عالية وقراءة سريعة"""
     try:
         settings = get_game_settings() or {}
-        grid_cfg = settings.get("grid_game_config", {})
+        zn_cfg = settings.get("zn_go_config") or settings.get("grid_game_config", {})
 
         arena_bets = 0.0
         arena_wins = 0.0
@@ -588,7 +518,7 @@ def get_game_profit_stats():
 
         # صافي ربح البوت = إجمالي الرهانات - أرباح المستخدمين الصافية المدفوعة
         bot_net_profit = max(0.0, total_bets - total_wins)
-        target_margin = float(grid_cfg.get("target_margin", 0.70))
+        target_margin = float(zn_cfg.get("target_margin", 0.70))
         target_margin_pct = (
             target_margin * 100.0 if target_margin <= 1.0 else target_margin
         )
@@ -631,23 +561,22 @@ def get_game_profit_stats():
 
 
 def should_user_win_next_step():
-    """دالة ذكية توضع داخل محرك اللعبة للتحكم بنسبة 70% للبوت و30% للمستخدم"""
+    """دالة توضع داخل محرك اللعبة للتحكم بنسبة الربح المحددة للبوت واللاعب"""
     try:
         stats = get_game_profit_stats()
         actual_bot_pct = stats.get("actual_bot_percent", 100.0)
         target_bot_pct = stats.get("target_margin_percent", 70.0)
 
-        # إذا كانت نسبة ربح البوت الحالية أقل من النسبة المستهدفة (مثلاً 70%)
-        # يتم توجيه اللعبة لإظهار القنبلة وخسارة المستخدم
+        # إذا كانت نسبة ربح البوت الحالية أقل من النسبة المستهدفة يتم توجيه اللعبة لإظهار الخسارة
         if actual_bot_pct < target_bot_pct:
-            return False  # اجعل الخطوة خاسرة
-        return True  # اجعل الخطوة مسموحة للربح
+            return False
+        return True
     except Exception:
         return True
 
 
 def get_admin_dashboard_stats():
-    """جلب إحصائيات الشاشة الرئيسية للأدمن بسرعة دون إرهاق السيرفر"""
+    """جلب إحصائيات الشاشة الرئيسية للأدمن بسرعة"""
     try:
         profit_stats = get_game_profit_stats()
         total_users_count = 0
@@ -933,7 +862,6 @@ def is_admin(tg_id):
     if not admin_id_env:
         return False
 
-    # يدعم إدخال أكثر من أدمن مفصولين بفاصلة في متغير البيئة
     admin_ids = [a.strip() for a in admin_id_env.split(",") if a.strip()]
     return str(tg_id) in admin_ids
 
