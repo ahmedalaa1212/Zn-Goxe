@@ -28,8 +28,10 @@ document.addEventListener("DOMContentLoaded", async () => {
             method: 'POST',
             headers: {
                 'X-Telegram-Init-Data': initData,
+                'Authorization': `Bearer ${initData}`,
                 'Content-Type': 'application/json'
-            }
+            },
+            body: JSON.stringify({ initData: initData })
         });
 
         const data = await response.json();
@@ -113,6 +115,14 @@ function loadSectionScript(sectionName) {
     const script = document.createElement("script");
     script.id = scriptId;
     script.src = `/${sectionName}/${sectionName}.js?v=${new Date().getTime()}`;
+    
+    // تشغيل التهيئة فور اكتمال تحميل سكريبت القسم في الـ DOM
+    script.onload = () => {
+        if (sectionName === 'super_admin' && typeof window.initSuperAdmin === 'function') {
+            window.initSuperAdmin();
+        }
+    };
+
     document.body.appendChild(script);
 }
 
