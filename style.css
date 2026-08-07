@@ -18,6 +18,7 @@ body {
     min-height: 100vh;
     padding: 12px;
     padding-bottom: calc(85px + env(safe-area-inset-bottom, 0px));
+    transition: padding-bottom 0.2s ease;
 }
 
 /* ==========================================
@@ -93,6 +94,7 @@ body {
     box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
     padding-left: 2px;
     padding-right: 2px;
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
 }
 
 /* أزرار القائمة العادية */
@@ -217,4 +219,34 @@ body {
 .small-decimal {
     font-size: 0.75em;
     opacity: 0.85;
+}
+
+/* ==========================================
+   إخفاء القائمة السفلى تلقائياً عند فتح لوحة المفاتيح (Keyboard Active)
+   ========================================== */
+body:has(input:focus),
+body:has(textarea:focus),
+body:has(select:focus),
+body.keyboard-open .bottom-nav,
+.bottom-nav.hide-keyboard {
+    display: none !important;
+    opacity: 0;
+    pointer-events: none;
+}
+
+body:has(input:focus) #app,
+body:has(textarea:focus) #app,
+body:has(select:focus) #app,
+body.keyboard-open #app {
+    padding-bottom: 12px !important;
+}
+
+/* معالجة إخفاء القائمة في الشاشات المنخفضة الارتفاع أثناء ظهور الكيبورد */
+@media (max-height: 480px) {
+    .bottom-nav {
+        display: none !important;
+    }
+    #app {
+        padding-bottom: 12px !important;
+    }
 }
