@@ -187,11 +187,6 @@
             border-color: var(--accent-gold);
         }
 
-        .input-group input:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
         .btn-primary {
             width: 100%;
             background: var(--accent-gold);
@@ -286,16 +281,6 @@
             padding: 10px;
         }
 
-        .log-admin {
-            font-weight: bold;
-            color: var(--accent-gold);
-        }
-
-        .log-time {
-            font-size: 9px;
-            color: var(--text-muted);
-        }
-
         ::-webkit-scrollbar {
             width: 4px;
         }
@@ -329,64 +314,68 @@
             </div>
         </div>
 
-        <!-- قسم التحكم الإجمالي بالنظام ونسب الأرباح -->
+        <!-- 🎮 الكارت الأول: لعبة شبكة الـ 36 -->
         <div class="section-card">
             <div class="section-header">
-                <div class="section-title">⚙️ التحكم العام بالأرباح والحد الأدنى</div>
-                <button class="btn-refresh" onclick="refreshDashboard()">🔄 تحديث الفايربيس</button>
+                <div class="section-title">🎮 لعبة شبكة الـ 36</div>
+                <button class="btn-refresh" onclick="loadGrid36Settings()">🔄 تحديث</button>
             </div>
             
             <div class="margin-controls">
                 <div class="input-group">
                     <label>أرباح البوت (%)</label>
-                    <input type="number" id="bot-margin-input" min="0" max="100" placeholder="70" disabled>
-                    <input type="hidden" id="targetMarginInput">
+                    <input type="number" id="grid36-bot-margin" min="0" max="100" placeholder="70">
                 </div>
                 <div class="input-group">
-                    <label>اللاعبين (%)</label>
-                    <input type="number" id="user-margin-input" placeholder="30" disabled>
-                    <input type="hidden" id="playerMarginInput">
-                </div>
-                <div class="input-group">
-                    <label>الحد الأدنى للعب</label>
-                    <input type="number" id="min-bet-input" min="0" placeholder="10" disabled>
-                </div>
-            </div>
-
-            <button class="btn-primary" id="btnEditMargin" onclick="enableMarginEdit()">✏️ تعديل النسب العامة</button>
-            <button class="btn-primary" id="update-ratio-btn" onclick="updateGameSettings()" style="display:none; margin-top: 8px; background: var(--accent-green); color: #fff;">🚀 حفظ ونشر الإعدادات فوراً</button>
-        </div>
-
-        <!-- 🆕 كرت التحكم الجديد: الساحة الكبرى (شبكة الـ 36) -->
-        <div class="section-card" style="border: 1px solid var(--accent-gold);">
-            <div class="section-header">
-                <div class="section-title" style="color: var(--accent-gold);">🏟️ الساحة الكبرى (شبكة الـ 36)</div>
-            </div>
-            
-            <div class="margin-controls">
-                <div class="input-group">
-                    <label>أرباح البوت (%)</label>
-                    <input type="number" id="arena-bot-margin-input" min="0" max="100" placeholder="70" disabled>
-                </div>
-                <div class="input-group">
-                    <label>اللاعبين (%)</label>
-                    <input type="number" id="arena-user-margin-input" placeholder="30" disabled>
+                    <label>أرباح اللاعبين (%)</label>
+                    <input type="number" id="grid36-user-margin" placeholder="30" readonly style="opacity:0.7;">
                 </div>
                 <div class="input-group">
                     <label>الحد الأدنى للرهان</label>
-                    <input type="number" id="arena-min-bet-input" min="0" placeholder="10" disabled>
+                    <input type="number" id="grid36-min-bet" min="0" placeholder="10">
                 </div>
             </div>
 
             <div class="input-group" style="margin-bottom: 12px; background: var(--input-bg); padding: 8px; border-radius: 8px; border: 1px solid var(--card-border);">
                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-main); font-size: 11px;">
-                    <input type="checkbox" id="arena-status-toggle" style="accent-color: var(--accent-gold); width: 16px; height: 16px;" disabled checked>
-                    <span>تفعيل وتشغيل الساحة الكبرى (شبكة الـ 36)</span>
+                    <input type="checkbox" id="grid36-enabled" style="accent-color: var(--accent-gold); width: 16px; height: 16px;" checked>
+                    <span>تفعيل وتشغيل لعبة شبكة الـ 36</span>
                 </label>
             </div>
 
-            <button class="btn-primary" id="btnEditArena" onclick="enableArena36Edit()">✏️ تعديل إعدادات الساحة الكبرى</button>
-            <button class="btn-primary" id="btnPublishArena" onclick="updateArena36Settings()" style="display:none; margin-top: 8px; background: var(--accent-green); color: #fff;">🚀 حفظ ونشر إعدادات الساحة</button>
+            <button class="btn-primary" id="btnSaveGrid36" onclick="saveGrid36Settings()" style="background: var(--accent-green); color: #fff;">💾 حفظ إعدادات شبكة الـ 36</button>
+        </div>
+
+        <!-- 🏟️ الكارت الثاني: لعبة الساحة الكبرى -->
+        <div class="section-card" style="border: 1px solid var(--accent-gold);">
+            <div class="section-header">
+                <div class="section-title" style="color: var(--accent-gold);">🏟️ لعبة الساحة الكبرى</div>
+                <button class="btn-refresh" onclick="loadBigArenaSettings()">🔄 تحديث</button>
+            </div>
+            
+            <div class="margin-controls">
+                <div class="input-group">
+                    <label>أرباح البوت (%)</label>
+                    <input type="number" id="big-arena-bot-margin" min="0" max="100" placeholder="70">
+                </div>
+                <div class="input-group">
+                    <label>أرباح اللاعبين (%)</label>
+                    <input type="number" id="big-arena-user-margin" placeholder="30" readonly style="opacity:0.7;">
+                </div>
+                <div class="input-group">
+                    <label>الحد الأدنى للرهان</label>
+                    <input type="number" id="big-arena-min-bet" min="0" placeholder="10">
+                </div>
+            </div>
+
+            <div class="input-group" style="margin-bottom: 12px; background: var(--input-bg); padding: 8px; border-radius: 8px; border: 1px solid var(--card-border);">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-main); font-size: 11px;">
+                    <input type="checkbox" id="big-arena-enabled" style="accent-color: var(--accent-gold); width: 16px; height: 16px;" checked>
+                    <span>تفعيل وتشغيل لعبة الساحة الكبرى</span>
+                </label>
+            </div>
+
+            <button class="btn-primary" id="btnSaveBigArena" onclick="saveBigArenaSettings()" style="background: var(--accent-green); color: #fff;">💾 حفظ إعدادات الساحة الكبرى</button>
         </div>
 
         <!-- قسم إدارة المشرفين والصلاحيات -->
@@ -441,16 +430,24 @@
                 window.Telegram.WebApp.expand();
             }
 
-            const botInput = document.getElementById('bot-margin-input');
-            const targetInput = document.getElementById('targetMarginInput');
-            const userInput = document.getElementById('user-margin-input');
-            const playerInput = document.getElementById('playerMarginInput');
-
-            if (botInput && targetInput) {
-                botInput.addEventListener('input', () => { targetInput.value = botInput.value; });
+            // حساب نسبة اللاعب التلقائية لشبكة الـ 36
+            const gBot = document.getElementById('grid36-bot-margin');
+            const gUser = document.getElementById('grid36-user-margin');
+            if (gBot && gUser) {
+                gBot.addEventListener('input', () => {
+                    const val = parseFloat(gBot.value) || 0;
+                    gUser.value = Math.max(0, 100 - val);
+                });
             }
-            if (userInput && playerInput) {
-                userInput.addEventListener('input', () => { playerInput.value = userInput.value; });
+
+            // حساب نسبة اللاعب التلقائية للساحة الكبرى
+            const aBot = document.getElementById('big-arena-bot-margin');
+            const aUser = document.getElementById('big-arena-user-margin');
+            if (aBot && aUser) {
+                aBot.addEventListener('input', () => {
+                    const val = parseFloat(aBot.value) || 0;
+                    aUser.value = Math.max(0, 100 - val);
+                });
             }
         });
     </script>
