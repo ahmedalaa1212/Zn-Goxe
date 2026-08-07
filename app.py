@@ -189,20 +189,20 @@ def update_margin():
             bot_margin = req_data.get('target_margin')
 
         if bot_margin is None:
-            return jsonify({"status": "error", "message": "يرجى تحديد نسبة أرباح البوت"}), 400
+            return jsonify({"status": "error", "success": False, "message": "يرجى تحديد نسبة أرباح البوت"}), 400
 
         try:
             bot_margin = float(bot_margin)
         except (ValueError, TypeError):
-            return jsonify({"status": "error", "message": "قيمة النسبة غير صالحة"}), 400
+            return jsonify({"status": "error", "success": False, "message": "قيمة النسبة غير صالحة"}), 400
 
         if bot_margin < 0 or bot_margin > 100:
-            return jsonify({"status": "error", "message": "النسبة يجب أن تكون بين 0 و 100"}), 400
+            return jsonify({"status": "error", "success": False, "message": "النسبة يجب أن تكون بين 0 و 100"}), 400
 
         if hasattr(database, 'save_admin_settings'):
             ok, msg = database.save_admin_settings({"target_margin": bot_margin})
             if ok:
-                return jsonify({"status": "success", "message": msg or "تم تعديل نسبة التحكم بنجاح"}), 200
+                return jsonify({"status": "success", "success": True, "message": msg or "تم تعديل نسبة التحكم بنجاح"}), 200
 
         if hasattr(database, 'update_game_settings'):
             database.update_game_settings({
@@ -217,11 +217,11 @@ def update_margin():
         if hasattr(database, 'clear_settings_cache'):
             database.clear_settings_cache()
 
-        return jsonify({"status": "success", "message": "تم تعديل نسبة التحكم بنجاح"}), 200
+        return jsonify({"status": "success", "success": True, "message": "تم تعديل نسبة التحكم بنجاح"}), 200
 
     except Exception as e:
         print(f"❌ Error updating margin: {e}")
-        return jsonify({"status": "error", "message": "حدث خطأ أثناء تحديث نسبة التحكم"}), 500
+        return jsonify({"status": "error", "success": False, "message": "حدث خطأ أثناء تحديث نسبة التحكم"}), 500
 
 
 @app.route('/api/admin/stats', methods=['GET'])
@@ -250,6 +250,7 @@ def get_admin_stats():
         player_margin_pct = round(max(0.0, 100.0 - target_margin_pct), 2)
 
         return jsonify({
+            "status": "success",
             "success": True,
             "target_margin": target_margin_pct,
             "player_margin": player_margin_pct,
@@ -268,7 +269,7 @@ def get_admin_stats():
         }), 200
     except Exception as e:
         print(f"❌ Error fetching admin stats: {e}")
-        return jsonify({"success": False, "error": "حدث خطأ أثناء جلب إحصائيات الأرباح"}), 500
+        return jsonify({"status": "error", "success": False, "error": "حدث خطأ أثناء جلب إحصائيات الأرباح"}), 500
 
 
 @app.route('/api/admin/settings', methods=['POST'])
@@ -296,10 +297,10 @@ def save_admin_settings_route():
             try:
                 target_margin = float(target_margin)
             except (ValueError, TypeError):
-                return jsonify({"success": False, "error": "قيمة النسبة غير صالحة"}), 400
+                return jsonify({"status": "error", "success": False, "error": "قيمة النسبة غير صالحة"}), 400
 
             if target_margin < 0 or target_margin > 100:
-                return jsonify({"success": False, "error": "النسبة يجب أن تكون بين 0 و 100"}), 400
+                return jsonify({"status": "error", "success": False, "error": "النسبة يجب أن تكون بين 0 و 100"}), 400
 
             if hasattr(database, 'update_game_settings'):
                 database.update_game_settings({
@@ -315,16 +316,17 @@ def save_admin_settings_route():
                 database.clear_settings_cache()
 
             return jsonify({
+                "status": "success",
                 "success": True,
                 "message": "تم حفظ نسبة البوت ونسبة اللاعبين بنجاح",
                 "target_margin": target_margin,
                 "player_margin": round(100.0 - target_margin, 2)
             }), 200
         else:
-            return jsonify({"success": False, "error": "يرجى تحديد نسبة البوت أو نسبة اللاعبين"}), 400
+            return jsonify({"status": "error", "success": False, "error": "يرجى تحديد نسبة البوت أو نسبة اللاعبين"}), 400
     except Exception as e:
         print(f"❌ Error saving admin settings: {e}")
-        return jsonify({"success": False, "error": "حدث خطأ أثناء حفظ الإعدادات"}), 500
+        return jsonify({"status": "error", "success": False, "error": "حدث خطأ أثناء حفظ الإعدادات"}), 500
 
 
 # ==========================================
@@ -360,6 +362,7 @@ def manage_game_settings():
             player_margin_pct = round(max(0.0, 100.0 - target_margin_pct), 2)
 
             return jsonify({
+                "status": "success",
                 "success": True,
                 "target_margin": target_margin_pct,
                 "player_margin": player_margin_pct,
@@ -378,7 +381,7 @@ def manage_game_settings():
             }), 200
         except Exception as e:
             print(f"❌ Error fetching game settings: {e}")
-            return jsonify({"success": False, "error": "حدث خطأ أثناء جلب إعدادات الأرباح"}), 500
+            return jsonify({"status": "error", "success": False, "error": "حدث خطأ أثناء جلب إعدادات الأرباح"}), 500
 
     elif request.method == 'POST':
         try:
@@ -407,12 +410,13 @@ def manage_game_settings():
                 database.clear_settings_cache()
 
             return jsonify({
+                "status": "success",
                 "success": True,
                 "message": "تم تحديث إعدادات الأرباح ونسبة البوت بنجاح"
             }), 200
         except Exception as e:
             print(f"❌ Error updating game settings: {e}")
-            return jsonify({"success": False, "error": "حدث خطأ أثناء حفظ إعدادات الأرباح"}), 500
+            return jsonify({"status": "error", "success": False, "error": "حدث خطأ أثناء حفظ إعدادات الأرباح"}), 500
 
 
 # ==========================================
@@ -430,10 +434,10 @@ def manage_moderators():
     if request.method == 'GET':
         try:
             moderators = database.get_moderators() if hasattr(database, 'get_moderators') else []
-            return jsonify({"success": True, "moderators": moderators}), 200
+            return jsonify({"status": "success", "success": True, "moderators": moderators}), 200
         except Exception as e:
             print(f"❌ Error fetching moderators: {e}")
-            return jsonify({"success": False, "error": "حدث خطأ أثناء جلب قائمة المشرفين"}), 500
+            return jsonify({"status": "error", "success": False, "error": "حدث خطأ أثناء جلب قائمة المشرفين"}), 500
 
     elif request.method == 'POST':
         try:
@@ -443,15 +447,15 @@ def manage_moderators():
             permissions = data.get('permissions', {})
 
             if not mod_id or not mod_name:
-                return jsonify({"success": False, "error": "يرجى تحديد المعرف والاسم للمشرف"}), 400
+                return jsonify({"status": "error", "success": False, "error": "يرجى تحديد المعرف والاسم للمشرف"}), 400
 
             if hasattr(database, 'add_moderator'):
                 database.add_moderator(mod_id, mod_name, permissions, added_by=telegram_id)
 
-            return jsonify({"success": True, "message": "تمت إضافة المشرف بنجاح"}), 200
+            return jsonify({"status": "success", "success": True, "message": "تمت إضافة المشرف بنجاح"}), 200
         except Exception as e:
             print(f"❌ Error adding moderator: {e}")
-            return jsonify({"success": False, "error": "حدث خطأ أثناء إضافة المشرف"}), 500
+            return jsonify({"status": "error", "success": False, "error": "حدث خطأ أثناء إضافة المشرف"}), 500
 
 
 @app.route('/api/moderators/<mod_id>', methods=['DELETE'])
@@ -464,10 +468,10 @@ def delete_moderator_route(mod_id):
     try:
         if hasattr(database, 'delete_moderator'):
             database.delete_moderator(mod_id, deleted_by=telegram_id)
-        return jsonify({"success": True, "message": "تم حذف المشرف بنجاح"}), 200
+        return jsonify({"status": "success", "success": True, "message": "تم حذف المشرف بنجاح"}), 200
     except Exception as e:
         print(f"❌ Error deleting moderator {mod_id}: {e}")
-        return jsonify({"success": False, "error": "حدث خطأ أثناء حذف المشرف"}), 500
+        return jsonify({"status": "error", "success": False, "error": "حدث خطأ أثناء حذف المشرف"}), 500
 
 
 @app.route('/api/admin-logs', methods=['GET'])
@@ -479,10 +483,10 @@ def get_admin_logs_route():
 
     try:
         logs = database.get_admin_logs() if hasattr(database, 'get_admin_logs') else []
-        return jsonify({"success": True, "logs": logs}), 200
+        return jsonify({"status": "success", "success": True, "logs": logs}), 200
     except Exception as e:
         print(f"❌ Error fetching admin logs: {e}")
-        return jsonify({"success": False, "error": "حدث خطأ أثناء جلب السجلات"}), 500
+        return jsonify({"status": "error", "success": False, "error": "حدث خطأ أثناء جلب السجلات"}), 500
 
 
 # ==========================================
@@ -500,12 +504,12 @@ def add_security_headers(response):
 
 @app.errorhandler(500)
 def handle_500_error(e):
-    return jsonify({"success": False, "error": "حدث خطأ داخلي في السيرفر", "message": "خطأ في الاتصال بالخادم."}), 500
+    return jsonify({"status": "error", "success": False, "error": "حدث خطأ داخلي في السيرفر", "message": "خطأ في الاتصال بالخادم."}), 500
 
 @app.errorhandler(404)
 def handle_404_error(e):
     if request.path.startswith('/api/'):
-        return jsonify({"success": False, "error": "المسار غير موجود", "message": "خطأ في الاتصال بالخادم."}), 404
+        return jsonify({"status": "error", "success": False, "error": "المسار غير موجود", "message": "خطأ في الاتصال بالخادم."}), 404
     return send_from_directory('.', 'index.html')
 
 @app.route('/')
