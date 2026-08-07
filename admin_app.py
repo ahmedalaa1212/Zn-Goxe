@@ -11,6 +11,19 @@ app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 WEB_URL = os.environ.get('WEB_URL', 'https://admin-zn-production.up.railway.app').strip().rstrip('/')
+ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551")
+
+def is_admin_authorized(telegram_id):
+    """فحص موحد وهجين: يتحقق من الأيدي الرئيسي للأدمن أو من قائمة المشرفين في الفايربيس"""
+    if not telegram_id:
+        return False
+    if str(telegram_id) == str(ADMIN_ID):
+        return True
+    try:
+        return database.is_admin_or_mod(telegram_id)
+    except Exception as e:
+        print(f"⚠️ Error checking admin status: {e}")
+        return False
 
 # ==========================================
 # تسجيل المسارات (Blueprints) الخاصة ببرمجة المستخدم
@@ -44,7 +57,7 @@ def verify_admin_access():
     if not success:
         return error_res
 
-    if database.is_admin_or_mod(telegram_id):
+    if is_admin_authorized(telegram_id):
         return jsonify({"success": True, "message": "تم التحقق بنجاح"}), 200
     return jsonify({"success": False, "error": "عذراً، البوت مخصص للإدارة فقط!"}), 403
 
@@ -58,7 +71,7 @@ def admin_zn_go_settings():
     if not success:
         return error_res
 
-    if not database.is_admin_or_mod(telegram_id):
+    if not is_admin_authorized(telegram_id):
         return jsonify({"success": False, "error": "غير مصرح لك للوصول للإدارة"}), 403
 
     if request.method == 'GET':
@@ -126,7 +139,7 @@ def admin_big_arena_settings():
     if not success:
         return error_res
 
-    if not database.is_admin_or_mod(telegram_id):
+    if not is_admin_authorized(telegram_id):
         return jsonify({"success": False, "error": "غير مصرح لك للوصول للإدارة"}), 403
 
     if request.method == 'GET':
@@ -164,7 +177,7 @@ def admin_dashboard_stats():
     if not success:
         return error_res
 
-    if not database.is_admin_or_mod(telegram_id):
+    if not is_admin_authorized(telegram_id):
         return jsonify({"success": False, "error": "غير مصرح لك للوصول للإدارة"}), 403
 
     res = database.get_admin_dashboard_stats()
@@ -180,7 +193,7 @@ def admin_moderators_manager(mod_id=None):
     if not success:
         return error_res
 
-    if not database.is_admin_or_mod(telegram_id):
+    if not is_admin_authorized(telegram_id):
         return jsonify({"success": False, "error": "غير مصرح لك للوصول للإدارة"}), 403
 
     if request.method == 'GET':
@@ -217,7 +230,7 @@ def admin_logs_handler():
     if not success:
         return error_res
 
-    if not database.is_admin_or_mod(telegram_id):
+    if not is_admin_authorized(telegram_id):
         return jsonify({"success": False, "error": "غير مصرح لك للوصول للإدارة"}), 403
 
     logs = database.get_admin_logs(limit=50)
@@ -307,14 +320,12 @@ def handle_404_error(e):
     if request.path.startswith('/api/'):
         return jsonify({"status": "error", "success": False, "error": "المسار غير موجود", "message": "خطأ في الاتصال بالخادم."}), 404
     
-    # توجيه أي مسار غير معروف دائماً لوجهة الأدمن
     return send_from_directory('.', 'admin.html')
 
 # ==========================================
 # توجيه صفحات الواجهة (Webpages Routing)
 # ==========================================
 
-# توجيه الرابط الرئيسي ورابط /admin كلاهما إلى admin.html حصراً
 @app.route('/')
 @app.route('/admin')
 @app.route('/admin.html')
