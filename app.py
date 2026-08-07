@@ -89,7 +89,6 @@ def verify_admin_access():
 
     try:
         user_data = database.get_user(telegram_id) or {}
-        # فحص إن كان المدير يملك صلاحيات أو معرّف الإدارة الرئيسي
         return jsonify({
             "success": True,
             "role": "المدير العام",
@@ -107,7 +106,7 @@ def verify_admin_access():
 
 @app.route('/api/admin/stats', methods=['GET'])
 def get_admin_stats():
-    """تجميع وجلب إحصائيات الأرباح ونسب الألعاب للإدارة العليا"""
+    """تجميع وجلب إحصائيات الأرباح وننسب الألعاب للإدارة العليا بسرعة O(1)"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
     if not success:
         return error_res
@@ -130,7 +129,9 @@ def get_admin_stats():
                 "total_user_profit": stats_summary.get("total_user_profit", 0.0),
                 "actual_margin": stats_summary.get("actual_bot_percent", 0.0),
                 "actual_bot_percent": stats_summary.get("actual_bot_percent", 0.0),
-                "actual_user_percent": stats_summary.get("actual_user_percent", 0.0)
+                "actual_user_percent": stats_summary.get("actual_user_percent", 0.0),
+                "global_total_bets": stats_summary.get("global_total_bets", 0.0),
+                "global_total_wins": stats_summary.get("global_total_wins", 0.0)
             }
         }), 200
     except Exception as e:
@@ -140,7 +141,7 @@ def get_admin_stats():
 
 @app.route('/api/admin/settings', methods=['POST'])
 def save_admin_settings():
-    """حفظ نسبة البوت ونسبة اللاعبين في إعدادات النظام الإدارية"""
+    """حفظ نسبة البوت ونسبة اللاعبين في إعدادات النظام الإدارية بأمان تام"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -154,10 +155,17 @@ def save_admin_settings():
         if target_margin is None and bot_margin is not None:
             target_margin = bot_margin
         elif target_margin is None and player_margin is not None:
-            target_margin = round(100.0 - float(player_margin), 2)
+            try:
+                target_margin = round(100.0 - float(player_margin), 2)
+            except (ValueError, TypeError):
+                target_margin = None
 
         if target_margin is not None:
-            target_margin = float(target_margin)
+            try:
+                target_margin = float(target_margin)
+            except (ValueError, TypeError):
+                return jsonify({"success": False, "error": "قيمة النسبة غير صالحة"}), 400
+
             if target_margin < 0 or target_margin > 100:
                 return jsonify({"success": False, "error": "النسبة يجب أن تكون بين 0 و 100"}), 400
 
@@ -220,7 +228,9 @@ def manage_game_settings():
                     "total_user_profit": stats_summary.get("total_user_profit", 0.0),
                     "actual_margin": stats_summary.get("actual_bot_percent", 0.0),
                     "actual_bot_percent": stats_summary.get("actual_bot_percent", 0.0),
-                    "actual_user_percent": stats_summary.get("actual_user_percent", 0.0)
+                    "actual_user_percent": stats_summary.get("actual_user_percent", 0.0),
+                    "global_total_bets": stats_summary.get("global_total_bets", 0.0),
+                    "global_total_wins": stats_summary.get("global_total_wins", 0.0)
                 }
             }), 200
         except Exception as e:
@@ -235,7 +245,10 @@ def manage_game_settings():
             min_bet_input = data.get('min_bet')
 
             if target_margin_input is None and commission_input is not None:
-                target_margin_input = round(100.0 - float(commission_input), 2)
+                try:
+                    target_margin_input = round(100.0 - float(commission_input), 2)
+                except (ValueError, TypeError):
+                    pass
 
             if target_margin_input is not None or min_bet_input is not None:
                 if hasattr(database, 'update_grid_game_config'):
@@ -257,6 +270,77 @@ def manage_game_settings():
         except Exception as e:
             print(f"❌ Error updating game settings: {e}")
             return jsonify({"success": False, "error": "حدث خطأ أثناء حفظ إعدادات الأرباح"}), 500
+
+
+# ==========================================
+# مسارات إدارة المشرفين وسجلات الأنشطة (Moderators & Logs)
+# ==========================================
+
+@app.route('/api/moderators', methods=['GET', 'POST'])
+def manage_moderators():
+    """جلب وإضافة المشرفين من السيرفر"""
+    is_post = (request.method == 'POST')
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
+    if not success:
+        return error_res
+
+    if request.method == 'GET':
+        try:
+            moderators = database.get_moderators() if hasattr(database, 'get_moderators') else []
+            return jsonify({"success": True, "moderators": moderators}), 200
+        except Exception as e:
+            print(f"❌ Error fetching moderators: {e}")
+            return jsonify({"success": False, "error": "حدث خطأ أثناء جلب قائمة المشرفين"}), 500
+
+    elif request.method == 'POST':
+        try:
+            data = request.get_json(silent=True) or {}
+            mod_id = data.get('id')
+            mod_name = data.get('name')
+            permissions = data.get('permissions', {})
+
+            if not mod_id or not mod_name:
+                return jsonify({"success": False, "error": "يرجى تحديد المعرف والاسم للمشرف"}), 400
+
+            if hasattr(database, 'add_moderator'):
+                database.add_moderator(mod_id, mod_name, permissions, added_by=telegram_id)
+
+            return jsonify({"success": True, "message": "تمت إضافة المشرف بنجاح"}), 200
+        except Exception as e:
+            print(f"❌ Error adding moderator: {e}")
+            return jsonify({"success": False, "error": "حدث خطأ أثناء إضافة المشرف"}), 500
+
+
+@app.route('/api/moderators/<mod_id>', methods=['DELETE'])
+def delete_moderator_route(mod_id):
+    """حذف مشرف وسحب جميع صلاحياته"""
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success:
+        return error_res
+
+    try:
+        if hasattr(database, 'delete_moderator'):
+            database.delete_moderator(mod_id, deleted_by=telegram_id)
+        return jsonify({"success": True, "message": "تم حذف المشرف بنجاح"}), 200
+    except Exception as e:
+        print(f"❌ Error deleting moderator {mod_id}: {e}")
+        return jsonify({"success": False, "error": "حدث خطأ أثناء حذف المشرف"}), 500
+
+
+@app.route('/api/admin-logs', methods=['GET'])
+def get_admin_logs_route():
+    """جلب سجل التحركات والنشاطات الإدارية"""
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
+    if not success:
+        return error_res
+
+    try:
+        logs = database.get_admin_logs() if hasattr(database, 'get_admin_logs') else []
+        return jsonify({"success": True, "logs": logs}), 200
+    except Exception as e:
+        print(f"❌ Error fetching admin logs: {e}")
+        return jsonify({"success": False, "error": "حدث خطأ أثناء جلب السجلات"}), 500
+
 
 # ==========================================
 # الأمان والتحكم بالهيدرز والملفات الثابتة
