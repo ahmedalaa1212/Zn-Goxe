@@ -95,7 +95,7 @@ def ensure_game_settings_exist():
                 needs_update = True
             else:
                 zn_cfg = existing_data.get("zn_go_config") or existing_data.get("grid_game_config", {})
-                if "target_margin" not in zn_cfg or zn_cfg["target_margin"] == 0:
+                if "target_margin" not in zn_cfg or zn_cfg.get("target_margin", 0) == 0:
                     zn_cfg["target_margin"] = 0.70
                     zn_cfg["min_bet"] = zn_cfg.get("min_bet", 10.0)
                     zn_cfg["default_broken_coins"] = zn_cfg.get("default_broken_coins", 3)
@@ -688,7 +688,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
         if not user_doc.exists:
             new_user_data = {
                 "tg_id": tg_id_str,
-                "first_name": first_name,
+                "first_name": first_name or "صديقي",
                 "balance": 0.0,
                 "ad_balance": 0.0,
                 "usd_balance": 0.0,
@@ -728,13 +728,13 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                     )
                     referrer_ref.collection("friends").document(tg_id_str).set({
                         "tg_id": tg_id_str,
-                        "first_name": first_name,
+                        "first_name": first_name or "صديقي",
                         "earned_from_him": 0.0,
                         "joined_at": firestore.SERVER_TIMESTAMP,
                     }, merge=True)
         else:
             user_ref.update(
-                {"first_name": first_name, "last_active": firestore.SERVER_TIMESTAMP}
+                {"first_name": first_name or "صديقي", "last_active": firestore.SERVER_TIMESTAMP}
             )
 
         return is_new_referral
@@ -783,7 +783,7 @@ def get_all_users_admin(limit=100):
             users_list.append({
                 "tg_id": str(d.get("tg_id", doc.id)),
                 "first_name": d.get("first_name", "مستخدم"),
-                "balance": float(d.get("balance", 0.0)),
+                "balance": float(d.get("balance", 0.0) or 0.0),
                 "banned": bool(d.get("banned", False)),
             })
         return users_list
@@ -824,7 +824,7 @@ def get_user_friends(tg_id, limit=50):
             friends.append({
                 "tg_id": str(d.get("tg_id", doc.id)),
                 "first_name": d.get("first_name", "صديق"),
-                "earned_from_him": float(d.get("earned_from_him", 0.0)),
+                "earned_from_him": float(d.get("earned_from_him", 0.0) or 0.0),
             })
         return friends
     except Exception as e:
@@ -1005,7 +1005,7 @@ def get_active_campaigns(tg_id):
                 "platform": d.get("platform", "أخرى"),
                 "description": d.get("description", ""),
                 "url": d.get("url", ""),
-                "reward": float(d.get("reward", 0)),
+                "reward": float(d.get("reward", 0) or 0),
                 "users_needed": need_count,
                 "users_completed": comp_count,
                 "is_completed": (cid in completed_list),
@@ -1013,8 +1013,8 @@ def get_active_campaigns(tg_id):
 
         return (
             campaigns,
-            float(user_data.get("balance", 0.0)),
-            float(user_data.get("ad_balance", 0.0)),
+            float(user_data.get("balance", 0.0) or 0.0),
+            float(user_data.get("ad_balance", 0.0) or 0.0),
         )
     except Exception as e:
         print(f"❌ Error fetching active campaigns: {e}")
@@ -1046,11 +1046,11 @@ def complete_user_task(tg_id, task_id):
             return (
                 False,
                 "تم إكمال المهمة سابقاً!",
-                float(user_data.get("balance", 0.0)),
+                float(user_data.get("balance", 0.0) or 0.0),
             )
 
-        reward = float(task_data.get("reward", 0.0))
-        new_balance = round(float(user_data.get("balance", 0.0)) + reward, 2)
+        reward = float(task_data.get("reward", 0.0) or 0.0)
+        new_balance = round(float(user_data.get("balance", 0.0) or 0.0) + reward, 2)
 
         task_ref.update({"users_completed": firestore.Increment(1)})
         user_ref.update({
@@ -1087,7 +1087,7 @@ def create_ad_campaign(
         if not user_doc.exists:
             return False, "المستخدم غير موجود", 0.0
 
-        current_ad_bal = float((user_doc.to_dict() or {}).get("ad_balance", 0.0))
+        current_ad_bal = float((user_doc.to_dict() or {}).get("ad_balance", 0.0) or 0.0)
         if current_ad_bal < total_cost:
             return False, "رصيد الإعلانات غير كافٍ!", current_ad_bal
 
@@ -1128,8 +1128,8 @@ def convert_balance_to_ad_balance(tg_id, amount):
             return False, "المستخدم غير موجود", 0.0, 0.0
 
         user_data = user_doc.to_dict() or {}
-        current_bal = float(user_data.get("balance", 0.0))
-        current_ad_bal = float(user_data.get("ad_balance", 0.0))
+        current_bal = float(user_data.get("balance", 0.0) or 0.0)
+        current_ad_bal = float(user_data.get("ad_balance", 0.0) or 0.0)
 
         if current_bal < amount:
             return False, "رصيدك الأساسي غير كافٍ!", current_bal, current_ad_bal
@@ -1175,7 +1175,7 @@ def get_leaderboard(limit=10):
                 "rank": i,
                 "tg_id": str(d.get("tg_id", doc.id)),
                 "first_name": d.get("first_name", "صديقي"),
-                "balance": float(d.get("balance", 0.0)),
+                "balance": float(d.get("balance", 0.0) or 0.0),
             })
 
         _LEADERBOARD_CACHE = leaderboard
@@ -1216,7 +1216,7 @@ def claim_daily_reward(tg_id):
         rewards_map = settings.get("daily_rewards", {})
         reward_amount = float(rewards_map.get(f"day_{current_streak}", 100))
 
-        new_balance = round(float(user_data.get("balance", 0.0)) + reward_amount, 2)
+        new_balance = round(float(user_data.get("balance", 0.0) or 0.0) + reward_amount, 2)
 
         update_user(tg_id, {
             "balance": new_balance,
