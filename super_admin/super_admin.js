@@ -33,10 +33,8 @@ function initSuperAdmin() {
     loadAdminLogs();
 }
 
-// إتاحة الدالة للناذة العامة لتستطيع main.js استدعائها بعد جلب السكريبت ديناميكياً
 window.initSuperAdmin = initSuperAdmin;
 
-// تشغيل تلقائي في حال تحميل السكريبت بشكل مباشر أو إعادة تنشيط الصفحة
 if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", initSuperAdmin);
 } else {
@@ -92,10 +90,11 @@ function calculateMargins() {
 window.calculateMargins = calculateMargins;
 
 /**
- * تفعيل وضع التعديل وتفعيل حقل إدخال نسبة البوت
+ * تفعيل وضع التعديل وتفعيل حقول الإدخال
  */
 function enableMarginEdit() {
     const targetMarginInput = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
+    const minBetInput = document.getElementById('min-bet-input');
     const btnEditMargin = document.getElementById('btnEditMargin');
     const btnPublishMargin = document.getElementById('btnPublishMargin') || document.getElementById('update-ratio-btn');
 
@@ -105,17 +104,32 @@ function enableMarginEdit() {
         targetMarginInput.select();
     }
 
+    if (minBetInput) {
+        minBetInput.disabled = false;
+    }
+
     if (btnEditMargin) btnEditMargin.style.display = 'none';
     if (btnPublishMargin) btnPublishMargin.style.display = 'block';
 }
 window.enableMarginEdit = enableMarginEdit;
+
+/**
+ * زر التحديث (الريفرش) لجلب أحدث الأرقام من الفايربيس
+ */
+async function refreshDashboard() {
+    await loadDashboardStats();
+    await loadModerators();
+    await loadAdminLogs();
+    alert("🔄 تم تحديث البيانات بنجاح من الفايربيس!");
+}
+window.refreshDashboard = refreshDashboard;
 
 // ==========================================
 // 1. نظام التحكم بالألعاب وأرباح البوت (Game & Profit Control)
 // ==========================================
 
 /**
- * جلب إحصائيات الأرباح ونسبة أرباح البوت المستهدفة من السيرفر وعرضها حياً
+ * جلب إحصائيات الأرباح ونسبة أرباح البوت والحد الأدنى للعب من السيرفر والفايربيس
  */
 async function loadDashboardStats() {
     initEvents();
@@ -126,25 +140,19 @@ async function loadDashboardStats() {
     
     const targetMarginInput = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
     const playerMarginInput = document.getElementById('user-margin-input') || document.getElementById('playerMarginInput');
+    const minBetInput = document.getElementById('min-bet-input');
     
     const btnEditMargin = document.getElementById('btnEditMargin');
     const btnPublishMargin = document.getElementById('btnPublishMargin') || document.getElementById('update-ratio-btn');
 
     try {
-        let response = await fetch(`${API_BASE}/admin/dashboard-stats`, {
+        let response = await fetch(`${API_BASE}/game-settings`, {
             method: 'GET',
             headers: getAuthHeaders()
         });
 
         if (!response.ok) {
-            response = await fetch(`${API_BASE}/admin/stats`, {
-                method: 'GET',
-                headers: getAuthHeaders()
-            });
-        }
-
-        if (!response.ok) {
-            response = await fetch(`${API_BASE}/game-settings`, {
+            response = await fetch(`${API_BASE}/admin/dashboard-stats`, {
                 method: 'GET',
                 headers: getAuthHeaders()
             });
@@ -159,6 +167,9 @@ async function loadDashboardStats() {
             const userProfit = stats.total_wins !== undefined ? stats.total_wins : (stats.total_user_profit !== undefined ? stats.total_user_profit : (result.total_user_profit || 0));
             const actualMargin = stats.actual_bot_percent !== undefined ? stats.actual_bot_percent : (stats.actual_margin !== undefined ? stats.actual_margin : (result.actual_margin || 0));
             const targetMargin = stats.target_margin_percent !== undefined ? stats.target_margin_percent : (result.target_margin !== undefined ? result.target_margin : (result.bot_margin || 70));
+            
+            // جلب الحد الأدنى للعب من الاستجابة
+            const minBet = stats.min_bet !== undefined ? stats.min_bet : (result.min_bet !== undefined ? result.min_bet : (result.grid_game_config?.min_bet || 10));
 
             if (botProfitEl) botProfitEl.innerText = Number(botProfit).toLocaleString('ar-EG');
             if (userProfitEl) userProfitEl.innerText = Number(userProfit).toLocaleString('ar-EG');
@@ -170,6 +181,12 @@ async function loadDashboardStats() {
             if (playerMarginInput) {
                 playerMarginInput.value = parseFloat((100.0 - targetMargin).toFixed(2));
             }
+            if (minBetInput) {
+                minBetInput.value = minBet;
+            }
+
+            if (targetMarginInput) targetMarginInput.disabled = true;
+            if (minBetInput) minBetInput.disabled = true;
 
             if (btnEditMargin) btnEditMargin.style.display = 'block';
             if (btnPublishMargin) btnPublishMargin.style.display = 'none';
@@ -188,16 +205,24 @@ async function loadGameSettings() {
 window.loadGameSettings = loadGameSettings;
 
 /**
- * تحديث نسبة أرباح البوت المستهدفة ونشرها فوراً إلى قاعدة البيانات
+ * تحديث نسبة أرباح البوت والحد الأدنى للعب ونشرها فوراً إلى قاعدة البيانات
  */
 async function updateGameSettings() {
     const input = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
+    const minBetInput = document.getElementById('min-bet-input');
+    
     if (!input) return;
 
     const targetMarginVal = parseFloat(input.value);
+    const minBetVal = minBetInput ? parseFloat(minBetInput.value) : undefined;
 
     if (isNaN(targetMarginVal) || targetMarginVal < 0 || targetMarginVal > 100) {
         alert("⚠️ يرجى إدخال نسبة مئوية صحيحة بين 0 و 100!");
+        return;
+    }
+
+    if (minBetInput && (isNaN(minBetVal) || minBetVal < 0)) {
+        alert("⚠️ يرجى إدخال حد أدنى صحيح للعب!");
         return;
     }
 
@@ -206,26 +231,19 @@ async function updateGameSettings() {
         bot_margin: targetMarginVal,
         target_margin: targetMarginVal,
         player_margin: parseFloat((100.0 - targetMarginVal).toFixed(2)),
+        min_bet: minBetVal,
         updatedBy: "المدير العام"
     };
 
     try {
-        let response = await fetch(`${API_BASE}/admin/update-margin`, {
+        let response = await fetch(`${API_BASE}/game-settings`, {
             method: 'POST',
             headers: getAuthHeaders(),
             body: JSON.stringify(payload)
         });
 
         if (!response.ok) {
-            response = await fetch(`${API_BASE}/admin/settings`, {
-                method: 'POST',
-                headers: getAuthHeaders(),
-                body: JSON.stringify(payload)
-            });
-        }
-
-        if (!response.ok) {
-            response = await fetch(`${API_BASE}/game-settings`, {
+            response = await fetch(`${API_BASE}/admin/update-margin`, {
                 method: 'POST',
                 headers: getAuthHeaders(),
                 body: JSON.stringify(payload)
@@ -235,8 +253,9 @@ async function updateGameSettings() {
         const result = await response.json();
 
         if (response.ok && (result.status === 'success' || result.success)) {
-            alert(`✅ ${result.message || 'تم تحديث ونشر النسب بنجاح!'}`);
+            alert(`✅ ${result.message || 'تم تحديث ونشر النسب والحد الأدنى بنجاح!'}`);
             input.disabled = true;
+            if (minBetInput) minBetInput.disabled = true;
             
             const btnEditMargin = document.getElementById('btnEditMargin');
             const btnPublishMargin = document.getElementById('btnPublishMargin') || document.getElementById('update-ratio-btn');
@@ -264,9 +283,6 @@ window.updateHouseEdge = updateHouseEdge;
 // 2. إدارة المشرفين والصلاحيات والسجلات (Admin & Mod Management)
 // ==========================================
 
-/**
- * إضافة مشرف جديد مع الصلاحيات المحددة
- */
 async function addNewModerator() {
     const modIdInput = document.getElementById('modTelegramId');
     const modNameInput = document.getElementById('modName');
@@ -321,9 +337,6 @@ async function addNewModerator() {
 }
 window.addNewModerator = addNewModerator;
 
-/**
- * جلب وعرض قائمة المشرفين الحالية
- */
 async function loadModerators() {
     const listContainer = document.getElementById('moderatorsList');
     if (!listContainer) return;
@@ -367,9 +380,6 @@ async function loadModerators() {
 }
 window.loadModerators = loadModerators;
 
-/**
- * حذف مشرف وسحب صلاحياته
- */
 async function deleteModerator(modId, modName) {
     if (!confirm(`⚠️ هل أنت متأكد من حذف المشرف (${modName}) وسحب جميع صلاحياته؟`)) {
         return;
@@ -397,9 +407,6 @@ async function deleteModerator(modId, modName) {
 }
 window.deleteModerator = deleteModerator;
 
-/**
- * جلب وعرض سجل النشاطات والتحركات
- */
 async function loadAdminLogs() {
     const logsContainer = document.getElementById('adminLogs');
     if (!logsContainer) return;
