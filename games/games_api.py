@@ -186,7 +186,7 @@ def verify_session_token(token_str):
 # --- 1. مسارات لعبة شبكة العملات والمخاطرة (36 صندوقاً) ---
 
 @games_bp.route('/boxes/start', methods=['POST'])
-@games_bp.route('/api/game/start', methods=['POST'])
+@games_bp.route('/start', methods=['POST'])
 def start_boxes_game():
     success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
@@ -276,7 +276,8 @@ def start_boxes_game():
 
 
 @games_bp.route('/boxes/pick', methods=['POST'])
-@games_bp.route('/api/game/step', methods=['POST'])
+@games_bp.route('/pick', methods=['POST'])
+@games_bp.route('/step', methods=['POST'])
 def pick_box():
     success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
@@ -347,7 +348,8 @@ def pick_box():
 
 
 @games_bp.route('/boxes/end', methods=['POST'])
-@games_bp.route('/api/game/cashout', methods=['POST'])
+@games_bp.route('/end', methods=['POST'])
+@games_bp.route('/cashout', methods=['POST'])
 def end_boxes_game():
     success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
