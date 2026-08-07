@@ -77,31 +77,30 @@
         </button>
     </nav>
 
-    <!-- معالجة إخفاء وإظهار القائمة مع الكيبورد تلقائياً لمتصفح تيليجرام -->
+    <!-- كود كشف الكيبورد الذكي بدون رعشة أو إجبار blur -->
     <script>
         (function initKeyboardDetection() {
             const viewport = window.visualViewport;
+            let isKeyboardOpen = false;
 
             function handleViewportChange() {
                 if (!viewport) return;
 
-                // كشف فتح لوحة المفاتيح عبر انخفاض ارتفاع الشاشة المرئي
-                const isKeyboardOpen = (window.innerHeight - viewport.height) > 150;
+                // كشف الفارق بين ارتفاع الشاشة الكلي والارتفاع المتاح
+                const open = (window.innerHeight - viewport.height) > 150;
 
-                if (isKeyboardOpen) {
-                    document.body.classList.add('keyboard-open');
-                } else {
-                    document.body.classList.remove('keyboard-open');
-                    // إزالة التحديد والتركيز عن النصوص فور إغلاق الكيبورد لعودة القائمة فوراً
-                    if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
-                        document.activeElement.blur();
+                if (open !== isKeyboardOpen) {
+                    isKeyboardOpen = open;
+                    if (isKeyboardOpen) {
+                        document.body.classList.add('keyboard-open');
+                    } else {
+                        document.body.classList.remove('keyboard-open');
                     }
                 }
             }
 
             if (viewport) {
                 viewport.addEventListener('resize', handleViewportChange);
-                viewport.addEventListener('scroll', handleViewportChange);
             }
         })();
     </script>
