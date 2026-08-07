@@ -10,7 +10,13 @@ import math
 from flask import Blueprint, jsonify, request
 from firebase_admin import firestore
 
-from database import db, get_game_settings, get_system_profit_margin, update_system_treasury
+from database import (
+    db, 
+    get_game_settings, 
+    get_system_profit_margin, 
+    update_system_treasury, 
+    record_game_stats
+)
 from core.security import get_authenticated_user
 
 games_bp = Blueprint('games', __name__)
@@ -37,14 +43,28 @@ def _cleanup_expired_sessions():
         _USED_SESSION_TOKENS.pop(k, None)
 
 
-def generate_multipliers(broken_count, commission_percent=20):
+def _get_target_margin(settings):
+    """جلب النسبة المئوية المستهدفة لأرباح البوت ديناميكياً (مثلاً 0.70 = 70%)"""
+    grid_cfg = settings.get('grid_game_config', {})
+    raw_val = grid_cfg.get('target_margin', settings.get('commission_percent', 0.70))
+    try:
+        val = float(raw_val)
+        return val / 100.0 if val > 1.0 else val
+    except (ValueError, TypeError):
+        return 0.70
+
+
+def generate_multipliers(broken_count, target_margin=0.70):
     """
     توليد جدول المضاعفات ديناميكياً بناءً على عدد العملات المكسورة
-    مع خصم نسبة عمولة البوت (Commission / House Edge) تلقائياً من الأرباح.
+    مع تطبيق نسبة أرباح البوت المستهدفة (target_margin = 70%) تلقائياً.
     """
     safe_steps = 36 - broken_count
-    comm_ratio = commission_percent / 100.0 if commission_percent > 1.0 else commission_percent
-    user_rtp = max(0.1, 1.0 - comm_ratio)  # نسبة عائد المستخدمين (مثلاً: 0.80 في حال عمولة 20%)
+    if target_margin > 1.0:
+        target_margin = target_margin / 100.0
+
+    # نسبة عائد المستخدمين (مثلاً: 0.30 في حال نسبة أرباح البوت 70%)
+    user_rtp = max(0.05, 1.0 - target_margin)
 
     multipliers = []
     prev_mult = 1.0
@@ -82,17 +102,15 @@ def get_arena_config():
     settings = get_game_settings() or {}
     cfg = settings.get('arena_config', {})
     
-    # جلب نسبة عمولة البوت من الإعدادات العامة وحساب نسبة ميزانية الجوائز
-    comm_percent = float(settings.get('commission_percent', cfg.get('commission_percent', 20)))
-    comm_ratio = comm_percent / 100.0 if comm_percent > 1.0 else comm_percent
-    
-    default_prize_pct = max(0.10, 1.0 - comm_ratio)
+    # جلب نسبة أرباح البوت من الإعدادات العامة وحساب نسبة ميزانية الجوائز
+    target_margin = _get_target_margin(settings)
+    default_prize_pct = max(0.10, 1.0 - target_margin)
     prize_pool_pct = float(cfg.get('prize_pool_percentage', default_prize_pct))
     if prize_pool_pct > 1.0:
         prize_pool_pct = prize_pool_pct / 100.0
 
     config_data = {
-        "entry_fee": float(cfg.get('entry_fee', 350)),  # الحد الأدنى 350 ZN
+        "entry_fee": float(cfg.get('entry_fee', 350)),
         "min_participants": int(cfg.get('min_participants', 20)),
         "prize_pool_percentage": prize_pool_pct,
         "round_duration": int(cfg.get('round_duration', 900)),
@@ -156,8 +174,12 @@ def start_boxes_game():
     uid_str = str(uid)
     data = request.get_json(silent=True) or {}
     
+    settings = get_game_settings() or {}
+    grid_cfg = settings.get('grid_game_config', {})
+    min_bet_allowed = float(grid_cfg.get('min_bet', 100.0))
+
     try:
-        broken_count = int(data.get('broken_count', 3))
+        broken_count = int(data.get('broken_count', grid_cfg.get('default_broken_coins', 3)))
     except (ValueError, TypeError):
         broken_count = 3
 
@@ -165,12 +187,12 @@ def start_boxes_game():
         broken_count = 3
 
     try:
-        bet = round(float(data.get('bet', 100.0)), 2)
+        bet = round(float(data.get('bet', min_bet_allowed)), 2)
     except (ValueError, TypeError):
-        bet = 100.0
+        bet = min_bet_allowed
 
-    if bet < 100.0:
-        return jsonify({"success": False, "message": "الحد الأدنى للرهان هو 100 ZN."})
+    if bet < min_bet_allowed:
+        return jsonify({"success": False, "message": f"الحد الأدنى للرهان هو {int(min_bet_allowed)} ZN."})
 
     user_ref = db.collection('users').document(uid_str)
 
@@ -207,10 +229,9 @@ def start_boxes_game():
 
         update_system_treasury(bet_amount=bet, payout_amount=0.0)
 
-        # جلب نسبة عمولة البوت وحساب المضاعفات الديناميكية المعدلة
-        settings = get_game_settings() or {}
-        comm_percent = float(settings.get('commission_percent', 20))
-        multipliers = generate_multipliers(broken_count, comm_percent)
+        # جلب نسبة أرباح البوت المستهدفة وحساب المضاعفات الديناميكية
+        target_margin = _get_target_margin(settings)
+        multipliers = generate_multipliers(broken_count, target_margin)
         
         session_data = {
             "uid": uid_str,
@@ -257,10 +278,9 @@ def pick_box():
     user_doc = db.collection('users').document(str(uid)).get()
     current_balance = round(float((user_doc.to_dict() or {}).get('balance', 0.0)), 2) if user_doc.exists else 0.0
 
-    # 🔒 جلب نسبة عمولة البوت المستهدفة ديناميكياً من الإعدادات
+    # 🔒 جلب نسبة أرباح البوت المستهدفة ديناميكياً من الإعدادات (70%)
     settings = get_game_settings() or {}
-    comm_percent = float(settings.get('commission_percent', 20))
-    target_margin = comm_percent / 100.0 if comm_percent > 1.0 else comm_percent
+    target_margin = _get_target_margin(settings)
 
     # التحقق من هامش أرباح النظام الحالي
     margin = get_system_profit_margin()
@@ -277,6 +297,11 @@ def pick_box():
             layout[other_broken[0]] = False
 
     if is_broken:
+        # 📊 تسجيل قيمة الرهان الخاسر لصالح أرباح البوت (total_user_losses)
+        bet_amount = float(session_data.get('bet', 0.0))
+        if bet_amount > 0:
+            record_game_stats(bot_profit=bet_amount, user_profit=0.0)
+
         token_hash = hashlib.sha256(session_token.encode('utf-8')).hexdigest()
         _USED_SESSION_TOKENS[token_hash] = time.time()
         _cleanup_expired_sessions()
@@ -332,13 +357,12 @@ def end_boxes_game():
     broken_count = session_data['broken_count']
 
     settings = get_game_settings() or {}
-    comm_percent = float(settings.get('commission_percent', 20))
-    multipliers = generate_multipliers(broken_count, comm_percent)
+    target_margin = _get_target_margin(settings)
+    multipliers = generate_multipliers(broken_count, target_margin)
     
     user_ref = db.collection('users').document(uid_str)
 
     # التحقق الديناميكي من نسبة أرباح النظام عند طلب الانسحاب
-    target_margin = comm_percent / 100.0 if comm_percent > 1.0 else comm_percent
     margin = get_system_profit_margin()
     force_loss = (margin < target_margin)
 
@@ -389,6 +413,13 @@ def end_boxes_game():
 
         if payout > 0:
             update_system_treasury(bet_amount=0.0, payout_amount=payout)
+            # 📊 تسجيل صافي أرباح المستخدم (total_user_wins / total_user_profit)
+            net_prize = round(max(0.0, payout - bet), 2)
+            if net_prize > 0:
+                record_game_stats(bot_profit=0.0, user_profit=net_prize)
+        else:
+            # 📊 تسجيل الرهان الخاسر لصالح أرباح البوت (total_user_losses / total_bot_profit)
+            record_game_stats(bot_profit=bet, user_profit=0.0)
 
         return jsonify({
             "success": True,
@@ -438,10 +469,11 @@ def resolve_round(round_id):
         total_collected = len(participants) * cfg['entry_fee']
         visible_prize_pool = round(total_collected * cfg['prize_pool_percentage'], 2)
         
-        # تحويل حصة البوت المخصومة تلقائياً إلى خزينة النظام
+        # تحويل حصة البوت المخصومة تلقائياً إلى خزينة النظام وتسجيلها
         bot_commission = round(total_collected - visible_prize_pool, 2)
         if bot_commission > 0:
             update_system_treasury(bet_amount=bot_commission, payout_amount=0.0)
+            record_game_stats(bot_profit=bot_commission, user_profit=0.0)
 
         shuffled_participants = list(participants)
         random.shuffle(shuffled_participants)
@@ -463,6 +495,10 @@ def resolve_round(round_id):
                 "name": winner.get('name', ''),
                 "prize": prize_amount
             })
+
+            # تسجيل جوائز الساحة ضمن أرباح المستخدمين
+            if prize_amount > 0:
+                record_game_stats(bot_profit=0.0, user_profit=prize_amount)
             
         transaction.update(round_ref, {'status': 'completed', 'winners': final_winners})
         return True, "completed"
