@@ -35,14 +35,12 @@ document.addEventListener("DOMContentLoaded", () => {
  * ربط الأحداث التفاعلية لحقول الإدخال والنسب تلقائياً
  */
 function initEvents() {
-    // دعم كلا المعرفين للمدخلات
     const targetMarginInput = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
     if (targetMarginInput && !targetMarginInput.dataset.bound) {
         targetMarginInput.dataset.bound = "true";
         targetMarginInput.addEventListener('input', calculateMargins);
     }
 
-    // ربط زر "تعديل نسبة التحكم" بالمعرف الجديد إن وُجد
     const updateRatioBtn = document.getElementById('update-ratio-btn');
     if (updateRatioBtn && !updateRatioBtn.dataset.bound) {
         updateRatioBtn.dataset.bound = "true";
@@ -101,10 +99,9 @@ function enableMarginEdit() {
 async function loadDashboardStats() {
     initEvents();
     
-    // ربط كافة معرفات الواجهات الممكنة (قديمة وجديدة)
-    const botProfitEl = document.getElementById('bot-profit-val') || document.getElementById('statBotProfit');
-    const userProfitEl = document.getElementById('user-profit-val') || document.getElementById('statUserProfit');
-    const actualMarginEl = document.getElementById('actual-profit-pct') || document.getElementById('statActualMargin');
+    const botProfitEl = document.getElementById('bot-profit-val');
+    const userProfitEl = document.getElementById('user-profit-val');
+    const actualMarginEl = document.getElementById('actual-profit-pct');
     
     const targetMarginInput = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
     const playerMarginInput = document.getElementById('user-margin-input') || document.getElementById('playerMarginInput');
@@ -135,10 +132,12 @@ async function loadDashboardStats() {
         const result = await response.json();
 
         if (result.status === 'success' || result.success) {
-            const stats = result.stats || {};
-            const botProfit = stats.total_bot_profit || 0;
-            const userProfit = stats.total_wins !== undefined ? stats.total_wins : (stats.total_user_profit || 0);
-            const actualMargin = stats.actual_bot_percent !== undefined ? stats.actual_bot_percent : (stats.actual_margin || 0);
+            const stats = result.stats || result.data || {};
+            
+            const botProfit = stats.total_bot_profit !== undefined ? stats.total_bot_profit : (result.total_bot_profit || 0);
+            const userProfit = stats.total_wins !== undefined ? stats.total_wins : (stats.total_user_profit !== undefined ? stats.total_user_profit : (result.total_user_profit || 0));
+            const actualMargin = stats.actual_bot_percent !== undefined ? stats.actual_bot_percent : (stats.actual_margin !== undefined ? stats.actual_margin : (result.actual_margin || 0));
+            
             const targetMargin = stats.target_margin_percent !== undefined ? stats.target_margin_percent : (result.target_margin !== undefined ? result.target_margin : (result.bot_margin || 70));
 
             if (botProfitEl) botProfitEl.innerText = Number(botProfit).toLocaleString('ar-EG');
@@ -168,7 +167,6 @@ async function loadDashboardStats() {
     }
 }
 
-// للإنقاص والربط المباشر مع التسمية العامة
 async function loadGameSettings() {
     return await loadDashboardStats();
 }
@@ -221,6 +219,7 @@ async function updateGameSettings() {
 
         if (result.status === 'success' || result.success) {
             alert(`✅ ${result.message || 'تم تحديث ونشر النسب بنجاح!'}`);
+            input.disabled = true;
             await loadDashboardStats();
             loadAdminLogs();
         } else {
@@ -234,7 +233,6 @@ async function updateGameSettings() {
 
 function loadHouseEdge() { loadDashboardStats(); }
 function updateHouseEdge() { updateGameSettings(); }
-
 
 // ==========================================
 // 2. إدارة المشرفين والصلاحيات والسجلات (Admin & Mod Management)
