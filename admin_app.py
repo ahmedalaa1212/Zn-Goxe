@@ -8,7 +8,6 @@ from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 
 import database
-from core.security import get_authenticated_user
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=BASE_DIR)
@@ -47,9 +46,11 @@ def validate_telegram_admin(init_data):
             user_data = json.loads(parsed_data.get('user', '{}'))
             user_id = str(user_data.get('id'))
             
+            # 1. فحص هل هو المدير الرئيسي المباشر (Owner)
             if user_id == str(ADMIN_ID):
                 return {"user": user_data, "role": "المدير العام", "is_owner": True, "telegram_id": user_id}
                 
+            # 2. فحص حي ومباشر في الفايربيس لو هو مشرف حالي ونشط
             if hasattr(database, 'db') and database.db:
                 mod_doc = database.db.collection('moderators').document(user_id).get()
                 if mod_doc.exists:
@@ -63,7 +64,7 @@ def validate_telegram_admin(init_data):
 
 
 def require_telegram_admin(f):
-    """ديكوريتور لحماية جميع مسارات API المخصصة للأدمن"""
+    """ديكوريتور صارم لحماية جميع مسارات API المخصصة للأدمن فقط"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         init_data = request.headers.get('X-Telegram-Init-Data') or (request.get_json(silent=True) or {}).get('initData')
@@ -73,13 +74,8 @@ def require_telegram_admin(f):
             request.telegram_user = auth_info
             return f(*args, **kwargs)
 
-        is_post = (request.method == 'POST')
-        success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
-        if success:
-            request.telegram_user = {"telegram_id": telegram_id, "role": "المدير العام", "user": user_info}
-            return f(*args, **kwargs)
-
-        return jsonify({"status": "error", "success": False, "message": "عذراً، البوت مخصص للإدارة فقط!"}), 403
+        # ⛔ حظر صارم: أي حساب غير موجود في الفايربيس يرفض فوراً بـ 403
+        return jsonify({"status": "error", "success": False, "message": "⛔ عذراً، الوصول مقتصر فقط على الإدارة والمشرفين المصرح لهم حالياً!"}), 403
     return decorated_function
 
 # ==========================================
@@ -98,7 +94,7 @@ def _fetch_arena_current_stats():
     return {}
 
 def _serve_admin_ui():
-    """البحث المباشر والذكي عن ملف الواجهة لتفادي مشكلة 404"""
+    """البحث المباشر عن ملف الواجهة لتفادي 404"""
     possible_targets = [
         (BASE_DIR, 'admin.html'),
         (BASE_DIR, 'super_admin.html'),
@@ -118,8 +114,10 @@ def _serve_admin_ui():
 
 @app.route('/api/verify_admin', methods=['POST'])
 def verify_admin_access():
-    """التحقق المباشر من هويّة الأدمن وصلاحيات الدخول من التليجرام"""
-    init_data = request.headers.get('X-Telegram-Init-Data') or (request.get_json(silent=True) or {}).get('initData')
+    """التحقق المباشر والصارم من هويّة الأدمن وصلاحيات الدخول من التليجرام"""
+    req_json = request.get_json(silent=True) or {}
+    init_data = request.headers.get('X-Telegram-Init-Data') or req_json.get('initData')
+    
     auth_info = validate_telegram_admin(init_data)
     
     if auth_info:
@@ -127,20 +125,15 @@ def verify_admin_access():
             "success": True,
             "role": auth_info["role"],
             "telegram_id": auth_info["telegram_id"],
-            "user": auth_info["user"]
+            "user": auth_info["user"],
+            "permissions": auth_info.get("permissions", {})
         }), 200
 
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
-    if success:
-        user_data = database.get_user(telegram_id) or {}
-        return jsonify({
-            "success": True,
-            "role": "المدير العام",
-            "telegram_id": telegram_id,
-            "user": user_data
-        }), 200
-
-    return jsonify({"success": False, "message": "عذراً، البوت مخصص للإدارة فقط!"}), 403
+    # ⛔ رفـض صـارم لأي شخص تم مسحه أو ليس مشرفاً
+    return jsonify({
+        "success": False,
+        "message": "⛔ تم رفض الدخول! حسابك غير مصرح له بدخول لوحة التحكم الإدارية."
+    }), 403
 
 
 @app.route('/api/admin/dashboard-stats', methods=['GET'])
@@ -290,7 +283,6 @@ def get_admin_stats():
 @app.route('/api/admin/settings', methods=['POST'])
 @require_telegram_admin
 def save_admin_settings_route():
-    """حفظ الإعدادات الإدارية المباشرة"""
     return update_margin()
 
 
@@ -301,7 +293,6 @@ def save_admin_settings_route():
 @app.route('/api/game-settings', methods=['GET', 'POST'])
 @require_telegram_admin
 def manage_game_settings():
-    """جلب وتحديث إعدادات الأرباح من واجهة الأدمن"""
     if request.method == 'GET':
         try:
             arena_data = _fetch_arena_current_stats()
@@ -358,7 +349,6 @@ def manage_game_settings():
 @app.route('/api/moderators', methods=['GET', 'POST'])
 @require_telegram_admin
 def manage_moderators():
-    """جلب وإضافة المشرفين من لوحة الأدمن"""
     telegram_id = request.telegram_user.get('telegram_id', 'unknown')
     if request.method == 'GET':
         try:
@@ -390,7 +380,6 @@ def manage_moderators():
 @app.route('/api/moderators/<mod_id>', methods=['DELETE'])
 @require_telegram_admin
 def delete_moderator_route(mod_id):
-    """حذف مشرف وحظر صلاحياته"""
     try:
         telegram_id = request.telegram_user.get('telegram_id', 'unknown')
         if hasattr(database, 'delete_moderator'):
@@ -404,7 +393,6 @@ def delete_moderator_route(mod_id):
 @app.route('/api/admin-logs', methods=['GET'])
 @require_telegram_admin
 def get_admin_logs_route():
-    """جلب سجل التحركات والنشاطات الإدارية"""
     try:
         logs = database.get_admin_logs() if hasattr(database, 'get_admin_logs') else []
         return jsonify({"status": "success", "success": True, "logs": logs}), 200
@@ -419,7 +407,6 @@ def get_admin_logs_route():
 
 @app.after_request
 def add_security_headers(response):
-    """منع الكاش للـ API"""
     if request.path.startswith('/api/'):
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
         response.headers['Pragma'] = 'no-cache'
@@ -445,29 +432,22 @@ def serve_index():
     ui_res = _serve_admin_ui()
     if ui_res:
         return ui_res
-    return jsonify({
-        "status": "error",
-        "message": "لم يتم العثور على ملف الواجهة (admin.html أو super_admin.html). يُرجى التأكد من مسار الملف في المشروع."
-    }), 404
+    return jsonify({"status": "error", "message": "لم يتم العثور على ملف الواجهة"}), 404
 
 @app.route('/<path:path>')
 def serve_static(path):
-    # 1. البحث عن الملف مباشرة من BASE_DIR
     target_path = os.path.join(BASE_DIR, path)
     if os.path.isfile(target_path):
         return send_from_directory(BASE_DIR, path)
     
-    # 2. البحث داخل مجلد super_admin
     super_admin_dir = os.path.join(BASE_DIR, 'super_admin')
     if os.path.isfile(os.path.join(super_admin_dir, path)):
         return send_from_directory(super_admin_dir, path)
 
-    # 3. البحث داخل مجلد templates
     templates_dir = os.path.join(BASE_DIR, 'templates')
     if os.path.isfile(os.path.join(templates_dir, path)):
         return send_from_directory(templates_dir, path)
 
-    # Fallback to Admin UI for non-API frontend routes safely
     if not path.startswith('api/'):
         ui_res = _serve_admin_ui()
         if ui_res:
