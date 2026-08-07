@@ -115,20 +115,46 @@
             margin-bottom: 16px;
         }
 
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
         .section-title {
             font-size: 14px;
             font-weight: bold;
-            margin-bottom: 12px;
             color: var(--text-main);
             display: flex;
             align-items: center;
             gap: 6px;
         }
 
+        .btn-refresh {
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--accent-blue);
+            border: 1px solid var(--accent-blue);
+            border-radius: 6px;
+            padding: 5px 10px;
+            font-size: 11px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.2s;
+        }
+
+        .btn-refresh:active {
+            opacity: 0.7;
+            transform: scale(0.95);
+        }
+
         .margin-controls {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
             margin-bottom: 12px;
         }
 
@@ -139,17 +165,18 @@
         }
 
         .input-group label {
-            font-size: 11px;
+            font-size: 10px;
             color: var(--text-muted);
+            white-space: nowrap;
         }
 
         .input-group input {
             background: var(--input-bg);
             border: 1px solid var(--card-border);
             border-radius: 8px;
-            padding: 10px;
+            padding: 8px;
             color: var(--text-main);
-            font-size: 14px;
+            font-size: 13px;
             text-align: center;
             font-weight: bold;
             width: 100%;
@@ -269,7 +296,6 @@
             color: var(--text-muted);
         }
 
-        /* تخصيص السكرول بار للموبايل */
         ::-webkit-scrollbar {
             width: 4px;
         }
@@ -305,31 +331,38 @@
 
         <!-- قسم التحكم بالمنظومة ونسب الأرباح -->
         <div class="section-card">
-            <div class="section-title">⚙️ التحكم المباشر بأرباح الألعاب</div>
+            <div class="section-header">
+                <div class="section-title">⚙️ التحكم بأرباح الألعاب والحد الأدنى</div>
+                <button class="btn-refresh" onclick="refreshDashboard()">🔄 تحديث الفايربيس</button>
+            </div>
             
             <div class="margin-controls">
                 <div class="input-group">
-                    <label>نسبة أرباح البوت (%)</label>
+                    <label>أرباح البوت (%)</label>
                     <input type="number" id="bot-margin-input" min="0" max="100" placeholder="70" disabled>
                     <input type="hidden" id="targetMarginInput">
                 </div>
                 <div class="input-group">
-                    <label>نسبة اللاعبين (%)</label>
+                    <label>اللاعبين (%)</label>
                     <input type="number" id="user-margin-input" placeholder="30" disabled>
                     <input type="hidden" id="playerMarginInput">
                 </div>
+                <div class="input-group">
+                    <label>الحد الأدنى للعب</label>
+                    <input type="number" id="min-bet-input" min="0" placeholder="10" disabled>
+                </div>
             </div>
 
-            <button class="btn-primary" id="btnEditMargin" onclick="enableMarginEdit()">✏️ تعديل نسبة التحكم</button>
-            <button class="btn-primary" id="update-ratio-btn" onclick="updateGameSettings()" style="margin-top: 8px;">🚀 تعديل نسبة التحكم وحفظ النسبة</button>
-            <button class="btn-primary" id="btnPublishMargin" onclick="updateGameSettings()" style="display: none; background: var(--accent-green); color: #fff; margin-top: 8px;">🚀 حفظ ونشر النسب فوراً</button>
+            <button class="btn-primary" id="btnEditMargin" onclick="enableMarginEdit()">✏️ تعديل النسب والحد الأدنى</button>
+            <button class="btn-primary" id="update-ratio-btn" onclick="updateGameSettings()" style="margin-top: 8px;">🚀 حفظ ونشر الإعدادات فوراً</button>
+            <button class="btn-primary" id="btnPublishMargin" onclick="updateGameSettings()" style="display: none; background: var(--accent-green); color: #fff; margin-top: 8px;">🚀 حفظ ونشر الإعدادات فوراً</button>
         </div>
 
         <!-- قسم إدارة المشرفين والصلاحيات -->
         <div class="section-card">
             <div class="section-title">👤 إضافة مشرف جديد</div>
             
-            <div class="margin-controls" style="margin-bottom: 8px;">
+            <div class="margin-controls" style="grid-template-columns: 1fr 1fr; margin-bottom: 8px;">
                 <div class="input-group">
                     <label>معرّف التليجرام (ID)</label>
                     <input type="text" id="modTelegramId" placeholder="12345678">
