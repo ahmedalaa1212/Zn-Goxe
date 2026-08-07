@@ -360,15 +360,37 @@ def record_game_stats(bot_profit=0.0, user_profit=0.0):
 
 
 def get_game_profit_stats():
-    """جلب إحصائيات أرباح وخسائر اللعبة والنسب المئوية المحققة للوحة الإدارة العليا"""
+    """جلب إحصائيات أرباح وخسائر اللعبة والنسب المئوية المحققة للوحة الإدارة العليا مع حساب تلقائي لبيانات المستخدمين"""
     try:
+        if not db: initialize_firebase()
         settings = get_game_settings() or {}
         stats = settings.get("stats", {})
         grid_cfg = settings.get("grid_game_config", {})
 
-        bot_profit = float(stats.get("total_bot_profit", settings.get("total_user_losses", 0.0)))
-        user_profit = float(stats.get("total_user_profit", settings.get("total_user_wins", 0.0)))
-        
+        bot_profit = float(stats.get("total_bot_profit", 0.0))
+        user_profit = float(stats.get("total_user_profit", 0.0))
+
+        # في حال كانت القيمة الصريحة 0، نتحقق من حقول الفايربيس البديلة أو نقوم بتجميع إحصائيات المستخدمين
+        if bot_profit == 0.0 and user_profit == 0.0:
+            bot_profit = float(settings.get("total_user_losses", 0.0))
+            user_profit = float(settings.get("total_user_wins", 0.0))
+
+        if bot_profit == 0.0 and user_profit == 0.0:
+            try:
+                users_docs = db.collection('users').stream()
+                calc_wins = 0.0
+                calc_losses = 0.0
+                for u_doc in users_docs:
+                    u_data = u_doc.to_dict() or {}
+                    calc_wins += float(u_data.get("total_wins", 0.0))
+                    calc_losses += float(u_data.get("total_losses", 0.0))
+                
+                if calc_wins > 0 or calc_losses > 0:
+                    user_profit = calc_wins
+                    bot_profit = calc_losses
+            except Exception as inner_e:
+                print(f"⚠️ Warning aggregating user totals: {inner_e}")
+
         raw_margin = float(grid_cfg.get("target_margin", 0.70))
         target_margin_pct = raw_margin * 100.0 if raw_margin <= 1.0 else raw_margin
 
@@ -781,7 +803,6 @@ def get_admin_dashboard_stats():
         total_user_balance = 0.0
         
         if db:
-            # استخدام count aggregation لو أمكن، أو جلب تقريبي
             try:
                 users_col = db.collection('users')
                 count_query = users_col.count()
