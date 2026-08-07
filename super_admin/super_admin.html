@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>لوحة الإدارة العليا | Super Admin Console</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
@@ -13,6 +13,7 @@
             --accent-gold: #f59e0b;
             --accent-green: #10b981;
             --accent-red: #ef4444;
+            --accent-blue: #3b82f6;
             --text-main: #f0f6fc;
             --text-muted: #8b949e;
             --input-bg: #0d1117;
@@ -26,94 +27,119 @@
             -webkit-tap-highlight-color: transparent;
         }
 
-        body {
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow-x: hidden;
             background-color: var(--bg-color);
             color: var(--text-main);
-            padding: 16px;
+        }
+
+        body {
+            padding: 12px;
+            padding-bottom: 30px;
             direction: rtl;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            width: 100%;
         }
 
         .header {
             text-align: center;
-            margin-bottom: 20px;
-            padding-bottom: 12px;
+            margin-bottom: 16px;
+            padding-bottom: 10px;
             border-bottom: 1px solid var(--card-border);
         }
 
         .header h1 {
-            font-size: 20px;
+            font-size: 18px;
             color: var(--accent-gold);
             margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
         }
 
         .header p {
-            font-size: 12px;
+            font-size: 11px;
             color: var(--text-muted);
         }
 
         .grid-stats {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            margin-bottom: 20px;
+            gap: 8px;
+            margin-bottom: 16px;
         }
 
         .stat-card {
             background: var(--card-bg);
             border: 1px solid var(--card-border);
             border-radius: 10px;
-            padding: 12px 8px;
+            padding: 10px 4px;
             text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 70px;
         }
 
         .stat-card .title {
-            font-size: 11px;
+            font-size: 10px;
             color: var(--text-muted);
-            margin-bottom: 6px;
+            margin-bottom: 4px;
+            white-space: nowrap;
         }
 
         .stat-card .value {
-            font-size: 15px;
+            font-size: 14px;
             font-weight: bold;
             color: var(--text-main);
+            word-break: break-word;
         }
 
         .stat-card.gold .value { color: var(--accent-gold); }
         .stat-card.green .value { color: var(--accent-green); }
+        .stat-card.blue .value { color: var(--accent-blue); }
 
         .section-card {
             background: var(--card-bg);
             border: 1px solid var(--card-border);
             border-radius: 12px;
-            padding: 16px;
-            margin-bottom: 20px;
+            padding: 14px;
+            margin-bottom: 16px;
         }
 
         .section-title {
-            font-size: 15px;
+            font-size: 14px;
             font-weight: bold;
             margin-bottom: 12px;
             color: var(--text-main);
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
 
         .margin-controls {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 14px;
+            gap: 10px;
+            margin-bottom: 12px;
         }
 
         .input-group {
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 4px;
         }
 
         .input-group label {
-            font-size: 12px;
+            font-size: 11px;
             color: var(--text-muted);
         }
 
@@ -126,6 +152,12 @@
             font-size: 14px;
             text-align: center;
             font-weight: bold;
+            width: 100%;
+            outline: none;
+        }
+
+        .input-group input:focus {
+            border-color: var(--accent-gold);
         }
 
         .input-group input:disabled {
@@ -139,11 +171,15 @@
             color: #000;
             border: none;
             border-radius: 8px;
-            padding: 12px;
+            padding: 11px;
             font-weight: bold;
-            font-size: 14px;
+            font-size: 13px;
             cursor: pointer;
-            transition: opacity 0.2s;
+            transition: background 0.2s, opacity 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
         }
 
         .btn-primary:active {
@@ -153,32 +189,34 @@
         .permissions-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-            margin: 12px 0;
+            gap: 8px;
+            margin: 10px 0 14px 0;
             background: var(--input-bg);
-            padding: 12px;
+            padding: 10px;
             border-radius: 8px;
+            border: 1px solid var(--card-border);
         }
 
         .perm-item {
             display: flex;
             align-items: center;
-            gap: 8px;
-            font-size: 12px;
+            gap: 6px;
+            font-size: 11px;
             color: var(--text-main);
+            cursor: pointer;
         }
 
         .perm-item input {
             accent-color: var(--accent-gold);
-            width: 16px;
-            height: 16px;
+            width: 15px;
+            height: 15px;
         }
 
         .moderators-list, .admin-logs {
             display: flex;
             flex-direction: column;
             gap: 8px;
-            max-height: 250px;
+            max-height: 220px;
             overflow-y: auto;
         }
 
@@ -190,7 +228,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            font-size: 12px;
+            font-size: 11px;
         }
 
         .mod-info {
@@ -210,15 +248,15 @@
             border: 1px solid var(--accent-red);
             border-radius: 6px;
             padding: 4px 8px;
-            font-size: 11px;
+            font-size: 10px;
             cursor: pointer;
         }
 
         .empty-msg {
             text-align: center;
-            font-size: 12px;
+            font-size: 11px;
             color: var(--text-muted);
-            padding: 12px;
+            padding: 10px;
         }
 
         .log-admin {
@@ -227,105 +265,118 @@
         }
 
         .log-time {
-            font-size: 10px;
+            font-size: 9px;
             color: var(--text-muted);
+        }
+
+        /* تخصيص السكرول بار للموبايل */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--card-border);
+            border-radius: 4px;
         }
     </style>
 </head>
 <body>
 
-    <div class="header">
-        <h1>👑 لوحة الإدارة العليا</h1>
-        <p>نظام التحكم المركزي بالأرباح والصلاحيات</p>
-    </div>
+    <div class="container">
+        <div class="header">
+            <h1>👑 لوحة الإدارة العليا</h1>
+            <p>نظام التحكم المركزي بالأرباح والصلاحيات</p>
+        </div>
 
-    <!-- كروت الإحصائيات الحية -->
-    <div class="grid-stats">
-        <div class="stat-card gold">
-            <div class="title">أرباح البوت</div>
-            <div class="value" id="bot-profit-val"><span id="statBotProfit">0</span></div>
-        </div>
-        <div class="stat-card green">
-            <div class="title">أرباح اللاعبين</div>
-            <div class="value" id="user-profit-val"><span id="statUserProfit">0</span></div>
-        </div>
-        <div class="stat-card">
-            <div class="title">الربح الفعلي</div>
-            <div class="value" id="actual-profit-pct"><span id="statActualMargin">0%</span></div>
-        </div>
-    </div>
-
-    <!-- قسم التحكم بالمنظومة ونسب الأرباح -->
-    <div class="section-card">
-        <div class="section-title">⚙️ التحكم المباشر بأرباح الألعاب</div>
-        
-        <div class="margin-controls">
-            <div class="input-group">
-                <label>نسبة أرباح البوت (%)</label>
-                <input type="number" id="bot-margin-input" min="0" max="100" placeholder="70" disabled>
-                <!-- معرف احتياطي لتطابق الكود -->
-                <input type="hidden" id="targetMarginInput">
+        <!-- كروت الإحصائيات الحية -->
+        <div class="grid-stats">
+            <div class="stat-card gold">
+                <div class="title">أرباح البوت</div>
+                <div class="value" id="bot-profit-val">0</div>
             </div>
-            <div class="input-group">
-                <label>نسبة اللاعبين (%)</label>
-                <input type="number" id="user-margin-input" placeholder="30" disabled>
-                <!-- معرف احتياطي لتطابق الكود -->
-                <input type="hidden" id="playerMarginInput">
+            <div class="stat-card green">
+                <div class="title">أرباح اللاعبين</div>
+                <div class="value" id="user-profit-val">0</div>
+            </div>
+            <div class="stat-card blue">
+                <div class="title">الربح الفعلي</div>
+                <div class="value" id="actual-profit-pct">0%</div>
             </div>
         </div>
 
-        <button class="btn-primary" id="btnEditMargin" onclick="enableMarginEdit()">✏️ تعديل نسبة التحكم</button>
-        <button class="btn-primary" id="update-ratio-btn" onclick="updateGameSettings()" style="margin-top: 8px;">🚀 تعديل نسبة التحكم وحفظ النسبة</button>
-        <button class="btn-primary" id="btnPublishMargin" onclick="updateGameSettings()" style="display: none; background: var(--accent-green); color: #fff; margin-top: 8px;">🚀 حفظ ونشر النسب فوراً</button>
-    </div>
-
-    <!-- قسم إدارة المشرفين والصلاحيات -->
-    <div class="section-card">
-        <div class="section-title">👤 إضافة مشرف جديد</div>
-        
-        <div class="margin-controls" style="margin-bottom: 8px;">
-            <div class="input-group">
-                <label>معرّف التليجرام (ID)</label>
-                <input type="text" id="modTelegramId" placeholder="12345678">
+        <!-- قسم التحكم بالمنظومة ونسب الأرباح -->
+        <div class="section-card">
+            <div class="section-title">⚙️ التحكم المباشر بأرباح الألعاب</div>
+            
+            <div class="margin-controls">
+                <div class="input-group">
+                    <label>نسبة أرباح البوت (%)</label>
+                    <input type="number" id="bot-margin-input" min="0" max="100" placeholder="70" disabled>
+                    <input type="hidden" id="targetMarginInput">
+                </div>
+                <div class="input-group">
+                    <label>نسبة اللاعبين (%)</label>
+                    <input type="number" id="user-margin-input" placeholder="30" disabled>
+                    <input type="hidden" id="playerMarginInput">
+                </div>
             </div>
-            <div class="input-group">
-                <label>اسم المشرف</label>
-                <input type="text" id="modName" placeholder="أحمد">
+
+            <button class="btn-primary" id="btnEditMargin" onclick="enableMarginEdit()">✏️ تعديل نسبة التحكم</button>
+            <button class="btn-primary" id="update-ratio-btn" onclick="updateGameSettings()" style="margin-top: 8px;">🚀 تعديل نسبة التحكم وحفظ النسبة</button>
+            <button class="btn-primary" id="btnPublishMargin" onclick="updateGameSettings()" style="display: none; background: var(--accent-green); color: #fff; margin-top: 8px;">🚀 حفظ ونشر النسب فوراً</button>
+        </div>
+
+        <!-- قسم إدارة المشرفين والصلاحيات -->
+        <div class="section-card">
+            <div class="section-title">👤 إضافة مشرف جديد</div>
+            
+            <div class="margin-controls" style="margin-bottom: 8px;">
+                <div class="input-group">
+                    <label>معرّف التليجرام (ID)</label>
+                    <input type="text" id="modTelegramId" placeholder="12345678">
+                </div>
+                <div class="input-group">
+                    <label>اسم المشرف</label>
+                    <input type="text" id="modName" placeholder="أحمد">
+                </div>
+            </div>
+
+            <div class="permissions-grid">
+                <label class="perm-item"><input type="checkbox" id="perm_users" checked> إدارة المستخدمين</label>
+                <label class="perm-item"><input type="checkbox" id="perm_support" checked> الدعم الفني</label>
+                <label class="perm-item"><input type="checkbox" id="perm_settings"> الإعدادات العامة</label>
+                <label class="perm-item"><input type="checkbox" id="perm_transactions"> المعاملات والمالية</label>
+                <label class="perm-item"><input type="checkbox" id="perm_security"> الحظر والأمان</label>
+                <label class="perm-item"><input type="checkbox" id="perm_ads"> المهام والإعلانات</label>
+            </div>
+
+            <button class="btn-primary" onclick="addNewModerator()">➕ إضافة المشرف</button>
+        </div>
+
+        <!-- قائمة المشرفين الحاليين -->
+        <div class="section-card">
+            <div class="section-title">🛡️ المشرفين الحاليين</div>
+            <div class="moderators-list" id="moderatorsList">
+                <p class="empty-msg">⏳ جاري التحميل...</p>
             </div>
         </div>
 
-        <div class="permissions-grid">
-            <label class="perm-item"><input type="checkbox" id="perm_users" checked> إدارة المستخدمين</label>
-            <label class="perm-item"><input type="checkbox" id="perm_support" checked> الدعم الفني</label>
-            <label class="perm-item"><input type="checkbox" id="perm_settings"> الإعدادات العامة</label>
-            <label class="perm-item"><input type="checkbox" id="perm_transactions"> المعاملات والمالية</label>
-            <label class="perm-item"><input type="checkbox" id="perm_security"> الحظر والأمان</label>
-            <label class="perm-item"><input type="checkbox" id="perm_ads"> المهام والإعلانات</label>
-        </div>
-
-        <button class="btn-primary" onclick="addNewModerator()">➕ إضافة المشرف وسحب الصلاحيات</button>
-    </div>
-
-    <!-- قائمة المشرفين الحاليين -->
-    <div class="section-card">
-        <div class="section-title">🛡️ المشرفين الحاليين</div>
-        <div class="moderators-list" id="moderatorsList">
-            <p class="empty-msg">⏳ جاري التحميل...</p>
-        </div>
-    </div>
-
-    <!-- سجل التحركات الإدارية -->
-    <div class="section-card">
-        <div class="section-title">📜 سجل النشاطات الإدارية</div>
-        <div class="admin-logs" id="adminLogs">
-            <p class="empty-msg">⏳ جاري تحميل السجل...</p>
+        <!-- سجل التحركات الإدارية -->
+        <div class="section-card">
+            <div class="section-title">📜 سجل النشاطات الإدارية</div>
+            <div class="admin-logs" id="adminLogs">
+                <p class="empty-msg">⏳ جاري تحميل السجل...</p>
+            </div>
         </div>
     </div>
 
     <script src="super_admin.js"></script>
     <script>
-        // مزامنة الـ inputs المزدوجة بين المعرفات المتنوعة لضمان الاتساق
         document.addEventListener('DOMContentLoaded', () => {
+            if (window.Telegram && window.Telegram.WebApp) {
+                window.Telegram.WebApp.ready();
+                window.Telegram.WebApp.expand();
+            }
+
             const botInput = document.getElementById('bot-margin-input');
             const targetInput = document.getElementById('targetMarginInput');
             const userInput = document.getElementById('user-margin-input');
