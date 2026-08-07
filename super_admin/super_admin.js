@@ -24,10 +24,75 @@ function getAuthHeaders() {
 }
 
 /**
+ * معالج موحد لطلبات الشبكة للتحقق من كود 403 وإغلاق التطبيق فوراً
+ */
+async function apiFetch(url, options = {}) {
+    const defaultHeaders = getAuthHeaders();
+    options.headers = { ...defaultHeaders, ...(options.headers || {}) };
+
+    try {
+        const response = await fetch(url, options);
+        if (response.status === 403) {
+            alert("⛔ عذراً، البوت مخصص للإدارة فقط!");
+            if (window.Telegram && window.Telegram.WebApp) {
+                window.Telegram.WebApp.close();
+            }
+            throw new Error("Unauthorized access (403)");
+        }
+        return response;
+    } catch (err) {
+        console.error("API Fetch Error:", err);
+        throw err;
+    }
+}
+
+/**
+ * دالة الفحص الأولية للتأكد من هويّة الأدمن فور فتح الصفحة
+ */
+async function verifyAdminAccessOnLoad() {
+    try {
+        const res = await fetch(`${API_BASE}/verify_admin`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ initData: getTelegramInitData() })
+        });
+
+        if (res.status === 403 || !res.ok) {
+            alert("⛔ عذراً، البوت مخصص للإدارة فقط!");
+            if (window.Telegram && window.Telegram.WebApp) {
+                window.Telegram.WebApp.close();
+            }
+            return false;
+        }
+
+        const data = await res.json();
+        if (!data.success) {
+            alert("⛔ عذراً، البوت مخصص للإدارة فقط!");
+            if (window.Telegram && window.Telegram.WebApp) {
+                window.Telegram.WebApp.close();
+            }
+            return false;
+        }
+
+        return true;
+    } catch (err) {
+        console.error("❌ Auth verification failed:", err);
+        alert("⛔ عذراً، البوت مخصص للإدارة فقط!");
+        if (window.Telegram && window.Telegram.WebApp) {
+            window.Telegram.WebApp.close();
+        }
+        return false;
+    }
+}
+
+/**
  * تهيئة القسم وتنفيذ جلب البيانات فور تحميل واجهة الإدارة العليا
  */
-function initSuperAdmin() {
+async function initSuperAdmin() {
     initEvents();
+    const isAuthorized = await verifyAdminAccessOnLoad();
+    if (!isAuthorized) return;
+
     loadDashboardStats();
     loadModerators();
     loadAdminLogs();
@@ -146,16 +211,10 @@ async function loadDashboardStats() {
     const btnPublishMargin = document.getElementById('btnPublishMargin') || document.getElementById('update-ratio-btn');
 
     try {
-        let response = await fetch(`${API_BASE}/game-settings`, {
-            method: 'GET',
-            headers: getAuthHeaders()
-        });
+        let response = await apiFetch(`${API_BASE}/game-settings`, { method: 'GET' });
 
         if (!response.ok) {
-            response = await fetch(`${API_BASE}/admin/dashboard-stats`, {
-                method: 'GET',
-                headers: getAuthHeaders()
-            });
+            response = await apiFetch(`${API_BASE}/admin/dashboard-stats`, { method: 'GET' });
         }
 
         const result = await response.json();
@@ -168,7 +227,6 @@ async function loadDashboardStats() {
             const actualMargin = stats.actual_bot_percent !== undefined ? stats.actual_bot_percent : (stats.actual_margin !== undefined ? stats.actual_margin : (result.actual_margin || 0));
             const targetMargin = stats.target_margin_percent !== undefined ? stats.target_margin_percent : (result.target_margin !== undefined ? result.target_margin : (result.bot_margin || 70));
             
-            // جلب الحد الأدنى للعب من الاستجابة
             const minBet = stats.min_bet !== undefined ? stats.min_bet : (result.min_bet !== undefined ? result.min_bet : (result.grid_game_config?.min_bet || 10));
 
             if (botProfitEl) botProfitEl.innerText = Number(botProfit).toLocaleString('ar-EG');
@@ -236,16 +294,14 @@ async function updateGameSettings() {
     };
 
     try {
-        let response = await fetch(`${API_BASE}/game-settings`, {
+        let response = await apiFetch(`${API_BASE}/game-settings`, {
             method: 'POST',
-            headers: getAuthHeaders(),
             body: JSON.stringify(payload)
         });
 
         if (!response.ok) {
-            response = await fetch(`${API_BASE}/admin/update-margin`, {
+            response = await apiFetch(`${API_BASE}/admin/update-margin`, {
                 method: 'POST',
-                headers: getAuthHeaders(),
                 body: JSON.stringify(payload)
             });
         }
@@ -269,7 +325,6 @@ async function updateGameSettings() {
         }
     } catch (error) {
         console.error("❌ خطأ أثناء تحديث النسب:", error);
-        alert("⚠️ فشل الاتصال بالسيرفر! تأكد من فتح اللوحة من داخل التليجرام.");
     }
 }
 window.updateGameSettings = updateGameSettings;
@@ -313,9 +368,8 @@ async function addNewModerator() {
     };
 
     try {
-        const response = await fetch(`${API_BASE}/moderators`, {
+        const response = await apiFetch(`${API_BASE}/moderators`, {
             method: 'POST',
-            headers: getAuthHeaders(),
             body: JSON.stringify(payload)
         });
 
@@ -332,7 +386,6 @@ async function addNewModerator() {
         }
     } catch (error) {
         console.error("خطأ في الاتصال عند إضافة المشرف:", error);
-        alert("⚠️ فشل الاتصال بالسيرفر أثناء إضافة المشرف!");
     }
 }
 window.addNewModerator = addNewModerator;
@@ -342,11 +395,7 @@ async function loadModerators() {
     if (!listContainer) return;
 
     try {
-        const response = await fetch(`${API_BASE}/moderators`, {
-            method: 'GET',
-            headers: getAuthHeaders()
-        });
-
+        const response = await apiFetch(`${API_BASE}/moderators`, { method: 'GET' });
         const result = await response.json();
 
         if (!response.ok || !result.success || !result.moderators || result.moderators.length === 0) {
@@ -386,9 +435,8 @@ async function deleteModerator(modId, modName) {
     }
 
     try {
-        const response = await fetch(`${API_BASE}/moderators/${modId}?deletedBy=المدير العام`, {
-            method: 'DELETE',
-            headers: getAuthHeaders()
+        const response = await apiFetch(`${API_BASE}/moderators/${modId}?deletedBy=المدير العام`, {
+            method: 'DELETE'
         });
 
         const result = await response.json();
@@ -402,7 +450,6 @@ async function deleteModerator(modId, modName) {
         }
     } catch (error) {
         console.error("خطأ أثناء الحذف:", error);
-        alert("⚠️ فشل الاتصال بالسيرفر أثناء عملية الحذف!");
     }
 }
 window.deleteModerator = deleteModerator;
@@ -412,11 +459,7 @@ async function loadAdminLogs() {
     if (!logsContainer) return;
 
     try {
-        const response = await fetch(`${API_BASE}/admin-logs`, {
-            method: 'GET',
-            headers: getAuthHeaders()
-        });
-
+        const response = await apiFetch(`${API_BASE}/admin-logs`, { method: 'GET' });
         const result = await response.json();
 
         if (!response.ok || !result.success || !result.logs || result.logs.length === 0) {
