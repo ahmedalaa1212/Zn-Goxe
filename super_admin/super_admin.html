@@ -243,15 +243,15 @@
     <div class="grid-stats">
         <div class="stat-card gold">
             <div class="title">أرباح البوت</div>
-            <div class="value" id="statBotProfit">0</div>
+            <div class="value" id="bot-profit-val"><span id="statBotProfit">0</span></div>
         </div>
         <div class="stat-card green">
             <div class="title">أرباح اللاعبين</div>
-            <div class="value" id="statUserProfit">0</div>
+            <div class="value" id="user-profit-val"><span id="statUserProfit">0</span></div>
         </div>
         <div class="stat-card">
             <div class="title">الربح الفعلي</div>
-            <div class="value" id="statActualMargin">0%</div>
+            <div class="value" id="actual-profit-pct"><span id="statActualMargin">0%</span></div>
         </div>
     </div>
 
@@ -262,16 +262,21 @@
         <div class="margin-controls">
             <div class="input-group">
                 <label>نسبة أرباح البوت (%)</label>
-                <input type="number" id="targetMarginInput" min="0" max="100" placeholder="70" disabled>
+                <input type="number" id="bot-margin-input" min="0" max="100" placeholder="70" disabled>
+                <!-- معرف احتياطي لتطابق الكود -->
+                <input type="hidden" id="targetMarginInput">
             </div>
             <div class="input-group">
                 <label>نسبة اللاعبين (%)</label>
-                <input type="number" id="playerMarginInput" placeholder="30" disabled>
+                <input type="number" id="user-margin-input" placeholder="30" disabled>
+                <!-- معرف احتياطي لتطابق الكود -->
+                <input type="hidden" id="playerMarginInput">
             </div>
         </div>
 
         <button class="btn-primary" id="btnEditMargin" onclick="enableMarginEdit()">✏️ تعديل نسبة التحكم</button>
-        <button class="btn-primary" id="btnPublishMargin" onclick="updateGameSettings()" style="display: none; background: var(--accent-green); color: #fff;">🚀 حفظ ونشر النسب فوراً</button>
+        <button class="btn-primary" id="update-ratio-btn" onclick="updateGameSettings()" style="margin-top: 8px;">🚀 تعديل نسبة التحكم وحفظ النسبة</button>
+        <button class="btn-primary" id="btnPublishMargin" onclick="updateGameSettings()" style="display: none; background: var(--accent-green); color: #fff; margin-top: 8px;">🚀 حفظ ونشر النسب فوراً</button>
     </div>
 
     <!-- قسم إدارة المشرفين والصلاحيات -->
@@ -318,5 +323,21 @@
     </div>
 
     <script src="super_admin.js"></script>
+    <script>
+        // مزامنة الـ inputs المزدوجة بين المعرفات المتنوعة لضمان الاتساق
+        document.addEventListener('DOMContentLoaded', () => {
+            const botInput = document.getElementById('bot-margin-input');
+            const targetInput = document.getElementById('targetMarginInput');
+            const userInput = document.getElementById('user-margin-input');
+            const playerInput = document.getElementById('playerMarginInput');
+
+            if (botInput && targetInput) {
+                botInput.addEventListener('input', () => { targetInput.value = botInput.value; });
+            }
+            if (userInput && playerInput) {
+                userInput.addEventListener('input', () => { playerInput.value = userInput.value; });
+            }
+        });
+    </script>
 </body>
 </html>
