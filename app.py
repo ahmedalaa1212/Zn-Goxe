@@ -80,13 +80,121 @@ def get_user_info_main():
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب بيانات الحساب"}), 500
 
 
+@app.route('/api/verify_admin', methods=['POST'])
+def verify_admin_access():
+    """التحقق المباشر من هويّة الأدمن وصلاحيات الدخول من التليجرام"""
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success:
+        return error_res
+
+    try:
+        user_data = database.get_user(telegram_id) or {}
+        # فحص إن كان المدير يملك صلاحيات أو معرّف الإدارة الرئيسي
+        return jsonify({
+            "success": True,
+            "role": "المدير العام",
+            "telegram_id": telegram_id,
+            "user": user_data
+        }), 200
+    except Exception as e:
+        print(f"❌ Error verifying admin {telegram_id}: {e}")
+        return jsonify({"success": False, "message": "فشل التحقق من صلاحيات المدير"}), 500
+
+
 # ==========================================
-# مسارات التحكم بإعدادات الأرباح والألعاب (Game & Profit Control API)
+# مسارات الإدارة العليا (Super Admin APIs)
+# ==========================================
+
+@app.route('/api/admin/stats', methods=['GET'])
+def get_admin_stats():
+    """تجميع وجلب إحصائيات الأرباح ونسب الألعاب للإدارة العليا"""
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
+    if not success:
+        return error_res
+
+    try:
+        settings = database.get_game_settings() or {}
+        stats_summary = database.get_game_profit_stats() or {}
+
+        target_margin_pct = float(settings.get('target_margin', stats_summary.get('target_margin_percent', 70.0)))
+        player_margin_pct = round(max(0.0, 100.0 - target_margin_pct), 2)
+
+        return jsonify({
+            "success": True,
+            "target_margin": target_margin_pct,
+            "player_margin": player_margin_pct,
+            "bot_margin": target_margin_pct,
+            "commission_percent": player_margin_pct,
+            "stats": {
+                "total_bot_profit": stats_summary.get("total_bot_profit", 0.0),
+                "total_user_profit": stats_summary.get("total_user_profit", 0.0),
+                "actual_margin": stats_summary.get("actual_bot_percent", 0.0),
+                "actual_bot_percent": stats_summary.get("actual_bot_percent", 0.0),
+                "actual_user_percent": stats_summary.get("actual_user_percent", 0.0)
+            }
+        }), 200
+    except Exception as e:
+        print(f"❌ Error fetching admin stats: {e}")
+        return jsonify({"success": False, "error": "حدث خطأ أثناء جلب إحصائيات الأرباح"}), 500
+
+
+@app.route('/api/admin/settings', methods=['POST'])
+def save_admin_settings():
+    """حفظ نسبة البوت ونسبة اللاعبين في إعدادات النظام الإدارية"""
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success:
+        return error_res
+
+    try:
+        data = request.get_json(silent=True) or {}
+        target_margin = data.get('target_margin')
+        bot_margin = data.get('bot_margin')
+        player_margin = data.get('player_margin')
+
+        if target_margin is None and bot_margin is not None:
+            target_margin = bot_margin
+        elif target_margin is None and player_margin is not None:
+            target_margin = round(100.0 - float(player_margin), 2)
+
+        if target_margin is not None:
+            target_margin = float(target_margin)
+            if target_margin < 0 or target_margin > 100:
+                return jsonify({"success": False, "error": "النسبة يجب أن تكون بين 0 و 100"}), 400
+
+            # تحديث الإعدادات في قاعدة البيانات
+            if hasattr(database, 'update_game_settings'):
+                database.update_game_settings({
+                    'target_margin': target_margin,
+                    'player_margin': round(100.0 - target_margin, 2),
+                    'updated_by': telegram_id
+                })
+
+            if hasattr(database, 'update_grid_game_config'):
+                database.update_grid_game_config(target_margin=target_margin)
+
+            if hasattr(database, 'clear_settings_cache'):
+                database.clear_settings_cache()
+
+            return jsonify({
+                "success": True,
+                "message": "تم حفظ نسبة البوت ونسبة اللاعبين بنجاح",
+                "target_margin": target_margin,
+                "player_margin": round(100.0 - target_margin, 2)
+            }), 200
+        else:
+            return jsonify({"success": False, "error": "يرجى تحديد نسبة البوت أو نسبة اللاعبين"}), 400
+    except Exception as e:
+        print(f"❌ Error saving admin settings: {e}")
+        return jsonify({"success": False, "error": "حدث خطأ أثناء حفظ الإعدادات"}), 500
+
+
+# ==========================================
+# مسارات التحكم بالألعاب المباشرة (Game & Profit Control API)
 # ==========================================
 
 @app.route('/api/game-settings', methods=['GET', 'POST'])
 def manage_game_settings():
-    """جلب وتحديث إعدادات أرباح البوت ونسب التحكم في الألعاب بدون أخطاء 500"""
+    """جلب وتحديث إعدادات أرباح البوت ونسب التحكم في الألعاب"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success:
@@ -95,10 +203,10 @@ def manage_game_settings():
     if request.method == 'GET':
         try:
             settings = database.get_game_settings() or {}
-            stats_summary = database.get_game_profit_stats()
+            stats_summary = database.get_game_profit_stats() or {}
             grid_cfg = settings.get('grid_game_config', {})
 
-            target_margin_pct = float(stats_summary.get('target_margin_percent', 70.0))
+            target_margin_pct = float(settings.get('target_margin', stats_summary.get('target_margin_percent', 70.0)))
             player_margin_pct = round(max(0.0, 100.0 - target_margin_pct), 2)
 
             return jsonify({
@@ -122,27 +230,25 @@ def manage_game_settings():
     elif request.method == 'POST':
         try:
             data = request.get_json(silent=True) or {}
-            target_margin_input = data.get('target_margin')
-            commission_input = data.get('commission_percent')
+            target_margin_input = data.get('target_margin') or data.get('bot_margin')
+            commission_input = data.get('commission_percent') or data.get('player_margin')
             min_bet_input = data.get('min_bet')
 
-            # حساب نسبة البوت من العمول الممررة في حال غياب نسبة البوت الصريحة
             if target_margin_input is None and commission_input is not None:
                 target_margin_input = round(100.0 - float(commission_input), 2)
 
             if target_margin_input is not None or min_bet_input is not None:
-                ok, msg = database.update_grid_game_config(
-                    min_bet=min_bet_input,
-                    target_margin=target_margin_input
-                )
-                if not ok:
-                    return jsonify({"success": False, "error": msg}), 400
-            else:
-                if data:
-                    database.update_game_settings(data)
+                if hasattr(database, 'update_grid_game_config'):
+                    database.update_grid_game_config(
+                        min_bet=min_bet_input,
+                        target_margin=target_margin_input
+                    )
+            
+            if hasattr(database, 'update_game_settings'):
+                database.update_game_settings(data)
 
-            # تفريغ كاش الإعدادات لضمان تطبيق القيمة الجديدة مباشرة
-            database.clear_settings_cache()
+            if hasattr(database, 'clear_settings_cache'):
+                database.clear_settings_cache()
 
             return jsonify({
                 "success": True,
