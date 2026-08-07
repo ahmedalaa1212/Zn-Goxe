@@ -18,7 +18,8 @@ function getAuthHeaders() {
     const initData = getTelegramInitData();
     return {
         'Content-Type': 'application/json',
-        'X-Telegram-Init-Data': initData
+        'X-Telegram-Init-Data': initData,
+        'Authorization': `Bearer ${initData}`
     };
 }
 
@@ -30,7 +31,6 @@ document.addEventListener("DOMContentLoaded", () => {
     loadAdminLogs();
 });
 
-// تنفيذ أولي مباشر في حال استدعاء الملف بشكل ديناميكي
 initEvents();
 
 /**
@@ -60,7 +60,6 @@ function calculateMargins() {
         return;
     }
 
-    // تقييد حدود المدخلات للحفاظ على النسبة الصحيحة
     if (botMargin < 0) botMargin = 0;
     if (botMargin > 100) botMargin = 100;
 
@@ -109,7 +108,6 @@ async function loadGameSettings() {
             headers: getAuthHeaders()
         });
 
-        // تجربة المسار المباشر إذا لم يتوفر المسار الإداري المخصص
         if (!response.ok) {
             response = await fetch(`${API_BASE}/game-settings`, {
                 method: 'GET',
@@ -126,12 +124,10 @@ async function loadGameSettings() {
             const actualMargin = stats.actual_margin !== undefined ? stats.actual_margin : (stats.actual_bot_percent || 0);
             const targetMargin = result.target_margin !== undefined ? result.target_margin : (result.bot_margin || 70);
 
-            // تحديث كروت الإحصائيات الحية
             if (botProfitEl) botProfitEl.innerText = Number(botProfit).toLocaleString('ar-EG');
             if (userProfitEl) userProfitEl.innerText = Number(userProfit).toLocaleString('ar-EG');
             if (actualMarginEl) actualMarginEl.innerText = `${actualMargin}%`;
 
-            // ملء حقول النسب وحساب نسبة اللاعبين
             if (targetMarginInput) {
                 targetMarginInput.value = targetMargin;
                 targetMarginInput.disabled = true;
@@ -140,7 +136,6 @@ async function loadGameSettings() {
                 playerMarginInput.value = parseFloat((100.0 - targetMargin).toFixed(2));
             }
 
-            // إرجاع الأزرار لوضع العرض الافتراضي
             if (btnEditMargin) btnEditMargin.style.display = 'block';
             if (btnPublishMargin) btnPublishMargin.style.display = 'none';
         } else {
@@ -208,7 +203,6 @@ async function updateGameSettings() {
     }
 }
 
-// دالتان للتوافقية مع المسميات القديمة
 function loadHouseEdge() { loadGameSettings(); }
 function updateHouseEdge() { updateGameSettings(); }
 
