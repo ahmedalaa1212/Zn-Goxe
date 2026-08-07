@@ -121,6 +121,18 @@ def verify_admin_access():
 # مسارات الإدارة العليا (Super Admin APIs)
 # ==========================================
 
+def _fetch_arena_current_stats():
+    """دالة مساعدة لجلب إحصائيات arena/current مباشرة من Firestore عند الحاجة"""
+    try:
+        if hasattr(database, 'db') and database.db:
+            doc_ref = database.db.collection('arena').document('current')
+            doc = doc_ref.get()
+            if doc.exists:
+                return doc.to_dict()
+    except Exception as e:
+        print(f"⚠️ Error fetching arena/current doc: {e}")
+    return {}
+
 @app.route('/api/admin/dashboard-stats', methods=['GET'])
 def admin_dashboard_stats():
     """تزويد لوحة الإدارة بأرقام أرباح البوت، أرباح اللاعبين، والربح الفعلي% لـ super_admin.js"""
@@ -129,16 +141,20 @@ def admin_dashboard_stats():
         return error_res
 
     try:
-        if hasattr(database, 'get_admin_dashboard_stats'):
-            data = database.get_admin_dashboard_stats() or {}
-            if isinstance(data, dict):
-                if "status" not in data:
-                    data["status"] = "success"
-                return jsonify(data), 200
+        arena_data = _fetch_arena_current_stats()
+        stats_summary = database.get_game_profit_stats() or {} if hasattr(database, 'get_game_profit_stats') else {}
+        settings = database.get_game_settings() or {} if hasattr(database, 'get_game_settings') else {}
 
-        # fallback التلقائي للبيانات في حال عدم وجود الدالة بالاسم المحدد مباشرة
-        settings = database.get_game_settings() or {}
-        stats_summary = database.get_game_profit_stats() or {}
+        # استخراج القيم الفعالة
+        total_bets = float(arena_data.get('total_bets', stats_summary.get('global_total_bets', 0.0)))
+        total_payouts = float(arena_data.get('total_payouts', stats_summary.get('global_total_wins', 0.0)))
+        
+        bot_profit = round(max(0.0, total_bets - total_payouts), 2)
+        user_profit = round(total_payouts, 2)
+        
+        actual_bot_percent = 0.0
+        if total_bets > 0:
+            actual_bot_percent = round(((total_bets - total_payouts) / total_bets) * 100.0, 1)
 
         target_margin_pct = float(settings.get('target_margin', stats_summary.get('target_margin_percent', 70.0)))
 
@@ -146,9 +162,11 @@ def admin_dashboard_stats():
             "status": "success",
             "success": True,
             "stats": {
-                "total_bot_profit": stats_summary.get("total_bot_profit", 0.0),
-                "total_wins": stats_summary.get("total_user_profit", stats_summary.get("global_total_wins", 0.0)),
-                "actual_bot_percent": stats_summary.get("actual_bot_percent", 0.0),
+                "total_bot_profit": bot_profit,
+                "total_wins": user_profit,
+                "total_user_profit": user_profit,
+                "actual_bot_percent": actual_bot_percent,
+                "actual_margin": actual_bot_percent,
                 "target_margin_percent": target_margin_pct
             }
         }), 200
@@ -181,14 +199,11 @@ def update_margin():
         if bot_margin < 0 or bot_margin > 100:
             return jsonify({"status": "error", "message": "النسبة يجب أن تكون بين 0 و 100"}), 400
 
-        # الاستدعاء المباشر لدالة save_admin_settings إن وُجدت
         if hasattr(database, 'save_admin_settings'):
             ok, msg = database.save_admin_settings({"target_margin": bot_margin})
             if ok:
                 return jsonify({"status": "success", "message": msg or "تم تعديل نسبة التحكم بنجاح"}), 200
-            return jsonify({"status": "error", "message": msg or "فشل حفظ النسبة"}), 400
 
-        # التحديث البديل المباشر في قاعدة البيانات
         if hasattr(database, 'update_game_settings'):
             database.update_game_settings({
                 'target_margin': bot_margin,
@@ -217,8 +232,19 @@ def get_admin_stats():
         return error_res
 
     try:
-        settings = database.get_game_settings() or {}
-        stats_summary = database.get_game_profit_stats() or {}
+        arena_data = _fetch_arena_current_stats()
+        settings = database.get_game_settings() or {} if hasattr(database, 'get_game_settings') else {}
+        stats_summary = database.get_game_profit_stats() or {} if hasattr(database, 'get_game_profit_stats') else {}
+
+        total_bets = float(arena_data.get('total_bets', stats_summary.get('global_total_bets', 0.0)))
+        total_payouts = float(arena_data.get('total_payouts', stats_summary.get('global_total_wins', 0.0)))
+
+        bot_profit = round(max(0.0, total_bets - total_payouts), 2)
+        user_profit = round(total_payouts, 2)
+
+        actual_margin = 0.0
+        if total_bets > 0:
+            actual_margin = round(((total_bets - total_payouts) / total_bets) * 100.0, 1)
 
         target_margin_pct = float(settings.get('target_margin', stats_summary.get('target_margin_percent', 70.0)))
         player_margin_pct = round(max(0.0, 100.0 - target_margin_pct), 2)
@@ -230,13 +256,14 @@ def get_admin_stats():
             "bot_margin": target_margin_pct,
             "commission_percent": player_margin_pct,
             "stats": {
-                "total_bot_profit": stats_summary.get("total_bot_profit", 0.0),
-                "total_user_profit": stats_summary.get("total_user_profit", 0.0),
-                "actual_margin": stats_summary.get("actual_bot_percent", 0.0),
-                "actual_bot_percent": stats_summary.get("actual_bot_percent", 0.0),
-                "actual_user_percent": stats_summary.get("actual_user_percent", 0.0),
-                "global_total_bets": stats_summary.get("global_total_bets", 0.0),
-                "global_total_wins": stats_summary.get("global_total_wins", 0.0)
+                "total_bot_profit": bot_profit,
+                "total_user_profit": user_profit,
+                "total_wins": user_profit,
+                "actual_margin": actual_margin,
+                "actual_bot_percent": actual_margin,
+                "actual_user_percent": round(100.0 - actual_margin, 1),
+                "global_total_bets": total_bets,
+                "global_total_wins": total_payouts
             }
         }), 200
     except Exception as e:
@@ -314,9 +341,20 @@ def manage_game_settings():
 
     if request.method == 'GET':
         try:
-            settings = database.get_game_settings() or {}
-            stats_summary = database.get_game_profit_stats() or {}
+            arena_data = _fetch_arena_current_stats()
+            settings = database.get_game_settings() or {} if hasattr(database, 'get_game_settings') else {}
+            stats_summary = database.get_game_profit_stats() or {} if hasattr(database, 'get_game_profit_stats') else {}
             grid_cfg = settings.get('grid_game_config', {})
+
+            total_bets = float(arena_data.get('total_bets', stats_summary.get('global_total_bets', 0.0)))
+            total_payouts = float(arena_data.get('total_payouts', stats_summary.get('global_total_wins', 0.0)))
+
+            bot_profit = round(max(0.0, total_bets - total_payouts), 2)
+            user_profit = round(total_payouts, 2)
+
+            actual_margin = 0.0
+            if total_bets > 0:
+                actual_margin = round(((total_bets - total_payouts) / total_bets) * 100.0, 1)
 
             target_margin_pct = float(settings.get('target_margin', stats_summary.get('target_margin_percent', 70.0)))
             player_margin_pct = round(max(0.0, 100.0 - target_margin_pct), 2)
@@ -328,13 +366,14 @@ def manage_game_settings():
                 "commission_percent": player_margin_pct,
                 "grid_game_config": grid_cfg,
                 "stats": {
-                    "total_bot_profit": stats_summary.get("total_bot_profit", 0.0),
-                    "total_user_profit": stats_summary.get("total_user_profit", 0.0),
-                    "actual_margin": stats_summary.get("actual_bot_percent", 0.0),
-                    "actual_bot_percent": stats_summary.get("actual_bot_percent", 0.0),
-                    "actual_user_percent": stats_summary.get("actual_user_percent", 0.0),
-                    "global_total_bets": stats_summary.get("global_total_bets", 0.0),
-                    "global_total_wins": stats_summary.get("global_total_wins", 0.0)
+                    "total_bot_profit": bot_profit,
+                    "total_user_profit": user_profit,
+                    "total_wins": user_profit,
+                    "actual_margin": actual_margin,
+                    "actual_bot_percent": actual_margin,
+                    "actual_user_percent": round(100.0 - actual_margin, 1),
+                    "global_total_bets": total_bets,
+                    "global_total_wins": total_payouts
                 }
             }), 200
         except Exception as e:
