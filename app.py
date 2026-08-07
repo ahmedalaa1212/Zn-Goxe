@@ -57,7 +57,6 @@ def get_user_info_main():
         return error_res
         
     try:
-        # 1. التحقق الفوري من كاش الحظر قبل استهلاك الاستعلامات
         if database.is_user_banned(telegram_id):
             return jsonify({
                 "success": False, 
@@ -65,7 +64,6 @@ def get_user_info_main():
                 "banned": True
             }), 403
 
-        # 2. جلب بيانات المستخدم أو إنشاؤه إذا كان جديداً
         user_data = database.get_user(telegram_id)
         if not user_data:
             first_name = user_info.get('first_name', 'لاعب') if isinstance(user_info, dict) else 'لاعب'
@@ -169,7 +167,6 @@ def save_admin_settings():
             if target_margin < 0 or target_margin > 100:
                 return jsonify({"success": False, "error": "النسبة يجب أن تكون بين 0 و 100"}), 400
 
-            # تحديث الإعدادات في قاعدة البيانات
             if hasattr(database, 'update_game_settings'):
                 database.update_game_settings({
                     'target_margin': target_margin,
@@ -377,7 +374,6 @@ def serve_static(path):
     if path_lower == 'tonconnect-manifest.json':
         return send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
     
-    # حظر الامتدادات والملفات الحساسة بوضوح
     forbidden_extensions = ('.py', '.env', '.sh', '.git', '.pem', '.key')
     forbidden_files = ('firebase-adminsdk.json', 'config.json', 'requirements.txt')
     
