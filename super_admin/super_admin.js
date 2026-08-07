@@ -7,15 +7,70 @@ const API_BASE = "/api";
 
 // تحميل كافة البيانات تلقائياً فور تحميل الصفحة
 document.addEventListener("DOMContentLoaded", () => {
+    initEvents();
     loadGameSettings();
     loadModerators();
     loadAdminLogs();
 });
 
 // تنفيذ أولي مباشر في حال استدعاء الملف بشكل ديناميكي
+initEvents();
 loadGameSettings();
 loadModerators();
 loadAdminLogs();
+
+/**
+ * ربط الأحداث التفاعلية لحقول الإدخال والنسب تلقائياً
+ */
+function initEvents() {
+    const targetMarginInput = document.getElementById('targetMarginInput');
+    if (targetMarginInput && !targetMarginInput.dataset.bound) {
+        targetMarginInput.dataset.bound = "true";
+        targetMarginInput.addEventListener('input', calculateMargins);
+    }
+}
+
+/**
+ * حساب نسبة اللاعبين تلقائياً (100 - نسبة البوت) فور كتابة النسبة
+ */
+function calculateMargins() {
+    const targetMarginInput = document.getElementById('targetMarginInput');
+    const playerMarginInput = document.getElementById('playerMarginInput');
+    
+    if (!targetMarginInput || !playerMarginInput) return;
+
+    let botMargin = parseFloat(targetMarginInput.value);
+    
+    if (isNaN(botMargin)) {
+        playerMarginInput.value = '';
+        return;
+    }
+
+    // تقييد حدود المدخلات للحفاظ على النسبة الصحيحة
+    if (botMargin < 0) botMargin = 0;
+    if (botMargin > 100) botMargin = 100;
+
+    const playerMargin = (100.0 - botMargin).toFixed(2);
+    playerMarginInput.value = parseFloat(playerMargin);
+}
+
+/**
+ * تفعيل وضع التعديل وتفعيل حقل إدخال نسبة البوت
+ */
+function enableMarginEdit() {
+    const targetMarginInput = document.getElementById('targetMarginInput');
+    const btnEditMargin = document.getElementById('btnEditMargin');
+    const btnPublishMargin = document.getElementById('btnPublishMargin');
+
+    if (targetMarginInput) {
+        targetMarginInput.disabled = false;
+        targetMarginInput.focus();
+        targetMarginInput.select();
+    }
+
+    if (btnEditMargin) btnEditMargin.style.display = 'none';
+    if (btnPublishMargin) btnPublishMargin.style.display = 'block';
+}
 
 // ==========================================
 // 1. نظام التحكم بالألعاب وأرباح البوت (Game & Profit Control)
@@ -25,10 +80,14 @@ loadAdminLogs();
  * جلب إحصائيات الأرباح ونسبة أرباح البوت المستهدفة من السيرفر وعرضها حياً
  */
 async function loadGameSettings() {
+    initEvents();
     const botProfitEl = document.getElementById('statBotProfit');
     const userProfitEl = document.getElementById('statUserProfit');
     const actualMarginEl = document.getElementById('statActualMargin');
     const targetMarginInput = document.getElementById('targetMarginInput');
+    const playerMarginInput = document.getElementById('playerMarginInput');
+    const btnEditMargin = document.getElementById('btnEditMargin');
+    const btnPublishMargin = document.getElementById('btnPublishMargin');
 
     try {
         const response = await fetch(`${API_BASE}/game-settings`);
@@ -38,7 +97,7 @@ async function loadGameSettings() {
             const stats = result.stats || {};
             const botProfit = stats.total_bot_profit || 0;
             const userProfit = stats.total_user_profit || 0;
-            const actualMargin = stats.actual_margin || 0;
+            const actualMargin = stats.actual_margin !== undefined ? stats.actual_margin : (stats.actual_bot_percent || 0);
             const targetMargin = result.target_margin !== undefined ? result.target_margin : 70;
 
             // تحديث كروت الإحصائيات الحية
@@ -46,8 +105,18 @@ async function loadGameSettings() {
             if (userProfitEl) userProfitEl.innerText = Number(userProfit).toLocaleString('ar-EG');
             if (actualMarginEl) actualMarginEl.innerText = `${actualMargin}%`;
 
-            // ملء حقل نسبة البوت المستهدفة
-            if (targetMarginInput) targetMarginInput.value = targetMargin;
+            // ملء حقول النسب وحساب نسبة اللاعبين
+            if (targetMarginInput) {
+                targetMarginInput.value = targetMargin;
+                targetMarginInput.disabled = true;
+            }
+            if (playerMarginInput) {
+                playerMarginInput.value = parseFloat((100.0 - targetMargin).toFixed(2));
+            }
+
+            // إرجاع الأزرار لوضع العرض الافتراضي
+            if (btnEditMargin) btnEditMargin.style.display = 'block';
+            if (btnPublishMargin) btnPublishMargin.style.display = 'none';
         } else {
             if (botProfitEl) botProfitEl.innerText = "❌ خطأ";
             if (userProfitEl) userProfitEl.innerText = "❌ خطأ";
@@ -62,10 +131,10 @@ async function loadGameSettings() {
 }
 
 /**
- * تحديث نسبة أرباح البوت المستهدفة (Target Bot Margin %) وحفظها في Firestore مباشرة
+ * تحديث نسبة أرباح البوت المستهدفة ونشرها فوراً إلى قاعدة البيانات
  */
 async function updateGameSettings() {
-    const input = document.getElementById('targetMarginInput') || document.getElementById('commissionPercentInput');
+    const input = document.getElementById('targetMarginInput');
     if (!input) return;
 
     const targetMarginVal = parseFloat(input.value);
@@ -90,8 +159,8 @@ async function updateGameSettings() {
         const result = await response.json();
 
         if (result.success) {
-            alert(`✅ ${result.message || 'تم تحديث نسبة الأرباح بنجاح!'}`);
-            loadGameSettings();
+            alert(`✅ ${result.message || 'تم تحديث ونشر النسب بنجاح!'}`);
+            await loadGameSettings();
             loadAdminLogs();
         } else {
             alert(`❌ خطأ: ${result.message || result.error}`);
