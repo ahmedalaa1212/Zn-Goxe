@@ -32,9 +32,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // تنفيذ أولي مباشر في حال استدعاء الملف بشكل ديناميكي
 initEvents();
-loadGameSettings();
-loadModerators();
-loadAdminLogs();
 
 /**
  * ربط الأحداث التفاعلية لحقول الإدخال والنسب تلقائياً
