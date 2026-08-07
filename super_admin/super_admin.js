@@ -1,5 +1,5 @@
 // =========================================
-// super_admin.js - الربط التفاعلي للوحة الإدارة العليا
+// super_admin.js - الربط التفاعلي المستقر للوحة الإدارة العليا
 // =========================================
 
 const API_BASE = "/api";
@@ -23,13 +23,25 @@ function getAuthHeaders() {
     };
 }
 
-// تحميل كافة البيانات تلقائياً فور تحميل الصفحة
-document.addEventListener("DOMContentLoaded", () => {
+/**
+ * تهيئة القسم وتنفيذ جلب البيانات فور تحميل واجهة الإدارة العليا
+ */
+function initSuperAdmin() {
     initEvents();
     loadDashboardStats();
     loadModerators();
     loadAdminLogs();
-});
+}
+
+// إتاحة الدالة للناذة العامة لتستطيع main.js استدعائها بعد جلب السكريبت ديناميكياً
+window.initSuperAdmin = initSuperAdmin;
+
+// تشغيل تلقائي في حال تحميل السكريبت بشكل مباشر أو إعادة تنشيط الصفحة
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initSuperAdmin);
+} else {
+    initSuperAdmin();
+}
 
 /**
  * ربط الأحداث التفاعلية لحقول الإدخال والنسب تلقائياً
@@ -41,12 +53,19 @@ function initEvents() {
         targetMarginInput.addEventListener('input', calculateMargins);
     }
 
-    const updateRatioBtn = document.getElementById('update-ratio-btn');
+    const updateRatioBtn = document.getElementById('update-ratio-btn') || document.getElementById('btnPublishMargin');
     if (updateRatioBtn && !updateRatioBtn.dataset.bound) {
         updateRatioBtn.dataset.bound = "true";
         updateRatioBtn.addEventListener('click', updateGameSettings);
     }
+
+    const btnEditMargin = document.getElementById('btnEditMargin');
+    if (btnEditMargin && !btnEditMargin.dataset.bound) {
+        btnEditMargin.dataset.bound = "true";
+        btnEditMargin.addEventListener('click', enableMarginEdit);
+    }
 }
+window.initEvents = initEvents;
 
 /**
  * حساب نسبة اللاعبين تلقائياً (100 - نسبة البوت) فور كتابة النسبة
@@ -70,6 +89,7 @@ function calculateMargins() {
     const playerMargin = (100.0 - botMargin).toFixed(2);
     playerMarginInput.value = parseFloat(playerMargin);
 }
+window.calculateMargins = calculateMargins;
 
 /**
  * تفعيل وضع التعديل وتفعيل حقل إدخال نسبة البوت
@@ -77,7 +97,7 @@ function calculateMargins() {
 function enableMarginEdit() {
     const targetMarginInput = document.getElementById('bot-margin-input') || document.getElementById('targetMarginInput');
     const btnEditMargin = document.getElementById('btnEditMargin');
-    const btnPublishMargin = document.getElementById('btnPublishMargin');
+    const btnPublishMargin = document.getElementById('btnPublishMargin') || document.getElementById('update-ratio-btn');
 
     if (targetMarginInput) {
         targetMarginInput.disabled = false;
@@ -88,6 +108,7 @@ function enableMarginEdit() {
     if (btnEditMargin) btnEditMargin.style.display = 'none';
     if (btnPublishMargin) btnPublishMargin.style.display = 'block';
 }
+window.enableMarginEdit = enableMarginEdit;
 
 // ==========================================
 // 1. نظام التحكم بالألعاب وأرباح البوت (Game & Profit Control)
@@ -107,7 +128,7 @@ async function loadDashboardStats() {
     const playerMarginInput = document.getElementById('user-margin-input') || document.getElementById('playerMarginInput');
     
     const btnEditMargin = document.getElementById('btnEditMargin');
-    const btnPublishMargin = document.getElementById('btnPublishMargin');
+    const btnPublishMargin = document.getElementById('btnPublishMargin') || document.getElementById('update-ratio-btn');
 
     try {
         let response = await fetch(`${API_BASE}/admin/dashboard-stats`, {
@@ -131,13 +152,12 @@ async function loadDashboardStats() {
 
         const result = await response.json();
 
-        if (result.status === 'success' || result.success) {
+        if (response.ok && (result.status === 'success' || result.success)) {
             const stats = result.stats || result.data || {};
             
             const botProfit = stats.total_bot_profit !== undefined ? stats.total_bot_profit : (result.total_bot_profit || 0);
             const userProfit = stats.total_wins !== undefined ? stats.total_wins : (stats.total_user_profit !== undefined ? stats.total_user_profit : (result.total_user_profit || 0));
             const actualMargin = stats.actual_bot_percent !== undefined ? stats.actual_bot_percent : (stats.actual_margin !== undefined ? stats.actual_margin : (result.actual_margin || 0));
-            
             const targetMargin = stats.target_margin_percent !== undefined ? stats.target_margin_percent : (result.target_margin !== undefined ? result.target_margin : (result.bot_margin || 70));
 
             if (botProfitEl) botProfitEl.innerText = Number(botProfit).toLocaleString('ar-EG');
@@ -154,22 +174,18 @@ async function loadDashboardStats() {
             if (btnEditMargin) btnEditMargin.style.display = 'block';
             if (btnPublishMargin) btnPublishMargin.style.display = 'none';
         } else {
-            console.warn("تعذر جلب الإحصائيات:", result.message || result.error);
-            if (botProfitEl) botProfitEl.innerText = "0";
-            if (userProfitEl) userProfitEl.innerText = "0";
-            if (actualMarginEl) actualMarginEl.innerText = "0%";
+            console.warn("⚠️ تعذر جلب الإحصائيات من السيرفر:", result.message || result.error);
         }
     } catch (error) {
-        console.error("خطأ في جلب بيانات لوحة التحكم:", error);
-        if (botProfitEl) botProfitEl.innerText = "0";
-        if (userProfitEl) userProfitEl.innerText = "0";
-        if (actualMarginEl) actualMarginEl.innerText = "0%";
+        console.error("❌ خطأ في جلب بيانات لوحة التحكم:", error);
     }
 }
+window.loadDashboardStats = loadDashboardStats;
 
 async function loadGameSettings() {
     return await loadDashboardStats();
 }
+window.loadGameSettings = loadGameSettings;
 
 /**
  * تحديث نسبة أرباح البوت المستهدفة ونشرها فوراً إلى قاعدة البيانات
@@ -186,6 +202,7 @@ async function updateGameSettings() {
     }
 
     const payload = {
+        initData: getTelegramInitData(),
         bot_margin: targetMarginVal,
         target_margin: targetMarginVal,
         player_margin: parseFloat((100.0 - targetMarginVal).toFixed(2)),
@@ -217,22 +234,31 @@ async function updateGameSettings() {
 
         const result = await response.json();
 
-        if (result.status === 'success' || result.success) {
+        if (response.ok && (result.status === 'success' || result.success)) {
             alert(`✅ ${result.message || 'تم تحديث ونشر النسب بنجاح!'}`);
             input.disabled = true;
+            
+            const btnEditMargin = document.getElementById('btnEditMargin');
+            const btnPublishMargin = document.getElementById('btnPublishMargin') || document.getElementById('update-ratio-btn');
+            if (btnEditMargin) btnEditMargin.style.display = 'block';
+            if (btnPublishMargin) btnPublishMargin.style.display = 'none';
+
             await loadDashboardStats();
             loadAdminLogs();
         } else {
-            alert(`❌ خطأ: ${result.message || result.error || 'حدث خطأ أثناء حفظ الإعدادات'}`);
+            alert(`❌ خطأ (${response.status}): ${result.message || result.error || 'حدث خطأ أثناء حفظ الإعدادات'}`);
         }
     } catch (error) {
-        console.error("خطأ أثناء تحديث النسب:", error);
-        alert("⚠️ فشل الاتصال بالسيرفر أثناء عملية الحفظ!");
+        console.error("❌ خطأ أثناء تحديث النسب:", error);
+        alert("⚠️ فشل الاتصال بالسيرفر! تأكد من فتح اللوحة من داخل التليجرام.");
     }
 }
+window.updateGameSettings = updateGameSettings;
 
 function loadHouseEdge() { loadDashboardStats(); }
 function updateHouseEdge() { updateGameSettings(); }
+window.loadHouseEdge = loadHouseEdge;
+window.updateHouseEdge = updateHouseEdge;
 
 // ==========================================
 // 2. إدارة المشرفين والصلاحيات والسجلات (Admin & Mod Management)
@@ -263,6 +289,7 @@ async function addNewModerator() {
     };
 
     const payload = {
+        initData: getTelegramInitData(),
         id: modId,
         name: modName,
         permissions: permissions,
@@ -278,7 +305,7 @@ async function addNewModerator() {
 
         const result = await response.json();
 
-        if (result.success) {
+        if (response.ok && result.success) {
             alert(`✅ ${result.message || 'تمت إضافة المشرف بنجاح!'}`);
             if (modIdInput) modIdInput.value = '';
             if (modNameInput) modNameInput.value = '';
@@ -292,6 +319,7 @@ async function addNewModerator() {
         alert("⚠️ فشل الاتصال بالسيرفر أثناء إضافة المشرف!");
     }
 }
+window.addNewModerator = addNewModerator;
 
 /**
  * جلب وعرض قائمة المشرفين الحالية
@@ -299,8 +327,6 @@ async function addNewModerator() {
 async function loadModerators() {
     const listContainer = document.getElementById('moderatorsList');
     if (!listContainer) return;
-
-    listContainer.innerHTML = `<p class="empty-msg">⏳ جاري التحميل من قاعدة البيانات...</p>`;
 
     try {
         const response = await fetch(`${API_BASE}/moderators`, {
@@ -310,7 +336,7 @@ async function loadModerators() {
 
         const result = await response.json();
 
-        if (!result.success || !result.moderators || result.moderators.length === 0) {
+        if (!response.ok || !result.success || !result.moderators || result.moderators.length === 0) {
             listContainer.innerHTML = `<p class="empty-msg">لا يوجد مشرفين مضافين حالياً.</p>`;
             return;
         }
@@ -339,6 +365,7 @@ async function loadModerators() {
         listContainer.innerHTML = `<p class="empty-msg" style="color:#ef4444;">⚠️ تعذر جلب قائمة المشرفين.</p>`;
     }
 }
+window.loadModerators = loadModerators;
 
 /**
  * حذف مشرف وسحب صلاحياته
@@ -356,7 +383,7 @@ async function deleteModerator(modId, modName) {
 
         const result = await response.json();
 
-        if (result.success) {
+        if (response.ok && result.success) {
             alert(`✅ ${result.message || 'تم حذف المشرف بنجاح'}`);
             loadModerators();
             loadAdminLogs();
@@ -368,6 +395,7 @@ async function deleteModerator(modId, modName) {
         alert("⚠️ فشل الاتصال بالسيرفر أثناء عملية الحذف!");
     }
 }
+window.deleteModerator = deleteModerator;
 
 /**
  * جلب وعرض سجل النشاطات والتحركات
@@ -375,8 +403,6 @@ async function deleteModerator(modId, modName) {
 async function loadAdminLogs() {
     const logsContainer = document.getElementById('adminLogs');
     if (!logsContainer) return;
-
-    logsContainer.innerHTML = `<p class="empty-msg">⏳ جاري تحميل السجل...</p>`;
 
     try {
         const response = await fetch(`${API_BASE}/admin-logs`, {
@@ -386,7 +412,7 @@ async function loadAdminLogs() {
 
         const result = await response.json();
 
-        if (!result.success || !result.logs || result.logs.length === 0) {
+        if (!response.ok || !result.success || !result.logs || result.logs.length === 0) {
             logsContainer.innerHTML = `<p class="empty-msg">لا توجد تحركات مسجلة حالياً.</p>`;
             return;
         }
@@ -409,3 +435,4 @@ async function loadAdminLogs() {
         logsContainer.innerHTML = `<p class="empty-msg" style="color:#ef4444;">⚠️ تعذر تحميل سجل النشاط.</p>`;
     }
 }
+window.loadAdminLogs = loadAdminLogs;
