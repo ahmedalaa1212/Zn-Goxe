@@ -116,7 +116,6 @@ function loadSectionScript(sectionName) {
     script.id = scriptId;
     script.src = `/${sectionName}/${sectionName}.js?v=${new Date().getTime()}`;
     
-    // تشغيل التهيئة فور اكتمال تحميل سكريبت القسم في الـ DOM
     script.onload = () => {
         if (sectionName === 'super_admin' && typeof window.initSuperAdmin === 'function') {
             window.initSuperAdmin();
