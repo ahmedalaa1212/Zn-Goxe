@@ -5,7 +5,7 @@ const tg = window.Telegram?.WebApp;
 
 // دالة جلب بيانات التوثيق من التليجرام
 function getInitData() {
-    return tg?.initData || "";
+    return tg?.initData || window.Telegram?.WebApp?.initData || "";
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -36,27 +36,37 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         if (response.ok && data.success) {
             // السماح بالدخول
-            document.getElementById("accessDenied").style.display = "none";
-            document.getElementById("adminPanel").style.display = "flex";
+            const accessDeniedEl = document.getElementById("accessDenied");
+            const adminPanelEl = document.getElementById("adminPanel");
 
-            const user = tg.initDataUnsafe?.user;
+            if (accessDeniedEl) accessDeniedEl.style.display = "none";
+            if (adminPanelEl) adminPanelEl.style.display = "flex";
+
+            const user = tg?.initDataUnsafe?.user;
             const welcomeTitle = document.getElementById("welcomeTitle");
             if (welcomeTitle && user) {
-                welcomeTitle.innerText = `مرحباً بك يا ${user.first_name} 👋 (${data.role})`;
+                welcomeTitle.innerText = `مرحباً بك يا ${user.first_name || ''} 👋 (${data.role || 'مدير'})`;
             }
         } else {
-            showAccessDenied(`⛔ وصول محظور: ${data.message || "ليس لديك صلاحية لوحة التحكم"}`);
+            showAccessDenied(`⛔ وصول محظور: ${data.message || data.error || "ليس لديك صلاحية لوحة التحكم"}`);
         }
     } catch (error) {
+        console.error("خطأ أثناء التحقق من هويّة المدير:", error);
         showAccessDenied("❌ خطأ في الاتصال بالسيرفر، تعذر التحقق من الهوية.");
     }
 });
 
 function showAccessDenied(message) {
     const screen = document.getElementById("accessDenied");
-    screen.innerHTML = `<h2 style="color: #ef4444; padding: 20px; text-align: center;">${message}</h2>`;
-    screen.style.display = "flex";
-    document.getElementById("adminPanel").style.display = "none";
+    const adminPanel = document.getElementById("adminPanel");
+
+    if (screen) {
+        screen.innerHTML = `<h2 style="color: #ef4444; padding: 20px; text-align: center; font-family: sans-serif;">${message}</h2>`;
+        screen.style.display = "flex";
+    }
+    if (adminPanel) {
+        adminPanel.style.display = "none";
+    }
 }
 
 // ==========================================
@@ -69,6 +79,8 @@ async function loadSection(sectionName, btnElement) {
     }
 
     const contentArea = document.getElementById("contentArea");
+    if (!contentArea) return;
+
     contentArea.innerHTML = `
         <div class="content-card animate-fade-in" style="text-align: center; padding: 40px;">
             <h3 style="color: #f59e0b;">⏳ جاري تحميل قسم (${sectionName})...</h3>
