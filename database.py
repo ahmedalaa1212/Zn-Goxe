@@ -1,7 +1,7 @@
 import os
 import json
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -10,7 +10,7 @@ db = None
 # ==================== Dynamic In-Memory Cache System ====================
 _SETTINGS_CACHE = None
 _SETTINGS_CACHE_TIME = 0
-SETTINGS_CACHE_TTL = 600  
+SETTINGS_CACHE_TTL = 300  # 5 دقائق للكاش مع التفريغ الفوري عند التحديث
 
 _BAN_CACHE = {}           
 BAN_CACHE_TTL = 120       
@@ -18,10 +18,6 @@ BAN_CACHE_TTL = 120
 _LEADERBOARD_CACHE = None
 _LEADERBOARD_CACHE_TIME = 0
 LEADERBOARD_CACHE_TTL = 180  
-
-_TREASURY_CACHE = None
-_TREASURY_CACHE_TIME = 0
-TREASURY_CACHE_TTL = 30  # كاش الخزينة يُحدث كل 30 ثانية لتسريع الجولات
 # ========================================================================
 
 def initialize_firebase():
@@ -65,13 +61,13 @@ def clear_settings_cache():
 
 
 def ensure_game_settings_exist():
-    """ضمان وجود مستند الإعدادات الأساسية للعبة في Firestore وإنشائه/تحديثه تلقائياً"""
+    """ضمان وجود مستند الإعدادات الأساسية والإحصائيات التجميعية في Firestore"""
     global db, _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     if not db:
         try:
             db = initialize_firebase()
         except Exception as e:
-            print(f"❌ Error initializing firebase inside ensure_game_settings_exist: {e}")
+            print(f"❌ Error initializing firebase: {e}")
             return None
 
     try:
@@ -83,11 +79,11 @@ def ensure_game_settings_exist():
             needs_update = False
             updates = {}
             
-            # 1. التأكد من إعدادات لعبة شبكة العملات المكسورة وضبط نسبة البوت المستهدفة (0.70 = 70% للبوت / 30% للاعبين)
+            # 1. إعدادات لعبة الشبكة ونسبة ربح البوت المستهدفة (0.70 = 70%)
             if "grid_game_config" not in existing_data:
                 grid_cfg = {
                     "min_bet": 250.0,
-                    "target_margin": 0.70,  # 0.70 تعني 70% فائدة البوت و 30% عوائد اللاعبين
+                    "target_margin": 0.70,
                     "default_broken_coins": 3
                 }
                 existing_data["grid_game_config"] = grid_cfg
@@ -101,34 +97,14 @@ def ensure_game_settings_exist():
                     existing_data["grid_game_config"]["target_margin"] = 0.70
                     needs_update = True
 
-            # 2. التأكد من وجود كائنات تتبع الأرباح المباشرة (Stats)
-            if "stats" not in existing_data:
-                stats_cfg = {
-                    "total_bot_profit": 0.0,
-                    "total_user_profit": 0.0
-                }
-                existing_data["stats"] = stats_cfg
-                updates["stats"] = stats_cfg
+            # 2. حقول الإحصائيات الموحدة التجميعية (O(1) Global Totals)
+            if "global_total_bets" not in existing_data:
+                updates["global_total_bets"] = 0.0
+                existing_data["global_total_bets"] = 0.0
                 needs_update = True
-            else:
-                stats_cfg = existing_data["stats"]
-                if "total_bot_profit" not in stats_cfg:
-                    updates["stats.total_bot_profit"] = 0.0
-                    existing_data["stats"]["total_bot_profit"] = 0.0
-                    needs_update = True
-                if "total_user_profit" not in stats_cfg:
-                    updates["stats.total_user_profit"] = 0.0
-                    existing_data["stats"]["total_user_profit"] = 0.0
-                    needs_update = True
-
-            # 3. التأكد من وجود حقول الخسائر والجوائز التراكمية
-            if "total_user_losses" not in existing_data:
-                updates["total_user_losses"] = 0.0
-                existing_data["total_user_losses"] = 0.0
-                needs_update = True
-            if "total_user_wins" not in existing_data:
-                updates["total_user_wins"] = 0.0
-                existing_data["total_user_wins"] = 0.0
+            if "global_total_wins" not in existing_data:
+                updates["global_total_wins"] = 0.0
+                existing_data["global_total_wins"] = 0.0
                 needs_update = True
 
             if needs_update:
@@ -138,7 +114,7 @@ def ensure_game_settings_exist():
             _SETTINGS_CACHE_TIME = time.time()
             return existing_data
 
-        # إنشاء مستند الإعدادات من الصفر في حال عدم وجوده
+        # إنشاء مستند الإعدادات الافتراضي في حال عدم وجوده
         daily_rewards_30_days = {
             f"day_{i}": val for i, val in enumerate([
                 100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
@@ -173,64 +149,25 @@ def ensure_game_settings_exist():
             "10": {"capacity": 800000.0, "price": 18000000}
         }
 
-        usdt_pkgs = {
-            "pkg_0": {"usdt": 0.5, "rate_add": 70.0, "storage_add": 900.0, "zn_add": 13500.0, "title": "باقة التجربة"},
-            "pkg_1": {"usdt": 1.0, "rate_add": 150.0, "storage_add": 2000.0, "zn_add": 30000.0, "title": "البرونزية"},
-            "pkg_2": {"usdt": 3.0, "rate_add": 540.0, "storage_add": 7200.0, "zn_add": 108000.0, "title": "الفضية"},
-            "pkg_3": {"usdt": 6.0, "rate_add": 1350.0, "storage_add": 18000.0, "zn_add": 270000.0, "title": "الذهبية"},
-            "pkg_4": {"usdt": 10.0, "rate_add": 2850.0, "storage_add": 38000.0, "zn_add": 570000.0, "title": "باقة الحيتان"}
-        }
-
-        packages_cfg = [
-            {"id": "pkg_starter", "title": "باقة المبتدئ", "price_usd": 1.0, "added_zn": 100000.0, "added_storage": 200.0, "active": True},
-            {"id": "pkg_pro", "title": "باقة المحترف", "price_usd": 5.0, "added_zn": 600000.0, "added_storage": 1000.0, "active": True},
-            {"id": "pkg_vip", "title": "باقة الحوت VIP", "price_usd": 15.0, "added_zn": 2000000.0, "added_storage": 5000.0, "active": True}
-        ]
-
         initial_settings = {
             "usd_to_zn_rate": 1000000,
             "ad_reward_boost": 0.5,
             "daily_rewards": daily_rewards_30_days,
             "mining_config": mining_cfg,
             "storage_config": storage_cfg,
-            "usdt_packages": usdt_pkgs,
-            "packages_config": packages_cfg,
-            "total_user_losses": 0.0,
-            "total_user_wins": 0.0,
-            "stats": {
-                "total_bot_profit": 0.0,
-                "total_user_profit": 0.0
-            },
+            "global_total_bets": 0.0,
+            "global_total_wins": 0.0,
             "grid_game_config": {
                 "min_bet": 250.0,
-                "target_margin": 0.70,  # 70% فائدة البوت و 30% عوائد اللاعبين
+                "target_margin": 0.70,
                 "default_broken_coins": 3
-            },
-            "friends_config": {
-                "commission_percent": 10,
-                "claim_fee_percent": 1.5,
-                "min_upgrades_for_task": 3,
-                "ref_tasks": {
-                    "1": {"reqFriends": 1, "reward": 3000},
-                    "2": {"reqFriends": 5, "reward": 18000},
-                    "3": {"reqFriends": 10, "reward": 40000},
-                    "4": {"reqFriends": 25, "reward": 110000},
-                    "5": {"reqFriends": 50, "reward": 250000},
-                    "6": {"reqFriends": 100, "reward": 600000},
-                    "7": {"reqFriends": 500, "reward": 3500000}
-                }
-            },
-            "arena_config": {
-                "entry_fee": 1000,
-                "min_participants": 20,
-                "prize_pool_percentage": 0.80  # 80% جوائز للاعبين و20% عمولة النظام
             }
         }
 
         config_ref.set(initial_settings)
         _SETTINGS_CACHE = initial_settings
         _SETTINGS_CACHE_TIME = time.time()
-        print("✅ تم إنشاء app_config/game_settings في Firestore بنجاح وبدون تكرارات!")
+        print("✅ تم إنشاء app_config/game_settings بنجاح!")
         return initial_settings
     except Exception as e:
         print(f"❌ خطأ أثناء تهيئة الإعدادات: {e}")
@@ -238,7 +175,7 @@ def ensure_game_settings_exist():
 
 
 def get_game_settings():
-    """جلب إعدادات اللعبة من الكاش لتسريع الأداء"""
+    """جلب إعدادات اللعبة من الكاش لتسريع الاستجابة"""
     global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     now = time.time()
     if _SETTINGS_CACHE is not None and (now - _SETTINGS_CACHE_TIME) < SETTINGS_CACHE_TTL:
@@ -253,37 +190,33 @@ def get_game_settings():
             _SETTINGS_CACHE_TIME = now
             return _SETTINGS_CACHE
         else:
-            new_settings = ensure_game_settings_exist()
-            if new_settings: return new_settings
-        return {}
+            return ensure_game_settings_exist() or {}
     except Exception as e:
         print(f"❌ Error getting game settings: {e}")
         return _SETTINGS_CACHE or {}
 
 
 def update_game_settings(new_settings_dict):
-    """تحديث مستند إعدادات اللعبة في Firestore وإعادة تعيين الكاش فوراً"""
+    """تحديث الإعدادات وتفريغ الكاش فوراً"""
     global db, _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     try:
         if not db: initialize_firebase()
         config_ref = db.collection('app_config').document('game_settings')
         config_ref.set(new_settings_dict, merge=True)
         
-        # تصفير الكاش وإعادة تحديثه من الفايربيس مباشرة
         clear_settings_cache()
         doc_snap = config_ref.get()
         if doc_snap.exists:
             _SETTINGS_CACHE = doc_snap.to_dict() or {}
             _SETTINGS_CACHE_TIME = time.time()
-            return True, "تم تحديث الإعدادات وتفريغ الكاش بنجاح!"
-        return True, "تم تحديث الإعدادات بنجاح!"
+        return True, "تم حفظ الإعدادات وتحديث السيرفر بنجاح!"
     except Exception as e:
         print(f"❌ Error updating game settings: {e}")
-        return False, f"حدث خطأ أثناء حفظ الإعدادات: {e}"
+        return False, f"حدث خطأ أثناء الحفظ: {e}"
 
 
 def save_admin_settings(settings_dict):
-    """دالة خاصة بأوامر لوحة الأدمن لتحديث نسبة ربح البوت والحد الأدنى للرهان"""
+    """حفظ الإعدادات المرسلة من لوحة التحكم وبوت الأدمن بسرعة ودون معالجة معقدة"""
     try:
         if not isinstance(settings_dict, dict):
             return False, "بيانات الإعدادات غير صالحة"
@@ -303,229 +236,120 @@ def save_admin_settings(settings_dict):
 
         payload = {"grid_game_config": grid_cfg}
 
-        # دعم تحديث سعر الصرف أو أي حقول أخرى إن وُجدت
         if "usd_to_zn_rate" in settings_dict:
             payload["usd_to_zn_rate"] = float(settings_dict["usd_to_zn_rate"])
 
         return update_game_settings(payload)
     except Exception as e:
         print(f"❌ Error in save_admin_settings: {e}")
-        return False, f"خطأ أثناء حفظ إعدادات الأدمن: {e}"
+        return False, f"خطأ أثناء حفظ الإعدادات: {e}"
 
 
-def update_grid_game_config(min_bet=None, target_margin=None, default_broken_coins=None):
-    """تحديث خصائص لعبة شبكة العملات المكسورة بشكل مخصص (مثل تغيير نسبة ربح البوت)"""
-    try:
-        settings = get_game_settings() or {}
-        grid_cfg = settings.get("grid_game_config", {})
-        
-        if min_bet is not None:
-            grid_cfg["min_bet"] = float(min_bet)
-        if target_margin is not None:
-            val = float(target_margin)
-            grid_cfg["target_margin"] = val / 100.0 if val > 1.0 else val
-        if default_broken_coins is not None:
-            grid_cfg["default_broken_coins"] = int(default_broken_coins)
-
-        return update_game_settings({"grid_game_config": grid_cfg})
-    except Exception as e:
-        print(f"❌ Error updating grid game config: {e}")
-        return False, f"حدث خطأ: {e}"
-
-
-def record_game_stats(bot_profit=0.0, user_profit=0.0):
-    """تسجيل أرباح وخسائر اللعبة تلقائياً بشكل ذري (Atomic Operations) لضمان الدقة ومنع التضارب"""
+def record_user_game_result(tg_id, bet_amount, win_amount):
+    """تحديث نتائج الرهان والأرباح ذرياً (Atomically) في مستند الإعدادات والمستخدم فوراً"""
     try:
         if not db: initialize_firebase()
+        bet = float(bet_amount)
+        win = float(win_amount)
+
+        # 1. تحديث الإحصائيات المركزية للنظام بضغطة واحدة O(1)
         config_ref = db.collection('app_config').document('game_settings')
-        
-        updates = {}
-        b_prof = float(bot_profit)
-        u_prof = float(user_profit)
+        config_ref.update({
+            "global_total_bets": firestore.Increment(bet),
+            "global_total_wins": firestore.Increment(win)
+        })
 
-        if b_prof > 0:
-            updates["stats.total_bot_profit"] = firestore.Increment(b_prof)
-            updates["total_user_losses"] = firestore.Increment(b_prof)
-        if u_prof > 0:
-            updates["stats.total_user_profit"] = firestore.Increment(u_prof)
-            updates["total_user_wins"] = firestore.Increment(u_prof)
+        # 2. تحديث إحصائيات الشخص الفردي في مستنده الخاص
+        if tg_id:
+            user_ref = db.collection('users').document(str(tg_id))
+            user_ref.update({
+                "total_bets": firestore.Increment(bet),
+                "total_wins": firestore.Increment(win)
+            })
 
-        if updates:
-            config_ref.update(updates)
-            clear_settings_cache()
+        clear_settings_cache()
         return True
     except Exception as e:
-        print(f"❌ Error recording game stats: {e}")
+        print(f"❌ Error recording game result: {e}")
         return False
 
 
 def get_game_profit_stats():
-    """جلب إحصائيات أرباح وخسائر اللعبة والنسب المئوية المحققة للوحة الإدارة العليا مع حساب تلقائي لبيانات المستخدمين"""
+    """حساب أرباح ونسب البوت واللاعبين بلحظية كاملة وبقراءة مستند واحد فقط"""
     try:
-        if not db: initialize_firebase()
         settings = get_game_settings() or {}
-        stats = settings.get("stats", {})
         grid_cfg = settings.get("grid_game_config", {})
 
-        bot_profit = float(stats.get("total_bot_profit", 0.0))
-        user_profit = float(stats.get("total_user_profit", 0.0))
+        total_bets = float(settings.get("global_total_bets", 0.0))
+        total_wins = float(settings.get("global_total_wins", 0.0))
 
-        # في حال كانت القيمة الصريحة 0، نتحقق من حقول الفايربيس البديلة أو نقوم بتجميع إحصائيات المستخدمين
-        if bot_profit == 0.0 and user_profit == 0.0:
-            bot_profit = float(settings.get("total_user_losses", 0.0))
-            user_profit = float(settings.get("total_user_wins", 0.0))
+        # صافي ربح البوت بالنقاط = إجمالي الرهانات - إجمالي مبالغ الفوز
+        bot_net_profit = max(0.0, total_bets - total_wins)
+        target_margin = float(grid_cfg.get("target_margin", 0.70))
+        target_margin_pct = target_margin * 100.0 if target_margin <= 1.0 else target_margin
 
-        if bot_profit == 0.0 and user_profit == 0.0:
-            try:
-                users_docs = db.collection('users').stream()
-                calc_wins = 0.0
-                calc_losses = 0.0
-                for u_doc in users_docs:
-                    u_data = u_doc.to_dict() or {}
-                    calc_wins += float(u_data.get("total_wins", 0.0))
-                    calc_losses += float(u_data.get("total_losses", 0.0))
-                
-                if calc_wins > 0 or calc_losses > 0:
-                    user_profit = calc_wins
-                    bot_profit = calc_losses
-            except Exception as inner_e:
-                print(f"⚠️ Warning aggregating user totals: {inner_e}")
-
-        raw_margin = float(grid_cfg.get("target_margin", 0.70))
-        target_margin_pct = raw_margin * 100.0 if raw_margin <= 1.0 else raw_margin
-
-        total_volume = bot_profit + user_profit
-        actual_bot_pct = round((bot_profit / total_volume * 100.0), 2) if total_volume > 0 else 0.0
-        actual_user_pct = round((user_profit / total_volume * 100.0), 2) if total_volume > 0 else 0.0
+        # حساب نسبة ربح البوت الحلية %
+        actual_bot_pct = round(((total_bets - total_wins) / total_bets * 100.0), 2) if total_bets > 0 else 100.0
+        actual_bot_pct = max(0.0, actual_bot_pct)
+        actual_user_pct = round(100.0 - actual_bot_pct, 2)
 
         return {
-            "total_bot_profit": bot_profit,
-            "total_user_profit": user_profit,
-            "target_margin": raw_margin,
+            "total_bets": total_bets,
+            "total_wins": total_wins,
+            "total_bot_profit": bot_net_profit,
+            "total_user_profit": total_wins,
+            "target_margin": target_margin,
             "target_margin_percent": target_margin_pct,
             "actual_bot_percent": actual_bot_pct,
-            "actual_user_percent": actual_user_pct,
-            "total_volume": total_volume
+            "actual_user_percent": actual_user_pct
         }
     except Exception as e:
         print(f"❌ Error fetching game profit stats: {e}")
         return {
+            "total_bets": 0.0,
+            "total_wins": 0.0,
             "total_bot_profit": 0.0,
             "total_user_profit": 0.0,
             "target_margin": 0.70,
             "target_margin_percent": 70.0,
-            "actual_bot_percent": 0.0,
-            "actual_user_percent": 0.0,
-            "total_volume": 0.0
+            "actual_bot_percent": 100.0,
+            "actual_user_percent": 0.0
         }
 
 
-# ==================== Treasury & Safe Guard System ====================
-
-def ensure_treasury_exist():
-    """ضمان مستند خزينة النظام لمراقبة نسب الأرباح وحمايتها"""
-    global db, _TREASURY_CACHE, _TREASURY_CACHE_TIME
-    if not db:
-        try:
-            db = initialize_firebase()
-        except Exception as e:
-            print(f"❌ Error initializing firebase inside ensure_treasury_exist: {e}")
-            return None
-
+def get_admin_dashboard_stats():
+    """جلب إحصائيات الشاشة الرئيسية للأدمن بسرعة دون إرهاق السيرفر"""
     try:
-        treasury_ref = db.collection('arena').document('current')
-        doc_snap = treasury_ref.get()
-
-        if doc_snap.exists:
-            data = doc_snap.to_dict() or {}
-            _TREASURY_CACHE = data
-            _TREASURY_CACHE_TIME = time.time()
-            return data
-
-        initial_treasury = {
-            "total_bets": 100000.0,
-            "total_payouts": 10000.0,
-            "prize_pool": 0.0,
-            "fees_collected": 0.0,
-            "last_updated": firestore.SERVER_TIMESTAMP
-        }
-        treasury_ref.set(initial_treasury)
-        _TREASURY_CACHE = initial_treasury
-        _TREASURY_CACHE_TIME = time.time()
-        return initial_treasury
-    except Exception as e:
-        print(f"❌ Error initializing treasury: {e}")
-        return None
-
-def get_system_treasury():
-    """جلب بيانات الخزينة المحدثة لاستخدامها في خوارزميات الأرباح"""
-    global _TREASURY_CACHE, _TREASURY_CACHE_TIME
-    now = time.time()
-    if _TREASURY_CACHE is not None and (now - _TREASURY_CACHE_TIME) < TREASURY_CACHE_TTL:
-        return _TREASURY_CACHE
-
-    try:
-        if not db: initialize_firebase()
-        doc = db.collection('arena').document('current').get()
-        if doc.exists:
-            data = doc.to_dict() or {}
-            _TREASURY_CACHE = data
-            _TREASURY_CACHE_TIME = now
-            return _TREASURY_CACHE
-        else:
-            return ensure_treasury_exist() or {}
-    except Exception as e:
-        print(f"❌ Error getting system treasury: {e}")
-        return _TREASURY_CACHE or {}
-
-def get_system_profit_margin():
-    """حساب هامش أرباح النظام المباشر (RTP Controller)"""
-    treasury = get_system_treasury()
-    total_bets = float(treasury.get("total_bets", 100000.0))
-    total_payouts = float(treasury.get("total_payouts", 10000.0))
-
-    if total_bets <= 0:
-        return 1.0
-
-    margin = (total_bets - total_payouts) / total_bets
-    return max(0.0, margin)
-
-def update_system_treasury(bet_amount=0.0, payout_amount=0.0):
-    """تحديث مبالغ الخزينة ذرياً (Atomically) فور كل رهان أو توزيع جوائز"""
-    global _TREASURY_CACHE, _TREASURY_CACHE_TIME
-    try:
-        if not db: initialize_firebase()
-        treasury_ref = db.collection('arena').document('current')
+        profit_stats = get_game_profit_stats()
+        total_users_count = 0
         
-        updates = {
-            "last_updated": firestore.SERVER_TIMESTAMP
+        if db:
+            try:
+                users_col = db.collection('users')
+                count_query = users_col.count()
+                total_users_count = count_query.get()[0][0].value
+            except Exception:
+                total_users_count = 0
+
+        return {
+            "status": "success",
+            "stats": {
+                "total_users": total_users_count,
+                "total_bets": profit_stats.get("total_bets", 0.0),
+                "total_wins": profit_stats.get("total_wins", 0.0),
+                "total_bot_profit": profit_stats.get("total_bot_profit", 0.0),
+                "target_margin": profit_stats.get("target_margin", 0.70),
+                "target_margin_percent": profit_stats.get("target_margin_percent", 70.0),
+                "actual_bot_percent": profit_stats.get("actual_bot_percent", 0.0),
+                "actual_user_percent": profit_stats.get("actual_user_percent", 0.0)
+            }
         }
-        if bet_amount > 0:
-            updates["total_bets"] = firestore.Increment(float(bet_amount))
-        if payout_amount > 0:
-            updates["total_payouts"] = firestore.Increment(float(payout_amount))
-
-        treasury_ref.update(updates)
-
-        if _TREASURY_CACHE is not None:
-            _TREASURY_CACHE["total_bets"] = float(_TREASURY_CACHE.get("total_bets", 0.0)) + float(bet_amount)
-            _TREASURY_CACHE["total_payouts"] = float(_TREASURY_CACHE.get("total_payouts", 0.0)) + float(payout_amount)
-            _TREASURY_CACHE_TIME = time.time()
-
-        return True
     except Exception as e:
-        print(f"❌ Error updating system treasury: {e}")
-        return False
+        print(f"❌ Error getting admin dashboard stats: {e}")
+        return {"status": "error", "message": str(e), "stats": {}}
 
-# ========================================================================
 
-try:
-    db = initialize_firebase()
-    ensure_game_settings_exist()
-    ensure_treasury_exist()
-except Exception as e:
-    print(f"⚠️ تنبيه أثناء تهيئة DB تلقائياً: {e}")
-
+# ==================== User & Account Functions ====================
 
 def is_user_banned(tg_id):
     """التحقق السريع من حالة حظر المستخدم"""
@@ -553,13 +377,9 @@ def ban_user(tg_id, ban_status=True):
         if not tg_id: return False, "معرف مستخدم غير صالح"
         tg_id_str = str(tg_id)
         
-        db.collection('users').document(tg_id_str).update({
-            "banned": bool(ban_status)
-        })
-        
+        db.collection('users').document(tg_id_str).update({"banned": bool(ban_status)})
         _BAN_CACHE[tg_id_str] = (bool(ban_status), time.time() + BAN_CACHE_TTL)
-        msg = "تم حظر المستخدم بنجاح" if ban_status else "تم إلغاء حظر المستخدم بنجاح"
-        return True, msg
+        return True, "تم حظر المستخدم بنجاح" if ban_status else "تم إلغاء الحظر بنجاح"
     except Exception as e:
         print(f"❌ Error banning user {tg_id}: {e}")
         return False, f"حدث خطأ: {e}"
@@ -604,12 +424,8 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "pending_ref_earnings": 0.0,
                 "total_ref_earnings": 0.0,
                 "invited_friends_count": 0,
-                "claimed_ref_tasks": [],
-                "boost_multiplier": 1,
-                "boost_active": False,
-                "boost_expires_at": None,
+                "total_bets": 0.0,
                 "total_wins": 0.0,
-                "total_losses": 0.0,
                 "last_active": firestore.SERVER_TIMESTAMP,
                 "joined_at": firestore.SERVER_TIMESTAMP
             }
@@ -627,32 +443,10 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                         "joined_at": firestore.SERVER_TIMESTAMP
                     }, merge=True)
         else:
-            user_data = user_doc.to_dict() or {}
-            updates = {
+            user_ref.update({
                 "first_name": first_name,
                 "last_active": firestore.SERVER_TIMESTAMP
-            }
-            if "balance" not in user_data: updates["balance"] = 0.0
-            if "usd_balance" not in user_data: updates["usd_balance"] = 0.0
-            if "max_cap" not in user_data: updates["max_cap"] = 100.0
-            if "storage_level" not in user_data: updates["storage_level"] = 0
-            if "extra_storage" not in user_data: updates["extra_storage"] = 0.0
-            if "ad_balance" not in user_data: updates["ad_balance"] = 0.0
-            if "completed_tasks" not in user_data: updates["completed_tasks"] = []
-            if "upgrades" not in user_data: updates["upgrades"] = {}
-            if "hourly_rate" not in user_data: updates["hourly_rate"] = 0.0
-            if "daily_boost_rate" not in user_data: updates["daily_boost_rate"] = 0.0
-            if "ads_watched" not in user_data: updates["ads_watched"] = 0
-            if "pending_ref_earnings" not in user_data: updates["pending_ref_earnings"] = 0.0
-            if "total_ref_earnings" not in user_data: updates["total_ref_earnings"] = 0.0
-            if "claimed_ref_tasks" not in user_data: updates["claimed_ref_tasks"] = []
-            if "boost_multiplier" not in user_data: updates["boost_multiplier"] = 1
-            if "boost_active" not in user_data: updates["boost_active"] = False
-            if "boost_expires_at" not in user_data: updates["boost_expires_at"] = None
-            if "total_wins" not in user_data: updates["total_wins"] = 0.0
-            if "total_losses" not in user_data: updates["total_losses"] = 0.0
-                
-            user_ref.update(updates)
+            })
         
         return is_new_referral
     except Exception as e:
@@ -661,7 +455,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
 
 
 def get_user(tg_id):
-    """جلب بيانات مستخدم محدد مع معالجة الحقول المفقودة تلقائياً"""
+    """جلب بيانات مستخدم محدد مع التأكد من وجود كافة الحقول الضرورية"""
     try:
         if not tg_id: return None
         user_ref = db.collection('users').document(str(tg_id))
@@ -670,95 +464,11 @@ def get_user(tg_id):
             data = doc.to_dict() or {}
             data['id'] = doc.id
             
-            auto_updates = {}
-
-            if "balance" not in data or data["balance"] is None:
-                auto_updates["balance"] = 0.0
-                data["balance"] = 0.0
-            else:
-                try: data["balance"] = float(data["balance"])
-                except Exception: data["balance"] = 0.0
-
-            if "usd_balance" not in data or data["usd_balance"] is None:
-                auto_updates["usd_balance"] = 0.0
-                data["usd_balance"] = 0.0
-            else:
-                try: data["usd_balance"] = float(data["usd_balance"])
-                except Exception: data["usd_balance"] = 0.0
-
-            if "extra_storage" not in data or data["extra_storage"] is None:
-                auto_updates["extra_storage"] = 0.0
-                data["extra_storage"] = 0.0
-            else:
-                try: data["extra_storage"] = float(data["extra_storage"])
-                except Exception: data["extra_storage"] = 0.0
-
-            if "ad_balance" not in data:
-                auto_updates["ad_balance"] = 0.0
-                data["ad_balance"] = 0.0
-
-            if "completed_tasks" not in data:
-                auto_updates["completed_tasks"] = []
-                data["completed_tasks"] = []
-
-            if "storage_level" not in data:
-                auto_updates["storage_level"] = 0
-                data["storage_level"] = 0
-
-            if "daily_boost_rate" not in data:
-                auto_updates["daily_boost_rate"] = 0.0
-                data["daily_boost_rate"] = 0.0
-
-            if "ads_watched" not in data:
-                auto_updates["ads_watched"] = 0
-                data["ads_watched"] = 0
-
-            if "boost_multiplier" not in data:
-                auto_updates["boost_multiplier"] = 1
-                data["boost_multiplier"] = 1
-
-            if "boost_active" not in data:
-                auto_updates["boost_active"] = False
-                data["boost_active"] = False
-
-            if "boost_expires_at" not in data:
-                auto_updates["boost_expires_at"] = None
-                data["boost_expires_at"] = None
-
-            if "pending_ref_earnings" not in data:
-                auto_updates["pending_ref_earnings"] = 0.0
-                data["pending_ref_earnings"] = 0.0
-
-            if "total_ref_earnings" not in data:
-                auto_updates["total_ref_earnings"] = 0.0
-                data["total_ref_earnings"] = 0.0
-
-            if "total_wins" not in data:
-                auto_updates["total_wins"] = 0.0
-                data["total_wins"] = 0.0
-
-            if "total_losses" not in data:
-                auto_updates["total_losses"] = 0.0
-                data["total_losses"] = 0.0
-
-            stg_lvl = str(data.get("storage_level", 0))
-            settings = get_game_settings()
-            stg_cfg = settings.get("storage_config", {})
-            
-            base_cap = 100.0
-            if stg_lvl in stg_cfg and isinstance(stg_cfg[stg_lvl], dict):
-                base_cap = float(stg_cfg[stg_lvl].get("capacity", 100.0))
-
-            current_extra = float(data.get("extra_storage", 0.0))
-            expected_total_max = base_cap + current_extra
-
-            if float(data.get("max_cap", 0.0)) != expected_total_max:
-                auto_updates["max_cap"] = expected_total_max
-                data["max_cap"] = expected_total_max
-
-            if auto_updates:
-                user_ref.update(auto_updates)
-
+            data["balance"] = float(data.get("balance", 0.0) or 0.0)
+            data["usd_balance"] = float(data.get("usd_balance", 0.0) or 0.0)
+            data["ad_balance"] = float(data.get("ad_balance", 0.0) or 0.0)
+            data["total_bets"] = float(data.get("total_bets", 0.0) or 0.0)
+            data["total_wins"] = float(data.get("total_wins", 0.0) or 0.0)
             return data
         return None
     except Exception as e:
@@ -767,7 +477,7 @@ def get_user(tg_id):
 
 
 def get_all_users_admin(limit=100):
-    """جلب قائمة المستخدمين خصيصاً للوحة الإدارة العليا"""
+    """جلب قائمة سريعة بالمستخدمين للوحة الأدمن"""
     try:
         if not db: initialize_firebase()
         users_ref = db.collection('users').limit(limit)
@@ -780,11 +490,7 @@ def get_all_users_admin(limit=100):
                 "tg_id": str(d.get("tg_id", doc.id)),
                 "first_name": d.get("first_name", "مستخدم"),
                 "balance": float(d.get("balance", 0.0)),
-                "usd_balance": float(d.get("usd_balance", 0.0)),
-                "ad_balance": float(d.get("ad_balance", 0.0)),
-                "hourly_rate": float(d.get("hourly_rate", 0.0)),
-                "banned": bool(d.get("banned", False)),
-                "joined_at": str(d.get("joined_at", ""))
+                "banned": bool(d.get("banned", False))
             })
         return users_list
     except Exception as e:
@@ -792,98 +498,27 @@ def get_all_users_admin(limit=100):
         return []
 
 
-def get_admin_dashboard_stats():
-    """جلب نظرة شاملة وكاملة لكافة إحصائيات النظام والأرباح والمستخدمين للوحة الأدمن"""
+def update_user(tg_id, update_data):
+    """تحديث حقول حساب المستخدم"""
     try:
-        profit_stats = get_game_profit_stats()
-        treasury_stats = get_system_treasury()
-
-        # إحصائيات إضافية سريعة
-        total_users_count = 0
-        total_user_balance = 0.0
-        
-        if db:
-            try:
-                users_col = db.collection('users')
-                count_query = users_col.count()
-                total_users_count = count_query.get()[0][0].value
-            except Exception:
-                docs = list(db.collection('users').stream())
-                total_users_count = len(docs)
-                total_user_balance = sum(float(d.to_dict().get('balance', 0.0)) for d in docs)
-
-        return {
-            "status": "success",
-            "stats": {
-                "total_users": total_users_count,
-                "total_user_balance": total_user_balance,
-                "total_bot_profit": profit_stats.get("total_bot_profit", 0.0),
-                "total_user_profit": profit_stats.get("total_user_profit", 0.0),
-                "target_margin": profit_stats.get("target_margin", 0.70),
-                "target_margin_percent": profit_stats.get("target_margin_percent", 70.0),
-                "actual_bot_percent": profit_stats.get("actual_bot_percent", 0.0),
-                "actual_user_percent": profit_stats.get("actual_user_percent", 0.0),
-                "total_volume": profit_stats.get("total_volume", 0.0),
-                "total_bets": float(treasury_stats.get("total_bets", 0.0)),
-                "total_payouts": float(treasury_stats.get("total_payouts", 0.0))
-            }
-        }
-    except Exception as e:
-        print(f"❌ Error getting admin dashboard stats: {e}")
-        return {
-            "status": "error",
-            "message": str(e),
-            "stats": {}
-        }
-
-
-def record_user_game_result(tg_id, bet_amount, win_amount):
-    """تسجيل نتيجة جولة مستخدم وتحديث إحصائيات الفايربيس للعبة والمستخدم في نفس الوقت"""
-    try:
-        if not tg_id: return False
-        
-        bet = float(bet_amount)
-        win = float(win_amount)
-        net_result = win - bet
-
-        user_ref = db.collection('users').document(str(tg_id))
-        
-        if net_result < 0:
-            # ربح للبوت / خسارة للمستخدم
-            bot_profit = abs(net_result)
-            record_game_stats(bot_profit=bot_profit, user_profit=0.0)
-            update_system_treasury(bet_amount=bet, payout_amount=win)
-            user_ref.update({
-                "total_losses": firestore.Increment(bot_profit)
-            })
-        elif net_result > 0:
-            # خسارة للبوت / ربح للمستخدم
-            user_profit = net_result
-            record_game_stats(bot_profit=0.0, user_profit=user_profit)
-            update_system_treasury(bet_amount=bet, payout_amount=win)
-            user_ref.update({
-                "total_wins": firestore.Increment(user_profit)
-            })
-        else:
-            # تعادل
-            update_system_treasury(bet_amount=bet, payout_amount=win)
-
+        if not tg_id or not isinstance(update_data, dict): return False
+        db.collection('users').document(str(tg_id)).update(update_data)
         return True
     except Exception as e:
-        print(f"❌ Error recording user game result: {e}")
+        print(f"❌ Error updating user {tg_id}: {e}")
         return False
 
 
-# ==================== Task & Campaign Database Functions ====================
+# ==================== Task & Campaign Functions ====================
 
 def get_active_campaigns(tg_id):
-    """جلب قائمة المهمات الإعلانية النشطة للمستخدم"""
+    """جلب قائمة المهمات النشطة"""
     try:
         if not db: initialize_firebase()
         user_data = get_user(tg_id) or {}
         completed_list = [str(x) for x in user_data.get("completed_tasks", [])]
 
-        campaigns_ref = db.collection('tasks').where('active', '==', True).limit(100)
+        campaigns_ref = db.collection('tasks').where('active', '==', True).limit(50)
         docs = campaigns_ref.stream()
 
         campaigns = []
@@ -893,8 +528,7 @@ def get_active_campaigns(tg_id):
             comp_count = int(d.get('users_completed', 0))
             need_count = int(d.get('users_needed', 1))
 
-            if comp_count >= need_count:
-                continue
+            if comp_count >= need_count: continue
 
             campaigns.append({
                 "id": cid,
@@ -915,39 +549,30 @@ def get_active_campaigns(tg_id):
 
 
 def complete_user_task(tg_id, task_id):
-    """تسجيل إكمال مهمة إضافة مكافأتها للمستخدم"""
+    """إكمال مهمة وتسليم مكافأتها"""
     try:
-        if not tg_id or not task_id:
-            return False, "بيانات غير صالحة", 0.0
-
-        tg_id_str = str(tg_id)
-        task_id_str = str(task_id)
+        if not tg_id or not task_id: return False, "بيانات غير صالحة", 0.0
+        tg_id_str, task_id_str = str(tg_id), str(task_id)
 
         user_ref = db.collection('users').document(tg_id_str)
         task_ref = db.collection('tasks').document(task_id_str)
 
-        user_doc = user_ref.get()
-        task_doc = task_ref.get()
+        user_doc, task_doc = user_ref.get(), task_ref.get()
 
-        if not user_doc.exists:
-            return False, "المستخدم غير موجود", 0.0
-        if not task_doc.exists:
-            return False, "المهمة غير موجودة أو انتهت", 0.0
+        if not user_doc.exists or not task_doc.exists:
+            return False, "المهمة أو المستخدم غير موجود", 0.0
 
         user_data = user_doc.to_dict() or {}
         task_data = task_doc.to_dict() or {}
 
         completed = [str(x) for x in user_data.get("completed_tasks", [])]
         if task_id_str in completed:
-            return False, "لقد قمت بإكمال هذه المهمة من قبل!", float(user_data.get("balance", 0.0))
+            return False, "تم إكمال المهمة سابقاً!", float(user_data.get("balance", 0.0))
 
         reward = float(task_data.get("reward", 0.0))
         new_balance = round(float(user_data.get("balance", 0.0)) + reward, 2)
 
-        task_ref.update({
-            "users_completed": firestore.Increment(1)
-        })
-
+        task_ref.update({"users_completed": firestore.Increment(1)})
         user_ref.update({
             "balance": new_balance,
             "completed_tasks": firestore.ArrayUnion([task_id_str])
@@ -955,12 +580,12 @@ def complete_user_task(tg_id, task_id):
 
         return True, "تم إكمال المهمة بنجاح!", new_balance
     except Exception as e:
-        print(f"❌ Error completing task {task_id} for user {tg_id}: {e}")
+        print(f"❌ Error completing task {task_id}: {e}")
         return False, "حدث خطأ أثناء معالجة المهمة", 0.0
 
 
 def create_ad_campaign(tg_id, platform, description, url, reward, users_needed):
-    """إنشاء حملة إعلانية جديدة وخصم التكلفة من رصيد الإعلانات ad_balance"""
+    """إنشاء حملة إعلانية جديدة"""
     try:
         if not tg_id: return False, "معرف غير صالح", 0.0
         tg_id_str = str(tg_id)
@@ -976,9 +601,7 @@ def create_ad_campaign(tg_id, platform, description, url, reward, users_needed):
         user_doc = user_ref.get()
         if not user_doc.exists: return False, "المستخدم غير موجود", 0.0
 
-        user_data = user_doc.to_dict() or {}
-        current_ad_bal = float(user_data.get("ad_balance", 0.0))
-
+        current_ad_bal = float((user_doc.to_dict() or {}).get("ad_balance", 0.0))
         if current_ad_bal < total_cost:
             return False, "رصيد الإعلانات غير كافٍ!", current_ad_bal
 
@@ -1004,46 +627,8 @@ def create_ad_campaign(tg_id, platform, description, url, reward, users_needed):
         return False, f"حدث خطأ: {e}", 0.0
 
 
-def cancel_ad_campaign(tg_id, task_id):
-    """إلغاء حملة إعلانية واسترداد الرصيد المتبقي"""
-    try:
-        if not tg_id or not task_id: return False, "بيانات غير صالحة", 0.0, 0.0
-        tg_id_str = str(tg_id)
-        task_id_str = str(task_id)
-
-        task_ref = db.collection('tasks').document(task_id_str)
-        task_doc = task_ref.get()
-
-        if not task_doc.exists: return False, "الحملة غير موجودة", 0.0, 0.0
-
-        task_data = task_doc.to_dict() or {}
-        if str(task_data.get("creator_id")) != tg_id_str:
-            return False, "غير مصرح لك بإلغاء هذه الحملة", 0.0, 0.0
-
-        reward = float(task_data.get("reward", 0.0))
-        needed = int(task_data.get("users_needed", 0))
-        completed = int(task_data.get("users_completed", 0))
-
-        remaining_count = max(0, needed - completed)
-        refund_amount = round(remaining_count * reward, 2)
-
-        user_ref = db.collection('users').document(tg_id_str)
-        user_doc = user_ref.get()
-        current_ad_bal = float((user_doc.to_dict() or {}).get("ad_balance", 0.0)) if user_doc.exists else 0.0
-
-        new_ad_bal = round(current_ad_bal + refund_amount, 2)
-
-        task_ref.update({"active": False})
-        user_ref.update({"ad_balance": new_ad_bal})
-
-        return True, "تم إلغاء الحملة واسترداد المتبقي!", new_ad_bal, refund_amount
-    except Exception as e:
-        print(f"❌ Error canceling campaign {task_id}: {e}")
-        return False, f"حدث خطأ: {e}", 0.0, 0.0
-
-
 def convert_balance_to_ad_balance(tg_id, amount):
-    """تحويل من الرصيد الأساسي ZN إلى رصيد الإعلانات AdZN"""
+    """تحويل من الرصيد ZN إلى رصيد الإعلانات AdZN"""
     try:
         if not tg_id or amount <= 0: return False, "مبلغ غير صالح", 0.0, 0.0
         tg_id_str = str(tg_id)
@@ -1073,110 +658,10 @@ def convert_balance_to_ad_balance(tg_id, amount):
         return False, f"حدث خطأ: {e}", 0.0, 0.0
 
 
-def apply_package_to_user(tg_id, added_storage=0.0, added_balance=0.0, added_hourly_rate=0.0):
-    """تطبيق مزايا الباقات على حساب المستخدم"""
-    try:
-        if not tg_id: return False, "معرف غير صالح"
-        user_ref = db.collection('users').document(str(tg_id))
-        doc = user_ref.get()
-        if not doc.exists:
-            return False, "المستخدم غير موجود"
-
-        user_data = doc.to_dict() or {}
-        stg_lvl = str(user_data.get("storage_level", 0))
-        settings = get_game_settings()
-        stg_cfg = settings.get("storage_config", {})
-        
-        base_cap = 100.0
-        if stg_lvl in stg_cfg and isinstance(stg_cfg[stg_lvl], dict):
-            base_cap = float(stg_cfg[stg_lvl].get("capacity", 100.0))
-
-        current_extra = float(user_data.get("extra_storage", 0.0))
-        new_extra = current_extra + float(added_storage)
-        new_max_cap = round(base_cap + new_extra, 2)
-
-        updates = {
-            "extra_storage": new_extra,
-            "max_cap": new_max_cap
-        }
-        if added_balance > 0:
-            updates["balance"] = firestore.Increment(float(added_balance))
-        if added_hourly_rate > 0:
-            updates["hourly_rate"] = firestore.Increment(float(added_hourly_rate))
-
-        user_ref.update(updates)
-        return True, f"تمت إضافة الباقة بنجاح! السعة الجديدة: {new_max_cap}"
-    except Exception as e:
-        print(f"❌ Error applying package: {e}")
-        return False, f"حدث خطأ: {e}"
-
-
-def add_extra_storage(tg_id, extra_amount):
-    return apply_package_to_user(tg_id, added_storage=extra_amount)
-
-
-def update_user(tg_id, update_data):
-    """تحديث حقول بيانات المستخدم بشكل مباشر"""
-    try:
-        if not tg_id or not isinstance(update_data, dict): return False
-        db.collection('users').document(str(tg_id)).update(update_data)
-        return True
-    except Exception as e:
-        print(f"❌ Error updating user {tg_id}: {e}")
-        return False
-
-
-def update_user_storage_level(tg_id, target_level=None):
-    """ترقية مستوى سعة المخزن للمستخدم"""
-    try:
-        if not tg_id: return False, "معرف المستخدم غير صحيح", 0, 0
-        tg_id_str = str(tg_id)
-        user_ref = db.collection('users').document(tg_id_str)
-        user_doc = user_ref.get()
-        
-        if not user_doc.exists:
-            return False, "المستخدم غير موجود", 0, 0
-
-        settings = get_game_settings()
-        storage_cfg = settings.get("storage_config", {})
-
-        user_data = user_doc.to_dict() or {}
-        current_level = int(user_data.get("storage_level", 0))
-        current_balance = float(user_data.get("balance", 0.0))
-        extra_cap = float(user_data.get("extra_storage", 0.0))
-
-        next_level = int(target_level) if target_level is not None else current_level + 1
-
-        if target_level is None and next_level <= current_level:
-            return False, "أنت بالفعل في هذا المستوى أو مستوى أعلى!", user_data.get("max_cap", 100.0), current_balance
-
-        next_cfg = storage_cfg.get(str(next_level)) or storage_cfg.get(next_level)
-        if not next_cfg:
-            return False, "لقد وصلت إلى الحد الأقصى لمستويات المخزن!", user_data.get("max_cap", 100.0), current_balance
-
-        price = float(next_cfg.get("price", 0))
-
-        if target_level is None and current_balance < price:
-            return False, "رصيدك غير كافٍ لإجراء الترقية!", user_data.get("max_cap", 100.0), current_balance
-
-        base_next_cap = float(next_cfg.get("capacity", 100.0))
-        new_total_max_cap = round(base_next_cap + extra_cap, 2)
-        update_payload = {"storage_level": next_level, "max_cap": new_total_max_cap}
-
-        if target_level is None:
-            new_balance = round(current_balance - price, 2)
-            update_payload["balance"] = new_balance
-
-        user_ref.update(update_payload)
-        return True, "تمت الترقية بنجاح!", new_total_max_cap, update_payload.get("balance", current_balance)
-    except Exception as e:
-        print(f"❌ Error updating storage level for {tg_id}: {e}")
-        return False, f"حدث خطأ: {e}", 0, 0
-
-# ==================== Leaderboard & Extended Game Functions ====================
+# ==================== Leaderboard & Rewards ====================
 
 def get_leaderboard(limit=10):
-    """جلب قائمة المتصدرين مع ذاكرة التخزين المؤقت (Cache)"""
+    """جلب قائمة المتصدرين بسرعة مع الكاش"""
     global _LEADERBOARD_CACHE, _LEADERBOARD_CACHE_TIME
     now = time.time()
     if _LEADERBOARD_CACHE is not None and (now - _LEADERBOARD_CACHE_TIME) < LEADERBOARD_CACHE_TTL:
@@ -1194,8 +679,7 @@ def get_leaderboard(limit=10):
                 "rank": i,
                 "tg_id": str(d.get("tg_id", doc.id)),
                 "first_name": d.get("first_name", "صديقي"),
-                "balance": float(d.get("balance", 0.0)),
-                "hourly_rate": float(d.get("hourly_rate", 0.0))
+                "balance": float(d.get("balance", 0.0))
             })
 
         _LEADERBOARD_CACHE = leaderboard
@@ -1219,20 +703,8 @@ def claim_daily_reward(tg_id):
         if last_claim_date == today_str:
             return False, "لقد استلمت المكافأة اليومية بالفعل اليوم!", user_data.get("balance", 0.0), user_data.get("daily_streak", 0)
 
-        current_streak = int(user_data.get("daily_streak", 0))
-        
-        if last_claim_date:
-            last_dt = datetime.strptime(last_claim_date, "%Y-%m-%d")
-            today_dt = datetime.strptime(today_str, "%Y-%m-%d")
-            if (today_dt - last_dt).days == 1:
-                current_streak += 1
-            else:
-                current_streak = 1
-        else:
-            current_streak = 1
-
-        if current_streak > 30:
-            current_streak = 1
+        current_streak = int(user_data.get("daily_streak", 0)) + 1
+        if current_streak > 30: current_streak = 1
 
         settings = get_game_settings()
         rewards_map = settings.get("daily_rewards", {})
@@ -1248,152 +720,13 @@ def claim_daily_reward(tg_id):
 
         return True, f"تم استلام مكافأة اليوم {current_streak} بنجاح (+{reward_amount} ZN)!", new_balance, current_streak
     except Exception as e:
-        print(f"❌ Error claiming daily reward for {tg_id}: {e}")
+        print(f"❌ Error claiming daily reward: {e}")
         return False, f"حدث خطأ: {e}", 0.0, 0
 
 
-def claim_mining_farm(tg_id):
-    """جمع أرباح التعدين بناءً على سرعة التعدين والوقت المنقضي"""
-    try:
-        if not tg_id: return False, "معرف غير صالح", 0.0, 0.0
-        user_data = get_user(tg_id)
-        if not user_data: return False, "المستخدم غير موجود", 0.0, 0.0
-
-        hourly_rate = float(user_data.get("hourly_rate", 0.0))
-        if hourly_rate <= 0:
-            return False, "عدل سرعة التعدين أولاً لتتمكن من الجمع!", float(user_data.get("balance", 0.0)), 0.0
-
-        last_claim_str = user_data.get("last_claim_time")
-        now_dt = datetime.now(timezone.utc)
-
-        if isinstance(last_claim_str, str):
-            try:
-                last_claim_dt = datetime.fromisoformat(last_claim_str.replace('Z', '+00:00'))
-            except Exception:
-                last_claim_dt = now_dt
-        else:
-            last_claim_dt = now_dt
-
-        elapsed_hours = (now_dt - last_claim_dt).total_seconds() / 3600.0
-        if elapsed_hours < (1 / 60.0): # أقل من دقيقة
-            return False, "لا يوجد رصيد قابل للجمع بعد!", float(user_data.get("balance", 0.0)), 0.0
-
-        produced = elapsed_hours * hourly_rate
-        max_cap = float(user_data.get("max_cap", 100.0))
-
-        if produced > max_cap:
-            produced = max_cap
-
-        produced = round(produced, 2)
-        new_balance = round(float(user_data.get("balance", 0.0)) + produced, 2)
-
-        update_user(tg_id, {
-            "balance": new_balance,
-            "last_claim_time": now_dt.isoformat()
-        })
-
-        return True, f"تم جمع {produced} ZN بنجاح!", new_balance, produced
-    except Exception as e:
-        print(f"❌ Error claiming mining farm for {tg_id}: {e}")
-        return False, f"حدث خطأ: {e}", 0.0, 0.0
-
-
-def upgrade_mining_card(tg_id, card_id):
-    """ترقية كرت التعدين وزيادة معدل التعدين بالساعة"""
-    try:
-        if not tg_id or not card_id: return False, "بيانات غير صالحة", 0.0, 0.0
-        tg_id_str = str(tg_id)
-        card_id_str = str(card_id)
-
-        user_data = get_user(tg_id_str)
-        if not user_data: return False, "المستخدم غير موجود", 0.0, 0.0
-
-        settings = get_game_settings()
-        mining_cfg = settings.get("mining_config", {})
-
-        card_cfg = mining_cfg.get(card_id_str)
-        if not card_cfg: return False, "كرت التعدين غير موجود", 0.0, 0.0
-
-        upgrades = user_data.get("upgrades", {}) or {}
-        current_card_lvl = int(upgrades.get(card_id_str, 0))
-        max_lvl = int(card_cfg.get("max", 10))
-
-        if current_card_lvl >= max_lvl:
-            return False, "وصلت للحد الأقصى لمستوى هذا الكرت!", float(user_data.get("balance", 0.0)), float(user_data.get("hourly_rate", 0.0))
-
-        base_cost = float(card_cfg.get("base_cost", card_cfg.get("price", 3500.0)))
-        cost = base_cost * (1.5 ** current_card_lvl)
-        cost = round(cost, 2)
-
-        current_balance = float(user_data.get("balance", 0.0))
-        if current_balance < cost:
-            return False, f"رصيدك غير كافٍ! سعر الترقية {cost} ZN", current_balance, float(user_data.get("hourly_rate", 0.0))
-
-        rate_bonus = float(card_cfg.get("rate_bonus", 5.0))
-
-        new_balance = round(current_balance - cost, 2)
-        new_hourly_rate = round(float(user_data.get("hourly_rate", 0.0)) + rate_bonus, 2)
-
-        upgrades[card_id_str] = current_card_lvl + 1
-
-        update_user(tg_id_str, {
-            "balance": new_balance,
-            "hourly_rate": new_hourly_rate,
-            "upgrades": upgrades
-        })
-
-        return True, "تم ترقية كرت التعدين بنجاح!", new_balance, new_hourly_rate
-    except Exception as e:
-        print(f"❌ Error upgrading mining card {card_id} for {tg_id}: {e}")
-        return False, f"حدث خطأ: {e}", 0.0, 0.0
-
-
-def claim_referral_earnings(tg_id):
-    """تحويل أرباح الإحالات المعلقة إلى الرصيد الأساسي"""
-    try:
-        if not tg_id: return False, "معرف غير صالح", 0.0
-        user_data = get_user(tg_id)
-        if not user_data: return False, "المستخدم غير موجود", 0.0
-
-        pending = float(user_data.get("pending_ref_earnings", 0.0))
-        if pending <= 0:
-            return False, "لا توجد أرباح إحالات معلقة لجمعها!", float(user_data.get("balance", 0.0))
-
-        current_bal = float(user_data.get("balance", 0.0))
-        total_ref = float(user_data.get("total_ref_earnings", 0.0))
-
-        new_bal = round(current_bal + pending, 2)
-        new_total_ref = round(total_ref + pending, 2)
-
-        update_user(tg_id, {
-            "balance": new_bal,
-            "pending_ref_earnings": 0.0,
-            "total_ref_earnings": new_total_ref
-        })
-
-        return True, f"تم جمع أرباح الإحالة (+{pending} ZN) بنجاح!", new_bal
-    except Exception as e:
-        print(f"❌ Error claiming referral earnings for {tg_id}: {e}")
-        return False, f"حدث خطأ: {e}", 0.0
-
-
-def get_user_friends(tg_id, limit=50):
-    """جلب قائمة الأصدقاء المدعوين من قبل المستخدم"""
-    try:
-        if not db or not tg_id: return []
-        friends_ref = db.collection('users').document(str(tg_id)).collection('friends').limit(limit)
-        docs = friends_ref.stream()
-
-        friends = []
-        for doc in docs:
-            d = doc.to_dict() or {}
-            friends.append({
-                "tg_id": str(d.get("tg_id", doc.id)),
-                "first_name": d.get("first_name", "صديقي"),
-                "earned_from_him": float(d.get("earned_from_him", 0.0))
-            })
-
-        return friends
-    except Exception as e:
-        print(f"❌ Error getting friends list for {tg_id}: {e}")
-        return []
+# تهيئة التلقائية فور الاستدعاء
+try:
+    db = initialize_firebase()
+    ensure_game_settings_exist()
+except Exception as e:
+    print(f"⚠️ تنبيه أثناء تهيئة DB تلقائياً: {e}")
