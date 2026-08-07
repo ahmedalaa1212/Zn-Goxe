@@ -237,6 +237,30 @@ def ensure_game_settings_exist():
         return None
 
 
+def get_game_settings():
+    """جلب إعدادات اللعبة من الكاش لتسريع الأداء"""
+    global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
+    now = time.time()
+    if _SETTINGS_CACHE is not None and (now - _SETTINGS_CACHE_TIME) < SETTINGS_CACHE_TTL:
+        return _SETTINGS_CACHE
+
+    try:
+        if not db: initialize_firebase()
+        doc = db.collection('app_config').document('game_settings').get()
+        if doc.exists:
+            data = doc.to_dict() or {}
+            _SETTINGS_CACHE = data
+            _SETTINGS_CACHE_TIME = now
+            return _SETTINGS_CACHE
+        else:
+            new_settings = ensure_game_settings_exist()
+            if new_settings: return new_settings
+        return {}
+    except Exception as e:
+        print(f"❌ Error getting game settings: {e}")
+        return _SETTINGS_CACHE or {}
+
+
 def update_game_settings(new_settings_dict):
     """تحديث مستند إعدادات اللعبة في Firestore وإعادة تعيين الكاش فوراً"""
     global db, _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
@@ -258,6 +282,37 @@ def update_game_settings(new_settings_dict):
         return False, f"حدث خطأ أثناء حفظ الإعدادات: {e}"
 
 
+def save_admin_settings(settings_dict):
+    """دالة خاصة بأوامر لوحة الأدمن لتحديث نسبة ربح البوت والحد الأدنى للرهان"""
+    try:
+        if not isinstance(settings_dict, dict):
+            return False, "بيانات الإعدادات غير صالحة"
+
+        current_settings = get_game_settings() or {}
+        grid_cfg = current_settings.get("grid_game_config", {})
+
+        if "target_margin" in settings_dict:
+            val = float(settings_dict["target_margin"])
+            grid_cfg["target_margin"] = val / 100.0 if val > 1.0 else val
+
+        if "min_bet" in settings_dict:
+            grid_cfg["min_bet"] = float(settings_dict["min_bet"])
+
+        if "default_broken_coins" in settings_dict:
+            grid_cfg["default_broken_coins"] = int(settings_dict["default_broken_coins"])
+
+        payload = {"grid_game_config": grid_cfg}
+
+        # دعم تحديث سعر الصرف أو أي حقول أخرى إن وُجدت
+        if "usd_to_zn_rate" in settings_dict:
+            payload["usd_to_zn_rate"] = float(settings_dict["usd_to_zn_rate"])
+
+        return update_game_settings(payload)
+    except Exception as e:
+        print(f"❌ Error in save_admin_settings: {e}")
+        return False, f"خطأ أثناء حفظ إعدادات الأدمن: {e}"
+
+
 def update_grid_game_config(min_bet=None, target_margin=None, default_broken_coins=None):
     """تحديث خصائص لعبة شبكة العملات المكسورة بشكل مخصص (مثل تغيير نسبة ربح البوت)"""
     try:
@@ -268,7 +323,6 @@ def update_grid_game_config(min_bet=None, target_margin=None, default_broken_coi
             grid_cfg["min_bet"] = float(min_bet)
         if target_margin is not None:
             val = float(target_margin)
-            # تحويل القيم النسبية إن كُتبت بصيغة مئوية (مثلاً 70 تعني 0.70)
             grid_cfg["target_margin"] = val / 100.0 if val > 1.0 else val
         if default_broken_coins is not None:
             grid_cfg["default_broken_coins"] = int(default_broken_coins)
@@ -450,28 +504,6 @@ try:
 except Exception as e:
     print(f"⚠️ تنبيه أثناء تهيئة DB تلقائياً: {e}")
 
-def get_game_settings():
-    """جلب إعدادات اللعبة من الكاش لتسريع الأداء"""
-    global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
-    now = time.time()
-    if _SETTINGS_CACHE is not None and (now - _SETTINGS_CACHE_TIME) < SETTINGS_CACHE_TTL:
-        return _SETTINGS_CACHE
-
-    try:
-        if not db: initialize_firebase()
-        doc = db.collection('app_config').document('game_settings').get()
-        if doc.exists:
-            data = doc.to_dict() or {}
-            _SETTINGS_CACHE = data
-            _SETTINGS_CACHE_TIME = now
-            return _SETTINGS_CACHE
-        else:
-            new_settings = ensure_game_settings_exist()
-            if new_settings: return new_settings
-        return {}
-    except Exception as e:
-        print(f"❌ Error getting game settings: {e}")
-        return _SETTINGS_CACHE or {}
 
 def is_user_banned(tg_id):
     """التحقق السريع من حالة حظر المستخدم"""
@@ -491,6 +523,25 @@ def is_user_banned(tg_id):
     except Exception as e:
         print(f"❌ Error checking ban status: {e}")
         return False
+
+
+def ban_user(tg_id, ban_status=True):
+    """حظر أو إلغاء حظر مستخدم وتحديث الكاش فوراً"""
+    try:
+        if not tg_id: return False, "معرف مستخدم غير صالح"
+        tg_id_str = str(tg_id)
+        
+        db.collection('users').document(tg_id_str).update({
+            "banned": bool(ban_status)
+        })
+        
+        _BAN_CACHE[tg_id_str] = (bool(ban_status), time.time() + BAN_CACHE_TTL)
+        msg = "تم حظر المستخدم بنجاح" if ban_status else "تم إلغاء حظر المستخدم بنجاح"
+        return True, msg
+    except Exception as e:
+        print(f"❌ Error banning user {tg_id}: {e}")
+        return False, f"حدث خطأ: {e}"
+
 
 def init_user(tg_id, ref_id=None, first_name="صديقي"):
     """إنشاء أو تحديث حساب مستخدم جديد بالتكامل مع نظام الإحالات"""
@@ -535,6 +586,8 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "boost_multiplier": 1,
                 "boost_active": False,
                 "boost_expires_at": None,
+                "total_wins": 0.0,
+                "total_losses": 0.0,
                 "last_active": firestore.SERVER_TIMESTAMP,
                 "joined_at": firestore.SERVER_TIMESTAMP
             }
@@ -574,6 +627,8 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
             if "boost_multiplier" not in user_data: updates["boost_multiplier"] = 1
             if "boost_active" not in user_data: updates["boost_active"] = False
             if "boost_expires_at" not in user_data: updates["boost_expires_at"] = None
+            if "total_wins" not in user_data: updates["total_wins"] = 0.0
+            if "total_losses" not in user_data: updates["total_losses"] = 0.0
                 
             user_ref.update(updates)
         
@@ -581,6 +636,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
     except Exception as e:
         print(f"❌ Error initializing user {tg_id}: {e}")
         return False
+
 
 def get_user(tg_id):
     """جلب بيانات مستخدم محدد مع معالجة الحقول المفقودة تلقائياً"""
@@ -655,6 +711,14 @@ def get_user(tg_id):
                 auto_updates["total_ref_earnings"] = 0.0
                 data["total_ref_earnings"] = 0.0
 
+            if "total_wins" not in data:
+                auto_updates["total_wins"] = 0.0
+                data["total_wins"] = 0.0
+
+            if "total_losses" not in data:
+                auto_updates["total_losses"] = 0.0
+                data["total_losses"] = 0.0
+
             stg_lvl = str(data.get("storage_level", 0))
             settings = get_game_settings()
             stg_cfg = settings.get("storage_config", {})
@@ -678,6 +742,116 @@ def get_user(tg_id):
     except Exception as e:
         print(f"❌ Error getting user {tg_id}: {e}")
         return None
+
+
+def get_all_users_admin(limit=100):
+    """جلب قائمة المستخدمين خصيصاً للوحة الإدارة العليا"""
+    try:
+        if not db: initialize_firebase()
+        users_ref = db.collection('users').limit(limit)
+        docs = users_ref.stream()
+
+        users_list = []
+        for doc in docs:
+            d = doc.to_dict() or {}
+            users_list.append({
+                "tg_id": str(d.get("tg_id", doc.id)),
+                "first_name": d.get("first_name", "مستخدم"),
+                "balance": float(d.get("balance", 0.0)),
+                "usd_balance": float(d.get("usd_balance", 0.0)),
+                "ad_balance": float(d.get("ad_balance", 0.0)),
+                "hourly_rate": float(d.get("hourly_rate", 0.0)),
+                "banned": bool(d.get("banned", False)),
+                "joined_at": str(d.get("joined_at", ""))
+            })
+        return users_list
+    except Exception as e:
+        print(f"❌ Error fetching all users for admin: {e}")
+        return []
+
+
+def get_admin_dashboard_stats():
+    """جلب نظرة شاملة وكاملة لكافة إحصائيات النظام والأرباح والمستخدمين للوحة الأدمن"""
+    try:
+        profit_stats = get_game_profit_stats()
+        treasury_stats = get_system_treasury()
+
+        # إحصائيات إضافية سريعة
+        total_users_count = 0
+        total_user_balance = 0.0
+        
+        if db:
+            # استخدام count aggregation لو أمكن، أو جلب تقريبي
+            try:
+                users_col = db.collection('users')
+                count_query = users_col.count()
+                total_users_count = count_query.get()[0][0].value
+            except Exception:
+                docs = list(db.collection('users').stream())
+                total_users_count = len(docs)
+                total_user_balance = sum(float(d.to_dict().get('balance', 0.0)) for d in docs)
+
+        return {
+            "status": "success",
+            "stats": {
+                "total_users": total_users_count,
+                "total_user_balance": total_user_balance,
+                "total_bot_profit": profit_stats.get("total_bot_profit", 0.0),
+                "total_user_profit": profit_stats.get("total_user_profit", 0.0),
+                "target_margin": profit_stats.get("target_margin", 0.70),
+                "target_margin_percent": profit_stats.get("target_margin_percent", 70.0),
+                "actual_bot_percent": profit_stats.get("actual_bot_percent", 0.0),
+                "actual_user_percent": profit_stats.get("actual_user_percent", 0.0),
+                "total_volume": profit_stats.get("total_volume", 0.0),
+                "total_bets": float(treasury_stats.get("total_bets", 0.0)),
+                "total_payouts": float(treasury_stats.get("total_payouts", 0.0))
+            }
+        }
+    except Exception as e:
+        print(f"❌ Error getting admin dashboard stats: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "stats": {}
+        }
+
+
+def record_user_game_result(tg_id, bet_amount, win_amount):
+    """تسجيل نتيجة جولة مستخدم وتحديث إحصائيات الفايربيس للعبة والمستخدم في نفس الوقت"""
+    try:
+        if not tg_id: return False
+        
+        bet = float(bet_amount)
+        win = float(win_amount)
+        net_result = win - bet
+
+        user_ref = db.collection('users').document(str(tg_id))
+        
+        if net_result < 0:
+            # ربح للبوت / خسارة للمستخدم
+            bot_profit = abs(net_result)
+            record_game_stats(bot_profit=bot_profit, user_profit=0.0)
+            update_system_treasury(bet_amount=bet, payout_amount=win)
+            user_ref.update({
+                "total_losses": firestore.Increment(bot_profit)
+            })
+        elif net_result > 0:
+            # خسارة للبوت / ربح للمستخدم
+            user_profit = net_result
+            record_game_stats(bot_profit=0.0, user_profit=user_profit)
+            update_system_treasury(bet_amount=bet, payout_amount=win)
+            user_ref.update({
+                "total_wins": firestore.Increment(user_profit)
+            })
+        else:
+            # تعادل
+            update_system_treasury(bet_amount=bet, payout_amount=win)
+
+        return True
+    except Exception as e:
+        print(f"❌ Error recording user game result: {e}")
+        return False
+
 
 # ==================== Task & Campaign Database Functions ====================
 
@@ -717,6 +891,7 @@ def get_active_campaigns(tg_id):
     except Exception as e:
         print(f"❌ Error fetching active campaigns: {e}")
         return [], 0.0, 0.0
+
 
 def complete_user_task(tg_id, task_id):
     """تسجيل إكمال مهمة إضافة مكافأتها للمستخدم"""
@@ -762,6 +937,7 @@ def complete_user_task(tg_id, task_id):
         print(f"❌ Error completing task {task_id} for user {tg_id}: {e}")
         return False, "حدث خطأ أثناء معالجة المهمة", 0.0
 
+
 def create_ad_campaign(tg_id, platform, description, url, reward, users_needed):
     """إنشاء حملة إعلانية جديدة وخصم التكلفة من رصيد الإعلانات ad_balance"""
     try:
@@ -806,6 +982,7 @@ def create_ad_campaign(tg_id, platform, description, url, reward, users_needed):
         print(f"❌ Error creating campaign: {e}")
         return False, f"حدث خطأ: {e}", 0.0
 
+
 def cancel_ad_campaign(tg_id, task_id):
     """إلغاء حملة إعلانية واسترداد الرصيد المتبقي"""
     try:
@@ -843,6 +1020,7 @@ def cancel_ad_campaign(tg_id, task_id):
         print(f"❌ Error canceling campaign {task_id}: {e}")
         return False, f"حدث خطأ: {e}", 0.0, 0.0
 
+
 def convert_balance_to_ad_balance(tg_id, amount):
     """تحويل من الرصيد الأساسي ZN إلى رصيد الإعلانات AdZN"""
     try:
@@ -872,6 +1050,7 @@ def convert_balance_to_ad_balance(tg_id, amount):
     except Exception as e:
         print(f"❌ Error converting balance: {e}")
         return False, f"حدث خطأ: {e}", 0.0, 0.0
+
 
 def apply_package_to_user(tg_id, added_storage=0.0, added_balance=0.0, added_hourly_rate=0.0):
     """تطبيق مزايا الباقات على حساب المستخدم"""
@@ -910,8 +1089,10 @@ def apply_package_to_user(tg_id, added_storage=0.0, added_balance=0.0, added_hou
         print(f"❌ Error applying package: {e}")
         return False, f"حدث خطأ: {e}"
 
+
 def add_extra_storage(tg_id, extra_amount):
     return apply_package_to_user(tg_id, added_storage=extra_amount)
+
 
 def update_user(tg_id, update_data):
     """تحديث حقول بيانات المستخدم بشكل مباشر"""
@@ -922,6 +1103,7 @@ def update_user(tg_id, update_data):
     except Exception as e:
         print(f"❌ Error updating user {tg_id}: {e}")
         return False
+
 
 def update_user_storage_level(tg_id, target_level=None):
     """ترقية مستوى سعة المخزن للمستخدم"""
@@ -1002,6 +1184,7 @@ def get_leaderboard(limit=10):
         print(f"❌ Error fetching leaderboard: {e}")
         return _LEADERBOARD_CACHE or []
 
+
 def claim_daily_reward(tg_id):
     """استلام المكافأة اليومية للمستخدم"""
     try:
@@ -1047,6 +1230,7 @@ def claim_daily_reward(tg_id):
         print(f"❌ Error claiming daily reward for {tg_id}: {e}")
         return False, f"حدث خطأ: {e}", 0.0, 0
 
+
 def claim_mining_farm(tg_id):
     """جمع أرباح التعدين بناءً على سرعة التعدين والوقت المنقضي"""
     try:
@@ -1091,6 +1275,7 @@ def claim_mining_farm(tg_id):
     except Exception as e:
         print(f"❌ Error claiming mining farm for {tg_id}: {e}")
         return False, f"حدث خطأ: {e}", 0.0, 0.0
+
 
 def upgrade_mining_card(tg_id, card_id):
     """ترقية كرت التعدين وزيادة معدل التعدين بالساعة"""
@@ -1141,6 +1326,7 @@ def upgrade_mining_card(tg_id, card_id):
         print(f"❌ Error upgrading mining card {card_id} for {tg_id}: {e}")
         return False, f"حدث خطأ: {e}", 0.0, 0.0
 
+
 def claim_referral_earnings(tg_id):
     """تحويل أرباح الإحالات المعلقة إلى الرصيد الأساسي"""
     try:
@@ -1168,6 +1354,7 @@ def claim_referral_earnings(tg_id):
     except Exception as e:
         print(f"❌ Error claiming referral earnings for {tg_id}: {e}")
         return False, f"حدث خطأ: {e}", 0.0
+
 
 def get_user_friends(tg_id, limit=50):
     """جلب قائمة الأصدقاء المدعوين من قبل المستخدم"""
