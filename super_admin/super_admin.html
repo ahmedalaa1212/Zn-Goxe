@@ -1,298 +1,322 @@
-<style>
-    .super-admin-container {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        color: #e2e8f0;
-        padding-bottom: 20px;
-    }
-    .section-header { text-align: center; margin-bottom: 16px; }
-    .section-header h2 { color: #f59e0b; font-size: 18px; margin: 0; }
-    .section-header p { color: #94a3b8; font-size: 11px; margin-top: 4px; }
-    
-    /* عناوين الأقسام الرئيسية */
-    .main-section-title {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: #f59e0b;
-        font-size: 13px;
-        font-weight: bold;
-        margin: 18px 0 10px 0;
-        border-bottom: 1px solid rgba(245, 158, 11, 0.25);
-        padding-bottom: 6px;
-    }
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>لوحة الإدارة العليا | Super Admin Console</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --card-bg: #161b22;
+            --card-border: #30363d;
+            --accent-gold: #f59e0b;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --text-main: #f0f6fc;
+            --text-muted: #8b949e;
+            --input-bg: #0d1117;
+        }
 
-    .admin-card {
-        background-color: #161922;
-        border: 1px solid #232733;
-        border-radius: 12px;
-        padding: 14px;
-        margin-bottom: 12px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-    .admin-card h3 {
-        color: #f3f4f6;
-        font-size: 13px;
-        margin-bottom: 10px;
-        border-bottom: 1px solid #232733;
-        padding-bottom: 6px;
-    }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
 
-    /* شبكة كروت الإحصائيات الحية */
-    .stats-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 8px;
-        margin-bottom: 12px;
-    }
-    .stat-card {
-        background: #0f1117;
-        border: 1px solid #232733;
-        border-radius: 8px;
-        padding: 10px 6px;
-        text-align: center;
-    }
-    .stat-card .stat-title {
-        font-size: 10px;
-        color: #94a3b8;
-        margin-bottom: 4px;
-    }
-    .stat-card .stat-value {
-        font-size: 12px;
-        font-weight: bold;
-    }
-    .stat-card .stat-value.bot-profit { color: #10b981; }
-    .stat-card .stat-value.user-profit { color: #ef4444; }
-    .stat-card .stat-value.actual-margin { color: #f59e0b; }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            padding: 16px;
+            direction: rtl;
+        }
 
-    .form-group { margin-bottom: 10px; display: flex; flex-direction: column; gap: 4px; text-align: right; }
-    .form-group label { font-size: 11px; color: #cbd5e1; }
-    .form-group input {
-        background-color: #0f1117;
-        border: 1px solid #2d3345;
-        border-radius: 8px;
-        padding: 10px;
-        color: #ffffff;
-        font-size: 12px;
-        outline: none;
-        width: 100%;
-        box-sizing: border-box;
-        transition: border-color 0.2s ease, opacity 0.2s ease;
-    }
-    .form-group input:focus { border-color: #f59e0b; }
-    .form-group input:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-        background-color: #12141c;
-    }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--card-border);
+        }
 
-    .form-row {
-        display: flex;
-        gap: 10px;
-    }
-    .form-row .form-group {
-        flex: 1;
-    }
+        .header h1 {
+            font-size: 20px;
+            color: var(--accent-gold);
+            margin-bottom: 4px;
+        }
 
-    .action-btn-group {
-        display: flex;
-        gap: 8px;
-        margin-top: 10px;
-    }
-    
-    .permissions-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-        margin-top: 6px;
-        background: #0f1117;
-        padding: 10px;
-        border-radius: 8px;
-        border: 1px solid #232733;
-    }
-    .checkbox-label {
-        font-size: 10px;
-        color: #e2e8f0;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        cursor: pointer;
-    }
-    .checkbox-label input[type="checkbox"] { accent-color: #f59e0b; width: 14px; height: 14px; }
-    
-    .btn-primary {
-        background: linear-gradient(135deg, #f59e0b, #d97706);
-        color: #000;
-        font-weight: bold;
-        border: none;
-        border-radius: 8px;
-        padding: 11px;
-        width: 100%;
-        cursor: pointer;
-        font-size: 12px;
-        transition: transform 0.1s ease, background 0.2s ease;
-    }
-    .btn-primary:active { transform: scale(0.98); }
+        .header p {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
 
-    .btn-secondary {
-        background: #2563eb;
-        color: #ffffff;
-        font-weight: bold;
-        border: none;
-        border-radius: 8px;
-        padding: 11px;
-        width: 100%;
-        cursor: pointer;
-        font-size: 12px;
-        transition: transform 0.1s ease;
-    }
-    .btn-secondary:active { transform: scale(0.98); }
+        .grid-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
 
-    .btn-success {
-        background: linear-gradient(135deg, #10b981, #059669);
-        color: #ffffff;
-        font-weight: bold;
-        border: none;
-        border-radius: 8px;
-        padding: 11px;
-        width: 100%;
-        cursor: pointer;
-        font-size: 12px;
-        transition: transform 0.1s ease;
-    }
-    .btn-success:active { transform: scale(0.98); }
-    
-    .mod-item, .log-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        background: #0f1117;
-        padding: 8px 10px;
-        border-radius: 8px;
-        margin-bottom: 6px;
-        border: 1px solid #232733;
-    }
-    .mod-info { display: flex; flex-direction: column; font-size: 11px; }
-    .mod-info span { font-size: 9px; color: #64748b; margin-top: 2px; }
-    
-    .btn-danger-sm {
-        background-color: #ef4444;
-        color: #fff;
-        border: none;
-        padding: 6px 10px;
-        border-radius: 6px;
-        font-size: 10px;
-        cursor: pointer;
-    }
-    
-    .log-item { flex-direction: column; align-items: flex-start; gap: 4px; font-size: 10px; }
-    .log-admin { color: #f59e0b; font-weight: bold; }
-    .log-time { color: #64748b; font-size: 9px; align-self: flex-end; }
-    
-    .empty-msg { text-align: center; font-size: 11px; color: #64748b; padding: 10px 0; }
-</style>
+        .stat-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            padding: 12px 8px;
+            text-align: center;
+        }
 
-<div class="super-admin-container">
-    
-    <div class="section-header">
-        <h2>👨‍💻 الإدارة العليا</h2>
-        <p>التحكم الكامل بأرباح البوت، إحصائيات الألعاب، وإدارة المشرفين والسجلات.</p>
+        .stat-card .title {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .stat-card .value {
+            font-size: 15px;
+            font-weight: bold;
+            color: var(--text-main);
+        }
+
+        .stat-card.gold .value { color: var(--accent-gold); }
+        .stat-card.green .value { color: var(--accent-green); }
+
+        .section-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-size: 15px;
+            font-weight: bold;
+            margin-bottom: 12px;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .margin-controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .input-group label {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .input-group input {
+            background: var(--input-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 10px;
+            color: var(--text-main);
+            font-size: 14px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .input-group input:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            width: 100%;
+            background: var(--accent-gold);
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            padding: 12px;
+            font-weight: bold;
+            font-size: 14px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .btn-primary:active {
+            opacity: 0.8;
+        }
+
+        .permissions-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin: 12px 0;
+            background: var(--input-bg);
+            padding: 12px;
+            border-radius: 8px;
+        }
+
+        .perm-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--text-main);
+        }
+
+        .perm-item input {
+            accent-color: var(--accent-gold);
+            width: 16px;
+            height: 16px;
+        }
+
+        .moderators-list, .admin-logs {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 250px;
+            overflow-y: auto;
+        }
+
+        .mod-item, .log-item {
+            background: var(--input-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            padding: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+        }
+
+        .mod-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .mod-info span {
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+
+        .btn-danger-sm {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-red);
+            border: 1px solid var(--accent-red);
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .empty-msg {
+            text-align: center;
+            font-size: 12px;
+            color: var(--text-muted);
+            padding: 12px;
+        }
+
+        .log-admin {
+            font-weight: bold;
+            color: var(--accent-gold);
+        }
+
+        .log-time {
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>👑 لوحة الإدارة العليا</h1>
+        <p>نظام التحكم المركزي بالأرباح والصلاحيات</p>
     </div>
 
-    <!-- ==========================================
-         القسم الأول: 🎮 نظام التحكم الكامل بالألعاب وأرباح البوت
-         ========================================== -->
-    <div class="main-section-title">
-        <span>🎮</span> القسم الأول: نظام التحكم بالألعاب وأرباح البوت
+    <!-- كروت الإحصائيات الحية -->
+    <div class="grid-stats">
+        <div class="stat-card gold">
+            <div class="title">أرباح البوت</div>
+            <div class="value" id="statBotProfit">0</div>
+        </div>
+        <div class="stat-card green">
+            <div class="title">أرباح اللاعبين</div>
+            <div class="value" id="statUserProfit">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="title">الربح الفعلي</div>
+            <div class="value" id="statActualMargin">0%</div>
+        </div>
     </div>
 
-    <div class="admin-card">
-        <h3>📊 إحصائيات الأرباح ونسبة فائدة البوت واللاعبين</h3>
+    <!-- قسم التحكم بالمنظومة ونسب الأرباح -->
+    <div class="section-card">
+        <div class="section-title">⚙️ التحكم المباشر بأرباح الألعاب</div>
         
-        <!-- كروت الإحصائيات الحية -->
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-title">أرباح البوت 🤖</div>
-                <div class="stat-value bot-profit" id="statBotProfit">⏳ --</div>
+        <div class="margin-controls">
+            <div class="input-group">
+                <label>نسبة أرباح البوت (%)</label>
+                <input type="number" id="targetMarginInput" min="0" max="100" placeholder="70" disabled>
             </div>
-            <div class="stat-card">
-                <div class="stat-title">أرباح اللاعبين 👥</div>
-                <div class="stat-value user-profit" id="statUserProfit">⏳ --</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">النسبة الفعلية 📈</div>
-                <div class="stat-value actual-margin" id="statActualMargin">⏳ --%</div>
+            <div class="input-group">
+                <label>نسبة اللاعبين (%)</label>
+                <input type="number" id="playerMarginInput" placeholder="30" disabled>
             </div>
         </div>
 
-        <!-- نسبة أرباح البوت ونسبة اللاعبين الموزعة -->
-        <div class="form-row">
-            <div class="form-group">
-                <label>🤖 نسبة البوت Target Bot %:</label>
-                <input type="number" id="targetMarginInput" placeholder="70" min="0" max="100" inputmode="decimal" disabled>
-            </div>
-            <div class="form-group">
-                <label>👥 نسبة اللاعبين Players %:</label>
-                <input type="number" id="playerMarginInput" placeholder="30" readonly disabled style="background-color: #0b0d12;">
-            </div>
-        </div>
-
-        <!-- أزرار التحكم في وضع التعديل والنشر -->
-        <div class="action-btn-group">
-            <button type="button" class="btn-secondary" id="btnEditMargin" onclick="enableMarginEdit()">✏️ تعديل النسب</button>
-            <button type="button" class="btn-success" id="btnPublishMargin" onclick="updateGameSettings()" style="display: none;">🚀 موافق ونشر</button>
-        </div>
+        <button class="btn-primary" id="btnEditMargin" onclick="enableMarginEdit()">✏️ تعديل نسبة التحكم</button>
+        <button class="btn-primary" id="btnPublishMargin" onclick="updateGameSettings()" style="display: none; background: var(--accent-green); color: #fff;">🚀 حفظ ونشر النسب فوراً</button>
     </div>
 
-    <!-- ==========================================
-         القسم الثاني: 👥 إدارة المشرفين والصلاحيات والسجلات
-         ========================================== -->
-    <div class="main-section-title">
-        <span>👥</span> القسم الثاني: إدارة المشرفين والصلاحيات والسجلات
-    </div>
-
-    <!-- كارت إضافة مشرف جديد -->
-    <div class="admin-card">
-        <h3>➕ إضافة مشرف جديد</h3>
+    <!-- قسم إدارة المشرفين والصلاحيات -->
+    <div class="section-card">
+        <div class="section-title">👤 إضافة مشرف جديد</div>
         
-        <div class="form-group">
-            <label>Telegram ID للمشرف:</label>
-            <input type="number" id="modTelegramId" placeholder="مثال: 987654321" inputmode="numeric">
-        </div>
-
-        <div class="form-group">
-            <label>اسم المشرف / ملاحظة:</label>
-            <input type="text" id="modName" placeholder="مثال: أحمد (دعم فني)">
-        </div>
-
-        <div class="form-group">
-            <label>🔐 الصلاحيات المسموحة:</label>
-            <div class="permissions-grid">
-                <label class="checkbox-label"><input type="checkbox" id="perm_users" checked> 👥 بيانات المستخدم</label>
-                <label class="checkbox-label"><input type="checkbox" id="perm_support" checked> 💬 الدردشة والدعم</label>
-                <label class="checkbox-label"><input type="checkbox" id="perm_settings"> ⚙️ الإعدادات</label>
-                <label class="checkbox-label"><input type="checkbox" id="perm_transactions"> 💰 سجل التحويلات</label>
-                <label class="checkbox-label"><input type="checkbox" id="perm_security"> 🛡️ التحكم والأمان</label>
-                <label class="checkbox-label"><input type="checkbox" id="perm_ads"> 📢 الإعلانات</label>
+        <div class="margin-controls" style="margin-bottom: 8px;">
+            <div class="input-group">
+                <label>معرّف التليجرام (ID)</label>
+                <input type="text" id="modTelegramId" placeholder="12345678">
+            </div>
+            <div class="input-group">
+                <label>اسم المشرف</label>
+                <input type="text" id="modName" placeholder="أحمد">
             </div>
         </div>
 
-        <button class="btn-primary" onclick="addNewModerator()">تأكيد وإضافة المشرف</button>
+        <div class="permissions-grid">
+            <label class="perm-item"><input type="checkbox" id="perm_users" checked> إدارة المستخدمين</label>
+            <label class="perm-item"><input type="checkbox" id="perm_support" checked> الدعم الفني</label>
+            <label class="perm-item"><input type="checkbox" id="perm_settings"> الإعدادات العامة</label>
+            <label class="perm-item"><input type="checkbox" id="perm_transactions"> المعاملات والمالية</label>
+            <label class="perm-item"><input type="checkbox" id="perm_security"> الحظر والأمان</label>
+            <label class="perm-item"><input type="checkbox" id="perm_ads"> المهام والإعلانات</label>
+        </div>
+
+        <button class="btn-primary" onclick="addNewModerator()">➕ إضافة المشرف وسحب الصلاحيات</button>
     </div>
 
-    <!-- كارت قائمة المشرفين الحالية -->
-    <div class="admin-card">
-        <h3>👥 قائمة المشرفين الحالية</h3>
-        <div id="moderatorsList">
-            <p class="empty-msg">⏳ جاري تحميل المشرفين...</p>
+    <!-- قائمة المشرفين الحاليين -->
+    <div class="section-card">
+        <div class="section-title">🛡️ المشرفين الحاليين</div>
+        <div class="moderators-list" id="moderatorsList">
+            <p class="empty-msg">⏳ جاري التحميل...</p>
         </div>
     </div>
 
-    <!-- كارت سجل النشاطات -->
-    <div class="admin-card">
-        <h3>📜 سجل نشاط المشرفين</h3>
-        <div id="adminLogs">
+    <!-- سجل التحركات الإدارية -->
+    <div class="section-card">
+        <div class="section-title">📜 سجل النشاطات الإدارية</div>
+        <div class="admin-logs" id="adminLogs">
             <p class="empty-msg">⏳ جاري تحميل السجل...</p>
         </div>
     </div>
 
-</div>
+    <script src="super_admin.js"></script>
+</body>
+</html>
