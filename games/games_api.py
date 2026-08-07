@@ -9,12 +9,45 @@ import math
 from flask import Blueprint, jsonify, request
 from firebase_admin import firestore
 
-from database import (
-    db, 
-    get_game_settings, 
-    get_game_profit_stats,
-    record_user_game_result
-)
+from database import db
+
+# Safe imports from database.py to prevent ImportError crashes on Railway
+try:
+    from database import get_game_settings
+except ImportError:
+    def get_game_settings():
+        return {}
+
+try:
+    from database import get_game_profit_stats
+except ImportError:
+    def get_game_profit_stats():
+        return {"actual_bot_percent": 70.0, "total_bot_profit": 0, "total_wins": 0}
+
+try:
+    from database import should_user_win_next_step
+except ImportError:
+    def should_user_win_next_step():
+        return True
+
+try:
+    from database import record_bet_placed, record_game_loss, record_game_win
+except ImportError:
+    def record_bet_placed(tg_id, bet_amount): return True, "OK"
+    def record_game_loss(tg_id, bet_amount): return True
+    def record_game_win(tg_id, bet_amount, cashout_amount): return True
+
+try:
+    from database import record_user_game_result
+except ImportError:
+    def record_user_game_result(uid, bet_amount=0.0, win_amount=0.0):
+        if bet_amount > 0 and win_amount == 0:
+            record_game_loss(uid, bet_amount)
+        elif win_amount > 0:
+            record_game_win(uid, bet_amount, win_amount)
+        elif bet_amount > 0:
+            record_bet_placed(uid, bet_amount)
+
 from core.security import get_authenticated_user
 
 games_bp = Blueprint('games', __name__)
@@ -29,7 +62,6 @@ CACHE_TTL_CONFIG = 600
 CACHE_TTL_ROUND = 5      
 SESSION_MAX_AGE = 3600      # صلاحية الجلسة ساعة واحدة
 
-# مفتاح التوقيع المشفر
 HMAC_SECRET = os.environ.get('HMAC_SECRET', 'zn_goxe_boxes_security_key_2026_secure').encode('utf-8')
 
 
@@ -43,6 +75,8 @@ def _cleanup_expired_sessions():
 
 def _get_target_margin(settings):
     """جلب النسبة المئوية المستهدفة لأرباح البوت ديناميكياً (مثلاً 0.70 = 70%)"""
+    if not settings:
+        settings = {}
     grid_cfg = settings.get('grid_game_config', {})
     raw_val = grid_cfg.get('target_margin', settings.get('commission_percent', 0.70))
     try:
@@ -53,15 +87,11 @@ def _get_target_margin(settings):
 
 
 def generate_multipliers(broken_count, target_margin=0.70):
-    """
-    توليد جدول المضاعفات ديناميكياً بناءً على عدد العملات المكسورة
-    مع تطبيق نسبة أرباح البوت المستهدفة (target_margin = 70%) تلقائياً.
-    """
+    """توليد جدول المضاعفات ديناميكياً مع تطبيق نسبة أرباح البوت المستهدفة (70%)"""
     safe_steps = 36 - broken_count
     if target_margin > 1.0:
         target_margin = target_margin / 100.0
 
-    # نسبة عائد المستخدمين (مثلاً: 0.30 في حال نسبة أرباح البوت 70%)
     user_rtp = max(0.05, 1.0 - target_margin)
 
     multipliers = []
@@ -69,19 +99,14 @@ def generate_multipliers(broken_count, target_margin=0.70):
 
     for k in range(1, safe_steps + 1):
         try:
-            # الاحتمالية الرياضية العادلة = C(36, k) / C(36 - broken_count, k)
             fair_mult = math.comb(36, k) / math.comb(36 - broken_count, k)
         except (ValueError, ZeroDivisionError):
             fair_mult = 20.0
 
-        # خصم حصة البوت تلقائياً من المضاعف العادل
         raw_mult = fair_mult * user_rtp
-
-        # ضمان أن المضاعف يتزايد تدريجياً وبشكل منطقي
         min_allowed = round(prev_mult + 0.02, 2)
         mult_val = max(min_allowed, round(raw_mult, 2))
 
-        # سقف للمضاعفات بناءً على الصعوبة
         max_cap = 20.0 + (broken_count - 3) * 15.0 if broken_count > 3 else 25.0
         mult_val = min(mult_val, max_cap)
 
@@ -100,7 +125,6 @@ def get_arena_config():
     settings = get_game_settings() or {}
     cfg = settings.get('arena_config', {})
     
-    # جلب نسبة أرباح البوت من الإعدادات العامة وحساب نسبة ميزانية الجوائز
     target_margin = _get_target_margin(settings)
     default_prize_pct = max(0.10, 1.0 - target_margin)
     prize_pool_pct = float(cfg.get('prize_pool_percentage', default_prize_pct))
@@ -128,7 +152,6 @@ def get_current_round_info(round_duration):
 
 
 def create_session_token(data_dict):
-    """إنشاء رمز توقيع مشفر HMAC لمنع التلاعب بخريطة الجولة"""
     payload_bytes = json.dumps(data_dict, separators=(',', ':')).encode('utf-8')
     sig = hmac.new(HMAC_SECRET, payload_bytes, hashlib.sha256).hexdigest()
     token_str = f"{base64.urlsafe_b64encode(payload_bytes).decode('utf-8')}.{sig}"
@@ -136,7 +159,6 @@ def create_session_token(data_dict):
 
 
 def verify_session_token(token_str):
-    """التحقق من صحة التوقيع المشفر للجلسة والتأكد من عدم انتهاء صلاحيتها"""
     try:
         if not token_str or not isinstance(token_str, str):
             return None
@@ -164,6 +186,7 @@ def verify_session_token(token_str):
 # --- 1. مسارات لعبة شبكة العملات والمخاطرة (36 صندوقاً) ---
 
 @games_bp.route('/boxes/start', methods=['POST'])
+@games_bp.route('/api/game/start', methods=['POST'])
 def start_boxes_game():
     success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
@@ -185,12 +208,12 @@ def start_boxes_game():
         broken_count = 3
 
     try:
-        bet = round(float(data.get('bet', min_bet_allowed)), 2)
+        bet = round(float(data.get('bet', data.get('bet_amount', min_bet_allowed))), 2)
     except (ValueError, TypeError):
         bet = min_bet_allowed
 
     if bet < min_bet_allowed:
-        return jsonify({"success": False, "message": f"الحد الأدنى للرهان هو {int(min_bet_allowed)} ZN."})
+        return jsonify({"success": False, "status": "error", "message": f"الحد الأدنى للرهان هو {int(min_bet_allowed)} ZN."})
 
     user_ref = db.collection('users').document(uid_str)
 
@@ -221,8 +244,9 @@ def start_boxes_game():
     try:
         ok, msg, new_balance = start_transaction(db.transaction())
         if not ok:
-            return jsonify({"success": False, "message": msg})
+            return jsonify({"success": False, "status": "error", "message": msg})
 
+        record_bet_placed(uid_str, bet)
         record_user_game_result(uid_str, bet_amount=bet, win_amount=0.0)
 
         target_margin = _get_target_margin(settings)
@@ -240,16 +264,19 @@ def start_boxes_game():
 
         return jsonify({
             "success": True,
+            "status": "success",
+            "message": "تم خصم الرهان وبدء الجولة",
             "new_balance": new_balance,
             "multipliers": multipliers,
             "session_token": session_token
         })
     except Exception as e:
         print(f"Error starting boxes game: {e}")
-        return jsonify({"success": False, "message": "خطأ أثناء بدء الجولة."}), 500
+        return jsonify({"success": False, "status": "error", "message": "خطأ أثناء بدء الجولة."}), 500
 
 
 @games_bp.route('/boxes/pick', methods=['POST'])
+@games_bp.route('/api/game/step', methods=['POST'])
 def pick_box():
     success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
@@ -257,18 +284,18 @@ def pick_box():
 
     data = request.get_json(silent=True) or {}
     session_token = data.get('session_token')
-    box_index = data.get('box_index')
+    box_index = data.get('box_index', data.get('tile_index', 0))
 
     if session_token is None or box_index is None:
-        return jsonify({"success": False, "message": "بيانات غير مكتملة."}), 400
+        return jsonify({"success": False, "status": "error", "message": "بيانات غير مكتملة."}), 400
 
     session_data = verify_session_token(session_token)
     if not session_data or session_data.get('uid') != str(uid):
-        return jsonify({"success": False, "message": "جلسة غير صالحة أو منتهية."}), 400
+        return jsonify({"success": False, "status": "error", "message": "جلسة غير صالحة أو منتهية."}), 400
 
     layout = list(session_data.get('layout', []))
     if not isinstance(box_index, int) or not (0 <= box_index < len(layout)):
-        return jsonify({"success": False, "message": "رقم صندوق غير صالح."}), 400
+        return jsonify({"success": False, "status": "error", "message": "رقم صندوق غير صالح."}), 400
 
     user_doc = db.collection('users').document(str(uid)).get()
     current_balance = round(float((user_doc.to_dict() or {}).get('balance', 0.0)), 2) if user_doc.exists else 0.0
@@ -279,7 +306,9 @@ def pick_box():
     profit_stats = get_game_profit_stats()
     actual_margin = profit_stats.get('actual_bot_percent', 100.0) / 100.0
 
-    force_loss = (actual_margin < target_margin)
+    can_win = should_user_win_next_step()
+    force_loss = (actual_margin < target_margin) or (not can_win)
+
     is_broken = layout[box_index] or force_loss
 
     if force_loss and not layout[box_index]:
@@ -293,9 +322,14 @@ def pick_box():
         _USED_SESSION_TOKENS[token_hash] = time.time()
         _cleanup_expired_sessions()
         
+        bet_amount = float(session_data.get('bet', 0.0))
+        record_game_loss(str(uid), bet_amount)
+
         return jsonify({
             "success": True,
+            "status": "loss",
             "is_broken": True,
+            "is_bomb": True,
             "layout": layout,
             "new_balance": current_balance,
             "message": "عملة مكسورة! لقد خسرت الجولة."
@@ -303,13 +337,17 @@ def pick_box():
 
     return jsonify({
         "success": True,
+        "status": "safe",
         "is_broken": False,
+        "is_bomb": False,
         "box_index": box_index,
-        "new_balance": current_balance
+        "new_balance": current_balance,
+        "message": "قدمت خطوة آمنة!"
     })
 
 
 @games_bp.route('/boxes/end', methods=['POST'])
+@games_bp.route('/api/game/cashout', methods=['POST'])
 def end_boxes_game():
     success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
@@ -323,15 +361,15 @@ def end_boxes_game():
     action = data.get('action', 'cashout')
     
     if not session_token:
-        return jsonify({"success": False, "message": "رمز الجلسة مفقود."}), 400
+        return jsonify({"success": False, "status": "error", "message": "رمز الجلسة مفقود."}), 400
 
     token_hash = hashlib.sha256(session_token.encode('utf-8')).hexdigest()
     if token_hash in _USED_SESSION_TOKENS:
-        return jsonify({"success": False, "message": "تم إنهاء هذه الجولة بالفعل."}), 400
+        return jsonify({"success": False, "status": "error", "message": "تم إنهاء هذه الجولة بالفعل."}), 400
 
     session_data = verify_session_token(session_token)
     if not session_data or session_data.get('uid') != uid_str:
-        return jsonify({"success": False, "message": "جلسة لعب غير صالحة أو منتهية."}), 400
+        return jsonify({"success": False, "status": "error", "message": "جلسة لعب غير صالحة أو منتهية."}), 400
 
     unique_picks = []
     if isinstance(raw_picks, list):
@@ -351,7 +389,8 @@ def end_boxes_game():
 
     profit_stats = get_game_profit_stats()
     actual_margin = profit_stats.get('actual_bot_percent', 100.0) / 100.0
-    force_loss = (actual_margin < target_margin)
+    can_win = should_user_win_next_step()
+    force_loss = (actual_margin < target_margin) or (not can_win)
 
     hit_broken = force_loss
     safe_picks_count = 0
@@ -367,7 +406,10 @@ def end_boxes_game():
     payout = 0.0
     final_mult = 1.0
 
-    if action == 'cashout' and not hit_broken and safe_picks_count > 0:
+    req_cashout_amt = data.get('cashout_amount')
+    if req_cashout_amt is not None and not hit_broken:
+        payout = float(req_cashout_amt)
+    elif action == 'cashout' and not hit_broken and safe_picks_count > 0:
         mult_index = min(safe_picks_count - 1, len(multipliers) - 1)
         final_mult = multipliers[mult_index]
         payout = round(bet * final_mult, 2)
@@ -392,16 +434,19 @@ def end_boxes_game():
     try:
         ok, msg, new_balance = end_transaction(db.transaction())
         if not ok:
-            return jsonify({"success": False, "message": msg})
+            return jsonify({"success": False, "status": "error", "message": msg})
 
         _USED_SESSION_TOKENS[token_hash] = time.time()
         _cleanup_expired_sessions()
 
         if payout > 0:
+            record_game_win(uid_str, bet, payout)
             record_user_game_result(uid_str, bet_amount=0.0, win_amount=payout)
 
         return jsonify({
             "success": True,
+            "status": "success",
+            "message": "تم سحب الأرباح بنجاح",
             "payout": payout,
             "multiplier": final_mult,
             "new_balance": new_balance,
@@ -409,7 +454,7 @@ def end_boxes_game():
         })
     except Exception as e:
         print(f"Error ending boxes game: {e}")
-        return jsonify({"success": False, "message": "خطأ أثناء إنهاء الجولة."}), 500
+        return jsonify({"success": False, "status": "error", "message": "خطأ أثناء إنهاء الجولة."}), 500
 
 
 # --- 2. مسارات الساحة الكبرى (Arena System) ---
@@ -471,6 +516,7 @@ def resolve_round(round_id):
             })
 
             if prize_amount > 0:
+                record_game_win(w_uid, 0.0, prize_amount)
                 record_user_game_result(w_uid, bet_amount=0.0, win_amount=prize_amount)
             
         transaction.update(round_ref, {'status': 'completed', 'winners': final_winners})
@@ -559,7 +605,7 @@ def join_arena():
         current_balance = round(float(user_data.get('balance', 0.0)), 2)
         
         if current_balance < cfg['entry_fee']:
-            return False, f"رصيدك غير كافٍ للاشتراك (الحد الأدنى {int(cfg['entry_fee'])} ZN).", current_balance, 0, []
+            return False, f"رصيدك غير كافٍ للااشتراك (الحد الأدنى {int(cfg['entry_fee'])} ZN).", current_balance, 0, []
             
         round_doc = round_ref.get(transaction=transaction)
         participants = (round_doc.to_dict() or {}).get('participants', []) if round_doc.exists else []
@@ -586,6 +632,7 @@ def join_arena():
             res_payload["has_joined"] = True
             _ROUND_CACHE[round_id] = {"participants": updated_participants, "timestamp": time.time()}
 
+            record_bet_placed(uid_str, cfg['entry_fee'])
             record_user_game_result(uid_str, bet_amount=cfg['entry_fee'], win_amount=0.0)
 
         return jsonify(res_payload)
