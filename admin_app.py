@@ -10,7 +10,8 @@ from flask_cors import CORS
 import database
 from core.security import get_authenticated_user
 
-app = Flask(__name__, static_folder='.')
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+app = Flask(__name__, static_folder=BASE_DIR)
 
 # إعداد CORS بالسماح للوحة الأدمن بالوصول لكافة المسارات
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -418,18 +419,33 @@ def handle_500_error(e):
 def handle_404_error(e):
     if request.path.startswith('/api/'):
         return jsonify({"status": "error", "success": False, "error": "مسار الإدارة غير موجود"}), 404
-    return send_from_directory('.', 'super_admin.html')
+    try:
+        if os.path.isfile(os.path.join(BASE_DIR, 'super_admin.html')):
+            return send_from_directory(BASE_DIR, 'super_admin.html')
+    except Exception:
+        pass
+    return jsonify({"status": "error", "success": False, "error": "الصفحة غير موجودة"}), 404
 
 @app.route('/')
 def serve_index():
-    return send_from_directory('.', 'super_admin.html')
+    try:
+        return send_from_directory(BASE_DIR, 'super_admin.html')
+    except Exception:
+        return jsonify({"status": "error", "message": "ملف super_admin.html غير موجود"}), 404
 
 @app.route('/<path:path>')
 def serve_static(path):
+    target_path = os.path.join(BASE_DIR, path)
+    if os.path.isfile(target_path):
+        return send_from_directory(BASE_DIR, path)
+    
+    # Fallback to super_admin.html for non-API frontend routes safely
     try:
-        return send_from_directory('.', path)
+        if os.path.isfile(os.path.join(BASE_DIR, 'super_admin.html')):
+            return send_from_directory(BASE_DIR, 'super_admin.html')
     except Exception:
-        return send_from_directory('.', 'super_admin.html')
+        pass
+    return jsonify({"status": "error", "error": "الملف غير موجود"}), 404
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
