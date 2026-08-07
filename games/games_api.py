@@ -1,4 +1,3 @@
-# games/games_api.py
 import time
 import random
 import json
@@ -13,9 +12,8 @@ from firebase_admin import firestore
 from database import (
     db, 
     get_game_settings, 
-    get_system_profit_margin, 
-    update_system_treasury, 
-    record_game_stats
+    get_game_profit_stats,
+    record_user_game_result
 )
 from core.security import get_authenticated_user
 
@@ -216,8 +214,7 @@ def start_boxes_game():
 
         new_bal = round(bal - bet, 2)
         transaction.update(user_ref, {
-            'balance': new_bal,
-            'total_bets': firestore.Increment(bet)
+            'balance': new_bal
         })
 
         return True, "نجاح", new_bal
@@ -227,7 +224,8 @@ def start_boxes_game():
         if not ok:
             return jsonify({"success": False, "message": msg})
 
-        update_system_treasury(bet_amount=bet, payout_amount=0.0)
+        # تسجيل قيمة الرهان ذرياً في الإحصائيات الموحدة وفي حساب المستخدم
+        record_user_game_result(uid_str, bet_amount=bet, win_amount=0.0)
 
         # جلب نسبة أرباح البوت المستهدفة وحساب المضاعفات الديناميكية
         target_margin = _get_target_margin(settings)
@@ -278,15 +276,15 @@ def pick_box():
     user_doc = db.collection('users').document(str(uid)).get()
     current_balance = round(float((user_doc.to_dict() or {}).get('balance', 0.0)), 2) if user_doc.exists else 0.0
 
-    # 🔒 جلب نسبة أرباح البوت المستهدفة ديناميكياً من الإعدادات (70%)
+    # 🔒 جلب نسبة أرباح البوت المستهدفة والفاعلية ديناميكياً
     settings = get_game_settings() or {}
     target_margin = _get_target_margin(settings)
 
-    # التحقق من هامش أرباح النظام الحالي
-    margin = get_system_profit_margin()
+    profit_stats = get_game_profit_stats()
+    actual_margin = profit_stats.get('actual_bot_percent', 100.0) / 100.0
 
-    # يتحول الضغط إلى خسارة فقط إذا هبط هامش أرباح النظام الفعلي عن الهامش المستهدف لحماية الخزينة
-    force_loss = (margin < target_margin)
+    # يتحول الضغط إلى خسارة فقط إذا هبط هامش أرباح البوت الفعلي عن الهامش المستهدف لحماية الخزينة
+    force_loss = (actual_margin < target_margin)
 
     is_broken = layout[box_index] or force_loss
 
@@ -297,11 +295,6 @@ def pick_box():
             layout[other_broken[0]] = False
 
     if is_broken:
-        # 📊 تسجيل قيمة الرهان الخاسر لصالح أرباح البوت (total_user_losses)
-        bet_amount = float(session_data.get('bet', 0.0))
-        if bet_amount > 0:
-            record_game_stats(bot_profit=bet_amount, user_profit=0.0)
-
         token_hash = hashlib.sha256(session_token.encode('utf-8')).hexdigest()
         _USED_SESSION_TOKENS[token_hash] = time.time()
         _cleanup_expired_sessions()
@@ -363,8 +356,9 @@ def end_boxes_game():
     user_ref = db.collection('users').document(uid_str)
 
     # التحقق الديناميكي من نسبة أرباح النظام عند طلب الانسحاب
-    margin = get_system_profit_margin()
-    force_loss = (margin < target_margin)
+    profit_stats = get_game_profit_stats()
+    actual_margin = profit_stats.get('actual_bot_percent', 100.0) / 100.0
+    force_loss = (actual_margin < target_margin)
 
     hit_broken = force_loss
     safe_picks_count = 0
@@ -397,8 +391,7 @@ def end_boxes_game():
 
         if payout > 0:
             transaction.update(user_ref, {
-                'balance': new_bal,
-                'total_wins': firestore.Increment(payout)
+                'balance': new_bal
             })
 
         return True, "تم إنهاء الجولة بنجاح", new_bal
@@ -412,14 +405,8 @@ def end_boxes_game():
         _cleanup_expired_sessions()
 
         if payout > 0:
-            update_system_treasury(bet_amount=0.0, payout_amount=payout)
-            # 📊 تسجيل صافي أرباح المستخدم (total_user_wins / total_user_profit)
-            net_prize = round(max(0.0, payout - bet), 2)
-            if net_prize > 0:
-                record_game_stats(bot_profit=0.0, user_profit=net_prize)
-        else:
-            # 📊 تسجيل الرهان الخاسر لصالح أرباح البوت (total_user_losses / total_bot_profit)
-            record_game_stats(bot_profit=bet, user_profit=0.0)
+            # تسجيل مبلغ فوز المستخدم ذرياً O(1)
+            record_user_game_result(uid_str, bet_amount=0.0, win_amount=payout)
 
         return jsonify({
             "success": True,
@@ -468,12 +455,6 @@ def resolve_round(round_id):
 
         total_collected = len(participants) * cfg['entry_fee']
         visible_prize_pool = round(total_collected * cfg['prize_pool_percentage'], 2)
-        
-        # تحويل حصة البوت المخصومة تلقائياً إلى خزينة النظام وتسجيلها
-        bot_commission = round(total_collected - visible_prize_pool, 2)
-        if bot_commission > 0:
-            update_system_treasury(bet_amount=bot_commission, payout_amount=0.0)
-            record_game_stats(bot_profit=bot_commission, user_profit=0.0)
 
         shuffled_participants = list(participants)
         random.shuffle(shuffled_participants)
@@ -488,17 +469,18 @@ def resolve_round(round_id):
         final_winners = []
         for i, winner in enumerate(winners_list):
             prize_amount = round(visible_prize_pool * normalized_percentages[i], 2)
-            user_ref = db.collection('users').document(str(winner['uid']))
+            w_uid = str(winner['uid'])
+            user_ref = db.collection('users').document(w_uid)
             transaction.update(user_ref, {'balance': firestore.Increment(prize_amount)})
             final_winners.append({
-                "uid": str(winner['uid']),
+                "uid": w_uid,
                 "name": winner.get('name', ''),
                 "prize": prize_amount
             })
 
-            # تسجيل جوائز الساحة ضمن أرباح المستخدمين
+            # تسجيل جائزة الفائز في إحصائيات النظام ذرياً
             if prize_amount > 0:
-                record_game_stats(bot_profit=0.0, user_profit=prize_amount)
+                record_user_game_result(w_uid, bet_amount=0.0, win_amount=prize_amount)
             
         transaction.update(round_ref, {'status': 'completed', 'winners': final_winners})
         return True, "completed"
@@ -612,6 +594,9 @@ def join_arena():
             res_payload["prize_pool"] = new_prize
             res_payload["has_joined"] = True
             _ROUND_CACHE[round_id] = {"participants": updated_participants, "timestamp": time.time()}
+
+            # تسجيل رسم دخول الساحة ضمن الإحصائيات المركزية
+            record_user_game_result(uid_str, bet_amount=cfg['entry_fee'], win_amount=0.0)
 
         return jsonify(res_payload)
     except Exception as e:
