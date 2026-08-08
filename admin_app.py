@@ -30,7 +30,12 @@ def is_admin_authorized(telegram_id):
 # ==========================================
 from farm.farm_api import farm_bp
 from settings.settings_api import settings_bp
-from friends.friends_api import friends_bp
+
+try:
+    from friends.friends_api import friends_bp
+except ImportError:
+    from friends.friends_api import friends_api as friends_bp
+
 from games.games_api import games_bp
 from tasks.tasks_api import tasks_bp
 from shop.shop_api import shop_bp
