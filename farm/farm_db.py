@@ -130,7 +130,8 @@ def get_or_create_user_farm_data(user_id_str):
             "last_daily_claim_date": None,
             "last_boost_date": None,
             "ads_watched": 0,
-            "upgrades": {}
+            "upgrades": {},
+            "upgrades_count": 0
         }
         user_ref.set(user_data)
     else:
@@ -140,6 +141,9 @@ def get_or_create_user_farm_data(user_id_str):
         if "daily_boost_rate" not in user_data: auto_fix["daily_boost_rate"] = 0.00
         if "ads_watched" not in user_data: auto_fix["ads_watched"] = 0
         if "upgrades" not in user_data: auto_fix["upgrades"] = {}
+        if "upgrades_count" not in user_data:
+            upgrades_dict = user_data.get("upgrades", {})
+            auto_fix["upgrades_count"] = sum(int(v) for v in upgrades_dict.values() if isinstance(v, (int, float))) if isinstance(upgrades_dict, dict) else 0
         
         if auto_fix:
             user_ref.update(auto_fix)
@@ -285,11 +289,13 @@ def buy_upgrade_db(user_id_str, level):
         new_hourly_rate = round(current_hourly_rate + rate_bonus, 2)
 
         upgrades[lvl_key] = current_count + 1
+        total_upgrades_count = sum(int(v) for v in upgrades.values() if isinstance(v, (int, float)))
 
         transaction.update(ref, {
             "balance": new_balance,
             "hourly_rate": new_hourly_rate,
             "upgrades": upgrades,
+            "upgrades_count": total_upgrades_count,
             "last_claim_time": now_iso
         })
 
@@ -298,6 +304,7 @@ def buy_upgrade_db(user_id_str, level):
             "new_balance": new_balance,
             "new_hourly_rate": new_hourly_rate,
             "upgrades": upgrades,
+            "upgrades_count": total_upgrades_count,
             "server_time": now_iso
         }
 
