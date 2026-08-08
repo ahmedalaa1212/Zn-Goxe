@@ -9,7 +9,11 @@ from .friends_db import (
 # تعريف الـ Blueprint الخاص بنظام الأصدقاء
 friends_bp = Blueprint('friends_bp', __name__)
 
+# اسم بديل لضمان التوافق مع أي ملف يستدعيه بـ friends_api أو friends_bp
+friends_api = friends_bp
 
+
+@friends_bp.route('/data', methods=['GET'])
 @friends_bp.route('/api/friends/data', methods=['GET'])
 def get_friends_data():
     """جلب ملخص بيانات الأصدقاء والمكافآت للمستخدم"""
@@ -25,6 +29,7 @@ def get_friends_data():
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب البيانات"}), 500
 
 
+@friends_bp.route('/list', methods=['GET'])
 @friends_bp.route('/api/friends/list', methods=['GET'])
 def get_friends_list():
     """جلب قائمة الأصدقاء التفصيلية"""
@@ -40,6 +45,7 @@ def get_friends_list():
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب القائمة"}), 500
 
 
+@friends_bp.route('/claim-earnings', methods=['POST'])
 @friends_bp.route('/api/friends/claim-earnings', methods=['POST'])
 def claim_ref_earnings():
     """سحب أرباح الإحالة المعلقة إلى الرصيد الرئيسي"""
@@ -60,6 +66,7 @@ def claim_ref_earnings():
         return jsonify({"success": False, "error": "حدث خطأ أثناء عملية السحب"}), 500
 
 
+@friends_bp.route('/claim-task', methods=['POST'])
 @friends_bp.route('/api/friends/claim-task', methods=['POST'])
 def claim_ref_task():
     """استلام مكافأة مهمة دعوة الأصدقاء"""
