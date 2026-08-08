@@ -1,9 +1,42 @@
 from firebase_admin import firestore
 import database
 
-# نسبة عمولة السحب (1.5%) ونسبة أرباح الإحالة من التعدين (10%)
-CLAIM_FEE_PERCENT = 0.015
-REFERRAL_COMMISSION_PERCENT = 0.10
+# الإعدادات الافتراضية لنظام الأصدقاء (يتم حفظها وتعديلها تلقائياً عبر مستند خاص في الفايربيس)
+DEFAULT_FRIENDS_CONFIG = {
+    "commission_percent": 10.0,       # نسبة أرباح الإحالة من التعدين (10%)
+    "claim_fee_percent": 1.5,         # نسبة عمولة السحب (1.5%)
+    "min_upgrades_for_task": 3,       # عدد الترقيات المطلوب لاحتساب الصديق مؤهل للمهام
+    "ref_tasks": {
+        "1": {"reqFriends": 1, "reward": 50},
+        "2": {"reqFriends": 3, "reward": 200},
+        "3": {"reqFriends": 5, "reward": 500},
+        "4": {"reqFriends": 10, "reward": 1200},
+        "5": {"reqFriends": 25, "reward": 3500}
+    }
+}
+
+
+def get_friends_config():
+    """جلب إعدادات نظام الأصدقاء المخصصة من الفايربيس (في المستند settings/friends_config)
+    وإنشائها تلقائياً بالقيم الافتراضية إذا لم تكن موجودة
+    """
+    try:
+        db = database.get_db()
+        config_ref = db.collection("settings").document("friends_config")
+        doc = config_ref.get()
+        
+        if doc.exists:
+            data = doc.to_dict() or {}
+            config = DEFAULT_FRIENDS_CONFIG.copy()
+            config.update(data)
+            return config
+        else:
+            # إنشاء مستند الإعدادات في الفايربيس تلقائياً لأول مرة للتحكم الكامل
+            config_ref.set(DEFAULT_FRIENDS_CONFIG, merge=True)
+            return DEFAULT_FRIENDS_CONFIG
+    except Exception as e:
+        print(f"⚠️ Error getting friends config from Firestore: {e}")
+        return DEFAULT_FRIENDS_CONFIG
 
 
 def get_user_friends(tg_id, limit=50):
@@ -67,12 +100,16 @@ def get_user_friends(tg_id, limit=50):
 
 
 def add_referral_reward(referrer_id, user_id, mined_amount):
-    """إضافة 10% من أرباح تعدين الصديق إلى حساب المُحيل"""
+    """إضافة نسبة أرباح تعدين الصديق إلى حساب المُحيل بناءً على إعدادات الفايربيس"""
     try:
         if not referrer_id or mined_amount <= 0:
             return False
         
-        reward = round(float(mined_amount) * REFERRAL_COMMISSION_PERCENT, 4)
+        # جلب نسبة أرباح الإحالة من فايربيس
+        config = get_friends_config()
+        comm_percent = float(config.get("commission_percent", 10.0)) / 100.0
+
+        reward = round(float(mined_amount) * comm_percent, 4)
         if reward <= 0:
             return False
 
@@ -105,7 +142,7 @@ def get_friends_list_db(tg_id):
 
 
 def get_friends_data_db(tg_id):
-    """جلب ملخص إحصائيات الأصدقاء والمكافآت"""
+    """جلب ملخص إحصائيات الأصدقاء والمكافآت وإعدادات قائمة الأصدقاء من الفايربيس"""
     try:
         db = database.get_db()
         user_ref = db.collection("users").document(str(tg_id))
@@ -113,9 +150,12 @@ def get_friends_data_db(tg_id):
         
         user_data = doc.to_dict() if doc.exists else {}
         friends = get_user_friends(tg_id)
+        config = get_friends_config()
         
-        # حساب الأصدقاء المؤهلين للمهام (الذين اشتروا 3 ترقيات أو أكثر)
-        eligible_count = sum(1 for f in friends if f.get("upgrades_count", 0) >= 3)
+        min_upgrades = int(config.get("min_upgrades_for_task", 3))
+        
+        # حساب الأصدقاء المؤهلين للمهام بناءً على عدد الترقيات المحدد في الفايربيس
+        eligible_count = sum(1 for f in friends if f.get("upgrades_count", 0) >= min_upgrades)
         
         return {
             "balance": float(user_data.get("balance", 0.0) or 0.0),
@@ -124,10 +164,12 @@ def get_friends_data_db(tg_id):
             "invited_friends_count": len(friends),
             "eligible_task_friends_count": eligible_count,
             "claimed_ref_tasks": user_data.get("claimed_ref_tasks", []),
-            "referral_code": str(tg_id)
+            "referral_code": str(tg_id),
+            "friends_config": config
         }
     except Exception as e:
         print(f"❌ Error getting friends data for {tg_id}: {e}")
+        config = get_friends_config()
         return {
             "balance": 0.0,
             "pending_ref_earnings": 0.0,
@@ -135,15 +177,21 @@ def get_friends_data_db(tg_id):
             "invited_friends_count": 0,
             "eligible_task_friends_count": 0,
             "claimed_ref_tasks": [],
-            "referral_code": str(tg_id)
+            "referral_code": str(tg_id),
+            "friends_config": config
         }
 
 
 def claim_ref_earnings_db(tg_id):
-    """سحب أرباح الإحالات المعلقة وتحويلها للرصيد الرئيسي مع خصم 1.5% رسوم"""
+    """سحب أرباح الإحالات المعلقة وتحويلها للرصيد الرئيسي مع خصم نسبة الرسوم المحددة في الفايربيس"""
     try:
         db = database.get_db()
         user_ref = db.collection("users").document(str(tg_id))
+        
+        # جلب نسبة رسوم السحب من الفايربيس
+        config = get_friends_config()
+        claim_fee_percent = float(config.get("claim_fee_percent", 1.5))
+        fee_rate = claim_fee_percent / 100.0
         
         @firestore.transactional
         def update_in_transaction(transaction, ref):
@@ -157,8 +205,8 @@ def claim_ref_earnings_db(tg_id):
             if pending <= 0:
                 return {"success": False, "error": "لا توجد أرباح معلقة للسحب"}
             
-            # خصم 1.5% رسوم تحويل
-            fee_amount = round(pending * CLAIM_FEE_PERCENT, 4)
+            # خصم رسوم التحويل الديناميكية
+            fee_amount = round(pending * fee_rate, 4)
             net_amount = round(pending - fee_amount, 4)
             
             current_balance = float(data.get("balance", 0.0) or 0.0)
@@ -175,7 +223,7 @@ def claim_ref_earnings_db(tg_id):
                 "fee_amount": fee_amount,
                 "net_amount": net_amount,
                 "new_balance": new_balance,
-                "message": f"تم سحب {net_amount} ZN بنجاح إلى رصيدك (بعد خصم {fee_amount} ZN رسوم 1.5%)"
+                "message": f"تم سحب {net_amount} ZN بنجاح إلى رصيدك (بعد خصم {fee_amount} ZN رسوم {claim_fee_percent}%)"
             }
         
         transaction = db.transaction()
@@ -186,11 +234,24 @@ def claim_ref_earnings_db(tg_id):
 
 
 def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
-    """استلام مكافأة مهمة دعوة الأصدقاء"""
+    """استلام مكافأة مهمة دعوة الأصدقاء والتحقق منها بناءً على إعدادات الفايربيس الحالية"""
     try:
         db = database.get_db()
         user_ref = db.collection("users").document(str(tg_id))
         
+        # جلب الإعدادات من الفايربيس لمعرفة شرط الترقيات ومكافأة المهمة المحددة
+        config = get_friends_config()
+        min_upgrades = int(config.get("min_upgrades_for_task", 3))
+        ref_tasks = config.get("ref_tasks", {})
+        
+        task_info = ref_tasks.get(str(task_id))
+        if task_info:
+            actual_req_friends = int(task_info.get("reqFriends", req_friends))
+            actual_reward = float(task_info.get("reward", reward))
+        else:
+            actual_req_friends = int(req_friends)
+            actual_reward = float(reward)
+
         @firestore.transactional
         def update_task_transaction(transaction, ref):
             snapshot = ref.get(transaction=transaction)
@@ -203,15 +264,15 @@ def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
             if str(task_id) in [str(t) for t in claimed_tasks]:
                 return {"success": False, "error": "تم استلام مكافأة هذه المهمة من قبل"}
             
-            # التحقق من الأصدقاء المؤهلين
+            # التحقق من الأصدقاء المؤهلين بناءً على شرط الفايربيس
             friends = get_user_friends(tg_id)
-            eligible_count = sum(1 for f in friends if f.get("upgrades_count", 0) >= 3)
+            eligible_count = sum(1 for f in friends if f.get("upgrades_count", 0) >= min_upgrades)
             
-            if eligible_count < int(req_friends):
-                return {"success": False, "error": f"تحتاج إلى {req_friends} أصدقاء مؤهلين لاستلام هذه المكافأة"}
+            if eligible_count < actual_req_friends:
+                return {"success": False, "error": f"تحتاج إلى {actual_req_friends} أصدقاء مؤهلين لاستلام هذه المكافأة"}
             
             current_balance = float(user_data.get("balance", 0.0) or 0.0)
-            new_balance = round(current_balance + float(reward), 4)
+            new_balance = round(current_balance + actual_reward, 4)
             
             new_claimed = list(claimed_tasks)
             new_claimed.append(str(task_id))
@@ -225,7 +286,7 @@ def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
                 "success": True, 
                 "new_balance": new_balance,
                 "claimed_ref_tasks": new_claimed,
-                "message": f"تم استلام مكافأة {reward} ZN بنجاح"
+                "message": f"تم استلام مكافأة {actual_reward} ZN بنجاح"
             }
 
         transaction = db.transaction()
