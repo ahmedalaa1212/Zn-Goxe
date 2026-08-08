@@ -83,6 +83,28 @@
         }
     }
 
+    function updateDynamicTextsFromConfig() {
+        const cfg = window.FriendsConfig || {};
+        
+        // تحديث نسبة عمولة الإحالة ديناميكياً في الواجهة
+        const elComm = document.getElementById('info-comm-percent');
+        if (elComm && cfg.commission_percent !== undefined) {
+            elComm.innerText = `${cfg.commission_percent}%`;
+        }
+
+        // تحديث عدد الترقيات المطلوب ديناميكياً في الواجهة
+        const elUpgrades = document.getElementById('info-min-upgrades');
+        if (elUpgrades && cfg.min_upgrades_for_task !== undefined) {
+            elUpgrades.innerText = `${cfg.min_upgrades_for_task} ترقيات`;
+        }
+
+        // تحديث نسبة رسوم السحب ديناميكياً في الواجهة
+        const elFee = document.getElementById('info-claim-fee');
+        if (elFee && cfg.claim_fee_percent !== undefined) {
+            elFee.innerText = `${cfg.claim_fee_percent}%`;
+        }
+    }
+
     function initFriendsPage() {
         if (tele) {
             tele.ready();
@@ -195,6 +217,7 @@
             }
         }
 
+        updateDynamicTextsFromConfig();
         renderRefTasks(eligibleForTasks, pData.claimed_ref_tasks || []);
     };
 
@@ -302,7 +325,8 @@
             
             if (response.ok && data.success) {
                 const formattedNet = formatNumber(data.net_amount, 2);
-                showToast(`🎉 تم السحب بنجاح!\nأُضيف ${formattedNet} ZN إلى رصيدك (بعد خصم 1.5% رسوم).`);
+                const feePercent = window.FriendsConfig?.claim_fee_percent || 1.5;
+                showToast(`🎉 تم السحب بنجاح!\nأُضيف ${formattedNet} ZN إلى رصيدك (بعد خصم ${feePercent}% رسوم).`);
                 
                 if (!window.PlayerData) window.PlayerData = {};
                 window.PlayerData.pending_ref_earnings = 0;
