@@ -5,7 +5,7 @@
     const BOT_USERNAME = "zngoxe_bot";
 
     let lastFetchTimestamp = 0;
-    const FETCH_COOLDOWN_MS = 5000;
+    const FETCH_COOLDOWN_MS = 3000;
 
     window.FriendsConfig = {
         min_upgrades_for_task: 3,
@@ -13,6 +13,13 @@
         claim_fee_percent: 1.5,
         ref_tasks: {}
     };
+
+    function getUserId() {
+        if (tele?.initDataUnsafe?.user?.id) {
+            return String(tele.initDataUnsafe.user.id);
+        }
+        return "0000";
+    }
 
     function formatNumber(num, maxDecimals = 2) {
         const val = parseFloat(num) || 0;
@@ -44,23 +51,19 @@
         const numVal = parseFloat(newBalance);
         const currentVal = getStoredBalance();
 
-        // 1. تحديث الحالة المركزية للتطبيق (game.js Proxy) لتحديث الرصيد فوراً في جميع الشاشات
         if (window.userState) {
             window.userState.balance = numVal;
         }
 
-        // 2. تحديث كائنات البيانات المرافقة
         if (!window.PlayerData) window.PlayerData = {};
         window.PlayerData.balance = numVal;
 
         if (!window.GameState) window.GameState = {};
         window.GameState.balance = numVal;
 
-        // 3. التخزين المحلي
         localStorage.setItem('zn_balance', numVal.toString());
         localStorage.setItem('user_balance', numVal.toString());
 
-        // 4. إطلاق التأثيرات البصرية وتحديث الواجهات اللحظية
         if (typeof window.animateBalance === 'function' && currentVal !== numVal) {
             window.animateBalance(currentVal, numVal);
         } else if (typeof window.setBalance === 'function') {
@@ -87,10 +90,7 @@
         }
         
         const refInput = document.getElementById('ref-link-input');
-        let userId = "0000";
-        if (tele?.initDataUnsafe?.user?.id) {
-            userId = tele.initDataUnsafe.user.id;
-        }
+        const userId = getUserId();
 
         if (refInput) {
             if (!INIT_DATA && userId === "0000") {
@@ -105,7 +105,7 @@
         
         window.updateFriendsUI();
 
-        if (!INIT_DATA) {
+        if (!INIT_DATA && userId === "0000") {
             const container = document.getElementById('friends-list-container');
             if (container) container.innerHTML = '<div class="empty-state">يرجى فتح التطبيق من تليجرام لعرض الأصدقاء.</div>';
             return;
@@ -115,7 +115,8 @@
     }
 
     async function loadFriendsData(force = false) {
-        if (!INIT_DATA) return;
+        const userId = getUserId();
+        if (!INIT_DATA && userId === "0000") return;
 
         const now = Date.now();
         if (!force && (now - lastFetchTimestamp < FETCH_COOLDOWN_MS)) {
@@ -129,7 +130,7 @@
             let response = await fetch('/api/friends/data', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: INIT_DATA })
+                body: JSON.stringify({ initData: INIT_DATA, user_id: userId })
             });
             let data = await response.json();
             
@@ -284,7 +285,7 @@
     };
 
     window.claimRefEarnings = async function() {
-        if (!INIT_DATA) return;
+        const userId = getUserId();
         const btn = document.getElementById('btn-claim-ref');
         if (btn) {
             btn.disabled = true;
@@ -295,22 +296,18 @@
             let response = await fetch('/api/friends/claim_ref_earnings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: INIT_DATA })
+                body: JSON.stringify({ initData: INIT_DATA, user_id: userId })
             });
             let data = await response.json();
             
             if (response.ok && data.success) {
                 const formattedNet = formatNumber(data.net_amount, 2);
-                showToast(`🎉 تم السحب بنجاح!\nأُضيف ${formattedNet} ZN إلى رصيدك.`);
+                showToast(`🎉 تم السحب بنجاح!\nأُضيف ${formattedNet} ZN إلى رصيدك (بعد خصم 1.5% رسوم).`);
                 
-                // 1. تصفير الأرباح المعلقة فوراً
                 if (!window.PlayerData) window.PlayerData = {};
                 window.PlayerData.pending_ref_earnings = 0;
 
-                // 2. تحديث الرصيد الجديد فاقترانه بالحالة اللحظية
                 setStoredBalance(data.new_balance);
-                
-                // 3. إعادة رسم الواجهة اللحظية
                 window.updateFriendsUI();
             } else {
                 showToast(data.error || "فشل السحب من السيرفر");
@@ -323,19 +320,18 @@
     };
 
     window.claimRefTask = async function(taskId, reward, reqFriends) {
-        if (!INIT_DATA) return;
+        const userId = getUserId();
         try {
             let response = await fetch('/api/friends/claim_ref_task', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: INIT_DATA, taskId, reward, reqFriends })
+                body: JSON.stringify({ initData: INIT_DATA, user_id: userId, taskId, reward, reqFriends })
             });
             let data = await response.json();
 
             if (response.ok && data.success) {
                 showToast(`🎊 مبروك! استلمت مكافأة ${formatNumber(reward, 2)} ZN.`);
                 
-                // 1. إضافة المهمة إلى قائمة المستلمة فوراً
                 if (!window.PlayerData) window.PlayerData = {};
                 if (data.claimed_ref_tasks) {
                     window.PlayerData.claimed_ref_tasks = data.claimed_ref_tasks;
@@ -344,10 +340,7 @@
                     window.PlayerData.claimed_ref_tasks.push(taskId);
                 }
 
-                // 2. تحديث الرصيد الجديد فاقترانه بالحالة اللحظية
                 setStoredBalance(data.new_balance);
-                
-                // 3. إعادة رسم الواجهة اللحظية
                 window.updateFriendsUI();
             } else {
                 showToast(data.error || "خطأ في استلام المكافأة");
@@ -359,15 +352,16 @@
 
     async function fetchAndRenderFriendsList() {
         const container = document.getElementById('friends-list-container');
-        if (!container || !INIT_DATA) return;
+        if (!container) return;
 
+        const userId = getUserId();
         const minUpgrades = window.FriendsConfig?.min_upgrades_for_task || 3;
 
         try {
             let response = await fetch('/api/friends/list', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: INIT_DATA })
+                body: JSON.stringify({ initData: INIT_DATA, user_id: userId })
             });
             let data = await response.json();
 
@@ -384,7 +378,7 @@
                         ? `<span style="color: #2ecc71; font-size:11px;">مؤهل للمهام (${cnt}/${minUpgrades} ترقيات) ✅</span>`
                         : `<span style="color: #f39c12; font-size:11px;">ينقصه ${minUpgrades - cnt} ترقية (${cnt}/${minUpgrades}) ⏳</span>`;
                     
-                    const genVal = parseFloat(f.generated || 0);
+                    const genVal = parseFloat(f.generated || f.earned_from_him || 0);
                     const formattedGen = formatNumber(genVal, 2);
 
                     html += `
