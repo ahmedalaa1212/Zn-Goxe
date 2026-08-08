@@ -4,21 +4,22 @@ import time
 import firebase_admin
 from firebase_admin import credentials, firestore
 
+# ==================== Global State & DB Reference ====================
 db = None
 
 # ==================== Dynamic In-Memory Cache System ====================
 _SETTINGS_CACHE = None
 _SETTINGS_CACHE_TIME = 0
-SETTINGS_CACHE_TTL = 300
+SETTINGS_CACHE_TTL = 300  # 5 دقائق
 
 _LEADERBOARD_CACHE = None
 _LEADERBOARD_CACHE_TIME = 0
-LEADERBOARD_CACHE_TTL = 180
+LEADERBOARD_CACHE_TTL = 180  # 3 دقائق
 # ========================================================================
 
 
 def initialize_firebase():
-    """تهيئة الاتصال بقاعدة بيانات Firebase Firestore مع حماية المفاتيح"""
+    """تهيئة الاتصال بقاعدة بيانات Firebase Firestore مع حماية البيئة والمفاتيح."""
     global db
     if not firebase_admin._apps:
         firebase_creds_json = os.environ.get("FIREBASE_CREDENTIALS")
@@ -39,7 +40,9 @@ def initialize_firebase():
                 if os.path.exists("firebase-adminsdk.json"):
                     cred = credentials.Certificate("firebase-adminsdk.json")
                 else:
-                    raise FileNotFoundError("لم يتم العثور على بيانات اعتماد Firebase!")
+                    raise FileNotFoundError(
+                        "❌ لم يتم العثور على متغير البيئة FIREBASE_CREDENTIALS أو ملف firebase-adminsdk.json!"
+                    )
 
             firebase_admin.initialize_app(cred)
             print("✅ Firebase Initialized Successfully!")
@@ -53,22 +56,31 @@ def initialize_firebase():
 
 
 def get_db():
-    """الحصول على كائن قاعدة البيانات بطريقة آمنة"""
+    """الحصول على كائن قاعدة البيانات بطريقة آمنة ومتجاوبة."""
     global db
     if db is None:
         db = initialize_firebase()
     return db
 
 
+# ==================== Cache Helpers ====================
 def clear_settings_cache():
-    """تفريغ وتصفير ذاكرة التخزين المؤقت للإعدادات"""
+    """تفريغ وتصفير ذاكرة التخزين المؤقت للإعدادات."""
     global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     _SETTINGS_CACHE = None
     _SETTINGS_CACHE_TIME = 0
 
 
+def clear_leaderboard_cache():
+    """تفريغ وتصفير ذاكرة التخزين المؤقت للوحة المتصدرين."""
+    global _LEADERBOARD_CACHE, _LEADERBOARD_CACHE_TIME
+    _LEADERBOARD_CACHE = None
+    _LEADERBOARD_CACHE_TIME = 0
+
+
+# ==================== Game Settings Engine ====================
 def ensure_game_settings_exist():
-    """ضمان وجود مستند الإعدادات الأساسية والإحصائيات التجميعية في Firestore"""
+    """ضمان وجود مستند الإعدادات الأساسية والإحصائيات التجميعية في Firestore."""
     global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     current_db = get_db()
     try:
@@ -80,6 +92,7 @@ def ensure_game_settings_exist():
             needs_update = False
             updates = {}
 
+            # التحقق من إعدادات zn_go_config / grid_game_config
             if "zn_go_config" not in existing_data and "grid_game_config" not in existing_data:
                 zn_cfg = {
                     "min_bet": 10.0,
@@ -101,6 +114,7 @@ def ensure_game_settings_exist():
                     updates["grid_game_config"] = zn_cfg
                     needs_update = True
 
+            # التحقق من إعدادات الساحة Arena
             if "arena_config" not in existing_data:
                 arena_cfg = {
                     "entry_fee": 10.0,
@@ -112,6 +126,7 @@ def ensure_game_settings_exist():
                 updates["arena_config"] = arena_cfg
                 needs_update = True
 
+            # الإحصائيات العامة
             if "global_total_bets" not in existing_data:
                 updates["global_total_bets"] = 0.0
                 existing_data["global_total_bets"] = 0.0
@@ -128,6 +143,7 @@ def ensure_game_settings_exist():
             _SETTINGS_CACHE_TIME = time.time()
             return existing_data
 
+        # الإعدادات الافتراضية عند الإنشاء لأول مرة
         daily_rewards_30_days = {
             f"day_{i}": val
             for i, val in enumerate(
@@ -201,7 +217,7 @@ def ensure_game_settings_exist():
 
 
 def get_game_settings():
-    """جلب إعدادات اللعبة من الكاش المؤقت لتوفير قراءات Firestore"""
+    """جلب إعدادات اللعبة من ذاكرة الكاش لتوفير استهلاك قراءات Firestore."""
     global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     now = time.time()
     if (
@@ -226,7 +242,7 @@ def get_game_settings():
 
 
 def update_game_settings(new_settings_dict):
-    """تحديث الإعدادات وتفريغ الكاش فوراً"""
+    """تحديث الإعدادات في Firestore وتحديث الكاش فوراً."""
     global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     try:
         current_db = get_db()
@@ -244,15 +260,16 @@ def update_game_settings(new_settings_dict):
         return False, f"حدث خطأ أثناء الحفظ: {e}"
 
 
-# التهيئة الأوليّة
+# ==================== التهيئة الأولى عند الاستدعاء ====================
 try:
     initialize_firebase()
     ensure_game_settings_exist()
 except Exception as e:
     print(f"⚠️ تنبيه أثناء تهيئة DB تلقائياً: {e}")
 
+
 # =========================================================================
-# Re-exports: إتاحة جميع دوال الموديولات عبر الملف الرئيسي لمنع كسر الكود القائم
+# Re-exports: إتاحة جميع دوال الموديولات الفرعية عبر الملف الرئيسي
 # =========================================================================
 from users.users_db import (
     is_user_banned,
