@@ -504,8 +504,8 @@ def get_game_profit_stats():
                 arena_doc = db.collection("arena").document("current").get()
                 if arena_doc.exists:
                     a_data = arena_doc.to_dict() or {}
-                    arena_bets = float(a_data.get("total_bets", 0.0))
-                    arena_wins = float(a_data.get("total_payouts", 0.0))
+                    arena_bets = float(a_data.get("total_bets", 0.0) or 0.0)
+                    arena_wins = float(a_data.get("total_payouts", 0.0) or 0.0)
         except Exception as e:
             print(f"⚠️ Error reading arena/current: {e}")
 
@@ -524,25 +524,25 @@ def get_game_profit_stats():
         )
 
         # حساب نسبة ربح البوت الحالية
-        actual_bot_pct = (
-            round(((total_bets - total_wins) / total_bets * 100.0), 2)
-            if total_bets > 0
-            else 100.0
-        )
-        actual_bot_pct = max(0.0, actual_bot_pct)
+        if total_bets > 0:
+            actual_bot_pct = round(((total_bets - total_wins) / total_bets * 100.0), 2)
+        else:
+            actual_bot_pct = target_margin_pct
+
+        actual_bot_pct = max(0.0, min(100.0, actual_bot_pct))
         actual_user_pct = round(100.0 - actual_bot_pct, 2)
 
         return {
-            "total_bets": total_bets,
-            "total_wins": total_wins,
+            "total_bets": round(total_bets, 2),
+            "total_wins": round(total_wins, 2),
             "total_bot_profit": round(bot_net_profit, 2),
             "total_user_profit": round(total_wins, 2),
             "target_margin": target_margin,
             "target_margin_percent": target_margin_pct,
             "actual_bot_percent": actual_bot_pct,
             "actual_user_percent": actual_user_pct,
-            "global_total_bets": total_bets,
-            "global_total_wins": total_wins,
+            "global_total_bets": round(total_bets, 2),
+            "global_total_wins": round(total_wins, 2),
         }
     except Exception as e:
         print(f"❌ Error fetching game profit stats: {e}")
@@ -553,8 +553,8 @@ def get_game_profit_stats():
             "total_user_profit": 0.0,
             "target_margin": 0.70,
             "target_margin_percent": 70.0,
-            "actual_bot_percent": 100.0,
-            "actual_user_percent": 0.0,
+            "actual_bot_percent": 70.0,
+            "actual_user_percent": 30.0,
             "global_total_bets": 0.0,
             "global_total_wins": 0.0,
         }
@@ -564,7 +564,7 @@ def should_user_win_next_step():
     """دالة توضع داخل محرك اللعبة للتحكم بنسبة الربح المحددة للبوت واللاعب"""
     try:
         stats = get_game_profit_stats()
-        actual_bot_pct = stats.get("actual_bot_percent", 100.0)
+        actual_bot_pct = stats.get("actual_bot_percent", 70.0)
         target_bot_pct = stats.get("target_margin_percent", 70.0)
 
         # إذا كانت نسبة ربح البوت الحالية أقل من النسبة المستهدفة يتم توجيه اللعبة لإظهار الخسارة
@@ -604,9 +604,9 @@ def get_admin_dashboard_stats():
                 "target_margin_percent": profit_stats.get(
                     "target_margin_percent", 70.0
                 ),
-                "actual_bot_percent": profit_stats.get("actual_bot_percent", 0.0),
+                "actual_bot_percent": profit_stats.get("actual_bot_percent", 70.0),
                 "actual_user_percent": profit_stats.get(
-                    "actual_user_percent", 0.0
+                    "actual_user_percent", 30.0
                 ),
             },
         }
