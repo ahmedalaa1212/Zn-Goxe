@@ -7,7 +7,7 @@ REFERRAL_COMMISSION_PERCENT = 0.10
 
 
 def get_user_friends(tg_id, limit=50):
-    """جلب قائمة الأصدقاء والإحالات الخاصة بالمستخدم"""
+    """جلب قائمة الأصدقاء والإحالات الخاصة بالمستخدم مع جلب عدد الترقيات الحي والحقيقي من حساباتهم"""
     try:
         db = database.get_db()
         friends_ref = (
@@ -16,17 +16,49 @@ def get_user_friends(tg_id, limit=50):
             .collection("friends")
             .limit(limit)
         )
-        docs = friends_ref.stream()
+        docs = list(friends_ref.stream())
+        if not docs:
+            return []
+
+        # جمع معرفات الأصدقاء لجلب مستنداتهم الأصلية دفعة واحدة
+        friend_ids = [str(doc.get("tg_id") or doc.id) for doc in docs]
+        friend_user_docs = {}
+
+        if friend_ids:
+            try:
+                friend_refs = [db.collection("users").document(fid) for fid in friend_ids]
+                fetched_docs = db.get_all(friend_refs)
+                for u_doc in fetched_docs:
+                    if u_doc.exists:
+                        friend_user_docs[u_doc.id] = u_doc.to_dict() or {}
+            except Exception as fetch_err:
+                print(f"⚠️ Warning fetching friend user docs: {fetch_err}")
+
         friends = []
         for doc in docs:
             d = doc.to_dict() or {}
+            friend_id = str(d.get("tg_id", doc.id))
+            real_user = friend_user_docs.get(friend_id, {})
+
+            # حساب إجمالي الترقيات من مستند الصديق الرئيسي تلقائياً
+            upgrades_dict = real_user.get("upgrades", {})
+            calc_upgrades = 0
+            if isinstance(upgrades_dict, dict):
+                calc_upgrades = sum(int(v) for v in upgrades_dict.values() if isinstance(v, (int, float)))
+
+            real_upgrades_count = int(
+                real_user.get("upgrades_count")
+                if real_user.get("upgrades_count") is not None
+                else (calc_upgrades or d.get("upgrades_count", 0) or 0)
+            )
+
             friends.append({
-                "tg_id": str(d.get("tg_id", doc.id)),
-                "name": d.get("first_name") or d.get("name") or "صديق",
-                "first_name": d.get("first_name", "صديق"),
+                "tg_id": friend_id,
+                "name": real_user.get("first_name") or real_user.get("name") or d.get("first_name") or d.get("name") or "صديق",
+                "first_name": real_user.get("first_name") or d.get("first_name", "صديق"),
                 "generated": float(d.get("earned_from_him", 0.0) or 0.0),
                 "earned_from_him": float(d.get("earned_from_him", 0.0) or 0.0),
-                "upgrades_count": int(d.get("upgrades_count", 0) or 0)
+                "upgrades_count": real_upgrades_count
             })
         return friends
     except Exception as e:
