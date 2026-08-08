@@ -5,7 +5,8 @@ from .friends_db import (
     get_friends_data_db,
     get_friends_list_db,
     claim_ref_earnings_db,
-    claim_ref_task_db
+    claim_ref_task_db,
+    get_friends_config
 )
 
 # تعريف الـ Blueprint الخاص بنظام الأصدقاء
@@ -13,20 +14,6 @@ friends_bp = Blueprint('friends_bp', __name__)
 
 # اسم بديل لضمان التوافق التام
 friends_api = friends_bp
-
-# إعدادات وقائمة مهام الأصدقاء المتوفرة في النظام
-FRIENDS_CONFIG = {
-    "min_upgrades_for_task": 3,
-    "commission_percent": 10,
-    "claim_fee_percent": 1.5,
-    "ref_tasks": {
-        "1": {"reqFriends": 1, "reward": 50},
-        "2": {"reqFriends": 3, "reward": 200},
-        "3": {"reqFriends": 5, "reward": 500},
-        "4": {"reqFriends": 10, "reward": 1200},
-        "5": {"reqFriends": 25, "reward": 3500}
-    }
-}
 
 
 def extract_user_id(req):
@@ -53,17 +40,19 @@ def extract_user_id(req):
 @friends_bp.route('/data', methods=['GET', 'POST'])
 @friends_bp.route('/api/friends/data', methods=['GET', 'POST'])
 def get_friends_data():
-    """جلب ملخص بيانات الأصدقاء والمكافآت للمستخدم"""
+    """جلب ملخص بيانات الأصدقاء والمكافآت للمستخدم مع الإعدادات الديناميكية من الفايربيس"""
     user_id = extract_user_id(request)
     if not user_id:
         return jsonify({"success": False, "error": "مطلوب معرف المستخدم (user_id)"}), 400
 
     try:
         player_data = get_friends_data_db(str(user_id))
+        friends_config = player_data.pop("friends_config", None) or get_friends_config()
+        
         return jsonify({
             "success": True, 
             "player": player_data,
-            "friends_config": FRIENDS_CONFIG
+            "friends_config": friends_config
         }), 200
     except Exception as e:
         print(f"❌ خطأ في API جلب بيانات الأصدقاء: {e}")
