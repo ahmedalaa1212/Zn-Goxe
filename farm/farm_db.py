@@ -2,7 +2,7 @@ from datetime import datetime, timezone, timedelta
 from google.cloud import firestore
 from database import get_db
 
-# ==================== الإعدادات الافتراضية للعبة ====================
+# ==================== الإعدادات الافتراضية الخاصة بالمزرعة ====================
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
         100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
@@ -30,22 +30,22 @@ DEFAULT_GAME_SETTINGS = {
 }
 
 
-# ==================== الدوار والوظائف المساعدة ====================
+# ==================== الوظائف المساعدة الحسابية للمزرعة ====================
 
 def get_game_settings():
-    """جلب إعدادات اللعبة من Firestore أو استخدام الافتراضية"""
+    """جلب إعدادات اللعبة والمزرعة من Firestore"""
     db = get_db()
     try:
         doc = db.collection('settings').document('game_settings').get()
         if doc.exists:
             return doc.to_dict() or DEFAULT_GAME_SETTINGS
     except Exception as e:
-        print(f"⚠️ خطأ أثناء جلب إعدادات اللعبة من قواعد البيانات: {e}")
+        print(f"⚠️ خطأ أثناء جلب إعدادات اللعبة: {e}")
     return DEFAULT_GAME_SETTINGS
 
 
 def parse_daily_rewards(rewards_data):
-    """تحليل قائمة المكافآت اليومية بشكل مرن"""
+    """تحليل قائمة المكافآت اليومية (30 يوم)"""
     if isinstance(rewards_data, list) and len(rewards_data) > 0:
         return [int(x) for x in rewards_data]
     if isinstance(rewards_data, dict):
@@ -58,7 +58,7 @@ def parse_daily_rewards(rewards_data):
 
 
 def get_base_storage_capacity(storage_level, settings=None):
-    """حساب السعة الأساسية للمخزن حسب المستوى"""
+    """حساب السعة التخزينية الأساسية للمخزن"""
     if not settings:
         settings = DEFAULT_GAME_SETTINGS
     try:
@@ -77,7 +77,7 @@ def get_base_storage_capacity(storage_level, settings=None):
 
 
 def calculate_user_max_cap(user_data, settings=None):
-    """حساب أقصى سعة تخزينية للمستخدم بعد السعة الإضافية"""
+    """حساب أقصى سعة للمخزن المؤقت للمستخدم"""
     if not settings:
         settings = DEFAULT_GAME_SETTINGS
     stg_lvl = user_data.get("storage_level", 0)
@@ -87,7 +87,7 @@ def calculate_user_max_cap(user_data, settings=None):
 
 
 def calculate_accrued_mined(user_data, now_dt, max_cap):
-    """حساب الكمية المعدنة حالياً في المخزن المؤقت"""
+    """حساب الكمية المعدنة الحالية داخل المخزن المؤقت"""
     last_claim_str = user_data.get("last_claim_time")
     hourly_rate = float(user_data.get("hourly_rate", 0.0))
     if not last_claim_str or hourly_rate <= 0:
@@ -103,10 +103,10 @@ def calculate_accrued_mined(user_data, now_dt, max_cap):
         return 0.0
 
 
-# ==================== عمليات قاعدة البيانات المباشرة ====================
+# ==================== عمليات قاعدة البيانات الخاصة بالمزرعة ====================
 
 def get_or_create_user_farm_data(user_id_str):
-    """جلب بيانات اللاعب الخاصة بالمزرعة وتجهيزها أو إنشائها إن لم تكن موجودة"""
+    """جلب وتجهيز بيانات المزرعة الخاصة بالمستخدم"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     user_doc = user_ref.get()
@@ -118,8 +118,6 @@ def get_or_create_user_farm_data(user_id_str):
             "tg_id": user_id_str,
             "telegram_id": user_id_str,
             "balance": 0.00,
-            "ad_balance": 0.00,
-            "usd_balance": 0.00,
             "hourly_rate": 0.00,
             "daily_boost_rate": 0.00,
             "unclaimed": 0.00,
@@ -132,40 +130,31 @@ def get_or_create_user_farm_data(user_id_str):
             "last_daily_claim_date": None,
             "last_boost_date": None,
             "ads_watched": 0,
-            "upgrades": {},
-            "referred_by": None,
-            "pending_ref_earnings": 0.00,
-            "total_ref_earnings": 0.00,
-            "invited_friends_count": 0,
-            "ref_generated_amount": 0.00,
-            "claimed_ref_tasks": []
+            "upgrades": {}
         }
         user_ref.set(user_data)
     else:
         user_data = user_doc.to_dict() or {}
         auto_fix = {}
         
-        # التأكد من عدم وجود حقول ناقصة
         if "daily_boost_rate" not in user_data: auto_fix["daily_boost_rate"] = 0.00
         if "ads_watched" not in user_data: auto_fix["ads_watched"] = 0
-        if "pending_ref_earnings" not in user_data: auto_fix["pending_ref_earnings"] = 0.00
-        if "total_ref_earnings" not in user_data: auto_fix["total_ref_earnings"] = 0.00
+        if "upgrades" not in user_data: auto_fix["upgrades"] = {}
         
         if auto_fix:
             user_ref.update(auto_fix)
             user_data.update(auto_fix)
 
-    # حساب وتصحيح السعة القصوى
+    # تحديث السعة القصوى والمحصول الحسابي
     expected_max_cap = calculate_user_max_cap(user_data, game_settings)
     if user_data.get("max_cap") != expected_max_cap:
         user_data["max_cap"] = expected_max_cap
         user_ref.update({"max_cap": expected_max_cap})
 
-    # حساب المحصول غير المجمع
     user_data["balance"] = round(float(user_data.get("balance", 0.0)), 2)
     user_data["unclaimed"] = calculate_accrued_mined(user_data, now, expected_max_cap)
 
-    # حساب اليوم المستحق في السلسلة اليومية (Streak)
+    # حساب موقف تسجيل الدخول اليومي
     today_str = now.strftime('%Y-%m-%d')
     yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
     last_daily_claim = user_data.get("last_daily_claim_date")
@@ -185,7 +174,7 @@ def get_or_create_user_farm_data(user_id_str):
 
 
 def claim_mined_tokens_db(user_id_str, cooldown_seconds=15):
-    """عملية تجميع المحصول من المخزن وحساب عمولة الإحالة (Transactional)"""
+    """تجميع الرصيد المعدن من المخزن إلى الرصيد الأساسي"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -199,7 +188,7 @@ def claim_mined_tokens_db(user_id_str, cooldown_seconds=15):
         user_data = snapshot.to_dict() or {}
         now = datetime.now(timezone.utc)
 
-        # التحقق من الكولدون (الانتظار)
+        # التحقق من كولدون التجميع
         last_claim_str = user_data.get("last_claim_time")
         if last_claim_str:
             try:
@@ -218,48 +207,15 @@ def claim_mined_tokens_db(user_id_str, cooldown_seconds=15):
         if mined_amount <= 0:
             return {"success": False, "error": "المخزن فارغ حالياً"}
 
-        # حساب عمولة الإحالة للصديق الداعي
-        referred_by = user_data.get("referred_by")
-        referrer_ref = None
-        referrer_doc = None
-        commission = 0.0
-
-        if referred_by and str(referred_by).strip() != "" and str(referred_by) != "null":
-            try:
-                friends_cfg = game_settings.get("friends_config", {})
-                comm_pct = float(friends_cfg.get("commission_percent", 10))
-                commission = round(mined_amount * (comm_pct / 100.0), 2)
-                if commission > 0:
-                    referrer_ref = db.collection('users').document(str(referred_by))
-                    referrer_doc = referrer_ref.get(transaction=transaction)
-            except Exception as ref_read_err:
-                print(f"⚠️ خطأ أثناء قراءة بيانات الداعي: {ref_read_err}")
-
         current_balance = float(user_data.get("balance", 0.0))
         new_balance = round(current_balance + mined_amount, 2)
         now_iso = now.isoformat()
 
-        # تحديث بيانات المستخدم الحالي
+        # تحديث رصيد ووقت التجميع
         transaction.update(ref, {
             "balance": new_balance,
             "last_claim_time": now_iso
         })
-
-        # تحديث عمولة الشخص الذي قام بدعوته
-        if referrer_ref and referrer_doc and referrer_doc.exists and commission > 0:
-            try:
-                transaction.update(referrer_ref, {
-                    "pending_ref_earnings": firestore.Increment(commission),
-                    "total_ref_earnings": firestore.Increment(commission)
-                })
-                friend_sub_ref = referrer_ref.collection('friends').document(user_id_str)
-                friend_name = user_data.get('first_name') or user_data.get('name') or 'صديق'
-                transaction.set(friend_sub_ref, {
-                    "earned_from_him": firestore.Increment(commission),
-                    "name": friend_name
-                }, merge=True)
-            except Exception as ref_err:
-                print(f"⚠️ خطأ تحديث أرباح الإحالة: {ref_err}")
 
         return {
             "success": True,
@@ -274,13 +230,13 @@ def claim_mined_tokens_db(user_id_str, cooldown_seconds=15):
 
 
 def buy_upgrade_db(user_id_str, level):
-    """شراء ترقية جديدة لمستويات التعدين 1-9 (Transactional)"""
+    """شراء ترقية معدل التعدين لمستويات المزرعة (1-9)"""
     level_str = str(level)
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
 
-    upgrade_configs = game_settings.get("upgrade_config") or game_settings.get("speed_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
+    upgrade_configs = game_settings.get("upgrade_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
     if level_str not in upgrade_configs:
         return {"success": False, "error": "بيانات المستوى غير متوفرة"}
 
@@ -320,7 +276,7 @@ def buy_upgrade_db(user_id_str, level):
         now = datetime.now(timezone.utc)
         now_iso = now.isoformat()
 
-        # حساب الرصيد الحالي + التجميع الآلي قبل الخصم
+        # تجميع المحصول التلقائي قبل إجراء الخصم
         max_cap = calculate_user_max_cap(user_data, game_settings)
         mined_amount = calculate_accrued_mined(user_data, now, max_cap)
 
@@ -350,7 +306,7 @@ def buy_upgrade_db(user_id_str, level):
 
 
 def claim_daily_reward_db(user_id_str):
-    """استلام المكافأة اليومية (Transactional)"""
+    """استلام المكافأة اليومية (30 يوم)"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -408,7 +364,7 @@ def claim_daily_reward_db(user_id_str):
 
 
 def claim_daily_boost_db(user_id_str):
-    """تفعيل ميزة التعزيز اليومية Boost (Transactional)"""
+    """تفعيل التعزيز اليومي لمعدل التعدين"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
