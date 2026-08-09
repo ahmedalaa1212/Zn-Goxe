@@ -6,6 +6,7 @@
 
     let lastFetchTimestamp = 0;
     const FETCH_COOLDOWN_MS = 3000;
+    let isTaskClaiming = false;
 
     window.FriendsConfig = {
         min_upgrades_for_task: 3,
@@ -86,19 +87,16 @@
     function updateDynamicTextsFromConfig() {
         const cfg = window.FriendsConfig || {};
         
-        // تحديث نسبة عمولة الإحالة ديناميكياً في الواجهة
         const elComm = document.getElementById('info-comm-percent');
         if (elComm && cfg.commission_percent !== undefined) {
             elComm.innerText = `${cfg.commission_percent}%`;
         }
 
-        // تحديث عدد الترقيات المطلوب ديناميكياً في الواجهة
         const elUpgrades = document.getElementById('info-min-upgrades');
         if (elUpgrades && cfg.min_upgrades_for_task !== undefined) {
             elUpgrades.innerText = `${cfg.min_upgrades_for_task} ترقيات`;
         }
 
-        // تحديث نسبة رسوم السحب ديناميكياً في الواجهة
         const elFee = document.getElementById('info-claim-fee');
         if (elFee && cfg.claim_fee_percent !== undefined) {
             elFee.innerText = `${cfg.claim_fee_percent}%`;
@@ -344,6 +342,9 @@
     };
 
     window.claimRefTask = async function(taskId, reward, reqFriends) {
+        if (isTaskClaiming) return;
+        isTaskClaiming = true;
+        
         const userId = getUserId();
         try {
             let response = await fetch('/api/friends/claim_ref_task', {
@@ -371,6 +372,8 @@
             }
         } catch (e) {
             showToast("خطأ في الاتصال بالخادم.");
+        } finally {
+            isTaskClaiming = false;
         }
     };
 
