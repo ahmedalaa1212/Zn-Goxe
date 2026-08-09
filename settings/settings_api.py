@@ -2,7 +2,8 @@
 import traceback
 from flask import Blueprint, jsonify, request
 from core.security import get_authenticated_user
-from settings.db import get_user_settings_stats
+# تعديل مسار الاستدعاء المباشر للملف settings_db
+from settings.settings_db import get_user_settings_stats
 
 settings_bp = Blueprint('settings', __name__)
 
@@ -14,7 +15,7 @@ def get_settings_stats():
         if not success:
             return error_res
 
-        # استخدام دالة قاعدة البيانات السريعة
+        # جلب البيانات باستخدام الدالة من settings_db.py
         stats = get_user_settings_stats(str(uid))
 
         return jsonify({
