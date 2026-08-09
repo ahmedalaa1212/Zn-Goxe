@@ -453,13 +453,21 @@ window.initFarmView = function() {
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                
+                if (!window.userState) window.userState = {};
+                if (!window.PlayerData) window.PlayerData = {};
+
                 if (resData.storage_level !== undefined) {
-                    if (!window.userState) window.userState = {};
                     window.userState.storage_level = resData.storage_level;
+                    window.PlayerData.storage_level = resData.storage_level;
                 }
                 if (resData.max_cap !== undefined) {
-                    if (!window.userState) window.userState = {};
                     window.userState.max_cap = resData.max_cap;
+                    window.PlayerData.max_cap = resData.max_cap;
+                }
+                if (resData.last_claim_time) {
+                    window.userState.last_claim_time = resData.last_claim_time;
+                    window.PlayerData.last_claim_time = resData.last_claim_time;
                 }
                 showToast(`📦 تم ترقية سعة المخزن بنجاح إلى Level ${resData.storage_level}!`);
                 window.updateFarmUI();
@@ -491,14 +499,28 @@ window.initFarmView = function() {
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                
+                if (!window.userState) window.userState = {};
+                if (!window.PlayerData) window.PlayerData = {};
+
+                // إصلاح المزامنة: تحديث السرعة والوقت المحسوب والرصيد المعدن فوراً وبشكل متطابق
                 if (resData.new_hourly_rate !== undefined) {
-                    if (!window.userState) window.userState = {};
                     window.userState.hourly_rate = resData.new_hourly_rate;
+                    window.PlayerData.hourly_rate = resData.new_hourly_rate;
                 }
                 if (resData.upgrades) {
-                    if (!window.userState) window.userState = {};
                     window.userState.upgrades = resData.upgrades;
+                    window.PlayerData.upgrades = resData.upgrades;
                 }
+                if (resData.last_claim_time) {
+                    window.userState.last_claim_time = resData.last_claim_time;
+                    window.PlayerData.last_claim_time = resData.last_claim_time;
+                }
+                if (resData.unclaimed !== undefined) {
+                    window.userState.unclaimed = resData.unclaimed;
+                    window.PlayerData.unclaimed = resData.unclaimed;
+                }
+
                 showToast(`🏛️ تم ترقية المستوى ${level} بنجاح!`);
                 window.updateFarmUI();
             } else {
@@ -527,13 +549,17 @@ window.initFarmView = function() {
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                
+                if (!window.userState) window.userState = {};
+                if (!window.PlayerData) window.PlayerData = {};
+
                 if (resData.daily_day !== undefined) {
-                    if (!window.userState) window.userState = {};
                     window.userState.daily_day = resData.daily_day;
+                    window.PlayerData.daily_day = resData.daily_day;
                 }
                 if (resData.last_daily_claim_date) {
-                    if (!window.userState) window.userState = {};
                     window.userState.last_daily_claim_date = resData.last_daily_claim_date;
+                    window.PlayerData.last_daily_claim_date = resData.last_daily_claim_date;
                 }
                 showToast(`🎉 تم استلام مكافأة اليوم ${resData.daily_day} بنجاح!`);
                 window.updateFarmUI();
@@ -562,22 +588,27 @@ window.initFarmView = function() {
             let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
-                
                 if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+
+                if (!window.userState) window.userState = {};
+                if (!window.PlayerData) window.PlayerData = {};
 
                 if (resData.type === 'speed') {
                     if (resData.new_rate !== undefined) {
-                        if (!window.userState) window.userState = {};
                         window.userState.hourly_rate = resData.new_rate;
+                        window.PlayerData.hourly_rate = resData.new_rate;
                     }
                     if (resData.daily_boost_rate !== undefined) {
-                        if (!window.userState) window.userState = {};
                         window.userState.daily_boost_rate = resData.daily_boost_rate;
+                        window.PlayerData.daily_boost_rate = resData.daily_boost_rate;
                     }
                     if (resData.last_claim_time) {
-                        if (!window.userState) window.userState = {};
                         window.userState.last_claim_time = resData.last_claim_time;
-                        window.userState.unclaimed = 0.0;
+                        window.PlayerData.last_claim_time = resData.last_claim_time;
+                    }
+                    if (resData.unclaimed !== undefined) {
+                        window.userState.unclaimed = resData.unclaimed;
+                        window.PlayerData.unclaimed = resData.unclaimed;
                     }
                     showToast(`⚡ تم زيادة سرعة التعدين بمقدار +${resData.boost_amount || GAME_CONFIG.dailyBoostReward}/h وحفظ المحصول المعدن!`);
                 } else if (resData.type === 'balance') {
@@ -585,8 +616,8 @@ window.initFarmView = function() {
                 }
 
                 if (resData.last_boost_date) {
-                    if (!window.userState) window.userState = {};
                     window.userState.last_boost_date = resData.last_boost_date;
+                    window.PlayerData.last_boost_date = resData.last_boost_date;
                 }
                 window.updateFarmUI();
             } else {
@@ -609,11 +640,17 @@ window.initFarmView = function() {
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                
+                if (!window.userState) window.userState = {};
+                if (!window.PlayerData) window.PlayerData = {};
+
                 if (resData.last_claim_time) {
-                    if (!window.userState) window.userState = {};
                     window.userState.last_claim_time = resData.last_claim_time;
-                    window.userState.unclaimed = 0.0;
+                    window.PlayerData.last_claim_time = resData.last_claim_time;
                 }
+                window.userState.unclaimed = 0.0;
+                window.PlayerData.unclaimed = 0.0;
+
                 showToast(`💰 تم تجميع ${resData.claimed_amount} عملة بنجاح!`);
                 window.updateFarmUI();
             } else {
