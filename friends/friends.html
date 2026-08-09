@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>الأصدقاء - Zn Goxe</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="../style.css?v=13.4">
+    <link rel="stylesheet" href="../style.css?v=13.5">
     <style>
         :root {
             --bg-color: #0f0f11;
@@ -180,17 +180,19 @@
         .stat-box span { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px; }
         .stat-box strong { font-size: 1.25rem; color: var(--primary); }
 
-        .friends-list { list-style: none; padding: 0; margin: 0; max-height: 280px; overflow-y: auto; }
-        .friend-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 10px 12px;
-            background: #121215;
-            border-radius: 10px;
-            margin-bottom: 8px;
-            border: 1px solid var(--card-border);
+        .ref-tasks-scroll {
+            max-height: 380px;
+            overflow-y: auto;
+            padding-right: 4px;
         }
+        .ref-tasks-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+        .ref-tasks-scroll::-webkit-scrollbar-thumb {
+            background: #2c2c35;
+            border-radius: 4px;
+        }
+
         .empty-state { text-align: center; color: var(--text-muted); padding: 20px 0; font-size: 0.9rem; }
     </style>
 </head>
@@ -236,9 +238,10 @@
         </div>
 
         <div class="card ref-tasks-card">
-            <h3>🎁 مكافآت الإنجازات (المهام)</h3>
-            <ul id="ref-tasks-list" style="list-style: none; padding: 0; margin: 0;">
-                </ul>
+            <h3>🎁 مكافآت الإنجازات (10 مهام)</h3>
+            <div class="ref-tasks-scroll">
+                <ul id="ref-tasks-list" style="list-style: none; padding: 0; margin: 0;"></ul>
+            </div>
         </div>
 
         <div class="card friends-history-card">
@@ -262,7 +265,7 @@
         <a href="friends.html" class="active"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
-    <script src="../game.js?v=13.4"></script>
-    <script src="friends.js?v=13.4"></script>
+    <script src="../game.js?v=13.5"></script>
+    <script src="friends.js?v=13.5"></script>
 </body>
 </html>
