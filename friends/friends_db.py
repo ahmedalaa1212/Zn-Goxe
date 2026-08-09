@@ -1,7 +1,7 @@
 from firebase_admin import firestore
 import database
 
-# الإعدادات الافتراضية لنظام الأصدقاء (يتم حفظها وتعديلها تلقائياً عبر مستند خاص في الفايربيس)
+# الإعدادات الافتراضية لنظام الأصدقاء
 DEFAULT_FRIENDS_CONFIG = {
     "commission_percent": 10.0,       # نسبة أرباح الإحالة من التعدين (10%)
     "claim_fee_percent": 1.5,         # نسبة عمولة السحب (1.5%)
@@ -15,11 +15,15 @@ DEFAULT_FRIENDS_CONFIG = {
     }
 }
 
+# ذاكرة تخزين مؤقت لإعدادات النظام لتوفير استهلاك القراءات في الفايربيس
+_CONFIG_CACHE = None
 
 def get_friends_config():
-    """جلب إعدادات نظام الأصدقاء المخصصة من الفايربيس (في المستند settings/friends_config)
-    وإنشائها تلقائياً بالقيم الافتراضية إذا لم تكن موجودة
-    """
+    """جلب إعدادات نظام الأصدقاء المخصصة من الفايربيس مع استخدام Caching لتوفير الاستهلاك"""
+    global _CONFIG_CACHE
+    if _CONFIG_CACHE is not None:
+        return _CONFIG_CACHE
+
     try:
         db = database.get_db()
         config_ref = db.collection("settings").document("friends_config")
@@ -29,10 +33,11 @@ def get_friends_config():
             data = doc.to_dict() or {}
             config = DEFAULT_FRIENDS_CONFIG.copy()
             config.update(data)
+            _CONFIG_CACHE = config
             return config
         else:
-            # إنشاء مستند الإعدادات في الفايربيس تلقائياً لأول مرة للتحكم الكامل
             config_ref.set(DEFAULT_FRIENDS_CONFIG, merge=True)
+            _CONFIG_CACHE = DEFAULT_FRIENDS_CONFIG
             return DEFAULT_FRIENDS_CONFIG
     except Exception as e:
         print(f"⚠️ Error getting friends config from Firestore: {e}")
@@ -40,7 +45,7 @@ def get_friends_config():
 
 
 def get_user_friends(tg_id, limit=50):
-    """جلب قائمة الأصدقاء والإحالات الخاصة بالمستخدم مع جلب عدد الترقيات الحي والحقيقي من حساباتهم"""
+    """جلب قائمة الأصدقاء والإحالات الخاصة بالمستخدم بطريقة محسّنة وموفرة لقراءات الفايربيس"""
     try:
         db = database.get_db()
         friends_ref = (
@@ -53,13 +58,32 @@ def get_user_friends(tg_id, limit=50):
         if not docs:
             return []
 
-        # جمع معرفات الأصدقاء لجلب مستنداتهم الأصلية دفعة واحدة
-        friend_ids = [str(doc.get("tg_id") or doc.id) for doc in docs]
-        friend_user_docs = {}
+        # محاولة الاعتماد على بيانات الصديق المخزنة داخل الفرع أولاً لتوفير استعلامات db.get_all
+        missing_doc_ids = []
+        friends_map = {}
 
-        if friend_ids:
+        for doc in docs:
+            d = doc.to_dict() or {}
+            friend_id = str(d.get("tg_id", doc.id))
+            
+            # إذا كانت بيانات الاسم والترقيات مسجلة مسبقاً لا داعي لجلب المستند الكامل
+            if "upgrades_count" in d and ("first_name" in d or "name" in d):
+                friends_map[friend_id] = {
+                    "tg_id": friend_id,
+                    "name": d.get("first_name") or d.get("name") or "صديق",
+                    "first_name": d.get("first_name") or d.get("name") or "صديق",
+                    "generated": float(d.get("earned_from_him", 0.0) or 0.0),
+                    "earned_from_him": float(d.get("earned_from_him", 0.0) or 0.0),
+                    "upgrades_count": int(d.get("upgrades_count", 0))
+                }
+            else:
+                missing_doc_ids.append(friend_id)
+
+        # جلب الحسابات الأصلية فقط للأصدقاء الذين تنقصهم البيانات التراكمية
+        friend_user_docs = {}
+        if missing_doc_ids:
             try:
-                friend_refs = [db.collection("users").document(fid) for fid in friend_ids]
+                friend_refs = [db.collection("users").document(fid) for fid in missing_doc_ids]
                 fetched_docs = db.get_all(friend_refs)
                 for u_doc in fetched_docs:
                     if u_doc.exists:
@@ -71,41 +95,42 @@ def get_user_friends(tg_id, limit=50):
         for doc in docs:
             d = doc.to_dict() or {}
             friend_id = str(d.get("tg_id", doc.id))
-            real_user = friend_user_docs.get(friend_id, {})
 
-            # حساب إجمالي الترقيات من مستند الصديق الرئيسي تلقائياً
-            upgrades_dict = real_user.get("upgrades", {})
-            calc_upgrades = 0
-            if isinstance(upgrades_dict, dict):
-                calc_upgrades = sum(int(v) for v in upgrades_dict.values() if isinstance(v, (int, float)))
+            if friend_id in friends_map:
+                friends.append(friends_map[friend_id])
+            else:
+                real_user = friend_user_docs.get(friend_id, {})
+                upgrades_dict = real_user.get("upgrades", {})
+                calc_upgrades = 0
+                if isinstance(upgrades_dict, dict):
+                    calc_upgrades = sum(int(v) for v in upgrades_dict.values() if isinstance(v, (int, float)))
 
-            real_upgrades_count = int(
-                real_user.get("upgrades_count")
-                if real_user.get("upgrades_count") is not None
-                else (calc_upgrades or d.get("upgrades_count", 0) or 0)
-            )
+                real_upgrades_count = int(
+                    real_user.get("upgrades_count")
+                    if real_user.get("upgrades_count") is not None
+                    else (calc_upgrades or d.get("upgrades_count", 0) or 0)
+                )
 
-            friends.append({
-                "tg_id": friend_id,
-                "name": real_user.get("first_name") or real_user.get("name") or d.get("first_name") or d.get("name") or "صديق",
-                "first_name": real_user.get("first_name") or d.get("first_name", "صديق"),
-                "generated": float(d.get("earned_from_him", 0.0) or 0.0),
-                "earned_from_him": float(d.get("earned_from_him", 0.0) or 0.0),
-                "upgrades_count": real_upgrades_count
-            })
+                friends.append({
+                    "tg_id": friend_id,
+                    "name": real_user.get("first_name") or real_user.get("name") or d.get("first_name") or d.get("name") or "صديق",
+                    "first_name": real_user.get("first_name") or d.get("first_name", "صديق"),
+                    "generated": float(d.get("earned_from_him", 0.0) or 0.0),
+                    "earned_from_him": float(d.get("earned_from_him", 0.0) or 0.0),
+                    "upgrades_count": real_upgrades_count
+                })
         return friends
     except Exception as e:
         print(f"❌ Error getting user friends for {tg_id}: {e}")
         return []
 
 
-def add_referral_reward(referrer_id, user_id, mined_amount):
-    """إضافة نسبة أرباح تعدين الصديق إلى حساب المُحيل بناءً على إعدادات الفايربيس"""
+def add_referral_reward(referrer_id, user_id, mined_amount, user_upgrades_count=None, user_name=None):
+    """إضافة أرباح التعدين وتحديث بيانات مستند الصديق تلقائياً لمنع القراءات المفرطة مستقبلية"""
     try:
         if not referrer_id or mined_amount <= 0:
             return False
         
-        # جلب نسبة أرباح الإحالة من فايربيس
         config = get_friends_config()
         comm_percent = float(config.get("commission_percent", 10.0)) / 100.0
 
@@ -124,11 +149,19 @@ def add_referral_reward(referrer_id, user_id, mined_amount):
             "total_ref_earnings": firestore.Increment(reward),
         })
 
-        # 2. تحديث الرصيد المجمّع من هذا الصديق بالتحديد
+        # 2. تحديث الرصيد المجمّع وتفاصيل الصديق داخل المجموعة الفرعية
+        friend_data = {
+            "earned_from_him": firestore.Increment(reward),
+            "tg_id": user_str
+        }
+        if user_name:
+            friend_data["first_name"] = user_name
+            friend_data["name"] = user_name
+        if user_upgrades_count is not None:
+            friend_data["upgrades_count"] = int(user_upgrades_count)
+
         friend_ref = user_ref.collection("friends").document(user_str)
-        friend_ref.set({
-            "earned_from_him": firestore.Increment(reward)
-        }, merge=True)
+        friend_ref.set(friend_data, merge=True)
 
         return True
     except Exception as e:
@@ -154,7 +187,7 @@ def get_friends_data_db(tg_id):
         
         min_upgrades = int(config.get("min_upgrades_for_task", 3))
         
-        # حساب الأصدقاء المؤهلين للمهام بناءً على عدد الترقيات المحدد في الفايربيس
+        # حساب الأصدقاء المؤهلين للمهام بناءً على شرط الفايربيس
         eligible_count = sum(1 for f in friends if f.get("upgrades_count", 0) >= min_upgrades)
         
         return {
@@ -188,7 +221,6 @@ def claim_ref_earnings_db(tg_id):
         db = database.get_db()
         user_ref = db.collection("users").document(str(tg_id))
         
-        # جلب نسبة رسوم السحب من الفايربيس
         config = get_friends_config()
         claim_fee_percent = float(config.get("claim_fee_percent", 1.5))
         fee_rate = claim_fee_percent / 100.0
@@ -205,7 +237,6 @@ def claim_ref_earnings_db(tg_id):
             if pending <= 0:
                 return {"success": False, "error": "لا توجد أرباح معلقة للسحب"}
             
-            # خصم رسوم التحويل الديناميكية
             fee_amount = round(pending * fee_rate, 4)
             net_amount = round(pending - fee_amount, 4)
             
@@ -239,7 +270,6 @@ def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
         db = database.get_db()
         user_ref = db.collection("users").document(str(tg_id))
         
-        # جلب الإعدادات من الفايربيس لمعرفة شرط الترقيات ومكافأة المهمة المحددة
         config = get_friends_config()
         min_upgrades = int(config.get("min_upgrades_for_task", 3))
         ref_tasks = config.get("ref_tasks", {})
@@ -264,7 +294,6 @@ def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
             if str(task_id) in [str(t) for t in claimed_tasks]:
                 return {"success": False, "error": "تم استلام مكافأة هذه المهمة من قبل"}
             
-            # التحقق من الأصدقاء المؤهلين بناءً على شرط الفايربيس
             friends = get_user_friends(tg_id)
             eligible_count = sum(1 for f in friends if f.get("upgrades_count", 0) >= min_upgrades)
             
