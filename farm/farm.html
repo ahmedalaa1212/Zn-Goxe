@@ -21,7 +21,7 @@
 
     <!-- القسم الأوسط: العملة وزر التعزيز -->
     <div class="hero-section">
-        <button id="boost-btn" disabled class="boost-btn btn-disabled" onclick="handleDailyBoost()">
+        <button id="boost-btn" disabled class="boost-btn btn-disabled" onclick="window.handleDailyBoost()">
             <span id="boost-icon">🚀</span>
             <span id="boost-text">+0.5/h</span>
         </button>
@@ -49,7 +49,7 @@
             <div id="storage-progress" class="progress-inner"></div>
         </div>
 
-        <button id="claim-btn" disabled class="claim-action-btn btn-disabled" onclick="handleClaim()">
+        <button id="claim-btn" disabled class="claim-action-btn btn-disabled" onclick="window.handleMainClaim()">
             جاري التحميل... ⏳
         </button>
     </div>
