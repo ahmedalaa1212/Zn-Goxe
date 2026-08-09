@@ -416,7 +416,6 @@
         if (inputSection) inputSection.style.opacity = '1';
     }
 
-    // تحديث المحادثة كل 3 ثوانٍ أثناء فتح نافذة الدعم للحصول على رد فوري باستهلاك متدني للبيانات
     function startSupportPolling() {
         if (supportPollInterval) clearInterval(supportPollInterval);
         supportPollInterval = setInterval(() => {
