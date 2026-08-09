@@ -48,7 +48,6 @@ def get_game_settings(force_refresh=False):
 
     db = get_db()
     try:
-        # تم التعديل إلى farm_settings بدلاً من game_settings
         doc_ref = db.collection('settings').document('farm_settings')
         doc = doc_ref.get()
         if doc.exists:
@@ -56,7 +55,6 @@ def get_game_settings(force_refresh=False):
             _SETTINGS_CACHE = {"data": data, "timestamp": now_ts}
             return data
         else:
-            # إنشائها تلقائياً داخل Firestore لظهورها بوضوح داخل مجموعة settings
             doc_ref.set(DEFAULT_GAME_SETTINGS)
             _SETTINGS_CACHE = {"data": DEFAULT_GAME_SETTINGS, "timestamp": now_ts}
             return DEFAULT_GAME_SETTINGS
@@ -197,7 +195,7 @@ def get_or_create_user_farm_data(user_id_str):
 
 
 def claim_mined_tokens_db(user_id_str):
-    """تجميع الرصيد المعدن بأمان"""
+    """تجميع الرصيد المعدن بأمان مع توزيع أرباح الإحالة للمُحيل إن وجد"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -240,20 +238,43 @@ def claim_mined_tokens_db(user_id_str):
             "last_claim_time": now_iso
         })
 
+        referrer_id = user_data.get("referrer_id") or user_data.get("referred_by") or user_data.get("invited_by")
+        upgrades_cnt = user_data.get("upgrades_count", 0)
+        user_name = user_data.get("first_name") or user_data.get("name") or user_data.get("username")
+
         return {
             "success": True,
             "new_balance": new_balance,
             "last_claim_time": now_iso,
             "server_time": now_iso,
-            "claimed_amount": mined_amount
+            "claimed_amount": mined_amount,
+            "referrer_id": referrer_id,
+            "upgrades_count": upgrades_cnt,
+            "user_name": user_name
         }
 
     transaction = db.transaction()
-    return run_claim_transaction(transaction, user_ref)
+    result = run_claim_transaction(transaction, user_ref)
+
+    # إضافة مكافأة الإحالة تلقائياً للمُحيل
+    if result.get("success") and result.get("referrer_id") and result.get("claimed_amount", 0) > 0:
+        try:
+            from friends.friends_db import add_referral_reward
+            add_referral_reward(
+                referrer_id=result["referrer_id"],
+                user_id=user_id_str,
+                mined_amount=result["claimed_amount"],
+                user_upgrades_count=result.get("upgrades_count"),
+                user_name=result.get("user_name")
+            )
+        except Exception as e:
+            print(f"⚠️ Error adding referral reward on claim: {e}")
+
+    return result
 
 
 def buy_upgrade_db(user_id_str, level):
-    """شراء ترقية سرعة التعدين للمزرعة"""
+    """شراء ترقية سرعة التعدين للمزرعة بدون قفزات مفاجئة في الرصيد وحفظ التعدين المتراكم"""
     level_str = str(level)
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
@@ -302,9 +323,17 @@ def buy_upgrade_db(user_id_str, level):
         max_cap = calculate_user_max_cap(user_data, game_settings)
         mined_amount = calculate_accrued_mined(user_data, now, max_cap)
 
-        new_balance = round((current_balance + mined_amount) - cost, 2)
+        # خصم تكلفة الترقية فقط من الرصيد بدون إضافة المحصول المتراكم مجدداً لتجنب القفزة
+        new_balance = round(current_balance - cost, 2)
         current_hourly_rate = float(user_data.get("hourly_rate", 0.0))
         new_hourly_rate = round(current_hourly_rate + rate_bonus, 2)
+
+        # ضبط وقت التعدين ليبقى نفس المحصول المعدن مستمراً بالسرعة الجديدة
+        if new_hourly_rate > 0 and mined_amount > 0:
+            equiv_seconds = (mined_amount / (new_hourly_rate / 3600.0))
+            new_last_claim_iso = (now - timedelta(seconds=equiv_seconds)).isoformat()
+        else:
+            new_last_claim_iso = now_iso
 
         upgrades[lvl_key] = current_count + 1
         total_upgrades_count = sum(int(v) for v in upgrades.values() if isinstance(v, (int, float)))
@@ -314,8 +343,10 @@ def buy_upgrade_db(user_id_str, level):
             "hourly_rate": new_hourly_rate,
             "upgrades": upgrades,
             "upgrades_count": total_upgrades_count,
-            "last_claim_time": now_iso
+            "last_claim_time": new_last_claim_iso
         })
+
+        referrer_id = user_data.get("referrer_id") or user_data.get("referred_by") or user_data.get("invited_by")
 
         return {
             "success": True,
@@ -323,11 +354,26 @@ def buy_upgrade_db(user_id_str, level):
             "new_hourly_rate": new_hourly_rate,
             "upgrades": upgrades,
             "upgrades_count": total_upgrades_count,
-            "server_time": now_iso
+            "server_time": now_iso,
+            "referrer_id": referrer_id
         }
 
     transaction = db.transaction()
-    return run_upgrade_transaction(transaction, user_ref)
+    res = run_upgrade_transaction(transaction, user_ref)
+
+    # مزامنة عدد الترقيات لدى المُحيل لتحديث حالة التأهيل للمهام فوراً
+    if res.get("success") and res.get("referrer_id"):
+        try:
+            ref_id = str(res["referrer_id"])
+            upg_cnt = res["upgrades_count"]
+            db.collection("users").document(ref_id).collection("friends").document(user_id_str).set({
+                "upgrades_count": upg_cnt,
+                "tg_id": user_id_str
+            }, merge=True)
+        except Exception as e:
+            print(f"⚠️ Warning updating friend upgrades_count for referrer: {e}")
+
+    return res
 
 
 def claim_daily_reward_db(user_id_str):
@@ -389,7 +435,7 @@ def claim_daily_reward_db(user_id_str):
 
 
 def claim_daily_boost_db(user_id_str):
-    """تفعيل التعزيز اليومي وتصفية المحصول المعدن بالسرعة القديمة للرصيد تلقائياً"""
+    """تفعيل التعزيز اليومي وتعديل سرعة التعدين بسلاسة دون قفزات مفاجئة للرصيد"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -420,45 +466,48 @@ def claim_daily_boost_db(user_id_str):
         current_ads = int(user_data.get("ads_watched", 0) or 0)
         new_ads = current_ads + 1
 
-        # حفظ التعدين المتراكم بالسعر القديم أولاً للرصيد لمنع القفزات
         max_cap = calculate_user_max_cap(user_data, game_settings)
         mined_amount = calculate_accrued_mined(user_data, now, max_cap)
-        balance_with_mined = round(current_balance + mined_amount, 2)
 
         if daily_boost_rate < max_daily_boost_rate:
-            # إضافة سرعة جديدة ورست الوقت لتبدأ السلسلة من 0 بالسرعة الجديدة
+            # إضافة سرعة جديدة وإعادة ضبط وقت التعدين للحفاظ على المحصول المتراكم
             new_daily_boost_rate = round(daily_boost_rate + daily_boost_reward, 2)
             new_hourly_rate = round(current_hourly_rate + daily_boost_reward, 2)
 
+            if new_hourly_rate > 0 and mined_amount > 0:
+                equiv_seconds = (mined_amount / (new_hourly_rate / 3600.0))
+                new_last_claim_iso = (now - timedelta(seconds=equiv_seconds)).isoformat()
+            else:
+                new_last_claim_iso = now_iso
+
             transaction.update(ref, {
-                "balance": balance_with_mined,
+                "balance": current_balance,
                 "hourly_rate": new_hourly_rate,
                 "daily_boost_rate": new_daily_boost_rate,
                 "last_boost_date": today_str,
-                "last_claim_time": now_iso,
+                "last_claim_time": new_last_claim_iso,
                 "ads_watched": firestore.Increment(1)
             })
 
             return {
                 "success": True,
                 "type": "speed",
-                "new_balance": balance_with_mined,
+                "new_balance": current_balance,
                 "new_rate": new_hourly_rate,
                 "daily_boost_rate": new_daily_boost_rate,
                 "ads_watched": new_ads,
                 "last_boost_date": today_str,
-                "last_claim_time": now_iso,
+                "last_claim_time": new_last_claim_iso,
                 "server_time": now_iso,
                 "boost_amount": daily_boost_reward
             }
         else:
-            # عند وصول حد السرعة 15/h تضاف عملات التعزيز مباشرة للرصيد
-            final_balance = round(balance_with_mined + boost_max_reward_coins, 2)
+            # عند وصول حد السرعة الأقصى يضاف مبلغ المكافأة مباشرة للرصيد
+            final_balance = round(current_balance + boost_max_reward_coins, 2)
 
             transaction.update(ref, {
                 "balance": final_balance,
                 "last_boost_date": today_str,
-                "last_claim_time": now_iso,
                 "ads_watched": firestore.Increment(1)
             })
 
@@ -471,7 +520,6 @@ def claim_daily_boost_db(user_id_str):
                 "daily_boost_rate": daily_boost_rate,
                 "ads_watched": new_ads,
                 "last_boost_date": today_str,
-                "last_claim_time": now_iso,
                 "server_time": now_iso
             }
 
