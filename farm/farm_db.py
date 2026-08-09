@@ -138,7 +138,7 @@ def calculate_accrued_mined(user_data, now_dt, max_cap):
 
 
 def get_or_create_user_farm_data(user_id_str):
-    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة"""
+    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة بأقل استهلاك للقراءة والكتابة"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     user_doc = user_ref.get()
@@ -146,6 +146,7 @@ def get_or_create_user_farm_data(user_id_str):
     game_settings = get_game_settings()
 
     if not user_doc.exists:
+        base_cap = get_base_storage_capacity(0, game_settings)
         user_data = {
             "tg_id": user_id_str,
             "telegram_id": user_id_str,
@@ -155,7 +156,7 @@ def get_or_create_user_farm_data(user_id_str):
             "unclaimed": 0.00,
             "storage_level": 0,
             "extra_storage": 0.00,
-            "max_cap": get_base_storage_capacity(0, game_settings),
+            "max_cap": base_cap,
             "daily_day": 1,
             "daily_streak": 1,
             "last_claim_time": now.isoformat(),
@@ -172,20 +173,22 @@ def get_or_create_user_farm_data(user_id_str):
         
         if "daily_boost_rate" not in user_data: auto_fix["daily_boost_rate"] = 0.00
         if "ads_watched" not in user_data: auto_fix["ads_watched"] = 0
+        if "storage_level" not in user_data: auto_fix["storage_level"] = 0
         if "upgrades" not in user_data: auto_fix["upgrades"] = {}
         if "upgrades_count" not in user_data:
             upgrades_dict = user_data.get("upgrades", {})
             auto_fix["upgrades_count"] = sum(int(v) for v in upgrades_dict.values() if isinstance(v, (int, float))) if isinstance(upgrades_dict, dict) else 0
         
+        expected_max_cap = calculate_user_max_cap(user_data, game_settings)
+        if user_data.get("max_cap") != expected_max_cap:
+            auto_fix["max_cap"] = expected_max_cap
+
         if auto_fix:
             user_ref.update(auto_fix)
             user_data.update(auto_fix)
 
     expected_max_cap = calculate_user_max_cap(user_data, game_settings)
-    if user_data.get("max_cap") != expected_max_cap:
-        user_data["max_cap"] = expected_max_cap
-        user_ref.update({"max_cap": expected_max_cap})
-
+    user_data["max_cap"] = expected_max_cap
     user_data["balance"] = round(float(user_data.get("balance", 0.0)), 2)
     user_data["unclaimed"] = calculate_accrued_mined(user_data, now, expected_max_cap)
 
@@ -198,10 +201,8 @@ def get_or_create_user_farm_data(user_id_str):
     if last_daily_claim == today_str:
         effective_daily_day = raw_daily_day
     elif last_daily_claim == yesterday_str:
-        # يتقدم يومياً ويستقر في اليوم الـ 30 طالما لم ينقطع
         effective_daily_day = min(raw_daily_day + 1, 30) if raw_daily_day < 30 else 30
     else:
-        # عقوبة إعادة العداد لليوم الأول عند الانقطاع
         effective_daily_day = 1
 
     user_data["daily_day"] = effective_daily_day
@@ -322,7 +323,6 @@ def buy_upgrade_db(user_id_str, level):
         lvl_key = f"lvl{level_str}"
         current_count = int(upgrades.get(lvl_key, 0))
 
-        # تطبيق الحد الأقصى للشراء 10 مرات
         if current_count >= 10:
             return {"success": False, "error": "لقد وصلت للحد الأقصى للشراء لهذا المستوى (10/10)"}
 
@@ -389,6 +389,62 @@ def buy_upgrade_db(user_id_str, level):
     return res
 
 
+def buy_storage_db(user_id_str):
+    """شراء ترقية سعة التخزين للمستوى التالي"""
+    db = get_db()
+    user_ref = db.collection('users').document(user_id_str)
+    game_settings = get_game_settings()
+
+    storage_cfgs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
+
+    @firestore.transactional
+    def run_storage_transaction(transaction, ref):
+        snapshot = ref.get(transaction=transaction)
+        if not snapshot.exists:
+            return {"success": False, "error": "المستخدم غير موجود"}
+
+        user_data = snapshot.to_dict() or {}
+        current_level = int(user_data.get("storage_level", 0))
+        next_level = current_level + 1
+
+        if next_level > 10 or str(next_level) not in storage_cfgs:
+            return {"success": False, "error": "المخزن في أقصى مستوى بالفعل (MAX)"}
+
+        next_cfg = storage_cfgs[str(next_level)]
+        if isinstance(next_cfg, dict):
+            cost = float(next_cfg.get("cost", 0.0))
+            new_capacity = float(next_cfg.get("capacity", 100.0))
+        else:
+            cost = 0.0
+            new_capacity = float(next_cfg)
+
+        current_balance = float(user_data.get("balance", 0.0))
+        if current_balance < cost:
+            return {"success": False, "error": f"رصيدك غير كافٍ! سعر ترقية المخزن {cost:,.0f} ZN"}
+
+        extra_cap = float(user_data.get("extra_storage", 0.0))
+        new_max_cap = round(new_capacity + extra_cap, 2)
+        new_balance = round(current_balance - cost, 2)
+        now = datetime.now(timezone.utc)
+
+        transaction.update(ref, {
+            "balance": new_balance,
+            "storage_level": next_level,
+            "max_cap": new_max_cap
+        })
+
+        return {
+            "success": True,
+            "new_balance": new_balance,
+            "storage_level": next_level,
+            "max_cap": new_max_cap,
+            "server_time": now.isoformat()
+        }
+
+    transaction = db.transaction()
+    return run_storage_transaction(transaction, user_ref)
+
+
 def claim_daily_reward_db(user_id_str):
     """استلام المكافأة اليومية (مدرجة حتى 30 يوم)"""
     db = get_db()
@@ -431,7 +487,7 @@ def claim_daily_reward_db(user_id_str):
             "daily_day": effective_daily_day,
             "daily_streak": effective_daily_day,
             "last_daily_claim_date": today_str,
-            "ads_watched": firestore.Increment(1)
+            "ads_watched": new_ads_watched
         })
 
         return {
@@ -483,7 +539,6 @@ def claim_daily_boost_db(user_id_str):
         mined_amount = calculate_accrued_mined(user_data, now, max_cap)
 
         if daily_boost_rate < max_daily_boost_rate:
-            # إضافة سرعة دائمية جديدة وحفظ المحصول الحالي
             new_daily_boost_rate = round(daily_boost_rate + daily_boost_reward, 2)
             new_hourly_rate = round(current_hourly_rate + daily_boost_reward, 2)
 
@@ -494,12 +549,11 @@ def claim_daily_boost_db(user_id_str):
                 new_last_claim_iso = now_iso
 
             transaction.update(ref, {
-                "balance": current_balance,
                 "hourly_rate": new_hourly_rate,
                 "daily_boost_rate": new_daily_boost_rate,
                 "last_boost_date": today_str,
                 "last_claim_time": new_last_claim_iso,
-                "ads_watched": firestore.Increment(1)
+                "ads_watched": new_ads
             })
 
             return {
@@ -515,13 +569,12 @@ def claim_daily_boost_db(user_id_str):
                 "boost_amount": daily_boost_reward
             }
         else:
-            # عند إدراك حد السرعة الأقصى (15 ZN/h) تحول الإعلانات لإعطاء 50 عملة مباشراً
             final_balance = round(current_balance + boost_max_reward_coins, 2)
 
             transaction.update(ref, {
                 "balance": final_balance,
                 "last_boost_date": today_str,
-                "ads_watched": firestore.Increment(1)
+                "ads_watched": new_ads
             })
 
             return {
