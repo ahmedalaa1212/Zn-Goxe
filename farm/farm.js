@@ -469,6 +469,10 @@ window.initFarmView = function() {
                     window.userState.last_claim_time = resData.last_claim_time;
                     window.PlayerData.last_claim_time = resData.last_claim_time;
                 }
+                if (resData.unclaimed !== undefined) {
+                    window.userState.unclaimed = resData.unclaimed;
+                    window.PlayerData.unclaimed = resData.unclaimed;
+                }
                 showToast(`📦 تم ترقية سعة المخزن بنجاح إلى Level ${resData.storage_level}!`);
                 window.updateFarmUI();
             } else {
@@ -503,7 +507,6 @@ window.initFarmView = function() {
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
 
-                // إصلاح المزامنة: تحديث السرعة والوقت المحسوب والرصيد المعدن فوراً وبشكل متطابق
                 if (resData.new_hourly_rate !== undefined) {
                     window.userState.hourly_rate = resData.new_hourly_rate;
                     window.PlayerData.hourly_rate = resData.new_hourly_rate;
