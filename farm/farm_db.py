@@ -263,6 +263,7 @@ def claim_mined_tokens_db(user_id_str):
             "success": True,
             "new_balance": new_balance,
             "last_claim_time": now_iso,
+            "unclaimed": 0.0,
             "server_time": now_iso,
             "claimed_amount": mined_amount,
             "referrer_id": referrer_id,
@@ -343,6 +344,7 @@ def buy_upgrade_db(user_id_str, level):
         current_hourly_rate = float(user_data.get("hourly_rate", 0.0))
         new_hourly_rate = round(current_hourly_rate + rate_bonus, 2)
 
+        # ضبط last_claim_time بدقة لكي يمنع حدوث أي قفزة في الرصيد المعدن عند الشراء
         if new_hourly_rate > 0 and mined_amount > 0:
             equiv_seconds = (mined_amount / (new_hourly_rate / 3600.0))
             new_last_claim_iso = (now - timedelta(seconds=equiv_seconds)).isoformat()
@@ -366,6 +368,8 @@ def buy_upgrade_db(user_id_str, level):
             "success": True,
             "new_balance": new_balance,
             "new_hourly_rate": new_hourly_rate,
+            "last_claim_time": new_last_claim_iso,
+            "unclaimed": mined_amount,
             "upgrades": upgrades,
             "upgrades_count": total_upgrades_count,
             "server_time": now_iso,
@@ -438,6 +442,7 @@ def buy_storage_db(user_id_str):
             "new_balance": new_balance,
             "storage_level": next_level,
             "max_cap": new_max_cap,
+            "last_claim_time": user_data.get("last_claim_time"),
             "server_time": now.isoformat()
         }
 
@@ -565,6 +570,7 @@ def claim_daily_boost_db(user_id_str):
                 "ads_watched": new_ads,
                 "last_boost_date": today_str,
                 "last_claim_time": new_last_claim_iso,
+                "unclaimed": mined_amount,
                 "server_time": now_iso,
                 "boost_amount": daily_boost_reward
             }
