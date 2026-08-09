@@ -1,19 +1,20 @@
+# admin_chat/admin_chat_api.py
 from flask import Blueprint, jsonify, request
 from datetime import datetime, timezone
 import json, hmac, hashlib, urllib.parse, os, requests
-from google.cloud import firestore
 
-import database
+from admin_chat.admin_chat_db import (
+    get_db,
+    get_all_tickets_from_db,
+    get_ticket_by_id_from_db,
+    mark_ticket_read_in_db,
+    add_admin_reply_to_db,
+    close_ticket_in_db
+)
 
 admin_chat_bp = Blueprint('admin_chat', __name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551")
-
-def get_db():
-    """ضمان الحصول على كائن قاعدة البيانات Firestore"""
-    if database.db is None:
-        return database.initialize_firebase()
-    return database.db
 
 def check_admin_auth():
     init_data = request.headers.get('X-Telegram-Init-Data')
@@ -62,16 +63,7 @@ def get_tickets():
         return jsonify({"success": False, "message": "غير مصرح"}), 403
 
     try:
-        db_conn = get_db()
-        tickets_ref = db_conn.collection('support_tickets').stream()
-        tickets = []
-        for doc in tickets_ref:
-            t = doc.to_dict() or {}
-            if 'ticket_id' not in t:
-                t['ticket_id'] = doc.id
-            tickets.append(t)
-            
-        tickets.sort(key=lambda x: str(x.get('updated_at', '')), reverse=True)
+        tickets = get_all_tickets_from_db()
         return jsonify({"success": True, "tickets": tickets}), 200
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
@@ -83,14 +75,9 @@ def get_single_ticket(ticket_id):
         return jsonify({"success": False, "message": "غير مصرح"}), 403
 
     try:
-        db_conn = get_db()
-        t_doc = db_conn.collection('support_tickets').document(str(ticket_id)).get()
-        if not t_doc.exists:
+        ticket_data = get_ticket_by_id_from_db(ticket_id)
+        if not ticket_data:
             return jsonify({"success": False, "message": "التذكرة غير موجودة"}), 404
-
-        ticket_data = t_doc.to_dict() or {}
-        if 'ticket_id' not in ticket_data:
-            ticket_data['ticket_id'] = t_doc.id
 
         return jsonify({"success": True, "ticket": ticket_data}), 200
     except Exception as e:
@@ -108,10 +95,7 @@ def mark_read():
         return jsonify({"success": False, "message": "رقم التذكرة مفقود"}), 400
 
     try:
-        db_conn = get_db()
-        t_ref = db_conn.collection('support_tickets').document(str(ticket_id))
-        if t_ref.get().exists:
-            t_ref.update({'has_unread_admin': False})
+        mark_ticket_read_in_db(ticket_id)
         return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
@@ -130,28 +114,11 @@ def send_reply():
         return jsonify({"success": False, "message": "بيانات ناقصة"}), 400
 
     try:
-        db_conn = get_db()
-        t_ref = db_conn.collection('support_tickets').document(str(ticket_id))
-        t_doc = t_ref.get()
-        if not t_doc.exists:
-            return jsonify({"success": False, "message": "التذكرة غير موجودة"}), 404
-
-        ticket_data = t_doc.to_dict() or {}
-        user_id = ticket_data.get('user_id') or ticket_data.get('user_info', {}).get('id')
-
         now_str = datetime.now(timezone.utc).isoformat()
-        new_msg = {
-            'sender': 'admin',
-            'text': str(text).strip(),
-            'timestamp': now_str
-        }
+        success, user_id, err_msg = add_admin_reply_to_db(ticket_id, text, now_str)
 
-        t_ref.update({
-            'messages': firestore.ArrayUnion([new_msg]),
-            'updated_at': now_str,
-            'has_unread_admin': False,
-            'last_sender': 'admin'
-        })
+        if not success:
+            return jsonify({"success": False, "message": err_msg or "خطأ في الإرسال"}), 404
 
         if user_id:
             send_telegram_notification(user_id, text)
@@ -173,13 +140,8 @@ def close_ticket():
         return jsonify({"success": False, "message": "رقم التذكرة مفقود"}), 400
 
     try:
-        db_conn = get_db()
-        t_ref = db_conn.collection('support_tickets').document(str(ticket_id))
-        t_ref.update({
-            'status': 'closed',
-            'has_unread_admin': False,
-            'updated_at': datetime.now(timezone.utc).isoformat()
-        })
+        now_str = datetime.now(timezone.utc).isoformat()
+        close_ticket_in_db(ticket_id, now_str)
         return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
