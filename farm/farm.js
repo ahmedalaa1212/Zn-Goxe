@@ -70,6 +70,8 @@ window.initFarmView = function() {
             if (!window.userState) window.userState = {};
             window.userState.balance = val; 
             if (window.PlayerData) window.PlayerData.balance = val;
+            const balEl = document.getElementById('farm-balance');
+            if (balEl) balEl.innerText = `${val.toFixed(2)} ZN`;
         }
     }
 
@@ -169,6 +171,9 @@ window.initFarmView = function() {
         const pData = window.PlayerData || window.userState || {};
         let bal = getStoredBalance();
         let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
+
+        const balEl = document.getElementById('farm-balance');
+        if (balEl) balEl.innerText = `${bal.toFixed(2)} ZN`;
 
         const rateEl = document.getElementById('farm-rate');
         if (rateEl) {
@@ -323,7 +328,7 @@ window.initFarmView = function() {
                 claimBtn.innerText = "جاري الحفظ... 💾";
                 claimBtn.className = "claim-action-btn btn-disabled";
                 claimBtn.disabled = true;
-            } else if (remainingCooldown > 0) {
+            } else if (remainingCooldown > 0 && unclaim > 0) {
                 claimBtn.innerText = `انتظر ${remainingCooldown} ثانية ⏳`;
                 claimBtn.className = "claim-action-btn btn-disabled";
                 claimBtn.disabled = true;
@@ -377,15 +382,12 @@ window.initFarmView = function() {
     window.addEventListener('pageshow', syncOnVisibility);
     document.addEventListener("visibilitychange", syncOnVisibility);
 
-    function showTelegramAd(statusCallback) {
+    function showTelegramAd() {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
-                if (statusCallback) statusCallback();
                 try {
                     window.show_11322720()
-                        .then(() => {
-                            resolve(true); 
-                        })
+                        .then(() => resolve(true))
                         .catch((err) => {
                             console.warn("فشل أو تم إغلاق الإعلان:", err);
                             showToast("⚠️ يجب مشاهدة الإعلان حتى النهاية للحصول على المكافأة!");
@@ -492,6 +494,8 @@ window.initFarmView = function() {
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 
+                if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+
                 if (resData.type === 'speed') {
                     if (resData.new_rate !== undefined) {
                         if (!window.userState) window.userState = {};
@@ -501,9 +505,13 @@ window.initFarmView = function() {
                         if (!window.userState) window.userState = {};
                         window.userState.daily_boost_rate = resData.daily_boost_rate;
                     }
-                    showToast(`⚡ تم زيادة سرعة التعدين بمقدار +${resData.boost_amount || GAME_CONFIG.dailyBoostReward}/h!`);
+                    if (resData.last_claim_time) {
+                        if (!window.userState) window.userState = {};
+                        window.userState.last_claim_time = resData.last_claim_time;
+                        window.userState.unclaimed = 0.0;
+                    }
+                    showToast(`⚡ تم زيادة سرعة التعدين بمقدار +${resData.boost_amount || GAME_CONFIG.dailyBoostReward}/h وحفظ المحصول المعدن!`);
                 } else if (resData.type === 'balance') {
-                    if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
                     showToast(`💰 تهانينا! تمت إضافة ${resData.reward_coins || GAME_CONFIG.boostMaxRewardCoins} عملة ZN إلى رصيدك مباشرة!`);
                 }
 
@@ -550,16 +558,6 @@ window.initFarmView = function() {
         }
     };
 
-    document.addEventListener("DOMContentLoaded", function() {
-        const claimBtn = document.getElementById('claim-btn');
-        if (claimBtn) {
-            claimBtn.addEventListener('click', window.handleMainClaim);
-        }
-        
-        const boostBtn = document.getElementById('boost-btn');
-        if (boostBtn) {
-            boostBtn.addEventListener('click', window.handleDailyBoost);
-        }
-    });
+    window.handleClaim = window.handleMainClaim;
 
 })();
