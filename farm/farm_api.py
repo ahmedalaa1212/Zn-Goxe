@@ -12,6 +12,8 @@ from farm.farm_db import (
 farm_bp = Blueprint('farm', __name__)
 
 @farm_bp.route('/player_data', methods=['GET', 'POST'])
+@farm_bp.route('/farm/player_data', methods=['GET', 'POST'])
+@farm_bp.route('/api/farm/player_data', methods=['GET', 'POST'])
 def get_player_data():
     """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية"""
     is_post = (request.method == 'POST')
@@ -52,6 +54,8 @@ def get_player_data():
 
 
 @farm_bp.route('/claim', methods=['POST'])
+@farm_bp.route('/farm/claim', methods=['POST'])
+@farm_bp.route('/api/farm/claim', methods=['POST'])
 def claim_mined_tokens():
     """تجميع المحصول المعدن"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
@@ -69,6 +73,8 @@ def claim_mined_tokens():
 
 
 @farm_bp.route('/upgrade', methods=['POST'])
+@farm_bp.route('/farm/upgrade', methods=['POST'])
+@farm_bp.route('/api/farm/upgrade', methods=['POST'])
 def buy_upgrade():
     """شراء ترقية سرعة التعدين"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
@@ -92,6 +98,8 @@ def buy_upgrade():
 
 
 @farm_bp.route('/daily_claim', methods=['POST'])
+@farm_bp.route('/farm/daily_claim', methods=['POST'])
+@farm_bp.route('/api/farm/daily_claim', methods=['POST'])
 def claim_daily():
     """استلام المكافأة اليومية"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
@@ -109,6 +117,8 @@ def claim_daily():
 
 
 @farm_bp.route('/daily_boost', methods=['POST'])
+@farm_bp.route('/farm/daily_boost', methods=['POST'])
+@farm_bp.route('/api/farm/daily_boost', methods=['POST'])
 def claim_daily_boost():
     """تفعيل التعزيز اليومي للسرعة أو استلام مكافأة العملات"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
