@@ -2,7 +2,8 @@
 import traceback
 from flask import Blueprint, jsonify, request
 from core.security import get_authenticated_user
-from support.db import (
+# تعديل مسار الاستدعاء المباشر للملف support_db
+from support.support_db import (
     get_or_create_active_ticket,
     add_support_message,
     create_new_user_ticket
