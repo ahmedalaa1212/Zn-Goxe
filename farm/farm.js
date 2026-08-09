@@ -11,8 +11,8 @@ window.initFarmView = function() {
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 10,
         dailyBoostReward: 0.5,
-        dailyBoostTargetSpeed: 15.0,
-        dailyBoostCoinReward: 50.0,
+        maxDailyBoostRate: 15.0,
+        boostMaxRewardCoins: 50.0,
         upgradeCosts: {
             1: 3500, 2: 11500, 3: 28000, 4: 68000, 5: 165000,
             6: 390000, 7: 950000, 8: 2300000, 9: 5500000
@@ -146,14 +146,14 @@ window.initFarmView = function() {
                     if (resData.game_config.upgrade_costs) {
                         GAME_CONFIG.upgradeCosts = resData.game_config.upgrade_costs;
                     }
-                    if (resData.game_config.daily_boost_reward !== undefined) {
+                    if (resData.game_config.daily_boost_reward) {
                         GAME_CONFIG.dailyBoostReward = resData.game_config.daily_boost_reward;
                     }
-                    if (resData.game_config.daily_boost_target_speed !== undefined) {
-                        GAME_CONFIG.dailyBoostTargetSpeed = resData.game_config.daily_boost_target_speed;
+                    if (resData.game_config.max_daily_boost_rate) {
+                        GAME_CONFIG.maxDailyBoostRate = resData.game_config.max_daily_boost_rate;
                     }
-                    if (resData.game_config.daily_boost_coin_reward !== undefined) {
-                        GAME_CONFIG.dailyBoostCoinReward = resData.game_config.daily_boost_coin_reward;
+                    if (resData.game_config.boost_max_reward_coins) {
+                        GAME_CONFIG.boostMaxRewardCoins = resData.game_config.boost_max_reward_coins;
                     }
                 }
                 window.updateFarmUI();
@@ -169,11 +169,6 @@ window.initFarmView = function() {
         const pData = window.PlayerData || window.userState || {};
         let bal = getStoredBalance();
         let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
-
-        const balEl = document.getElementById('farm-balance');
-        if (balEl) {
-            balEl.innerText = `${bal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ZN`;
-        }
 
         const rateEl = document.getElementById('farm-rate');
         if (rateEl) {
@@ -349,8 +344,6 @@ window.initFarmView = function() {
         if (boostBtn) {
             const lastBoost = pData.last_boost_date || window.userState?.last_boost_date;
             const currentDailyBoostRate = parseFloat(pData.daily_boost_rate || window.userState?.daily_boost_rate || 0);
-            const targetSpeed = GAME_CONFIG.dailyBoostTargetSpeed || 15.0;
-            const boostCoinReward = GAME_CONFIG.dailyBoostCoinReward || 50;
 
             if (lastBoost === todayStr) {
                 boostBtn.className = "boost-btn btn-disabled";
@@ -360,7 +353,7 @@ window.initFarmView = function() {
                 if (!isBoosting) {
                     boostBtn.className = "boost-btn";
                     boostBtn.disabled = false;
-                    const boostText = (currentDailyBoostRate >= targetSpeed) ? `+${boostCoinReward} ZN` : `+${GAME_CONFIG.dailyBoostReward}/h`;
+                    const boostText = (currentDailyBoostRate >= GAME_CONFIG.maxDailyBoostRate) ? `+${GAME_CONFIG.boostMaxRewardCoins} ZN` : `+${GAME_CONFIG.dailyBoostReward}/h`;
                     boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">${boostText}</span>`; 
                 }
             }
@@ -427,222 +420,146 @@ window.initFarmView = function() {
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
-                
                 if (resData.new_hourly_rate !== undefined) {
                     if (!window.userState) window.userState = {};
                     window.userState.hourly_rate = resData.new_hourly_rate;
-                    if (window.PlayerData) window.PlayerData.hourly_rate = resData.new_hourly_rate;
                 }
                 if (resData.upgrades) {
-                    if (!window.PlayerData) window.PlayerData = {};
-                    window.PlayerData.upgrades = resData.upgrades;
                     if (!window.userState) window.userState = {};
                     window.userState.upgrades = resData.upgrades;
                 }
-                
-                if (resData.server_time) {
-                    if (window.PlayerData) window.PlayerData.last_claim_time = resData.server_time;
-                    if (window.userState) window.userState.last_claim_time = resData.server_time;
-                }
-
-                showToast(`⚡ تم التحديث للمستوى ${level}!`);
-            } else if (resData && resData.error) {
-                showToast(resData.error);
+                showToast(`🏛️ تم ترقية المستوى ${level} بنجاح!`);
+                window.updateFarmUI();
+            } else {
+                showToast(resData?.error || "❌ تعذر إتمام الترقية");
             }
         } catch (e) {
             console.error("خطأ الترقية:", e);
-            showToast(e.message || "حدث خطأ أثناء الترقية.");
+            showToast("❌ حدث خطأ أثناء عملية الشراء");
         } finally {
             isUpgrading = false;
-            window.updateFarmUI();
+        }
+    };
+
+    window.handleDailyClaim = async function(dayNum) {
+        if (isClaimingDaily) return;
+        isClaimingDaily = true;
+
+        try {
+            const adWatched = await showTelegramAd();
+            if (!adWatched) {
+                isClaimingDaily = false;
+                return;
+            }
+
+            let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST', {});
+            if (resData && resData.success) {
+                if (resData.server_time) syncServerTime(resData.server_time);
+                if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                if (resData.daily_day !== undefined) {
+                    if (!window.userState) window.userState = {};
+                    window.userState.daily_day = resData.daily_day;
+                }
+                if (resData.last_daily_claim_date) {
+                    if (!window.userState) window.userState = {};
+                    window.userState.last_daily_claim_date = resData.last_daily_claim_date;
+                }
+                showToast(`🎉 تم استلام مكافأة اليوم ${resData.daily_day} بنجاح!`);
+                window.updateFarmUI();
+            } else {
+                showToast(resData?.error || "❌ تعذر استلام المكافأة");
+            }
+        } catch (e) {
+            console.error("خطأ استلام المكافأة اليومية:", e);
+            showToast("❌ حدث خطأ أثناء استلام المكافأة اليومية");
+        } finally {
+            isClaimingDaily = false;
         }
     };
 
     window.handleDailyBoost = async function() {
         if (isBoosting) return;
-        
-        const pData = window.PlayerData || window.userState || {};
-        const todayStr = getTodayUTCStr();
-        if (pData.last_boost_date === todayStr) return;
-
-        const btn = document.getElementById('boost-btn');
         isBoosting = true;
-        
+
         try {
-            const adWatched = await showTelegramAd(() => {
-                if (btn) { btn.innerHTML = `⏳`; btn.disabled = true; }
-            });
-            
-            if (adWatched) {
-                if (btn) btn.innerHTML = `💾`;
-                let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST');
-                if (resData && resData.success) {
-                    if (resData.server_time) syncServerTime(resData.server_time);
+            const adWatched = await showTelegramAd();
+            if (!adWatched) {
+                isBoosting = false;
+                return;
+            }
+
+            let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
+            if (resData && resData.success) {
+                if (resData.server_time) syncServerTime(resData.server_time);
+                
+                if (resData.type === 'speed') {
                     if (resData.new_rate !== undefined) {
-                        if (window.PlayerData) window.PlayerData.hourly_rate = resData.new_rate;
                         if (!window.userState) window.userState = {};
                         window.userState.hourly_rate = resData.new_rate;
                     }
                     if (resData.daily_boost_rate !== undefined) {
-                        if (window.PlayerData) window.PlayerData.daily_boost_rate = resData.daily_boost_rate;
                         if (!window.userState) window.userState = {};
                         window.userState.daily_boost_rate = resData.daily_boost_rate;
                     }
-                    if (resData.ads_watched !== undefined) {
-                        if (window.PlayerData) window.PlayerData.ads_watched = resData.ads_watched;
-                        if (!window.userState) window.userState = {};
-                        window.userState.ads_watched = resData.ads_watched;
-                    }
+                    showToast(`⚡ تم زيادة سرعة التعدين بمقدار +${resData.boost_amount || GAME_CONFIG.dailyBoostReward}/h!`);
+                } else if (resData.type === 'balance') {
                     if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
-                    if (resData.last_boost_date) {
-                        if (window.PlayerData) window.PlayerData.last_boost_date = resData.last_boost_date;
-                        if (window.userState) window.userState.last_boost_date = resData.last_boost_date;
-                    }
-                    if (resData.type === 'balance') {
-                        const rewardCoins = GAME_CONFIG.dailyBoostCoinReward || 50;
-                        showToast(`🎁 حصلت على ${rewardCoins} ZN مجاناً!`);
-                    } else {
-                        const rewardSpeed = GAME_CONFIG.dailyBoostReward || 0.5;
-                        showToast(`🚀 تمت زيادة معدل التعدين (+${rewardSpeed} ZN/h)!`);
-                    }
-                } else if (resData && resData.error) {
-                    showToast(resData.error);
+                    showToast(`💰 تهانينا! تمت إضافة ${resData.reward_coins || GAME_CONFIG.boostMaxRewardCoins} عملة ZN إلى رصيدك مباشرة!`);
                 }
+
+                if (resData.last_boost_date) {
+                    if (!window.userState) window.userState = {};
+                    window.userState.last_boost_date = resData.last_boost_date;
+                }
+                window.updateFarmUI();
+            } else {
+                showToast(resData?.error || "❌ تعذر تفعيل التعزيز");
             }
         } catch (e) {
-            console.error("خطأ تسريع التعدين:", e);
-            showToast(e.message || "فشل التسريع.");
+            console.error("خطأ التعزيز اليومي:", e);
+            showToast("❌ حدث خطأ أثناء تفعيل التعزيز");
         } finally {
             isBoosting = false;
-            window.updateFarmUI();
         }
     };
 
-    window.handleDailyClaim = async function(day) {
-        if (isClaimingDaily) return;
-        
-        const pData = window.PlayerData || window.userState || {};
-        const todayStr = getTodayUTCStr();
-
-        if (pData.last_daily_claim_date === todayStr) {
-            showToast("⚠️ لقد قمت بالاستلام اليوم بالفعل!");
-            return;
-        }
-
-        const targetDay = parseInt(day || pData.daily_day || window.userState?.daily_day || 1, 10);
-        const btn = document.getElementById(`daily-btn-${Math.min(targetDay, 30)}`);
-        
-        isClaimingDaily = true;
-        if (btn) btn.disabled = true;
-        
-        try {
-            const adWatched = await showTelegramAd(() => {
-                if (btn) { btn.innerHTML = "⏳"; }
-            });
-            
-            if (adWatched) {
-                if (btn) btn.innerHTML = "💾";
-                let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST');
-                if (resData && resData.success) {
-                    if (resData.server_time) syncServerTime(resData.server_time);
-                    if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
-                    if (resData.daily_day !== undefined) {
-                        if (window.PlayerData) window.PlayerData.daily_day = resData.daily_day;
-                        if (!window.userState) window.userState = {};
-                        window.userState.daily_day = resData.daily_day;
-                    }
-                    if (resData.ads_watched !== undefined) {
-                        if (window.PlayerData) window.PlayerData.ads_watched = resData.ads_watched;
-                        if (!window.userState) window.userState = {};
-                        window.userState.ads_watched = resData.ads_watched;
-                    }
-                    if (resData.last_daily_claim_date) {
-                        if (window.PlayerData) window.PlayerData.last_daily_claim_date = resData.last_daily_claim_date;
-                        if (window.userState) window.userState.last_daily_claim_date = resData.last_daily_claim_date;
-                    }
-                    showToast(`🎉 تم استلام مكافأة اليوم!`);
-                } else if (resData && resData.error) {
-                    showToast(resData.error);
-                }
-            }
-        } catch (e) {
-            console.error("خطأ المكافأة اليومية:", e);
-            showToast(e.message || "فشل استلام المكافأة.");
-        } finally {
-            isClaimingDaily = false;
-            window.updateFarmUI();
-        }
-    };
-
-    window.handleClaim = async function() {
-        const pData = window.PlayerData || window.userState;
-        if (!pData || isClaimingMain) return;
-
-        let lastClaimStr = window.userState?.last_claim_time || pData.last_claim_time;
-        let lastClaimTimeMs = lastClaimStr ? new Date(lastClaimStr).getTime() : getAdjustedNowMs();
-        let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimTimeMs) / 1000);
-
-        if (secondsPassed < MIN_CLAIM_INTERVAL) {
-            showToast(`⚠️ يجب الانتظار قبل التجميع مجدداً.`);
-            return;
-        }
-
-        const unclaimedAmount = parseFloat(pData.unclaimed || window.userState?.unclaimed || 0);
-        if (unclaimedAmount <= 0) return;
-
+    window.handleMainClaim = async function() {
+        if (isClaimingMain) return;
         isClaimingMain = true;
-        const claimBtn = document.getElementById('claim-btn');
-        if (claimBtn) {
-            claimBtn.disabled = true;
-            claimBtn.className = "claim-action-btn btn-disabled";
-            claimBtn.innerText = "جاري الحفظ... 💾";
-        }
-
-        const currentBal = getStoredBalance();
-        const optimisticNewBal = currentBal + unclaimedAmount;
-        const prevLastClaim = pData.last_claim_time;
-        
-        setStoredBalance(optimisticNewBal);
-        pData.unclaimed = 0;
-        if (window.userState) window.userState.unclaimed = 0;
-        
-        const nowISO = new Date(getAdjustedNowMs()).toISOString();
-        pData.last_claim_time = nowISO;
-        if (!window.userState) window.userState = {};
-        window.userState.last_claim_time = nowISO;
 
         try {
-            let resData = await window.fetchAPI('/api/farm/claim', 'POST');
+            let resData = await window.fetchAPI('/api/farm/claim', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
                 if (resData.last_claim_time) {
-                    pData.last_claim_time = resData.last_claim_time;
+                    if (!window.userState) window.userState = {};
                     window.userState.last_claim_time = resData.last_claim_time;
+                    window.userState.unclaimed = 0.0;
                 }
-                pData.unclaimed = 0;
-                if (window.userState) window.userState.unclaimed = 0;
-            } else if (resData && resData.error) {
-                setStoredBalance(currentBal);
-                pData.unclaimed = unclaimedAmount;
-                if (window.userState) window.userState.unclaimed = unclaimedAmount;
-                pData.last_claim_time = prevLastClaim;
-                window.userState.last_claim_time = prevLastClaim;
-                showToast(resData.error);
+                showToast(`💰 تم تجميع ${resData.claimed_amount} عملة بنجاح!`);
+                window.updateFarmUI();
+            } else {
+                showToast(resData?.error || "❌ تعذر تجميع الرصيد");
             }
         } catch (e) {
-            setStoredBalance(currentBal);
-            pData.unclaimed = unclaimedAmount;
-            if (window.userState) window.userState.unclaimed = unclaimedAmount;
-            pData.last_claim_time = prevLastClaim;
-            window.userState.last_claim_time = prevLastClaim;
-            showToast(e.message || "حدث خطأ في عملية التجميع");
+            console.error("خطأ التجميع الرئيسي:", e);
+            showToast("❌ حدث خطأ أثناء التجميع");
         } finally {
             isClaimingMain = false;
-            window.updateFarmUI();
         }
     };
 
-    window.updateFarmUI();
-    window.fetchPlayerDataFromServer(true);
+    document.addEventListener("DOMContentLoaded", function() {
+        const claimBtn = document.getElementById('claim-btn');
+        if (claimBtn) {
+            claimBtn.addEventListener('click', window.handleMainClaim);
+        }
+        
+        const boostBtn = document.getElementById('boost-btn');
+        if (boostBtn) {
+            boostBtn.addEventListener('click', window.handleDailyBoost);
+        }
+    });
+
 })();
