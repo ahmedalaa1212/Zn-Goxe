@@ -11,6 +11,8 @@ window.initFarmView = function() {
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 10,
         dailyBoostReward: 0.5,
+        dailyBoostTargetSpeed: 15.0,
+        dailyBoostCoinReward: 50.0,
         upgradeCosts: {
             1: 3500, 2: 11500, 3: 28000, 4: 68000, 5: 165000,
             6: 390000, 7: 950000, 8: 2300000, 9: 5500000
@@ -22,7 +24,7 @@ window.initFarmView = function() {
         ]
     };
 
-    const MIN_CLAIM_INTERVAL = 15;
+    let MIN_CLAIM_INTERVAL = 15;
 
     let isClaimingDaily = false;
     let isBoosting = false; 
@@ -115,6 +117,7 @@ window.initFarmView = function() {
             if (resData && resData.success) {
                 lastFetchTime = Date.now();
                 if (resData.server_time) syncServerTime(resData.server_time);
+                if (resData.cooldown_seconds) MIN_CLAIM_INTERVAL = resData.cooldown_seconds;
 
                 if (!window.PlayerData) window.PlayerData = {};
                 Object.assign(window.PlayerData, resData.player);
@@ -133,6 +136,7 @@ window.initFarmView = function() {
                     if (resData.player.last_claim_time !== undefined) window.userState.last_claim_time = resData.player.last_claim_time;
                     if (resData.player.daily_day !== undefined) window.userState.daily_day = resData.player.daily_day;
                     if (resData.player.last_daily_claim_date !== undefined) window.userState.last_daily_claim_date = resData.player.last_daily_claim_date;
+                    if (resData.player.last_boost_date !== undefined) window.userState.last_boost_date = resData.player.last_boost_date;
                 }
                 
                 if (resData.game_config) {
@@ -142,8 +146,14 @@ window.initFarmView = function() {
                     if (resData.game_config.upgrade_costs) {
                         GAME_CONFIG.upgradeCosts = resData.game_config.upgrade_costs;
                     }
-                    if (resData.game_config.daily_boost_reward) {
+                    if (resData.game_config.daily_boost_reward !== undefined) {
                         GAME_CONFIG.dailyBoostReward = resData.game_config.daily_boost_reward;
+                    }
+                    if (resData.game_config.daily_boost_target_speed !== undefined) {
+                        GAME_CONFIG.dailyBoostTargetSpeed = resData.game_config.daily_boost_target_speed;
+                    }
+                    if (resData.game_config.daily_boost_coin_reward !== undefined) {
+                        GAME_CONFIG.dailyBoostCoinReward = resData.game_config.daily_boost_coin_reward;
                     }
                 }
                 window.updateFarmUI();
@@ -159,6 +169,11 @@ window.initFarmView = function() {
         const pData = window.PlayerData || window.userState || {};
         let bal = getStoredBalance();
         let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
+
+        const balEl = document.getElementById('farm-balance');
+        if (balEl) {
+            balEl.innerText = `${bal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} ZN`;
+        }
 
         const rateEl = document.getElementById('farm-rate');
         if (rateEl) {
@@ -334,6 +349,8 @@ window.initFarmView = function() {
         if (boostBtn) {
             const lastBoost = pData.last_boost_date || window.userState?.last_boost_date;
             const currentDailyBoostRate = parseFloat(pData.daily_boost_rate || window.userState?.daily_boost_rate || 0);
+            const targetSpeed = GAME_CONFIG.dailyBoostTargetSpeed || 15.0;
+            const boostCoinReward = GAME_CONFIG.dailyBoostCoinReward || 50;
 
             if (lastBoost === todayStr) {
                 boostBtn.className = "boost-btn btn-disabled";
@@ -343,7 +360,7 @@ window.initFarmView = function() {
                 if (!isBoosting) {
                     boostBtn.className = "boost-btn";
                     boostBtn.disabled = false;
-                    const boostText = (currentDailyBoostRate >= 15.0) ? "+50 ZN" : `+${GAME_CONFIG.dailyBoostReward}/h`;
+                    const boostText = (currentDailyBoostRate >= targetSpeed) ? `+${boostCoinReward} ZN` : `+${GAME_CONFIG.dailyBoostReward}/h`;
                     boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">${boostText}</span>`; 
                 }
             }
@@ -482,9 +499,11 @@ window.initFarmView = function() {
                         if (window.userState) window.userState.last_boost_date = resData.last_boost_date;
                     }
                     if (resData.type === 'balance') {
-                        showToast(`🎁 حصلت على 50 ZN مجاناً!`);
+                        const rewardCoins = GAME_CONFIG.dailyBoostCoinReward || 50;
+                        showToast(`🎁 حصلت على ${rewardCoins} ZN مجاناً!`);
                     } else {
-                        showToast(`🚀 تمت زيادة معدل التعدين (+0.5 ZN/h)!`);
+                        const rewardSpeed = GAME_CONFIG.dailyBoostReward || 0.5;
+                        showToast(`🚀 تمت زيادة معدل التعدين (+${rewardSpeed} ZN/h)!`);
                     }
                 } else if (resData && resData.error) {
                     showToast(resData.error);
