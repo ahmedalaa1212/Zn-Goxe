@@ -17,6 +17,19 @@ window.initFarmView = function() {
             1: 3500, 2: 11500, 3: 28000, 4: 68000, 5: 165000,
             6: 390000, 7: 950000, 8: 2300000, 9: 5500000
         },
+        storageConfig: {
+            "0": { capacity: 100.0, cost: 0.0 },
+            "1": { capacity: 300.0, cost: 3000.0 },
+            "2": { capacity: 800.0, cost: 8500.0 },
+            "3": { capacity: 2000.0, cost: 25000.0 },
+            "4": { capacity: 5000.0, cost: 70000.0 },
+            "5": { capacity: 12000.0, cost: 180000.0 },
+            "6": { capacity: 28000.0, cost: 450000.0 },
+            "7": { capacity: 65000.0, cost: 1100000.0 },
+            "8": { capacity: 150000.0, cost: 2800000.0 },
+            "9": { capacity: 350000.0, cost: 7000000.0 },
+            "10": { capacity: 800000.0, cost: 18000000.0 }
+        },
         dailyRewards: [
             100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
             600, 600, 650, 650, 700, 700, 750, 750, 800, 800,
@@ -31,6 +44,7 @@ window.initFarmView = function() {
     let isFetching = false;
     let isClaimingMain = false; 
     let isUpgrading = false;
+    let isUpgradingStorage = false;
 
     let lastFetchTime = 0;
     const FETCH_THROTTLE_MS = 10000;
@@ -148,6 +162,9 @@ window.initFarmView = function() {
                     if (resData.game_config.upgrade_costs) {
                         GAME_CONFIG.upgradeCosts = resData.game_config.upgrade_costs;
                     }
+                    if (resData.game_config.storage_config) {
+                        GAME_CONFIG.storageConfig = resData.game_config.storage_config;
+                    }
                     if (resData.game_config.daily_boost_reward) {
                         GAME_CONFIG.dailyBoostReward = resData.game_config.daily_boost_reward;
                     }
@@ -180,7 +197,29 @@ window.initFarmView = function() {
             let formattedRate = (hRate % 1 === 0) ? hRate.toString() : Number(hRate.toFixed(2)).toString();
             rateEl.innerHTML = `<span dir="ltr">${formattedRate} /h</span> ⚡`;
         }
-        
+
+        const stgLvl = parseInt(window.userState?.storage_level ?? pData.storage_level ?? 0, 10);
+        const stgLvlEl = document.getElementById('storage-level-num');
+        if (stgLvlEl) stgLvlEl.innerText = stgLvl;
+
+        const upgradeStgBtn = document.getElementById('upgrade-storage-btn');
+        if (upgradeStgBtn) {
+            const nextLvl = stgLvl + 1;
+            const nextCfg = GAME_CONFIG.storageConfig[nextLvl.toString()];
+            if (stgLvl >= 10 || !nextCfg) {
+                upgradeStgBtn.innerText = "المخزن في المستوى الأقصى (MAX) 🏆";
+                upgradeStgBtn.disabled = true;
+                upgradeStgBtn.className = "storage-upgrade-btn btn-disabled";
+            } else {
+                const cost = typeof nextCfg === 'object' ? nextCfg.cost : 0;
+                const costStr = formatCompactCost(cost);
+                const canAfford = bal >= cost;
+                upgradeStgBtn.innerText = `ترقية المخزن إلى level ${nextLvl} (${costStr} ZN) 📦`;
+                upgradeStgBtn.disabled = !canAfford || isUpgradingStorage;
+                upgradeStgBtn.className = canAfford ? "storage-upgrade-btn btn-ready-yellow" : "storage-upgrade-btn btn-disabled";
+            }
+        }
+
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
             const currentUpgrades = window.userState?.upgrades || pData.upgrades || {};
@@ -404,6 +443,36 @@ window.initFarmView = function() {
             }
         });
     }
+
+    window.handleStorageUpgrade = async function() {
+        if (isUpgradingStorage) return;
+
+        isUpgradingStorage = true;
+        try {
+            let resData = await window.fetchAPI('/api/farm/upgrade_storage', 'POST', {});
+            if (resData && resData.success) {
+                if (resData.server_time) syncServerTime(resData.server_time);
+                if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                if (resData.storage_level !== undefined) {
+                    if (!window.userState) window.userState = {};
+                    window.userState.storage_level = resData.storage_level;
+                }
+                if (resData.max_cap !== undefined) {
+                    if (!window.userState) window.userState = {};
+                    window.userState.max_cap = resData.max_cap;
+                }
+                showToast(`📦 تم ترقية سعة المخزن بنجاح إلى Level ${resData.storage_level}!`);
+                window.updateFarmUI();
+            } else {
+                showToast(resData?.error || "❌ تعذر ترقية المخزن");
+            }
+        } catch (e) {
+            console.error("خطأ ترقية المخزن:", e);
+            showToast("❌ حدث خطأ أثناء ترقية المخزن");
+        } finally {
+            isUpgradingStorage = false;
+        }
+    };
 
     window.handleUpgrade = async function(level) {
         if (isUpgrading) return;
