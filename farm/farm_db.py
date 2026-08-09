@@ -344,7 +344,7 @@ def buy_upgrade_db(user_id_str, level):
         current_hourly_rate = float(user_data.get("hourly_rate", 0.0))
         new_hourly_rate = round(current_hourly_rate + rate_bonus, 2)
 
-        # ضبط last_claim_time بدقة متناهية لكي يتطابق الرصيد المعدن المحفوط بالكامل مع السرعة الجديدة بدون أي طفرات أو هبوط
+        # ضبط last_claim_time بدقة متناهية لكي يتطابق الرصيد المعدن المحفوظ بالكامل مع السرعة الجديدة بدون أي طفرات أو هبوط
         if new_hourly_rate > 0 and mined_amount > 0:
             equiv_seconds = (mined_amount / (new_hourly_rate / 3600.0))
             new_last_claim_iso = (now - timedelta(seconds=equiv_seconds)).isoformat()
@@ -394,7 +394,7 @@ def buy_upgrade_db(user_id_str, level):
 
 
 def buy_storage_db(user_id_str):
-    """شراء ترقية سعة التخزين للمستوى التالي"""
+    """شراء ترقية سعة التخزين للمستوى التالي مع إعادة تحجيم الوقت لمنع ثغرة ملء المخزن الجديد فوراً"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -426,15 +426,31 @@ def buy_storage_db(user_id_str):
         if current_balance < cost:
             return {"success": False, "error": f"رصيدك غير كافٍ! سعر ترقية المخزن {cost:,.0f} ZN"}
 
+        now = datetime.now(timezone.utc)
+        now_iso = now.isoformat()
+
+        # حساب الرصيد المعلق المسقوف بالسعة القديمة بالضبط
+        old_max_cap = calculate_user_max_cap(user_data, game_settings)
+        mined_amount = calculate_accrued_mined(user_data, now, old_max_cap)
+        hourly_rate = float(user_data.get("hourly_rate", 0.0))
+
         extra_cap = float(user_data.get("extra_storage", 0.0))
         new_max_cap = round(new_capacity + extra_cap, 2)
         new_balance = round(current_balance - cost, 2)
-        now = datetime.now(timezone.utc)
+
+        # ضبط last_claim_time ليعكس فقط الوقت اللازم لتوليد mined_amount بالسرعة الحالية
+        # هذا يمنع احتساب أوقات الانتظار الوهمية بعد امتلاء المخزن القديم
+        if hourly_rate > 0 and mined_amount > 0:
+            equiv_seconds = (mined_amount / (hourly_rate / 3600.0))
+            new_last_claim_iso = (now - timedelta(seconds=equiv_seconds)).isoformat()
+        else:
+            new_last_claim_iso = now_iso
 
         transaction.update(ref, {
             "balance": new_balance,
             "storage_level": next_level,
-            "max_cap": new_max_cap
+            "max_cap": new_max_cap,
+            "last_claim_time": new_last_claim_iso
         })
 
         return {
@@ -442,8 +458,9 @@ def buy_storage_db(user_id_str):
             "new_balance": new_balance,
             "storage_level": next_level,
             "max_cap": new_max_cap,
-            "last_claim_time": user_data.get("last_claim_time"),
-            "server_time": now.isoformat()
+            "last_claim_time": new_last_claim_iso,
+            "unclaimed": mined_amount,
+            "server_time": now_iso
         }
 
     transaction = db.transaction()
@@ -532,7 +549,7 @@ def claim_daily_boost_db(user_id_str):
 
         last_boost = user_data.get("last_boost_date")
         if last_boost == today_str:
-            return {"success": False, "error": "لقدحصلت على تعزيز اليوم بالفعل"}
+            return {"success": False, "error": "لقد حصلت على تعزيز اليوم بالفعل"}
 
         daily_boost_rate = float(user_data.get("daily_boost_rate", 0.0) or 0.0)
         current_hourly_rate = float(user_data.get("hourly_rate", 0.0) or 0.0)
