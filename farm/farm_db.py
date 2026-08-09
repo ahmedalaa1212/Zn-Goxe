@@ -39,7 +39,7 @@ DEFAULT_GAME_SETTINGS = {
 
 
 def get_game_settings(force_refresh=False):
-    """جلب إعدادات المزرعة واللعبة من Firestore مع كاش لحماية كوتا القراءة"""
+    """جلب أو إنشاء إعدادات المزرعة تلقائياً في Firebase إن لم تكن موجودة"""
     global _SETTINGS_CACHE
     now_ts = time.time()
     
@@ -48,11 +48,17 @@ def get_game_settings(force_refresh=False):
 
     db = get_db()
     try:
-        doc = db.collection('settings').document('game_settings').get()
+        doc_ref = db.collection('settings').document('game_settings')
+        doc = doc_ref.get()
         if doc.exists:
             data = doc.to_dict() or DEFAULT_GAME_SETTINGS
             _SETTINGS_CACHE = {"data": data, "timestamp": now_ts}
             return data
+        else:
+            # إنشائها تلقائياً داخل Firestore لظهورها بوضوح داخل مجموعة settings
+            doc_ref.set(DEFAULT_GAME_SETTINGS)
+            _SETTINGS_CACHE = {"data": DEFAULT_GAME_SETTINGS, "timestamp": now_ts}
+            return DEFAULT_GAME_SETTINGS
     except Exception as e:
         print(f"⚠️ خطأ أثناء جلب إعدادات المزرعة من Firebase: {e}")
 
@@ -190,7 +196,7 @@ def get_or_create_user_farm_data(user_id_str):
 
 
 def claim_mined_tokens_db(user_id_str):
-    """تجميع الرصيد المعدن بأمان وسحب العمولات"""
+    """تجميع الرصيد المعدن بأمان"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -382,7 +388,7 @@ def claim_daily_reward_db(user_id_str):
 
 
 def claim_daily_boost_db(user_id_str):
-    """تفعيل التعزيز اليومي (زيادة 0.5/h حتى سرعة 15.0/h ثم تحويل تلقائي لمنح 50 عملة ZN للرصيد)"""
+    """تفعيل التعزيز اليومي وتصفية المحصول المعدن بالسرعة القديمة للرصيد تلقائياً"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -401,6 +407,7 @@ def claim_daily_boost_db(user_id_str):
         user_data = snapshot.to_dict() or {}
         now = datetime.now(timezone.utc)
         today_str = now.strftime('%Y-%m-%d')
+        now_iso = now.isoformat()
 
         last_boost = user_data.get("last_boost_date")
         if last_boost == today_str:
@@ -412,48 +419,59 @@ def claim_daily_boost_db(user_id_str):
         current_ads = int(user_data.get("ads_watched", 0) or 0)
         new_ads = current_ads + 1
 
+        # حفظ التعدين المتراكم بالسعر القديم أولاً للرصيد لمنع القفزات
+        max_cap = calculate_user_max_cap(user_data, game_settings)
+        mined_amount = calculate_accrued_mined(user_data, now, max_cap)
+        balance_with_mined = round(current_balance + mined_amount, 2)
+
         if daily_boost_rate < max_daily_boost_rate:
-            # إضافة سرعة جديدة
+            # إضافة سرعة جديدة ورست الوقت لتبدأ السلسلة من 0 بالسرعة الجديدة
             new_daily_boost_rate = round(daily_boost_rate + daily_boost_reward, 2)
             new_hourly_rate = round(current_hourly_rate + daily_boost_reward, 2)
 
             transaction.update(ref, {
+                "balance": balance_with_mined,
                 "hourly_rate": new_hourly_rate,
                 "daily_boost_rate": new_daily_boost_rate,
                 "last_boost_date": today_str,
+                "last_claim_time": now_iso,
                 "ads_watched": firestore.Increment(1)
             })
 
             return {
                 "success": True,
                 "type": "speed",
+                "new_balance": balance_with_mined,
                 "new_rate": new_hourly_rate,
                 "daily_boost_rate": new_daily_boost_rate,
                 "ads_watched": new_ads,
                 "last_boost_date": today_str,
-                "server_time": now.isoformat(),
+                "last_claim_time": now_iso,
+                "server_time": now_iso,
                 "boost_amount": daily_boost_reward
             }
         else:
-            # عند وصول السرعة المكتسبة إلى 15/h تحويل الميزة تلقائياً لإضافة العملات للرصيد مباشرة
-            new_balance = round(current_balance + boost_max_reward_coins, 2)
+            # عند وصول حد السرعة 15/h تضاف عملات التعزيز مباشرة للرصيد
+            final_balance = round(balance_with_mined + boost_max_reward_coins, 2)
 
             transaction.update(ref, {
-                "balance": new_balance,
+                "balance": final_balance,
                 "last_boost_date": today_str,
+                "last_claim_time": now_iso,
                 "ads_watched": firestore.Increment(1)
             })
 
             return {
                 "success": True,
                 "type": "balance",
-                "new_balance": new_balance,
+                "new_balance": final_balance,
                 "reward_coins": boost_max_reward_coins,
                 "new_rate": current_hourly_rate,
                 "daily_boost_rate": daily_boost_rate,
                 "ads_watched": new_ads,
                 "last_boost_date": today_str,
-                "server_time": now.isoformat()
+                "last_claim_time": now_iso,
+                "server_time": now_iso
             }
 
     transaction = db.transaction()
