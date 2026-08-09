@@ -4,6 +4,7 @@ from farm.farm_db import (
     get_or_create_user_farm_data,
     claim_mined_tokens_db,
     buy_upgrade_db,
+    buy_storage_db,
     claim_daily_reward_db,
     claim_daily_boost_db,
     parse_daily_rewards,
@@ -99,6 +100,25 @@ def buy_upgrade():
     except Exception as e:
         print(f"Error upgrade: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء عملية الشراء"}), 500
+
+
+@farm_bp.route('/upgrade_storage', methods=['POST'])
+@farm_bp.route('/farm/upgrade_storage', methods=['POST'])
+@farm_bp.route('/api/farm/upgrade_storage', methods=['POST'])
+def buy_storage_upgrade():
+    """شراء ترقية سعة المخزن"""
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success: 
+        return error_res
+        
+    user_id_str = str(telegram_id)
+    try:
+        result = buy_storage_db(user_id_str)
+        status_code = 200 if result.get("success") else 400
+        return jsonify(result), status_code
+    except Exception as e:
+        print(f"Error upgrade storage: {e}")
+        return jsonify({"success": False, "error": "حدث خطأ أثناء ترقية المخزن"}), 500
 
 
 @farm_bp.route('/daily_claim', methods=['POST'])
