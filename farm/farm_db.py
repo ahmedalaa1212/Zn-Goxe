@@ -291,7 +291,7 @@ def claim_mined_tokens_db(user_id_str):
 
 
 def buy_upgrade_db(user_id_str, level):
-    """شراء ترقية سرعة التعدين مع تطبيق شرط حد الـ 10 مرات فقط لكل مستوى"""
+    """شراء ترقية سرعة التعدين مع تطبيق شرط حد الـ 10 مرات فقط لكل مستوى والحفاظ الدقيق على التعدين المعلق"""
     level_str = str(level)
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
@@ -344,7 +344,7 @@ def buy_upgrade_db(user_id_str, level):
         current_hourly_rate = float(user_data.get("hourly_rate", 0.0))
         new_hourly_rate = round(current_hourly_rate + rate_bonus, 2)
 
-        # ضبط last_claim_time بدقة لكي يمنع حدوث أي قفزة في الرصيد المعدن عند الشراء
+        # ضبط last_claim_time بدقة متناهية لكي يتطابق الرصيد المعدن المحفوط بالكامل مع السرعة الجديدة بدون أي طفرات أو هبوط
         if new_hourly_rate > 0 and mined_amount > 0:
             equiv_seconds = (mined_amount / (new_hourly_rate / 3600.0))
             new_last_claim_iso = (now - timedelta(seconds=equiv_seconds)).isoformat()
@@ -532,7 +532,7 @@ def claim_daily_boost_db(user_id_str):
 
         last_boost = user_data.get("last_boost_date")
         if last_boost == today_str:
-            return {"success": False, "error": "لقد حصلت على تعزيز اليوم بالفعل"}
+            return {"success": False, "error": "لقدحصلت على تعزيز اليوم بالفعل"}
 
         daily_boost_rate = float(user_data.get("daily_boost_rate", 0.0) or 0.0)
         current_hourly_rate = float(user_data.get("hourly_rate", 0.0) or 0.0)
