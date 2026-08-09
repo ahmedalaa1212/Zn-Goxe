@@ -41,7 +41,7 @@
     <!-- بطاقة المخزن المؤقت -->
     <div class="card-box">
         <div class="card-header">
-            <span class="card-title">📦 سعة التخزين المؤقت</span>
+            <span class="card-title">📦 سعة التخزين المؤقت (مستوى <span id="storage-level-num">0</span>)</span>
             <span id="storage-text" class="storage-badge" dir="ltr">0 / 200</span>
         </div>
 
@@ -51,6 +51,10 @@
 
         <button id="claim-btn" disabled class="claim-action-btn btn-disabled" onclick="window.handleMainClaim()">
             جاري التحميل... ⏳
+        </button>
+
+        <button id="upgrade-storage-btn" disabled class="storage-upgrade-btn btn-disabled" onclick="window.handleStorageUpgrade()" style="margin-top: 8px;">
+            ترقية المخزن 📦
         </button>
     </div>
 
@@ -280,18 +284,18 @@
     background: linear-gradient(90deg, #f39c12, #f1c40f);
 }
 
-.claim-action-btn {
+.claim-action-btn, .storage-upgrade-btn {
     width: 100%;
-    padding: 12px;
+    padding: 11px;
     border: none;
     border-radius: 12px;
     font-weight: 800;
-    font-size: 14px;
+    font-size: 13.5px;
     cursor: pointer;
     transition: background 0.2s ease, transform 0.1s ease;
 }
 
-.claim-action-btn:active:not(:disabled) { transform: scale(0.98); }
+.claim-action-btn:active:not(:disabled), .storage-upgrade-btn:active:not(:disabled) { transform: scale(0.98); }
 
 .btn-disabled {
     background: #1e293b !important;
@@ -304,6 +308,12 @@
     background: #10b981 !important;
     color: #ffffff !important;
     box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3) !important;
+}
+
+.btn-ready-yellow {
+    background: rgba(243, 156, 18, 0.18) !important;
+    border: 1px solid #f39c12 !important;
+    color: #f39c12 !important;
 }
 
 /* 4. شبكة المستويات والمكافآت */
