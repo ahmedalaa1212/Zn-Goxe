@@ -58,7 +58,6 @@ def get_user_friends(tg_id, limit=50):
         if not docs:
             return []
 
-        # محاولة الاعتماد على بيانات الصديق المخزنة داخل الفرع أولاً لتوفير استعلامات db.get_all
         missing_doc_ids = []
         friends_map = {}
 
@@ -66,7 +65,6 @@ def get_user_friends(tg_id, limit=50):
             d = doc.to_dict() or {}
             friend_id = str(d.get("tg_id", doc.id))
             
-            # إذا كانت بيانات الاسم والترقيات مسجلة مسبقاً لا داعي لجلب المستند الكامل
             if "upgrades_count" in d and ("first_name" in d or "name" in d):
                 friends_map[friend_id] = {
                     "tg_id": friend_id,
@@ -79,7 +77,6 @@ def get_user_friends(tg_id, limit=50):
             else:
                 missing_doc_ids.append(friend_id)
 
-        # جلب الحسابات الأصلية فقط للأصدقاء الذين تنقصهم البيانات التراكمية
         friend_user_docs = {}
         if missing_doc_ids:
             try:
@@ -126,7 +123,7 @@ def get_user_friends(tg_id, limit=50):
 
 
 def add_referral_reward(referrer_id, user_id, mined_amount, user_upgrades_count=None, user_name=None):
-    """إضافة أرباح التعدين وتحديث بيانات مستند الصديق تلقائياً لمنع القراءات المفرطة مستقبلية"""
+    """إضافة أرباح التعدين وتحديث بيانات مستند الصديق تلقائياً"""
     try:
         if not referrer_id or mined_amount <= 0:
             return False
@@ -142,12 +139,12 @@ def add_referral_reward(referrer_id, user_id, mined_amount, user_upgrades_count=
         ref_str = str(referrer_id)
         user_str = str(user_id)
 
-        # 1. تحديث الأرباح المعلقة والإجمالية للمُحيل
+        # 1. تحديث الأرباح المعلقة والإجمالية للمُحيل بأمان
         user_ref = db.collection("users").document(ref_str)
-        user_ref.update({
+        user_ref.set({
             "pending_ref_earnings": firestore.Increment(reward),
             "total_ref_earnings": firestore.Increment(reward),
-        })
+        }, merge=True)
 
         # 2. تحديث الرصيد المجمّع وتفاصيل الصديق داخل المجموعة الفرعية
         friend_data = {
@@ -187,7 +184,7 @@ def get_friends_data_db(tg_id):
         
         min_upgrades = int(config.get("min_upgrades_for_task", 3))
         
-        # حساب الأصدقاء المؤهلين للمهام بناءً على شرط الفايربيس
+        # حساب الأصدقاء المؤهلين للمهام بناءً على شروط الترقيات
         eligible_count = sum(1 for f in friends if f.get("upgrades_count", 0) >= min_upgrades)
         
         return {
@@ -216,7 +213,7 @@ def get_friends_data_db(tg_id):
 
 
 def claim_ref_earnings_db(tg_id):
-    """سحب أرباح الإحالات المعلقة وتحويلها للرصيد الرئيسي مع خصم نسبة الرسوم المحددة في الفايربيس"""
+    """سحب أرباح الإحالات المعلقة وتحويلها للرصيد الرئيسي مع خصم نسبة الرسوم المحددة"""
     try:
         db = database.get_db()
         user_ref = db.collection("users").document(str(tg_id))
@@ -265,7 +262,7 @@ def claim_ref_earnings_db(tg_id):
 
 
 def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
-    """استلام مكافأة مهمة دعوة الأصدقاء والتحقق منها بناءً على إعدادات الفايربيس الحالية"""
+    """استلام مكافأة مهمة دعوة الأصدقاء والتحقق منها بناءً على إعدادات الفايربيس"""
     try:
         db = database.get_db()
         user_ref = db.collection("users").document(str(tg_id))
