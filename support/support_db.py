@@ -1,92 +1,142 @@
+# support/db.py
 from datetime import datetime, timezone
-from firebase_admin import firestore
+import logging
 import database
 
-def create_support_ticket(tg_id, subject, message):
-    """إنشاء تذكرة دعم جديدة من قبل المستخدم"""
-    try:
-        if not tg_id or not message:
-            return False, "يرجى كتابة نص الرسالة"
+logger = logging.getLogger(__name__)
 
-        db = database.get_db()
-        ticket_doc = {
-            "user_id": str(tg_id),
-            "subject": subject or "استفسار عام",
-            "message": message,
-            "status": "open",
-            "replies": [],
-            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-            "timestamp": firestore.SERVER_TIMESTAMP
-        }
-        res = db.collection("support_tickets").add(ticket_doc)
-        return True, f"تم إرسال تذكرة الدعم بنجاح! رقم التذكرة: {res[1].id}"
-    except Exception as e:
-        print(f"❌ Error creating support ticket: {e}")
-        return False, f"حدث خطأ أثناء الإرسال: {e}"
+def get_db():
+    """الحصول على كائن الاتصال بقاعدة البيانات Firestore"""
+    if database.db is None:
+        return database.initialize_firebase()
+    return database.db
 
+def get_or_create_active_ticket(uid: str, custom_ticket_id: str = None) -> dict:
+    """
+    جلب التذكرة النشطة للمستخدم أو إنشاء تذكرة جديدة
+    """
+    db = get_db()
+    if not db:
+        return None
 
-def get_user_support_tickets(tg_id):
-    """جلب قائمة تذاكر الدعم الخاصة بالمستخدم"""
-    try:
-        db = database.get_db()
-        docs = db.collection("support_tickets").where("user_id", "==", str(tg_id)).stream()
-        tickets = []
-        for doc in docs:
-            d = doc.to_dict() or {}
-            d["id"] = doc.id
-            tickets.append(d)
-        return tickets
-    except Exception as e:
-        print(f"❌ Error getting user support tickets: {e}")
-        return []
+    uid_str = str(uid)
+    tickets_ref = db.collection('support_tickets')
 
+    # إذا تم تمرير ID تذكرة محددة، نتحقق منها أولاً
+    if custom_ticket_id:
+        doc = tickets_ref.document(custom_ticket_id).get()
+        if doc.exists:
+            data = doc.to_dict()
+            if str(data.get('uid')) == uid_str:
+                return data
 
-def get_all_support_tickets_admin(status_filter="open", limit=50):
-    """جلب جميع التذاكر للوحة الإدارة"""
-    try:
-        db = database.get_db()
-        ref = db.collection("support_tickets")
-        if status_filter != "all":
-            ref = ref.where("status", "==", status_filter)
+    # البحث عن تذكرة مفتوحة للمستخدم
+    query = tickets_ref.where('uid', '==', uid_str).where('status', '==', 'open').limit(1).stream()
+    for doc in query:
+        return doc.to_dict()
 
-        docs = ref.limit(limit).stream()
-        tickets = []
-        for doc in docs:
-            d = doc.to_dict() or {}
-            d["id"] = doc.id
-            tickets.append(d)
-        return tickets
-    except Exception as e:
-        print(f"❌ Error getting all support tickets: {e}")
-        return []
+    # إنشاء تذكرة جديدة إذا لم توجد تذكرة مفتوحة
+    now_iso = datetime.now(timezone.utc).isoformat()
+    ticket_id = custom_ticket_id or f"TK-{uid_str[-4:]}-{int(datetime.now().timestamp()) % 100000}"
+    
+    welcome_message = {
+        "sender": "admin",
+        "text": f"مرحباً بك في مركز الدعم الفني! 🎧\nكودك المرجعي للمحادثة: {ticket_id}\n\nيرجى التكرم بالالتزام بآداب الحوار والتعامل اللائق مع فريق الدعم. تفضل بكتابة استفسارك وسيقوم الفريق بالرد عليك في أقرب وقت.",
+        "timestamp": now_iso
+    }
 
+    new_ticket_data = {
+        "ticket_id": ticket_id,
+        "uid": uid_str,
+        "status": "open",
+        "created_at": now_iso,
+        "updated_at": now_iso,
+        "messages": [welcome_message]
+    }
 
-def reply_to_support_ticket(ticket_id, reply_text, admin_name="فريق الدعم"):
-    """الرد على تذكرة دعم وتحديث حالتها"""
-    try:
-        if not ticket_id or not reply_text:
-            return False, "نص الرد غير صالح"
+    tickets_ref.document(ticket_id).set(new_ticket_data)
+    return new_ticket_data
 
-        db = database.get_db()
-        ticket_ref = db.collection("support_tickets").document(str(ticket_id))
-        ticket_doc = ticket_ref.get()
+def add_support_message(uid: str, ticket_id: str, text: str, sender: str = "user") -> dict:
+    """
+    إضافة رسالة جديدة إلى تذكرة الدعم الفني
+    """
+    db = get_db()
+    if not db:
+        return {"success": False, "message": "خطأ في الاتصال بقاعدة البيانات"}
 
-        if not ticket_doc.exists:
-            return False, "التذكرة غير موجودة"
+    uid_str = str(uid)
+    ticket_ref = db.collection('support_tickets').document(ticket_id)
+    ticket_doc = ticket_ref.get()
 
-        reply_entry = {
-            "sender": admin_name,
-            "message": reply_text,
-            "time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        }
+    if not ticket_doc.exists:
+        # إنشاء التذكرة تلقائياً إن لم تكن موجودة
+        ticket_data = get_or_create_active_ticket(uid_str, custom_ticket_id=ticket_id)
+    else:
+        ticket_data = ticket_doc.to_dict()
 
-        ticket_ref.update({
-            "status": "answered",
-            "replies": firestore.ArrayUnion([reply_entry])
-        })
+    if str(ticket_data.get('uid')) != uid_str:
+        return {"success": False, "message": "غير مصرح لك بالوصول لهذه التذكرة"}
 
-        database.log_admin_action(admin_name, f"الرد على تذكرة الدعم {ticket_id}")
-        return True, "تم إرسال الرد بنجاح!"
-    except Exception as e:
-        print(f"❌ Error replying to support ticket: {e}")
-        return False, f"حدث خطأ: {e}"
+    if ticket_data.get('status') == 'closed':
+        return {"success": False, "message": "تم إنهاء هذه المحادثة بالكامل."}
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    new_msg = {
+        "sender": sender,
+        "text": text.strip(),
+        "timestamp": now_iso
+    }
+
+    messages = ticket_data.get('messages', [])
+    messages.append(new_msg)
+
+    ticket_ref.update({
+        "messages": messages,
+        "updated_at": now_iso
+    })
+
+    return {
+        "success": True,
+        "ticket_id": ticket_id,
+        "status": "open",
+        "messages": messages
+    }
+
+def create_new_user_ticket(uid: str) -> dict:
+    """
+    إغلاق أي تذكرة مفتوحة قديمة وإنشاء تذكرة دعم جديدة فوراً
+    """
+    db = get_db()
+    if not db:
+        return None
+
+    uid_str = str(uid)
+    tickets_ref = db.collection('support_tickets')
+
+    # إغلاق التذاكر المفتوحة القديمة
+    open_tickets = tickets_ref.where('uid', '==', uid_str).where('status', '==', 'open').stream()
+    for doc in open_tickets:
+        tickets_ref.document(doc.id).update({"status": "closed"})
+
+    # إنشاء تذكرة فريدة جديدة
+    ticket_id = f"TK-{uid_str[-4:]}-{int(datetime.now().timestamp()) % 100000}"
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    welcome_message = {
+        "sender": "admin",
+        "text": f"مرحباً بك في تذكرة الدعم الفني الجديدة! 🎧\nالكود المرجعي: {ticket_id}\n\nتفضل بكتابة استفسارك وسيقوم الفريق بالمتابعة والرد عليك.",
+        "timestamp": now_iso
+    }
+
+    new_ticket_data = {
+        "ticket_id": ticket_id,
+        "uid": uid_str,
+        "status": "open",
+        "created_at": now_iso,
+        "updated_at": now_iso,
+        "messages": [welcome_message]
+    }
+
+    tickets_ref.document(ticket_id).set(new_ticket_data)
+    return new_ticket_data
