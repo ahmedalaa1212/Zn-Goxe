@@ -9,14 +9,12 @@ from .friends_db import (
     get_friends_config
 )
 
-# تعريف الـ Blueprint الخاص بنظام الأصدقاء
 friends_bp = Blueprint('friends_bp', __name__)
-
-# اسم بديل لضمان التوافق التام مع النظام الرئيسي
 friends_api = friends_bp
 
 
 @friends_bp.route('/data', methods=['GET', 'POST'])
+@friends_bp.route('/friends/data', methods=['GET', 'POST'])
 @friends_bp.route('/api/friends/data', methods=['GET', 'POST'])
 def get_friends_data():
     """جلب ملخص بيانات الأصدقاء والمكافآت مع المصادقة والحماية التامة"""
@@ -39,6 +37,7 @@ def get_friends_data():
 
 
 @friends_bp.route('/list', methods=['GET', 'POST'])
+@friends_bp.route('/friends/list', methods=['GET', 'POST'])
 @friends_bp.route('/api/friends/list', methods=['GET', 'POST'])
 def get_friends_list():
     """جلب قائمة الأصدقاء التفصيلية للمستخدم المصرح له فقط"""
@@ -56,6 +55,7 @@ def get_friends_list():
 
 @friends_bp.route('/claim-earnings', methods=['POST'])
 @friends_bp.route('/claim_ref_earnings', methods=['POST'])
+@friends_bp.route('/friends/claim-earnings', methods=['POST'])
 @friends_bp.route('/api/friends/claim-earnings', methods=['POST'])
 @friends_bp.route('/api/friends/claim_ref_earnings', methods=['POST'])
 def claim_ref_earnings():
@@ -66,10 +66,8 @@ def claim_ref_earnings():
 
     try:
         result = claim_ref_earnings_db(str(user_id))
-        if result.get("success"):
-            return jsonify(result), 200
-        else:
-            return jsonify(result), 400
+        status_code = 200 if result.get("success") else 400
+        return jsonify(result), status_code
     except Exception as e:
         print(f"❌ خطأ في API سحب الأرباح: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء عملية السحب"}), 500
@@ -77,6 +75,7 @@ def claim_ref_earnings():
 
 @friends_bp.route('/claim-task', methods=['POST'])
 @friends_bp.route('/claim_ref_task', methods=['POST'])
+@friends_bp.route('/friends/claim-task', methods=['POST'])
 @friends_bp.route('/api/friends/claim-task', methods=['POST'])
 @friends_bp.route('/api/friends/claim_ref_task', methods=['POST'])
 def claim_ref_task():
@@ -95,10 +94,8 @@ def claim_ref_task():
 
     try:
         result = claim_ref_task_db(str(user_id), task_id, reward, req_friends)
-        if result.get("success"):
-            return jsonify(result), 200
-        else:
-            return jsonify(result), 400
+        status_code = 200 if result.get("success") else 400
+        return jsonify(result), status_code
     except Exception as e:
         print(f"❌ خطأ في API استلام مكافأة المهمة: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء استلام المكافأة"}), 500
