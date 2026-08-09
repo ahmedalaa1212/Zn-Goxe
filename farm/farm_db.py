@@ -48,7 +48,8 @@ def get_game_settings(force_refresh=False):
 
     db = get_db()
     try:
-        doc_ref = db.collection('settings').document('game_settings')
+        # تم التعديل إلى farm_settings بدلاً من game_settings
+        doc_ref = db.collection('settings').document('farm_settings')
         doc = doc_ref.get()
         if doc.exists:
             data = doc.to_dict() or DEFAULT_GAME_SETTINGS
