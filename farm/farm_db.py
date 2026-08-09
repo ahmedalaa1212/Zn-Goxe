@@ -9,21 +9,34 @@ CACHE_TTL_SECONDS = 60  # كاش لمدة دقيقة لحماية كوتا ال�
 
 # ==================== الإعدادات الافتراضية للمزرعة ====================
 DEFAULT_GAME_SETTINGS = {
+    # أولاً: المكافآت اليومية (30 يوم - المجموع 20,000 ZN)
     "daily_rewards": [
         100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
         600, 600, 650, 650, 700, 700, 750, 750, 800, 800,
         850, 850, 900, 900, 950, 950, 1000, 1000, 1100, 1250
     ],
+    # ثانياً: معزز التعدين اليومي (Lifetime Boost)
     "mining_config": {
-        "daily_boost_reward": 0.5,       # مقدار زيادة السرعة اليومية
-        "max_daily_boost_rate": 15.0,    # حد سرعة التعزيز
-        "boost_max_reward_coins": 50.0,  # المكافأة المالية بعد وصول الحد
+        "daily_boost_reward": 0.5,       # زيادة دائمية +0.5 ZN/ساعة
+        "max_daily_boost_rate": 15.0,    # أقصى حد للسرعة المكتسبة من التعزيز (15 ZN/h)
+        "boost_max_reward_coins": 50.0,  # المكافأة المباشرة عند تجاوز الحد (50 ZN)
         "claim_cooldown_seconds": 15     # كولدون التجميع الرئيسي
     },
+    # ثالثاً: سعات المخازن وأسعار الشراء
     "storage_capacities": {
-        "0": 100.0, "1": 300.0, "2": 800.0, "3": 2000.0, "4": 5000.0,
-        "5": 12000.0, "6": 28000.0, "7": 65000.0, "8": 150000.0, "9": 350000.0, "10": 800000.0
+        "0": {"capacity": 100.0, "cost": 0.0},
+        "1": {"capacity": 300.0, "cost": 3000.0},
+        "2": {"capacity": 800.0, "cost": 8500.0},
+        "3": {"capacity": 2000.0, "cost": 25000.0},
+        "4": {"capacity": 5000.0, "cost": 70000.0},
+        "5": {"capacity": 12000.0, "cost": 180000.0},
+        "6": {"capacity": 28000.0, "cost": 450000.0},
+        "7": {"capacity": 65000.0, "cost": 1100000.0},
+        "8": {"capacity": 150000.0, "cost": 2800000.0},
+        "9": {"capacity": 350000.0, "cost": 7000000.0},
+        "10": {"capacity": 800000.0, "cost": 18000000.0}
     },
+    # رابعاً: ترقيات سرعة التعدين
     "upgrade_config": {
         "1": {"base_cost": 3500.0, "rate_bonus": 5.0, "price": 3500.0, "rate": 5.0},
         "2": {"base_cost": 11500.0, "rate_bonus": 15.0, "price": 11500.0, "rate": 15.0},
@@ -89,11 +102,12 @@ def get_base_storage_capacity(storage_level, settings=None):
 
     caps = settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
 
-    if str(lvl) in caps and isinstance(caps[str(lvl)], dict):
-        return float(caps[str(lvl)].get("capacity", 100.0))
-
-    val = caps.get(str(lvl)) or caps.get(lvl) or 100.0
-    return float(val)
+    val = caps.get(str(lvl)) or caps.get(lvl)
+    if isinstance(val, dict):
+        return float(val.get("capacity", 100.0))
+    elif val is not None:
+        return float(val)
+    return 100.0
 
 
 def calculate_user_max_cap(user_data, settings=None):
@@ -175,7 +189,7 @@ def get_or_create_user_farm_data(user_id_str):
     user_data["balance"] = round(float(user_data.get("balance", 0.0)), 2)
     user_data["unclaimed"] = calculate_accrued_mined(user_data, now, expected_max_cap)
 
-    # حساب موقف التسجيل اليومي
+    # حساب موقف التسجيل اليومي والالتزام بالمنطق المطلوب
     today_str = now.strftime('%Y-%m-%d')
     yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
     last_daily_claim = user_data.get("last_daily_claim_date")
@@ -184,8 +198,10 @@ def get_or_create_user_farm_data(user_id_str):
     if last_daily_claim == today_str:
         effective_daily_day = raw_daily_day
     elif last_daily_claim == yesterday_str:
+        # يتقدم يومياً ويستقر في اليوم الـ 30 طالما لم ينقطع
         effective_daily_day = min(raw_daily_day + 1, 30) if raw_daily_day < 30 else 30
     else:
+        # عقوبة إعادة العداد لليوم الأول عند الانقطاع
         effective_daily_day = 1
 
     user_data["daily_day"] = effective_daily_day
@@ -256,7 +272,6 @@ def claim_mined_tokens_db(user_id_str):
     transaction = db.transaction()
     result = run_claim_transaction(transaction, user_ref)
 
-    # إضافة مكافأة الإحالة تلقائياً للمُحيل
     if result.get("success") and result.get("referrer_id") and result.get("claimed_amount", 0) > 0:
         try:
             from friends.friends_db import add_referral_reward
@@ -274,7 +289,7 @@ def claim_mined_tokens_db(user_id_str):
 
 
 def buy_upgrade_db(user_id_str, level):
-    """شراء ترقية سرعة التعدين للمزرعة بدون قفزات مفاجئة في الرصيد وحفظ التعدين المتراكم"""
+    """شراء ترقية سرعة التعدين مع تطبيق شرط حد الـ 10 مرات فقط لكل مستوى"""
     level_str = str(level)
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
@@ -307,8 +322,9 @@ def buy_upgrade_db(user_id_str, level):
         lvl_key = f"lvl{level_str}"
         current_count = int(upgrades.get(lvl_key, 0))
 
+        # تطبيق الحد الأقصى للشراء 10 مرات
         if current_count >= 10:
-            return {"success": False, "error": "لقد وصلت للحد الأقصى لهذا المستوى"}
+            return {"success": False, "error": "لقد وصلت للحد الأقصى للشراء لهذا المستوى (10/10)"}
 
         if int(level_str) > 1:
             prev_lvl = str(int(level_str) - 1)
@@ -323,12 +339,10 @@ def buy_upgrade_db(user_id_str, level):
         max_cap = calculate_user_max_cap(user_data, game_settings)
         mined_amount = calculate_accrued_mined(user_data, now, max_cap)
 
-        # خصم تكلفة الترقية فقط من الرصيد بدون إضافة المحصول المتراكم مجدداً لتجنب القفزة
         new_balance = round(current_balance - cost, 2)
         current_hourly_rate = float(user_data.get("hourly_rate", 0.0))
         new_hourly_rate = round(current_hourly_rate + rate_bonus, 2)
 
-        # ضبط وقت التعدين ليبقى نفس المحصول المعدن مستمراً بالسرعة الجديدة
         if new_hourly_rate > 0 and mined_amount > 0:
             equiv_seconds = (mined_amount / (new_hourly_rate / 3600.0))
             new_last_claim_iso = (now - timedelta(seconds=equiv_seconds)).isoformat()
@@ -361,7 +375,6 @@ def buy_upgrade_db(user_id_str, level):
     transaction = db.transaction()
     res = run_upgrade_transaction(transaction, user_ref)
 
-    # مزامنة عدد الترقيات لدى المُحيل لتحديث حالة التأهيل للمهام فوراً
     if res.get("success") and res.get("referrer_id"):
         try:
             ref_id = str(res["referrer_id"])
@@ -377,7 +390,7 @@ def buy_upgrade_db(user_id_str, level):
 
 
 def claim_daily_reward_db(user_id_str):
-    """استلام المكافأة اليومية (30 يوم)"""
+    """استلام المكافأة اليومية (مدرجة حتى 30 يوم)"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -435,7 +448,7 @@ def claim_daily_reward_db(user_id_str):
 
 
 def claim_daily_boost_db(user_id_str):
-    """تفعيل التعزيز اليومي وتعديل سرعة التعدين بسلاسة دون قفزات مفاجئة للرصيد"""
+    """تفعيل المعزز اليومي (زيادة دائمية +0.5 ZN/h أو 50 ZN عند بلوغ 15 ZN/h)"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -470,7 +483,7 @@ def claim_daily_boost_db(user_id_str):
         mined_amount = calculate_accrued_mined(user_data, now, max_cap)
 
         if daily_boost_rate < max_daily_boost_rate:
-            # إضافة سرعة جديدة وإعادة ضبط وقت التعدين للحفاظ على المحصول المتراكم
+            # إضافة سرعة دائمية جديدة وحفظ المحصول الحالي
             new_daily_boost_rate = round(daily_boost_rate + daily_boost_reward, 2)
             new_hourly_rate = round(current_hourly_rate + daily_boost_reward, 2)
 
@@ -502,7 +515,7 @@ def claim_daily_boost_db(user_id_str):
                 "boost_amount": daily_boost_reward
             }
         else:
-            # عند وصول حد السرعة الأقصى يضاف مبلغ المكافأة مباشرة للرصيد
+            # عند إدراك حد السرعة الأقصى (15 ZN/h) تحول الإعلانات لإعطاء 50 عملة مباشراً
             final_balance = round(current_balance + boost_max_reward_coins, 2)
 
             transaction.update(ref, {
