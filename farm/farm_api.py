@@ -6,7 +6,8 @@ from farm.farm_db import (
     buy_upgrade_db,
     claim_daily_reward_db,
     claim_daily_boost_db,
-    parse_daily_rewards
+    parse_daily_rewards,
+    DEFAULT_GAME_SETTINGS
 )
 
 farm_bp = Blueprint('farm', __name__)
@@ -15,7 +16,7 @@ farm_bp = Blueprint('farm', __name__)
 @farm_bp.route('/farm/player_data', methods=['GET', 'POST'])
 @farm_bp.route('/api/farm/player_data', methods=['GET', 'POST'])
 def get_player_data():
-    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية"""
+    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية بالكامل"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success: 
@@ -28,6 +29,8 @@ def get_player_data():
         parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
         upgrade_configs = game_settings.get("upgrade_config") or {}
         upgrade_costs = {int(k): float(v.get("base_cost", v.get("price", 0))) for k, v in upgrade_configs.items()}
+        
+        storage_configs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
         
         mining_cfg = game_settings.get("mining_config", {})
         daily_boost_reward = round(float(mining_cfg.get("daily_boost_reward", 0.5)), 2)
@@ -43,6 +46,7 @@ def get_player_data():
             "game_config": {
                 "daily_rewards": parsed_rewards,
                 "upgrade_costs": upgrade_costs,
+                "storage_config": storage_configs,
                 "daily_boost_reward": daily_boost_reward,
                 "max_daily_boost_rate": max_daily_boost_rate,
                 "boost_max_reward_coins": boost_max_reward_coins
