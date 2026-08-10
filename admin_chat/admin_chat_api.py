@@ -13,13 +13,29 @@ from admin_chat.admin_chat_db import (
 )
 
 admin_chat_bp = Blueprint('admin_chat', __name__)
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551")
 
 def check_admin_auth():
+    """التحقق الديناميكي من صلاحيات الأدمن مع قراءة المترجم وقت الاستدعاء"""
+    bot_token = os.environ.get("BOT_TOKEN")
+    admin_id = str(os.environ.get("ADMIN_ID", "5102387551"))
     init_data = request.headers.get('X-Telegram-Init-Data')
-    if not init_data or not BOT_TOKEN:
+
+    if not init_data:
+        print("⚠️ [Auth Error] لم يتم استقبال X-Telegram-Init-Data في الهيدر")
         return None
+
+    if not bot_token:
+        print("⚠️ [Auth Warning] متغير BOT_TOKEN غير معرف، يتم الفحص البديل عبر معرّف الأدمن")
+        try:
+            parsed_data = dict(urllib.parse.parse_qsl(init_data))
+            user_data = json.loads(parsed_data.get('user', '{}'))
+            u_id = str(user_data.get('id', ''))
+            if u_id == admin_id:
+                return u_id
+        except Exception:
+            pass
+        return None
+
     try:
         parsed_data = dict(urllib.parse.parse_qsl(init_data))
         hash_val = parsed_data.pop('hash', None)
@@ -27,26 +43,29 @@ def check_admin_auth():
             return None
         
         data_check_str = '\n'.join([f"{k}={v}" for k, v in sorted(parsed_data.items())])
-        secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+        secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
         calc_hash = hmac.new(secret_key, data_check_str.encode(), hashlib.sha256).hexdigest()
         
         if calc_hash == hash_val:
             user_data = json.loads(parsed_data.get('user', '{}'))
-            u_id = str(user_data.get('id'))
+            u_id = str(user_data.get('id', ''))
             db_conn = get_db()
-            if u_id == str(ADMIN_ID) or (db_conn and db_conn.collection('moderators').document(u_id).get().exists):
+            if u_id == admin_id or (db_conn and db_conn.collection('moderators').document(u_id).get().exists):
                 return u_id
+        else:
+            print("❌ [Auth Error] عدم تطابق الـ Hash مع توكن البوت")
         return None
     except Exception as e:
-        print(f"❌ Auth Error: {e}")
+        print(f"❌ [Auth Error] خطأ أثناء فحص البيانات: {e}")
         return None
 
 def send_telegram_notification(chat_id, text):
     """إرسال إشعار للمستخدم عبر بوت التليجرام مباشرة عند رد الأدمن"""
-    if not BOT_TOKEN or not chat_id:
+    bot_token = os.environ.get("BOT_TOKEN")
+    if not bot_token or not chat_id:
         return
     try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         payload = {
             "chat_id": chat_id,
             "text": f"💬 **رد جديد من الدعم الفني:**\n\n{text}",
@@ -60,13 +79,13 @@ def send_telegram_notification(chat_id, text):
 @admin_chat_bp.route('/tickets', methods=['GET'])
 def get_tickets():
     if not check_admin_auth():
-        return jsonify({"success": False, "message": "غير مصرح"}), 403
+        return jsonify({"success": False, "message": "غير مصرح (تأكد من فتح اللوحة من داخل تطبيق التليجرام)"}), 403
 
     try:
         tickets = get_all_tickets_from_db()
         return jsonify({"success": True, "tickets": tickets}), 200
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": f"خطأ قاعدة البيانات: {str(e)}"}), 500
 
 # 2. جلب تذكرة واحدة فقط
 @admin_chat_bp.route('/ticket/<ticket_id>', methods=['GET'])
@@ -81,7 +100,7 @@ def get_single_ticket(ticket_id):
 
         return jsonify({"success": True, "ticket": ticket_data}), 200
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": f"خطأ: {str(e)}"}), 500
 
 # 3. تعيين التذكرة كـ "مقروءة" عند فتحها
 @admin_chat_bp.route('/mark_read', methods=['POST'])
