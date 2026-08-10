@@ -6,7 +6,7 @@
     let lastMsgCount = 0;
     let tickCounter = 0;
 
-    // جلب كل التذاكر
+    // جلب كل التذاكر مع معالجة الأخطاء بأمان بدون undefined
     window.fetchAdminTickets = async function() {
         if (isFetching || currentTicketId) return;
         isFetching = true;
@@ -16,18 +16,25 @@
             const response = await fetch('/api/admin-chat/tickets', {
                 headers: { 'X-Telegram-Init-Data': window.Telegram?.WebApp?.initData || "" }
             });
-            const data = await response.json();
+            
+            let data = {};
+            try {
+                data = await response.json();
+            } catch (jsonErr) {
+                data = { success: false, message: `استجابة غير صالحة من السيرفر (${response.status})` };
+            }
 
             if (data.success) {
                 allTickets = data.tickets || [];
                 updateUnreadBadge(allTickets);
                 filterTickets();
             } else if (container) {
-                container.innerHTML = `<p style="color:#ef4444; text-align:center;">${data.message}</p>`;
+                const errorText = data.message || data.error || 'حدث خطأ غير معروف في الاتصال';
+                container.innerHTML = `<p style="color:#ef4444; text-align:center;">${errorText}</p>`;
             }
         } catch (e) {
             if (container && allTickets.length === 0) {
-                container.innerHTML = '<p style="color:#ef4444; text-align:center;">فشل الاتصال بالسيرفر</p>';
+                container.innerHTML = `<p style="color:#ef4444; text-align:center;">فشل الاتصال بالسيرفر (${e.message || 'خطأ شبكة'})</p>`;
             }
         } finally {
             isFetching = false;
@@ -236,7 +243,7 @@
             if (data.success) {
                 fetchSingleActiveTicket();
             } else {
-                alert("خطأ: " + data.message);
+                alert("خطأ: " + (data.message || data.error || "فشل الإرسال"));
             }
         } catch (e) {
             alert("فشل الإرسال");
@@ -259,7 +266,7 @@
             if (data.success) {
                 closeChatView();
             } else {
-                alert("خطأ: " + data.message);
+                alert("خطأ: " + (data.message || data.error || "فشل الإغلاق"));
             }
         } catch (e) {
             alert("فشل الإغلاق");
@@ -286,4 +293,3 @@
     fetchAdminTickets();
     startSmartPolling();
 })();
-
