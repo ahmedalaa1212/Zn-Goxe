@@ -5,7 +5,8 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 from admin_app import app, database
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+# قراءة توكن بوت الأدمن ADMIN_BOT_TOKEN أولاً، والاعتماد على BOT_TOKEN كاحتياطي
+BOT_TOKEN = os.environ.get("ADMIN_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
 
 # جلب رابط الموقع وإضافة مسار /admin لضمان فتح لوحة التحكم بدلاً من واجهة المستخدم
 BASE_URL = os.environ.get("WEB_URL", "https://admin-zn-production.up.railway.app/").strip().rstrip('/')
