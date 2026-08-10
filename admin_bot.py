@@ -68,16 +68,22 @@ if bot:
             bot.answer_callback_query(call.id, "⛔ عذراً، البوت مخصص للإدارة فقط.", show_alert=True)
             return
 
+# --- تشغيل البوت تلقائياً في الخلفية (Thread) عند استدعاء الملف بواسطة Gunicorn ---
+def start_bot_polling():
+    if bot:
+        print("🤖 بوت أزرار الأدمن قيد التشغيل عبر Background Thread...")
+        try:
+            bot.infinity_polling(skip_pending=True)
+        except Exception as e:
+            print(f"⚠️ Error in bot polling: {e}")
+
+if bot:
+    bot_thread = threading.Thread(target=start_bot_polling, daemon=True)
+    bot_thread.start()
+
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 if __name__ == "__main__":
-    print("🌐 جاري تشغيل سيرفر الويب الموحد للوحة التحكم...")
-    threading.Thread(target=run_web_server, daemon=True).start()
-    
-    if bot:
-        print("🤖 بوت أزرار الأدمن قيد التشغيل...")
-        bot.infinity_polling()
-    else:
-        print("⚠️ لم يتم العثور على BOT_TOKEN، يعمل سيرفر الويب فقط.")
+    run_web_server()
