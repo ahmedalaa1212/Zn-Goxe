@@ -6,14 +6,14 @@
     let lastMsgCount = 0;
     let tickCounter = 0;
 
-    // جلب كل التذاكر (يستدعى فقط أثناء التواجد في الشاشة الرئيسية)
+    // جلب كل التذاكر
     window.fetchAdminTickets = async function() {
         if (isFetching || currentTicketId) return;
         isFetching = true;
 
         const container = document.getElementById('tickets-container');
         try {
-            const response = await fetch('/api/admin/chat/tickets', {
+            const response = await fetch('/api/admin-chat/tickets', {
                 headers: { 'X-Telegram-Init-Data': window.Telegram?.WebApp?.initData || "" }
             });
             const data = await response.json();
@@ -34,13 +34,13 @@
         }
     };
 
-    // جلب تذكرة واحدة فقط بطلب اقتصادي (1 Read) أثناء فتح المحادثة
+    // جلب تذكرة واحدة أثناء فتح المحادثة
     async function fetchSingleActiveTicket() {
         if (!currentTicketId || isFetching) return;
         isFetching = true;
 
         try {
-            const response = await fetch(`/api/admin/chat/ticket/${currentTicketId}`, {
+            const response = await fetch(`/api/admin-chat/ticket/${currentTicketId}`, {
                 headers: { 'X-Telegram-Init-Data': window.Telegram?.WebApp?.initData || "" }
             });
             const data = await response.json();
@@ -64,7 +64,7 @@
 
     async function markTicketAsReadSilent(ticketId) {
         try {
-            await fetch('/api/admin/chat/mark_read', {
+            await fetch('/api/admin-chat/mark_read', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -102,7 +102,7 @@
             const uInfo = t.user_info || {};
             const name = (uInfo.first_name || '').toLowerCase();
             const username = (uInfo.username || '').toLowerCase();
-            const uId = String(t.user_id || uInfo.id || '');
+            const uId = String(t.uid || t.user_id || uInfo.id || '');
 
             return tId.includes(query) || name.includes(query) || username.includes(query) || uId.includes(query);
         });
@@ -224,7 +224,7 @@
         input.value = '';
 
         try {
-            const res = await fetch('/api/admin/chat/reply', {
+            const res = await fetch('/api/admin-chat/reply', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -247,7 +247,7 @@
         if (!currentTicketId || !confirm("هل أنت تأكد من إغلاق التذكرة؟")) return;
 
         try {
-            const res = await fetch('/api/admin/chat/close', {
+            const res = await fetch('/api/admin-chat/close', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -266,7 +266,6 @@
         }
     };
 
-    // حلقة تحديث ذكية (3 ثوانٍ للمحادثة المفتوحة، و8 ثوانٍ للقائمة العامة)
     function startSmartPolling() {
         if (adminPollInterval) clearInterval(adminPollInterval);
         
@@ -275,10 +274,8 @@
 
             tickCounter++;
             if (currentTicketId) {
-                // محادثة مفتوحة: جلب التذكرة المحددة فقط كل 3 ثوانٍ
                 fetchSingleActiveTicket();
             } else {
-                // القائمة الرئيسية: التحديث كل 9 ثوانٍ (كل 3 دورات)
                 if (tickCounter % 3 === 0) {
                     fetchAdminTickets();
                 }
@@ -289,3 +286,4 @@
     fetchAdminTickets();
     startSmartPolling();
 })();
+
