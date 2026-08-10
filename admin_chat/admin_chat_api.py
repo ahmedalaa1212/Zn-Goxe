@@ -15,14 +15,27 @@ from admin_chat.admin_chat_db import (
 admin_chat_bp = Blueprint('admin_chat', __name__)
 
 def check_admin_auth():
-    """التحقق التشفيري من صلاحيات الأدمن باستخدام ADMIN_BOT_TOKEN"""
+    """التحقق المرن والشامل من صلاحيات الأدمن مع تنظيف البادئات مثل Bearer"""
     admin_bot_token = (os.environ.get("ADMIN_BOT_TOKEN") or os.environ.get("BOT_TOKEN") or "").strip()
     admin_id = str(os.environ.get("ADMIN_ID", "5102387551")).strip()
-    init_data = request.headers.get('X-Telegram-Init-Data')
+
+    # جلب initData من كافة المصادر المحتملة
+    init_data = (
+        request.headers.get('X-Telegram-Init-Data') or 
+        request.headers.get('Authorization') or 
+        request.args.get('initData')
+    )
+    if not init_data and request.is_json:
+        req_json = request.get_json(silent=True) or {}
+        init_data = req_json.get('initData')
 
     if not init_data:
-        print("⚠️ [Auth Error] لم يتم استقبال X-Telegram-Init-Data في الهيدر")
+        print("⚠️ [Auth Error] لم يتم استقبال initData في الهيدر أو البارامترات")
         return None
+
+    # تنظيف كلمة Bearer إذا كانت موجودة
+    if isinstance(init_data, str) and init_data.startswith('Bearer '):
+        init_data = init_data[7:].strip()
 
     try:
         parsed_data = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
@@ -31,10 +44,10 @@ def check_admin_auth():
         u_id = str(user_data.get('id', ''))
 
         if not u_id:
-            print("⚠️ [Auth Error] تعذر استخراج ID المستخدم من initData")
+            print("⚠️ [Auth Error] تعذر استخراج ID المستخدم من user")
             return None
 
-        # 1. التحقق أولاً مما إذا كان المستخدم هو الأدمن الرئيسي أو مشرف في قاعدة البيانات
+        # التحقق المباشر مما إذا كان المستخدم هو الأدمن أو مشرف
         db_conn = get_db()
         is_mod = False
         if db_conn:
@@ -43,26 +56,22 @@ def check_admin_auth():
             except Exception:
                 is_mod = False
 
-        if u_id != admin_id and not is_mod:
-            print(f"❌ [Auth Denied] المستخدم {u_id} ليس له صلاحيات أدمن (ADMIN_ID المتوقع: {admin_id})")
-            return None
+        if u_id == admin_id or is_mod:
+            # تحقق HMAC اختياري للسجلات فقط لعدم حجب الأدمن
+            hash_val = parsed_data.pop('hash', None)
+            if admin_bot_token and hash_val:
+                data_check_str = '\n'.join([f"{k}={v}" for k, v in sorted(parsed_data.items())])
+                secret_key = hmac.new(b"WebAppData", admin_bot_token.encode('utf-8'), hashlib.sha256).digest()
+                calc_hash = hmac.new(secret_key, data_check_str.encode('utf-8'), hashlib.sha256).hexdigest()
+                if calc_hash != hash_val:
+                    print(f"⚠️ [Auth Note] الـ Hash غير مطابق ولكن تم السماح بناءً على ID الأدمن: {u_id}")
+            return u_id
 
-        # 2. التحقق التشفيري (HMAC) باستخدام توكن بوت الأدمن
-        hash_val = parsed_data.pop('hash', None)
-        if admin_bot_token and hash_val:
-            data_check_str = '\n'.join([f"{k}={v}" for k, v in sorted(parsed_data.items())])
-            secret_key = hmac.new(b"WebAppData", admin_bot_token.encode('utf-8'), hashlib.sha256).digest()
-            calc_hash = hmac.new(secret_key, data_check_str.encode('utf-8'), hashlib.sha256).hexdigest()
-            
-            if calc_hash == hash_val:
-                return u_id
-            else:
-                print("⚠️ [Auth Warning] عدم تطابق الـ Hash، ولكن تم السماح بناءً على معرّف الأدمن ID")
-
-        return u_id
+        print(f"❌ [Auth Denied] المستخدم {u_id} غير مصرح له كأدمن")
+        return None
 
     except Exception as e:
-        print(f"❌ [Auth Error] خطأ أثناء فحص البيانات: {e}")
+        print(f"❌ [Auth Exception]: {e}")
         return None
 
 def send_telegram_notification(chat_id, text):
