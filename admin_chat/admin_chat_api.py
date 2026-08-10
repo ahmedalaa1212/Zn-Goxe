@@ -68,7 +68,7 @@ def get_tickets():
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
-# 2. جلب تذكرة واحدة فقط (لتوفير قراءات Firestore أثناء فتح المحادثة)
+# 2. جلب تذكرة واحدة فقط
 @admin_chat_bp.route('/ticket/<ticket_id>', methods=['GET'])
 def get_single_ticket(ticket_id):
     if not check_admin_auth():
