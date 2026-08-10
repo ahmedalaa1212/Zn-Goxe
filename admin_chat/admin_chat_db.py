@@ -26,7 +26,7 @@ def get_all_tickets_from_db():
     return tickets
 
 def get_ticket_by_id_from_db(ticket_id):
-    """جلب تذكرة واحدة فقط برقم التذكرة لتوفير قراءات Firestore"""
+    """جلب تذكرة واحدة فقط برقم التذكرة"""
     db_conn = get_db()
     if not db_conn:
         return None
@@ -65,7 +65,7 @@ def add_admin_reply_to_db(ticket_id, text, now_str):
         return False, None, "التذكرة غير موجودة"
 
     ticket_data = t_doc.to_dict() or {}
-    user_id = ticket_data.get('user_id') or ticket_data.get('user_info', {}).get('id')
+    user_id = ticket_data.get('uid') or ticket_data.get('user_id') or ticket_data.get('user_info', {}).get('id')
 
     new_msg = {
         'sender': 'admin',
