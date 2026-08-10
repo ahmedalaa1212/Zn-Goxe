@@ -5,10 +5,8 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 from admin_app import app, database
 
-# قراءة توكن بوت الأدمن ADMIN_BOT_TOKEN أولاً، والاعتماد على BOT_TOKEN كاحتياطي
 BOT_TOKEN = os.environ.get("ADMIN_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
 
-# جلب رابط الموقع وإضافة مسار /admin لضمان فتح لوحة التحكم بدلاً من واجهة المستخدم
 BASE_URL = os.environ.get("WEB_URL", "https://admin-zn-production.up.railway.app/").strip().rstrip('/')
 ADMIN_WEBAPP_URL = BASE_URL if BASE_URL.endswith('/admin') else f"{BASE_URL}/admin"
 
@@ -41,7 +39,6 @@ if bot:
             return
 
         markup = InlineKeyboardMarkup()
-        # توجيه الـ WebApp مباشرة لرابط لوحة الأدمن
         webapp = WebAppInfo(url=ADMIN_WEBAPP_URL)
         btn = InlineKeyboardButton(text="💻 فتح لوحة التحكم", web_app=webapp)
         markup.add(btn)
@@ -69,7 +66,6 @@ if bot:
             bot.answer_callback_query(call.id, "⛔ عذراً، البوت مخصص للإدارة فقط.", show_alert=True)
             return
 
-# --- تشغيل البوت تلقائياً في الخلفية (Thread) عند استدعاء الملف بواسطة Gunicorn ---
 def start_bot_polling():
     if bot:
         print("🤖 بوت أزرار الأدمن قيد التشغيل عبر Background Thread...")
