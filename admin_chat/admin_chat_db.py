@@ -8,22 +8,38 @@ def get_db():
         return database.initialize_firebase()
     return database.db
 
-def get_all_tickets_from_db():
-    """جلب جميع تذاكر الدعم الفني مرتبة حسب أحدث تاريخ تحديث"""
+def get_all_tickets_from_db(limit=50):
+    """جلب أحدث تذاكر الدعم الفني مقيدة بالعدد للحد من قراءات الفايربيس وتسريع الاستجابة"""
     db_conn = get_db()
     if not db_conn:
         return []
     
-    tickets_ref = db_conn.collection('support_tickets').stream()
-    tickets = []
-    for doc in tickets_ref:
-        t = doc.to_dict() or {}
-        if 'ticket_id' not in t:
-            t['ticket_id'] = doc.id
-        tickets.append(t)
+    try:
+        # الترتيب والتقييد المباشر من Firestore لتوفير الاستهلاك والسرعة
+        tickets_ref = db_conn.collection('support_tickets')\
+            .order_by('updated_at', direction=firestore.Query.DESCENDING)\
+            .limit(limit)\
+            .stream()
         
-    tickets.sort(key=lambda x: str(x.get('updated_at', '')), reverse=True)
-    return tickets
+        tickets = []
+        for doc in tickets_ref:
+            t = doc.to_dict() or {}
+            if 'ticket_id' not in t:
+                t['ticket_id'] = doc.id
+            tickets.append(t)
+        return tickets
+    except Exception as e:
+        print(f"⚠️ [Firestore Query Warning]: {e}")
+        # احتياطي في حال عدم إعداد الفهرس (Index) في Firestore
+        tickets_ref = db_conn.collection('support_tickets').limit(limit).stream()
+        tickets = []
+        for doc in tickets_ref:
+            t = doc.to_dict() or {}
+            if 'ticket_id' not in t:
+                t['ticket_id'] = doc.id
+            tickets.append(t)
+        tickets.sort(key=lambda x: str(x.get('updated_at', '')), reverse=True)
+        return tickets
 
 def get_ticket_by_id_from_db(ticket_id):
     """جلب تذكرة واحدة فقط برقم التذكرة"""
@@ -42,16 +58,17 @@ def get_ticket_by_id_from_db(ticket_id):
     return ticket_data
 
 def mark_ticket_read_in_db(ticket_id):
-    """تحديث حالة التذكرة إلى مقروءة بواسطة الأدمن"""
+    """تحديث حالة التذكرة إلى مقروءة بواسطة الأدمن بشكل مباشر لتوفير قراءة زائدة"""
     db_conn = get_db()
     if not db_conn:
         return False
         
-    t_ref = db_conn.collection('support_tickets').document(str(ticket_id))
-    if t_ref.get().exists:
+    try:
+        t_ref = db_conn.collection('support_tickets').document(str(ticket_id))
         t_ref.update({'has_unread_admin': False})
         return True
-    return False
+    except Exception:
+        return False
 
 def add_admin_reply_to_db(ticket_id, text, now_str):
     """إضافة رد الأدمن وتحديث بيانات التذكرة، وإرجاع user_id لإرسال الإشعار"""
@@ -88,10 +105,13 @@ def close_ticket_in_db(ticket_id, now_str):
     if not db_conn:
         return False
 
-    t_ref = db_conn.collection('support_tickets').document(str(ticket_id))
-    t_ref.update({
-        'status': 'closed',
-        'has_unread_admin': False,
-        'updated_at': now_str
-    })
-    return True
+    try:
+        t_ref = db_conn.collection('support_tickets').document(str(ticket_id))
+        t_ref.update({
+            'status': 'closed',
+            'has_unread_admin': False,
+            'updated_at': now_str
+        })
+        return True
+    except Exception:
+        return False
