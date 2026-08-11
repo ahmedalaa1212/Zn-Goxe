@@ -1,241 +1,345 @@
+import time
+from typing import Dict, Any, Tuple, List, Optional
 from firebase_admin import firestore
-import database
 
-def update_zn_go_config(min_bet=None, target_margin=None, default_broken_coins=None):
-    """تحديث إعدادات لعبة شبكة ZN Go ونسب الأرباح من لوحة التحكم"""
+# استيراد كائن قاعدة البيانات Firestore الرئيسي بشكل آمن
+try:
+    from database import db
+except ImportError:
     try:
-        db = database.get_db()
-        config_ref = db.collection("app_config").document("game_settings")
-        doc = config_ref.get()
-        current_data = doc.to_dict() or {} if doc.exists else {}
-        zn_cfg = current_data.get("zn_go_config") or current_data.get("grid_game_config", {})
+        db = firestore.client()
+    except Exception:
+        db = None
 
-        if min_bet is not None:
-            zn_cfg["min_bet"] = float(min_bet)
-        if target_margin is not None:
-            val = float(target_margin)
-            zn_cfg["target_margin"] = val / 100.0 if val > 1.0 else val
-        if default_broken_coins is not None:
-            zn_cfg["default_broken_coins"] = int(default_broken_coins)
 
-        config_ref.set({"zn_go_config": zn_cfg, "grid_game_config": zn_cfg}, merge=True)
-        database.clear_settings_cache()
+def get_db_instance():
+    """جلب كائن قاعدة البيانات مع التحقق من الاتصال"""
+    return db
+
+
+# ==========================================
+# 1. إعدادات الألعاب وإحصائيات الأرباح (Config & Stats)
+# ==========================================
+
+def get_game_settings() -> Dict[str, Any]:
+    """جلب إعدادات الألعاب العامة من مستند settings/games في Firestore"""
+    if not db:
+        return {}
+    try:
+        doc = db.collection('settings').document('games').get()
+        return doc.to_dict() if doc.exists else {}
+    except Exception as e:
+        print(f"⚠️ [games_db] Error fetching game settings: {e}")
+        return {}
+
+
+def get_grid_36_config() -> Dict[str, Any]:
+    """جلب إعدادات لعبة شبكة ZN Go (36 صندوقاً)"""
+    default_cfg = {
+        "bot_margin": 70.0,
+        "player_profit_percentage": 30.0,
+        "min_bet": 100.0,
+        "enabled": True
+    }
+    if not db:
+        return default_cfg
+    try:
+        doc = db.collection('settings').document('grid_36').get()
+        if doc.exists:
+            data = doc.to_dict() or {}
+            default_cfg.update(data)
+            return default_cfg
+        
+        # البحث في الإعدادات العامة كبديل
+        gen_settings = get_game_settings()
+        grid_data = gen_settings.get('grid_36', {})
+        if grid_data:
+            default_cfg.update(grid_data)
+        return default_cfg
+    except Exception as e:
+        print(f"⚠️ [games_db] Error fetching grid_36 config: {e}")
+        return default_cfg
+
+
+def get_big_arena_config() -> Dict[str, Any]:
+    """جلب إعدادات لعبة الساحة الكبرى (Arena)"""
+    default_cfg = {
+        "bot_margin": 70.0,
+        "player_profit_percentage": 30.0,
+        "min_bet": 350.0,
+        "entry_fee": 350.0,
+        "enabled": True
+    }
+    if not db:
+        return default_cfg
+    try:
+        doc = db.collection('settings').document('big_arena').get()
+        if doc.exists:
+            data = doc.to_dict() or {}
+            default_cfg.update(data)
+            return default_cfg
+        
+        gen_settings = get_game_settings()
+        arena_data = gen_settings.get('arena_config', {})
+        if arena_data:
+            default_cfg.update(arena_data)
+        return default_cfg
+    except Exception as e:
+        print(f"⚠️ [games_db] Error fetching big_arena config: {e}")
+        return default_cfg
+
+
+def get_game_profit_stats() -> Dict[str, Any]:
+    """جلب ملخص إحصائيات الأرباح والمخاطرة للبوت واللاعبين"""
+    default_stats = {
+        "actual_bot_percent": 70.0,
+        "total_bot_profit": 0.0,
+        "total_player_profit": 0.0,
+        "total_bets_amount": 0.0,
+        "total_wins": 0,
+        "total_bets_count": 0
+    }
+    if not db:
+        return default_stats
+    try:
+        doc = db.collection('game_stats').document('summary').get()
+        if doc.exists:
+            data = doc.to_dict() or {}
+            total_bets = float(data.get('total_bets_amount', 0.0))
+            bot_profit = float(data.get('total_bot_profit', 0.0))
+            
+            # احتساب النسبة المئوية الفعلية لأرباح البوت
+            actual_pct = (bot_profit / total_bets * 100.0) if total_bets > 0 else 70.0
+            data['actual_bot_percent'] = max(0.0, min(100.0, actual_pct))
+            default_stats.update(data)
+        return default_stats
+    except Exception as e:
+        print(f"⚠️ [games_db] Error fetching game profit stats: {e}")
+        return default_stats
+
+
+def should_user_win_next_step(uid: str = None) -> bool:
+    """تحديد إمكانية فوز المستخدم في الخطوة القادمة بناءً على نسبة أرباح البوت المستهدفة"""
+    try:
+        grid_cfg = get_grid_36_config()
+        player_pct = float(grid_cfg.get('player_profit_percentage', 30.0))
+        target_margin = (100.0 - player_pct) / 100.0 if player_pct <= 100.0 else 0.70
+
+        stats = get_game_profit_stats()
+        actual_margin = float(stats.get('actual_bot_percent', 70.0)) / 100.0
+
+        # إذا كانت أرباح البوت الحالية أقل من النسبة المستهدفة، يتم تقليل الفوز لحماية الخزينة
+        if actual_margin < target_margin:
+            return False
         return True
     except Exception as e:
-        print(f"❌ Error in update_zn_go_config: {e}")
+        print(f"⚠️ [games_db] Error calculating win condition: {e}")
+        return True
+
+
+# ==========================================
+# 2. تسجيل عمليات الرهان والأرباح وتحديث السجل
+# ==========================================
+
+def update_db_game_stats(bet_amount: float = 0.0, win_amount: float = 0.0) -> bool:
+    """تحديث إجمالي مراهنات وأرباح البوت واللاعبين في قاعدة البيانات لحظياً"""
+    if not db:
+        return False
+    try:
+        stats_ref = db.collection('game_stats').document('summary')
+        bot_profit_change = bet_amount - win_amount
+
+        update_payload = {}
+        if bet_amount > 0:
+            update_payload['total_bets_amount'] = firestore.Increment(bet_amount)
+            update_payload['total_bets_count'] = firestore.Increment(1)
+        if win_amount > 0:
+            update_payload['total_player_profit'] = firestore.Increment(win_amount)
+            update_payload['total_wins_count'] = firestore.Increment(1)
+            update_payload['total_wins'] = firestore.Increment(1)
+        if bot_profit_change != 0:
+            update_payload['total_bot_profit'] = firestore.Increment(bot_profit_change)
+
+        if update_payload:
+            stats_ref.set(update_payload, merge=True)
+        return True
+    except Exception as e:
+        print(f"⚠️ [games_db] Error updating game stats: {e}")
         return False
 
 
-update_grid_game_config = update_zn_go_config
-
-
-def get_arena_config():
-    """جلب إعدادات الساحة الكبرى من الفايربيس (مع استخدام الكاش)"""
+def record_bet_placed(tg_id: str, bet_amount: float) -> Tuple[bool, str]:
+    """تسجيل عملية وضع رهان جديد للمستخدم"""
+    if not db:
+        return True, "OK"
     try:
-        settings = database.get_game_settings() or {}
-        return settings.get(
-            "arena_config",
-            {
-                "entry_fee": 10.0,
-                "min_participants": 20,
-                "prize_pool_percentage": 0.30,
-                "target_margin": 0.70,
-            },
-        )
-    except Exception as e:
-        print(f"❌ Error fetching arena_config: {e}")
-        return {
-            "entry_fee": 10.0,
-            "min_participants": 20,
-            "prize_pool_percentage": 0.30,
-            "target_margin": 0.70,
-        }
-
-
-def update_arena_config(
-    entry_fee=None, min_participants=None, prize_pool_percentage=None, target_margin=None
-):
-    """تحديث إعدادات الساحة الكبرى في الفايربيس وتفريغ الكاش فوراً"""
-    try:
-        db = database.get_db()
-        config_ref = db.collection("app_config").document("game_settings")
-        doc = config_ref.get()
-        current_data = doc.to_dict() or {} if doc.exists else {}
-        arena_cfg = current_data.get("arena_config", {})
-
-        if entry_fee is not None:
-            arena_cfg["entry_fee"] = float(entry_fee)
-        if min_participants is not None:
-            arena_cfg["min_participants"] = int(min_participants)
-        if prize_pool_percentage is not None:
-            val = float(prize_pool_percentage)
-            arena_cfg["prize_pool_percentage"] = val / 100.0 if val > 1.0 else val
-        if target_margin is not None:
-            val = float(target_margin)
-            arena_cfg["target_margin"] = val / 100.0 if val > 1.0 else val
-
-        config_ref.set({"arena_config": arena_cfg}, merge=True)
-        database.clear_settings_cache()
-        return True
-    except Exception as e:
-        print(f"❌ Error in update_arena_config: {e}")
-        return False
-
-
-def record_bet_placed(tg_id, bet_amount):
-    """1. دالة تسجيل الرهان الأساسي وخصمه من رصيد المستخدم"""
-    try:
-        db = database.get_db()
-        bet = float(bet_amount)
-        if bet <= 0:
-            return False, "مبلغ الرهان غير صالح"
-
-        tg_id_str = str(tg_id)
-        user_ref = db.collection("users").document(tg_id_str)
-
-        user_ref.update({
-            "balance": firestore.Increment(-bet),
-            "total_bets": firestore.Increment(bet),
+        uid_str = str(tg_id)
+        bet_ref = db.collection('game_logs').document()
+        bet_ref.set({
+            'uid': uid_str,
+            'type': 'bet',
+            'amount': float(bet_amount),
+            'timestamp': time.time(),
+            'created_at': firestore.SERVER_TIMESTAMP
         })
-
-        config_ref = db.collection("app_config").document("game_settings")
-        config_ref.update({"global_total_bets": firestore.Increment(bet)})
-
-        arena_ref = db.collection("arena").document("current")
-        arena_ref.set({
-            "total_bets": firestore.Increment(bet),
-            "last_updated": firestore.SERVER_TIMESTAMP,
-        }, merge=True)
-
-        database.clear_settings_cache()
-        return True, "تم تسجيل الرهان بنجاح"
+        return True, "OK"
     except Exception as e:
-        print(f"❌ Error recording bet placed: {e}")
+        print(f"⚠️ [games_db] Error recording bet placed: {e}")
         return False, str(e)
 
 
-def record_game_loss(tg_id, bet_amount):
-    """2. دالة تسجيل الخسارة (عند خسارة المراهنة بالكامل للبوت)"""
-    try:
-        db = database.get_db()
-        bet = float(bet_amount)
-        tg_id_str = str(tg_id)
-
-        user_ref = db.collection("users").document(tg_id_str)
-        user_ref.update({"total_losses": firestore.Increment(bet)})
-
-        arena_ref = db.collection("arena").document("current")
-        arena_ref.set({"last_updated": firestore.SERVER_TIMESTAMP}, merge=True)
-
-        database.clear_settings_cache()
+def record_game_loss(tg_id: str, bet_amount: float) -> bool:
+    """تسجيل خسارة الجولة للمستخدم"""
+    if not db:
         return True
-    except Exception as e:
-        print(f"❌ Error recording game loss: {e}")
-        return False
-
-
-def record_game_win(tg_id, bet_amount, total_cashout_amount):
-    """3. دالة تسجيل الربح والسحب (إعادة مبلغ الرهان + إضافة الصافي لدالة الربح)"""
     try:
-        db = database.get_db()
-        bet = float(bet_amount)
-        cashout = float(total_cashout_amount)
-
-        net_profit = max(0.0, cashout - bet)
-        tg_id_str = str(tg_id)
-        user_ref = db.collection("users").document(tg_id_str)
-
-        user_ref.update({
-            "balance": firestore.Increment(cashout),
-            "total_wins": firestore.Increment(net_profit),
+        uid_str = str(tg_id)
+        log_ref = db.collection('game_logs').document()
+        log_ref.set({
+            'uid': uid_str,
+            'type': 'loss',
+            'bet_amount': float(bet_amount),
+            'timestamp': time.time(),
+            'created_at': firestore.SERVER_TIMESTAMP
         })
-
-        config_ref = db.collection("app_config").document("game_settings")
-        config_ref.update({"global_total_wins": firestore.Increment(net_profit)})
-
-        arena_ref = db.collection("arena").document("current")
-        arena_ref.set({
-            "total_payouts": firestore.Increment(net_profit),
-            "last_updated": firestore.SERVER_TIMESTAMP,
-        }, merge=True)
-
-        database.clear_settings_cache()
         return True
     except Exception as e:
-        print(f"❌ Error recording game win: {e}")
+        print(f"⚠️ [games_db] Error recording game loss: {e}")
         return False
 
 
-def get_game_profit_stats():
-    """حساب أرباح ونسب البوت واللاعبين بدقة عالية وقراءة سريعة"""
+def record_game_win(tg_id: str, bet_amount: float, cashout_amount: float) -> bool:
+    """تسجيل فوز وسحب أرباح للمستخدم"""
+    if not db:
+        return True
     try:
-        settings = database.get_game_settings() or {}
-        zn_cfg = settings.get("zn_go_config") or settings.get("grid_game_config", {})
-
-        arena_bets = 0.0
-        arena_wins = 0.0
-        try:
-            db = database.get_db()
-            arena_doc = db.collection("arena").document("current").get()
-            if arena_doc.exists:
-                a_data = arena_doc.to_dict() or {}
-                arena_bets = float(a_data.get("total_bets", 0.0) or 0.0)
-                arena_wins = float(a_data.get("total_payouts", 0.0) or 0.0)
-        except Exception as e:
-            print(f"⚠️ Error reading arena/current: {e}")
-
-        total_bets = max(arena_bets, float(settings.get("global_total_bets", 0.0) or 0.0))
-        total_wins = max(arena_wins, float(settings.get("global_total_wins", 0.0) or 0.0))
-
-        bot_net_profit = max(0.0, total_bets - total_wins)
-        target_margin = float(zn_cfg.get("target_margin", 0.70))
-        target_margin_pct = target_margin * 100.0 if target_margin <= 1.0 else target_margin
-
-        if total_bets > 0:
-            actual_bot_pct = round(((total_bets - total_wins) / total_bets * 100.0), 2)
-        else:
-            actual_bot_pct = target_margin_pct
-
-        actual_bot_pct = max(0.0, min(100.0, actual_bot_pct))
-        actual_user_pct = round(100.0 - actual_bot_pct, 2)
-
-        return {
-            "total_bets": round(total_bets, 2),
-            "total_wins": round(total_wins, 2),
-            "total_bot_profit": round(bot_net_profit, 2),
-            "total_user_profit": round(total_wins, 2),
-            "target_margin": target_margin,
-            "target_margin_percent": target_margin_pct,
-            "actual_bot_percent": actual_bot_pct,
-            "actual_user_percent": actual_user_pct,
-            "global_total_bets": round(total_bets, 2),
-            "global_total_wins": round(total_wins, 2),
-        }
+        uid_str = str(tg_id)
+        log_ref = db.collection('game_logs').document()
+        log_ref.set({
+            'uid': uid_str,
+            'type': 'win',
+            'bet_amount': float(bet_amount),
+            'win_amount': float(cashout_amount),
+            'timestamp': time.time(),
+            'created_at': firestore.SERVER_TIMESTAMP
+        })
+        return True
     except Exception as e:
-        print(f"❌ Error fetching game profit stats: {e}")
-        return {
-            "total_bets": 0.0,
-            "total_wins": 0.0,
-            "total_bot_profit": 0.0,
-            "total_user_profit": 0.0,
-            "target_margin": 0.70,
-            "target_margin_percent": 70.0,
-            "actual_bot_percent": 70.0,
-            "actual_user_percent": 30.0,
-            "global_total_bets": 0.0,
-            "global_total_wins": 0.0,
-        }
+        print(f"⚠️ [games_db] Error recording game win: {e}")
+        return False
 
 
-def should_user_win_next_step():
-    """دالة توضع داخل محرك اللعبة للتحكم بنسبة الربح المحددة للبوت واللاعب"""
+def record_user_game_result(uid: str, bet_amount: float = 0.0, win_amount: float = 0.0) -> None:
+    """دالة جامعة لتحديث ناتج اللعبة وتحديث الإحصائيات الشاملة"""
+    uid_str = str(uid)
+    if bet_amount > 0 and win_amount == 0:
+        record_game_loss(uid_str, bet_amount)
+    elif win_amount > 0:
+        record_game_win(uid_str, bet_amount, win_amount)
+    elif bet_amount > 0:
+        record_bet_placed(uid_str, bet_amount)
+
+
+# ==========================================
+# 3. إدارة رصيد المستخدم والـ Transactions
+# ==========================================
+
+def get_user_data(uid: str) -> Tuple[bool, Dict[str, Any]]:
+    """جلب بيانات مستخدم محدد"""
+    if not db:
+        return False, {}
     try:
-        stats = get_game_profit_stats()
-        actual_bot_pct = stats.get("actual_bot_percent", 70.0)
-        target_bot_pct = stats.get("target_margin_percent", 70.0)
+        user_doc = db.collection('users').document(str(uid)).get()
+        if user_doc.exists:
+            return True, user_doc.to_dict() or {}
+        return False, {}
+    except Exception as e:
+        print(f"⚠️ [games_db] Error getting user data: {e}")
+        return False, {}
 
-        if actual_bot_pct < target_bot_pct:
-            return False
-        return True
-    except Exception:
-        return True
+
+def deduct_user_balance_transactional(uid: str, amount: float) -> Tuple[bool, str, float]:
+    """خصم مبلغ من رصيد المستخدم بشكل تزامني آمن (Transaction)"""
+    if not db:
+        return False, "قاعدة البيانات غير متصلة", 0.0
+
+    uid_str = str(uid)
+    user_ref = db.collection('users').document(uid_str)
+
+    @firestore.transactional
+    def txn(transaction):
+        doc = user_ref.get(transaction=transaction)
+        if not doc.exists:
+            return False, "المستخدم غير موجود", 0.0
+
+        data = doc.to_dict() or {}
+        bal = round(float(data.get('balance', 0.0)), 2)
+        if bal < amount:
+            return False, "الرصيد غير كافٍ", bal
+
+        new_bal = round(bal - amount, 2)
+        transaction.update(user_ref, {'balance': new_bal})
+        return True, "تم الخصم بنجاح", new_bal
+
+    try:
+        return txn(db.transaction())
+    except Exception as e:
+        print(f"⚠️ [games_db] Transaction deduction error: {e}")
+        return False, "خطأ في المعاملة المالية", 0.0
+
+
+def add_user_balance_transactional(uid: str, amount: float) -> Tuple[bool, str, float]:
+    """إضافة أرباح لرصيد المستخدم بشكل تزامني آمن (Transaction)"""
+    if not db:
+        return False, "قاعدة البيانات غير متصلة", 0.0
+
+    uid_str = str(uid)
+    user_ref = db.collection('users').document(uid_str)
+
+    @firestore.transactional
+    def txn(transaction):
+        doc = user_ref.get(transaction=transaction)
+        if not doc.exists:
+            return False, "المستخدم غير موجود", 0.0
+
+        data = doc.to_dict() or {}
+        bal = round(float(data.get('balance', 0.0)), 2)
+        new_bal = round(bal + amount, 2)
+
+        transaction.update(user_ref, {'balance': new_bal})
+        return True, "تمت إضافة المبلغ بنجاح", new_bal
+
+    try:
+        return txn(db.transaction())
+    except Exception as e:
+        print(f"⚠️ [games_db] Transaction addition error: {e}")
+        return False, "خطأ في المعاملة المالية", 0.0
+
+
+# ==========================================
+# 4. إشعارات واسترداد أرباح الساحة (Arena Helper DB)
+# ==========================================
+
+def clear_user_pending_refund(uid: str) -> Tuple[float, float]:
+    """فحص وإفراغ المبالغ المستردة المعلقة للمستخدم وإرجاع القيمة والرصيد النهائي"""
+    if not db:
+        return 0.0, 0.0
+    try:
+        uid_str = str(uid)
+        user_ref = db.collection('users').document(uid_str)
+        user_doc = user_ref.get()
+        if not user_doc.exists:
+            return 0.0, 0.0
+
+        data = user_doc.to_dict() or {}
+        pending_refund = round(float(data.get('pending_refund', 0.0)), 2)
+        current_balance = round(float(data.get('balance', 0.0)), 2)
+
+        if pending_refund > 0:
+            user_ref.update({'pending_refund': 0})
+            return pending_refund, current_balance
+
+        return 0.0, current_balance
+    except Exception as e:
+        print(f"⚠️ [games_db] Error clearing pending refund: {e}")
+        return 0.0, 0.0
