@@ -20,6 +20,24 @@ class BigArenaManager:
         self.current_round: Dict[str, Any] = None
         self._init_or_load_round()
 
+    def _sync_round_state(self):
+        """مزامنة حالة الجولة من قاعدة البيانات وإنهاؤها تلقائياً عند انقضاء الوقت"""
+        db_state = get_arena_state_db()
+        now = int(time.time())
+
+        if db_state:
+            self.current_round = db_state
+
+        if not self.current_round:
+            self._init_or_load_round()
+            return
+
+        # إذا انتهى وقت الجولة وهي لا تزال نشطة، نقوم بإنهائها فوراً وتوزيع الأرباح
+        if now >= self.current_round.get("end_time", 0) and self.current_round.get("status") == "active":
+            self.resolve_round()
+        elif self.current_round.get("status") != "active":
+            self._init_or_load_round()
+
     def _init_or_load_round(self):
         # محاولة التحميل من قاعدة البيانات أولاً لمزامنة السيرفرات
         db_state = get_arena_state_db()
@@ -44,16 +62,9 @@ class BigArenaManager:
 
     def get_status(self, uid: str) -> Dict[str, Any]:
         cfg = get_big_arena_config()
-        now = int(time.time())
-
-        # إعادة التحميل لضمان أحدث بيانات
-        db_state = get_arena_state_db()
-        if db_state:
-            self.current_round = db_state
-
-        # تجديد الجولة تلقائياً عند انتهائها
-        if now >= self.current_round["end_time"] and self.current_round["status"] == "active":
-            self.resolve_round()
+        
+        # مزامنة الحالة أولاً
+        self._sync_round_state()
 
         uid_str = str(uid) if uid else ""
         has_joined = uid_str in self.current_round.get("participants", [])
@@ -89,13 +100,18 @@ class BigArenaManager:
         if not cfg.get("enabled", True):
             return False, "⚠️ الساحة الكبرى مغلقة حالياً.", {}
 
+        # ضمان مزامنة أحدث جولة فعالّة قبل التحقق من الوقت
+        self._sync_round_state()
+
         now = int(time.time())
         lock_secs = int(cfg.get("lock_seconds", 15))
-        if self.current_round["end_time"] - now <= lock_secs:
+        time_left = self.current_round.get("end_time", 0) - now
+
+        if time_left <= lock_secs:
             return False, "🔒 تم إغلاق باب الاشتراك لهذه الجولة.", {}
 
         uid_str = str(uid)
-        if uid_str in self.current_round["participants"]:
+        if uid_str in self.current_round.get("participants", []):
             return False, "⚠️ أنت مشترك بالفعل في هذه الجولة.", {}
 
         entry_fee = float(cfg.get("entry_fee", 100.0))
@@ -103,9 +119,15 @@ class BigArenaManager:
         if not success:
             return False, f"❌ فشل الدخول: {msg}", {}
 
-        self.current_round["participants"].append(uid_str)
-        self.current_round["prize_pool"] += entry_fee
-        save_arena_state_db(self.current_round)
+        # إعادة جلب من القاعدة لمنع حالات التضارب مع مشتركين آخرين بنفس اللحظة
+        db_state = get_arena_state_db()
+        if db_state and db_state.get("round_id") == self.current_round["round_id"]:
+            self.current_round = db_state
+
+        if uid_str not in self.current_round.get("participants", []):
+            self.current_round["participants"].append(uid_str)
+            self.current_round["prize_pool"] += entry_fee
+            save_arena_state_db(self.current_round)
 
         record_user_game_result(uid_str, bet_amount=entry_fee, win_amount=0.0)
 
@@ -125,7 +147,7 @@ class BigArenaManager:
     def resolve_round(self):
         cfg = get_big_arena_config()
         min_players = int(cfg.get("min_players", 10))
-        participants = self.current_round["participants"]
+        participants = self.current_round.get("participants", [])
         entry_fee = float(cfg.get("entry_fee", 100.0))
 
         # إلغاء الجولة وإعادة الأموال إذا لم يكتمل الحد الأدنى (10 لاعبين)
@@ -189,6 +211,7 @@ class BigArenaManager:
         self._init_or_load_round()
 
     def get_results(self, round_id: str, uid: str) -> Dict[str, Any]:
+        self._sync_round_state()
         if self.current_round.get("status") in ["refunded", "completed"]:
             return {
                 "success": True,
