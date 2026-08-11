@@ -105,7 +105,16 @@
     }
 
     function getStoredBalance() {
-        if (window.userState && window.userState.balance !== undefined) return parseFloat(window.userState.balance) || 0;
+        if (window.userState && window.userState.balance !== undefined && !isNaN(window.userState.balance)) {
+            return parseFloat(window.userState.balance);
+        }
+        try {
+            const savedState = localStorage.getItem('app_user_state');
+            if (savedState) {
+                const parsed = JSON.parse(savedState);
+                if (parsed.balance !== undefined) return parseFloat(parsed.balance) || 0;
+            }
+        } catch (e) {}
         const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
         const num = bal !== null ? parseFloat(bal) : 0;
         return isNaN(num) ? 0 : num;
@@ -116,10 +125,15 @@
             const numVal = Math.round((parseFloat(newBalance) || 0) * 100) / 100;
             const oldVal = currentDisplayBalance || getStoredBalance();
             
-            if (window.userState) window.userState.balance = numVal;
-            localStorage.setItem('zn_balance', numVal.toString());
-            
-            const targetElements = ['top-balance-games', 'user-balance', 'top-balance'];
+            if (window.userState) {
+                window.userState.balance = numVal;
+            } else {
+                localStorage.setItem('zn_balance', numVal.toString());
+            }
+
+            currentDisplayBalance = numVal;
+
+            const targetElements = ['top-balance-games'];
             targetElements.forEach(id => {
                 const gameBalEl = document.getElementById(id);
                 if (gameBalEl) {
@@ -127,8 +141,6 @@
                     else gameBalEl.innerHTML = formatNumberHTML(numVal, " ZN");
                 }
             });
-
-            currentDisplayBalance = numVal;
         }
     }
 
@@ -137,7 +149,13 @@
         if (!tgId) return;
 
         try {
-            const res = await fetch(`/api/user/info?tg_id=${tgId}`);
+            const initData = tele?.initData || "";
+            const res = await fetch(`/api/user/info?tg_id=${tgId}`, {
+                headers: {
+                    'X-Telegram-Init-Data': initData,
+                    'Authorization': `Bearer ${initData}`
+                }
+            });
             if (!res.ok) return;
             const data = await res.json();
             if (data.success) {
@@ -290,7 +308,11 @@
 
             const res = await fetch('/api/game/start', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': initData,
+                    'Authorization': `Bearer ${initData}`
+                },
                 body: JSON.stringify({ 
                     tg_id: tgId, 
                     bet_amount: betVal, 
@@ -355,7 +377,11 @@
 
             const res = await fetch('/api/game/step', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': initData,
+                    'Authorization': `Bearer ${initData}`
+                },
                 body: JSON.stringify({
                     tg_id: tgId,
                     box_index: index,
@@ -399,7 +425,11 @@
 
             const res = await fetch('/api/game/cashout', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': initData,
+                    'Authorization': `Bearer ${initData}`
+                },
                 body: JSON.stringify({
                     tg_id: tgId,
                     session_token: boxesState.sessionToken,
@@ -524,7 +554,11 @@
             const initData = tele?.initData || "";
             const response = await fetch('/api/games/status', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': initData,
+                    'Authorization': `Bearer ${initData}`
+                },
                 body: JSON.stringify({ initData: initData, tg_id: getTgId() })
             });
             if (!response.ok) return;
@@ -645,7 +679,11 @@
             const initData = tele?.initData || "";
             const response = await fetch('/api/games/join', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': initData,
+                    'Authorization': `Bearer ${initData}`
+                },
                 body: JSON.stringify({ initData: initData, tg_id: getTgId() })
             });
             const data = await response.json();
@@ -700,15 +738,32 @@
 
     async function fetchRoundResults(roundId) {
         try {
+            const initData = tele?.initData || "";
             const response = await fetch('/api/games/results', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': initData,
+                    'Authorization': `Bearer ${initData}`
+                },
                 body: JSON.stringify({ round_id: roundId, tg_id: getTgId() })
             });
             const data = await response.json();
             if (data.success) fetchArenaStatus(true);
         } catch (e) {}
     }
+
+    // الاستماع للتغييرات العامة للرصيد
+    window.addEventListener('userStateUpdated', (e) => {
+        if (e.detail && e.detail.balance !== undefined) {
+            const newBal = parseFloat(e.detail.balance) || 0;
+            if (newBal !== currentDisplayBalance && !boxesState.inGame) {
+                currentDisplayBalance = newBal;
+                const gameBalEl = document.getElementById('top-balance-games');
+                if (gameBalEl) gameBalEl.innerHTML = formatNumberHTML(newBal, " ZN");
+            }
+        }
+    });
 
     function initModule() {
         if (tele) {
