@@ -1,4 +1,3 @@
-<!-- games/games.html -->
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -26,11 +25,7 @@
             --btn-disabled: #1e293b;
         }
 
-        * {
-            box-sizing: border-box;
-            outline: none;
-            -webkit-tap-highlight-color: transparent;
-        }
+        * { box-sizing: border-box; outline: none; -webkit-tap-highlight-color: transparent; }
 
         body {
             background-color: var(--bg-color);
@@ -39,644 +34,142 @@
                 radial-gradient(circle at 100% 100%, rgba(0, 255, 204, 0.05) 0%, transparent 50%);
             color: var(--text-main);
             font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            margin: 0;
-            padding: 0;
-            padding-bottom: 100px;
-            min-height: 100vh;
+            margin: 0; padding: 0; padding-bottom: 100px; min-height: 100vh;
         }
 
-        /* شريط الرصيد العلوي */
         .balance-header-fixed {
-            position: fixed;
-            top: 12px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(15, 23, 42, 0.85);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(243, 156, 18, 0.4);
-            padding: 7px 22px;
-            border-radius: 50px;
-            z-index: 100;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 0 12px rgba(243, 156, 18, 0.15);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            font-weight: 800;
-            font-size: 1.05rem;
-            color: #ffffff;
-            white-space: nowrap;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(16px);
+            border: 1px solid rgba(243, 156, 18, 0.4); padding: 7px 22px;
+            border-radius: 50px; z-index: 100;
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+            font-weight: 800; font-size: 1.05rem; color: #ffffff;
         }
 
-        .balance-header-fixed .coin-icon {
-            font-size: 1.25rem;
-            filter: drop-shadow(0 0 8px var(--primary-glow));
-            animation: floatSpin 6s infinite ease-in-out;
-        }
-
-        @keyframes floatSpin {
-            0%, 100% { transform: translateY(0) rotateY(0deg); }
-            50% { transform: translateY(-3px) rotateY(180deg); }
-        }
-
-        .games-container {
-            padding: 16px;
-            padding-top: 70px;
-            max-width: 480px;
-            margin: auto;
-        }
-
-        /* تبويب اختيار اللعبة */
-        .tabs-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 20px;
-        }
+        .games-container { padding: 16px; padding-top: 70px; max-width: 480px; margin: auto; }
+        .tabs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
 
         .tab-card {
-            background: rgba(30, 41, 59, 0.5);
-            backdrop-filter: blur(10px);
-            border: 1.5px solid var(--card-border);
-            border-radius: 16px;
-            padding: 14px 10px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .tab-card:active {
-            transform: scale(0.97);
+            background: rgba(30, 41, 59, 0.5); border: 1.5px solid var(--card-border);
+            border-radius: 16px; padding: 14px 10px; text-align: center; cursor: pointer;
         }
 
         .tab-card.active {
             background: linear-gradient(145deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95));
-            border-color: var(--primary);
-            box-shadow: 0 0 20px var(--primary-glow), inset 0 0 10px rgba(243, 156, 18, 0.1);
+            border-color: var(--primary); box-shadow: 0 0 20px var(--primary-glow);
         }
 
-        .tab-card.active#tab-boxes {
-            border-color: var(--accent-cyan);
-            box-shadow: 0 0 20px var(--accent-cyan-glow), inset 0 0 10px rgba(0, 255, 204, 0.1);
-        }
+        .tab-card.active#tab-boxes { border-color: var(--accent-cyan); box-shadow: 0 0 20px var(--accent-cyan-glow); }
 
-        /* شبكة 36 صندوقاً (6x6) */
-        .boxes-card {
+        .boxes-card, .arena-card {
             background: linear-gradient(165deg, rgba(22, 22, 38, 0.9), rgba(11, 13, 20, 0.95));
-            backdrop-filter: blur(16px);
-            border: 1px solid rgba(0, 255, 204, 0.2);
-            border-radius: 22px;
-            padding: 16px;
-            position: relative;
-            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(0, 255, 204, 0.2); border-radius: 22px; padding: 16px;
         }
 
-        .boxes-header-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 14px;
-        }
-
-        .btn-settings-icon {
-            background: rgba(30, 41, 59, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #fff;
-            padding: 6px 12px;
-            border-radius: 12px;
-            font-size: 0.85rem;
-            font-weight: 700;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            transition: all 0.2s ease;
-        }
-
-        .btn-settings-icon:active {
-            transform: scale(0.95);
-        }
-
-        .boxes-grid-6x6 {
-            display: grid;
-            grid-template-columns: repeat(6, 1fr);
-            gap: 8px;
-            margin-bottom: 16px;
-            perspective: 1000px;
-            width: 100%;
-        }
-
-        .box-card {
-            width: 100%;
-            aspect-ratio: 1;
-            perspective: 1000px;
-            cursor: pointer;
-            position: relative;
-        }
-
-        .box-inner {
-            position: relative;
-            width: 100%;
-            height: 100%;
-            text-align: center;
-            transition: transform 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            transform-style: preserve-3d;
-            border-radius: 12px;
-        }
-
-        .box-card.flipped .box-inner {
-            transform: rotateY(180deg);
-        }
+        .boxes-grid-6x6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 16px; }
+        .box-card { width: 100%; aspect-ratio: 1; perspective: 1000px; cursor: pointer; }
+        .box-inner { width: 100%; height: 100%; transition: transform 0.45s; transform-style: preserve-3d; border-radius: 12px; }
+        .box-card.flipped .box-inner { transform: rotateY(180deg); }
 
         .box-front, .box-back {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            -webkit-backface-visibility: hidden;
-            backface-visibility: hidden;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.3rem;
-            font-weight: 900;
-            overflow: hidden;
-            box-sizing: border-box;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            backface-visibility: hidden; border-radius: 12px; display: flex; align-items: center; justify-content: center;
         }
 
-        /* الوجه الأمامي */
-        .box-front {
-            background: linear-gradient(135deg, #1e293b, #0f172a);
-            border: 1.5px solid rgba(0, 255, 204, 0.2);
-            box-shadow: inset 0 0 8px rgba(255, 255, 255, 0.03), 0 4px 10px rgba(0,0,0,0.4);
-            position: relative;
-        }
+        .box-front { background: linear-gradient(135deg, #1e293b, #0f172a); border: 1.5px solid rgba(0, 255, 204, 0.2); }
+        .box-back { background: linear-gradient(135deg, #059669, #10b981); transform: rotateY(180deg); }
+        .box-card.broken .box-back { background: linear-gradient(135deg, #dc2626, #ef4444); }
 
-        .box-front::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: linear-gradient(45deg, transparent, rgba(0, 255, 204, 0.05), transparent);
-            transform: rotate(45deg);
-            pointer-events: none;
-        }
+        .bet-controls { display: flex; gap: 8px; margin-bottom: 14px; }
+        .bet-input { flex: 1.2; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; padding: 10px; border-radius: 12px; text-align: center; font-weight: 800; }
+        .btn-quick-bet { background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-muted); padding: 0 12px; border-radius: 10px; font-weight: 700; cursor: pointer; }
 
-        .box-front:hover, .box-front:active {
-            border-color: var(--accent-cyan);
-            box-shadow: 0 0 12px var(--accent-cyan-glow);
-            background: linear-gradient(135deg, #24334a, #131c31);
+        .btn-action-main, .btn-cashout-main, .btn-join {
+            width: 100%; padding: 15px; border: none; border-radius: 14px; font-weight: 900; font-size: 1.15rem; cursor: pointer;
         }
+        .btn-action-main { background: linear-gradient(90deg, #00ffcc, #059669); color: #0b0d14; }
+        .btn-cashout-main { background: linear-gradient(90deg, #10b981, #047857); color: #ffffff; }
+        .btn-join { background: linear-gradient(90deg, #f39c12, #d35400); color: white; }
 
-        /* الوجه الخلفي */
-        .box-back {
-            background: linear-gradient(135deg, #059669, #10b981);
-            color: #ffffff;
-            transform: rotateY(180deg);
-            border: 1.5px solid #10b981;
-            box-shadow: 0 0 14px var(--accent-green-glow);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 0;
-            margin: 0;
-        }
-
-        .box-card.broken .box-back {
-            background: linear-gradient(135deg, #dc2626, #ef4444);
-            border-color: #ef4444;
-            box-shadow: 0 0 14px var(--accent-red-glow);
-        }
-
-        .coin-gold, .coin-broken {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            width: 100%;
-            height: 100%;
-            font-size: 1.3rem;
-            line-height: 1;
-            margin: 0 !important;
-            padding: 0 !important;
-            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
-            transform: none !important;
-            position: static !important;
-        }
-
-        .bet-controls {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 14px;
-        }
-
-        .bet-input-wrapper {
-            flex: 1.2;
-            position: relative;
-        }
-
-        .bet-input {
-            width: 100%;
-            height: 100%;
-            background: rgba(15, 23, 42, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            color: #fff;
-            padding: 10px 8px;
-            border-radius: 12px;
-            text-align: center;
-            font-weight: 800;
-            font-size: 1.05rem;
-        }
-
-        .btn-quick-bet {
-            background: rgba(30, 41, 59, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: var(--text-muted);
-            padding: 0 12px;
-            border-radius: 10px;
-            font-size: 0.82rem;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .btn-quick-bet:active {
-            transform: scale(0.95);
-            background: rgba(51, 65, 85, 0.9);
-        }
-
-        .btn-action-main {
-            width: 100%;
-            padding: 15px;
-            background: linear-gradient(90deg, #00ffcc, #059669);
-            color: #0b0d14;
-            border: none;
-            border-radius: 14px;
-            font-weight: 900;
-            font-size: 1.15rem;
-            cursor: pointer;
-            box-shadow: 0 6px 20px var(--accent-cyan-glow);
-            transition: all 0.25s ease;
-        }
-
-        .btn-action-main:active {
-            transform: scale(0.98);
-        }
-
-        .btn-cashout-main {
-            width: 100%;
-            padding: 15px;
-            background: linear-gradient(90deg, #10b981, #047857);
-            color: #ffffff;
-            border: none;
-            border-radius: 14px;
-            font-weight: 900;
-            font-size: 1.15rem;
-            cursor: pointer;
-            box-shadow: 0 6px 20px var(--accent-green-glow);
-            transition: all 0.25s ease;
-        }
-
-        .btn-cashout-main:active {
-            transform: scale(0.98);
-        }
-
-        /* كارت الساحة الكبرى */
-        .arena-card {
-            background: linear-gradient(165deg, rgba(22, 22, 38, 0.9), rgba(11, 13, 20, 0.95));
-            backdrop-filter: blur(16px);
-            border: 1px solid rgba(243, 156, 18, 0.2);
-            border-radius: 22px;
-            padding: 22px 16px;
-            text-align: center;
-            position: relative;
-            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.6);
-        }
-
-        .timer-box {
-            background: rgba(15, 23, 42, 0.7);
-            border-radius: 14px;
-            padding: 10px 20px;
-            display: inline-block;
-            margin-bottom: 20px;
-            border: 1px solid rgba(239, 68, 68, 0.4);
-            box-shadow: 0 0 15px rgba(239, 68, 68, 0.15);
-        }
-
-        .timer-display {
-            color: #ffffff;
-            font-size: 1.9rem;
-            font-weight: 900;
-            font-family: 'Courier New', Courier, monospace;
-            letter-spacing: 2px;
-        }
-
-        .prize-box {
-            margin-bottom: 22px;
-            background: rgba(15, 23, 42, 0.5);
-            padding: 18px;
-            border-radius: 16px;
-            border: 1px solid rgba(243, 156, 18, 0.2);
-        }
-
-        .prize-pool-text {
-            font-size: 2.3rem;
-            font-weight: 900;
-            color: var(--primary);
-            text-shadow: 0 0 18px var(--primary-glow);
-        }
-
-        .btn-join {
-            width: 100%;
-            padding: 16px;
-            background: linear-gradient(90deg, #f39c12, #d35400);
-            color: white;
-            border: none;
-            border-radius: 14px;
-            font-weight: 800;
-            font-size: 1.1rem;
-            cursor: pointer;
-            box-shadow: 0 6px 20px var(--primary-glow);
-            margin-bottom: 20px;
-            transition: all 0.25s ease;
-        }
-
-        .btn-join:active {
-            transform: scale(0.98);
-        }
-
-        .btn-disabled {
-            background: var(--btn-disabled) !important;
-            color: #64748b !important;
-            cursor: not-allowed !important;
-            border: 1px solid rgba(255, 255, 255, 0.05) !important;
-            box-shadow: none !important;
-            transform: none !important;
-        }
-
-        .prize-distribution {
-            background: rgba(15, 23, 42, 0.6);
-            border-radius: 14px;
-            padding: 14px 16px;
-            text-align: right;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        .prize-row {
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.9rem;
-            margin-bottom: 9px;
-        }
-
-        .btn-broken-opt {
-            background: rgba(30, 41, 59, 0.7);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #fff;
-            padding: 12px;
-            border-radius: 12px;
-            font-weight: 800;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .btn-broken-opt.selected {
-            background: linear-gradient(135deg, #00ffcc, #059669);
-            color: #0b0d14;
-            border-color: #00ffcc;
-            box-shadow: 0 0 12px var(--accent-cyan-glow);
-        }
-
-        /* Modals */
-        .modal-overlay {
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(5, 7, 13, 0.85);
-            backdrop-filter: blur(10px);
-            z-index: 1000;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-
-        .modal-card {
-            background: linear-gradient(165deg, #18182b, #0f111a);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            border-radius: 22px;
-            padding: 24px;
-            width: 100%;
-            max-width: 420px;
-            text-align: center;
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9);
-        }
-
-        /* إخفاء القائمة السفلى تماماً وبشكل قاطع عند فتح لوحة المفاتيح */
-        body.keyboard-open .bottom-nav {
-            display: none !important;
-        }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(5, 7, 13, 0.85); backdrop-filter: blur(10px); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .modal-card { background: linear-gradient(165deg, #18182b, #0f111a); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 22px; padding: 24px; width: 100%; max-width: 420px; text-align: center; }
+        body.keyboard-open .bottom-nav { display: none !important; }
     </style>
 </head>
 <body>
 
-    <!-- شريط الرصيد العلوي -->
     <div class="balance-header-fixed">
-        <span class="coin-icon">🪙</span>
+        <span>🪙</span>
         <span id="top-balance-games">0.00 ZN</span>
     </div>
 
     <div class="games-container">
-        
-        <!-- أزرار التبديل بين اللعبتين -->
         <div class="tabs-grid">
             <div id="tab-arena" onclick="switchGameTab('arena')" class="tab-card active">
-                <div style="font-size: 24px; margin-bottom: 4px;">⚔️</div>
-                <div style="color: #fff; font-size: 13px; font-weight: 800;">الساحة الكبرى</div>
-                <div style="color: var(--primary); font-size: 11px; margin-top: 4px; font-weight: 700;">متاحة الآن (350 ZN)</div>
+                <div style="font-size: 24px;">⚔️</div>
+                <div style="color: #fff; font-weight: 800;">الساحة الكبرى</div>
             </div>
-            
             <div id="tab-boxes" onclick="switchGameTab('boxes')" class="tab-card">
-                <div style="font-size: 24px; margin-bottom: 4px;">📦</div>
-                <div style="color: #fff; font-size: 13px; font-weight: 800;">شبكة ZN Go</div>
-                <div style="color: var(--accent-cyan); font-size: 11px; margin-top: 4px; font-weight: 700;">تحدي المخاطرة</div>
+                <div style="font-size: 24px;">📦</div>
+                <div style="color: #fff; font-weight: 800;">شبكة ZN Go</div>
             </div>
         </div>
 
-        <!-- تبويب 1: الساحة الكبرى -->
         <div id="content-arena" style="display: block;">
             <div class="arena-card">
-                <div class="timer-box">
-                    <span style="color: var(--accent-red); font-size: 11px; display: block; margin-bottom: 2px; font-weight: 800;">الوقت المتبقي للسحب</span>
-                    <span id="arena-timer" class="timer-display">--:--</span>
+                <div style="background: rgba(15, 23, 42, 0.7); padding: 10px; border-radius: 14px; text-align: center; margin-bottom: 15px;">
+                    <span style="color: var(--accent-red); font-size: 11px; font-weight: 800; display: block;">الوقت المتبقي للسحب</span>
+                    <span id="arena-timer" style="font-size: 1.9rem; font-weight: 900; color: #fff;">--:--</span>
                 </div>
-
-                <div class="prize-box">
-                    <h3 style="color: var(--primary); font-size: 14px; margin: 0 0 8px 0; font-weight: 800;">🏆 إجمالي الجوائز الحالية</h3>
-                    <div id="prize-pool" class="prize-pool-text">0.00 ZN</div>
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <h3 style="color: var(--primary); font-size: 14px; margin: 0 0 8px 0;">🏆 مجمع الجوائز الحالي</h3>
+                    <div id="prize-pool" style="font-size: 2.3rem; font-weight: 900; color: var(--primary);">0.00 ZN</div>
                 </div>
-
-                <button id="btn-join-arena" onclick="joinArena()" disabled class="btn-join btn-disabled">
-                    جاري التحميل... ⏳
-                </button>
-
-                <div class="prize-distribution">
-                    <h4 style="color: #fff; font-size: 13px; text-align: center; margin: 0 0 12px 0; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 8px; font-weight: 800;">توزيع الجوائز المتوقع</h4>
-                    <div class="prize-row"><span style="color: var(--primary); font-weight: bold;">🥇 المركز الأول (30%)</span> <span id="prize-1" style="color: #fff; font-weight: bold;">0.00 ZN</span></div>
-                    <div class="prize-row"><span style="color: #cbd5e1; font-weight: bold;">🥈 المركز الثاني (25%)</span> <span id="prize-2" style="color: #fff; font-weight: bold;">0.00 ZN</span></div>
-                    <div class="prize-row"><span style="color: #d97706; font-weight: bold;">🥉 المركز الثالث (20%)</span> <span id="prize-3" style="color: #fff; font-weight: bold;">0.00 ZN</span></div>
-                    <div class="prize-row"><span style="color: #94a3b8;">🏅 المركز الرابع (15%)</span> <span id="prize-4" style="color: #fff; font-weight: bold;">0.00 ZN</span></div>
-                    <div class="prize-row"><span style="color: #94a3b8;">🏅 المركز الخامس (10%)</span> <span id="prize-5" style="color: #fff; font-weight: bold;">0.00 ZN</span></div>
-                </div>
+                <button id="btn-join-arena" onclick="joinArena()" class="btn-join">دخول الساحة (350 ZN)</button>
             </div>
-            <p id="arena-subtext" style="color: var(--text-muted); font-size: 12px; text-align: center; margin-top: 16px; font-weight: 600;">سحب تلقائي مستمر! رسوم الاشتراك: 350 ZN</p>
         </div>
 
-        <!-- تبويب 2: لعبة شبكة ZN Go والمخاطرة (36 صندوقاً) -->
         <div id="content-boxes" style="display: none;">
             <div class="boxes-card">
-                <div class="boxes-header-bar">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 14px; align-items: center;">
                     <span id="selected-broken-text" style="color: var(--accent-cyan); font-size: 12px; font-weight: 800;">3 عملات مكسورة (سقف 🌟 20x)</span>
-                    <button id="btn-boxes-settings" class="btn-settings-icon" onclick="openBoxesSettings()">⚙️ الصعوبة</button>
+                    <button class="btn-quick-bet" onclick="openBoxesSettings()">⚙️ الصعوبة</button>
                 </div>
-
-                <!-- شبكة الصناديق الـ 36 -->
                 <div id="boxes-grid" class="boxes-grid-6x6"></div>
-
                 <div class="bet-controls">
-                    <div class="bet-input-wrapper">
-                        <input type="number" id="boxes-bet-input" class="bet-input" value="100" min="100" step="100">
-                    </div>
+                    <input type="number" id="boxes-bet-input" class="bet-input" value="100" min="100">
                     <button class="btn-quick-bet" onclick="addBetBoxes(100)">+100</button>
-                    <button class="btn-quick-bet" onclick="addBetBoxes(500)">+500</button>
                     <button class="btn-quick-bet" onclick="setBetMaxBoxes()">الأقصى</button>
                 </div>
-
-                <button id="btn-start-boxes" class="btn-action-main" onclick="startBoxesGame()">
-                    بدء الجولة 🚀
-                </button>
-
-                <button id="btn-cashout-boxes" class="btn-cashout-main btn-disabled" onclick="cashOutBoxes()" style="display: none;" disabled>
-                    سحب الأرباح (0.00 ZN)
-                </button>
+                <button id="btn-start-boxes" class="btn-action-main" onclick="startBoxesGame()">بدء الجولة 🚀</button>
+                <button id="btn-cashout-boxes" class="btn-cashout-main" onclick="cashOutBoxes()" style="display: none;">سحب الأرباح</button>
             </div>
         </div>
-
-        <!-- نافذة إعدادات عدد العملات المكسورة -->
-        <div id="boxes-settings-modal" class="modal-overlay" style="display: none;">
-            <div class="modal-card">
-                <h3 style="color: #fff; font-size: 16px; margin-bottom: 12px; font-weight: 800;">اختر عدد العملات المكسورة بالجولة</h3>
-                <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 18px;">زيادة عدد العملات المكسورة يرفع سقف المضاعف بمقدار 10x إضافية!</p>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
-                    <button class="btn-broken-opt selected" data-count="3" onclick="selectBrokenCount(3)">3 (20x max)</button>
-                    <button class="btn-broken-opt" data-count="4" onclick="selectBrokenCount(4)">4 (30x max)</button>
-                    <button class="btn-broken-opt" data-count="5" onclick="selectBrokenCount(5)">5 (40x max)</button>
-                    <button class="btn-broken-opt" data-count="6" onclick="selectBrokenCount(6)">6 (50x max)</button>
-                    <button class="btn-broken-opt" data-count="7" onclick="selectBrokenCount(7)">7 (60x max)</button>
-                    <button class="btn-broken-opt" data-count="8" onclick="selectBrokenCount(8)">8 (70x max)</button>
-                </div>
-                <button style="width: 100%; padding: 12px; background: rgba(30, 41, 59, 0.9); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; font-weight: 800; cursor: pointer;" onclick="closeBoxesSettings()">حفظ وإغلاق</button>
-            </div>
-        </div>
-
-        <!-- نافذة الإحياء بالإعلانات (Revive Pass Modal) -->
-        <div id="revive-modal" class="modal-overlay" style="display: none;">
-            <div class="modal-card">
-                <div style="font-size: 46px; margin-bottom: 10px;">🛡️</div>
-                <h3 style="color: #fff; font-size: 17px; margin-bottom: 8px; font-weight: 800;">ميزة الإحياء من الخسارة</h3>
-                <p style="color: #cbd5e1; font-size: 13px; margin-bottom: 22px;">شاهد إعلان فيديو قصير لإلغاء الضغطة الخاطئة ومتابعة لعبتك الآن!</p>
-                <div style="display: flex; gap: 10px;">
-                    <button onclick="onConfirmRevive(true)" style="flex: 1; padding: 13px; background: linear-gradient(90deg, #10b981, #059669); color: white; border: none; border-radius: 12px; font-weight: 800; cursor: pointer;">مشاهدة إعلان 🎥</button>
-                    <button onclick="onConfirmRevive(false)" style="flex: 1; padding: 13px; background: rgba(30, 41, 59, 0.9); color: var(--text-muted); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; font-weight: 800; cursor: pointer;">تخطي الخسارة</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- نافذة نتائج الساحة والإرجاع -->
-        <div id="draw-modal" class="modal-overlay" style="display: none;">
-            <div class="modal-card">
-                <div id="draw-refunded" style="display: none;">
-                    <div style="font-size: 46px; margin-bottom: 10px;">🛡️</div>
-                    <h3 style="color: #fff; font-size: 17px; margin-bottom: 8px; font-weight: 800;">تم استرداد المبلغ بنجاح</h3>
-                    <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 18px;" id="refund-msg-text">تم إرجاع الرسوم لحسابك لعدم اكتمال النصاب.</p>
-                    <div style="background: rgba(15, 23, 42, 0.6); padding: 12px; border-radius: 12px; margin-bottom: 18px; color: var(--primary); font-weight: 900; font-size: 1.2rem;" id="refund-amount-display">+0.00 ZN</div>
-                    <button style="width: 100%; padding: 14px; background: linear-gradient(90deg, #10b981, #059669); color: #fff; border: none; border-radius: 12px; font-weight: 800; cursor: pointer;" onclick="closeDrawModal()">تأكيد وإغلاق 💰</button>
-                </div>
-                <div id="draw-winners" style="display: none;">
-                    <div style="font-size: 48px; margin-bottom: 8px;">🏆</div>
-                    <h3 style="color: var(--primary); font-size: 18px; margin-bottom: 16px; font-weight: 900;">🎉 قائمة أبطال الساحة 🎉</h3>
-                    <div id="winners-list" style="background: rgba(15, 23, 42, 0.6); border-radius: 14px; padding: 10px; margin-bottom: 18px;"></div>
-                    <button style="width: 100%; padding: 14px; background: linear-gradient(90deg, #10b981, #059669); color: #fff; border: none; border-radius: 12px; font-weight: 800; cursor: pointer;" onclick="closeDrawModal()">رائع! استمرار 🚀</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- نافذة تأكيد الاشتراك بالساحة -->
-        <div id="confirm-modal" class="modal-overlay" style="display: none;">
-            <div class="modal-card">
-                <div style="font-size: 46px; margin-bottom: 10px;">⚔️</div>
-                <h3 style="color: #fff; font-size: 17px; margin-bottom: 8px; font-weight: 800;">تأكيد الدخول للساحة</h3>
-                <p style="color: #cbd5e1; font-size: 13px; margin-bottom: 22px;">سيتم خصم <strong id="confirm-fee-text" style="color: var(--primary);">350 ZN</strong> للاشتراك. متابعة؟</p>
-                <div style="display: flex; gap: 10px;">
-                    <button onclick="onConfirmJoin(true)" style="flex: 1; padding: 13px; background: linear-gradient(90deg, #f39c12, #d35400); color: white; border: none; border-radius: 12px; font-weight: 800; cursor: pointer;">تأكيد الاشتراك</button>
-                    <button onclick="onConfirmJoin(false)" style="flex: 1; padding: 13px; background: rgba(30, 41, 59, 0.9); color: var(--text-muted); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; font-weight: 800; cursor: pointer;">إلغاء</button>
-                </div>
-            </div>
-        </div>
-
     </div>
 
-    <!-- شريط التنقل السفلي -->
-    <nav class="bottom-nav">
-        <a href="../settings/settings.html" class="nav-item"><i>⚙️</i><span>الإعدادات</span></a>
-        <a href="../shop/shop.html" class="nav-item"><i>🏪</i><span>المتجر</span></a>
-        <a href="games.html" class="nav-item active"><i>🎮</i><span>الألعاب</span></a>
-        <a href="../index.html" class="nav-item nav-center-btn"><div class="farm-btn-inner"><i>⚒️</i><span>المزرعة</span></div></a>
-        <a href="../tasks/tasks.html" class="nav-item"><i>📋</i><span>المهام</span></a>
-        <a href="../wallet/wallet.html" class="nav-item"><i>💳</i><span>المحفظة</span></a>
-        <a href="../friends/friends.html" class="nav-item"><i>👥</i><span>الأصدقاء</span></a>
-    </nav>
+    <!-- Modals -->
+    <div id="boxes-settings-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-card">
+            <h3 style="color: #fff;">اختر عدد العملات المكسورة</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px;">
+                <button class="btn-quick-bet" onclick="selectBrokenCount(3)">3 (20x max)</button>
+                <button class="btn-quick-bet" onclick="selectBrokenCount(5)">5 (40x max)</button>
+                <button class="btn-quick-bet" onclick="selectBrokenCount(8)">8 (70x max)</button>
+            </div>
+            <button style="margin-top: 20px; width: 100%; padding: 10px;" onclick="closeBoxesSettings()">حفظ وإغلاق</button>
+        </div>
+    </div>
 
-    <!-- السكريبت المحدث والمضمون لكشف إغلاق/فتح الكيبورد على أندرويد وتيليجرام -->
-    <script>
-        (function initKeyboardDetection() {
-            // حفظ الارتفاع الأصلي الكامل للشاشة لحظة تحميل الصفحة
-            const baseHeight = window.innerHeight;
-
-            function checkKeyboard() {
-                // حساب الارتفاع الحالي المرئي للمستخدم
-                const currentHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-
-                // إذا انخفض الارتفاع بأكثر من 120px يعني الكيبورد مفتوح
-                if (baseHeight - currentHeight > 120) {
-                    document.body.classList.add('keyboard-open');
-                } else {
-                    // الكيبورد قفل (حتى لو لسه الماوس داخل حقل الإدخال)
-                    document.body.classList.remove('keyboard-open');
-                }
-            }
-
-            // الاستماع لتغيرات الأبعاد على الـ visualViewport والنافذة
-            if (window.visualViewport) {
-                window.visualViewport.addEventListener('resize', checkKeyboard);
-                window.visualViewport.addEventListener('scroll', checkKeyboard);
-            }
-            window.addEventListener('resize', checkKeyboard);
-
-            // الاستماع لفك التركيز عن الحقول للـ التأكيد
-            document.addEventListener('focusout', function(e) {
-                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-                    setTimeout(checkKeyboard, 100);
-                }
-            });
-        })();
-    </script>
+    <div id="confirm-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-card">
+            <h3 style="color: #fff;">تأكيد الدخول للساحة</h3>
+            <p style="color: #cbd5e1;">سيتم خصم 350 ZN لمتابعة الدخول.</p>
+            <div style="display: flex; gap: 10px;">
+                <button onclick="onConfirmJoin(true)" class="btn-action-main">تأكيد</button>
+                <button onclick="onConfirmJoin(false)" class="btn-quick-bet" style="flex:1;">إلغاء</button>
+            </div>
+        </div>
+    </div>
 
     <script src="games.js?v=15.0"></script>
 </body>
