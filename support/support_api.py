@@ -19,7 +19,8 @@ def get_ticket():
             return error_res
 
         data = request.get_json(silent=True) or {} if is_post else {}
-        ticket_id = request.args.get('ticket_id') or data.get('ticket_id')
+        raw_ticket_id = request.args.get('ticket_id') or data.get('ticket_id')
+        ticket_id = str(raw_ticket_id).strip() if raw_ticket_id else None
         
         ticket_data = get_or_create_active_ticket(str(uid), custom_ticket_id=ticket_id, user_info=user_info)
 
@@ -46,15 +47,21 @@ def send_message():
             return error_res
 
         data = request.get_json(silent=True) or {}
-        ticket_id = data.get('ticket_id')
-        text = data.get('text', '').strip()
+        ticket_id = str(data.get('ticket_id') or '').strip()
+        text = str(data.get('text', '')).strip()
 
         if not text:
             return jsonify({"success": False, "message": "لا يمكن إرسال رسالة فارغة"}), 400
 
+        if len(text) > 2000:
+            return jsonify({"success": False, "message": "الرسالة طويلة جداً (الحد الأقصى 2000 حرف)"}), 400
+
         if not ticket_id:
             ticket_data = get_or_create_active_ticket(str(uid), user_info=user_info)
-            ticket_id = ticket_data.get('ticket_id')
+            ticket_id = ticket_data.get('ticket_id') if ticket_data else None
+
+        if not ticket_id:
+            return jsonify({"success": False, "message": "رقم التذكرة غير موجود"}), 400
 
         res = add_support_message(str(uid), ticket_id, text, sender="user", user_info=user_info)
         
