@@ -18,13 +18,15 @@ def is_user_authorized(user_id):
     """فحص حي ومباشر لصلاحيات دخول بوت الأدمن"""
     if not user_id:
         return False
-    user_id_str = str(user_id)
-    if user_id_str == str(ADMIN_ID):
+    user_id_str = str(user_id).strip()
+    if user_id_str == str(ADMIN_ID).strip():
         return True
     try:
         if hasattr(database, 'db') and database.db:
             mod_doc = database.db.collection('moderators').document(user_id_str).get()
             return mod_doc.exists
+        elif hasattr(database, 'is_admin_or_mod'):
+            return database.is_admin_or_mod(user_id_str)
     except Exception as e:
         print(f"⚠️ Error checking moderator status: {e}")
     return False
@@ -57,7 +59,16 @@ if bot:
             bot.reply_to(message, "⛔ عذراً، البوت مخصص للإدارة والمشرفين المصرح لهم فقط.")
             return
         
-        bot.reply_to(message, "ℹ️ يرجى استخدام زر 'فتح لوحة التحكم' لإدارة المنظومة.")
+        markup = InlineKeyboardMarkup()
+        webapp = WebAppInfo(url=ADMIN_WEBAPP_URL)
+        btn = InlineKeyboardButton(text="💻 فتح لوحة التحكم", web_app=webapp)
+        markup.add(btn)
+
+        bot.reply_to(
+            message, 
+            "ℹ️ يرجى استخدام زر 'فتح لوحة التحكم' للإدارة:",
+            reply_markup=markup
+        )
 
     @bot.callback_query_handler(func=lambda call: True)
     def handle_callback_query(call):
