@@ -42,6 +42,12 @@ from shop.shop_api import shop_bp
 from wallet.wallet_api import wallet_bp
 from support.support_api import support_bp
 
+# استدعاء Blueprint الـ Admin Chat
+try:
+    from admin_chat.admin_chat_api import admin_chat_bp
+except ImportError:
+    from admin_chat.admin_chat_api import admin_chat_api as admin_chat_bp
+
 app.register_blueprint(farm_bp, url_prefix='/api/farm')
 app.register_blueprint(settings_bp, url_prefix='/api/settings')
 app.register_blueprint(friends_bp, url_prefix='/api/friends')
@@ -50,6 +56,7 @@ app.register_blueprint(tasks_bp, url_prefix='/api/tasks')
 app.register_blueprint(shop_bp, url_prefix='/api/shop')
 app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
 app.register_blueprint(support_bp, url_prefix='/api/support')
+app.register_blueprint(admin_chat_bp, url_prefix='/api/admin-chat')
 
 # ==========================================
 # مسارات إدارة لعبة شبكة ZN Go (Admin API Endpoints)
