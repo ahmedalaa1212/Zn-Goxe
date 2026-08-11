@@ -565,11 +565,17 @@
             const data = await response.json();
             if (data.success) {
                 if (data.entry_fee) currentEntryFee = data.entry_fee;
+                if (data.lock_seconds !== undefined) currentLockSeconds = parseInt(data.lock_seconds) || 15;
                 if (data.balance !== undefined) setStoredBalance(data.balance, true);
                 if (data.payout_percentages && Array.isArray(data.payout_percentages)) {
                     currentPayoutPercentages = data.payout_percentages;
                 }
-                currentRoundId = data.round_id;
+                
+                if (data.round_id !== currentRoundId) {
+                    currentRoundId = data.round_id;
+                    hasCheckedResults = false;
+                }
+
                 arenaEndTime = parseInt(data.end_time) || 0;
                 hasJoinedCurrentRound = !!data.has_joined;
                 updateArenaPrizes(data);
