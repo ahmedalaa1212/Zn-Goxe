@@ -13,6 +13,10 @@
             --primary: #f39c12;
             --primary-glow: rgba(243, 156, 18, 0.35);
             --telegram-blue: #0088cc;
+            --youtube-red: #ff0000;
+            --x-white: #ffffff;
+            --instagram-pink: #e1306c;
+            --facebook-blue: #1877f2;
             --accent-red: #e74c3c;
             --accent-green: #2ecc71;
             --text-main: #ffffff;
@@ -117,12 +121,12 @@
             align-items: center;
             justify-content: space-between;
             background: var(--card-bg);
-            padding: 16px 18px;
-            border-radius: 14px;
+            padding: 14px 16px;
+            border-radius: 16px;
             text-decoration: none;
             color: #fff;
             font-weight: 600;
-            font-size: 0.95rem;
+            font-size: 0.92rem;
             border: 1px solid var(--border-color);
             transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
@@ -134,17 +138,39 @@
             background: #1f222a;
         }
 
+        /* تنسيق خاص للأيقونات التعبيرية داخل الأزرار */
+        .btn-icon-box {
+            width: 38px;
+            height: 38px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        /* زر الدعم الفني المميز في الأعلى */
+        .support-top-btn {
+            border-right: 4px solid var(--primary) !important;
+            border: 1px solid rgba(243, 156, 18, 0.35);
+            background: linear-gradient(135deg, rgba(243, 156, 18, 0.12), #16181e 65%) !important;
+            box-shadow: 0 4px 18px rgba(243, 156, 18, 0.12);
+            padding: 16px 18px;
+        }
+
         .support-pulse-badge {
             display: inline-flex;
             align-items: center;
             gap: 6px;
             background: rgba(46, 204, 113, 0.15);
             color: var(--accent-green);
-            padding: 4px 10px;
+            padding: 5px 12px;
             border-radius: 12px;
             font-size: 11px;
             font-weight: bold;
             border: 1px solid rgba(46, 204, 113, 0.3);
+            flex-shrink: 0;
         }
 
         .pulse-dot {
@@ -414,7 +440,7 @@
         
         <div style="text-align:center; margin-bottom:20px;">
             <h2 style="margin:0; color:var(--primary); font-size:24px; font-weight:800;">الإعدادات ⚙️</h2>
-            <p style="margin:4px 0 0 0; color:var(--text-muted); font-size:13px;">إدارة بيانات حسابك والدعم الفني</p>
+            <p style="margin:4px 0 0 0; color:var(--text-muted); font-size:13px;">إدارة بيانات حسابك وخدمة العملاء والمنصات</p>
         </div>
 
         <!-- بطاقة الشخصية -->
@@ -447,21 +473,16 @@
             </div>
         </div>
 
-        <!-- الأزرار الرئيسية -->
+        <!-- الأزرار الرئيسية ووسائل التواصل الاجتماعي -->
         <div class="links-group">
-            <a id="lnk-channel" href="https://t.me/YOUR_CHANNEL" target="_blank" class="action-link-btn" style="border-right:4px solid var(--telegram-blue);">
-                <span style="display:flex; align-items:center; gap:10px;">
-                    <span style="font-size:20px;">📢</span> قناة التليجرام الرسمية
-                </span>
-                <span style="color:var(--text-muted);">❮</span>
-            </a>
             
-            <div onclick="openSupportModal()" class="action-link-btn" style="border-right:4px solid var(--primary); cursor:pointer; background: linear-gradient(90deg, #1c1f28, #16181e);">
-                <span style="display:flex; align-items:center; gap:10px;">
-                    <span style="font-size:20px;">🎧</span>
+            <!-- 🎧 1. خدمة العملاء والدعم الفني المباشر (في أعلى القائمة) -->
+            <div onclick="openSupportModal()" class="action-link-btn support-top-btn" style="cursor:pointer;">
+                <span style="display:flex; align-items:center; gap:12px;">
+                    <span class="btn-icon-box" style="background: rgba(243, 156, 18, 0.2); color: var(--primary); border: 1px solid var(--primary);">🎧</span>
                     <div>
-                        <div style="color:#fff;">الدعم الفني المباشر</div>
-                        <div style="font-size:11px; color:var(--text-muted); font-weight:normal;">حل المشاكل والاستفسارات</div>
+                        <div style="color:#fff; font-weight:700; font-size:0.98rem;">الدعم الفني المباشر</div>
+                        <div style="font-size:11px; color:var(--text-muted); font-weight:normal; margin-top:2px;">خدمة العملاء وحل المشاكل والاستفسارات</div>
                     </div>
                 </span>
                 <span class="support-pulse-badge">
@@ -469,12 +490,51 @@
                 </span>
             </div>
 
-            <a id="lnk-youtube" href="https://youtube.com/@YOUR_CHANNEL" target="_blank" class="action-link-btn" style="border-right:4px solid var(--accent-red);">
-                <span style="display:flex; align-items:center; gap:10px;">
-                    <span style="font-size:20px;">▶️</span> قناة اليوتيوب والشروحات
+            <!-- 📢 2. قناة التليجرام الرسمية -->
+            <a href="https://t.me/zngoxe" target="_blank" class="action-link-btn" style="border-right:4px solid var(--telegram-blue);">
+                <span style="display:flex; align-items:center; gap:12px;">
+                    <span class="btn-icon-box" style="background: rgba(0, 136, 204, 0.15); color: var(--telegram-blue);">✈️</span>
+                    <span>قناة التليجرام الرسمية للتطبيق</span>
                 </span>
-                <span style="color:var(--text-muted);">❮</span>
+                <span style="color:var(--text-muted); font-size:12px;">❮</span>
             </a>
+
+            <!-- ▶️ 3. قناة اليوتيوب الرسمية -->
+            <a href="https://www.youtube.com/@ZNgoxe" target="_blank" class="action-link-btn" style="border-right:4px solid var(--youtube-red);">
+                <span style="display:flex; align-items:center; gap:12px;">
+                    <span class="btn-icon-box" style="background: rgba(255, 0, 0, 0.15); color: var(--youtube-red);">▶️</span>
+                    <span>قناة اليوتيوب الرسمية للتطبيق</span>
+                </span>
+                <span style="color:var(--text-muted); font-size:12px;">❮</span>
+            </a>
+
+            <!-- 𝕏 4. حساب منصة X الرسمي -->
+            <a href="https://x.com/ZnGoxe" target="_blank" class="action-link-btn" style="border-right:4px solid var(--x-white);">
+                <span style="display:flex; align-items:center; gap:12px;">
+                    <span class="btn-icon-box" style="background: rgba(255, 255, 255, 0.15); color: #fff; font-weight:bold; font-family:sans-serif;">𝕏</span>
+                    <span>حساب منصة X الرسمي للتطبيق</span>
+                </span>
+                <span style="color:var(--text-muted); font-size:12px;">❮</span>
+            </a>
+
+            <!-- 📸 5. حساب إنستغرام الرسمي -->
+            <a href="https://www.instagram.com/zngoxe?igsh=dHN6bG5yMmZsNmln" target="_blank" class="action-link-btn" style="border-right:4px solid var(--instagram-pink);">
+                <span style="display:flex; align-items:center; gap:12px;">
+                    <span class="btn-icon-box" style="background: rgba(225, 48, 108, 0.15); color: var(--instagram-pink);">📸</span>
+                    <span>حساب إنستغرام الرسمي للتطبيق</span>
+                </span>
+                <span style="color:var(--text-muted); font-size:12px;">❮</span>
+            </a>
+
+            <!-- 📘 6. صفحة الفيسبوك الرسمية -->
+            <a href="https://www.facebook.com/share/1G6Yczd8du/" target="_blank" class="action-link-btn" style="border-right:4px solid var(--facebook-blue);">
+                <span style="display:flex; align-items:center; gap:12px;">
+                    <span class="btn-icon-box" style="background: rgba(24, 119, 242, 0.15); color: var(--facebook-blue);">📘</span>
+                    <span>صفحة الفيسبوك الرسمية للتطبيق</span>
+                </span>
+                <span style="color:var(--text-muted); font-size:12px;">❮</span>
+            </a>
+
         </div>
 
         <div style="display:flex; gap:10px;">
@@ -494,7 +554,7 @@
                     <div class="support-avatar-icon">🎧</div>
                     <div>
                         <div style="font-weight:bold; color:#fff; font-size:16px; display:flex; align-items:center; gap:8px;">
-                            <span>الدعم الفني M4</span>
+                            <span>خدمة العملاء - Zn Goxe</span>
                             <span class="support-pulse-badge" style="padding: 2px 6px; font-size: 9px;">مباشر</span>
                         </div>
                         <button onclick="copyTicketId()" class="ticket-badge-btn" id="ticket-id-display">
