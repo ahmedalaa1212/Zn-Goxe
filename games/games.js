@@ -6,7 +6,6 @@
     let countdownInterval = null;
     let backgroundSyncInterval = null;
     let hasCheckedResults = false;
-    let statusRetryTimeout = null;
     let pendingConfirmCallback = null;
 
     let lastStatusFetchTimestamp = 0;
@@ -138,9 +137,13 @@
 
         try {
             const res = await fetch(`/api/user/info?tg_id=${tgId}`);
+            if (!res.ok) return;
             const data = await res.json();
-            if (data.success && data.balance !== undefined) {
-                setStoredBalance(data.balance, true);
+            if (data.success) {
+                const balanceVal = data.balance !== undefined ? data.balance : data.user?.balance;
+                if (balanceVal !== undefined) {
+                    setStoredBalance(balanceVal, true);
+                }
             }
         } catch (e) {
             console.error("Error syncing user profile:", e);
@@ -296,7 +299,7 @@
             });
 
             const data = await res.json();
-            if (data.status === 'success' || data.success) {
+            if (res.ok && (data.status === 'success' || data.success)) {
                 const newBal = data.new_balance !== undefined ? data.new_balance : (getStoredBalance() - betVal);
                 setStoredBalance(newBal, true);
                 
@@ -363,7 +366,7 @@
             const data = await res.json();
             const isBomb = data.is_bomb || data.status === 'loss';
 
-            if (!isBomb && (data.status === 'safe' || data.success)) {
+            if (res.ok && !isBomb && (data.status === 'safe' || data.success)) {
                 boxesState.picks.push(index);
                 const backEl = boxCard.querySelector('.box-back');
                 if (backEl) backEl.innerHTML = '<span class="coin-gold">🟡 ZN</span>';
@@ -404,7 +407,7 @@
             });
 
             const data = await res.json();
-            if (data.status === 'success' || data.success) {
+            if (res.ok && (data.status === 'success' || data.success)) {
                 if (data.new_balance !== undefined) setStoredBalance(data.new_balance, true);
                 revealFullBoard(data.layout);
                 triggerHaptic('success');
@@ -523,6 +526,7 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ initData: initData, tg_id: getTgId() })
             });
+            if (!response.ok) return;
             const data = await response.json();
             if (data.success) {
                 if (data.entry_fee) currentEntryFee = data.entry_fee;
@@ -611,7 +615,7 @@
                 body: JSON.stringify({ initData: initData, tg_id: getTgId() })
             });
             const data = await response.json();
-            if (data.success) {
+            if (response.ok && data.success) {
                 triggerHaptic('success');
                 hasJoinedCurrentRound = true;
                 if (data.new_balance !== undefined) setStoredBalance(data.new_balance, true);
