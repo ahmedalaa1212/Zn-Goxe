@@ -3,21 +3,27 @@ from typing import Dict, Any, Tuple, List, Optional
 from firebase_admin import firestore
 
 try:
-    from database import db
+    from database import db as main_db
 except ImportError:
-    try:
-        db = firestore.client()
-    except Exception:
-        db = None
+    main_db = None
 
-def get_db_instance():
-    return db
+def _get_db():
+    """الحصول على كائن قاعدة البيانات المتاح بشكل ديناميكي"""
+    global main_db
+    if main_db:
+        return main_db
+    try:
+        main_db = firestore.client()
+        return main_db
+    except Exception:
+        return None
 
 # ==========================================
 # 1. إعدادات الألعاب وإحصائيات الأرباح
 # ==========================================
 
 def get_game_settings() -> Dict[str, Any]:
+    db = _get_db()
     if not db:
         return {}
     try:
@@ -34,6 +40,7 @@ def get_grid_36_config() -> Dict[str, Any]:
         "min_bet": 100.0,
         "enabled": True
     }
+    db = _get_db()
     if not db:
         return default_cfg
     try:
@@ -62,6 +69,7 @@ def get_big_arena_config() -> Dict[str, Any]:
         "lock_seconds": 15,
         "enabled": True
     }
+    db = _get_db()
     if not db:
         return default_cfg
     try:
@@ -88,6 +96,7 @@ def get_game_profit_stats() -> Dict[str, Any]:
         "total_wins": 0,
         "total_bets_count": 0
     }
+    db = _get_db()
     if not db:
         return default_stats
     try:
@@ -125,6 +134,7 @@ def should_user_win_next_step(uid: str = None) -> bool:
 # ==========================================
 
 def update_db_game_stats(bet_amount: float = 0.0, win_amount: float = 0.0) -> bool:
+    db = _get_db()
     if not db:
         return False
     try:
@@ -150,6 +160,7 @@ def update_db_game_stats(bet_amount: float = 0.0, win_amount: float = 0.0) -> bo
         return False
 
 def record_user_game_result(uid: str, bet_amount: float = 0.0, win_amount: float = 0.0) -> None:
+    db = _get_db()
     if not db:
         return
     try:
@@ -166,41 +177,74 @@ def record_user_game_result(uid: str, bet_amount: float = 0.0, win_amount: float
         print(f"⚠️ [games_db] Error recording result: {e}")
 
 # ==========================================
-# 3. إدارة المعاملات المالية الحسابية
+# 3. إدارة المستخدم والمعاملات المالية
 # ==========================================
 
-def get_user_data(uid: str) -> Tuple[bool, Dict[str, Any]]:
-    if not db:
-        return False, {}
+def get_user_doc_ref(uid: str):
+    """البحث الذكي عن مستند المستخدم سواء كان المعرف نصي أو رقمي"""
+    db = _get_db()
+    if not db or not uid:
+        return None, {}
+
+    uid_str = str(uid).strip()
+
+    # 1. التجربة بواسطة String ID
+    doc_ref = db.collection('users').document(uid_str)
+    doc = doc_ref.get()
+    if doc.exists:
+        return doc_ref, doc.to_dict() or {}
+
+    # 2. التجربة بواسطة Integer ID
+    if uid_str.isdigit():
+        doc_ref_int = db.collection('users').document(str(int(uid_str)))
+        doc_int = doc_ref_int.get()
+        if doc_int.exists:
+            return doc_ref_int, doc_int.to_dict() or {}
+
+    # 3. البحث باستخدام استعلام حقل telegram_id أو tg_id
     try:
-        user_doc = db.collection('users').document(str(uid)).get()
-        if user_doc.exists:
-            return True, user_doc.to_dict() or {}
-        return False, {}
-    except Exception as e:
-        print(f"⚠️ [games_db] Error getting user data: {e}")
-        return False, {}
+        queries = ['telegram_id', 'tg_id', 'user_id', 'id']
+        for field in queries:
+            val = int(uid_str) if uid_str.isdigit() else uid_str
+            q = db.collection('users').where(field, '==', val).limit(1).get()
+            if q:
+                return q[0].reference, q[0].to_dict() or {}
+    except Exception:
+        pass
+
+    return None, {}
+
+def get_user_data(uid: str) -> Tuple[bool, Dict[str, Any]]:
+    doc_ref, data = get_user_doc_ref(uid)
+    if doc_ref and data:
+        # توحيد مسمى الرصيد
+        if 'balance' not in data:
+            data['balance'] = data.get('zn_balance', data.get('coins', 0.0))
+        return True, data
+    return False, {}
 
 def deduct_user_balance_transactional(uid: str, amount: float) -> Tuple[bool, str, float]:
+    db = _get_db()
     if not db:
         return False, "قاعدة البيانات غير متصلة", 0.0
 
-    uid_str = str(uid)
-    user_ref = db.collection('users').document(uid_str)
+    doc_ref, data = get_user_doc_ref(uid)
+    if not doc_ref:
+        return False, "المستخدم غير موجود", 0.0
 
     @firestore.transactional
     def txn(transaction):
-        doc = user_ref.get(transaction=transaction)
-        if not doc.exists:
+        snapshot = doc_ref.get(transaction=transaction)
+        if not snapshot.exists:
             return False, "المستخدم غير موجود", 0.0
 
-        data = doc.to_dict() or {}
-        bal = round(float(data.get('balance', 0.0)), 2)
+        u_data = snapshot.to_dict() or {}
+        bal = round(float(u_data.get('balance', u_data.get('zn_balance', 0.0))), 2)
         if bal < amount:
             return False, "الرصيد غير كافٍ", bal
 
         new_bal = round(bal - amount, 2)
-        transaction.update(user_ref, {'balance': new_bal})
+        transaction.update(doc_ref, {'balance': new_bal})
         return True, "تم الخصم بنجاح", new_bal
 
     try:
@@ -210,23 +254,25 @@ def deduct_user_balance_transactional(uid: str, amount: float) -> Tuple[bool, st
         return False, "خطأ في المعاملة المالية", 0.0
 
 def add_user_balance_transactional(uid: str, amount: float) -> Tuple[bool, str, float]:
+    db = _get_db()
     if not db:
         return False, "قاعدة البيانات غير متصلة", 0.0
 
-    uid_str = str(uid)
-    user_ref = db.collection('users').document(uid_str)
+    doc_ref, data = get_user_doc_ref(uid)
+    if not doc_ref:
+        return False, "المستخدم غير موجود", 0.0
 
     @firestore.transactional
     def txn(transaction):
-        doc = user_ref.get(transaction=transaction)
-        if not doc.exists:
+        snapshot = doc_ref.get(transaction=transaction)
+        if not snapshot.exists:
             return False, "المستخدم غير موجود", 0.0
 
-        data = doc.to_dict() or {}
-        bal = round(float(data.get('balance', 0.0)), 2)
+        u_data = snapshot.to_dict() or {}
+        bal = round(float(u_data.get('balance', u_data.get('zn_balance', 0.0))), 2)
         new_bal = round(bal + amount, 2)
 
-        transaction.update(user_ref, {'balance': new_bal})
+        transaction.update(doc_ref, {'balance': new_bal})
         return True, "تمت إضافة المبلغ بنجاح", new_bal
 
     try:
@@ -236,25 +282,46 @@ def add_user_balance_transactional(uid: str, amount: float) -> Tuple[bool, str, 
         return False, "خطأ في المعاملة المالية", 0.0
 
 def clear_user_pending_refund(uid: str) -> Tuple[float, float]:
+    db = _get_db()
     if not db:
         return 0.0, 0.0
     try:
-        uid_str = str(uid)
-        user_ref = db.collection('users').document(uid_str)
-        user_doc = user_ref.get()
-        if not user_doc.exists:
+        doc_ref, data = get_user_doc_ref(uid)
+        if not doc_ref:
             return 0.0, 0.0
 
-        data = user_doc.to_dict() or {}
         pending_refund = round(float(data.get('pending_refund', 0.0)), 2)
-        current_balance = round(float(data.get('balance', 0.0)), 2)
+        current_balance = round(float(data.get('balance', data.get('zn_balance', 0.0))), 2)
 
         if pending_refund > 0:
             new_bal = round(current_balance + pending_refund, 2)
-            user_ref.update({'pending_refund': 0, 'balance': new_bal})
+            doc_ref.update({'pending_refund': 0, 'balance': new_bal})
             return pending_refund, new_bal
 
         return 0.0, current_balance
     except Exception as e:
         print(f"⚠️ [games_db] Error clearing pending refund: {e}")
         return 0.0, 0.0
+
+# ==========================================
+# 4. حفظ واسترجاع حالة الساحة والشبكة بالدعم المباشر
+# ==========================================
+
+def get_arena_state_db() -> Optional[Dict[str, Any]]:
+    db = _get_db()
+    if not db:
+        return None
+    try:
+        doc = db.collection('settings').document('arena_state').get()
+        return doc.to_dict() if doc.exists else None
+    except Exception:
+        return None
+
+def save_arena_state_db(state: Dict[str, Any]) -> None:
+    db = _get_db()
+    if not db:
+        return
+    try:
+        db.collection('settings').document('arena_state').set(state, merge=True)
+    except Exception:
+        pass
