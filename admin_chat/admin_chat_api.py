@@ -75,20 +75,11 @@ def check_admin_auth():
         return None
 
 def send_telegram_notification(chat_id, text):
-    """إرسال إشعار للمستخدم عبر بوت المستخدمين الرئيسي (BOT_TOKEN) عند رد الأدمن"""
-    user_bot_token = (os.environ.get("BOT_TOKEN") or os.environ.get("ADMIN_BOT_TOKEN") or "").strip()
-    if not user_bot_token or not chat_id:
-        return
-    try:
-        url = f"https://api.telegram.org/bot{user_bot_token}/sendMessage"
-        payload = {
-            "chat_id": chat_id,
-            "text": f"💬 **رد جديد من الدعم الفني:**\n\n{text}",
-            "parse_mode": "Markdown"
-        }
-        requests.post(url, json=payload, timeout=5)
-    except Exception as e:
-        print(f"⚠️ Failed to send Telegram message to user: {e}")
+    """
+    ملاحظة: تم إيقاف إرسال الإشعارات عبر التلجرام لمنع وصول الردود لشات التلجرام،
+    ولضمان انحصار المحادثة في الويب فقط بناءً على طلبك.
+    """
+    pass
 
 # 1. جلب قائمة التذاكر
 @admin_chat_bp.route('/tickets', methods=['GET'])
@@ -134,7 +125,7 @@ def mark_read():
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
-# 4. إرسال رد الأدمن
+# 4. إرسال رد الأدمن (إلى شاشة الويب حصراً)
 @admin_chat_bp.route('/reply', methods=['POST'])
 def send_reply():
     if not check_admin_auth():
@@ -154,9 +145,7 @@ def send_reply():
         if not success:
             return jsonify({"success": False, "message": err_msg or "خطأ في الإرسال"}), 404
 
-        if user_id:
-            send_telegram_notification(user_id, text)
-
+        # الرد يُحفظ في قاعدة البيانات للويب مباشرة دون إرسال إشعار تلجرام
         return jsonify({"success": True}), 200
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
