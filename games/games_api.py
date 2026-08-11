@@ -15,7 +15,7 @@ def extract_uid(req) -> str:
     """استخراج ID المستخدم بشكل شامل لمنع فقدان الربط"""
     # 1. البحث في JSON Body
     if req.is_json:
-        data = req.json or {}
+        data = req.get_json(silent=True) or {}
         tg_id = data.get('tg_id') or data.get('uid') or data.get('user_id')
         if tg_id:
             return str(tg_id)
@@ -47,6 +47,7 @@ def get_user_info():
     if not exists:
         return jsonify({"success": False, "message": "المستخدم غير موجود في قاعدة البيانات"}), 404
 
+    udata = udata or {}
     return jsonify({
         "success": True,
         "uid": uid,
@@ -62,7 +63,7 @@ def get_user_info():
 @games_bp.route('/games/grid36/start', methods=['POST'])
 def start_grid36():
     uid = extract_uid(request)
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     bet_amount = float(data.get('bet_amount', 100.0))
     broken_count = int(data.get('broken_count', 3))
 
@@ -70,6 +71,7 @@ def start_grid36():
         return jsonify({"success": False, "message": "لم يتم العثور على معرف المستخدم"}), 400
 
     success, message, result = grid_36_manager.start_new_game(uid, bet_amount, broken_count)
+    result = result or {}
     return jsonify({
         "success": success,
         "status": "success" if success else "error",
@@ -83,7 +85,7 @@ def start_grid36():
 @games_bp.route('/games/grid36/open', methods=['POST'])
 def open_grid36_box():
     uid = extract_uid(request)
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     box_index = int(data.get('box_index', -1))
     session_token = data.get('session_token')
 
@@ -91,6 +93,7 @@ def open_grid36_box():
         return jsonify({"success": False, "message": "بيانات غير مكتملة"}), 400
 
     success, message, result = grid_36_manager.open_box(uid, box_index, session_token)
+    result = result or {}
     return jsonify({
         "success": success,
         "status": result.get("status", "error"),
@@ -109,6 +112,7 @@ def cashout_grid36():
         return jsonify({"success": False, "message": "مستخدم غير معروف"}), 400
 
     success, message, result = grid_36_manager.cashout(uid)
+    result = result or {}
     return jsonify({
         "success": success,
         "status": "success" if success else "error",
@@ -126,7 +130,7 @@ def cashout_grid36():
 def arena_status():
     uid = extract_uid(request)
     res = big_arena_manager.get_status(uid)
-    return jsonify(res)
+    return jsonify(res if isinstance(res, dict) else {"success": False})
 
 @games_bp.route('/games/join', methods=['POST'])
 @games_bp.route('/games/arena/enter', methods=['POST'])
@@ -136,6 +140,7 @@ def arena_join():
         return jsonify({"success": False, "message": "مستخدم غير معرف"}), 400
 
     success, message, res = big_arena_manager.enter_arena(uid)
+    res = res or {}
     return jsonify({
         "success": success,
         "message": message,
@@ -145,11 +150,11 @@ def arena_join():
 
 @games_bp.route('/games/results', methods=['POST'])
 def arena_results():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     round_id = data.get('round_id', '')
     uid = extract_uid(request)
     res = big_arena_manager.get_results(round_id, uid)
-    return jsonify(res)
+    return jsonify(res if isinstance(res, dict) else {"success": False})
 
 @games_bp.route('/games/check_notifications', methods=['POST'])
 def check_notifications():
