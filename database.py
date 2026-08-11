@@ -55,70 +55,71 @@ except Exception as e:
 
 
 # ==================== Sub-Modules Re-exports ====================
-# ربط كافة موديولات الـ Database الفرعية من المجلدات الـ 11
+# ربط كافة موديولات الـ Database الفرعية من المجلدات الـ 11 وتتبع الأخطاء
 
 # 1. Admin Chat Module
 try:
     from admin_chat.admin_chat_db import *
-except ImportError:
-    pass
+except Exception as e:
+    print(f"⚠️ خطأ في تحميل admin_chat_db: {e}")
 
 # 2. Farm Module
 try:
     from farm.farm_db import *
-except ImportError:
-    pass
+except Exception as e:
+    print(f"⚠️ خطأ في تحميل farm_db: {e}")
 
 # 3. Friends Module
 try:
     from friends.friends_db import *
-except ImportError:
-    pass
+except Exception as e:
+    print(f"⚠️ خطأ في تحميل friends_db: {e}")
 
 # 4. Games Module
 try:
     from games.games_db import *
-except ImportError:
-    pass
+    print("✅ تم ربط games/games_db.py بـ database.py بنجاح!")
+except Exception as e:
+    print(f"❌ خطأ في ربط games/games_db.py: {e}")
 
 # 5. Settings Module
 try:
     from settings.settings_db import *
-except ImportError:
-    pass
+except Exception as e:
+    print(f"⚠️ خطأ في تحميل settings_db: {e}")
 
 # 6. Shop Module
 try:
     from shop.shop_db import *
-except ImportError:
-    pass
+except Exception as e:
+    print(f"⚠️ خطأ في تحميل shop_db: {e}")
 
 # 7. Super Admin Module
 try:
     from super_admin.super_admin_db import *
-except ImportError:
-    pass
+except Exception as e:
+    print(f"⚠️ خطأ في تحميل super_admin_db: {e}")
 
 # 8. Support Module
 try:
     from support.support_db import *
-except ImportError:
-    pass
+except Exception as e:
+    print(f"⚠️ خطأ في تحميل support_db: {e}")
 
 # 9. Tasks Module
 try:
     from tasks.tasks_db import *
-except ImportError:
-    pass
+except Exception as e:
+    print(f"⚠️ خطأ في تحميل tasks_db: {e}")
 
 # 10. Users Module
 try:
     from users.users_db import *
-except ImportError:
-    pass
+except Exception as e:
+    print(f"⚠️ خطأ في تحميل users_db: {e}")
 
 # 11. Wallet Module
 try:
     from wallet.wallet_db import *
-except ImportError:
-    pass
+except Exception as e:
+    print(f"⚠️ خطأ في تحميل wallet_db: {e}")
