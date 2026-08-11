@@ -10,7 +10,7 @@
     let pendingConfirmCallback = null;
 
     let lastStatusFetchTimestamp = 0;
-    const STATUS_FETCH_COOLDOWN = 10000;
+    const STATUS_FETCH_COOLDOWN = 8000;
     let hasJoinedCurrentRound = false;
 
     let currentEntryFee = 350;
@@ -119,11 +119,15 @@
             if (window.userState) window.userState.balance = numVal;
             localStorage.setItem('zn_balance', numVal.toString());
             
-            if (animate) animateCounter('top-balance-games', oldVal, numVal, 800, " ZN");
-            else {
-                const gameBalEl = document.getElementById('top-balance-games');
-                if (gameBalEl) gameBalEl.innerHTML = formatNumberHTML(numVal, " ZN");
-            }
+            const targetElements = ['top-balance-games', 'user-balance', 'top-balance'];
+            targetElements.forEach(id => {
+                const gameBalEl = document.getElementById(id);
+                if (gameBalEl) {
+                    if (animate) animateCounter(id, oldVal, numVal, 800, " ZN");
+                    else gameBalEl.innerHTML = formatNumberHTML(numVal, " ZN");
+                }
+            });
+
             currentDisplayBalance = numVal;
         }
     }
@@ -155,6 +159,7 @@
             if (boxesTab) { boxesTab.classList.remove('active'); boxesTab.style.opacity = '0.6'; }
             if (arenaContent) arenaContent.style.display = 'block';
             if (boxesContent) boxesContent.style.display = 'none';
+            fetchArenaStatus(true);
         } else {
             if (boxesTab) { boxesTab.classList.add('active'); boxesTab.style.opacity = '1'; }
             if (arenaTab) { arenaTab.classList.remove('active'); arenaTab.style.opacity = '0.6'; }
@@ -629,13 +634,14 @@
             toastBox.style.cssText = `
                 position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
                 background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(12px);
-                border: 1.5px solid ${isSuccess ? '#10b981' : '#ef4444'};
                 color: #ffffff; padding: 12px 22px; border-radius: 50px;
                 box-shadow: 0 10px 30px rgba(0,0,0,0.8); z-index: 99999999;
                 font-size: 13px; font-weight: 800; text-align: center; width: 90%; max-width: 380px;
+                transition: border-color 0.3s ease;
             `;
             document.body.appendChild(toastBox);
         }
+        toastBox.style.border = `1.5px solid ${isSuccess ? '#10b981' : '#ef4444'}`;
         toastBox.innerHTML = msg;
         toastBox.style.display = 'block';
         setTimeout(() => { if (toastBox) toastBox.style.display = 'none'; }, 4000);
@@ -676,6 +682,11 @@
         renderBoxesGrid();
         syncUserData();
         fetchArenaStatus(true);
+
+        if (backgroundSyncInterval) clearInterval(backgroundSyncInterval);
+        backgroundSyncInterval = setInterval(() => {
+            fetchArenaStatus(false);
+        }, 15000);
     }
 
     if (document.readyState === 'loading') {
