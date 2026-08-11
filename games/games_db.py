@@ -2,20 +2,20 @@ import time
 from typing import Dict, Any, Tuple, List, Optional
 from firebase_admin import firestore
 
-try:
-    from database import db as main_db
-except ImportError:
-    main_db = None
-
 def _get_db():
-    """الحصول على كائن قاعدة البيانات المتاح بشكل ديناميكي"""
-    global main_db
-    if main_db:
-        return main_db
+    """الحصول على كائن قاعدة البيانات المتاح بشكل ديناميكي من database.py"""
     try:
-        main_db = firestore.client()
-        return main_db
+        from database import get_db
+        db_instance = get_db()
+        if db_instance:
+            return db_instance
     except Exception:
+        pass
+
+    try:
+        return firestore.client()
+    except Exception as e:
+        print(f"⚠️ [games_db] Failed to acquire Firestore client: {e}")
         return None
 
 # ==========================================
@@ -201,7 +201,7 @@ def get_user_doc_ref(uid: str):
         if doc_int.exists:
             return doc_ref_int, doc_int.to_dict() or {}
 
-    # 3. البحث باستخدام استعلام حقل telegram_id أو tg_id
+    # 3. البحث باستخدام استعلام حقول المعرفات المتنوعة
     try:
         queries = ['telegram_id', 'tg_id', 'user_id', 'id']
         for field in queries:
@@ -209,8 +209,8 @@ def get_user_doc_ref(uid: str):
             q = db.collection('users').where(field, '==', val).limit(1).get()
             if q:
                 return q[0].reference, q[0].to_dict() or {}
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"⚠️ [games_db] Query lookup exception: {e}")
 
     return None, {}
 
@@ -244,7 +244,11 @@ def deduct_user_balance_transactional(uid: str, amount: float) -> Tuple[bool, st
             return False, "الرصيد غير كافٍ", bal
 
         new_bal = round(bal - amount, 2)
-        transaction.update(doc_ref, {'balance': new_bal})
+        # تحديث الحقلين معاً لضمان التطابق التام
+        transaction.update(doc_ref, {
+            'balance': new_bal,
+            'zn_balance': new_bal
+        })
         return True, "تم الخصم بنجاح", new_bal
 
     try:
@@ -272,7 +276,11 @@ def add_user_balance_transactional(uid: str, amount: float) -> Tuple[bool, str, 
         bal = round(float(u_data.get('balance', u_data.get('zn_balance', 0.0))), 2)
         new_bal = round(bal + amount, 2)
 
-        transaction.update(doc_ref, {'balance': new_bal})
+        # تحديث الحقلين معاً لضمان التطابق التام
+        transaction.update(doc_ref, {
+            'balance': new_bal,
+            'zn_balance': new_bal
+        })
         return True, "تمت إضافة المبلغ بنجاح", new_bal
 
     try:
@@ -295,7 +303,11 @@ def clear_user_pending_refund(uid: str) -> Tuple[float, float]:
 
         if pending_refund > 0:
             new_bal = round(current_balance + pending_refund, 2)
-            doc_ref.update({'pending_refund': 0, 'balance': new_bal})
+            doc_ref.update({
+                'pending_refund': 0, 
+                'balance': new_bal,
+                'zn_balance': new_bal
+            })
             return pending_refund, new_bal
 
         return 0.0, current_balance
@@ -314,7 +326,8 @@ def get_arena_state_db() -> Optional[Dict[str, Any]]:
     try:
         doc = db.collection('settings').document('arena_state').get()
         return doc.to_dict() if doc.exists else None
-    except Exception:
+    except Exception as e:
+        print(f"⚠️ [games_db] Error fetching arena state: {e}")
         return None
 
 def save_arena_state_db(state: Dict[str, Any]) -> None:
@@ -323,5 +336,5 @@ def save_arena_state_db(state: Dict[str, Any]) -> None:
         return
     try:
         db.collection('settings').document('arena_state').set(state, merge=True)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"⚠️ [games_db] Error saving arena state: {e}")
