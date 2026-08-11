@@ -3,6 +3,11 @@ from datetime import datetime, timezone
 import logging
 import database
 
+try:
+    from google.cloud.firestore import ArrayUnion
+except ImportError:
+    ArrayUnion = None
+
 logger = logging.getLogger(__name__)
 
 def get_db():
@@ -12,33 +17,34 @@ def get_db():
     return database.db
 
 def get_or_create_active_ticket(uid: str, custom_ticket_id: str = None, user_info: dict = None) -> dict:
-    """جلب التذكرة النشطة للمستخدم أو إنشاء تذكرة جديدة"""
+    """جلب التذكرة النشطة للمستخدم أو إنشاء تذكرة جديدة باستهلاك أدنى لقراءات Firestore"""
     db = get_db()
     if not db:
         return None
 
-    uid_str = str(uid)
+    uid_str = str(uid).strip()
     tickets_ref = db.collection('support_tickets')
 
-    # إذا تم تمرير ID تذكرة محددة، نتحقق منها أولاً
+    # 1. إذا تم تمرير ID تذكرة محددة، نتحقق منها مباشرة بطلب مستند واحد فقط
     if custom_ticket_id:
-        doc = tickets_ref.document(custom_ticket_id).get()
+        doc = tickets_ref.document(str(custom_ticket_id).strip()).get()
         if doc.exists:
-            data = doc.to_dict()
-            if str(data.get('uid')) == uid_str or str(data.get('user_id')) == uid_str:
+            data = doc.to_dict() or {}
+            ticket_owner = str(data.get('uid') or data.get('user_id') or '')
+            if ticket_owner == uid_str:
                 return data
 
-    # البحث عن تذكرة مفتوحة للمستخدم
+    # 2. البحث عن تذكرة مفتوحة للمستخدم باستعلام واحد دقيق
     query = tickets_ref.where('uid', '==', uid_str).where('status', '==', 'open').limit(1).stream()
     for doc in query:
         return doc.to_dict()
 
-    # بحث بديل بالحقل القديم user_id للتوافق
+    # 3. بحث بديل بالحقل القديم user_id فقط كإجراء احتياطي إذا لم توجد نتائج
     query_alt = tickets_ref.where('user_id', '==', uid_str).where('status', '==', 'open').limit(1).stream()
     for doc in query_alt:
         return doc.to_dict()
 
-    # إنشاء تذكرة جديدة إذا لم توجد تذكرة مفتوحة
+    # 4. إنشاء تذكرة جديدة إذا لم توجد أي تذكرة مفتوحة
     now_iso = datetime.now(timezone.utc).isoformat()
     ticket_id = custom_ticket_id or f"TK-{uid_str[-4:]}-{int(datetime.now().timestamp()) % 100000}"
     
@@ -65,21 +71,28 @@ def get_or_create_active_ticket(uid: str, custom_ticket_id: str = None, user_inf
     return new_ticket_data
 
 def add_support_message(uid: str, ticket_id: str, text: str, sender: str = "user", user_info: dict = None) -> dict:
-    """إضافة رسالة جديدة إلى تذكرة الدعم الفني"""
+    """إضافة رسالة جديدة إلى تذكرة الدعم الفني بحماية من التضارب (Race Conditions)"""
     db = get_db()
     if not db:
         return {"success": False, "message": "خطأ في الاتصال بقاعدة البيانات"}
 
-    uid_str = str(uid)
+    uid_str = str(uid).strip()
+    clean_text = text.strip()[:2000] # تحديد الحد الأقصى للرسالة لحماية السيرفر
+
+    if not clean_text:
+        return {"success": False, "message": "لا يمكن إرسال رسالة فارغة"}
+
     ticket_ref = db.collection('support_tickets').document(ticket_id)
     ticket_doc = ticket_ref.get()
 
     if not ticket_doc.exists:
         ticket_data = get_or_create_active_ticket(uid_str, custom_ticket_id=ticket_id, user_info=user_info)
+        if not ticket_data:
+            return {"success": False, "message": "تعذر العثور على التذكرة"}
     else:
-        ticket_data = ticket_doc.to_dict()
+        ticket_data = ticket_doc.to_dict() or {}
 
-    ticket_owner = str(ticket_data.get('uid') or ticket_data.get('user_id'))
+    ticket_owner = str(ticket_data.get('uid') or ticket_data.get('user_id') or '')
     if ticket_owner != uid_str:
         return {"success": False, "message": "غير مصرح لك بالوصول لهذه التذكرة"}
 
@@ -89,15 +102,12 @@ def add_support_message(uid: str, ticket_id: str, text: str, sender: str = "user
     now_iso = datetime.now(timezone.utc).isoformat()
     new_msg = {
         "sender": sender,
-        "text": text.strip(),
+        "text": clean_text,
         "timestamp": now_iso
     }
 
-    messages = ticket_data.get('messages', [])
-    messages.append(new_msg)
-
+    # تحديث البيانات بشكل ذري للحد من التضارب عند إرسال رسائل متزامنة
     update_payload = {
-        "messages": messages,
         "updated_at": now_iso,
         "has_unread_admin": True if sender == "user" else False,
         "last_sender": sender
@@ -106,7 +116,16 @@ def add_support_message(uid: str, ticket_id: str, text: str, sender: str = "user
     if user_info:
         update_payload["user_info"] = user_info
 
-    ticket_ref.update(update_payload)
+    if ArrayUnion:
+        update_payload["messages"] = ArrayUnion([new_msg])
+        ticket_ref.update(update_payload)
+        messages = ticket_data.get('messages', [])
+        messages.append(new_msg)
+    else:
+        messages = ticket_data.get('messages', [])
+        messages.append(new_msg)
+        update_payload["messages"] = messages
+        ticket_ref.update(update_payload)
 
     return {
         "success": True,
@@ -116,20 +135,17 @@ def add_support_message(uid: str, ticket_id: str, text: str, sender: str = "user
     }
 
 def create_new_user_ticket(uid: str, user_info: dict = None) -> dict:
-    """إغلاق أي تذكرة مفتوحة قديمة وإنشاء تذكرة دعم جديدة فوراً"""
+    """إغلاق أي تذكرة مفتوحة قديمة وإنشاء تذكرة دعم جديدة فوراً بشكل أسرع"""
     db = get_db()
     if not db:
         return None
 
-    uid_str = str(uid)
+    uid_str = str(uid).strip()
     tickets_ref = db.collection('support_tickets')
 
+    # إغلاق التذاكر المفتوحة السابقة باعتناء
     open_tickets = tickets_ref.where('uid', '==', uid_str).where('status', '==', 'open').stream()
     for doc in open_tickets:
-        tickets_ref.document(doc.id).update({"status": "closed"})
-
-    open_tickets_alt = tickets_ref.where('user_id', '==', uid_str).where('status', '==', 'open').stream()
-    for doc in open_tickets_alt:
         tickets_ref.document(doc.id).update({"status": "closed"})
 
     ticket_id = f"TK-{uid_str[-4:]}-{int(datetime.now().timestamp()) % 100000}"
