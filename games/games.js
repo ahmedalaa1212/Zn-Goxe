@@ -32,8 +32,26 @@
 
     const tele = window.Telegram?.WebApp;
 
+    // استخراج ID المستخدم بجميع الطرق الممكنة لمنع حدوث 0.00
     function getTgId() {
-        return tele?.initDataUnsafe?.user?.id || null;
+        let id = tele?.initDataUnsafe?.user?.id;
+        if (id) {
+            localStorage.setItem('tg_id', id.toString());
+            return id.toString();
+        }
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlId = urlParams.get('tg_id') || urlParams.get('uid') || urlParams.get('user_id');
+        if (urlId) {
+            localStorage.setItem('tg_id', urlId.toString());
+            return urlId.toString();
+        }
+
+        if (window.userState && window.userState.tg_id) {
+            return window.userState.tg_id.toString();
+        }
+
+        return localStorage.getItem('tg_id') || null;
     }
 
     function triggerHaptic(type = 'light') {
@@ -107,6 +125,21 @@
                 if (gameBalEl) gameBalEl.innerHTML = formatNumberHTML(numVal, " ZN");
             }
             currentDisplayBalance = numVal;
+        }
+    }
+
+    async function syncUserData() {
+        const tgId = getTgId();
+        if (!tgId) return;
+
+        try {
+            const res = await fetch(`/api/user/info?tg_id=${tgId}`);
+            const data = await res.json();
+            if (data.success && data.balance !== undefined) {
+                setStoredBalance(data.balance, true);
+            }
+        } catch (e) {
+            console.error("Error syncing user profile:", e);
         }
     }
 
@@ -633,6 +666,21 @@
         } catch (e) {}
     }
 
-    renderBoxesGrid();
-    fetchArenaStatus(true);
+    function initModule() {
+        if (tele) {
+            try {
+                tele.ready();
+                tele.expand();
+            } catch (e) {}
+        }
+        renderBoxesGrid();
+        syncUserData();
+        fetchArenaStatus(true);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initModule);
+    } else {
+        initModule();
+    }
 })();
