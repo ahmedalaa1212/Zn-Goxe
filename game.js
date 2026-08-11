@@ -450,10 +450,12 @@ function renderSmoothBalance(targetVal) {
 function applyBalanceToUI(val) {
     const formatted = window.formatNumberHTML(val);
     const rawFormatted = window.formatBalance(val);
+    
+    // استثناء عنصر رصيد الألعاب لمنع التضارب البصري مع أنيميشن الألعاب
     const selectors = '[data-bind="balance"], .user-balance, #farm-balance, #user-balance, #main-balance, #balance, .sync-balance, #top-balance-tasks, .user-balance-val, [data-bind="user_balance"]';
     
     document.querySelectorAll(selectors).forEach(el => {
-        if (el.id === 'shop-balance-text') return;
+        if (el.id === 'shop-balance-text' || el.id === 'top-balance-games') return;
 
         if (el.tagName === 'INPUT') {
             el.value = rawFormatted;
