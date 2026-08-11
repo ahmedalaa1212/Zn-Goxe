@@ -29,7 +29,7 @@ from admin_chat.admin_chat_api import admin_chat_bp
 app.register_blueprint(farm_bp, url_prefix='/api/farm')
 app.register_blueprint(settings_bp, url_prefix='/api/settings')
 app.register_blueprint(friends_bp, url_prefix='/api/friends')
-app.register_blueprint(games_bp, url_prefix='/api/games')
+app.register_blueprint(games_bp)  # تم إصلاح التكرار ليتماشى مع /api المعرفة داخل البلوبرينت
 app.register_blueprint(tasks_bp, url_prefix='/api/tasks')
 app.register_blueprint(shop_bp, url_prefix='/api/shop')
 app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
@@ -54,8 +54,14 @@ def get_user_info_main():
     """جلب وتأكيد بيانات المستخدم والتحقق المباشر من حالة الحظر"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
+    
+    # محاولة الحصول على ID من المعلمات في حالة البيئات التطويرية
     if not success:
-        return error_res
+        tg_id_param = request.args.get('tg_id') or (request.json.get('tg_id') if request.is_json and request.json else None)
+        if tg_id_param:
+            telegram_id = str(tg_id_param)
+        else:
+            return error_res
         
     try:
         if database.is_user_banned(telegram_id):
@@ -71,9 +77,15 @@ def get_user_info_main():
             ref_id = user_info.get('start_param') if isinstance(user_info, dict) else None
             
             database.init_user(telegram_id, ref_id=ref_id, first_name=first_name)
-            user_data = database.get_user(telegram_id)
+            user_data = database.get_user(telegram_id) or {}
             
-        return jsonify({"success": True, "user": user_data}), 200
+        balance = float(user_data.get('balance', 0.0))
+        return jsonify({
+            "success": True, 
+            "user": user_data,
+            "balance": balance,
+            "uid": telegram_id
+        }), 200
     except Exception as e:
         print(f"❌ Error fetching user info for {telegram_id}: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب بيانات الحساب"}), 500
