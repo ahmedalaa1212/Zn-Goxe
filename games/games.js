@@ -1,736 +1,518 @@
-// games/games.js
-(function initGamesModule() {
-    let isJoining = false;
-    let currentRoundId = null;
-    let arenaEndTime = 0;
-    let countdownInterval = null;
-    let backgroundSyncInterval = null;
-    let hasCheckedResults = false;
-    let pendingConfirmCallback = null;
-
-    let lastStatusFetchTimestamp = 0;
-    const STATUS_FETCH_COOLDOWN = 8000;
-    let hasJoinedCurrentRound = false;
-
-    let currentEntryFee = 350;
-    let currentLockSeconds = 15;
-    let currentDisplayBalance = 0;
-    let currentPrizePool = 0;
-    let currentPayoutPercentages = [40, 20, 10, 8, 6, 5, 4, 3, 2, 2];
-
-    let boxesState = {
-        inGame: false,
-        isProcessingPick: false,
-        bet: 100,
-        brokenCount: 3,
-        picks: [],
-        sessionToken: null,
-        multipliers: [1.2, 1.5, 2.0, 2.8, 3.8, 5.2, 7.5, 10.0, 14.0, 20.0, 28.0, 40.0],
-        lastHitIndex: null,
-        reviveUsed: false
-    };
-
-    const tele = window.Telegram?.WebApp;
-
-    // استخراج ID المستخدم بجميع الطرق الممكنة لمنع حدوث 0.00
-    function getTgId() {
-        let id = tele?.initDataUnsafe?.user?.id;
-        if (id) {
-            localStorage.setItem('tg_id', id.toString());
-            return id.toString();
-        }
-
-        const urlParams = new URLSearchParams(window.location.search);
-        const urlId = urlParams.get('tg_id') || urlParams.get('uid') || urlParams.get('user_id');
-        if (urlId) {
-            localStorage.setItem('tg_id', urlId.toString());
-            return urlId.toString();
-        }
-
-        if (window.userState && window.userState.tg_id) {
-            return window.userState.tg_id.toString();
-        }
-
-        return localStorage.getItem('tg_id') || null;
-    }
-
-    function triggerHaptic(type = 'light') {
-        try {
-            if (tele?.HapticFeedback) {
-                if (type === 'light') tele.HapticFeedback.impactOccurred('light');
-                else if (type === 'medium') tele.HapticFeedback.impactOccurred('medium');
-                else if (type === 'heavy') tele.HapticFeedback.impactOccurred('heavy');
-                else if (type === 'success') tele.HapticFeedback.notificationOccurred('success');
-                else if (type === 'error') tele.HapticFeedback.notificationOccurred('error');
-            }
-        } catch (e) {}
-    }
-
-    function formatNumberHTML(val, suffix = "") {
-        const num = parseFloat(val) || 0;
-        const parts = num.toFixed(2).split('.');
-        const intPart = parseInt(parts[0], 10).toLocaleString('en-US');
-        const decPart = parts[1];
-        return `${intPart}<span class="small-decimal" style="font-size:0.8em; opacity:0.85;">.${decPart}</span>${suffix}`;
-    }
-
-    function animateCounter(elementId, startVal, endVal, duration = 800, suffix = " ZN") {
-        const el = document.getElementById(elementId);
-        if (!el) return;
-        let startTimestamp = null;
-        const startNum = parseFloat(startVal) || 0;
-        const endNum = parseFloat(endVal) || 0;
-
-        if (startNum === endNum) {
-            el.innerHTML = formatNumberHTML(endNum, suffix);
-            return;
-        }
-
-        const step = (timestamp) => {
-            if (!startTimestamp) startTimestamp = timestamp;
-            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-            const easeProgress = 1 - Math.pow(1 - progress, 3);
-            const currentVal = startNum + (endNum - startNum) * easeProgress;
-            el.innerHTML = formatNumberHTML(currentVal, suffix);
-            if (progress < 1) window.requestAnimationFrame(step);
-            else el.innerHTML = formatNumberHTML(endNum, suffix);
-        };
-        window.requestAnimationFrame(step);
-    }
-
-    function showNotification(msg) {
-        triggerHaptic('medium');
-        if (tele && tele.showAlert) tele.showAlert(msg);
-        else alert(msg);
-    }
-
-    function getStoredBalance() {
-        if (window.userState && window.userState.balance !== undefined) return parseFloat(window.userState.balance) || 0;
-        const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
-        const num = bal !== null ? parseFloat(bal) : 0;
-        return isNaN(num) ? 0 : num;
-    }
-
-    function setStoredBalance(newBalance, animate = true) {
-        if (newBalance !== undefined && newBalance !== null) {
-            const numVal = Math.round((parseFloat(newBalance) || 0) * 100) / 100;
-            const oldVal = currentDisplayBalance || getStoredBalance();
-            
-            if (window.userState) window.userState.balance = numVal;
-            localStorage.setItem('zn_balance', numVal.toString());
-            
-            const targetElements = ['top-balance-games', 'user-balance', 'top-balance'];
-            targetElements.forEach(id => {
-                const gameBalEl = document.getElementById(id);
-                if (gameBalEl) {
-                    if (animate) animateCounter(id, oldVal, numVal, 800, " ZN");
-                    else gameBalEl.innerHTML = formatNumberHTML(numVal, " ZN");
-                }
-            });
-
-            currentDisplayBalance = numVal;
-        }
-    }
-
-    async function syncUserData() {
-        const tgId = getTgId();
-        if (!tgId) return;
-
-        try {
-            const res = await fetch(`/api/user/info?tg_id=${tgId}`);
-            if (!res.ok) return;
-            const data = await res.json();
-            if (data.success) {
-                const balanceVal = data.balance !== undefined ? data.balance : data.user?.balance;
-                if (balanceVal !== undefined) {
-                    setStoredBalance(balanceVal, true);
-                }
-            }
-        } catch (e) {
-            console.error("Error syncing user profile:", e);
-        }
-    }
-
-    window.switchGameTab = function(tabName) {
-        triggerHaptic('light');
-        const arenaTab = document.getElementById('tab-arena');
-        const boxesTab = document.getElementById('tab-boxes');
-        const arenaContent = document.getElementById('content-arena');
-        const boxesContent = document.getElementById('content-boxes');
-
-        if (tabName === 'arena') {
-            if (arenaTab) { arenaTab.classList.add('active'); arenaTab.style.opacity = '1'; }
-            if (boxesTab) { boxesTab.classList.remove('active'); boxesTab.style.opacity = '0.6'; }
-            if (arenaContent) arenaContent.style.display = 'block';
-            if (boxesContent) boxesContent.style.display = 'none';
-            fetchArenaStatus(true);
-        } else {
-            if (boxesTab) { boxesTab.classList.add('active'); boxesTab.style.opacity = '1'; }
-            if (arenaTab) { arenaTab.classList.remove('active'); arenaTab.style.opacity = '0.6'; }
-            if (arenaContent) arenaContent.style.display = 'none';
-            if (boxesContent) boxesContent.style.display = 'block';
-            renderBoxesGrid();
-        }
-    };
-
-    window.openBoxesSettings = function() {
-        if (boxesState.inGame) return;
-        triggerHaptic('light');
-        const modal = document.getElementById('boxes-settings-modal');
-        if (modal) modal.style.display = 'flex';
-    };
-
-    window.closeBoxesSettings = function() {
-        triggerHaptic('light');
-        const modal = document.getElementById('boxes-settings-modal');
-        if (modal) modal.style.display = 'none';
-    };
-
-    window.selectBrokenCount = function(count) {
-        if (boxesState.inGame) return;
-        triggerHaptic('medium');
-        boxesState.brokenCount = count;
-        
-        document.querySelectorAll('.btn-broken-opt').forEach(btn => {
-            btn.classList.remove('selected');
-            if (parseInt(btn.getAttribute('data-count'), 10) === count) {
-                btn.classList.add('selected');
-            }
-        });
-
-        const selectedText = document.getElementById('selected-broken-text');
-        if (selectedText) selectedText.innerText = `${count} عملات مكسورة (سقف 🌟 ${20 + (count - 3) * 10}x)`;
-        closeBoxesSettings();
-    };
-
-    window.addBetBoxes = (amt) => {
-        if (boxesState.inGame) return;
-        triggerHaptic('light');
-        const input = document.getElementById('boxes-bet-input');
-        if (!input) return;
-        let val = (parseFloat(input.value) || 0) + amt;
-        input.value = Math.max(100, Math.floor(val));
-    };
-
-    window.setBetMaxBoxes = () => {
-        if (boxesState.inGame) return;
-        triggerHaptic('medium');
-        const input = document.getElementById('boxes-bet-input');
-        if (!input) return;
-        const maxBal = Math.floor(getStoredBalance());
-        input.value = maxBal > 100 ? maxBal : 100;
-    };
-
-    function renderBoxesGrid() {
-        const gridEl = document.getElementById('boxes-grid');
-        if (!gridEl) return;
-        gridEl.innerHTML = '';
-        
-        for (let i = 0; i < 36; i++) {
-            const boxCard = document.createElement('div');
-            boxCard.className = 'box-card';
-            boxCard.setAttribute('data-index', i);
-            boxCard.onclick = () => onBoxClick(i);
-
-            boxCard.innerHTML = `
-                <div class="box-inner">
-                    <div class="box-front"></div>
-                    <div class="box-back"></div>
-                </div>
-            `;
-            gridEl.appendChild(boxCard);
-        }
-        updateCashOutButton();
-    }
-
-    function updateCashOutButton() {
-        const btn = document.getElementById('btn-cashout-boxes');
-        if (!btn) return;
-
-        if (!boxesState.inGame) {
-            btn.disabled = true;
-            btn.classList.add('btn-disabled');
-            btn.innerHTML = `سحب الأرباح (0.00 ZN)`;
-            return;
-        }
-
-        const picksCount = boxesState.picks.length;
-        if (picksCount === 0) {
-            btn.disabled = true;
-            btn.classList.add('btn-disabled');
-            btn.innerHTML = `اختر الصندوق الأول 🚀`;
-        } else {
-            btn.disabled = false;
-            btn.classList.remove('btn-disabled');
-            const multIndex = Math.min(picksCount - 1, boxesState.multipliers.length - 1);
-            const currentMult = boxesState.multipliers[multIndex] || 1.2;
-            const payout = (boxesState.bet * currentMult).toFixed(2);
-            btn.innerHTML = `💰 سحب الأرباح (${formatNumberHTML(payout)} ZN) <span style="font-size:0.85em; opacity:0.9;">(${currentMult}x)</span>`;
-        }
-    }
-
-    window.startBoxesGame = async function() {
-        if (boxesState.inGame) return;
-        const betInput = document.getElementById('boxes-bet-input');
-        const betVal = parseFloat(betInput ? betInput.value : 100) || 0;
-        
-        if (betVal < 100) return showNotification("الحد الأدنى للرهان هو 100 ZN.");
-        if (getStoredBalance() < betVal) return showNotification("رصيدك غير كافٍ للبدء.");
-
-        triggerHaptic('heavy');
-        const btnStart = document.getElementById('btn-start-boxes');
-        if (btnStart) {
-            btnStart.disabled = true;
-            btnStart.innerText = "جاري فتح الشبكة... ⏳";
-        }
-
-        try {
-            const initData = tele?.initData || "";
-            const tgId = getTgId();
-
-            const res = await fetch('/api/game/start', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    tg_id: tgId, 
-                    bet_amount: betVal, 
-                    broken_count: boxesState.brokenCount,
-                    initData: initData 
-                })
-            });
-
-            const data = await res.json();
-            if (res.ok && (data.status === 'success' || data.success)) {
-                const newBal = data.new_balance !== undefined ? data.new_balance : (getStoredBalance() - betVal);
-                setStoredBalance(newBal, true);
-                
-                boxesState.inGame = true;
-                boxesState.isProcessingPick = false;
-                boxesState.bet = betVal;
-                boxesState.picks = [];
-                boxesState.sessionToken = data.session_token || null;
-                if (data.multipliers) boxesState.multipliers = data.multipliers;
-                boxesState.reviveUsed = false;
-                
-                renderBoxesGrid();
-                
-                if (btnStart) btnStart.style.display = 'none';
-                const btnCashOut = document.getElementById('btn-cashout-boxes');
-                if (btnCashOut) btnCashOut.style.display = 'block';
-                if (betInput) betInput.disabled = true;
-                
-                updateCashOutButton();
-                triggerGlobalToast("✨ بدأت الجولة! اختر صناديقك بحذر.", true);
-            } else {
-                if (btnStart) {
-                    btnStart.disabled = false;
-                    btnStart.innerText = "بدء الجولة 🚀";
-                }
-                showNotification("⚠️ " + (data.message || "تعذر بدء الجولة"));
-            }
-        } catch (e) {
-            if (btnStart) {
-                btnStart.disabled = false;
-                btnStart.innerText = "بدء الجولة 🚀";
-            }
-            showNotification("خطأ في الاتصال بالخادم.");
-        }
-    };
-
-    async function onBoxClick(index) {
-        if (!boxesState.inGame || boxesState.picks.includes(index) || boxesState.isProcessingPick) return;
-        
-        boxesState.isProcessingPick = true;
-        triggerHaptic('medium');
-
-        const boxCard = document.querySelector(`.box-card[data-index="${index}"]`);
-        if (!boxCard) {
-            boxesState.isProcessingPick = false;
-            return;
-        }
-
-        try {
-            const initData = tele?.initData || "";
-            const tgId = getTgId();
-
-            const res = await fetch('/api/game/step', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tg_id: tgId,
-                    box_index: index,
-                    session_token: boxesState.sessionToken,
-                    initData: initData
-                })
-            });
-
-            const data = await res.json();
-            const isBomb = data.is_bomb || data.status === 'loss';
-
-            if (res.ok && !isBomb && (data.status === 'safe' || data.success)) {
-                boxesState.picks.push(index);
-                const backEl = boxCard.querySelector('.box-back');
-                if (backEl) backEl.innerHTML = '<span class="coin-gold">🟡 ZN</span>';
-                boxCard.classList.add('flipped', 'safe');
-                updateCashOutButton();
-            } else {
-                handleBrokenCoinHit(index, data.layout);
-            }
-        } catch (e) {
-            showNotification("خطأ في الاتصال بالخادم أثناء الاختيار.");
-        } finally {
-            boxesState.isProcessingPick = false;
-        }
-    }
-
-    window.cashOutBoxes = async function() {
-        if (!boxesState.inGame) return;
-        triggerHaptic('heavy');
-
-        const btnCashOut = document.getElementById('btn-cashout-boxes');
-        if (btnCashOut) {
-            btnCashOut.disabled = true;
-            btnCashOut.innerText = "جاري تأكيد السحب... ⏳";
-        }
-
-        try {
-            const initData = tele?.initData || "";
-            const tgId = getTgId();
-
-            const res = await fetch('/api/game/cashout', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tg_id: tgId,
-                    session_token: boxesState.sessionToken,
-                    initData: initData
-                })
-            });
-
-            const data = await res.json();
-            if (res.ok && (data.status === 'success' || data.success)) {
-                if (data.new_balance !== undefined) setStoredBalance(data.new_balance, true);
-                revealFullBoard(data.layout);
-                triggerHaptic('success');
-                triggerGlobalToast(`🎉 مبروك! سحبت ${formatNumberHTML(data.payout)} ZN`, true);
-                resetBoxesControls();
-            } else {
-                showNotification("⚠️ " + (data.message || "تعذر إتمام السحب"));
-                resetBoxesControls();
-            }
-        } catch (e) {
-            showNotification("خطأ في الاتصال بالخادم.");
-            resetBoxesControls();
-        }
-    };
-
-    function handleBrokenCoinHit(index, layout) {
-        boxesState.lastHitIndex = index;
-        triggerHaptic('error');
-        
-        const boxCard = document.querySelector(`.box-card[data-index="${index}"]`);
-        if (boxCard) {
-            const backEl = boxCard.querySelector('.box-back');
-            if (backEl) backEl.innerHTML = '<span class="coin-broken">⚪💥</span>';
-            boxCard.classList.add('flipped', 'broken');
-        }
-
-        if (!boxesState.reviveUsed && window.Adsgram) {
-            showReviveModal(index, layout);
-        } else {
-            finalizeLoss(layout);
-        }
-    }
-
-    function showReviveModal(hitIndex, layout) {
-        const modal = document.getElementById('revive-modal');
-        if (modal) modal.style.display = 'flex';
-        
-        window.onConfirmRevive = async function(watchAd) {
-            if (modal) modal.style.display = 'none';
-            if (watchAd) {
-                try {
-                    const AdController = window.Adsgram?.init({ blockId: "100" });
-                    const adResult = await AdController.show();
-                    if (adResult && adResult.done) {
-                        triggerHaptic('success');
-                        boxesState.reviveUsed = true;
-                        boxesState.picks = boxesState.picks.filter(p => p !== hitIndex);
-                        const card = document.querySelector(`.box-card[data-index="${hitIndex}"]`);
-                        if (card) {
-                            card.classList.remove('flipped', 'broken');
-                            const backEl = card.querySelector('.box-back');
-                            if (backEl) backEl.innerHTML = '';
-                        }
-                        updateCashOutButton();
-                        triggerGlobalToast("🛡️ تم تفعيل ميزة الإحياء! تابع اللعب.", true);
-                        return;
-                    }
-                } catch (err) {
-                    triggerGlobalToast("⚠️ تعذر تحميل الإعلان، تم تطبيق الخسارة.", false);
-                }
-            }
-            finalizeLoss(layout);
-        };
-    }
-
-    function finalizeLoss(layout) {
-        revealFullBoard(layout);
-        triggerGlobalToast("💥 اصطدمت بقنبلة! حظاً أوفير في الجولة القادمة.", false);
-        resetBoxesControls();
-    }
-
-    function revealFullBoard(layout) {
-        if (!layout) return;
-        for (let i = 0; i < 36; i++) {
-            const card = document.querySelector(`.box-card[data-index="${i}"]`);
-            if (!card) continue;
-            
-            const isBroken = layout[i];
-            const backEl = card.querySelector('.box-back');
-            if (isBroken) {
-                if (backEl) backEl.innerHTML = '<span class="coin-broken">⚪💥</span>';
-                card.classList.add('broken');
-            } else {
-                if (backEl) backEl.innerHTML = '<span class="coin-gold">🟡 ZN</span>';
-                card.classList.add('safe');
-            }
-            card.classList.add('flipped');
-        }
-    }
-
-    function resetBoxesControls() {
-        boxesState.inGame = false;
-        boxesState.isProcessingPick = false;
-        const btnStart = document.getElementById('btn-start-boxes');
-        const btnCashOut = document.getElementById('btn-cashout-boxes');
-        const betInput = document.getElementById('boxes-bet-input');
-        
-        if (btnStart) {
-            btnStart.style.display = 'block';
-            btnStart.disabled = false;
-            btnStart.innerText = "بدء الجولة 🚀";
-        }
-        if (btnCashOut) btnCashOut.style.display = 'none';
-        if (betInput) betInput.disabled = false;
-    }
-
-    async function fetchArenaStatus(force = false) {
-        const now = Date.now();
-        if (!force && (now - lastStatusFetchTimestamp < STATUS_FETCH_COOLDOWN)) return;
-        lastStatusFetchTimestamp = now;
-
-        try {
-            const initData = tele?.initData || "";
-            const response = await fetch('/api/games/status', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: initData, tg_id: getTgId() })
-            });
-            if (!response.ok) return;
-            const data = await response.json();
-            if (data.success) {
-                if (data.entry_fee) currentEntryFee = data.entry_fee;
-                if (data.balance !== undefined) setStoredBalance(data.balance, true);
-                if (data.payout_percentages && Array.isArray(data.payout_percentages)) {
-                    currentPayoutPercentages = data.payout_percentages;
-                }
-                currentRoundId = data.round_id;
-                arenaEndTime = parseInt(data.end_time) || 0;
-                hasJoinedCurrentRound = !!data.has_joined;
-                updateArenaPrizes(data);
-                startSmoothCountdown();
-            }
-        } catch (error) {}
-    }
-
-    function updateArenaPrizes(data) {
-        const newPool = parseFloat(data.prize_pool) || 0;
-        animateCounter('prize-pool', currentPrizePool, newPool, 900, " ZN");
-        currentPrizePool = newPool;
-        renderArenaPrizeBreakdown(newPool);
-    }
-
-    function renderArenaPrizeBreakdown(prizePool) {
-        const container = document.getElementById('arena-prizes-list');
-        if (!container) return;
-
-        const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
-        let html = '';
-
-        currentPayoutPercentages.forEach((pct, index) => {
-            const rankNum = index + 1;
-            const medal = medals[index] || `#${rankNum}`;
-            const prizeAmount = ((prizePool * parseFloat(pct)) / 100.0);
-            
-            html += `
-                <div class="prize-rank-item">
-                    <div class="prize-rank-info">
-                        <span class="prize-rank-icon">${medal}</span>
-                        <span class="prize-rank-title">المركز ${rankNum}</span>
-                    </div>
-                    <div class="prize-rank-values">
-                        <span class="prize-rank-pct">%${pct}</span>
-                        <span class="prize-rank-amount">${formatNumberHTML(prizeAmount)} ZN</span>
-                    </div>
-                </div>
-            `;
-        });
-
-        container.innerHTML = html;
-    }
-
-    function startSmoothCountdown() {
-        if (countdownInterval) clearInterval(countdownInterval);
-        timerTick();
-        countdownInterval = setInterval(() => timerTick(), 1000);
-    }
-
-    function timerTick() {
-        if (!arenaEndTime || arenaEndTime <= 0) return;
-        const now = Math.floor(Date.now() / 1000);
-        let timeLeft = arenaEndTime - now;
-        const btn = document.getElementById('btn-join-arena');
-        const timerEl = document.getElementById('arena-timer');
-        if (timeLeft < 0) timeLeft = 0;
-
-        if (timerEl) {
-            let m = Math.floor(timeLeft / 60);
-            let s = timeLeft % 60;
-            timerEl.innerText = `${m < 10 ? '0'+m : m}:${s < 10 ? '0'+s : s}`;
-        }
-
-        if (!btn) return;
-
-        if (timeLeft <= currentLockSeconds && timeLeft > 0) {
-            btn.disabled = true;
-            btn.classList.add('btn-disabled');
-            btn.innerText = "🔒 تم إغلاق الاشتراك";
-        } else if (timeLeft === 0) {
-            btn.disabled = true;
-            btn.classList.add('btn-disabled');
-            btn.innerText = "🔄 جاري إعلان النتائج...";
-            if (!hasCheckedResults && currentRoundId) {
-                hasCheckedResults = true;
-                fetchRoundResults(currentRoundId);
-            }
-        } else {
-            if (!hasJoinedCurrentRound) {
-                btn.disabled = false;
-                btn.classList.remove('btn-disabled');
-                btn.innerText = `⚔️ دخول الساحة (${parseInt(currentEntryFee, 10).toLocaleString('en-US')} ZN)`;
-            } else {
-                btn.disabled = true;
-                btn.classList.add('btn-disabled');
-                btn.innerText = "أنت مشترك بالفعل ✅";
-            }
-        }
-    }
-
-    window.joinArena = function() {
-        triggerHaptic('heavy');
-        if (isJoining || hasJoinedCurrentRound) return;
-        if (getStoredBalance() < currentEntryFee) {
-            showNotification(`⚠️ رصيدك غير كافٍ للدخول في الساحة.`);
-            return;
-        }
-        askForConfirmation(() => executeJoinArena());
-    };
-
-    async function executeJoinArena() {
-        if (isJoining) return;
-        isJoining = true;
-
-        try {
-            const initData = tele?.initData || "";
-            const response = await fetch('/api/games/join', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: initData, tg_id: getTgId() })
-            });
-            const data = await response.json();
-            if (response.ok && data.success) {
-                triggerHaptic('success');
-                hasJoinedCurrentRound = true;
-                if (data.new_balance !== undefined) setStoredBalance(data.new_balance, true);
-                showNotification("🎉 تم دخول الساحة بنجاح!");
-            } else {
-                showNotification("⚠️ " + (data.message || "تعذر الاشتراك"));
-            }
-        } catch (error) {
-            showNotification("خطأ في الاتصال بالخادم.");
-        } finally {
-            isJoining = false;
-        }
-    }
-
-    function triggerGlobalToast(msg, isSuccess = true) {
-        let toastBox = document.getElementById('global-toast-notification');
-        if (!toastBox) {
-            toastBox = document.createElement('div');
-            toastBox.id = 'global-toast-notification';
-            toastBox.style.cssText = `
-                position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
-                background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(12px);
-                color: #ffffff; padding: 12px 22px; border-radius: 50px;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.8); z-index: 99999999;
-                font-size: 13px; font-weight: 800; text-align: center; width: 90%; max-width: 380px;
-                transition: border-color 0.3s ease;
-            `;
-            document.body.appendChild(toastBox);
-        }
-        toastBox.style.border = `1.5px solid ${isSuccess ? '#10b981' : '#ef4444'}`;
-        toastBox.innerHTML = msg;
-        toastBox.style.display = 'block';
-        setTimeout(() => { if (toastBox) toastBox.style.display = 'none'; }, 4000);
-    }
-
-    function askForConfirmation(onConfirm) {
-        const modal = document.getElementById('confirm-modal');
-        if (modal) { pendingConfirmCallback = onConfirm; modal.style.display = 'flex'; }
-    }
-
-    window.onConfirmJoin = function(confirmed) {
-        triggerHaptic('light');
-        const modal = document.getElementById('confirm-modal');
-        if (modal) modal.style.display = 'none';
-        if (confirmed && typeof pendingConfirmCallback === 'function') pendingConfirmCallback();
-        pendingConfirmCallback = null;
-    };
-
-    async function fetchRoundResults(roundId) {
-        try {
-            const response = await fetch('/api/games/results', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ round_id: roundId, tg_id: getTgId() })
-            });
-            const data = await response.json();
-            if (data.success) fetchArenaStatus(true);
-        } catch (e) {}
-    }
-
-    function initModule() {
-        if (tele) {
-            try {
-                tele.ready();
-                tele.expand();
-            } catch (e) {}
-        }
-        renderBoxesGrid();
-        renderArenaPrizeBreakdown(currentPrizePool);
-        syncUserData();
-        fetchArenaStatus(true);
-
-        if (backgroundSyncInterval) clearInterval(backgroundSyncInterval);
-        backgroundSyncInterval = setInterval(() => {
-            fetchArenaStatus(false);
-        }, 15000);
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initModule);
+/**
+ * 🎮 Zn Goxe - نظام الألعاب والساحة الكبرى
+ * Version: 15.2
+ */
+
+// ==========================================
+// 🌐 المتغيرات العامة والحالة (State)
+// ==========================================
+let currentUid = "";
+let userBalance = 0.0;
+let currentTab = "arena";
+
+// متغيرات الساحة (Arena)
+let arenaTimerInterval = null;
+let arenaEndTime = 0;
+let hasJoinedArena = false;
+let arenaEntryFee = 100.0;
+let defaultPayoutPercentages = [40.0, 20.0, 10.0, 8.0, 6.0, 5.0, 4.0, 3.0, 2.0, 2.0];
+
+// متغيرات لعبة الصناديق (Grid 36)
+let brokenCount = 3;
+let grid36SessionToken = null;
+let isBoxesGameActive = false;
+let openedBoxesCount = 0;
+let currentBoxesPayout = 0.0;
+
+// Telegram WebApp Initialization
+const tg = window.Telegram?.WebApp;
+if (tg) {
+    tg.ready();
+    tg.expand();
+}
+
+// ==========================================
+// 🚀 بدء التشغيل والتهيئة عند تحميل الصفحة
+// ==========================================
+document.addEventListener("DOMContentLoaded", async () => {
+    extractUserUid();
+    await fetchUserInfo();
+    await checkNotifications();
+
+    // تشغيل الساحة كافتراضي
+    switchGameTab("arena");
+    startArenaStatusPolling();
+
+    // تهيئة شبكة الصناديق
+    renderBoxesGrid();
+    setupInputKeyboardHandlers();
+});
+
+// ==========================================
+// 👤 1. استخراج ID وتحديث الرصيد
+// ==========================================
+function extractUserUid() {
+    if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
+        currentUid = String(tg.initDataUnsafe.user.id);
     } else {
-        initModule();
+        const urlParams = new URLSearchParams(window.location.search);
+        currentUid = urlParams.get("tg_id") || urlParams.get("uid") || urlParams.get("user_id") || "123456789";
     }
-})();
+}
+
+async function fetchUserInfo() {
+    if (!currentUid) return;
+    try {
+        const res = await fetch(`/api/user/info?tg_id=${currentUid}`);
+        const data = await res.json();
+        if (data.success) {
+            userBalance = parseFloat(data.balance) || 0.0;
+            updateBalanceUI(userBalance);
+        }
+    } catch (err) {
+        console.error("فشل جلب بيانات المستخدم:", err);
+    }
+}
+
+function updateBalanceUI(bal) {
+    userBalance = parseFloat(bal) || 0.0;
+    const balEl = document.getElementById("top-balance-games");
+    if (balEl) {
+        balEl.innerText = userBalance.toFixed(2) + " ZN";
+    }
+}
+
+async function checkNotifications() {
+    if (!currentUid) return;
+    try {
+        const res = await fetch(`/api/games/check_notifications`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tg_id: currentUid })
+        });
+        const data = await res.json();
+        if (data.success && data.refund > 0) {
+            updateBalanceUI(data.balance);
+            alert(`🛡️ تم إرجاع مبلغ ${data.refund} ZN لحسابك لعدم اكتمال النصاب (10 لاعبين) في جولة الساحة السابقة.`);
+        }
+    } catch (err) {
+        console.error("خطأ في فحص الإشعارات:", err);
+    }
+}
+
+// ==========================================
+// 🔄 2. التنقل بين التبويبات (Tabs)
+// ==========================================
+function switchGameTab(tab) {
+    currentTab = tab;
+    const arenaTab = document.getElementById("tab-arena");
+    const boxesTab = document.getElementById("tab-boxes");
+    const arenaContent = document.getElementById("content-arena");
+    const boxesContent = document.getElementById("content-boxes");
+
+    if (tab === "arena") {
+        arenaTab.classList.add("active");
+        boxesTab.classList.remove("active");
+        arenaContent.style.display = "block";
+        boxesContent.style.display = "none";
+        fetchArenaStatus();
+    } else {
+        boxesTab.classList.add("active");
+        arenaTab.classList.remove("active");
+        boxesContent.style.display = "block";
+        arenaContent.style.display = "none";
+    }
+}
+
+// ==========================================
+// ⚔️ 3. منطق الساحة الكبرى (Arena)
+// ==========================================
+let arenaPollInterval = null;
+
+function startArenaStatusPolling() {
+    fetchArenaStatus();
+    if (arenaPollInterval) clearInterval(arenaPollInterval);
+    arenaPollInterval = setInterval(fetchArenaStatus, 4000);
+}
+
+async function fetchArenaStatus() {
+    if (!currentUid) return;
+    try {
+        const res = await fetch(`/api/games/status?tg_id=${currentUid}`);
+        const data = await res.json();
+
+        if (data.success) {
+            arenaEndTime = data.end_time || 0;
+            hasJoinedArena = data.has_joined || false;
+            arenaEntryFee = data.entry_fee || 100.0;
+            const prizePool = data.prize_pool || 0.0;
+            const playersCount = data.participants_count || 0;
+            const minPlayers = data.min_players || 10;
+            const payoutPcts = data.payout_percentages || defaultPayoutPercentages;
+
+            // تحديث الواجهة
+            document.getElementById("prize-pool").innerText = prizePool.toFixed(2) + " ZN";
+            document.getElementById("arena-players-count").innerText = `👥 ${playersCount}/${minPlayers} لاعبين`;
+
+            if (data.balance !== undefined) {
+                updateBalanceUI(data.balance);
+            }
+
+            // تحديث زر الاشتراك
+            const joinBtn = document.getElementById("btn-join-arena");
+            if (joinBtn) {
+                if (hasJoinedArena) {
+                    joinBtn.innerText = "✅ أنت مشترك في هذه الجولة";
+                    joinBtn.disabled = true;
+                    joinBtn.style.opacity = "0.75";
+                    joinBtn.style.background = "linear-gradient(90deg, #10b981, #047857)";
+                } else {
+                    joinBtn.innerText = `دخول الساحة (${arenaEntryFee.toFixed(0)} ZN)`;
+                    joinBtn.disabled = false;
+                    joinBtn.style.opacity = "1";
+                    joinBtn.style.background = "linear-gradient(90deg, #f39c12, #d35400)";
+                }
+            }
+
+            // تحديث العداد التنازلي
+            updateArenaTimerUI();
+
+            // رسم جدول جوائز الساحة (Top 10)
+            renderArenaPrizes(prizePool, payoutPcts);
+        }
+    } catch (err) {
+        console.error("خطأ جلب حالة الساحة:", err);
+    }
+}
+
+function updateArenaTimerUI() {
+    if (arenaTimerInterval) clearInterval(arenaTimerInterval);
+
+    const timerEl = document.getElementById("arena-timer");
+    const update = () => {
+        const now = Math.floor(Date.now() / 1000);
+        const diff = arenaEndTime - now;
+
+        if (diff <= 0) {
+            timerEl.innerText = "00:00";
+            timerEl.style.color = "#ef4444";
+            fetchArenaStatus(); // إعادة تحميل الساحة عند انتهاء الجولة
+            return;
+        }
+
+        const mins = Math.floor(diff / 60);
+        const secs = diff % 60;
+        timerEl.innerText = `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+        timerEl.style.color = diff <= 15 ? "#ef4444" : "#ffffff";
+    };
+
+    update();
+    arenaTimerInterval = setInterval(update, 1000);
+}
+
+function renderArenaPrizes(prizePool, payoutPcts) {
+    const listContainer = document.getElementById("arena-prizes-list");
+    if (!listContainer) return;
+
+    listContainer.innerHTML = "";
+    const icons = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"];
+
+    payoutPcts.forEach((pct, index) => {
+        const rank = index + 1;
+        const icon = icons[index] || `#${rank}`;
+        const prizeAmount = (prizePool * (pct / 100.0)).toFixed(2);
+
+        const itemHtml = `
+            <div class="prize-rank-item">
+                <div class="prize-rank-info">
+                    <span class="prize-rank-icon">${icon}</span>
+                    <span class="prize-rank-title">المركز ${rank}</span>
+                </div>
+                <div class="prize-rank-values">
+                    <span class="prize-rank-pct">${pct}%</span>
+                    <span class="prize-rank-amount">${prizeAmount} ZN</span>
+                </div>
+            </div>
+        `;
+        listContainer.insertAdjacentHTML("beforeend", itemHtml);
+    });
+}
+
+function joinArena() {
+    if (hasJoinedArena) return;
+    if (userBalance < arenaEntryFee) {
+        alert(`❌ رصيدك الحالي (${userBalance.toFixed(2)} ZN) لا يكفي لدخول الساحة (${arenaEntryFee} ZN).`);
+        return;
+    }
+
+    const confirmModal = document.getElementById("confirm-modal");
+    if (confirmModal) {
+        confirmModal.style.display = "flex";
+    } else {
+        executeJoinArena();
+    }
+}
+
+async function onConfirmJoin(confirmed) {
+    document.getElementById("confirm-modal").style.display = "none";
+    if (confirmed) {
+        await executeJoinArena();
+    }
+}
+
+async function executeJoinArena() {
+    try {
+        const res = await fetch(`/api/games/arena/enter`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tg_id: currentUid })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            if (data.new_balance !== undefined) {
+                updateBalanceUI(data.new_balance);
+            }
+            alert(data.message || "⚔️ تم انضمامك للساحة بنجاح!");
+            fetchArenaStatus();
+        } else {
+            alert(data.message || "❌ فشل الانضمام للساحة.");
+        }
+    } catch (err) {
+        console.error("خطأ أثناء الدخول للساحة:", err);
+        alert("⚠️ حدث خطأ في الاتصال بالسيرفر.");
+    }
+}
+
+// ==========================================
+// 📦 4. منطق لعبة ZN Go - شبكة الـ 36 صندوق
+// ==========================================
+function renderBoxesGrid() {
+    const gridEl = document.getElementById("boxes-grid");
+    if (!gridEl) return;
+
+    gridEl.innerHTML = "";
+    for (let i = 0; i < 36; i++) {
+        const boxHtml = `
+            <div class="box-card" id="box-${i}" onclick="onBoxClick(${i})">
+                <div class="box-inner">
+                    <div class="box-front">📦</div>
+                    <div class="box-back" id="box-back-${i}">💎</div>
+                </div>
+            </div>
+        `;
+        gridEl.insertAdjacentHTML("beforeend", boxHtml);
+    }
+}
+
+function openBoxesSettings() {
+    if (isBoxesGameActive) {
+        alert("⚠️ لا يمكنك تغيير الصعوبة أثناء الجولة النشطة!");
+        return;
+    }
+    document.getElementById("boxes-settings-modal").style.display = "flex";
+}
+
+function closeBoxesSettings() {
+    document.getElementById("boxes-settings-modal").style.display = "none";
+}
+
+function selectBrokenCount(count) {
+    brokenCount = count;
+    const textEl = document.getElementById("selected-broken-text");
+    let maxMultiplier = count === 3 ? "20x" : count === 5 ? "40x" : "70x";
+    if (textEl) {
+        textEl.innerText = `${count} عملات مكسورة (سقف 🌟 ${maxMultiplier})`;
+    }
+    closeBoxesSettings();
+}
+
+function addBetBoxes(val) {
+    if (isBoxesGameActive) return;
+    const input = document.getElementById("boxes-bet-input");
+    let curr = parseFloat(input.value) || 0;
+    input.value = Math.max(100, curr + val);
+}
+
+function setBetMaxBoxes() {
+    if (isBoxesGameActive) return;
+    const input = document.getElementById("boxes-bet-input");
+    input.value = Math.max(100, Math.floor(userBalance));
+}
+
+async function startBoxesGame() {
+    if (isBoxesGameActive) return;
+
+    const betInput = document.getElementById("boxes-bet-input");
+    const betAmount = parseFloat(betInput.value) || 0;
+
+    if (betAmount < 100) {
+        alert("⚠️ الحد الأدنى للرهان هو 100 ZN");
+        return;
+    }
+
+    if (betAmount > userBalance) {
+        alert("❌ رصيدك الحالي لا يكفي لهذه القيمة.");
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/games/grid36/start`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                tg_id: currentUid,
+                bet_amount: betAmount,
+                broken_count: brokenCount
+            })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            isBoxesGameActive = true;
+            grid36SessionToken = data.session_token;
+            openedBoxesCount = 0;
+            currentBoxesPayout = 0;
+
+            if (data.new_balance !== undefined) {
+                updateBalanceUI(data.new_balance);
+            }
+
+            // إعادة تنشيط الواجهة الصناديق
+            renderBoxesGrid();
+            document.getElementById("btn-start-boxes").style.display = "none";
+            document.getElementById("btn-cashout-boxes").style.display = "block";
+            document.getElementById("btn-cashout-boxes").innerText = "سحب الأرباح (0.00 ZN)";
+        } else {
+            alert(data.message || "❌ فشل بدء اللعبة.");
+        }
+    } catch (err) {
+        console.error("خطأ بدء لعبة الصناديق:", err);
+        alert("⚠️ حدث خطأ في الاتصال بالخادم.");
+    }
+}
+
+async function onBoxClick(index) {
+    if (!isBoxesGameActive || !grid36SessionToken) return;
+
+    const boxEl = document.getElementById(`box-${index}`);
+    if (!boxEl || boxEl.classList.contains("flipped")) return;
+
+    try {
+        const res = await fetch(`/api/games/grid36/open`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                tg_id: currentUid,
+                box_index: index,
+                session_token: grid36SessionToken
+            })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            const backEl = document.getElementById(`box-back-${index}`);
+
+            if (data.is_bomb) {
+                // اصطدام بعملة مكسورة (خسارة)
+                boxEl.classList.add("flipped", "broken");
+                if (backEl) backEl.innerText = "💥";
+                isBoxesGameActive = false;
+
+                setTimeout(() => {
+                    alert("💥 للأسف! فتحت عملة مكسورة وانتهت الجولة.");
+                    resetBoxesGameUI();
+                    if (data.layout) revealAllBoxesLayout(data.layout);
+                }, 500);
+            } else {
+                // صندوق رابح
+                boxEl.classList.add("flipped");
+                if (backEl) backEl.innerText = `✨ ${data.multiplier}x`;
+
+                openedBoxesCount++;
+                currentBoxesPayout = parseFloat(data.current_win) || 0;
+
+                const cashoutBtn = document.getElementById("btn-cashout-boxes");
+                if (cashoutBtn) {
+                    cashoutBtn.innerText = `سحب الأرباح (${currentBoxesPayout.toFixed(2)} ZN)`;
+                }
+            }
+        } else {
+            alert(data.message || "❌ تعذر فتح الصندوق.");
+        }
+    } catch (err) {
+        console.error("خطأ أثناء فتح الصندوق:", err);
+    }
+}
+
+async function cashOutBoxes() {
+    if (!isBoxesGameActive || openedBoxesCount === 0) {
+        alert("⚠️ افتح صندوقاً واحداً على الأقل قبل السحب!");
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/games/grid36/cashout`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tg_id: currentUid })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            isBoxesGameActive = false;
+            if (data.new_balance !== undefined) {
+                updateBalanceUI(data.new_balance);
+            }
+
+            alert(`🎉 مبروك! تم سحب أرباحك بنجاح: +${parseFloat(data.payout).toFixed(2)} ZN`);
+            resetBoxesGameUI();
+
+            if (data.layout) {
+                revealAllBoxesLayout(data.layout);
+            }
+        } else {
+            alert(data.message || "❌ فشل سحب الأرباح.");
+        }
+    } catch (err) {
+        console.error("خطأ عند سحب الأرباح:", err);
+        alert("⚠️ تعذر الاتصال بالخادم.");
+    }
+}
+
+function revealAllBoxesLayout(layout) {
+    if (!layout || !Array.isArray(layout)) return;
+
+    layout.forEach((item, i) => {
+        const boxEl = document.getElementById(`box-${i}`);
+        const backEl = document.getElementById(`box-back-${i}`);
+
+        if (boxEl && !boxEl.classList.contains("flipped")) {
+            if (item.type === "bomb") {
+                boxEl.classList.add("flipped", "broken");
+                if (backEl) backEl.innerText = "💥";
+            } else {
+                boxEl.classList.add("flipped");
+                if (backEl) backEl.innerText = `${item.multiplier}x`;
+            }
+        }
+    });
+}
+
+function resetBoxesGameUI() {
+    isBoxesGameActive = false;
+    grid36SessionToken = null;
+    document.getElementById("btn-start-boxes").style.display = "block";
+    document.getElementById("btn-cashout-boxes").style.display = "none";
+}
+
+// ==========================================
+// ⌨️ 5. معالجة إخفاء القائمة عند الكتابة
+// ==========================================
+function setupInputKeyboardHandlers() {
+    const inputs = document.querySelectorAll("input, select, textarea");
+    inputs.forEach(input => {
+        input.addEventListener("focus", () => document.body.classList.add("keyboard-open"));
+        input.addEventListener("blur", () => document.body.classList.remove("keyboard-open"));
+    });
+}
