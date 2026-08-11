@@ -51,7 +51,7 @@ def get_user_info():
     return jsonify({
         "success": True,
         "uid": uid,
-        "balance": float(udata.get('balance', 0.0)),
+        "balance": float(udata.get('balance', udata.get('zn_balance', 0.0))),
         "name": udata.get('name', udata.get('first_name', 'مستخدم'))
     })
 
@@ -161,15 +161,17 @@ def arena_results():
     res = big_arena_manager.get_results(round_id, uid)
     return jsonify(res if isinstance(res, dict) else {"success": False})
 
-@games_bp.route('/games/check_notifications', methods=['POST'])
+@games_bp.route('/games/check_notifications', methods=['GET', 'POST'])
 def check_notifications():
     uid = extract_uid(request)
     if not uid:
-        return jsonify({"success": False}), 400
+        return jsonify({"success": False, "message": "لم يتم العثور على المعرف"}), 400
 
-    refunded, current_bal = clear_user_pending_refund(uid)
+    refunded, current_bal, message = clear_user_pending_refund(uid)
     return jsonify({
         "success": True,
         "refund": refunded,
-        "balance": current_bal
+        "balance": current_bal,
+        "message": message,
+        "has_notification": bool(message or refunded > 0)
     })
