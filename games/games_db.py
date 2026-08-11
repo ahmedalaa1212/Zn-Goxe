@@ -67,7 +67,8 @@ def get_big_arena_config() -> Dict[str, Any]:
         "min_players": 2,
         "duration_seconds": 300,
         "lock_seconds": 15,
-        "enabled": True
+        "enabled": True,
+        "payout_percentages": [40.0, 20.0, 10.0, 8.0, 6.0, 5.0, 4.0, 3.0, 2.0, 2.0]
     }
     db = _get_db()
     if not db:
