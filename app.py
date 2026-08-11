@@ -37,25 +37,6 @@ app.register_blueprint(support_bp, url_prefix='/api/support')
 app.register_blueprint(admin_chat_bp, url_prefix='/api/admin-chat')
 
 # ==========================================
-# مسارات للتكيف المباشر مع استدعاءات الجافاسكريبت القديمة والجديدة
-# ==========================================
-
-@app.route('/api/game/start', methods=['POST'])
-@app.route('/api/game/step', methods=['POST'])
-@app.route('/api/game/cashout', methods=['POST'])
-def proxy_legacy_game_routes():
-    """توجيه استدعاءات الفرونت إند الكلاسيكية تلقائياً إلى blueprint الألعاب"""
-    from games.games_api import start_boxes_game, pick_box, end_boxes_game
-    path = request.path
-    if path.endswith('/start'):
-        return start_boxes_game()
-    elif path.endswith('/step'):
-        return pick_box()
-    elif path.endswith('/cashout'):
-        return end_boxes_game()
-    return jsonify({"success": False, "message": "مسار غير معروف"}), 404
-
-# ==========================================
 # المسارات المباشرة والخدمية للمستخدم
 # ==========================================
 
