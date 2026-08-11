@@ -1,4 +1,3 @@
-
 from flask import Blueprint, request, jsonify
 from games.games_db import (
     get_game_profit_stats,
@@ -9,93 +8,121 @@ from games.games_db import (
 from games.grid_36 import grid_36_manager
 from games.arena import big_arena_manager
 
-games_bp = Blueprint('games_api', __name__, url_prefix='/api/games')
+games_bp = Blueprint('games_api', __name__, url_prefix='/api')
+
+def extract_uid(req) -> str:
+    data = req.json or {}
+    tg_id = data.get('tg_id') or data.get('uid')
+    if tg_id:
+        return str(tg_id)
+    return ""
 
 # ==========================================
-# ⚙️ 1. إعدادات وإحصائيات الألعاب
+# 🎮 1. مسارات لعبة ZN Go الـ 36 صندوق
 # ==========================================
 
-@games_bp.route('/stats', methods=['GET'])
-def game_stats_endpoint():
-    """جلب إحصائيات الأرباح والمخاطرة"""
-    stats = get_game_profit_stats()
-    return jsonify({"success": True, "stats": stats})
+@games_bp.route('/game/start', methods=['POST'])
+@games_bp.route('/games/grid36/start', methods=['POST'])
+def start_grid36():
+    uid = extract_uid(request)
+    data = request.json or {}
+    bet_amount = float(data.get('bet_amount', 100.0))
+    broken_count = int(data.get('broken_count', 3))
 
-@games_bp.route('/configs', methods=['GET'])
-def game_configs_endpoint():
-    """جلب إعدادات الألعاب كاملة"""
+    if not uid:
+        return jsonify({"success": False, "message": "لم يتم العثور على معرف المستخدم"}), 400
+
+    success, message, result = grid_36_manager.start_new_game(uid, bet_amount, broken_count)
     return jsonify({
-        "success": True,
-        "grid_36": get_grid_36_config(),
-        "big_arena": get_big_arena_config()
+        "success": success,
+        "status": "success" if success else "error",
+        "message": message,
+        "new_balance": result.get("new_balance"),
+        "session_token": result.get("session_token"),
+        "multipliers": result.get("multipliers")
+    })
+
+@games_bp.route('/game/step', methods=['POST'])
+@games_bp.route('/games/grid36/open', methods=['POST'])
+def open_grid36_box():
+    uid = extract_uid(request)
+    data = request.json or {}
+    box_index = int(data.get('box_index', data.get('box_index', -1)))
+    session_token = data.get('session_token')
+
+    if not uid or box_index < 0:
+        return jsonify({"success": False, "message": "بيانات غير مكتملة"}), 400
+
+    success, message, result = grid_36_manager.open_box(uid, box_index, session_token)
+    return jsonify({
+        "success": success,
+        "status": result.get("status", "error"),
+        "message": message,
+        "is_bomb": result.get("is_bomb", False),
+        "layout": result.get("layout"),
+        "multiplier": result.get("multiplier"),
+        "current_win": result.get("current_win")
+    })
+
+@games_bp.route('/game/cashout', methods=['POST'])
+@games_bp.route('/games/grid36/cashout', methods=['POST'])
+def cashout_grid36():
+    uid = extract_uid(request)
+    if not uid:
+        return jsonify({"success": False, "message": "مستخدم غير معروف"}), 400
+
+    success, message, result = grid_36_manager.cashout(uid)
+    return jsonify({
+        "success": success,
+        "status": "success" if success else "error",
+        "message": message,
+        "payout": result.get("payout"),
+        "new_balance": result.get("new_balance"),
+        "layout": result.get("layout")
     })
 
 # ==========================================
-# 🎮 2. مسارات لعبة ZN Go (الـ 36 صندوق)
+# ⚔️ 2. مسارات الساحة الكبرى Arena
 # ==========================================
 
-@games_bp.route('/grid36/start', methods=['POST'])
-def start_grid36():
-    data = request.json or {}
-    uid = data.get('uid')
-    bet_amount = float(data.get('bet_amount', 0.0))
+@games_bp.route('/games/status', methods=['POST', 'GET'])
+def arena_status():
+    uid = extract_uid(request) if request.method == 'POST' else request.args.get('uid', '')
+    res = big_arena_manager.get_status(uid)
+    return jsonify(res)
 
+@games_bp.route('/games/join', methods=['POST'])
+@games_bp.route('/games/arena/enter', methods=['POST'])
+def arena_join():
+    uid = extract_uid(request)
     if not uid:
-        return jsonify({"success": False, "message": "المستخدم غير محدد"}), 400
+        return jsonify({"success": False, "message": "مستخدم غير معرف"}), 400
 
-    success, message, result = grid_36_manager.start_new_game(uid, bet_amount)
-    return jsonify({"success": success, "message": message, "data": result})
+    success, message, res = big_arena_manager.enter_arena(uid)
+    return jsonify({
+        "success": success,
+        "message": message,
+        "new_balance": res.get("new_balance"),
+        "prize_pool": res.get("prize_pool")
+    })
 
-@games_bp.route('/grid36/open', methods=['POST'])
-def open_grid36_box():
+@games_bp.route('/games/results', methods=['POST'])
+def arena_results():
     data = request.json or {}
-    uid = data.get('uid')
-    box_index = int(data.get('box_index', -1))
+    round_id = data.get('round_id', '')
+    uid = extract_uid(request)
+    res = big_arena_manager.get_results(round_id, uid)
+    return jsonify(res)
 
-    if not uid or box_index < 0:
-        return jsonify({"success": False, "message": "بيانات الطلب غير مكتملة"}), 400
-
-    success, message, result = grid_36_manager.open_box(uid, box_index)
-    return jsonify({"success": success, "message": message, "data": result})
-
-@games_bp.route('/grid36/cashout', methods=['POST'])
-def cashout_grid36():
-    data = request.json or {}
-    uid = data.get('uid')
-
+@games_bp.route('/games/check_notifications', methods=['POST'])
+def check_notifications():
+    uid = extract_uid(request)
     if not uid:
-        return jsonify({"success": False, "message": "المستخدم غير محدد"}), 400
-
-    success, message, new_bal = grid_36_manager.cashout(uid)
-    return jsonify({"success": success, "message": message, "new_balance": new_bal})
-
-# ==========================================
-# ⚔️ 3. مسارات لعبة الساحة الكبرى Arena
-# ==========================================
-
-@games_bp.route('/arena/enter', methods=['POST'])
-def enter_arena_endpoint():
-    data = request.json or {}
-    uid = data.get('uid')
-
-    if not uid:
-        return jsonify({"success": False, "message": "المستخدم غير محدد"}), 400
-
-    success, message, new_bal = big_arena_manager.enter_arena(uid)
-    return jsonify({"success": success, "message": message, "new_balance": new_bal})
-
-@games_bp.route('/refund/check', methods=['POST'])
-def check_refund_endpoint():
-    """استرداد المبالغ المعلقة إن وجدت"""
-    data = request.json or {}
-    uid = data.get('uid')
-
-    if not uid:
-        return jsonify({"success": False, "message": "المستخدم غير محدد"}), 400
+        return jsonify({"success": False}), 400
 
     refunded, current_bal = clear_user_pending_refund(uid)
     return jsonify({
         "success": True,
-        "refunded_amount": refunded,
-        "current_balance": current_bal
+        "refund": refunded,
+        "balance": current_bal
     })
