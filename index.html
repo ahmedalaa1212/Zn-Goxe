@@ -15,8 +15,62 @@
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     
     <link rel="stylesheet" href="style.css">
+
+    <!-- تنسيقات حاوية الإشعارات المباشرة فوق أي قائمة -->
+    <style>
+        #global-toast-container {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 999999;
+            width: 90%;
+            max-width: 400px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: none;
+        }
+
+        .global-toast {
+            background: rgba(22, 27, 34, 0.95);
+            border: 1px solid #238636;
+            border-right: 5px solid #2ea043;
+            color: #ffffff;
+            padding: 14px 18px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(8px);
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 600;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            pointer-events: auto;
+        }
+
+        .global-toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .global-toast .toast-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .global-toast i {
+            font-size: 20px;
+            color: #3fb950;
+        }
+    </style>
 </head>
 <body>
+
+    <!-- حاوية الإشعارات المنبثقة المباشرة -->
+    <div id="global-toast-container"></div>
 
     <!-- شاشة التحميل -->
     <div id="loading-screen">
@@ -102,6 +156,72 @@
             if (viewport) {
                 viewport.addEventListener('resize', handleViewportChange);
             }
+        })();
+    </script>
+
+    <!-- محرك الإشعارات الفوري وتحديث الرصيد اللحظي دون الاعتماد على رسائل تلجرام -->
+    <script>
+        (function initRealtimeNotificationSystem() {
+            // عرض إشعار على الشاشة فوراً
+            window.showGlobalToast = function(msg, iconClass = 'fa-circle-check') {
+                const container = document.getElementById('global-toast-container');
+                if (!container || !msg) return;
+
+                const toast = document.createElement('div');
+                toast.className = 'global-toast';
+                toast.innerHTML = `
+                    <div class="toast-content">
+                        <i class="fas ${iconClass}"></i>
+                        <span>${msg}</span>
+                    </div>
+                `;
+                container.appendChild(toast);
+
+                setTimeout(() => toast.classList.add('show'), 20);
+
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                    setTimeout(() => toast.remove(), 400);
+                }, 4500);
+            };
+
+            // فحص واسترجاع التحديثات والرصيد تلقائياً كل 3 ثوانٍ
+            function pollNotificationsAndBalance() {
+                let uid = "";
+                if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+                    uid = window.Telegram.WebApp.initDataUnsafe.user.id;
+                }
+                if (!uid) {
+                    uid = localStorage.getItem('tg_id') || localStorage.getItem('uid') || localStorage.getItem('user_id') || "";
+                }
+                if (!uid) return;
+
+                fetch(`/api/games/check_notifications?tg_id=${encodeURIComponent(uid)}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data && data.success) {
+                            // 1. عرض الإشعار فوراً في حالة وجود رسالة/إرجاع رصيد
+                            if (data.has_notification && data.message) {
+                                showGlobalToast(data.message);
+                            }
+
+                            // 2. تحديث الرصيد في كافة عناصر الواجهة
+                            if (data.balance !== undefined) {
+                                const balanceSelectors = document.querySelectorAll('.user-balance-val, #user-balance, #balance-display, .balance-amount');
+                                balanceSelectors.forEach(el => {
+                                    el.textContent = data.balance;
+                                });
+                            }
+                        }
+                    })
+                    .catch(() => {});
+            }
+
+            // تشغيل الفحص الدوري عند تجهيز الصفحة
+            document.addEventListener('DOMContentLoaded', () => {
+                pollNotificationsAndBalance();
+                setInterval(pollNotificationsAndBalance, 3500);
+            });
         })();
     </script>
 
