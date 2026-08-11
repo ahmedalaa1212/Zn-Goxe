@@ -178,7 +178,7 @@ def record_user_game_result(uid: str, bet_amount: float = 0.0, win_amount: float
         print(f"⚠️ [games_db] Error recording result: {e}")
 
 # ==========================================
-# 3. إدارة المستخدم والمعاملات المالية
+# 3. إدارة المستخدم والمعاملات المالية والإشعارات المباشرة
 # ==========================================
 
 def get_user_doc_ref(uid: str):
@@ -245,7 +245,6 @@ def deduct_user_balance_transactional(uid: str, amount: float) -> Tuple[bool, st
             return False, "الرصيد غير كافٍ", bal
 
         new_bal = round(bal - amount, 2)
-        # تحديث الحقلين معاً لضمان التطابق التام
         transaction.update(doc_ref, {
             'balance': new_bal,
             'zn_balance': new_bal
@@ -277,7 +276,6 @@ def add_user_balance_transactional(uid: str, amount: float) -> Tuple[bool, str, 
         bal = round(float(u_data.get('balance', u_data.get('zn_balance', 0.0))), 2)
         new_bal = round(bal + amount, 2)
 
-        # تحديث الحقلين معاً لضمان التطابق التام
         transaction.update(doc_ref, {
             'balance': new_bal,
             'zn_balance': new_bal
@@ -290,31 +288,40 @@ def add_user_balance_transactional(uid: str, amount: float) -> Tuple[bool, str, 
         print(f"⚠️ [games_db] Transaction addition error: {e}")
         return False, "خطأ في المعاملة المالية", 0.0
 
-def clear_user_pending_refund(uid: str) -> Tuple[float, float]:
+def clear_user_pending_refund(uid: str) -> Tuple[float, float, str]:
+    """تحديث واسترجاع المبالغ المعلقة وإرجاع نص الإشعار المطلوب عرضه في الويب"""
     db = _get_db()
     if not db:
-        return 0.0, 0.0
+        return 0.0, 0.0, ""
     try:
         doc_ref, data = get_user_doc_ref(uid)
         if not doc_ref:
-            return 0.0, 0.0
+            return 0.0, 0.0, ""
 
         pending_refund = round(float(data.get('pending_refund', 0.0)), 2)
         current_balance = round(float(data.get('balance', data.get('zn_balance', 0.0))), 2)
+        pending_msg = data.get('pending_notification', '')
 
         if pending_refund > 0:
             new_bal = round(current_balance + pending_refund, 2)
+            msg = pending_msg or f"تم استرجاع رصيد بقيمة {pending_refund} إلى حسابك بنجاح! 💰"
             doc_ref.update({
-                'pending_refund': 0, 
+                'pending_refund': 0,
+                'pending_notification': '',
                 'balance': new_bal,
                 'zn_balance': new_bal
             })
-            return pending_refund, new_bal
+            return pending_refund, new_bal, msg
+        elif pending_msg:
+            doc_ref.update({
+                'pending_notification': ''
+            })
+            return 0.0, current_balance, pending_msg
 
-        return 0.0, current_balance
+        return 0.0, current_balance, ""
     except Exception as e:
         print(f"⚠️ [games_db] Error clearing pending refund: {e}")
-        return 0.0, 0.0
+        return 0.0, 0.0, ""
 
 # ==========================================
 # 4. حفظ واسترجاع حالة الساحة والشبكة بالدعم المباشر
