@@ -28,12 +28,12 @@
             const totalStorageEl = document.getElementById('stat-total-storage');
             
             let totalUpgradesCount = 0;
-            if (state.upgrades) {
+            if (state.upgrades && typeof state.upgrades === 'object') {
                 for (let i = 1; i <= 9; i++) {
-                    totalUpgradesCount += parseInt(state.upgrades[`lvl${i}`] || 0);
+                    totalUpgradesCount += parseInt(state.upgrades[`lvl${i}`] || 0) || 0;
                 }
             }
-            let storageLevelsCount = parseInt(state.storage_level || 0);
+            let storageLevelsCount = parseInt(state.storage_level || 0) || 0;
 
             if (totalMiningEl) totalMiningEl.innerText = `${totalUpgradesCount} مستويات`;
             if (totalStorageEl) totalStorageEl.innerText = `${storageLevelsCount} مستويات`;
@@ -51,7 +51,7 @@
 
         const user = getTgUser();
         if (user && user.photo_url && avatarEl) {
-            avatarEl.innerHTML = `<img src="${user.photo_url}" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">`;
+            avatarEl.innerHTML = `<img src="${escapeHTML(user.photo_url)}" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">`;
         }
 
         updateStatsFromLocalData();
@@ -90,7 +90,9 @@
     let isSupportClosed = false;
     let supportPollInterval = null;
     let supportLastMsgCount = -1;
+    let supportLastTimestamp = "";
     let isFetchingTicket = false;
+    let isSendingMessage = false;
     let localMessagesList = [];
 
     const chatBox = document.getElementById('support-chat-box');
@@ -144,9 +146,13 @@
             supportTicketId = cached.ticket_id;
             isSupportClosed = (cached.status === 'closed');
             localMessagesList = cached.messages || [];
-            if (ticketDisplay) ticketDisplay.innerHTML = `تذكرة #${supportTicketId} 📋`;
+            if (ticketDisplay) ticketDisplay.innerText = `تذكرة #${supportTicketId} 📋`;
             renderMessages(localMessagesList, true);
-            enableSupportInput();
+            if (isSupportClosed) {
+                disableSupportInput("تم إنهاء هذه المحادثة.");
+            } else {
+                enableSupportInput();
+            }
         } else {
             supportTicketId = generateLocalTicketId();
             localMessagesList = [{
@@ -154,13 +160,14 @@
                 text: getWelcomeNoticeText(supportTicketId),
                 timestamp: new Date().toISOString()
             }];
-            if (ticketDisplay) ticketDisplay.innerHTML = `تذكرة #${supportTicketId} 📋`;
+            if (ticketDisplay) ticketDisplay.innerText = `تذكرة #${supportTicketId} 📋`;
             renderMessages(localMessagesList, true);
             enableSupportInput();
             saveSupportDataLocally(supportTicketId, localMessagesList, 'open');
         }
 
         supportLastMsgCount = -1;
+        supportLastTimestamp = "";
         fetchTicketData();
         startSupportPolling();
     };
@@ -171,10 +178,7 @@
             modal.style.display = 'none';
             document.body.style.overflow = 'auto';
         }
-        if (supportPollInterval) {
-            clearInterval(supportPollInterval);
-            supportPollInterval = null;
-        }
+        stopSupportPolling();
     };
 
     window.fetchTicketData = async function() {
@@ -207,7 +211,7 @@
                 isSupportClosed = (data.status === 'closed');
                 localMessagesList = data.messages || [];
                 
-                if (ticketDisplay) ticketDisplay.innerHTML = `تذكرة #${supportTicketId} 📋`;
+                if (ticketDisplay) ticketDisplay.innerText = `تذكرة #${supportTicketId} 📋`;
                 renderMessages(localMessagesList);
                 saveSupportDataLocally(supportTicketId, localMessagesList, data.status);
                 
@@ -238,8 +242,15 @@
         messages = messages || [];
         if (!chatBox) return;
 
-        if (!forceRender && messages.length === supportLastMsgCount && !isSupportClosed) return;
+        const lastMsg = messages[messages.length - 1];
+        const lastTs = lastMsg ? (lastMsg.timestamp || '') : '';
+
+        if (!forceRender && messages.length === supportLastMsgCount && lastTs === supportLastTimestamp && !isSupportClosed) {
+            return;
+        }
+
         supportLastMsgCount = messages.length;
+        supportLastTimestamp = lastTs;
 
         chatBox.innerHTML = ''; 
 
@@ -247,7 +258,7 @@
             chatBox.innerHTML = `
                 <div class="msg-system">
                     👋 <b>مرحباً بك في الدعم الفني المباشر!</b><br>
-                    الكود المرجعي: <b>${supportTicketId || ''}</b><br>
+                    الكود المرجعي: <b>${escapeHTML(supportTicketId || '')}</b><br>
                     اكتب استفسارك وسيقوم فريق الدعم بالرد عليك في أقرب وقت.
                 </div>`;
         } else {
@@ -283,8 +294,16 @@
     }
 
     function escapeHTML(str) {
-        return String(str).replace(/[&<>"']/g, function(m) {
-            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+        if (!str) return '';
+        return String(str).replace(/[&<>"'/]/g, function(m) {
+            return {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;',
+                '/': '&#x2F;'
+            }[m];
         });
     }
 
@@ -306,7 +325,7 @@
             timestamp: new Date().toISOString()
         }];
         
-        if (ticketDisplay) ticketDisplay.innerHTML = `تذكرة #${supportTicketId} 📋`;
+        if (ticketDisplay) ticketDisplay.innerText = `تذكرة #${supportTicketId} 📋`;
         enableSupportInput();
         renderMessages(localMessagesList, true);
         saveSupportDataLocally(supportTicketId, localMessagesList, 'open');
@@ -331,7 +350,7 @@
             if (data && data.success) {
                 supportTicketId = data.ticket_id;
                 localMessagesList = data.messages || localMessagesList;
-                if (ticketDisplay) ticketDisplay.innerHTML = `تذكرة #${supportTicketId} 📋`;
+                if (ticketDisplay) ticketDisplay.innerText = `تذكرة #${supportTicketId} 📋`;
                 renderMessages(localMessagesList, true);
                 saveSupportDataLocally(supportTicketId, localMessagesList, 'open');
                 startSupportPolling();
@@ -342,9 +361,11 @@
     };
 
     window.sendSupportMessage = async function() {
-        if (!msgInput) return;
+        if (!msgInput || isSendingMessage) return;
         const text = msgInput.value.trim();
         if (!text || isSupportClosed) return;
+
+        isSendingMessage = true;
 
         if (!supportTicketId) {
             supportTicketId = generateLocalTicketId();
@@ -390,7 +411,8 @@
         } catch (error) {
             console.warn("تعذر الإرسال الفوري للسيرفر، التذكرة محفوظة محلياً.");
         } finally {
-            if (sendBtn) sendBtn.disabled = false;
+            isSendingMessage = false;
+            if (sendBtn && !isSupportClosed) sendBtn.disabled = false;
         }
     };
 
@@ -401,10 +423,7 @@
         }
         if (sendBtn) sendBtn.disabled = true;
         if (inputSection) inputSection.style.opacity = '0.5';
-        if (supportPollInterval) {
-            clearInterval(supportPollInterval);
-            supportPollInterval = null;
-        }
+        stopSupportPolling();
     }
 
     function enableSupportInput() {
@@ -417,18 +436,28 @@
     }
 
     function startSupportPolling() {
-        if (supportPollInterval) clearInterval(supportPollInterval);
+        stopSupportPolling();
         supportPollInterval = setInterval(() => {
             const modal = document.getElementById('support-modal');
             if (!isSupportClosed && modal && modal.style.display === 'flex' && document.visibilityState === 'visible') {
                 fetchTicketData();
             }
-        }, 3000);
+        }, 3500);
+    }
+
+    function stopSupportPolling() {
+        if (supportPollInterval) {
+            clearInterval(supportPollInterval);
+            supportPollInterval = null;
+        }
     }
 
     if (msgInput) {
         msgInput.addEventListener('keypress', function (e) {
-            if (e.key === 'Enter') sendSupportMessage();
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                sendSupportMessage();
+            }
         });
     }
 
@@ -490,6 +519,8 @@
         if (document.visibilityState === "visible") {
             updateStatsFromLocalData();
             fetchAndRenderData();
+        } else {
+            stopSupportPolling();
         }
     });
 
