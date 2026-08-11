@@ -16,6 +16,7 @@
     let currentLockSeconds = 15;
     let currentDisplayBalance = 0;
     let currentPrizePool = 0;
+    let currentPayoutPercentages = [40, 20, 10, 8, 6, 5, 4, 3, 2, 2];
 
     let boxesState = {
         inGame: false,
@@ -531,6 +532,9 @@
             if (data.success) {
                 if (data.entry_fee) currentEntryFee = data.entry_fee;
                 if (data.balance !== undefined) setStoredBalance(data.balance, true);
+                if (data.payout_percentages && Array.isArray(data.payout_percentages)) {
+                    currentPayoutPercentages = data.payout_percentages;
+                }
                 currentRoundId = data.round_id;
                 arenaEndTime = parseInt(data.end_time) || 0;
                 hasJoinedCurrentRound = !!data.has_joined;
@@ -544,6 +548,36 @@
         const newPool = parseFloat(data.prize_pool) || 0;
         animateCounter('prize-pool', currentPrizePool, newPool, 900, " ZN");
         currentPrizePool = newPool;
+        renderArenaPrizeBreakdown(newPool);
+    }
+
+    function renderArenaPrizeBreakdown(prizePool) {
+        const container = document.getElementById('arena-prizes-list');
+        if (!container) return;
+
+        const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+        let html = '';
+
+        currentPayoutPercentages.forEach((pct, index) => {
+            const rankNum = index + 1;
+            const medal = medals[index] || `#${rankNum}`;
+            const prizeAmount = ((prizePool * parseFloat(pct)) / 100.0);
+            
+            html += `
+                <div class="prize-rank-item">
+                    <div class="prize-rank-info">
+                        <span class="prize-rank-icon">${medal}</span>
+                        <span class="prize-rank-title">المركز ${rankNum}</span>
+                    </div>
+                    <div class="prize-rank-values">
+                        <span class="prize-rank-pct">%${pct}</span>
+                        <span class="prize-rank-amount">${formatNumberHTML(prizeAmount)} ZN</span>
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
     }
 
     function startSmoothCountdown() {
@@ -684,6 +718,7 @@
             } catch (e) {}
         }
         renderBoxesGrid();
+        renderArenaPrizeBreakdown(currentPrizePool);
         syncUserData();
         fetchArenaStatus(true);
 
