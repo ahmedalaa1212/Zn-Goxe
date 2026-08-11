@@ -6,21 +6,30 @@ from games.games_db import (
     add_user_balance_transactional,
     record_user_game_result,
     update_db_game_stats,
-    get_db_instance,
-    get_user_data
+    get_user_data,
+    get_arena_state_db,
+    save_arena_state_db,
+    _get_db
 )
 
 class BigArenaManager:
-    """إدارة جولات ورهانات الساحة الكبرى Arena مع السحب التلقائي"""
+    """إدارة جولات ورهانات الساحة الكبرى Arena مع السحب التلقائي والمزامنة المشتركة"""
 
     def __init__(self):
         self.current_round: Dict[str, Any] = None
         self._init_or_load_round()
 
     def _init_or_load_round(self):
+        # محاولة التحميل من قاعدة البيانات أولاً لمزامنة السيرفرات
+        db_state = get_arena_state_db()
+        now = int(time.time())
+
+        if db_state and db_state.get("end_time", 0) > now and db_state.get("status") == "active":
+            self.current_round = db_state
+            return
+
         cfg = get_big_arena_config()
         duration = int(cfg.get("duration_seconds", 300))
-        now = int(time.time())
         self.current_round = {
             "round_id": f"arena_{now}",
             "start_time": now,
@@ -30,10 +39,16 @@ class BigArenaManager:
             "status": "active",
             "winners": []
         }
+        save_arena_state_db(self.current_round)
 
     def get_status(self, uid: str) -> Dict[str, Any]:
         cfg = get_big_arena_config()
         now = int(time.time())
+
+        # إعادة التحميل لضمان أحدث بيانات
+        db_state = get_arena_state_db()
+        if db_state:
+            self.current_round = db_state
 
         # تجديد الجولة تلقائياً عند انتهائها
         if now >= self.current_round["end_time"] and self.current_round["status"] == "active":
@@ -41,7 +56,7 @@ class BigArenaManager:
 
         uid_str = str(uid) if uid else ""
         has_joined = uid_str in self.current_round.get("participants", [])
-        _, user_data = get_user_data(uid_str) if uid_str else (False, {})
+        exists, user_data = get_user_data(uid_str) if uid_str else (False, {})
 
         return {
             "success": True,
@@ -51,7 +66,7 @@ class BigArenaManager:
             "lock_seconds": int(cfg.get("lock_seconds", 15)),
             "prize_pool": self.current_round["prize_pool"],
             "has_joined": has_joined,
-            "balance": float(user_data.get("balance", 0.0))
+            "balance": float(user_data.get("balance", user_data.get("zn_balance", 0.0)))
         }
 
     def enter_arena(self, uid: str) -> Tuple[bool, str, Dict[str, Any]]:
@@ -75,9 +90,11 @@ class BigArenaManager:
 
         self.current_round["participants"].append(uid_str)
         self.current_round["prize_pool"] += entry_fee
+        save_arena_state_db(self.current_round)
+
         record_user_game_result(uid_str, bet_amount=entry_fee, win_amount=0.0)
 
-        return True, f"⚔️ تم انضمامك للساحة بنجاح!", {
+        return True, "⚔️ تم انضمامك للساحة بنجاح!", {
             "new_balance": new_bal,
             "prize_pool": self.current_round["prize_pool"]
         }
@@ -89,9 +106,8 @@ class BigArenaManager:
         entry_fee = float(cfg.get("entry_fee", 350.0))
 
         if len(participants) < min_players:
-            # إعادة الأموال لعدم اكتمال النصاب
             self.current_round["status"] = "refunded"
-            db = get_db_instance()
+            db = _get_db()
             for p_uid in participants:
                 if db:
                     db.collection('users').document(p_uid).set({'pending_refund': entry_fee}, merge=True)
@@ -103,7 +119,6 @@ class BigArenaManager:
             total_pool = self.current_round["prize_pool"]
             distributable_pool = total_pool * ((100.0 - bot_margin) / 100.0)
 
-            # توزيع الجوائز نسبياً 30% - 25% - 20% - 15% - 10%
             shares = [0.30, 0.25, 0.20, 0.15, 0.10]
             winners = []
             import random
@@ -117,7 +132,7 @@ class BigArenaManager:
                 _, udata = get_user_data(p_uid)
                 winners.append({
                     "uid": p_uid,
-                    "name": udata.get("name", f"مستخدم #{p_uid[:5]}"),
+                    "name": udata.get("name", udata.get("first_name", f"مستخدم #{p_uid[:5]}")),
                     "prize": prize,
                     "rank": idx + 1
                 })
@@ -125,6 +140,7 @@ class BigArenaManager:
             update_db_game_stats(bet_amount=total_pool, win_amount=distributable_pool)
             self.current_round["winners"] = winners
 
+        save_arena_state_db(self.current_round)
         # بدء جولة جديدة تلقائياً
         self._init_or_load_round()
 
