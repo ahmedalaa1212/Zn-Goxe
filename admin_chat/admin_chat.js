@@ -3,10 +3,22 @@
     let allTickets = [];
     let adminPollInterval = null;
     let isFetching = false;
+    let isSendingReply = false;
     let lastMsgCount = 0;
     let tickCounter = 0;
 
-    // جلب كل التذاكر مع معالجة الأخطاء بأمان بدون undefined
+    // دالة حماية وتنظيف النصوص لمنع ثغرات الحقن XSS
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    // جلب كل التذاكر مع معالجة الأخطاء بأمان
     window.fetchAdminTickets = async function() {
         if (isFetching || currentTicketId) return;
         isFetching = true;
@@ -30,11 +42,11 @@
                 filterTickets();
             } else if (container) {
                 const errorText = data.message || data.error || 'حدث خطأ غير معروف في الاتصال';
-                container.innerHTML = `<p style="color:#ef4444; text-align:center;">${errorText}</p>`;
+                container.innerHTML = `<p style="color:#ef4444; text-align:center;">${escapeHtml(errorText)}</p>`;
             }
         } catch (e) {
             if (container && allTickets.length === 0) {
-                container.innerHTML = `<p style="color:#ef4444; text-align:center;">فشل الاتصال بالسيرفر (${e.message || 'خطأ شبكة'})</p>`;
+                container.innerHTML = `<p style="color:#ef4444; text-align:center;">فشل الاتصال بالسيرفر (${escapeHtml(e.message || 'خطأ شبكة')})</p>`;
             }
         } finally {
             isFetching = false;
@@ -47,7 +59,7 @@
         isFetching = true;
 
         try {
-            const response = await fetch(`/api/admin-chat/ticket/${currentTicketId}`, {
+            const response = await fetch(`/api/admin-chat/ticket/${encodeURIComponent(currentTicketId)}`, {
                 headers: { 'X-Telegram-Init-Data': window.Telegram?.WebApp?.initData || "" }
             });
             const data = await response.json();
@@ -86,7 +98,7 @@
         const badge = document.getElementById('unread-count-badge');
         if (!badge) return;
         
-        const unreadCount = tickets.filter(t => t.has_unread_admin || t.last_sender === 'user').length;
+        const unreadCount = tickets.filter(t => (t.has_unread_admin || t.last_sender === 'user') && t.status !== 'closed').length;
         if (unreadCount > 0) {
             badge.innerText = `${unreadCount} غير مقروء`;
             badge.style.display = 'inline-block';
@@ -105,10 +117,10 @@
         }
 
         const filtered = allTickets.filter(t => {
-            const tId = (t.ticket_id || '').toLowerCase();
+            const tId = String(t.ticket_id || '').toLowerCase();
             const uInfo = t.user_info || {};
-            const name = (uInfo.first_name || '').toLowerCase();
-            const username = (uInfo.username || '').toLowerCase();
+            const name = String(uInfo.first_name || '').toLowerCase();
+            const username = String(uInfo.username || '').toLowerCase();
             const uId = String(t.uid || t.user_id || uInfo.id || '');
 
             return tId.includes(query) || name.includes(query) || username.includes(query) || uId.includes(query);
@@ -142,16 +154,20 @@
 
             const cardBorder = hasUnread ? 'border: 1px solid #f59e0b;' : 'border: 1px solid #2d3345;';
 
+            const safeFirstName = escapeHtml(info.first_name || 'مستخدم');
+            const safeUsername = escapeHtml(info.username || 'بدون');
+            const safeTicketId = escapeHtml(t.ticket_id);
+
             html += `
-                <div onclick="openAdminChat('${t.ticket_id}')" style="background: #1f2330; ${cardBorder} padding: 12px; border-radius: 10px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s;">
+                <div onclick="openAdminChat('${safeTicketId}')" style="background: #1f2330; ${cardBorder} padding: 12px; border-radius: 10px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <strong style="color:#fff; font-size:13px;">
-                            ${unreadBadge} ${info.first_name || 'مستخدم'} (@${info.username || 'بدون'})
+                            ${unreadBadge} ${safeFirstName} (@${safeUsername})
                         </strong>
                         ${statusBadge}
                     </div>
                     <div style="font-size: 11px; color:#94a3b8; margin-top:6px; display:flex; justify-content:space-between;">
-                        <span>كود التذكرة: <b style="color:#f59e0b;">#${t.ticket_id}</b></span>
+                        <span>كود التذكرة: <b style="color:#f59e0b;">#${safeTicketId}</b></span>
                         <span>الرسائل: ${(t.messages || []).length}</span>
                     </div>
                 </div>
@@ -209,7 +225,7 @@
                 border-bottom-${isAdmin ? 'right' : 'left'}-radius: 2px;
                 white-space: pre-wrap;
             `;
-            div.innerText = m.text;
+            div.innerText = m.text || '';
             box.appendChild(div);
         });
         box.scrollTop = box.scrollHeight;
@@ -224,10 +240,13 @@
     };
 
     window.sendAdminReply = async function() {
+        if (isSendingReply) return;
+
         const input = document.getElementById('admin-reply-input');
         const text = input.value.trim();
         if (!text || !currentTicketId) return;
 
+        isSendingReply = true;
         input.value = '';
 
         try {
@@ -246,7 +265,9 @@
                 alert("خطأ: " + (data.message || data.error || "فشل الإرسال"));
             }
         } catch (e) {
-            alert("فشل الإرسال");
+            alert("فشل الإرسال بسبب خطأ في الاتصال");
+        } finally {
+            isSendingReply = false;
         }
     };
 
@@ -269,7 +290,7 @@
                 alert("خطأ: " + (data.message || data.error || "فشل الإغلاق"));
             }
         } catch (e) {
-            alert("فشل الإغلاق");
+            alert("فشل الإغلاق بسبب خطأ في الاتصال");
         }
     };
 
