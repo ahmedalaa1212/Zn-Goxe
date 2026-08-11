@@ -3,7 +3,8 @@ from games.games_db import (
     get_game_profit_stats,
     get_grid_36_config,
     get_big_arena_config,
-    clear_user_pending_refund
+    clear_user_pending_refund,
+    get_user_data
 )
 from games.grid_36 import grid_36_manager
 from games.arena import big_arena_manager
@@ -11,11 +12,47 @@ from games.arena import big_arena_manager
 games_bp = Blueprint('games_api', __name__, url_prefix='/api')
 
 def extract_uid(req) -> str:
-    data = req.json or {}
-    tg_id = data.get('tg_id') or data.get('uid')
-    if tg_id:
-        return str(tg_id)
+    """استخراج ID المستخدم بشكل شامل لمنع فقدان الربط"""
+    # 1. البحث في JSON Body
+    if req.is_json:
+        data = req.json or {}
+        tg_id = data.get('tg_id') or data.get('uid') or data.get('user_id')
+        if tg_id:
+            return str(tg_id)
+            
+    # 2. البحث في Query String (URL Parameters)
+    tg_id_arg = req.args.get('tg_id') or req.args.get('uid') or req.args.get('user_id')
+    if tg_id_arg:
+        return str(tg_id_arg)
+        
+    # 3. البحث في Form Data
+    if req.form:
+        tg_id_form = req.form.get('tg_id') or req.form.get('uid')
+        if tg_id_form:
+            return str(tg_id_form)
+            
     return ""
+
+# ==========================================
+# 👤 0. مسار جلب معلومات المستخدم والرصيد المباشر
+# ==========================================
+
+@games_bp.route('/user/info', methods=['GET', 'POST'])
+def get_user_info():
+    uid = extract_uid(request)
+    if not uid:
+        return jsonify({"success": False, "message": "لم يتم العثور على ID المستخدم"}), 400
+
+    exists, udata = get_user_data(uid)
+    if not exists:
+        return jsonify({"success": False, "message": "المستخدم غير موجود في قاعدة البيانات"}), 404
+
+    return jsonify({
+        "success": True,
+        "uid": uid,
+        "balance": float(udata.get('balance', 0.0)),
+        "name": udata.get('name', udata.get('first_name', 'مستخدم'))
+    })
 
 # ==========================================
 # 🎮 1. مسارات لعبة ZN Go الـ 36 صندوق
@@ -47,7 +84,7 @@ def start_grid36():
 def open_grid36_box():
     uid = extract_uid(request)
     data = request.json or {}
-    box_index = int(data.get('box_index', data.get('box_index', -1)))
+    box_index = int(data.get('box_index', -1))
     session_token = data.get('session_token')
 
     if not uid or box_index < 0:
@@ -87,7 +124,7 @@ def cashout_grid36():
 
 @games_bp.route('/games/status', methods=['POST', 'GET'])
 def arena_status():
-    uid = extract_uid(request) if request.method == 'POST' else request.args.get('uid', '')
+    uid = extract_uid(request)
     res = big_arena_manager.get_status(uid)
     return jsonify(res)
 
