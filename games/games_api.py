@@ -130,7 +130,12 @@ def cashout_grid36():
 def arena_status():
     uid = extract_uid(request)
     res = big_arena_manager.get_status(uid)
-    return jsonify(res if isinstance(res, dict) else {"success": False})
+    if isinstance(res, dict):
+        arena_cfg = get_big_arena_config()
+        if 'payout_percentages' not in res:
+            res['payout_percentages'] = arena_cfg.get('payout_percentages', [40.0, 20.0, 10.0, 8.0, 6.0, 5.0, 4.0, 3.0, 2.0, 2.0])
+        return jsonify(res)
+    return jsonify({"success": False})
 
 @games_bp.route('/games/join', methods=['POST'])
 @games_bp.route('/games/arena/enter', methods=['POST'])
