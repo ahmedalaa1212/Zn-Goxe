@@ -39,7 +39,6 @@ class Grid36Manager:
 
         record_user_game_result(uid, bet_amount=bet_amount, win_amount=0.0)
 
-        # توليد أماكن القنابل خفية
         board_layout = [False] * 36
         bomb_indices = random.sample(range(36), broken_count)
         for idx in bomb_indices:
@@ -82,7 +81,6 @@ class Grid36Manager:
         bet = session["bet_amount"]
         is_bomb = session["layout"][box_index]
 
-        # حماية الخزينة
         if not should_user_win_next_step(uid_str):
             is_bomb = True
 
@@ -90,7 +88,8 @@ class Grid36Manager:
             session["active"] = False
             update_db_game_stats(bet_amount=bet, win_amount=0.0)
             layout_copy = list(session["layout"])
-            del self.active_sessions[uid_str]
+            if uid_str in self.active_sessions:
+                del self.active_sessions[uid_str]
 
             return True, "💥 اصطدمت بقنبلة!", {
                 "status": "loss",
@@ -140,7 +139,8 @@ class Grid36Manager:
 
         layout_copy = list(session["layout"])
         session["active"] = False
-        del self.active_sessions[uid_str]
+        if uid_str in self.active_sessions:
+            del self.active_sessions[uid_str]
 
         return True, f"🎉 تم سحب الأرباح: {win_amount} ZN", {
             "payout": win_amount,
