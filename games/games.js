@@ -1,6 +1,5 @@
 // games/games.js
 (function initGamesModule() {
-    // --- متغيرات الساحة الكبرى ---
     let isJoining = false;
     let currentRoundId = null;
     let arenaEndTime = 0;
@@ -11,15 +10,14 @@
     let pendingConfirmCallback = null;
 
     let lastStatusFetchTimestamp = 0;
-    const STATUS_FETCH_COOLDOWN = 12000;
+    const STATUS_FETCH_COOLDOWN = 10000;
     let hasJoinedCurrentRound = false;
 
-    let currentEntryFee = 350; // الحد الأدنى للاشتراك 350 ZN
+    let currentEntryFee = 350;
     let currentLockSeconds = 15;
     let currentDisplayBalance = 0;
     let currentPrizePool = 0;
 
-    // --- متغيرات لعبة شبكة العملات والمخاطرة (36 صندوقاً) ---
     let boxesState = {
         inGame: false,
         isProcessingPick: false,
@@ -34,12 +32,9 @@
 
     const tele = window.Telegram?.WebApp;
 
-    // جلب معرّف تلجرام الخاص بالمستخدم
     function getTgId() {
         return tele?.initDataUnsafe?.user?.id || null;
     }
-
-    // --- 0. الأدوات المساعدة وحالة التطبيق ---
 
     function triggerHaptic(type = 'light') {
         try {
@@ -93,8 +88,6 @@
 
     function getStoredBalance() {
         if (window.userState && window.userState.balance !== undefined) return parseFloat(window.userState.balance) || 0;
-        if (window.PlayerData && window.PlayerData.balance !== undefined) return parseFloat(window.PlayerData.balance) || 0;
-        if (window.GameState && window.GameState.balance !== undefined) return parseFloat(window.GameState.balance) || 0;
         const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
         const num = bal !== null ? parseFloat(bal) : 0;
         return isNaN(num) ? 0 : num;
@@ -106,11 +99,7 @@
             const oldVal = currentDisplayBalance || getStoredBalance();
             
             if (window.userState) window.userState.balance = numVal;
-            if (window.PlayerData) window.PlayerData.balance = numVal;
-            if (window.GameState) window.GameState.balance = numVal;
-            
             localStorage.setItem('zn_balance', numVal.toString());
-            localStorage.setItem('user_balance', numVal.toString());
             
             if (animate) animateCounter('top-balance-games', oldVal, numVal, 800, " ZN");
             else {
@@ -118,17 +107,7 @@
                 if (gameBalEl) gameBalEl.innerHTML = formatNumberHTML(numVal, " ZN");
             }
             currentDisplayBalance = numVal;
-
-            if (typeof window.setBalance === 'function') window.setBalance(numVal);
-            const mainBalEl = document.getElementById('user-balance') || document.querySelector('.user-balance');
-            if (mainBalEl) mainBalEl.innerHTML = formatNumberHTML(numVal, " ZN");
         }
-    }
-
-    function syncGameBalance() {
-        const stored = getStoredBalance();
-        const oldVal = currentDisplayBalance;
-        setStoredBalance(stored, oldVal !== stored && oldVal !== 0);
     }
 
     window.switchGameTab = function(tabName) {
@@ -151,8 +130,6 @@
             renderBoxesGrid();
         }
     };
-
-    // --- 1. منطق لعبة شبكة العملات والمخاطرة (36 صندوقاً) - مرتبط بالـ Backend ---
 
     window.openBoxesSettings = function() {
         if (boxesState.inGame) return;
@@ -181,7 +158,6 @@
 
         const selectedText = document.getElementById('selected-broken-text');
         if (selectedText) selectedText.innerText = `${count} عملات مكسورة (سقف 🌟 ${20 + (count - 3) * 10}x)`;
-        
         closeBoxesSettings();
     };
 
@@ -251,7 +227,6 @@
         }
     }
 
-    // 1️⃣ بدء الجولة - إرسال الطلب لمسار /api/game/start
     window.startBoxesGame = async function() {
         if (boxesState.inGame) return;
         const betInput = document.getElementById('boxes-bet-input');
@@ -273,7 +248,7 @@
 
             const res = await fetch('/api/game/start', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${initData}` },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     tg_id: tgId, 
                     bet_amount: betVal, 
@@ -292,9 +267,7 @@
                 boxesState.bet = betVal;
                 boxesState.picks = [];
                 boxesState.sessionToken = data.session_token || null;
-                if (data.multipliers && data.multipliers.length > 0) {
-                    boxesState.multipliers = data.multipliers;
-                }
+                if (data.multipliers) boxesState.multipliers = data.multipliers;
                 boxesState.reviveUsed = false;
                 
                 renderBoxesGrid();
@@ -303,9 +276,6 @@
                 const btnCashOut = document.getElementById('btn-cashout-boxes');
                 if (btnCashOut) btnCashOut.style.display = 'block';
                 if (betInput) betInput.disabled = true;
-                
-                const settingsBtn = document.getElementById('btn-boxes-settings');
-                if (settingsBtn) settingsBtn.style.pointerEvents = 'none';
                 
                 updateCashOutButton();
                 triggerGlobalToast("✨ بدأت الجولة! اختر صناديقك بحذر.", true);
@@ -325,7 +295,6 @@
         }
     };
 
-    // 2️⃣ ضغط مربع في شبكة اللعبة - إرسال الطلب لمسار /api/game/step
     async function onBoxClick(index) {
         if (!boxesState.inGame || boxesState.picks.includes(index) || boxesState.isProcessingPick) return;
         
@@ -344,10 +313,9 @@
 
             const res = await fetch('/api/game/step', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${initData}` },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     tg_id: tgId,
-                    bet_amount: boxesState.bet,
                     box_index: index,
                     session_token: boxesState.sessionToken,
                     initData: initData
@@ -355,19 +323,14 @@
             });
 
             const data = await res.json();
-            const isBomb = data.is_bomb || data.status === 'loss' || data.is_broken;
+            const isBomb = data.is_bomb || data.status === 'loss';
 
-            if (!isBomb && (data.status === 'safe' || data.status === 'success' || data.success)) {
+            if (!isBomb && (data.status === 'safe' || data.success)) {
                 boxesState.picks.push(index);
                 const backEl = boxCard.querySelector('.box-back');
                 if (backEl) backEl.innerHTML = '<span class="coin-gold">🟡 ZN</span>';
                 boxCard.classList.add('flipped', 'safe');
                 updateCashOutButton();
-
-                const safeCountTarget = 36 - boxesState.brokenCount;
-                if (boxesState.picks.length === safeCountTarget) {
-                    await cashOutBoxes();
-                }
             } else {
                 handleBrokenCoinHit(index, data.layout);
             }
@@ -378,7 +341,6 @@
         }
     }
 
-    // 3️⃣ سحب الأرباح (Cashout) - إرسال الطلب لمسار /api/game/cashout
     window.cashOutBoxes = async function() {
         if (!boxesState.inGame) return;
         triggerHaptic('heavy');
@@ -389,45 +351,26 @@
             btnCashOut.innerText = "جاري تأكيد السحب... ⏳";
         }
 
-        const picksCount = boxesState.picks.length;
-        const multIndex = Math.min(Math.max(0, picksCount - 1), boxesState.multipliers.length - 1);
-        const currentMult = boxesState.multipliers[multIndex] || 1.2;
-        const cashoutAmount = boxesState.bet * currentMult;
-
         try {
             const initData = tele?.initData || "";
             const tgId = getTgId();
 
             const res = await fetch('/api/game/cashout', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${initData}` },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     tg_id: tgId,
-                    bet_amount: boxesState.bet,
-                    cashout_amount: cashoutAmount,
                     session_token: boxesState.sessionToken,
-                    picks: boxesState.picks,
                     initData: initData
                 })
             });
 
             const data = await res.json();
             if (data.status === 'success' || data.success) {
-                if (data.new_balance !== undefined) {
-                    setStoredBalance(data.new_balance, true);
-                } else {
-                    setStoredBalance(getStoredBalance() + cashoutAmount, true);
-                }
-                
+                if (data.new_balance !== undefined) setStoredBalance(data.new_balance, true);
                 revealFullBoard(data.layout);
-
-                const payout = data.payout !== undefined ? data.payout : cashoutAmount;
-                const mult = data.multiplier !== undefined ? data.multiplier : currentMult;
-
-                if (payout > 0) {
-                    triggerHaptic('success');
-                    triggerGlobalToast(`🎉 مبروك! سحبت ${payout.toLocaleString('en-US')} ZN (مضاعف ${mult}x)`, true);
-                }
+                triggerHaptic('success');
+                triggerGlobalToast(`🎉 مبروك! سحبت ${formatNumberHTML(data.payout)} ZN`, true);
                 resetBoxesControls();
             } else {
                 showNotification("⚠️ " + (data.message || "تعذر إتمام السحب"));
@@ -470,7 +413,6 @@
                     if (adResult && adResult.done) {
                         triggerHaptic('success');
                         boxesState.reviveUsed = true;
-                        
                         boxesState.picks = boxesState.picks.filter(p => p !== hitIndex);
                         const card = document.querySelector(`.box-card[data-index="${hitIndex}"]`);
                         if (card) {
@@ -479,7 +421,7 @@
                             if (backEl) backEl.innerHTML = '';
                         }
                         updateCashOutButton();
-                        triggerGlobalToast("🛡️ تم تفعيل ميزة الإحياء! تابع اختيار صناديقك.", true);
+                        triggerGlobalToast("🛡️ تم تفعيل ميزة الإحياء! تابع اللعب.", true);
                         return;
                     }
                 } catch (err) {
@@ -492,7 +434,7 @@
 
     function finalizeLoss(layout) {
         revealFullBoard(layout);
-        triggerGlobalToast("😅 اصطدمت بقنبلة/عملة مكسورة! حظاً أوفير في الجولة القادمة.", false);
+        triggerGlobalToast("💥 اصطدمت بقنبلة! حظاً أوفير في الجولة القادمة.", false);
         resetBoxesControls();
     }
 
@@ -504,7 +446,6 @@
             
             const isBroken = layout[i];
             const backEl = card.querySelector('.box-back');
-            
             if (isBroken) {
                 if (backEl) backEl.innerHTML = '<span class="coin-broken">⚪💥</span>';
                 card.classList.add('broken');
@@ -530,15 +471,9 @@
         }
         if (btnCashOut) btnCashOut.style.display = 'none';
         if (betInput) betInput.disabled = false;
-        
-        const settingsBtn = document.getElementById('btn-boxes-settings');
-        if (settingsBtn) settingsBtn.style.pointerEvents = 'auto';
     }
 
-    // --- 2. منطق الساحة الكبرى والتحديثات الخلفية الاحترافية ---
-
     async function fetchArenaStatus(force = false) {
-        if (statusRetryTimeout) { clearTimeout(statusRetryTimeout); statusRetryTimeout = null; }
         const now = Date.now();
         if (!force && (now - lastStatusFetchTimestamp < STATUS_FETCH_COOLDOWN)) return;
         lastStatusFetchTimestamp = now;
@@ -547,46 +482,26 @@
             const initData = tele?.initData || "";
             const response = await fetch('/api/games/status', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${initData}` },
-                body: JSON.stringify({ initData: initData })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ initData: initData, tg_id: getTgId() })
             });
-            if (!response.ok) throw new Error("Server Error");
             const data = await response.json();
             if (data.success) {
                 if (data.entry_fee) currentEntryFee = data.entry_fee;
-                if (data.lock_seconds) currentLockSeconds = data.lock_seconds;
-                
-                const subtext = document.getElementById('arena-subtext');
-                if (subtext) subtext.innerText = `سحب تلقائي مستمر! رسوم الاشتراك: ${parseInt(currentEntryFee, 10).toLocaleString('en-US')} ZN`;
-                
                 if (data.balance !== undefined) setStoredBalance(data.balance, true);
                 currentRoundId = data.round_id;
                 arenaEndTime = parseInt(data.end_time) || 0;
-                hasCheckedResults = false;
                 hasJoinedCurrentRound = !!data.has_joined;
                 updateArenaPrizes(data);
                 startSmoothCountdown();
             }
-        } catch (error) {
-            statusRetryTimeout = setTimeout(() => fetchArenaStatus(true), 6000);
-        }
+        } catch (error) {}
     }
 
     function updateArenaPrizes(data) {
         const newPool = parseFloat(data.prize_pool) || 0;
         animateCounter('prize-pool', currentPrizePool, newPool, 900, " ZN");
         currentPrizePool = newPool;
-        const p1 = document.getElementById('prize-1');
-        const p2 = document.getElementById('prize-2');
-        const p3 = document.getElementById('prize-3');
-        const p4 = document.getElementById('prize-4');
-        const p5 = document.getElementById('prize-5');
-
-        if (p1) p1.innerHTML = formatNumberHTML(newPool * 0.30, " ZN");
-        if (p2) p2.innerHTML = formatNumberHTML(newPool * 0.25, " ZN");
-        if (p3) p3.innerHTML = formatNumberHTML(newPool * 0.20, " ZN");
-        if (p4) p4.innerHTML = formatNumberHTML(newPool * 0.15, " ZN");
-        if (p5) p5.innerHTML = formatNumberHTML(newPool * 0.10, " ZN");
     }
 
     function startSmoothCountdown() {
@@ -614,14 +529,14 @@
         if (timeLeft <= currentLockSeconds && timeLeft > 0) {
             btn.disabled = true;
             btn.classList.add('btn-disabled');
-            btn.innerText = "🔒 تم إغلاق الاشتراك (جاري السحب⏳)";
+            btn.innerText = "🔒 تم إغلاق الاشتراك";
         } else if (timeLeft === 0) {
             btn.disabled = true;
             btn.classList.add('btn-disabled');
             btn.innerText = "🔄 جاري إعلان النتائج...";
             if (!hasCheckedResults && currentRoundId) {
                 hasCheckedResults = true;
-                fetchRoundResults(currentRoundId, 0);
+                fetchRoundResults(currentRoundId);
             }
         } else {
             if (!hasJoinedCurrentRound) {
@@ -640,7 +555,7 @@
         triggerHaptic('heavy');
         if (isJoining || hasJoinedCurrentRound) return;
         if (getStoredBalance() < currentEntryFee) {
-            showNotification(`⚠️ رصيدك غير كافٍ للدخول في الساحة (${currentEntryFee} ZN).`);
+            showNotification(`⚠️ رصيدك غير كافٍ للدخول في الساحة.`);
             return;
         }
         askForConfirmation(() => executeJoinArena());
@@ -649,31 +564,25 @@
     async function executeJoinArena() {
         if (isJoining) return;
         isJoining = true;
-        const btn = document.getElementById('btn-join-arena');
-        if (btn) { btn.disabled = true; btn.innerText = "جاري الدخول... ⏳"; }
 
         try {
             const initData = tele?.initData || "";
             const response = await fetch('/api/games/join', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${initData}` },
-                body: JSON.stringify({ initData: initData })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ initData: initData, tg_id: getTgId() })
             });
             const data = await response.json();
             if (data.success) {
                 triggerHaptic('success');
                 hasJoinedCurrentRound = true;
                 if (data.new_balance !== undefined) setStoredBalance(data.new_balance, true);
-                if (data.prize_pool !== undefined) updateArenaPrizes(data);
-                if (btn) { btn.disabled = true; btn.classList.add('btn-disabled'); btn.innerText = "أنت مشترك بالفعل ✅"; }
                 showNotification("🎉 تم دخول الساحة بنجاح!");
             } else {
-                triggerHaptic('error');
                 showNotification("⚠️ " + (data.message || "تعذر الاشتراك"));
             }
         } catch (error) {
-            triggerHaptic('error');
-            showNotification("حدث خطأ في الاتصال بالخادم.");
+            showNotification("خطأ في الاتصال بالخادم.");
         } finally {
             isJoining = false;
         }
@@ -691,19 +600,16 @@
                 color: #ffffff; padding: 12px 22px; border-radius: 50px;
                 box-shadow: 0 10px 30px rgba(0,0,0,0.8); z-index: 99999999;
                 font-size: 13px; font-weight: 800; text-align: center; width: 90%; max-width: 380px;
-                display: flex; align-items: center; justify-content: center; gap: 8px;
             `;
             document.body.appendChild(toastBox);
         }
         toastBox.innerHTML = msg;
-        toastBox.style.display = 'flex';
-        setTimeout(() => { if (toastBox) toastBox.style.display = 'none'; }, 4500);
+        toastBox.style.display = 'block';
+        setTimeout(() => { if (toastBox) toastBox.style.display = 'none'; }, 4000);
     }
 
     function askForConfirmation(onConfirm) {
         const modal = document.getElementById('confirm-modal');
-        const feeText = document.getElementById('confirm-fee-text');
-        if (feeText) feeText.innerHTML = formatNumberHTML(currentEntryFee, " ZN");
         if (modal) { pendingConfirmCallback = onConfirm; modal.style.display = 'flex'; }
     }
 
@@ -715,99 +621,18 @@
         pendingConfirmCallback = null;
     };
 
-    function showDrawModal(state, refundFee = 0) {
-        const modal = document.getElementById('draw-modal');
-        const refundedEl = document.getElementById('draw-refunded');
-        const winnersEl = document.getElementById('draw-winners');
-        const refundAmountEl = document.getElementById('refund-amount-display');
-        if (refundedEl) refundedEl.style.display = 'none';
-        if (winnersEl) winnersEl.style.display = 'none';
-        if (state === 'refunded' && refundedEl) {
-            refundedEl.style.display = 'block';
-            if (refundAmountEl) refundAmountEl.innerHTML = `+${formatNumberHTML(refundFee, " ZN")}`;
-        }
-        if (state === 'winners' && winnersEl) winnersEl.style.display = 'block';
-        if (modal) modal.style.display = 'flex';
-    }
-
-    window.closeDrawModal = function() {
-        triggerHaptic('light');
-        const modal = document.getElementById('draw-modal');
-        if (modal) modal.style.display = 'none';
-        fetchArenaStatus(true);
-    };
-
-    async function fetchRoundResults(roundId, retries = 0) {
-        if (!roundId || retries > 4) { fetchArenaStatus(true); return; }
+    async function fetchRoundResults(roundId) {
         try {
-            const initData = tele?.initData || "";
             const response = await fetch('/api/games/results', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${initData}` },
-                body: JSON.stringify({ initData: initData, round_id: roundId })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ round_id: roundId, tg_id: getTgId() })
             });
             const data = await response.json();
-            if (data.success) {
-                if (data.new_balance !== undefined) setStoredBalance(data.new_balance, true);
-                if (data.status === 'refunded') showDrawModal('refunded', data.refund_amount || currentEntryFee);
-                else if (data.status === 'completed') { renderWinners(data.winners || []); showDrawModal('winners'); }
-                else setTimeout(() => fetchRoundResults(roundId, retries + 1), 2500);
-            }
-        } catch (e) {
-            setTimeout(() => fetchRoundResults(roundId, retries + 1), 2500);
-        }
-    }
-
-    async function checkBackgroundNotifications() {
-        try {
-            const initData = tele?.initData || "";
-            if (!initData) return;
-            const response = await fetch('/api/games/check_notifications', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${initData}` },
-                body: JSON.stringify({ initData: initData })
-            });
-            const data = await response.json();
-            if (data.success) {
-                if (data.balance !== undefined) setStoredBalance(data.balance, true);
-                if (data.refund && data.refund > 0) {
-                    triggerGlobalToast(`💰 تم استرداد المبلغ بنجاح (+${data.refund} ZN)`);
-                    showDrawModal('refunded', data.refund);
-                }
-            }
+            if (data.success) fetchArenaStatus(true);
         } catch (e) {}
     }
 
-    function renderWinners(winners) {
-        const list = document.getElementById('winners-list');
-        if (!list) return;
-        list.innerHTML = '';
-        const medals = ['🥇', '🥈', '🥉', '🏅', '🏅'];
-        winners.forEach((winner, index) => {
-            let name = winner.name || `مستخدم #${(winner.uid || '00000').substring(0,5)}`;
-            let prize = formatNumberHTML(winner.prize || 0);
-            list.innerHTML += `
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 8px; border-bottom:1px solid rgba(255,255,255,0.06);">
-                    <span style="font-weight:700;">${medals[index] || '🏅'} ${name}</span>
-                    <span style="color:var(--accent-green); font-weight:800;">+${prize} ZN</span>
-                </div>
-            `;
-        });
-    }
-
-    if (backgroundSyncInterval) clearInterval(backgroundSyncInterval);
-    backgroundSyncInterval = setInterval(checkBackgroundNotifications, 25000);
-
-    syncGameBalance();
-    if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", () => {
-            fetchArenaStatus(true);
-            checkBackgroundNotifications();
-            renderBoxesGrid();
-        });
-    } else {
-        fetchArenaStatus(true);
-        checkBackgroundNotifications();
-        renderBoxesGrid();
-    }
+    renderBoxesGrid();
+    fetchArenaStatus(true);
 })();
