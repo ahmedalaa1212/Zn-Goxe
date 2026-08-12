@@ -204,6 +204,7 @@ window.initFarmView = function() {
 
         const upgradeStgBtn = document.getElementById('upgrade-storage-btn');
         if (upgradeStgBtn) {
+            upgradeStgBtn.onclick = window.handleStorageUpgrade; // ربط الحدث تلقائياً
             const nextLvl = stgLvl + 1;
             const nextCfg = GAME_CONFIG.storageConfig[nextLvl.toString()];
             if (stgLvl >= 10 || !nextCfg) {
@@ -361,6 +362,7 @@ window.initFarmView = function() {
 
         const claimBtn = document.getElementById('claim-btn');
         if (claimBtn) {
+            claimBtn.onclick = window.handleMainClaim;
             const remainingCooldown = Math.max(0, Math.ceil(MIN_CLAIM_INTERVAL - secondsPassed));
 
             if (isClaimingMain) {
@@ -386,6 +388,7 @@ window.initFarmView = function() {
         
         const boostBtn = document.getElementById('boost-btn');
         if (boostBtn) {
+            boostBtn.onclick = window.handleDailyBoost;
             const lastBoost = pData.last_boost_date || window.userState?.last_boost_date;
             const currentDailyBoostRate = parseFloat(pData.daily_boost_rate || window.userState?.daily_boost_rate || 0);
 
