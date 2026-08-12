@@ -3,9 +3,8 @@
     window.tele = window.Telegram?.WebApp;
     window.currentDisplayBalance = 0;
     window.activeAnimationFrames = window.activeAnimationFrames || {};
-    window.isTransactionPending = false; // قفل لمنع استرجاع بيانات قديمة أثناء العمليات
+    window.isTransactionPending = false;
 
-    // استخراج ID المستخدم بجميع الطرق الممكنة لمنع حدوث 0.00
     window.getTgId = function() {
         let id = window.tele?.initDataUnsafe?.user?.id;
         if (id) {
@@ -90,27 +89,6 @@
         else alert(msg);
     };
 
-    window.triggerGlobalToast = function(msg, isSuccess = true) {
-        let toastBox = document.getElementById('global-toast-notification');
-        if (!toastBox) {
-            toastBox = document.createElement('div');
-            toastBox.id = 'global-toast-notification';
-            toastBox.style.cssText = `
-                position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
-                background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(12px);
-                color: #ffffff; padding: 12px 22px; border-radius: 50px;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.8); z-index: 99999999;
-                font-size: 13px; font-weight: 800; text-align: center; width: 90%; max-width: 380px;
-                transition: border-color 0.3s ease;
-            `;
-            document.body.appendChild(toastBox);
-        }
-        toastBox.style.border = `1.5px solid ${isSuccess ? '#10b981' : '#ef4444'}`;
-        toastBox.innerHTML = msg;
-        toastBox.style.display = 'block';
-        setTimeout(() => { if (toastBox) toastBox.style.display = 'none'; }, 4000);
-    };
-
     window.getStoredBalance = function() {
         if (window.userState && window.userState.balance !== undefined && !isNaN(window.userState.balance)) {
             return parseFloat(window.userState.balance);
@@ -135,25 +113,36 @@
 
         if (window.userState) {
             window.userState.balance = numVal;
+            window.userState.zn_balance = numVal;
         }
         localStorage.setItem('zn_balance', numVal.toString());
         localStorage.setItem('user_balance', numVal.toString());
 
         window.currentDisplayBalance = numVal;
 
-        const targetElements = ['top-balance-games', 'top-balance', 'user-balance', 'zn-balance', 'header-balance'];
+        // 🌟 تحديث كل عناصر الرصيد في أعلى الشاشة والهيدر بدون استثناء
+        const targetIds = [
+            'top-balance-games', 'top-balance', 'user-balance', 'zn-balance', 
+            'header-balance', 'main-balance', 'nav-balance', 'header-user-balance',
+            'top-bar-balance', 'app-balance', 'user-coins', 'top-coins'
+        ];
         
-        targetElements.forEach(id => {
-            const gameBalEl = document.getElementById(id);
-            if (gameBalEl) {
+        targetIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
                 if (animate) window.animateCounter(id, oldVal, numVal, 800, " ZN");
-                else gameBalEl.innerHTML = window.formatNumberHTML(numVal, " ZN");
+                else el.innerHTML = window.formatNumberHTML(numVal, " ZN");
             }
         });
 
-        document.querySelectorAll('.user-balance-value').forEach(el => {
+        document.querySelectorAll('.user-balance-value, .balance-amount, .user-balance-amount, .header-balance-value, .top-balance-text, .zn-balance-display, [data-balance]').forEach(el => {
             el.innerHTML = window.formatNumberHTML(numVal, " ZN");
         });
+
+        try {
+            window.dispatchEvent(new CustomEvent('balanceUpdated', { detail: { balance: numVal } }));
+            window.dispatchEvent(new CustomEvent('userBalanceChanged', { detail: { balance: numVal } }));
+        } catch(e) {}
     };
 
     window.syncUserData = async function() {
@@ -165,14 +154,6 @@
         try {
             const initData = window.tele?.initData || "";
             
-            // 🌟 فحص واسترجاع المبالغ المعلقة تلقائياً قبل مزامنة البيانات
-            fetch(`/api/games/check_notifications?tg_id=${tgId}`, {
-                headers: {
-                    'X-Telegram-Init-Data': initData,
-                    'Authorization': `Bearer ${initData}`
-                }
-            }).catch(() => {});
-
             const res = await fetch(`/api/user/info?tg_id=${tgId}`, {
                 headers: {
                     'X-Telegram-Init-Data': initData,
@@ -182,9 +163,12 @@
             if (!res.ok) return;
             const data = await res.json();
             if (data.success) {
-                const balanceVal = data.balance !== undefined ? data.balance : (data.user?.balance !== undefined ? data.user.balance : data.user_balance);
+                const balanceVal = data.balance !== undefined ? data.balance : data.user_balance;
                 if (balanceVal !== undefined && !window.isTransactionPending) {
                     window.setStoredBalance(balanceVal, true);
+                }
+                if (data.refund_amount && data.refund_amount > 0) {
+                    window.showNotification(`💰 تم استرجاع ${data.refund_amount} ZN إلى حسابك لعدم اكتمال عدد المشاركين!`);
                 }
             }
         } catch (e) {
@@ -236,6 +220,13 @@
         window.setStoredBalance(initialBal, false);
 
         window.syncUserData();
+
+        // 🌟 فحص ومزامنة تلقائية دورية كل 5 ثوانٍ للرصيد العلوي بالهيدر
+        setInterval(() => {
+            if (!window.isTransactionPending && (!window.boxesState || !window.boxesState.inGame)) {
+                window.syncUserData();
+            }
+        }, 5000);
     }
 
     if (document.readyState === 'loading') {
