@@ -29,7 +29,7 @@ from admin_chat.admin_chat_api import admin_chat_bp
 app.register_blueprint(farm_bp, url_prefix='/api/farm')
 app.register_blueprint(settings_bp, url_prefix='/api/settings')
 app.register_blueprint(friends_bp, url_prefix='/api/friends')
-app.register_blueprint(games_bp)  # تم إصلاح التكرار ليتماشى مع /api المعرفة داخل البلوبرينت
+app.register_blueprint(games_bp)  # يحتوي داخل الملف على البادئة المخصصة
 app.register_blueprint(tasks_bp, url_prefix='/api/tasks')
 app.register_blueprint(shop_bp, url_prefix='/api/shop')
 app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
@@ -42,12 +42,14 @@ app.register_blueprint(admin_chat_bp, url_prefix='/api/admin-chat')
 
 @app.route('/tonconnect-manifest.json')
 def serve_tonconnect_manifest():
-    """تقديم ملف البيانات الخاص بمحفظة TON Connect"""
+    """تقديم ملف البيانات الخاص بمحفظة TON Connect مع السماح للطلبات الخارجية"""
     try:
-        return send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
+        response = send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
     except Exception as e:
         print(f"❌ Manifest Error: {e}")
-        return jsonify({"error": "Manifest file not found"}), 404
+        return jsonify({"success": False, "error": "Manifest file not found"}), 404
 
 @app.route('/api/user/info', methods=['GET', 'POST'])
 def get_user_info_main():
@@ -55,7 +57,7 @@ def get_user_info_main():
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     
-    # محاولة الحصول على ID من المعلمات في حالة البيئات التطويرية
+    # محاولة الحصول على ID من المعلمات في حالة عدم إرسال initData (للتطوير المحلي فقط)
     if not success:
         tg_id_param = request.args.get('tg_id') or (request.json.get('tg_id') if request.is_json and request.json else None)
         if tg_id_param:
@@ -64,6 +66,7 @@ def get_user_info_main():
             return error_res
         
     try:
+        # فحص حالة الحظر من قاعدة البيانات
         if database.is_user_banned(telegram_id):
             return jsonify({
                 "success": False, 
@@ -83,6 +86,7 @@ def get_user_info_main():
         return jsonify({
             "success": True, 
             "user": user_data,
+            "player": user_data,
             "balance": balance,
             "uid": telegram_id
         }), 200
@@ -96,7 +100,7 @@ def get_user_info_main():
 
 @app.after_request
 def add_security_headers(response):
-    """منع التخزين المؤقت (Cache) لمسارات الـ API"""
+    """منع التخزين المؤقت (Cache) لمسارات الـ API لضمان دقة البيانات اللحظية"""
     if request.path.startswith('/api/'):
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
         response.headers['Pragma'] = 'no-cache'
@@ -105,12 +109,22 @@ def add_security_headers(response):
 
 @app.errorhandler(500)
 def handle_500_error(e):
-    return jsonify({"status": "error", "success": False, "error": "حدث خطأ داخلي في السيرفر", "message": "خطأ في الاتصال بالخادم."}), 500
+    return jsonify({
+        "status": "error", 
+        "success": False, 
+        "error": "حدث خطأ داخلي في السيرفر", 
+        "message": "خطأ في الاتصال بالخادم."
+    }), 500
 
 @app.errorhandler(404)
 def handle_404_error(e):
     if request.path.startswith('/api/'):
-        return jsonify({"status": "error", "success": False, "error": "المسار غير موجود", "message": "خطأ في الاتصال بالخادم."}), 404
+        return jsonify({
+            "status": "error", 
+            "success": False, 
+            "error": "المسار غير موجود", 
+            "message": "خطأ في الاتصال بالخادم."
+        }), 404
     return send_from_directory('.', 'index.html')
 
 @app.route('/')
@@ -123,13 +137,13 @@ def serve_static(path):
     path_lower = path.lower()
     
     if path_lower == 'tonconnect-manifest.json':
-        return send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
+        return serve_tonconnect_manifest()
     
     forbidden_extensions = ('.py', '.env', '.sh', '.git', '.pem', '.key')
     forbidden_files = ('firebase-adminsdk.json', 'config.json', 'requirements.txt')
     
     if any(path_lower.endswith(ext) for ext in forbidden_extensions) or any(f in path_lower for f in forbidden_files):
-        return jsonify({"error": "Access Denied"}), 403
+        return jsonify({"success": False, "error": "Access Denied"}), 403
         
     try:
         return send_from_directory('.', path)
