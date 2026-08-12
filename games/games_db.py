@@ -218,7 +218,6 @@ def get_user_doc_ref(uid: str):
 def get_user_data(uid: str) -> Tuple[bool, Dict[str, Any]]:
     doc_ref, data = get_user_doc_ref(uid)
     if doc_ref and data:
-        # توحيد مسمى الرصيد
         if 'balance' not in data:
             data['balance'] = data.get('zn_balance', data.get('coins', 0.0))
         return True, data
@@ -289,38 +288,46 @@ def add_user_balance_transactional(uid: str, amount: float) -> Tuple[bool, str, 
         return False, "خطأ في المعاملة المالية", 0.0
 
 def clear_user_pending_refund(uid: str) -> Tuple[float, float, str]:
-    """تحديث واسترجاع المبالغ المعلقة وإرجاع نص الإشعار المطلوب عرضه في الويب"""
+    """تحديث واسترجاع المبالغ المعلقة محصنة بـ Transaction تمنع استرجاع المبلغ أكثر من مرة"""
     db = _get_db()
     if not db:
         return 0.0, 0.0, ""
-    try:
-        doc_ref, data = get_user_doc_ref(uid)
-        if not doc_ref:
+
+    doc_ref, _ = get_user_doc_ref(uid)
+    if not doc_ref:
+        return 0.0, 0.0, ""
+
+    @firestore.transactional
+    def txn(transaction):
+        snapshot = doc_ref.get(transaction=transaction)
+        if not snapshot.exists:
             return 0.0, 0.0, ""
 
+        data = snapshot.to_dict() or {}
         pending_refund = round(float(data.get('pending_refund', 0.0)), 2)
         current_balance = round(float(data.get('balance', data.get('zn_balance', 0.0))), 2)
         pending_msg = data.get('pending_notification', '')
 
         if pending_refund > 0:
             new_bal = round(current_balance + pending_refund, 2)
-            msg = pending_msg or f"تم استرجاع رصيد بقيمة {pending_refund} إلى حسابك بنجاح! 💰"
-            doc_ref.update({
-                'pending_refund': 0,
+            msg = pending_msg or f"تم استرجاع رصيد بقيمة {pending_refund} ZN إلى حسابك بنجاح! 💰"
+            transaction.update(doc_ref, {
+                'pending_refund': 0.0,
                 'pending_notification': '',
                 'balance': new_bal,
                 'zn_balance': new_bal
             })
             return pending_refund, new_bal, msg
         elif pending_msg:
-            doc_ref.update({
-                'pending_notification': ''
-            })
+            transaction.update(doc_ref, {'pending_notification': ''})
             return 0.0, current_balance, pending_msg
 
         return 0.0, current_balance, ""
+
+    try:
+        return txn(db.transaction())
     except Exception as e:
-        print(f"⚠️ [games_db] Error clearing pending refund: {e}")
+        print(f"⚠️ [games_db] Error clearing pending refund atomically: {e}")
         return 0.0, 0.0, ""
 
 # ==========================================
