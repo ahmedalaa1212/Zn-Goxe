@@ -12,10 +12,9 @@ from games.games_db import (
 )
 
 class BigArenaManager:
-    """إدارة الساحة الكبرى مع خاصية الإصلاح والتجديد التلقائي الفوري"""
+    """منطق لعبة الساحة الكبرى مع التجديد الآلي المستقل"""
 
-    def _get_or_reset_arena_state(self) -> Dict[str, Any]:
-        """فحص حالة الجولة وفي حال انتهائها يتم تصفيرها وإنشاء جولة جديدة فوراً"""
+    def _get_or_create_active_round(self) -> Dict[str, Any]:
         db = _get_db()
         now = int(time.time())
         cfg = get_big_arena_config()
@@ -33,15 +32,13 @@ class BigArenaManager:
                 status = data.get("status", "completed")
                 end_time = int(data.get("end_time", 0))
 
-                # إذا كانت الجولة حية والوقت لم ينتهِ بعد -> ارجع ببياناتها
                 if status == "active" and now < end_time:
                     return data
 
-                # إذا كانت الجولة حية ولكن الوقت انتهى -> قم بتوزيع الجوائز وإنهاء الجولة
                 if status == "active" and now >= end_time:
-                    self._resolve_round_data(data)
+                    self._resolve_expired_round(data)
 
-            # إن كانت الجولة منتهية أو غير موجودة -> أنشئ جولة جديدة نظيفة فوراً
+            # تجديد جولة جديدة فوراً عند الانتهاء
             new_round = {
                 "round_id": f"arena_{now}",
                 "start_time": now,
@@ -55,13 +52,12 @@ class BigArenaManager:
             return new_round
 
         except Exception as e:
-            print(f"⚠️ [Arena Sync Error]: {e}")
+            print(f"⚠️ [Arena Manager Error]: {e}")
             return {"round_id": f"arena_{now}", "end_time": now + duration, "prize_pool": 0.0, "participants": [], "status": "active"}
 
     def get_status(self, uid: str) -> Dict[str, Any]:
-        """طلب حالة الساحة الحالي من الواجهة"""
         cfg = get_big_arena_config()
-        state = self._get_or_reset_arena_state()
+        state = self._get_or_create_active_round()
 
         uid_str = str(uid) if uid else ""
         participants = state.get("participants", [])
@@ -77,7 +73,6 @@ class BigArenaManager:
             "round_id": state.get("round_id", ""),
             "end_time": state.get("end_time", 0),
             "entry_fee": float(cfg.get("entry_fee", 350.0)),
-            "lock_seconds": int(cfg.get("lock_seconds", 15)),
             "prize_pool": round(float(state.get("prize_pool", 0.0)), 2),
             "participants_count": len(participants),
             "has_joined": has_joined,
@@ -85,24 +80,19 @@ class BigArenaManager:
         }
 
     def enter_arena(self, uid: str) -> Tuple[bool, str, Dict[str, Any]]:
-        """دخول المستخدم للساحة"""
         cfg = get_big_arena_config()
-        if not cfg.get("enabled", True):
-            return False, "⚠️ اللعبة مغلقة حالياً للسيانة.", {}
-
         uid_str = str(uid)
         entry_fee = float(cfg.get("entry_fee", 350.0))
-        lock_secs = int(cfg.get("lock_seconds", 15))
 
         db = _get_db()
         if not db:
-            return False, "❌ خطأ في قاعدة البيانات.", {}
+            return False, "❌ خطأ في الاتصال بقاعدة البيانات.", {}
 
         arena_ref = db.collection('settings').document('arena_state')
         doc_ref, _ = get_user_doc_ref(uid_str)
 
         if not doc_ref:
-            return False, "❌ الحساب غير موجود.", {}
+            return False, "❌ بيانات المستخدم غير موجودة.", {}
 
         @firestore.transactional
         def join_txn(transaction):
@@ -120,17 +110,12 @@ class BigArenaManager:
                 return False, f"❌ رصيدك غير كافٍ ({entry_fee} ZN مطلوب).", 0.0, bal
 
             a_data = arena_snap.to_dict() if arena_snap.exists else {}
-            end_time = int(a_data.get("end_time", 0))
-
-            if now >= end_time or a_data.get("status") != "active":
-                return False, "🔄 جاري تجديد الجولة، يرجى المحاولة بعد ثوانٍ.", 0.0, bal
-
-            if (end_time - now) <= lock_secs:
-                return False, "🔒 أُغلق باب الاشتراك لهذه الجولة.", 0.0, bal
+            if now >= int(a_data.get("end_time", 0)) or a_data.get("status") != "active":
+                return False, "🔄 جاري تجديد الجولة، يرجى إعادة المحاولة.", 0.0, bal
 
             participants = a_data.get("participants", [])
             if uid_str in participants:
-                return False, "⚠️ أنت مشترك بالفعل.", 0.0, bal
+                return False, "⚠️ أنت مشترك بالفعل في هذه الجولة.", 0.0, bal
 
             new_bal = round(bal - entry_fee, 2)
             new_pool = round(float(a_data.get("prize_pool", 0.0)) + entry_fee, 2)
@@ -147,13 +132,12 @@ class BigArenaManager:
                 return False, msg, {}
 
             record_user_game_result(uid_str, bet_amount=entry_fee, win_amount=0.0)
-            return True, "⚔️ تم الانضمام للساحة بنجاح!", {"new_balance": new_bal, "prize_pool": new_pool}
+            return True, "⚔️ تم دخول الساحة بنجاح!", {"new_balance": new_bal, "prize_pool": new_pool}
         except Exception as e:
-            print(f"⚠️ [Arena Enter Tx Error]: {e}")
-            return False, "❌ حدث خطأ أثناء تنفيذ عملية الاشتراك.", {}
+            print(f"⚠️ Arena Transaction Error: {e}")
+            return False, "❌ تعذر الاشتراك.", {}
 
-    def _resolve_round_data(self, round_data: Dict[str, Any]):
-        """إنهاء وإغلاق البيانات للجولة القديمة"""
+    def _resolve_expired_round(self, round_data: Dict[str, Any]):
         db = _get_db()
         if not db:
             return
@@ -164,7 +148,6 @@ class BigArenaManager:
         entry_fee = float(cfg.get("entry_fee", 350.0))
 
         if len(participants) < min_players:
-            # إعادة الأموال في حالة عدم اكتمال العدد
             for p_uid in participants:
                 p_ref, p_udata = get_user_doc_ref(p_uid)
                 if p_ref:
@@ -181,6 +164,7 @@ class BigArenaManager:
             for rank in range(max_w):
                 p_uid = shuffled[rank]
                 prize = round(total_pool * (float(payout_pcts[rank]) / 100.0), 2)
+
                 p_ref, p_udata = get_user_doc_ref(p_uid)
                 if p_ref:
                     curr = float((p_udata or {}).get("balance", (p_udata or {}).get("zn_balance", 0.0)))
