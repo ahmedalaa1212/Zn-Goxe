@@ -250,7 +250,7 @@
             if (isClaimed) {
                 btnHtml = `<button disabled style="background:#222226; color:#777; border:none; padding:6px 10px; border-radius:6px; font-size:11px;">✅ مستلمة</button>`;
             } else if (isReady) {
-                btnHtml = `<button onclick="claimRefTask('${key}', ${reward}, ${reqFriends})" style="background:#2ecc71; color:#000; border:none; padding:6px 10px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:bold;">🎁 استلام</button>`;
+                btnHtml = `<button onclick="window.claimRefTask('${key}', ${reward}, ${reqFriends})" style="background:#2ecc71; color:#000; border:none; padding:6px 10px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:bold;">🎁 استلام</button>`;
             } else {
                 let remaining = reqFriends - eligibleFriendsCount;
                 btnHtml = `<button disabled style="background:#18181c; color:#555; border:1px solid #2a2a2e; padding:6px 10px; border-radius:6px; font-size:11px;">🔒 باقي ${remaining}</button>`;
