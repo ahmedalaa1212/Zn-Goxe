@@ -105,6 +105,13 @@ window.userState = new Proxy(getSavedState(), {
     }
 });
 
+// حفظ إضافي مضمون عند إغلاق أو مغادرة التطبيق
+window.addEventListener('beforeunload', () => {
+    try {
+        localStorage.setItem('app_user_state', JSON.stringify(window.userState));
+    } catch {}
+});
+
 // ==========================================
 // 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة
 // ==========================================
@@ -134,7 +141,9 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 
         if (data.server_time) {
             const serverMs = new Date(data.server_time).getTime();
-            window.serverTimeOffset = serverMs - Date.now();
+            if (!isNaN(serverMs)) {
+                window.serverTimeOffset = serverMs - Date.now();
+            }
         }
 
         const targetObj = data.player || data.user || data.data || (data.balance !== undefined ? data : null);
@@ -305,7 +314,6 @@ window.initFirebaseRealtimeSync = function(userId) {
                 if (typeof window.updateFarmUI === 'function') {
                     window.updateFarmUI();
                 }
-                // ⚡ تحديث كامل القوائم لحظياً عند أي تغيير في Firestore
                 window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
             }
         }, err => console.error("Firebase Sync Error:", err));
@@ -347,6 +355,11 @@ window.updateClaimButtonState = function() {
     }
 
     const lastClaimMs = new Date(lastClaimStr).getTime();
+    if (isNaN(lastClaimMs)) {
+        claimButtons.forEach(btn => renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready"));
+        return;
+    }
+
     const currentServerMs = Date.now() + (window.serverTimeOffset || 0);
     const secondsPassed = Math.floor((currentServerMs - lastClaimMs) / 1000);
     const remainingSeconds = COOLDOWN_SECONDS - secondsPassed;
@@ -368,6 +381,7 @@ window.updateClaimButtonState = function() {
                 });
             } else {
                 clearInterval(claimCooldownTimer);
+                claimCooldownTimer = null;
                 const latestUnclaimed = parseFloat(window.userState?.unclaimed || 0);
                 claimButtons.forEach(btn => {
                     if (isFarmTab && latestUnclaimed <= 0) {
@@ -451,7 +465,6 @@ function applyBalanceToUI(val) {
     const formatted = window.formatNumberHTML(val);
     const rawFormatted = window.formatBalance(val);
     
-    // استثناء عنصر رصيد الألعاب لمنع التضارب البصري مع أنيميشن الألعاب
     const selectors = '[data-bind="balance"], .user-balance, #farm-balance, #user-balance, #main-balance, #balance, .sync-balance, #top-balance-tasks, .user-balance-val, [data-bind="user_balance"]';
     
     document.querySelectorAll(selectors).forEach(el => {
