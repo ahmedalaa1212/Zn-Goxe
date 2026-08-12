@@ -13,24 +13,21 @@ games_bp = Blueprint('games_api', __name__, url_prefix='/api')
 
 def extract_uid(req) -> str:
     """استخراج ID المستخدم بشكل شامل لمنع فقدان الربط"""
-    # 1. البحث في JSON Body
     if req.is_json:
         data = req.get_json(silent=True) or {}
         tg_id = data.get('tg_id') or data.get('uid') or data.get('user_id')
         if tg_id:
             return str(tg_id)
-            
-    # 2. البحث في Query String (URL Parameters)
+
     tg_id_arg = req.args.get('tg_id') or req.args.get('uid') or req.args.get('user_id')
     if tg_id_arg:
         return str(tg_id_arg)
-        
-    # 3. البحث في Form Data
+
     if req.form:
         tg_id_form = req.form.get('tg_id') or req.form.get('uid')
         if tg_id_form:
             return str(tg_id_form)
-            
+
     return ""
 
 # ==========================================
@@ -51,7 +48,7 @@ def get_user_info():
     return jsonify({
         "success": True,
         "uid": uid,
-        "balance": float(udata.get('balance', udata.get('zn_balance', 0.0))),
+        "balance": round(float(udata.get('balance', udata.get('zn_balance', 0.0))), 2),
         "name": udata.get('name', udata.get('first_name', 'مستخدم'))
     })
 
