@@ -16,7 +16,9 @@ def initialize_firebase():
                 try:
                     creds_dict = json.loads(firebase_creds_json)
                 except Exception:
-                    creds_dict = json.loads(firebase_creds_json.replace("\\n", "\n"))
+                    # معالجة الـ Escape Characters في البيئات السحابية مثل Railway
+                    cleaned_json = firebase_creds_json.replace("\\n", "\n")
+                    creds_dict = json.loads(cleaned_json)
 
                 if isinstance(creds_dict, dict) and "private_key" in creds_dict:
                     creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
@@ -26,7 +28,7 @@ def initialize_firebase():
                 if os.path.exists("firebase-adminsdk.json"):
                     cred = credentials.Certificate("firebase-adminsdk.json")
                 else:
-                    raise FileNotFoundError("❌ لم يتم العثور على بيانات اعتماد Firebase!")
+                    raise FileNotFoundError("❌ لم يتم العثور على بيانات اعتماد Firebase (سواء متغير بيئي أو ملف محلي)!")
 
             firebase_admin.initialize_app(cred)
             print("✅ تم الاتصال بـ Firebase بنجاح!")
@@ -40,7 +42,7 @@ def initialize_firebase():
 
 
 def get_db():
-    """الحصول على كائن قاعدة البيانات Firestore"""
+    """الحصول على كائن قاعدة البيانات Firestore مع ضمان التهيئة"""
     global db
     if db is None:
         db = initialize_firebase()
@@ -51,7 +53,7 @@ def get_db():
 try:
     initialize_firebase()
 except Exception as e:
-    print(f"⚠️ تنبيه أثناء التهيئة التلقائية: {e}")
+    print(f"⚠️ تنبيه أثناء التهيئة التلقائية لـ Firebase: {e}")
 
 
 # ==================== Sub-Modules Re-exports ====================
@@ -78,9 +80,8 @@ except Exception as e:
 # 4. Games Module
 try:
     from games.games_db import *
-    print("✅ تم ربط games/games_db.py بـ database.py بنجاح!")
 except Exception as e:
-    print(f"❌ خطأ في ربط games/games_db.py: {e}")
+    print(f"⚠️ خطأ في تحميل games_db: {e}")
 
 # 5. Settings Module
 try:
