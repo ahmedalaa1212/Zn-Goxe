@@ -10,7 +10,7 @@
     let pendingConfirmCallback = null;
 
     let lastStatusFetchTimestamp = 0;
-    const STATUS_FETCH_COOLDOWN = 6000;
+    const STATUS_FETCH_COOLDOWN = 5000;
     let hasJoinedCurrentRound = false;
 
     let currentEntryFee = 350;
@@ -193,7 +193,6 @@
                 window.triggerHaptic('success');
                 hasJoinedCurrentRound = true;
 
-                // 🌟 تحديث الرصيد إما من السيرفر أو بخصم فوري مباشر لسعر الاشتراك
                 const currentBal = window.getStoredBalance();
                 const updatedBalance = data.new_balance !== undefined 
                     ? data.new_balance 
@@ -208,6 +207,8 @@
                 window.showNotification("🎉 تم دخول الساحة بنجاح!");
             } else {
                 window.showNotification("⚠️ " + (data.message || "تعذر الاشتراك"));
+                // 🌟 إعادة مزامنة الحالة فوراً عند حدوث خطأ
+                window.fetchArenaStatus(true);
             }
         } catch (error) {
             window.showNotification("خطأ في الاتصال بالخادم.");
@@ -254,12 +255,22 @@
 
     function initArena() {
         renderArenaPrizeBreakdown(currentPrizePool);
+        
+        // 🌟 فحص واستعادة أي رصيد معلق مباشرة عند بدء اللعبة
+        const tgId = window.getTgId();
+        if (tgId) {
+            const initData = window.tele?.initData || "";
+            fetch(`/api/games/check_notifications?tg_id=${tgId}`, {
+                headers: { 'X-Telegram-Init-Data': initData, 'Authorization': `Bearer ${initData}` }
+            }).catch(() => {});
+        }
+
         window.fetchArenaStatus(true);
 
         if (backgroundSyncInterval) clearInterval(backgroundSyncInterval);
         backgroundSyncInterval = setInterval(() => {
             window.fetchArenaStatus(false);
-        }, 12000);
+        }, 10000);
     }
 
     if (document.readyState === 'loading') {
