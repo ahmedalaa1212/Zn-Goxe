@@ -40,6 +40,9 @@ def get_user_info():
     if not uid:
         return jsonify({"success": False, "message": "لم يتم العثور على ID المستخدم"}), 400
 
+    # 🌟 استرجاع تلقائي لأي رصيد معلق لضمان عرض الرصيد الصحيح فوراً
+    clear_user_pending_refund(uid)
+
     exists, udata = get_user_data(uid)
     if not exists:
         return jsonify({"success": False, "message": "المستخدم غير موجود في قاعدة البيانات"}), 404
