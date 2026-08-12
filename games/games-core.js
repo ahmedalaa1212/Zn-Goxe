@@ -2,6 +2,8 @@
 (function initGamesCoreModule() {
     window.tele = window.Telegram?.WebApp;
     window.currentDisplayBalance = 0;
+    window.activeAnimationFrames = window.activeAnimationFrames || {};
+    window.isTransactionPending = false; // قفل لمنع استرجاع بيانات قديمة أثناء العمليات
 
     // استخراج ID المستخدم بجميع الطرق الممكنة لمنع حدوث 0.00
     window.getTgId = function() {
@@ -38,7 +40,7 @@
     };
 
     window.formatNumberHTML = function(val, suffix = "") {
-        const num = parseFloat(val) || 0;
+        const num = Math.round((parseFloat(val) || 0) * 100) / 100;
         const parts = num.toFixed(2).split('.');
         const intPart = parseInt(parts[0], 10).toLocaleString('en-US');
         const decPart = parts[1];
@@ -48,25 +50,39 @@
     window.animateCounter = function(elementId, startVal, endVal, duration = 800, suffix = " ZN") {
         const el = document.getElementById(elementId);
         if (!el) return;
-        let startTimestamp = null;
-        const startNum = parseFloat(startVal) || 0;
-        const endNum = parseFloat(endVal) || 0;
 
-        if (startNum === endNum) {
+        const startNum = Math.round((parseFloat(startVal) || 0) * 100) / 100;
+        const endNum = Math.round((parseFloat(endVal) || 0) * 100) / 100;
+
+        // إلغاء أي انيميشن شغال حالياً على نفس العنصر لمنع القفزات والـ Overlap
+        if (window.activeAnimationFrames[elementId]) {
+            cancelAnimationFrame(window.activeAnimationFrames[elementId]);
+            delete window.activeAnimationFrames[elementId];
+        }
+
+        if (Math.abs(startNum - endNum) < 0.01) {
             el.innerHTML = window.formatNumberHTML(endNum, suffix);
             return;
         }
 
+        let startTimestamp = null;
         const step = (timestamp) => {
             if (!startTimestamp) startTimestamp = timestamp;
             const progress = Math.min((timestamp - startTimestamp) / duration, 1);
             const easeProgress = 1 - Math.pow(1 - progress, 3);
             const currentVal = startNum + (endNum - startNum) * easeProgress;
+
             el.innerHTML = window.formatNumberHTML(currentVal, suffix);
-            if (progress < 1) window.requestAnimationFrame(step);
-            else el.innerHTML = window.formatNumberHTML(endNum, suffix);
+
+            if (progress < 1) {
+                window.activeAnimationFrames[elementId] = window.requestAnimationFrame(step);
+            } else {
+                el.innerHTML = window.formatNumberHTML(endNum, suffix);
+                delete window.activeAnimationFrames[elementId];
+            }
         };
-        window.requestAnimationFrame(step);
+
+        window.activeAnimationFrames[elementId] = window.requestAnimationFrame(step);
     };
 
     window.showNotification = function(msg) {
@@ -113,30 +129,33 @@
     };
 
     window.setStoredBalance = function(newBalance, animate = true) {
-        if (newBalance !== undefined && newBalance !== null) {
-            const numVal = Math.round((parseFloat(newBalance) || 0) * 100) / 100;
-            const oldVal = window.currentDisplayBalance || window.getStoredBalance();
-            
-            if (window.userState) {
-                window.userState.balance = numVal;
-            } else {
-                localStorage.setItem('zn_balance', numVal.toString());
-            }
+        if (newBalance === undefined || newBalance === null) return;
 
-            window.currentDisplayBalance = numVal;
+        const numVal = Math.round((parseFloat(newBalance) || 0) * 100) / 100;
+        const oldVal = window.currentDisplayBalance || window.getStoredBalance();
 
-            const targetElements = ['top-balance-games'];
-            targetElements.forEach(id => {
-                const gameBalEl = document.getElementById(id);
-                if (gameBalEl) {
-                    if (animate) window.animateCounter(id, oldVal, numVal, 800, " ZN");
-                    else gameBalEl.innerHTML = window.formatNumberHTML(numVal, " ZN");
-                }
-            });
+        if (window.userState) {
+            window.userState.balance = numVal;
+        } else {
+            localStorage.setItem('zn_balance', numVal.toString());
         }
+
+        window.currentDisplayBalance = numVal;
+
+        const targetElements = ['top-balance-games'];
+        targetElements.forEach(id => {
+            const gameBalEl = document.getElementById(id);
+            if (gameBalEl) {
+                if (animate) window.animateCounter(id, oldVal, numVal, 800, " ZN");
+                else gameBalEl.innerHTML = window.formatNumberHTML(numVal, " ZN");
+            }
+        });
     };
 
     window.syncUserData = async function() {
+        // تجنب مزامنة الخلفية أثناء وجود معاملة مالية جارية لم تكتمل
+        if (window.isTransactionPending) return;
+
         const tgId = window.getTgId();
         if (!tgId) return;
 
@@ -152,7 +171,7 @@
             const data = await res.json();
             if (data.success) {
                 const balanceVal = data.balance !== undefined ? data.balance : data.user?.balance;
-                if (balanceVal !== undefined) {
+                if (balanceVal !== undefined && !window.isTransactionPending) {
                     window.setStoredBalance(balanceVal, true);
                 }
             }
@@ -186,12 +205,10 @@
     // الاستماع للتغييرات العامة للرصيد
     window.addEventListener('userStateUpdated', (e) => {
         if (e.detail && e.detail.balance !== undefined) {
-            const newBal = parseFloat(e.detail.balance) || 0;
+            const newBal = Math.round((parseFloat(e.detail.balance) || 0) * 100) / 100;
             const inBoxesGame = window.boxesState && window.boxesState.inGame;
-            if (newBal !== window.currentDisplayBalance && !inBoxesGame) {
-                window.currentDisplayBalance = newBal;
-                const gameBalEl = document.getElementById('top-balance-games');
-                if (gameBalEl) gameBalEl.innerHTML = window.formatNumberHTML(newBal, " ZN");
+            if (newBal !== window.currentDisplayBalance && !inBoxesGame && !window.isTransactionPending) {
+                window.setStoredBalance(newBal, false);
             }
         }
     });
