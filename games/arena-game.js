@@ -10,7 +10,7 @@
     let pendingConfirmCallback = null;
 
     let lastStatusFetchTimestamp = 0;
-    const STATUS_FETCH_COOLDOWN = 2000;
+    const STATUS_FETCH_COOLDOWN = 1500;
     let hasJoinedCurrentRound = false;
 
     let currentEntryFee = 350;
@@ -213,7 +213,7 @@
             window.showNotification("خطأ في الاتصال بالخادم.");
         } finally {
             isJoining = false;
-            setTimeout(() => { window.isTransactionPending = false; }, 1500);
+            setTimeout(() => { window.isTransactionPending = false; }, 1000);
             timerTick();
         }
     }
@@ -269,7 +269,7 @@
         if (backgroundSyncInterval) clearInterval(backgroundSyncInterval);
         backgroundSyncInterval = setInterval(() => {
             window.fetchArenaStatus(false);
-        }, 5000);
+        }, 4000);
     }
 
     if (document.readyState === 'loading') {
