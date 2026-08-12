@@ -219,8 +219,8 @@
             <div class="copy-box">
                 <input type="text" id="ref-link-input" readonly value="جاري إنشاء الرابط...">
                 <div class="action-buttons">
-                    <button onclick="copyRefLink()" class="btn-primary">📋 نسخ الرابط</button>
-                    <button onclick="shareRefLink()" class="btn-share">✈️ مشاركة</button>
+                    <button type="button" onclick="copyRefLink()" class="btn-primary">📋 نسخ الرابط</button>
+                    <button type="button" onclick="shareRefLink()" class="btn-share">✈️ مشاركة</button>
                 </div>
             </div>
             
@@ -234,7 +234,7 @@
         <div class="card ref-earnings-card">
             <h3>💰 سحب أرباح الأصدقاء</h3>
             <small style="color: var(--text-muted); display: block; margin-bottom: 12px; font-size: 0.78rem;">* يتم خصم <span id="info-claim-fee">1.5%</span> رسوم تحويل عند السحب إلى الرصيد الأساسي.</small>
-            <button onclick="claimRefEarnings()" id="btn-claim-ref" style="width: 100%; padding: 12px; font-size: 1rem;">سحب الأرباح الآن 💰</button>
+            <button type="button" onclick="claimRefEarnings()" id="btn-claim-ref" style="width: 100%; padding: 12px; font-size: 1rem;">سحب الأرباح الآن 💰</button>
         </div>
 
         <div class="card ref-tasks-card">
