@@ -54,7 +54,6 @@
         const startNum = Math.round((parseFloat(startVal) || 0) * 100) / 100;
         const endNum = Math.round((parseFloat(endVal) || 0) * 100) / 100;
 
-        // إلغاء أي أنيميشن شغال حالياً على نفس العنصر لمنع القفزات
         if (window.activeAnimationFrames[elementId]) {
             cancelAnimationFrame(window.activeAnimationFrames[elementId]);
             delete window.activeAnimationFrames[elementId];
@@ -134,7 +133,6 @@
         const numVal = Math.round((parseFloat(newBalance) || 0) * 100) / 100;
         const oldVal = window.currentDisplayBalance || window.getStoredBalance();
 
-        // التحديث المزدوج للحفاظ على المزامنة دائماً
         if (window.userState) {
             window.userState.balance = numVal;
         }
@@ -143,7 +141,6 @@
 
         window.currentDisplayBalance = numVal;
 
-        // مصفوفة واسعة لجميع الـ IDs المحتملة لرصيد الواجهة
         const targetElements = ['top-balance-games', 'top-balance', 'user-balance', 'zn-balance', 'header-balance'];
         
         targetElements.forEach(id => {
@@ -154,7 +151,6 @@
             }
         });
 
-        // دعم العناصر ذات الكلاس أيضاً
         document.querySelectorAll('.user-balance-value').forEach(el => {
             el.innerHTML = window.formatNumberHTML(numVal, " ZN");
         });
@@ -168,6 +164,15 @@
 
         try {
             const initData = window.tele?.initData || "";
+            
+            // 🌟 فحص واسترجاع المبالغ المعلقة تلقائياً قبل مزامنة البيانات
+            fetch(`/api/games/check_notifications?tg_id=${tgId}`, {
+                headers: {
+                    'X-Telegram-Init-Data': initData,
+                    'Authorization': `Bearer ${initData}`
+                }
+            }).catch(() => {});
+
             const res = await fetch(`/api/user/info?tg_id=${tgId}`, {
                 headers: {
                     'X-Telegram-Init-Data': initData,
@@ -209,7 +214,6 @@
         }
     };
 
-    // الاستماع للتغييرات العامة للرصيد
     window.addEventListener('userStateUpdated', (e) => {
         if (e.detail && e.detail.balance !== undefined) {
             const newBal = Math.round((parseFloat(e.detail.balance) || 0) * 100) / 100;
@@ -228,7 +232,6 @@
             } catch (e) {}
         }
 
-        // 🌟 عرض الرصيد المحفوظ فور فتح الشاشة مباشرة قبل انتظار السيرفر
         const initialBal = window.getStoredBalance();
         window.setStoredBalance(initialBal, false);
 
