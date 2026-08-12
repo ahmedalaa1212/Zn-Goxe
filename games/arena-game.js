@@ -10,7 +10,7 @@
     let pendingConfirmCallback = null;
 
     let lastStatusFetchTimestamp = 0;
-    const STATUS_FETCH_COOLDOWN = 5000;
+    const STATUS_FETCH_COOLDOWN = 3000;
     let hasJoinedCurrentRound = false;
 
     let currentEntryFee = 350;
@@ -207,7 +207,6 @@
                 window.showNotification("🎉 تم دخول الساحة بنجاح!");
             } else {
                 window.showNotification("⚠️ " + (data.message || "تعذر الاشتراك"));
-                // 🌟 إعادة مزامنة الحالة فوراً عند حدوث خطأ
                 window.fetchArenaStatus(true);
             }
         } catch (error) {
@@ -222,6 +221,7 @@
     function askForConfirmation(onConfirm) {
         const modal = document.getElementById('confirm-modal');
         if (modal) { pendingConfirmCallback = onConfirm; modal.style.display = 'flex'; }
+        else { onConfirm(); } // إذا لم تكن هناك نافذة تأكيد، ينفذ الانضمام فوراً
     }
 
     window.onConfirmJoin = function(confirmed) {
@@ -256,7 +256,6 @@
     function initArena() {
         renderArenaPrizeBreakdown(currentPrizePool);
         
-        // 🌟 فحص واستعادة أي رصيد معلق مباشرة عند بدء اللعبة
         const tgId = window.getTgId();
         if (tgId) {
             const initData = window.tele?.initData || "";
