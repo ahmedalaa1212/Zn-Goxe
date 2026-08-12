@@ -1,3 +1,4 @@
+import traceback
 from flask import Blueprint, request, jsonify
 from core.security import get_authenticated_user
 from farm.farm_db import (
@@ -55,6 +56,7 @@ def get_player_data():
         }), 200
     except Exception as e:
         print(f"Error player_data: {e}")
+        traceback.print_exc()
         return jsonify({"success": False, "error": "خطأ في جلب البيانات"}), 500
 
 
@@ -74,6 +76,7 @@ def claim_mined_tokens():
         return jsonify(result), status_code
     except Exception as e:
         print(f"Error claim: {e}")
+        traceback.print_exc()
         return jsonify({"success": False, "error": "حدث خطأ أثناء التجميع"}), 500
 
 
@@ -86,8 +89,9 @@ def buy_upgrade():
     if not success: 
         return error_res
         
-    data = request.json or {}
-    level = str(data.get("level"))
+    data = request.get_json(silent=True) or {}
+    raw_level = data.get("level")
+    level = str(raw_level) if raw_level is not None else ""
     
     if not level or level not in [str(i) for i in range(1, 10)]:
         return jsonify({"success": False, "error": "مستوى غير صحيح"}), 400
@@ -99,6 +103,7 @@ def buy_upgrade():
         return jsonify(result), status_code
     except Exception as e:
         print(f"Error upgrade: {e}")
+        traceback.print_exc()
         return jsonify({"success": False, "error": "حدث خطأ أثناء عملية الشراء"}), 500
 
 
@@ -118,6 +123,7 @@ def buy_storage_upgrade():
         return jsonify(result), status_code
     except Exception as e:
         print(f"Error upgrade storage: {e}")
+        traceback.print_exc()
         return jsonify({"success": False, "error": "حدث خطأ أثناء ترقية المخزن"}), 500
 
 
@@ -137,6 +143,7 @@ def claim_daily():
         return jsonify(result), status_code
     except Exception as e:
         print(f"Error daily claim: {e}")
+        traceback.print_exc()
         return jsonify({"success": False, "error": "حدث خطأ أثناء استلام المكافأة اليومية"}), 500
 
 
@@ -156,4 +163,5 @@ def claim_daily_boost():
         return jsonify(result), status_code
     except Exception as e:
         print(f"Error daily boost: {e}")
+        traceback.print_exc()
         return jsonify({"success": False, "error": "حدث خطأ أثناء تفعيل التعزيز"}), 500
