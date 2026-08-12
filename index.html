@@ -8,10 +8,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Zn Goxe - Crypto Mining</title>
 
+    <!-- FontAwesome & Telegram & TON Connect SDKs -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    
-    <!-- TON Connect SDK -->
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     
     <link rel="stylesheet" href="style.css">
@@ -131,7 +130,7 @@
         </button>
     </nav>
 
-    <!-- كود كشف الكيبورد الذكي بدون رعشة أو إجبار blur -->
+    <!-- كود كشف الكيبورد الذكي بدون رعشة -->
     <script>
         (function initKeyboardDetection() {
             const viewport = window.visualViewport;
@@ -140,7 +139,6 @@
             function handleViewportChange() {
                 if (!viewport) return;
 
-                // كشف الفارق بين ارتفاع الشاشة الكلي والارتفاع المتاح
                 const open = (window.innerHeight - viewport.height) > 150;
 
                 if (open !== isKeyboardOpen) {
@@ -159,10 +157,9 @@
         })();
     </script>
 
-    <!-- محرك الإشعارات الفوري وتحديث الرصيد اللحظي دون الاعتماد على رسائل تلجرام -->
+    <!-- محرك الإشعارات الفوري وتحديث الرصيد اللحظي -->
     <script>
         (function initRealtimeNotificationSystem() {
-            // عرض إشعار على الشاشة فوراً
             window.showGlobalToast = function(msg, iconClass = 'fa-circle-check') {
                 const container = document.getElementById('global-toast-container');
                 if (!container || !msg) return;
@@ -185,7 +182,6 @@
                 }, 4500);
             };
 
-            // فحص واسترجاع التحديثات والرصيد تلقائياً كل 3 ثوانٍ
             function pollNotificationsAndBalance() {
                 let uid = "";
                 if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
@@ -200,12 +196,10 @@
                     .then(res => res.json())
                     .then(data => {
                         if (data && data.success) {
-                            // 1. عرض الإشعار فوراً في حالة وجود رسالة/إرجاع رصيد
                             if (data.has_notification && data.message) {
                                 showGlobalToast(data.message);
                             }
 
-                            // 2. تحديث الرصيد في كافة عناصر الواجهة
                             if (data.balance !== undefined) {
                                 const balanceSelectors = document.querySelectorAll('.user-balance-val, #user-balance, #balance-display, .balance-amount');
                                 balanceSelectors.forEach(el => {
@@ -217,7 +211,6 @@
                     .catch(() => {});
             }
 
-            // تشغيل الفحص الدوري عند تجهيز الصفحة
             document.addEventListener('DOMContentLoaded', () => {
                 pollNotificationsAndBalance();
                 setInterval(pollNotificationsAndBalance, 3500);
@@ -225,7 +218,7 @@
         })();
     </script>
 
-    <!-- سكربتات التطبيق -->
+    <!-- سكربتات التطبيق الرئيسي والمتجر -->
     <script src="game.js"></script>
     <script src="shop/shop.js"></script>
 </body>
