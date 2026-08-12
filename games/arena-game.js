@@ -43,10 +43,11 @@
                 if (data.entry_fee) currentEntryFee = data.entry_fee;
                 if (data.lock_seconds !== undefined) currentLockSeconds = parseInt(data.lock_seconds) || 15;
 
-                // لا تقم بتحديث الرصيد إذا كانت هناك عملية شراء أو لعبة في الصناديق نشطة
                 const inBoxesGame = window.boxesState && window.boxesState.inGame;
-                if (data.balance !== undefined && !window.isTransactionPending && !inBoxesGame) {
-                    window.setStoredBalance(data.balance, true);
+                const fetchedBalance = data.balance !== undefined ? data.balance : data.user_balance;
+
+                if (fetchedBalance !== undefined && !window.isTransactionPending && !inBoxesGame) {
+                    window.setStoredBalance(fetchedBalance, true);
                 }
 
                 if (data.payout_percentages && Array.isArray(data.payout_percentages)) {
@@ -168,7 +169,7 @@
     async function executeJoinArena() {
         if (isJoining) return;
         isJoining = true;
-        window.isTransactionPending = true; // قفل المزامنة الخلفية لمنع القفزات
+        window.isTransactionPending = true;
 
         const btn = document.getElementById('btn-join-arena');
         if (btn) {
@@ -192,9 +193,14 @@
                 window.triggerHaptic('success');
                 hasJoinedCurrentRound = true;
 
-                if (data.new_balance !== undefined) {
-                    window.setStoredBalance(data.new_balance, true);
-                }
+                // 🌟 تحديث الرصيد إما من السيرفر أو بخصم فوري مباشر لسعر الاشتراك
+                const currentBal = window.getStoredBalance();
+                const updatedBalance = data.new_balance !== undefined 
+                    ? data.new_balance 
+                    : (data.balance !== undefined ? data.balance : Math.max(0, currentBal - currentEntryFee));
+
+                window.setStoredBalance(updatedBalance, true);
+
                 if (data.prize_pool !== undefined) {
                     updateArenaPrizes(data);
                 }
