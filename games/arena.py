@@ -47,7 +47,7 @@ class BigArenaManager:
                     status = data.get("status", "completed")
 
                 # إذا كانت الجولة مكتملة أو مسترجعة -> البدء بجولة جديدة فوراً بأسلوب ذري
-                if status in ["completed", "refunded"]:
+                if status in ["completed", "refunded", "resolving"]:
                     return self._create_new_round_atomic(now)
 
                 self.current_round = data
@@ -73,7 +73,6 @@ class BigArenaManager:
             snap = arena_ref.get(transaction=transaction)
             if snap.exists:
                 d = snap.to_dict() or {}
-                # إذا قام سيرفر آخر بإنشائها بالفعل وهي نشطة ووقتها لم ينتهِ، نعتمدها
                 if d.get("status") == "active" and d.get("end_time", 0) > now:
                     return d
 
@@ -104,7 +103,6 @@ class BigArenaManager:
 
         uid_str = str(uid) if uid else ""
 
-        # 🌟 معالجة واسترجاع أي مبالغ معلقة تلقائياً ومزامنة الرصيد الحقيقي فوراً
         if uid_str:
             clear_user_pending_refund(uid_str)
 
@@ -144,6 +142,9 @@ class BigArenaManager:
         if not cfg.get("enabled", True):
             return False, "⚠️ الساحة الكبرى مغلقة حالياً.", {}
 
+        # 🌟 أهم تعديل: مزامنة وتجهيز الجولة أولاً قبل تنفيذ الدخول لمنع رسالة الإغلاق الكاذبة
+        self._sync_round_state()
+
         db = _get_db()
         if not db:
             return False, "❌ خطأ في الاتصال بقاعدة البيانات.", {}
@@ -152,7 +153,6 @@ class BigArenaManager:
         entry_fee = float(cfg.get("entry_fee", 350.0))
         lock_secs = int(cfg.get("lock_seconds", 15))
 
-        # ضمان تسوية أي استرداد معلق قبل المحاولة
         clear_user_pending_refund(uid_str)
 
         arena_ref = db.collection('settings').document('arena_state')
@@ -191,13 +191,11 @@ class BigArenaManager:
 
             participants.append(uid_str)
 
-            # 1. خصم رصيد المستخدم
             transaction.update(doc_ref, {
                 "balance": new_bal,
                 "zn_balance": new_bal
             })
 
-            # 2. إضافة المستخدم إلى قائمة المشاركين ومجمع الجوائز
             transaction.update(arena_ref, {
                 "participants": participants,
                 "prize_pool": new_pool
@@ -229,7 +227,6 @@ class BigArenaManager:
             return False, "❌ حدث خطأ أثناء إتمام عملية الاشتراك.", {}
 
     def resolve_round(self):
-        """إنهاء الجولة مع قفل زمني يمنع معالجتها أكثر من مرة واحدة في نفس الوقت"""
         db = _get_db()
         if not db:
             return
@@ -260,7 +257,6 @@ class BigArenaManager:
         participants = round_data.get("participants", [])
         entry_fee = float(cfg.get("entry_fee", 350.0))
 
-        # إلغاء الجولة وإعادة الأموال إذا لم يكتمل الحد الأدنى
         if len(participants) < min_players:
             round_data["status"] = "refunded"
             for p_uid in participants:
