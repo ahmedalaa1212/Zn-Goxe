@@ -1,6 +1,7 @@
 // games/arena-game.js
 (function initArenaGameModule() {
     let isJoining = false;
+    let isFetchingStatus = false;
     let currentRoundId = null;
     let arenaEndTime = 0;
     let countdownInterval = null;
@@ -9,7 +10,7 @@
     let pendingConfirmCallback = null;
 
     let lastStatusFetchTimestamp = 0;
-    const STATUS_FETCH_COOLDOWN = 8000;
+    const STATUS_FETCH_COOLDOWN = 6000;
     let hasJoinedCurrentRound = false;
 
     let currentEntryFee = 350;
@@ -19,7 +20,10 @@
 
     window.fetchArenaStatus = async function(force = false) {
         const now = Date.now();
+        if (isFetchingStatus) return;
         if (!force && (now - lastStatusFetchTimestamp < STATUS_FETCH_COOLDOWN)) return;
+
+        isFetchingStatus = true;
         lastStatusFetchTimestamp = now;
 
         try {
@@ -38,7 +42,13 @@
             if (data.success) {
                 if (data.entry_fee) currentEntryFee = data.entry_fee;
                 if (data.lock_seconds !== undefined) currentLockSeconds = parseInt(data.lock_seconds) || 15;
-                if (data.balance !== undefined) window.setStoredBalance(data.balance, true);
+
+                // لا تقم بتحديث الرصيد إذا كانت هناك عملية شراء أو لعبة في الصناديق نشطة
+                const inBoxesGame = window.boxesState && window.boxesState.inGame;
+                if (data.balance !== undefined && !window.isTransactionPending && !inBoxesGame) {
+                    window.setStoredBalance(data.balance, true);
+                }
+
                 if (data.payout_percentages && Array.isArray(data.payout_percentages)) {
                     currentPayoutPercentages = data.payout_percentages;
                 }
@@ -53,14 +63,20 @@
                 updateArenaPrizes(data);
                 startSmoothCountdown();
             }
-        } catch (error) {}
+        } catch (error) {
+            console.error("Error fetching arena status:", error);
+        } finally {
+            isFetchingStatus = false;
+        }
     };
 
     function updateArenaPrizes(data) {
-        const newPool = parseFloat(data.prize_pool) || 0;
-        window.animateCounter('prize-pool', currentPrizePool, newPool, 900, " ZN");
-        currentPrizePool = newPool;
-        renderArenaPrizeBreakdown(newPool);
+        const newPool = Math.round((parseFloat(data.prize_pool) || 0) * 100) / 100;
+        if (Math.abs(newPool - currentPrizePool) >= 0.01) {
+            window.animateCounter('prize-pool', currentPrizePool, newPool, 800, " ZN");
+            currentPrizePool = newPool;
+        }
+        renderArenaPrizeBreakdown(currentPrizePool);
     }
 
     function renderArenaPrizeBreakdown(prizePool) {
@@ -73,7 +89,7 @@
         currentPayoutPercentages.forEach((pct, index) => {
             const rankNum = index + 1;
             const medal = medals[index] || `#${rankNum}`;
-            const prizeAmount = ((prizePool * parseFloat(pct)) / 100.0);
+            const prizeAmount = Math.round(((prizePool * parseFloat(pct)) / 100.0) * 100) / 100;
             
             html += `
                 <div class="prize-rank-item">
@@ -124,7 +140,7 @@
             btn.innerText = "🔄 جاري إعلان النتائج...";
             if (!hasCheckedResults && currentRoundId) {
                 hasCheckedResults = true;
-                fetchRoundResults(currentRoundId);
+                setTimeout(() => fetchRoundResults(currentRoundId), 1500);
             }
         } else {
             if (!hasJoinedCurrentRound) {
@@ -152,6 +168,13 @@
     async function executeJoinArena() {
         if (isJoining) return;
         isJoining = true;
+        window.isTransactionPending = true; // قفل المزامنة الخلفية لمنع القفزات
+
+        const btn = document.getElementById('btn-join-arena');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerText = "⏳ جاري الانضمام...";
+        }
 
         try {
             const initData = window.tele?.initData || "";
@@ -168,7 +191,14 @@
             if (response.ok && data.success) {
                 window.triggerHaptic('success');
                 hasJoinedCurrentRound = true;
-                if (data.new_balance !== undefined) window.setStoredBalance(data.new_balance, true);
+
+                if (data.new_balance !== undefined) {
+                    window.setStoredBalance(data.new_balance, true);
+                }
+                if (data.prize_pool !== undefined) {
+                    updateArenaPrizes(data);
+                }
+
                 window.showNotification("🎉 تم دخول الساحة بنجاح!");
             } else {
                 window.showNotification("⚠️ " + (data.message || "تعذر الاشتراك"));
@@ -177,6 +207,8 @@
             window.showNotification("خطأ في الاتصال بالخادم.");
         } finally {
             isJoining = false;
+            setTimeout(() => { window.isTransactionPending = false; }, 2000);
+            timerTick();
         }
     }
 
@@ -206,8 +238,12 @@
                 body: JSON.stringify({ round_id: roundId, tg_id: window.getTgId() })
             });
             const data = await response.json();
-            if (data.success) window.fetchArenaStatus(true);
-        } catch (e) {}
+            if (data.success) {
+                window.fetchArenaStatus(true);
+            }
+        } catch (e) {
+            console.error("Error fetching round results:", e);
+        }
     }
 
     function initArena() {
@@ -217,7 +253,7 @@
         if (backgroundSyncInterval) clearInterval(backgroundSyncInterval);
         backgroundSyncInterval = setInterval(() => {
             window.fetchArenaStatus(false);
-        }, 15000);
+        }, 12000);
     }
 
     if (document.readyState === 'loading') {
