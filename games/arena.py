@@ -11,6 +11,7 @@ from games.games_db import (
     get_user_data,
     get_arena_state_db,
     save_arena_state_db,
+    clear_user_pending_refund,
     get_user_doc_ref,
     _get_db
 )
@@ -20,53 +21,94 @@ class BigArenaManager:
 
     def __init__(self):
         self.current_round: Dict[str, Any] = None
-        self._init_or_load_round()
+        self._sync_round_state()
 
-    def _sync_round_state(self):
-        """مزامنة حالة الجولة من قاعدة البيانات وإنهاؤها تلقائياً عند انقضاء الوقت بآلية القفل"""
-        db_state = get_arena_state_db()
+    def _sync_round_state(self) -> Dict[str, Any]:
+        """مزامنة دقيقة لحالة الجولة مباشرة من قاعدة البيانات ومنع التضارب بين السيرفرات"""
+        db = _get_db()
         now = int(time.time())
 
-        if db_state:
-            self.current_round = db_state
+        if not db:
+            return self.current_round or {}
 
-        if not self.current_round:
-            self._init_or_load_round()
-            return
+        arena_ref = db.collection('settings').document('arena_state')
+        try:
+            doc = arena_ref.get()
+            if doc.exists:
+                data = doc.to_dict() or {}
+                status = data.get("status", "active")
+                end_time = int(data.get("end_time", 0))
 
-        # إذا انتهى وقت الجولة وهي لا تزال نشطة، نقوم بإنهائها فوراً محصنة ضد المعالجة المزدوجة
-        if now >= self.current_round.get("end_time", 0) and self.current_round.get("status") == "active":
-            self.resolve_round()
-        elif self.current_round.get("status") in ["completed", "refunded"]:
-            self._init_or_load_round()
+                # إذا كانت الجولة نشطة لكن انتهى وقتها -> إنهائها فوراً
+                if status == "active" and now >= end_time and end_time > 0:
+                    self.resolve_round()
+                    doc = arena_ref.get()
+                    data = doc.to_dict() if doc.exists else {}
+                    status = data.get("status", "completed")
 
-    def _init_or_load_round(self):
-        db_state = get_arena_state_db()
-        now = int(time.time())
+                # إذا كانت الجولة مكتملة أو مسترجعة -> البدء بجولة جديدة فوراً بأسلوب ذري
+                if status in ["completed", "refunded"]:
+                    return self._create_new_round_atomic(now)
 
-        if db_state and db_state.get("end_time", 0) > now and db_state.get("status") == "active":
-            self.current_round = db_state
-            return
+                self.current_round = data
+                return data
+            else:
+                return self._create_new_round_atomic(now)
+        except Exception as e:
+            print(f"⚠️ [arena] Sync round state error: {e}")
+            return self.current_round or {}
 
+    def _create_new_round_atomic(self, now: int) -> Dict[str, Any]:
+        """إنشاء جولة جديدة محصنة بـ Transaction تمنع إنشاء جولات مكررة عبر سيرفرات متعددة"""
+        db = _get_db()
+        if not db:
+            return {}
+
+        arena_ref = db.collection('settings').document('arena_state')
         cfg = get_big_arena_config()
         duration = int(cfg.get("duration_seconds", 300))
-        self.current_round = {
-            "round_id": f"arena_{now}",
-            "start_time": now,
-            "end_time": now + duration,
-            "prize_pool": 0.0,
-            "participants": [],
-            "status": "active",
-            "winners": []
-        }
-        save_arena_state_db(self.current_round)
+
+        @firestore.transactional
+        def create_txn(transaction):
+            snap = arena_ref.get(transaction=transaction)
+            if snap.exists:
+                d = snap.to_dict() or {}
+                # إذا قام سيرفر آخر بإنشائها بالفعل وهي نشطة ووقتها لم ينتهِ، نعتمدها
+                if d.get("status") == "active" and d.get("end_time", 0) > now:
+                    return d
+
+            new_round = {
+                "round_id": f"arena_{now}",
+                "start_time": now,
+                "end_time": now + duration,
+                "prize_pool": 0.0,
+                "participants": [],
+                "status": "active",
+                "winners": []
+            }
+            transaction.set(arena_ref, new_round)
+            return new_round
+
+        try:
+            self.current_round = create_txn(db.transaction())
+        except Exception as e:
+            print(f"⚠️ [arena] Error creating atomic round: {e}")
+            doc = arena_ref.get()
+            self.current_round = doc.to_dict() if doc.exists else {}
+
+        return self.current_round
 
     def get_status(self, uid: str) -> Dict[str, Any]:
         cfg = get_big_arena_config()
         self._sync_round_state()
 
         uid_str = str(uid) if uid else ""
-        participants = self.current_round.get("participants", [])
+
+        # 🌟 معالجة واسترجاع أي مبالغ معلقة تلقائياً ومزامنة الرصيد الحقيقي فوراً
+        if uid_str:
+            clear_user_pending_refund(uid_str)
+
+        participants = self.current_round.get("participants", []) if self.current_round else []
         has_joined = uid_str in participants
         exists, user_data = get_user_data(uid_str) if uid_str else (False, {})
 
@@ -85,11 +127,11 @@ class BigArenaManager:
 
         return {
             "success": True,
-            "round_id": self.current_round.get("round_id", ""),
-            "end_time": self.current_round.get("end_time", 0),
+            "round_id": self.current_round.get("round_id", "") if self.current_round else "",
+            "end_time": self.current_round.get("end_time", 0) if self.current_round else 0,
             "entry_fee": float(cfg.get("entry_fee", 350.0)),
             "lock_seconds": int(cfg.get("lock_seconds", 15)),
-            "prize_pool": round(float(self.current_round.get("prize_pool", 0.0)), 2),
+            "prize_pool": round(float(self.current_round.get("prize_pool", 0.0) if self.current_round else 0.0), 2),
             "participants_count": len(participants),
             "min_players": int(cfg.get("min_players", 10)),
             "has_joined": has_joined,
@@ -110,7 +152,9 @@ class BigArenaManager:
         entry_fee = float(cfg.get("entry_fee", 350.0))
         lock_secs = int(cfg.get("lock_seconds", 15))
 
-        # إجراء الدخول خصماً وتسجيلاً داخل Firestore Transaction ذرية واحدة تمنع الخصم الخاطئ أو فقدان المشاركين
+        # ضمان تسوية أي استرداد معلق قبل المحاولة
+        clear_user_pending_refund(uid_str)
+
         arena_ref = db.collection('settings').document('arena_state')
         doc_ref, user_info = get_user_doc_ref(uid_str)
 
@@ -166,11 +210,10 @@ class BigArenaManager:
             if not success:
                 return False, msg, {}
 
-            # تحديث الحالة المحلية
             self._sync_round_state()
             record_user_game_result(uid_str, bet_amount=entry_fee, win_amount=0.0)
 
-            p_count = len(self.current_round.get("participants", []))
+            p_count = len(self.current_round.get("participants", []) if self.current_round else [])
             boost_msg = ""
             if p_count <= 3:
                 boost_msg = " 🔥 حصلت على +50% زيادة في نسبة الفوز!"
@@ -193,7 +236,6 @@ class BigArenaManager:
 
         arena_ref = db.collection('settings').document('arena_state')
 
-        # قفل الجولة بـ Status 'resolving' أولاً
         @firestore.transactional
         def lock_round(transaction):
             snap = arena_ref.get(transaction=transaction)
@@ -218,7 +260,7 @@ class BigArenaManager:
         participants = round_data.get("participants", [])
         entry_fee = float(cfg.get("entry_fee", 350.0))
 
-        # إلغاء الجولة وإعادة الأموال كـ pending_refund إذا لم يكتمل الحد الأدنى
+        # إلغاء الجولة وإعادة الأموال إذا لم يكتمل الحد الأدنى
         if len(participants) < min_players:
             round_data["status"] = "refunded"
             for p_uid in participants:
@@ -274,17 +316,20 @@ class BigArenaManager:
 
         save_arena_state_db(round_data)
         self.current_round = round_data
-        self._init_or_load_round()
+        self._sync_round_state()
 
     def get_results(self, round_id: str, uid: str) -> Dict[str, Any]:
         self._sync_round_state()
-        if self.current_round.get("status") in ["refunded", "completed"]:
+        if uid:
+            clear_user_pending_refund(str(uid))
+
+        if self.current_round and self.current_round.get("status") in ["refunded", "completed"]:
             return {
                 "success": True,
                 "status": self.current_round.get("status"),
                 "winners": self.current_round.get("winners", []),
                 "refund_amount": float(get_big_arena_config().get("entry_fee", 350.0))
             }
-        return {"success": True, "status": "completed", "winners": self.current_round.get("winners", [])}
+        return {"success": True, "status": "completed", "winners": self.current_round.get("winners", []) if self.current_round else []}
 
 big_arena_manager = BigArenaManager()
