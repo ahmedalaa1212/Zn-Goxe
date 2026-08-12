@@ -54,7 +54,7 @@
         const startNum = Math.round((parseFloat(startVal) || 0) * 100) / 100;
         const endNum = Math.round((parseFloat(endVal) || 0) * 100) / 100;
 
-        // إلغاء أي انيميشن شغال حالياً على نفس العنصر لمنع القفزات والـ Overlap
+        // إلغاء أي أنيميشن شغال حالياً على نفس العنصر لمنع القفزات
         if (window.activeAnimationFrames[elementId]) {
             cancelAnimationFrame(window.activeAnimationFrames[elementId]);
             delete window.activeAnimationFrames[elementId];
@@ -134,15 +134,18 @@
         const numVal = Math.round((parseFloat(newBalance) || 0) * 100) / 100;
         const oldVal = window.currentDisplayBalance || window.getStoredBalance();
 
+        // التحديث المزدوج للحفاظ على المزامنة دائماً
         if (window.userState) {
             window.userState.balance = numVal;
-        } else {
-            localStorage.setItem('zn_balance', numVal.toString());
         }
+        localStorage.setItem('zn_balance', numVal.toString());
+        localStorage.setItem('user_balance', numVal.toString());
 
         window.currentDisplayBalance = numVal;
 
-        const targetElements = ['top-balance-games'];
+        // مصفوفة واسعة لجميع الـ IDs المحتملة لرصيد الواجهة
+        const targetElements = ['top-balance-games', 'top-balance', 'user-balance', 'zn-balance', 'header-balance'];
+        
         targetElements.forEach(id => {
             const gameBalEl = document.getElementById(id);
             if (gameBalEl) {
@@ -150,10 +153,14 @@
                 else gameBalEl.innerHTML = window.formatNumberHTML(numVal, " ZN");
             }
         });
+
+        // دعم العناصر ذات الكلاس أيضاً
+        document.querySelectorAll('.user-balance-value').forEach(el => {
+            el.innerHTML = window.formatNumberHTML(numVal, " ZN");
+        });
     };
 
     window.syncUserData = async function() {
-        // تجنب مزامنة الخلفية أثناء وجود معاملة مالية جارية لم تكتمل
         if (window.isTransactionPending) return;
 
         const tgId = window.getTgId();
@@ -170,7 +177,7 @@
             if (!res.ok) return;
             const data = await res.json();
             if (data.success) {
-                const balanceVal = data.balance !== undefined ? data.balance : data.user?.balance;
+                const balanceVal = data.balance !== undefined ? data.balance : (data.user?.balance !== undefined ? data.user.balance : data.user_balance);
                 if (balanceVal !== undefined && !window.isTransactionPending) {
                     window.setStoredBalance(balanceVal, true);
                 }
@@ -220,6 +227,11 @@
                 window.tele.expand();
             } catch (e) {}
         }
+
+        // 🌟 عرض الرصيد المحفوظ فور فتح الشاشة مباشرة قبل انتظار السيرفر
+        const initialBal = window.getStoredBalance();
+        window.setStoredBalance(initialBal, false);
+
         window.syncUserData();
     }
 
