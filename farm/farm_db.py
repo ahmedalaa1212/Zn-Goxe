@@ -52,7 +52,7 @@ DEFAULT_GAME_SETTINGS = {
 
 
 def get_game_settings(force_refresh=False):
-    """جلب أو إنشاء إعدادات المزرعة تلقائياً في Firebase إن لم تكن موجودة"""
+    """جلب أو إنشاء إعدادات المزرعة تلقائياً في Firebase إن لم تكن موجودة مع التخزين المؤقت"""
     global _SETTINGS_CACHE
     now_ts = time.time()
     
@@ -78,13 +78,17 @@ def get_game_settings(force_refresh=False):
 
 
 def parse_daily_rewards(rewards_data):
-    """تحليل قائمة المكافآت اليومية (30 يوم)"""
+    """تحليل قائمة المكافآت اليومية (30 يوم) بأمان"""
     if isinstance(rewards_data, list) and len(rewards_data) > 0:
         return [int(x) for x in rewards_data]
     if isinstance(rewards_data, dict):
         res = []
         for i in range(1, 31):
-            val = rewards_data.get(f"day_{i}") or rewards_data.get(str(i)) or DEFAULT_GAME_SETTINGS["daily_rewards"][i-1]
+            val = rewards_data.get(f"day_{i}")
+            if val is None:
+                val = rewards_data.get(str(i))
+            if val is None:
+                val = DEFAULT_GAME_SETTINGS["daily_rewards"][i-1]
             res.append(int(val))
         return res
     return DEFAULT_GAME_SETTINGS["daily_rewards"]
@@ -102,7 +106,10 @@ def get_base_storage_capacity(storage_level, settings=None):
 
     caps = settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
 
-    val = caps.get(str(lvl)) or caps.get(lvl)
+    val = caps.get(str(lvl))
+    if val is None:
+        val = caps.get(lvl)
+
     if isinstance(val, dict):
         return float(val.get("capacity", 100.0))
     elif val is not None:
@@ -271,8 +278,11 @@ def claim_mined_tokens_db(user_id_str):
             "user_name": user_name
         }
 
-    transaction = db.transaction()
-    result = run_claim_transaction(transaction, user_ref)
+    try:
+        transaction = db.transaction()
+        result = run_claim_transaction(transaction, user_ref)
+    except Exception as e:
+        return {"success": False, "error": f"تعذر تنفيذ التجميع: {str(e)}"}
 
     if result.get("success") and result.get("referrer_id") and result.get("claimed_amount", 0) > 0:
         try:
@@ -291,7 +301,7 @@ def claim_mined_tokens_db(user_id_str):
 
 
 def buy_upgrade_db(user_id_str, level):
-    """شراء ترقية سرعة التعدين مع تطبيق شرط حد الـ 10 مرات فقط لكل مستوى والحفاظ الدقيق على التعدين المعلق"""
+    """شراء ترقية سرعة التعدين مع تطبيق شرط حد الـ 10 مرات والحفاظ الدقيق على التعدين المعلق"""
     level_str = str(level)
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
@@ -344,7 +354,7 @@ def buy_upgrade_db(user_id_str, level):
         current_hourly_rate = float(user_data.get("hourly_rate", 0.0))
         new_hourly_rate = round(current_hourly_rate + rate_bonus, 2)
 
-        # ضبط last_claim_time بدقة متناهية لكي يتطابق الرصيد المعدن المحفوظ بالكامل مع السرعة الجديدة بدون أي طفرات أو هبوط
+        # إعادة ضبط last_claim_time لضمان تطابق الأرباح المعلقة بالكامل مع السرعة الجديدة بدون أي طفرة
         if new_hourly_rate > 0 and mined_amount > 0:
             equiv_seconds = (mined_amount / (new_hourly_rate / 3600.0))
             new_last_claim_iso = (now - timedelta(seconds=equiv_seconds)).isoformat()
@@ -376,8 +386,11 @@ def buy_upgrade_db(user_id_str, level):
             "referrer_id": referrer_id
         }
 
-    transaction = db.transaction()
-    res = run_upgrade_transaction(transaction, user_ref)
+    try:
+        transaction = db.transaction()
+        res = run_upgrade_transaction(transaction, user_ref)
+    except Exception as e:
+        return {"success": False, "error": f"تعذر تنفيذ عملية الترقية: {str(e)}"}
 
     if res.get("success") and res.get("referrer_id"):
         try:
@@ -439,7 +452,6 @@ def buy_storage_db(user_id_str):
         new_balance = round(current_balance - cost, 2)
 
         # ضبط last_claim_time ليعكس فقط الوقت اللازم لتوليد mined_amount بالسرعة الحالية
-        # هذا يمنع احتساب أوقات الانتظار الوهمية بعد امتلاء المخزن القديم
         if hourly_rate > 0 and mined_amount > 0:
             equiv_seconds = (mined_amount / (hourly_rate / 3600.0))
             new_last_claim_iso = (now - timedelta(seconds=equiv_seconds)).isoformat()
@@ -463,8 +475,11 @@ def buy_storage_db(user_id_str):
             "server_time": now_iso
         }
 
-    transaction = db.transaction()
-    return run_storage_transaction(transaction, user_ref)
+    try:
+        transaction = db.transaction()
+        return run_storage_transaction(transaction, user_ref)
+    except Exception as e:
+        return {"success": False, "error": f"تعذر إتمام ترقية المخزن: {str(e)}"}
 
 
 def claim_daily_reward_db(user_id_str):
@@ -521,8 +536,11 @@ def claim_daily_reward_db(user_id_str):
             "server_time": now.isoformat()
         }
 
-    transaction = db.transaction()
-    return run_daily_claim_transaction(transaction, user_ref)
+    try:
+        transaction = db.transaction()
+        return run_daily_claim_transaction(transaction, user_ref)
+    except Exception as e:
+        return {"success": False, "error": f"تعذر استلام المكافأة اليومية: {str(e)}"}
 
 
 def claim_daily_boost_db(user_id_str):
@@ -549,7 +567,7 @@ def claim_daily_boost_db(user_id_str):
 
         last_boost = user_data.get("last_boost_date")
         if last_boost == today_str:
-            return {"success": False, "error": "لقد حصلت على تعزيز اليوم بالفعل"}
+            return {"success": False, "error": "لقدحصلت على تعزيز اليوم بالفعل"}
 
         daily_boost_rate = float(user_data.get("daily_boost_rate", 0.0) or 0.0)
         current_hourly_rate = float(user_data.get("hourly_rate", 0.0) or 0.0)
@@ -612,5 +630,8 @@ def claim_daily_boost_db(user_id_str):
                 "server_time": now_iso
             }
 
-    transaction = db.transaction()
-    return run_boost_transaction(transaction, user_ref)
+    try:
+        transaction = db.transaction()
+        return run_boost_transaction(transaction, user_ref)
+    except Exception as e:
+        return {"success": False, "error": f"تعذر تفعيل المعزز اليومي: {str(e)}"}
