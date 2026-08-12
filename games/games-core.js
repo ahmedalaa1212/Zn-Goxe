@@ -120,7 +120,7 @@
 
         window.currentDisplayBalance = numVal;
 
-        // 🌟 تحديث كل عناصر الرصيد في أعلى الشاشة والهيدر بدون استثناء
+        // 🌟 تحديث شامل ومستهدف لجميع الهيدرات والعناصر في الواجهة العلوي
         const targetIds = [
             'top-balance-games', 'top-balance', 'user-balance', 'zn-balance', 
             'header-balance', 'main-balance', 'nav-balance', 'header-user-balance',
@@ -221,12 +221,11 @@
 
         window.syncUserData();
 
-        // 🌟 فحص ومزامنة تلقائية دورية كل 5 ثوانٍ للرصيد العلوي بالهيدر
         setInterval(() => {
             if (!window.isTransactionPending && (!window.boxesState || !window.boxesState.inGame)) {
                 window.syncUserData();
             }
-        }, 5000);
+        }, 4000);
     }
 
     if (document.readyState === 'loading') {
