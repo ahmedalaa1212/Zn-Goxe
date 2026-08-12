@@ -10,7 +10,7 @@
     let pendingConfirmCallback = null;
 
     let lastStatusFetchTimestamp = 0;
-    const STATUS_FETCH_COOLDOWN = 3000;
+    const STATUS_FETCH_COOLDOWN = 2000;
     let hasJoinedCurrentRound = false;
 
     let currentEntryFee = 350;
@@ -213,7 +213,7 @@
             window.showNotification("خطأ في الاتصال بالخادم.");
         } finally {
             isJoining = false;
-            setTimeout(() => { window.isTransactionPending = false; }, 2000);
+            setTimeout(() => { window.isTransactionPending = false; }, 1500);
             timerTick();
         }
     }
@@ -221,7 +221,7 @@
     function askForConfirmation(onConfirm) {
         const modal = document.getElementById('confirm-modal');
         if (modal) { pendingConfirmCallback = onConfirm; modal.style.display = 'flex'; }
-        else { onConfirm(); } // إذا لم تكن هناك نافذة تأكيد، ينفذ الانضمام فوراً
+        else { onConfirm(); }
     }
 
     window.onConfirmJoin = function(confirmed) {
@@ -269,7 +269,7 @@
         if (backgroundSyncInterval) clearInterval(backgroundSyncInterval);
         backgroundSyncInterval = setInterval(() => {
             window.fetchArenaStatus(false);
-        }, 10000);
+        }, 5000);
     }
 
     if (document.readyState === 'loading') {
