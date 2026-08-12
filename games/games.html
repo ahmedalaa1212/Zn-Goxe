@@ -1,293 +1,81 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>الألعاب والساحة - Zn Goxe</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://adsgram.ai/sdk.js"></script>
-    <link rel="stylesheet" href="../style.css?v=13.3">
-    <style>
-        :root {
-            --bg-color: #0b0d14;
-            --card-bg: rgba(22, 22, 38, 0.75);
-            --card-border: rgba(255, 255, 255, 0.08);
-            --primary: #f39c12;
-            --primary-glow: rgba(243, 156, 18, 0.4);
-            --accent-cyan: #00ffcc;
-            --accent-cyan-glow: rgba(0, 255, 204, 0.3);
-            --accent-green: #10b981;
-            --accent-green-glow: rgba(16, 185, 129, 0.4);
-            --accent-red: #ef4444;
-            --accent-red-glow: rgba(239, 68, 68, 0.4);
-            --text-main: #ffffff;
-            --text-muted: #94a3b8;
-            --btn-disabled: #1e293b;
-        }
-
-        * { box-sizing: border-box; outline: none; -webkit-tap-highlight-color: transparent; }
-
-        body {
-            background-color: var(--bg-color);
-            background-image: 
-                radial-gradient(circle at 50% 0%, rgba(243, 156, 18, 0.08) 0%, transparent 60%),
-                radial-gradient(circle at 100% 100%, rgba(0, 255, 204, 0.05) 0%, transparent 50%);
-            color: var(--text-main);
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            margin: 0; padding: 0; padding-bottom: 100px; min-height: 100vh;
-        }
-
-        .balance-header-fixed {
-            position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
-            background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(16px);
-            border: 1px solid rgba(243, 156, 18, 0.4); padding: 7px 22px;
-            border-radius: 50px; z-index: 100;
-            display: flex; align-items: center; justify-content: center; gap: 10px;
-            font-weight: 800; font-size: 1.05rem; color: #ffffff;
-        }
-
-        .games-container { padding: 16px; padding-top: 70px; max-width: 480px; margin: auto; }
-        .tabs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
-
-        .tab-card {
-            background: rgba(30, 41, 59, 0.5); border: 1.5px solid var(--card-border);
-            border-radius: 16px; padding: 14px 10px; text-align: center; cursor: pointer;
-        }
-
-        .tab-card.active {
-            background: linear-gradient(145deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95));
-            border-color: var(--primary); box-shadow: 0 0 20px var(--primary-glow);
-        }
-
-        .tab-card.active#tab-boxes { border-color: var(--accent-cyan); box-shadow: 0 0 20px var(--accent-cyan-glow); }
-
-        .boxes-card, .arena-card {
-            background: linear-gradient(165deg, rgba(22, 22, 38, 0.9), rgba(11, 13, 20, 0.95));
-            border: 1px solid rgba(0, 255, 204, 0.2); border-radius: 22px; padding: 16px;
-        }
-
-        .boxes-grid-6x6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 16px; }
-        .box-card { width: 100%; aspect-ratio: 1; perspective: 1000px; cursor: pointer; }
-        .box-inner { width: 100%; height: 100%; transition: transform 0.45s; transform-style: preserve-3d; border-radius: 12px; }
-        .box-card.flipped .box-inner { transform: rotateY(180deg); }
-
-        .box-front, .box-back {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            backface-visibility: hidden; border-radius: 12px; display: flex; align-items: center; justify-content: center;
-        }
-
-        .box-front { background: linear-gradient(135deg, #1e293b, #0f172a); border: 1.5px solid rgba(0, 255, 204, 0.2); }
-        .box-back { background: linear-gradient(135deg, #059669, #10b981); transform: rotateY(180deg); }
-        .box-card.broken .box-back { background: linear-gradient(135deg, #dc2626, #ef4444); }
-
-        .bet-controls { display: flex; gap: 8px; margin-bottom: 14px; }
-        .bet-input { flex: 1.2; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; padding: 10px; border-radius: 12px; text-align: center; font-weight: 800; }
-        .btn-quick-bet { background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-muted); padding: 0 12px; border-radius: 10px; font-weight: 700; cursor: pointer; }
-
-        .btn-action-main, .btn-cashout-main, .btn-join {
-            width: 100%; padding: 15px; border: none; border-radius: 14px; font-weight: 900; font-size: 1.15rem; cursor: pointer;
-        }
-        .btn-action-main { background: linear-gradient(90deg, #00ffcc, #059669); color: #0b0d14; }
-        .btn-cashout-main { background: linear-gradient(90deg, #10b981, #047857); color: #ffffff; }
-        .btn-join { background: linear-gradient(90deg, #f39c12, #d35400); color: white; }
-
-        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(5, 7, 13, 0.85); backdrop-filter: blur(10px); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .modal-card { background: linear-gradient(165deg, #18182b, #0f111a); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 22px; padding: 24px; width: 100%; max-width: 420px; text-align: center; }
-
-        /* 🏆 تصميم جدول توزيع جوائز الساحة */
-        .arena-prizes-card {
-            background: linear-gradient(165deg, rgba(22, 22, 38, 0.85), rgba(15, 23, 42, 0.95));
-            border: 1px solid rgba(243, 156, 18, 0.25);
-            border-radius: 20px;
-            padding: 16px;
-            margin-top: 16px;
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
-        }
-
-        .arena-prizes-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 4px;
-        }
-
-        .arena-prizes-subtext {
-            font-size: 11px;
-            color: var(--text-muted);
-            margin-bottom: 14px;
-            font-weight: 600;
-        }
-
-        .arena-prizes-list {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .prize-rank-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background: rgba(15, 23, 42, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 12px;
-            padding: 10px 14px;
-            transition: all 0.2s ease;
-        }
-
-        .prize-rank-item:nth-child(1) {
-            background: linear-gradient(90deg, rgba(243, 156, 18, 0.15), rgba(15, 23, 42, 0.7));
-            border-color: rgba(243, 156, 18, 0.4);
-        }
-
-        .prize-rank-item:nth-child(2) {
-            background: linear-gradient(90deg, rgba(148, 163, 184, 0.15), rgba(15, 23, 42, 0.7));
-            border-color: rgba(148, 163, 184, 0.3);
-        }
-
-        .prize-rank-item:nth-child(3) {
-            background: linear-gradient(90deg, rgba(205, 127, 50, 0.15), rgba(15, 23, 42, 0.7));
-            border-color: rgba(205, 127, 50, 0.3);
-        }
-
-        .prize-rank-info {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .prize-rank-icon {
-            font-size: 1.1rem;
-            width: 24px;
-            text-align: center;
-        }
-
-        .prize-rank-title {
-            font-size: 0.88rem;
-            font-weight: 700;
-            color: #e2e8f0;
-        }
-
-        .prize-rank-values {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .prize-rank-pct {
-            font-size: 0.8rem;
-            font-weight: 800;
-            color: var(--accent-cyan);
-            background: rgba(0, 255, 204, 0.1);
-            padding: 3px 8px;
-            border-radius: 6px;
-            border: 1px solid rgba(0, 255, 204, 0.2);
-        }
-
-        .prize-rank-amount {
-            font-size: 0.9rem;
-            font-weight: 900;
-            color: #ffffff;
-            min-width: 85px;
-            text-align: left;
-            direction: ltr;
-        }
-
-        body.keyboard-open .bottom-nav { display: none !important; }
-    </style>
-</head>
-<body>
-
-    <div class="balance-header-fixed">
-        <span>🪙</span>
-        <span id="top-balance-games">0.00 ZN</span>
+<div class="games-container">
+    <!-- Header: الرصيد في الأعلى -->
+    <div class="games-header">
+        <div class="balance-badge">
+            <span class="balance-title">ZN</span>
+            <span id="user-zn-balance" class="balance-amount">0.00</span>
+            <span class="coin-icon">🪙</span>
+        </div>
     </div>
 
-    <div class="games-container">
-        <div class="tabs-grid">
-            <div id="tab-arena" onclick="switchGameTab('arena')" class="tab-card active">
-                <div style="font-size: 24px;">⚔️</div>
-                <div style="color: #fff; font-weight: 800;">الساحة الكبرى</div>
+    <!-- Top Navigation Tabs: التبويب العلوي معزول -->
+    <div class="game-tabs-nav">
+        <button id="tab-btn-arena" class="game-tab-btn active" onclick="switchGameTab('arena')">
+            ⚔️ الساحة الكبرى
+        </button>
+        <button id="tab-btn-boxes" class="game-tab-btn" onclick="switchGameTab('boxes')">
+            📦 شبكة ZN Go
+        </button>
+    </div>
+
+    <!-- ==================== LOBBY 1: الساحة الكبرى ==================== -->
+    <div id="game-view-arena" class="game-view-section active">
+        <div class="arena-card main-timer-card">
+            <div class="card-header-label">الوقت المتبقي للسحب</div>
+            <div id="arena-timer" class="big-countdown">05:00</div>
+            
+            <div class="prize-pool-box">
+                <span class="trophy-icon">🏆</span>
+                <span class="pool-label">مجمع الجوائز الحالي</span>
+                <div id="prize-pool" class="pool-amount">ZN 0.00</div>
             </div>
-            <div id="tab-boxes" onclick="switchGameTab('boxes')" class="tab-card">
-                <div style="font-size: 24px;">📦</div>
-                <div style="color: #fff; font-weight: 800;">شبكة ZN Go</div>
-            </div>
+
+            <button id="btn-join-arena" class="btn-primary-action" onclick="joinArenaGame()">
+                ⚔️ دخول الساحة (350 ZN)
+            </button>
         </div>
 
-        <div id="content-arena" style="display: block;">
-            <div class="arena-card">
-                <div style="background: rgba(15, 23, 42, 0.7); padding: 10px; border-radius: 14px; text-align: center; margin-bottom: 15px;">
-                    <span style="color: var(--accent-red); font-size: 11px; font-weight: 800; display: block;">الوقت المتبقي للسحب</span>
-                    <span id="arena-timer" style="font-size: 1.9rem; font-weight: 900; color: #fff;">--:--</span>
-                </div>
-                <div style="text-align: center; margin-bottom: 20px;">
-                    <h3 style="color: var(--primary); font-size: 14px; margin: 0 0 8px 0;">🏆 مجمع الجوائز الحالي</h3>
-                    <div id="prize-pool" style="font-size: 2.3rem; font-weight: 900; color: var(--primary);">0.00 ZN</div>
-                </div>
-                <button id="btn-join-arena" onclick="joinArena()" class="btn-join">دخول الساحة (350 ZN)</button>
-            </div>
-
-            <!-- 🏆 جدول توزيع جوائز الساحة للمراكز 1 - 10 -->
-            <div class="arena-prizes-card">
-                <div class="arena-prizes-header">
-                    <span style="font-size: 18px;">📊</span>
-                    <span style="font-size: 0.95rem; font-weight: 800; color: #ffffff;">توزيع جوائز الساحة (Top 10)</span>
-                </div>
-                <div class="arena-prizes-subtext">توزيع المبلغ الجملي المجمع للمشاركين حسب المراكز</div>
-                <div id="arena-prizes-list" class="arena-prizes-list">
-                    <!-- يتم بناؤه ديناميكياً بواسطة arena-game.js -->
-                </div>
-            </div>
-        </div>
-
-        <div id="content-boxes" style="display: none;">
-            <div class="boxes-card">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 14px; align-items: center;">
-                    <span id="selected-broken-text" style="color: var(--accent-cyan); font-size: 12px; font-weight: 800;">3 عملات مكسورة (سقف 🌟 20x)</span>
-                    <button class="btn-quick-bet" onclick="openBoxesSettings()">⚙️ الصعوبة</button>
-                </div>
-                <div id="boxes-grid" class="boxes-grid-6x6"></div>
-                <div class="bet-controls">
-                    <input type="number" id="boxes-bet-input" class="bet-input" value="100" min="100">
-                    <button class="btn-quick-bet" onclick="addBetBoxes(100)">+100</button>
-                    <button class="btn-quick-bet" onclick="setBetMaxBoxes()">الأقصى</button>
-                </div>
-                <button id="btn-start-boxes" class="btn-action-main" onclick="startBoxesGame()">بدء الجولة 🚀</button>
-                <button id="btn-cashout-boxes" class="btn-cashout-main" onclick="cashOutBoxes()" style="display: none;">سحب الأرباح</button>
+        <!-- جدول توزيع الجوائز -->
+        <div class="arena-card prizes-breakdown-card">
+            <h3>📊 توزيع جوائز الساحة (Top 10)</h3>
+            <p class="sub-text">توزيع المبلغ الجمعي المجمع للمشاركين حسب المراكز</p>
+            <div id="arena-prizes-list" class="prizes-list">
+                <!-- يتم توليده تلقائياً عبر JS -->
             </div>
         </div>
     </div>
 
-    <!-- Modals -->
-    <div id="boxes-settings-modal" class="modal-overlay" style="display: none;">
-        <div class="modal-card">
-            <h3 style="color: #fff;">اختر عدد العملات المكسورة</h3>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px;">
-                <button class="btn-quick-bet" onclick="selectBrokenCount(3)">3 (20x max)</button>
-                <button class="btn-quick-bet" onclick="selectBrokenCount(5)">5 (40x max)</button>
-                <button class="btn-quick-bet" onclick="selectBrokenCount(8)">8 (70x max)</button>
+    <!-- ==================== LOBBY 2: شبكة ZN Go ==================== -->
+    <div id="game-view-boxes" class="game-view-section">
+        <div class="arena-card boxes-main-card">
+            <div class="card-header-label">🎁 لعبة اختيار الصناديق ZN Go</div>
+            <p class="sub-text">اختر صندوقك واكشف عن مضاعف رصيدك!</p>
+            
+            <div class="bet-controls">
+                <label>مبلغ الرهان:</label>
+                <input type="number" id="boxes-bet-input" value="100" min="10" step="10" />
             </div>
-            <button style="margin-top: 20px; width: 100%; padding: 10px;" onclick="closeBoxesSettings()">حفظ وإغلاق</button>
+
+            <div id="boxes-grid" class="boxes-grid-container">
+                <!-- 9 صناديق تفاعلية -->
+                <div class="box-item" onclick="openBox(0)">📦</div>
+                <div class="box-item" onclick="openBox(1)">📦</div>
+                <div class="box-item" onclick="openBox(2)">📦</div>
+                <div class="box-item" onclick="openBox(3)">📦</div>
+                <div class="box-item" onclick="openBox(4)">📦</div>
+                <div class="box-item" onclick="openBox(5)">📦</div>
+                <div class="box-item" onclick="openBox(6)">📦</div>
+                <div class="box-item" onclick="openBox(7)">📦</div>
+                <div class="box-item" onclick="openBox(8)">📦</div>
+            </div>
+
+            <button id="btn-reset-boxes" class="btn-secondary-action" onclick="resetBoxesGame()">
+                🔄 إعادة تعيين الصناديق
+            </button>
         </div>
     </div>
+</div>
 
-    <div id="confirm-modal" class="modal-overlay" style="display: none;">
-        <div class="modal-card">
-            <h3 style="color: #fff;">تأكيد الدخول للساحة</h3>
-            <p style="color: #cbd5e1;">سيتم خصم 350 ZN لمتابعة الدخول.</p>
-            <div style="display: flex; gap: 10px;">
-                <button onclick="onConfirmJoin(true)" class="btn-action-main">تأكيد</button>
-                <button onclick="onConfirmJoin(false)" class="btn-quick-bet" style="flex:1;">إلغاء</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 1. استدعاء النواة الأساسية أولاً -->
-    <script src="games-core.js?v=16.0"></script>
-    <!-- 2. استدعاء وحدة لعبة الصناديق -->
-    <script src="boxes-game.js?v=16.0"></script>
-    <!-- 3. استدعاء وحدة لعبة الساحة -->
-    <script src="arena-game.js?v=16.0"></script>
-</body>
-</html>
+<script src="/games/games-core.js"></script>
+<script src="/games/arena-game.js"></script>
+<script src="/games/boxes-game.js"></script>
