@@ -30,34 +30,28 @@ def extract_uid(req) -> str:
 
     return ""
 
-# ==========================================
-# 👤 0. مسار جلب معلومات المستخدم والرصيد المباشر
-# ==========================================
-
 @games_bp.route('/user/info', methods=['GET', 'POST'])
 def get_user_info():
     uid = extract_uid(request)
     if not uid:
         return jsonify({"success": False, "message": "لم يتم العثور على ID المستخدم"}), 400
 
-    # 🌟 استرجاع تلقائي لأي رصيد معلق لضمان عرض الرصيد الصحيح فوراً
-    clear_user_pending_refund(uid)
+    refunded, new_bal, msg = clear_user_pending_refund(uid)
 
     exists, udata = get_user_data(uid)
     if not exists:
         return jsonify({"success": False, "message": "المستخدم غير موجود في قاعدة البيانات"}), 404
 
     udata = udata or {}
+    real_bal = round(float(udata.get('balance', udata.get('zn_balance', new_bal))), 2)
+
     return jsonify({
         "success": True,
         "uid": uid,
-        "balance": round(float(udata.get('balance', udata.get('zn_balance', 0.0))), 2),
+        "balance": real_bal,
+        "refund_amount": refunded,
         "name": udata.get('name', udata.get('first_name', 'مستخدم'))
     })
-
-# ==========================================
-# 🎮 1. مسارات لعبة ZN Go الـ 36 صندوق
-# ==========================================
 
 @games_bp.route('/game/start', methods=['POST'])
 @games_bp.route('/games/grid36/start', methods=['POST'])
@@ -121,10 +115,6 @@ def cashout_grid36():
         "new_balance": result.get("new_balance"),
         "layout": result.get("layout")
     })
-
-# ==========================================
-# ⚔️ 2. مسارات الساحة الكبرى Arena
-# ==========================================
 
 @games_bp.route('/games/status', methods=['POST', 'GET'])
 def arena_status():
