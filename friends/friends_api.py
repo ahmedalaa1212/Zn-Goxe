@@ -1,4 +1,3 @@
-import json
 from flask import Blueprint, request, jsonify
 from core.security import get_authenticated_user
 from .friends_db import (
@@ -85,9 +84,9 @@ def claim_ref_task():
         return err_resp
 
     data = request.get_json(silent=True) or {}
-    task_id = data.get('taskId') or data.get('task_id')
+    task_id = data.get('taskId') if data.get('taskId') is not None else data.get('task_id')
     reward = data.get('reward', 0)
-    req_friends = data.get('reqFriends') or data.get('req_friends', 1)
+    req_friends = data.get('reqFriends') if data.get('reqFriends') is not None else data.get('req_friends', 1)
 
     if task_id is None:
         return jsonify({"success": False, "error": "مطلوب معرف المهمة task_id"}), 400
