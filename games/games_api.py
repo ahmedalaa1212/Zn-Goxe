@@ -1,7 +1,5 @@
 from flask import Blueprint, request, jsonify
 from games.games_db import (
-    get_game_profit_stats,
-    get_grid_36_config,
     get_big_arena_config,
     clear_user_pending_refund,
     get_user_data
@@ -12,7 +10,6 @@ from games.arena import big_arena_manager
 games_bp = Blueprint('games_api', __name__, url_prefix='/api')
 
 def extract_uid(req) -> str:
-    """استخراج ID المستخدم بشكل شامل لمنع فقدان الربط"""
     if req.is_json:
         data = req.get_json(silent=True) or {}
         tg_id = data.get('tg_id') or data.get('uid') or data.get('user_id')
@@ -37,10 +34,9 @@ def get_user_info():
         return jsonify({"success": False, "message": "لم يتم العثور على ID المستخدم"}), 400
 
     refunded, new_bal, msg = clear_user_pending_refund(uid)
-
     exists, udata = get_user_data(uid)
     if not exists:
-        return jsonify({"success": False, "message": "المستخدم غير موجود في قاعدة البيانات"}), 404
+        return jsonify({"success": False, "message": "المستخدم غير موجود"}), 404
 
     udata = udata or {}
     real_bal = round(float(udata.get('balance', udata.get('zn_balance', new_bal))), 2)
