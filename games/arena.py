@@ -17,7 +17,7 @@ from games.games_db import (
 )
 
 class BigArenaManager:
-    """إدارة جولات ورهانات الساحة الكبرى Arena مع حماية ذرية ضد التضارب والـ Race Conditions"""
+    """إدارة جولات ورهانات الساحة الكبرى Arena مع معالجة ذكية وإعادة محاولة تلقائية لمنع الأخطاء"""
 
     def __init__(self):
         self.current_round: Dict[str, Any] = None
@@ -103,8 +103,9 @@ class BigArenaManager:
 
         uid_str = str(uid) if uid else ""
 
+        refund_amount = 0.0
         if uid_str:
-            clear_user_pending_refund(uid_str)
+            refund_amount, _, _ = clear_user_pending_refund(uid_str)
 
         participants = self.current_round.get("participants", []) if self.current_round else []
         has_joined = uid_str in participants
@@ -123,6 +124,8 @@ class BigArenaManager:
             except ValueError:
                 pass
 
+        real_bal = round(float(user_data.get("balance", user_data.get("zn_balance", 0.0))), 2)
+
         return {
             "success": True,
             "round_id": self.current_round.get("round_id", "") if self.current_round else "",
@@ -134,7 +137,8 @@ class BigArenaManager:
             "min_players": int(cfg.get("min_players", 10)),
             "has_joined": has_joined,
             "user_boost_text": user_boost_text,
-            "balance": round(float(user_data.get("balance", user_data.get("zn_balance", 0.0))), 2)
+            "balance": real_bal,
+            "refund_amount": refund_amount
         }
 
     def enter_arena(self, uid: str) -> Tuple[bool, str, Dict[str, Any]]:
@@ -142,18 +146,19 @@ class BigArenaManager:
         if not cfg.get("enabled", True):
             return False, "⚠️ الساحة الكبرى مغلقة حالياً.", {}
 
-        # 🌟 أهم تعديل: مزامنة وتجهيز الجولة أولاً قبل تنفيذ الدخول لمنع رسالة الإغلاق الكاذبة
+        uid_str = str(uid)
+        entry_fee = float(cfg.get("entry_fee", 350.0))
+        lock_secs = int(cfg.get("lock_seconds", 15))
+
+        # 1. تسوية وتصفية أي رصيد استرداد معلق أولاً
+        clear_user_pending_refund(uid_str)
+
+        # 2. مزامنة حالة الجولة
         self._sync_round_state()
 
         db = _get_db()
         if not db:
             return False, "❌ خطأ في الاتصال بقاعدة البيانات.", {}
-
-        uid_str = str(uid)
-        entry_fee = float(cfg.get("entry_fee", 350.0))
-        lock_secs = int(cfg.get("lock_seconds", 15))
-
-        clear_user_pending_refund(uid_str)
 
         arena_ref = db.collection('settings').document('arena_state')
         doc_ref, user_info = get_user_doc_ref(uid_str)
@@ -161,51 +166,66 @@ class BigArenaManager:
         if not doc_ref:
             return False, "❌ لم يتم العثور على حساب المستخدم.", {}
 
-        @firestore.transactional
-        def join_txn(transaction):
-            arena_snap = arena_ref.get(transaction=transaction)
-            user_snap = doc_ref.get(transaction=transaction)
+        def attempt_join():
+            @firestore.transactional
+            def join_txn(transaction):
+                arena_snap = arena_ref.get(transaction=transaction)
+                user_snap = doc_ref.get(transaction=transaction)
 
-            if not arena_snap.exists or not user_snap.exists:
-                return False, "⚠️ خطأ في قراءة حالة الساحة أو المستخدم.", 0.0, 0.0
+                if not arena_snap.exists or not user_snap.exists:
+                    return False, "ERR_READ", 0.0, 0.0
 
-            a_data = arena_snap.to_dict() or {}
-            u_data = user_snap.to_dict() or {}
+                a_data = arena_snap.to_dict() or {}
+                u_data = user_snap.to_dict() or {}
 
-            now = int(time.time())
-            time_left = a_data.get("end_time", 0) - now
+                now = int(time.time())
+                time_left = a_data.get("end_time", 0) - now
 
-            if a_data.get("status") != "active" or time_left <= lock_secs:
-                return False, "🔒 تم إغلاق باب الاشتراك لهذه الجولة.", 0.0, 0.0
+                if a_data.get("status") != "active" or time_left <= lock_secs:
+                    return False, "ROUND_CLOSED", 0.0, 0.0
 
-            participants = a_data.get("participants", [])
-            if uid_str in participants:
-                return False, "⚠️ أنت مشترك بالفعل في هذه الجولة.", 0.0, 0.0
+                participants = a_data.get("participants", [])
+                if uid_str in participants:
+                    return False, "⚠️ أنت مشترك بالفعل في هذه الجولة.", 0.0, 0.0
 
-            bal = round(float(u_data.get("balance", u_data.get("zn_balance", 0.0))), 2)
-            if bal < entry_fee:
-                return False, f"❌ رصيدك غير كافٍ! يتطلب {entry_fee} ZN.", 0.0, bal
+                bal = round(float(u_data.get("balance", u_data.get("zn_balance", 0.0))), 2)
+                if bal < entry_fee:
+                    return False, f"❌ رصيدك غير كافٍ! يتطلب {entry_fee} ZN.", 0.0, bal
 
-            new_bal = round(bal - entry_fee, 2)
-            new_pool = round(float(a_data.get("prize_pool", 0.0)) + entry_fee, 2)
+                new_bal = round(bal - entry_fee, 2)
+                new_pool = round(float(a_data.get("prize_pool", 0.0)) + entry_fee, 2)
 
-            participants.append(uid_str)
+                participants.append(uid_str)
 
-            transaction.update(doc_ref, {
-                "balance": new_bal,
-                "zn_balance": new_bal
-            })
+                transaction.update(doc_ref, {
+                    "balance": new_bal,
+                    "zn_balance": new_bal
+                })
 
-            transaction.update(arena_ref, {
-                "participants": participants,
-                "prize_pool": new_pool
-            })
+                transaction.update(arena_ref, {
+                    "participants": participants,
+                    "prize_pool": new_pool
+                })
 
-            return True, "تم الدخول بنجاح", new_bal, new_pool
+                return True, "تم الدخول بنجاح", new_bal, new_pool
+
+            return join_txn(db.transaction())
 
         try:
-            success, msg, new_bal, new_pool = join_txn(db.transaction())
+            success, msg, new_bal, new_pool = attempt_join()
+
+            # 🌟 السحر هنا: إذا كانت الجولة منتهية أو مغلقة، السيرفر بينشئ جولة جديدة وبيشترك فوراً من أول ضغطة!
+            if not success and msg == "ROUND_CLOSED":
+                now = int(time.time())
+                self._create_new_round_atomic(now)
+                self._sync_round_state()
+                success, msg, new_bal, new_pool = attempt_join()
+
             if not success:
+                if msg == "ROUND_CLOSED":
+                    msg = "🔒 باقي أقل من 15 ثانية على بداية السحب، انتظر الجولة القادمة."
+                elif msg == "ERR_READ":
+                    msg = "⚠️ خطأ في قراءة بيانات الساحة."
                 return False, msg, {}
 
             self._sync_round_state()
@@ -227,6 +247,7 @@ class BigArenaManager:
             return False, "❌ حدث خطأ أثناء إتمام عملية الاشتراك.", {}
 
     def resolve_round(self):
+        """إنهاء الجولة وحساب الفائزين أو استرجاع الأموال بشكل آمن ومباشر"""
         db = _get_db()
         if not db:
             return
@@ -257,13 +278,18 @@ class BigArenaManager:
         participants = round_data.get("participants", [])
         entry_fee = float(cfg.get("entry_fee", 350.0))
 
+        # إلغاء الجولة وإعادة الأموال فوراً ومباشرة لحساب العميل
         if len(participants) < min_players:
             round_data["status"] = "refunded"
             for p_uid in participants:
-                p_ref, _ = get_user_doc_ref(p_uid)
+                p_ref, p_udata = get_user_doc_ref(p_uid)
                 if p_ref:
+                    curr_bal = float((p_udata or {}).get("balance", (p_udata or {}).get("zn_balance", 0.0)))
+                    new_b = round(curr_bal + entry_fee, 2)
                     p_ref.set({
-                        'pending_refund': entry_fee,
+                        'balance': new_b,
+                        'zn_balance': new_b,
+                        'pending_refund': 0.0,
                         'pending_notification': f"تم إلغاء الجولة لعدم كفاية اللاعبين واسترجاع {entry_fee} ZN 💰"
                     }, merge=True)
         else:
