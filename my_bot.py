@@ -16,6 +16,7 @@ if not WEB_URL.startswith('http'):
 
 if not BOT_TOKEN:
     print("❌ خطأ حرج: لم يتم العثور على BOT_TOKEN في متغيرات البيئة!")
+    raise ValueError("BOT_TOKEN is required to run the bot.")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -23,7 +24,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 try:
     database.initialize_firebase()
 except Exception as e:
-    print(f"⚠️ تنبيه Firebase: {e}")
+    print(f"⚠️ تنبيه Firebase أثناء تشغيل البوت: {e}")
 
 # ==========================================
 # 2. معالج أمر /start
@@ -54,8 +55,8 @@ def start_command(message):
             if raw_ref.isdigit() and raw_ref != tg_id:
                 ref_id = raw_ref
             
-        # إنشاء أو تحديث المستخدم في قاعدة البيانات
-        is_new = database.init_user(tg_id, ref_id, raw_first_name)
+        # إنشاء أو تحديث المستخدم في قاعدة البيانات بأسماء الحقول الصريحة
+        is_new = database.init_user(tg_id, ref_id=ref_id, first_name=raw_first_name)
         
         # إرسال إشعار جذاب وآمن للداعي
         if is_new and ref_id:
@@ -70,7 +71,7 @@ def start_command(message):
                     parse_mode='HTML'
                 )
             except Exception as e:
-                print(f"⚠️ تعذر إرسال الإشعار للمحيل: {e}")
+                print(f"⚠️ تعذر إرسال الإشعار للمحيل ({ref_id}): {e}")
         
         # تجهيز رابط الـ Mini App
         web_app_url = f"{WEB_URL}?tg_id={tg_id}"
@@ -86,7 +87,7 @@ def start_command(message):
         markup.row(btn_game)
         markup.row(btn_channel, btn_help)
         
-        # رسالة التترحيب المشوقة والأنيقة
+        # رسالة الترحيب المشوقة والأنيقة
         welcome_message = (
             f"⚡ <b>أهلاً بك يا {first_name} في عالم ZN Goxe الرقمي!</b> ⚡\n\n"
             f"استعد لخوض تجربة تفاعلية فريدة تجمع بين التسلية، التحدي، وجمع المكافآت! 🏆\n\n"
@@ -111,6 +112,9 @@ def start_command(message):
 @bot.callback_query_handler(func=lambda call: call.data == "how_to_play")
 def how_to_play_callback(call):
     try:
+        # إعطاء استجابة فورية لتليجرام لإلغاء مؤشر التحميل على الزر
+        bot.answer_callback_query(call.id)
+        
         help_text = (
             "📖 <b>دليل البدء السريع - ZN Goxe:</b>\n\n"
             "1️⃣ اضغط على زر <b>(انطلق للعب)</b> لفتح التطبيق.\n"
@@ -119,7 +123,6 @@ def how_to_play_callback(call):
             "4️⃣ شارك رابطك مع أصدقائك لتحصل على <b>10%</b> بونص إضافي دائماً!\n\n"
             "💡 <i>كلما زاد نشاطك داخل التطبيق، زادت رتبتك وجوائزك!</i>"
         )
-        bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, help_text, parse_mode="HTML")
     except Exception as e:
         print(f"❌ خطأ في callback: {e}")
