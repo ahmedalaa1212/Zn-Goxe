@@ -5,28 +5,32 @@
         border-radius: 20px;
         padding: 20px 15px;
         color: #ffffff;
-        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.6);
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7);
         max-width: 480px;
         margin: 0 auto;
         font-family: inherit;
         box-sizing: border-box;
+        position: relative;
+        overflow: hidden;
     }
 
     .goxe-header {
         text-align: center;
         margin-bottom: 15px;
+        position: relative;
     }
 
     .goxe-title {
-        font-size: 22px;
-        font-weight: 800;
+        font-size: 24px;
+        font-weight: 900;
         color: #00f2fe;
-        text-shadow: 0 0 10px rgba(0, 242, 254, 0.5);
+        text-shadow: 0 0 12px rgba(0, 242, 254, 0.6);
         margin: 0;
         display: flex;
         align-items: center;
         justify-content: center;
         gap: 8px;
+        letter-spacing: 0.5px;
     }
 
     .goxe-subtitle {
@@ -39,34 +43,49 @@
     .goxe-tower {
         display: flex;
         flex-direction: column-reverse;
-        gap: 8px;
+        gap: 10px;
         margin: 15px 0;
-        max-height: 380px;
+        max-height: 400px;
         min-height: 280px;
         overflow-y: auto;
-        padding-right: 4px;
+        padding: 6px 4px;
+        perspective: 1000px;
+    }
+
+    /* تأثير اهتزاز البرج عند الانفجار */
+    .goxe-tower.shake-tower {
+        animation: towerShake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+    }
+
+    @keyframes towerShake {
+        10%, 90% { transform: translate3d(-2px, 0, 0); }
+        20%, 80% { transform: translate3d(4px, 0, 0); }
+        30%, 50%, 70% { transform: translate3d(-6px, 0, 0); }
+        40%, 60% { transform: translate3d(6px, 0, 0); }
     }
 
     .tower-floor {
-        background: rgba(22, 27, 34, 0.8);
+        background: rgba(22, 27, 34, 0.85);
         border: 1px solid #21262d;
-        border-radius: 12px;
+        border-radius: 14px;
         padding: 8px 12px;
         display: flex;
         align-items: center;
         justify-content: space-between;
         transition: all 0.3s ease;
+        backdrop-filter: blur(5px);
     }
 
     .tower-floor.active-floor {
         border-color: #00f2fe;
-        background: rgba(0, 242, 254, 0.1);
-        box-shadow: 0 0 12px rgba(0, 242, 254, 0.3);
+        background: rgba(0, 242, 254, 0.12);
+        box-shadow: 0 0 15px rgba(0, 242, 254, 0.35);
+        transform: scale(1.02);
     }
 
     .tower-floor.passed-floor {
         border-color: #238636;
-        background: rgba(35, 134, 54, 0.15);
+        background: rgba(35, 134, 54, 0.18);
     }
 
     .floor-info {
@@ -80,7 +99,7 @@
     .floor-badge {
         background: #21262d;
         color: #8b949e;
-        padding: 2px 8px;
+        padding: 3px 8px;
         border-radius: 6px;
         font-size: 11px;
     }
@@ -88,33 +107,43 @@
     .active-floor .floor-badge {
         background: #00f2fe;
         color: #0d1117;
+        font-weight: 800;
     }
 
     .floor-multiplier {
         color: #f1e05a;
         font-weight: 800;
         font-size: 14px;
+        text-shadow: 0 0 8px rgba(241, 224, 90, 0.3);
     }
 
-    /* أبواب الدور */
+    /* الأبواب وتأثيرات 3D */
     .floor-doors {
         display: flex;
-        gap: 6px;
+        gap: 8px;
+    }
+
+    .door-wrapper {
+        perspective: 600px;
+        width: 42px;
+        height: 40px;
     }
 
     .door-btn {
+        width: 100%;
+        height: 100%;
         background: #21262d;
         border: 1px solid #30363d;
         color: #ffffff;
-        width: 38px;
-        height: 36px;
-        border-radius: 8px;
+        border-radius: 10px;
         cursor: pointer;
-        font-size: 14px;
+        font-size: 16px;
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: transform 0.1s, background 0.2s;
+        transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), background 0.3s, border-color 0.3s, box-shadow 0.3s;
+        transform-style: preserve-3d;
+        user-select: none;
     }
 
     .door-btn:disabled {
@@ -122,28 +151,71 @@
         cursor: not-allowed;
     }
 
-    .door-btn:not(:disabled):active {
+    .active-floor .door-btn:not(:disabled) {
+        border-color: #00f2fe;
+        background: rgba(0, 242, 254, 0.2);
+        box-shadow: 0 0 8px rgba(0, 242, 254, 0.2);
+    }
+
+    .active-floor .door-btn:not(:disabled):hover {
+        transform: scale(1.08) translateY(-2px);
+        background: rgba(0, 242, 254, 0.35);
+        box-shadow: 0 0 12px rgba(0, 242, 254, 0.5);
+    }
+
+    .active-floor .door-btn:not(:disabled):active {
         transform: scale(0.92);
     }
 
-    .active-floor .door-btn {
-        border-color: #00f2fe;
-        background: rgba(0, 242, 254, 0.2);
+    /* أنيميشن كشف الأبواب */
+    .door-btn.door-opening {
+        animation: flipDoor 0.4s forwards;
     }
 
-    /* لوحة التحكم وشبكة اختيار سعر الاشتراك */
+    .door-btn.door-safe {
+        background: linear-gradient(135deg, #2ea043, #238636) !important;
+        border-color: #3fb950 !important;
+        box-shadow: 0 0 15px rgba(63, 185, 80, 0.6) !important;
+        animation: safeGlow 0.5s ease-in-out alternate infinite;
+    }
+
+    .door-btn.door-bomb {
+        background: linear-gradient(135deg, #da3633, #b62324) !important;
+        border-color: #f85149 !important;
+        box-shadow: 0 0 18px rgba(248, 81, 73, 0.8) !important;
+        animation: bombPulse 0.3s ease-in-out 2;
+    }
+
+    @keyframes flipDoor {
+        0% { transform: rotateY(0deg); }
+        50% { transform: rotateY(90deg); scale: 1.1; }
+        100% { transform: rotateY(0deg); }
+    }
+
+    @keyframes safeGlow {
+        from { box-shadow: 0 0 8px rgba(63, 185, 80, 0.4); }
+        to { box-shadow: 0 0 18px rgba(63, 185, 80, 0.9); }
+    }
+
+    @keyframes bombPulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.2); }
+        100% { transform: scale(1); }
+    }
+
+    /* لوحة التحكم والاشتراك */
     .goxe-controls {
         background: #161b22;
         border: 1px solid #30363d;
-        border-radius: 14px;
-        padding: 14px;
+        border-radius: 16px;
+        padding: 16px;
         margin-top: 15px;
     }
 
     .bet-label {
         font-size: 12px;
         color: #8b949e;
-        margin-bottom: 8px;
+        margin-bottom: 10px;
         text-align: right;
         font-weight: bold;
     }
@@ -152,15 +224,15 @@
         display: grid;
         grid-template-columns: repeat(3, 1fr);
         gap: 8px;
-        margin-bottom: 12px;
+        margin-bottom: 14px;
     }
 
     .bet-chip {
         background: #21262d;
         border: 1px solid #30363d;
         color: #c9d1d9;
-        padding: 10px 4px;
-        border-radius: 10px;
+        padding: 12px 4px;
+        border-radius: 12px;
         font-size: 13px;
         font-weight: bold;
         cursor: pointer;
@@ -171,40 +243,52 @@
 
     .bet-chip:hover {
         border-color: #58a6ff;
+        transform: translateY(-1px);
     }
 
     .bet-chip.selected {
         background: rgba(0, 242, 254, 0.15);
         border-color: #00f2fe;
         color: #00f2fe;
-        box-shadow: 0 0 10px rgba(0, 242, 254, 0.3);
+        box-shadow: 0 0 12px rgba(0, 242, 254, 0.35);
     }
 
     .action-btn {
         width: 100%;
-        padding: 14px;
+        padding: 15px;
         border-radius: 12px;
         border: none;
-        font-size: 15px;
+        font-size: 16px;
         font-weight: 800;
         cursor: pointer;
-        transition: all 0.2s;
+        transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         display: flex;
         align-items: center;
         justify-content: center;
         gap: 8px;
+        user-select: none;
     }
 
     .start-btn {
         background: linear-gradient(135deg, #00f2fe, #4facfe);
         color: #0d1117;
-        box-shadow: 0 4px 15px rgba(0, 242, 254, 0.3);
+        box-shadow: 0 4px 18px rgba(0, 242, 254, 0.35);
+    }
+
+    .start-btn:not(:disabled):hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 22px rgba(0, 242, 254, 0.5);
     }
 
     .cashout-btn {
         background: linear-gradient(135deg, #2ea043, #238636);
         color: #ffffff;
-        box-shadow: 0 4px 15px rgba(46, 160, 67, 0.4);
+        box-shadow: 0 4px 18px rgba(46, 160, 67, 0.45);
+    }
+
+    .cashout-btn:not(:disabled):hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 22px rgba(46, 160, 67, 0.6);
     }
 
     .action-btn:disabled {
@@ -212,6 +296,7 @@
         color: #8b949e;
         box-shadow: none;
         cursor: not-allowed;
+        transform: none !important;
     }
 </style>
 
@@ -230,7 +315,7 @@
     <div class="goxe-controls">
         <div id="goxe-bet-section">
             <div class="bet-label">اختر مبلغ الاشتراك في الجولة:</div>
-            <div class="bet-grid">
+            <div id="goxe-bet-grid" class="bet-grid">
                 <div class="bet-chip" data-amount="10" onclick="selectGoxeBet(10)">10 ZN</div>
                 <div class="bet-chip" data-amount="50" onclick="selectGoxeBet(50)">50 ZN</div>
                 <div class="bet-chip selected" data-amount="100" id="default-bet-chip" onclick="selectGoxeBet(100)">100 ZN</div>
