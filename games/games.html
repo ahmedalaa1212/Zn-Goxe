@@ -1,247 +1,245 @@
 <style>
-    .goxe-container {
-        background: radial-gradient(circle at top, #1a2332 0%, #0d1117 100%);
-        border: 1px solid #30363d;
-        border-radius: 20px;
-        padding: 20px 15px;
-        color: #ffffff;
-        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.6);
-        max-width: 480px;
-        margin: 0 auto;
-        font-family: inherit;
+    .games-menu-container {
+        width: 100%;
+        padding: 15px;
         box-sizing: border-box;
-    }
-
-    .goxe-header {
-        text-align: center;
-        margin-bottom: 15px;
-    }
-
-    .goxe-title {
-        font-size: 22px;
-        font-weight: 800;
-        color: #00f2fe;
-        text-shadow: 0 0 10px rgba(0, 242, 254, 0.5);
-        margin: 0;
         display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
+        flex-direction: column;
+        gap: 15px;
     }
 
-    .goxe-subtitle {
-        font-size: 12px;
-        color: #8b949e;
-        margin-top: 4px;
-    }
-
-    /* برج الأدوار */
-    .goxe-tower {
-        display: flex;
-        flex-direction: column-reverse;
-        gap: 8px;
-        margin: 15px 0;
-        max-height: 380px;
-        min-height: 280px;
-        overflow-y: auto;
-        padding-right: 4px;
-    }
-
-    .tower-floor {
-        background: rgba(22, 27, 34, 0.8);
-        border: 1px solid #21262d;
-        border-radius: 12px;
-        padding: 8px 12px;
+    /* كارت عرض الرصيد الرئيسي العلوي */
+    .games-balance-card {
+        background: linear-gradient(135deg, rgba(22, 27, 34, 0.95), rgba(13, 17, 23, 0.95));
+        border: 1px solid #30363d;
+        border-radius: 16px;
+        padding: 16px 20px;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(8px);
     }
 
-    .tower-floor.active-floor {
-        border-color: #00f2fe;
-        background: rgba(0, 242, 254, 0.1);
-        box-shadow: 0 0 12px rgba(0, 242, 254, 0.3);
-    }
-
-    .tower-floor.passed-floor {
-        border-color: #238636;
-        background: rgba(35, 134, 54, 0.15);
-    }
-
-    .floor-info {
+    .games-balance-info {
         display: flex;
         align-items: center;
-        gap: 8px;
-        font-size: 13px;
-        font-weight: bold;
+        gap: 10px;
     }
 
-    .floor-badge {
-        background: #21262d;
-        color: #8b949e;
-        padding: 2px 8px;
-        border-radius: 6px;
-        font-size: 11px;
-    }
-
-    .active-floor .floor-badge {
-        background: #00f2fe;
-        color: #0d1117;
-    }
-
-    .floor-multiplier {
+    .games-balance-info i {
+        font-size: 22px;
         color: #f1e05a;
-        font-weight: 800;
-        font-size: 14px;
+        filter: drop-shadow(0 0 6px rgba(241, 224, 90, 0.4));
     }
 
-    /* أبواب الدور */
-    .floor-doors {
-        display: flex;
-        gap: 6px;
+    .games-balance-info span {
+        color: #8b949e;
+        font-size: 14px;
+        font-weight: 600;
     }
 
-    .door-btn {
-        background: #21262d;
-        border: 1px solid #30363d;
-        color: #ffffff;
-        width: 38px;
-        height: 36px;
-        border-radius: 8px;
-        cursor: pointer;
-        font-size: 14px;
+    .games-balance-amount {
         display: flex;
         align-items: center;
-        justify-content: center;
-        transition: transform 0.1s, background 0.2s;
+        gap: 6px;
+        font-size: 22px;
+        font-weight: 800;
+        color: #ffffff;
+        font-family: inherit;
     }
 
-    .door-btn:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
+    /* شبكة العرض للألعاب السبع */
+    .games-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        width: 100%;
     }
 
-    .door-btn:not(:disabled):active {
-        transform: scale(0.92);
-    }
-
-    .active-floor .door-btn {
-        border-color: #00f2fe;
-        background: rgba(0, 242, 254, 0.2);
-    }
-
-    /* لوحة التحكم وشبكة اختيار سعر الاشتراك */
-    .goxe-controls {
+    .game-card {
         background: #161b22;
         border: 1px solid #30363d;
         border-radius: 14px;
-        padding: 14px;
-        margin-top: 15px;
-    }
-
-    .bet-label {
-        font-size: 12px;
-        color: #8b949e;
-        margin-bottom: 8px;
-        text-align: right;
-        font-weight: bold;
-    }
-
-    .bet-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 8px;
-        margin-bottom: 12px;
-    }
-
-    .bet-chip {
-        background: #21262d;
-        border: 1px solid #30363d;
-        color: #c9d1d9;
-        padding: 10px 4px;
-        border-radius: 10px;
-        font-size: 13px;
-        font-weight: bold;
-        cursor: pointer;
+        padding: 22px 10px;
         text-align: center;
-        transition: all 0.2s ease;
-        user-select: none;
-    }
-
-    .bet-chip:hover {
-        border-color: #58a6ff;
-    }
-
-    .bet-chip.selected {
-        background: rgba(0, 242, 254, 0.15);
-        border-color: #00f2fe;
-        color: #00f2fe;
-        box-shadow: 0 0 10px rgba(0, 242, 254, 0.3);
-    }
-
-    .action-btn {
-        width: 100%;
-        padding: 14px;
-        border-radius: 12px;
-        border: none;
-        font-size: 15px;
-        font-weight: 800;
         cursor: pointer;
-        transition: all 0.2s;
+        transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .game-card:active {
+        transform: scale(0.96);
+        border-color: #238636;
+    }
+
+    .game-card i {
+        font-size: 34px;
+        color: #3fb950;
+        margin-bottom: 10px;
+        display: block;
+    }
+
+    .game-card h3 {
+        color: #ffffff;
+        margin: 0;
+        font-size: 15px;
+        font-weight: 700;
+    }
+
+    .coming-soon-badge {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        background: rgba(241, 224, 90, 0.15);
+        color: #f1e05a;
+        border: 1px solid rgba(241, 224, 90, 0.3);
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 8px;
+        font-weight: bold;
+    }
+
+    /* واجهة اللعبة المفتوحة كاملة */
+    .subgame-screen {
+        position: relative;
+        width: 100%;
+        min-height: 80vh;
+        padding: 10px 0;
+    }
+
+    .subgame-header-bar {
         display: flex;
         align-items: center;
-        justify-content: center;
-        gap: 8px;
+        justify-content: space-between;
+        margin-bottom: 15px;
+        padding: 0 5px;
     }
 
-    .start-btn {
-        background: linear-gradient(135deg, #00f2fe, #4facfe);
-        color: #0d1117;
-        box-shadow: 0 4px 15px rgba(0, 242, 254, 0.3);
-    }
-
-    .cashout-btn {
-        background: linear-gradient(135deg, #2ea043, #238636);
-        color: #ffffff;
-        box-shadow: 0 4px 15px rgba(46, 160, 67, 0.4);
-    }
-
-    .action-btn:disabled {
+    .back-btn {
         background: #21262d;
-        color: #8b949e;
-        box-shadow: none;
-        cursor: not-allowed;
+        color: #58a6ff;
+        border: 1px solid #30363d;
+        padding: 8px 16px;
+        border-radius: 20px;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: bold;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        transition: background 0.2s;
+    }
+
+    .back-btn:active {
+        background: #30363d;
+    }
+
+    .subgame-balance-badge {
+        background: rgba(22, 27, 34, 0.9);
+        border: 1px solid #30363d;
+        padding: 6px 14px;
+        border-radius: 20px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #ffffff;
+        font-weight: bold;
+        font-size: 14px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+
+    .subgame-balance-badge i {
+        color: #f1e05a;
     }
 </style>
 
-<div class="goxe-container">
-    <div class="goxe-header">
-        <h2 class="goxe-title"><i class="fas fa-building"></i> برج النيون - Goxe</h2>
-        <div class="goxe-subtitle">تسلق الأدوار، تفادى القنابل، واكتسح المضاعف!</div>
+<!-- القائمة الرئيسية للألعاب -->
+<div id="games-main-menu" class="games-menu-container">
+
+    <!-- كارت الرصيد الرئيسي العلوي الثابت -->
+    <div class="games-balance-card">
+        <div class="games-balance-info">
+            <i class="fas fa-coins"></i>
+            <span>الرصيد الحالي</span>
+        </div>
+        <div class="games-balance-amount">
+            <span class="user-balance-val">0</span>
+            <span class="currency-icon">🪙</span>
+        </div>
     </div>
 
-    <!-- برج الأدوار العشرة -->
-    <div id="goxe-tower" class="goxe-tower">
-        <!-- يتم رسم الأدوار فوراً بالجافاسكريبت -->
-    </div>
-
-    <!-- لوحة التحكم واختيار الاشتراك -->
-    <div class="goxe-controls">
-        <div id="goxe-bet-section">
-            <div class="bet-label">اختر مبلغ الاشتراك في الجولة:</div>
-            <div class="bet-grid">
-                <div class="bet-chip" data-amount="10" onclick="selectGoxeBet(10)">10 ZN</div>
-                <div class="bet-chip" data-amount="50" onclick="selectGoxeBet(50)">50 ZN</div>
-                <div class="bet-chip selected" data-amount="100" id="default-bet-chip" onclick="selectGoxeBet(100)">100 ZN</div>
-                <div class="bet-chip" data-amount="200" onclick="selectGoxeBet(200)">200 ZN</div>
-                <div class="bet-chip" data-amount="500" onclick="selectGoxeBet(500)">500 ZN</div>
-                <div class="bet-chip" data-amount="1000" onclick="selectGoxeBet(1000)">1000 ZN</div>
-            </div>
+    <!-- شبكة الألعاب السبع -->
+    <div class="games-grid">
+        
+        <!-- اللعبة 1: Goxe (مفعلة) -->
+        <div class="game-card" onclick="loadSubGame('goxe', 'goxe')">
+            <i class="fas fa-cubes"></i>
+            <h3>لعبة Goxe</h3>
         </div>
 
-        <button id="goxe-main-btn" class="action-btn start-btn" onclick="handleGoxeMainAction()">
-            🚀 بدء التسلق (100 ZN)
-        </button>
+        <!-- اللعبة 2: fogo -->
+        <div class="game-card" onclick="loadSubGame('fogo', 'fogo')">
+            <span class="coming-soon-badge">قريباً</span>
+            <i class="fas fa-fire" style="color: #ff5722;"></i>
+            <h3>لعبة fogo</h3>
+        </div>
+
+        <!-- اللعبة 3: hitob -->
+        <div class="game-card" onclick="loadSubGame('hitob', 'hitob')">
+            <span class="coming-soon-badge">قريباً</span>
+            <i class="fas fa-crosshairs" style="color: #e91e63;"></i>
+            <h3>لعبة hitob</h3>
+        </div>
+
+        <!-- اللعبة 4: wex -->
+        <div class="game-card" onclick="loadSubGame('wex', 'wex')">
+            <span class="coming-soon-badge">قريباً</span>
+            <i class="fas fa-bolt" style="color: #00bcd4;"></i>
+            <h3>لعبة wex</h3>
+        </div>
+
+        <!-- اللعبة 5: vover -->
+        <div class="game-card" onclick="loadSubGame('vover', 'vover')">
+            <span class="coming-soon-badge">قريباً</span>
+            <i class="fas fa-shield-halved" style="color: #9c27b0;"></i>
+            <h3>لعبة vover</h3>
+        </div>
+
+        <!-- اللعبة 6: znzn -->
+        <div class="game-card" onclick="loadSubGame('znzn', 'znzn')">
+            <span class="coming-soon-badge">قريباً</span>
+            <i class="fas fa-atom" style="color: #4caf50;"></i>
+            <h3>لعبة znzn</h3>
+        </div>
+
+        <!-- اللعبة 7: Blxe -->
+        <div class="game-card" onclick="loadSubGame('blxe', 'blxe')">
+            <span class="coming-soon-badge">قريباً</span>
+            <i class="fas fa-gem" style="color: #ffeb3b;"></i>
+            <h3>لعبة Blxe</h3>
+        </div>
+
     </div>
 </div>
+
+<!-- الشاشة الشاملة للعبة المفتوحة -->
+<div id="subgame-screen" class="subgame-screen" style="display: none;">
+    <div class="subgame-header-bar">
+        <button class="back-btn" onclick="closeSubGame()">
+            <i class="fas fa-arrow-right"></i> العودة للألعاب
+        </button>
+
+        <div class="subgame-balance-badge">
+            <i class="fas fa-coins"></i>
+            <span class="user-balance-val">0</span>
+            <span>🪙</span>
+        </div>
+    </div>
+
+    <div id="subgame-holder"></div>
+</div>
+
+<script src="games/games.js?v=2.0"></script>
