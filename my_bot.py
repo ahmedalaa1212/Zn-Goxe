@@ -1,5 +1,6 @@
 import os
 import html
+import traceback
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 import database
@@ -32,6 +33,9 @@ except Exception as e:
 @bot.message_handler(commands=['start'])
 def start_command(message):
     try:
+        # رسالة في الكونسول عشان تتأكد إن البوت استقبل الأمر وميهنجش في صمت
+        print(f"✅ تم استلام أمر /start من المستخدم: {message.from_user.id}")
+        
         tg_id = str(message.from_user.id)
         raw_first_name = message.from_user.first_name or "صديقي"
         
@@ -109,6 +113,7 @@ def start_command(message):
 
     except Exception as e:
         print(f"❌ خطأ حرج في معالج start: {e}")
+        traceback.print_exc() # طباعة الخطأ بالكامل في الكونسول لتسهيل حله
         # إرسال رد طوارئ للمستخدم حتى لا يظل البوت صامتاً
         try:
             bot.send_message(
@@ -138,6 +143,7 @@ def how_to_play_callback(call):
         bot.send_message(call.message.chat.id, help_text, parse_mode="HTML")
     except Exception as e:
         print(f"❌ خطأ في callback: {e}")
+        traceback.print_exc()
 
 # ==========================================
 # 4. معالج كافة الرسائل العادية (Fallback)
@@ -160,6 +166,7 @@ def default_message_handler(message):
         )
     except Exception as e:
         print(f"❌ خطأ في المعالج العام: {e}")
+        traceback.print_exc()
 
 # ==========================================
 # 5. تشغيل البوت والحماية من السقوط
@@ -171,4 +178,5 @@ if __name__ == '__main__':
         pass
         
     print("🤖 ZN Goxe Bot is online and running safely...")
-    bot.infinity_polling(timeout=20, long_polling_timeout=10)
+    # إضافة skip_pending=True لتجاهل الأوامر المتراكمة اللي بتخلي البوت يعلق
+    bot.infinity_polling(timeout=20, long_polling_timeout=10, skip_pending=True)
