@@ -8,6 +8,36 @@
         maxBet: 10000
     };
 
+    // دالة تحديث الرصيد اللحظي في جميع عناصر الواجهة
+    function updateGlobalBalance(newBal) {
+        if (newBal === undefined || newBal === null) return;
+        const balNum = parseFloat(newBal);
+        if (isNaN(balNum)) return;
+
+        // 1. تحديث الكائن العام في الذاكرة
+        if (!window.userState) window.userState = {};
+        window.userState.balance = balNum;
+
+        // 2. تحديث عناصر الرصيد الشائعة في الصفحة
+        const balIds = ['user-balance', 'balance', 'user-coins', 'user-balance-val', 'header-balance'];
+        balIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.innerText = balNum.toFixed(2);
+        });
+
+        const balClasses = document.querySelectorAll('.user-balance');
+        balClasses.forEach(el => {
+            el.innerText = balNum.toFixed(2);
+        });
+
+        // 3. استدعاء دوال التحديث المباشرة إن وجدت في التطبيق
+        if (typeof window.updateUserBalance === 'function') {
+            window.updateUserBalance(balNum);
+        } else if (typeof window.updateBalance === 'function') {
+            window.updateBalance(balNum);
+        }
+    }
+
     // دالة طلب آمنة لمنع أخطاء Unexpected token '<'
     async function safeFetch(endpoint, method = 'POST', bodyData = null) {
         try {
@@ -75,6 +105,10 @@
                 goxeState.minBet = data.min_bet || 10;
                 goxeState.maxBet = data.max_bet || 10000;
                 
+                if (data.current_balance !== undefined) {
+                    updateGlobalBalance(data.current_balance);
+                }
+
                 renderTower();
 
                 if (data.active_session) {
@@ -176,6 +210,12 @@
                 if (data && data.success) {
                     goxeState.isPlaying = true;
                     goxeState.currentFloor = 0;
+                    
+                    // تحديث الرصيد فوراً في الواجهة بعد الخصم
+                    if (data.new_balance !== undefined) {
+                        updateGlobalBalance(data.new_balance);
+                    }
+                    
                     updateUIState();
                 } else {
                     alert(data?.error || data?.message || "حدث خطأ أثناء بدء الجولة");
@@ -190,6 +230,12 @@
 
                 if (data && data.success) {
                     const winVal = parseFloat(data.winnings || 0).toFixed(2);
+                    
+                    // تحديث الرصيد فوراً في الواجهة بعد إضافة الأرباح
+                    if (data.new_balance !== undefined) {
+                        updateGlobalBalance(data.new_balance);
+                    }
+
                     alert(`🎉 مبروك! تم سحب ${winVal} ZN بنجاح!`);
                     goxeState.isPlaying = false;
                     goxeState.currentFloor = 0;
@@ -214,10 +260,16 @@
 
             if (data && data.success) {
                 if (data.result === 'bomb') {
+                    if (data.current_balance !== undefined) {
+                        updateGlobalBalance(data.current_balance);
+                    }
                     alert(data.message || "💥 للأسف! كانت قنبلة وخسرت الجولة.");
                     goxeState.isPlaying = false;
                     goxeState.currentFloor = 0;
                 } else if (data.result === 'max_win') {
+                    if (data.new_balance !== undefined) {
+                        updateGlobalBalance(data.new_balance);
+                    }
                     alert(data.message || "🎉 مبروك! تم تحقيق أقصى مضاعف وسحب الأرباح تلقائياً!");
                     goxeState.isPlaying = false;
                     goxeState.currentFloor = 0;
