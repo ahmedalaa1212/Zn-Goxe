@@ -468,7 +468,7 @@ function applyBalanceToUI(val) {
     const selectors = '[data-bind="balance"], .user-balance, #farm-balance, #user-balance, #main-balance, #balance, .sync-balance, #top-balance-tasks, .user-balance-val, [data-bind="user_balance"]';
     
     document.querySelectorAll(selectors).forEach(el => {
-        if (el.id === 'shop-balance-text') return;
+        if (el.id === 'shop-balance-text' || el.id === 'top-balance-games') return;
 
         if (el.tagName === 'INPUT') {
             el.value = rawFormatted;
@@ -532,20 +532,35 @@ window.switchView = async function(viewName) {
 
     document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
     
-    const targetView = document.getElementById(`view-${viewName}`);
+    let targetView = document.getElementById(`view-${viewName}`);
+    if (!targetView && (viewName === 'games' || viewName === 'game')) {
+        targetView = document.getElementById('view-games') || document.getElementById('view-game');
+    }
+    
     if (!targetView) return;
     
     targetView.classList.add('active');
 
-    // كسر الكاش وإعادة التحميل لضمان إحضار الملفات الجديدة من السيرفر
     if (!loadedModules.has(viewName)) {
         try {
             const cacheBuster = `?v=${Date.now()}`;
             const res = await fetch(`${viewName}/${viewName}.html${cacheBuster}`);
             if (res.ok) {
                 const htmlContent = await res.text();
-                targetView.innerHTML = htmlContent;
-                await loadModuleScript(`${viewName}/${viewName}.js${cacheBuster}`);
+                
+                // ⚡ هذا الفحص هيمنع ظهور التداخل "الحاجات البايظة" لو ملف الألعاب محذوف!
+                if (htmlContent.includes('<title>Zn Goxe - Crypto Mining</title>') || htmlContent.includes('id="global-toast-container"')) {
+                    targetView.innerHTML = `
+                        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; color: #fff; padding: 20px; text-align: center;">
+                            <i class="fas fa-gamepad" style="font-size: 4rem; color: #3fb950; margin-bottom: 15px;"></i>
+                            <h2>قريباً...</h2>
+                            <p style="color: #8b949e; margin-top: 10px;">يتم الآن تجهيز الألعاب، ترقبوا التحديث القادم!</p>
+                        </div>
+                    `;
+                } else {
+                    targetView.innerHTML = htmlContent;
+                    await loadModuleScript(`${viewName}/${viewName}.js${cacheBuster}`);
+                }
                 loadedModules.add(viewName);
             } else {
                 console.error(`⚠️ فشل جلب ملف ${viewName}/${viewName}.html! كود الاستجابة: ${res.status}`);
@@ -561,6 +576,10 @@ window.switchView = async function(viewName) {
 
     if (viewName === 'shop' && typeof window.updateShopUI === 'function') {
         window.updateShopUI();
+    }
+
+    if ((viewName === 'games' || viewName === 'game') && typeof window.onGamesTabOpen === 'function') {
+        window.onGamesTabOpen();
     }
 
     const initFuncName = `init${viewName.charAt(0).toUpperCase() + viewName.slice(1)}View`;
