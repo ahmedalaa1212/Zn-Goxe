@@ -38,8 +38,9 @@ app.register_blueprint(admin_chat_bp, url_prefix='/api/admin-chat')
 try:
     from games.games_api import games_bp
     app.register_blueprint(games_bp)
-except ImportError:
-    print("⚠️ مجلد الألعاب غير موجود حالياً، تم تخطيه ولن يتم إيقاف السيرفر.")
+    print("✅ تم تسجيل موديول الألعاب الرئيسي (games_bp) بنجاح!")
+except ImportError as e:
+    print(f"⚠️ مجلد الألعاب غير موجود حالياً، تم تخطيه ولن يتم إيقاف السيرفر: {e}")
 
 # ==========================================
 # المسارات المباشرة والخدمية للمستخدم
