@@ -531,18 +531,25 @@ window.switchView = async function(viewName) {
     if (targetNav) targetNav.classList.add('active');
 
     document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
-    const targetView = document.getElementById(`view-${viewName}`);
+    
+    // مراعاة التسميات المتعددة لتحديد واجهة الألعاب (games أو game)
+    let targetView = document.getElementById(`view-${viewName}`);
+    if (!targetView && (viewName === 'games' || viewName === 'game')) {
+        targetView = document.getElementById('view-games') || document.getElementById('view-game');
+    }
+    
     if (!targetView) return;
     
     targetView.classList.add('active');
 
     if (!loadedModules.has(viewName)) {
         try {
-            const res = await fetch(`${viewName}/${viewName}.html`);
+            const cacheBuster = `?v=${Date.now()}`;
+            const res = await fetch(`${viewName}/${viewName}.html${cacheBuster}`);
             if (res.ok) {
                 const htmlContent = await res.text();
                 targetView.innerHTML = htmlContent;
-                await loadModuleScript(`${viewName}/${viewName}.js`);
+                await loadModuleScript(`${viewName}/${viewName}.js${cacheBuster}`);
                 loadedModules.add(viewName);
             }
         } catch (err) {
@@ -558,6 +565,10 @@ window.switchView = async function(viewName) {
         window.updateShopUI();
     }
 
+    if ((viewName === 'games' || viewName === 'game') && typeof window.onGamesTabOpen === 'function') {
+        window.onGamesTabOpen();
+    }
+
     const initFuncName = `init${viewName.charAt(0).toUpperCase() + viewName.slice(1)}View`;
     if (typeof window[initFuncName] === 'function') {
         window[initFuncName]();
@@ -568,10 +579,14 @@ window.switchView = async function(viewName) {
 
 function loadModuleScript(scriptUrl) {
     return new Promise((resolve) => {
-        if (document.querySelector(`script[src="${scriptUrl}"]`)) {
+        const cleanUrl = scriptUrl.split('?')[0];
+        const existingScript = document.querySelector(`script[src*="${cleanUrl}"]`);
+        
+        if (existingScript) {
             resolve();
             return;
         }
+        
         const script = document.createElement('script');
         script.src = scriptUrl;
         script.onload = () => resolve();
