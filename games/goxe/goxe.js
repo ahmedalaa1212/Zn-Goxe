@@ -3,7 +3,7 @@
         multipliers: [1.10, 1.30, 1.50, 1.80, 2.20, 2.70, 3.30, 3.90, 4.40, 5.00],
         currentFloor: 0,
         isPlaying: false,
-        betAmount: 100, // الافتراضي 100
+        betAmount: 100,
         minBet: 10,
         maxBet: 10000
     };
@@ -38,23 +38,18 @@
         }
     }
 
-    // جلب البيانات والإعدادات من السيرفر
-    function loadGoxeConfig() {
-        const initData = window.Telegram?.WebApp?.initData || '';
-        
-        fetch('/api/games/goxe/config', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ initData: initData })
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.success) {
+    // جلب البيانات والإعدادات من السيرفر باستخدام fetchAPI
+    async function loadGoxeConfig() {
+        try {
+            if (typeof window.fetchAPI !== 'function') return;
+            
+            const data = await window.fetchAPI('/api/games/goxe/config', 'POST');
+            if (data && data.success) {
                 if (data.multipliers) goxeState.multipliers = data.multipliers;
                 goxeState.minBet = data.min_bet || 10;
                 goxeState.maxBet = data.max_bet || 10000;
                 
-                renderTower(); // إعادة رسم الأدوار في حال تغيرت المضاعفات من السيرفر
+                renderTower();
 
                 if (data.active_session) {
                     goxeState.isPlaying = true;
@@ -64,29 +59,32 @@
                     updateUIState();
                 }
             }
-        })
-        .catch(err => console.error("خطأ في جلب بيانات Goxe:", err));
+        } catch (err) {
+            console.error("خطأ في جلب بيانات Goxe:", err);
+            renderTower();
+        }
     }
 
-    // تحديد مبلغ الرهان من القائمة الثابتة
+    // تحديد مبلغ الرهان الدقيق ومنع الخربطة
     window.selectGoxeBet = function(amount) {
         if (goxeState.isPlaying) return;
 
-        goxeState.betAmount = amount;
+        goxeState.betAmount = parseInt(amount);
 
-        // تحديث تنسيق الأزرار
+        // التحديد الدقيق باستخدام data-amount
         const chips = document.querySelectorAll('.bet-chip');
         chips.forEach(chip => {
-            chip.classList.remove('selected');
-            if (chip.textContent.includes(amount.toString())) {
+            const chipVal = parseInt(chip.getAttribute('data-amount'));
+            if (chipVal === goxeState.betAmount) {
                 chip.classList.add('selected');
+            } else {
+                chip.classList.remove('selected');
             }
         });
 
-        // تحديث نص زر التفعيل
         const mainBtn = document.getElementById('goxe-main-btn');
         if (mainBtn && !goxeState.isPlaying) {
-            mainBtn.innerHTML = `🚀 بدء التسلق (${amount} ZN)`;
+            mainBtn.innerHTML = `🚀 بدء التسلق (${goxeState.betAmount} ZN)`;
         }
     };
 
@@ -102,22 +100,19 @@
             const doorBtns = floorDiv.querySelectorAll('.door-btn');
 
             if (i === goxeState.currentFloor + 1 && goxeState.isPlaying) {
-                // الدور النشط
                 floorDiv.className = 'tower-floor active-floor';
                 doorBtns.forEach(btn => btn.disabled = false);
             } else if (i <= goxeState.currentFloor) {
-                // الدور المتخطى
                 floorDiv.className = 'tower-floor passed-floor';
                 doorBtns.forEach(btn => btn.disabled = true);
             } else {
-                // الأدوار القادمة
                 floorDiv.className = 'tower-floor';
                 doorBtns.forEach(btn => btn.disabled = true);
             }
         }
 
         if (goxeState.isPlaying) {
-            betSection.style.display = 'none';
+            if (betSection) betSection.style.display = 'none';
             if (goxeState.currentFloor === 0) {
                 mainBtn.className = 'action-btn start-btn';
                 mainBtn.innerHTML = 'اختر أحد الأبواب في الدور الأول ⬆️';
@@ -130,78 +125,68 @@
                 mainBtn.disabled = false;
             }
         } else {
-            betSection.style.display = 'block';
+            if (betSection) betSection.style.display = 'block';
             mainBtn.className = 'action-btn start-btn';
             mainBtn.innerHTML = `🚀 بدء التسلق (${goxeState.betAmount} ZN)`;
             mainBtn.disabled = false;
         }
     }
 
-    // زر التحكم الرئيسي
-    window.handleGoxeMainAction = function() {
+    // زر التحكم الرئيسي (بدء / انسحاب)
+    window.handleGoxeMainAction = async function() {
         if (!goxeState.isPlaying) {
-            const initData = window.Telegram?.WebApp?.initData || '';
+            // التحقق من الرصيد أولاً
+            const currentBal = parseFloat(window.userState?.balance || 0);
+            if (currentBal < goxeState.betAmount) {
+                alert(`رصيدك غير كافٍ! رصيدك الحالي: ${currentBal.toFixed(2)} ZN`);
+                return;
+            }
 
-            fetch('/api/games/goxe/start', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: initData, bet_amount: goxeState.betAmount })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
+            try {
+                const data = await window.fetchAPI('/api/games/goxe/start', 'POST', {
+                    bet_amount: goxeState.betAmount
+                });
+
+                if (data && data.success) {
                     goxeState.isPlaying = true;
                     goxeState.currentFloor = 0;
                     updateUIState();
-                    if (typeof window.updateGlobalBalanceDisplay === 'function') {
-                        window.updateGlobalBalanceDisplay();
-                    }
                 } else {
-                    alert(data.error || "حدث خطأ أثناء بدء الجولة");
+                    alert(data?.error || data?.message || "حدث خطأ أثناء بدء الجولة");
                 }
-            })
-            .catch(err => console.error("خطأ في بدء الجولة:", err));
+            } catch (err) {
+                alert("تعذر بدء الجولة: " + (err.message || "خطأ في الاتصال بالسيرفر"));
+            }
         } else {
-            // طلب اقتطاع الأرباح
-            const initData = window.Telegram?.WebApp?.initData || '';
+            // اقتطاع الأرباح
+            try {
+                const data = await window.fetchAPI('/api/games/goxe/cashout', 'POST');
 
-            fetch('/api/games/goxe/cashout', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: initData })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    alert(`🎉 مبروك! تم سحب ${data.winnings.toFixed(2)} ZN بنجاح!`);
+                if (data && data.success) {
+                    const winVal = parseFloat(data.winnings || 0).toFixed(2);
+                    alert(`🎉 مبروك! تم سحب ${winVal} ZN بنجاح!`);
                     goxeState.isPlaying = false;
                     goxeState.currentFloor = 0;
                     updateUIState();
-                    if (typeof window.updateGlobalBalanceDisplay === 'function') {
-                        window.updateGlobalBalanceDisplay();
-                    }
                 } else {
-                    alert(data.error || "حدث خطأ أثناء الانسحاب");
+                    alert(data?.error || "حدث خطأ أثناء الانسحاب");
                 }
-            })
-            .catch(err => console.error("خطأ في السحب:", err));
+            } catch (err) {
+                alert("تعذر الانسحاب: " + (err.message || "خطأ في الاتصال"));
+            }
         }
     };
 
     // اختيارات الأبواب
-    window.chooseGoxeDoor = function(floorNum, doorIndex) {
+    window.chooseGoxeDoor = async function(floorNum, doorIndex) {
         if (!goxeState.isPlaying || floorNum !== goxeState.currentFloor + 1) return;
 
-        const initData = window.Telegram?.WebApp?.initData || '';
+        try {
+            const data = await window.fetchAPI('/api/games/goxe/climb', 'POST', {
+                door_index: doorIndex
+            });
 
-        fetch('/api/games/goxe/climb', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ initData: initData, door_index: doorIndex })
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.success) {
+            if (data && data.success) {
                 if (data.result === 'bomb') {
                     alert(data.message || "💥 للأسف! كانت قنبلة وخسرت الجولة.");
                     goxeState.isPlaying = false;
@@ -214,17 +199,15 @@
                     goxeState.currentFloor = data.current_floor;
                 }
                 updateUIState();
-                if (typeof window.updateGlobalBalanceDisplay === 'function') {
-                    window.updateGlobalBalanceDisplay();
-                }
             } else {
-                alert(data.error || "حدث خطأ أثناء الصعود");
+                alert(data?.error || "حدث خطأ أثناء الصعود");
             }
-        })
-        .catch(err => console.error("خطأ في تحديد الباب:", err));
+        } catch (err) {
+            alert("خطأ أثناء الاتصال: " + (err.message || "تعذر اختيار الباب"));
+        }
     };
 
-    // تشغيل الرسم الفوري ثم جلب الإعدادات
+    // تشغيل الرسم الجاهز
     renderTower();
     loadGoxeConfig();
 })();
