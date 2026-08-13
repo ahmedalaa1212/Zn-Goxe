@@ -18,7 +18,6 @@ WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app')
 from farm.farm_api import farm_bp
 from settings.settings_api import settings_bp
 from friends.friends_api import friends_bp
-from games.games_api import games_bp
 from tasks.tasks_api import tasks_bp
 from shop.shop_api import shop_bp
 from wallet.wallet_api import wallet_bp
@@ -29,7 +28,6 @@ from admin_chat.admin_chat_api import admin_chat_bp
 app.register_blueprint(farm_bp, url_prefix='/api/farm')
 app.register_blueprint(settings_bp, url_prefix='/api/settings')
 app.register_blueprint(friends_bp, url_prefix='/api/friends')
-app.register_blueprint(games_bp)  # يحتوي داخل الملف على البادئة المخصصة
 app.register_blueprint(tasks_bp, url_prefix='/api/tasks')
 app.register_blueprint(shop_bp, url_prefix='/api/shop')
 app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
