@@ -468,7 +468,7 @@ function applyBalanceToUI(val) {
     const selectors = '[data-bind="balance"], .user-balance, #farm-balance, #user-balance, #main-balance, #balance, .sync-balance, #top-balance-tasks, .user-balance-val, [data-bind="user_balance"]';
     
     document.querySelectorAll(selectors).forEach(el => {
-        if (el.id === 'shop-balance-text' || el.id === 'top-balance-games') return;
+        if (el.id === 'shop-balance-text') return;
 
         if (el.tagName === 'INPUT') {
             el.value = rawFormatted;
@@ -532,12 +532,7 @@ window.switchView = async function(viewName) {
 
     document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
     
-    // مراعاة التسميات المتعددة لتحديد واجهة الألعاب (games أو game)
-    let targetView = document.getElementById(`view-${viewName}`);
-    if (!targetView && (viewName === 'games' || viewName === 'game')) {
-        targetView = document.getElementById('view-games') || document.getElementById('view-game');
-    }
-    
+    const targetView = document.getElementById(`view-${viewName}`);
     if (!targetView) return;
     
     targetView.classList.add('active');
@@ -566,10 +561,6 @@ window.switchView = async function(viewName) {
 
     if (viewName === 'shop' && typeof window.updateShopUI === 'function') {
         window.updateShopUI();
-    }
-
-    if ((viewName === 'games' || viewName === 'game') && typeof window.onGamesTabOpen === 'function') {
-        window.onGamesTabOpen();
     }
 
     const initFuncName = `init${viewName.charAt(0).toUpperCase() + viewName.slice(1)}View`;
