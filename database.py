@@ -80,6 +80,9 @@ except Exception as e:
 # 4. Games Module
 try:
     from games.games_db import *
+    # تشغيل تهيئة جداول/قواعد بيانات كافة الألعاب عند الإقلاع
+    if 'init_all_games_db' in locals():
+        init_all_games_db()
 except Exception as e:
     print(f"⚠️ خطأ في تحميل games_db: {e}")
 
