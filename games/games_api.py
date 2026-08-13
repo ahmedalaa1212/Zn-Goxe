@@ -1,30 +1,38 @@
-import os
-import sqlite3
+from flask import Blueprint, jsonify
 
-# استيراد دالة إنشاء الجداول لكل لعبة فرعية
-from games.goxe.goxe_db import init_goxe_db
-from games.fogo.fogo_db import init_fogo_db
-from games.hitob.hitob_db import init_hitob_db
-from games.wex.wex_db import init_wex_db
-from games.vover.vover_db import init_vover_db
-from games.znzn.znzn_db import init_znzn_db
-from games.blxe.blxe_db import init_blxe_db
+# استيراد الـ Blueprints الفرعية لكل لعبة
+from games.goxe.goxe_api import goxe_bp
+from games.fogo.fogo_api import fogo_bp
+from games.hitob.hitob_api import hitob_bp
+from games.wex.wex_api import wex_bp
+from games.vover.vover_api import vover_bp
+from games.znzn.znzn_api import znzn_bp
+from games.blxe.blxe_api import blxe_bp
 
-def init_all_games_db():
+# إنشاء الـ Blueprint الرئيسي لقسم الألعاب
+games_bp = Blueprint('games', __name__, url_prefix='/api/games')
+
+# تسجيل الـ Blueprints الفرعية
+games_bp.register_blueprint(goxe_bp)
+games_bp.register_blueprint(fogo_bp)
+games_bp.register_blueprint(hitob_bp)
+games_bp.register_blueprint(wex_bp)
+games_bp.register_blueprint(vover_bp)
+games_bp.register_blueprint(znzn_bp)
+games_bp.register_blueprint(blxe_bp)
+
+@games_bp.route('/list', methods=['GET'])
+def get_games_list():
     """
-    تفعيل وإنشاء جداول كل الألعاب السبعة داخل قاعدة البيانات الرئيسية مرة واحدة.
+    نقطة نهاية ترجع قائمة الألعاب وحالتها المتاحة
     """
-    try:
-        init_goxe_db()
-        init_fogo_db()
-        init_hitob_db()
-        init_wex_db()
-        init_vover_db()
-        init_znzn_db()
-        init_blxe_db()
-        print("✅ تم تهيئة وتأكيد جداول كافة الألعاب السبع بنجاح في قاعدة البيانات.")
-    except Exception as e:
-        print(f"❌ خطأ أثناء تهيئة قواعد بيانات الألعاب: {e}")
-
-if __name__ == '__main__':
-    init_all_games_db()
+    games = [
+        {"id": "goxe", "name": "Goxe", "status": "active"},
+        {"id": "fogo", "name": "fogo", "status": "coming_soon"},
+        {"id": "hitob", "name": "hitob", "status": "coming_soon"},
+        {"id": "wex", "name": "wex", "status": "coming_soon"},
+        {"id": "vover", "name": "vover", "status": "coming_soon"},
+        {"id": "znzn", "name": "znzn", "status": "coming_soon"},
+        {"id": "blxe", "name": "Blxe", "status": "coming_soon"}
+    ]
+    return jsonify({"success": True, "games": games}), 200
