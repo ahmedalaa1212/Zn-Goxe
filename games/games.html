@@ -49,15 +49,11 @@
         font-family: inherit;
     }
 
-    .games-balance-amount .currency-icon {
-        font-size: 18px;
-    }
-
-    /* شبكة الخيارات (يمين ويسار) */
+    /* شبكة العرض للألعاب السبع */
     .games-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 15px;
+        gap: 12px;
         width: 100%;
     }
 
@@ -65,11 +61,13 @@
         background: #161b22;
         border: 1px solid #30363d;
         border-radius: 14px;
-        padding: 25px 10px;
+        padding: 22px 10px;
         text-align: center;
         cursor: pointer;
         transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        position: relative;
+        overflow: hidden;
     }
 
     .game-card:active {
@@ -78,17 +76,30 @@
     }
 
     .game-card i {
-        font-size: 36px;
+        font-size: 34px;
         color: #3fb950;
-        margin-bottom: 12px;
+        margin-bottom: 10px;
         display: block;
     }
 
     .game-card h3 {
         color: #ffffff;
         margin: 0;
-        font-size: 16px;
+        font-size: 15px;
         font-weight: 700;
+    }
+
+    .coming-soon-badge {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        background: rgba(241, 224, 90, 0.15);
+        color: #f1e05a;
+        border: 1px solid rgba(241, 224, 90, 0.3);
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 8px;
+        font-weight: bold;
     }
 
     /* واجهة اللعبة المفتوحة كاملة */
@@ -126,7 +137,6 @@
         background: #30363d;
     }
 
-    /* شريط الرصيد الثابت أثناء فتح أي لعبة */
     .subgame-balance-badge {
         background: rgba(22, 27, 34, 0.9);
         border: 1px solid #30363d;
@@ -146,10 +156,10 @@
     }
 </style>
 
-<!-- القائمة الرئيسية للألعاب (شاملة كارت الرصيد علوياً وخيار يمين ويسار) -->
+<!-- القائمة الرئيسية للألعاب -->
 <div id="games-main-menu" class="games-menu-container">
 
-    <!-- كارت الرصيد الرئيسي العلوي الثابت فوق اللعبتين -->
+    <!-- كارت الرصيد الرئيسي العلوي الثابت -->
     <div class="games-balance-card">
         <div class="games-balance-info">
             <i class="fas fa-coins"></i>
@@ -161,32 +171,67 @@
         </div>
     </div>
 
-    <!-- شبكة الخيارات (يمين ويسار) -->
+    <!-- شبكة الألعاب السبع -->
     <div class="games-grid">
         
-        <!-- الخيار الأول (على اليمين): لعبة Goxe -->
+        <!-- اللعبة 1: Goxe (مفعلة) -->
         <div class="game-card" onclick="loadSubGame('goxe', 'goxe')">
             <i class="fas fa-cubes"></i>
             <h3>لعبة Goxe</h3>
         </div>
 
-        <!-- الخيار الثاني (على اليسار): اللعبة الثانية -->
-        <div class="game-card" onclick="loadSubGame('game_2', 'game_2')">
-            <i class="fas fa-gamepad"></i>
-            <h3>اللعبة الثانية</h3>
+        <!-- اللعبة 2: fogo -->
+        <div class="game-card" onclick="loadSubGame('fogo', 'fogo')">
+            <span class="coming-soon-badge">قريباً</span>
+            <i class="fas fa-fire" style="color: #ff5722;"></i>
+            <h3>لعبة fogo</h3>
+        </div>
+
+        <!-- اللعبة 3: hitob -->
+        <div class="game-card" onclick="loadSubGame('hitob', 'hitob')">
+            <span class="coming-soon-badge">قريباً</span>
+            <i class="fas fa-crosshairs" style="color: #e91e63;"></i>
+            <h3>لعبة hitob</h3>
+        </div>
+
+        <!-- اللعبة 4: wex -->
+        <div class="game-card" onclick="loadSubGame('wex', 'wex')">
+            <span class="coming-soon-badge">قريباً</span>
+            <i class="fas fa-bolt" style="color: #00bcd4;"></i>
+            <h3>لعبة wex</h3>
+        </div>
+
+        <!-- اللعبة 5: vover -->
+        <div class="game-card" onclick="loadSubGame('vover', 'vover')">
+            <span class="coming-soon-badge">قريباً</span>
+            <i class="fas fa-shield-halved" style="color: #9c27b0;"></i>
+            <h3>لعبة vover</h3>
+        </div>
+
+        <!-- اللعبة 6: znzn -->
+        <div class="game-card" onclick="loadSubGame('znzn', 'znzn')">
+            <span class="coming-soon-badge">قريباً</span>
+            <i class="fas fa-atom" style="color: #4caf50;"></i>
+            <h3>لعبة znzn</h3>
+        </div>
+
+        <!-- اللعبة 7: Blxe -->
+        <div class="game-card" onclick="loadSubGame('blxe', 'blxe')">
+            <span class="coming-soon-badge">قريباً</span>
+            <i class="fas fa-gem" style="color: #ffeb3b;"></i>
+            <h3>لعبة Blxe</h3>
         </div>
 
     </div>
 </div>
 
-<!-- الشاشة الشاملة للعبة المفتوحة (تضمن بقاء الرصيد ظاهراً في الأعلى) -->
+<!-- الشاشة الشاملة للعبة المفتوحة -->
 <div id="subgame-screen" class="subgame-screen" style="display: none;">
     <div class="subgame-header-bar">
         <button class="back-btn" onclick="closeSubGame()">
             <i class="fas fa-arrow-right"></i> العودة للألعاب
         </button>
 
-        <!-- شريط الرصيد الثابت أثناء اللعب -->
         <div class="subgame-balance-badge">
             <i class="fas fa-coins"></i>
             <span class="user-balance-val">0</span>
