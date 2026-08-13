@@ -1,35 +1,79 @@
 <style>
-    .games-menu-container { width: 100%; padding: 15px; box-sizing: border-box; }
-    .games-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; width: 100%; }
-    .game-card {
-        background: #161b22; border: 1px solid #30363d; border-radius: 12px;
-        padding: 25px 10px; text-align: center; cursor: pointer; transition: 0.2s;
+    .games-menu-container {
+        width: 100%;
+        padding: 15px;
+        box-sizing: border-box;
     }
-    .game-card:active { transform: scale(0.96); border-color: #238636; }
-    .game-card i { font-size: 32px; color: #3fb950; margin-bottom: 10px; }
-    .game-card h3 { color: #fff; margin: 0; font-size: 16px; }
-    
-    .subgame-screen { position: relative; width: 100%; min-height: 80vh; }
+    .games-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+        width: 100%;
+    }
+    .game-card {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 12px;
+        padding: 25px 10px;
+        text-align: center;
+        cursor: pointer;
+        transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+    .game-card:active {
+        transform: scale(0.96);
+        border-color: #238636;
+    }
+    .game-card i {
+        font-size: 32px;
+        color: #3fb950;
+        margin-bottom: 10px;
+    }
+    .game-card h3 {
+        color: #ffffff;
+        margin: 0;
+        font-size: 16px;
+        font-weight: bold;
+    }
+    .subgame-screen {
+        position: relative;
+        width: 100%;
+        min-height: 80vh;
+    }
     .back-btn {
-        background: #21262d; color: #58a6ff; border: 1px solid #30363d;
-        padding: 8px 16px; border-radius: 20px; cursor: pointer; margin-bottom: 15px;
+        background: #21262d;
+        color: #58a6ff;
+        border: 1px solid #30363d;
+        padding: 8px 16px;
+        border-radius: 20px;
+        cursor: pointer;
+        margin-bottom: 15px;
+        font-size: 14px;
+        font-weight: bold;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .back-btn:active {
+        background: #30363d;
     }
 </style>
 
 <!-- القائمة الرئيسية للألعاب (يمين ويسار) -->
 <div id="games-main-menu" class="games-menu-container">
     <div class="games-grid">
-        <!-- الخيار الأول (على اليمين) -->
-        <div class="game-card" onclick="loadSubGame('game_1', 'game_1')">
-            <i class="fas fa-gamepad"></i>
-            <h3>اللعبة الأولى</h3>
+        
+        <!-- الخيار الأول (على اليمين): لعبة Goxe -->
+        <div class="game-card" onclick="loadSubGame('goxe', 'goxe')">
+            <i class="fas fa-cubes"></i>
+            <h3>لعبة Goxe</h3>
         </div>
 
-        <!-- الخيار الثاني (على اليسار) -->
+        <!-- الخيار الثاني (على اليسار): اللعبة الثانية -->
         <div class="game-card" onclick="loadSubGame('game_2', 'game_2')">
-            <i class="fas fa-trophy"></i>
+            <i class="fas fa-gamepad"></i>
             <h3>اللعبة الثانية</h3>
         </div>
+
     </div>
 </div>
 
