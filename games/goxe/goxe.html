@@ -231,12 +231,12 @@
         <div id="goxe-bet-section">
             <div class="bet-label">اختر مبلغ الاشتراك في الجولة:</div>
             <div class="bet-grid">
-                <div class="bet-chip" onclick="selectGoxeBet(10)">10 ZN</div>
-                <div class="bet-chip" onclick="selectGoxeBet(50)">50 ZN</div>
-                <div class="bet-chip selected" id="default-bet-chip" onclick="selectGoxeBet(100)">100 ZN</div>
-                <div class="bet-chip" onclick="selectGoxeBet(200)">200 ZN</div>
-                <div class="bet-chip" onclick="selectGoxeBet(500)">500 ZN</div>
-                <div class="bet-chip" onclick="selectGoxeBet(1000)">1000 ZN</div>
+                <div class="bet-chip" data-amount="10" onclick="selectGoxeBet(10)">10 ZN</div>
+                <div class="bet-chip" data-amount="50" onclick="selectGoxeBet(50)">50 ZN</div>
+                <div class="bet-chip selected" data-amount="100" id="default-bet-chip" onclick="selectGoxeBet(100)">100 ZN</div>
+                <div class="bet-chip" data-amount="200" onclick="selectGoxeBet(200)">200 ZN</div>
+                <div class="bet-chip" data-amount="500" onclick="selectGoxeBet(500)">500 ZN</div>
+                <div class="bet-chip" data-amount="1000" onclick="selectGoxeBet(1000)">1000 ZN</div>
             </div>
         </div>
 
@@ -245,5 +245,3 @@
         </button>
     </div>
 </div>
-
-<script src="games/goxe/goxe.js?v=3.0"></script>
