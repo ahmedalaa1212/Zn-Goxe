@@ -521,7 +521,7 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 8. التنقل بين القوائم
+// 8. التنقل بين القوائم وتنزيل الموديولات المحدثة فوراً
 // ==========================================
 const loadedModules = new Set();
 
@@ -542,6 +542,7 @@ window.switchView = async function(viewName) {
     
     targetView.classList.add('active');
 
+    // كسر الكاش وإعادة التحميل لضمان إحضار الملفات الجديدة من السيرفر
     if (!loadedModules.has(viewName)) {
         try {
             const cacheBuster = `?v=${Date.now()}`;
@@ -551,6 +552,8 @@ window.switchView = async function(viewName) {
                 targetView.innerHTML = htmlContent;
                 await loadModuleScript(`${viewName}/${viewName}.js${cacheBuster}`);
                 loadedModules.add(viewName);
+            } else {
+                console.error(`⚠️ فشل جلب ملف ${viewName}/${viewName}.html! كود الاستجابة: ${res.status}`);
             }
         } catch (err) {
             console.error(`خطأ تحميل ${viewName}:`, err);
@@ -583,8 +586,7 @@ function loadModuleScript(scriptUrl) {
         const existingScript = document.querySelector(`script[src*="${cleanUrl}"]`);
         
         if (existingScript) {
-            resolve();
-            return;
+            existingScript.remove(); // إزالة السكريبت القديم لإجبار المتصفح على قراءة السكريبت الجديد
         }
         
         const script = document.createElement('script');
