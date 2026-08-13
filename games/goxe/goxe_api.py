@@ -16,15 +16,10 @@ goxe_bp = Blueprint('goxe', __name__)
 FLOOR_MULTIPLIERS = [1.10, 1.30, 1.50, 1.80, 2.20, 2.70, 3.30, 3.90, 4.40, 5.00]
 
 def update_user_balance_safe(telegram_id, new_balance, delta_amount):
-    """
-    دالة آمنة ومضمونة لتحديث الرصيد في Firebase بجميع الطرق الممكنة 
-    لتفادي اختلاف المسميات في database.py
-    """
+    """دالة آمنة ومضمونة لتحديث الرصيد في Firebase بجميع الطرق الممكنة"""
     try:
-        # الطريقة الأولى والأضمن: التحديث المباشر بقيمة الرصيد الكلية
         if hasattr(database, 'update_user'):
             database.update_user(telegram_id, {'balance': float(new_balance)})
-        # الطريقة الثانية: التحديث بمقدار التغير (Delta)
         elif hasattr(database, 'update_user_balance'):
             database.update_user_balance(telegram_id, float(delta_amount))
         elif hasattr(database, 'add_balance'):
@@ -51,8 +46,9 @@ def get_config():
     
     return jsonify({
         "success": True,
-        "min_bet": config.get('min_bet', 10.0),
-        "max_bet": config.get('max_bet', 10000.0),
+        "min_bet": float(config.get('min_bet', 10.0)),
+        "max_bet": float(config.get('max_bet', 10000.0)),
+        "allowed_bet_options": config.get('allowed_bet_options', [10, 50, 100, 200, 500, 1000]),
         "multipliers": FLOOR_MULTIPLIERS,
         "active_session": session,
         "current_balance": float(user_data.get('balance', 0.0))
@@ -92,10 +88,7 @@ def start_game():
     if current_balance < bet_amount:
         return jsonify({"success": False, "error": f"رصيدك غير كافٍ! رصيدك الحالي: {current_balance:.2f} ZN"}), 400
 
-    # 1. حساب الرصيد الجديد
     new_balance = current_balance - bet_amount
-    
-    # 2. حفظ الخصم فوراً في قاعدة البيانات
     update_user_balance_safe(telegram_id, new_balance, -bet_amount)
 
     current_bot_profit_pct = get_bot_profit_percentage()
@@ -171,7 +164,7 @@ def climb_floor():
             "success": True,
             "result": "bomb",
             "bomb_door": door_chosen,
-            "message": "💥 للأسف! انفجرت القنبلة وخسرت الجولة.",
+            "message": "💥 للأسف! كانت قنبلة وخسرت الجولة.",
             "current_balance": float(user_data.get('balance', 0.0))
         }), 200
 
@@ -186,7 +179,6 @@ def climb_floor():
             old_balance = float(user_data.get('balance', 0.0))
             final_balance = old_balance + current_winnings
             
-            # إضافة الأرباح بأمان
             update_user_balance_safe(telegram_id, final_balance, current_winnings)
             update_goxe_economy_stats(bet_amount, current_winnings)
 
@@ -238,9 +230,7 @@ def cashout():
     old_balance = float(user_data.get('balance', 0.0))
     new_balance = old_balance + winnings
     
-    # إضافة الأرباح للرصيد المباشر
     update_user_balance_safe(telegram_id, new_balance, winnings)
-
     update_goxe_economy_stats(bet_amount, winnings)
     delete_goxe_session(telegram_id)
 
