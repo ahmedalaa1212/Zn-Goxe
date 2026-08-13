@@ -8,6 +8,34 @@
         maxBet: 10000
     };
 
+    // دالة طلب آمنة لمنع أخطاء Unexpected token '<'
+    async function safeFetch(endpoint, method = 'POST', bodyData = null) {
+        try {
+            if (typeof window.fetchAPI === 'function') {
+                return await window.fetchAPI(endpoint, method, bodyData);
+            }
+
+            const headers = { 'Content-Type': 'application/json' };
+            const initData = window.Telegram?.WebApp?.initData || '';
+            if (initData) headers['X-Telegram-Init-Data'] = initData;
+
+            const res = await fetch(endpoint, {
+                method: method,
+                headers: headers,
+                body: bodyData ? JSON.stringify(bodyData) : null
+            });
+
+            const contentType = res.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                throw new Error('تعذر الاتصال بالسيرفر، تأكد من صحة الرابط.');
+            }
+
+            return await res.json();
+        } catch (err) {
+            throw err;
+        }
+    }
+
     // رسم البرج فوراً عند فتح اللعبة
     function renderTower() {
         const towerEl = document.getElementById('goxe-tower');
@@ -38,12 +66,10 @@
         }
     }
 
-    // جلب البيانات والإعدادات من السيرفر باستخدام fetchAPI
+    // جلب البيانات والإعدادات من السيرفر
     async function loadGoxeConfig() {
         try {
-            if (typeof window.fetchAPI !== 'function') return;
-            
-            const data = await window.fetchAPI('/api/games/goxe/config', 'POST');
+            const data = await safeFetch('/api/games/goxe/config', 'POST');
             if (data && data.success) {
                 if (data.multipliers) goxeState.multipliers = data.multipliers;
                 goxeState.minBet = data.min_bet || 10;
@@ -143,7 +169,7 @@
             }
 
             try {
-                const data = await window.fetchAPI('/api/games/goxe/start', 'POST', {
+                const data = await safeFetch('/api/games/goxe/start', 'POST', {
                     bet_amount: goxeState.betAmount
                 });
 
@@ -160,7 +186,7 @@
         } else {
             // اقتطاع الأرباح
             try {
-                const data = await window.fetchAPI('/api/games/goxe/cashout', 'POST');
+                const data = await safeFetch('/api/games/goxe/cashout', 'POST');
 
                 if (data && data.success) {
                     const winVal = parseFloat(data.winnings || 0).toFixed(2);
@@ -182,7 +208,7 @@
         if (!goxeState.isPlaying || floorNum !== goxeState.currentFloor + 1) return;
 
         try {
-            const data = await window.fetchAPI('/api/games/goxe/climb', 'POST', {
+            const data = await safeFetch('/api/games/goxe/climb', 'POST', {
                 door_index: doorIndex
             });
 
