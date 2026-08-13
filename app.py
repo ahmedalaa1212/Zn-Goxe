@@ -34,6 +34,13 @@ app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
 app.register_blueprint(support_bp, url_prefix='/api/support')
 app.register_blueprint(admin_chat_bp, url_prefix='/api/admin-chat')
 
+# ⚡ تسجيل مسار الألعاب محمي بـ Try/Except عشان لو المجلد محذوف السيرفر ميقعش
+try:
+    from games.games_api import games_bp
+    app.register_blueprint(games_bp)
+except ImportError:
+    print("⚠️ مجلد الألعاب غير موجود حالياً، تم تخطيه ولن يتم إيقاف السيرفر.")
+
 # ==========================================
 # المسارات المباشرة والخدمية للمستخدم
 # ==========================================
