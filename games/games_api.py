@@ -50,10 +50,17 @@ def play_arena():
 
     data = request.get_json() or {}
     difficulty = data.get("difficulty")
-    bet_amount = data.get("bet_amount")
+    raw_bet = data.get("bet_amount")
 
-    if not difficulty or bet_amount is None:
+    if not difficulty or raw_bet is None:
         return jsonify({"success": False, "error": "بيانات الطلب غير مكتملة"}), 400
+
+    try:
+        bet_amount = float(raw_bet)
+        if bet_amount <= 0:
+            return jsonify({"success": False, "error": "مبلغ الرهان يجب أن يكون أكبر من 0"}), 400
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "قيمة الرهان غير صالحة"}), 400
 
     res = play_arena_db(user['id'], difficulty, bet_amount)
     if not res.get("success"):
@@ -73,11 +80,19 @@ def start_36boxes():
         return error_res
 
     data = request.get_json() or {}
-    bet_amount = data.get("bet_amount")
-    trap_count = data.get("trap_count")
+    raw_bet = data.get("bet_amount")
+    raw_trap = data.get("trap_count")
 
-    if bet_amount is None or trap_count is None:
+    if raw_bet is None or raw_trap is None:
         return jsonify({"success": False, "error": "يرجى تحديد الرهان وعدد القنابل"}), 400
+
+    try:
+        bet_amount = float(raw_bet)
+        trap_count = int(raw_trap)
+        if bet_amount <= 0 or trap_count < 1 or trap_count >= 36:
+            return jsonify({"success": False, "error": "قيم الرهان أو عدد القنابل غير صالحة"}), 400
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "البيانات المدخلة غير صالحة"}), 400
 
     res = start_36boxes_game_db(user['id'], bet_amount, trap_count)
     if not res.get("success"):
@@ -97,10 +112,17 @@ def reveal_36boxes():
         return error_res
 
     data = request.get_json() or {}
-    tile_index = data.get("tile_index")
+    raw_tile = data.get("tile_index")
 
-    if tile_index is None:
+    if raw_tile is None:
         return jsonify({"success": False, "error": "لم يتم اختيار الصندوق"}), 400
+
+    try:
+        tile_index = int(raw_tile)
+        if tile_index < 0 or tile_index >= 36:
+            return jsonify({"success": False, "error": "رقم الصندوق غير صحيح"}), 400
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "رقم الصندوق غير صالح"}), 400
 
     res = reveal_36boxes_tile_db(user['id'], tile_index)
     if not res.get("success"):
