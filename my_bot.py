@@ -38,15 +38,6 @@ def start_command(message):
         # حماية الاسم من كسر HTML في التليجرام
         first_name = html.escape(raw_first_name)
         
-        # الفحص ضد الحظر في قاعدة البيانات
-        if database.is_user_banned(tg_id):
-            bot.send_message(
-                message.chat.id,
-                "🚫 <b>تم تقييد حسابك!</b>\n\nعذراً، لا يمكنك استخدام تطبيق ZN Goxe حالياً.",
-                parse_mode="HTML"
-            )
-            return
-        
         # استخراج وتدقيق رابط الإحالة
         text_parts = message.text.split()
         ref_id = None
@@ -54,24 +45,37 @@ def start_command(message):
             raw_ref = text_parts[1].replace('ref_', '').strip()
             if raw_ref.isdigit() and raw_ref != tg_id:
                 ref_id = raw_ref
-            
-        # إنشاء أو تحديث المستخدم في قاعدة البيانات بأسماء الحقول الصريحة
-        is_new = database.init_user(tg_id, ref_id=ref_id, first_name=raw_first_name)
-        
-        # إرسال إشعار جذاب وآمن للداعي
-        if is_new and ref_id:
-            try:
+                
+        # ⚠️ التعامل مع قاعدة البيانات بشكل معزول لحماية أمر /start من التوقف
+        try:
+            # الفحص ضد الحظر في قاعدة البيانات
+            if database.is_user_banned(tg_id):
                 bot.send_message(
-                    chat_id=int(ref_id), 
-                    text=(
-                        f"🎉 <b>إنجاز جديد في فريقك!</b>\n\n"
-                        f"انضم صديقك <b>{first_name}</b> إلى عالم ZN Goxe عبر رابطك.\n"
-                        f"🎁 ستستمتع بمكافآت نشاط جبارة و <b>10%</b> مشاركة أرباح دورية!"
-                    ),
-                    parse_mode='HTML'
+                    message.chat.id,
+                    "🚫 <b>تم تقييد حسابك!</b>\n\nعذراً، لا يمكنك استخدام تطبيق ZN Goxe حالياً.",
+                    parse_mode="HTML"
                 )
-            except Exception as e:
-                print(f"⚠️ تعذر إرسال الإشعار للمحيل ({ref_id}): {e}")
+                return
+            
+            # إنشاء أو تحديث المستخدم في قاعدة البيانات بأسماء الحقول الصريحة
+            is_new = database.init_user(tg_id, ref_id=ref_id, first_name=raw_first_name)
+            
+            # إرسال إشعار للداعي
+            if is_new and ref_id:
+                try:
+                    bot.send_message(
+                        chat_id=int(ref_id), 
+                        text=(
+                            f"🎉 <b>إنجاز جديد في فريقك!</b>\n\n"
+                            f"انضم صديقك <b>{first_name}</b> إلى عالم ZN Goxe عبر رابطك.\n"
+                            f"🎁 ستستمتع بمكافآت نشاط جبارة و <b>10%</b> مشاركة أرباح دورية!"
+                        ),
+                        parse_mode='HTML'
+                    )
+                except Exception as e:
+                    print(f"⚠️ تعذر إرسال الإشعار للمحيل ({ref_id}): {e}")
+        except Exception as db_err:
+            print(f"⚠️ خطأ في العمليات الخاصة بقاعدة البيانات (تم المتابعة لضمان الرد): {db_err}")
         
         # تجهيز رابط الـ Mini App
         web_app_url = f"{WEB_URL}?tg_id={tg_id}"
@@ -104,7 +108,15 @@ def start_command(message):
         bot.send_message(message.chat.id, welcome_message, reply_markup=markup, parse_mode="HTML")
 
     except Exception as e:
-        print(f"❌ خطأ في معالج start: {e}")
+        print(f"❌ خطأ حرج في معالج start: {e}")
+        # إرسال رد طوارئ للمستخدم حتى لا يظل البوت صامتاً
+        try:
+            bot.send_message(
+                message.chat.id,
+                "⚠️ جاري إعادة تشغيل الخدمة، يرجى إعادة الضغط على /start بعد قليل."
+            )
+        except Exception:
+            pass
 
 # ==========================================
 # 3. معالج زر "كيف تلعب؟" (Callback Query)
