@@ -64,7 +64,23 @@
         }
     }
 
-    // رسم البرج مع توفير هيئة الأبواب
+    // 🔥 دالة تصفير وتنظيف البرج بالكامل ومسح الجواهر والقنابل القديمة
+    function resetTowerUI() {
+        for (let i = 1; i <= 10; i++) {
+            const floorDiv = document.getElementById(`goxe-floor-${i}`);
+            if (!floorDiv) continue;
+
+            floorDiv.className = 'tower-floor';
+            const doorBtns = floorDiv.querySelectorAll('.door-btn');
+            doorBtns.forEach(btn => {
+                btn.className = 'door-btn';
+                btn.innerHTML = '🚪';
+                btn.disabled = true;
+            });
+        }
+    }
+
+    // رسم البرج الأساسي
     function renderTower() {
         const towerEl = document.getElementById('goxe-tower');
         if (!towerEl) return;
@@ -132,6 +148,8 @@
                     goxeState.betAmount = data.active_session.bet_amount || 100;
                     selectGoxeBet(goxeState.betAmount);
                     updateUIState();
+                } else {
+                    resetTowerUI();
                 }
             }
         } catch (err) {
@@ -167,45 +185,61 @@
         const mainBtn = document.getElementById('goxe-main-btn');
         const betSection = document.getElementById('goxe-bet-section');
 
+        // إذا كانت اللعبة متوقفة، نظف الواجهة وأظهر لوحة الرهان
+        if (!goxeState.isPlaying) {
+            resetTowerUI();
+            if (betSection) betSection.style.display = 'block';
+            if (mainBtn) {
+                mainBtn.className = 'action-btn start-btn';
+                mainBtn.innerHTML = `🚀 بدء التسلق (${goxeState.betAmount} ZN)`;
+                mainBtn.disabled = false;
+            }
+            return;
+        }
+
+        if (betSection) betSection.style.display = 'none';
+
         for (let i = 1; i <= 10; i++) {
             const floorDiv = document.getElementById(`goxe-floor-${i}`);
             if (!floorDiv) continue;
 
             const doorBtns = floorDiv.querySelectorAll('.door-btn');
 
-            if (i === goxeState.currentFloor + 1 && goxeState.isPlaying) {
+            if (i === goxeState.currentFloor + 1) {
+                // الدور الحالي النشط
                 floorDiv.className = 'tower-floor active-floor';
                 doorBtns.forEach(btn => {
                     btn.disabled = false;
-                    btn.className = 'door-btn';
-                    btn.innerHTML = '🚪';
+                    // إذا لم يكن الباب مقفل بستايل فتح سابق نظفه
+                    if (!btn.classList.contains('door-safe') && !btn.classList.contains('door-bomb')) {
+                        btn.className = 'door-btn';
+                        btn.innerHTML = '🚪';
+                    }
                 });
             } else if (i <= goxeState.currentFloor) {
+                // دور تم تجاوزه
                 floorDiv.className = 'tower-floor passed-floor';
                 doorBtns.forEach(btn => btn.disabled = true);
             } else {
+                // أدوار مستقبلية - إعادة ضبط كاملة للأيقونات
                 floorDiv.className = 'tower-floor';
-                doorBtns.forEach(btn => btn.disabled = true);
+                doorBtns.forEach(btn => {
+                    btn.disabled = true;
+                    btn.className = 'door-btn';
+                    btn.innerHTML = '🚪';
+                });
             }
         }
 
-        if (goxeState.isPlaying) {
-            if (betSection) betSection.style.display = 'none';
-            if (goxeState.currentFloor === 0) {
-                mainBtn.className = 'action-btn start-btn';
-                mainBtn.innerHTML = 'اختر أحد الأبواب في الدور الأول ⬆️';
-                mainBtn.disabled = true;
-            } else {
-                const currentMult = goxeState.multipliers[goxeState.currentFloor - 1];
-                const currentWinnings = (goxeState.betAmount * currentMult).toFixed(2);
-                mainBtn.className = 'action-btn cashout-btn';
-                mainBtn.innerHTML = `💰 انسحاب واقتطاع الأرباح (${currentWinnings} ZN)`;
-                mainBtn.disabled = false;
-            }
-        } else {
-            if (betSection) betSection.style.display = 'block';
+        if (goxeState.currentFloor === 0) {
             mainBtn.className = 'action-btn start-btn';
-            mainBtn.innerHTML = `🚀 بدء التسلق (${goxeState.betAmount} ZN)`;
+            mainBtn.innerHTML = 'اختر أحد الأبواب في الدور الأول ⬆️';
+            mainBtn.disabled = true;
+        } else {
+            const currentMult = goxeState.multipliers[goxeState.currentFloor - 1];
+            const currentWinnings = (goxeState.betAmount * currentMult).toFixed(2);
+            mainBtn.className = 'action-btn cashout-btn';
+            mainBtn.innerHTML = `💰 انسحاب واقتطاع الأرباح (${currentWinnings} ZN)`;
             mainBtn.disabled = false;
         }
     }
@@ -231,6 +265,9 @@
                     goxeState.isPlaying = true;
                     goxeState.currentFloor = 0;
                     
+                    // تنظيف كامل قبل بدء الجولة الجديدة
+                    resetTowerUI();
+
                     if (data.new_balance !== undefined) {
                         updateGlobalBalance(data.new_balance);
                     }
@@ -259,6 +296,7 @@
                     alert(`🎉 مبروك! تم سحب ${winVal} ZN بنجاح!`);
                     goxeState.isPlaying = false;
                     goxeState.currentFloor = 0;
+                    resetTowerUI();
                     updateUIState();
                 } else {
                     alert(data?.error || "حدث خطأ أثناء الانسحاب");
@@ -271,14 +309,13 @@
         }
     };
 
-    // اختيار الباب مع المؤثرات البصرية المتطورة
+    // اختيار الباب
     window.chooseGoxeDoor = async function(floorNum, doorIndex) {
         if (!goxeState.isPlaying || floorNum !== goxeState.currentFloor + 1 || goxeState.isProcessing) return;
 
         goxeState.isProcessing = true;
         const doorBtn = document.getElementById(`door-${floorNum}-${doorIndex}`);
         
-        // تطبيق أنيميشن فتح الباب المبدئي
         if (doorBtn) {
             doorBtn.classList.add('door-opening');
         }
@@ -290,7 +327,6 @@
 
             if (data && data.success) {
                 if (data.result === 'bomb') {
-                    // تأثير القنبلة
                     if (doorBtn) {
                         doorBtn.classList.add('door-bomb');
                         doorBtn.innerHTML = '💥';
@@ -310,8 +346,9 @@
                         alert(data.message || "💥 للأسف! كانت قنبلة وخسرت الجولة.");
                         goxeState.isPlaying = false;
                         goxeState.currentFloor = 0;
+                        resetTowerUI(); // تصفير كامل للواجهة فور انتهائها
                         updateUIState();
-                    }, 400);
+                    }, 500);
 
                 } else if (data.result === 'max_win') {
                     if (doorBtn) {
@@ -327,11 +364,11 @@
                         alert(data.message || "🎉 مبروك! تم تحقيق أقصى مضاعف وسحب الأرباح تلقائياً!");
                         goxeState.isPlaying = false;
                         goxeState.currentFloor = 0;
+                        resetTowerUI();
                         updateUIState();
-                    }, 400);
+                    }, 500);
 
                 } else {
-                    // آمنة - الصعود للدور التالي
                     if (doorBtn) {
                         doorBtn.classList.add('door-safe');
                         doorBtn.innerHTML = '💎';
