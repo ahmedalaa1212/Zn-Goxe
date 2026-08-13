@@ -3,42 +3,110 @@
         width: 100%;
         padding: 15px;
         box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
     }
+
+    /* كارت عرض الرصيد الرئيسي العلوي */
+    .games-balance-card {
+        background: linear-gradient(135deg, rgba(22, 27, 34, 0.95), rgba(13, 17, 23, 0.95));
+        border: 1px solid #30363d;
+        border-radius: 16px;
+        padding: 16px 20px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(8px);
+    }
+
+    .games-balance-info {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .games-balance-info i {
+        font-size: 22px;
+        color: #f1e05a;
+        filter: drop-shadow(0 0 6px rgba(241, 224, 90, 0.4));
+    }
+
+    .games-balance-info span {
+        color: #8b949e;
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    .games-balance-amount {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 22px;
+        font-weight: 800;
+        color: #ffffff;
+        font-family: inherit;
+    }
+
+    .games-balance-amount .currency-icon {
+        font-size: 18px;
+    }
+
+    /* شبكة الخيارات (يمين ويسار) */
     .games-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 15px;
         width: 100%;
     }
+
     .game-card {
         background: #161b22;
         border: 1px solid #30363d;
-        border-radius: 12px;
+        border-radius: 14px;
         padding: 25px 10px;
         text-align: center;
         cursor: pointer;
-        transition: transform 0.2s ease, border-color 0.2s ease;
+        transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
     }
+
     .game-card:active {
         transform: scale(0.96);
         border-color: #238636;
     }
+
     .game-card i {
-        font-size: 32px;
+        font-size: 36px;
         color: #3fb950;
-        margin-bottom: 10px;
+        margin-bottom: 12px;
+        display: block;
     }
+
     .game-card h3 {
         color: #ffffff;
         margin: 0;
         font-size: 16px;
-        font-weight: bold;
+        font-weight: 700;
     }
+
+    /* واجهة اللعبة المفتوحة كاملة */
     .subgame-screen {
         position: relative;
         width: 100%;
         min-height: 80vh;
+        padding: 10px 0;
     }
+
+    .subgame-header-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 15px;
+        padding: 0 5px;
+    }
+
     .back-btn {
         background: #21262d;
         color: #58a6ff;
@@ -46,20 +114,54 @@
         padding: 8px 16px;
         border-radius: 20px;
         cursor: pointer;
-        margin-bottom: 15px;
-        font-size: 14px;
+        font-size: 13px;
         font-weight: bold;
         display: inline-flex;
         align-items: center;
         gap: 8px;
+        transition: background 0.2s;
     }
+
     .back-btn:active {
         background: #30363d;
     }
+
+    /* شريط الرصيد الثابت أثناء فتح أي لعبة */
+    .subgame-balance-badge {
+        background: rgba(22, 27, 34, 0.9);
+        border: 1px solid #30363d;
+        padding: 6px 14px;
+        border-radius: 20px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #ffffff;
+        font-weight: bold;
+        font-size: 14px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+
+    .subgame-balance-badge i {
+        color: #f1e05a;
+    }
 </style>
 
-<!-- القائمة الرئيسية للألعاب (يمين ويسار) -->
+<!-- القائمة الرئيسية للألعاب (شاملة كارت الرصيد علوياً وخيار يمين ويسار) -->
 <div id="games-main-menu" class="games-menu-container">
+
+    <!-- كارت الرصيد الرئيسي العلوي الثابت فوق اللعبتين -->
+    <div class="games-balance-card">
+        <div class="games-balance-info">
+            <i class="fas fa-coins"></i>
+            <span>الرصيد الحالي</span>
+        </div>
+        <div class="games-balance-amount">
+            <span class="user-balance-val">0</span>
+            <span class="currency-icon">🪙</span>
+        </div>
+    </div>
+
+    <!-- شبكة الخيارات (يمين ويسار) -->
     <div class="games-grid">
         
         <!-- الخيار الأول (على اليمين): لعبة Goxe -->
@@ -77,11 +179,21 @@
     </div>
 </div>
 
-<!-- الشاشة الشاملة للعبة المفتوحة -->
+<!-- الشاشة الشاملة للعبة المفتوحة (تضمن بقاء الرصيد ظاهراً في الأعلى) -->
 <div id="subgame-screen" class="subgame-screen" style="display: none;">
-    <button class="back-btn" onclick="closeSubGame()">
-        <i class="fas fa-arrow-right"></i> العودة للألعاب
-    </button>
+    <div class="subgame-header-bar">
+        <button class="back-btn" onclick="closeSubGame()">
+            <i class="fas fa-arrow-right"></i> العودة للألعاب
+        </button>
+
+        <!-- شريط الرصيد الثابت أثناء اللعب -->
+        <div class="subgame-balance-badge">
+            <i class="fas fa-coins"></i>
+            <span class="user-balance-val">0</span>
+            <span>🪙</span>
+        </div>
+    </div>
+
     <div id="subgame-holder"></div>
 </div>
 
