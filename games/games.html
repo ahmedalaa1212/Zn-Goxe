@@ -1,81 +1,202 @@
-<div class="games-container">
-    <!-- Header: الرصيد في الأعلى -->
-    <div class="games-header">
-        <div class="balance-badge">
-            <span class="balance-title">ZN</span>
-            <span id="user-zn-balance" class="balance-amount">0.00</span>
-            <span class="coin-icon">🪙</span>
+<div class="games-container" dir="rtl">
+    <!-- رأس الصفحة والرصيد -->
+    <div class="games-header-card">
+        <div class="header-title-box">
+            <h2>صالة الألعاب والتحدي 🎮</h2>
+            <p>خاطر برصيدك وضاعف أرباحك فوراً</p>
+        </div>
+        <div class="games-balance-badge">
+            <span>الرصيد:</span>
+            <strong id="games-user-balance" class="user-balance-val">0.00</strong>
+            <small>ZN</small>
         </div>
     </div>
 
-    <!-- Top Navigation Tabs: التبويب العلوي معزول -->
-    <div class="game-tabs-nav">
-        <button id="tab-btn-arena" class="game-tab-btn active" onclick="switchGameTab('arena')">
-            ⚔️ الساحة الكبرى
+    <!-- شريط التبديل بين اللعبتين -->
+    <div class="games-tabs-nav">
+        <button id="tab-btn-arena" class="game-tab-btn active" onclick="switchGameSubTab('arena')">
+            <i class="fa-solid fa-swords"></i> ساحة المعارك
         </button>
-        <button id="tab-btn-boxes" class="game-tab-btn" onclick="switchGameTab('boxes')">
-            📦 شبكة ZN Go
+        <button id="tab-btn-boxes" class="game-tab-btn" onclick="switchGameSubTab('boxes')">
+            <i class="fa-solid fa-boxes-stacked"></i> 36 صندوق
         </button>
     </div>
 
-    <!-- ==================== LOBBY 1: الساحة الكبرى ==================== -->
-    <div id="game-view-arena" class="game-view-section active">
-        <div class="arena-card main-timer-card">
-            <div class="card-header-label">الوقت المتبقي للسحب</div>
-            <div id="arena-timer" class="big-countdown">05:00</div>
-            
-            <div class="prize-pool-box">
-                <span class="trophy-icon">🏆</span>
-                <span class="pool-label">مجمع الجوائز الحالي</span>
-                <div id="prize-pool" class="pool-amount">ZN 0.00</div>
+    <!-- ==================================================== -->
+    <!-- ⚔️ 1. واجهة لعبة الساحة (Arena View) -->
+    <!-- ==================================================== -->
+    <div id="subview-arena" class="game-subview active">
+        <div class="arena-card">
+            <div class="arena-hero">
+                <div class="gladiator-avatar" id="gladiator-icon">⚔️</div>
+                <h3 id="gladiator-title">اختر خصمك في الساحة</h3>
+                <p id="gladiator-desc">حدد مستوى الصعوبة وقيمة الرهان لبدء القتال</p>
             </div>
 
-            <button id="btn-join-arena" class="btn-primary-action" onclick="joinArenaGame()">
-                ⚔️ دخول الساحة (350 ZN)
+            <!-- اختيار صعوبة الملاكمة -->
+            <div class="arena-difficulty-grid">
+                <div class="diff-card active" onclick="selectArenaDiff('easy', 1.35, '70%')" id="diff-easy">
+                    <span class="diff-badge green">مبتدئ</span>
+                    <h4>الوحش الصغير</h4>
+                    <p class="multiplier">x1.35</p>
+                    <small>نسبة الفوز: 70%</small>
+                </div>
+
+                <div class="diff-card" onclick="selectArenaDiff('medium', 1.85, '50%')" id="diff-medium">
+                    <span class="diff-badge yellow">محترف</span>
+                    <h4>فارس الظلام</h4>
+                    <p class="multiplier">x1.85</p>
+                    <small>نسبة الفوز: 50%</small>
+                </div>
+
+                <div class="diff-card" onclick="selectArenaDiff('hard', 2.80, '32%')" id="diff-hard">
+                    <span class="diff-badge orange">خبير</span>
+                    <h4>التنين الأحمر</h4>
+                    <p class="multiplier">x2.80</p>
+                    <small>نسبة الفوز: 32%</small>
+                </div>
+
+                <div class="diff-card" onclick="selectArenaDiff('boss', 6.00, '15%')" id="diff-boss">
+                    <span class="diff-badge red">أسطوري</span>
+                    <h4>ملك الساحة</h4>
+                    <p class="multiplier">x6.00</p>
+                    <small>نسبة الفوز: 15%</small>
+                </div>
+            </div>
+
+            <!-- مدخلات الرهان -->
+            <div class="bet-input-box">
+                <label>مبلغ الرهان (ZN):</label>
+                <div class="input-with-controls">
+                    <button type="button" onclick="adjustArenaBet(0.5)">½</button>
+                    <input type="number" id="arena-bet-input" value="100" min="100" step="50">
+                    <button type="button" onclick="adjustArenaBet(2)">x2</button>
+                    <button type="button" onclick="setArenaMaxBet()">MAX</button>
+                </div>
+            </div>
+
+            <!-- زر بدء القتال -->
+            <button id="btn-start-arena" class="btn-game-primary" onclick="startArenaBattle()">
+                <i class="fa-solid fa-flag-checkered"></i> دخول الساحة والقتال
             </button>
         </div>
-
-        <!-- جدول توزيع الجوائز -->
-        <div class="arena-card prizes-breakdown-card">
-            <h3>📊 توزيع جوائز الساحة (Top 10)</h3>
-            <p class="sub-text">توزيع المبلغ الجمعي المجمع للمشاركين حسب المراكز</p>
-            <div id="arena-prizes-list" class="prizes-list">
-                <!-- يتم توليده تلقائياً عبر JS -->
-            </div>
-        </div>
     </div>
 
-    <!-- ==================== LOBBY 2: شبكة ZN Go ==================== -->
-    <div id="game-view-boxes" class="game-view-section">
-        <div class="arena-card boxes-main-card">
-            <div class="card-header-label">🎁 لعبة اختيار الصناديق ZN Go</div>
-            <p class="sub-text">اختر صندوقك واكشف عن مضاعف رصيدك!</p>
-            
-            <div class="bet-controls">
-                <label>مبلغ الرهان:</label>
-                <input type="number" id="boxes-bet-input" value="100" min="10" step="10" />
+    <!-- ==================================================== -->
+    <!-- 📦 2. واجهة لعبة 36 صندوق (36 Boxes View) -->
+    <!-- ==================================================== -->
+    <div id="subview-boxes" class="game-subview">
+        <div class="boxes-card">
+            <!-- الهيدر ولوحة الأرباح -->
+            <div class="boxes-status-bar">
+                <div class="status-item">
+                    <small>المضاعف الحالي</small>
+                    <strong id="boxes-current-mult">x1.00</strong>
+                </div>
+                <div class="status-item highlight">
+                    <small>الأرباح القابلة للسحب</small>
+                    <strong id="boxes-current-profit">0.00 ZN</strong>
+                </div>
             </div>
 
-            <div id="boxes-grid" class="boxes-grid-container">
-                <!-- 9 صناديق تفاعلية -->
-                <div class="box-item" onclick="openBox(0)">📦</div>
-                <div class="box-item" onclick="openBox(1)">📦</div>
-                <div class="box-item" onclick="openBox(2)">📦</div>
-                <div class="box-item" onclick="openBox(3)">📦</div>
-                <div class="box-item" onclick="openBox(4)">📦</div>
-                <div class="box-item" onclick="openBox(5)">📦</div>
-                <div class="box-item" onclick="openBox(6)">📦</div>
-                <div class="box-item" onclick="openBox(7)">📦</div>
-                <div class="box-item" onclick="openBox(8)">📦</div>
+            <!-- لوحة التحكم قبل اللعب -->
+            <div id="boxes-setup-panel" class="boxes-controls">
+                <div class="control-group">
+                    <label>عدد القنابل المخفية:</label>
+                    <select id="boxes-trap-select">
+                        <option value="3">3 قنابل (مخاطرة منخفضة)</option>
+                        <option value="5" selected>5 قنابل (متوازن)</option>
+                        <option value="10">10 قنابل (مخاطرة عالية)</option>
+                        <option value="15">15 قنبلة (مجنون)</option>
+                        <option value="20">20 قنبلة (انتحاري)</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label>قيمة الرهان (ZN):</label>
+                    <input type="number" id="boxes-bet-input" value="100" min="50">
+                </div>
+
+                <button id="btn-start-boxes" class="btn-game-primary yellow" onclick="start36BoxesGame()">
+                    بدء فتح الصنادق 📦
+                </button>
             </div>
 
-            <button id="btn-reset-boxes" class="btn-secondary-action" onclick="resetBoxesGame()">
-                🔄 إعادة تعيين الصناديق
+            <!-- شبكة الـ 36 صندوق (6x6) -->
+            <div id="boxes-grid" class="boxes-grid-6x6 disabled">
+                <!-- سيتم توليد الـ 36 صندوقاً عبر JS -->
+            </div>
+
+            <!-- زر السحب والانسحاب -->
+            <button id="btn-cashout-boxes" class="btn-game-cashout hidden" onclick="cashout36Boxes()">
+                <i class="fa-solid fa-sack-dollar"></i> سحب الأرباح والانسحاب
             </button>
         </div>
     </div>
 </div>
 
-<script src="/games/games-core.js"></script>
-<script src="/games/arena-game.js"></script>
-<script src="/games/boxes-game.js"></script>
+<style>
+/* تنسيقات الألعاب العصرية Dark Theme */
+.games-container { padding: 12px; color: #fff; font-family: system-ui, -apple-system, sans-serif; }
+.games-header-card { display: flex; justify-content: space-between; align-items: center; background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); padding: 14px; border-radius: 16px; margin-bottom: 15px; }
+.header-title-box h2 { font-size: 1.1rem; margin: 0; color: #f59e0b; }
+.header-title-box p { font-size: 0.75rem; color: #94a3b8; margin: 2px 0 0 0; }
+.games-balance-badge { background: #0f172a; padding: 8px 12px; border-radius: 12px; border: 1px solid #f59e0b; text-align: left; }
+.games-balance-badge strong { color: #10b981; font-size: 1.1rem; }
+
+.games-tabs-nav { display: flex; gap: 8px; margin-bottom: 15px; }
+.game-tab-btn { flex: 1; padding: 12px; background: #1e293b; border: 1px solid rgba(255,255,255,0.05); color: #94a3b8; border-radius: 12px; font-weight: bold; cursor: pointer; transition: all 0.2s; }
+.game-tab-btn.active { background: linear-gradient(135deg, #d97706, #f59e0b); color: #fff; border-color: #f59e0b; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3); }
+
+.game-subview { display: none; }
+.game-subview.active { display: block; animation: fadeIn 0.25s ease-in-out; }
+
+.arena-card, .boxes-card { background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 16px; }
+.arena-hero { text-align: center; margin-bottom: 15px; }
+.gladiator-avatar { font-size: 3rem; margin-bottom: 5px; }
+
+.arena-difficulty-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+.diff-card { background: #1e293b; border: 2px solid transparent; border-radius: 14px; padding: 10px; text-align: center; cursor: pointer; transition: 0.2s; }
+.diff-card.active { border-color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
+.diff-badge { font-size: 0.65rem; padding: 2px 6px; border-radius: 6px; font-weight: bold; }
+.diff-badge.green { background: #065f46; color: #34d399; }
+.diff-badge.yellow { background: #78350f; color: #fbbf24; }
+.diff-badge.orange { background: #7c2d12; color: #fb923c; }
+.diff-badge.red { background: #7f1d1d; color: #f87171; }
+.diff-card h4 { margin: 6px 0 2px 0; font-size: 0.9rem; }
+.diff-card .multiplier { color: #10b981; font-weight: bold; font-size: 1.1rem; margin: 0; }
+
+.bet-input-box { margin-bottom: 15px; }
+.bet-input-box label { font-size: 0.8rem; color: #cbd5e1; display: block; margin-bottom: 5px; }
+.input-with-controls { display: flex; gap: 6px; }
+.input-with-controls input { flex: 1; background: #0f172a; border: 1px solid #334155; color: #fff; padding: 10px; border-radius: 10px; text-align: center; font-weight: bold; }
+.input-with-controls button { background: #334155; border: none; color: #fff; padding: 0 12px; border-radius: 8px; cursor: pointer; }
+
+.btn-game-primary { width: 100%; padding: 14px; background: linear-gradient(135deg, #059669, #10b981); border: none; color: #fff; font-weight: bold; border-radius: 12px; font-size: 1rem; cursor: pointer; }
+.btn-game-primary.yellow { background: linear-gradient(135deg, #d97706, #f59e0b); }
+
+/* 36 Boxes Grid Styles */
+.boxes-status-bar { display: flex; justify-content: space-between; background: #1e293b; padding: 10px 15px; border-radius: 12px; margin-bottom: 15px; }
+.status-item { text-align: center; }
+.status-item small { display: block; font-size: 0.7rem; color: #94a3b8; }
+.status-item strong { font-size: 1.1rem; color: #f59e0b; }
+.status-item.highlight strong { color: #10b981; }
+
+.boxes-controls { margin-bottom: 15px; }
+.control-group { margin-bottom: 10px; }
+.control-group label { display: block; font-size: 0.8rem; color: #cbd5e1; margin-bottom: 4px; }
+.control-group select, .control-group input { width: 100%; background: #0f172a; border: 1px solid #334155; color: #fff; padding: 10px; border-radius: 10px; }
+
+.boxes-grid-6x6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 15px; }
+.boxes-grid-6x6.disabled { opacity: 0.5; pointer-events: none; }
+.box-tile { aspect-ratio: 1; background: #1e293b; border: 1px solid #334155; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; cursor: pointer; transition: transform 0.15s; }
+.box-tile:active { transform: scale(0.92); }
+.box-tile.safe { background: rgba(16, 185, 129, 0.2); border-color: #10b981; }
+.box-tile.bomb { background: rgba(239, 68, 68, 0.3); border-color: #ef4444; animation: shake 0.3s; }
+
+.btn-game-cashout { width: 100%; padding: 14px; background: linear-gradient(135deg, #2563eb, #3b82f6); border: none; color: #fff; font-weight: bold; border-radius: 12px; font-size: 1rem; cursor: pointer; }
+.btn-game-cashout.hidden { display: none; }
+
+@keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+</style>
