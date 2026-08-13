@@ -1,31 +1,36 @@
 from flask import Blueprint, jsonify
 
-# استيراد الـ Blueprints الفرعية لكل لعبة
-from games.goxe.goxe_api import goxe_bp
-from games.fogo.fogo_api import fogo_bp
-from games.hitob.hitob_api import hitob_bp
-from games.wex.wex_api import wex_bp
-from games.vover.vover_api import vover_bp
-from games.znzn.znzn_api import znzn_bp
-from games.blxe.blxe_api import blxe_bp
-
-# إنشاء الـ Blueprint الرئيسي لقسم الألعاب
+# إنشاء الـ Blueprint الرئيسي لقسم الألعاب مع البادئة الموحدة
 games_bp = Blueprint('games', __name__, url_prefix='/api/games')
 
-# تسجيل الـ Blueprints الفرعية
-games_bp.register_blueprint(goxe_bp)
-games_bp.register_blueprint(fogo_bp)
-games_bp.register_blueprint(hitob_bp)
-games_bp.register_blueprint(wex_bp)
-games_bp.register_blueprint(vover_bp)
-games_bp.register_blueprint(znzn_bp)
-games_bp.register_blueprint(blxe_bp)
+# تسجيل لعبة Goxe
+try:
+    from games.goxe.goxe_api import goxe_bp
+    games_bp.register_blueprint(goxe_bp, url_prefix='/goxe')
+    print("✅ تم تسجيل موديول لعبة Goxe بنجاح!")
+except Exception as e:
+    print(f"⚠️ خطأ أثناء تسجيل لعبة Goxe: {e}")
+
+# تسجيل باقي الألعاب بحماية Try/Except لمنع إيقاف الخادم عند غياب أي موديول
+for game_module, prefix in [
+    ('fogo', '/fogo'),
+    ('hitob', '/hitob'),
+    ('wex', '/wex'),
+    ('vover', '/vover'),
+    ('znzn', '/znzn'),
+    ('blxe', '/blxe')
+]:
+    try:
+        mod = __import__(f"games.{game_module}.{game_module}_api", fromlist=[f"{game_module}_bp"])
+        bp = getattr(mod, f"{game_module}_bp")
+        games_bp.register_blueprint(bp, url_prefix=prefix)
+        print(f"✅ تم تسجيل موديول لعبة {game_module} بنجاح!")
+    except Exception as e:
+        pass
 
 @games_bp.route('/list', methods=['GET'])
 def get_games_list():
-    """
-    نقطة نهاية ترجع قائمة الألعاب وحالتها المتاحة
-    """
+    """نقطة نهاية ترجع قائمة الألعاب وحالتها المتاحة"""
     games = [
         {"id": "goxe", "name": "Goxe", "status": "active"},
         {"id": "fogo", "name": "fogo", "status": "coming_soon"},
