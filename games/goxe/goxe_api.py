@@ -11,9 +11,10 @@ from games.goxe.goxe_db import (
     delete_goxe_session
 )
 
-goxe_bp = Blueprint('goxe', __name__, url_prefix='/api/games/goxe')
+# إنشاء Blueprint فرعي بدون بادئة مكررة
+goxe_bp = Blueprint('goxe', __name__)
 
-# قائمة المضاعفات للأدوار العشرة (تبدأ بـ 1.1x وتصل كحد أقصى إلى 5.0x في الدور العاشر)
+# قائمة المضاعفات للأدوار العشرة
 FLOOR_MULTIPLIERS = [1.10, 1.30, 1.50, 1.80, 2.20, 2.70, 3.30, 3.90, 4.40, 5.00]
 
 @goxe_bp.route('/config', methods=['GET', 'POST'])
@@ -21,8 +22,13 @@ def get_config():
     """جلب إعدادات اللعبة وحالة الجولة الحالية للمستخدم"""
     is_post = (request.method == 'POST')
     success, telegram_id, _, error_res = get_authenticated_user(request, is_post=is_post)
+    
     if not success:
-        return error_res
+        tg_id_param = request.args.get('tg_id') or (request.json.get('tg_id') if request.is_json and request.json else None)
+        if tg_id_param:
+            telegram_id = str(tg_id_param)
+        else:
+            return error_res
 
     config = get_goxe_config()
     session = get_active_goxe_session(telegram_id)
@@ -37,15 +43,18 @@ def get_config():
 
 @goxe_bp.route('/start', methods=['POST'])
 def start_game():
-    """بدء جولة تسلق جديدة وحصم مبلغ الرهان"""
-    is_post = (request.method == 'POST')
-    success, telegram_id, _, error_res = get_authenticated_user(request, is_post=is_post)
+    """بدء جولة تسلق جديدة وخصم مبلغ الرهان"""
+    success, telegram_id, _, error_res = get_authenticated_user(request, is_post=True)
     if not success:
-        return error_res
+        tg_id_param = request.args.get('tg_id') or (request.json.get('tg_id') if request.is_json and request.json else None)
+        if tg_id_param:
+            telegram_id = str(tg_id_param)
+        else:
+            return error_res
 
     # التأكد من عدم وجود جولة قائمة بالفعل
     existing_session = get_active_goxe_session(telegram_id)
-    if existing_session:
+    if existing_session and existing_session.get('status') == 'active':
         return jsonify({"success": False, "error": "لديك جولة قائمة بالفعل، يرجى إكمالها أو السحب!"}), 400
 
     data = request.json or {}
@@ -66,11 +75,14 @@ def start_game():
     current_balance = float(user_data.get('balance', 0.0))
 
     if current_balance < bet_amount:
-        return jsonify({"success": False, "error": "رصيدك الحالي غير كافٍ لفتح هذه الجولة"}), 400
+        return jsonify({"success": False, "error": f"رصيدك غير كافٍ! رصيدك الحالي: {current_balance:.2f} ZN"}), 400
 
     # خصم قيمة الرهان من حساب المستخدم
     new_balance = current_balance - bet_amount
-    database.update_user_balance(telegram_id, new_balance)
+    if hasattr(database, 'update_user_balance'):
+        database.update_user_balance(telegram_id, new_balance)
+    elif hasattr(database, 'add_balance'):
+        database.add_balance(telegram_id, -bet_amount)
 
     # فحص اقتصاد البوت لتحديد هل السيستم سيفرض الخسارة
     current_bot_profit_pct = get_bot_profit_percentage()
@@ -83,7 +95,7 @@ def start_game():
     session_data = {
         'telegram_id': telegram_id,
         'bet_amount': bet_amount,
-        'current_floor': 0, # لم يبدأ التسلق بعد
+        'current_floor': 0,
         'force_loss': force_loss,
         'status': 'active'
     }
@@ -102,10 +114,13 @@ def start_game():
 @goxe_bp.route('/climb', methods=['POST'])
 def climb_floor():
     """تحديد الباب المخفي والانتقال للدور التالي أو الانفجار"""
-    is_post = (request.method == 'POST')
-    success, telegram_id, _, error_res = get_authenticated_user(request, is_post=is_post)
+    success, telegram_id, _, error_res = get_authenticated_user(request, is_post=True)
     if not success:
-        return error_res
+        tg_id_param = request.args.get('tg_id') or (request.json.get('tg_id') if request.is_json and request.json else None)
+        if tg_id_param:
+            telegram_id = str(tg_id_param)
+        else:
+            return error_res
 
     session = get_active_goxe_session(telegram_id)
     if not session or session.get('status') != 'active':
@@ -129,22 +144,15 @@ def climb_floor():
     force_loss = session.get('force_loss', False)
     bet_amount = float(session.get('bet_amount', 0.0))
 
-    # تحديد ما إذا كان الاختيار سينتهي بقنبلة أم كنز
-    is_bomb = False
-
     if force_loss:
-        # أمر الخسارة الفورية مفعل: الاختيار سيؤدي حتماً إلى قنبلة
         is_bomb = True
     else:
-        # الوضع العادي: احتمالية ناتجة من السيرفر (1 باب قنبلة من 3 أبواب = 33.3% احتمالية خروج القنبلة)
-        # مع تقليل نسبة النجاح تدريجياً مع ارتفاع الأدوار
-        risk_factor = 0.33 + (next_floor * 0.03) # زيادة الخطر كلما صعدنا
+        risk_factor = 0.33 + (next_floor * 0.03)
         is_bomb = (random.random() < risk_factor)
 
     if is_bomb:
-        # اللاعب خسر الجولة!
+        # الخسارة
         delete_goxe_session(telegram_id)
-        # تحديث إحصائيات الاقتصاد: البوت كسب الرهان كاملاً (المبلغ المدفوع كأرباح = 0)
         update_goxe_economy_stats(bet_amount, 0.0)
 
         user_data = database.get_user(telegram_id) or {}
@@ -157,20 +165,23 @@ def climb_floor():
         }), 200
 
     else:
-        # نجح اللاعب في صعود الدور!
+        # نجاح الخطوة
         session['current_floor'] = next_floor
         current_multiplier = FLOOR_MULTIPLIERS[next_floor - 1]
         current_winnings = bet_amount * current_multiplier
 
-        # إذا وصل اللاعب للدور العاشر والأخير (5.0x): يتم السحب التلقائي فوراً!
+        # إذا وصل اللاعب للدور العاشر والأخير: سحب تلقائي
         if next_floor == 10:
             delete_goxe_session(telegram_id)
             user_data = database.get_user(telegram_id) or {}
             old_balance = float(user_data.get('balance', 0.0))
             final_balance = old_balance + current_winnings
-            database.update_user_balance(telegram_id, final_balance)
+            
+            if hasattr(database, 'update_user_balance'):
+                database.update_user_balance(telegram_id, final_balance)
+            elif hasattr(database, 'add_balance'):
+                database.add_balance(telegram_id, current_winnings)
 
-            # تحديث اقتصاد البوت
             update_goxe_economy_stats(bet_amount, current_winnings)
 
             return jsonify({
@@ -183,7 +194,6 @@ def climb_floor():
                 "message": "🎉 مبروك! وصلت للقمة في الدور العاشر وتم سحب الأرباح تلقائياً!"
             }), 200
 
-        # حفظ تقدم الجولة للدور التالي
         save_goxe_session(telegram_id, session)
 
         return jsonify({
@@ -198,10 +208,13 @@ def climb_floor():
 @goxe_bp.route('/cashout', methods=['POST'])
 def cashout():
     """سحب الأرباح الحالية وإنهاء الجولة"""
-    is_post = (request.method == 'POST')
-    success, telegram_id, _, error_res = get_authenticated_user(request, is_post=is_post)
+    success, telegram_id, _, error_res = get_authenticated_user(request, is_post=True)
     if not success:
-        return error_res
+        tg_id_param = request.args.get('tg_id') or (request.json.get('tg_id') if request.is_json and request.json else None)
+        if tg_id_param:
+            telegram_id = str(tg_id_param)
+        else:
+            return error_res
 
     session = get_active_goxe_session(telegram_id)
     if not session or session.get('status') != 'active':
@@ -215,16 +228,16 @@ def cashout():
     multiplier = FLOOR_MULTIPLIERS[current_floor - 1]
     winnings = bet_amount * multiplier
 
-    # إضافة الأرباح لرصيد المستخدم
     user_data = database.get_user(telegram_id) or {}
     old_balance = float(user_data.get('balance', 0.0))
     new_balance = old_balance + winnings
-    database.update_user_balance(telegram_id, new_balance)
+    
+    if hasattr(database, 'update_user_balance'):
+        database.update_user_balance(telegram_id, new_balance)
+    elif hasattr(database, 'add_balance'):
+        database.add_balance(telegram_id, winnings)
 
-    # تحديث إحصائيات الاقتصاد في Firebase
     update_goxe_economy_stats(bet_amount, winnings)
-
-    # إنهاء وحذف الجولة
     delete_goxe_session(telegram_id)
 
     return jsonify({
