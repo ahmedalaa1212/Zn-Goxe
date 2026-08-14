@@ -10,7 +10,7 @@ def get_firestore_db():
     return database.get_db()
 
 def init_fogo_db():
-    """تهيئة إعدادات لعبة fogo في Firebase مع تفعيل اقتصاد 60% للبوت / 40% للاعبين"""
+    """تهيئة إعدادات لعبة fogo في Firebase مع تفعيل اقتصاد 60% للبوت / 40% للاعبين ورسوم الدرع 25%"""
     try:
         db = get_firestore_db()
         config_ref = db.collection('game_settings').document('fogo_config')
@@ -22,6 +22,7 @@ def init_fogo_db():
                 'target_bot_profit_pct': 60.0,
                 'target_player_profit_pct': 40.0,
                 'force_loss_threshold': 59.0,
+                'shield_fee_percentage': 25.0,
                 'total_wagered': 1000.0,
                 'total_payout': 400.0,
                 'force_loss_override': False,
@@ -52,6 +53,7 @@ def get_fogo_config(force_refresh=False):
         'game_name': 'fogo - Cyber Sweep',
         'target_bot_profit_pct': 60.0,
         'force_loss_threshold': 59.0,
+        'shield_fee_percentage': 25.0,
         'total_wagered': 1000.0,
         'total_payout': 400.0,
         'force_loss_override': False,
