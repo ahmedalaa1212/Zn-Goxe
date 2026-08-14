@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify
+from games.games_db import get_games_badges
 
 # إنشاء الـ Blueprint الرئيسي لقسم الألعاب مع البادئة الموحدة
 games_bp = Blueprint('games', __name__, url_prefix='/api/games')
@@ -30,14 +31,16 @@ for game_module, prefix in [
 
 @games_bp.route('/list', methods=['GET'])
 def get_games_list():
-    """نقطة نهاية ترجع قائمة الألعاب وحالتها المتاحة"""
+    """نقطة نهاية ترجع قائمة الألعاب وحالتها المتاحة مع الشارات الديناميكية من الفايربيس"""
+    badges = get_games_badges()
+    
     games = [
-        {"id": "goxe", "name": "Goxe", "status": "active"},
-        {"id": "fogo", "name": "fogo", "status": "coming_soon"},
-        {"id": "hitob", "name": "hitob", "status": "coming_soon"},
-        {"id": "wex", "name": "wex", "status": "coming_soon"},
-        {"id": "vover", "name": "vover", "status": "coming_soon"},
-        {"id": "znzn", "name": "znzn", "status": "coming_soon"},
-        {"id": "blxe", "name": "Blxe", "status": "coming_soon"}
+        {"id": "goxe", "name": "Goxe", "status": "active", "badge": badges.get("goxe", "جديد")},
+        {"id": "fogo", "name": "fogo", "status": "active", "badge": badges.get("fogo", "جديد")},
+        {"id": "hitob", "name": "hitob", "status": "active", "badge": badges.get("hitob", "جديد")},
+        {"id": "wex", "name": "wex", "status": "active", "badge": badges.get("wex", "جديد")},
+        {"id": "vover", "name": "vover", "status": "active", "badge": badges.get("vover", "جديد")},
+        {"id": "znzn", "name": "znzn", "status": "active", "badge": badges.get("znzn", "جديد")},
+        {"id": "blxe", "name": "Blxe", "status": "active", "badge": badges.get("blxe", "جديد")}
     ]
-    return jsonify({"success": True, "games": games}), 200
+    return jsonify({"success": True, "games": games, "badges": badges}), 200
