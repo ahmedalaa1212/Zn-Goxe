@@ -4,18 +4,25 @@ window.initFarmView = function() {
     }
 };
 
+window.closeWelcomeModal = function() {
+    const modal = document.getElementById('welcome-modal');
+    if (modal) modal.style.display = 'none';
+    if (window.userState) window.userState.is_new_user = false;
+    if (window.PlayerData) window.PlayerData.is_new_user = false;
+};
+
 (function initFarm() {
     const tele = window.Telegram?.WebApp;
     const START_PARAM = tele?.initDataUnsafe?.start_param || "";
 
-    // الإعدادات المحدثة طبقاً للخطة الاقتصادية (السرعات المزدوجة والمكافآت اليومية 30 يوم)
+    // الإعدادات المحدثة طبقاً للخطة الاقتصادية (السرعة البدائية 0.05 والمكافأة اليومية 0.15)
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 15,
-        dailyBoostReward: 0.5,
+        dailyBoostReward: 0.15,
         maxDailyBoostRate: 15.0,
         boostMaxRewardCoins: 50.0,
         upgradeCosts: {
-            1: { cost_zn: 600, cost_usd: 0.0, rate: 1.0 },      // المستوى الأول بالعملات فقط (مجاني من الدولار)
+            1: { cost_zn: 600, cost_usd: 0.0, rate: 1.0 },      // المستوى الأول بالعملات فقط
             2: { cost_zn: 1500, cost_usd: 0.10, rate: 2.5 },
             3: { cost_zn: 3800, cost_usd: 0.15, rate: 6.0 },
             4: { cost_zn: 10000, cost_usd: 0.20, rate: 15.0 },
@@ -178,6 +185,9 @@ window.initFarmView = function() {
                     if (resData.game_config.max_upgrades_per_level) {
                         GAME_CONFIG.maxUpgradesPerLevel = resData.game_config.max_upgrades_per_level;
                     }
+                    if (resData.game_config.daily_boost_reward) {
+                        GAME_CONFIG.dailyBoostReward = resData.game_config.daily_boost_reward;
+                    }
                 }
 
                 if (!window.PlayerData) window.PlayerData = {};
@@ -187,6 +197,11 @@ window.initFarmView = function() {
                     Object.assign(window.PlayerData, resData.player);
                     Object.assign(window.userState, resData.player);
                     setStoredBalance(resData.player.balance, resData.player.usd_balance);
+
+                    if (resData.player.is_new_user) {
+                        const welcomeModal = document.getElementById('welcome-modal');
+                        if (welcomeModal) welcomeModal.style.display = 'flex';
+                    }
                 }
                 
                 window.updateFarmUI();
@@ -202,7 +217,7 @@ window.initFarmView = function() {
         const pData = window.userState || window.PlayerData || {};
         let bal = getStoredBalance();
         let usdBal = getStoredUsdBalance();
-        let hRate = parseFloat(pData.hourly_rate ?? 0.20);
+        let hRate = parseFloat(pData.hourly_rate ?? 0.05);
 
         const balEl = document.getElementById('farm-balance');
         if (balEl) balEl.innerText = `${bal.toFixed(2)} ZN`;
@@ -366,7 +381,7 @@ window.initFarmView = function() {
         lastCheckedDate = todayStr;
 
         let maxC = parseFloat(pData.max_cap ?? 30.0);
-        let hRate = parseFloat(pData.hourly_rate ?? 0.20);
+        let hRate = parseFloat(pData.hourly_rate ?? 0.05);
         
         let lastClaimStr = pData.last_claim_time;
         let lastClaimTimeMs = lastClaimStr ? new Date(lastClaimStr).getTime() : getAdjustedNowMs();
