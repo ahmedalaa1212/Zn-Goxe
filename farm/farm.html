@@ -1,13 +1,21 @@
 <div class="farm-container">
     
-    <!-- 1. الكروت العلوية: الرصيد ومعدل التعدين -->
+    <!-- 1. الكروت العلوية: الرصيد، رصيد الدولار، ومعدل التعدين -->
     <div class="farm-stats-grid">
         <div class="stat-card">
             <div class="stat-text">
-                <span class="stat-label">إجمالي الرصيد</span>
+                <span class="stat-label">رصيد ZN</span>
                 <div id="farm-balance" class="stat-value">0.00 ZN</div>
             </div>
             <div class="stat-icon-box coin-bg">🪙</div>
+        </div>
+
+        <div class="stat-card usd-card">
+            <div class="stat-text">
+                <span class="stat-label">القيمة بالدولار</span>
+                <div id="farm-usd-balance" class="stat-value" style="color: #4ade80;">$0.0000</div>
+            </div>
+            <div class="stat-icon-box usd-bg">💵</div>
         </div>
 
         <div class="stat-card">
@@ -42,7 +50,7 @@
     <div class="card-box">
         <div class="card-header">
             <span class="card-title">📦 سعة التخزين المؤقت (مستوى <span id="storage-level-num">0</span>)</span>
-            <span id="storage-text" class="storage-badge" dir="ltr">0 / 200</span>
+            <span id="storage-text" class="storage-badge" dir="ltr">0 / 30</span>
         </div>
 
         <div class="progress-outer">
@@ -62,7 +70,7 @@
     <div class="card-box">
         <div class="card-header">
             <span class="card-title">🏛️ ترقيات ومستويات التعدين</span>
-            <span class="card-subtitle">أقصى حد: 10 / مستوى</span>
+            <span class="card-subtitle">أقصى حد: 15 / مستوى</span>
         </div>
         <div id="mining-fields" class="mining-grid"></div>
     </div>
@@ -79,7 +87,7 @@
 
 <style>
 /* ==========================================
-   تنسيقات شاشة المزرعة المتناسقة والأصلية
+   تنسيقات شاشة المزرعة الاقتصادية المحدثة
    ========================================== */
 .farm-container {
     padding: 12px;
@@ -91,34 +99,43 @@
     color: #ffffff;
 }
 
-/* 1. الكروت العلوية */
+/* 1. الكروت العلوية الثلاثية */
 .farm-stats-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
     margin-bottom: 16px;
 }
 
 .stat-card {
     background: #151c2c;
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
-    padding: 12px;
+    border-radius: 14px;
+    padding: 10px 6px;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: space-between;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    justify-content: center;
+    text-align: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    min-height: 65px;
+}
+
+.stat-card.usd-card {
+    border-color: rgba(74, 222, 128, 0.25);
+    background: rgba(74, 222, 128, 0.05);
 }
 
 .stat-text {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    min-width: 0;
+    gap: 2px;
+    width: 100%;
+    align-items: center;
 }
 
 .stat-label {
-    font-size: 11px;
+    font-size: 10px;
     color: #8e9baf;
     font-weight: 600;
     white-space: nowrap;
@@ -127,27 +144,22 @@
 .stat-value {
     color: #ffffff;
     font-weight: 800;
-    font-size: 13.5px;
+    font-size: 11.5px;
     white-space: nowrap;
     display: flex;
     align-items: center;
-    gap: 4px;
+    justify-content: center;
+    gap: 2px;
     direction: ltr;
 }
 
 .stat-icon-box {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    flex-shrink: 0;
+    display: none; /* إخفاء الأيقونة لتوفير مساحة للقيم الثلاثية مع المحافظة على الهيكل */
 }
 
-.rate-bg { background: rgba(243, 156, 18, 0.15); border: 1px solid rgba(243, 156, 18, 0.3); }
-.coin-bg { background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); }
+.rate-bg { background: rgba(243, 156, 18, 0.15); }
+.coin-bg { background: rgba(16, 185, 129, 0.15); }
+.usd-bg { background: rgba(74, 222, 128, 0.15); }
 
 /* 2. العملة وزر التعزيز */
 .hero-section {
@@ -290,7 +302,7 @@
     border: none;
     border-radius: 12px;
     font-weight: 800;
-    font-size: 13.5px;
+    font-size: 13px;
     cursor: pointer;
     transition: background 0.2s ease, transform 0.1s ease;
 }
@@ -339,7 +351,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: space-between;
-    min-height: 100px;
+    min-height: 108px;
     box-sizing: border-box;
 }
 
@@ -350,22 +362,23 @@
 
 .mining-card-title {
     color: #cbd5e1;
-    font-size: 11px;
+    font-size: 10.5px;
     font-weight: 700;
     margin-bottom: 4px;
 }
 
 .mining-card-btn {
     width: 100%;
-    padding: 5px 0;
+    padding: 5px 2px;
     border: none;
     border-radius: 6px;
     background: #f39c12;
     color: #000;
     font-weight: 800;
-    font-size: 10px;
+    font-size: 9.5px;
     cursor: pointer;
     transition: opacity 0.2s ease;
+    white-space: nowrap;
 }
 
 .mining-card-btn:active:not(:disabled) { opacity: 0.8; }
@@ -409,7 +422,7 @@
     background: rgba(243, 156, 18, 0.05);
 }
 
-/* بدج العداد التنازلي الأحمـر */
+/* بدج العداد التنازلي الأحمر */
 #daily-timer {
     background: rgba(239, 68, 68, 0.15);
     border: 1px solid rgba(239, 68, 68, 0.3);
