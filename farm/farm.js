@@ -15,7 +15,7 @@ window.initFarmView = function() {
         maxDailyBoostRate: 15.0,
         boostMaxRewardCoins: 50.0,
         upgradeCosts: {
-            1: { cost_zn: 600, cost_usd: 0.0, rate: 1.0 },      // المستوى الأول بالعملات فقط (بدون دولار)
+            1: { cost_zn: 600, cost_usd: 0.0, rate: 1.0 },      // المستوى الأول بالعملات فقط (مجاني من الدولار)
             2: { cost_zn: 1500, cost_usd: 0.10, rate: 2.5 },
             3: { cost_zn: 3800, cost_usd: 0.15, rate: 6.0 },
             4: { cost_zn: 10000, cost_usd: 0.20, rate: 15.0 },
@@ -54,7 +54,7 @@ window.initFarmView = function() {
     let isUpgradingStorage = false;
 
     let lastFetchTime = 0;
-    const FETCH_THROTTLE_MS = 8000;
+    const FETCH_THROTTLE_MS = 3000;
     let lastCheckedDate = "";
 
     function showToast(message) {
@@ -131,7 +131,6 @@ window.initFarmView = function() {
         return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     }
 
-    // تنسيق التكلفة بدقة لضمان عدم تقريب الأرقام بشكل مشوه (مثال: 1,500 تظهر 1.5K بدلاً من 2K)
     function formatCompactCost(num) {
         if (num >= 1000000) {
             let formatted = (num / 1000000).toFixed(1);
@@ -182,23 +181,12 @@ window.initFarmView = function() {
                 }
 
                 if (!window.PlayerData) window.PlayerData = {};
-                Object.assign(window.PlayerData, resData.player);
-
                 if (!window.userState) window.userState = {};
-                
+
                 if (resData.player) {
+                    Object.assign(window.PlayerData, resData.player);
+                    Object.assign(window.userState, resData.player);
                     setStoredBalance(resData.player.balance, resData.player.usd_balance);
-                    if (resData.player.hourly_rate !== undefined) window.userState.hourly_rate = resData.player.hourly_rate;
-                    if (resData.player.daily_boost_rate !== undefined) window.userState.daily_boost_rate = resData.player.daily_boost_rate;
-                    if (resData.player.ads_watched !== undefined) window.userState.ads_watched = resData.player.ads_watched;
-                    if (resData.player.max_cap !== undefined) window.userState.max_cap = resData.player.max_cap;
-                    if (resData.player.extra_storage !== undefined) window.userState.extra_storage = resData.player.extra_storage;
-                    if (resData.player.storage_level !== undefined) window.userState.storage_level = resData.player.storage_level;
-                    if (resData.player.upgrades !== undefined) window.userState.upgrades = resData.player.upgrades;
-                    if (resData.player.last_claim_time !== undefined) window.userState.last_claim_time = resData.player.last_claim_time;
-                    if (resData.player.daily_day !== undefined) window.userState.daily_day = resData.player.daily_day;
-                    if (resData.player.last_daily_claim_date !== undefined) window.userState.last_daily_claim_date = resData.player.last_daily_claim_date;
-                    if (resData.player.last_boost_date !== undefined) window.userState.last_boost_date = resData.player.last_boost_date;
                 }
                 
                 window.updateFarmUI();
@@ -211,10 +199,10 @@ window.initFarmView = function() {
     };
 
     window.updateFarmUI = function() {
-        const pData = window.PlayerData || window.userState || {};
+        const pData = window.userState || window.PlayerData || {};
         let bal = getStoredBalance();
         let usdBal = getStoredUsdBalance();
-        let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0.20);
+        let hRate = parseFloat(pData.hourly_rate ?? 0.20);
 
         const balEl = document.getElementById('farm-balance');
         if (balEl) balEl.innerText = `${bal.toFixed(2)} ZN`;
@@ -228,7 +216,7 @@ window.initFarmView = function() {
             rateEl.innerHTML = `<span dir="ltr">${formattedRate} /h</span> ⚡`;
         }
 
-        const stgLvl = parseInt(window.userState?.storage_level ?? pData.storage_level ?? 0, 10);
+        const stgLvl = parseInt(pData.storage_level ?? 0, 10);
         const stgLvlEl = document.getElementById('storage-level-num');
         if (stgLvlEl) stgLvlEl.innerText = stgLvl;
 
@@ -257,7 +245,7 @@ window.initFarmView = function() {
 
         const fieldsContainer = document.getElementById('mining-fields');
         if (fieldsContainer) {
-            const currentUpgrades = window.userState?.upgrades || pData.upgrades || {};
+            const currentUpgrades = pData.upgrades || {};
             let fieldsHTML = '';
             for (let i = 1; i <= 9; i++) {
                 let count = parseInt(currentUpgrades[`lvl${i}`] || 0);
@@ -324,14 +312,14 @@ window.initFarmView = function() {
 
     function renderDailyRewards() {
         const container = document.getElementById('daily-rewards-container');
-        const pData = window.PlayerData || window.userState || {};
+        const pData = window.userState || window.PlayerData || {};
         if (!container) return; 
 
         let html = '';
         const todayStr = getTodayUTCStr();
-        const lastClaimDate = pData.last_daily_claim_date || window.userState?.last_daily_claim_date;
+        const lastClaimDate = pData.last_daily_claim_date;
         const claimedToday = (lastClaimDate === todayStr); 
-        let currentDailyDay = parseInt(pData.daily_day || window.userState?.daily_day || 1, 10);
+        let currentDailyDay = parseInt(pData.daily_day || 1, 10);
         if (isNaN(currentDailyDay) || currentDailyDay < 1) currentDailyDay = 1;
 
         const timeLeftStr = getTimeUntilUTCMidnight();
@@ -364,7 +352,7 @@ window.initFarmView = function() {
 
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
-        const pData = window.PlayerData || window.userState;
+        const pData = window.userState || window.PlayerData;
         if (!pData) return;
         
         const todayStr = getTodayUTCStr();
@@ -377,18 +365,17 @@ window.initFarmView = function() {
         }
         lastCheckedDate = todayStr;
 
-        let maxC = parseFloat(window.userState?.max_cap ?? pData.max_cap ?? 30.0);
-        let hRate = parseFloat(window.userState?.hourly_rate ?? pData.hourly_rate ?? 0.20);
+        let maxC = parseFloat(pData.max_cap ?? 30.0);
+        let hRate = parseFloat(pData.hourly_rate ?? 0.20);
         
-        let lastClaimStr = window.userState?.last_claim_time || pData.last_claim_time;
+        let lastClaimStr = pData.last_claim_time;
         let lastClaimTimeMs = lastClaimStr ? new Date(lastClaimStr).getTime() : getAdjustedNowMs();
         
         let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimTimeMs) / 1000);
         let unclaim = (hRate / 3600.0) * secondsPassed;
 
         if (unclaim >= maxC) unclaim = maxC;
-        if (window.PlayerData) window.PlayerData.unclaimed = unclaim;
-        if (window.userState) window.userState.unclaimed = unclaim;
+        pData.unclaimed = unclaim;
 
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
@@ -429,8 +416,8 @@ window.initFarmView = function() {
         const boostBtn = document.getElementById('boost-btn');
         if (boostBtn) {
             boostBtn.onclick = window.handleDailyBoost;
-            const lastBoost = pData.last_boost_date || window.userState?.last_boost_date;
-            const currentDailyBoostRate = parseFloat(pData.daily_boost_rate || window.userState?.daily_boost_rate || 0);
+            const lastBoost = pData.last_boost_date;
+            const currentDailyBoostRate = parseFloat(pData.daily_boost_rate || 0);
 
             if (lastBoost === todayStr) {
                 boostBtn.className = "boost-btn btn-disabled";
@@ -447,7 +434,7 @@ window.initFarmView = function() {
         }
 
         const dailyTimerEl = document.getElementById('daily-timer');
-        const lastDailyClaim = pData.last_daily_claim_date || window.userState?.last_daily_claim_date;
+        const lastDailyClaim = pData.last_daily_claim_date;
         if (dailyTimerEl && lastDailyClaim === todayStr) {
             dailyTimerEl.innerText = `⏳ ${timeLeftStr}`;
         }
@@ -456,7 +443,7 @@ window.initFarmView = function() {
 
     function syncOnVisibility() {
         if (document.visibilityState === "visible") {
-            window.fetchPlayerDataFromServer();
+            window.fetchPlayerDataFromServer(true);
         }
     }
 
