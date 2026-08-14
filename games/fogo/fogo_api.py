@@ -13,7 +13,6 @@ from games.fogo.fogo_db import (
 
 fogo_bp = Blueprint('fogo', __name__)
 
-# خريطة أقصى مضاعفات بناءً على عدد الألغام (3, 4, 5, 6)
 MAX_MULTIPLIERS = {
     3: 5.0,    # 13 مربع آمن
     4: 10.0,   # 12 مربع آمن
@@ -31,7 +30,6 @@ def calculate_multiplier(mines_count, opened_count):
     if opened_count >= safe_tiles_total:
         return float(max_mult)
 
-    # معادلة نمو تصاعدية سلسة
     progress = opened_count / safe_tiles_total
     mult = 1.0 + (max_mult - 1.0) * (progress ** 1.35)
     return round(mult, 2)
@@ -102,14 +100,21 @@ def start_game():
     if int(bet_amount) not in [int(x) for x in allowed_options]:
         return jsonify({"success": False, "error": "مبلغ الرهان غير متاح"}), 400
 
+    # حساب رسوم الدرع (25%) والإجمالي الخصم
+    shield_fee = (bet_amount * 0.25) if shield_enabled else 0.0
+    total_cost = bet_amount + shield_fee
+
     user_data = database.get_user(telegram_id) or {}
     current_balance = float(user_data.get('balance', 0.0))
 
-    if current_balance < bet_amount:
-        return jsonify({"success": False, "error": f"رصيدك غير كافٍ! رصيدك: {current_balance:.2f} ZN"}), 400
+    if current_balance < total_cost:
+        return jsonify({
+            "success": False, 
+            "error": f"رصيدك غير كافٍ! تكلفة الجولة الإجمالية {total_cost:.2f} ZN (شاملة 25% رسوم الدرع). رصيدك الحالي: {current_balance:.2f} ZN"
+        }), 400
 
-    new_balance = current_balance - bet_amount
-    update_user_balance_safe(telegram_id, new_balance, -bet_amount)
+    new_balance = current_balance - total_cost
+    update_user_balance_safe(telegram_id, new_balance, -total_cost)
 
     current_bot_profit_pct = get_bot_profit_percentage()
     threshold = float(config.get('force_loss_threshold', 59.0))
@@ -118,6 +123,8 @@ def start_game():
     session_data = {
         'telegram_id': telegram_id,
         'bet_amount': bet_amount,
+        'shield_fee': shield_fee,
+        'total_cost': total_cost,
         'mines_count': mines_count,
         'shield_enabled': shield_enabled,
         'shield_active': shield_enabled,
@@ -133,6 +140,8 @@ def start_game():
         "success": True,
         "message": "تم بدء الجولة بنجاح",
         "bet_amount": bet_amount,
+        "shield_fee": shield_fee,
+        "total_cost": total_cost,
         "mines_count": mines_count,
         "shield_active": shield_enabled,
         "new_balance": new_balance
@@ -170,14 +179,13 @@ def reveal_tile():
     force_loss = session.get('force_loss', False)
     shield_active = session.get('shield_active', False)
     bet_amount = float(session.get('bet_amount', 0.0))
+    total_cost = float(session.get('total_cost', bet_amount))
 
-    # احتساب نسبة المخاطرة ديناميكياً
     risk_factor = (mines_count / 16.0) + (len(opened_tiles) * 0.04)
     is_hit_loss = force_loss or (random.random() < risk_factor)
 
     if is_hit_loss:
         if shield_active:
-            # امتصاص الصدمة بالدرع وتدميره
             session['shield_active'] = False
             save_fogo_session(telegram_id, session)
 
@@ -187,9 +195,8 @@ def reveal_tile():
                 "message": "🛡️ تم تدمير الدرع أثناء امتصاص الصدمة! أنت في أمان لاستكمال الجولة."
             }), 200
         else:
-            # خسارة الجولة وتظليل العملة بالرمادي المكسور
             delete_fogo_session(telegram_id)
-            update_fogo_economy_stats(bet_amount, 0.0)
+            update_fogo_economy_stats(total_cost, 0.0)
 
             user_data = database.get_user(telegram_id) or {}
             return jsonify({
@@ -200,7 +207,6 @@ def reveal_tile():
             }), 200
 
     else:
-        # استخراج عملة ذهبية ناجحة
         opened_tiles.append(tile_index)
         session['opened_tiles'] = opened_tiles
         opened_count = len(opened_tiles)
@@ -209,14 +215,13 @@ def reveal_tile():
         session['current_multiplier'] = new_multiplier
 
         if opened_count >= safe_tiles_total:
-            # الفوز بالحد الأقصى
             winnings = bet_amount * new_multiplier
             user_data = database.get_user(telegram_id) or {}
             old_balance = float(user_data.get('balance', 0.0))
             final_balance = old_balance + winnings
 
             update_user_balance_safe(telegram_id, final_balance, winnings)
-            update_fogo_economy_stats(bet_amount, winnings)
+            update_fogo_economy_stats(total_cost, winnings)
             delete_fogo_session(telegram_id)
 
             return jsonify({
@@ -257,6 +262,7 @@ def cashout():
         return jsonify({"success": False, "error": "يجب استخراج عملة واحدة على الأقل للاقتطاع!"}), 400
 
     bet_amount = float(session.get('bet_amount', 0.0))
+    total_cost = float(session.get('total_cost', bet_amount))
     multiplier = float(session.get('current_multiplier', 1.0))
     winnings = bet_amount * multiplier
 
@@ -265,7 +271,7 @@ def cashout():
     new_balance = old_balance + winnings
 
     update_user_balance_safe(telegram_id, new_balance, winnings)
-    update_fogo_economy_stats(bet_amount, winnings)
+    update_fogo_economy_stats(total_cost, winnings)
     delete_fogo_session(telegram_id)
 
     return jsonify({
