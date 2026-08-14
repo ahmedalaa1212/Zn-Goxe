@@ -20,21 +20,19 @@
         }
     }
 
-    // دالة استخراج الأرقام بأمان لمنع ظهور NaN نهائياً
-    function getNumericValue(...args) {
-        for (let i = 0; i < args.length; i++) {
-            let val = args[i];
+    // دالة لاستخراج الأرقام بأمان ودون إرجاع NaN أبدًا
+    function floatVal(...args) {
+        for (let val of args) {
             if (val !== undefined && val !== null && val !== '') {
-                let num = parseFloat(val);
-                if (!isNaN(num) && isFinite(num)) return num;
+                let p = parseFloat(val);
+                if (!isNaN(p) && isFinite(p)) return p;
             }
         }
         return 0;
     }
 
     function formatNumberAbbreviated(num, decimals = 2) {
-        let val = parseFloat(num);
-        if (isNaN(val) || !isFinite(val)) val = 0;
+        let val = floatVal(num);
         if (val >= 1000000000) return (val / 1000000000).toFixed(decimals) + 'B';
         if (val >= 1000000) return (val / 1000000).toFixed(decimals) + 'M';
         if (val >= 1000) return (val / 1000).toFixed(decimals) + 'K';
@@ -91,7 +89,7 @@
                 const cachedTime = sessionStorage.getItem('zn_shop_config_time');
                 if (cached && cachedTime && (now - parseInt(cachedTime) < CONFIG_CACHE_TTL)) {
                     const parsed = JSON.parse(cached);
-                    shopDynamicSettings = parsed.settings || parsed;
+                    shopDynamicSettings = parsed.settings || parsed.farm_settings || parsed;
                     cachedPackagesData = parsed.packages;
                     applyConfigToUI(parsed);
                     return;
@@ -113,7 +111,7 @@
             const res = await fetch('/api/shop/get_config');
             const data = await res.json();
             if (data && data.success) {
-                shopDynamicSettings = data.settings || data;
+                shopDynamicSettings = data.settings || data.farm_settings || data;
                 cachedPackagesData = data.packages;
                 lastConfigFetchTime = now;
 
@@ -132,8 +130,8 @@
     function applyConfigToUI(data) {
         const tonPriceElem = document.getElementById('ton-live-rate-text');
         if (tonPriceElem) {
-            const livePrice = getNumericValue(data.ton_price_usd, window.tonPrice, window.userState?.ton_price);
-            if (livePrice > 0) {
+            const livePrice = floatVal(data.ton_price_usd, window.tonPrice, window.userState?.ton_price);
+            if (livePrice) {
                 tonPriceElem.innerText = `$${livePrice.toFixed(2)}`;
             }
         }
@@ -179,8 +177,8 @@
             const theme = colorThemes[index % colorThemes.length];
             const btnTextColor = theme.textColor || '#ffffff';
 
-            const usdtPrice = getNumericValue(pkg.usdt, pkg.cost_usd, pkg.price_usd).toFixed(2);
-            const tonAmount = getNumericValue(pkg.ton_amount, pkg.ton).toFixed(2);
+            const usdtPrice = floatVal(pkg.usdt, pkg.cost_usd).toFixed(2);
+            const tonAmount = floatVal(pkg.ton_amount).toFixed(2);
 
             html += `
                 <div class="usdt-card" style="background: ${theme.bg}; border: 1px solid ${theme.border};">
@@ -191,9 +189,9 @@
                         <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${tonAmount} TON</div>
                     </div>
                     <div class="usdt-perks">
-                        ⚡ +${formatNumberAbbreviated(getNumericValue(pkg.rate_add, pkg.rate_bonus))} ZN/h<br>
-                        📦 +${formatNumberAbbreviated(getNumericValue(pkg.storage_add, pkg.capacity))} مخزن<br>
-                        🪙 +${formatNumberAbbreviated(getNumericValue(pkg.zn_add, pkg.cost_zn))} ZN
+                        ⚡ +${floatVal(pkg.rate_add).toLocaleString()} ZN/h<br>
+                        📦 +${floatVal(pkg.storage_add).toLocaleString()} مخزن<br>
+                        🪙 +${floatVal(pkg.zn_add).toLocaleString()} ZN
                     </div>
                     <button class="btn-ton-pay" style="background: ${theme.btn}; color: ${btnTextColor};" onclick="buyPackageWithTon('${pkgId}')">شراء تلقائي</button>
                 </div>
@@ -420,38 +418,46 @@
         if (!miningSec || !storageSec) return;
 
         const pData = window.userState || {};
-        let totalBal = getNumericValue(pData.balance, pData.zn_balance);
+        let totalBal = floatVal(pData.balance);
 
-        // 1. تحديث القيم في الشريط العلوي بنفس مظهر المزرعة و4 خانات للدولار
+        // 1. تحديث القيم في الشريط العلوي بنفس مظهر المزرعة
         const balElem = document.getElementById('shop-balance-text');
         if (balElem) {
             balElem.innerText = `${formatNumberAbbreviated(totalBal)} ZN`;
         }
 
+        // ضبط رصيد الدولار بـ 4 أرقام عشرية ($0.0000) تماماً كما في المزرعة
         const usdElem = document.getElementById('shop-usd-text');
         if (usdElem) {
-            const usdVal = getNumericValue(pData.usd_balance, pData.usd, pData.balance_usd);
+            const usdVal = floatVal(pData.usd_balance, pData.balance_usd, pData.usd);
             usdElem.innerText = `$${usdVal.toFixed(4)}`;
         }
         
         const rateElem = document.getElementById('shop-rate-text');
         if (rateElem) {
-            const hRate = getNumericValue(pData.hourly_rate, pData.rate, pData.mining_rate);
-            rateElem.innerText = `+${formatNumberAbbreviated(hRate)}/h ⚡`;
+            const hRate = floatVal(pData.hourly_rate);
+            rateElem.innerText = `+${hRate.toFixed(2)}/h ⚡`;
         }
 
-        // 2. ترقيات التعدين (تدمير مشكلة NaN بقراءة upgrade_config المباشرة من الفايربيس)
-        const miningCfg = shopDynamicSettings?.upgrade_config || shopDynamicSettings?.mining_config || shopDynamicSettings?.speed_config || {};
+        // 2. ترقيات التعدين
+        const settings = shopDynamicSettings || {};
+        const miningCfg = settings.upgrade_config 
+                       || settings.mining_config 
+                       || settings.speed_config 
+                       || settings.upgrades 
+                       || {};
 
         let miningHtml = '';
-        for (const [key, cfg] of Object.entries(miningCfg)) {
+        const sortedMiningEntries = Object.entries(miningCfg).sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
+
+        for (const [key, cfg] of sortedMiningEntries) {
             let i = parseInt(key);
             if (isNaN(i)) continue;
 
             let count = parseInt((pData.upgrades && (pData.upgrades[`lvl${i}`] || pData.upgrades[key])) || 0);
-            let price = getNumericValue(cfg.cost_zn, cfg.cost, cfg.price, cfg.zn_cost, cfg.zn);
-            let speed = getNumericValue(cfg.rate_bonus, cfg.rate, cfg.bonus, cfg.speed, cfg.rate_add); 
-            let maxLimit = parseInt(cfg.max || cfg.max_limit || cfg.limit || 15);
+            let price = floatVal(cfg.cost_zn, cfg.price, cfg.cost);
+            let speed = floatVal(cfg.rate_bonus, cfg.rate, cfg.speed, cfg.rate_add); 
+            let maxLimit = parseInt(cfg.max || cfg.max_limit || 15);
             let isMax = count >= maxLimit;
             let canAfford = totalBal >= price;
 
@@ -461,7 +467,7 @@
                     <div>
                         <div style="font-size: 26px;">⚡</div>
                         <div style="color: #ffffff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
-                        <div style="color: #00cc66; font-size: 12px; margin: 4px 0;" dir="ltr">⚡ +${formatNumberAbbreviated(speed)}/h</div>
+                        <div style="color: #00cc66; font-size: 12px; margin: 4px 0;" dir="ltr">⚡ +${speed.toLocaleString()}/h</div>
                         <div style="color: #8b949e; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${maxLimit}</div>
                     </div>
                     <button id="btn-speed-${i}" onclick="requestShopPurchase('speed', ${i}, ${price})" 
@@ -473,18 +479,22 @@
         }
         miningSec.innerHTML = miningHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري القراءة من الفيربيس...</div>';
 
-        // 3. ترقيات المخزن (قراءة storage_capacities مباشرة)
-        const storageCfg = shopDynamicSettings?.storage_capacities || shopDynamicSettings?.storage_config || {};
+        // 3. ترقيات المخزن
+        const storageCfg = settings.storage_capacities 
+                        || settings.storage_config 
+                        || settings.storages 
+                        || {};
 
         let storageHtml = '';
         let currentStorageLvl = parseInt(pData.storage_level || 0); 
+        const sortedStorageEntries = Object.entries(storageCfg).sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
 
-        for (const [key, cfg] of Object.entries(storageCfg)) {
+        for (const [key, cfg] of sortedStorageEntries) {
             let i = parseInt(key);
             if (isNaN(i) || i === 0) continue;
 
-            let price = getNumericValue(cfg.cost_zn, cfg.cost, cfg.price, cfg.zn_cost, cfg.zn);
-            let capacity = getNumericValue(cfg.capacity, cfg.cap, cfg.max_cap, cfg.storage);
+            let price = floatVal(cfg.cost_zn, cfg.price, cfg.cost);
+            let capacity = floatVal(cfg.capacity, cfg.cap, cfg.max_cap);
             let isOwned = i <= currentStorageLvl;
             let isNextUpgrade = i === currentStorageLvl + 1;
             let canAfford = totalBal >= price;
@@ -520,8 +530,8 @@
     // ⚡ طلب الشراء وتنفيذه
     // =================================================================
     window.requestShopPurchase = function(type, level, price) {
-        const curBal = getNumericValue(window.userState?.balance, window.userState?.zn_balance);
-        if (curBal < parseFloat(price)) {
+        const curBal = floatVal(window.userState?.balance);
+        if (curBal < floatVal(price)) {
             triggerHaptic('notification', 'error');
             alert("⚠️ الرصيد غير كافي لشراء هذا التطوير!");
             return; 
