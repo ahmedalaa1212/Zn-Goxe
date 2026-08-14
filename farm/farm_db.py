@@ -129,7 +129,7 @@ def calculate_user_max_cap(user_data, settings=None):
 
 
 def calculate_accrued_mined(user_data, now_dt, max_cap):
-    """حساب الكمية المعدنة الحالية داخل المخزن"""
+    """حساب الكمية المعدنة الحالية داخل المخزن بدقة 4 خانات عشرية"""
     last_claim_str = user_data.get("last_claim_time")
     hourly_rate = float(user_data.get("hourly_rate", 0.05))
     if not last_claim_str or hourly_rate <= 0:
@@ -140,7 +140,7 @@ def calculate_accrued_mined(user_data, now_dt, max_cap):
             last_claim = last_claim.replace(tzinfo=timezone.utc)
         seconds_passed = max(0.0, (now_dt - last_claim).total_seconds())
         mined = (hourly_rate / 3600.0) * seconds_passed
-        return round(min(mined, max_cap), 2)
+        return round(min(mined, max_cap), 4)
     except Exception:
         return 0.0
 
