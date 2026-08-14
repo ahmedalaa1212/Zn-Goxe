@@ -1,6 +1,6 @@
 // shop/shop.js
 // =================================================================
-// 🛒 ZN Goxe - Shop Module (Optimized Layout & Safe Formatting)
+// 🛒 ZN Goxe - Shop Module (Optimized Layout & Safe Firebase Integration)
 // =================================================================
 
 (function initShop() {
@@ -20,60 +20,13 @@
         }
     }
 
-    // =================================================================
-    // 🧮 0. تنسيق الأرقام مع إجبار العرض الأفقي المباشر لحل التكدس العمودي
-    // =================================================================
-    function renderFormattedBalanceHTML(val, decimals = 2, prefix = '', suffix = '') {
-        let num = parseFloat(val);
-        if (isNaN(num)) num = 0;
-
-        if (num >= 1000000000) {
-            return `<span dir="ltr" style="white-space:nowrap; display:inline !important;">${prefix}${(num / 1000000000).toFixed(2)}B${suffix}</span>`;
-        }
-        if (num >= 10000000) { 
-            return `<span dir="ltr" style="white-space:nowrap; display:inline !important;">${prefix}${(num / 1000000).toFixed(2)}M${suffix}</span>`;
-        }
-
-        const parts = num.toFixed(decimals).split('.');
-        const intFormatted = Math.floor(parts[0]).toLocaleString('en-US');
-
-        if (decimals === 0 || !parts[1]) {
-            return `<span dir="ltr" style="white-space:nowrap; display:inline !important;">${prefix}<span class="int-part" style="display:inline !important; font-size:1em; font-weight:800;">${intFormatted}</span>${suffix}</span>`;
-        }
-
-        return `<span dir="ltr" style="white-space:nowrap; display:inline !important;">${prefix}<span class="int-part" style="display:inline !important; font-size:1em; font-weight:800;">${intFormatted}</span>.<span class="dec-part" style="display:inline !important; font-size:0.78em; opacity:0.75; font-weight:600;">${parts[1]}</span>${suffix}</span>`;
-    }
-
-    // =================================================================
-    // 🧮 1. دالة التحديث البصري التدريجي للأرقام
-    // =================================================================
-    function animateValue(element, start, end, duration = 800, decimals = 2, prefix = '', suffix = '') {
-        if (!element) return;
-        if (isNaN(start)) start = 0;
-        if (isNaN(end)) end = 0;
-
-        if (Math.abs(start - end) < 0.001) {
-            element.innerHTML = renderFormattedBalanceHTML(end, decimals, prefix, suffix);
-            element.dataset.currentVal = end;
-            return;
-        }
-
-        let startTimestamp = null;
-        const step = (timestamp) => {
-            if (!startTimestamp) startTimestamp = timestamp;
-            const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-            const current = start + (end - start) * progress;
-
-            element.innerHTML = renderFormattedBalanceHTML(current, decimals, prefix, suffix);
-
-            if (progress < 1) {
-                window.requestAnimationFrame(step);
-            } else {
-                element.innerHTML = renderFormattedBalanceHTML(end, decimals, prefix, suffix);
-                element.dataset.currentVal = end;
-            }
-        };
-        window.requestAnimationFrame(step);
+    function formatNumberAbbreviated(num, decimals = 2) {
+        let val = parseFloat(num);
+        if (isNaN(val)) val = 0;
+        if (val >= 1000000000) return (val / 1000000000).toFixed(decimals) + 'B';
+        if (val >= 1000000) return (val / 1000000).toFixed(decimals) + 'M';
+        if (val >= 1000) return (val / 1000).toFixed(decimals) + 'K';
+        return val.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: decimals });
     }
 
     function initTonConnect() {
@@ -115,7 +68,7 @@
     }
 
     // =================================================================
-    // 📦 2. تحميل إعدادات المتجر
+    // 📦 تحميل إعدادات المتجر
     // =================================================================
     async function loadShopConfig(forceFetch = false) {
         const now = Date.now();
@@ -191,7 +144,7 @@
         }
 
         const entries = Array.isArray(packages) 
-            ? packages.map((p, idx) => [`pkg_${idx}`, p]) 
+            ? packages.map((p, idx) => [`pkg_${idx+1}`, p]) 
             : Object.entries(packages);
 
         if (entries.length === 0) {
@@ -201,10 +154,10 @@
 
         let html = '';
         const colorThemes = [
-            { bg: 'linear-gradient(135deg, #1c1c1c, #1f2937)', border: '#3b82f6', btn: '#3b82f6', icon: '🌱', textColor: '#ffffff' },
-            { bg: 'linear-gradient(135deg, #1c1c1c, #2a2a2a)', border: '#ffcc00', btn: '#ffcc00', icon: '📦', textColor: '#000000' },
-            { bg: 'linear-gradient(135deg, #1c1c1c, #1f3a2b)', border: '#00cc66', btn: '#00cc66', icon: '🚀', textColor: '#000000' },
-            { bg: 'linear-gradient(135deg, #1c1c1c, #332b00)', border: '#ffd700', btn: '#ffd700', icon: '👑', textColor: '#000000' },
+            { bg: 'linear-gradient(135deg, #1c1c1c, #2a2012)', border: '#cd7f32', btn: '#cd7f32', icon: '🥉', textColor: '#ffffff' },
+            { bg: 'linear-gradient(135deg, #1c1c1c, #212830)', border: '#c0c0c0', btn: '#c0c0c0', icon: '🥈', textColor: '#000000' },
+            { bg: 'linear-gradient(135deg, #1c1c1c, #332b00)', border: '#ffd700', btn: '#ffd700', icon: '🥇', textColor: '#000000' },
+            { bg: 'linear-gradient(135deg, #1c1c1c, #1f2937)', border: '#3b82f6', btn: '#3b82f6', icon: '💎', textColor: '#ffffff' },
             { bg: 'linear-gradient(135deg, #1c1c1c, #3a1c1c)', border: '#ff4444', btn: '#ff4444', icon: '🐋', textColor: '#ffffff' }
         ];
 
@@ -220,9 +173,9 @@
             html += `
                 <div class="usdt-card" style="background: ${theme.bg}; border: 1px solid ${theme.border};">
                     <div>
-                        <div style="font-size: 24px;">${theme.icon}</div>
+                        <div style="font-size: 26px;">${theme.icon}</div>
                         <div style="color: #ffffff; font-weight: bold; font-size: 13px;">${pkg.title || 'باقة مميزة'}</div>
-                        <div style="color: ${theme.border}; font-weight: bold; font-size: 16px; margin: 4px 0;">$${usdtPrice}</div>
+                        <div style="color: ${theme.border}; font-weight: 800; font-size: 17px; margin: 4px 0;">$${usdtPrice}</div>
                         <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${tonAmount} TON</div>
                     </div>
                     <div class="usdt-perks">
@@ -240,7 +193,7 @@
     }
 
     // =================================================================
-    // 💎 3. شراء الباقات بـ TON
+    // 💎 شراء الباقات بـ TON
     // =================================================================
     window.buyPackageWithTon = async function(packageId) {
         if (isBuying) return;
@@ -353,7 +306,7 @@
     };
 
     // =================================================================
-    // 🎨 4. نافذة التأكيد (Modal UI)
+    // 🎨 نافذة التأكيد (Modal UI)
     // =================================================================
     const injectModalUI = () => {
         if (!document.getElementById('shop-modal-styles')) {
@@ -367,7 +320,7 @@
                     z-index: 99999; opacity: 0; transition: opacity 0.3s ease;
                 }
                 #shop-confirm-modal {
-                    background: #1a1a1a; border: 1px solid #333333; border-radius: 20px;
+                    background: #161b22; border: 1px solid #30363d; border-radius: 20px;
                     padding: 24px; width: 85%; max-width: 320px; text-align: center;
                     box-shadow: 0 10px 40px rgba(0,0,0,0.8);
                     transform: translateY(30px) scale(0.95);
@@ -375,16 +328,16 @@
                 }
                 .shop-modal-active { display: flex !important; opacity: 1 !important; }
                 .shop-modal-active > #shop-confirm-modal { transform: translateY(0) scale(1); }
-                .shop-modal-title { color: #ffffff; font-size: 20px; font-weight: bold; margin-bottom: 8px; }
-                .shop-modal-desc { color: #aaaaaa; font-size: 14px; margin-bottom: 15px; line-height: 1.5; }
+                .shop-modal-title { color: #ffffff; font-size: 19px; font-weight: bold; margin-bottom: 8px; }
+                .shop-modal-desc { color: #8b949e; font-size: 14px; margin-bottom: 15px; line-height: 1.5; }
                 .shop-modal-price-box { 
-                    background: #000000; border-radius: 12px; padding: 12px; 
+                    background: #0d1117; border-radius: 12px; padding: 12px; 
                     color: #ffcc00; font-weight: bold; font-size: 18px; margin-bottom: 20px;
-                    border: 1px solid #333333;
+                    border: 1px solid #30363d;
                 }
                 .shop-modal-actions { display: flex; gap: 12px; justify-content: center; }
                 .shop-btn { flex: 1; padding: 12px; border: none; border-radius: 10px; font-weight: bold; font-size: 15px; cursor: pointer; }
-                .shop-btn-cancel { background: #333333; color: #ffffff; }
+                .shop-btn-cancel { background: #21262d; color: #ffffff; }
                 .shop-btn-confirm { background: #0088cc; color: #ffffff; }
             `;
             document.head.appendChild(styleSheet);
@@ -418,7 +371,7 @@
     injectModalUI();
 
     // =================================================================
-    // 🔄 5. التبديل بين التبويبات
+    // 🔄 التبديل بين التبويبات
     // =================================================================
     window.switchShopTab = function(tab) {
         triggerHaptic('impact', 'light');
@@ -433,17 +386,17 @@
             miningSec.style.display = 'grid';
             storageSec.style.display = 'none';
             if (btnMining) btnMining.style.background = '#0088cc';
-            if (btnStorage) btnStorage.style.background = '#333333';
+            if (btnStorage) btnStorage.style.background = '#21262d';
         } else {
             miningSec.style.display = 'none';
             storageSec.style.display = 'grid';
-            if (btnMining) btnMining.style.background = '#333333';
+            if (btnMining) btnMining.style.background = '#21262d';
             if (btnStorage) btnStorage.style.background = '#0088cc';
         }
     };
 
     // =================================================================
-    // 🔄 6. تحديث واجهة المتجر (Render UI)
+    // 🔄 تحديث واجهة المتجر (Render UI)
     // =================================================================
     window.updateShopUI = function() {
         if (cachedPackagesData) {
@@ -457,100 +410,77 @@
         const pData = window.userState || {};
         let totalBal = parseFloat(pData.balance || 0);
 
-        const usdElem = document.getElementById('shop-usd-text');
-        if (usdElem) {
-            const curUsd = parseFloat(usdElem.dataset.currentVal) || 0;
-            animateValue(usdElem, curUsd, parseFloat(pData.usd_balance || 0), 600, 2, '$');
-        }
-
+        // 1. تحديث القيم في الشريط العلوي بنفس مظهر المزرعة
         const balElem = document.getElementById('shop-balance-text');
         if (balElem) {
-            const curBal = parseFloat(balElem.dataset.currentVal) || 0;
-            animateValue(balElem, curBal, totalBal, 600, 2);
+            balElem.innerText = `${formatNumberAbbreviated(totalBal)} ZN`;
+        }
+
+        const usdElem = document.getElementById('shop-usd-text');
+        if (usdElem) {
+            const usdVal = parseFloat(pData.usd_balance || 0);
+            usdElem.innerText = `$${usdVal.toFixed(4)}`;
         }
         
         const rateElem = document.getElementById('shop-rate-text');
         if (rateElem) {
             const hRate = parseFloat(pData.hourly_rate || 0);
-            rateElem.innerHTML = `<span dir="ltr" style="display:inline !important;">+${hRate.toFixed(2)}/h</span>`;
+            rateElem.innerText = `+${hRate.toFixed(2)}/h ⚡`;
         }
 
-        const defaultMiningCfg = {
-            "1": {"price": 3500, "rate": 5, "max": 10},
-            "2": {"price": 11500, "rate": 15, "max": 10},
-            "3": {"price": 28000, "rate": 35, "max": 10},
-            "4": {"price": 68000, "rate": 80, "max": 10},
-            "5": {"price": 165000, "rate": 180, "max": 10},
-            "6": {"price": 390000, "rate": 400, "max": 10},
-            "7": {"price": 950000, "rate": 900, "max": 10},
-            "8": {"price": 2300000, "rate": 2000, "max": 10},
-            "9": {"price": 5500000, "rate": 4500, "max": 10}
-        };
-
-        const miningCfg = shopDynamicSettings?.mining_config || shopDynamicSettings?.speed_config || defaultMiningCfg;
+        // 2. ترقيات التعدين
+        const miningCfg = shopDynamicSettings?.mining_config || shopDynamicSettings?.speed_config || {};
 
         let miningHtml = '';
         for (const [key, cfg] of Object.entries(miningCfg)) {
-            if (isNaN(parseInt(key))) continue;
-
             let i = parseInt(key);
-            let count = parseInt((pData.upgrades && pData.upgrades[`lvl${i}`]) || 0);
-            let price = parseFloat(cfg.price);
-            let speed = parseFloat(cfg.rate); 
-            let maxLimit = parseInt(cfg.max || 10);
+            if (isNaN(i)) continue;
+
+            let count = parseInt((pData.upgrades && (pData.upgrades[`lvl${i}`] || pData.upgrades[key])) || 0);
+            let price = floatVal(cfg.cost_zn, cfg.price);
+            let speed = floatVal(cfg.rate_bonus, cfg.rate); 
+            let maxLimit = parseInt(cfg.max || 15);
             let isMax = count >= maxLimit;
             let canAfford = totalBal >= price;
 
             miningHtml += `
-                <div style="background: #1a1a1a; border: 1px solid #333333; border-radius: 12px; padding: 12px; text-align: center; position: relative; display: flex; flex-direction: column; justify-content: space-between;">
-                    ${isMax ? `<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; border-radius: 12px;">مكتمل MAX</div>` : ''}
+                <div style="background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 12px; text-align: center; position: relative; display: flex; flex-direction: column; justify-content: space-between;">
+                    ${isMax ? `<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #ffcc00; border-radius: 12px; z-index: 2;">مكتمل MAX</div>` : ''}
                     <div>
                         <div style="font-size: 26px;">⚡</div>
                         <div style="color: #ffffff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
                         <div style="color: #00cc66; font-size: 12px; margin: 4px 0;" dir="ltr">⚡ +${speed.toLocaleString()}/h</div>
-                        <div style="color: #888888; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${maxLimit}</div>
+                        <div style="color: #8b949e; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${maxLimit}</div>
                     </div>
                     <button id="btn-speed-${i}" onclick="requestShopPurchase('speed', ${i}, ${price})" 
-                        style="width: 100%; padding: 9px; background: ${canAfford && !isMax ? '#ffcc00' : '#333333'}; color: ${canAfford && !isMax ? '#000000' : '#888888'}; border: none; border-radius: 6px; font-weight: bold; cursor: ${canAfford && !isMax ? 'pointer' : 'not-allowed'};" ${isMax || !canAfford ? 'disabled' : ''}>
-                        ZN ${price.toLocaleString()}
+                        style="width: 100%; padding: 9px; background: ${canAfford && !isMax ? '#ffcc00' : '#21262d'}; color: ${canAfford && !isMax ? '#000000' : '#8b949e'}; border: none; border-radius: 6px; font-weight: bold; cursor: ${canAfford && !isMax ? 'pointer' : 'not-allowed'};" ${isMax || !canAfford ? 'disabled' : ''}>
+                        ZN ${formatNumberAbbreviated(price)}
                     </button>
                 </div>
             `;
         }
-        miningSec.innerHTML = miningHtml;
+        miningSec.innerHTML = miningHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري القراءة من الفيربيس...</div>';
 
-        const defaultStorageCfg = {
-            "1": {"capacity": 300, "price": 3000},
-            "2": {"capacity": 800, "price": 8500},
-            "3": {"capacity": 2000, "price": 25000},
-            "4": {"capacity": 5000, "price": 70000},
-            "5": {"capacity": 12000, "price": 180000},
-            "6": {"capacity": 28000, "price": 450000},
-            "7": {"capacity": 65000, "price": 1100000},
-            "8": {"capacity": 150000, "price": 2800000},
-            "9": {"capacity": 350000, "price": 7000000},
-            "10": {"capacity": 800000, "price": 18000000}
-        };
-
-        const storageCfg = shopDynamicSettings?.storage_config || defaultStorageCfg;
+        // 3. ترقيات المخزن
+        const storageCfg = shopDynamicSettings?.storage_config || {};
 
         let storageHtml = '';
         let currentStorageLvl = parseInt(pData.storage_level || 0); 
 
         for (const [key, cfg] of Object.entries(storageCfg)) {
-            if (isNaN(parseInt(key)) || key === "0") continue;
-
             let i = parseInt(key);
-            let price = parseFloat(cfg.price);
-            let capacity = parseFloat(cfg.capacity);
+            if (isNaN(i) || i === 0) continue;
+
+            let price = floatVal(cfg.cost_zn, cfg.price);
+            let capacity = floatVal(cfg.capacity);
             let isOwned = i <= currentStorageLvl;
             let isNextUpgrade = i === currentStorageLvl + 1;
             let canAfford = totalBal >= price;
 
-            let btnBg = '#333333', btnColor = '#888888', btnText = `ZN ${price.toLocaleString()}`, isDisabled = true;
+            let btnBg = '#21262d', btnColor = '#8b949e', btnText = `ZN ${formatNumberAbbreviated(price)}`, isDisabled = true;
 
             if (isOwned) {
-                btnBg = '#00cc66'; btnColor = '#000000'; btnText = 'تم الشراء ✔️';
+                btnBg = '#10b981'; btnColor = '#000000'; btnText = 'تم الشراء ✔️';
             } else if (isNextUpgrade) {
                 if (canAfford) { btnBg = '#0088cc'; btnColor = '#ffffff'; isDisabled = false; }
             } else {
@@ -558,11 +488,11 @@
             }
 
             storageHtml += `
-                <div style="background: #1a1a1a; border: 1px solid #333333; border-radius: 12px; padding: 12px; text-align: center; display: flex; flex-direction: column; justify-content: space-between;">
+                <div style="background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 12px; text-align: center; display: flex; flex-direction: column; justify-content: space-between;">
                     <div>
                         <div style="font-size: 26px;">📦</div>
                         <div style="color: #ffffff; font-weight: bold; font-size: 14px;">مخزن مستوى ${i}</div>
-                        <div style="color: #0088cc; font-size: 12px; margin: 4px 0 10px 0;">السعة: ${capacity.toLocaleString()} ZN</div>
+                        <div style="color: #0088cc; font-size: 12px; margin: 4px 0 10px 0;">السعة: ${formatNumberAbbreviated(capacity)} ZN</div>
                     </div>
                     <button id="btn-storage-${i}" onclick="requestShopPurchase('storage', ${i}, ${price})" 
                         style="width: 100%; padding: 9px; background: ${btnBg}; color: ${btnColor}; border: none; border-radius: 6px; font-weight: bold; cursor: ${!isDisabled ? 'pointer' : 'not-allowed'};" ${isDisabled ? 'disabled' : ''}>
@@ -571,11 +501,18 @@
                 </div>
             `;
         }
-        storageSec.innerHTML = storageHtml;
+        storageSec.innerHTML = storageHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري القراءة من الفيربيس...</div>';
     };
 
+    function floatVal(val1, val2 = 0) {
+        let p1 = parseFloat(val1);
+        if (!isNaN(p1) && p1 > 0) return p1;
+        let p2 = parseFloat(val2);
+        return !isNaN(p2) ? p2 : 0;
+    }
+
     // =================================================================
-    // ⚡ 7. طلب الشراء وتنفيذه
+    // ⚡ طلب الشراء وتنفيذه
     // =================================================================
     window.requestShopPurchase = function(type, level, price) {
         const curBal = parseFloat(window.userState?.balance || 0);
@@ -653,7 +590,6 @@
                 if (resData.max_cap !== undefined) window.userState.max_cap = resData.max_cap;
                 if (resData.usd_balance !== undefined) window.userState.usd_balance = resData.usd_balance;
                 if (resData.last_claim_time !== undefined) window.userState.last_claim_time = resData.last_claim_time;
-                if (resData.unclaimed !== undefined) window.userState.unclaimed = resData.unclaimed;
 
                 window.updateShopUI();
             } else {
