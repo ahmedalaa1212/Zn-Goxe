@@ -8,32 +8,39 @@ window.initFarmView = function() {
     const tele = window.Telegram?.WebApp;
     const START_PARAM = tele?.initDataUnsafe?.start_param || "";
 
+    // الإعدادات المحدثة طبقاً للخطة الاقتصادية (السرعات المزدوجة والمكافآت اليومية 30 يوم)
     const GAME_CONFIG = {
-        maxUpgradesPerLevel: 10,
+        maxUpgradesPerLevel: 15,
         dailyBoostReward: 0.5,
         maxDailyBoostRate: 15.0,
         boostMaxRewardCoins: 50.0,
         upgradeCosts: {
-            1: 3500, 2: 11500, 3: 28000, 4: 68000, 5: 165000,
-            6: 390000, 7: 950000, 8: 2300000, 9: 5500000
+            1: { cost_zn: 600, cost_usd: 0.05, rate: 1.0 },
+            2: { cost_zn: 1500, cost_usd: 0.10, rate: 2.5 },
+            3: { cost_zn: 3800, cost_usd: 0.15, rate: 6.0 },
+            4: { cost_zn: 10000, cost_usd: 0.20, rate: 15.0 },
+            5: { cost_zn: 28000, cost_usd: 0.25, rate: 40.0 },
+            6: { cost_zn: 75000, cost_usd: 0.30, rate: 100.0 },
+            7: { cost_zn: 200000, cost_usd: 0.35, rate: 250.0 },
+            8: { cost_zn: 500000, cost_usd: 0.40, rate: 600.0 },
+            9: { cost_zn: 1400000, cost_usd: 0.50, rate: 1500.0 }
         },
         storageConfig: {
-            "0": { capacity: 100.0, cost: 0.0 },
-            "1": { capacity: 300.0, cost: 3000.0 },
-            "2": { capacity: 800.0, cost: 8500.0 },
-            "3": { capacity: 2000.0, cost: 25000.0 },
-            "4": { capacity: 5000.0, cost: 70000.0 },
-            "5": { capacity: 12000.0, cost: 180000.0 },
-            "6": { capacity: 28000.0, cost: 450000.0 },
-            "7": { capacity: 65000.0, cost: 1100000.0 },
-            "8": { capacity: 150000.0, cost: 2800000.0 },
-            "9": { capacity: 350000.0, cost: 7000000.0 },
-            "10": { capacity: 800000.0, cost: 18000000.0 }
+            "0": { capacity: 30.0, cost_zn: 0, cost_usd: 0.0 },
+            "1": { capacity: 150.0, cost_zn: 400, cost_usd: 0.0 },
+            "2": { capacity: 500.0, cost_zn: 1200, cost_usd: 0.05 },
+            "3": { capacity: 1500.0, cost_zn: 3500, cost_usd: 0.10 },
+            "4": { capacity: 4000.0, cost_zn: 10000, cost_usd: 0.15 },
+            "5": { capacity: 10000.0, cost_zn: 25000, cost_usd: 0.20 },
+            "6": { capacity: 25000.0, cost_zn: 65000, cost_usd: 0.25 },
+            "7": { capacity: 70000.0, cost_zn: 180000, cost_usd: 0.30 },
+            "8": { capacity: 200000.0, cost_zn: 500000, cost_usd: 0.35 },
+            "9": { capacity: 600000.0, cost_zn: 1500000, cost_usd: 0.40 }
         },
         dailyRewards: [
-            100, 150, 200, 250, 300, 350, 400, 450, 500, 550,
-            600, 600, 650, 650, 700, 700, 750, 750, 800, 800,
-            850, 850, 900, 900, 950, 950, 1000, 1000, 1100, 1250
+            5, 10, 15, 20, 25, 30, 40, 45, 50, 60,
+            65, 70, 75, 90, 100, 110, 120, 130, 140, 160,
+            180, 200, 220, 240, 270, 300, 330, 360, 400, 450
         ]
     };
 
@@ -47,7 +54,7 @@ window.initFarmView = function() {
     let isUpgradingStorage = false;
 
     let lastFetchTime = 0;
-    const FETCH_THROTTLE_MS = 10000;
+    const FETCH_THROTTLE_MS = 8000;
     let lastCheckedDate = "";
 
     function showToast(message) {
@@ -78,14 +85,31 @@ window.initFarmView = function() {
         return parseFloat(window.PlayerData?.balance || 0);
     }
 
-    function setStoredBalance(newBalance) {
+    function getStoredUsdBalance() {
+        if (window.userState && window.userState.usd_balance !== undefined) {
+            return parseFloat(window.userState.usd_balance || 0);
+        }
+        return parseFloat(window.PlayerData?.usd_balance || 0);
+    }
+
+    function setStoredBalance(newBalance, newUsdBalance) {
+        if (!window.userState) window.userState = {};
+        if (!window.PlayerData) window.PlayerData = {};
+
         if (newBalance !== undefined && newBalance !== null) {
             const val = parseFloat(newBalance);
-            if (!window.userState) window.userState = {};
             window.userState.balance = val; 
-            if (window.PlayerData) window.PlayerData.balance = val;
+            window.PlayerData.balance = val;
             const balEl = document.getElementById('farm-balance');
             if (balEl) balEl.innerText = `${val.toFixed(2)} ZN`;
+        }
+
+        if (newUsdBalance !== undefined && newUsdBalance !== null) {
+            const usdVal = parseFloat(newUsdBalance);
+            window.userState.usd_balance = usdVal;
+            window.PlayerData.usd_balance = usdVal;
+            const usdEl = document.getElementById('farm-usd-balance');
+            if (usdEl) usdEl.innerText = `$${usdVal.toFixed(4)}`;
         }
     }
 
@@ -135,13 +159,28 @@ window.initFarmView = function() {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 if (resData.cooldown_seconds) MIN_CLAIM_INTERVAL = resData.cooldown_seconds;
 
+                if (resData.game_config) {
+                    if (resData.game_config.daily_rewards && Array.isArray(resData.game_config.daily_rewards)) {
+                        GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
+                    }
+                    if (resData.game_config.upgrade_costs) {
+                        GAME_CONFIG.upgradeCosts = resData.game_config.upgrade_costs;
+                    }
+                    if (resData.game_config.storage_config) {
+                        GAME_CONFIG.storageConfig = resData.game_config.storage_config;
+                    }
+                    if (resData.game_config.max_upgrades_per_level) {
+                        GAME_CONFIG.maxUpgradesPerLevel = resData.game_config.max_upgrades_per_level;
+                    }
+                }
+
                 if (!window.PlayerData) window.PlayerData = {};
                 Object.assign(window.PlayerData, resData.player);
 
                 if (!window.userState) window.userState = {};
                 
                 if (resData.player) {
-                    if (resData.player.balance !== undefined) setStoredBalance(resData.player.balance);
+                    setStoredBalance(resData.player.balance, resData.player.usd_balance);
                     if (resData.player.hourly_rate !== undefined) window.userState.hourly_rate = resData.player.hourly_rate;
                     if (resData.player.daily_boost_rate !== undefined) window.userState.daily_boost_rate = resData.player.daily_boost_rate;
                     if (resData.player.ads_watched !== undefined) window.userState.ads_watched = resData.player.ads_watched;
@@ -155,26 +194,7 @@ window.initFarmView = function() {
                     if (resData.player.last_boost_date !== undefined) window.userState.last_boost_date = resData.player.last_boost_date;
                 }
                 
-                if (resData.game_config) {
-                    if (resData.game_config.daily_rewards && Array.isArray(resData.game_config.daily_rewards)) {
-                        GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
-                    }
-                    if (resData.game_config.upgrade_costs) {
-                        GAME_CONFIG.upgradeCosts = resData.game_config.upgrade_costs;
-                    }
-                    if (resData.game_config.storage_config) {
-                        GAME_CONFIG.storageConfig = resData.game_config.storage_config;
-                    }
-                    if (resData.game_config.daily_boost_reward) {
-                        GAME_CONFIG.dailyBoostReward = resData.game_config.daily_boost_reward;
-                    }
-                    if (resData.game_config.max_daily_boost_rate) {
-                        GAME_CONFIG.maxDailyBoostRate = resData.game_config.max_daily_boost_rate;
-                    }
-                    if (resData.game_config.boost_max_reward_coins) {
-                        GAME_CONFIG.boostMaxRewardCoins = resData.game_config.boost_max_reward_coins;
-                    }
-                }
+                // تحديث واجهة المستخدم بعد جلب وتحديث الإعدادات لتجنب الوميض المائل للقديم
                 window.updateFarmUI();
             }
         } catch (e) { 
@@ -187,10 +207,14 @@ window.initFarmView = function() {
     window.updateFarmUI = function() {
         const pData = window.PlayerData || window.userState || {};
         let bal = getStoredBalance();
-        let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0);
+        let usdBal = getStoredUsdBalance();
+        let hRate = parseFloat(window.userState?.hourly_rate || pData.hourly_rate || 0.20);
 
         const balEl = document.getElementById('farm-balance');
         if (balEl) balEl.innerText = `${bal.toFixed(2)} ZN`;
+
+        const usdEl = document.getElementById('farm-usd-balance');
+        if (usdEl) usdEl.innerText = `$${usdBal.toFixed(4)}`;
 
         const rateEl = document.getElementById('farm-rate');
         if (rateEl) {
@@ -204,18 +228,22 @@ window.initFarmView = function() {
 
         const upgradeStgBtn = document.getElementById('upgrade-storage-btn');
         if (upgradeStgBtn) {
-            upgradeStgBtn.onclick = window.handleStorageUpgrade; // ربط الحدث تلقائياً
+            upgradeStgBtn.onclick = window.handleStorageUpgrade;
             const nextLvl = stgLvl + 1;
             const nextCfg = GAME_CONFIG.storageConfig[nextLvl.toString()];
-            if (stgLvl >= 10 || !nextCfg) {
+            if (stgLvl >= 9 || !nextCfg) {
                 upgradeStgBtn.innerText = "المخزن في المستوى الأقصى (MAX) 🏆";
                 upgradeStgBtn.disabled = true;
                 upgradeStgBtn.className = "storage-upgrade-btn btn-disabled";
             } else {
-                const cost = typeof nextCfg === 'object' ? nextCfg.cost : 0;
-                const costStr = formatCompactCost(cost);
-                const canAfford = bal >= cost;
-                upgradeStgBtn.innerText = `ترقية المخزن إلى level ${nextLvl} (${costStr} ZN) 📦`;
+                const costZn = typeof nextCfg === 'object' ? (nextCfg.cost_zn ?? nextCfg.cost ?? 0) : 0;
+                const costUsd = typeof nextCfg === 'object' ? (nextCfg.cost_usd ?? 0) : 0;
+                
+                const costStrZn = formatCompactCost(costZn);
+                const costStrUsd = costUsd > 0 ? ` + $${costUsd.toFixed(2)}` : '';
+                
+                const canAfford = (bal >= costZn) && (usdBal >= costUsd);
+                upgradeStgBtn.innerText = `ترقية المخزن Lvl ${nextLvl} (${costStrZn} ZN${costStrUsd}) 📦`;
                 upgradeStgBtn.disabled = !canAfford || isUpgradingStorage;
                 upgradeStgBtn.className = canAfford ? "storage-upgrade-btn btn-ready-yellow" : "storage-upgrade-btn btn-disabled";
             }
@@ -230,30 +258,35 @@ window.initFarmView = function() {
                 let prevCount = parseInt(currentUpgrades[`lvl${i-1}`] || 0);
                 let isUnlocked = (i === 1) || (prevCount > 0);
                 let isMax = count >= GAME_CONFIG.maxUpgradesPerLevel;
-                let cost = GAME_CONFIG.upgradeCosts[i] || 0;
-                let costStr = formatCompactCost(cost);
-                let canAfford = bal >= cost;
+                
+                let lvlCfg = GAME_CONFIG.upgradeCosts[i] || {};
+                let costZn = lvlCfg.cost_zn ?? lvlCfg.base_cost ?? lvlCfg.price ?? 0;
+                let costUsd = lvlCfg.cost_usd ?? lvlCfg.base_cost_usd ?? 0;
+
+                let costStrZn = formatCompactCost(costZn);
+                let costStrUsd = costUsd > 0 ? `+$${costUsd.toFixed(2)}` : '';
+                let canAfford = (bal >= costZn) && (usdBal >= costUsd);
                 
                 if (isMax) {
                     fieldsHTML += `
                     <div class="mining-card">
                         <div class="mining-card-icon">🏛️</div>
-                        <div class="mining-card-title">مستوى ${i}</div>
-                        <button class="mining-card-btn" disabled>MAX</button>
+                        <div class="mining-card-title">مستوى ${i} (MAX)</div>
+                        <button class="mining-card-btn" disabled>15/15 MAX</button>
                     </div>`;
                 } else if (count > 0) {
                     fieldsHTML += `
                     <div class="mining-card" onclick="window.handleUpgrade(${i})">
                         <div class="mining-card-icon">🏛️</div>
                         <div class="mining-card-title">مستوى ${i} (x${count})</div>
-                        <button class="mining-card-btn" ${!canAfford || isUpgrading ? 'disabled' : ''}>ترقية (${costStr})</button>
+                        <button class="mining-card-btn" ${!canAfford || isUpgrading ? 'disabled' : ''}>ترقية (${costStrZn}${costStrUsd})</button>
                     </div>`;
                 } else if (isUnlocked) {
                     fieldsHTML += `
                     <div class="mining-card" onclick="window.handleUpgrade(${i})">
                         <div class="mining-card-icon">🏛️</div>
                         <div class="mining-card-title">مستوى ${i}</div>
-                        <button class="mining-card-btn" ${!canAfford || isUpgrading ? 'disabled' : ''}>شراء (${costStr})</button>
+                        <button class="mining-card-btn" ${!canAfford || isUpgrading ? 'disabled' : ''}>شراء (${costStrZn}${costStrUsd})</button>
                     </div>`;
                 } else {
                     fieldsHTML += `
@@ -269,17 +302,18 @@ window.initFarmView = function() {
         renderDailyRewards(); 
     };
 
-    window.onFarmTabOpen = function() {
-        window.updateFarmUI();
+    window.onFarmTabOpen = async function() {
         if (typeof window.fetchPlayerDataFromServer === 'function') {
-            window.fetchPlayerDataFromServer();
+            await window.fetchPlayerDataFromServer(true);
+        } else {
+            window.updateFarmUI();
         }
     };
 
     function getRewardForDayIndex(index) {
         const rewards = GAME_CONFIG.dailyRewards;
-        if (!rewards || !Array.isArray(rewards)) return 100;
-        return rewards[index] ?? 1250;
+        if (!rewards || !Array.isArray(rewards)) return 5;
+        return rewards[index] ?? 450;
     }
 
     function renderDailyRewards() {
@@ -337,8 +371,8 @@ window.initFarmView = function() {
         }
         lastCheckedDate = todayStr;
 
-        let maxC = parseFloat(window.userState?.max_cap ?? pData.max_cap ?? 100);
-        let hRate = parseFloat(window.userState?.hourly_rate ?? pData.hourly_rate ?? 0);
+        let maxC = parseFloat(window.userState?.max_cap ?? pData.max_cap ?? 30.0);
+        let hRate = parseFloat(window.userState?.hourly_rate ?? pData.hourly_rate ?? 0.20);
         
         let lastClaimStr = window.userState?.last_claim_time || pData.last_claim_time;
         let lastClaimTimeMs = lastClaimStr ? new Date(lastClaimStr).getTime() : getAdjustedNowMs();
@@ -416,7 +450,6 @@ window.initFarmView = function() {
 
     function syncOnVisibility() {
         if (document.visibilityState === "visible") {
-            window.updateFarmUI();
             window.fetchPlayerDataFromServer();
         }
     }
@@ -455,7 +488,7 @@ window.initFarmView = function() {
             let resData = await window.fetchAPI('/api/farm/upgrade_storage', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
-                if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                setStoredBalance(resData.new_balance, resData.new_usd_balance);
                 
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
@@ -492,10 +525,17 @@ window.initFarmView = function() {
     window.handleUpgrade = async function(level) {
         if (isUpgrading) return;
 
-        const cost = GAME_CONFIG.upgradeCosts[level] || 0;
+        const lvlCfg = GAME_CONFIG.upgradeCosts[level] || {};
+        const costZn = lvlCfg.cost_zn ?? lvlCfg.base_cost ?? lvlCfg.price ?? 0;
+        const costUsd = lvlCfg.cost_usd ?? lvlCfg.base_cost_usd ?? 0;
+
         const currentBal = getStoredBalance();
-        if (currentBal < cost) {
-            showToast(`❌ رصيدك غير كافٍ! سعر الترقية ${cost.toLocaleString()} ZN`);
+        const currentUsdBal = getStoredUsdBalance();
+
+        if (currentBal < costZn || currentUsdBal < costUsd) {
+            let msg = `❌ رصيدك غير كافٍ! سعر الترقية: ${costZn.toLocaleString()} ZN`;
+            if (costUsd > 0) msg += ` + $${costUsd.toFixed(2)} USD`;
+            showToast(msg);
             return;
         }
 
@@ -505,7 +545,7 @@ window.initFarmView = function() {
             let resData = await window.fetchAPI('/api/farm/upgrade', 'POST', { level: level });
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
-                if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                setStoredBalance(resData.new_balance, resData.new_usd_balance);
                 
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
@@ -554,7 +594,7 @@ window.initFarmView = function() {
             let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
-                if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                setStoredBalance(resData.new_balance, resData.new_usd_balance);
                 
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
@@ -594,7 +634,7 @@ window.initFarmView = function() {
             let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
-                if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                setStoredBalance(resData.new_balance, resData.new_usd_balance);
 
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
@@ -645,7 +685,7 @@ window.initFarmView = function() {
             let resData = await window.fetchAPI('/api/farm/claim', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
-                if (resData.new_balance !== undefined) setStoredBalance(resData.new_balance);
+                setStoredBalance(resData.new_balance, resData.new_usd_balance);
                 
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
