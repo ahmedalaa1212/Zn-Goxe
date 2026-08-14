@@ -225,6 +225,7 @@
         grid-template-columns: repeat(3, 1fr);
         gap: 8px;
         margin-bottom: 14px;
+        min-height: 80px;
     }
 
     .bet-chip {
@@ -251,6 +252,14 @@
         border-color: #00f2fe;
         color: #00f2fe;
         box-shadow: 0 0 12px rgba(0, 242, 254, 0.35);
+    }
+
+    .bet-loading-skeleton {
+        grid-column: span 3;
+        text-align: center;
+        color: #8b949e;
+        font-size: 13px;
+        padding: 15px;
     }
 
     .action-btn {
@@ -311,22 +320,18 @@
         <!-- يتم رسم الأدوار فوراً بالجافاسكريبت -->
     </div>
 
-    <!-- لوحة التحكم واختيار الاشتراك -->
+    <!-- لوحة التحكم وااختيار الاشتراك -->
     <div class="goxe-controls">
         <div id="goxe-bet-section">
             <div class="bet-label">اختر مبلغ الاشتراك في الجولة:</div>
+            <!-- تم إزالة الأرقام الثابتة لمنع ظهور أرقام قديمة قبل التحميل -->
             <div id="goxe-bet-grid" class="bet-grid">
-                <div class="bet-chip" data-amount="10" onclick="selectGoxeBet(10)">10 ZN</div>
-                <div class="bet-chip" data-amount="50" onclick="selectGoxeBet(50)">50 ZN</div>
-                <div class="bet-chip selected" data-amount="100" id="default-bet-chip" onclick="selectGoxeBet(100)">100 ZN</div>
-                <div class="bet-chip" data-amount="200" onclick="selectGoxeBet(200)">200 ZN</div>
-                <div class="bet-chip" data-amount="500" onclick="selectGoxeBet(500)">500 ZN</div>
-                <div class="bet-chip" data-amount="1000" onclick="selectGoxeBet(1000)">1000 ZN</div>
+                <div class="bet-loading-skeleton">⏳ جاري جلب الخيارات...</div>
             </div>
         </div>
 
-        <button id="goxe-main-btn" class="action-btn start-btn" onclick="handleGoxeMainAction()">
-            🚀 بدء التسلق (100 ZN)
+        <button id="goxe-main-btn" class="action-btn start-btn" onclick="handleGoxeMainAction()" disabled>
+            ⏳ جاري التحميل...
         </button>
     </div>
 </div>
