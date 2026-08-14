@@ -1,6 +1,6 @@
 import time
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from flask import Blueprint, jsonify, request
 from google.cloud import firestore
 
@@ -92,8 +92,10 @@ def get_game_config():
         normalized_storage = _normalize_config_dict(storage_cfg, data.get('storage_config', {}))
 
         data['mining_config'] = normalized_mining
+        data['upgrade_config'] = normalized_mining
         data['speed_config'] = normalized_mining
         data['storage_config'] = normalized_storage
+        data['storage_capacities'] = normalized_storage
         data['usdt_packages'] = _normalize_config_dict(usdt_pkgs, DEFAULT_USDT_PACKAGES)
 
         _SHOP_CONFIG_CACHE["data"] = data
@@ -105,7 +107,9 @@ def get_game_config():
         fallback = {
             'usdt_packages': DEFAULT_USDT_PACKAGES,
             'storage_config': {},
+            'storage_capacities': {},
             'mining_config': {},
+            'upgrade_config': {},
             'speed_config': {}
         }
         _SHOP_CONFIG_CACHE["data"] = fallback
@@ -246,17 +250,39 @@ def verify_and_apply_package():
             if cur_storage_lvl in storage_cfg and isinstance(storage_cfg[cur_storage_lvl], dict):
                 base_cap = float(storage_cfg[cur_storage_lvl].get('capacity', 100.0))
 
+            cur_max_cap = float(u_data.get('max_cap', base_cap + cur_extra_storage))
+
+            # حساب الإنتاج المؤقت دون تصفيره في المخزن
+            last_claim_str = u_data.get('last_claim_time')
+            now_dt = datetime.now(timezone.utc)
+            pending_mined = 0.0
+            if last_claim_str:
+                try:
+                    last_claim_dt = datetime.fromisoformat(last_claim_str.replace('Z', '+00:00'))
+                    time_elapsed = max(0.0, now_dt.timestamp() - last_claim_dt.timestamp())
+                    pending_mined = min(time_elapsed * (cur_hourly_rate / 3600.0), cur_max_cap)
+                except Exception:
+                    pending_mined = 0.0
+
             new_extra_storage = round(cur_extra_storage + storage_add, 2)
             new_max_cap = round(base_cap + new_extra_storage, 2)
             new_balance = round(cur_balance + zn_add, 2)
             new_hourly_rate = round(cur_hourly_rate + rate_add, 2)
+
+            # تعديل وقت أخر جمع افتراضياً للحفاظ على الرصيد المخزن كاملاً
+            if new_hourly_rate > 0:
+                time_needed = pending_mined / (new_hourly_rate / 3600.0)
+                new_last_claim_dt = now_dt - timedelta(seconds=time_needed)
+                new_last_claim_time = new_last_claim_dt.isoformat()
+            else:
+                new_last_claim_time = now_dt.isoformat()
 
             # توثيق الباقات المشترواة داخل ملف المستخدم للسلامة والتدقيق
             purchased_pkgs = u_data.get('purchased_packages', [])
             purchased_pkgs.append({
                 'package_id': pkg_key,
                 'title': pkg_info.get('title'),
-                'purchased_at': datetime.now(timezone.utc).isoformat(),
+                'purchased_at': now_dt.isoformat(),
                 'price_usdt': pkg_info.get('usdt')
             })
 
@@ -265,18 +291,19 @@ def verify_and_apply_package():
                 'hourly_rate': new_hourly_rate,
                 'extra_storage': new_extra_storage,
                 'max_cap': new_max_cap,
+                'last_claim_time': new_last_claim_time,
                 'purchased_packages': purchased_pkgs
             })
 
             tx.set(t_ref, {
                 'user_id': user_id_str,
                 'package_id': pkg_key,
-                'timestamp': datetime.now(timezone.utc).isoformat()
+                'timestamp': now_dt.isoformat()
             })
 
-            return new_balance, new_hourly_rate, new_extra_storage, new_max_cap
+            return new_balance, new_hourly_rate, new_extra_storage, new_max_cap, new_last_claim_time
 
-        new_bal, new_rate, new_extra, new_cap = secure_apply_package_tx(transaction, user_ref, tx_ref)
+        new_bal, new_rate, new_extra, new_cap, new_claim_time = secure_apply_package_tx(transaction, user_ref, tx_ref)
 
         return jsonify({
             "success": True,
@@ -285,7 +312,8 @@ def verify_and_apply_package():
                 "balance": new_bal,
                 "hourly_rate": new_rate,
                 "extra_storage": new_extra,
-                "max_cap": new_cap
+                "max_cap": new_cap,
+                "last_claim_time": new_claim_time
             }
         }), 200
 
@@ -342,6 +370,7 @@ def buy_upgrade():
             now_dt = datetime.now(timezone.utc)
             now_ts = now_dt.timestamp()
 
+            # حساب الأرباح غير المجمعة الموجودة في المخزن
             pending_mined = 0.0
             if last_claim_str:
                 try:
@@ -351,11 +380,8 @@ def buy_upgrade():
                 except Exception:
                     pending_mined = 0.0
 
-            total_balance = current_balance + pending_mined
-            new_last_claim_time = now_dt.isoformat()
-
             if upgrade_type == 'mining':
-                mining_cfg = _normalize_config_dict(settings.get('mining_config') or settings.get('speed_config'), {})
+                mining_cfg = _normalize_config_dict(settings.get('mining_config') or settings.get('speed_config') or settings.get('upgrade_config'), {})
                 if level_num not in mining_cfg:
                     raise Exception("مستوى ترقية غير صالح.")
 
@@ -369,14 +395,23 @@ def buy_upgrade():
                 if current_lvl_count >= max_limit:
                     raise Exception("وصلت للحد الأقصى للشراء في هذا المستوى.")
 
-                if total_balance < price:
-                    raise Exception("الرصيد غير كافي للشراء.")
+                if current_balance < price:
+                    raise Exception("الرصيد في المحفظة غير كافي للشراء.")
 
-                new_balance = round(total_balance - price, 2)
+                # خصم السعر من رصيد المحفظة فقط دون المساس بالمخزن
+                new_balance = round(current_balance - price, 2)
                 upgrades[lvl_key] = current_lvl_count + 1
 
                 speed_to_add = float(config.get('rate_bonus', config.get('rate', 0.0)))
                 new_hourly_rate = round(hourly_rate + speed_to_add, 2)
+
+                # تعديل وقت آخر جمع بحساب الإنتاج السابق لضمان استمراره وعدم تصفيره
+                if new_hourly_rate > 0:
+                    time_needed = pending_mined / (new_hourly_rate / 3600.0)
+                    new_last_claim_dt = now_dt - timedelta(seconds=time_needed)
+                    new_last_claim_time = new_last_claim_dt.isoformat()
+                else:
+                    new_last_claim_time = now_dt.isoformat()
 
                 tx.update(u_ref, {
                     'balance': new_balance,
@@ -391,9 +426,8 @@ def buy_upgrade():
                     "upgrades": upgrades,
                     "extra_storage": extra_storage,
                     "max_cap": current_max_cap,
-                    "unclaimed": 0.0,
                     "last_claim_time": new_last_claim_time,
-                    "usd_balance": round(usd_balance, 2)
+                    "usd_balance": round(usd_balance, 4)
                 }
 
             elif upgrade_type == 'storage':
@@ -413,11 +447,19 @@ def buy_upgrade():
                 price = float(config.get('cost_zn', config.get('price', 0.0)))
                 new_base_capacity = float(config.get('capacity', 100.0))
 
-                if total_balance < price:
-                    raise Exception("الرصيد غير كافي لشراء المخزن.")
+                if current_balance < price:
+                    raise Exception("الرصيد في المحفظة غير كافي لشراء المخزن.")
 
                 new_max_cap = round(new_base_capacity + extra_storage, 2)
-                new_balance = round(total_balance - price, 2)
+                new_balance = round(current_balance - price, 2)
+
+                # تعديل الوقت لتجنب تصفير المخزن
+                if hourly_rate > 0:
+                    time_needed = pending_mined / (hourly_rate / 3600.0)
+                    new_last_claim_dt = now_dt - timedelta(seconds=time_needed)
+                    new_last_claim_time = new_last_claim_dt.isoformat()
+                else:
+                    new_last_claim_time = now_dt.isoformat()
 
                 tx.update(u_ref, {
                     'balance': new_balance,
@@ -431,9 +473,8 @@ def buy_upgrade():
                     "storage_level": int_level,
                     "extra_storage": extra_storage,
                     "max_cap": new_max_cap,
-                    "unclaimed": 0.0,
                     "last_claim_time": new_last_claim_time,
-                    "usd_balance": round(usd_balance, 2)
+                    "usd_balance": round(usd_balance, 4)
                 }
 
             raise Exception("نوع ترقية غير معروف.")
