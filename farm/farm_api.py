@@ -42,7 +42,7 @@ def get_player_data():
         storage_configs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
         
         mining_cfg = game_settings.get("mining_config", {})
-        daily_boost_reward = round(float(mining_cfg.get("daily_boost_reward", 0.5)), 2)
+        daily_boost_reward = round(float(mining_cfg.get("daily_boost_reward", 0.15)), 2)
         max_daily_boost_rate = round(float(mining_cfg.get("max_daily_boost_rate", 15.0)), 2)
         boost_max_reward_coins = round(float(mining_cfg.get("boost_max_reward_coins", 50.0)), 2)
         cooldown_seconds = int(mining_cfg.get("claim_cooldown_seconds", 15))
