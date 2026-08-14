@@ -29,8 +29,15 @@ def get_player_data():
         user_data, game_settings, now = get_or_create_user_farm_data(user_id_str)
         
         parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
-        upgrade_configs = game_settings.get("upgrade_config") or {}
-        upgrade_costs = {int(k): float(v.get("base_cost", v.get("price", 0))) for k, v in upgrade_configs.items()}
+        upgrade_configs = game_settings.get("upgrade_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
+        
+        upgrade_costs = {}
+        for k, v in upgrade_configs.items():
+            upgrade_costs[int(k)] = {
+                "cost_zn": float(v.get("cost_zn", v.get("base_cost", v.get("price", 0)))),
+                "cost_usd": float(v.get("cost_usd", v.get("base_cost_usd", 0.0))),
+                "rate": float(v.get("rate_bonus", v.get("rate", 0)))
+            }
         
         storage_configs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
         
@@ -39,6 +46,7 @@ def get_player_data():
         max_daily_boost_rate = round(float(mining_cfg.get("max_daily_boost_rate", 15.0)), 2)
         boost_max_reward_coins = round(float(mining_cfg.get("boost_max_reward_coins", 50.0)), 2)
         cooldown_seconds = int(mining_cfg.get("claim_cooldown_seconds", 15))
+        max_upgrades_per_level = int(mining_cfg.get("max_upgrades_per_level", 15))
 
         return jsonify({
             "success": True, 
@@ -51,7 +59,8 @@ def get_player_data():
                 "storage_config": storage_configs,
                 "daily_boost_reward": daily_boost_reward,
                 "max_daily_boost_rate": max_daily_boost_rate,
-                "boost_max_reward_coins": boost_max_reward_coins
+                "boost_max_reward_coins": boost_max_reward_coins,
+                "max_upgrades_per_level": max_upgrades_per_level
             }
         }), 200
     except Exception as e:
