@@ -16,7 +16,7 @@ goxe_bp = Blueprint('goxe', __name__)
 FLOOR_MULTIPLIERS = [1.10, 1.30, 1.50, 1.80, 2.20, 2.70, 3.30, 3.90, 4.40, 5.00]
 
 def update_user_balance_safe(telegram_id, new_balance, delta_amount):
-    """دالة آمنة ومضمونة لتحديث الرصيد في Firebase بجميع الطرق الممكنة"""
+    """دالة آمنة لتحديث الرصيد في Firebase بكافة الأساليب المتوفرة"""
     try:
         if hasattr(database, 'update_user'):
             database.update_user(telegram_id, {'balance': float(new_balance)})
@@ -29,7 +29,7 @@ def update_user_balance_safe(telegram_id, new_balance, delta_amount):
 
 @goxe_bp.route('/config', methods=['GET', 'POST'])
 def get_config():
-    """جلب إعدادات اللعبة وحالة الجولة الحالية للمستخدم مع الرصيد الحالي"""
+    """جلب إعدادات اللعبة وحالة الجولة الحالية للمستخدم مع الرصيد المحدث"""
     is_post = (request.method == 'POST')
     success, telegram_id, _, error_res = get_authenticated_user(request, is_post=is_post)
     
@@ -56,7 +56,7 @@ def get_config():
 
 @goxe_bp.route('/start', methods=['POST'])
 def start_game():
-    """بدء جولة جديدة وخصم الرهان فوراً من الحساب"""
+    """بدء جولة جديدة وخصم الرهان فوراً وحساب حالة الاقتصاد"""
     success, telegram_id, _, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         tg_id_param = request.args.get('tg_id') or (request.json.get('tg_id') if request.is_json and request.json else None)
@@ -78,9 +78,13 @@ def start_game():
     config = get_goxe_config()
     min_bet = float(config.get('min_bet', 10.0))
     max_bet = float(config.get('max_bet', 10000.0))
+    allowed_options = config.get('allowed_bet_options', [10, 50, 100, 200, 500, 1000])
 
     if bet_amount < min_bet or bet_amount > max_bet:
         return jsonify({"success": False, "error": f"الرهان يجب أن يكون بين {min_bet} و {max_bet}"}), 400
+
+    if allowed_options and int(bet_amount) not in [int(x) for x in allowed_options]:
+        return jsonify({"success": False, "error": "مبلغ الاشتراك غير متاح حالياً"}), 400
 
     user_data = database.get_user(telegram_id) or {}
     current_balance = float(user_data.get('balance', 0.0))
@@ -95,6 +99,7 @@ def start_game():
     threshold = float(config.get('force_loss_threshold', 59.0))
     manual_override = config.get('force_loss_override', False)
 
+    # حماية الاقتصاد (الـ 60% للبوت / 40% للاعبين)
     force_loss = (current_bot_profit_pct < threshold) or manual_override
 
     session_data = {
@@ -118,7 +123,7 @@ def start_game():
 
 @goxe_bp.route('/climb', methods=['POST'])
 def climb_floor():
-    """التسلق أو الانفجار وتحديث الرصيد عند الوصول للقمة تلقائياً"""
+    """التسلق أو الانفجار بحماية متكاملة ضد السباق والتكرار"""
     success, telegram_id, _, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         tg_id_param = request.args.get('tg_id') or (request.json.get('tg_id') if request.is_json and request.json else None)
@@ -152,7 +157,7 @@ def climb_floor():
     if force_loss:
         is_bomb = True
     else:
-        risk_factor = 0.33 + (next_floor * 0.03)
+        risk_factor = 0.33 + (next_floor * 0.02)
         is_bomb = (random.random() < risk_factor)
 
     if is_bomb:
@@ -205,7 +210,7 @@ def climb_floor():
 
 @goxe_bp.route('/cashout', methods=['POST'])
 def cashout():
-    """سحب الأرباح وإضافتها للرصيد"""
+    """سحب الأرباح وتحديث الرصيد فوراً"""
     success, telegram_id, _, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         tg_id_param = request.args.get('tg_id') or (request.json.get('tg_id') if request.is_json and request.json else None)
