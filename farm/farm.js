@@ -9,6 +9,17 @@ window.closeWelcomeModal = function() {
     if (modal) modal.style.display = 'none';
     if (window.userState) window.userState.is_new_user = false;
     if (window.PlayerData) window.PlayerData.is_new_user = false;
+
+    // حفظ حالة إغلاق النافذة الترحيبية للمستخدم في localStorage بناءً على معرّف التليجرام
+    try {
+        const tele = window.Telegram?.WebApp;
+        const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id || window.PlayerData?.telegram_id;
+        if (userId) {
+            localStorage.setItem(`zn_welcome_seen_${userId}`, 'true');
+        }
+    } catch (e) {
+        console.error("خطأ حفظ حالة النافذة الترحيبية:", e);
+    }
 };
 
 (function initFarm() {
@@ -198,9 +209,15 @@ window.closeWelcomeModal = function() {
                     Object.assign(window.userState, resData.player);
                     setStoredBalance(resData.player.balance, resData.player.usd_balance);
 
+                    // التحقق مما إذا كان المستخدم كـ new_user ولكن أصلح حالة الإغلاق من التخزين المحلي
                     if (resData.player.is_new_user) {
-                        const welcomeModal = document.getElementById('welcome-modal');
-                        if (welcomeModal) welcomeModal.style.display = 'flex';
+                        const userId = tele?.initDataUnsafe?.user?.id || resData.player.tg_id || resData.player.telegram_id;
+                        const modalSeen = userId ? localStorage.getItem(`zn_welcome_seen_${userId}`) : null;
+                        
+                        if (!modalSeen) {
+                            const welcomeModal = document.getElementById('welcome-modal');
+                            if (welcomeModal) welcomeModal.style.display = 'flex';
+                        }
                     }
                 }
                 
@@ -399,7 +416,8 @@ window.closeWelcomeModal = function() {
             let pct = maxC > 0 ? (unclaim / maxC) * 100 : 0;
             pct = Math.max(0, Math.min(pct, 100)); 
             progressEl.style.width = `${pct}%`;
-            storageTextEl.innerText = `${unclaim.toFixed(2)} / ${maxC.toLocaleString('en-US', {maximumFractionDigits: 2})}`;
+            // تم تغيير الدقة هنا لـ 4 خانات عشرية (toFix(4)) للحركة اللحظية
+            storageTextEl.innerText = `${unclaim.toFixed(4)} / ${maxC.toLocaleString('en-US', {maximumFractionDigits: 2})}`;
         }
 
         const claimBtn = document.getElementById('claim-btn');
