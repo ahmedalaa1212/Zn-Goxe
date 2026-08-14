@@ -5,7 +5,7 @@ from database import get_db
 
 # ==================== Caching لتوفير قراءات Firestore ====================
 _SETTINGS_CACHE = {"data": None, "timestamp": 0}
-CACHE_TTL_SECONDS = 60  # كاش لمدة دقيقة لحماية كوتا القراءة
+CACHE_TTL_SECONDS = 15  # تقليل مدة الكاش لسرعة استجابة التغييرات من الفيربيس
 
 # ==================== الإعدادات الافتراضية الاقتصادية الجديدة ====================
 DEFAULT_GAME_SETTINGS = {
@@ -39,7 +39,7 @@ DEFAULT_GAME_SETTINGS = {
     },
     # رابعاً: ترقيات سرعة التعدين (أسعار العملة + USD والزيادة في الساعة)
     "upgrade_config": {
-        "1": {"cost_zn": 600.0, "cost_usd": 0.05, "rate_bonus": 1.0},
+        "1": {"cost_zn": 600.0, "cost_usd": 0.0, "rate_bonus": 1.0},    # المستوى الأول بالعملات فقط
         "2": {"cost_zn": 1500.0, "cost_usd": 0.10, "rate_bonus": 2.5},
         "3": {"cost_zn": 3800.0, "cost_usd": 0.15, "rate_bonus": 6.0},
         "4": {"cost_zn": 10000.0, "cost_usd": 0.20, "rate_bonus": 15.0},
@@ -205,7 +205,6 @@ def get_or_create_user_farm_data(user_id_str):
     user_data["usd_balance"] = round(float(user_data.get("usd_balance", 0.0)), 4)
     user_data["unclaimed"] = calculate_accrued_mined(user_data, now, expected_max_cap)
 
-    # حساب موقف التسجيل اليومي والالتزام بالمنطق المطلوب
     today_str = now.strftime('%Y-%m-%d')
     yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
     last_daily_claim = user_data.get("last_daily_claim_date")
@@ -337,7 +336,7 @@ def buy_upgrade_db(user_id_str, level):
         if current_balance < cost_zn:
             return {"success": False, "error": f"رصيد العملات غير كافٍ! سعر الترقية {cost_zn:,.0f} ZN"}
 
-        if current_usd_balance < cost_usd:
+        if cost_usd > 0 and current_usd_balance < cost_usd:
             return {"success": False, "error": f"رصيد الدولار غير كافٍ! يتطلب ${cost_usd:.2f} USD"}
 
         upgrades = user_data.get("upgrades", {})
@@ -458,7 +457,7 @@ def buy_storage_db(user_id_str):
         if current_balance < cost_zn:
             return {"success": False, "error": f"رصيدك غير كافٍ! سعر ترقية المخزن {cost_zn:,.0f} ZN"}
 
-        if current_usd_balance < cost_usd:
+        if cost_usd > 0 and current_usd_balance < cost_usd:
             return {"success": False, "error": f"رصيد الدولار غير كافٍ! يتطلب ${cost_usd:.2f} USD"}
 
         now = datetime.now(timezone.utc)
@@ -592,7 +591,7 @@ def claim_daily_boost_db(user_id_str):
 
         last_boost = user_data.get("last_boost_date")
         if last_boost == today_str:
-            return {"success": False, "error": "لقد حصلت على تعزيز اليوم بالفعل"}
+            return {"success": False, "error": "لقدحصلت على تعزيز اليوم بالفعل"}
 
         daily_boost_rate = float(user_data.get("daily_boost_rate", 0.0) or 0.0)
         current_hourly_rate = float(user_data.get("hourly_rate", 0.20) or 0.20)
