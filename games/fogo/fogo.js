@@ -112,6 +112,7 @@
         const maxMults = { 3: 'x5.00', 4: 'x10.00', 5: 'x15.00', 6: 'x20.00' };
         const hint = document.getElementById('fogo-max-mult-hint');
         if (hint) hint.innerText = `حد أقصى ${maxMults[fogoState.minesCount] || 'x5.00'}`;
+        updateStatusValues();
     };
 
     window.toggleFogoShield = function(checked) {
@@ -119,6 +120,7 @@
         fogoState.shieldEnabled = checked;
         updateShieldStatusUI(checked ? 'on' : 'off');
         updateMainButton();
+        updateStatusValues();
     };
 
     function updateShieldStatusUI(status) {
@@ -150,6 +152,7 @@
         });
 
         updateMainButton();
+        updateStatusValues();
     };
 
     async function loadFogoConfig() {
@@ -177,7 +180,7 @@
                 }
             }
         } catch (err) {
-            console.error("خطأ في تحميل إعدادات fuego:", err);
+            console.error("خطأ في تحميل إعدادات fogo:", err);
             updateUIState();
         }
     }
@@ -219,8 +222,13 @@
 
         if (multEl) multEl.innerText = `x${fogoState.currentMultiplier.toFixed(2)}`;
         if (winEl) {
-            const winnings = fogoState.betAmount * fogoState.currentMultiplier;
-            winEl.innerText = `${winnings.toFixed(2)} ZN`;
+            // تصحيح: عدم إظهار أي أرباح إلا عند فتح عملة واحدة على الأقل في جولة نشطة
+            if (!fogoState.isPlaying || !fogoState.openedTiles || fogoState.openedTiles.length === 0) {
+                winEl.innerText = '0.00 ZN';
+            } else {
+                const winnings = fogoState.betAmount * fogoState.currentMultiplier;
+                winEl.innerText = `${winnings.toFixed(2)} ZN`;
+            }
         }
     }
 
@@ -366,8 +374,10 @@
                     if (tile) {
                         tile.className = 'fogo-tile reveal-shield-save';
                         tile.innerHTML = '🛡️💥';
+                        tile.disabled = true;
                     }
 
+                    fogoState.openedTiles.push(tileIndex);
                     fogoState.shieldActive = false;
                     updateShieldStatusUI('broken');
                     alert(data.message || "🛡️ تم تدمير الدرع أثناء امتصاص الصدمة! أنت في أمان ولكن الحماية تحطمت!");
