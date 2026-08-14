@@ -20,9 +20,21 @@
         }
     }
 
+    // دالة استخراج الأرقام بأمان لمنع ظهور NaN نهائياً
+    function getNumericValue(...args) {
+        for (let i = 0; i < args.length; i++) {
+            let val = args[i];
+            if (val !== undefined && val !== null && val !== '') {
+                let num = parseFloat(val);
+                if (!isNaN(num) && isFinite(num)) return num;
+            }
+        }
+        return 0;
+    }
+
     function formatNumberAbbreviated(num, decimals = 2) {
         let val = parseFloat(num);
-        if (isNaN(val)) val = 0;
+        if (isNaN(val) || !isFinite(val)) val = 0;
         if (val >= 1000000000) return (val / 1000000000).toFixed(decimals) + 'B';
         if (val >= 1000000) return (val / 1000000).toFixed(decimals) + 'M';
         if (val >= 1000) return (val / 1000).toFixed(decimals) + 'K';
@@ -79,7 +91,7 @@
                 const cachedTime = sessionStorage.getItem('zn_shop_config_time');
                 if (cached && cachedTime && (now - parseInt(cachedTime) < CONFIG_CACHE_TTL)) {
                     const parsed = JSON.parse(cached);
-                    shopDynamicSettings = parsed.settings;
+                    shopDynamicSettings = parsed.settings || parsed;
                     cachedPackagesData = parsed.packages;
                     applyConfigToUI(parsed);
                     return;
@@ -101,7 +113,7 @@
             const res = await fetch('/api/shop/get_config');
             const data = await res.json();
             if (data && data.success) {
-                shopDynamicSettings = data.settings;
+                shopDynamicSettings = data.settings || data;
                 cachedPackagesData = data.packages;
                 lastConfigFetchTime = now;
 
@@ -120,9 +132,9 @@
     function applyConfigToUI(data) {
         const tonPriceElem = document.getElementById('ton-live-rate-text');
         if (tonPriceElem) {
-            const livePrice = data.ton_price_usd || window.tonPrice || window.userState?.ton_price;
-            if (livePrice) {
-                tonPriceElem.innerText = `$${parseFloat(livePrice).toFixed(2)}`;
+            const livePrice = getNumericValue(data.ton_price_usd, window.tonPrice, window.userState?.ton_price);
+            if (livePrice > 0) {
+                tonPriceElem.innerText = `$${livePrice.toFixed(2)}`;
             }
         }
 
@@ -167,8 +179,8 @@
             const theme = colorThemes[index % colorThemes.length];
             const btnTextColor = theme.textColor || '#ffffff';
 
-            const usdtPrice = parseFloat(pkg.usdt || 0).toFixed(2);
-            const tonAmount = parseFloat(pkg.ton_amount || 0).toFixed(2);
+            const usdtPrice = getNumericValue(pkg.usdt, pkg.cost_usd, pkg.price_usd).toFixed(2);
+            const tonAmount = getNumericValue(pkg.ton_amount, pkg.ton).toFixed(2);
 
             html += `
                 <div class="usdt-card" style="background: ${theme.bg}; border: 1px solid ${theme.border};">
@@ -179,9 +191,9 @@
                         <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${tonAmount} TON</div>
                     </div>
                     <div class="usdt-perks">
-                        ⚡ +${Number(pkg.rate_add || 0).toLocaleString()} ZN/h<br>
-                        📦 +${Number(pkg.storage_add || 0).toLocaleString()} مخزن<br>
-                        🪙 +${Number(pkg.zn_add || 0).toLocaleString()} ZN
+                        ⚡ +${formatNumberAbbreviated(getNumericValue(pkg.rate_add, pkg.rate_bonus))} ZN/h<br>
+                        📦 +${formatNumberAbbreviated(getNumericValue(pkg.storage_add, pkg.capacity))} مخزن<br>
+                        🪙 +${formatNumberAbbreviated(getNumericValue(pkg.zn_add, pkg.cost_zn))} ZN
                     </div>
                     <button class="btn-ton-pay" style="background: ${theme.btn}; color: ${btnTextColor};" onclick="buyPackageWithTon('${pkgId}')">شراء تلقائي</button>
                 </div>
@@ -408,9 +420,9 @@
         if (!miningSec || !storageSec) return;
 
         const pData = window.userState || {};
-        let totalBal = parseFloat(pData.balance || 0);
+        let totalBal = getNumericValue(pData.balance, pData.zn_balance);
 
-        // 1. تحديث القيم في الشريط العلوي بنفس مظهر المزرعة
+        // 1. تحديث القيم في الشريط العلوي بنفس مظهر المزرعة و4 خانات للدولار
         const balElem = document.getElementById('shop-balance-text');
         if (balElem) {
             balElem.innerText = `${formatNumberAbbreviated(totalBal)} ZN`;
@@ -418,18 +430,18 @@
 
         const usdElem = document.getElementById('shop-usd-text');
         if (usdElem) {
-            const usdVal = parseFloat(pData.usd_balance || 0);
+            const usdVal = getNumericValue(pData.usd_balance, pData.usd, pData.balance_usd);
             usdElem.innerText = `$${usdVal.toFixed(4)}`;
         }
         
         const rateElem = document.getElementById('shop-rate-text');
         if (rateElem) {
-            const hRate = parseFloat(pData.hourly_rate || 0);
-            rateElem.innerText = `+${hRate.toFixed(2)}/h ⚡`;
+            const hRate = getNumericValue(pData.hourly_rate, pData.rate, pData.mining_rate);
+            rateElem.innerText = `+${formatNumberAbbreviated(hRate)}/h ⚡`;
         }
 
-        // 2. ترقيات التعدين
-        const miningCfg = shopDynamicSettings?.mining_config || shopDynamicSettings?.speed_config || {};
+        // 2. ترقيات التعدين (تدمير مشكلة NaN بقراءة upgrade_config المباشرة من الفايربيس)
+        const miningCfg = shopDynamicSettings?.upgrade_config || shopDynamicSettings?.mining_config || shopDynamicSettings?.speed_config || {};
 
         let miningHtml = '';
         for (const [key, cfg] of Object.entries(miningCfg)) {
@@ -437,9 +449,9 @@
             if (isNaN(i)) continue;
 
             let count = parseInt((pData.upgrades && (pData.upgrades[`lvl${i}`] || pData.upgrades[key])) || 0);
-            let price = floatVal(cfg.cost_zn, cfg.price);
-            let speed = floatVal(cfg.rate_bonus, cfg.rate); 
-            let maxLimit = parseInt(cfg.max || 15);
+            let price = getNumericValue(cfg.cost_zn, cfg.cost, cfg.price, cfg.zn_cost, cfg.zn);
+            let speed = getNumericValue(cfg.rate_bonus, cfg.rate, cfg.bonus, cfg.speed, cfg.rate_add); 
+            let maxLimit = parseInt(cfg.max || cfg.max_limit || cfg.limit || 15);
             let isMax = count >= maxLimit;
             let canAfford = totalBal >= price;
 
@@ -449,7 +461,7 @@
                     <div>
                         <div style="font-size: 26px;">⚡</div>
                         <div style="color: #ffffff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
-                        <div style="color: #00cc66; font-size: 12px; margin: 4px 0;" dir="ltr">⚡ +${speed.toLocaleString()}/h</div>
+                        <div style="color: #00cc66; font-size: 12px; margin: 4px 0;" dir="ltr">⚡ +${formatNumberAbbreviated(speed)}/h</div>
                         <div style="color: #8b949e; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${maxLimit}</div>
                     </div>
                     <button id="btn-speed-${i}" onclick="requestShopPurchase('speed', ${i}, ${price})" 
@@ -461,8 +473,8 @@
         }
         miningSec.innerHTML = miningHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري القراءة من الفيربيس...</div>';
 
-        // 3. ترقيات المخزن
-        const storageCfg = shopDynamicSettings?.storage_config || {};
+        // 3. ترقيات المخزن (قراءة storage_capacities مباشرة)
+        const storageCfg = shopDynamicSettings?.storage_capacities || shopDynamicSettings?.storage_config || {};
 
         let storageHtml = '';
         let currentStorageLvl = parseInt(pData.storage_level || 0); 
@@ -471,8 +483,8 @@
             let i = parseInt(key);
             if (isNaN(i) || i === 0) continue;
 
-            let price = floatVal(cfg.cost_zn, cfg.price);
-            let capacity = floatVal(cfg.capacity);
+            let price = getNumericValue(cfg.cost_zn, cfg.cost, cfg.price, cfg.zn_cost, cfg.zn);
+            let capacity = getNumericValue(cfg.capacity, cfg.cap, cfg.max_cap, cfg.storage);
             let isOwned = i <= currentStorageLvl;
             let isNextUpgrade = i === currentStorageLvl + 1;
             let canAfford = totalBal >= price;
@@ -504,18 +516,11 @@
         storageSec.innerHTML = storageHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري القراءة من الفيربيس...</div>';
     };
 
-    function floatVal(val1, val2 = 0) {
-        let p1 = parseFloat(val1);
-        if (!isNaN(p1) && p1 > 0) return p1;
-        let p2 = parseFloat(val2);
-        return !isNaN(p2) ? p2 : 0;
-    }
-
     // =================================================================
     // ⚡ طلب الشراء وتنفيذه
     // =================================================================
     window.requestShopPurchase = function(type, level, price) {
-        const curBal = parseFloat(window.userState?.balance || 0);
+        const curBal = getNumericValue(window.userState?.balance, window.userState?.zn_balance);
         if (curBal < parseFloat(price)) {
             triggerHaptic('notification', 'error');
             alert("⚠️ الرصيد غير كافي لشراء هذا التطوير!");
@@ -537,7 +542,7 @@
         }
 
         if (modalPrice) {
-            modalPrice.innerText = `${Number(price).toLocaleString()} ZN`;
+            modalPrice.innerText = `${formatNumberAbbreviated(price)} ZN`;
         }
 
         const overlay = document.getElementById('shop-confirm-modal-overlay');
