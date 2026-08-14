@@ -1,8 +1,416 @@
-<div style="background: #161b22; border: 1px solid #30363d; border-radius: 16px; padding: 30px 20px; color: #ffffff; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
-    <div style="font-size: 48px; margin-bottom: 15px; color: #ff5722;">🔥</div>
-    <h2 style="color: #ff5722; margin: 0 0 10px 0;">لعبة fogo</h2>
-    <p style="color: #8b949e; font-size: 15px; margin-bottom: 20px;">سيتم فتح هذه اللعبة قريباً! انتظروا التحديث القادم.</p>
-    <div style="background: rgba(255, 87, 34, 0.1); border: 1px dashed #ff5722; padding: 12px; border-radius: 10px; color: #ffab91; font-weight: bold; font-size: 14px;">
-        ⏳ جاري تجهيز مراحل وعروض لعبة fogo
+<style>
+    .fogo-container {
+        background: radial-gradient(circle at top, #1b132a 0%, #080511 100%);
+        border: 1px solid #3c2a5d;
+        border-radius: 20px;
+        padding: 20px 15px;
+        color: #ffffff;
+        box-shadow: 0 8px 32px rgba(123, 44, 191, 0.25);
+        max-width: 480px;
+        margin: 0 auto;
+        font-family: inherit;
+        box-sizing: border-box;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .fogo-header {
+        text-align: center;
+        margin-bottom: 12px;
+    }
+
+    .fogo-title {
+        font-size: 24px;
+        font-weight: 900;
+        color: #ff007f;
+        text-shadow: 0 0 12px rgba(255, 0, 127, 0.6);
+        margin: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    .fogo-subtitle {
+        font-size: 12px;
+        color: #a093c4;
+        margin-top: 4px;
+    }
+
+    /* شريط المعاملات والدرع */
+    .fogo-status-bar {
+        background: rgba(26, 18, 43, 0.85);
+        border: 1px solid #4a3473;
+        border-radius: 14px;
+        padding: 10px 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 15px;
+        backdrop-filter: blur(8px);
+    }
+
+    .status-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .status-label {
+        font-size: 10px;
+        color: #9d8ec4;
+        font-weight: bold;
+    }
+
+    .status-val {
+        font-size: 15px;
+        font-weight: 900;
+        color: #00f2fe;
+    }
+
+    .status-val.gold { color: #ffd700; text-shadow: 0 0 8px rgba(255, 215, 0, 0.5); }
+    .status-val.shield-on { color: #00ffcc; text-shadow: 0 0 8px rgba(0, 255, 204, 0.5); }
+    .status-val.shield-off { color: #8a7aa6; }
+    .status-val.shield-broken { color: #ff3366; text-shadow: 0 0 8px rgba(255, 51, 102, 0.5); }
+
+    /* شبكة الـ 16 مربع (4x4) */
+    .fogo-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        margin: 15px 0;
+        perspective: 1000px;
+    }
+
+    .fogo-tile {
+        aspect-ratio: 1;
+        background: linear-gradient(145deg, #1f1636, #140d24);
+        border: 1px solid #3a285c;
+        border-radius: 12px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        user-select: none;
+        position: relative;
+        box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+    }
+
+    .fogo-tile:hover:not(:disabled) {
+        border-color: #ff007f;
+        transform: translateY(-2px) scale(1.03);
+        box-shadow: 0 0 12px rgba(255, 0, 127, 0.4);
+    }
+
+    .fogo-tile:disabled {
+        cursor: not-allowed;
+    }
+
+    /* العملة الصفراء الذهبية */
+    .fogo-tile.reveal-gold {
+        background: radial-gradient(circle, rgba(255, 215, 0, 0.25) 0%, rgba(26, 18, 43, 0.9) 100%);
+        border-color: #ffd700;
+        box-shadow: 0 0 15px rgba(255, 215, 0, 0.6);
+        animation: goldPop 0.4s ease-out forwards;
+    }
+
+    /* العملة الرمادية المكسورة */
+    .fogo-tile.reveal-gray {
+        background: radial-gradient(circle, rgba(108, 117, 125, 0.25) 0%, rgba(15, 10, 25, 0.95) 100%);
+        border-color: #6c757d;
+        box-shadow: 0 0 15px rgba(108, 117, 125, 0.4);
+        animation: grayShake 0.4s ease-out forwards;
+    }
+
+    /* الدرع المكسور */
+    .fogo-tile.reveal-shield-save {
+        background: radial-gradient(circle, rgba(0, 255, 204, 0.25) 0%, rgba(26, 18, 43, 0.9) 100%);
+        border-color: #00ffcc;
+        box-shadow: 0 0 15px rgba(0, 255, 204, 0.6);
+        animation: shieldPulse 0.4s ease-out forwards;
+    }
+
+    @keyframes goldPop {
+        0% { transform: scale(0.8) rotateY(90deg); }
+        50% { transform: scale(1.15) rotateY(0deg); }
+        100% { transform: scale(1); }
+    }
+
+    @keyframes grayShake {
+        0% { transform: scale(1) rotate(0deg); }
+        25% { transform: rotate(-8deg) scale(0.95); }
+        75% { transform: rotate(8deg) scale(0.95); }
+        100% { transform: rotate(0deg) scale(1); filter: grayscale(100%); }
+    }
+
+    @keyframes shieldPulse {
+        0% { transform: scale(0.9); }
+        50% { transform: scale(1.1); box-shadow: 0 0 25px #00ffcc; }
+        100% { transform: scale(1); }
+    }
+
+    /* الأيقونات الداخلية */
+    .coin-gold-icon {
+        color: #ffd700;
+        filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.8));
+    }
+
+    .coin-gray-icon {
+        color: #8a9099;
+        filter: drop-shadow(0 0 4px rgba(0,0,0,0.8));
+        position: relative;
+    }
+
+    .coin-gray-icon::after {
+        content: "⚡";
+        position: absolute;
+        top: -4px;
+        right: -4px;
+        font-size: 14px;
+        color: #ff3366;
+    }
+
+    /* لوحة التحكم والخيارات */
+    .fogo-controls {
+        background: #120c21;
+        border: 1px solid #2d1f47;
+        border-radius: 16px;
+        padding: 14px;
+    }
+
+    .ctrl-group {
+        margin-bottom: 12px;
+    }
+
+    .ctrl-label {
+        font-size: 11px;
+        color: #9d8ec4;
+        margin-bottom: 6px;
+        font-weight: bold;
+        display: flex;
+        justify-content: space-between;
+    }
+
+    .mines-selector {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+    }
+
+    .mine-opt-btn {
+        background: #1c1430;
+        border: 1px solid #39285c;
+        color: #bfaedc;
+        padding: 8px 4px;
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: bold;
+        cursor: pointer;
+        text-align: center;
+        transition: all 0.2s;
+    }
+
+    .mine-opt-btn.selected {
+        background: rgba(255, 0, 127, 0.2);
+        border-color: #ff007f;
+        color: #ff007f;
+        box-shadow: 0 0 10px rgba(255, 0, 127, 0.3);
+    }
+
+    .shield-toggle-wrapper {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: #1a122b;
+        border: 1px solid #382759;
+        padding: 10px 12px;
+        border-radius: 10px;
+        margin-bottom: 12px;
+    }
+
+    .shield-info {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        font-weight: bold;
+        color: #e2d9f3;
+    }
+
+    .switch {
+        position: relative;
+        display: inline-block;
+        width: 44px;
+        height: 22px;
+    }
+
+    .switch input { opacity: 0; width: 0; height: 0; }
+
+    .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background-color: #2b1f45;
+        transition: .3s;
+        border-radius: 22px;
+        border: 1px solid #48336c;
+    }
+
+    .slider:before {
+        position: absolute;
+        content: "";
+        height: 16px;
+        width: 16px;
+        left: 2px;
+        bottom: 2px;
+        background-color: #8a7aa6;
+        transition: .3s;
+        border-radius: 50%;
+    }
+
+    input:checked + .slider {
+        background-color: rgba(0, 255, 204, 0.3);
+        border-color: #00ffcc;
+    }
+
+    input:checked + .slider:before {
+        transform: translateX(22px);
+        background-color: #00ffcc;
+        box-shadow: 0 0 8px #00ffcc;
+    }
+
+    .bet-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+
+    .bet-chip {
+        background: #1c1430;
+        border: 1px solid #342454;
+        color: #c4b5e0;
+        padding: 10px 4px;
+        border-radius: 10px;
+        font-size: 12px;
+        font-weight: bold;
+        cursor: pointer;
+        text-align: center;
+        transition: all 0.2s;
+    }
+
+    .bet-chip.selected {
+        background: rgba(0, 242, 254, 0.15);
+        border-color: #00f2fe;
+        color: #00f2fe;
+        box-shadow: 0 0 10px rgba(0, 242, 254, 0.3);
+    }
+
+    .action-btn {
+        width: 100%;
+        padding: 14px;
+        border-radius: 12px;
+        border: none;
+        font-size: 15px;
+        font-weight: 800;
+        cursor: pointer;
+        transition: all 0.25s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        user-select: none;
+    }
+
+    .start-btn {
+        background: linear-gradient(135deg, #ff007f, #7b2cbf);
+        color: #ffffff;
+        box-shadow: 0 4px 18px rgba(255, 0, 127, 0.35);
+    }
+
+    .cashout-btn {
+        background: linear-gradient(135deg, #00ffcc, #00b4d8);
+        color: #080511;
+        box-shadow: 0 4px 18px rgba(0, 255, 204, 0.4);
+    }
+
+    .action-btn:disabled {
+        background: #23193a;
+        color: #6e618a;
+        box-shadow: none;
+        cursor: not-allowed;
+    }
+</style>
+
+<div class="fogo-container">
+    <div class="fogo-header">
+        <h2 class="fogo-title"><i class="fas fa-shield-alt"></i> شبكة fogo - Cyber Sweep</h2>
+        <div class="fogo-subtitle">استخرج العملات الذهبية، فعّل الدرع، وتفادى التعثر!</div>
+    </div>
+
+    <!-- شريط حالة اللعبة -->
+    <div class="fogo-status-bar">
+        <div class="status-item">
+            <span class="status-label">المضاعف الحالي</span>
+            <span id="fogo-multiplier-val" class="status-val gold">x1.00</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">حالة الدرع</span>
+            <span id="fogo-shield-status" class="status-val shield-off">غير مفعل</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">الأرباح الحالية</span>
+            <span id="fogo-winnings-val" class="status-val">0.00 ZN</span>
+        </div>
+    </div>
+
+    <!-- شبكة 16 مربع (4x4) -->
+    <div id="fogo-grid" class="fogo-grid">
+        <!-- يتم تويلد 16 مربع ديناميكياً بالجافاسكريبت -->
+    </div>
+
+    <!-- لوحة التحكم والخيارات -->
+    <div class="fogo-controls">
+        <div id="fogo-setup-panel">
+            <!-- اختيار عدد الألغام -->
+            <div class="ctrl-group">
+                <div class="ctrl-label">
+                    <span>اختر عدد المخاطر المخفية:</span>
+                    <span id="fogo-max-mult-hint" style="color: #ff007f;">حد أقصى x5.00</span>
+                </div>
+                <div class="mines-selector">
+                    <div class="mine-opt-btn selected" data-mines="3" onclick="selectFogoMines(3)">3 مخاطر</div>
+                    <div class="mine-opt-btn" data-mines="4" onclick="selectFogoMines(4)">4 مخاطر</div>
+                    <div class="mine-opt-btn" data-mines="5" onclick="selectFogoMines(5)">5 مخاطر</div>
+                    <div class="mine-opt-btn" data-mines="6" onclick="selectFogoMines(6)">6 مخاطر</div>
+                </div>
+            </div>
+
+            <!-- ميزة درع الحماية المجاني -->
+            <div class="shield-toggle-wrapper">
+                <div class="shield-info">
+                    <span style="font-size: 16px;">🛡️</span>
+                    <span>درع الحماية المجاني (Shield Guard)</span>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="fogo-shield-checkbox" onchange="toggleFogoShield(this.checked)">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
+            <!-- خيارات الرهان الستة -->
+            <div class="ctrl-group">
+                <div class="ctrl-label">اختر قيمة رهان الجولة:</div>
+                <div id="fogo-bet-grid" class="bet-grid">
+                    <!-- سيتم بناؤها ديناميكياً بالخيارات الستة -->
+                </div>
+            </div>
+        </div>
+
+        <button id="fogo-main-btn" class="action-btn start-btn" onclick="handleFogoMainAction()" disabled>
+            ⏳ جاري التحميل...
+        </button>
     </div>
 </div>
