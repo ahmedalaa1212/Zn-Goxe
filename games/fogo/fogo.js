@@ -12,6 +12,10 @@
         isProcessing: false
     };
 
+    function getTotalCost() {
+        return fogoState.shieldEnabled ? Math.round(fogoState.betAmount * 1.25) : fogoState.betAmount;
+    }
+
     function updateGlobalBalance(newBal) {
         if (newBal === undefined || newBal === null) return;
         const balNum = parseFloat(newBal);
@@ -114,6 +118,7 @@
         if (fogoState.isPlaying) return;
         fogoState.shieldEnabled = checked;
         updateShieldStatusUI(checked ? 'on' : 'off');
+        updateMainButton();
     };
 
     function updateShieldStatusUI(status) {
@@ -122,7 +127,7 @@
 
         if (status === 'on') {
             el.className = 'status-val shield-on';
-            el.innerText = '🛡️ نشط';
+            el.innerText = '🛡️ نشط (+25%)';
         } else if (status === 'broken') {
             el.className = 'status-val shield-broken';
             el.innerText = '💥 محطم';
@@ -144,11 +149,7 @@
             }
         });
 
-        const mainBtn = document.getElementById('fogo-main-btn');
-        if (mainBtn && !fogoState.isPlaying) {
-            mainBtn.innerHTML = `🚀 بدء التعدين (${fogoState.betAmount} ZN)`;
-            mainBtn.disabled = false;
-        }
+        updateMainButton();
     };
 
     async function loadFogoConfig() {
@@ -229,7 +230,12 @@
 
         if (!fogoState.isPlaying) {
             mainBtn.className = 'action-btn start-btn';
-            mainBtn.innerHTML = `🚀 بدء التعدين (${fogoState.betAmount} ZN)`;
+            const totalCost = getTotalCost();
+            if (fogoState.shieldEnabled) {
+                mainBtn.innerHTML = `🚀 بدء التعدين (${totalCost} ZN - شامل 25% درع)`;
+            } else {
+                mainBtn.innerHTML = `🚀 بدء التعدين (${fogoState.betAmount} ZN)`;
+            }
             mainBtn.disabled = false;
         } else {
             if (fogoState.openedTiles.length === 0) {
@@ -264,9 +270,11 @@
         if (fogoState.isProcessing) return;
 
         if (!fogoState.isPlaying) {
+            const totalCost = getTotalCost();
             const currentBal = parseFloat(window.userState?.balance || 0);
-            if (currentBal < fogoState.betAmount) {
-                alert(`رصيدك غير كافٍ! رصيدك الحالي: ${currentBal.toFixed(2)} ZN`);
+
+            if (currentBal < totalCost) {
+                alert(`رصيدك غير كافٍ! تتطلب الجولة ${totalCost.toFixed(2)} ZN ${fogoState.shieldEnabled ? '(شامل 25% رسوم الدرع)' : ''}. رصيدك الحالي: ${currentBal.toFixed(2)} ZN`);
                 return;
             }
 
