@@ -24,7 +24,8 @@
     function floatVal(...args) {
         for (let val of args) {
             if (val !== undefined && val !== null && val !== '') {
-                let p = parseFloat(val);
+                let cleaned = String(val).replace(/,/g, '');
+                let p = parseFloat(cleaned);
                 if (!isNaN(p) && isFinite(p)) return p;
             }
         }
@@ -300,6 +301,7 @@
                 if (res.hourly_rate !== undefined) window.userState.hourly_rate = res.hourly_rate;
                 if (res.extra_storage !== undefined) window.userState.extra_storage = res.extra_storage;
                 if (res.max_cap !== undefined) window.userState.max_cap = res.max_cap;
+                if (res.last_claim_time !== undefined) window.userState.last_claim_time = res.last_claim_time;
 
                 window.updateShopUI();
             } else {
@@ -429,7 +431,7 @@
         // ضبط رصيد الدولار بـ 4 أرقام عشرية ($0.0000) تماماً كما في المزرعة
         const usdElem = document.getElementById('shop-usd-text');
         if (usdElem) {
-            const usdVal = floatVal(pData.usd_balance, pData.balance_usd, pData.usd);
+            const usdVal = floatVal(pData.usd_balance, pData.balance_usd, pData.usd, pData.usdt);
             usdElem.innerText = `$${usdVal.toFixed(4)}`;
         }
         
@@ -533,7 +535,7 @@
         const curBal = floatVal(window.userState?.balance);
         if (curBal < floatVal(price)) {
             triggerHaptic('notification', 'error');
-            alert("⚠️ الرصيد غير كافي لشراء هذا التطوير!");
+            alert("⚠️ الرصيد في المحفظة غير كافي لشراء هذا التطوير!");
             return; 
         }
 
