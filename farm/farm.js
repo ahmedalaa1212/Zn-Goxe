@@ -15,7 +15,7 @@ window.initFarmView = function() {
         maxDailyBoostRate: 15.0,
         boostMaxRewardCoins: 50.0,
         upgradeCosts: {
-            1: { cost_zn: 600, cost_usd: 0.05, rate: 1.0 },
+            1: { cost_zn: 600, cost_usd: 0.0, rate: 1.0 },      // المستوى الأول بالعملات فقط (بدون دولار)
             2: { cost_zn: 1500, cost_usd: 0.10, rate: 2.5 },
             3: { cost_zn: 3800, cost_usd: 0.15, rate: 6.0 },
             4: { cost_zn: 10000, cost_usd: 0.20, rate: 15.0 },
@@ -131,9 +131,16 @@ window.initFarmView = function() {
         return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     }
 
+    // تنسيق التكلفة بدقة لضمان عدم تقريب الأرقام بشكل مشوه (مثال: 1,500 تظهر 1.5K بدلاً من 2K)
     function formatCompactCost(num) {
-        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-        if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
+        if (num >= 1000000) {
+            let formatted = (num / 1000000).toFixed(1);
+            return formatted.endsWith('.0') ? (num / 1000000).toFixed(0) + 'M' : formatted + 'M';
+        }
+        if (num >= 1000) {
+            let formatted = (num / 1000).toFixed(1);
+            return formatted.endsWith('.0') ? (num / 1000).toFixed(0) + 'K' : formatted + 'K';
+        }
         return num.toString();
     }
 
@@ -194,7 +201,6 @@ window.initFarmView = function() {
                     if (resData.player.last_boost_date !== undefined) window.userState.last_boost_date = resData.player.last_boost_date;
                 }
                 
-                // تحديث واجهة المستخدم بعد جلب وتحديث الإعدادات لتجنب الوميض المائل للقديم
                 window.updateFarmUI();
             }
         } catch (e) { 
