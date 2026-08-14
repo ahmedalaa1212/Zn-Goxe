@@ -100,7 +100,6 @@ def start_game():
     if int(bet_amount) not in [int(x) for x in allowed_options]:
         return jsonify({"success": False, "error": "مبلغ الرهان غير متاح"}), 400
 
-    # حساب رسوم الدرع (25%) والإجمالي الخصم
     shield_fee = (bet_amount * 0.25) if shield_enabled else 0.0
     total_cost = bet_amount + shield_fee
 
@@ -186,6 +185,8 @@ def reveal_tile():
 
     if is_hit_loss:
         if shield_active:
+            opened_tiles.append(tile_index)
+            session['opened_tiles'] = opened_tiles
             session['shield_active'] = False
             save_fogo_session(telegram_id, session)
 
