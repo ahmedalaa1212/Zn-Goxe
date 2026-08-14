@@ -89,7 +89,8 @@
         font-weight: 700;
     }
 
-    .coming-soon-badge {
+    /* شارة اللعبة الديناميكية */
+    .coming-soon-badge, .game-dynamic-badge {
         position: absolute;
         top: 6px;
         right: 6px;
@@ -100,6 +101,7 @@
         padding: 2px 6px;
         border-radius: 8px;
         font-weight: bold;
+        display: none;
     }
 
     /* واجهة اللعبة المفتوحة كاملة */
@@ -174,50 +176,51 @@
     <!-- شبكة الألعاب السبع -->
     <div class="games-grid">
         
-        <!-- اللعبة 1: Goxe (مفعلة) -->
+        <!-- اللعبة 1: Goxe -->
         <div class="game-card" onclick="loadSubGame('goxe', 'goxe')">
+            <span id="badge-goxe" class="game-dynamic-badge">جديد</span>
             <i class="fas fa-cubes"></i>
             <h3>لعبة Goxe</h3>
         </div>
 
         <!-- اللعبة 2: fogo -->
         <div class="game-card" onclick="loadSubGame('fogo', 'fogo')">
-            <span class="coming-soon-badge">قريباً</span>
+            <span id="badge-fogo" class="game-dynamic-badge">جديد</span>
             <i class="fas fa-fire" style="color: #ff5722;"></i>
             <h3>لعبة fogo</h3>
         </div>
 
         <!-- اللعبة 3: hitob -->
         <div class="game-card" onclick="loadSubGame('hitob', 'hitob')">
-            <span class="coming-soon-badge">قريباً</span>
+            <span id="badge-hitob" class="game-dynamic-badge">جديد</span>
             <i class="fas fa-crosshairs" style="color: #e91e63;"></i>
             <h3>لعبة hitob</h3>
         </div>
 
         <!-- اللعبة 4: wex -->
         <div class="game-card" onclick="loadSubGame('wex', 'wex')">
-            <span class="coming-soon-badge">قريباً</span>
+            <span id="badge-wex" class="game-dynamic-badge">جديد</span>
             <i class="fas fa-bolt" style="color: #00bcd4;"></i>
             <h3>لعبة wex</h3>
         </div>
 
         <!-- اللعبة 5: vover -->
         <div class="game-card" onclick="loadSubGame('vover', 'vover')">
-            <span class="coming-soon-badge">قريباً</span>
+            <span id="badge-vover" class="game-dynamic-badge">جديد</span>
             <i class="fas fa-shield-halved" style="color: #9c27b0;"></i>
             <h3>لعبة vover</h3>
         </div>
 
         <!-- اللعبة 6: znzn -->
         <div class="game-card" onclick="loadSubGame('znzn', 'znzn')">
-            <span class="coming-soon-badge">قريباً</span>
+            <span id="badge-znzn" class="game-dynamic-badge">جديد</span>
             <i class="fas fa-atom" style="color: #4caf50;"></i>
             <h3>لعبة znzn</h3>
         </div>
 
         <!-- اللعبة 7: Blxe -->
         <div class="game-card" onclick="loadSubGame('blxe', 'blxe')">
-            <span class="coming-soon-badge">قريباً</span>
+            <span id="badge-blxe" class="game-dynamic-badge">جديد</span>
             <i class="fas fa-gem" style="color: #ffeb3b;"></i>
             <h3>لعبة Blxe</h3>
         </div>
@@ -242,4 +245,4 @@
     <div id="subgame-holder"></div>
 </div>
 
-<script src="games/games.js?v=2.0"></script>
+<script src="games/games.js?v=2.1"></script>
