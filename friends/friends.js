@@ -37,17 +37,34 @@
     }
 
     function getStoredBalance() {
-        if (window.userState && window.userState.balance !== undefined && window.userState.balance !== null && !isNaN(window.userState.balance)) {
-            return parseFloat(window.userState.balance);
+        const sources = [
+            window.userState?.balance,
+            window.PlayerData?.balance,
+            window.GameState?.balance
+        ];
+
+        for (const src of sources) {
+            if (src !== undefined && src !== null && !isNaN(src) && parseFloat(src) > 0) {
+                return parseFloat(src);
+            }
         }
-        if (window.PlayerData && window.PlayerData.balance !== undefined && window.PlayerData.balance !== null && !isNaN(window.PlayerData.balance)) {
-            return parseFloat(window.PlayerData.balance);
+
+        const localBal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
+        if (localBal !== null && !isNaN(parseFloat(localBal)) && parseFloat(localBal) > 0) {
+            return parseFloat(localBal);
         }
-        if (window.GameState && window.GameState.balance !== undefined && window.GameState.balance !== null && !isNaN(window.GameState.balance)) {
-            return parseFloat(window.GameState.balance);
+
+        for (const src of sources) {
+            if (src !== undefined && src !== null && !isNaN(src)) {
+                return parseFloat(src);
+            }
         }
-        const bal = localStorage.getItem('zn_balance') || localStorage.getItem('user_balance');
-        return bal !== null ? parseFloat(bal) : 0;
+
+        if (localBal !== null && !isNaN(parseFloat(localBal))) {
+            return parseFloat(localBal);
+        }
+
+        return 0;
     }
 
     function setStoredBalance(newBalance) {
@@ -162,7 +179,7 @@
                 if (data.friends_config) {
                     window.FriendsConfig = data.friends_config;
                 }
-                if (data.player.balance !== undefined) {
+                if (data.player.balance !== undefined && data.player.balance !== null) {
                     setStoredBalance(data.player.balance);
                 }
             }
