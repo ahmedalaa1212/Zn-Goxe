@@ -263,9 +263,10 @@
 
             const result = await tcInstance.sendTransaction(transaction);
             
-            let safeBoc = "TX_" + Date.now();
+            // توليد رمز BOC فريد متضمناً الطابع الزمني لضمان الشراء المتكرر بدون حدود
+            let safeBoc = "TX_" + Date.now() + "_" + Math.floor(Math.random() * 100000);
             if (result && result.boc) {
-                safeBoc = String(result.boc).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32);
+                safeBoc = String(result.boc).replace(/[^a-zA-Z0-9]/g, '').substring(0, 24) + "_" + Date.now();
             }
 
             const verifyRes = await fetch('/api/shop/verify_and_apply_package', {
