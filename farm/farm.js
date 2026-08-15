@@ -159,6 +159,18 @@ window.closeWelcomeModal = function() {
         }
     }
 
+    // دالة تنسيق أرقام عملة ZN (4 أرقام للأعداد أقل من 10، ورقمين للأعداد 10 فما فوق)
+    function formatZnBalance(val) {
+        const num = parseFloat(val || 0);
+        if (isNaN(num)) return "0.00";
+        
+        if (num < 10) {
+            return num.toFixed(4);
+        } else {
+            return num.toFixed(2);
+        }
+    }
+
     function getStoredBalance() {
         if (window.userState && window.userState.balance !== undefined) {
             return parseFloat(window.userState.balance || 0);
@@ -182,7 +194,7 @@ window.closeWelcomeModal = function() {
             window.userState.balance = val; 
             window.PlayerData.balance = val;
             const balEl = document.getElementById('farm-balance');
-            if (balEl) balEl.innerText = `${val.toFixed(2)} ZN`;
+            if (balEl) balEl.innerText = `${formatZnBalance(val)} ZN`;
         }
 
         if (newUsdBalance !== undefined && newUsdBalance !== null) {
@@ -278,7 +290,7 @@ window.closeWelcomeModal = function() {
                 if (resData.player) {
                     Object.assign(window.PlayerData, resData.player);
                     Object.assign(window.userState, resData.player);
-                    saveCachedData(resData.player); // حفظ البيانات الحديثة في التخزين المحلي فوراً
+                    saveCachedData(resData.player);
                     setStoredBalance(resData.player.balance, resData.player.usd_balance);
 
                     const isNew = resData.player.is_new_user === true || resData.player.welcome_seen === false;
@@ -310,7 +322,7 @@ window.closeWelcomeModal = function() {
         let hRate = parseFloat(pData.hourly_rate ?? 0.05);
 
         const balEl = document.getElementById('farm-balance');
-        if (balEl) balEl.innerText = `${bal.toFixed(2)} ZN`;
+        if (balEl) balEl.innerText = `${formatZnBalance(bal)} ZN`;
 
         const usdEl = document.getElementById('farm-usd-balance');
         if (usdEl) usdEl.innerText = formatUsdBalance(usdBal);
@@ -399,7 +411,6 @@ window.closeWelcomeModal = function() {
             fieldsContainer.innerHTML = fieldsHTML;
         }
 
-        // تحديث زر التعزيز اليومي ديناميكياً
         const boostBtn = document.getElementById('boost-btn');
         if (boostBtn) {
             const todayStr = getTodayUTCStr();
@@ -517,7 +528,7 @@ window.closeWelcomeModal = function() {
             let pct = maxC > 0 ? (unclaim / maxC) * 100 : 0;
             pct = Math.max(0, Math.min(pct, 100)); 
             progressEl.style.width = `${pct}%`;
-            storageTextEl.innerText = `${unclaim.toFixed(4)} / ${maxC.toLocaleString('en-US', {maximumFractionDigits: 2})}`;
+            storageTextEl.innerText = `${formatZnBalance(unclaim)} / ${maxC.toLocaleString('en-US', {maximumFractionDigits: 2})}`;
         }
 
         const claimBtn = document.getElementById('claim-btn');
