@@ -16,10 +16,9 @@ PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
 _SHOP_CONFIG_CACHE = {"data": None, "timestamp": 0}
 _TON_PRICE_CACHE = {"price": 0.0, "timestamp": 0}
 
-CACHE_TTL_CONFIG = 300  # 5 دقائق لكاش إعدادات المتجر
-CACHE_TTL_TON = 60       # 60 ثانية لكاش سعر عملة TON
+CACHE_TTL_CONFIG = 30  # تخفيض الكاش إلى 30 ثانية لاستجابة سريعة جداً عند التعديل ف الفايربيس
+CACHE_TTL_TON = 60      # 60 ثانية لكاش سعر عملة TON
 
-# ==================== Default Configs ====================
 DEFAULT_USDT_PACKAGES = {
     "pkg_1": {"usdt": 1.0, "rate_add": 18.0, "storage_add": 250.0, "zn_add": 5000.0, "title": "الباقة البرونزية"},
     "pkg_2": {"usdt": 3.0, "rate_add": 58.0, "storage_add": 750.0, "zn_add": 15000.0, "title": "الباقة الفضية"},
@@ -31,7 +30,7 @@ DEFAULT_USDT_PACKAGES = {
 def _normalize_config_dict(raw_data, fallback_default=None):
     if fallback_default is None:
         fallback_default = {}
-    if not raw_data:
+    if raw_data is None:
         return fallback_default
     if isinstance(raw_data, list):
         res = {}
@@ -57,17 +56,22 @@ def get_cached_ton_price():
     return price
 
 def ensure_shop_settings_exist():
-    """إنشاء مستند settings/shop_settings تلقائياً بالفيربيس إذا لم يكن موجوداً"""
+    """قراءة مستند settings/shop_settings وإنشاؤه فقط إذا كان المستند غائباً تماماً"""
     try:
         shop_ref = db.collection('settings').document('shop_settings')
         doc = shop_ref.get()
-        if not doc.exists or not doc.to_dict().get('usdt_packages'):
+        if not doc.exists:
             shop_ref.set({
                 'usdt_packages': DEFAULT_USDT_PACKAGES,
                 'updated_at': datetime.now(timezone.utc).isoformat()
             }, merge=True)
             return DEFAULT_USDT_PACKAGES
-        return doc.to_dict().get('usdt_packages', DEFAULT_USDT_PACKAGES)
+        
+        doc_data = doc.to_dict() or {}
+        pkgs = doc_data.get('usdt_packages')
+        if pkgs is None:
+            return DEFAULT_USDT_PACKAGES
+        return pkgs
     except Exception as e:
         print(f"⚠️ [Shop Init Warning]: {e}")
         return DEFAULT_USDT_PACKAGES
@@ -78,10 +82,8 @@ def get_game_config():
         return _SHOP_CONFIG_CACHE["data"]
 
     try:
-        # 1. جلب باقات المتجر من settings/shop_settings
         usdt_pkgs = ensure_shop_settings_exist()
 
-        # 2. جلب ترقيات المزرعة من settings/farm_settings
         farm_doc = db.collection('settings').document('farm_settings').get()
         farm_data = farm_doc.to_dict() if farm_doc.exists else {}
 
@@ -132,7 +134,7 @@ def get_config():
         for pkg_id, pkg_info in sorted_pkgs:
             if not isinstance(pkg_info, dict):
                 continue
-            usd_val = float(pkg_info.get('usdt', 1.0))
+            usd_val = float(pkg_info.get('usdt', pkg_info.get('cost_usd', 0.0)))
             ton_needed = round(usd_val / ton_price_usd, 4) if ton_price_usd > 0 else round(usd_val / 5.5, 4)
             packages_with_ton[str(pkg_id)] = {
                 "usdt": usd_val,
@@ -178,7 +180,8 @@ def prepare_ton_pay():
         pkg_info = packages[pkg_id]
         ton_price = get_cached_ton_price()
 
-        ton_amount = round(float(pkg_info['usdt']) / ton_price, 4)
+        usd_val = float(pkg_info.get('usdt', 0.0))
+        ton_amount = round(usd_val / ton_price, 4) if ton_price > 0 else round(usd_val / 5.5, 4)
         nano_ton = int(ton_amount * 1000000000)
 
         memo_payload = f"BUY_{pkg_id}_USER_{user_id}_{int(time.time())}"
@@ -186,7 +189,7 @@ def prepare_ton_pay():
         return jsonify({
             "success": True,
             "package_id": pkg_id,
-            "usdt_price": pkg_info['usdt'],
+            "usdt_price": usd_val,
             "ton_amount": ton_amount,
             "nano_ton": str(nano_ton),
             "recipient_address": PROJECT_TON_WALLET,
@@ -314,7 +317,7 @@ def verify_and_apply_package():
                 "hourly_rate": new_rate,
                 "extra_storage": new_extra,
                 "max_cap": new_cap,
-                "last_claim_time": new_claim_time
+                "last_claim_time": new_last_claim_time
             }
         }), 200
 
@@ -402,7 +405,6 @@ def buy_upgrade():
                 if current_usd_balance < cost_usd:
                     raise Exception("الرصيد من الدولار (USD) غير كافي للشراء.")
 
-                # خصم العملتين ZN + USD
                 new_balance = round(current_balance - cost_zn, 2)
                 new_usd_balance = round(current_usd_balance - cost_usd, 4)
                 upgrades[lvl_key] = current_lvl_count + 1
