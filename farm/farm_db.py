@@ -191,7 +191,7 @@ def get_or_create_user_farm_data(user_id_str):
         user_data = user_doc.to_dict() or {}
         auto_fix = {}
         
-        # التأكد من حالة المستخدم الجديد حتى إن كان حسابه منشأ سابقاً بواسطة البوت
+        # إذا لم تكن الخاصية موجودة في المستند، يتم تحديدها بناءً على وجود تقدم سابق
         if "welcome_seen" not in user_data:
             has_progress = bool(user_data.get("upgrades") or user_data.get("last_daily_claim_date") or user_data.get("last_boost_date"))
             auto_fix["welcome_seen"] = has_progress
@@ -221,9 +221,10 @@ def get_or_create_user_farm_data(user_id_str):
     user_data["usd_balance"] = round(float(user_data.get("usd_balance", 0.0)), 6)
     user_data["unclaimed"] = calculate_accrued_mined(user_data, now, expected_max_cap)
     
-    # يظهر المودال الترحيبي فقط إذا لم يشاهده بعد
-    welcome_seen = user_data.get("welcome_seen", False)
-    user_data["is_new_user"] = not welcome_seen
+    # تحديد صريح لخاصية is_new_user و welcome_seen
+    is_welcome_seen = bool(user_data.get("welcome_seen", False))
+    user_data["welcome_seen"] = is_welcome_seen
+    user_data["is_new_user"] = not is_welcome_seen
 
     today_str = now.strftime('%Y-%m-%d')
     yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
