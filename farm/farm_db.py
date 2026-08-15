@@ -3,28 +3,35 @@ from datetime import datetime, timezone, timedelta
 from google.cloud import firestore
 from database import get_db
 
+def to_bool(val):
+    """تحويل قيم البوليان بشكل صحيح وآمن من القراءات المختلفة"""
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.strip().lower() in ("true", "1", "yes")
+    if isinstance(val, (int, float)):
+        return val != 0
+    return False
+
 # ==================== Caching لتوفير قراءات Firestore ====================
 _SETTINGS_CACHE = {"data": None, "timestamp": 0}
-CACHE_TTL_SECONDS = 15  # تقليل مدة الكاش لسرعة استجابة التغييرات من الفيربيس
+CACHE_TTL_SECONDS = 15
 
 # ==================== الإعدادات الافتراضية الاقتصادية الجديدة ====================
 DEFAULT_GAME_SETTINGS = {
-    # أولاً: المكافآت اليومية (30 يوم مع إمكانية استمرار يوم 30)
     "daily_rewards": [
         5, 10, 15, 20, 25, 30, 40, 45, 50, 60,
         65, 70, 75, 90, 100, 110, 120, 130, 140, 160,
         180, 200, 220, 240, 270, 300, 330, 360, 400, 450
     ],
-    # ثانياً: معزز التعدين اليومي (Lifetime Boost)
     "mining_config": {
-        "daily_boost_reward": 0.15,      # زيادة دائمية +0.15 ZN/ساعة
-        "max_daily_boost_rate": 4.5,     # أقصى حد للسرعة المكتسبة من التعزيز (4.5 ZN/h = 30 يوماً)
-        "boost_max_reward_coins": 35.0,  # المكافأة المباشرة عند تجاوز الحد (35 ZN)
-        "claim_cooldown_seconds": 15,    # كولدون التجميع الرئيسي
-        "base_free_rate": 0.05,          # السرعة البدائية الموحدة الجديدة (0.05 ZN/h)
-        "max_upgrades_per_level": 15     # الحد الأقصى للترقية 15x
+        "daily_boost_reward": 0.15,
+        "max_daily_boost_rate": 4.5,
+        "boost_max_reward_coins": 35.0,
+        "claim_cooldown_seconds": 15,
+        "base_free_rate": 0.05,
+        "max_upgrades_per_level": 15
     },
-    # ثالثاً: سعات المخازن وأسعار الشراء (عملات ZN + دولارات USD)
     "storage_capacities": {
         "0": {"capacity": 30.0, "cost_zn": 0.0, "cost_usd": 0.0},
         "1": {"capacity": 150.0, "cost_zn": 400.0, "cost_usd": 0.0},
@@ -37,7 +44,6 @@ DEFAULT_GAME_SETTINGS = {
         "8": {"capacity": 200000.0, "cost_zn": 500000.0, "cost_usd": 0.35},
         "9": {"capacity": 600000.0, "cost_zn": 1500000.0, "cost_usd": 0.40}
     },
-    # رابعاً: ترقيات سرعة التعدين (أسعار العملة + USD والزيادة في الساعة)
     "upgrade_config": {
         "1": {"cost_zn": 600.0, "cost_usd": 0.0, "rate_bonus": 1.0},
         "2": {"cost_zn": 1500.0, "cost_usd": 0.10, "rate_bonus": 2.5},
@@ -53,7 +59,7 @@ DEFAULT_GAME_SETTINGS = {
 
 
 def get_game_settings(force_refresh=False):
-    """جلب أو إنشاء إعدادات المزرعة تلقائياً في Firebase إن لم تكن موجودة مع التخزين المؤقت"""
+    """جلب أو إنشاء إعدادات المزرعة تلقائياً في Firebase إن لم تكن موجودة"""
     global _SETTINGS_CACHE
     now_ts = time.time()
     
@@ -150,7 +156,7 @@ def dismiss_welcome_db(user_id_str):
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     user_ref.set({"welcome_seen": True, "is_new_user": False}, merge=True)
-    return {"success": True}
+    return {"success": True, "welcome_seen": True, "is_new_user": False}
 
 
 def get_or_create_user_farm_data(user_id_str):
@@ -184,17 +190,18 @@ def get_or_create_user_farm_data(user_id_str):
             "ads_watched": 0,
             "upgrades": {},
             "upgrades_count": 0,
-            "welcome_seen": False
+            "welcome_seen": False,
+            "is_new_user": True
         }
         user_ref.set(user_data)
     else:
         user_data = user_doc.to_dict() or {}
         auto_fix = {}
         
-        # إذا لم تكن الخاصية موجودة في المستند، يتم تحديدها بناءً على وجود تقدم سابق
         if "welcome_seen" not in user_data:
             has_progress = bool(user_data.get("upgrades") or user_data.get("last_daily_claim_date") or user_data.get("last_boost_date"))
             auto_fix["welcome_seen"] = has_progress
+            auto_fix["is_new_user"] = not has_progress
 
         if "usd_balance" not in user_data: auto_fix["usd_balance"] = 0.00
         if "hourly_rate" not in user_data or float(user_data.get("hourly_rate", 0)) == 0.0:
@@ -221,8 +228,8 @@ def get_or_create_user_farm_data(user_id_str):
     user_data["usd_balance"] = round(float(user_data.get("usd_balance", 0.0)), 6)
     user_data["unclaimed"] = calculate_accrued_mined(user_data, now, expected_max_cap)
     
-    # تحديد صريح لخاصية is_new_user و welcome_seen
-    is_welcome_seen = bool(user_data.get("welcome_seen", False))
+    # تحديد صارم لخاصية welcome_seen و is_new_user
+    is_welcome_seen = to_bool(user_data.get("welcome_seen", False))
     user_data["welcome_seen"] = is_welcome_seen
     user_data["is_new_user"] = not is_welcome_seen
 
@@ -245,7 +252,7 @@ def get_or_create_user_farm_data(user_id_str):
 
 
 def claim_mined_tokens_db(user_id_str):
-    """تجميع الرصيد المعدن بأمان مع توزيع أرباح الإحالة للمُحيل إن وجد"""
+    """تجميع الرصيد المعدن بأمان"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -329,7 +336,7 @@ def claim_mined_tokens_db(user_id_str):
 
 
 def buy_upgrade_db(user_id_str, level):
-    """شراء ترقية سرعة التعدين مع تطبيق شرط حد الـ 15 مرة وشرط توفر العملات والدولار معاً"""
+    """شراء ترقية سرعة التعدين"""
     level_str = str(level)
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
@@ -442,7 +449,7 @@ def buy_upgrade_db(user_id_str, level):
 
 
 def buy_storage_db(user_id_str):
-    """شراء ترقية سعة التخزين للمستوى التالي مع التحقق من رصيدي العملة والدولار"""
+    """شراء ترقية سعة التخزين للمستوى التالي"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -589,7 +596,7 @@ def claim_daily_reward_db(user_id_str):
 
 
 def claim_daily_boost_db(user_id_str):
-    """تفعيل المعزز اليومي (زيادة دائمية +0.15 ZN/h أو 35 ZN عند بلوغ 4.5 ZN/h)"""
+    """تفعيل المعزز اليومي"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
