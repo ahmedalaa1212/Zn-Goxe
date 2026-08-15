@@ -140,7 +140,7 @@ def add_referral_reward(referrer_id, user_id, mined_amount, user_upgrades_count=
         config = get_friends_config()
         comm_percent = float(config.get("commission_percent", 10.0)) / 100.0
 
-        reward = round(float(mined_amount) * comm_percent, 4)
+        reward = round(float(mined_amount) * comm_percent, 6)
         if reward <= 0:
             return False
 
@@ -197,9 +197,9 @@ def get_friends_data_db(tg_id):
         eligible_count = sum(1 for f in friends if f.get("upgrades_count", 0) >= min_upgrades)
         
         return {
-            "balance": round(float(user_data.get("balance", 0.0) or 0.0), 2),
-            "pending_ref_earnings": round(float(user_data.get("pending_ref_earnings", 0.0) or 0.0), 2),
-            "total_ref_earnings": round(float(user_data.get("total_ref_earnings", 0.0) or 0.0), 2),
+            "balance": round(float(user_data.get("balance", 0.0) or 0.0), 6),
+            "pending_ref_earnings": round(float(user_data.get("pending_ref_earnings", 0.0) or 0.0), 6),
+            "total_ref_earnings": round(float(user_data.get("total_ref_earnings", 0.0) or 0.0), 6),
             "invited_friends_count": len(friends),
             "eligible_task_friends_count": eligible_count,
             "claimed_ref_tasks": user_data.get("claimed_ref_tasks", []),
@@ -243,11 +243,11 @@ def claim_ref_earnings_db(tg_id):
             if pending <= 0:
                 return {"success": False, "error": "لا توجد أرباح معلقة للسحب"}
             
-            fee_amount = round(pending * fee_rate, 2)
-            net_amount = round(pending - fee_amount, 2)
+            fee_amount = round(pending * fee_rate, 6)
+            net_amount = round(pending - fee_amount, 6)
             
             current_balance = float(data.get("balance", 0.0) or 0.0)
-            new_balance = round(current_balance + net_amount, 2)
+            new_balance = round(current_balance + net_amount, 6)
             
             transaction.update(ref, {
                 "balance": new_balance,
@@ -308,7 +308,7 @@ def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
                 return {"success": False, "error": "تم استلام مكافأة هذه المهمة من قبل"}
             
             current_balance = float(user_data.get("balance", 0.0) or 0.0)
-            new_balance = round(current_balance + actual_reward, 2)
+            new_balance = round(current_balance + actual_reward, 6)
             
             new_claimed = list(claimed_tasks)
             new_claimed.append(str(task_id))
