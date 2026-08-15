@@ -29,7 +29,7 @@ def to_bool(val):
 @farm_bp.route('/farm/player_data', methods=['GET', 'POST'])
 @farm_bp.route('/api/farm/player_data', methods=['GET', 'POST'])
 def get_player_data():
-    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية بالكامل"""
+    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية بالكامل بدون تقريب عشري"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success: 
@@ -58,9 +58,11 @@ def get_player_data():
         storage_configs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
         
         mining_cfg = game_settings.get("mining_config", {})
-        daily_boost_reward = round(float(mining_cfg.get("daily_boost_reward", 0.15)), 2)
-        max_daily_boost_rate = round(float(mining_cfg.get("max_daily_boost_rate", 4.5)), 2)
-        boost_max_reward_coins = round(float(mining_cfg.get("boost_max_reward_coins", 35.0)), 2)
+        
+        # الاحتفاظ بالكسور كما هي دون تقريب إلى مرتبتين
+        daily_boost_reward = float(mining_cfg.get("daily_boost_reward", 0.15))
+        max_daily_boost_rate = float(mining_cfg.get("max_daily_boost_rate", 4.5))
+        boost_max_reward_coins = float(mining_cfg.get("boost_max_reward_coins", 35.0))
         cooldown_seconds = int(mining_cfg.get("claim_cooldown_seconds", 15))
         max_upgrades_per_level = int(mining_cfg.get("max_upgrades_per_level", 15))
 
