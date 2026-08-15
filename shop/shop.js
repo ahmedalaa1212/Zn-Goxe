@@ -1,6 +1,6 @@
 // shop/shop.js
 // =================================================================
-// 🛒 ZN Goxe - Shop Module (Optimized Layout & Safe Firebase Integration)
+// 🛒 ZN Goxe - Shop Module (Dual-Currency ZN+USD & Safe Firebase Sync)
 // =================================================================
 
 (function initShop() {
@@ -20,7 +20,6 @@
         }
     }
 
-    // دالة لاستخراج الأرقام بأمان ودون إرجاع NaN أبدًا
     function floatVal(...args) {
         for (let val of args) {
             if (val !== undefined && val !== null && val !== '') {
@@ -298,6 +297,7 @@
                 const res = verifyData.result;
                 if (!window.userState) window.userState = {};
                 if (res.balance !== undefined) window.userState.balance = res.balance;
+                if (res.usd_balance !== undefined) window.userState.usd_balance = res.usd_balance;
                 if (res.hourly_rate !== undefined) window.userState.hourly_rate = res.hourly_rate;
                 if (res.extra_storage !== undefined) window.userState.extra_storage = res.extra_storage;
                 if (res.max_cap !== undefined) window.userState.max_cap = res.max_cap;
@@ -344,8 +344,8 @@
                 .shop-modal-desc { color: #8b949e; font-size: 14px; margin-bottom: 15px; line-height: 1.5; }
                 .shop-modal-price-box { 
                     background: #0d1117; border-radius: 12px; padding: 12px; 
-                    color: #ffcc00; font-weight: bold; font-size: 18px; margin-bottom: 20px;
-                    border: 1px solid #30363d;
+                    color: #ffcc00; font-weight: bold; font-size: 16px; margin-bottom: 20px;
+                    border: 1px solid #30363d; direction: ltr;
                 }
                 .shop-modal-actions { display: flex; gap: 12px; justify-content: center; }
                 .shop-btn { flex: 1; padding: 12px; border: none; border-radius: 10px; font-weight: bold; font-size: 15px; cursor: pointer; }
@@ -421,18 +421,17 @@
 
         const pData = window.userState || {};
         let totalBal = floatVal(pData.balance);
+        let totalUsd = floatVal(pData.usd_balance, pData.balance_usd, pData.usd, pData.usdt);
 
-        // 1. تحديث القيم في الشريط العلوي بنفس مظهر المزرعة
+        // 1. تحديث الشريط العلوي
         const balElem = document.getElementById('shop-balance-text');
         if (balElem) {
             balElem.innerText = `${formatNumberAbbreviated(totalBal)} ZN`;
         }
 
-        // ضبط رصيد الدولار بـ 4 أرقام عشرية ($0.0000) تماماً كما في المزرعة
         const usdElem = document.getElementById('shop-usd-text');
         if (usdElem) {
-            const usdVal = floatVal(pData.usd_balance, pData.balance_usd, pData.usd, pData.usdt);
-            usdElem.innerText = `$${usdVal.toFixed(4)}`;
+            usdElem.innerText = `$${totalUsd.toFixed(4)}`;
         }
         
         const rateElem = document.getElementById('shop-rate-text');
@@ -457,11 +456,24 @@
             if (isNaN(i)) continue;
 
             let count = parseInt((pData.upgrades && (pData.upgrades[`lvl${i}`] || pData.upgrades[key])) || 0);
-            let price = floatVal(cfg.cost_zn, cfg.price, cfg.cost);
+            let priceZn = floatVal(cfg.cost_zn, cfg.price, cfg.cost);
+            let priceUsd = floatVal(cfg.cost_usd, cfg.usd_cost, cfg.usd);
             let speed = floatVal(cfg.rate_bonus, cfg.rate, cfg.speed, cfg.rate_add); 
             let maxLimit = parseInt(cfg.max || cfg.max_limit || 15);
             let isMax = count >= maxLimit;
-            let canAfford = totalBal >= price;
+
+            // التحقق من توفر العملتين معاً (ZN + USD)
+            let canAfford = (totalBal >= priceZn) && (totalUsd >= priceUsd);
+
+            // صياغة النص الظاهر على الزر تماماً كما بالمزرعة
+            let btnText = '';
+            if (priceUsd > 0 && priceZn > 0) {
+                btnText = `$${priceUsd.toFixed(2)} + ${formatNumberAbbreviated(priceZn)} ZN`;
+            } else if (priceUsd > 0) {
+                btnText = `$${priceUsd.toFixed(2)}`;
+            } else {
+                btnText = `ZN ${formatNumberAbbreviated(priceZn)}`;
+            }
 
             miningHtml += `
                 <div style="background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 12px; text-align: center; position: relative; display: flex; flex-direction: column; justify-content: space-between;">
@@ -472,9 +484,9 @@
                         <div style="color: #00cc66; font-size: 12px; margin: 4px 0;" dir="ltr">⚡ +${speed.toLocaleString()}/h</div>
                         <div style="color: #8b949e; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${maxLimit}</div>
                     </div>
-                    <button id="btn-speed-${i}" onclick="requestShopPurchase('speed', ${i}, ${price})" 
-                        style="width: 100%; padding: 9px; background: ${canAfford && !isMax ? '#ffcc00' : '#21262d'}; color: ${canAfford && !isMax ? '#000000' : '#8b949e'}; border: none; border-radius: 6px; font-weight: bold; cursor: ${canAfford && !isMax ? 'pointer' : 'not-allowed'};" ${isMax || !canAfford ? 'disabled' : ''}>
-                        ZN ${formatNumberAbbreviated(price)}
+                    <button id="btn-speed-${i}" onclick="requestShopPurchase('speed', ${i}, ${priceZn}, ${priceUsd})" 
+                        style="width: 100%; padding: 9px; background: ${canAfford && !isMax ? '#ffcc00' : '#21262d'}; color: ${canAfford && !isMax ? '#000000' : '#8b949e'}; border: none; border-radius: 6px; font-weight: bold; font-size: 11px; cursor: ${canAfford && !isMax ? 'pointer' : 'not-allowed'};" ${isMax || !canAfford ? 'disabled' : ''}>
+                        ${btnText}
                     </button>
                 </div>
             `;
@@ -495,18 +507,29 @@
             let i = parseInt(key);
             if (isNaN(i) || i === 0) continue;
 
-            let price = floatVal(cfg.cost_zn, cfg.price, cfg.cost);
+            let priceZn = floatVal(cfg.cost_zn, cfg.price, cfg.cost);
+            let priceUsd = floatVal(cfg.cost_usd, cfg.usd_cost, cfg.usd);
             let capacity = floatVal(cfg.capacity, cfg.cap, cfg.max_cap);
             let isOwned = i <= currentStorageLvl;
             let isNextUpgrade = i === currentStorageLvl + 1;
-            let canAfford = totalBal >= price;
+            let canAfford = (totalBal >= priceZn) && (totalUsd >= priceUsd);
 
-            let btnBg = '#21262d', btnColor = '#8b949e', btnText = `ZN ${formatNumberAbbreviated(price)}`, isDisabled = true;
+            let btnBg = '#21262d', btnColor = '#8b949e', btnText = '', isDisabled = true;
 
             if (isOwned) {
                 btnBg = '#10b981'; btnColor = '#000000'; btnText = 'تم الشراء ✔️';
             } else if (isNextUpgrade) {
-                if (canAfford) { btnBg = '#0088cc'; btnColor = '#ffffff'; isDisabled = false; }
+                if (priceUsd > 0 && priceZn > 0) {
+                    btnText = `$${priceUsd.toFixed(2)} + ${formatNumberAbbreviated(priceZn)} ZN`;
+                } else if (priceUsd > 0) {
+                    btnText = `$${priceUsd.toFixed(2)}`;
+                } else {
+                    btnText = `ZN ${formatNumberAbbreviated(priceZn)}`;
+                }
+
+                if (canAfford) {
+                    btnBg = '#0088cc'; btnColor = '#ffffff'; isDisabled = false;
+                }
             } else {
                 btnText = 'مغلق 🔒';
             }
@@ -518,8 +541,8 @@
                         <div style="color: #ffffff; font-weight: bold; font-size: 14px;">مخزن مستوى ${i}</div>
                         <div style="color: #0088cc; font-size: 12px; margin: 4px 0 10px 0;">السعة: ${formatNumberAbbreviated(capacity)} ZN</div>
                     </div>
-                    <button id="btn-storage-${i}" onclick="requestShopPurchase('storage', ${i}, ${price})" 
-                        style="width: 100%; padding: 9px; background: ${btnBg}; color: ${btnColor}; border: none; border-radius: 6px; font-weight: bold; cursor: ${!isDisabled ? 'pointer' : 'not-allowed'};" ${isDisabled ? 'disabled' : ''}>
+                    <button id="btn-storage-${i}" onclick="requestShopPurchase('storage', ${i}, ${priceZn}, ${priceUsd})" 
+                        style="width: 100%; padding: 9px; background: ${btnBg}; color: ${btnColor}; border: none; border-radius: 6px; font-weight: bold; font-size: 11px; cursor: ${!isDisabled ? 'pointer' : 'not-allowed'};" ${isDisabled ? 'disabled' : ''}>
                         ${btnText}
                     </button>
                 </div>
@@ -531,11 +554,22 @@
     // =================================================================
     // ⚡ طلب الشراء وتنفيذه
     // =================================================================
-    window.requestShopPurchase = function(type, level, price) {
+    window.requestShopPurchase = function(type, level, priceZn, priceUsd) {
         const curBal = floatVal(window.userState?.balance);
-        if (curBal < floatVal(price)) {
+        const curUsd = floatVal(window.userState?.usd_balance, window.userState?.balance_usd, window.userState?.usd, window.userState?.usdt);
+
+        priceZn = floatVal(priceZn);
+        priceUsd = floatVal(priceUsd);
+
+        if (curBal < priceZn) {
             triggerHaptic('notification', 'error');
-            alert("⚠️ الرصيد في المحفظة غير كافي لشراء هذا التطوير!");
+            alert("⚠️ الرصيد من عملة ZN غير كافي للشراء!");
+            return; 
+        }
+
+        if (curUsd < priceUsd) {
+            triggerHaptic('notification', 'error');
+            alert("⚠️ الرصيد من الدولار (USD) غير كافي للشراء!");
             return; 
         }
 
@@ -554,7 +588,13 @@
         }
 
         if (modalPrice) {
-            modalPrice.innerText = `${formatNumberAbbreviated(price)} ZN`;
+            if (priceUsd > 0 && priceZn > 0) {
+                modalPrice.innerText = `$${priceUsd.toFixed(2)} + ${formatNumberAbbreviated(priceZn)} ZN`;
+            } else if (priceUsd > 0) {
+                modalPrice.innerText = `$${priceUsd.toFixed(2)}`;
+            } else {
+                modalPrice.innerText = `${formatNumberAbbreviated(priceZn)} ZN`;
+            }
         }
 
         const overlay = document.getElementById('shop-confirm-modal-overlay');
@@ -563,14 +603,14 @@
         if (confirmBtn) {
             confirmBtn.onclick = function() {
                 closeShopModal();
-                executeActualPurchase(type, level, price);
+                executeActualPurchase(type, level);
             };
         }
 
         if (overlay) overlay.classList.add('shop-modal-active');
     };
 
-    async function executeActualPurchase(type, level, price) {
+    async function executeActualPurchase(type, level) {
         const initData = window.Telegram?.WebApp?.initData; 
         if (!initData) return alert("⚠️ يجب فتح اللعبة من داخل تليجرام.");
 
@@ -600,12 +640,12 @@
 
                 if (!window.userState) window.userState = {};
                 if (resData.balance !== undefined) window.userState.balance = resData.balance;
+                if (resData.usd_balance !== undefined) window.userState.usd_balance = resData.usd_balance;
                 if (resData.hourly_rate !== undefined) window.userState.hourly_rate = resData.hourly_rate;
                 if (resData.upgrades !== undefined) window.userState.upgrades = resData.upgrades;
                 if (resData.storage_level !== undefined) window.userState.storage_level = resData.storage_level;
                 if (resData.extra_storage !== undefined) window.userState.extra_storage = resData.extra_storage;
                 if (resData.max_cap !== undefined) window.userState.max_cap = resData.max_cap;
-                if (resData.usd_balance !== undefined) window.userState.usd_balance = resData.usd_balance;
                 if (resData.last_claim_time !== undefined) window.userState.last_claim_time = resData.last_claim_time;
 
                 window.updateShopUI();
