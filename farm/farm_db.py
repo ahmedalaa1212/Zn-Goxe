@@ -174,11 +174,11 @@ def get_or_create_user_farm_data(user_id_str):
         user_data = {
             "tg_id": user_id_str,
             "telegram_id": user_id_str,
-            "balance": 0.00,
+            "balance": 0.0000,
             "usd_balance": 0.00,
             "hourly_rate": base_free_rate,
             "daily_boost_rate": 0.00,
-            "unclaimed": 0.00,
+            "unclaimed": 0.0000,
             "storage_level": 0,
             "extra_storage": 0.00,
             "max_cap": base_cap,
@@ -224,7 +224,7 @@ def get_or_create_user_farm_data(user_id_str):
 
     expected_max_cap = calculate_user_max_cap(user_data, game_settings)
     user_data["max_cap"] = expected_max_cap
-    user_data["balance"] = round(float(user_data.get("balance", 0.0)), 2)
+    user_data["balance"] = round(float(user_data.get("balance", 0.0)), 4)
     user_data["usd_balance"] = round(float(user_data.get("usd_balance", 0.0)), 6)
     user_data["unclaimed"] = calculate_accrued_mined(user_data, now, expected_max_cap)
     
@@ -288,7 +288,7 @@ def claim_mined_tokens_db(user_id_str):
 
         current_balance = float(user_data.get("balance", 0.0))
         current_usd_balance = float(user_data.get("usd_balance", 0.0))
-        new_balance = round(current_balance + mined_amount, 2)
+        new_balance = round(current_balance + mined_amount, 4)
         now_iso = now.isoformat()
 
         transaction.update(ref, {
@@ -390,7 +390,7 @@ def buy_upgrade_db(user_id_str, level):
         max_cap = calculate_user_max_cap(user_data, game_settings)
         mined_amount = calculate_accrued_mined(user_data, now, max_cap)
 
-        new_balance = round(current_balance - cost_zn, 2)
+        new_balance = round(current_balance - cost_zn, 4)
         new_usd_balance = round(current_usd_balance - cost_usd, 6)
         current_hourly_rate = float(user_data.get("hourly_rate", 0.05))
         new_hourly_rate = round(current_hourly_rate + rate_bonus, 2)
@@ -497,7 +497,7 @@ def buy_storage_db(user_id_str):
 
         extra_cap = float(user_data.get("extra_storage", 0.0))
         new_max_cap = round(new_capacity + extra_cap, 2)
-        new_balance = round(current_balance - cost_zn, 2)
+        new_balance = round(current_balance - cost_zn, 4)
         new_usd_balance = round(current_usd_balance - cost_usd, 6)
 
         if hourly_rate > 0 and mined_amount > 0:
@@ -567,7 +567,7 @@ def claim_daily_reward_db(user_id_str):
 
         current_balance = float(user_data.get("balance", 0.0))
         current_usd_balance = float(user_data.get("usd_balance", 0.0))
-        new_balance = round(current_balance + reward_amount, 2)
+        new_balance = round(current_balance + reward_amount, 4)
         new_ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
         transaction.update(ref, {
@@ -619,7 +619,7 @@ def claim_daily_boost_db(user_id_str):
 
         last_boost = user_data.get("last_boost_date")
         if last_boost == today_str:
-            return {"success": False, "error": "لقد حصلت على تعزيز اليوم بالفعل"}
+            return {"success": False, "error": "لقدحصلت على تعزيز اليوم بالفعل"}
 
         daily_boost_rate = float(user_data.get("daily_boost_rate", 0.0) or 0.0)
         current_hourly_rate = float(user_data.get("hourly_rate", 0.05) or 0.05)
@@ -658,12 +658,12 @@ def claim_daily_boost_db(user_id_str):
                 "last_boost_date": today_str,
                 "last_claim_time": new_last_claim_iso,
                 "unclaimed": mined_amount,
-                "new_balance": current_balance,
+                "new_balance": round(current_balance, 4),
                 "new_usd_balance": current_usd_balance,
                 "server_time": now_iso
             }
         else:
-            new_balance = round(current_balance + boost_max_reward_coins, 2)
+            new_balance = round(current_balance + boost_max_reward_coins, 4)
             transaction.update(ref, {
                 "balance": new_balance,
                 "last_boost_date": today_str,
