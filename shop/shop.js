@@ -11,7 +11,7 @@
     let shopDynamicSettings = null;
     let cachedPackagesData = null;
     let lastConfigFetchTime = 0;
-    const CONFIG_CACHE_TTL = 300000;
+    const CONFIG_CACHE_TTL = 30000; // تقليل كاش المتصفح إلى 30 ثانية لتحديث البيانات فوراً
 
     function triggerHaptic(type = 'impact', style = 'medium') {
         if (window.Telegram?.WebApp?.HapticFeedback) {
@@ -29,6 +29,14 @@
             }
         }
         return 0;
+    }
+
+    function formatUSD(num) {
+        let val = floatVal(num);
+        if (val > 0 && val < 0.01) {
+            return val.toFixed(4);
+        }
+        return val.toFixed(2);
     }
 
     function formatNumberAbbreviated(num, decimals = 2) {
@@ -82,22 +90,6 @@
     // =================================================================
     async function loadShopConfig(forceFetch = false) {
         const now = Date.now();
-
-        if (!forceFetch && !shopDynamicSettings) {
-            try {
-                const cached = sessionStorage.getItem('zn_shop_config');
-                const cachedTime = sessionStorage.getItem('zn_shop_config_time');
-                if (cached && cachedTime && (now - parseInt(cachedTime) < CONFIG_CACHE_TTL)) {
-                    const parsed = JSON.parse(cached);
-                    shopDynamicSettings = parsed.settings || parsed.farm_settings || parsed;
-                    cachedPackagesData = parsed.packages;
-                    applyConfigToUI(parsed);
-                    return;
-                }
-            } catch (e) {
-                console.warn("فشل قراءة كاش المتجر المحلي:", e);
-            }
-        }
 
         if (!forceFetch && shopDynamicSettings && (now - lastConfigFetchTime < CONFIG_CACHE_TTL)) {
             if (cachedPackagesData) {
@@ -177,7 +169,7 @@
             const theme = colorThemes[index % colorThemes.length];
             const btnTextColor = theme.textColor || '#ffffff';
 
-            const usdtPrice = floatVal(pkg.usdt, pkg.cost_usd).toFixed(2);
+            const usdtPrice = formatUSD(floatVal(pkg.usdt, pkg.cost_usd));
             const tonAmount = floatVal(pkg.ton_amount).toFixed(2);
 
             html += `
@@ -423,7 +415,6 @@
         let totalBal = floatVal(pData.balance);
         let totalUsd = floatVal(pData.usd_balance, pData.balance_usd, pData.usd, pData.usdt);
 
-        // 1. تحديث الشريط العلوي
         const balElem = document.getElementById('shop-balance-text');
         if (balElem) {
             balElem.innerText = `${formatNumberAbbreviated(totalBal)} ZN`;
@@ -431,7 +422,7 @@
 
         const usdElem = document.getElementById('shop-usd-text');
         if (usdElem) {
-            usdElem.innerText = `$${totalUsd.toFixed(4)}`;
+            usdElem.innerText = `$${formatUSD(totalUsd)}`;
         }
         
         const rateElem = document.getElementById('shop-rate-text');
@@ -440,7 +431,6 @@
             rateElem.innerText = `+${hRate.toFixed(2)}/h ⚡`;
         }
 
-        // 2. ترقيات التعدين
         const settings = shopDynamicSettings || {};
         const miningCfg = settings.upgrade_config 
                        || settings.mining_config 
@@ -462,15 +452,13 @@
             let maxLimit = parseInt(cfg.max || cfg.max_limit || 15);
             let isMax = count >= maxLimit;
 
-            // التحقق من توفر العملتين معاً (ZN + USD)
             let canAfford = (totalBal >= priceZn) && (totalUsd >= priceUsd);
 
-            // صياغة النص الظاهر على الزر تماماً كما بالمزرعة
             let btnText = '';
             if (priceUsd > 0 && priceZn > 0) {
-                btnText = `$${priceUsd.toFixed(2)} + ${formatNumberAbbreviated(priceZn)} ZN`;
+                btnText = `$${formatUSD(priceUsd)} + ${formatNumberAbbreviated(priceZn)} ZN`;
             } else if (priceUsd > 0) {
-                btnText = `$${priceUsd.toFixed(2)}`;
+                btnText = `$${formatUSD(priceUsd)}`;
             } else {
                 btnText = `ZN ${formatNumberAbbreviated(priceZn)}`;
             }
@@ -493,7 +481,6 @@
         }
         miningSec.innerHTML = miningHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري القراءة من الفيربيس...</div>';
 
-        // 3. ترقيات المخزن
         const storageCfg = settings.storage_capacities 
                         || settings.storage_config 
                         || settings.storages 
@@ -520,9 +507,9 @@
                 btnBg = '#10b981'; btnColor = '#000000'; btnText = 'تم الشراء ✔️';
             } else if (isNextUpgrade) {
                 if (priceUsd > 0 && priceZn > 0) {
-                    btnText = `$${priceUsd.toFixed(2)} + ${formatNumberAbbreviated(priceZn)} ZN`;
+                    btnText = `$${formatUSD(priceUsd)} + ${formatNumberAbbreviated(priceZn)} ZN`;
                 } else if (priceUsd > 0) {
-                    btnText = `$${priceUsd.toFixed(2)}`;
+                    btnText = `$${formatUSD(priceUsd)}`;
                 } else {
                     btnText = `ZN ${formatNumberAbbreviated(priceZn)}`;
                 }
@@ -551,9 +538,6 @@
         storageSec.innerHTML = storageHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري القراءة من الفيربيس...</div>';
     };
 
-    // =================================================================
-    // ⚡ طلب الشراء وتنفيذه
-    // =================================================================
     window.requestShopPurchase = function(type, level, priceZn, priceUsd) {
         const curBal = floatVal(window.userState?.balance);
         const curUsd = floatVal(window.userState?.usd_balance, window.userState?.balance_usd, window.userState?.usd, window.userState?.usdt);
@@ -589,9 +573,9 @@
 
         if (modalPrice) {
             if (priceUsd > 0 && priceZn > 0) {
-                modalPrice.innerText = `$${priceUsd.toFixed(2)} + ${formatNumberAbbreviated(priceZn)} ZN`;
+                modalPrice.innerText = `$${formatUSD(priceUsd)} + ${formatNumberAbbreviated(priceZn)} ZN`;
             } else if (priceUsd > 0) {
-                modalPrice.innerText = `$${priceUsd.toFixed(2)}`;
+                modalPrice.innerText = `$${formatUSD(priceUsd)}`;
             } else {
                 modalPrice.innerText = `${formatNumberAbbreviated(priceZn)} ZN`;
             }
