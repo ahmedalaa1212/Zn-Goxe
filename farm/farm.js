@@ -85,6 +85,44 @@ window.closeWelcomeModal = function() {
     const FETCH_THROTTLE_MS = 3000;
     let lastCheckedDate = "";
 
+    // -------------------------------------------------------------
+    // دوال إدارة التخزين المؤقت المحلي (Local Storage Cache)
+    // -------------------------------------------------------------
+    function getCacheKey() {
+        const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id;
+        return userId ? `zn_farm_cache_${userId}` : 'zn_farm_cache_global';
+    }
+
+    function saveCachedData(data) {
+        try {
+            if (!data) return;
+            const key = getCacheKey();
+            localStorage.setItem(key, JSON.stringify(data));
+        } catch (e) {
+            console.error("خطأ حفظ الكاش المحلي:", e);
+        }
+    }
+
+    function loadCachedData() {
+        try {
+            const key = getCacheKey();
+            const cached = localStorage.getItem(key);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (parsed && typeof parsed === 'object') {
+                    if (!window.userState) window.userState = {};
+                    if (!window.PlayerData) window.PlayerData = {};
+                    Object.assign(window.userState, parsed);
+                    Object.assign(window.PlayerData, parsed);
+                    return true;
+                }
+            }
+        } catch (e) {
+            console.error("خطأ قراءة الكاش المحلي:", e);
+        }
+        return false;
+    }
+
     function showToast(message) {
         if (tele && tele.showAlert) tele.showAlert(message);
         else alert(message);
@@ -154,6 +192,8 @@ window.closeWelcomeModal = function() {
             const usdEl = document.getElementById('farm-usd-balance');
             if (usdEl) usdEl.innerText = formatUsdBalance(usdVal);
         }
+
+        saveCachedData(window.userState);
     }
 
     function getTodayUTCStr() {
@@ -238,9 +278,9 @@ window.closeWelcomeModal = function() {
                 if (resData.player) {
                     Object.assign(window.PlayerData, resData.player);
                     Object.assign(window.userState, resData.player);
+                    saveCachedData(resData.player); // حفظ البيانات الحديثة في التخزين المحلي فوراً
                     setStoredBalance(resData.player.balance, resData.player.usd_balance);
 
-                    // التحقق المباشر من حالة المستخدم الجديد لإظهار النافذة الترحيبية
                     const isNew = resData.player.is_new_user === true || resData.player.welcome_seen === false;
                     const welcomeModal = document.getElementById('welcome-modal');
                     if (welcomeModal) {
@@ -358,6 +398,28 @@ window.closeWelcomeModal = function() {
             }
             fieldsContainer.innerHTML = fieldsHTML;
         }
+
+        // تحديث زر التعزيز اليومي ديناميكياً
+        const boostBtn = document.getElementById('boost-btn');
+        if (boostBtn) {
+            const todayStr = getTodayUTCStr();
+            const lastBoost = pData.last_boost_date;
+            const currentDailyBoostRate = parseFloat(pData.daily_boost_rate || 0);
+
+            if (lastBoost === todayStr) {
+                boostBtn.className = "boost-btn btn-disabled";
+                boostBtn.disabled = true;
+                boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 8px;">${getTimeUntilUTCMidnight()}</span>`;
+            } else {
+                if (!isBoosting) {
+                    boostBtn.className = "boost-btn";
+                    boostBtn.disabled = false;
+                    const boostText = (currentDailyBoostRate >= GAME_CONFIG.maxDailyBoostRate) ? `+${GAME_CONFIG.boostMaxRewardCoins} ZN` : `+${GAME_CONFIG.dailyBoostReward}/h`;
+                    boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">${boostText}</span>`; 
+                }
+            }
+        }
+
         renderDailyRewards(); 
     };
 
@@ -414,6 +476,12 @@ window.closeWelcomeModal = function() {
         }
         container.innerHTML = html;
     }
+
+    // -------------------------------------------------------------
+    // بداية التشغيل الفوري (Instant Load From Cache)
+    // -------------------------------------------------------------
+    loadCachedData();
+    window.updateFarmUI();
 
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
@@ -567,6 +635,7 @@ window.closeWelcomeModal = function() {
                     window.userState.unclaimed = resData.unclaimed;
                     window.PlayerData.unclaimed = resData.unclaimed;
                 }
+                saveCachedData(window.userState);
                 showToast(`📦 تم ترقية سعة المخزن بنجاح إلى Level ${resData.storage_level}!`);
                 window.updateFarmUI();
             } else {
@@ -625,6 +694,7 @@ window.closeWelcomeModal = function() {
                     window.PlayerData.unclaimed = resData.unclaimed;
                 }
 
+                saveCachedData(window.userState);
                 showToast(`🏛️ تم ترقية المستوى ${level} بنجاح!`);
                 window.updateFarmUI();
             } else {
@@ -665,6 +735,7 @@ window.closeWelcomeModal = function() {
                     window.userState.last_daily_claim_date = resData.last_daily_claim_date;
                     window.PlayerData.last_daily_claim_date = resData.last_daily_claim_date;
                 }
+                saveCachedData(window.userState);
                 showToast(`🎉 تم استلام مكافأة اليوم ${resData.daily_day} بنجاح!`);
                 window.updateFarmUI();
             } else {
@@ -723,6 +794,7 @@ window.closeWelcomeModal = function() {
                     window.userState.last_boost_date = resData.last_boost_date;
                     window.PlayerData.last_boost_date = resData.last_boost_date;
                 }
+                saveCachedData(window.userState);
                 window.updateFarmUI();
             } else {
                 showToast(resData?.error || "❌ تعذر تفعيل التعزيز");
@@ -755,6 +827,7 @@ window.closeWelcomeModal = function() {
                 window.userState.unclaimed = 0.0;
                 window.PlayerData.unclaimed = 0.0;
 
+                saveCachedData(window.userState);
                 showToast(`💰 تم تجميع ${resData.claimed_amount} عملة بنجاح!`);
                 window.updateFarmUI();
             } else {
