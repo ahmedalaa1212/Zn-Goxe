@@ -3,7 +3,6 @@ from datetime import datetime, timezone, timedelta
 from google.cloud import firestore
 from database import get_db
 
-
 def to_bool(val):
     """تحويل قيم البوليان بشكل صحيح وآمن من القراءات المختلفة"""
     if isinstance(val, bool):
@@ -66,7 +65,6 @@ DEFAULT_GAME_SETTINGS = {
 def get_game_settings(force_refresh=False):
     """جلب أو إنشاء إعدادات المزرعة تلقائياً في Firebase إن لم تكن موجودة"""
     global _SETTINGS_CACHE
-
     now_ts = time.time()
 
     if (
@@ -79,15 +77,12 @@ def get_game_settings(force_refresh=False):
     db = get_db()
 
     try:
-        doc_ref = db.collection('settings').document('farm_settings')
+        doc_ref = db.collection("settings").document("farm_settings")
         doc = doc_ref.get()
 
         if doc.exists:
             data = doc.to_dict() or DEFAULT_GAME_SETTINGS
-            _SETTINGS_CACHE = {
-                "data": data,
-                "timestamp": now_ts
-            }
+            _SETTINGS_CACHE = {"data": data, "timestamp": now_ts}
             return data
         else:
             doc_ref.set(DEFAULT_GAME_SETTINGS)
@@ -139,7 +134,10 @@ def get_base_storage_capacity(storage_level, settings=None):
 
     lvl = max(0, min(lvl, 9))
 
-    caps = settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
+    caps = (
+        settings.get("storage_capacities")
+        or DEFAULT_GAME_SETTINGS["storage_capacities"]
+    )
 
     val = caps.get(str(lvl))
 
@@ -177,7 +175,7 @@ def calculate_accrued_mined(user_data, now_dt, max_cap):
 
     try:
         last_claim = datetime.fromisoformat(
-            str(last_claim_str).replace('Z', '+00:00')
+            str(last_claim_str).replace("Z", "+00:00")
         )
 
         if last_claim.tzinfo is None:
@@ -199,7 +197,7 @@ def calculate_accrued_mined(user_data, now_dt, max_cap):
 def dismiss_welcome_db(user_id_str):
     """تعيين حالة مشاهدة النافذة الترحيبية لمنع ظهورها مجدداً"""
     db = get_db()
-    user_ref = db.collection('users').document(user_id_str)
+    user_ref = db.collection("users").document(user_id_str)
 
     user_ref.set(
         {
@@ -219,7 +217,8 @@ def dismiss_welcome_db(user_id_str):
 def get_or_create_user_farm_data(user_id_str):
     """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة بأقل استهلاك للقراءة والكتابة"""
     db = get_db()
-    user_ref = db.collection('users').document(user_id_str)
+
+    user_ref = db.collection("users").document(user_id_str)
     user_doc = user_ref.get()
 
     now = datetime.now(timezone.utc)
@@ -241,24 +240,29 @@ def get_or_create_user_farm_data(user_id_str):
             "tg_id": user_id_str,
             "telegram_id": user_id_str,
 
-            # رصيد ZN بدقة 4 خانات
+            # ZN balance
             "balance": 0.0000,
 
             "usd_balance": 0.00,
             "hourly_rate": base_free_rate,
             "daily_boost_rate": 0.00,
             "unclaimed": 0.0000,
+
             "storage_level": 0,
             "extra_storage": 0.00,
             "max_cap": base_cap,
+
             "daily_day": 1,
             "daily_streak": 1,
+
             "last_claim_time": now.isoformat(),
             "last_daily_claim_date": None,
             "last_boost_date": None,
+
             "ads_watched": 0,
             "upgrades": {},
             "upgrades_count": 0,
+
             "welcome_seen": False,
             "is_new_user": True
         }
@@ -282,7 +286,10 @@ def get_or_create_user_farm_data(user_id_str):
         if "usd_balance" not in user_data:
             auto_fix["usd_balance"] = 0.00
 
-        if "hourly_rate" not in user_data or float(user_data.get("hourly_rate", 0)) == 0.0:
+        if (
+            "hourly_rate" not in user_data
+            or float(user_data.get("hourly_rate", 0)) == 0.0
+        ):
             auto_fix["hourly_rate"] = base_free_rate
 
         if "daily_boost_rate" not in user_data:
@@ -329,7 +336,10 @@ def get_or_create_user_farm_data(user_id_str):
 
     user_data["max_cap"] = expected_max_cap
 
-    # رصيد ZN بدقة 4 خانات
+    # =========================================================
+    # التعديل المطلوب فقط:
+    # الحفاظ على رصيد ZN حتى 4 منازل عشرية
+    # =========================================================
     user_data["balance"] = round(
         float(user_data.get("balance", 0.0)),
         4
@@ -346,6 +356,7 @@ def get_or_create_user_farm_data(user_id_str):
         expected_max_cap
     )
 
+    # تحديد صارم لخاصية welcome_seen و is_new_user
     is_welcome_seen = to_bool(
         user_data.get("welcome_seen", False)
     )
@@ -353,10 +364,10 @@ def get_or_create_user_farm_data(user_id_str):
     user_data["welcome_seen"] = is_welcome_seen
     user_data["is_new_user"] = not is_welcome_seen
 
-    today_str = now.strftime('%Y-%m-%d')
+    today_str = now.strftime("%Y-%m-%d")
     yesterday_str = (
         now - timedelta(days=1)
-    ).strftime('%Y-%m-%d')
+    ).strftime("%Y-%m-%d")
 
     last_daily_claim = user_data.get(
         "last_daily_claim_date"
@@ -390,7 +401,8 @@ def get_or_create_user_farm_data(user_id_str):
 def claim_mined_tokens_db(user_id_str):
     """تجميع الرصيد المعدن بأمان"""
     db = get_db()
-    user_ref = db.collection('users').document(user_id_str)
+
+    user_ref = db.collection("users").document(user_id_str)
 
     game_settings = get_game_settings()
 
@@ -421,7 +433,7 @@ def claim_mined_tokens_db(user_id_str):
         if last_claim_str:
             try:
                 last_claim = datetime.fromisoformat(
-                    str(last_claim_str).replace('Z', '+00:00')
+                    str(last_claim_str).replace("Z", "+00:00")
                 )
 
                 if last_claim.tzinfo is None:
@@ -436,7 +448,11 @@ def claim_mined_tokens_db(user_id_str):
                 if seconds_passed < cooldown_seconds:
                     return {
                         "success": False,
-                        "error": f"الرجاء الانتظار {cooldown_seconds} ثانية قبل التجميع مجدداً"
+                        "error": (
+                            f"الرجاء الانتظار "
+                            f"{cooldown_seconds} ثانية "
+                            f"قبل التجميع مجدداً"
+                        )
                     }
 
             except Exception:
@@ -467,7 +483,7 @@ def claim_mined_tokens_db(user_id_str):
             user_data.get("usd_balance", 0.0)
         )
 
-        # رصيد ZN بدقة 4 خانات
+        # التعديل المطلوب: 4 منازل عشرية لرصيد ZN
         new_balance = round(
             current_balance + mined_amount,
             4
@@ -538,7 +554,9 @@ def claim_mined_tokens_db(user_id_str):
                 referrer_id=result["referrer_id"],
                 user_id=user_id_str,
                 mined_amount=result["claimed_amount"],
-                user_upgrades_count=result.get("upgrades_count"),
+                user_upgrades_count=result.get(
+                    "upgrades_count"
+                ),
                 user_name=result.get("user_name")
             )
 
@@ -555,7 +573,8 @@ def buy_upgrade_db(user_id_str, level):
     level_str = str(level)
 
     db = get_db()
-    user_ref = db.collection('users').document(user_id_str)
+    user_ref = db.collection("users").document(user_id_str)
+
     game_settings = get_game_settings()
 
     upgrade_configs = (
@@ -621,13 +640,22 @@ def buy_upgrade_db(user_id_str, level):
         if current_balance < cost_zn:
             return {
                 "success": False,
-                "error": f"رصيد العملات غير كافٍ! سعر الترقية {cost_zn:,.0f} ZN"
+                "error": (
+                    f"رصيد العملات غير كافٍ! "
+                    f"سعر الترقية {cost_zn:,.0f} ZN"
+                )
             }
 
-        if cost_usd > 0 and current_usd_balance < cost_usd:
+        if (
+            cost_usd > 0
+            and current_usd_balance < cost_usd
+        ):
             return {
                 "success": False,
-                "error": f"رصيد الدولار غير كافٍ! يتطلب ${cost_usd:.2f} USD"
+                "error": (
+                    f"رصيد الدولار غير كافٍ! "
+                    f"يتطلب ${cost_usd:.2f} USD"
+                )
             }
 
         upgrades = user_data.get("upgrades", {})
@@ -636,6 +664,7 @@ def buy_upgrade_db(user_id_str, level):
             upgrades = {}
 
         lvl_key = f"lvl{level_str}"
+
         current_count = int(
             upgrades.get(lvl_key, 0)
         )
@@ -643,7 +672,10 @@ def buy_upgrade_db(user_id_str, level):
         if current_count >= 15:
             return {
                 "success": False,
-                "error": "لقد وصلت للحد الأقصى للشراء لهذا المستوى (15/15)"
+                "error": (
+                    "لقد وصلت للحد الأقصى "
+                    "للشراء لهذا المستوى (15/15)"
+                )
             }
 
         if int(level_str) > 1:
@@ -660,7 +692,9 @@ def buy_upgrade_db(user_id_str, level):
             if prev_count == 0:
                 return {
                     "success": False,
-                    "error": "يجب شراء المستوى السابق أولاً"
+                    "error": (
+                        "يجب شراء المستوى السابق أولاً"
+                    )
                 }
 
         now = datetime.now(timezone.utc)
@@ -677,7 +711,7 @@ def buy_upgrade_db(user_id_str, level):
             max_cap
         )
 
-        # رصيد ZN بدقة 4 خانات
+        # التعديل المطلوب: 4 منازل عشرية لرصيد ZN
         new_balance = round(
             current_balance - cost_zn,
             4
@@ -689,7 +723,10 @@ def buy_upgrade_db(user_id_str, level):
         )
 
         current_hourly_rate = float(
-            user_data.get("hourly_rate", 0.05)
+            user_data.get(
+                "hourly_rate",
+                0.05
+            )
         )
 
         new_hourly_rate = round(
@@ -704,7 +741,8 @@ def buy_upgrade_db(user_id_str, level):
             )
 
             new_last_claim_iso = (
-                now - timedelta(
+                now
+                - timedelta(
                     seconds=equiv_seconds
                 )
             ).isoformat()
@@ -762,10 +800,15 @@ def buy_upgrade_db(user_id_str, level):
     except Exception as e:
         return {
             "success": False,
-            "error": f"تعذر تنفيذ عملية الترقية: {str(e)}"
+            "error": (
+                f"تعذر تنفيذ عملية الترقية: {str(e)}"
+            )
         }
 
-    if res.get("success") and res.get("referrer_id"):
+    if (
+        res.get("success")
+        and res.get("referrer_id")
+    ):
         try:
             ref_id = str(
                 res["referrer_id"]
@@ -787,7 +830,8 @@ def buy_upgrade_db(user_id_str, level):
 
         except Exception as e:
             print(
-                f"⚠️ Warning updating friend upgrades_count for referrer: {e}"
+                "⚠️ Warning updating "
+                f"friend upgrades_count for referrer: {e}"
             )
 
     return res
@@ -796,7 +840,9 @@ def buy_upgrade_db(user_id_str, level):
 def buy_storage_db(user_id_str):
     """شراء ترقية سعة التخزين للمستوى التالي"""
     db = get_db()
-    user_ref = db.collection('users').document(user_id_str)
+
+    user_ref = db.collection("users").document(user_id_str)
+
     game_settings = get_game_settings()
 
     storage_cfgs = (
@@ -828,10 +874,14 @@ def buy_storage_db(user_id_str):
         ):
             return {
                 "success": False,
-                "error": "المخزن في أقصى مستوى بالفعل (MAX)"
+                "error": (
+                    "المخزن في أقصى مستوى بالفعل (MAX)"
+                )
             }
 
-        next_cfg = storage_cfgs[str(next_level)]
+        next_cfg = storage_cfgs[
+            str(next_level)
+        ]
 
         if isinstance(next_cfg, dict):
             cost_zn = float(
@@ -842,11 +892,17 @@ def buy_storage_db(user_id_str):
             )
 
             cost_usd = float(
-                next_cfg.get("cost_usd", 0.0)
+                next_cfg.get(
+                    "cost_usd",
+                    0.0
+                )
             )
 
             new_capacity = float(
-                next_cfg.get("capacity", 30.0)
+                next_cfg.get(
+                    "capacity",
+                    30.0
+                )
             )
 
         else:
@@ -865,13 +921,23 @@ def buy_storage_db(user_id_str):
         if current_balance < cost_zn:
             return {
                 "success": False,
-                "error": f"رصيدك غير كافٍ! سعر ترقية المخزن {cost_zn:,.0f} ZN"
+                "error": (
+                    f"رصيدك غير كافٍ! "
+                    f"سعر ترقية المخزن "
+                    f"{cost_zn:,.0f} ZN"
+                )
             }
 
-        if cost_usd > 0 and current_usd_balance < cost_usd:
+        if (
+            cost_usd > 0
+            and current_usd_balance < cost_usd
+        ):
             return {
                 "success": False,
-                "error": f"رصيد الدولار غير كافٍ! يتطلب ${cost_usd:.2f} USD"
+                "error": (
+                    f"رصيد الدولار غير كافٍ! "
+                    f"يتطلب ${cost_usd:.2f} USD"
+                )
             }
 
         now = datetime.now(timezone.utc)
@@ -889,11 +955,17 @@ def buy_storage_db(user_id_str):
         )
 
         hourly_rate = float(
-            user_data.get("hourly_rate", 0.05)
+            user_data.get(
+                "hourly_rate",
+                0.05
+            )
         )
 
         extra_cap = float(
-            user_data.get("extra_storage", 0.0)
+            user_data.get(
+                "extra_storage",
+                0.0
+            )
         )
 
         new_max_cap = round(
@@ -901,7 +973,7 @@ def buy_storage_db(user_id_str):
             2
         )
 
-        # رصيد ZN بدقة 4 خانات
+        # التعديل المطلوب: 4 منازل عشرية لرصيد ZN
         new_balance = round(
             current_balance - cost_zn,
             4
@@ -919,7 +991,8 @@ def buy_storage_db(user_id_str):
             )
 
             new_last_claim_iso = (
-                now - timedelta(
+                now
+                - timedelta(
                     seconds=equiv_seconds
                 )
             ).isoformat()
@@ -960,16 +1033,20 @@ def buy_storage_db(user_id_str):
     except Exception as e:
         return {
             "success": False,
-            "error": f"تعذر إتمام ترقية المخزن: {str(e)}"
+            "error": (
+                f"تعذر إتمام ترقية المخزن: {str(e)}"
+            )
         }
 
 
 def claim_daily_reward_db(user_id_str):
     """استلام المكافأة اليومية (مدرجة حتى 30 يوم)"""
     db = get_db()
-    user_ref = db.collection('users').document(user_id_str)
+
+    user_ref = db.collection("users").document(user_id_str)
 
     game_settings = get_game_settings()
+
     parsed_rewards = parse_daily_rewards(
         game_settings.get("daily_rewards")
     )
@@ -987,10 +1064,12 @@ def claim_daily_reward_db(user_id_str):
         user_data = snapshot.to_dict() or {}
 
         now = datetime.now(timezone.utc)
-        today_str = now.strftime('%Y-%m-%d')
+
+        today_str = now.strftime("%Y-%m-%d")
+
         yesterday_str = (
             now - timedelta(days=1)
-        ).strftime('%Y-%m-%d')
+        ).strftime("%Y-%m-%d")
 
         last_daily_claim = user_data.get(
             "last_daily_claim_date"
@@ -999,7 +1078,10 @@ def claim_daily_reward_db(user_id_str):
         if last_daily_claim == today_str:
             return {
                 "success": False,
-                "error": "لقد قمت باستلام المكافأة اليوم بالفعل"
+                "error": (
+                    "لقد قمت باستلام "
+                    "المكافأة اليوم بالفعل"
+                )
             }
 
         raw_daily_day = int(
@@ -1034,14 +1116,19 @@ def claim_daily_reward_db(user_id_str):
             user_data.get("usd_balance", 0.0)
         )
 
-        # رصيد ZN بدقة 4 خانات
+        # التعديل المطلوب: 4 منازل عشرية لرصيد ZN
         new_balance = round(
             current_balance + reward_amount,
             4
         )
 
         new_ads_watched = (
-            int(user_data.get("ads_watched", 0))
+            int(
+                user_data.get(
+                    "ads_watched",
+                    0
+                )
+            )
             + 1
         )
 
@@ -1077,14 +1164,17 @@ def claim_daily_reward_db(user_id_str):
     except Exception as e:
         return {
             "success": False,
-            "error": f"تعذر استلام المكافأة اليومية: {str(e)}"
+            "error": (
+                f"تعذر استلام المكافأة اليومية: {str(e)}"
+            )
         }
 
 
 def claim_daily_boost_db(user_id_str):
     """تفعيل المعزز اليومي"""
     db = get_db()
-    user_ref = db.collection('users').document(user_id_str)
+
+    user_ref = db.collection("users").document(user_id_str)
 
     game_settings = get_game_settings()
 
@@ -1136,7 +1226,8 @@ def claim_daily_boost_db(user_id_str):
         user_data = snapshot.to_dict() or {}
 
         now = datetime.now(timezone.utc)
-        today_str = now.strftime('%Y-%m-%d')
+
+        today_str = now.strftime("%Y-%m-%d")
         now_iso = now.isoformat()
 
         last_boost = user_data.get(
@@ -1146,42 +1237,49 @@ def claim_daily_boost_db(user_id_str):
         if last_boost == today_str:
             return {
                 "success": False,
-                "error": "لقد حصلت على تعزيز اليوم بالفعل"
+                "error": (
+                    "لقد حصلت على تعزيز اليوم بالفعل"
+                )
             }
 
         daily_boost_rate = float(
             user_data.get(
                 "daily_boost_rate",
                 0.0
-            ) or 0.0
+            )
+            or 0.0
         )
 
         current_hourly_rate = float(
             user_data.get(
                 "hourly_rate",
                 0.05
-            ) or 0.05
+            )
+            or 0.05
         )
 
         current_balance = float(
             user_data.get(
                 "balance",
                 0.0
-            ) or 0.0
+            )
+            or 0.0
         )
 
         current_usd_balance = float(
             user_data.get(
                 "usd_balance",
                 0.0
-            ) or 0.0
+            )
+            or 0.0
         )
 
         current_ads = int(
             user_data.get(
                 "ads_watched",
                 0
-            ) or 0
+            )
+            or 0
         )
 
         new_ads = current_ads + 1
@@ -1197,25 +1295,35 @@ def claim_daily_boost_db(user_id_str):
             max_cap
         )
 
-        if round(daily_boost_rate, 2) < max_daily_boost_rate:
+        if round(
+            daily_boost_rate,
+            2
+        ) < max_daily_boost_rate:
+
             new_daily_boost_rate = round(
-                daily_boost_rate + daily_boost_reward,
+                daily_boost_rate
+                + daily_boost_reward,
                 2
             )
 
             new_hourly_rate = round(
-                current_hourly_rate + daily_boost_reward,
+                current_hourly_rate
+                + daily_boost_reward,
                 2
             )
 
-            if new_hourly_rate > 0 and mined_amount > 0:
+            if (
+                new_hourly_rate > 0
+                and mined_amount > 0
+            ):
                 equiv_seconds = (
                     mined_amount
                     / (new_hourly_rate / 3600.0)
                 )
 
                 new_last_claim_iso = (
-                    now - timedelta(
+                    now
+                    - timedelta(
                         seconds=equiv_seconds
                     )
                 ).isoformat()
@@ -1243,15 +1351,16 @@ def claim_daily_boost_db(user_id_str):
                 "last_boost_date": today_str,
                 "last_claim_time": new_last_claim_iso,
                 "unclaimed": mined_amount,
-                "new_balance": round(current_balance, 4),
+                "new_balance": current_balance,
                 "new_usd_balance": current_usd_balance,
                 "server_time": now_iso
             }
 
         else:
-            # رصيد ZN بدقة 4 خانات
+            # التعديل المطلوب: 4 منازل عشرية لرصيد ZN
             new_balance = round(
-                current_balance + boost_max_reward_coins,
+                current_balance
+                + boost_max_reward_coins,
                 4
             )
 
@@ -1285,5 +1394,7 @@ def claim_daily_boost_db(user_id_str):
     except Exception as e:
         return {
             "success": False,
-            "error": f"تعذر تفعيل التعزيز: {str(e)}"
-}
+            "error": (
+                f"تعذر تفعيل التعزيز: {str(e)}"
+            )
+        }
