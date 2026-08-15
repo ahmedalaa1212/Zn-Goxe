@@ -6,7 +6,10 @@ window.initFarmView = function() {
 
 window.closeWelcomeModal = function() {
     const modal = document.getElementById('welcome-modal');
-    if (modal) modal.style.display = 'none';
+    if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('active', 'show');
+    }
 
     if (!window.userState) window.userState = {};
     if (!window.PlayerData) window.PlayerData = {};
@@ -237,25 +240,16 @@ window.closeWelcomeModal = function() {
                     Object.assign(window.userState, resData.player);
                     setStoredBalance(resData.player.balance, resData.player.usd_balance);
 
-                    const isNew = resData.player.is_new_user === true || resData.player.is_new_user === 1 || resData.player.is_new_user === "true";
-                    
-                    if (isNew) {
-                        const userId = tele?.initDataUnsafe?.user?.id || resData.player.tg_id || resData.player.telegram_id;
-                        const modalSeen = userId ? localStorage.getItem(`zn_welcome_seen_${userId}`) : null;
-                        
-                        if (!modalSeen) {
-                            let attempts = 0;
-                            const checkModalInterval = setInterval(() => {
-                                const welcomeModal = document.getElementById('welcome-modal');
-                                if (welcomeModal) {
-                                    welcomeModal.style.display = 'flex';
-                                    clearInterval(checkModalInterval);
-                                }
-                                attempts++;
-                                if (attempts >= 30) {
-                                    clearInterval(checkModalInterval);
-                                }
-                            }, 100);
+                    // التحقق المباشر من حالة المستخدم الجديد لإظهار النافذة الترحيبية
+                    const isNew = resData.player.is_new_user === true || resData.player.welcome_seen === false;
+                    const welcomeModal = document.getElementById('welcome-modal');
+                    if (welcomeModal) {
+                        if (isNew) {
+                            welcomeModal.style.display = 'flex';
+                            welcomeModal.classList.add('show', 'active');
+                        } else {
+                            welcomeModal.style.display = 'none';
+                            welcomeModal.classList.remove('show', 'active');
                         }
                     }
                 }
