@@ -8,6 +8,7 @@ from farm.farm_db import (
     buy_storage_db,
     claim_daily_reward_db,
     claim_daily_boost_db,
+    dismiss_welcome_db,
     parse_daily_rewards,
     DEFAULT_GAME_SETTINGS
 )
@@ -43,8 +44,8 @@ def get_player_data():
         
         mining_cfg = game_settings.get("mining_config", {})
         daily_boost_reward = round(float(mining_cfg.get("daily_boost_reward", 0.15)), 2)
-        max_daily_boost_rate = round(float(mining_cfg.get("max_daily_boost_rate", 15.0)), 2)
-        boost_max_reward_coins = round(float(mining_cfg.get("boost_max_reward_coins", 50.0)), 2)
+        max_daily_boost_rate = round(float(mining_cfg.get("max_daily_boost_rate", 4.5)), 2)
+        boost_max_reward_coins = round(float(mining_cfg.get("boost_max_reward_coins", 35.0)), 2)
         cooldown_seconds = int(mining_cfg.get("claim_cooldown_seconds", 15))
         max_upgrades_per_level = int(mining_cfg.get("max_upgrades_per_level", 15))
 
@@ -67,6 +68,25 @@ def get_player_data():
         print(f"Error player_data: {e}")
         traceback.print_exc()
         return jsonify({"success": False, "error": "خطأ في جلب البيانات"}), 500
+
+
+@farm_bp.route('/dismiss_welcome', methods=['POST'])
+@farm_bp.route('/farm/dismiss_welcome', methods=['POST'])
+@farm_bp.route('/api/farm/dismiss_welcome', methods=['POST'])
+def dismiss_welcome():
+    """إغلاق نافذة الترحيب وتخزين الحالة لعدم ظهورها مجدداً"""
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
+    if not success: 
+        return error_res
+        
+    user_id_str = str(telegram_id)
+    try:
+        result = dismiss_welcome_db(user_id_str)
+        return jsonify(result), 200
+    except Exception as e:
+        print(f"Error dismiss_welcome: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": "خطأ في تسجيل حالة الترحيب"}), 500
 
 
 @farm_bp.route('/claim', methods=['POST'])
