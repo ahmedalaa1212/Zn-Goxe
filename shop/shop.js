@@ -39,12 +39,17 @@
         return val.toFixed(2);
     }
 
+    // دالة تنسيق الأرقام المحدثة لإظهار الخانات العشرية ومنع تحويلها لـ 0
     function formatNumberAbbreviated(num, decimals = 2) {
         let val = floatVal(num);
         if (val >= 1000000000) return (val / 1000000000).toFixed(decimals) + 'B';
         if (val >= 1000000) return (val / 1000000).toFixed(decimals) + 'M';
         if (val >= 1000) return (val / 1000).toFixed(decimals) + 'K';
-        return val.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: decimals });
+        
+        return val.toLocaleString('en-US', { 
+            minimumFractionDigits: 2, 
+            maximumFractionDigits: decimals < 2 ? 2 : decimals 
+        });
     }
 
     function initTonConnect() {
@@ -172,6 +177,10 @@
             const usdtPrice = formatUSD(floatVal(pkg.usdt, pkg.cost_usd));
             const tonAmount = floatVal(pkg.ton_amount).toFixed(2);
 
+            let rateAddFormatted = floatVal(pkg.rate_add).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+            let storageAddFormatted = floatVal(pkg.storage_add).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+            let znAddFormatted = formatNumberAbbreviated(floatVal(pkg.zn_add));
+
             html += `
                 <div class="usdt-card" style="background: ${theme.bg}; border: 1px solid ${theme.border};">
                     <div>
@@ -181,9 +190,9 @@
                         <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${tonAmount} TON</div>
                     </div>
                     <div class="usdt-perks">
-                        ⚡ +${floatVal(pkg.rate_add).toLocaleString()} ZN/h<br>
-                        📦 +${floatVal(pkg.storage_add).toLocaleString()} مخزن<br>
-                        🪙 +${floatVal(pkg.zn_add).toLocaleString()} ZN
+                        ⚡ +${rateAddFormatted} ZN/h<br>
+                        📦 +${storageAddFormatted} مخزن<br>
+                        🪙 +${znAddFormatted} ZN
                     </div>
                     <button class="btn-ton-pay" style="background: ${theme.btn}; color: ${btnTextColor};" onclick="buyPackageWithTon('${pkgId}')">شراء تلقائي</button>
                 </div>
@@ -421,6 +430,17 @@
             balElem.innerText = `${formatNumberAbbreviated(totalBal)} ZN`;
         }
 
+        const elBalances = document.querySelectorAll('.zn-balance-display, #top-balance-shop, #top-balance, #header-zn-balance, .user-balance');
+        elBalances.forEach(el => {
+            if (el.id !== 'shop-balance-text') {
+                if (el.innerText.includes('ZN')) {
+                    el.innerText = `${formatNumberAbbreviated(totalBal)} ZN`;
+                } else {
+                    el.innerText = formatNumberAbbreviated(totalBal);
+                }
+            }
+        });
+
         const usdElem = document.getElementById('shop-usd-text');
         if (usdElem) {
             usdElem.innerText = `$${formatUSD(totalUsd)}`;
@@ -470,7 +490,7 @@
                     <div>
                         <div style="font-size: 26px;">⚡</div>
                         <div style="color: #ffffff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
-                        <div style="color: #00cc66; font-size: 12px; margin: 4px 0;" dir="ltr">⚡ +${speed.toLocaleString()}/h</div>
+                        <div style="color: #00cc66; font-size: 12px; margin: 4px 0;" dir="ltr">⚡ +${speed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}/h</div>
                         <div style="color: #8b949e; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${maxLimit}</div>
                     </div>
                     <button id="btn-speed-${i}" onclick="requestShopPurchase('speed', ${i}, ${priceZn}, ${priceUsd})" 
