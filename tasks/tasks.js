@@ -153,9 +153,17 @@
 
     function updateBalanceElements(numVal) {
         const formatted = numVal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-        const topBal = document.getElementById('top-balance-tasks');
-        if (topBal) topBal.innerText = `ZN ${formatted}`;
         
+        // 🌟 تحديث عنصر رصيد ZN في الشريط الثابت
+        const topBal = document.getElementById('top-balance-tasks');
+        if (topBal) topBal.innerText = `${formatted} ZN`;
+
+        // 🌟 تحديث رصيد الدولار في الوسط
+        const usdVal = window.PlayerData?.usd_balance ?? window.userState?.usd_balance ?? window.GameState?.usd_balance ?? (numVal * 0.001);
+        const usdFormatted = (typeof usdVal === 'number' ? usdVal : parseFloat(usdVal) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+        const topUsd = document.getElementById('top-balance-usd');
+        if (topUsd) topUsd.innerText = `$${usdFormatted}`;
+
         const selectors = ['.sync-balance', '#user-balance', '#main-balance', '#balance'];
         selectors.forEach(sel => {
             document.querySelectorAll(sel).forEach(el => {
@@ -166,9 +174,17 @@
 
     function updateAdBalanceElements(numVal) {
         const formatted = numVal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+        
+        // 🌟 تحديث الرصيد الإعلاني AdZ في الكارت الرئيسي
         const adBalDisplay = document.getElementById('ad-balance-display');
         if (adBalDisplay) {
-            adBalDisplay.innerText = `AdZN ${formatted}`;
+            adBalDisplay.innerText = `${formatted} AdZ`;
+        }
+
+        // 🌟 تحديث الرصيد الإعلاني AdZ في الشريط الثابت علوياً على اليسار
+        const topAdz = document.getElementById('top-balance-adz');
+        if (topAdz) {
+            topAdz.innerText = `${formatted} AdZ`;
         }
     }
 
@@ -267,7 +283,6 @@
             modal.style.display = 'flex';
         }
 
-        // إخفاء القائمة السفلية فوراً لمنع ارتفاهعا فوق الكيبورد
         hideBottomNav();
     };
 
@@ -275,17 +290,16 @@
         const modal = document.getElementById('ad-modal');
         if (modal) modal.style.display = 'none';
 
-        // إعادة إظهار القائمة السفلية طالما لم نكن ننتقل لنافذة مراجعة أخرى
         if (!keepNavHidden) {
             showBottomNav();
         }
     };
 
-    // ⚡ شحن محفظة الإعلانات
+    // ⚡ شحن محفظة الإعلانات AdZ
     window.convertZnToAdZn = async function() {
         if (isConvertingBalance) return;
 
-        const inputVal = prompt('أدخل مبلغ ZN المراد تحويله إلى رصيد الإعلانات (AdZN):\n(ملاحظة: تخصم عمولة تحويل 10%)');
+        const inputVal = prompt('أدخل مبلغ ZN المراد تحويله إلى رصيد الإعلانات (AdZ):\n(ملاحظة: تخصم عمولة تحويل 10%)');
         if (!inputVal) return;
 
         const amount = parseFloat(inputVal);
@@ -316,7 +330,7 @@
                 if (res.new_balance !== undefined) syncUserBalance(res.new_balance);
                 if (res.new_ad_balance !== undefined) syncUserAdBalance(res.new_ad_balance);
 
-                alert(`🎉 تم تحويل ${amount.toLocaleString()} ZN إلى رصيد الإعلانات (AdZN) بنجاح!`);
+                alert(`🎉 تم تحويل ${amount.toLocaleString()} ZN إلى رصيد الإعلانات (AdZ) بنجاح!`);
             } else {
                 alert(res.error || 'حدث خطأ أثناء التحويل.');
             }
@@ -355,19 +369,19 @@
         }
 
         if (rewardPerClick < MIN_REWARD_PER_CLICK) {
-            alert(`الحد الأدنى لتكلفة الضغطة الواحدة هو ${MIN_REWARD_PER_CLICK} AdZN!`);
+            alert(`الحد الأدنى لتكلفة الضغطة الواحدة هو ${MIN_REWARD_PER_CLICK} AdZ!`);
             return;
         }
 
         const totalCost = rewardPerClick * totalCount;
         if (totalCost < MIN_AD_CAMPAIGN_COST) {
-            alert(`الحد الأدنى للميزانية الإجمالية للحملة هو ${MIN_AD_CAMPAIGN_COST} AdZN!`);
+            alert(`الحد الأدنى للميزانية الإجمالية للحملة هو ${MIN_AD_CAMPAIGN_COST} AdZ!`);
             return;
         }
 
         const currentAdBal = getUserAdBalance();
         if (currentAdBal < totalCost) {
-            alert(`رصيد الإعلانات (AdZN) غير كافٍ! تحتاج إلى ${totalCost.toLocaleString()} AdZN ولكن لديك ${currentAdBal.toLocaleString()} AdZN.`);
+            alert(`رصيد الإعلانات (AdZ) غير كافٍ! تحتاج إلى ${totalCost.toLocaleString()} AdZ ولكن لديك ${currentAdBal.toLocaleString()} AdZ.`);
             return;
         }
 
@@ -378,7 +392,6 @@
             submitBtn.innerText = 'جاري الفحص... ⏳';
         }
 
-        // إغلاق نافذة الإدخال مع الحفاظ على إخفاء القائمة وإظهار نافذة الفحص
         window.closeAdModal(true);
         hideBottomNav();
 
@@ -422,7 +435,6 @@
                     syncUserAdBalance(currentAdBal - totalCost);
                 }
 
-                // إظهار نافذة النجاح
                 const successModal = document.getElementById('success-modal');
                 if (successModal) {
                     successModal.style.display = 'flex';
@@ -454,7 +466,6 @@
         const successModal = document.getElementById('success-modal');
         if (successModal) successModal.style.display = 'none';
         
-        // إعادة إظهار القائمة السفلية عند خروج نافذة النجاح
         showBottomNav();
 
         window.switchTasksTab('promote');
@@ -627,19 +638,19 @@
                             <div style="background: #090911; border-radius: 12px; padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; border: 1px solid #1c1c2e;">
                                 <div style="text-align: right;">
                                     <span style="color: #64748b; font-size: 11px; display: block;">تكلفة الضغطة:</span>
-                                    <span style="color: #fff; font-size: 12px; font-weight: 700;">${costPerClick.toLocaleString()} AdZN</span>
+                                    <span style="color: #fff; font-size: 12px; font-weight: 700;">${costPerClick.toLocaleString()} AdZ</span>
                                 </div>
                                 <div style="text-align: right;">
                                     <span style="color: #64748b; font-size: 11px; display: block;">ميزانية الإعلان:</span>
-                                    <span style="color: #ffcc00; font-size: 12px; font-weight: 700;">${totalBudget.toLocaleString()} AdZN</span>
+                                    <span style="color: #ffcc00; font-size: 12px; font-weight: 700;">${totalBudget.toLocaleString()} AdZ</span>
                                 </div>
                                 <div style="text-align: right; border-top: 1px solid #1a1a2e; padding-top: 5px;">
                                     <span style="color: #64748b; font-size: 11px; display: block;">مستهلك حتى الآن:</span>
-                                    <span style="color: #ef4444; font-size: 12px; font-weight: 700;">${consumedBudget.toLocaleString()} AdZN</span>
+                                    <span style="color: #ef4444; font-size: 12px; font-weight: 700;">${consumedBudget.toLocaleString()} AdZ</span>
                                 </div>
                                 <div style="text-align: right; border-top: 1px solid #1a1a2e; padding-top: 5px;">
                                     <span style="color: #64748b; font-size: 11px; display: block;">المتبقي القابل للاسترداد:</span>
-                                    <span style="color: #28a745; font-size: 12px; font-weight: 700;">${remainingBudget.toLocaleString()} AdZN</span>
+                                    <span style="color: #28a745; font-size: 12px; font-weight: 700;">${remainingBudget.toLocaleString()} AdZ</span>
                                 </div>
                             </div>
 
@@ -816,7 +827,7 @@
                     syncUserAdBalance(res.new_ad_balance);
                 }
                 const refunded = res.refunded_amount ?? res.refund ?? 0;
-                alert(`🎉 تم إلغاء الحملة بنجاح! تم استرداد ${refunded} AdZN إلى حسابك.`);
+                alert(`🎉 تم إلغاء الحملة بنجاح! تم استرداد ${refunded} AdZ إلى حسابك.`);
                 window.fetchAndRenderTasks(true);
             } else {
                 alert(res.error || 'حدث خطأ أثناء إلغاء الحملة.');
