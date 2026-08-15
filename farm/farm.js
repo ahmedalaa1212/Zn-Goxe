@@ -162,7 +162,7 @@ window.closeWelcomeModal = function() {
     // دالة تنسيق أرقام عملة ZN (4 أرقام للأعداد أقل من 10، ورقمين للأعداد 10 فما فوق)
     function formatZnBalance(val) {
         const num = parseFloat(val || 0);
-        if (isNaN(num)) return "0.00";
+        if (isNaN(num)) return "0.0000";
         
         if (num < 10) {
             return num.toFixed(4);
@@ -839,7 +839,7 @@ window.closeWelcomeModal = function() {
                 window.PlayerData.unclaimed = 0.0;
 
                 saveCachedData(window.userState);
-                showToast(`💰 تم تجميع ${resData.claimed_amount} عملة بنجاح!`);
+                showToast(`💰 تم تجميع ${formatZnBalance(resData.claimed_amount)} عملة بنجاح!`);
                 window.updateFarmUI();
             } else {
                 showToast(resData?.error || "❌ تعذر تجميع الرصيد");
