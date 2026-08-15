@@ -1,1716 +1,1358 @@
-window.initFarmView = function () {
-    if (typeof window.onFarmTabOpen === "function") {
-        window.onFarmTabOpen();
+import time
+from datetime import datetime, timezone, timedelta
+from google.cloud import firestore
+from database import get_db
+
+
+def to_bool(val):
+    """تحويل قيم البوليان بشكل صحيح وآمن من القراءات المختلفة"""
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.strip().lower() in ("true", "1", "yes")
+    if isinstance(val, (int, float)):
+        return val != 0
+    return False
+
+
+# ==================== Caching لتوفير قراءات Firestore ====================
+_SETTINGS_CACHE = {"data": None, "timestamp": 0}
+CACHE_TTL_SECONDS = 15
+
+
+# ==================== الإعدادات الافتراضية الاقتصادية الجديدة ====================
+DEFAULT_GAME_SETTINGS = {
+    "daily_rewards": [
+        5, 10, 15, 20, 25, 30, 40, 45, 50, 60,
+        65, 70, 75, 90, 100, 110, 120, 130, 140, 160,
+        180, 200, 220, 240, 270, 300, 330, 360, 400, 450
+    ],
+    "mining_config": {
+        "daily_boost_reward": 0.15,
+        "max_daily_boost_rate": 4.5,
+        "boost_max_reward_coins": 35.0,
+        "claim_cooldown_seconds": 15,
+        "base_free_rate": 0.05,
+        "max_upgrades_per_level": 15
+    },
+    "storage_capacities": {
+        "0": {"capacity": 30.0, "cost_zn": 0.0, "cost_usd": 0.0},
+        "1": {"capacity": 150.0, "cost_zn": 400.0, "cost_usd": 0.0},
+        "2": {"capacity": 500.0, "cost_zn": 1200.0, "cost_usd": 0.05},
+        "3": {"capacity": 1500.0, "cost_zn": 3500.0, "cost_usd": 0.10},
+        "4": {"capacity": 4000.0, "cost_zn": 10000.0, "cost_usd": 0.15},
+        "5": {"capacity": 10000.0, "cost_zn": 25000.0, "cost_usd": 0.20},
+        "6": {"capacity": 25000.0, "cost_zn": 65000.0, "cost_usd": 0.25},
+        "7": {"capacity": 70000.0, "cost_zn": 180000.0, "cost_usd": 0.30},
+        "8": {"capacity": 200000.0, "cost_zn": 500000.0, "cost_usd": 0.35},
+        "9": {"capacity": 600000.0, "cost_zn": 1500000.0, "cost_usd": 0.40}
+    },
+    "upgrade_config": {
+        "1": {"cost_zn": 600.0, "cost_usd": 0.0, "rate_bonus": 1.0},
+        "2": {"cost_zn": 1500.0, "cost_usd": 0.10, "rate_bonus": 2.5},
+        "3": {"cost_zn": 3800.0, "cost_usd": 0.15, "rate_bonus": 6.0},
+        "4": {"cost_zn": 10000.0, "cost_usd": 0.20, "rate_bonus": 15.0},
+        "5": {"cost_zn": 28000.0, "cost_usd": 0.25, "rate_bonus": 40.0},
+        "6": {"cost_zn": 75000.0, "cost_usd": 0.30, "rate_bonus": 100.0},
+        "7": {"cost_zn": 200000.0, "cost_usd": 0.35, "rate_bonus": 250.0},
+        "8": {"cost_zn": 500000.0, "cost_usd": 0.40, "rate_bonus": 600.0},
+        "9": {"cost_zn": 1400000.0, "cost_usd": 0.50, "rate_bonus": 1500.0}
     }
-};
+}
 
-window.closeWelcomeModal = function () {
-    const modal = document.getElementById("welcome-modal");
 
-    if (modal) {
-        modal.style.display = "none";
-        modal.classList.remove("active", "show");
+def get_game_settings(force_refresh=False):
+    """جلب أو إنشاء إعدادات المزرعة تلقائياً في Firebase إن لم تكن موجودة"""
+    global _SETTINGS_CACHE
+    now_ts = time.time()
+
+    if (
+        not force_refresh
+        and _SETTINGS_CACHE["data"]
+        and (now_ts - _SETTINGS_CACHE["timestamp"] < CACHE_TTL_SECONDS)
+    ):
+        return _SETTINGS_CACHE["data"]
+
+    db = get_db()
+    try:
+        doc_ref = db.collection("settings").document("farm_settings")
+        doc = doc_ref.get()
+
+        if doc.exists:
+            data = doc.to_dict() or DEFAULT_GAME_SETTINGS
+            _SETTINGS_CACHE = {"data": data, "timestamp": now_ts}
+            return data
+
+        doc_ref.set(DEFAULT_GAME_SETTINGS)
+        _SETTINGS_CACHE = {"data": DEFAULT_GAME_SETTINGS, "timestamp": now_ts}
+        return DEFAULT_GAME_SETTINGS
+
+    except Exception as e:
+        print(f"⚠️ خطأ أثناء جلب إعدادات المزرعة من Firebase: {e}")
+
+    return _SETTINGS_CACHE["data"] or DEFAULT_GAME_SETTINGS
+
+
+def parse_daily_rewards(rewards_data):
+    """تحليل قائمة المكافآت اليومية (30 يوم) بأمان"""
+    if isinstance(rewards_data, list) and len(rewards_data) > 0:
+        return [int(x) for x in rewards_data]
+
+    if isinstance(rewards_data, dict):
+        res = []
+        for i in range(1, 31):
+            val = rewards_data.get(f"day_{i}")
+            if val is None:
+                val = rewards_data.get(str(i))
+            if val is None:
+                val = DEFAULT_GAME_SETTINGS["daily_rewards"][i - 1]
+            res.append(int(val))
+        return res
+
+    return DEFAULT_GAME_SETTINGS["daily_rewards"]
+
+
+def get_base_storage_capacity(storage_level, settings=None):
+    """حساب السعة التخزينية الأساسية للمخزن"""
+    if not settings:
+        settings = get_game_settings()
+
+    try:
+        lvl = int(storage_level)
+    except (ValueError, TypeError):
+        lvl = 0
+
+    lvl = max(0, min(lvl, 9))
+
+    caps = settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
+
+    val = caps.get(str(lvl))
+    if val is None:
+        val = caps.get(lvl)
+
+    if isinstance(val, dict):
+        return float(val.get("capacity", 30.0))
+    elif val is not None:
+        return float(val)
+
+    return 30.0
+
+
+def calculate_user_max_cap(user_data, settings=None):
+    """حساب أقصى سعة للمخزن المؤقت للمستخدم"""
+    if not settings:
+        settings = get_game_settings()
+
+    stg_lvl = user_data.get("storage_level", 0)
+    base_cap = get_base_storage_capacity(stg_lvl, settings)
+    extra_cap = float(user_data.get("extra_storage", 0.0))
+
+    return round(base_cap + extra_cap, 2)
+
+
+def calculate_accrued_mined(user_data, now_dt, max_cap):
+    """حساب الكمية المعدنة الحالية بدقة داخلية أعلى من 4 خانات"""
+    last_claim_str = user_data.get("last_claim_time")
+    hourly_rate = float(user_data.get("hourly_rate", 0.05))
+
+    if not last_claim_str or hourly_rate <= 0:
+        return 0.0
+
+    try:
+        last_claim = datetime.fromisoformat(
+            str(last_claim_str).replace("Z", "+00:00")
+        )
+
+        if last_claim.tzinfo is None:
+            last_claim = last_claim.replace(tzinfo=timezone.utc)
+
+        seconds_passed = max(
+            0.0,
+            (now_dt - last_claim).total_seconds()
+        )
+
+        mined = (hourly_rate / 3600.0) * seconds_passed
+
+        # نحافظ داخلياً على الدقة حتى لا تضيع الكسور الصغيرة،
+        # بينما واجهة العرض تعرض 4 منازل فقط.
+        return round(min(mined, max_cap), 8)
+
+    except Exception:
+        return 0.0
+
+
+def dismiss_welcome_db(user_id_str):
+    """تعيين حالة مشاهدة النافذة الترحيبية لمنع ظهورها مجدداً"""
+    db = get_db()
+    user_ref = db.collection("users").document(user_id_str)
+
+    user_ref.set(
+        {"welcome_seen": True, "is_new_user": False},
+        merge=True
+    )
+
+    return {
+        "success": True,
+        "welcome_seen": True,
+        "is_new_user": False
     }
 
-    if (!window.userState) window.userState = {};
-    if (!window.PlayerData) window.PlayerData = {};
 
-    window.userState.is_new_user = false;
-    window.PlayerData.is_new_user = false;
-    window.userState.welcome_seen = true;
-    window.PlayerData.welcome_seen = true;
+def get_or_create_user_farm_data(user_id_str):
+    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة بأقل استهلاك للقراءة والكتابة"""
+    db = get_db()
+    user_ref = db.collection("users").document(user_id_str)
+    user_doc = user_ref.get()
 
-    try {
-        const tele = window.Telegram?.WebApp;
-        const userId =
-            tele?.initDataUnsafe?.user?.id ||
-            window.userState?.tg_id ||
-            window.userState?.telegram_id ||
-            window.PlayerData?.tg_id ||
-            window.PlayerData?.telegram_id;
+    now = datetime.now(timezone.utc)
 
-        if (userId) {
-            localStorage.setItem(`zn_welcome_seen_${userId}`, "true");
+    game_settings = get_game_settings()
+    mining_cfg = game_settings.get(
+        "mining_config",
+        DEFAULT_GAME_SETTINGS["mining_config"]
+    )
+
+    base_free_rate = float(
+        mining_cfg.get("base_free_rate", 0.05)
+    )
+
+    if not user_doc.exists:
+        base_cap = get_base_storage_capacity(0, game_settings)
+
+        user_data = {
+            "tg_id": user_id_str,
+            "telegram_id": user_id_str,
+            "balance": 0.00,
+            "usd_balance": 0.00,
+            "hourly_rate": base_free_rate,
+            "daily_boost_rate": 0.00,
+            "unclaimed": 0.00,
+            "storage_level": 0,
+            "extra_storage": 0.00,
+            "max_cap": base_cap,
+            "daily_day": 1,
+            "daily_streak": 1,
+            "last_claim_time": now.isoformat(),
+            "last_daily_claim_date": None,
+            "last_boost_date": None,
+            "ads_watched": 0,
+            "upgrades": {},
+            "upgrades_count": 0,
+            "welcome_seen": False,
+            "is_new_user": True
         }
 
-        if (typeof window.fetchAPI === "function") {
-            window.fetchAPI("/api/farm/dismiss_welcome", "POST", {}).catch(() => {});
-        }
-    } catch (e) {
-        console.error("خطأ حفظ حالة النافذة الترحيبية:", e);
-    }
-};
+        user_ref.set(user_data)
 
-(function initFarm() {
-    const tele = window.Telegram?.WebApp;
-    const START_PARAM = tele?.initDataUnsafe?.start_param || "";
+    else:
+        user_data = user_doc.to_dict() or {}
+        auto_fix = {}
 
-    const GAME_CONFIG = {
-        maxUpgradesPerLevel: 15,
-        dailyBoostReward: 0.15,
-        maxDailyBoostRate: 4.5,
-        boostMaxRewardCoins: 35.0,
-
-        upgradeCosts: {
-            1: { cost_zn: 600, cost_usd: 0.0, rate: 1.0 },
-            2: { cost_zn: 1500, cost_usd: 0.10, rate: 2.5 },
-            3: { cost_zn: 3800, cost_usd: 0.15, rate: 6.0 },
-            4: { cost_zn: 10000, cost_usd: 0.20, rate: 15.0 },
-            5: { cost_zn: 28000, cost_usd: 0.25, rate: 40.0 },
-            6: { cost_zn: 75000, cost_usd: 0.30, rate: 100.0 },
-            7: { cost_zn: 200000, cost_usd: 0.35, rate: 250.0 },
-            8: { cost_zn: 500000, cost_usd: 0.40, rate: 600.0 },
-            9: { cost_zn: 1400000, cost_usd: 0.50, rate: 1500.0 }
-        },
-
-        storageConfig: {
-            "0": { capacity: 30.0, cost_zn: 0, cost_usd: 0.0 },
-            "1": { capacity: 150.0, cost_zn: 400, cost_usd: 0.0 },
-            "2": { capacity: 500.0, cost_zn: 1200, cost_usd: 0.05 },
-            "3": { capacity: 1500.0, cost_zn: 3500, cost_usd: 0.10 },
-            "4": { capacity: 4000.0, cost_zn: 10000, cost_usd: 0.15 },
-            "5": { capacity: 10000.0, cost_zn: 25000, cost_usd: 0.20 },
-            "6": { capacity: 25000.0, cost_zn: 65000, cost_usd: 0.25 },
-            "7": { capacity: 70000.0, cost_zn: 180000, cost_usd: 0.30 },
-            "8": { capacity: 200000.0, cost_zn: 500000, cost_usd: 0.35 },
-            "9": { capacity: 600000.0, cost_zn: 1500000, cost_usd: 0.40 }
-        },
-
-        dailyRewards: [
-            5, 10, 15, 20, 25, 30, 40, 45, 50, 60,
-            65, 70, 75, 90, 100, 110, 120, 130, 140, 160,
-            180, 200, 220, 240, 270, 300, 330, 360, 400, 450
-        ]
-    };
-
-    let MIN_CLAIM_INTERVAL = 15;
-
-    let isClaimingDaily = false;
-    let isBoosting = false;
-    let isFetching = false;
-    let isClaimingMain = false;
-    let isUpgrading = false;
-    let isUpgradingStorage = false;
-
-    let lastFetchTime = 0;
-    const FETCH_THROTTLE_MS = 3000;
-    let lastCheckedDate = "";
-
-    function getCacheKey() {
-        const userId =
-            tele?.initDataUnsafe?.user?.id ||
-            window.userState?.tg_id ||
-            window.userState?.telegram_id ||
-            window.PlayerData?.tg_id ||
-            window.PlayerData?.telegram_id;
-
-        return userId
-            ? `zn_farm_cache_${userId}`
-            : "zn_farm_cache_global";
-    }
-
-    function saveCachedData(data) {
-        try {
-            if (!data || typeof data !== "object") return;
-            localStorage.setItem(getCacheKey(), JSON.stringify(data));
-        } catch (e) {
-            console.error("خطأ حفظ الكاش المحلي:", e);
-        }
-    }
-
-    function loadCachedData() {
-        try {
-            const cached = localStorage.getItem(getCacheKey());
-            if (!cached) return false;
-
-            const parsed = JSON.parse(cached);
-
-            if (!parsed || typeof parsed !== "object") {
-                return false;
-            }
-
-            if (!window.userState) window.userState = {};
-            if (!window.PlayerData) window.PlayerData = {};
-
-            Object.assign(window.userState, parsed);
-            Object.assign(window.PlayerData, parsed);
-
-            return true;
-        } catch (e) {
-            console.error("خطأ قراءة الكاش المحلي:", e);
-            return false;
-        }
-    }
-
-    function showToast(message) {
-        if (tele && typeof tele.showAlert === "function") {
-            tele.showAlert(message);
-        } else {
-            alert(message);
-        }
-    }
-
-    function getAdjustedNowMs() {
-        return Date.now() + (window.serverTimeOffset || 0);
-    }
-
-    function syncServerTime(serverTimeStr) {
-        if (!serverTimeStr) return;
-
-        try {
-            const serverMs = new Date(serverTimeStr).getTime();
-
-            if (!Number.isNaN(serverMs)) {
-                window.serverTimeOffset = serverMs - Date.now();
-            }
-        } catch (e) {
-            console.error("خطأ مزامنة وقت السيرفر:", e);
-        }
-    }
-
-    function formatUsdBalance(value) {
-        const num = Number.parseFloat(value);
-
-        if (!Number.isFinite(num) || Math.abs(num) < 0.0000005) {
-            return "$0.00";
-        }
-
-        return `$${num.toFixed(6).replace(/\.?0+$/, "")}`;
-    }
-
-    /*
-     * العرض: 4 منازل عشرية دائماً.
-     * التخزين والحساب في الخادم أعلى دقة من ذلك.
-     */
-    function formatZnBalance(value) {
-        const num = Number.parseFloat(value);
-
-        if (!Number.isFinite(num)) {
-            return "0.0000";
-        }
-
-        return num.toFixed(4);
-    }
-
-    function formatZnAmount(value) {
-        return formatZnBalance(value);
-    }
-
-    function getStoredBalance() {
-        if (
-            window.userState &&
-            window.userState.balance !== undefined &&
-            window.userState.balance !== null
-        ) {
-            return Number.parseFloat(window.userState.balance) || 0;
-        }
-
-        return Number.parseFloat(window.PlayerData?.balance) || 0;
-    }
-
-    function getStoredUsdBalance() {
-        if (
-            window.userState &&
-            window.userState.usd_balance !== undefined &&
-            window.userState.usd_balance !== null
-        ) {
-            return Number.parseFloat(window.userState.usd_balance) || 0;
-        }
-
-        return Number.parseFloat(window.PlayerData?.usd_balance) || 0;
-    }
-
-    function setStoredBalance(newBalance, newUsdBalance) {
-        if (!window.userState) window.userState = {};
-        if (!window.PlayerData) window.PlayerData = {};
-
-        if (newBalance !== undefined && newBalance !== null) {
-            const value = Number.parseFloat(newBalance);
-
-            if (Number.isFinite(value)) {
-                window.userState.balance = value;
-                window.PlayerData.balance = value;
-
-                const element = document.getElementById("farm-balance");
-
-                if (element) {
-                    element.innerText = `${formatZnBalance(value)} ZN`;
-                }
-            }
-        }
-
-        if (newUsdBalance !== undefined && newUsdBalance !== null) {
-            const value = Number.parseFloat(newUsdBalance);
-
-            if (Number.isFinite(value)) {
-                window.userState.usd_balance = value;
-                window.PlayerData.usd_balance = value;
-
-                const element = document.getElementById("farm-usd-balance");
-
-                if (element) {
-                    element.innerText = formatUsdBalance(value);
-                }
-            }
-        }
-
-        saveCachedData(window.userState);
-    }
-
-    function getTodayUTCStr() {
-        return new Date(getAdjustedNowMs()).toISOString().split("T")[0];
-    }
-
-    function getTimeUntilUTCMidnight() {
-        const now = new Date(getAdjustedNowMs());
-
-        const nextMidnight = new Date(
-            Date.UTC(
-                now.getUTCFullYear(),
-                now.getUTCMonth(),
-                now.getUTCDate() + 1
+        if "welcome_seen" not in user_data:
+            has_progress = bool(
+                user_data.get("upgrades")
+                or user_data.get("last_daily_claim_date")
+                or user_data.get("last_boost_date")
             )
-        );
+            auto_fix["welcome_seen"] = has_progress
+            auto_fix["is_new_user"] = not has_progress
 
-        const diff = Math.max(0, nextMidnight.getTime() - now.getTime());
-
-        let seconds = Math.floor(diff / 1000);
-        const hours = Math.floor(seconds / 3600);
-        seconds %= 3600;
-
-        const minutes = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-
-        return [
-            String(hours).padStart(2, "0"),
-            String(minutes).padStart(2, "0"),
-            String(secs).padStart(2, "0")
-        ].join(":");
-    }
-
-    function formatCompactCost(num) {
-        const value = Number.parseFloat(num) || 0;
-
-        if (value >= 1000000) {
-            const formatted = (value / 1000000).toFixed(1);
-            return formatted.endsWith(".0")
-                ? `${(value / 1000000).toFixed(0)}M`
-                : `${formatted}M`;
-        }
-
-        if (value >= 1000) {
-            const formatted = (value / 1000).toFixed(1);
-            return formatted.endsWith(".0")
-                ? `${(value / 1000).toFixed(0)}K`
-                : `${formatted}K`;
-        }
-
-        return value.toString();
-    }
-
-    function formatCompactNumber(num) {
-        const value = Number.parseFloat(num) || 0;
-
-        if (value >= 1000000) {
-            return `${(value / 1000000).toFixed(1)}M`;
-        }
-
-        if (value >= 1000 && value % 1000 === 0) {
-            return `${value / 1000}K`;
-        }
-
-        return value.toString();
-    }
-
-    window.fetchPlayerDataFromServer = async function (force = false) {
-        const now = Date.now();
-
-        if (isFetching) return;
+        if "usd_balance" not in user_data:
+            auto_fix["usd_balance"] = 0.00
 
         if (
-            !force &&
-            now - lastFetchTime < FETCH_THROTTLE_MS
-        ) {
-            window.updateFarmUI();
-            return;
-        }
+            "hourly_rate" not in user_data
+            or float(user_data.get("hourly_rate", 0)) == 0.0
+        ):
+            auto_fix["hourly_rate"] = base_free_rate
 
-        isFetching = true;
+        if "daily_boost_rate" not in user_data:
+            auto_fix["daily_boost_rate"] = 0.00
 
-        try {
-            const resData = await window.fetchAPI(
-                "/api/farm/player_data",
-                "POST",
-                { start_param: START_PARAM }
-            );
+        if "ads_watched" not in user_data:
+            auto_fix["ads_watched"] = 0
 
-            if (resData && resData.success) {
-                lastFetchTime = Date.now();
+        if "storage_level" not in user_data:
+            auto_fix["storage_level"] = 0
 
-                if (resData.server_time) {
-                    syncServerTime(resData.server_time);
-                }
+        if "upgrades" not in user_data:
+            auto_fix["upgrades"] = {}
 
-                if (
-                    resData.cooldown_seconds !== undefined &&
-                    resData.cooldown_seconds !== null
-                ) {
-                    MIN_CLAIM_INTERVAL = Math.max(
-                        0,
-                        Number.parseInt(resData.cooldown_seconds, 10) || 0
-                    );
-                }
+        if "upgrades_count" not in user_data:
+            upgrades_dict = user_data.get("upgrades", {})
+            auto_fix["upgrades_count"] = (
+                sum(
+                    int(v)
+                    for v in upgrades_dict.values()
+                    if isinstance(v, (int, float))
+                )
+                if isinstance(upgrades_dict, dict)
+                else 0
+            )
 
-                if (resData.game_config) {
-                    const cfg = resData.game_config;
+        expected_max_cap = calculate_user_max_cap(
+            user_data,
+            game_settings
+        )
 
-                    if (Array.isArray(cfg.daily_rewards)) {
-                        GAME_CONFIG.dailyRewards = cfg.daily_rewards;
-                    }
+        if user_data.get("max_cap") != expected_max_cap:
+            auto_fix["max_cap"] = expected_max_cap
 
-                    if (cfg.upgrade_costs) {
-                        GAME_CONFIG.upgradeCosts = cfg.upgrade_costs;
-                    }
+        if auto_fix:
+            user_ref.update(auto_fix)
+            user_data.update(auto_fix)
 
-                    if (cfg.storage_config) {
-                        GAME_CONFIG.storageConfig = cfg.storage_config;
-                    }
+    expected_max_cap = calculate_user_max_cap(
+        user_data,
+        game_settings
+    )
 
-                    if (cfg.max_upgrades_per_level !== undefined) {
-                        GAME_CONFIG.maxUpgradesPerLevel =
-                            Number.parseInt(
-                                cfg.max_upgrades_per_level,
-                                10
-                            ) || 15;
-                    }
+    user_data["max_cap"] = expected_max_cap
 
-                    if (cfg.daily_boost_reward !== undefined) {
-                        GAME_CONFIG.dailyBoostReward =
-                            Number.parseFloat(
-                                cfg.daily_boost_reward
-                            ) || 0.15;
-                    }
+    # مهم: عدم تقريب رصيد ZN إلى منزلتين.
+    # هذا هو الإصلاح الأساسي لمشكلة 0.10 وضياع الكسور الصغيرة.
+    user_data["balance"] = round(float(user_data.get("balance", 0.0)), 8)
+    user_data["usd_balance"] = round(
+        float(user_data.get("usd_balance", 0.0)),
+        6
+    )
 
-                    if (cfg.max_daily_boost_rate !== undefined) {
-                        GAME_CONFIG.maxDailyBoostRate =
-                            Number.parseFloat(
-                                cfg.max_daily_boost_rate
-                            ) || 4.5;
-                    }
+    user_data["unclaimed"] = calculate_accrued_mined(
+        user_data,
+        now,
+        expected_max_cap
+    )
 
-                    if (cfg.boost_max_reward_coins !== undefined) {
-                        GAME_CONFIG.boostMaxRewardCoins =
-                            Number.parseFloat(
-                                cfg.boost_max_reward_coins
-                            ) || 35.0;
-                    }
-                }
+    # تحديد صارم لخاصية welcome_seen و is_new_user
+    is_welcome_seen = to_bool(
+        user_data.get("welcome_seen", False)
+    )
 
-                if (!window.PlayerData) window.PlayerData = {};
-                if (!window.userState) window.userState = {};
+    user_data["welcome_seen"] = is_welcome_seen
+    user_data["is_new_user"] = not is_welcome_seen
 
-                if (resData.player) {
-                    Object.assign(window.PlayerData, resData.player);
-                    Object.assign(window.userState, resData.player);
+    today_str = now.strftime("%Y-%m-%d")
+    yesterday_str = (
+        now - timedelta(days=1)
+    ).strftime("%Y-%m-%d")
 
-                    saveCachedData(resData.player);
+    last_daily_claim = user_data.get(
+        "last_daily_claim_date"
+    )
 
-                    setStoredBalance(
-                        resData.player.balance,
-                        resData.player.usd_balance
-                    );
+    raw_daily_day = int(
+        user_data.get("daily_day")
+        or user_data.get("daily_streak")
+        or 1
+    )
 
-                    const isNew =
-                        resData.player.is_new_user === true ||
-                        resData.player.welcome_seen === false;
+    if last_daily_claim == today_str:
+        effective_daily_day = raw_daily_day
+    elif last_daily_claim == yesterday_str:
+        effective_daily_day = (
+            min(raw_daily_day + 1, 30)
+            if raw_daily_day < 30
+            else 30
+        )
+    else:
+        effective_daily_day = 1
 
-                    const modal =
-                        document.getElementById("welcome-modal");
+    user_data["daily_day"] = effective_daily_day
+    user_data["daily_streak"] = effective_daily_day
 
-                    if (modal) {
-                        if (isNew) {
-                            modal.style.display = "flex";
-                            modal.classList.add("show", "active");
-                        } else {
-                            modal.style.display = "none";
-                            modal.classList.remove("show", "active");
-                        }
-                    }
-                }
+    return user_data, game_settings, now
 
-                window.updateFarmUI();
-            }
-        } catch (e) {
-            console.error("خطأ مزامنة المزرعة:", e);
-        } finally {
-            isFetching = false;
-        }
-    };
 
-    window.updateFarmUI = function () {
-        const pData = window.userState || window.PlayerData || {};
+def claim_mined_tokens_db(user_id_str):
+    """تجميع الرصيد المعدن بأمان"""
+    db = get_db()
+    user_ref = db.collection("users").document(user_id_str)
+    game_settings = get_game_settings()
 
-        const balance = getStoredBalance();
-        const usdBalance = getStoredUsdBalance();
+    mining_cfg = game_settings.get(
+        "mining_config",
+        DEFAULT_GAME_SETTINGS["mining_config"]
+    )
 
-        const hourlyRate =
-            Number.parseFloat(
-                pData.hourly_rate ?? 0.05
-            ) || 0.05;
+    cooldown_seconds = int(
+        mining_cfg.get("claim_cooldown_seconds", 15)
+    )
 
-        const balanceElement =
-            document.getElementById("farm-balance");
+    @firestore.transactional
+    def run_claim_transaction(transaction, ref):
+        snapshot = ref.get(transaction=transaction)
 
-        if (balanceElement) {
-            balanceElement.innerText =
-                `${formatZnBalance(balance)} ZN`;
-        }
-
-        const usdElement =
-            document.getElementById("farm-usd-balance");
-
-        if (usdElement) {
-            usdElement.innerText =
-                formatUsdBalance(usdBalance);
-        }
-
-        const rateElement =
-            document.getElementById("farm-rate");
-
-        if (rateElement) {
-            const formattedRate =
-                Number.isInteger(hourlyRate)
-                    ? hourlyRate.toString()
-                    : Number(hourlyRate.toFixed(2)).toString();
-
-            rateElement.innerHTML =
-                `<span dir="ltr">${formattedRate} /h</span> ⚡`;
-        }
-
-        const storageLevel =
-            Number.parseInt(
-                pData.storage_level ?? 0,
-                10
-            ) || 0;
-
-        const storageLevelElement =
-            document.getElementById("storage-level-num");
-
-        if (storageLevelElement) {
-            storageLevelElement.innerText = storageLevel;
-        }
-
-        const upgradeStorageButton =
-            document.getElementById("upgrade-storage-btn");
-
-        if (upgradeStorageButton) {
-            upgradeStorageButton.onclick =
-                window.handleStorageUpgrade;
-
-            const nextLevel = storageLevel + 1;
-            const nextConfig =
-                GAME_CONFIG.storageConfig[
-                    String(nextLevel)
-                ];
-
-            if (storageLevel >= 9 || !nextConfig) {
-                upgradeStorageButton.innerText =
-                    "المخزن في المستوى الأقصى (MAX) 🏆";
-                upgradeStorageButton.disabled = true;
-                upgradeStorageButton.className =
-                    "storage-upgrade-btn btn-disabled";
-            } else {
-                const costZn =
-                    typeof nextConfig === "object"
-                        ? Number.parseFloat(
-                              nextConfig.cost_zn ??
-                              nextConfig.cost ??
-                              0
-                          ) || 0
-                        : 0;
-
-                const costUsd =
-                    typeof nextConfig === "object"
-                        ? Number.parseFloat(
-                              nextConfig.cost_usd ?? 0
-                          ) || 0
-                        : 0;
-
-                const costStrZn =
-                    formatCompactCost(costZn);
-
-                const costStrUsd =
-                    costUsd > 0
-                        ? ` + $${costUsd.toFixed(2)}`
-                        : "";
-
-                const canAfford =
-                    balance + 1e-12 >= costZn &&
-                    usdBalance + 1e-12 >= costUsd;
-
-                upgradeStorageButton.innerText =
-                    `ترقية المخزن Lvl ${nextLevel} (${costStrZn} ZN${costStrUsd}) 📦`;
-
-                upgradeStorageButton.disabled =
-                    !canAfford || isUpgradingStorage;
-
-                upgradeStorageButton.className =
-                    canAfford
-                        ? "storage-upgrade-btn btn-ready-yellow"
-                        : "storage-upgrade-btn btn-disabled";
-            }
-        }
-
-        const fieldsContainer =
-            document.getElementById("mining-fields");
-
-        if (fieldsContainer) {
-            const currentUpgrades =
-                pData.upgrades &&
-                typeof pData.upgrades === "object"
-                    ? pData.upgrades
-                    : {};
-
-            let fieldsHTML = "";
-
-            for (let i = 1; i <= 9; i++) {
-                const count =
-                    Number.parseInt(
-                        currentUpgrades[`lvl${i}`] || 0,
-                        10
-                    ) || 0;
-
-                const prevCount =
-                    Number.parseInt(
-                        currentUpgrades[`lvl${i - 1}`] || 0,
-                        10
-                    ) || 0;
-
-                const isUnlocked =
-                    i === 1 || prevCount > 0;
-
-                const isMax =
-                    count >= GAME_CONFIG.maxUpgradesPerLevel;
-
-                const levelConfig =
-                    GAME_CONFIG.upgradeCosts[i] || {};
-
-                const costZn =
-                    Number.parseFloat(
-                        levelConfig.cost_zn ??
-                        levelConfig.base_cost ??
-                        levelConfig.price ??
-                        0
-                    ) || 0;
-
-                const costUsd =
-                    Number.parseFloat(
-                        levelConfig.cost_usd ??
-                        levelConfig.base_cost_usd ??
-                        0
-                    ) || 0;
-
-                const costStrZn =
-                    formatCompactCost(costZn);
-
-                const costStrUsd =
-                    costUsd > 0
-                        ? `+$${costUsd.toFixed(2)}`
-                        : "";
-
-                const canAfford =
-                    balance + 1e-12 >= costZn &&
-                    usdBalance + 1e-12 >= costUsd;
-
-                if (isMax) {
-                    fieldsHTML += `
-                    <div class="mining-card">
-                        <div class="mining-card-icon">🏛️</div>
-                        <div class="mining-card-title">مستوى ${i} (MAX)</div>
-                        <button class="mining-card-btn" disabled>
-                            ${GAME_CONFIG.maxUpgradesPerLevel}/${GAME_CONFIG.maxUpgradesPerLevel} MAX
-                        </button>
-                    </div>`;
-                } else if (count > 0) {
-                    fieldsHTML += `
-                    <div class="mining-card"
-                         onclick="window.handleUpgrade(${i})">
-                        <div class="mining-card-icon">🏛️</div>
-                        <div class="mining-card-title">
-                            مستوى ${i} (x${count})
-                        </div>
-                        <button class="mining-card-btn"
-                                ${!canAfford || isUpgrading ? "disabled" : ""}>
-                            ترقية (${costStrZn}${costStrUsd})
-                        </button>
-                    </div>`;
-                } else if (isUnlocked) {
-                    fieldsHTML += `
-                    <div class="mining-card"
-                         onclick="window.handleUpgrade(${i})">
-                        <div class="mining-card-icon">🏛️</div>
-                        <div class="mining-card-title">
-                            مستوى ${i}
-                        </div>
-                        <button class="mining-card-btn"
-                                ${!canAfford || isUpgrading ? "disabled" : ""}>
-                            شراء (${costStrZn}${costStrUsd})
-                        </button>
-                    </div>`;
-                } else {
-                    fieldsHTML += `
-                    <div class="mining-card" style="opacity: 0.4;">
-                        <div class="mining-card-icon">🔒</div>
-                        <div class="mining-card-title">
-                            مستوى ${i}
-                        </div>
-                        <button class="mining-card-btn" disabled>
-                            مغلق
-                        </button>
-                    </div>`;
-                }
+        if not snapshot.exists:
+            return {
+                "success": False,
+                "error": "المستخدم غير موجود"
             }
 
-            fieldsContainer.innerHTML = fieldsHTML;
-        }
+        user_data = snapshot.to_dict() or {}
+        now = datetime.now(timezone.utc)
 
-        const boostButton =
-            document.getElementById("boost-btn");
+        last_claim_str = user_data.get("last_claim_time")
 
-        if (boostButton) {
-            const todayStr = getTodayUTCStr();
-            const lastBoost = pData.last_boost_date;
+        if last_claim_str:
+            try:
+                last_claim = datetime.fromisoformat(
+                    str(last_claim_str).replace("Z", "+00:00")
+                )
 
-            const currentDailyBoostRate =
-                Number.parseFloat(
-                    pData.daily_boost_rate || 0
-                ) || 0;
-
-            if (lastBoost === todayStr) {
-                boostButton.className =
-                    "boost-btn btn-disabled";
-                boostButton.disabled = true;
-
-                boostButton.innerHTML =
-                    `<span style="font-size: 12px;">⏳</span>
-                     <span style="font-size: 8px;">
-                         ${getTimeUntilUTCMidnight()}
-                     </span>`;
-            } else if (!isBoosting) {
-                boostButton.className = "boost-btn";
-                boostButton.disabled = false;
-
-                const boostText =
-                    currentDailyBoostRate + 1e-9 >=
-                    GAME_CONFIG.maxDailyBoostRate
-                        ? `+${formatZnAmount(
-                              GAME_CONFIG.boostMaxRewardCoins
-                          )} ZN`
-                        : `+${GAME_CONFIG.dailyBoostReward}/h`;
-
-                boostButton.innerHTML =
-                    `<span id="boost-icon">🚀</span>
-                     <span id="boost-text">${boostText}</span>`;
-            }
-        }
-
-        renderDailyRewards();
-    };
-
-    window.onFarmTabOpen = async function () {
-        if (typeof window.fetchPlayerDataFromServer === "function") {
-            await window.fetchPlayerDataFromServer(true);
-        } else {
-            window.updateFarmUI();
-        }
-    };
-
-    function getRewardForDayIndex(index) {
-        const rewards = GAME_CONFIG.dailyRewards;
-
-        if (!Array.isArray(rewards) || rewards.length === 0) {
-            return 5;
-        }
-
-        return rewards[index] ?? 450;
-    }
-
-    function renderDailyRewards() {
-        const container =
-            document.getElementById(
-                "daily-rewards-container"
-            );
-
-        const pData =
-            window.userState ||
-            window.PlayerData ||
-            {};
-
-        if (!container) return;
-
-        let html = "";
-
-        const todayStr = getTodayUTCStr();
-        const lastClaimDate =
-            pData.last_daily_claim_date;
-
-        const claimedToday =
-            lastClaimDate === todayStr;
-
-        let currentDailyDay =
-            Number.parseInt(
-                pData.daily_day || 1,
-                10
-            ) || 1;
-
-        currentDailyDay =
-            Math.max(
-                1,
-                Math.min(currentDailyDay, 30)
-            );
-
-        const timeLeftStr =
-            getTimeUntilUTCMidnight();
-
-        for (let i = 0; i < 30; i++) {
-            const dayNum = i + 1;
-
-            const rawReward =
-                getRewardForDayIndex(i);
-
-            const displayReward =
-                formatCompactNumber(rawReward);
-
-            if (claimedToday) {
-                if (dayNum <= currentDailyDay) {
-                    html += `
-                    <div class="reward-day-card claimed">
-                        <div class="day-title">
-                            يوم ${dayNum}
-                        </div>
-                        <div style="font-size:14px;font-weight:bold;color:#10b981;">
-                            ✓
-                        </div>
-                    </div>`;
-                } else if (
-                    dayNum === currentDailyDay + 1
-                ) {
-                    html += `
-                    <div class="reward-day-card active"
-                         style="border:1px dashed #ef4444;">
-                        <div class="day-title">
-                            يوم ${dayNum}
-                        </div>
-                        <div class="day-amount">
-                            ${displayReward}
-                        </div>
-                        <div id="daily-timer"
-                             style="color:#ef4444;font-size:8px;font-weight:bold;">
-                            ⏳ ${timeLeftStr}
-                        </div>
-                    </div>`;
-                } else {
-                    html += `
-                    <div class="reward-day-card"
-                         style="opacity:0.4;">
-                        <div class="day-title">
-                            يوم ${dayNum}
-                        </div>
-                        <div class="day-amount">
-                            ${displayReward}
-                        </div>
-                    </div>`;
-                }
-            } else if (dayNum < currentDailyDay) {
-                html += `
-                <div class="reward-day-card claimed">
-                    <div class="day-title">
-                        يوم ${dayNum}
-                    </div>
-                    <div style="font-size:14px;font-weight:bold;color:#10b981;">
-                        ✓
-                    </div>
-                </div>`;
-            } else if (dayNum === currentDailyDay) {
-                html += `
-                <div class="reward-day-card active">
-                    <div class="day-title">
-                        يوم ${dayNum}
-                    </div>
-                    <div class="day-amount">
-                        ${displayReward}
-                    </div>
-                    <button id="daily-btn-${dayNum}"
-                            onclick="window.handleDailyClaim(${currentDailyDay})"
-                            style="background:#10b981;color:white;border:none;border-radius:4px;padding:2px 0;font-size:9px;width:100%;cursor:pointer;"
-                            ${isClaimingDaily ? "disabled" : ""}>
-                        استلام
-                    </button>
-                </div>`;
-            } else {
-                html += `
-                <div class="reward-day-card"
-                     style="opacity:0.4;">
-                    <div class="day-title">
-                        يوم ${dayNum}
-                    </div>
-                    <div class="day-amount">
-                        ${displayReward}
-                    </div>
-                </div>`;
-            }
-        }
-
-        container.innerHTML = html;
-    }
-
-    loadCachedData();
-    window.updateFarmUI();
-
-    if (window.farmIntervalId) {
-        clearInterval(window.farmIntervalId);
-    }
-
-    window.farmIntervalId = setInterval(() => {
-        const pData =
-            window.userState ||
-            window.PlayerData;
-
-        if (!pData) return;
-
-        const todayStr = getTodayUTCStr();
-
-        if (
-            lastCheckedDate &&
-            lastCheckedDate !== todayStr
-        ) {
-            lastCheckedDate = todayStr;
-
-            if (
-                typeof window.fetchPlayerDataFromServer ===
-                "function"
-            ) {
-                window.fetchPlayerDataFromServer(true);
-            }
-        }
-
-        lastCheckedDate = todayStr;
-
-        const maxCap =
-            Number.parseFloat(
-                pData.max_cap ?? 30.0
-            ) || 30.0;
-
-        const hourlyRate =
-            Number.parseFloat(
-                pData.hourly_rate ?? 0.05
-            ) || 0.05;
-
-        const lastClaimStr =
-            pData.last_claim_time;
-
-        let lastClaimTimeMs =
-            lastClaimStr
-                ? new Date(lastClaimStr).getTime()
-                : getAdjustedNowMs();
-
-        if (!Number.isFinite(lastClaimTimeMs)) {
-            lastClaimTimeMs = getAdjustedNowMs();
-        }
-
-        const secondsPassed =
-            Math.max(
-                0,
-                (getAdjustedNowMs() - lastClaimTimeMs) / 1000
-            );
-
-        let unclaimed =
-            (hourlyRate / 3600.0) *
-            secondsPassed;
-
-        unclaimed =
-            Math.min(
-                Math.max(0, unclaimed),
-                Math.max(0, maxCap)
-            );
-
-        pData.unclaimed = unclaimed;
-
-        const progressElement =
-            document.getElementById(
-                "storage-progress"
-            );
-
-        const storageTextElement =
-            document.getElementById(
-                "storage-text"
-            );
-
-        if (
-            progressElement &&
-            storageTextElement
-        ) {
-            let percentage =
-                maxCap > 0
-                    ? (unclaimed / maxCap) * 100
-                    : 0;
-
-            percentage =
-                Math.max(
-                    0,
-                    Math.min(percentage, 100)
-                );
-
-            progressElement.style.width =
-                `${percentage}%`;
-
-            storageTextElement.innerText =
-                `${formatZnBalance(unclaimed)} / ${
-                    maxCap.toLocaleString("en-US", {
-                        maximumFractionDigits: 2
-                    })
-                }`;
-        }
-
-        const claimButton =
-            document.getElementById("claim-btn");
-
-        if (claimButton) {
-            claimButton.onclick =
-                window.handleMainClaim;
-
-            const remainingCooldown =
-                Math.max(
-                    0,
-                    Math.ceil(
-                        MIN_CLAIM_INTERVAL -
-                        secondsPassed
+                if last_claim.tzinfo is None:
+                    last_claim = last_claim.replace(
+                        tzinfo=timezone.utc
                     )
-                );
 
-            if (isClaimingMain) {
-                claimButton.innerText =
-                    "جاري الحفظ... 💾";
+                seconds_passed = (
+                    now - last_claim
+                ).total_seconds()
 
-                claimButton.className =
-                    "claim-action-btn btn-disabled";
+                if seconds_passed < cooldown_seconds:
+                    return {
+                        "success": False,
+                        "error": (
+                            f"الرجاء الانتظار {cooldown_seconds} "
+                            "ثانية قبل التجميع مجدداً"
+                        )
+                    }
 
-                claimButton.disabled = true;
-            } else if (
-                remainingCooldown > 0 &&
-                unclaimed > 0
-            ) {
-                claimButton.innerText =
-                    `انتظر ${remainingCooldown} ثانية ⏳`;
+            except Exception:
+                pass
 
-                claimButton.className =
-                    "claim-action-btn btn-disabled";
+        max_cap = calculate_user_max_cap(
+            user_data,
+            game_settings
+        )
 
-                claimButton.disabled = true;
-            } else if (unclaimed > 0) {
-                claimButton.innerText =
-                    "تجميع الرصيد 💰";
+        mined_amount = calculate_accrued_mined(
+            user_data,
+            now,
+            max_cap
+        )
 
-                claimButton.className =
-                    "claim-action-btn btn-ready";
-
-                claimButton.disabled = false;
-            } else {
-                claimButton.innerText =
-                    "المخزن فارغ ⏳";
-
-                claimButton.className =
-                    "claim-action-btn btn-disabled";
-
-                claimButton.disabled = true;
+        if mined_amount <= 0:
+            return {
+                "success": False,
+                "error": "المخزن فارغ حالياً"
             }
+
+        current_balance = float(
+            user_data.get("balance", 0.0)
+        )
+
+        current_usd_balance = float(
+            user_data.get("usd_balance", 0.0)
+        )
+
+        # الحفاظ على الكسور وعدم تحويل 0.0444 إلى 0.04.
+        new_balance = round(
+            current_balance + mined_amount,
+            8
+        )
+
+        now_iso = now.isoformat()
+
+        transaction.update(
+            ref,
+            {
+                "balance": new_balance,
+                "last_claim_time": now_iso
+            }
+        )
+
+        referrer_id = (
+            user_data.get("referrer_id")
+            or user_data.get("referred_by")
+            or user_data.get("invited_by")
+        )
+
+        upgrades_cnt = user_data.get(
+            "upgrades_count",
+            0
+        )
+
+        user_name = (
+            user_data.get("first_name")
+            or user_data.get("name")
+            or user_data.get("username")
+        )
+
+        return {
+            "success": True,
+            "new_balance": new_balance,
+            "new_usd_balance": current_usd_balance,
+            "last_claim_time": now_iso,
+            "unclaimed": 0.0,
+            "server_time": now_iso,
+            "claimed_amount": mined_amount,
+            "referrer_id": referrer_id,
+            "upgrades_count": upgrades_cnt,
+            "user_name": user_name
         }
 
-        const timeLeftStr =
-            getTimeUntilUTCMidnight();
-
-        const boostButton =
-            document.getElementById(
-                "boost-btn"
-            );
-
-        if (boostButton) {
-            boostButton.onclick =
-                window.handleDailyBoost;
-
-            const lastBoost =
-                pData.last_boost_date;
-
-            const currentDailyBoostRate =
-                Number.parseFloat(
-                    pData.daily_boost_rate || 0
-                ) || 0;
-
-            if (lastBoost === todayStr) {
-                boostButton.className =
-                    "boost-btn btn-disabled";
-
-                boostButton.disabled = true;
-
-                boostButton.innerHTML =
-                    `<span style="font-size:12px;">⏳</span>
-                     <span style="font-size:8px;">
-                         ${timeLeftStr}
-                     </span>`;
-            } else if (!isBoosting) {
-                boostButton.className =
-                    "boost-btn";
-
-                boostButton.disabled = false;
-
-                const boostText =
-                    currentDailyBoostRate + 1e-9 >=
-                    GAME_CONFIG.maxDailyBoostRate
-                        ? `+${formatZnAmount(
-                              GAME_CONFIG.boostMaxRewardCoins
-                          )} ZN`
-                        : `+${GAME_CONFIG.dailyBoostReward}/h`;
-
-                boostButton.innerHTML =
-                    `<span id="boost-icon">🚀</span>
-                     <span id="boost-text">
-                         ${boostText}
-                     </span>`;
-            }
+    try:
+        transaction = db.transaction()
+        result = run_claim_transaction(
+            transaction,
+            user_ref
+        )
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"تعذر تنفيذ التجميع: {str(e)}"
         }
 
-        const dailyTimerElement =
-            document.getElementById(
-                "daily-timer"
-            );
+    if (
+        result.get("success")
+        and result.get("referrer_id")
+        and result.get("claimed_amount", 0) > 0
+    ):
+        try:
+            from friends.friends_db import add_referral_reward
+
+            add_referral_reward(
+                referrer_id=result["referrer_id"],
+                user_id=user_id_str,
+                mined_amount=result["claimed_amount"],
+                user_upgrades_count=result.get(
+                    "upgrades_count"
+                ),
+                user_name=result.get("user_name")
+            )
+
+        except Exception as e:
+            print(
+                f"⚠️ Error adding referral reward on claim: {e}"
+            )
+
+    return result
+
+
+def buy_upgrade_db(user_id_str, level):
+    """شراء ترقية سرعة التعدين"""
+    level_str = str(level)
+
+    db = get_db()
+    user_ref = db.collection("users").document(user_id_str)
+    game_settings = get_game_settings()
+
+    upgrade_configs = (
+        game_settings.get("upgrade_config")
+        or DEFAULT_GAME_SETTINGS["upgrade_config"]
+    )
+
+    if level_str not in upgrade_configs:
+        return {
+            "success": False,
+            "error": "بيانات المستوى غير متوفرة"
+        }
+
+    level_cfg = upgrade_configs[level_str]
+
+    cost_zn = float(
+        level_cfg.get(
+            "cost_zn",
+            level_cfg.get(
+                "base_cost",
+                level_cfg.get("price", 0)
+            )
+        )
+    )
+
+    cost_usd = float(
+        level_cfg.get(
+            "cost_usd",
+            level_cfg.get("base_cost_usd", 0.0)
+        )
+    )
+
+    rate_bonus = round(
+        float(
+            level_cfg.get(
+                "rate_bonus",
+                level_cfg.get("rate", 0)
+            )
+        ),
+        2
+    )
+
+    @firestore.transactional
+    def run_upgrade_transaction(transaction, ref):
+        snapshot = ref.get(transaction=transaction)
+
+        if not snapshot.exists:
+            return {
+                "success": False,
+                "error": "المستخدم غير موجود"
+            }
+
+        user_data = snapshot.to_dict() or {}
+
+        current_balance = float(
+            user_data.get("balance", 0.0)
+        )
+
+        current_usd_balance = float(
+            user_data.get("usd_balance", 0.0)
+        )
+
+        if current_balance < cost_zn:
+            return {
+                "success": False,
+                "error": (
+                    "رصيد العملات غير كافٍ! سعر الترقية "
+                    f"{cost_zn:,.0f} ZN"
+                )
+            }
 
         if (
-            dailyTimerElement &&
-            pData.last_daily_claim_date === todayStr
-        ) {
-            dailyTimerElement.innerText =
-                `⏳ ${timeLeftStr}`;
+            cost_usd > 0
+            and current_usd_balance < cost_usd
+        ):
+            return {
+                "success": False,
+                "error": (
+                    "رصيد الدولار غير كافٍ! يتطلب "
+                    f"${cost_usd:.2f} USD"
+                )
+            }
+
+        upgrades = user_data.get(
+            "upgrades",
+            {}
+        )
+
+        if not isinstance(upgrades, dict):
+            upgrades = {}
+
+        lvl_key = f"lvl{level_str}"
+        current_count = int(
+            upgrades.get(lvl_key, 0)
+        )
+
+        if current_count >= 15:
+            return {
+                "success": False,
+                "error": (
+                    "لقد وصلت للحد الأقصى للشراء "
+                    "لهذا المستوى (15/15)"
+                )
+            }
+
+        if int(level_str) > 1:
+            prev_lvl = str(
+                int(level_str) - 1
+            )
+
+            prev_key = f"lvl{prev_lvl}"
+            prev_count = int(
+                upgrades.get(prev_key, 0)
+            )
+
+            if prev_count == 0:
+                return {
+                    "success": False,
+                    "error": (
+                        "يجب شراء المستوى السابق أولاً"
+                    )
+                }
+
+        now = datetime.now(timezone.utc)
+        now_iso = now.isoformat()
+
+        max_cap = calculate_user_max_cap(
+            user_data,
+            game_settings
+        )
+
+        mined_amount = calculate_accrued_mined(
+            user_data,
+            now,
+            max_cap
+        )
+
+        new_balance = round(
+            current_balance - cost_zn,
+            8
+        )
+
+        new_usd_balance = round(
+            current_usd_balance - cost_usd,
+            6
+        )
+
+        current_hourly_rate = float(
+            user_data.get(
+                "hourly_rate",
+                0.05
+            )
+        )
+
+        new_hourly_rate = round(
+            current_hourly_rate + rate_bonus,
+            2
+        )
+
+        if (
+            new_hourly_rate > 0
+            and mined_amount > 0
+        ):
+            equiv_seconds = (
+                mined_amount
+                / (new_hourly_rate / 3600.0)
+            )
+
+            new_last_claim_iso = (
+                now
+                - timedelta(seconds=equiv_seconds)
+            ).isoformat()
+
+        else:
+            new_last_claim_iso = now_iso
+
+        upgrades[lvl_key] = current_count + 1
+
+        total_upgrades_count = sum(
+            int(v)
+            for v in upgrades.values()
+            if isinstance(v, (int, float))
+        )
+
+        transaction.update(
+            ref,
+            {
+                "balance": new_balance,
+                "usd_balance": new_usd_balance,
+                "hourly_rate": new_hourly_rate,
+                "upgrades": upgrades,
+                "upgrades_count": total_upgrades_count,
+                "last_claim_time": new_last_claim_iso
+            }
+        )
+
+        referrer_id = (
+            user_data.get("referrer_id")
+            or user_data.get("referred_by")
+            or user_data.get("invited_by")
+        )
+
+        return {
+            "success": True,
+            "new_balance": new_balance,
+            "new_usd_balance": new_usd_balance,
+            "new_hourly_rate": new_hourly_rate,
+            "last_claim_time": new_last_claim_iso,
+            "unclaimed": mined_amount,
+            "upgrades": upgrades,
+            "upgrades_count": total_upgrades_count,
+            "server_time": now_iso,
+            "referrer_id": referrer_id
         }
-    }, 1000);
 
-    function syncOnVisibility() {
-        if (document.visibilityState === "visible") {
-            window.fetchPlayerDataFromServer(true);
+    try:
+        transaction = db.transaction()
+        res = run_upgrade_transaction(
+            transaction,
+            user_ref
+        )
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": (
+                f"تعذر تنفيذ عملية الترقية: {str(e)}"
+            )
         }
-    }
 
-    window.addEventListener(
-        "pageshow",
-        syncOnVisibility
-    );
+    if res.get("success") and res.get("referrer_id"):
+        try:
+            ref_id = str(
+                res["referrer_id"]
+            )
 
-    document.addEventListener(
-        "visibilitychange",
-        syncOnVisibility
-    );
+            upg_cnt = res[
+                "upgrades_count"
+            ]
 
-    function showTelegramAd() {
-        return new Promise((resolve) => {
+            db.collection("users").document(
+                ref_id
+            ).collection("friends").document(
+                user_id_str
+            ).set(
+                {
+                    "upgrades_count": upg_cnt,
+                    "tg_id": user_id_str
+                },
+                merge=True
+            )
+
+        except Exception as e:
+            print(
+                "⚠️ Warning updating friend "
+                f"upgrades_count for referrer: {e}"
+            )
+
+    return res
+
+
+def buy_storage_db(user_id_str):
+    """شراء ترقية سعة التخزين للمستوى التالي"""
+    db = get_db()
+    user_ref = db.collection("users").document(user_id_str)
+    game_settings = get_game_settings()
+
+    storage_cfgs = (
+        game_settings.get("storage_capacities")
+        or DEFAULT_GAME_SETTINGS["storage_capacities"]
+    )
+
+    @firestore.transactional
+    def run_storage_transaction(transaction, ref):
+        snapshot = ref.get(transaction=transaction)
+
+        if not snapshot.exists:
+            return {
+                "success": False,
+                "error": "المستخدم غير موجود"
+            }
+
+        user_data = snapshot.to_dict() or {}
+
+        current_level = int(
+            user_data.get(
+                "storage_level",
+                0
+            )
+        )
+
+        next_level = current_level + 1
+
+        if (
+            next_level > 9
+            or str(next_level) not in storage_cfgs
+        ):
+            return {
+                "success": False,
+                "error": (
+                    "المخزن في أقصى مستوى بالفعل (MAX)"
+                )
+            }
+
+        next_cfg = storage_cfgs[
+            str(next_level)
+        ]
+
+        if isinstance(next_cfg, dict):
+            cost_zn = float(
+                next_cfg.get(
+                    "cost_zn",
+                    next_cfg.get("cost", 0.0)
+                )
+            )
+
+            cost_usd = float(
+                next_cfg.get(
+                    "cost_usd",
+                    0.0
+                )
+            )
+
+            new_capacity = float(
+                next_cfg.get(
+                    "capacity",
+                    30.0
+                )
+            )
+
+        else:
+            cost_zn = 0.0
+            cost_usd = 0.0
+            new_capacity = float(
+                next_cfg
+            )
+
+        current_balance = float(
+            user_data.get(
+                "balance",
+                0.0
+            )
+        )
+
+        current_usd_balance = float(
+            user_data.get(
+                "usd_balance",
+                0.0
+            )
+        )
+
+        if current_balance < cost_zn:
+            return {
+                "success": False,
+                "error": (
+                    "رصيدك غير كافٍ! سعر ترقية المخزن "
+                    f"{cost_zn:,.0f} ZN"
+                )
+            }
+
+        if (
+            cost_usd > 0
+            and current_usd_balance < cost_usd
+        ):
+            return {
+                "success": False,
+                "error": (
+                    "رصيد الدولار غير كافٍ! يتطلب "
+                    f"${cost_usd:.2f} USD"
+                )
+            }
+
+        now = datetime.now(timezone.utc)
+        now_iso = now.isoformat()
+
+        old_max_cap = calculate_user_max_cap(
+            user_data,
+            game_settings
+        )
+
+        mined_amount = calculate_accrued_mined(
+            user_data,
+            now,
+            old_max_cap
+        )
+
+        hourly_rate = float(
+            user_data.get(
+                "hourly_rate",
+                0.05
+            )
+        )
+
+        extra_cap = float(
+            user_data.get(
+                "extra_storage",
+                0.0
+            )
+        )
+
+        new_max_cap = round(
+            new_capacity + extra_cap,
+            2
+        )
+
+        new_balance = round(
+            current_balance - cost_zn,
+            8
+        )
+
+        new_usd_balance = round(
+            current_usd_balance - cost_usd,
+            6
+        )
+
+        if (
+            hourly_rate > 0
+            and mined_amount > 0
+        ):
+            equiv_seconds = (
+                mined_amount
+                / (hourly_rate / 3600.0)
+            )
+
+            new_last_claim_iso = (
+                now
+                - timedelta(seconds=equiv_seconds)
+            ).isoformat()
+
+        else:
+            new_last_claim_iso = now_iso
+
+        transaction.update(
+            ref,
+            {
+                "balance": new_balance,
+                "usd_balance": new_usd_balance,
+                "storage_level": next_level,
+                "max_cap": new_max_cap,
+                "last_claim_time": new_last_claim_iso
+            }
+        )
+
+        return {
+            "success": True,
+            "new_balance": new_balance,
+            "new_usd_balance": new_usd_balance,
+            "storage_level": next_level,
+            "max_cap": new_max_cap,
+            "last_claim_time": new_last_claim_iso,
+            "unclaimed": mined_amount,
+            "server_time": now_iso
+        }
+
+    try:
+        transaction = db.transaction()
+        return run_storage_transaction(
+            transaction,
+            user_ref
+        )
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": (
+                f"تعذر إتمام ترقية المخزن: {str(e)}"
+            )
+        }
+
+
+def claim_daily_reward_db(user_id_str):
+    """استلام المكافأة اليومية (مدرجة حتى 30 يوم)"""
+    db = get_db()
+    user_ref = db.collection("users").document(user_id_str)
+    game_settings = get_game_settings()
+
+    parsed_rewards = parse_daily_rewards(
+        game_settings.get("daily_rewards")
+    )
+
+    @firestore.transactional
+    def run_daily_claim_transaction(transaction, ref):
+        snapshot = ref.get(transaction=transaction)
+
+        if not snapshot.exists:
+            return {
+                "success": False,
+                "error": "المستخدم غير موجود"
+            }
+
+        user_data = snapshot.to_dict() or {}
+        now = datetime.now(timezone.utc)
+
+        today_str = now.strftime(
+            "%Y-%m-%d"
+        )
+
+        yesterday_str = (
+            now - timedelta(days=1)
+        ).strftime("%Y-%m-%d")
+
+        last_daily_claim = user_data.get(
+            "last_daily_claim_date"
+        )
+
+        if last_daily_claim == today_str:
+            return {
+                "success": False,
+                "error": (
+                    "لقد قمت باستلام المكافأة اليوم بالفعل"
+                )
+            }
+
+        raw_daily_day = int(
+            user_data.get("daily_day")
+            or user_data.get("daily_streak")
+            or 1
+        )
+
+        if last_daily_claim == yesterday_str:
+            effective_daily_day = (
+                min(raw_daily_day + 1, 30)
+                if raw_daily_day < 30
+                else 30
+            )
+        else:
+            effective_daily_day = 1
+
+        reward_index = min(
+            max(effective_daily_day - 1, 0),
+            29
+        )
+
+        reward_amount = float(
+            parsed_rewards[reward_index]
+        )
+
+        current_balance = float(
+            user_data.get(
+                "balance",
+                0.0
+            )
+        )
+
+        current_usd_balance = float(
+            user_data.get(
+                "usd_balance",
+                0.0
+            )
+        )
+
+        # لا نفقد الجزء العشري الموجود مسبقاً في الرصيد.
+        new_balance = round(
+            current_balance + reward_amount,
+            8
+        )
+
+        new_ads_watched = (
+            int(user_data.get("ads_watched", 0))
+            + 1
+        )
+
+        transaction.update(
+            ref,
+            {
+                "balance": new_balance,
+                "daily_day": effective_daily_day,
+                "daily_streak": effective_daily_day,
+                "last_daily_claim_date": today_str,
+                "ads_watched": new_ads_watched
+            }
+        )
+
+        return {
+            "success": True,
+            "new_balance": new_balance,
+            "new_usd_balance": current_usd_balance,
+            "daily_day": effective_daily_day,
+            "last_daily_claim_date": today_str,
+            "ads_watched": new_ads_watched,
+            "server_time": now.isoformat()
+        }
+
+    try:
+        transaction = db.transaction()
+        return run_daily_claim_transaction(
+            transaction,
+            user_ref
+        )
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": (
+                f"تعذر استلام المكافأة اليومية: {str(e)}"
+            )
+        }
+
+
+def claim_daily_boost_db(user_id_str):
+    """تفعيل المعزز اليومي"""
+    db = get_db()
+    user_ref = db.collection("users").document(user_id_str)
+    game_settings = get_game_settings()
+
+    mining_cfg = game_settings.get(
+        "mining_config",
+        DEFAULT_GAME_SETTINGS["mining_config"]
+    )
+
+    daily_boost_reward = round(
+        float(
+            mining_cfg.get(
+                "daily_boost_reward",
+                0.15
+            )
+        ),
+        2
+    )
+
+    max_daily_boost_rate = round(
+        float(
+            mining_cfg.get(
+                "max_daily_boost_rate",
+                4.5
+            )
+        ),
+        2
+    )
+
+    boost_max_reward_coins = round(
+        float(
+            mining_cfg.get(
+                "boost_max_reward_coins",
+                35.0
+            )
+        ),
+        2
+    )
+
+    @firestore.transactional
+    def run_boost_transaction(transaction, ref):
+        snapshot = ref.get(transaction=transaction)
+
+        if not snapshot.exists:
+            return {
+                "success": False,
+                "error": "المستخدم غير موجود"
+            }
+
+        user_data = snapshot.to_dict() or {}
+
+        now = datetime.now(timezone.utc)
+
+        today_str = now.strftime(
+            "%Y-%m-%d"
+        )
+
+        now_iso = now.isoformat()
+
+        last_boost = user_data.get(
+            "last_boost_date"
+        )
+
+        if last_boost == today_str:
+            return {
+                "success": False,
+                "error": (
+                    "لقد حصلت على تعزيز اليوم بالفعل"
+                )
+            }
+
+        daily_boost_rate = float(
+            user_data.get(
+                "daily_boost_rate",
+                0.0
+            ) or 0.0
+        )
+
+        current_hourly_rate = float(
+            user_data.get(
+                "hourly_rate",
+                0.05
+            ) or 0.05
+        )
+
+        current_balance = float(
+            user_data.get(
+                "balance",
+                0.0
+            ) or 0.0
+        )
+
+        current_usd_balance = float(
+            user_data.get(
+                "usd_balance",
+                0.0
+            ) or 0.0
+        )
+
+        current_ads = int(
+            user_data.get(
+                "ads_watched",
+                0
+            ) or 0
+        )
+
+        new_ads = current_ads + 1
+
+        max_cap = calculate_user_max_cap(
+            user_data,
+            game_settings
+        )
+
+        mined_amount = calculate_accrued_mined(
+            user_data,
+            now,
+            max_cap
+        )
+
+        if round(
+            daily_boost_rate,
+            2
+        ) < max_daily_boost_rate:
+
+            new_daily_boost_rate = round(
+                daily_boost_rate
+                + daily_boost_reward,
+                2
+            )
+
+            new_hourly_rate = round(
+                current_hourly_rate
+                + daily_boost_reward,
+                2
+            )
+
             if (
-                typeof window.show_11322720 ===
-                "function"
-            ) {
-                try {
-                    window
-                        .show_11322720()
-                        .then(() => resolve(true))
-                        .catch((err) => {
-                            console.warn(
-                                "فشل أو تم إغلاق الإعلان:",
-                                err
-                            );
+                new_hourly_rate > 0
+                and mined_amount > 0
+            ):
+                equiv_seconds = (
+                    mined_amount
+                    / (new_hourly_rate / 3600.0)
+                )
 
-                            showToast(
-                                "⚠️ يجب مشاهدة الإعلان حتى النهاية للحصول على المكافأة!"
-                            );
+                new_last_claim_iso = (
+                    now
+                    - timedelta(
+                        seconds=equiv_seconds
+                    )
+                ).isoformat()
 
-                            resolve(false);
-                        });
-                } catch (e) {
-                    console.error(
-                        "استثناء في الإعلانات:",
-                        e
-                    );
+            else:
+                new_last_claim_iso = now_iso
 
-                    showToast(
-                        "❌ تعذر عرض الإعلان. حاول مرة أخرى."
-                    );
-
-                    resolve(false);
+            transaction.update(
+                ref,
+                {
+                    "daily_boost_rate": new_daily_boost_rate,
+                    "hourly_rate": new_hourly_rate,
+                    "last_boost_date": today_str,
+                    "ads_watched": new_ads,
+                    "last_claim_time": new_last_claim_iso
                 }
-            } else {
-                showToast(
-                    "⚠️ الإعلانات غير متوفرة حالياً، يرجى إعادة المحاولة لاحقاً."
-                );
+            )
 
-                resolve(false);
+            return {
+                "success": True,
+                "type": "speed",
+                "boost_amount": daily_boost_reward,
+                "new_rate": new_hourly_rate,
+                "daily_boost_rate": new_daily_boost_rate,
+                "last_boost_date": today_str,
+                "last_claim_time": new_last_claim_iso,
+                "unclaimed": mined_amount,
+                "new_balance": current_balance,
+                "new_usd_balance": current_usd_balance,
+                "server_time": now_iso
             }
-        });
-    }
 
-    window.handleStorageUpgrade = async function () {
-        if (isUpgradingStorage) return;
+        else:
+            new_balance = round(
+                current_balance
+                + boost_max_reward_coins,
+                8
+            )
 
-        isUpgradingStorage = true;
-
-        try {
-            const resData =
-                await window.fetchAPI(
-                    "/api/farm/upgrade_storage",
-                    "POST",
-                    {}
-                );
-
-            if (resData && resData.success) {
-                if (resData.server_time) {
-                    syncServerTime(
-                        resData.server_time
-                    );
+            transaction.update(
+                ref,
+                {
+                    "balance": new_balance,
+                    "last_boost_date": today_str,
+                    "ads_watched": new_ads
                 }
+            )
 
-                setStoredBalance(
-                    resData.new_balance,
-                    resData.new_usd_balance
-                );
-
-                if (!window.userState) {
-                    window.userState = {};
-                }
-
-                if (!window.PlayerData) {
-                    window.PlayerData = {};
-                }
-
-                if (
-                    resData.storage_level !==
-                    undefined
-                ) {
-                    window.userState.storage_level =
-                        resData.storage_level;
-
-                    window.PlayerData.storage_level =
-                        resData.storage_level;
-                }
-
-                if (
-                    resData.max_cap !== undefined
-                ) {
-                    window.userState.max_cap =
-                        resData.max_cap;
-
-                    window.PlayerData.max_cap =
-                        resData.max_cap;
-                }
-
-                if (
-                    resData.last_claim_time
-                ) {
-                    window.userState.last_claim_time =
-                        resData.last_claim_time;
-
-                    window.PlayerData.last_claim_time =
-                        resData.last_claim_time;
-                }
-
-                if (
-                    resData.unclaimed !==
-                    undefined
-                ) {
-                    window.userState.unclaimed =
-                        resData.unclaimed;
-
-                    window.PlayerData.unclaimed =
-                        resData.unclaimed;
-                }
-
-                saveCachedData(
-                    window.userState
-                );
-
-                showToast(
-                    `📦 تم ترقية سعة المخزن بنجاح إلى Level ${resData.storage_level}!`
-                );
-
-                window.updateFarmUI();
-            } else {
-                showToast(
-                    resData?.error ||
-                    "❌ تعذر ترقية المخزن"
-                );
+            return {
+                "success": True,
+                "type": "balance",
+                "reward_coins": boost_max_reward_coins,
+                "new_balance": new_balance,
+                "new_usd_balance": current_usd_balance,
+                "last_boost_date": today_str,
+                "server_time": now_iso
             }
-        } catch (e) {
-            console.error(
-                "خطأ ترقية المخزن:",
-                e
-            );
 
-            showToast(
-                "❌ حدث خطأ أثناء ترقية المخزن"
-            );
-        } finally {
-            isUpgradingStorage = false;
-            window.updateFarmUI();
+    try:
+        transaction = db.transaction()
+        return run_boost_transaction(
+            transaction,
+            user_ref
+        )
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": (
+                f"تعذر تفعيل التعزيز: {str(e)}"
+            )
         }
-    };
-
-    window.handleUpgrade = async function (level) {
-        if (isUpgrading) return;
-
-        const levelConfig =
-            GAME_CONFIG.upgradeCosts[level] ||
-            {};
-
-        const costZn =
-            Number.parseFloat(
-                levelConfig.cost_zn ??
-                levelConfig.base_cost ??
-                levelConfig.price ??
-                0
-            ) || 0;
-
-        const costUsd =
-            Number.parseFloat(
-                levelConfig.cost_usd ??
-                levelConfig.base_cost_usd ??
-                0
-            ) || 0;
-
-        const currentBalance =
-            getStoredBalance();
-
-        const currentUsdBalance =
-            getStoredUsdBalance();
-
-        if (
-            currentBalance + 1e-12 < costZn ||
-            currentUsdBalance + 1e-12 < costUsd
-        ) {
-            let message =
-                `❌ رصيدك غير كافٍ! سعر الترقية: ${costZn.toLocaleString()} ZN`;
-
-            if (costUsd > 0) {
-                message +=
-                    ` + $${costUsd.toFixed(2)} USD`;
-            }
-
-            showToast(message);
-            return;
-        }
-
-        isUpgrading = true;
-        window.updateFarmUI();
-
-        try {
-            const resData =
-                await window.fetchAPI(
-                    "/api/farm/upgrade",
-                    "POST",
-                    { level }
-                );
-
-            if (resData && resData.success) {
-                if (resData.server_time) {
-                    syncServerTime(
-                        resData.server_time
-                    );
-                }
-
-                setStoredBalance(
-                    resData.new_balance,
-                    resData.new_usd_balance
-                );
-
-                if (!window.userState) {
-                    window.userState = {};
-                }
-
-                if (!window.PlayerData) {
-                    window.PlayerData = {};
-                }
-
-                if (
-                    resData.new_hourly_rate !==
-                    undefined
-                ) {
-                    window.userState.hourly_rate =
-                        resData.new_hourly_rate;
-
-                    window.PlayerData.hourly_rate =
-                        resData.new_hourly_rate;
-                }
-
-                if (resData.upgrades) {
-                    window.userState.upgrades =
-                        resData.upgrades;
-
-                    window.PlayerData.upgrades =
-                        resData.upgrades;
-                }
-
-                if (
-                    resData.last_claim_time
-                ) {
-                    window.userState.last_claim_time =
-                        resData.last_claim_time;
-
-                    window.PlayerData.last_claim_time =
-                        resData.last_claim_time;
-                }
-
-                if (
-                    resData.unclaimed !==
-                    undefined
-                ) {
-                    window.userState.unclaimed =
-                        resData.unclaimed;
-
-                    window.PlayerData.unclaimed =
-                        resData.unclaimed;
-                }
-
-                saveCachedData(
-                    window.userState
-                );
-
-                showToast(
-                    `🏛️ تم ترقية المستوى ${level} بنجاح!`
-                );
-
-                window.updateFarmUI();
-            } else {
-                showToast(
-                    resData?.error ||
-                    "❌ تعذر إتمام الترقية"
-                );
-            }
-        } catch (e) {
-            console.error(
-                "خطأ الترقية:",
-                e
-            );
-
-            showToast(
-                "❌ حدث خطأ أثناء عملية الشراء"
-            );
-        } finally {
-            isUpgrading = false;
-            window.updateFarmUI();
-        }
-    };
-
-    window.handleDailyClaim = async function (dayNum) {
-        if (isClaimingDaily) return;
-
-        isClaimingDaily = true;
-        renderDailyRewards();
-
-        try {
-            const adWatched =
-                await showTelegramAd();
-
-            if (!adWatched) {
-                return;
-            }
-
-            const resData =
-                await window.fetchAPI(
-                    "/api/farm/daily_claim",
-                    "POST",
-                    {}
-                );
-
-            if (resData && resData.success) {
-                if (resData.server_time) {
-                    syncServerTime(
-                        resData.server_time
-                    );
-                }
-
-                setStoredBalance(
-                    resData.new_balance,
-                    resData.new_usd_balance
-                );
-
-                if (!window.userState) {
-                    window.userState = {};
-                }
-
-                if (!window.PlayerData) {
-                    window.PlayerData = {};
-                }
-
-                if (
-                    resData.daily_day !==
-                    undefined
-                ) {
-                    window.userState.daily_day =
-                        resData.daily_day;
-
-                    window.PlayerData.daily_day =
-                        resData.daily_day;
-                }
-
-                if (
-                    resData.last_daily_claim_date
-                ) {
-                    window.userState.last_daily_claim_date =
-                        resData.last_daily_claim_date;
-
-                    window.PlayerData.last_daily_claim_date =
-                        resData.last_daily_claim_date;
-                }
-
-                saveCachedData(
-                    window.userState
-                );
-
-                showToast(
-                    `🎉 تم استلام مكافأة اليوم ${resData.daily_day} بنجاح!`
-                );
-
-                window.updateFarmUI();
-            } else {
-                showToast(
-                    resData?.error ||
-                    "❌ تعذر استلام المكافأة"
-                );
-            }
-        } catch (e) {
-            console.error(
-                "خطأ استلام المكافأة اليومية:",
-                e
-            );
-
-            showToast(
-                "❌ حدث خطأ أثناء استلام المكافأة اليومية"
-            );
-        } finally {
-            isClaimingDaily = false;
-            renderDailyRewards();
-        }
-    };
-
-    window.handleDailyBoost = async function () {
-        if (isBoosting) return;
-
-        isBoosting = true;
-        window.updateFarmUI();
-
-        try {
-            const adWatched =
-                await showTelegramAd();
-
-            if (!adWatched) {
-                return;
-            }
-
-            const resData =
-                await window.fetchAPI(
-                    "/api/farm/daily_boost",
-                    "POST",
-                    {}
-                );
-
-            if (resData && resData.success) {
-                if (resData.server_time) {
-                    syncServerTime(
-                        resData.server_time
-                    );
-                }
-
-                setStoredBalance(
-                    resData.new_balance,
-                    resData.new_usd_balance
-                );
-
-                if (!window.userState) {
-                    window.userState = {};
-                }
-
-                if (!window.PlayerData) {
-                    window.PlayerData = {};
-                }
-
-                if (
-                    resData.type === "speed"
-                ) {
-                    if (
-                        resData.new_rate !==
-                        undefined
-                    ) {
-                        window.userState.hourly_rate =
-                            resData.new_rate;
-
-                        window.PlayerData.hourly_rate =
-                            resData.new_rate;
-                    }
-
-                    if (
-                        resData.daily_boost_rate !==
-                        undefined
-                    ) {
-                        window.userState.daily_boost_rate =
-                            resData.daily_boost_rate;
-
-                        window.PlayerData.daily_boost_rate =
-                            resData.daily_boost_rate;
-                    }
-
-                    if (
-                        resData.last_claim_time
-                    ) {
-                        window.userState.last_claim_time =
-                            resData.last_claim_time;
-
-                        window.PlayerData.last_claim_time =
-                            resData.last_claim_time;
-                    }
-
-                    if (
-                        resData.unclaimed !==
-                        undefined
-                    ) {
-                        window.userState.unclaimed =
-                            resData.unclaimed;
-
-                        window.PlayerData.unclaimed =
-                            resData.unclaimed;
-                    }
-
-                    showToast(
-                        `⚡ تم زيادة سرعة التعدين بمقدار +${resData.boost_amount || GAME_CONFIG.dailyBoostReward}/h وحفظ المحصول المعدن!`
-                    );
-                } else if (
-                    resData.type === "balance"
-                ) {
-                    showToast(
-                        `💰 تهانينا! تمت إضافة ${formatZnAmount(
-                            resData.reward_coins ||
-                            GAME_CONFIG.boostMaxRewardCoins
-                        )} ZN إلى رصيدك مباشرة!`
-                    );
-                }
-
-                if (
-                    resData.last_boost_date
-                ) {
-                    window.userState.last_boost_date =
-                        resData.last_boost_date;
-
-                    window.PlayerData.last_boost_date =
-                        resData.last_boost_date;
-                }
-
-                saveCachedData(
-                    window.userState
-                );
-
-                window.updateFarmUI();
-            } else {
-                showToast(
-                    resData?.error ||
-                    "❌ تعذر تفعيل التعزيز"
-                );
-            }
-        } catch (e) {
-            console.error(
-                "خطأ التعزيز اليومي:",
-                e
-            );
-
-            showToast(
-                "❌ حدث خطأ أثناء تفعيل التعزيز"
-            );
-        } finally {
-            isBoosting = false;
-            window.updateFarmUI();
-        }
-    };
-
-    window.handleMainClaim = async function () {
-        if (isClaimingMain) return;
-
-        isClaimingMain = true;
-        window.updateFarmUI();
-
-        try {
-            const resData =
-                await window.fetchAPI(
-                    "/api/farm/claim",
-                    "POST",
-                    {}
-                );
-
-            if (resData && resData.success) {
-                if (resData.server_time) {
-                    syncServerTime(
-                        resData.server_time
-                    );
-                }
-
-                setStoredBalance(
-                    resData.new_balance,
-                    resData.new_usd_balance
-                );
-
-                if (!window.userState) {
-                    window.userState = {};
-                }
-
-                if (!window.PlayerData) {
-                    window.PlayerData = {};
-                }
-
-                if (
-                    resData.last_claim_time
-                ) {
-                    window.userState.last_claim_time =
-                        resData.last_claim_time;
-
-                    window.PlayerData.last_claim_time =
-                        resData.last_claim_time;
-                }
-
-                window.userState.unclaimed = 0.0;
-                window.PlayerData.unclaimed = 0.0;
-
-                saveCachedData(
-                    window.userState
-                );
-
-                showToast(
-                    `💰 تم تجميع ${formatZnAmount(
-                        resData.claimed_amount
-                    )} ZN بنجاح!`
-                );
-
-                window.updateFarmUI();
-            } else {
-                showToast(
-                    resData?.error ||
-                    "❌ تعذر تجميع الرصيد"
-                );
-            }
-        } catch (e) {
-            console.error(
-                "خطأ التجميع الرئيسي:",
-                e
-            );
-
-            showToast(
-                "❌ حدث خطأ أثناء التجميع"
-            );
-        } finally {
-            isClaimingMain = false;
-            window.updateFarmUI();
-        }
-    };
-
-    window.handleClaim =
-        window.handleMainClaim;
-})();
