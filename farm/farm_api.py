@@ -29,6 +29,12 @@ def get_player_data():
     try:
         user_data, game_settings, now = get_or_create_user_farm_data(user_id_str)
         
+        # التأكد الصريح من إرجاع حالة المستخدم الجديد بشكل صحيح للواجهة
+        if "is_new_user" in user_data:
+            user_data["is_new_user"] = bool(user_data["is_new_user"])
+        else:
+            user_data["is_new_user"] = False
+
         parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
         upgrade_configs = game_settings.get("upgrade_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
         
