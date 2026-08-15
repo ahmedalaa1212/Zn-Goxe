@@ -642,32 +642,30 @@ def claim_daily_boost_db(user_id_str):
                 new_last_claim_iso = now_iso
 
             transaction.update(ref, {
-                "hourly_rate": new_hourly_rate,
                 "daily_boost_rate": new_daily_boost_rate,
+                "hourly_rate": new_hourly_rate,
                 "last_boost_date": today_str,
-                "last_claim_time": new_last_claim_iso,
-                "ads_watched": new_ads
+                "ads_watched": new_ads,
+                "last_claim_time": new_last_claim_iso
             })
 
             return {
                 "success": True,
                 "type": "speed",
-                "new_balance": current_balance,
-                "new_usd_balance": current_usd_balance,
+                "boost_amount": daily_boost_reward,
                 "new_rate": new_hourly_rate,
                 "daily_boost_rate": new_daily_boost_rate,
-                "ads_watched": new_ads,
                 "last_boost_date": today_str,
                 "last_claim_time": new_last_claim_iso,
                 "unclaimed": mined_amount,
-                "server_time": now_iso,
-                "boost_amount": daily_boost_reward
+                "new_balance": current_balance,
+                "new_usd_balance": current_usd_balance,
+                "server_time": now_iso
             }
         else:
-            final_balance = round(current_balance + boost_max_reward_coins, 2)
-
+            new_balance = round(current_balance + boost_max_reward_coins, 2)
             transaction.update(ref, {
-                "balance": final_balance,
+                "balance": new_balance,
                 "last_boost_date": today_str,
                 "ads_watched": new_ads
             })
@@ -675,12 +673,9 @@ def claim_daily_boost_db(user_id_str):
             return {
                 "success": True,
                 "type": "balance",
-                "new_balance": final_balance,
-                "new_usd_balance": current_usd_balance,
                 "reward_coins": boost_max_reward_coins,
-                "new_rate": current_hourly_rate,
-                "daily_boost_rate": daily_boost_rate,
-                "ads_watched": new_ads,
+                "new_balance": new_balance,
+                "new_usd_balance": current_usd_balance,
                 "last_boost_date": today_str,
                 "server_time": now_iso
             }
@@ -689,4 +684,4 @@ def claim_daily_boost_db(user_id_str):
         transaction = db.transaction()
         return run_boost_transaction(transaction, user_ref)
     except Exception as e:
-        return {"success": False, "error": f"تعذر تفعيل المعزز اليومي: {str(e)}"}
+        return {"success": False, "error": f"تعذر تفعيل التعزيز: {str(e)}"}
