@@ -1,6 +1,6 @@
 // shop/shop.js
 // =================================================================
-// 🛒 ZN Goxe - Shop Module (Enforced 4 Decimal Places Across All UI)
+// 🛒 ZN Goxe - Shop Module (Clean Numbers UI + 4 Decimals for Top Balance & TON Only)
 // =================================================================
 
 (function initShop() {
@@ -31,23 +31,30 @@
         return 0;
     }
 
-    // 🎯 فرض 4 أرقام عشرية دائماً للدولار
-    function formatUSD(num) {
+    // 🎯 تنظيف الأرقام وإزالة الأصفار العشرية الزائدة (مثال: 2.5 بدلاً من 2.5000)
+    function cleanNum(num) {
         let val = floatVal(num);
-        return val.toFixed(4);
+        return parseFloat(val.toFixed(4)).toString();
     }
 
-    // 🎯 فرض 4 أرقام عشرية للأرقام العامة والـ Abbreviated
-    function formatNumberAbbreviated(num, decimals = 4) {
+    // 🎯 تنسيق أسعار الدولار للباقات والعروض بشكل نظيف
+    function formatUSD(num) {
+        return cleanNum(num);
+    }
+
+    // 🎯 تنسيق أرقام ZN والسعات الكبيرة (K, M, B) بشكل طبيعي وبدون أصفار عشرية زائدة
+    function formatNumberAbbreviated(num) {
         let val = floatVal(num);
-        if (val >= 1000000000) return (val / 1000000000).toFixed(decimals) + 'B';
-        if (val >= 1000000) return (val / 1000000).toFixed(decimals) + 'M';
-        if (val >= 1000) return (val / 1000).toFixed(decimals) + 'K';
-        
-        return val.toLocaleString('en-US', { 
-            minimumFractionDigits: decimals, 
-            maximumFractionDigits: decimals 
-        });
+        if (val >= 1000000000) return parseFloat((val / 1000000000).toFixed(2)) + 'B';
+        if (val >= 1000000) return parseFloat((val / 1000000).toFixed(2)) + 'M';
+        if (val >= 1000) return parseFloat((val / 1000).toFixed(2)) + 'K';
+        return parseFloat(val.toFixed(2)).toString();
+    }
+
+    // 🎯 فرض 4 أرقام عشرية حصراً للرصيد العلوي وسعر TON المباشر
+    function formatTopBalance(num) {
+        let val = floatVal(num);
+        return val.toFixed(4);
     }
 
     function initTonConnect() {
@@ -126,7 +133,7 @@
         const tonPriceElem = document.getElementById('ton-live-rate-text');
         const livePrice = floatVal(data.ton_price_usd, window.tonPrice, window.userState?.ton_price, 5.0);
         if (tonPriceElem && livePrice) {
-            tonPriceElem.innerText = `$${livePrice.toFixed(4)}`; // 🎯 4 أرقام عشرية لسعر TON
+            tonPriceElem.innerText = `$${formatTopBalance(livePrice)}`; // 🎯 4 أرقام عشرية لسعر TON المباشر
         }
 
         const packages = data.packages || data.usdt_packages || (data.settings && data.settings.usdt_packages);
@@ -179,9 +186,9 @@
                 tonAmount = usdtPrice / liveTonPrice;
             }
 
-            let rateAddFormatted = floatVal(pkg.rate_add).toFixed(4); // 🎯 4 أرقام عشرية
-            let storageAddFormatted = floatVal(pkg.storage_add).toFixed(4); // 🎯 4 أرقام عشرية
-            let znAddFormatted = formatNumberAbbreviated(floatVal(pkg.zn_add), 4);
+            let rateAddFormatted = cleanNum(pkg.rate_add);
+            let storageAddFormatted = cleanNum(pkg.storage_add);
+            let znAddFormatted = formatNumberAbbreviated(floatVal(pkg.zn_add));
 
             html += `
                 <div class="usdt-card" style="background: ${theme.bg}; border: 1px solid ${theme.border};">
@@ -189,7 +196,7 @@
                         <div style="font-size: 26px;">${theme.icon}</div>
                         <div style="color: #ffffff; font-weight: bold; font-size: 13px;">${pkg.title || 'باقة مميزة'}</div>
                         <div style="color: ${theme.border}; font-weight: 800; font-size: 17px; margin: 4px 0;">$${formatUSD(usdtPrice)}</div>
-                        <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${tonAmount.toFixed(4)} TON</div>
+                        <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${cleanNum(tonAmount)} TON</div>
                     </div>
                     <div class="usdt-perks">
                         ⚡ +${rateAddFormatted} ZN/h<br>
@@ -364,7 +371,7 @@
                         <div id="shop-modal-icon" style="font-size: 45px; margin-bottom: 10px;">🛒</div>
                         <div class="shop-modal-title" id="shop-modal-title">تأكيد الشراء</div>
                         <div class="shop-modal-desc" id="shop-modal-desc">هل أنت متأكد من هذه العملية؟</div>
-                        <div class="shop-modal-price-box" id="shop-modal-price">0.0000 ZN</div>
+                        <div class="shop-modal-price-box" id="shop-modal-price">0 ZN</div>
                         <div class="shop-modal-actions">
                             <button class="shop-btn shop-btn-cancel" onclick="closeShopModal()">إلغاء</button>
                             <button class="shop-btn shop-btn-confirm" id="shop-modal-confirm-btn">شراء الآن</button>
@@ -424,31 +431,32 @@
         let totalBal = floatVal(pData.balance);
         let totalUsd = floatVal(pData.usd_balance, pData.balance_usd, pData.usd, pData.usdt);
 
+        // 🎯 عرض الرصيد العلوي فقط بـ 4 أرقام عشرية
         const balElem = document.getElementById('shop-balance-text');
         if (balElem) {
-            balElem.innerText = `${formatNumberAbbreviated(totalBal, 4)} ZN`; // 🎯 4 أرقام عشرية
+            balElem.innerText = `${formatTopBalance(totalBal)} ZN`;
         }
 
         const elBalances = document.querySelectorAll('.zn-balance-display, #top-balance-shop, #top-balance, #header-zn-balance, .user-balance');
         elBalances.forEach(el => {
             if (el.id !== 'shop-balance-text') {
                 if (el.innerText.includes('ZN')) {
-                    el.innerText = `${formatNumberAbbreviated(totalBal, 4)} ZN`;
+                    el.innerText = `${formatTopBalance(totalBal)} ZN`;
                 } else {
-                    el.innerText = formatNumberAbbreviated(totalBal, 4);
+                    el.innerText = formatTopBalance(totalBal);
                 }
             }
         });
 
         const usdElem = document.getElementById('shop-usd-text');
         if (usdElem) {
-            usdElem.innerText = `$${formatUSD(totalUsd)}`; // 🎯 4 أرقام عشرية
+            usdElem.innerText = `$${formatTopBalance(totalUsd)}`;
         }
         
         const rateElem = document.getElementById('shop-rate-text');
         if (rateElem) {
             const hRate = floatVal(pData.hourly_rate);
-            rateElem.innerText = `+${hRate.toFixed(4)}/h ⚡`; // 🎯 4 أرقام عشرية
+            rateElem.innerText = `+${cleanNum(hRate)}/h ⚡`;
         }
 
         if (!miningSec || !storageSec) return;
@@ -478,11 +486,11 @@
 
             let btnText = '';
             if (priceUsd > 0 && priceZn > 0) {
-                btnText = `$${formatUSD(priceUsd)} + ${formatNumberAbbreviated(priceZn, 4)} ZN`;
+                btnText = `$${formatUSD(priceUsd)} + ${formatNumberAbbreviated(priceZn)} ZN`;
             } else if (priceUsd > 0) {
                 btnText = `$${formatUSD(priceUsd)}`;
             } else {
-                btnText = `ZN ${formatNumberAbbreviated(priceZn, 4)}`;
+                btnText = `${formatNumberAbbreviated(priceZn)} ZN`;
             }
 
             miningHtml += `
@@ -491,7 +499,7 @@
                     <div>
                         <div style="font-size: 26px;">⚡</div>
                         <div style="color: #ffffff; font-weight: bold; font-size: 14px;">مستوى ${i}</div>
-                        <div style="color: #00cc66; font-size: 12px; margin: 4px 0;" dir="ltr">⚡ +${speed.toFixed(4)}/h</div>
+                        <div style="color: #00cc66; font-size: 12px; margin: 4px 0;" dir="ltr">⚡ +${cleanNum(speed)}/h</div>
                         <div style="color: #8b949e; font-size: 11px; margin-bottom: 10px;">تم الشراء: ${count} / ${maxLimit}</div>
                     </div>
                     <button id="btn-speed-${i}" onclick="requestShopPurchase('speed', ${i}, ${priceZn}, ${priceUsd})" 
@@ -529,11 +537,11 @@
                 btnBg = '#10b981'; btnColor = '#000000'; btnText = 'تم الشراء ✔️';
             } else if (isNextUpgrade) {
                 if (priceUsd > 0 && priceZn > 0) {
-                    btnText = `$${formatUSD(priceUsd)} + ${formatNumberAbbreviated(priceZn, 4)} ZN`;
+                    btnText = `$${formatUSD(priceUsd)} + ${formatNumberAbbreviated(priceZn)} ZN`;
                 } else if (priceUsd > 0) {
                     btnText = `$${formatUSD(priceUsd)}`;
                 } else {
-                    btnText = `ZN ${formatNumberAbbreviated(priceZn, 4)}`;
+                    btnText = `${formatNumberAbbreviated(priceZn)} ZN`;
                 }
 
                 if (canAfford) {
@@ -548,7 +556,7 @@
                     <div>
                         <div style="font-size: 26px;">📦</div>
                         <div style="color: #ffffff; font-weight: bold; font-size: 14px;">مخزن مستوى ${i}</div>
-                        <div style="color: #0088cc; font-size: 12px; margin: 4px 0 10px 0;">السعة: ${formatNumberAbbreviated(capacity, 4)} ZN</div>
+                        <div style="color: #0088cc; font-size: 12px; margin: 4px 0 10px 0;">السعة: ${formatNumberAbbreviated(capacity)} ZN</div>
                     </div>
                     <button id="btn-storage-${i}" onclick="requestShopPurchase('storage', ${i}, ${priceZn}, ${priceUsd})" 
                         style="width: 100%; padding: 9px; background: ${btnBg}; color: ${btnColor}; border: none; border-radius: 6px; font-weight: bold; font-size: 11px; cursor: ${!isDisabled ? 'pointer' : 'not-allowed'};" ${isDisabled ? 'disabled' : ''}>
@@ -595,11 +603,11 @@
 
         if (modalPrice) {
             if (priceUsd > 0 && priceZn > 0) {
-                modalPrice.innerText = `$${formatUSD(priceUsd)} + ${formatNumberAbbreviated(priceZn, 4)} ZN`;
+                modalPrice.innerText = `$${formatUSD(priceUsd)} + ${formatNumberAbbreviated(priceZn)} ZN`;
             } else if (priceUsd > 0) {
                 modalPrice.innerText = `$${formatUSD(priceUsd)}`;
             } else {
-                modalPrice.innerText = `${formatNumberAbbreviated(priceZn, 4)} ZN`;
+                modalPrice.innerText = `${formatNumberAbbreviated(priceZn)} ZN`;
             }
         }
 
