@@ -7,10 +7,15 @@ window.initFarmView = function() {
 window.closeWelcomeModal = function() {
     const modal = document.getElementById('welcome-modal');
     if (modal) modal.style.display = 'none';
-    if (window.userState) window.userState.is_new_user = false;
-    if (window.PlayerData) window.PlayerData.is_new_user = false;
 
-    // حفظ حالة إغلاق النافذة الترحيبية في localStorage وفي قاعدة البيانات للسيرفر
+    if (!window.userState) window.userState = {};
+    if (!window.PlayerData) window.PlayerData = {};
+
+    window.userState.is_new_user = false;
+    window.PlayerData.is_new_user = false;
+    window.userState.welcome_seen = true;
+    window.PlayerData.welcome_seen = true;
+
     try {
         const tele = window.Telegram?.WebApp;
         const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id || window.PlayerData?.telegram_id;
@@ -29,7 +34,6 @@ window.closeWelcomeModal = function() {
     const tele = window.Telegram?.WebApp;
     const START_PARAM = tele?.initDataUnsafe?.start_param || "";
 
-    // الإعدادات المحدثة: حد أقصى للتعزيز 4.5/h ومكافأة الوصول 35 عملة
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 15,
         dailyBoostReward: 0.15,
@@ -233,7 +237,6 @@ window.closeWelcomeModal = function() {
                     Object.assign(window.userState, resData.player);
                     setStoredBalance(resData.player.balance, resData.player.usd_balance);
 
-                    // التحقق من حالة المستخدم الجديد بمرونة أكبر (شاملة Boolean أو Numbers)
                     const isNew = resData.player.is_new_user === true || resData.player.is_new_user === 1 || resData.player.is_new_user === "true";
                     
                     if (isNew) {
@@ -241,7 +244,6 @@ window.closeWelcomeModal = function() {
                         const modalSeen = userId ? localStorage.getItem(`zn_welcome_seen_${userId}`) : null;
                         
                         if (!modalSeen) {
-                            // محاولة فحص وجلب العنصر مع التكرار لضمان جاهزية الـ DOM
                             let attempts = 0;
                             const checkModalInterval = setInterval(() => {
                                 const welcomeModal = document.getElementById('welcome-modal');
@@ -250,7 +252,7 @@ window.closeWelcomeModal = function() {
                                     clearInterval(checkModalInterval);
                                 }
                                 attempts++;
-                                if (attempts >= 30) { // التوقف بعد 3 ثوانٍ إذا لم يوجد العنصر
+                                if (attempts >= 30) {
                                     clearInterval(checkModalInterval);
                                 }
                             }, 100);
