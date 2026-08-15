@@ -15,6 +15,16 @@ from farm.farm_db import (
 
 farm_bp = Blueprint('farm', __name__)
 
+def to_bool(val):
+    """تحويل قيم البوليان بمرونة وسلاسة لمنع أخطاء النصوص والنصوص الفارغة"""
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.strip().lower() in ("true", "1", "yes")
+    if isinstance(val, (int, float)):
+        return val != 0
+    return False
+
 @farm_bp.route('/player_data', methods=['GET', 'POST'])
 @farm_bp.route('/farm/player_data', methods=['GET', 'POST'])
 @farm_bp.route('/api/farm/player_data', methods=['GET', 'POST'])
@@ -29,11 +39,10 @@ def get_player_data():
     try:
         user_data, game_settings, now = get_or_create_user_farm_data(user_id_str)
         
-        # التأكد الصريح من إرجاع حالة المستخدم الجديد بشكل صحيح للواجهة
-        if "is_new_user" in user_data:
-            user_data["is_new_user"] = bool(user_data["is_new_user"])
-        else:
-            user_data["is_new_user"] = False
+        # تأكيد صريح ودقيق لحالة النافذة الترحيبية
+        welcome_seen = to_bool(user_data.get("welcome_seen", False))
+        user_data["welcome_seen"] = welcome_seen
+        user_data["is_new_user"] = not welcome_seen
 
         parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
         upgrade_configs = game_settings.get("upgrade_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
