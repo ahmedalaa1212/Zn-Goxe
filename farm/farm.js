@@ -85,9 +85,6 @@ window.closeWelcomeModal = function() {
     const FETCH_THROTTLE_MS = 3000;
     let lastCheckedDate = "";
 
-    // -------------------------------------------------------------
-    // دوال إدارة التخزين المؤقت المحلي (Local Storage Cache)
-    // -------------------------------------------------------------
     function getCacheKey() {
         const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id;
         return userId ? `zn_farm_cache_${userId}` : 'zn_farm_cache_global';
@@ -159,21 +156,15 @@ window.closeWelcomeModal = function() {
         }
     }
 
-    // دالة تنسيق أرقام عملة ZN الذكية:
-    // إذا كان الرصيد قليل (< 10) تظهر الخانات العشرية تلقائياً بحسب القيمة الفعلية (حتى 4 أرقام).
-    // إذا كان الرصيد كبيراً (>= 10) يتم استخدام خانتين عشريتين كحد أقصى (0.00).
+    // دالة تنسيق رصيد ZN المحدثة: تعرض حتى 6 خانات عشرية بدقة دون حذف الكسر
     function formatZnBalance(val) {
         const num = parseFloat(val || 0);
         if (isNaN(num) || num === 0) return "0.00";
         
-        if (num < 10) {
-            let str = num.toFixed(4).replace(/\.?0+$/, '');
-            if (!str.includes('.')) return str + '.00';
-            if (str.split('.')[1].length === 1) return str + '0';
-            return str;
-        } else {
-            return num.toFixed(2);
-        }
+        let str = num.toFixed(6).replace(/\.?0+$/, '');
+        if (!str.includes('.')) return str + '.00';
+        if (str.split('.')[1].length === 1) return str + '0';
+        return str;
     }
 
     function getStoredBalance() {
@@ -334,7 +325,7 @@ window.closeWelcomeModal = function() {
 
         const rateEl = document.getElementById('farm-rate');
         if (rateEl) {
-            let formattedRate = (hRate % 1 === 0) ? hRate.toString() : Number(hRate.toFixed(2)).toString();
+            let formattedRate = (hRate % 1 === 0) ? hRate.toString() : Number(hRate.toFixed(4)).toString();
             rateEl.innerHTML = `<span dir="ltr">${formattedRate} /h</span> ⚡`;
         }
 
@@ -493,9 +484,6 @@ window.closeWelcomeModal = function() {
         container.innerHTML = html;
     }
 
-    // -------------------------------------------------------------
-    // بداية التشغيل الفوري (Instant Load From Cache)
-    // -------------------------------------------------------------
     loadCachedData();
     window.updateFarmUI();
 
