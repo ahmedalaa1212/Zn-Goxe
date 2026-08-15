@@ -94,10 +94,10 @@ def buy_mining_upgrade(tg_id, upgrade_level):
             current_usd_balance = float(user_data.get("usd_balance", user_data.get("balance_usd", 0.0)) or 0.0)
 
             if current_balance < cost_zn:
-                raise Exception(f"رصيد ZN غير كافٍ! تحتاج {cost_zn:,.0f} ZN")
+                raise Exception(f"رصيد ZN غير كافٍ! تحتاج {cost_zn:g} ZN")
 
             if current_usd_balance < cost_usd:
-                raise Exception(f"رصيد الدولار غير كافٍ! تحتاج ${cost_usd:.4f}")
+                raise Exception(f"رصيد الدولار غير كافٍ! تحتاج ${cost_usd:g}")
 
             last_claim_str = user_data.get('last_claim_time')
             now_dt = datetime.now(timezone.utc)
@@ -113,9 +113,9 @@ def buy_mining_upgrade(tg_id, upgrade_level):
                 except Exception:
                     pending_mined = 0.0
 
-            new_balance = round(current_balance - cost_zn, 2)
+            new_balance = round(current_balance - cost_zn, 4)
             new_usd_balance = round(current_usd_balance - cost_usd, 4)
-            new_hourly_rate = round(old_rate + rate_bonus, 2)
+            new_hourly_rate = round(old_rate + rate_bonus, 4)
 
             if new_hourly_rate > 0:
                 time_needed = pending_mined / (new_hourly_rate / 3600.0)
@@ -180,10 +180,10 @@ def upgrade_storage_capacity(tg_id):
             current_usd_balance = float(user_data.get("usd_balance", user_data.get("balance_usd", 0.0)) or 0.0)
 
             if current_balance < cost_zn:
-                raise Exception(f"رصيدك من ZN غير كافٍ لترقية المخزن! تحتاج {cost_zn:,.0f} ZN")
+                raise Exception(f"رصيدك من ZN غير كافٍ لترقية المخزن! تحتاج {cost_zn:g} ZN")
 
             if current_usd_balance < cost_usd:
-                raise Exception(f"رصيدك من الدولار غير كافٍ لترقية المخزن! تحتاج ${cost_usd:.4f}")
+                raise Exception(f"رصيدك من الدولار غير كافٍ لترقية المخزن! تحتاج ${cost_usd:g}")
 
             last_claim_str = user_data.get('last_claim_time')
             now_dt = datetime.now(timezone.utc)
@@ -199,9 +199,9 @@ def upgrade_storage_capacity(tg_id):
                 except Exception:
                     pending_mined = 0.0
 
-            new_balance = round(current_balance - cost_zn, 2)
+            new_balance = round(current_balance - cost_zn, 4)
             new_usd_balance = round(current_usd_balance - cost_usd, 4)
-            new_max_cap = round(new_base_capacity + extra_storage, 2)
+            new_max_cap = round(new_base_capacity + extra_storage, 4)
 
             if hourly_rate > 0:
                 time_needed = pending_mined / (hourly_rate / 3600.0)
@@ -221,7 +221,7 @@ def upgrade_storage_capacity(tg_id):
             return updated_fields, next_lvl_str, new_max_cap
 
         updated_data, next_lvl, new_cap = _storage_tx(transaction, user_ref)
-        return True, f"تم ترقية المخزن إلى المستوى {next_lvl} (سعة: {new_cap}) بنجاح!", updated_data
+        return True, f"تم ترقية المخزن إلى المستوى {next_lvl} (سعة: {new_cap:g}) بنجاح!", updated_data
 
     except Exception as e:
         print(f"❌ Error upgrading storage: {e}")
@@ -288,11 +288,11 @@ def verify_and_apply_package(tg_id, package_id, boc=None):
                 except Exception:
                     pending_mined = 0.0
 
-            new_balance = round(current_balance + zn_add, 2)
+            new_balance = round(current_balance + zn_add, 4)
             new_usd = round(current_usd + usd_add, 4)
-            new_rate = round(current_rate + rate_add, 2)
-            new_extra_storage = round(current_extra_storage + storage_add, 2)
-            new_max_cap = round(current_max_cap + storage_add, 2)
+            new_rate = round(current_rate + rate_add, 4)
+            new_extra_storage = round(current_extra_storage + storage_add, 4)
+            new_max_cap = round(current_max_cap + storage_add, 4)
 
             if new_rate > 0:
                 time_needed = pending_mined / (new_rate / 3600.0)
