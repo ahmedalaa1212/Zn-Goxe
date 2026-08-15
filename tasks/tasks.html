@@ -39,30 +39,58 @@
             min-height: 100vh;
         }
 
-        /* هيدر الرصيد الثابت العلوي */
+        /* 🌟 هيدر الرصيد الثلاثي الثابت العلوي */
         .balance-header-fixed {
             position: fixed;
-            top: 15px;
+            top: 12px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.85);
-            border: 1px solid var(--gold);
-            padding: 8px 25px;
-            border-radius: 30px;
+            width: 94%;
+            max-width: 480px;
+            background: rgba(13, 15, 26, 0.88);
+            border: 1px solid rgba(255, 204, 0, 0.25);
+            padding: 8px 14px;
+            border-radius: 20px;
             z-index: 100;
-            box-shadow: 0 4px 15px rgba(255, 204, 0, 0.2);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5), 0 0 15px rgba(255, 204, 0, 0.08);
             display: flex;
             align-items: center;
-            gap: 8px;
+            justify-content: space-between;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .balance-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.78rem;
             font-weight: 800;
-            font-size: 1.1rem;
-            color: var(--gold);
-            backdrop-filter: blur(10px);
+            white-space: nowrap;
+        }
+
+        .balance-item.zn-item {
+            color: #ffcc00;
+        }
+
+        .balance-item.usd-item {
+            color: #22c55e;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 0 8px;
+        }
+
+        .balance-item.adz-item {
+            color: #38bdf8;
+        }
+
+        .bal-icon {
+            font-size: 0.95rem;
         }
 
         .tasks-container {
             padding: 15px;
-            padding-top: 70px;
+            padding-top: 75px;
             max-width: 500px;
             margin: 0 auto;
         }
@@ -96,14 +124,133 @@
             color: #fff;
             box-shadow: 0 4px 12px rgba(0, 136, 204, 0.3);
         }
+
+        /* 🎨 تصميم كارت تحويل وشحن الإعلانات الاحترافي */
+        .adz-card-container {
+            position: relative;
+            background: linear-gradient(135deg, rgba(17, 24, 39, 0.95), rgba(15, 23, 42, 0.95));
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 22px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+            overflow: hidden;
+        }
+
+        .adz-card-container::before {
+            content: '';
+            position: absolute;
+            top: -50px;
+            left: -50px;
+            width: 120px;
+            height: 120px;
+            background: radial-gradient(circle, rgba(56, 189, 248, 0.15) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .adz-card-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #ef4444;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 20px;
+            margin-bottom: 12px;
+        }
+
+        .adz-card-header {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .adz-icon-box {
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
+            background: rgba(56, 189, 248, 0.1);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #38bdf8;
+            font-size: 20px;
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.15);
+        }
+
+        .adz-title-group {
+            text-align: right;
+            flex: 1;
+        }
+
+        .adz-card-subtitle {
+            color: #94a3b8;
+            font-size: 12px;
+            font-weight: 600;
+            display: block;
+            margin-bottom: 2px;
+        }
+
+        .adz-card-amount {
+            color: #38bdf8;
+            font-size: 28px;
+            font-weight: 800;
+            margin: 0;
+            line-height: 1.1;
+            text-shadow: 0 0 15px rgba(56, 189, 248, 0.25);
+        }
+
+        .adz-recharge-btn {
+            width: 100%;
+            background: linear-gradient(90deg, #0284c7, #0369a1);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            color: #ffffff;
+            padding: 13px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3);
+            transition: all 0.25s ease;
+            font-family: inherit;
+        }
+
+        .adz-recharge-btn:active {
+            transform: scale(0.98);
+            box-shadow: 0 2px 8px rgba(2, 132, 199, 0.2);
+        }
     </style>
 </head>
 <body>
 
-    <!-- هيدر عرض الرصيد الرئيسي -->
+    <!-- 🌟 هيدر عرض الرصيد الثلاثي الثابت العلوي -->
     <div class="balance-header-fixed">
-        <span>🪙</span>
-        <span id="top-balance-tasks" class="sync-balance">ZN 0</span>
+        <!-- اليمين: عملة ZN الأساسية -->
+        <div class="balance-item zn-item">
+            <span class="bal-icon">🪙</span>
+            <span id="top-balance-tasks" class="sync-balance">0 ZN</span>
+        </div>
+
+        <!-- الوسط: الدولارات -->
+        <div class="balance-item usd-item">
+            <span class="bal-icon">💵</span>
+            <span id="top-balance-usd">$0.00</span>
+        </div>
+
+        <!-- اليسار: الرصيد الإعلاني AdZ -->
+        <div class="balance-item adz-item">
+            <span class="bal-icon">📢</span>
+            <span id="top-balance-adz">0 AdZ</span>
+        </div>
     </div>
 
     <div class="tasks-container">
@@ -127,10 +274,29 @@
 
         <!-- قسم الترويج والحملات -->
         <div id="section-promote" style="display: none;">
-            <div style="background: linear-gradient(145deg, #0f172a, #1e293b); border: 1px solid #334155; border-radius: 18px; padding: 22px; margin-bottom: 22px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.3);">
-                <div style="color: #94a3b8; font-size: 13px; margin-bottom: 6px; font-weight: 500;">رصيدك المخصص للإعلانات والحملات</div>
-                <div id="ad-balance-display" style="color: #38bdf8; font-size: 32px; font-weight: 800; margin-bottom: 18px; text-shadow: 0 0 15px rgba(56,189,248,0.2);">AdZN 0</div>
-                <button type="button" onclick="window.convertZnToAdZn()" style="background: linear-gradient(90deg, #0284c7, #0369a1); border: none; color: #fff; padding: 12px 20px; border-radius: 10px; cursor: pointer; font-weight: 700; width: 100%; box-shadow: 0 4px 12px rgba(2,132,199,0.2); transition: 0.2s;">🔄 شحن محفظة الإعلانات (من رصيد ZN)</button>
+            
+            <!-- 🌟 بطاقة رصيد الإعلانات والشحن الحديثة -->
+            <div class="adz-card-container">
+                <div class="adz-card-badge">
+                    <i class="fas fa-tag"></i> خصم تحويل 10% 🔥
+                </div>
+                
+                <div class="adz-card-header">
+                    <div class="adz-icon-box">
+                        <i class="fas fa-bullhorn"></i>
+                    </div>
+                    <div class="adz-title-group">
+                        <span class="adz-card-subtitle">رصيد الإعلانات والرعايات</span>
+                        <h2 id="ad-balance-display" class="adz-card-amount">0 AdZ</h2>
+                    </div>
+                </div>
+
+                <div class="adz-card-footer">
+                    <button type="button" class="adz-recharge-btn" onclick="window.convertZnToAdZn()">
+                        <i class="fas fa-bolt"></i>
+                        <span>شحن محفظة الإعلانات (من رصيد ZN)</span>
+                    </button>
+                </div>
             </div>
 
             <h4 style="color: #fff; margin-bottom: 15px; text-align: right; font-size: 14px; font-weight: 700;">إطلاق حملة ترويجيّة جديدة</h4>
@@ -175,7 +341,7 @@
             <select id="ad-desc-select" style="width: 100%; padding: 12px; margin-bottom: 14px; background: #0b0b12; border: 1px solid #2c2c3e; color: #fff; border-radius: 10px; box-sizing: border-box; font-size: 13px; font-family: inherit;">
             </select>
 
-            <label style="color: #94a3b8; font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">مكافأة العضو لكل تفاعل صحيح (AdZN):</label>
+            <label style="color: #94a3b8; font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">مكافأة العضو لكل تفاعل صحيح (AdZ):</label>
             <input type="number" id="ad-reward" placeholder="مثال: 250" style="width: 100%; padding: 12px; margin-bottom: 14px; background: #0b0b12; border: 1px solid #2c2c3e; color: #fff; border-radius: 10px; box-sizing: border-box; font-size: 13px;">
 
             <label style="color: #94a3b8; font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">إجمالي التفاعلات / الأعضاء المطلوبين:</label>
@@ -216,6 +382,6 @@
     </div>
 
     <!-- جافا سكريبت الخاص بالصفحة -->
-    <script src="tasks.js?v=18.0"></script>
+    <script src="tasks.js?v=19.0"></script>
 </body>
 </html>
