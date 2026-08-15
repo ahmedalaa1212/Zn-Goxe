@@ -22,15 +22,18 @@
         return "0000";
     }
 
-    function formatNumber(num, maxDecimals = 2) {
+    // دالة تنسيق الأرقام المحدثة لترجيع خانتين عشريتين على الأقل وحتى 6 خانات بدون حذف الكسر
+    function formatNumber(num, maxDecimals = 6) {
         const val = parseFloat(num) || 0;
-        if (Number.isInteger(val)) {
-            return val.toLocaleString();
-        }
-        return val.toLocaleString(undefined, {
-            minimumFractionDigits: 0,
-            maximumFractionDigits: maxDecimals
-        });
+        if (isNaN(val) || val === 0) return "0.00";
+        
+        let str = val.toFixed(maxDecimals).replace(/\.?0+$/, '');
+        let parts = str.split('.');
+        let integerPart = parseFloat(parts[0]).toLocaleString('en-US');
+        let decimalPart = parts[1] || '00';
+        if (decimalPart.length === 1) decimalPart += '0';
+        
+        return `${integerPart}.${decimalPart}`;
     }
 
     function getStoredBalance() {
@@ -183,12 +186,12 @@
         let totalInvited = parseInt(pData.invited_friends_count || 0);
         let eligibleForTasks = parseInt(pData.eligible_task_friends_count || 0);
 
-        const elBalances = document.querySelectorAll('.zn-balance-display, #top-balance-friends, #farm-balance');
+        const elBalances = document.querySelectorAll('.zn-balance-display, #top-balance-friends, #farm-balance, #top-balance, #header-zn-balance, .user-balance');
         elBalances.forEach(el => {
             if (el.id === 'farm-balance' || el.innerText.includes('ZN')) {
-                el.innerText = `ZN: ${formatNumber(balance, 2)}`;
+                el.innerText = `${formatNumber(balance)} ZN`;
             } else {
-                el.innerText = formatNumber(balance, 2);
+                el.innerText = formatNumber(balance);
             }
         });
 
@@ -197,8 +200,8 @@
         const elInvited = document.getElementById('invited-friends-count');
         const btnClaim = document.getElementById('btn-claim-ref');
 
-        if (elPending) elPending.innerText = formatNumber(pending, 2);
-        if (elTotal) elTotal.innerText = formatNumber(totalEarnings, 2);
+        if (elPending) elPending.innerText = formatNumber(pending);
+        if (elTotal) elTotal.innerText = formatNumber(totalEarnings);
         if (elInvited) elInvited.innerText = totalInvited.toLocaleString();
 
         if (btnClaim) {
@@ -261,7 +264,7 @@
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <div>
                             <h4 style="margin:0; color:#fff; font-size:13px;">دعوة ${reqFriends} أصدقاء (${minUpgrades}+ ترقيات)</h4>
-                            <p style="margin:4px 0 0 0; color:#f39c12; font-size:11px; font-weight:bold;">مكافأة: ${formatNumber(reward, 2)} ZN</p>
+                            <p style="margin:4px 0 0 0; color:#f39c12; font-size:11px; font-weight:bold;">مكافأة: ${formatNumber(reward)} ZN</p>
                         </div>
                         <div>${btnHtml}</div>
                     </div>
@@ -322,7 +325,7 @@
             let data = await response.json();
             
             if (response.ok && data.success) {
-                const formattedNet = formatNumber(data.net_amount, 2);
+                const formattedNet = formatNumber(data.net_amount);
                 const feePercent = window.FriendsConfig?.claim_fee_percent || 1.5;
                 showToast(`🎉 تم السحب بنجاح!\nأُضيف ${formattedNet} ZN إلى رصيدك (بعد خصم ${feePercent}% رسوم).`);
                 
@@ -355,7 +358,7 @@
             let data = await response.json();
 
             if (response.ok && data.success) {
-                showToast(`🎊 مبروك! استلمت مكافأة ${formatNumber(reward, 2)} ZN.`);
+                showToast(`🎊 مبروك! استلمت مكافأة ${formatNumber(reward)} ZN.`);
                 
                 if (!window.PlayerData) window.PlayerData = {};
                 if (data.claimed_ref_tasks) {
@@ -406,7 +409,7 @@
                         : `<span style="color: #f39c12; font-size:11px;">ينقصه ${minUpgrades - cnt} ترقية (${cnt}/${minUpgrades}) ⏳</span>`;
                     
                     const genVal = parseFloat(f.generated || f.earned_from_him || 0);
-                    const formattedGen = formatNumber(genVal, 2);
+                    const formattedGen = formatNumber(genVal);
 
                     html += `
                         <li style="display:flex; justify-content:space-between; align-items:center; background:#121215; padding:10px 12px; border-radius:10px; margin-bottom:8px; border:1px solid #26262b;">
@@ -436,7 +439,7 @@
 
     setInterval(() => {
         const cachedBal = getStoredBalance();
-        if (window.PlayerData && Math.floor(window.PlayerData.balance) !== Math.floor(cachedBal)) {
+        if (window.PlayerData && window.PlayerData.balance !== cachedBal) {
             window.PlayerData.balance = cachedBal;
             if (typeof window.updateFriendsUI === 'function') {
                 window.updateFriendsUI();
