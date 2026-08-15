@@ -233,14 +233,27 @@ window.closeWelcomeModal = function() {
                     Object.assign(window.userState, resData.player);
                     setStoredBalance(resData.player.balance, resData.player.usd_balance);
 
-                    // إظهار النافذة الترحيبية مرة واحدة فقط للمستخدم الجديد
-                    if (resData.player.is_new_user) {
+                    // التحقق من حالة المستخدم الجديد بمرونة أكبر (شاملة Boolean أو Numbers)
+                    const isNew = resData.player.is_new_user === true || resData.player.is_new_user === 1 || resData.player.is_new_user === "true";
+                    
+                    if (isNew) {
                         const userId = tele?.initDataUnsafe?.user?.id || resData.player.tg_id || resData.player.telegram_id;
                         const modalSeen = userId ? localStorage.getItem(`zn_welcome_seen_${userId}`) : null;
                         
                         if (!modalSeen) {
-                            const welcomeModal = document.getElementById('welcome-modal');
-                            if (welcomeModal) welcomeModal.style.display = 'flex';
+                            // محاولة فحص وجلب العنصر مع التكرار لضمان جاهزية الـ DOM
+                            let attempts = 0;
+                            const checkModalInterval = setInterval(() => {
+                                const welcomeModal = document.getElementById('welcome-modal');
+                                if (welcomeModal) {
+                                    welcomeModal.style.display = 'flex';
+                                    clearInterval(checkModalInterval);
+                                }
+                                attempts++;
+                                if (attempts >= 30) { // التوقف بعد 3 ثوانٍ إذا لم يوجد العنصر
+                                    clearInterval(checkModalInterval);
+                                }
+                            }, 100);
                         }
                     }
                 }
