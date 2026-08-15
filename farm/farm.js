@@ -167,6 +167,13 @@ window.closeWelcomeModal = function() {
         return str;
     }
 
+    // دالة جديدة مخصصة لتنسيق سعة التخزين المؤقت بـ 3 أرقام عشرية فقط
+    function formatStorageBalance(val) {
+        const num = parseFloat(val || 0);
+        if (isNaN(num) || num === 0) return "0.000";
+        return num.toFixed(3);
+    }
+
     function getStoredBalance() {
         if (window.userState && window.userState.balance !== undefined) {
             return parseFloat(window.userState.balance || 0);
@@ -521,7 +528,8 @@ window.closeWelcomeModal = function() {
             let pct = maxC > 0 ? (unclaim / maxC) * 100 : 0;
             pct = Math.max(0, Math.min(pct, 100)); 
             progressEl.style.width = `${pct}%`;
-            storageTextEl.innerText = `${formatZnBalance(unclaim)} / ${maxC.toLocaleString('en-US', {maximumFractionDigits: 2})}`;
+            // استخدام formatStorageBalance لتقييد العرض بـ 3 أرقام عشرية فقط
+            storageTextEl.innerText = `${formatStorageBalance(unclaim)} / ${maxC.toLocaleString('en-US', {maximumFractionDigits: 2})}`;
         }
 
         const claimBtn = document.getElementById('claim-btn');
