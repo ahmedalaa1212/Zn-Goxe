@@ -74,7 +74,15 @@ function getSavedState() {
 }
 
 let isFirebaseUpdating = false;
-let lastSaveTime = 0;
+let saveDebounceTimer = null;
+
+function persistUserStateToLocalStorage(state) {
+    try {
+        localStorage.setItem('app_user_state', JSON.stringify(state));
+    } catch (e) {
+        console.warn("فشل الحفظ في localStorage:", e);
+    }
+}
 
 // ⚡ كائن إدارة الحالة الوحيد بالنمط الموحد (Single Source of Truth)
 window.userState = new Proxy(getSavedState(), {
@@ -90,11 +98,14 @@ window.userState = new Proxy(getSavedState(), {
         window.PlayerData[prop] = target[prop];
 
         if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'upgrades', 'last_claim_time', 'unclaimed', 'boost_multiplier', 'boost_active', 'boost_expires_at'].includes(prop)) {
-            const now = Date.now();
-            if (now - lastSaveTime > 2000 && !isFirebaseUpdating) {
-                try { localStorage.setItem('app_user_state', JSON.stringify(target)); } catch {}
-                lastSaveTime = now;
+            
+            if (!isFirebaseUpdating) {
+                if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
+                saveDebounceTimer = setTimeout(() => {
+                    persistUserStateToLocalStorage(target);
+                }, 500);
             }
+
             if (typeof window.updateUI === 'function') window.updateUI();
             if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
             
@@ -107,9 +118,7 @@ window.userState = new Proxy(getSavedState(), {
 
 // حفظ إضافي مضمون عند إغلاق أو مغادرة التطبيق
 window.addEventListener('beforeunload', () => {
-    try {
-        localStorage.setItem('app_user_state', JSON.stringify(window.userState));
-    } catch {}
+    persistUserStateToLocalStorage(window.userState);
 });
 
 // ==========================================
@@ -148,35 +157,39 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 
         const targetObj = data.player || data.user || data.data || (data.balance !== undefined ? data : null);
         
-        isFirebaseUpdating = true;
         if (targetObj) {
-            if (targetObj.balance !== undefined && targetObj.balance !== null) {
-                const b = parseFloat(targetObj.balance);
-                if (!isNaN(b)) window.userState.balance = b;
+            isFirebaseUpdating = true;
+            try {
+                if (targetObj.balance !== undefined && targetObj.balance !== null) {
+                    const b = parseFloat(targetObj.balance);
+                    if (!isNaN(b)) window.userState.balance = b;
+                }
+                if (targetObj.usd_balance !== undefined && targetObj.usd_balance !== null) {
+                    const u = parseFloat(targetObj.usd_balance);
+                    if (!isNaN(u)) window.userState.usd_balance = u;
+                }
+                if (targetObj.ad_balance !== undefined && targetObj.ad_balance !== null) {
+                    const a = parseFloat(targetObj.ad_balance);
+                    if (!isNaN(a)) window.userState.ad_balance = a;
+                }
+                if (targetObj.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate) || 0;
+                if (targetObj.storage_level !== undefined) window.userState.storage_level = parseInt(targetObj.storage_level) || 0;
+                if (targetObj.extra_storage !== undefined) window.userState.extra_storage = parseFloat(targetObj.extra_storage) || 0;
+                if (targetObj.max_cap !== undefined) window.userState.max_cap = parseFloat(targetObj.max_cap) || 100;
+                if (targetObj.daily_streak !== undefined) window.userState.daily_streak = parseInt(targetObj.daily_streak) || 1;
+                if (targetObj.daily_day !== undefined) window.userState.daily_day = parseInt(targetObj.daily_day) || 1;
+                if (targetObj.last_daily_claim_date !== undefined) window.userState.last_daily_claim_date = targetObj.last_daily_claim_date;
+                if (targetObj.last_claim_time !== undefined) window.userState.last_claim_time = targetObj.last_claim_time;
+                if (targetObj.upgrades !== undefined) window.userState.upgrades = targetObj.upgrades;
+                if (targetObj.unclaimed !== undefined) window.userState.unclaimed = parseFloat(targetObj.unclaimed) || 0;
+                if (targetObj.boost_multiplier !== undefined) window.userState.boost_multiplier = parseInt(targetObj.boost_multiplier) || 1;
+                if (targetObj.boost_active !== undefined) window.userState.boost_active = Boolean(targetObj.boost_active);
+                if (targetObj.boost_expires_at !== undefined) window.userState.boost_expires_at = targetObj.boost_expires_at;
+            } finally {
+                isFirebaseUpdating = false;
+                persistUserStateToLocalStorage(window.userState);
             }
-            if (targetObj.usd_balance !== undefined && targetObj.usd_balance !== null) {
-                const u = parseFloat(targetObj.usd_balance);
-                if (!isNaN(u)) window.userState.usd_balance = u;
-            }
-            if (targetObj.ad_balance !== undefined && targetObj.ad_balance !== null) {
-                const a = parseFloat(targetObj.ad_balance);
-                if (!isNaN(a)) window.userState.ad_balance = a;
-            }
-            if (targetObj.hourly_rate !== undefined) window.userState.hourly_rate = parseFloat(targetObj.hourly_rate) || 0;
-            if (targetObj.storage_level !== undefined) window.userState.storage_level = parseInt(targetObj.storage_level) || 0;
-            if (targetObj.extra_storage !== undefined) window.userState.extra_storage = parseFloat(targetObj.extra_storage) || 0;
-            if (targetObj.max_cap !== undefined) window.userState.max_cap = parseFloat(targetObj.max_cap) || 100;
-            if (targetObj.daily_streak !== undefined) window.userState.daily_streak = parseInt(targetObj.daily_streak) || 1;
-            if (targetObj.daily_day !== undefined) window.userState.daily_day = parseInt(targetObj.daily_day) || 1;
-            if (targetObj.last_daily_claim_date !== undefined) window.userState.last_daily_claim_date = targetObj.last_daily_claim_date;
-            if (targetObj.last_claim_time !== undefined) window.userState.last_claim_time = targetObj.last_claim_time;
-            if (targetObj.upgrades !== undefined) window.userState.upgrades = targetObj.upgrades;
-            if (targetObj.unclaimed !== undefined) window.userState.unclaimed = parseFloat(targetObj.unclaimed) || 0;
-            if (targetObj.boost_multiplier !== undefined) window.userState.boost_multiplier = parseInt(targetObj.boost_multiplier) || 1;
-            if (targetObj.boost_active !== undefined) window.userState.boost_active = Boolean(targetObj.boost_active);
-            if (targetObj.boost_expires_at !== undefined) window.userState.boost_expires_at = targetObj.boost_expires_at;
         }
-        isFirebaseUpdating = false;
 
         return data;
     } catch (err) {
@@ -310,6 +323,7 @@ window.initFirebaseRealtimeSync = function(userId) {
                 window.userState.last_sync_time = Date.now();
             } finally {
                 isFirebaseUpdating = false;
+                persistUserStateToLocalStorage(window.userState);
                 window.updateUI();
                 if (typeof window.updateFarmUI === 'function') {
                     window.updateFarmUI();
@@ -334,7 +348,6 @@ window.updateClaimButtonState = function() {
     const COOLDOWN_SECONDS = 15;
     const lastClaimStr = window.userState.last_claim_time;
     const unclaimed = parseFloat(window.userState?.unclaimed || 0);
-
     const isFarmTab = document.getElementById('view-farm')?.classList.contains('active');
 
     function renderButton(btn, disabled, text, className) {
@@ -351,12 +364,14 @@ window.updateClaimButtonState = function() {
                 renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready");
             }
         });
+        if (claimCooldownTimer) { clearInterval(claimCooldownTimer); claimCooldownTimer = null; }
         return;
     }
 
     const lastClaimMs = new Date(lastClaimStr).getTime();
     if (isNaN(lastClaimMs)) {
         claimButtons.forEach(btn => renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready"));
+        if (claimCooldownTimer) { clearInterval(claimCooldownTimer); claimCooldownTimer = null; }
         return;
     }
 
@@ -364,20 +379,28 @@ window.updateClaimButtonState = function() {
     const secondsPassed = Math.floor((currentServerMs - lastClaimMs) / 1000);
     const remainingSeconds = COOLDOWN_SECONDS - secondsPassed;
 
-    if (claimCooldownTimer) clearInterval(claimCooldownTimer);
-
-    if (remainingSeconds > 0) {
-        let currentCountdown = remainingSeconds;
-        
+    if (remainingSeconds <= 0) {
+        if (claimCooldownTimer) { clearInterval(claimCooldownTimer); claimCooldownTimer = null; }
         claimButtons.forEach(btn => {
-            renderButton(btn, true, `انتظر ${window.formatTime(currentCountdown)} ⏳`, "claim-action-btn btn-disabled");
+            if (isFarmTab && unclaimed <= 0) {
+                renderButton(btn, true, `المخزن فارغ ⏳`, "claim-action-btn btn-disabled");
+            } else {
+                renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready");
+            }
         });
+        return;
+    }
 
+    // لتجنب تكرار الـ setInterval مع كل استدعاء لـ updateUI
+    if (!claimCooldownTimer) {
         claimCooldownTimer = setInterval(() => {
-            currentCountdown--;
-            if (currentCountdown > 0) {
+            const nowMs = Date.now() + (window.serverTimeOffset || 0);
+            const passed = Math.floor((nowMs - lastClaimMs) / 1000);
+            const rem = COOLDOWN_SECONDS - passed;
+
+            if (rem > 0) {
                 claimButtons.forEach(btn => {
-                    renderButton(btn, true, `انتظر ${window.formatTime(currentCountdown)} ⏳`, "claim-action-btn btn-disabled");
+                    renderButton(btn, true, `انتظر ${window.formatTime(rem)} ⏳`, "claim-action-btn btn-disabled");
                 });
             } else {
                 clearInterval(claimCooldownTimer);
@@ -392,14 +415,6 @@ window.updateClaimButtonState = function() {
                 });
             }
         }, 1000);
-    } else {
-        claimButtons.forEach(btn => {
-            if (isFarmTab && unclaimed <= 0) {
-                renderButton(btn, true, `المخزن فارغ ⏳`, "claim-action-btn btn-disabled");
-            } else {
-                renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready");
-            }
-        });
     }
 };
 
@@ -453,7 +468,10 @@ function renderSmoothBalance(targetVal) {
     }
 
     const diff = targetVal - visualBalance;
-    if (Math.abs(diff) < 0.005) {
+    // إذا كان الفارق كبير (أكبر من 10) يحدث قفزة فورية بدلاً من التدرج البطئي جدًا
+    if (Math.abs(diff) > 10) {
+        visualBalance = targetVal;
+    } else if (Math.abs(diff) < 0.005) {
         visualBalance = targetVal;
     } else {
         visualBalance += diff * 0.08;
@@ -548,13 +566,13 @@ window.switchView = async function(viewName) {
             if (res.ok) {
                 const htmlContent = await res.text();
                 
-                // ⚡ هذا الفحص هيمنع ظهور التداخل "الحاجات البايظة" لو ملف الألعاب محذوف!
+                // فحص إذا كان الرد صفحة 404 بديلة أو index.html
                 if (htmlContent.includes('<title>Zn Goxe - Crypto Mining</title>') || htmlContent.includes('id="global-toast-container"')) {
                     targetView.innerHTML = `
                         <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; color: #fff; padding: 20px; text-align: center;">
                             <i class="fas fa-gamepad" style="font-size: 4rem; color: #3fb950; margin-bottom: 15px;"></i>
                             <h2>قريباً...</h2>
-                            <p style="color: #8b949e; margin-top: 10px;">يتم الآن تجهيز الألعاب، ترقبوا التحديث القادم!</p>
+                            <p style="color: #8b949e; margin-top: 10px;">يتم الآن تجهيز هذه الصفحة، ترقبوا التحديث القادم!</p>
                         </div>
                     `;
                 } else {
@@ -596,7 +614,7 @@ function loadModuleScript(scriptUrl) {
         const existingScript = document.querySelector(`script[src*="${cleanUrl}"]`);
         
         if (existingScript) {
-            existingScript.remove(); // إزالة السكريبت القديم لإجبار المتصفح على قراءة السكريبت الجديد
+            existingScript.remove();
         }
         
         const script = document.createElement('script');
