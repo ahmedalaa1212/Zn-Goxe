@@ -3,24 +3,9 @@ from datetime import datetime, timezone, timedelta
 from google.cloud import firestore
 from database import get_db
 
-# الدقة الداخلية أعلى من دقة العرض لمنع ضياع أرباح التعدين الصغيرة.
-ZN_INTERNAL_DECIMALS = 8
-USD_INTERNAL_DECIMALS = 6
-DISPLAY_ZN_DECIMALS = 4
-
-def round_zn(value):
-    try:
-        return round(float(value), ZN_INTERNAL_DECIMALS)
-    except (TypeError, ValueError):
-        return 0.0
-
-def round_usd(value):
-    try:
-        return round(float(value), USD_INTERNAL_DECIMALS)
-    except (TypeError, ValueError):
-        return 0.0
 
 def to_bool(val):
+    """تحويل قيم البوليان بشكل صحيح وآمن من القراءات المختلفة"""
     if isinstance(val, bool):
         return val
     if isinstance(val, str):
@@ -29,9 +14,13 @@ def to_bool(val):
         return val != 0
     return False
 
+
+# ==================== Caching لتوفير قراءات Firestore ====================
 _SETTINGS_CACHE = {"data": None, "timestamp": 0}
 CACHE_TTL_SECONDS = 15
 
+
+# ==================== الإعدادات الافتراضية الاقتصادية الجديدة ====================
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
         5, 10, 15, 20, 25, 30, 40, 45, 50, 60,
@@ -71,7 +60,9 @@ DEFAULT_GAME_SETTINGS = {
     }
 }
 
+
 def get_game_settings(force_refresh=False):
+    """جلب أو إنشاء إعدادات المزرعة تلقائياً في Firebase إن لم تكن موجودة"""
     global _SETTINGS_CACHE
     now_ts = time.time()
 
@@ -101,109 +92,118 @@ def get_game_settings(force_refresh=False):
 
     return _SETTINGS_CACHE["data"] or DEFAULT_GAME_SETTINGS
 
+
 def parse_daily_rewards(rewards_data):
+    """تحليل قائمة المكافآت اليومية (30 يوم) بأمان"""
     if isinstance(rewards_data, list) and len(rewards_data) > 0:
-        try:
-            return [int(x) for x in rewards_data[:30]]
-        except (TypeError, ValueError):
-            pass
+        return [int(x) for x in rewards_data]
 
     if isinstance(rewards_data, dict):
-        result = []
+        res = []
         for i in range(1, 31):
-            value = rewards_data.get(f"day_{i}")
-            if value is None:
-                value = rewards_data.get(str(i))
-            if value is None:
-                value = DEFAULT_GAME_SETTINGS["daily_rewards"][i - 1]
-            try:
-                result.append(int(value))
-            except (TypeError, ValueError):
-                result.append(DEFAULT_GAME_SETTINGS["daily_rewards"][i - 1])
-        return result
+            val = rewards_data.get(f"day_{i}")
+            if val is None:
+                val = rewards_data.get(str(i))
+            if val is None:
+                val = DEFAULT_GAME_SETTINGS["daily_rewards"][i - 1]
+            res.append(int(val))
+        return res
 
     return DEFAULT_GAME_SETTINGS["daily_rewards"]
 
+
 def get_base_storage_capacity(storage_level, settings=None):
-    if settings is None:
+    """حساب السعة التخزينية الأساسية للمخزن"""
+    if not settings:
         settings = get_game_settings()
 
     try:
-        level = int(storage_level)
+        lvl = int(storage_level)
     except (ValueError, TypeError):
-        level = 0
+        lvl = 0
 
-    level = max(0, min(level, 9))
-    capacities = settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
+    lvl = max(0, min(lvl, 9))
 
-    value = capacities.get(str(level))
-    if value is None:
-        value = capacities.get(level)
+    caps = settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
 
-    if isinstance(value, dict):
-        return round(float(value.get("capacity", 30.0)), 2)
-    if value is not None:
-        return round(float(value), 2)
+    val = caps.get(str(lvl))
+    if val is None:
+        val = caps.get(lvl)
+
+    if isinstance(val, dict):
+        return float(val.get("capacity", 30.0))
+    elif val is not None:
+        return float(val)
 
     return 30.0
 
+
 def calculate_user_max_cap(user_data, settings=None):
-    if settings is None:
+    """حساب أقصى سعة للمخزن المؤقت للمستخدم"""
+    if not settings:
         settings = get_game_settings()
 
-    storage_level = user_data.get("storage_level", 0)
-    base_cap = get_base_storage_capacity(storage_level, settings)
+    stg_lvl = user_data.get("storage_level", 0)
+    base_cap = get_base_storage_capacity(stg_lvl, settings)
+    extra_cap = float(user_data.get("extra_storage", 0.0))
 
-    try:
-        extra_cap = float(user_data.get("extra_storage", 0.0))
-    except (TypeError, ValueError):
-        extra_cap = 0.0
+    return round(base_cap + extra_cap, 2)
 
-    return round(max(0.0, base_cap + extra_cap), 2)
 
 def calculate_accrued_mined(user_data, now_dt, max_cap):
-    """
-    يحسب المحصول بدقة داخلية 8 منازل.
-    مهم: لا يتم تقريب المحصول إلى منزلتين لأن ذلك كان يؤدي لضياع
-    أرباح التعدين الصغيرة، خصوصاً عند معدل 0.05 ZN/h.
-    """
+    """حساب الكمية المعدنة الحالية بدقة داخلية أعلى من 4 خانات"""
     last_claim_str = user_data.get("last_claim_time")
+    hourly_rate = float(user_data.get("hourly_rate", 0.05))
 
-    try:
-        hourly_rate = float(user_data.get("hourly_rate", 0.05))
-    except (TypeError, ValueError):
-        hourly_rate = 0.05
-
-    if not last_claim_str or hourly_rate <= 0 or max_cap <= 0:
+    if not last_claim_str or hourly_rate <= 0:
         return 0.0
 
     try:
         last_claim = datetime.fromisoformat(
             str(last_claim_str).replace("Z", "+00:00")
         )
+
         if last_claim.tzinfo is None:
             last_claim = last_claim.replace(tzinfo=timezone.utc)
 
-        seconds_passed = max(0.0, (now_dt - last_claim).total_seconds())
+        seconds_passed = max(
+            0.0,
+            (now_dt - last_claim).total_seconds()
+        )
+
         mined = (hourly_rate / 3600.0) * seconds_passed
 
-        return round(min(max(0.0, mined), max_cap), ZN_INTERNAL_DECIMALS)
+        # نحافظ داخلياً على الدقة حتى لا تضيع الكسور الصغيرة،
+        # بينما واجهة العرض تعرض 4 منازل فقط.
+        return round(min(mined, max_cap), 8)
+
     except Exception:
         return 0.0
 
+
 def dismiss_welcome_db(user_id_str):
+    """تعيين حالة مشاهدة النافذة الترحيبية لمنع ظهورها مجدداً"""
     db = get_db()
     user_ref = db.collection("users").document(user_id_str)
+
     user_ref.set(
         {"welcome_seen": True, "is_new_user": False},
         merge=True
     )
-    return {"success": True, "welcome_seen": True, "is_new_user": False}
+
+    return {
+        "success": True,
+        "welcome_seen": True,
+        "is_new_user": False
+    }
+
 
 def get_or_create_user_farm_data(user_id_str):
+    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة بأقل استهلاك للقراءة والكتابة"""
     db = get_db()
     user_ref = db.collection("users").document(user_id_str)
     user_doc = user_ref.get()
+
     now = datetime.now(timezone.utc)
 
     game_settings = get_game_settings()
@@ -211,7 +211,10 @@ def get_or_create_user_farm_data(user_id_str):
         "mining_config",
         DEFAULT_GAME_SETTINGS["mining_config"]
     )
-    base_free_rate = float(mining_cfg.get("base_free_rate", 0.05))
+
+    base_free_rate = float(
+        mining_cfg.get("base_free_rate", 0.05)
+    )
 
     if not user_doc.exists:
         base_cap = get_base_storage_capacity(0, game_settings)
@@ -219,13 +222,13 @@ def get_or_create_user_farm_data(user_id_str):
         user_data = {
             "tg_id": user_id_str,
             "telegram_id": user_id_str,
-            "balance": 0.0,
-            "usd_balance": 0.0,
+            "balance": 0.00,
+            "usd_balance": 0.00,
             "hourly_rate": base_free_rate,
-            "daily_boost_rate": 0.0,
-            "unclaimed": 0.0,
+            "daily_boost_rate": 0.00,
+            "unclaimed": 0.00,
             "storage_level": 0,
-            "extra_storage": 0.0,
+            "extra_storage": 0.00,
             "max_cap": base_cap,
             "daily_day": 1,
             "daily_streak": 1,
@@ -238,6 +241,7 @@ def get_or_create_user_farm_data(user_id_str):
             "welcome_seen": False,
             "is_new_user": True
         }
+
         user_ref.set(user_data)
 
     else:
@@ -254,13 +258,16 @@ def get_or_create_user_farm_data(user_id_str):
             auto_fix["is_new_user"] = not has_progress
 
         if "usd_balance" not in user_data:
-            auto_fix["usd_balance"] = 0.0
+            auto_fix["usd_balance"] = 0.00
 
-        if "hourly_rate" not in user_data or float(user_data.get("hourly_rate", 0)) == 0.0:
+        if (
+            "hourly_rate" not in user_data
+            or float(user_data.get("hourly_rate", 0)) == 0.0
+        ):
             auto_fix["hourly_rate"] = base_free_rate
 
         if "daily_boost_rate" not in user_data:
-            auto_fix["daily_boost_rate"] = 0.0
+            auto_fix["daily_boost_rate"] = 0.00
 
         if "ads_watched" not in user_data:
             auto_fix["ads_watched"] = 0
@@ -273,15 +280,21 @@ def get_or_create_user_farm_data(user_id_str):
 
         if "upgrades_count" not in user_data:
             upgrades_dict = user_data.get("upgrades", {})
-            if isinstance(upgrades_dict, dict):
-                auto_fix["upgrades_count"] = sum(
-                    int(v) for v in upgrades_dict.values()
+            auto_fix["upgrades_count"] = (
+                sum(
+                    int(v)
+                    for v in upgrades_dict.values()
                     if isinstance(v, (int, float))
                 )
-            else:
-                auto_fix["upgrades_count"] = 0
+                if isinstance(upgrades_dict, dict)
+                else 0
+            )
 
-        expected_max_cap = calculate_user_max_cap(user_data, game_settings)
+        expected_max_cap = calculate_user_max_cap(
+            user_data,
+            game_settings
+        )
+
         if user_data.get("max_cap") != expected_max_cap:
             auto_fix["max_cap"] = expected_max_cap
 
@@ -289,41 +302,58 @@ def get_or_create_user_farm_data(user_id_str):
             user_ref.update(auto_fix)
             user_data.update(auto_fix)
 
-    expected_max_cap = calculate_user_max_cap(user_data, game_settings)
+    expected_max_cap = calculate_user_max_cap(
+        user_data,
+        game_settings
+    )
+
     user_data["max_cap"] = expected_max_cap
 
-    user_data["balance"] = round_zn(user_data.get("balance", 0.0))
-    user_data["usd_balance"] = round_usd(user_data.get("usd_balance", 0.0))
+    # مهم: عدم تقريب رصيد ZN إلى منزلتين.
+    # هذا هو الإصلاح الأساسي لمشكلة 0.10 وضياع الكسور الصغيرة.
+    user_data["balance"] = round(float(user_data.get("balance", 0.0)), 8)
+    user_data["usd_balance"] = round(
+        float(user_data.get("usd_balance", 0.0)),
+        6
+    )
+
     user_data["unclaimed"] = calculate_accrued_mined(
         user_data,
         now,
         expected_max_cap
     )
 
-    welcome_seen = to_bool(user_data.get("welcome_seen", False))
-    user_data["welcome_seen"] = welcome_seen
-    user_data["is_new_user"] = not welcome_seen
+    # تحديد صارم لخاصية welcome_seen و is_new_user
+    is_welcome_seen = to_bool(
+        user_data.get("welcome_seen", False)
+    )
+
+    user_data["welcome_seen"] = is_welcome_seen
+    user_data["is_new_user"] = not is_welcome_seen
 
     today_str = now.strftime("%Y-%m-%d")
-    yesterday_str = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+    yesterday_str = (
+        now - timedelta(days=1)
+    ).strftime("%Y-%m-%d")
 
-    last_daily_claim = user_data.get("last_daily_claim_date")
+    last_daily_claim = user_data.get(
+        "last_daily_claim_date"
+    )
 
-    try:
-        raw_daily_day = int(
-            user_data.get("daily_day")
-            or user_data.get("daily_streak")
-            or 1
-        )
-    except (TypeError, ValueError):
-        raw_daily_day = 1
-
-    raw_daily_day = max(1, min(raw_daily_day, 30))
+    raw_daily_day = int(
+        user_data.get("daily_day")
+        or user_data.get("daily_streak")
+        or 1
+    )
 
     if last_daily_claim == today_str:
         effective_daily_day = raw_daily_day
     elif last_daily_claim == yesterday_str:
-        effective_daily_day = min(raw_daily_day + 1, 30)
+        effective_daily_day = (
+            min(raw_daily_day + 1, 30)
+            if raw_daily_day < 30
+            else 30
+        )
     else:
         effective_daily_day = 1
 
@@ -332,7 +362,9 @@ def get_or_create_user_farm_data(user_id_str):
 
     return user_data, game_settings, now
 
+
 def claim_mined_tokens_db(user_id_str):
+    """تجميع الرصيد المعدن بأمان"""
     db = get_db()
     user_ref = db.collection("users").document(user_id_str)
     game_settings = get_game_settings()
@@ -341,9 +373,9 @@ def claim_mined_tokens_db(user_id_str):
         "mining_config",
         DEFAULT_GAME_SETTINGS["mining_config"]
     )
-    cooldown_seconds = max(
-        0,
-        int(mining_cfg.get("claim_cooldown_seconds", 15))
+
+    cooldown_seconds = int(
+        mining_cfg.get("claim_cooldown_seconds", 15)
     )
 
     @firestore.transactional
@@ -351,7 +383,10 @@ def claim_mined_tokens_db(user_id_str):
         snapshot = ref.get(transaction=transaction)
 
         if not snapshot.exists:
-            return {"success": False, "error": "المستخدم غير موجود"}
+            return {
+                "success": False,
+                "error": "المستخدم غير موجود"
+            }
 
         user_data = snapshot.to_dict() or {}
         now = datetime.now(timezone.utc)
@@ -363,30 +398,59 @@ def claim_mined_tokens_db(user_id_str):
                 last_claim = datetime.fromisoformat(
                     str(last_claim_str).replace("Z", "+00:00")
                 )
-                if last_claim.tzinfo is None:
-                    last_claim = last_claim.replace(tzinfo=timezone.utc)
 
-                seconds_passed = (now - last_claim).total_seconds()
+                if last_claim.tzinfo is None:
+                    last_claim = last_claim.replace(
+                        tzinfo=timezone.utc
+                    )
+
+                seconds_passed = (
+                    now - last_claim
+                ).total_seconds()
 
                 if seconds_passed < cooldown_seconds:
-                    wait = max(1, int(cooldown_seconds - seconds_passed))
                     return {
                         "success": False,
-                        "error": f"الرجاء الانتظار {wait} ثانية قبل التجميع مجدداً"
+                        "error": (
+                            f"الرجاء الانتظار {cooldown_seconds} "
+                            "ثانية قبل التجميع مجدداً"
+                        )
                     }
+
             except Exception:
                 pass
 
-        max_cap = calculate_user_max_cap(user_data, game_settings)
-        mined_amount = calculate_accrued_mined(user_data, now, max_cap)
+        max_cap = calculate_user_max_cap(
+            user_data,
+            game_settings
+        )
+
+        mined_amount = calculate_accrued_mined(
+            user_data,
+            now,
+            max_cap
+        )
 
         if mined_amount <= 0:
-            return {"success": False, "error": "المخزن فارغ حالياً"}
+            return {
+                "success": False,
+                "error": "المخزن فارغ حالياً"
+            }
 
-        current_balance = round_zn(user_data.get("balance", 0.0))
-        current_usd_balance = round_usd(user_data.get("usd_balance", 0.0))
+        current_balance = float(
+            user_data.get("balance", 0.0)
+        )
 
-        new_balance = round_zn(current_balance + mined_amount)
+        current_usd_balance = float(
+            user_data.get("usd_balance", 0.0)
+        )
+
+        # الحفاظ على الكسور وعدم تحويل 0.0444 إلى 0.04.
+        new_balance = round(
+            current_balance + mined_amount,
+            8
+        )
+
         now_iso = now.isoformat()
 
         transaction.update(
@@ -402,7 +466,12 @@ def claim_mined_tokens_db(user_id_str):
             or user_data.get("referred_by")
             or user_data.get("invited_by")
         )
-        upgrades_cnt = user_data.get("upgrades_count", 0)
+
+        upgrades_cnt = user_data.get(
+            "upgrades_count",
+            0
+        )
+
         user_name = (
             user_data.get("first_name")
             or user_data.get("name")
@@ -416,7 +485,7 @@ def claim_mined_tokens_db(user_id_str):
             "last_claim_time": now_iso,
             "unclaimed": 0.0,
             "server_time": now_iso,
-            "claimed_amount": round_zn(mined_amount),
+            "claimed_amount": mined_amount,
             "referrer_id": referrer_id,
             "upgrades_count": upgrades_cnt,
             "user_name": user_name
@@ -424,7 +493,10 @@ def claim_mined_tokens_db(user_id_str):
 
     try:
         transaction = db.transaction()
-        result = run_claim_transaction(transaction, user_ref)
+        result = run_claim_transaction(
+            transaction,
+            user_ref
+        )
     except Exception as e:
         return {
             "success": False,
@@ -443,16 +515,24 @@ def claim_mined_tokens_db(user_id_str):
                 referrer_id=result["referrer_id"],
                 user_id=user_id_str,
                 mined_amount=result["claimed_amount"],
-                user_upgrades_count=result.get("upgrades_count"),
+                user_upgrades_count=result.get(
+                    "upgrades_count"
+                ),
                 user_name=result.get("user_name")
             )
+
         except Exception as e:
-            print(f"⚠️ Error adding referral reward on claim: {e}")
+            print(
+                f"⚠️ Error adding referral reward on claim: {e}"
+            )
 
     return result
 
+
 def buy_upgrade_db(user_id_str, level):
+    """شراء ترقية سرعة التعدين"""
     level_str = str(level)
+
     db = get_db()
     user_ref = db.collection("users").document(user_id_str)
     game_settings = get_game_settings()
@@ -463,24 +543,37 @@ def buy_upgrade_db(user_id_str, level):
     )
 
     if level_str not in upgrade_configs:
-        return {"success": False, "error": "بيانات المستوى غير متوفرة"}
+        return {
+            "success": False,
+            "error": "بيانات المستوى غير متوفرة"
+        }
 
     level_cfg = upgrade_configs[level_str]
 
     cost_zn = float(
         level_cfg.get(
             "cost_zn",
-            level_cfg.get("base_cost", level_cfg.get("price", 0))
+            level_cfg.get(
+                "base_cost",
+                level_cfg.get("price", 0)
+            )
         )
     )
+
     cost_usd = float(
         level_cfg.get(
             "cost_usd",
             level_cfg.get("base_cost_usd", 0.0)
         )
     )
+
     rate_bonus = round(
-        float(level_cfg.get("rate_bonus", level_cfg.get("rate", 0))),
+        float(
+            level_cfg.get(
+                "rate_bonus",
+                level_cfg.get("rate", 0)
+            )
+        ),
         2
     )
 
@@ -489,79 +582,132 @@ def buy_upgrade_db(user_id_str, level):
         snapshot = ref.get(transaction=transaction)
 
         if not snapshot.exists:
-            return {"success": False, "error": "المستخدم غير موجود"}
+            return {
+                "success": False,
+                "error": "المستخدم غير موجود"
+            }
 
         user_data = snapshot.to_dict() or {}
 
-        current_balance = round_zn(user_data.get("balance", 0.0))
-        current_usd_balance = round_usd(user_data.get("usd_balance", 0.0))
+        current_balance = float(
+            user_data.get("balance", 0.0)
+        )
 
-        if current_balance + 1e-12 < cost_zn:
+        current_usd_balance = float(
+            user_data.get("usd_balance", 0.0)
+        )
+
+        if current_balance < cost_zn:
             return {
                 "success": False,
-                "error": f"رصيد العملات غير كافٍ! سعر الترقية {cost_zn:,.0f} ZN"
+                "error": (
+                    "رصيد العملات غير كافٍ! سعر الترقية "
+                    f"{cost_zn:,.0f} ZN"
+                )
             }
 
-        if cost_usd > 0 and current_usd_balance + 1e-12 < cost_usd:
+        if (
+            cost_usd > 0
+            and current_usd_balance < cost_usd
+        ):
             return {
                 "success": False,
-                "error": f"رصيد الدولار غير كافٍ! يتطلب ${cost_usd:.2f} USD"
+                "error": (
+                    "رصيد الدولار غير كافٍ! يتطلب "
+                    f"${cost_usd:.2f} USD"
+                )
             }
 
-        upgrades = user_data.get("upgrades", {})
+        upgrades = user_data.get(
+            "upgrades",
+            {}
+        )
+
         if not isinstance(upgrades, dict):
             upgrades = {}
 
         lvl_key = f"lvl{level_str}"
-
-        try:
-            current_count = int(upgrades.get(lvl_key, 0))
-        except (TypeError, ValueError):
-            current_count = 0
-
-        max_upgrades = int(
-            game_settings.get("mining_config", {}).get(
-                "max_upgrades_per_level", 15
-            )
+        current_count = int(
+            upgrades.get(lvl_key, 0)
         )
-        max_upgrades = max(1, max_upgrades)
 
-        if current_count >= max_upgrades:
+        if current_count >= 15:
             return {
                 "success": False,
-                "error": f"لقد وصلت للحد الأقصى للشراء لهذا المستوى ({max_upgrades}/{max_upgrades})"
+                "error": (
+                    "لقد وصلت للحد الأقصى للشراء "
+                    "لهذا المستوى (15/15)"
+                )
             }
 
         if int(level_str) > 1:
-            prev_key = f"lvl{int(level_str) - 1}"
-            try:
-                prev_count = int(upgrades.get(prev_key, 0))
-            except (TypeError, ValueError):
-                prev_count = 0
+            prev_lvl = str(
+                int(level_str) - 1
+            )
+
+            prev_key = f"lvl{prev_lvl}"
+            prev_count = int(
+                upgrades.get(prev_key, 0)
+            )
 
             if prev_count == 0:
                 return {
                     "success": False,
-                    "error": "يجب شراء المستوى السابق أولاً"
+                    "error": (
+                        "يجب شراء المستوى السابق أولاً"
+                    )
                 }
 
         now = datetime.now(timezone.utc)
         now_iso = now.isoformat()
 
-        max_cap = calculate_user_max_cap(user_data, game_settings)
-        mined_amount = calculate_accrued_mined(user_data, now, max_cap)
+        max_cap = calculate_user_max_cap(
+            user_data,
+            game_settings
+        )
 
-        new_balance = round_zn(current_balance - cost_zn)
-        new_usd_balance = round_usd(current_usd_balance - cost_usd)
+        mined_amount = calculate_accrued_mined(
+            user_data,
+            now,
+            max_cap
+        )
 
-        current_hourly_rate = float(user_data.get("hourly_rate", 0.05))
-        new_hourly_rate = round(current_hourly_rate + rate_bonus, 2)
+        new_balance = round(
+            current_balance - cost_zn,
+            8
+        )
 
-        if new_hourly_rate > 0 and mined_amount > 0:
-            equivalent_seconds = mined_amount / (new_hourly_rate / 3600.0)
+        new_usd_balance = round(
+            current_usd_balance - cost_usd,
+            6
+        )
+
+        current_hourly_rate = float(
+            user_data.get(
+                "hourly_rate",
+                0.05
+            )
+        )
+
+        new_hourly_rate = round(
+            current_hourly_rate + rate_bonus,
+            2
+        )
+
+        if (
+            new_hourly_rate > 0
+            and mined_amount > 0
+        ):
+            equiv_seconds = (
+                mined_amount
+                / (new_hourly_rate / 3600.0)
+            )
+
             new_last_claim_iso = (
-                now - timedelta(seconds=equivalent_seconds)
+                now
+                - timedelta(seconds=equiv_seconds)
             ).isoformat()
+
         else:
             new_last_claim_iso = now_iso
 
@@ -606,33 +752,52 @@ def buy_upgrade_db(user_id_str, level):
 
     try:
         transaction = db.transaction()
-        result = run_upgrade_transaction(transaction, user_ref)
+        res = run_upgrade_transaction(
+            transaction,
+            user_ref
+        )
+
     except Exception as e:
         return {
             "success": False,
-            "error": f"تعذر تنفيذ عملية الترقية: {str(e)}"
+            "error": (
+                f"تعذر تنفيذ عملية الترقية: {str(e)}"
+            )
         }
 
-    if result.get("success") and result.get("referrer_id"):
+    if res.get("success") and res.get("referrer_id"):
         try:
-            ref_id = str(result["referrer_id"])
-            db.collection("users").document(ref_id).collection("friends").document(
+            ref_id = str(
+                res["referrer_id"]
+            )
+
+            upg_cnt = res[
+                "upgrades_count"
+            ]
+
+            db.collection("users").document(
+                ref_id
+            ).collection("friends").document(
                 user_id_str
             ).set(
                 {
-                    "upgrades_count": result["upgrades_count"],
+                    "upgrades_count": upg_cnt,
                     "tg_id": user_id_str
                 },
                 merge=True
             )
+
         except Exception as e:
             print(
-                f"⚠️ Warning updating friend upgrades_count for referrer: {e}"
+                "⚠️ Warning updating friend "
+                f"upgrades_count for referrer: {e}"
             )
 
-    return result
+    return res
+
 
 def buy_storage_db(user_id_str):
+    """شراء ترقية سعة التخزين للمستوى التالي"""
     db = get_db()
     user_ref = db.collection("users").document(user_id_str)
     game_settings = get_game_settings()
@@ -647,71 +812,158 @@ def buy_storage_db(user_id_str):
         snapshot = ref.get(transaction=transaction)
 
         if not snapshot.exists:
-            return {"success": False, "error": "المستخدم غير موجود"}
+            return {
+                "success": False,
+                "error": "المستخدم غير موجود"
+            }
 
         user_data = snapshot.to_dict() or {}
 
-        try:
-            current_level = int(user_data.get("storage_level", 0))
-        except (TypeError, ValueError):
-            current_level = 0
+        current_level = int(
+            user_data.get(
+                "storage_level",
+                0
+            )
+        )
 
         next_level = current_level + 1
 
-        if next_level > 9 or str(next_level) not in storage_cfgs:
+        if (
+            next_level > 9
+            or str(next_level) not in storage_cfgs
+        ):
             return {
                 "success": False,
-                "error": "المخزن في أقصى مستوى بالفعل (MAX)"
+                "error": (
+                    "المخزن في أقصى مستوى بالفعل (MAX)"
+                )
             }
 
-        next_cfg = storage_cfgs[str(next_level)]
+        next_cfg = storage_cfgs[
+            str(next_level)
+        ]
 
         if isinstance(next_cfg, dict):
-            cost_zn = float(next_cfg.get("cost_zn", next_cfg.get("cost", 0.0)))
-            cost_usd = float(next_cfg.get("cost_usd", 0.0))
-            new_capacity = float(next_cfg.get("capacity", 30.0))
+            cost_zn = float(
+                next_cfg.get(
+                    "cost_zn",
+                    next_cfg.get("cost", 0.0)
+                )
+            )
+
+            cost_usd = float(
+                next_cfg.get(
+                    "cost_usd",
+                    0.0
+                )
+            )
+
+            new_capacity = float(
+                next_cfg.get(
+                    "capacity",
+                    30.0
+                )
+            )
+
         else:
             cost_zn = 0.0
             cost_usd = 0.0
-            new_capacity = float(next_cfg)
+            new_capacity = float(
+                next_cfg
+            )
 
-        current_balance = round_zn(user_data.get("balance", 0.0))
-        current_usd_balance = round_usd(user_data.get("usd_balance", 0.0))
+        current_balance = float(
+            user_data.get(
+                "balance",
+                0.0
+            )
+        )
 
-        if current_balance + 1e-12 < cost_zn:
+        current_usd_balance = float(
+            user_data.get(
+                "usd_balance",
+                0.0
+            )
+        )
+
+        if current_balance < cost_zn:
             return {
                 "success": False,
-                "error": f"رصيدك غير كافٍ! سعر ترقية المخزن {cost_zn:,.0f} ZN"
+                "error": (
+                    "رصيدك غير كافٍ! سعر ترقية المخزن "
+                    f"{cost_zn:,.0f} ZN"
+                )
             }
 
-        if cost_usd > 0 and current_usd_balance + 1e-12 < cost_usd:
+        if (
+            cost_usd > 0
+            and current_usd_balance < cost_usd
+        ):
             return {
                 "success": False,
-                "error": f"رصيد الدولار غير كافٍ! يتطلب ${cost_usd:.2f} USD"
+                "error": (
+                    "رصيد الدولار غير كافٍ! يتطلب "
+                    f"${cost_usd:.2f} USD"
+                )
             }
 
         now = datetime.now(timezone.utc)
         now_iso = now.isoformat()
 
-        old_max_cap = calculate_user_max_cap(user_data, game_settings)
+        old_max_cap = calculate_user_max_cap(
+            user_data,
+            game_settings
+        )
+
         mined_amount = calculate_accrued_mined(
             user_data,
             now,
             old_max_cap
         )
 
-        hourly_rate = float(user_data.get("hourly_rate", 0.05))
-        extra_cap = float(user_data.get("extra_storage", 0.0))
+        hourly_rate = float(
+            user_data.get(
+                "hourly_rate",
+                0.05
+            )
+        )
 
-        new_max_cap = round(new_capacity + extra_cap, 2)
-        new_balance = round_zn(current_balance - cost_zn)
-        new_usd_balance = round_usd(current_usd_balance - cost_usd)
+        extra_cap = float(
+            user_data.get(
+                "extra_storage",
+                0.0
+            )
+        )
 
-        if hourly_rate > 0 and mined_amount > 0:
-            equivalent_seconds = mined_amount / (hourly_rate / 3600.0)
+        new_max_cap = round(
+            new_capacity + extra_cap,
+            2
+        )
+
+        new_balance = round(
+            current_balance - cost_zn,
+            8
+        )
+
+        new_usd_balance = round(
+            current_usd_balance - cost_usd,
+            6
+        )
+
+        if (
+            hourly_rate > 0
+            and mined_amount > 0
+        ):
+            equiv_seconds = (
+                mined_amount
+                / (hourly_rate / 3600.0)
+            )
+
             new_last_claim_iso = (
-                now - timedelta(seconds=equivalent_seconds)
+                now
+                - timedelta(seconds=equiv_seconds)
             ).isoformat()
+
         else:
             new_last_claim_iso = now_iso
 
@@ -739,17 +991,26 @@ def buy_storage_db(user_id_str):
 
     try:
         transaction = db.transaction()
-        return run_storage_transaction(transaction, user_ref)
+        return run_storage_transaction(
+            transaction,
+            user_ref
+        )
+
     except Exception as e:
         return {
             "success": False,
-            "error": f"تعذر إتمام ترقية المخزن: {str(e)}"
+            "error": (
+                f"تعذر إتمام ترقية المخزن: {str(e)}"
+            )
         }
 
+
 def claim_daily_reward_db(user_id_str):
+    """استلام المكافأة اليومية (مدرجة حتى 30 يوم)"""
     db = get_db()
     user_ref = db.collection("users").document(user_id_str)
     game_settings = get_game_settings()
+
     parsed_rewards = parse_daily_rewards(
         game_settings.get("daily_rewards")
     )
@@ -759,43 +1020,82 @@ def claim_daily_reward_db(user_id_str):
         snapshot = ref.get(transaction=transaction)
 
         if not snapshot.exists:
-            return {"success": False, "error": "المستخدم غير موجود"}
+            return {
+                "success": False,
+                "error": "المستخدم غير موجود"
+            }
 
         user_data = snapshot.to_dict() or {}
         now = datetime.now(timezone.utc)
 
-        today_str = now.strftime("%Y-%m-%d")
-        yesterday_str = (now - timedelta(days=1)).strftime("%Y-%m-%d")
-        last_daily_claim = user_data.get("last_daily_claim_date")
+        today_str = now.strftime(
+            "%Y-%m-%d"
+        )
+
+        yesterday_str = (
+            now - timedelta(days=1)
+        ).strftime("%Y-%m-%d")
+
+        last_daily_claim = user_data.get(
+            "last_daily_claim_date"
+        )
 
         if last_daily_claim == today_str:
             return {
                 "success": False,
-                "error": "لقد قمت باستلام المكافأة اليوم بالفعل"
+                "error": (
+                    "لقد قمت باستلام المكافأة اليوم بالفعل"
+                )
             }
 
-        try:
-            raw_daily_day = int(
-                user_data.get("daily_day")
-                or user_data.get("daily_streak")
-                or 1
-            )
-        except (TypeError, ValueError):
-            raw_daily_day = 1
+        raw_daily_day = int(
+            user_data.get("daily_day")
+            or user_data.get("daily_streak")
+            or 1
+        )
 
         if last_daily_claim == yesterday_str:
-            effective_daily_day = min(raw_daily_day + 1, 30)
+            effective_daily_day = (
+                min(raw_daily_day + 1, 30)
+                if raw_daily_day < 30
+                else 30
+            )
         else:
             effective_daily_day = 1
 
-        reward_index = min(max(effective_daily_day - 1, 0), 29)
-        reward_amount = float(parsed_rewards[reward_index])
+        reward_index = min(
+            max(effective_daily_day - 1, 0),
+            29
+        )
 
-        current_balance = round_zn(user_data.get("balance", 0.0))
-        current_usd_balance = round_usd(user_data.get("usd_balance", 0.0))
+        reward_amount = float(
+            parsed_rewards[reward_index]
+        )
 
-        new_balance = round_zn(current_balance + reward_amount)
-        new_ads_watched = int(user_data.get("ads_watched", 0)) + 1
+        current_balance = float(
+            user_data.get(
+                "balance",
+                0.0
+            )
+        )
+
+        current_usd_balance = float(
+            user_data.get(
+                "usd_balance",
+                0.0
+            )
+        )
+
+        # لا نفقد الجزء العشري الموجود مسبقاً في الرصيد.
+        new_balance = round(
+            current_balance + reward_amount,
+            8
+        )
+
+        new_ads_watched = (
+            int(user_data.get("ads_watched", 0))
+            + 1
+        )
 
         transaction.update(
             ref,
@@ -820,14 +1120,22 @@ def claim_daily_reward_db(user_id_str):
 
     try:
         transaction = db.transaction()
-        return run_daily_claim_transaction(transaction, user_ref)
+        return run_daily_claim_transaction(
+            transaction,
+            user_ref
+        )
+
     except Exception as e:
         return {
             "success": False,
-            "error": f"تعذر استلام المكافأة اليومية: {str(e)}"
+            "error": (
+                f"تعذر استلام المكافأة اليومية: {str(e)}"
+            )
         }
 
+
 def claim_daily_boost_db(user_id_str):
+    """تفعيل المعزز اليومي"""
     db = get_db()
     user_ref = db.collection("users").document(user_id_str)
     game_settings = get_game_settings()
@@ -838,15 +1146,32 @@ def claim_daily_boost_db(user_id_str):
     )
 
     daily_boost_reward = round(
-        float(mining_cfg.get("daily_boost_reward", 0.15)),
+        float(
+            mining_cfg.get(
+                "daily_boost_reward",
+                0.15
+            )
+        ),
         2
     )
+
     max_daily_boost_rate = round(
-        float(mining_cfg.get("max_daily_boost_rate", 4.5)),
+        float(
+            mining_cfg.get(
+                "max_daily_boost_rate",
+                4.5
+            )
+        ),
         2
     )
+
     boost_max_reward_coins = round(
-        float(mining_cfg.get("boost_max_reward_coins", 35.0)),
+        float(
+            mining_cfg.get(
+                "boost_max_reward_coins",
+                35.0
+            )
+        ),
         2
     )
 
@@ -855,72 +1180,114 @@ def claim_daily_boost_db(user_id_str):
         snapshot = ref.get(transaction=transaction)
 
         if not snapshot.exists:
-            return {"success": False, "error": "المستخدم غير موجود"}
-
-        user_data = snapshot.to_dict() or {}
-        now = datetime.now(timezone.utc)
-
-        today_str = now.strftime("%Y-%m-%d")
-        now_iso = now.isoformat()
-
-        if user_data.get("last_boost_date") == today_str:
             return {
                 "success": False,
-                "error": "لقد حصلت على تعزيز اليوم بالفعل"
+                "error": "المستخدم غير موجود"
+            }
+
+        user_data = snapshot.to_dict() or {}
+
+        now = datetime.now(timezone.utc)
+
+        today_str = now.strftime(
+            "%Y-%m-%d"
+        )
+
+        now_iso = now.isoformat()
+
+        last_boost = user_data.get(
+            "last_boost_date"
+        )
+
+        if last_boost == today_str:
+            return {
+                "success": False,
+                "error": (
+                    "لقد حصلت على تعزيز اليوم بالفعل"
+                )
             }
 
         daily_boost_rate = float(
-            user_data.get("daily_boost_rate", 0.0) or 0.0
-        )
-        current_hourly_rate = float(
-            user_data.get("hourly_rate", 0.05) or 0.05
-        )
-        current_balance = round_zn(user_data.get("balance", 0.0))
-        current_usd_balance = round_usd(
-            user_data.get("usd_balance", 0.0)
+            user_data.get(
+                "daily_boost_rate",
+                0.0
+            ) or 0.0
         )
 
-        current_ads = int(user_data.get("ads_watched", 0) or 0)
+        current_hourly_rate = float(
+            user_data.get(
+                "hourly_rate",
+                0.05
+            ) or 0.05
+        )
+
+        current_balance = float(
+            user_data.get(
+                "balance",
+                0.0
+            ) or 0.0
+        )
+
+        current_usd_balance = float(
+            user_data.get(
+                "usd_balance",
+                0.0
+            ) or 0.0
+        )
+
+        current_ads = int(
+            user_data.get(
+                "ads_watched",
+                0
+            ) or 0
+        )
+
         new_ads = current_ads + 1
 
-        max_cap = calculate_user_max_cap(user_data, game_settings)
+        max_cap = calculate_user_max_cap(
+            user_data,
+            game_settings
+        )
+
         mined_amount = calculate_accrued_mined(
             user_data,
             now,
             max_cap
         )
 
-        remaining_boost = max(
-            0.0,
-            max_daily_boost_rate - daily_boost_rate
-        )
-
-        if remaining_boost > 0.00000001:
-            applied_boost = min(
-                daily_boost_reward,
-                remaining_boost
-            )
-            applied_boost = round(applied_boost, 2)
+        if round(
+            daily_boost_rate,
+            2
+        ) < max_daily_boost_rate:
 
             new_daily_boost_rate = round(
-                min(
-                    max_daily_boost_rate,
-                    daily_boost_rate + applied_boost
-                ),
-                2
-            )
-            new_hourly_rate = round(
-                current_hourly_rate + applied_boost,
+                daily_boost_rate
+                + daily_boost_reward,
                 2
             )
 
-            if new_hourly_rate > 0 and mined_amount > 0:
-                equivalent_seconds = mined_amount / (
-                    new_hourly_rate / 3600.0
+            new_hourly_rate = round(
+                current_hourly_rate
+                + daily_boost_reward,
+                2
+            )
+
+            if (
+                new_hourly_rate > 0
+                and mined_amount > 0
+            ):
+                equiv_seconds = (
+                    mined_amount
+                    / (new_hourly_rate / 3600.0)
                 )
+
                 new_last_claim_iso = (
-                    now - timedelta(seconds=equivalent_seconds)
+                    now
+                    - timedelta(
+                        seconds=equiv_seconds
+                    )
                 ).isoformat()
+
             else:
                 new_last_claim_iso = now_iso
 
@@ -938,7 +1305,7 @@ def claim_daily_boost_db(user_id_str):
             return {
                 "success": True,
                 "type": "speed",
-                "boost_amount": applied_boost,
+                "boost_amount": daily_boost_reward,
                 "new_rate": new_hourly_rate,
                 "daily_boost_rate": new_daily_boost_rate,
                 "last_boost_date": today_str,
@@ -949,34 +1316,43 @@ def claim_daily_boost_db(user_id_str):
                 "server_time": now_iso
             }
 
-        new_balance = round_zn(
-            current_balance + boost_max_reward_coins
-        )
+        else:
+            new_balance = round(
+                current_balance
+                + boost_max_reward_coins,
+                8
+            )
 
-        transaction.update(
-            ref,
-            {
-                "balance": new_balance,
+            transaction.update(
+                ref,
+                {
+                    "balance": new_balance,
+                    "last_boost_date": today_str,
+                    "ads_watched": new_ads
+                }
+            )
+
+            return {
+                "success": True,
+                "type": "balance",
+                "reward_coins": boost_max_reward_coins,
+                "new_balance": new_balance,
+                "new_usd_balance": current_usd_balance,
                 "last_boost_date": today_str,
-                "ads_watched": new_ads
+                "server_time": now_iso
             }
-        )
-
-        return {
-            "success": True,
-            "type": "balance",
-            "reward_coins": boost_max_reward_coins,
-            "new_balance": new_balance,
-            "new_usd_balance": current_usd_balance,
-            "last_boost_date": today_str,
-            "server_time": now_iso
-        }
 
     try:
         transaction = db.transaction()
-        return run_boost_transaction(transaction, user_ref)
+        return run_boost_transaction(
+            transaction,
+            user_ref
+        )
+
     except Exception as e:
         return {
             "success": False,
-            "error": f"تعذر تفعيل التعزيز: {str(e)}"
+            "error": (
+                f"تعذر تفعيل التعزيز: {str(e)}"
+            )
         }
