@@ -1,4 +1,5 @@
 import time
+import random
 import hashlib
 from datetime import datetime, timezone, timedelta
 from flask import Blueprint, jsonify, request
@@ -16,7 +17,7 @@ PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
 _SHOP_CONFIG_CACHE = {"data": None, "timestamp": 0}
 _TON_PRICE_CACHE = {"price": 0.0, "timestamp": 0}
 
-CACHE_TTL_CONFIG = 30  # تخفيض الكاش إلى 30 ثانية لاستجابة سريعة جداً عند التعديل ف الفايربيس
+CACHE_TTL_CONFIG = 30  # كاش 30 ثانية لاستجابة سريعة جداً عند التعديل
 CACHE_TTL_TON = 60      # 60 ثانية لكاش سعر عملة TON
 
 DEFAULT_USDT_PACKAGES = {
@@ -56,7 +57,6 @@ def get_cached_ton_price():
     return price
 
 def ensure_shop_settings_exist():
-    """قراءة مستند settings/shop_settings وإنشاؤه فقط إذا كان المستند غائباً تماماً"""
     try:
         shop_ref = db.collection('settings').document('shop_settings')
         doc = shop_ref.get()
@@ -184,7 +184,7 @@ def prepare_ton_pay():
         ton_amount = round(usd_val / ton_price, 4) if ton_price > 0 else round(usd_val / 5.5, 4)
         nano_ton = int(ton_amount * 1000000000)
 
-        memo_payload = f"BUY_{pkg_id}_USER_{user_id}_{int(time.time())}"
+        memo_payload = f"BUY_{pkg_id}_USER_{user_id}_{int(time.time())}_{random.randint(100,999)}"
 
         return jsonify({
             "success": True,
@@ -208,7 +208,7 @@ def verify_and_apply_package():
 
         data = request.get_json() or {}
         pkg_key = str(data.get('package_id'))
-        tx_boc = data.get('boc') or data.get('tx_hash') or "MANUAL_OR_TEST"
+        raw_boc = data.get('boc') or data.get('tx_hash') or ""
 
         if not pkg_key:
             return jsonify({"success": False, "error": "بيانات الباقة غير مكتملة."}), 200
@@ -221,7 +221,11 @@ def verify_and_apply_package():
 
         pkg_info = packages[pkg_key]
         user_id_str = str(user_id).strip()
-        tx_doc_id = hashlib.sha256(f"{user_id_str}_{tx_boc}".encode('utf-8')).hexdigest()[:32]
+
+        # توليد معرّف فريد يضمن إمكانية الشراء المتكرر بلا نهاية
+        now_dt = datetime.now(timezone.utc)
+        unique_seed = f"{user_id_str}_{pkg_key}_{raw_boc}_{now_dt.timestamp()}_{random.randint(1000, 9999)}"
+        tx_doc_id = hashlib.sha256(unique_seed.encode('utf-8')).hexdigest()[:32]
 
         transaction = db.transaction()
         tx_ref = db.collection('processed_txs').document(tx_doc_id)
@@ -231,7 +235,7 @@ def verify_and_apply_package():
         def secure_apply_package_tx(tx, u_ref, t_ref):
             t_snaps = list(tx.get(t_ref))
             if t_snaps and t_snaps[0].exists:
-                raise Exception("تم معالجة هذه المعاملة وتفعيل الباقة سابقاً.")
+                raise Exception("تم معالجة هذه المعاملة سابقاً.")
 
             u_snaps = list(tx.get(u_ref))
             if not u_snaps or not u_snaps[0].exists:
@@ -240,14 +244,16 @@ def verify_and_apply_package():
             u_snap = u_snaps[0]
             u_data = u_snap.to_dict() or {}
 
-            zn_add = float(pkg_info.get('zn_add', 0))
-            rate_add = float(pkg_info.get('rate_add', 0))
-            storage_add = float(pkg_info.get('storage_add', 0))
+            # 1. القيم المضافة من الباقة
+            zn_add = float(pkg_info.get('zn_add', 0.0))
+            rate_add = float(pkg_info.get('rate_add', 0.0))
+            storage_add = float(pkg_info.get('storage_add', 0.0))
 
-            cur_balance = float(u_data.get('balance', 0.0))
-            cur_usd_balance = float(u_data.get('usd_balance', u_data.get('balance_usd', 0.0)))
-            cur_hourly_rate = float(u_data.get('hourly_rate', 0.0))
-            cur_extra_storage = float(u_data.get('extra_storage', 0.0))
+            # 2. البيانات الحالية للمستخدم
+            cur_balance = float(u_data.get('balance', 0.0) or 0.0)
+            cur_usd_balance = float(u_data.get('usd_balance', u_data.get('balance_usd', 0.0)) or 0.0)
+            cur_hourly_rate = float(u_data.get('hourly_rate', 0.0) or 0.0)
+            cur_extra_storage = float(u_data.get('extra_storage', 0.0) or 0.0)
             cur_storage_lvl = str(u_data.get('storage_level', 0))
 
             storage_cfg = _normalize_config_dict(settings.get('storage_config'), {})
@@ -257,8 +263,8 @@ def verify_and_apply_package():
 
             cur_max_cap = float(u_data.get('max_cap', base_cap + cur_extra_storage))
 
+            # 3. احتساب الأرباح المعلقة
             last_claim_str = u_data.get('last_claim_time')
-            now_dt = datetime.now(timezone.utc)
             pending_mined = 0.0
             if last_claim_str:
                 try:
@@ -268,24 +274,27 @@ def verify_and_apply_package():
                 except Exception:
                     pending_mined = 0.0
 
-            new_extra_storage = round(cur_extra_storage + storage_add, 2)
-            new_max_cap = round(base_cap + new_extra_storage, 2)
+            # 4. إضافة القيم التراكمية للباقة
             new_balance = round(cur_balance + zn_add, 2)
             new_hourly_rate = round(cur_hourly_rate + rate_add, 2)
+            new_extra_storage = round(cur_extra_storage + storage_add, 2)
+            new_max_cap = round(base_cap + new_extra_storage, 2)
 
+            # 5. تعريف المتغير new_last_claim_time المضمون لتفادي NameError
+            new_last_claim_time = now_dt.isoformat()
             if new_hourly_rate > 0:
                 time_needed = pending_mined / (new_hourly_rate / 3600.0)
-                new_last_claim_dt = now_dt - timedelta(seconds=time_needed)
-                new_last_claim_time = new_last_claim_dt.isoformat()
-            else:
-                new_last_claim_time = now_dt.isoformat()
+                new_last_claim_time = (now_dt - timedelta(seconds=time_needed)).isoformat()
 
             purchased_pkgs = u_data.get('purchased_packages', [])
+            if not isinstance(purchased_pkgs, list):
+                purchased_pkgs = []
+
             purchased_pkgs.append({
                 'package_id': pkg_key,
-                'title': pkg_info.get('title'),
+                'title': pkg_info.get('title', 'باقة مميزة'),
                 'purchased_at': now_dt.isoformat(),
-                'price_usdt': pkg_info.get('usdt')
+                'price_usdt': pkg_info.get('usdt', 0.0)
             })
 
             tx.update(u_ref, {
@@ -317,7 +326,7 @@ def verify_and_apply_package():
                 "hourly_rate": new_rate,
                 "extra_storage": new_extra,
                 "max_cap": new_cap,
-                "last_claim_time": new_last_claim_time
+                "last_claim_time": new_claim_time
             }
         }), 200
 
@@ -412,12 +421,10 @@ def buy_upgrade():
                 speed_to_add = float(config.get('rate_bonus', config.get('rate', 0.0)))
                 new_hourly_rate = round(hourly_rate + speed_to_add, 2)
 
+                new_last_claim_time = now_dt.isoformat()
                 if new_hourly_rate > 0:
                     time_needed = pending_mined / (new_hourly_rate / 3600.0)
-                    new_last_claim_dt = now_dt - timedelta(seconds=time_needed)
-                    new_last_claim_time = new_last_claim_dt.isoformat()
-                else:
-                    new_last_claim_time = now_dt.isoformat()
+                    new_last_claim_time = (now_dt - timedelta(seconds=time_needed)).isoformat()
 
                 tx.update(u_ref, {
                     'balance': new_balance,
@@ -465,12 +472,10 @@ def buy_upgrade():
                 new_balance = round(current_balance - cost_zn, 2)
                 new_usd_balance = round(current_usd_balance - cost_usd, 4)
 
+                new_last_claim_time = now_dt.isoformat()
                 if hourly_rate > 0:
                     time_needed = pending_mined / (hourly_rate / 3600.0)
-                    new_last_claim_dt = now_dt - timedelta(seconds=time_needed)
-                    new_last_claim_time = new_last_claim_dt.isoformat()
-                else:
-                    new_last_claim_time = now_dt.isoformat()
+                    new_last_claim_time = (now_dt - timedelta(seconds=time_needed)).isoformat()
 
                 tx.update(u_ref, {
                     'balance': new_balance,
