@@ -11,7 +11,7 @@
     let shopDynamicSettings = null;
     let cachedPackagesData = null;
     let lastConfigFetchTime = 0;
-    const CONFIG_CACHE_TTL = 30000; // تقليل كاش المتصفح إلى 30 ثانية لتحديث البيانات فوراً
+    const CONFIG_CACHE_TTL = 30000; // كاش 30 ثانية لتحديث البيانات فوراً
 
     function triggerHaptic(type = 'impact', style = 'medium') {
         if (window.Telegram?.WebApp?.HapticFeedback) {
@@ -39,7 +39,6 @@
         return val.toFixed(2);
     }
 
-    // دالة تنسيق الأرقام المحدثة لإظهار الخانات العشرية ومنع تحويلها لـ 0
     function formatNumberAbbreviated(num, decimals = 2) {
         let val = floatVal(num);
         if (val >= 1000000000) return (val / 1000000000).toFixed(decimals) + 'B';
@@ -47,7 +46,7 @@
         if (val >= 1000) return (val / 1000).toFixed(decimals) + 'K';
         
         return val.toLocaleString('en-US', { 
-            minimumFractionDigits: 2, 
+            minimumFractionDigits: 0, 
             maximumFractionDigits: decimals < 2 ? 2 : decimals 
         });
     }
@@ -109,7 +108,7 @@
             const data = await res.json();
             if (data && data.success) {
                 shopDynamicSettings = data.settings || data.farm_settings || data;
-                cachedPackagesData = data.packages;
+                cachedPackagesData = data.packages || data.usdt_packages || (data.settings && data.settings.usdt_packages);
                 lastConfigFetchTime = now;
 
                 try {
@@ -126,16 +125,15 @@
 
     function applyConfigToUI(data) {
         const tonPriceElem = document.getElementById('ton-live-rate-text');
-        if (tonPriceElem) {
-            const livePrice = floatVal(data.ton_price_usd, window.tonPrice, window.userState?.ton_price);
-            if (livePrice) {
-                tonPriceElem.innerText = `$${livePrice.toFixed(2)}`;
-            }
+        const livePrice = floatVal(data.ton_price_usd, window.tonPrice, window.userState?.ton_price, 5.0);
+        if (tonPriceElem && livePrice) {
+            tonPriceElem.innerText = `$${livePrice.toFixed(2)}`;
         }
 
-        if (data.packages) {
-            cachedPackagesData = data.packages;
-            renderDynamicPackages(data.packages);
+        const packages = data.packages || data.usdt_packages || (data.settings && data.settings.usdt_packages);
+        if (packages) {
+            cachedPackagesData = packages;
+            renderDynamicPackages(packages);
         }
         
         window.updateShopUI();
@@ -168,14 +166,19 @@
             { bg: 'linear-gradient(135deg, #1c1c1c, #3a1c1c)', border: '#ff4444', btn: '#ff4444', icon: '🐋', textColor: '#ffffff' }
         ];
 
+        const liveTonPrice = floatVal(window.tonPrice, window.userState?.ton_price, 5.0);
+
         let index = 0;
         for (const [pkgId, pkg] of entries) {
             if (!pkg) continue;
             const theme = colorThemes[index % colorThemes.length];
             const btnTextColor = theme.textColor || '#ffffff';
 
-            const usdtPrice = formatUSD(floatVal(pkg.usdt, pkg.cost_usd));
-            const tonAmount = floatVal(pkg.ton_amount).toFixed(2);
+            const usdtPrice = floatVal(pkg.usdt, pkg.cost_usd, pkg.price);
+            let tonAmount = floatVal(pkg.ton_amount);
+            if (tonAmount <= 0 && liveTonPrice > 0 && usdtPrice > 0) {
+                tonAmount = usdtPrice / liveTonPrice;
+            }
 
             let rateAddFormatted = floatVal(pkg.rate_add).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
             let storageAddFormatted = floatVal(pkg.storage_add).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -186,8 +189,8 @@
                     <div>
                         <div style="font-size: 26px;">${theme.icon}</div>
                         <div style="color: #ffffff; font-weight: bold; font-size: 13px;">${pkg.title || 'باقة مميزة'}</div>
-                        <div style="color: ${theme.border}; font-weight: 800; font-size: 17px; margin: 4px 0;">$${usdtPrice}</div>
-                        <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${tonAmount} TON</div>
+                        <div style="color: ${theme.border}; font-weight: 800; font-size: 17px; margin: 4px 0;">$${formatUSD(usdtPrice)}</div>
+                        <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${tonAmount.toFixed(2)} TON</div>
                     </div>
                     <div class="usdt-perks">
                         ⚡ +${rateAddFormatted} ZN/h<br>
@@ -266,17 +269,14 @@
                 validUntil: Math.floor(Date.now() / 1000) + 600,
                 messages: [{
                     address: prepData.recipient_address,
-                    amount: cleanNanoTon
+                    amount: cleanNanoTon,
+                    payload: prepData.payload || undefined
                 }]
             };
 
             const result = await tcInstance.sendTransaction(transaction);
             
-            // توليد رمز BOC فريد متضمناً الطابع الزمني لضمان الشراء المتكرر بدون حدود
-            let safeBoc = "TX_" + Date.now() + "_" + Math.floor(Math.random() * 100000);
-            if (result && result.boc) {
-                safeBoc = String(result.boc).replace(/[^a-zA-Z0-9]/g, '').substring(0, 24) + "_" + Date.now();
-            }
+            let safeBoc = (result && result.boc) ? result.boc : ("TX_" + Date.now() + "_" + Math.floor(Math.random() * 100000));
 
             const verifyRes = await fetch('/api/shop/verify_and_apply_package', {
                 method: 'POST',
@@ -292,11 +292,11 @@
             });
 
             const verifyData = await verifyRes.json();
-            if (verifyData.success && verifyData.result) {
+            if (verifyData.success && (verifyData.result || verifyData.data || verifyData.balance !== undefined)) {
                 triggerHaptic('notification', 'success');
                 alert("🎉 تم تأكيد الدفع وتفعيل الباقة بنجاح!");
 
-                const res = verifyData.result;
+                const res = verifyData.result || verifyData.data || verifyData;
                 if (!window.userState) window.userState = {};
                 if (res.balance !== undefined) window.userState.balance = res.balance;
                 if (res.usd_balance !== undefined) window.userState.usd_balance = res.usd_balance;
@@ -306,6 +306,7 @@
                 if (res.last_claim_time !== undefined) window.userState.last_claim_time = res.last_claim_time;
 
                 window.updateShopUI();
+                window.dispatchEvent(new CustomEvent('userStateUpdated'));
             } else {
                 alert("⚠️ " + (verifyData.error || verifyData.message));
             }
@@ -399,13 +400,13 @@
         if (tab === 'mining') {
             miningSec.style.display = 'grid';
             storageSec.style.display = 'none';
-            if (btnMining) btnMining.style.background = '#0088cc';
-            if (btnStorage) btnStorage.style.background = '#21262d';
+            if (btnMining) { btnMining.style.background = '#0088cc'; btnMining.classList.add('active'); }
+            if (btnStorage) { btnStorage.style.background = '#21262d'; btnStorage.classList.remove('active'); }
         } else {
             miningSec.style.display = 'none';
             storageSec.style.display = 'grid';
-            if (btnMining) btnMining.style.background = '#21262d';
-            if (btnStorage) btnStorage.style.background = '#0088cc';
+            if (btnMining) { btnMining.style.background = '#21262d'; btnMining.classList.remove('active'); }
+            if (btnStorage) { btnStorage.style.background = '#0088cc'; btnStorage.classList.add('active'); }
         }
     };
 
@@ -419,7 +420,6 @@
 
         const miningSec = document.getElementById('shop-mining-section');
         const storageSec = document.getElementById('shop-storage-section');
-        if (!miningSec || !storageSec) return;
 
         const pData = window.userState || {};
         let totalBal = floatVal(pData.balance);
@@ -451,6 +451,8 @@
             const hRate = floatVal(pData.hourly_rate);
             rateElem.innerText = `+${hRate.toFixed(2)}/h ⚡`;
         }
+
+        if (!miningSec || !storageSec) return;
 
         const settings = shopDynamicSettings || {};
         const miningCfg = settings.upgrade_config 
@@ -500,7 +502,7 @@
                 </div>
             `;
         }
-        miningSec.innerHTML = miningHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري القراءة من الفيربيس...</div>';
+        miningSec.innerHTML = miningHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري جلب الباقات...</div>';
 
         const storageCfg = settings.storage_capacities 
                         || settings.storage_config 
@@ -556,7 +558,7 @@
                 </div>
             `;
         }
-        storageSec.innerHTML = storageHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري القراءة من الفيربيس...</div>';
+        storageSec.innerHTML = storageHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري جلب مستويات التخزين...</div>';
     };
 
     window.requestShopPurchase = function(type, level, priceZn, priceUsd) {
@@ -634,6 +636,8 @@
                 body: JSON.stringify({ 
                     type: apiType, 
                     level_num: level,
+                    level: level,
+                    upgrade_level: level,
                     initData: initData 
                 })
             });
@@ -643,17 +647,19 @@
             if (response.ok && resData.success) {
                 triggerHaptic('notification', 'success');
 
+                const res = resData.result || resData.data || resData;
                 if (!window.userState) window.userState = {};
-                if (resData.balance !== undefined) window.userState.balance = resData.balance;
-                if (resData.usd_balance !== undefined) window.userState.usd_balance = resData.usd_balance;
-                if (resData.hourly_rate !== undefined) window.userState.hourly_rate = resData.hourly_rate;
-                if (resData.upgrades !== undefined) window.userState.upgrades = resData.upgrades;
-                if (resData.storage_level !== undefined) window.userState.storage_level = resData.storage_level;
-                if (resData.extra_storage !== undefined) window.userState.extra_storage = resData.extra_storage;
-                if (resData.max_cap !== undefined) window.userState.max_cap = resData.max_cap;
-                if (resData.last_claim_time !== undefined) window.userState.last_claim_time = resData.last_claim_time;
+                if (res.balance !== undefined) window.userState.balance = res.balance;
+                if (res.usd_balance !== undefined) window.userState.usd_balance = res.usd_balance;
+                if (res.hourly_rate !== undefined) window.userState.hourly_rate = res.hourly_rate;
+                if (res.upgrades !== undefined) window.userState.upgrades = res.upgrades;
+                if (res.storage_level !== undefined) window.userState.storage_level = res.storage_level;
+                if (res.extra_storage !== undefined) window.userState.extra_storage = res.extra_storage;
+                if (res.max_cap !== undefined) window.userState.max_cap = res.max_cap;
+                if (res.last_claim_time !== undefined) window.userState.last_claim_time = res.last_claim_time;
 
                 window.updateShopUI();
+                window.dispatchEvent(new CustomEvent('userStateUpdated'));
             } else {
                 alert("⚠️ " + (resData.error || resData.message || "حدث خطأ أثناء الشراء."));
             }
