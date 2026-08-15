@@ -159,13 +159,18 @@ window.closeWelcomeModal = function() {
         }
     }
 
-    // دالة تنسيق أرقام عملة ZN (4 أرقام للأعداد أقل من 10، ورقمين للأعداد 10 فما فوق)
+    // دالة تنسيق أرقام عملة ZN الذكية:
+    // إذا كان الرصيد قليل (< 10) تظهر الخانات العشرية تلقائياً بحسب القيمة الفعلية (حتى 4 أرقام).
+    // إذا كان الرصيد كبيراً (>= 10) يتم استخدام خانتين عشريتين كحد أقصى (0.00).
     function formatZnBalance(val) {
         const num = parseFloat(val || 0);
-        if (isNaN(num)) return "0.0000";
+        if (isNaN(num) || num === 0) return "0.00";
         
         if (num < 10) {
-            return num.toFixed(4);
+            let str = num.toFixed(4).replace(/\.?0+$/, '');
+            if (!str.includes('.')) return str + '.00';
+            if (str.split('.')[1].length === 1) return str + '0';
+            return str;
         } else {
             return num.toFixed(2);
         }
