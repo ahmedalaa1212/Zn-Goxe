@@ -10,12 +10,15 @@ window.closeWelcomeModal = function() {
     if (window.userState) window.userState.is_new_user = false;
     if (window.PlayerData) window.PlayerData.is_new_user = false;
 
-    // حفظ حالة إغلاق النافذة الترحيبية للمستخدم في localStorage بناءً على معرّف التليجرام
+    // حفظ حالة إغلاق النافذة الترحيبية في localStorage وفي قاعدة البيانات للسيرفر
     try {
         const tele = window.Telegram?.WebApp;
         const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id || window.PlayerData?.telegram_id;
         if (userId) {
             localStorage.setItem(`zn_welcome_seen_${userId}`, 'true');
+        }
+        if (typeof window.fetchAPI === 'function') {
+            window.fetchAPI('/api/farm/dismiss_welcome', 'POST', {}).catch(() => {});
         }
     } catch (e) {
         console.error("خطأ حفظ حالة النافذة الترحيبية:", e);
@@ -26,14 +29,14 @@ window.closeWelcomeModal = function() {
     const tele = window.Telegram?.WebApp;
     const START_PARAM = tele?.initDataUnsafe?.start_param || "";
 
-    // الإعدادات المحدثة طبقاً للخطة الاقتصادية (السرعة البدائية 0.05 والمكافأة اليومية 0.15)
+    // الإعدادات المحدثة: حد أقصى للتعزيز 4.5/h ومكافأة الوصول 35 عملة
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 15,
         dailyBoostReward: 0.15,
-        maxDailyBoostRate: 15.0,
-        boostMaxRewardCoins: 50.0,
+        maxDailyBoostRate: 4.5,
+        boostMaxRewardCoins: 35.0,
         upgradeCosts: {
-            1: { cost_zn: 600, cost_usd: 0.0, rate: 1.0 },      // المستوى الأول بالعملات فقط
+            1: { cost_zn: 600, cost_usd: 0.0, rate: 1.0 },
             2: { cost_zn: 1500, cost_usd: 0.10, rate: 2.5 },
             3: { cost_zn: 3800, cost_usd: 0.15, rate: 6.0 },
             4: { cost_zn: 10000, cost_usd: 0.20, rate: 15.0 },
@@ -96,6 +99,21 @@ window.closeWelcomeModal = function() {
         }
     }
 
+    function formatUsdBalance(val) {
+        const num = parseFloat(val || 0);
+        if (isNaN(num) || Math.abs(num) < 0.000001) return "$0.00";
+        
+        let str = num.toFixed(6).replace(/\.?0+$/, '');
+        const parts = str.split('.');
+        if (!parts[1]) {
+            return `$${parts[0]}.00`;
+        } else if (parts[1].length === 1) {
+            return `$${parts[0]}.${parts[1]}0`;
+        } else {
+            return `$${str}`;
+        }
+    }
+
     function getStoredBalance() {
         if (window.userState && window.userState.balance !== undefined) {
             return parseFloat(window.userState.balance || 0);
@@ -127,7 +145,7 @@ window.closeWelcomeModal = function() {
             window.userState.usd_balance = usdVal;
             window.PlayerData.usd_balance = usdVal;
             const usdEl = document.getElementById('farm-usd-balance');
-            if (usdEl) usdEl.innerText = `$${usdVal.toFixed(4)}`;
+            if (usdEl) usdEl.innerText = formatUsdBalance(usdVal);
         }
     }
 
@@ -199,6 +217,12 @@ window.closeWelcomeModal = function() {
                     if (resData.game_config.daily_boost_reward) {
                         GAME_CONFIG.dailyBoostReward = resData.game_config.daily_boost_reward;
                     }
+                    if (resData.game_config.max_daily_boost_rate) {
+                        GAME_CONFIG.maxDailyBoostRate = resData.game_config.max_daily_boost_rate;
+                    }
+                    if (resData.game_config.boost_max_reward_coins) {
+                        GAME_CONFIG.boostMaxRewardCoins = resData.game_config.boost_max_reward_coins;
+                    }
                 }
 
                 if (!window.PlayerData) window.PlayerData = {};
@@ -209,7 +233,7 @@ window.closeWelcomeModal = function() {
                     Object.assign(window.userState, resData.player);
                     setStoredBalance(resData.player.balance, resData.player.usd_balance);
 
-                    // التحقق مما إذا كان المستخدم كـ new_user ولكن أصلح حالة الإغلاق من التخزين المحلي
+                    // إظهار النافذة الترحيبية مرة واحدة فقط للمستخدم الجديد
                     if (resData.player.is_new_user) {
                         const userId = tele?.initDataUnsafe?.user?.id || resData.player.tg_id || resData.player.telegram_id;
                         const modalSeen = userId ? localStorage.getItem(`zn_welcome_seen_${userId}`) : null;
@@ -240,7 +264,7 @@ window.closeWelcomeModal = function() {
         if (balEl) balEl.innerText = `${bal.toFixed(2)} ZN`;
 
         const usdEl = document.getElementById('farm-usd-balance');
-        if (usdEl) usdEl.innerText = `$${usdBal.toFixed(4)}`;
+        if (usdEl) usdEl.innerText = formatUsdBalance(usdBal);
 
         const rateEl = document.getElementById('farm-rate');
         if (rateEl) {
@@ -416,7 +440,6 @@ window.closeWelcomeModal = function() {
             let pct = maxC > 0 ? (unclaim / maxC) * 100 : 0;
             pct = Math.max(0, Math.min(pct, 100)); 
             progressEl.style.width = `${pct}%`;
-            // تم تغيير الدقة هنا لـ 4 خانات عشرية (toFix(4)) للحركة اللحظية
             storageTextEl.innerText = `${unclaim.toFixed(4)} / ${maxC.toLocaleString('en-US', {maximumFractionDigits: 2})}`;
         }
 
