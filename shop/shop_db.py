@@ -3,15 +3,13 @@ from datetime import datetime, timezone, timedelta
 import database
 
 def get_shop_catalog():
-    """جلب قائمة مستويات التعدين والتخزين والباقات من إعدادات الفيربيس"""
+    """جلب قائمة مستويات التعدين والتخزين والباقات من إعدادات الفيربيس مع تحويل المفاتيح لنصوص"""
     try:
         db = database.db
         
-        # جلب إعدادات المزرعة التي تحتوي على upgrade_config و storage_capacities
         farm_doc = db.collection('settings').document('farm_settings').get()
         farm_settings = farm_doc.to_dict() if farm_doc.exists else {}
 
-        # جلب إعدادات الباقات المخصصة للمتجر
         shop_doc = db.collection('settings').document('shop_settings').get()
         shop_settings = shop_doc.to_dict() if shop_doc.exists else {}
 
@@ -19,27 +17,32 @@ def get_shop_catalog():
         storage_cfg = farm_settings.get("storage_capacities", {}) or farm_settings.get("storage_config", {})
         usdt_pkgs = shop_settings.get("usdt_packages", {})
 
+        mining_normalized = {str(k): v for k, v in mining_cfg.items()} if isinstance(mining_cfg, dict) else {}
+        storage_normalized = {str(k): v for k, v in storage_cfg.items()} if isinstance(storage_cfg, dict) else {}
+
         return {
-            "mining_config": mining_cfg,
-            "upgrade_config": mining_cfg,
-            "storage_config": storage_cfg,
-            "storage_capacities": storage_cfg,
+            "mining_config": mining_normalized,
+            "upgrade_config": mining_normalized,
+            "storage_config": storage_normalized,
+            "storage_capacities": storage_normalized,
             "usdt_packages": usdt_pkgs
         }
     except Exception as e:
         print(f"❌ Error in get_shop_catalog: {e}")
         settings = database.get_game_settings() or {}
+        mining_cfg = settings.get("mining_config", {})
+        storage_cfg = settings.get("storage_config", {})
         return {
-            "mining_config": settings.get("mining_config", {}),
-            "upgrade_config": settings.get("mining_config", {}),
-            "storage_config": settings.get("storage_config", {}),
-            "storage_capacities": settings.get("storage_config", {}),
+            "mining_config": {str(k): v for k, v in mining_cfg.items()} if isinstance(mining_cfg, dict) else {},
+            "upgrade_config": {str(k): v for k, v in mining_cfg.items()} if isinstance(mining_cfg, dict) else {},
+            "storage_config": {str(k): v for k, v in storage_cfg.items()} if isinstance(storage_cfg, dict) else {},
+            "storage_capacities": {str(k): v for k, v in storage_cfg.items()} if isinstance(storage_cfg, dict) else {},
             "usdt_packages": settings.get("usdt_packages", {})
         }
 
 
 def buy_mining_upgrade(tg_id, upgrade_level):
-    """شراء ترقية كرت تعدين زيادة إنتاج الساعات من الفيربيس مع الحفاظ على إنتاج المخزن الحالي"""
+    """شراء ترقية كرت تعدين مع التحقق من الرصيدين (ZN + USD) والخصم منهما بدون تصفير المخزن"""
     try:
         if not tg_id or not upgrade_level:
             return False, "بيانات الترقية غير صالحة", 0.0
@@ -56,7 +59,8 @@ def buy_mining_upgrade(tg_id, upgrade_level):
             return False, "مستوى الترقية غير موجود", float(user_data.get("balance", 0.0))
 
         item_info = mining_cfg[lvl_str]
-        price = float(item_info.get("cost_zn", item_info.get("price", 0.0)))
+        cost_zn = float(item_info.get("cost_zn", item_info.get("price", 0.0)))
+        cost_usd = float(item_info.get("cost_usd", item_info.get("usd_cost", 0.0)))
         rate_bonus = float(item_info.get("rate_bonus", item_info.get("rate", 0.0)))
         max_purchases = int(item_info.get("max", 15))
 
@@ -67,10 +71,14 @@ def buy_mining_upgrade(tg_id, upgrade_level):
             return False, "وصلت للحد الأقصى لشراء هذه الترقية", float(user_data.get("balance", 0.0))
 
         current_balance = float(user_data.get("balance", 0.0) or 0.0)
-        if current_balance < price:
-            return False, f"رصيدك غير كافٍ! تحتاج {price:,.0f} ZN", current_balance
+        current_usd_balance = float(user_data.get("usd_balance", user_data.get("balance_usd", 0.0)) or 0.0)
 
-        # حساب الرصيد المتراكم بالمخزن لحفظه بدون تصفير
+        if current_balance < cost_zn:
+            return False, f"رصيد ZN غير كافٍ! تحتاج {cost_zn:,.0f} ZN", current_balance
+
+        if current_usd_balance < cost_usd:
+            return False, f"رصيد الدولار غير كافٍ! تحتاج ${cost_usd:.2f}", current_balance
+
         last_claim_str = user_data.get('last_claim_time')
         now_dt = datetime.now(timezone.utc)
         old_rate = float(user_data.get("hourly_rate", 0.0) or 0.0)
@@ -85,7 +93,8 @@ def buy_mining_upgrade(tg_id, upgrade_level):
             except Exception:
                 pending_mined = 0.0
 
-        new_balance = round(current_balance - price, 2)
+        new_balance = round(current_balance - cost_zn, 2)
+        new_usd_balance = round(current_usd_balance - cost_usd, 4)
         new_hourly_rate = round(old_rate + rate_bonus, 2)
 
         if new_hourly_rate > 0:
@@ -98,6 +107,7 @@ def buy_mining_upgrade(tg_id, upgrade_level):
 
         database.update_user(tg_id, {
             "balance": new_balance,
+            "usd_balance": new_usd_balance,
             "hourly_rate": new_hourly_rate,
             "upgrades": user_upgrades,
             "last_claim_time": new_last_claim
@@ -110,7 +120,7 @@ def buy_mining_upgrade(tg_id, upgrade_level):
 
 
 def upgrade_storage_capacity(tg_id):
-    """ترقية المخزن إلى المستوى التالي وزيادة السعة التخزينية القصوى دون تصفير العملات"""
+    """ترقية المخزن وزيادة السعة مع التحقق من الرصيدين (ZN + USD) والخصم منهما"""
     try:
         if not tg_id:
             return False, "معرف غير صالح", 0.0
@@ -129,15 +139,20 @@ def upgrade_storage_capacity(tg_id):
             return False, "وصلت لأعلى مستوى مخزن حالياً!", float(user_data.get("balance", 0.0))
 
         next_info = storage_cfg[next_lvl_str]
-        price = float(next_info.get("cost_zn", next_info.get("price", 0.0)))
+        cost_zn = float(next_info.get("cost_zn", next_info.get("price", 0.0)))
+        cost_usd = float(next_info.get("cost_usd", next_info.get("usd_cost", 0.0)))
         new_base_capacity = float(next_info.get("capacity", 100.0))
         extra_storage = float(user_data.get("extra_storage", 0.0))
 
         current_balance = float(user_data.get("balance", 0.0) or 0.0)
-        if current_balance < price:
-            return False, f"رصيدك غير كافٍ لترقية المخزن! تحتاج {price:,.0f} ZN", current_balance
+        current_usd_balance = float(user_data.get("usd_balance", user_data.get("balance_usd", 0.0)) or 0.0)
 
-        # حساب الأرباح الحالية للابتعاد عن التصفير
+        if current_balance < cost_zn:
+            return False, f"رصيدك من ZN غير كافٍ لترقية المخزن! تحتاج {cost_zn:,.0f} ZN", current_balance
+
+        if current_usd_balance < cost_usd:
+            return False, f"رصيدك من الدولار غير كافٍ لترقية المخزن! تحتاج ${cost_usd:.2f}", current_balance
+
         last_claim_str = user_data.get('last_claim_time')
         now_dt = datetime.now(timezone.utc)
         hourly_rate = float(user_data.get("hourly_rate", 0.0) or 0.0)
@@ -152,7 +167,8 @@ def upgrade_storage_capacity(tg_id):
             except Exception:
                 pending_mined = 0.0
 
-        new_balance = round(current_balance - price, 2)
+        new_balance = round(current_balance - cost_zn, 2)
+        new_usd_balance = round(current_usd_balance - cost_usd, 4)
         new_max_cap = round(new_base_capacity + extra_storage, 2)
 
         if hourly_rate > 0:
@@ -163,6 +179,7 @@ def upgrade_storage_capacity(tg_id):
 
         database.update_user(tg_id, {
             "balance": new_balance,
+            "usd_balance": new_usd_balance,
             "storage_level": int(next_lvl_str),
             "max_cap": new_max_cap,
             "last_claim_time": new_last_claim
