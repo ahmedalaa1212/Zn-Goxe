@@ -25,8 +25,16 @@ window.formatTime = function(seconds) {
 function hideLoadingScreen() {
     const appEl = document.getElementById('app');
     const navEl = document.getElementById('main-nav');
-    if (appEl) appEl.style.display = 'block';
-    if (navEl) navEl.style.display = 'flex';
+    if (appEl) {
+        appEl.style.display = 'block';
+        appEl.style.visibility = 'visible';
+        appEl.style.opacity = '1';
+    }
+    if (navEl) {
+        navEl.style.display = 'flex';
+        navEl.style.visibility = 'visible';
+        navEl.style.opacity = '1';
+    }
 
     const loaders = document.querySelectorAll('#loading-screen, .loading-screen, #loader');
     loaders.forEach(el => {
@@ -537,7 +545,7 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 8. التنقل الديناميكي الآمن وحقن الموديولات تلقائياً
+// 8. التنقل الديناميكي المحصن وحقن الموديولات تلقائياً
 // ==========================================
 const loadedModules = new Set();
 
@@ -550,17 +558,19 @@ window.switchView = async function(viewName) {
     if (cleanViewName === 'task') cleanViewName = 'tasks';
     if (cleanViewName === 'user') cleanViewName = 'users';
 
-    // 1. تحديث شكل أزرار القائمة السفلية
+    // 1. تحديث زر القائمة السفلية
     document.querySelectorAll('.nav-item, [id^="nav-"]').forEach(btn => btn.classList.remove('active'));
     const targetNav = document.getElementById(`nav-${cleanViewName}`) || document.getElementById(`nav-${viewName}`);
     if (targetNav) targetNav.classList.add('active');
 
-    // 2. إخفاء جميع الشاشات وإعداد الحاوية
-    document.querySelectorAll('.game-view, [id^="view-"]').forEach(v => v.classList.remove('active'));
+    // 2. إخفاء الشاشات الأخرى وتفعيل الحاوية الحالية
+    document.querySelectorAll('.game-view, [id^="view-"]').forEach(v => {
+        v.classList.remove('active');
+        v.style.display = 'none';
+    });
     
     let targetView = document.getElementById(`view-${cleanViewName}`) || document.getElementById(`view-${viewName}`);
     
-    // إنشاء الحاوية تلقائياً في حال عدم وجودها لمنع التجمد الشفاف
     if (!targetView) {
         const appContainer = document.getElementById('app') || document.body;
         targetView = document.createElement('div');
@@ -570,39 +580,59 @@ window.switchView = async function(viewName) {
     }
     
     targetView.classList.add('active');
+    targetView.style.display = 'block';
 
-    // 3. جلب المحتوى والموديول بمسار محلي نسبي مُحَصّن للتليجرام
-    try {
-        if (!loadedModules.has(cleanViewName)) {
-            const cacheBuster = `?v=${Date.now()}`;
-            const fetchPath = `./${cleanViewName}/${cleanViewName}.html${cacheBuster}`;
-            const res = await fetch(fetchPath);
-            
-            if (res.ok) {
-                const htmlContent = await res.text();
-                targetView.innerHTML = htmlContent;
-                await loadModuleScript(`./${cleanViewName}/${cleanViewName}.js${cacheBuster}`);
-                loadedModules.add(cleanViewName);
-            } else {
-                console.warn(`⚠️ تعذر تحميل ${fetchPath} (HTTP ${res.status})`);
-                targetView.innerHTML = `
-                    <div style="padding: 40px 20px; text-align: center; color: #ff5555; direction: rtl;">
-                        ⚠️ تعذر تحميل قسم: <b>${cleanViewName}</b> (HTTP ${res.status})<br>
-                        <small style="color: #aaa; display: block; margin-top: 8px;">تأكد من وجود الملف ${cleanViewName}/${cleanViewName}.html في السيرفر.</small>
-                    </div>`;
-            }
-        }
-    } catch (err) {
-        console.error(`❌ خطأ أثناء جلب موديول ${cleanViewName}:`, err);
-        targetView.innerHTML = `
-            <div style="padding: 40px 20px; text-align: center; color: #ff5555; direction: rtl;">
-                ❌ خطأ في الشبكة أو المسار: ${err.message}
-            </div>`;
-    } finally {
-        hideLoadingScreen();
+    // 3. التحقق إذا كان القسم محملاً مسبقاً في DOM
+    if (targetView.children.length > 0 && !loadedModules.has(cleanViewName)) {
+        loadedModules.add(cleanViewName);
     }
 
-    // 4. تشغيل دالة التهيئة المخصصة لكل موديول
+    // 4. جلب المحتوى والموديول بمسارات متعددة لضمان التحميل
+    if (!loadedModules.has(cleanViewName)) {
+        const cacheBuster = `?v=${Date.now()}`;
+        const pathsToTry = [
+            `./${cleanViewName}/${cleanViewName}.html${cacheBuster}`,
+            `/${cleanViewName}/${cleanViewName}.html${cacheBuster}`,
+            `${cleanViewName}/${cleanViewName}.html${cacheBuster}`
+        ];
+
+        let loadedSuccess = false;
+
+        for (const path of pathsToTry) {
+            try {
+                const res = await fetch(path);
+                if (res.ok) {
+                    const htmlContent = await res.text();
+                    targetView.innerHTML = htmlContent;
+                    
+                    const jsPath = path.replace('.html', '.js');
+                    await loadModuleScript(jsPath);
+                    
+                    loadedModules.add(cleanViewName);
+                    loadedSuccess = true;
+                    break;
+                }
+            } catch (e) {
+                console.warn(`فشل جلب المسار ${path}:`, e);
+            }
+        }
+
+        if (!loadedSuccess && targetView.children.length === 0) {
+            targetView.innerHTML = `
+                <div style="padding: 50px 20px; text-align: center; color: #ffffff; direction: rtl;">
+                    <div style="font-size: 40px; margin-bottom: 15px;">⚠️</div>
+                    <h3 style="margin-bottom: 10px; color: #ff5555;">تعذر تحميل قسم (${cleanViewName})</h3>
+                    <p style="color: #aaa; font-size: 14px; margin-bottom: 20px;">يرجى التأكد من وجود ملفات ${cleanViewName}/${cleanViewName}.html على السيرفر.</p>
+                    <button onclick="window.switchView('${cleanViewName}')" style="padding: 10px 20px; background: #0088cc; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">
+                        🔄 إعادة المحاولة
+                    </button>
+                </div>`;
+        }
+    }
+
+    hideLoadingScreen();
+
+    // 5. تشغيل دالة التهيئة المخصصة للتبويب
     setTimeout(() => {
         try {
             if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
@@ -644,7 +674,7 @@ function loadModuleScript(scriptUrl) {
         const script = document.createElement('script');
         script.src = scriptUrl;
         script.onload = () => resolve(true); 
-        script.onerror = (err) => {
+        script.onerror = () => {
             console.warn(`تعذر تحميل سكريبت الموديول: ${scriptUrl}`);
             resolve(false);
         }; 
@@ -696,7 +726,7 @@ function initApp() {
     window.updateUI();
     window.fetchTonPrice();
     
-    // إجبار فتح قسم المزرعة افتراضياً عند التشغيل
+    // إجبار فتح قسم المزرعة افتراضياً
     window.switchView('farm');
     
     // مؤقت أمان لحذف شاشة التحميل فوراً ومنع التجمد
