@@ -182,6 +182,19 @@ def add_security_headers(response):
 
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=()"
+    )
+
+    if request.path.lower().endswith((".html", ".js", ".css")):
+        response.headers.setdefault(
+            "Cache-Control",
+            "no-cache, no-store, must-revalidate, max-age=0"
+        )
+        response.headers.setdefault("Pragma", "no-cache")
+        response.headers.setdefault("Expires", "0")
+
     return response
 
 
@@ -199,6 +212,16 @@ def handle_500_error(error):
                 "message": "خطأ في الاتصال بالخادم.",
             }
         ), 500
+
+    if request.path.lower().endswith((
+        ".html", ".js", ".css", ".json", ".png", ".jpg", ".jpeg",
+        ".webp", ".svg", ".ico", ".gif", ".woff", ".woff2", ".ttf"
+    )):
+        return jsonify({
+            "success": False,
+            "error": "Static file server error",
+            "path": request.path
+        }), 500
 
     return send_from_directory(BASE_DIR, "index.html"), 500
 
