@@ -2,18 +2,17 @@
 import os
 import sys
 
-# 🎯 إدراج مجلد المحفظة والمجلد الرئيسي لبيئة المسارات
+# 🎯 ضمان وجود المسار الرئيسي للمشروع فقط لتجنب تضارب المسارات (منع إضافة مجلد wallet نفسه إلى sys.path)
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 
-for path_dir in [CURRENT_DIR, PARENT_DIR]:
-    if path_dir not in sys.path:
-        sys.path.insert(0, path_dir)
+if PARENT_DIR not in sys.path:
+    sys.path.insert(0, PARENT_DIR)
 
 from flask import Blueprint, jsonify, request
 from core.security import get_authenticated_user
 
-# استيراد مرن لملف wallet_db
+# استيراد مرن ومضمون لملف wallet_db
 try:
     from wallet.wallet_db import get_wallet_info
 except Exception:
