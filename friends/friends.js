@@ -4,6 +4,48 @@
     const INIT_DATA = tele?.initData || "";
     const BOT_USERNAME = "zngoxe_bot";
 
+    async function secureRequest(url, method = "GET", body = null) {
+        const initData = tele?.initData || "";
+
+        if (!initData) {
+            throw new Error("يجب فتح التطبيق من داخل Telegram.");
+        }
+
+        const headers = {
+            Accept: "application/json",
+            "X-Telegram-Init-Data": initData,
+            Authorization: `Bearer ${initData}`
+        };
+
+        const options = {
+            method,
+            headers,
+            cache: "no-store",
+            credentials: "same-origin"
+        };
+
+        if (body !== null && method !== "GET" && method !== "HEAD") {
+            headers["Content-Type"] = "application/json";
+            options.body = JSON.stringify(body);
+        }
+
+        const response = await fetch(url, options);
+        let data = {};
+
+        try {
+            data = await response.json();
+        } catch {
+            data = {};
+        }
+
+        if (!response.ok) {
+            throw new Error(data.error || `HTTP ${response.status}`);
+        }
+
+        return data;
+    }
+
+
     let lastFetchTimestamp = 0;
     const FETCH_COOLDOWN_MS = 3000;
     let isTaskClaiming = false;
@@ -19,7 +61,7 @@
         if (tele?.initDataUnsafe?.user?.id) {
             return String(tele.initDataUnsafe.user.id);
         }
-        return "0000";
+        return "";
     }
 
     // دالة تنسيق الأرقام المحدثة لترجيع خانتين عشريتين على الأقل وحتى 6 خانات بدون حذف الكسر
@@ -167,12 +209,9 @@
         lastFetchTimestamp = now;
 
         try {
-            let response = await fetch('/api/friends/data', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: INIT_DATA, user_id: userId })
+            let data = await secureRequest('/api/friends/data', 'POST', {
+                user_id: userId
             });
-            let data = await response.json();
             
             if (response.ok && data.success && data.player) {
                 window.PlayerData = { ...window.PlayerData, ...data.player };
@@ -334,12 +373,9 @@
         }
 
         try {
-            let response = await fetch('/api/friends/claim_ref_earnings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: INIT_DATA, user_id: userId })
+            let data = await secureRequest('/api/friends/claim_ref_earnings', 'POST', {
+                user_id: userId
             });
-            let data = await response.json();
             
             if (response.ok && data.success) {
                 const formattedNet = formatNumber(data.net_amount);
@@ -367,12 +403,12 @@
         
         const userId = getUserId();
         try {
-            let response = await fetch('/api/friends/claim_ref_task', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: INIT_DATA, user_id: userId, taskId, reward, reqFriends })
+            let data = await secureRequest('/api/friends/claim_ref_task', 'POST', {
+                user_id: userId,
+                taskId,
+                reward,
+                reqFriends
             });
-            let data = await response.json();
 
             if (response.ok && data.success) {
                 showToast(`🎊 مبروك! استلمت مكافأة ${formatNumber(reward)} ZN.`);
@@ -405,12 +441,9 @@
         const minUpgrades = window.FriendsConfig?.min_upgrades_for_task || 3;
 
         try {
-            let response = await fetch('/api/friends/list', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ initData: INIT_DATA, user_id: userId })
+            let data = await secureRequest('/api/friends/list', 'POST', {
+                user_id: userId
             });
-            let data = await response.json();
 
             if (response.ok && data.success) {
                 if (!data.friends || data.friends.length === 0) {
