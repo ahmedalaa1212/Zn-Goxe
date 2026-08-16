@@ -13,7 +13,7 @@ for path_dir in [CURRENT_DIR, PARENT_DIR]:
 from flask import Blueprint, jsonify, request
 from core.security import get_authenticated_user
 
-# استيراد مرن لملف wallet_db يتوافق مع بيئة Python بدون __init__.py
+# استيراد مرن لملف wallet_db
 try:
     from wallet.wallet_db import get_wallet_info
 except Exception:
@@ -55,7 +55,7 @@ except Exception as e:
 @wallet_bp.route('/', methods=['GET', 'POST'])
 @wallet_bp.route('/info', methods=['GET', 'POST'])
 def get_main_wallet_info():
-    """جلب ملخص بيانات المحفظة للمستخدم"""
+    """جلب ملخص بيانات المحفظة والأرصدة للمستخدم"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     
