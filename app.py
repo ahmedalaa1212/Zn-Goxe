@@ -1,4 +1,11 @@
 import os
+import sys
+
+# 🎯 إدراج مسار المشروع الرئيسي لتجاوز حاجة الملفات إلى __init__.py
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 
@@ -22,19 +29,25 @@ from settings.settings_api import settings_bp
 from friends.friends_api import friends_bp
 from tasks.tasks_api import tasks_bp
 from shop.shop_api import shop_bp
-from wallet.wallet_api import wallet_bp
 from support.support_api import support_bp
 from admin_chat.admin_chat_api import admin_chat_bp
 
-# تسجيل المسارات الرئيسية مع البادئات المخصصة
+# تسجيل المسارات الأساسية
 app.register_blueprint(farm_bp, url_prefix='/api/farm')
 app.register_blueprint(settings_bp, url_prefix='/api/settings')
 app.register_blueprint(friends_bp, url_prefix='/api/friends')
 app.register_blueprint(tasks_bp, url_prefix='/api/tasks')
 app.register_blueprint(shop_bp, url_prefix='/api/shop')
-app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
 app.register_blueprint(support_bp, url_prefix='/api/support')
 app.register_blueprint(admin_chat_bp, url_prefix='/api/admin-chat')
+
+# 💳 تسجيل موديول المحفظة بشكل آمن لمنع كسر الخادم
+try:
+    from wallet.wallet_api import wallet_bp
+    app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
+    print("✅ تم تسجيل موديول المحفظة (wallet_bp) بنجاح!")
+except Exception as e:
+    print(f"⚠️ تعذر تحميل موديول المحفظة الرئيسي: {e}")
 
 # ⚡ تسجيل موديول الألعاب بشكل آمن
 try:
