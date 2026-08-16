@@ -2,7 +2,7 @@
 import database
 
 def get_wallet_info(telegram_id):
-    """جلب تفاصيل المحفظة وال أرصدة المتاحة للمستخدم من قاعدة البيانات"""
+    """جلب تفاصيل المحفظة والأرصدة المتاحة للمستخدم من قاعدة البيانات"""
     try:
         user = database.get_user(str(telegram_id))
         if not user:
