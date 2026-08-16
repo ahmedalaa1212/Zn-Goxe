@@ -1,1 +1,36 @@
+<div class="card">
+    <div class="deposit-notice-bar">
+        <span>📌 الحد الأدنى للإيداع: <b>$1.00</b></span>
+        <span>⚡ الخصم/الرسوم: <b>3%</b></span>
+    </div>
+
+    <div class="packages-section-title">
+        <span>💎 باقات الرصيد السريعة</span>
+    </div>
+
+    <div class="packages-grid">
+        <div class="package-card" onclick="window.selectDepositPackage(1, this)">
+            <div class="package-price">$1.00</div>
+            <div class="package-amount">تضاف $0.97</div>
+        </div>
+        <div class="package-card" onclick="window.selectDepositPackage(5, this)">
+            <div class="package-price">$5.00</div>
+            <div class="package-amount">تضاف $4.85</div>
+        </div>
+        <div class="package-card" onclick="window.selectDepositPackage(10, this)">
+            <span class="package-tag">شائع 🔥</span>
+            <div class="package-price">$10.00</div>
+            <div class="package-amount">تضاف $9.70</div>
+        </div>
+        <div class="package-card" onclick="window.selectDepositPackage(25, this)">
+            <span class="package-tag">الأفضل ⭐</span>
+            <div class="package-price">$25.00</div>
+            <div class="package-amount">تضاف $24.25</div>
+        </div>
+    </div>
+
+    <div id="deposit-wallet-auth-container">
+        <!-- يتم ملء حالة الربط/عدم الربط ديناميكياً بواسطة deposit.js -->
+    </div>
+</div>
 
