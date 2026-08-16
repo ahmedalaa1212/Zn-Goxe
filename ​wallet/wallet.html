@@ -1,28 +1,36 @@
-<div class="wallet-main-container">
-    <!-- عرض أرصدة المحفظة -->
-    <div class="wallet-balance-header" style="text-align: center; padding: 20px; color: #fff;">
-        <h3 style="color: #8b949e; margin-bottom: 5px;">إجمالي الرصيد</h3>
-        <h2 class="user-balance-val" style="font-size: 2rem; color: #f39c12; margin: 0;">0.00 ZN</h2>
-        <p class="usd-balance-val" style="color: #2ecc71; margin-top: 5px;">$0.00</p>
+<div class="wallet-container" style="padding: 15px; text-align: center; color: #fff;">
+    <!-- كارت إجمالي الرصيد -->
+    <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.1);">
+        <h3 style="margin: 0 0 10px 0; font-size: 15px; color: #aaa;">محفظتك الرقمية</h3>
+        <div style="font-size: 24px; font-weight: bold; color: #0088cc;" id="wallet-ton-balance">0.00 ZN</div>
+        <div style="font-size: 14px; color: #4caf50; margin-top: 5px;" class="usd-balance-val">$0.00</div>
     </div>
 
-    <!-- أزرار التنقل بين القوائم الـ 3 -->
-    <div class="wallet-tabs" style="display: flex; justify-content: space-around; background: #1c2128; border-radius: 12px; margin: 10px 20px; padding: 5px;">
-        <button class="wallet-tab-btn active" data-target="deposit" style="flex: 1; padding: 10px; background: transparent; border: none; color: #fff; cursor: pointer; border-radius: 8px;">إيداع</button>
-        <button class="wallet-tab-btn" data-target="withdraw" style="flex: 1; padding: 10px; background: transparent; border: none; color: #fff; cursor: pointer; border-radius: 8px;">سحب</button>
-        <button class="wallet-tab-btn" data-target="history" style="flex: 1; padding: 10px; background: transparent; border: none; color: #fff; cursor: pointer; border-radius: 8px;">السجلات</button>
+    <!-- كارت ربط محفظة TON -->
+    <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.1);">
+        <div id="wallet-address-display" style="font-size: 13px; color: #ccc; word-break: break-all; margin-bottom: 10px;">
+            جاري تحميل حالة المحفظة...
+        </div>
+        <button id="connect-wallet-btn" onclick="handleWalletConnection()" style="background: #0088cc; color: #fff; border: none; padding: 12px; border-radius: 8px; font-weight: bold; width: 100%; cursor: pointer;">
+            🔗 ربط محفظة TON
+        </button>
     </div>
 
-    <!-- الحاوية التي سيتم حقن ملفات القوائم الثلاثة بداخلها -->
-    <div id="wallet-sub-content" style="padding: 15px;">
-        <!-- سيتم تحميل المحتوى هنا عبر wallet.js -->
+    <!-- أزرار التنقل السريع -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+        <button onclick="switchWalletSubView('deposit')" style="background: #2e7d32; color: #fff; border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer;">
+            📥 إيداع
+        </button>
+        <button onclick="switchWalletSubView('withdraw')" style="background: #c62828; color: #fff; border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer;">
+            📤 سحب
+        </button>
+        <button onclick="switchWalletSubView('history')" style="background: #0277bd; color: #fff; border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer;">
+            📜 السجل
+        </button>
+    </div>
+
+    <!-- حاوية القوائم الفرعية -->
+    <div id="wallet-subview-container" style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 12px; min-height: 100px;">
+        <p style="color: #888; margin: 0;">اختر إحدى العمليات أعلاه للاستمرار</p>
     </div>
 </div>
-
-<style>
-    .wallet-tab-btn.active {
-        background: #2d333b !important;
-        color: #f39c12 !important;
-        font-weight: bold;
-    }
-</style>
