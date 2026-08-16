@@ -1,21 +1,20 @@
+import os
+import sys
+
+# ربط قاعدة البيانات الرئيسية بالمحفظة
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
 import database
 
-def get_user_wallet_balances(telegram_id):
-    """جلب الأرصدة المتاحة في محفظة المستخدم"""
+def get_wallet_overview(telegram_id):
+    """جلب نظرة عامة على المحفظة للمستخدم"""
     user_data = database.get_user(telegram_id)
-    if not user_data:
-        return {"balance": 0.0, "usd_balance": 0.0, "ad_balance": 0.0}
-        
-    return {
-        "balance": float(user_data.get('balance', 0.0)),
-        "usd_balance": float(user_data.get('usd_balance', 0.0)),
-        "ad_balance": float(user_data.get('ad_balance', 0.0))
-    }
-
-def update_user_wallet_address(telegram_id, wallet_address):
-    """تحديث عنوان محفظة المستخدم (مثل TON Wallet)"""
-    try:
-        return database.update_user(telegram_id, {"wallet_address": wallet_address})
-    except Exception as e:
-        print(f"❌ Error updating wallet address for {telegram_id}: {e}")
-        return False
+    if user_data:
+        return {
+            "balance": user_data.get('balance', 0.0),
+            "usd_balance": user_data.get('usd_balance', 0.0),
+            "wallet_address": user_data.get('wallet_address', None)
+        }
+    return None
