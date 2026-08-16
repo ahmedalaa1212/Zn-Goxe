@@ -1,169 +1,272 @@
-<!-- wallet/wallet.html -->
-<style>
-    .wallet-wrapper {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        padding: 10px 5px;
-        color: #f8fafc;
-        box-sizing: border-box;
-    }
+<!-- wallet/wallet.html
+     هذا الملف Fragment يتم حقنه داخل #view-wallet بواسطة game.js.
+     لا نضع DOCTYPE/html/head/body أو سكربتات هنا حتى لا تتعارض مع الصفحة الرئيسية.
+-->
 
-    .balance-card {
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        border: 1px solid #334155;
-        border-radius: 20px;
-        padding: 20px;
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
+<div class="wallet-page" dir="rtl">
+    <style>
+        .wallet-page {
+            --wallet-bg: #0f172a;
+            --wallet-card: #1e293b;
+            --wallet-gold: #f59e0b;
+            --wallet-green: #10b981;
+            --wallet-blue: #3b82f6;
+            --wallet-text: #f8fafc;
+            --wallet-muted: #94a3b8;
+            --wallet-border: #334155;
+            width: 100%;
+            padding: 16px;
+            color: var(--wallet-text);
+        }
 
-    .balance-item {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-    }
+        .wallet-page,
+        .wallet-page * {
+            box-sizing: border-box;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
 
-    .balance-title {
-        font-size: 12px;
-        color: #94a3b8;
-        font-weight: 600;
-    }
+        .wallet-balance-card {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 1px solid var(--wallet-border);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.30);
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
 
-    .balance-value {
-        font-size: 20px;
-        font-weight: 800;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-    }
+        .wallet-balance-item {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 0;
+        }
 
-    .val-coin { color: #f59e0b; }
-    .val-usd { color: #10b981; }
+        .wallet-balance-title {
+            font-size: 12px;
+            color: var(--wallet-muted);
+            font-weight: 600;
+        }
 
-    .divider {
-        width: 1px;
-        height: 40px;
-        background-color: #334155;
-    }
+        .wallet-balance-value {
+            font-size: 22px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            overflow: hidden;
+        }
 
-    .action-buttons {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 10px;
-    }
+        .wallet-coin {
+            color: var(--wallet-gold);
+        }
 
-    .btn-tab {
-        background-color: #1e293b;
-        border: 1px solid #334155;
-        color: #f8fafc;
-        padding: 12px 8px;
-        border-radius: 14px;
-        font-size: 13px;
-        font-weight: 700;
-        cursor: pointer;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 6px;
-        transition: all 0.2s ease;
-    }
+        .wallet-usd {
+            color: var(--wallet-green);
+        }
 
-    .btn-tab:active {
-        transform: scale(0.96);
-    }
+        .wallet-divider {
+            width: 1px;
+            height: 42px;
+            background: var(--wallet-border);
+        }
 
-    .btn-tab.active {
-        background-color: #2563eb;
-        border-color: #60a5fa;
-        color: #ffffff;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
-    }
+        .wallet-action-buttons {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 16px;
+        }
 
-    .content-section {
-        background-color: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 16px;
-        padding: 16px;
-        display: none;
-        flex-direction: column;
-        gap: 12px;
-    }
+        .wallet-btn-tab {
+            appearance: none;
+            border: 1px solid var(--wallet-border);
+            background: var(--wallet-card);
+            color: var(--wallet-text);
+            padding: 12px 8px;
+            border-radius: 14px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            transition: 0.2s ease;
+        }
 
-    .content-section.active {
-        display: flex;
-    }
+        .wallet-btn-tab:active {
+            transform: scale(0.97);
+        }
 
-    .section-title {
-        font-size: 15px;
-        font-weight: 700;
-        border-bottom: 1px solid #334155;
-        padding-bottom: 8px;
-    }
+        .wallet-btn-tab.active {
+            background: #2563eb;
+            border-color: #60a5fa;
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+        }
 
-    .empty-msg {
-        text-align: center;
-        color: #94a3b8;
-        font-size: 13px;
-        padding: 20px 0;
-    }
-</style>
+        .wallet-content-section {
+            display: none;
+            background: var(--wallet-card);
+            border: 1px solid var(--wallet-border);
+            border-radius: 16px;
+            padding: 16px;
+            flex-direction: column;
+            gap: 12px;
+        }
 
-<div class="wallet-wrapper">
-    <!-- 💳 كارت الرصيد -->
-    <div class="balance-card">
-        <div class="balance-item">
-            <span class="balance-title">رصيد النقاط (ZN)</span>
-            <div class="balance-value val-coin">
+        .wallet-content-section.active {
+            display: flex;
+        }
+
+        .wallet-section-title {
+            font-size: 15px;
+            font-weight: 700;
+            border-bottom: 1px solid var(--wallet-border);
+            padding-bottom: 8px;
+        }
+
+        .wallet-muted {
+            color: var(--wallet-muted);
+            font-size: 13px;
+        }
+
+        .wallet-empty {
+            text-align: center;
+            color: var(--wallet-muted);
+            font-size: 13px;
+            padding: 20px 0;
+        }
+
+        .wallet-loading {
+            text-align: center;
+            color: var(--wallet-gold);
+            font-size: 14px;
+            padding: 10px;
+        }
+
+        .wallet-method-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: #0f172a;
+            border-radius: 10px;
+            margin-bottom: 8px;
+        }
+
+        .wallet-inline-btn {
+            border: 0;
+            border-radius: 7px;
+            padding: 7px 12px;
+            font-weight: 700;
+            color: #fff;
+            cursor: pointer;
+        }
+
+        .wallet-input {
+            width: 100%;
+            padding: 12px;
+            border-radius: 10px;
+            border: 1px solid var(--wallet-border);
+            background: #0f172a;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .wallet-input:focus {
+            border-color: #60a5fa;
+        }
+
+        .wallet-withdraw-form {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .wallet-history-row {
+            display: grid;
+            grid-template-columns: 1fr auto auto;
+            gap: 10px;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--wallet-border);
+            font-size: 13px;
+        }
+
+        @media (max-width: 420px) {
+            .wallet-balance-card {
+                grid-template-columns: 1fr;
+            }
+
+            .wallet-divider {
+                width: 100%;
+                height: 1px;
+            }
+
+            .wallet-balance-value {
+                font-size: 19px;
+            }
+        }
+    </style>
+
+    <div class="wallet-balance-card">
+        <div class="wallet-balance-item">
+            <span class="wallet-balance-title">رصيد النقاط (ZN)</span>
+            <div class="wallet-balance-value wallet-coin">
                 <span id="coin-balance">0.00</span>
-                <span style="font-size: 14px;">🪙</span>
+                <span style="font-size:14px;">🪙</span>
             </div>
         </div>
 
-        <div class="divider"></div>
+        <div class="wallet-divider"></div>
 
-        <div class="balance-item">
-            <span class="balance-title">رصيد الدولار ($)</span>
-            <div class="balance-value val-usd">
-                <span id="usd-balance">$0.00</span>
-                <span style="font-size: 14px;">💵</span>
+        <div class="wallet-balance-item">
+            <span class="wallet-balance-title">رصيد الدولار ($)</span>
+            <div class="wallet-balance-value wallet-usd">
+                <span id="usd-balance">0.00</span>
+                <span style="font-size:14px;">💵</span>
             </div>
         </div>
     </div>
 
-    <!-- 🔘 خيارات المحفظة -->
-    <div class="action-buttons">
-        <button class="btn-tab active" data-tab="deposit" onclick="window.switchWalletTab('deposit')">
+    <div class="wallet-action-buttons">
+        <button type="button" class="wallet-btn-tab active" data-wallet-tab="deposit">
             <span>📥</span>
             <span>الإيداع</span>
         </button>
-        <button class="btn-tab" data-tab="withdraw" onclick="window.switchWalletTab('withdraw')">
+
+        <button type="button" class="wallet-btn-tab" data-wallet-tab="withdraw">
             <span>📤</span>
             <span>السحب</span>
         </button>
-        <button class="btn-tab" data-tab="history" onclick="window.switchWalletTab('history')">
+
+        <button type="button" class="wallet-btn-tab" data-wallet-tab="history">
             <span>📜</span>
             <span>السجلات</span>
         </button>
     </div>
 
-    <!-- 📄 الأقسام التفاعلية -->
-    <div id="deposit-section" class="content-section active">
-        <div class="section-title">📥 شحن الرصيد</div>
-        <p style="font-size: 13px; color: #94a3b8;">اختر طريقة الإيداع المناسبة لك:</p>
-        <div id="deposit-options" class="empty-msg">جاري تحميل وسائل الإيداع المتاحة...</div>
-    </div>
+    <section id="deposit-section" class="wallet-content-section active">
+        <div class="wallet-section-title">📥 شحن الرصيد</div>
+        <p class="wallet-muted">اختر طريقة الإيداع المناسبة لك:</p>
+        <div id="deposit-options" class="wallet-loading">جاري تحميل وسائل الإيداع المتاحة...</div>
+    </section>
 
-    <div id="withdraw-section" class="content-section">
-        <div class="section-title">📤 طلب سحب</div>
-        <p style="font-size: 13px; color: #94a3b8;">قم بتقديم طلب سحب أرباحك إلى محفظتك الخارجيّة.</p>
-        <div id="withdraw-form" class="empty-msg">جاري تحميل خيارات السحب...</div>
-    </div>
+    <section id="withdraw-section" class="wallet-content-section">
+        <div class="wallet-section-title">📤 طلب سحب</div>
+        <p class="wallet-muted">قم بتقديم طلب سحب أرباحك إلى محفظتك الخارجيّة.</p>
+        <div id="withdraw-form" class="wallet-empty">جاري تحميل خيارات السحب...</div>
+    </section>
 
-    <div id="history-section" class="content-section">
-        <div class="section-title">📜 سجل العمليات</div>
-        <div id="history-list" class="empty-msg">لا توجد عمليات سابقة حتى الآن.</div>
-    </div>
+    <section id="history-section" class="wallet-content-section">
+        <div class="wallet-section-title">📜 سجل العمليات</div>
+        <div id="history-list" class="wallet-empty">لا توجد عمليات سابقة حتى الآن.</div>
+    </section>
 </div>
