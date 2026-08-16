@@ -6,8 +6,9 @@ wallet_bp = Blueprint('wallet', __name__)
 @wallet_bp.route('/api/wallet/save_address', methods=['POST'])
 def save_address():
     try:
-        user_id = request.headers.get('X-Telegram-User-Id') or request.json.get('user_id')
-        wallet_address = request.json.get('wallet_address')
+        data = request.get_json(silent=True) or {}
+        user_id = request.headers.get('X-Telegram-User-Id') or data.get('user_id')
+        wallet_address = data.get('wallet_address')
 
         if not user_id or not wallet_address:
             return jsonify({"success": False, "error": "بيانات غير مكتملة"}), 400
@@ -20,8 +21,8 @@ def save_address():
 @wallet_bp.route('/api/wallet/withdraw', methods=['POST'])
 def withdraw():
     try:
-        user_id = request.headers.get('X-Telegram-User-Id') or request.json.get('user_id')
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
+        user_id = request.headers.get('X-Telegram-User-Id') or data.get('user_id')
         amount = float(data.get('amount', 0))
         address = data.get('address')
 
