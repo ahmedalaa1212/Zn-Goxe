@@ -19,6 +19,29 @@
         }
     }
 
+    let depositDataLoaded = false;
+    let walletServerReadCompleted = false;
+    let walletEventsBound = false;
+
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function getStateBalances(state = window.userState || {}) {
+        const balance = Number(state?.balance);
+        const usdBalance = Number(state?.usd_balance);
+
+        return {
+            balance: Number.isFinite(balance) ? balance : 0,
+            usd_balance: Number.isFinite(usdBalance) ? usdBalance : 0,
+        };
+    }
+
     async function walletRequest(url, method = "GET", body = null) {
         // Use the common API helper when available so auth headers are consistent.
         if (typeof window.fetchAPI === "function") {
@@ -56,53 +79,77 @@
     }
 
     function updateUIBalances(wallet) {
+        const balances = getStateBalances(wallet);
         const coinElem = document.getElementById("coin-balance");
         const usdElem = document.getElementById("usd-balance");
 
         if (coinElem) {
-            coinElem.textContent = Number(wallet?.balance || 0).toLocaleString(
-                "en-US",
-                { minimumFractionDigits: 2, maximumFractionDigits: 6 }
-            );
+            coinElem.textContent = balances.balance.toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 6,
+            });
         }
 
         if (usdElem) {
-            usdElem.textContent = Number(wallet?.usd_balance || 0).toLocaleString(
-                "en-US",
-                { style: "currency", currency: "USD", minimumFractionDigits: 2 }
-            );
+            usdElem.textContent = balances.usd_balance.toLocaleString("en-US", {
+                style: "currency",
+                currency: "USD",
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 6,
+            });
         }
     }
 
-    async function loadWalletData() {
+    async function loadWalletData(force = false) {
+        const state = window.userState || {};
+        const balances = getStateBalances(state);
+
+        // The main game already loads the authenticated user and keeps one
+        // Firestore onSnapshot listener alive. Re-reading /api/wallet/info
+        // every time the wallet tab opens only duplicates a database read.
+        if (!force && window.__userStateHydrated === true) {
+            updateUIBalances(balances);
+            return balances;
+        }
+
+        if (!force && walletServerReadCompleted) {
+            updateUIBalances(balances);
+            return balances;
+        }
+
         try {
-            // Send initData both in the common helper and the JSON body
-            // for backward compatibility with the wallet endpoint.
             const result = await walletRequest("/api/wallet/info", "POST", {
                 initData: getInitData(),
             });
 
             if (result?.success && result.wallet) {
-                updateUIBalances(result.wallet);
+                const serverBalance = Number(result.wallet.balance);
+                const serverUsd = Number(result.wallet.usd_balance);
 
                 if (window.userState) {
-                    if (result.wallet.balance !== undefined) {
-                        window.userState.balance = Number(result.wallet.balance) || 0;
+                    if (Number.isFinite(serverBalance)) {
+                        window.userState.balance = serverBalance;
                     }
-                    if (result.wallet.usd_balance !== undefined) {
-                        window.userState.usd_balance =
-                            Number(result.wallet.usd_balance) || 0;
+                    if (Number.isFinite(serverUsd)) {
+                        window.userState.usd_balance = serverUsd;
                     }
                 }
-            } else {
-                console.warn(
-                    "⚠️ لم يتم استرجاع بيانات المحفظة:",
-                    result?.error || "Unknown error"
-                );
+
+                walletServerReadCompleted = true;
+                updateUIBalances(result.wallet);
+                return getStateBalances(result.wallet);
             }
+
+            console.warn(
+                "⚠️ لم يتم استرجاع بيانات المحفظة:",
+                result?.error || "Unknown error"
+            );
         } catch (error) {
             console.error("❌ خطأ أثناء جلب رصيد المحفظة:", error);
         }
+
+        updateUIBalances(balances);
+        return balances;
     }
 
     function switchTab(tabName) {
@@ -148,9 +195,13 @@
         });
     }
 
-    async function loadDepositData() {
+    async function loadDepositData(force = false) {
         const container = document.getElementById("deposit-options");
         if (!container) {
+            return;
+        }
+
+        if (depositDataLoaded && !force) {
             return;
         }
 
@@ -163,11 +214,8 @@
             if (data?.success && Array.isArray(data.methods) && data.methods.length) {
                 container.innerHTML = data.methods
                     .map((method) => {
-                        const id = String(method?.id || "").replace(/"/g, "&quot;");
-                        const name = String(method?.name || "طريقة إيداع").replace(
-                            /</g,
-                            "&lt;"
-                        );
+                        const id = escapeHtml(method?.id || "");
+                        const name = escapeHtml(method?.name || "طريقة إيداع");
 
                         return `
                             <div class="wallet-method-row">
@@ -187,7 +235,7 @@
                     .querySelectorAll("[data-deposit-id]")
                     .forEach((button) => {
                         button.addEventListener("click", () => {
-                            const methodId = button.dataset.depositId;
+                            const methodId = button.dataset.depositId || "";
                             if (typeof window.initDeposit === "function") {
                                 window.initDeposit(methodId);
                             } else {
@@ -201,6 +249,8 @@
                 container.innerHTML =
                     '<div class="wallet-empty">وسائل الإيداع المتاحة ستظهر هنا قريباً.</div>';
             }
+
+            depositDataLoaded = true;
         } catch (error) {
             console.error("❌ Deposit data error:", error);
             container.innerHTML =
@@ -268,8 +318,8 @@
                     .map((item) => {
                         const type =
                             item?.type === "deposit" ? "📥 إيداع" : "📤 سحب";
-                        const amount = String(item?.amount ?? "");
-                        const status = String(item?.status ?? "");
+                        const amount = escapeHtml(item?.amount ?? "");
+                        const status = escapeHtml(item?.status ?? "");
 
                         return `
                             <div class="wallet-history-row">
@@ -316,8 +366,17 @@
             );
 
             if (result?.success) {
+                if (window.userState) {
+                    if (result.new_balance !== undefined) {
+                        window.userState.balance = Number(result.new_balance) || 0;
+                    }
+                    if (result.new_usd_balance !== undefined) {
+                        window.userState.usd_balance = Number(result.new_usd_balance) || 0;
+                    }
+                }
+
+                updateUIBalances(window.userState);
                 showMessage("تم تقديم طلب السحب بنجاح!");
-                await loadWalletData();
             } else {
                 showMessage(result?.error || "فشل إرسال طلب السحب");
             }
@@ -329,8 +388,31 @@
 
     let walletInitialized = false;
 
+    function bindWalletBalanceSync() {
+        if (walletEventsBound) {
+            return;
+        }
+
+        walletEventsBound = true;
+
+        const sync = (event) => {
+            const state = event?.detail || window.userState || {};
+            updateUIBalances(state);
+        };
+
+        window.addEventListener("userStateUpdated", sync);
+        window.addEventListener("balanceUpdated", sync);
+
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible") {
+                updateUIBalances(window.userState || {});
+            }
+        });
+    }
+
     function initWalletView() {
         if (walletInitialized) {
+            updateUIBalances(window.userState || {});
             return;
         }
 
@@ -339,6 +421,7 @@
         }
 
         walletInitialized = true;
+        bindWalletBalanceSync();
 
         if (telegram) {
             telegram.ready();
@@ -346,13 +429,12 @@
         }
 
         initWalletTabs();
-        updateUIBalances({
-            balance: window.userState?.balance || 0,
-            usd_balance: window.userState?.usd_balance || 0,
-        });
+        updateUIBalances(window.userState || {});
 
-        loadWalletData();
-        loadDepositData();
+        // Normally this does zero database reads because game.js has already
+        // hydrated userState. It is kept as a safe fallback for direct loads.
+        void loadWalletData(false);
+        void loadDepositData(false);
     }
 
     // Expose public functions for compatibility with the rest of the project.
