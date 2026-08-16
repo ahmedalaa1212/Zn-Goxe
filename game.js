@@ -1077,7 +1077,7 @@ window.switchView = async function (viewName) {
 
                     if (!htmlContent.trim()) {
                         throw new Error(
-                            `HTML LOAD FAILED: /${encodedViewName}/${encodedViewName}.html → HTTP ${lastHtmlStatus ?? "NETWORK"}`
+                            `HTML LOAD FAILED: ${htmlPath || `/${encodedViewName}/${encodedViewName}.html`} → HTTP ${lastHtmlStatus ?? "NETWORK"}`
                         );
                     }
 
