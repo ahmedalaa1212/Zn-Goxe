@@ -1,36 +1,38 @@
-<div class="wallet-container" style="padding: 15px; text-align: center; color: #fff;">
-    <!-- كارت إجمالي الرصيد -->
-    <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.1);">
-        <h3 style="margin: 0 0 10px 0; font-size: 15px; color: #aaa;">محفظتك الرقمية</h3>
-        <div style="font-size: 24px; font-weight: bold; color: #0088cc;" id="wallet-ton-balance">0.00 ZN</div>
-        <div style="font-size: 14px; color: #4caf50; margin-top: 5px;" class="usd-balance-val">$0.00</div>
-    </div>
-
-    <!-- كارت ربط محفظة TON -->
-    <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.1);">
-        <div id="wallet-address-display" style="font-size: 13px; color: #ccc; word-break: break-all; margin-bottom: 10px;">
-            جاري تحميل حالة المحفظة...
+<div class="wallet-container">
+    <!-- كارت المحفظة الرئيسي -->
+    <div class="wallet-card">
+        <div class="wallet-icon">👛</div>
+        <h2 class="wallet-title">محفظة TON</h2>
+        <p class="wallet-subtitle">اربط محفظتك لاستلام السحوبات والمكافآت</p>
+        
+        <div id="wallet-status-box" class="wallet-status disconnected">
+            <span id="wallet-address-text">لم يتم ربط المحفظة</span>
         </div>
-        <button id="connect-wallet-btn" onclick="handleWalletConnection()" style="background: #0088cc; color: #fff; border: none; padding: 12px; border-radius: 8px; font-weight: bold; width: 100%; cursor: pointer;">
+
+        <button id="connect-wallet-btn" class="wallet-action-btn primary-btn">
             🔗 ربط محفظة TON
         </button>
-    </div>
-
-    <!-- أزرار التنقل السريع -->
-    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 15px;">
-        <button onclick="switchWalletSubView('deposit')" style="background: #2e7d32; color: #fff; border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer;">
-            📥 إيداع
-        </button>
-        <button onclick="switchWalletSubView('withdraw')" style="background: #c62828; color: #fff; border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer;">
-            📤 سحب
-        </button>
-        <button onclick="switchWalletSubView('history')" style="background: #0277bd; color: #fff; border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer;">
-            📜 السجل
+        <button id="disconnect-wallet-btn" class="wallet-action-btn danger-btn" style="display: none;">
+            ❌ فك الربط
         </button>
     </div>
 
-    <!-- حاوية القوائم الفرعية -->
-    <div id="wallet-subview-container" style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 12px; min-height: 100px;">
-        <p style="color: #888; margin: 0;">اختر إحدى العمليات أعلاه للاستمرار</p>
+    <!-- قسم الأرصدة والعمليات -->
+    <div class="wallet-actions-grid">
+        <div class="action-card">
+            <span class="action-title">رصيد ZN</span>
+            <span class="action-val" id="wallet-zn-balance">0.00 ZN</span>
+        </div>
+        <div class="action-card">
+            <span class="action-title">رصيد USD</span>
+            <span class="action-val" id="wallet-usd-balance">$0.00</span>
+        </div>
+    </div>
+
+    <!-- زر السحب -->
+    <div class="withdraw-section">
+        <button id="withdraw-btn" class="wallet-action-btn success-btn">
+            💸 طلب سحب الأرباح
+        </button>
     </div>
 </div>
