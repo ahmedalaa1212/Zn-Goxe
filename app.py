@@ -12,7 +12,7 @@ from flask_cors import CORS
 import database
 from core.security import get_authenticated_user
 
-app = Flask(__name__, static_folder='.', static_url_path='')
+app = Flask(__name__, static_folder=BASE_DIR, static_url_path='')
 
 # ==========================================
 # 🛡️ إعدادات CORS والأمان العامة
@@ -65,7 +65,7 @@ except Exception as e:
 def serve_tonconnect_manifest():
     """تقديم ملف بيانات TON Connect لمنع مشاكل الـ CORS في المحافظ"""
     try:
-        response = send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
+        response = send_from_directory(BASE_DIR, 'tonconnect-manifest.json', mimetype='application/json')
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         return response
@@ -157,12 +157,12 @@ def handle_404_error(e):
             "error": "المسار غير موجود", 
             "message": "خطأ في الاتصال بالخادم."
         }), 404
-    return send_from_directory('.', 'index.html')
+    return send_from_directory(BASE_DIR, 'index.html')
 
 
 @app.route('/')
 def serve_index():
-    return send_from_directory('.', 'index.html')
+    return send_from_directory(BASE_DIR, 'index.html')
 
 
 @app.route('/<path:path>')
@@ -180,10 +180,15 @@ def serve_static(path):
     if any(path_lower.endswith(ext) for ext in forbidden_extensions) or any(f in path_lower for f in forbidden_files):
         return jsonify({"success": False, "error": "Access Denied"}), 403
         
-    try:
-        return send_from_directory('.', path)
-    except Exception:
-        return send_from_directory('.', 'index.html')
+    target_file = os.path.join(BASE_DIR, path)
+    if os.path.exists(target_file) and os.path.isfile(target_file):
+        return send_from_directory(BASE_DIR, path)
+
+    # حماية من إرجاع index.html عند طلب ملفات البرمجة والواجهات المفقودة
+    if path.startswith('api/') or any(path_lower.endswith(ext) for ext in ('.html', '.js', '.css', '.json')):
+        return jsonify({"success": False, "error": "File not found"}), 404
+        
+    return send_from_directory(BASE_DIR, 'index.html')
 
 
 if __name__ == '__main__':
