@@ -1,234 +1,360 @@
 // wallet/wallet.js
+// هذا الملف يتم تحميله ديناميكياً بعد DOMContentLoaded، لذلك لا نعتمد
+// على document.addEventListener('DOMContentLoaded', ...) هنا.
 
-(function() {
-    const tg = window.Telegram?.WebApp;
+(function () {
+    "use strict";
 
-    // 🎯 دالة التهيئة المربوطة بمحرك التبديل في game.js
-    window.initWalletView = function() {
-        if (tg) {
-            tg.ready();
-            tg.expand();
-        }
-        updateWalletUIFromState();
-        window.loadWalletData();
-        window.switchWalletTab('deposit');
-    };
+    const telegram = window.Telegram?.WebApp || null;
 
-    // 🔄 مزامنة العرض الفوري مع Firebase / LocalState
-    function updateWalletUIFromState() {
-        if (!window.userState) return;
-        
-        const coinElem = document.getElementById('coin-balance');
-        const usdElem = document.getElementById('usd-balance');
+    function getInitData() {
+        return telegram?.initData || "";
+    }
 
-        if (coinElem) {
-            const bal = parseFloat(window.userState.balance || 0);
-            coinElem.innerText = typeof window.formatBalance === 'function' ? window.formatBalance(bal) : bal.toLocaleString('en-US');
-        }
-        if (usdElem) {
-            const usd = parseFloat(window.userState.usd_balance || 0);
-            usdElem.innerText = '$' + usd.toFixed(2);
+    function showMessage(message) {
+        if (telegram?.showAlert) {
+            telegram.showAlert(String(message));
+        } else {
+            window.alert(String(message));
         }
     }
 
-    // 📡 الاستماع للتحديثات الحية من Firestore
-    window.addEventListener('userStateUpdated', () => {
-        updateWalletUIFromState();
-    });
+    async function walletRequest(url, method = "GET", body = null) {
+        // Use the common API helper when available so auth headers are consistent.
+        if (typeof window.fetchAPI === "function") {
+            return window.fetchAPI(url, method, body);
+        }
 
-    // 💳 جلب البيانات عبر API الخادم
-    window.loadWalletData = async function() {
+        const headers = {
+            "Content-Type": "application/json",
+        };
+
+        const initData = getInitData();
+        if (initData) {
+            headers["X-Telegram-Init-Data"] = initData;
+            headers["Authorization"] = `Bearer ${initData}`;
+        }
+
+        const options = { method, headers };
+        if (body !== null && method !== "GET" && method !== "HEAD") {
+            options.body = JSON.stringify(body);
+        }
+
+        const response = await fetch(url, options);
+        let data = {};
         try {
-            let data;
-            if (typeof window.fetchAPI === 'function') {
-                data = await window.fetchAPI('/api/wallet/info', 'POST');
-            } else {
-                const initData = tg?.initData || '';
-                const response = await fetch('/api/wallet/info', {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'X-Telegram-Init-Data': initData,
-                        'Authorization': `Bearer ${initData}`
-                    },
-                    body: JSON.stringify({ initData })
-                });
-                data = await response.json();
-            }
+            data = await response.json();
+        } catch {
+            data = {};
+        }
 
-            if (data && data.success && data.wallet) {
+        if (!response.ok) {
+            throw new Error(data.error || `HTTP ${response.status}`);
+        }
+
+        return data;
+    }
+
+    function updateUIBalances(wallet) {
+        const coinElem = document.getElementById("coin-balance");
+        const usdElem = document.getElementById("usd-balance");
+
+        if (coinElem) {
+            coinElem.textContent = Number(wallet?.balance || 0).toLocaleString(
+                "en-US",
+                { minimumFractionDigits: 2, maximumFractionDigits: 6 }
+            );
+        }
+
+        if (usdElem) {
+            usdElem.textContent = Number(wallet?.usd_balance || 0).toLocaleString(
+                "en-US",
+                { style: "currency", currency: "USD", minimumFractionDigits: 2 }
+            );
+        }
+    }
+
+    async function loadWalletData() {
+        try {
+            // Send initData both in the common helper and the JSON body
+            // for backward compatibility with the wallet endpoint.
+            const result = await walletRequest("/api/wallet/info", "POST", {
+                initData: getInitData(),
+            });
+
+            if (result?.success && result.wallet) {
+                updateUIBalances(result.wallet);
+
                 if (window.userState) {
-                    if (data.wallet.balance !== undefined) window.userState.balance = parseFloat(data.wallet.balance);
-                    if (data.wallet.usd_balance !== undefined) window.userState.usd_balance = parseFloat(data.wallet.usd_balance);
+                    if (result.wallet.balance !== undefined) {
+                        window.userState.balance = Number(result.wallet.balance) || 0;
+                    }
+                    if (result.wallet.usd_balance !== undefined) {
+                        window.userState.usd_balance =
+                            Number(result.wallet.usd_balance) || 0;
+                    }
                 }
-                updateWalletUIFromState();
+            } else {
+                console.warn(
+                    "⚠️ لم يتم استرجاع بيانات المحفظة:",
+                    result?.error || "Unknown error"
+                );
             }
         } catch (error) {
             console.error("❌ خطأ أثناء جلب رصيد المحفظة:", error);
         }
-    };
+    }
 
-    // 🔘 التبديل بين أزرار الأقسام الثلاثة
-    window.switchWalletTab = function(tabName) {
-        document.querySelectorAll('.btn-tab').forEach(btn => btn.classList.remove('active'));
-        document.querySelectorAll('.content-section').forEach(sec => sec.classList.remove('active'));
+    function switchTab(tabName) {
+        document
+            .querySelectorAll(".wallet-btn-tab")
+            .forEach((btn) => btn.classList.remove("active"));
 
-        const activeBtn = document.querySelector(`.btn-tab[data-tab="${tabName}"]`);
-        const activeSec = document.getElementById(`${tabName}-section`);
+        document
+            .querySelectorAll(".wallet-content-section")
+            .forEach((section) => section.classList.remove("active"));
 
-        if (activeBtn) activeBtn.classList.add('active');
-        if (activeSec) activeSec.classList.add('active');
+        const activeBtn = document.querySelector(
+            `.wallet-btn-tab[data-wallet-tab="${CSS.escape(tabName)}"]`
+        );
+        const activeSection = document.getElementById(`${tabName}-section`);
 
-        if (tabName === 'deposit') loadDepositData();
-        if (tabName === 'withdraw') loadWithdrawData();
-        if (tabName === 'history') loadHistoryData();
-    };
+        if (activeBtn) {
+            activeBtn.classList.add("active");
+        }
 
-    // 📥 تحميل بيانات قسم الإيداع
-    async function loadDepositData() {
-        const container = document.getElementById('deposit-options');
-        if (!container) return;
+        if (activeSection) {
+            activeSection.classList.add("active");
+        }
 
-        try {
-            let data;
-            if (typeof window.fetchAPI === 'function') {
-                data = await window.fetchAPI('/api/wallet/deposit/', 'GET');
-            } else {
-                const res = await fetch('/api/wallet/deposit/', { method: 'GET' });
-                data = await res.json();
-            }
-
-            if (data && data.success && data.methods && data.methods.length > 0) {
-                container.innerHTML = data.methods.map(m => `
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #0f172a; border: 1px solid #334155; border-radius: 12px; margin-bottom: 8px;">
-                        <div>
-                            <div style="font-weight: bold; font-size: 14px;">${m.name}</div>
-                            <div style="font-size: 11px; color: #94a3b8;">${m.description || ''}</div>
-                        </div>
-                        <button onclick="window.initDeposit('${m.id}')" style="padding: 8px 16px; background: #10b981; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 13px;">شحن</button>
-                    </div>
-                `).join('');
-            } else {
-                container.innerHTML = '<div class="empty-msg">وسائل الإيداع المتاحة ستظهر هنا قريباً.</div>';
-            }
-        } catch (e) {
-            container.innerHTML = '<div class="empty-msg">وسائل الشحن التلقائي قيد التجهيز.</div>';
+        if (tabName === "deposit") {
+            loadDepositData();
+        } else if (tabName === "withdraw") {
+            loadWithdrawData();
+        } else if (tabName === "history") {
+            loadHistoryData();
         }
     }
 
-    // 📤 تحميل نموذج السحب
+    function initWalletTabs() {
+        document.querySelectorAll(".wallet-btn-tab").forEach((button) => {
+            if (button.dataset.walletBound === "1") {
+                return;
+            }
+
+            button.dataset.walletBound = "1";
+            button.addEventListener("click", () => {
+                switchTab(button.dataset.walletTab);
+            });
+        });
+    }
+
+    async function loadDepositData() {
+        const container = document.getElementById("deposit-options");
+        if (!container) {
+            return;
+        }
+
+        container.innerHTML =
+            '<div class="wallet-loading">جاري تحميل وسائل الإيداع المتاحة...</div>';
+
+        try {
+            const data = await walletRequest("/api/wallet/deposit/", "GET");
+
+            if (data?.success && Array.isArray(data.methods) && data.methods.length) {
+                container.innerHTML = data.methods
+                    .map((method) => {
+                        const id = String(method?.id || "").replace(/"/g, "&quot;");
+                        const name = String(method?.name || "طريقة إيداع").replace(
+                            /</g,
+                            "&lt;"
+                        );
+
+                        return `
+                            <div class="wallet-method-row">
+                                <span>${name}</span>
+                                <button
+                                    type="button"
+                                    class="wallet-inline-btn"
+                                    style="background:#10b981;"
+                                    data-deposit-id="${id}"
+                                >شحن</button>
+                            </div>
+                        `;
+                    })
+                    .join("");
+
+                container
+                    .querySelectorAll("[data-deposit-id]")
+                    .forEach((button) => {
+                        button.addEventListener("click", () => {
+                            const methodId = button.dataset.depositId;
+                            if (typeof window.initDeposit === "function") {
+                                window.initDeposit(methodId);
+                            } else {
+                                showMessage(
+                                    "طريقة الإيداع جاهزة، لكن إجراء الدفع لم يتم ربطه بعد."
+                                );
+                            }
+                        });
+                    });
+            } else {
+                container.innerHTML =
+                    '<div class="wallet-empty">وسائل الإيداع المتاحة ستظهر هنا قريباً.</div>';
+            }
+        } catch (error) {
+            console.error("❌ Deposit data error:", error);
+            container.innerHTML =
+                '<div class="wallet-empty">وسائل الشحن التلقائي قيد التجهيز.</div>';
+        }
+    }
+
     async function loadWithdrawData() {
-        const container = document.getElementById('withdraw-form');
-        if (!container) return;
+        const container = document.getElementById("withdraw-form");
+        if (!container) {
+            return;
+        }
 
         container.innerHTML = `
-            <div style="display: flex; flex-direction: column; gap: 12px;">
-                <div>
-                    <label style="font-size: 12px; color: #94a3b8; display: block; margin-bottom: 4px;">المبلغ المراد سحبه ($):</label>
-                    <input type="number" id="withdraw-amount" placeholder="0.00" step="0.01" style="width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #334155; background: #0f172a; color: #fff; font-size: 14px; box-sizing: border-box;">
-                </div>
-                <div>
-                    <label style="font-size: 12px; color: #94a3b8; display: block; margin-bottom: 4px;">عنوان المحفظة (TON Wallet Address):</label>
-                    <input type="text" id="withdraw-address" placeholder="UQ..." style="width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #334155; background: #0f172a; color: #fff; font-size: 14px; box-sizing: border-box;">
-                </div>
-                <button onclick="window.submitWithdraw()" style="padding: 12px; background: #2563eb; color: #fff; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; font-size: 14px; margin-top: 5px;">تأكيد طلب السحب</button>
+            <div class="wallet-withdraw-form">
+                <input
+                    type="number"
+                    id="withdraw-amount"
+                    class="wallet-input"
+                    min="0"
+                    step="0.01"
+                    inputmode="decimal"
+                    placeholder="المبلغ المراد سحبه ($)"
+                >
+
+                <input
+                    type="text"
+                    id="withdraw-address"
+                    class="wallet-input"
+                    maxlength="200"
+                    autocomplete="off"
+                    placeholder="عنوان المحفظة (TON / Wallet Address)"
+                >
+
+                <button
+                    type="button"
+                    id="wallet-submit-withdraw"
+                    class="wallet-inline-btn"
+                    style="background:#2563eb;padding:12px;font-size:14px;"
+                >تأكيد طلب السحب</button>
             </div>
         `;
+
+        document
+            .getElementById("wallet-submit-withdraw")
+            ?.addEventListener("click", submitWithdraw);
     }
 
-    // 📜 تحميل سجلات العمليات
     async function loadHistoryData() {
-        const container = document.getElementById('history-list');
-        if (!container) return;
+        const container = document.getElementById("history-list");
+        if (!container) {
+            return;
+        }
+
+        container.innerHTML =
+            '<div class="wallet-loading">جاري تحميل السجل...</div>';
 
         try {
-            let data;
-            if (typeof window.fetchAPI === 'function') {
-                data = await window.fetchAPI('/api/wallet/history/', 'POST');
-            } else {
-                const initData = tg?.initData || '';
-                const response = await fetch('/api/wallet/history/', {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'X-Telegram-Init-Data': initData,
-                        'Authorization': `Bearer ${initData}`
-                    },
-                    body: JSON.stringify({ initData })
-                });
-                data = await response.json();
-            }
+            const data = await walletRequest("/api/wallet/history/", "POST", {
+                initData: getInitData(),
+            });
 
-            if (data && data.success && data.history && data.history.length > 0) {
-                container.innerHTML = data.history.map(item => `
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #334155; font-size: 13px;">
-                        <span>${item.type === 'deposit' ? '📥 إيداع' : '📤 سحب'}</span>
-                        <span style="font-weight: bold;">${item.amount}</span>
-                        <span style="color: ${item.status === 'completed' ? '#10b981' : '#f59e0b'};">${item.status_text || item.status}</span>
-                    </div>
-                `).join('');
+            if (data?.success && Array.isArray(data.history) && data.history.length) {
+                container.innerHTML = data.history
+                    .map((item) => {
+                        const type =
+                            item?.type === "deposit" ? "📥 إيداع" : "📤 سحب";
+                        const amount = String(item?.amount ?? "");
+                        const status = String(item?.status ?? "");
+
+                        return `
+                            <div class="wallet-history-row">
+                                <span>${type}</span>
+                                <span style="font-weight:700;">${amount}</span>
+                                <span>${status}</span>
+                            </div>
+                        `;
+                    })
+                    .join("");
             } else {
-                container.innerHTML = '<div class="empty-msg">لا توجد سجلات عمليات سابقة.</div>';
+                container.innerHTML =
+                    '<div class="wallet-empty">لا توجد سجلات عمليات سابقة.</div>';
             }
-        } catch (e) {
-            container.innerHTML = '<div class="empty-msg">لا توجد عمليات سابقة حتى الآن.</div>';
+        } catch (error) {
+            console.error("❌ History data error:", error);
+            container.innerHTML =
+                '<div class="wallet-empty">لا توجد عمليات سابقة حتى الآن.</div>';
         }
     }
 
-    // ⚡ إرسال طلب السحب
-    window.submitWithdraw = async function() {
-        const amountInput = document.getElementById('withdraw-amount');
-        const addressInput = document.getElementById('withdraw-address');
+    async function submitWithdraw() {
+        const amountElement = document.getElementById("withdraw-amount");
+        const addressElement = document.getElementById("withdraw-address");
 
-        const amount = parseFloat(amountInput?.value);
-        const address = addressInput?.value?.trim();
+        const amountText = amountElement?.value?.trim() || "";
+        const address = addressElement?.value?.trim() || "";
+        const amount = Number(amountText);
 
-        if (!amount || amount <= 0 || !address) {
-            const msg = "يرجى إدخال المبلغ وعنوان المحفظة بشكل صحيح!";
-            if (tg?.showAlert) tg.showAlert(msg); else alert(msg);
+        if (!amountText || !Number.isFinite(amount) || amount <= 0 || !address) {
+            showMessage("يرجى إدخال المبلغ وعنوان المحفظة بشكل صحيح.");
             return;
         }
 
         try {
-            let res;
-            if (typeof window.fetchAPI === 'function') {
-                res = await window.fetchAPI('/api/wallet/withdraw/request', 'POST', { amount, address });
-            } else {
-                const initData = tg?.initData || '';
-                const response = await fetch('/api/wallet/withdraw/request', {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'X-Telegram-Init-Data': initData,
-                        'Authorization': `Bearer ${initData}`
-                    },
-                    body: JSON.stringify({ initData, amount, address })
-                });
-                res = await response.json();
-            }
+            const result = await walletRequest(
+                "/api/wallet/withdraw/request",
+                "POST",
+                {
+                    initData: getInitData(),
+                    amount,
+                    address,
+                }
+            );
 
-            if (res && res.success) {
-                const msg = "تم تقديم طلب السحب بنجاح!";
-                if (tg?.showAlert) tg.showAlert(msg); else alert(msg);
-                window.loadWalletData();
+            if (result?.success) {
+                showMessage("تم تقديم طلب السحب بنجاح!");
+                await loadWalletData();
             } else {
-                const msg = res?.error || "فشل إرسال طلب السحب";
-                if (tg?.showAlert) tg.showAlert(msg); else alert(msg);
+                showMessage(result?.error || "فشل إرسال طلب السحب");
             }
-        } catch (err) {
-            console.error("❌ Withdraw error:", err);
-            const msg = "حدث خطأ أثناء الاتصال بالسيرفر";
-            if (tg?.showAlert) tg.showAlert(msg); else alert(msg);
+        } catch (error) {
+            console.error("❌ Withdraw error:", error);
+            showMessage(error?.message || "حدث خطأ أثناء إرسال طلب السحب.");
         }
-    };
-
-    window.initDeposit = function(methodId) {
-        const msg = `جاري تجهيز وسيلة الشحن (${methodId})...`;
-        if (tg?.showAlert) tg.showAlert(msg); else alert(msg);
-    };
-
-    // التشغيل الفوري في حال تحميل الموديول وكان العرض مفضلاً
-    if (document.getElementById('deposit-section')) {
-        window.initWalletView();
     }
+
+    function initWalletView() {
+        if (telegram) {
+            telegram.ready();
+            telegram.expand();
+        }
+
+        initWalletTabs();
+        updateUIBalances({
+            balance: window.userState?.balance || 0,
+            usd_balance: window.userState?.usd_balance || 0,
+        });
+
+        loadWalletData();
+        loadDepositData();
+    }
+
+    // Expose public functions for compatibility with the rest of the project.
+    window.loadWalletData = loadWalletData;
+    window.updateWalletUIBalances = updateUIBalances;
+    window.switchWalletTab = switchTab;
+    window.loadDepositData = loadDepositData;
+    window.loadWithdrawData = loadWithdrawData;
+    window.loadHistoryData = loadHistoryData;
+    window.submitWithdraw = submitWithdraw;
+    window.initWalletView = initWalletView;
+
+    // game.js already calls init{view}View() after loading a module.
+    // Calling this directly here makes the module safe even when loaded separately.
+    initWalletView();
 })();
