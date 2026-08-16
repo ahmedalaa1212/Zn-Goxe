@@ -2,7 +2,6 @@
 import os
 import sys
 
-# 🎯 ضمان وجود المسار الرئيسي للمشروع فقط لتجنب تضارب المسارات (منع إضافة مجلد wallet نفسه إلى sys.path)
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 
