@@ -41,7 +41,7 @@ app.register_blueprint(shop_bp, url_prefix='/api/shop')
 app.register_blueprint(support_bp, url_prefix='/api/support')
 app.register_blueprint(admin_chat_bp, url_prefix='/api/admin-chat')
 
-# 💳 تسجيل موديول المحفظة بشكل آمن لمنع كسر الخادم
+# 💳 تسجيل موديول المحفظة بشكل آمن
 try:
     from wallet.wallet_api import wallet_bp
     app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
@@ -123,7 +123,7 @@ def get_user_info_main():
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب بيانات الحساب"}), 500
 
 # ==========================================
-# 🔒 الأمان وحماية الملفات والحجم
+# 🔒 الأمان وحماية الملفات والمجلدات الفرعية
 # ==========================================
 
 @app.after_request
@@ -164,8 +164,9 @@ def serve_index():
 
 @app.route('/<path:path>')
 def serve_static(path):
-    """تقديم الملفات الثابتة مع حظر الملفات الحساسة ودعم المجلدات الفرعية"""
-    path_lower = path.lower()
+    """تقديم الملفات الثابتة والمجلدات الفرعية مع حظر الملفات الحساسة"""
+    safe_path = os.path.normpath(path).lstrip('/')
+    path_lower = safe_path.lower()
     
     if path_lower == 'tonconnect-manifest.json':
         return serve_tonconnect_manifest()
@@ -176,17 +177,13 @@ def serve_static(path):
     if any(path_lower.endswith(ext) for ext in forbidden_extensions) or any(f in path_lower for f in forbidden_files):
         return jsonify({"success": False, "error": "Access Denied"}), 403
         
-    target_file = os.path.normpath(os.path.join(BASE_DIR, path))
-    
-    # التأكد من عدم تجاوز النطاق الأساسي للـ BASE_DIR
-    if not target_file.startswith(BASE_DIR):
-        return jsonify({"success": False, "error": "Access Denied"}), 403
-
+    target_file = os.path.join(BASE_DIR, safe_path)
     if os.path.exists(target_file) and os.path.isfile(target_file):
-        return send_from_directory(BASE_DIR, path)
+        return send_from_directory(BASE_DIR, safe_path)
 
-    if path.startswith('api/') or any(path_lower.endswith(ext) for ext in ('.html', '.js', '.css', '.json')):
-        return jsonify({"success": False, "error": "File not found"}), 404
+    # إرجاع 404 حقيقي للملفات المطلوبة غير الموجودة بدلاً من إرجاع index.html
+    if safe_path.startswith('api/') or any(path_lower.endswith(ext) for ext in ('.html', '.js', '.css', '.json', '.png', '.jpg', '.svg')):
+        return jsonify({"success": False, "error": f"File not found: {safe_path}"}), 404
         
     return send_from_directory(BASE_DIR, 'index.html')
 
