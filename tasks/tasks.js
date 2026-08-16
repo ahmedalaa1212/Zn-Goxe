@@ -7,15 +7,41 @@
     // 🛡️ دالة الحماية للتأكد من وجود دالة fetchAPI للاتصال بالخادم دائماً
     if (typeof window.fetchAPI !== 'function') {
         window.fetchAPI = async function(url, method = 'GET', data = null) {
+            const initData = window.Telegram?.WebApp?.initData || "";
+            const headers = {
+                Accept: "application/json"
+            };
+
+            if (initData) {
+                headers["X-Telegram-Init-Data"] = initData;
+                headers["Authorization"] = `Bearer ${initData}`;
+            }
+
             const options = {
                 method: method,
-                headers: { 'Content-Type': 'application/json' }
+                headers,
+                cache: "no-store",
+                credentials: "same-origin"
             };
-            if (data && (method === 'POST' || method === 'PUT')) {
+
+            if (data && method !== "GET" && method !== "HEAD") {
+                headers["Content-Type"] = "application/json";
                 options.body = JSON.stringify(data);
             }
+
             const response = await fetch(url, options);
-            return await response.json();
+            let result = {};
+            try {
+                result = await response.json();
+            } catch {
+                result = {};
+            }
+
+            if (!response.ok) {
+                throw new Error(result.error || `HTTP ${response.status}`);
+            }
+
+            return result;
         };
     }
 
@@ -505,14 +531,21 @@
             if (cachedTasksData.balance !== undefined) syncUserBalance(cachedTasksData.balance);
         } else {
             try {
-                let url = `/api/tasks/get_campaigns`;
+                const campaignHeaders = {
+                    Accept: "application/json"
+                };
+
                 if (initData) {
-                    url += `?initData=${encodeURIComponent(initData)}`;
-                } else if (myId) {
-                    url += `?telegramId=${encodeURIComponent(myId)}`;
+                    campaignHeaders["X-Telegram-Init-Data"] = initData;
+                    campaignHeaders["Authorization"] = `Bearer ${initData}`;
                 }
-                
-                let response = await fetch(url);
+
+                let response = await fetch('/api/tasks/get_campaigns', {
+                    method: 'GET',
+                    headers: campaignHeaders,
+                    cache: 'no-store',
+                    credentials: 'same-origin'
+                });
                 if (response.ok) {
                     let data = await response.json();
                     if (data.success) { 
@@ -772,8 +805,6 @@
             if (res.success) {
                 if (res.new_balance !== undefined) {
                     syncUserBalance(res.new_balance);
-                } else if (reward) {
-                    syncUserBalance(getUserBalance() + reward);
                 }
 
                 window.taskStates[taskId] = 'completed';
