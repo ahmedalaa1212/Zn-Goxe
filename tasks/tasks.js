@@ -4,7 +4,7 @@
         window.Telegram.WebApp.ready();
     }
 
-    // 🛡️ دالة الحماية للتأكد من وجود دالة fetchAPI للاتصال بالخادم دائماً
+    // 🛡️ دالة الاتصال بالخادم
     if (typeof window.fetchAPI !== 'function') {
         window.fetchAPI = async function(url, method = 'GET', data = null) {
             const options = {
@@ -19,15 +19,21 @@
         };
     }
 
-    // 🔒 الحدود الأدنى الصارمة لإنشاء الحملات الإعلانية
-    const MIN_REWARD_PER_CLICK = 250; 
-    const MIN_AD_CAMPAIGN_COST = 250;  
+    // 🔒 جدول الحد الأدنى التلقائي للأسعار لعملة AdZ
+    const MIN_REWARDS_MAP = {
+        'موقع': 100,
+        'يوتيوب': 50,
+        'تيليجرام': 50,
+        'انستغرام': 50,
+        'X': 50,
+        'default': 50
+    };
 
     let cachedTasksData = null;
     let lastTasksFetchTime = 0;
-    const TASKS_CACHE_TTL = 30000; 
+    const TASKS_CACHE_TTL = 30000; // كاش الواجهة 30 ثانية
 
-    // 🎨 حقن تنسيقات تلقائية لحل مشكلة ارتفاع القائمة فوق الكيبورد وتنسيق طبقات النوافذ
+    // 🎨 إصلاح طفو النوافذ
     if (!document.getElementById('task-modal-fix-style')) {
         const style = document.createElement('style');
         style.id = 'task-modal-fix-style';
@@ -53,7 +59,6 @@
         document.head.appendChild(style);
     }
 
-    // 🛠️ دوال التحكم بإخفاء وإظهار القائمة السفلية عند إدخال البيانات
     function hideBottomNav() {
         document.body.classList.add('modal-open-fix');
         const selectors = ['.bottom-nav', '#bottom-nav', '.nav-bar', '.bottom-menu', 'footer', 'nav', '.footer-nav'];
@@ -98,28 +103,9 @@
 
     function syncUserBalance(val) {
         let numVal = parseFloat(val) || 0;
-        
         if (window.GameState) window.GameState.balance = numVal;
         if (window.PlayerData) window.PlayerData.balance = numVal;
         if (window.userState) window.userState.balance = numVal;
-
-        try {
-            if (window.parent && window.parent !== window) {
-                if (window.parent.GameState) window.parent.GameState.balance = numVal;
-                if (window.parent.PlayerData) window.parent.PlayerData.balance = numVal;
-                if (window.parent.userState) window.parent.userState.balance = numVal;
-                if (typeof window.parent.updateGlobalUI === 'function') window.parent.updateGlobalUI();
-            }
-        } catch (e) {}
-
-        try {
-            if (window.top && window.top !== window && window.top !== window.parent) {
-                if (window.top.GameState) window.top.GameState.balance = numVal;
-                if (window.top.PlayerData) window.top.PlayerData.balance = numVal;
-                if (window.top.userState) window.top.userState.balance = numVal;
-                if (typeof window.top.updateGlobalUI === 'function') window.top.updateGlobalUI();
-            }
-        } catch (e) {}
 
         updateBalanceElements(numVal);
         window.dispatchEvent(new CustomEvent('balanceUpdated', { detail: { balance: numVal } }));
@@ -132,19 +118,9 @@
 
     function syncUserAdBalance(val) {
         let numVal = parseFloat(val) || 0;
-        
         if (window.GameState) window.GameState.ad_balance = numVal;
         if (window.PlayerData) window.PlayerData.ad_balance = numVal;
         if (window.userState) window.userState.ad_balance = numVal;
-
-        try {
-            if (window.parent && window.parent !== window) {
-                if (window.parent.GameState) window.parent.GameState.ad_balance = numVal;
-                if (window.parent.PlayerData) window.parent.PlayerData.ad_balance = numVal;
-                if (window.parent.userState) window.parent.userState.ad_balance = numVal;
-                if (typeof window.parent.updateGlobalUI === 'function') window.parent.updateGlobalUI();
-            }
-        } catch (e) {}
 
         updateAdBalanceElements(numVal);
         window.dispatchEvent(new CustomEvent('adBalanceUpdated', { detail: { ad_balance: numVal } }));
@@ -153,12 +129,9 @@
 
     function updateBalanceElements(numVal) {
         const formatted = numVal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-        
-        // 🌟 تحديث عنصر رصيد ZN في الشريط الثابت
         const topBal = document.getElementById('top-balance-tasks');
         if (topBal) topBal.innerText = `${formatted} ZN`;
 
-        // 🌟 تحديث رصيد الدولار في الوسط
         const usdVal = window.PlayerData?.usd_balance ?? window.userState?.usd_balance ?? window.GameState?.usd_balance ?? (numVal * 0.001);
         const usdFormatted = (typeof usdVal === 'number' ? usdVal : parseFloat(usdVal) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
         const topUsd = document.getElementById('top-balance-usd');
@@ -174,18 +147,11 @@
 
     function updateAdBalanceElements(numVal) {
         const formatted = numVal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-        
-        // 🌟 تحديث الرصيد الإعلاني AdZ في الكارت الرئيسي
         const adBalDisplay = document.getElementById('ad-balance-display');
-        if (adBalDisplay) {
-            adBalDisplay.innerText = `${formatted} AdZ`;
-        }
+        if (adBalDisplay) adBalDisplay.innerText = `${formatted} AdZ`;
 
-        // 🌟 تحديث الرصيد الإعلاني AdZ في الشريط الثابت علوياً على اليسار
         const topAdz = document.getElementById('top-balance-adz');
-        if (topAdz) {
-            topAdz.innerText = `${formatted} AdZ`;
-        }
+        if (topAdz) topAdz.innerText = `${formatted} AdZ`;
     }
 
     window.taskStates = window.taskStates || {};
@@ -210,18 +176,18 @@
     }
 
     const preDefinedDescriptions = {
-        'يوتيوب': ["اشترك بالقناة وفعّل جرس التنبيهات 🔔", "ضع لايك حقيقي للفيديو المرفق 👍", "اكتب تعليق إيجابي يخص محتوى الفيديو 💬"],
-        'تيليجرام': ["انضم إلى القناة وقم بزيارة آخر 3 منشورات 📢", "انضم إلى الجروب وشارك في النقاشات بأدب 👥"],
-        'موقع': ["قم بتصفح الموقع والبقاء داخله لمدة دقيقة كاملة 🌐", "تصفح المقالات وتفاعل مع الإعلانات داخل الموقع 📄"],
+        'يوتيوب': ["اشترك بالقناة وفعّل جرس التنبيهات 🔔", "ضع لايك حقيقي للفيديو المرفق 👍", "اكتب تعليق إيجابي يخص المحتوى 💬"],
+        'تيليجرام': ["انضم إلى القناة وقم بزيارة آخر 3 منشورات 📢", "انضم إلى الجروب وشارك في النقاشات 👥"],
+        'موقع': ["قم بزيارة الموقع والفحص الآمن لمدة 15 ثانية 🛡️", "تصفح المقالات والروابط داخل الموقع 📄"],
         'انستغرام': ["تابع الحساب الرسمي وتفاعل باللايكات 📸", "ضع لايك على المنشور الأخير واكتب تعليق ❤️"],
-        'X': ["تابع الحساب الرسمي وقم بعمل ريتويت للتغريدة المثبتة 🔁", "ضع إعجاب على التغريدة الأخيرة المنشورة 🤍"]
+        'X': ["تابع الحساب الرسمي وقم بعمل ريتويت للتغريدة المثبتة 🔁", "ضع إعجاب على التغريدة الأخيرة 🤍"]
     };
 
     const platformConfig = {
         'يوتيوب': { title: "مهام يوتيوب", icon: "fab fa-youtube", color: "#ef4444" },
         'تيليجرام': { title: "مهام تيليجرام", icon: "fab fa-telegram", color: "#38bdf8" },
         'X': { title: "مهام منصة X", icon: "fab fa-twitter", color: "#ffffff" },
-        'موقع': { title: "زيارة مواقع", icon: "fas fa-globe", color: "#28a745" },
+        'موقع': { title: "زيارة موقع وفحص آمن", icon: "fas fa-shield-alt", color: "#28a745" },
         'انستغرام': { title: "مهام انستغرام", icon: "fab fa-instagram", color: "#e1306c" },
         'أخرى': { title: "مهام متنوعة", icon: "fas fa-tasks", color: "#a855f7" }
     };
@@ -230,7 +196,6 @@
         return window.GameState?.userId || window.PlayerData?.userId || window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || "";
     }
 
-    // ⚡ التبديل بين تبويب مركز الأرباح وحملات الترويج
     window.switchTasksTab = function(tab) {
         const earnSection = document.getElementById('section-earn');
         const promoteSection = document.getElementById('section-promote');
@@ -246,21 +211,20 @@
         window.fetchAndRenderTasks(false); 
     };
 
-    window.updateTasksUI = function(forceRefresh = false) {
-        if (typeof window.updateGlobalUI === 'function') window.updateGlobalUI();
-        window.fetchAndRenderTasks(forceRefresh);
-    };
-
-    // ⚡ فتح النافذة المنبثقة لإنشاء الحملة وإخفاء القائمة السفلية
+    // ⚡ فتح النافذة المنبثقة لإنشاء الحملة وتعديل أدنى سعر ديناميكياً
     window.openAdModal = function(type) {
         currentAdType = type || 'يوتيوب';
         const modal = document.getElementById('ad-modal');
         const titleEl = document.getElementById('ad-modal-title');
         const descSelect = document.getElementById('ad-desc-select');
+        const minHint = document.getElementById('min-reward-hint');
+        const rewardInput = document.getElementById('ad-reward');
 
-        if (titleEl) {
-            titleEl.innerText = `إنشاء حملة (${currentAdType})`;
-        }
+        const minReward = MIN_REWARDS_MAP[currentAdType] || MIN_REWARDS_MAP['default'];
+
+        if (titleEl) titleEl.innerText = `إنشاء حملة (${currentAdType})`;
+        if (minHint) minHint.innerText = `(الحد الأدنى: ${minReward} AdZ)`;
+        if (rewardInput) rewardInput.placeholder = `مثال: ${minReward}`;
 
         if (descSelect && preDefinedDescriptions[currentAdType]) {
             let opts = `<option value="">-- اختر توجيهات المهمة المطلوبة --</option>`;
@@ -270,36 +234,26 @@
             descSelect.innerHTML = opts;
         }
 
-        // تفريغ المدخلات
         const linkInput = document.getElementById('ad-link');
-        const rewardInput = document.getElementById('ad-reward');
         const usersInput = document.getElementById('ad-users');
-        
         if (linkInput) linkInput.value = '';
         if (rewardInput) rewardInput.value = '';
         if (usersInput) usersInput.value = '';
 
-        if (modal) {
-            modal.style.display = 'flex';
-        }
-
+        if (modal) modal.style.display = 'flex';
         hideBottomNav();
     };
 
     window.closeAdModal = function(keepNavHidden = false) {
         const modal = document.getElementById('ad-modal');
         if (modal) modal.style.display = 'none';
-
-        if (!keepNavHidden) {
-            showBottomNav();
-        }
+        if (!keepNavHidden) showBottomNav();
     };
 
-    // ⚡ شحن محفظة الإعلانات AdZ
     window.convertZnToAdZn = async function() {
         if (isConvertingBalance) return;
 
-        const inputVal = prompt('أدخل مبلغ ZN المراد تحويله إلى رصيد الإعلانات (AdZ):\n(ملاحظة: تخصم عمولة تحويل 10%)');
+        const inputVal = prompt('أدخل مبلغ ZN المراد تحويله إلى رصيد الإعلانات (AdZ):\n(تنبيه: تخصم عمولة تحويل 10%)');
         if (!inputVal) return;
 
         const amount = parseFloat(inputVal);
@@ -329,7 +283,6 @@
             if (res.success) {
                 if (res.new_balance !== undefined) syncUserBalance(res.new_balance);
                 if (res.new_ad_balance !== undefined) syncUserAdBalance(res.new_ad_balance);
-
                 alert(`🎉 تم تحويل ${amount.toLocaleString()} ZN إلى رصيد الإعلانات (AdZ) بنجاح!`);
             } else {
                 alert(res.error || 'حدث خطأ أثناء التحويل.');
@@ -342,12 +295,14 @@
         }
     };
 
-    // ⚡ تقديم ونشر الحملة الإعلانية
+    // ⚡ تقديم ونشر الحملة مع التحقق الصارم من الحد الأدنى لـ AdZ
     window.submitAdCampaign = async function(event) {
         if (event) event.preventDefault();
         if (isSubmittingCampaign) return;
 
         const platform = currentAdType || 'يوتيوب';
+        const minReqReward = MIN_REWARDS_MAP[platform] || MIN_REWARDS_MAP['default'];
+
         const linkInput = document.getElementById('ad-link');
         const descSelect = document.getElementById('ad-desc-select');
         const rewardInput = document.getElementById('ad-reward');
@@ -359,7 +314,7 @@
         const totalCount = parseInt(usersInput?.value || 0, 10);
 
         if (!url || !description) {
-            alert('يرجى إدخال رابط الحملة واختيار/كتابة توجيهات المهمة!');
+            alert('يرجى إدخال رابط الحملة واختيار توجيهات المهمة!');
             return;
         }
 
@@ -368,20 +323,21 @@
             return;
         }
 
-        if (rewardPerClick < MIN_REWARD_PER_CLICK) {
-            alert(`الحد الأدنى لتكلفة الضغطة الواحدة هو ${MIN_REWARD_PER_CLICK} AdZ!`);
+        if (isNaN(rewardPerClick) || rewardPerClick < minReqReward) {
+            alert(`الحد الأدنى لتكلفة الضغطة الواحدة لمنصة (${platform}) هو ${minReqReward} عملة AdZ!`);
+            return;
+        }
+
+        if (isNaN(totalCount) || totalCount <= 0) {
+            alert('يرجى تحديد عدد الأعضاء المطلوبين بصورة صحيحة!');
             return;
         }
 
         const totalCost = rewardPerClick * totalCount;
-        if (totalCost < MIN_AD_CAMPAIGN_COST) {
-            alert(`الحد الأدنى للميزانية الإجمالية للحملة هو ${MIN_AD_CAMPAIGN_COST} AdZ!`);
-            return;
-        }
-
         const currentAdBal = getUserAdBalance();
+
         if (currentAdBal < totalCost) {
-            alert(`رصيد الإعلانات (AdZ) غير كافٍ! تحتاج إلى ${totalCost.toLocaleString()} AdZ ولكن لديك ${currentAdBal.toLocaleString()} AdZ.`);
+            alert(`رصيد الإعلانات (AdZ) غير كافٍ! تحتاج إلى ${totalCost.toLocaleString()} AdZ ولدى حسابك ${currentAdBal.toLocaleString()} AdZ.`);
             return;
         }
 
@@ -405,9 +361,7 @@
         const countdownInterval = setInterval(() => {
             timeLeft--;
             if (timerEl) timerEl.innerText = Math.max(0, timeLeft);
-            if (timeLeft <= 0) {
-                clearInterval(countdownInterval);
-            }
+            if (timeLeft <= 0) clearInterval(countdownInterval);
         }, 1000);
 
         try {
@@ -424,8 +378,7 @@
                 initData
             });
 
-            await new Promise(r => setTimeout(r, 3200));
-
+            await new Promise(r => setTimeout(r, 3000));
             if (reviewModal) reviewModal.style.display = 'none';
 
             if (res.success) {
@@ -457,7 +410,7 @@
             isSubmittingCampaign = false;
             if (submitBtn) {
                 submitBtn.disabled = false;
-                submitBtn.innerText = 'نشر الحملة';
+                submitBtn.innerText = 'نشر الحملة 🚀';
             }
         }
     };
@@ -465,14 +418,12 @@
     window.handleSuccessRedirect = function() {
         const successModal = document.getElementById('success-modal');
         if (successModal) successModal.style.display = 'none';
-        
         showBottomNav();
-
         window.switchTasksTab('promote');
         window.fetchAndRenderTasks(true);
     };
 
-    // ⚡ جلب قائمة الحملات والمهام المتاحة
+    // ⚡ جلب قائمة الحملات والمهام المتاحة مع الكاش السريع
     window.fetchAndRenderTasks = async function(forceRefresh = false) {
         const container = document.getElementById('tasks-list-container');
         const activeAdsContainer = document.getElementById('active-ads-container');
@@ -521,7 +472,7 @@
                 allTasks.push({
                     id: String(task.id),
                     title: `دعم وتفاعل منصة (${escapeHtml(task.platform)})`,
-                    description: escapeHtml(task.description) || "برجاء اتباع الرابط لإكمال المهمة المطلوبة بنجاح التام.",
+                    description: escapeHtml(task.description) || "إقرأ التعليمات وقم بالتفاعل المطلوب واستلام المكافأة.",
                     platform: task.platform || 'أخرى',
                     reward: Number(task.reward || 0),
                     link: task.url || '',
@@ -574,10 +525,8 @@
                             if (remaining <= 1 && currentTotalOutside >= 15) {
                                 window.taskStates[task.id] = 'ready';
                                 actionHtml = `<button type="button" id="btn-task-${task.id}" onclick="window.verifyTask('${task.id}', ${task.reward})" style="background: #ffcc00; color: #000; border: none; padding: 8px 18px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">تحقق ✅</button>`;
-                            } else if (document.visibilityState === 'visible') {
-                                actionHtml = `<button type="button" id="btn-task-${task.id}" disabled style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); padding: 8px 14px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">عُد للمهمة.. ${remaining}ث⏳</button>`;
                             } else {
-                                actionHtml = `<button type="button" id="btn-task-${task.id}" disabled style="background: #222; color: #ffaa00; border: 1px solid #333; padding: 8px 14px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">جاري التنفيذ.. ${remaining}ث⏳</button>`;
+                                actionHtml = `<button type="button" id="btn-task-${task.id}" disabled style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); padding: 8px 14px; border-radius: 8px; font-size: 12px; cursor: not-allowed; font-weight: bold;">عُد للمهمة.. ${remaining}ث⏳</button>`;
                             }
                         } else if (state === 'ready') {
                             actionHtml = `<button type="button" id="btn-task-${task.id}" onclick="window.verifyTask('${task.id}', ${task.reward})" style="background: #ffcc00; color: #000; border: none; padding: 8px 18px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">تحقق ✅</button>`;
@@ -660,7 +609,7 @@
 
                             <div style="margin-bottom: 14px;">
                                 <div style="display: flex; justify-content: space-between; font-size: 11px; color: #64748b; margin-bottom: 4px;">
-                                    <span>التقدم الإجمالي للنسبة</span>
+                                    <span>التقدم الإجمالي</span>
                                     <span style="color: #38bdf8; font-weight: 700;">${pct}%</span>
                                 </div>
                                 <div style="width: 100%; height: 6px; background: #0b0b12; border-radius: 10px; overflow: hidden; border: 1px solid #1f1f2e;">
@@ -676,7 +625,6 @@
         }
     };
 
-    // ⚡ بدء تنفيذ المهمة وفتح الرابط
     window.startTask = function(taskId, encodedLink, reward) {
         const link = decodeURIComponent(encodedLink || '');
         window.taskStates[taskId] = 'running';
@@ -721,16 +669,11 @@
                     taskBtn.style.boxShadow = '0 0 10px rgba(255, 204, 0, 0.3)';
                 }
             } else if (taskBtn) {
-                if (document.visibilityState === 'visible') {
-                    taskBtn.innerText = `عُد للمهمة.. ${remaining}ث⏳`;
-                } else {
-                    taskBtn.innerText = `جاري التنفيذ.. ${remaining}ث⏳`;
-                }
+                taskBtn.innerText = `عُد للمهمة.. ${remaining}ث⏳`;
             }
         }, 1000);
     };
 
-    // ⚡ التحقق من تنفيذ المهمة واستلام المكافأة
     window.verifyTask = async function(taskId, reward) {
         if (isVerifyingTask) return;
         isVerifyingTask = true;
@@ -796,7 +739,6 @@
         }
     };
 
-    // ⚡ إلغاء الحملة الإعلانية واسترداد المتبقي
     window.cancelServerCampaign = async function(taskId) {
         if (isCancelingCampaign) return;
 
@@ -827,7 +769,7 @@
                     syncUserAdBalance(res.new_ad_balance);
                 }
                 const refunded = res.refunded_amount ?? res.refund ?? 0;
-                alert(`🎉 تم إلغاء الحملة بنجاح! تم استرداد ${refunded} AdZ إلى حسابك.`);
+                alert(`🎉 تم إلغاء الحملة بنجاح! تم استرداد ${refunded.toLocaleString()} AdZ إلى حسابك.`);
                 window.fetchAndRenderTasks(true);
             } else {
                 alert(res.error || 'حدث خطأ أثناء إلغاء الحملة.');
@@ -848,7 +790,6 @@
         }
     };
 
-    // ⚡ المتابعة الدقيقة للتواجد خارج الشاشة وحساب الـ 15 ثانية
     document.addEventListener('visibilitychange', () => {
         const isHidden = document.visibilityState === 'hidden';
         const now = Date.now();
@@ -867,6 +808,5 @@
         }
     });
 
-    // التهيئة التلقائية الأولى عند تحميل الصفحة
     window.fetchAndRenderTasks(false);
 })();
