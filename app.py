@@ -12,7 +12,7 @@ if BASE_DIR not in sys.path:
 import database
 from core.security import get_authenticated_user
 
-app = Flask(__name__, static_folder=None)
+app = Flask(__name__, static_folder=BASE_DIR, static_url_path="")
 
 WEB_URL = (
     os.environ.get(
@@ -70,35 +70,6 @@ try:
     print("✅ تم تسجيل موديول الألعاب الرئيسي (games_bp) بنجاح!")
 except Exception as exc:
     print(f"⚠️ مجلد الألعاب غير موجود أو به خطأ، تم تخطيه: {exc}")
-
-
-# ==========================================
-# Wallet frontend static files
-# ==========================================
-@app.route("/wallet/<path:filename>", methods=["GET"])
-def serve_wallet_frontend(filename):
-    """
-    Serve wallet frontend files from the real wallet/ directory.
-    The API remains under /api/wallet/* and is handled by wallet_bp.
-    """
-    safe_name = filename.replace("\\", "/").lstrip("/")
-
-    forbidden_extensions = (
-        ".py", ".env", ".sh", ".git", ".pem", ".key",
-        ".db", ".sqlite", ".json"
-    )
-    if safe_name.lower().endswith(forbidden_extensions):
-        return jsonify({"success": False, "error": "Access Denied"}), 403
-
-    allowed_extensions = (
-        ".html", ".js", ".css", ".png", ".jpg", ".jpeg",
-        ".webp", ".svg", ".ico", ".gif", ".woff", ".woff2", ".ttf"
-    )
-    if not safe_name.lower().endswith(allowed_extensions):
-        return jsonify({"success": False, "error": "Unsupported file"}), 403
-
-    wallet_root = os.path.join(BASE_DIR, "wallet")
-    return send_from_directory(wallet_root, safe_name)
 
 
 # ==========================================
@@ -211,19 +182,6 @@ def add_security_headers(response):
 
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
-    response.headers.setdefault(
-        "Permissions-Policy",
-        "camera=(), microphone=(), geolocation=()"
-    )
-
-    if request.path.lower().endswith((".html", ".js", ".css")):
-        response.headers.setdefault(
-            "Cache-Control",
-            "no-cache, no-store, must-revalidate, max-age=0"
-        )
-        response.headers.setdefault("Pragma", "no-cache")
-        response.headers.setdefault("Expires", "0")
-
     return response
 
 
@@ -241,16 +199,6 @@ def handle_500_error(error):
                 "message": "خطأ في الاتصال بالخادم.",
             }
         ), 500
-
-    if request.path.lower().endswith((
-        ".html", ".js", ".css", ".json", ".png", ".jpg", ".jpeg",
-        ".webp", ".svg", ".ico", ".gif", ".woff", ".woff2", ".ttf"
-    )):
-        return jsonify({
-            "success": False,
-            "error": "Static file server error",
-            "path": request.path
-        }), 500
 
     return send_from_directory(BASE_DIR, "index.html"), 500
 
@@ -296,6 +244,18 @@ def handle_404_error(error):
         ), 404
 
     return send_from_directory(BASE_DIR, "index.html")
+
+
+# ==========================================
+# Wallet UI static files
+# ==========================================
+# Explicitly serve the wallet module before the generic catch-all route.
+WALLET_DIR = os.path.join(BASE_DIR, "wallet")
+
+
+@app.route("/wallet/<path:filename>")
+def serve_wallet_static(filename):
+    return send_from_directory(WALLET_DIR, filename)
 
 
 # ==========================================
