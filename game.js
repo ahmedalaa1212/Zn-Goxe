@@ -11,7 +11,6 @@ if (tg) {
 window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 6.50;
 window.serverTimeOffset = 0;
 
-// دالة موحدة لتنسيق الوقت (باستخدام h للساعات، m للدقائق، s للثواني)
 window.formatTime = function(seconds) {
     if (isNaN(seconds) || seconds <= 0) return '0s';
     const h = Math.floor(seconds / 3600);
@@ -84,7 +83,6 @@ function persistUserStateToLocalStorage(state) {
     }
 }
 
-// ⚡ كائن إدارة الحالة الوحيد بالنمط الموحد (Single Source of Truth)
 window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
         if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'extra_storage', 'max_cap', 'unclaimed'].includes(prop)) {
@@ -109,14 +107,12 @@ window.userState = new Proxy(getSavedState(), {
             if (typeof window.updateUI === 'function') window.updateUI();
             if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
             
-            // ⚡ إرسال حدث موحد لجميع الموديولات الفرعية للتحديث الفوري
             window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: target }));
         }
         return true;
     }
 });
 
-// حفظ إضافي مضمون عند إغلاق أو مغادرة التطبيق
 window.addEventListener('beforeunload', () => {
     persistUserStateToLocalStorage(window.userState);
 });
@@ -199,7 +195,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 };
 
 // ==========================================
-// 3. جلب سعر TON المباشر وتحديث الباقات
+// 3. جلب سعر TON المباشر
 // ==========================================
 window.fetchTonPrice = async function() {
     try {
@@ -213,7 +209,7 @@ window.fetchTonPrice = async function() {
             }
         }
     } catch (err) {
-        console.warn("⚠️ لم يتم جلب سعر TON من CoinGecko، تم استخدام السعر المحلي المسجل:", window.currentTonPriceUSD);
+        console.warn("⚠️ تم استخدام سعر TON المحلي المسجل:", window.currentTonPriceUSD);
     } finally {
         window.updateTonPriceUI();
     }
@@ -225,205 +221,14 @@ window.updateTonPriceUI = function() {
     tonContainers.forEach(el => {
         el.innerHTML = `<span dir="ltr" style="white-space:nowrap; font-weight:bold; color:#0088cc;">${formattedPrice}</span>`;
     });
-
-    const packagesStatus = document.querySelectorAll('#packages-loading-status, .packages-status');
-    packagesStatus.forEach(el => {
-        el.style.display = 'none';
-    });
 };
 
 // ==========================================
-// 4. مشاهدة الإعلانات والمكافآت
-// ==========================================
-window.watchMonetagAd = async function() {
-    if (typeof window.show_11322720 !== 'function') {
-        alert('جاري تحميل مكتبة الإعلانات، يرجى المحاولة بعد قليل...');
-        return;
-    }
-
-    try {
-        await window.show_11322720();
-        const res = await window.fetchAPI('/api/farm/daily_boost', 'POST');
-        if (res.success) {
-            alert(`🎉 تم زيادة سرعة التعدين بنجاح!`);
-        } else {
-            alert(res.error || 'حدث خطأ أثناء إضافة المكافأة.');
-        }
-    } catch (err) {
-        console.error("Ad cancelled or error:", err);
-        alert('يجب إكمال الإعلان للنهاية للحصول على المكافأة.');
-    }
-};
-
-window.claimDailyReward = async function() {
-    try {
-        const res = await window.fetchAPI('/api/farm/daily_claim', 'POST');
-        if (res.success) {
-            if (res.new_balance !== undefined) window.userState.balance = parseFloat(res.new_balance);
-            if (res.daily_day !== undefined) {
-                window.userState.daily_day = res.daily_day;
-                window.userState.daily_streak = res.daily_day;
-            }
-            alert(`🎁 مبروك! استلمت مكافأة اليوم. اليوم الحالي: ${res.daily_day}`);
-            if (typeof window.onFarmTabOpen === 'function') window.onFarmTabOpen();
-        } else {
-            alert(res.error || 'لا يمكنك الاستلام الآن.');
-        }
-    } catch (err) {
-        alert(err.message || 'حدث خطأ أثناء استلام المكافأة.');
-    }
-};
-
-window.activateTenXBoost = async function(durationHours = 1) {
-    try {
-        const res = await window.fetchAPI('/api/farm/activate_boost', 'POST', { duration_hours: durationHours });
-        if (res.success || res.status === "success") {
-            alert(`🚀 تم تفعيل مضاعف الأرباح 10x بنجاح لمدة ${durationHours}h!`);
-            if (typeof window.loadUserData === 'function') window.loadUserData();
-            return true;
-        } else {
-            alert(res.error || res.message || 'حدث خطأ أثناء تفعيل البوست.');
-            return false;
-        }
-    } catch (err) {
-        console.error("Boost activation error:", err);
-        alert('حدث خطأ أثناء الاتصال بالسيرفر لتفعيل البوست.');
-        return false;
-    }
-};
-
-// ==========================================
-// 5. الاستماع اللحظي Firestore (Realtime Sync & Global Event)
-// ==========================================
-window.initFirebaseRealtimeSync = function(userId) {
-    if (!window.db || !userId) return;
-    
-    try {
-        window.db.collection('users').doc(String(userId)).onSnapshot(doc => {
-            if (!doc.exists) return;
-            const d = doc.data() || {};
-            
-            try {
-                isFirebaseUpdating = true;
-                if (!window.PlayerData) window.PlayerData = {};
-                
-                Object.assign(window.PlayerData, d);
-
-                if (d.balance !== undefined && d.balance !== null) {
-                    const bal = parseFloat(d.balance);
-                    if (!isNaN(bal)) window.userState.balance = bal;
-                }
-                if (d.usd_balance !== undefined) window.userState.usd_balance = parseFloat(d.usd_balance) || 0;
-                
-                ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'last_daily_claim_date', 'upgrades', 'last_claim_time', 'unclaimed', 'boost_multiplier', 'boost_active', 'boost_expires_at'].forEach(k => {
-                    if (d[k] !== undefined) {
-                        window.userState[k] = d[k];
-                    }
-                });
-                window.userState.last_sync_time = Date.now();
-            } finally {
-                isFirebaseUpdating = false;
-                persistUserStateToLocalStorage(window.userState);
-                window.updateUI();
-                if (typeof window.updateFarmUI === 'function') {
-                    window.updateFarmUI();
-                }
-                window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
-            }
-        }, err => console.error("Firebase Sync Error:", err));
-    } catch (e) {
-        console.warn("Realtime sync omitted:", e);
-    }
-};
-
-// ==========================================
-// 6. دالة إدارة عداد التجميع
-// ==========================================
-let claimCooldownTimer = null;
-
-window.updateClaimButtonState = function() {
-    const claimButtons = document.querySelectorAll('#claim-btn, .claim-btn, [data-action="claim"]');
-    if (!claimButtons.length) return;
-
-    const COOLDOWN_SECONDS = 15;
-    const lastClaimStr = window.userState.last_claim_time;
-    const unclaimed = parseFloat(window.userState?.unclaimed || 0);
-    const isFarmTab = document.getElementById('view-farm')?.classList.contains('active');
-
-    function renderButton(btn, disabled, text, className) {
-        btn.disabled = disabled;
-        btn.innerHTML = text;
-        if (className) btn.className = className;
-    }
-
-    if (!lastClaimStr) {
-        claimButtons.forEach(btn => {
-            if (isFarmTab && unclaimed <= 0) {
-                renderButton(btn, true, `المخزن فارغ ⏳`, "claim-action-btn btn-disabled");
-            } else {
-                renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready");
-            }
-        });
-        if (claimCooldownTimer) { clearInterval(claimCooldownTimer); claimCooldownTimer = null; }
-        return;
-    }
-
-    const lastClaimMs = new Date(lastClaimStr).getTime();
-    if (isNaN(lastClaimMs)) {
-        claimButtons.forEach(btn => renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready"));
-        if (claimCooldownTimer) { clearInterval(claimCooldownTimer); claimCooldownTimer = null; }
-        return;
-    }
-
-    const currentServerMs = Date.now() + (window.serverTimeOffset || 0);
-    const secondsPassed = Math.floor((currentServerMs - lastClaimMs) / 1000);
-    const remainingSeconds = COOLDOWN_SECONDS - secondsPassed;
-
-    if (remainingSeconds <= 0) {
-        if (claimCooldownTimer) { clearInterval(claimCooldownTimer); claimCooldownTimer = null; }
-        claimButtons.forEach(btn => {
-            if (isFarmTab && unclaimed <= 0) {
-                renderButton(btn, true, `المخزن فارغ ⏳`, "claim-action-btn btn-disabled");
-            } else {
-                renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready");
-            }
-        });
-        return;
-    }
-
-    if (!claimCooldownTimer) {
-        claimCooldownTimer = setInterval(() => {
-            const nowMs = Date.now() + (window.serverTimeOffset || 0);
-            const passed = Math.floor((nowMs - lastClaimMs) / 1000);
-            const rem = COOLDOWN_SECONDS - passed;
-
-            if (rem > 0) {
-                claimButtons.forEach(btn => {
-                    renderButton(btn, true, `انتظر ${window.formatTime(rem)} ⏳`, "claim-action-btn btn-disabled");
-                });
-            } else {
-                clearInterval(claimCooldownTimer);
-                claimCooldownTimer = null;
-                const latestUnclaimed = parseFloat(window.userState?.unclaimed || 0);
-                claimButtons.forEach(btn => {
-                    if (isFarmTab && latestUnclaimed <= 0) {
-                        renderButton(btn, true, `المخزن فارغ ⏳`, "claim-action-btn btn-disabled");
-                    } else {
-                        renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready");
-                    }
-                });
-            }
-        }, 1000);
-    }
-};
-
-// ==========================================
-// 7. العداد البصري التدريجي + دعم الخانات العشرية المرنة
+// 4. تنسيق واستعراض الرصيد
 // ==========================================
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0.00';
     const num = parseFloat(val);
-    
     return num.toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 6
@@ -468,9 +273,7 @@ function renderSmoothBalance(targetVal) {
     }
 
     const diff = targetVal - visualBalance;
-    if (Math.abs(diff) > 10) {
-        visualBalance = targetVal;
-    } else if (Math.abs(diff) < 0.000001) {
+    if (Math.abs(diff) > 10 || Math.abs(diff) < 0.000001) {
         visualBalance = targetVal;
     } else {
         visualBalance += diff * 0.08;
@@ -481,7 +284,6 @@ function renderSmoothBalance(targetVal) {
 function applyBalanceToUI(val) {
     const formatted = window.formatNumberHTML(val);
     const rawFormatted = window.formatBalance(val);
-    
     const selectors = '[data-bind="balance"], .user-balance, #farm-balance, #user-balance, #main-balance, #balance, .sync-balance, #top-balance-tasks, .user-balance-val, [data-bind="user_balance"]';
     
     document.querySelectorAll(selectors).forEach(el => {
@@ -502,31 +304,17 @@ function applyBalanceToUI(val) {
 }
 
 window.updateUI = function() {
-    window.updateClaimButtonState();
     window.updateTonPriceUI();
 
     const currentMaxCap = parseFloat(window.userState.max_cap ?? 100);
     document.querySelectorAll('#storage-max, .max-storage-val, [data-bind="max_cap"], #farm-storage-max').forEach(el => {
-        if (el.tagName === 'INPUT') {
-            el.value = currentMaxCap.toFixed(2);
-        } else {
-            el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">${window.formatBalance(currentMaxCap)}</span>`;
-        }
-    });
-
-    const adBal = parseFloat(window.userState.ad_balance || 0);
-    const formattedAd = window.formatBalance(adBal);
-    document.querySelectorAll('#ad-balance-display, .ad-balance-val, [data-bind="ad_balance"]').forEach(el => {
-        if (el.id === 'ad-balance-display') {
-            el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">AdZN ${formattedAd}</span>`;
-        } else {
-            el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">${formattedAd}</span>`;
-        }
+        if (el.tagName === 'INPUT') el.value = currentMaxCap.toFixed(2);
+        else el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">${window.formatBalance(currentMaxCap)}</span>`;
     });
 
     const usdBal = parseFloat(window.userState.usd_balance || 0);
     const formattedUsd = window.formatBalance(usdBal);
-    document.querySelectorAll('.usd-balance-val, [data-bind="usd_balance"]').forEach(el => {
+    document.querySelectorAll('.usd-balance-val, [data-bind="usd_balance"], #wallet-usd-balance').forEach(el => {
         if (el.id === 'shop-usd-text') return;
         el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">$${formattedUsd}</span>`;
     });
@@ -538,11 +326,15 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 8. التنقل بين القوائم وتنزيل الموديولات المحدثة فوراً
+// 5. التنقل بين القوائم والموديولات الرئيسيّة
 // ==========================================
 const loadedModules = new Set();
 
 window.switchView = async function(viewName) {
+    // توحيد المسمى الخاص بالمحفظة والألعاب
+    if (viewName === 'wallets') viewName = 'wallet';
+    if (viewName === 'game') viewName = 'games';
+
     document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
     const targetNav = document.getElementById(`nav-${viewName}`);
     if (targetNav) targetNav.classList.add('active');
@@ -550,10 +342,6 @@ window.switchView = async function(viewName) {
     document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
     
     let targetView = document.getElementById(`view-${viewName}`);
-    if (!targetView && (viewName === 'games' || viewName === 'game')) {
-        targetView = document.getElementById('view-games') || document.getElementById('view-game');
-    }
-    
     if (!targetView) return;
     
     targetView.classList.add('active');
@@ -562,52 +350,24 @@ window.switchView = async function(viewName) {
         try {
             const cacheBuster = `?v=${Date.now()}`;
             const res = await fetch(`${viewName}/${viewName}.html${cacheBuster}`);
+            
             if (res.ok) {
                 const htmlContent = await res.text();
-                
-                // فحص دقيق للتمييز بين الرد الحقيقي والرد البديل (index.html)
-                const isIndexHtmlFallback = htmlContent.includes('id="global-toast-container"') || 
-                                           htmlContent.includes('id="main-nav"') || 
-                                           htmlContent.includes('<title>Zn Goxe - Crypto Mining</title>');
-
-                if (isIndexHtmlFallback) {
-                    targetView.innerHTML = `
-                        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; color: #fff; padding: 20px; text-align: center;">
-                            <i class="fas fa-gamepad" style="font-size: 4rem; color: #3fb950; margin-bottom: 15px;"></i>
-                            <h2>قريباً...</h2>
-                            <p style="color: #8b949e; margin-top: 10px;">يتم الآن تجهيز هذه الصفحة، ترقبوا التحديث القادم!</p>
-                        </div>
-                    `;
-                } else {
-                    targetView.innerHTML = htmlContent;
-                    await loadModuleScript(`${viewName}/${viewName}.js${cacheBuster}`);
-                    loadedModules.add(viewName);
-                }
+                targetView.innerHTML = htmlContent;
+                await loadModuleScript(`${viewName}/${viewName}.js${cacheBuster}`);
+                loadedModules.add(viewName);
             } else {
-                console.error(`⚠️ فشل جلب ملف ${viewName}/${viewName}.html! كود الاستجابة: ${res.status}`);
+                console.error(`⚠️ فشل جلب ملف ${viewName}/${viewName}.html: ${res.status}`);
             }
         } catch (err) {
             console.error(`خطأ تحميل ${viewName}:`, err);
         }
     }
 
-    if (viewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
-        window.onFarmTabOpen();
-    }
-
-    if (viewName === 'shop' && typeof window.updateShopUI === 'function') {
-        window.updateShopUI();
-    }
-
-    if ((viewName === 'games' || viewName === 'game') && typeof window.onGamesTabOpen === 'function') {
-        window.onGamesTabOpen();
-    }
-
-    if ((viewName === 'wallet' || viewName === 'wallets') && typeof window.onWalletTabOpen === 'function') {
+    if (viewName === 'wallet' && typeof window.onWalletTabOpen === 'function') {
         window.onWalletTabOpen();
     }
 
-    // استدعاء دالة التهيئة الخاصة بكل موديول عند كل تبديل
     const initFuncName = `init${viewName.charAt(0).toUpperCase() + viewName.slice(1)}View`;
     if (typeof window[initFuncName] === 'function') {
         window[initFuncName]();
@@ -620,10 +380,7 @@ function loadModuleScript(scriptUrl) {
     return new Promise((resolve) => {
         const cleanUrl = scriptUrl.split('?')[0];
         const existingScript = document.querySelector(`script[src*="${cleanUrl}"]`);
-        
-        if (existingScript) {
-            existingScript.remove();
-        }
+        if (existingScript) existingScript.remove();
         
         const script = document.createElement('script');
         script.src = scriptUrl;
@@ -634,7 +391,7 @@ function loadModuleScript(scriptUrl) {
 }
 
 // ==========================================
-// 9. بدء التطبيق
+// 6. بدء التطبيق
 // ==========================================
 window.loadUserData = async function() {
     try {
@@ -651,7 +408,6 @@ window.loadUserData = async function() {
         console.error("Error player_data:", err);
     } finally { 
         window.updateUI();
-        if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
         hideLoadingScreen();
     }
 };
@@ -661,10 +417,7 @@ function initApp() {
     window.fetchTonPrice();
     window.switchView('farm');
     
-    window.loadUserData().then(() => {
-        const uid = window.userState.tg_id || tg?.initDataUnsafe?.user?.id;
-        if (uid) window.initFirebaseRealtimeSync(uid);
-    });
+    window.loadUserData();
     startLocalMiningSimulator();
 }
 
