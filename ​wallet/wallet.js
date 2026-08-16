@@ -114,9 +114,8 @@
             .querySelectorAll(".wallet-content-section")
             .forEach((section) => section.classList.remove("active"));
 
-        const activeBtn = document.querySelector(
-            `.wallet-btn-tab[data-wallet-tab="${CSS.escape(tabName)}"]`
-        );
+        const activeBtn = Array.from(document.querySelectorAll(".wallet-btn-tab"))
+            .find((btn) => btn.dataset.walletTab === tabName) || null;
         const activeSection = document.getElementById(`${tabName}-section`);
 
         if (activeBtn) {
@@ -328,7 +327,19 @@
         }
     }
 
+    let walletInitialized = false;
+
     function initWalletView() {
+        if (walletInitialized) {
+            return;
+        }
+
+        if (!document.querySelector(".wallet-page")) {
+            return;
+        }
+
+        walletInitialized = true;
+
         if (telegram) {
             telegram.ready();
             telegram.expand();
