@@ -1,4 +1,11 @@
 import os
+import sys
+
+# ضمان إضافة المسار الرئيسي للمشروع لمنع أخطاء الاستيراد (ImportError)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 
@@ -26,37 +33,78 @@ def is_admin_authorized(telegram_id):
         return False
 
 # ==========================================
-# تسجيل المسارات (Blueprints) الخاصة ببرمجة المستخدم
+# تسجيل المسارات (Blueprints) مع حماية ضد أخطاء الاستيراد
 # ==========================================
-from farm.farm_api import farm_bp
-from settings.settings_api import settings_bp
 
+# 1. Farm Blueprint
 try:
-    from friends.friends_api import friends_bp
-except ImportError:
-    from friends.friends_api import friends_api as friends_bp
+    from farm.farm_api import farm_bp
+    app.register_blueprint(farm_bp, url_prefix='/api/farm')
+except Exception as e:
+    print(f"⚠️ لم يتم تحميل module farm: {e}")
 
-from games.games_api import games_bp
-from tasks.tasks_api import tasks_bp
-from shop.shop_api import shop_bp
-from wallet.wallet_api import wallet_bp
-from support.support_api import support_bp
-
-# استدعاء Blueprint الـ Admin Chat
+# 2. Settings Blueprint
 try:
-    from admin_chat.admin_chat_api import admin_chat_bp
-except ImportError:
-    from admin_chat.admin_chat_api import admin_chat_api as admin_chat_bp
+    from settings.settings_api import settings_bp
+    app.register_blueprint(settings_bp, url_prefix='/api/settings')
+except Exception as e:
+    print(f"⚠️ لم يتم تحميل module settings: {e}")
 
-app.register_blueprint(farm_bp, url_prefix='/api/farm')
-app.register_blueprint(settings_bp, url_prefix='/api/settings')
-app.register_blueprint(friends_bp, url_prefix='/api/friends')
-app.register_blueprint(games_bp, url_prefix='/api/games')
-app.register_blueprint(tasks_bp, url_prefix='/api/tasks')
-app.register_blueprint(shop_bp, url_prefix='/api/shop')
-app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
-app.register_blueprint(support_bp, url_prefix='/api/support')
-app.register_blueprint(admin_chat_bp, url_prefix='/api/admin-chat')
+# 3. Friends Blueprint
+try:
+    try:
+        from friends.friends_api import friends_bp
+    except ImportError:
+        from friends.friends_api import friends_api as friends_bp
+    app.register_blueprint(friends_bp, url_prefix='/api/friends')
+except Exception as e:
+    print(f"⚠️ لم يتم تحميل module friends: {e}")
+
+# 4. Games Blueprint
+try:
+    from games.games_api import games_bp
+    app.register_blueprint(games_bp, url_prefix='/api/games')
+except Exception as e:
+    print(f"⚠️ لم يتم تحميل module games: {e}")
+
+# 5. Tasks Blueprint
+try:
+    from tasks.tasks_api import tasks_bp
+    app.register_blueprint(tasks_bp, url_prefix='/api/tasks')
+except Exception as e:
+    print(f"⚠️ لم يتم تحميل module tasks: {e}")
+
+# 6. Shop Blueprint
+try:
+    from shop.shop_api import shop_bp
+    app.register_blueprint(shop_bp, url_prefix='/api/shop')
+except Exception as e:
+    print(f"⚠️ لم يتم تحميل module shop: {e}")
+
+# 7. Wallet Blueprint
+try:
+    from wallet.wallet_api import wallet_bp
+    app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
+except Exception as e:
+    print(f"⚠️ لم يتم تحميل module wallet: {e}")
+
+# 8. Support Blueprint
+try:
+    from support.support_api import support_bp
+    app.register_blueprint(support_bp, url_prefix='/api/support')
+except Exception as e:
+    print(f"⚠️ لم يتم تحميل module support: {e}")
+
+# 9. Admin Chat Blueprint
+try:
+    try:
+        from admin_chat.admin_chat_api import admin_chat_bp
+    except ImportError:
+        from admin_chat.admin_chat_api import admin_chat_api as admin_chat_bp
+    app.register_blueprint(admin_chat_bp, url_prefix='/api/admin-chat')
+except Exception as e:
+    print(f"⚠️ لم يتم تحميل module admin_chat: {e}")
+
 
 # ==========================================
 # مسارات إدارة لعبة شبكة ZN Go (Admin API Endpoints)
@@ -258,15 +306,19 @@ def admin_logs_handler():
 @app.route('/api/game/cashout', methods=['POST'])
 def proxy_legacy_game_routes():
     """توجيه استدعاءات الفرونت إند الكلاسيكية تلقائياً إلى blueprint الألعاب"""
-    from games.games_api import start_boxes_game, pick_box, end_boxes_game
-    path = request.path
-    if path.endswith('/start'):
-        return start_boxes_game()
-    elif path.endswith('/step'):
-        return pick_box()
-    elif path.endswith('/cashout'):
-        return end_boxes_game()
-    return jsonify({"success": False, "message": "مسار غير معروف"}), 404
+    try:
+        from games.games_api import start_boxes_game, pick_box, end_boxes_game
+        path = request.path
+        if path.endswith('/start'):
+            return start_boxes_game()
+        elif path.endswith('/step'):
+            return pick_box()
+        elif path.endswith('/cashout'):
+            return end_boxes_game()
+        return jsonify({"success": False, "message": "مسار غير معروف"}), 404
+    except Exception as e:
+        print(f"❌ Error in legacy game proxy: {e}")
+        return jsonify({"success": False, "message": "موديول الألعاب غير متاح حالياً"}), 503
 
 # ==========================================
 # المسارات المباشرة والخدمية
