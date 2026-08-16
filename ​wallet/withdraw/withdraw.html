@@ -1,1 +1,25 @@
+<div class="card">
+    <h3 style="margin-top:0; color:#fff; text-align:center; font-size:16px;">🔄 تحويل ZN إلى USD</h3>
+    <label class="input-label" style="text-align:center;">(1,000,000 ZN = $1.00 USD)</label>
+    
+    <div class="input-group">
+        <input type="number" id="zn-input" class="input-field" placeholder="أدخل كمية النقاط" oninput="window.calculateConversionPreview()">
+        <div class="quick-chips">
+            <button class="chip-btn" onclick="window.setQuickZn(25)">25%</button>
+            <button class="chip-btn" onclick="window.setQuickZn(50)">50%</button>
+            <button class="chip-btn" onclick="window.setQuickZn(75)">75%</button>
+            <button class="chip-btn" onclick="window.setQuickZn(100)">الكل</button>
+        </div>
+    </div>
+    
+    <div id="conversion-calc-info" style="display:none; padding:10px; margin-bottom:15px; text-align:center; color:#10b981; background:rgba(16, 185, 129, 0.1); border:1px solid rgba(16, 185, 129, 0.2); border-radius:10px; font-weight:700;">
+        ستحصل على: <b id="expected-usd-amount" class="num-en">$0.00</b>
+    </div>
+
+    <button id="convert-btn" onclick="window.convertManualPoints()" class="action-btn btn-green">تحويل النقاط الآن</button>
+</div>
+
+<div id="withdraw-wallet-auth-container">
+    <!-- يتم ملء حالة الربط/عدم الربط ديناميكياً بواسطة withdraw.js -->
+</div>
 
