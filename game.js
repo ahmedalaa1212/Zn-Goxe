@@ -391,7 +391,6 @@ window.updateClaimButtonState = function() {
         return;
     }
 
-    // لتجنب تكرار الـ setInterval مع كل استدعاء لـ updateUI
     if (!claimCooldownTimer) {
         claimCooldownTimer = setInterval(() => {
             const nowMs = Date.now() + (window.serverTimeOffset || 0);
@@ -419,13 +418,12 @@ window.updateClaimButtonState = function() {
 };
 
 // ==========================================
-// 7. العداد البصري التدريجي + دعم الخانات العشرية المرنة (Dynamic Precision up to 6 Decimals)
+// 7. العداد البصري التدريجي + دعم الخانات العشرية المرنة
 // ==========================================
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0.00';
     const num = parseFloat(val);
     
-    // إذا كان هناك كسور دقيقة، نعرض حتى 6 خانات عشرية، مع الحفاظ على خانتين كأدنى حد
     return num.toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 6
@@ -470,7 +468,6 @@ function renderSmoothBalance(targetVal) {
     }
 
     const diff = targetVal - visualBalance;
-    // إذا كان الفارق كبيراً يفرز القيمة فوراً، وإذا كان التغيير دقيقاً جداً يعتمد القيمة الدقيقة
     if (Math.abs(diff) > 10) {
         visualBalance = targetVal;
     } else if (Math.abs(diff) < 0.000001) {
@@ -568,8 +565,12 @@ window.switchView = async function(viewName) {
             if (res.ok) {
                 const htmlContent = await res.text();
                 
-                // فحص إذا كان الرد صفحة 404 بديلة أو index.html
-                if (htmlContent.includes('<title>Zn Goxe - Crypto Mining</title>') || htmlContent.includes('id="global-toast-container"')) {
+                // فحص دقيق للتمييز بين الرد الحقيقي والرد البديل (index.html)
+                const isIndexHtmlFallback = htmlContent.includes('id="global-toast-container"') || 
+                                           htmlContent.includes('id="main-nav"') || 
+                                           htmlContent.includes('<title>Zn Goxe - Crypto Mining</title>');
+
+                if (isIndexHtmlFallback) {
                     targetView.innerHTML = `
                         <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; color: #fff; padding: 20px; text-align: center;">
                             <i class="fas fa-gamepad" style="font-size: 4rem; color: #3fb950; margin-bottom: 15px;"></i>
@@ -580,8 +581,8 @@ window.switchView = async function(viewName) {
                 } else {
                     targetView.innerHTML = htmlContent;
                     await loadModuleScript(`${viewName}/${viewName}.js${cacheBuster}`);
+                    loadedModules.add(viewName);
                 }
-                loadedModules.add(viewName);
             } else {
                 console.error(`⚠️ فشل جلب ملف ${viewName}/${viewName}.html! كود الاستجابة: ${res.status}`);
             }
@@ -602,6 +603,11 @@ window.switchView = async function(viewName) {
         window.onGamesTabOpen();
     }
 
+    if ((viewName === 'wallet' || viewName === 'wallets') && typeof window.onWalletTabOpen === 'function') {
+        window.onWalletTabOpen();
+    }
+
+    // استدعاء دالة التهيئة الخاصة بكل موديول عند كل تبديل
     const initFuncName = `init${viewName.charAt(0).toUpperCase() + viewName.slice(1)}View`;
     if (typeof window[initFuncName] === 'function') {
         window[initFuncName]();
