@@ -11,7 +11,6 @@ if (tg) {
 window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 6.50;
 window.serverTimeOffset = 0;
 
-// دالة موحدة لتنسيق الوقت (باستخدام h للساعات، m للدقائق، s للثواني)
 window.formatTime = function(seconds) {
     if (isNaN(seconds) || seconds <= 0) return '0s';
     const h = Math.floor(seconds / 3600);
@@ -84,7 +83,6 @@ function persistUserStateToLocalStorage(state) {
     }
 }
 
-// ⚡ كائن إدارة الحالة الوحيد بالنمط الموحد (Single Source of Truth)
 window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
         if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'extra_storage', 'max_cap', 'unclaimed'].includes(prop)) {
@@ -109,14 +107,12 @@ window.userState = new Proxy(getSavedState(), {
             if (typeof window.updateUI === 'function') window.updateUI();
             if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
             
-            // ⚡ إرسال حدث موحد لجميع الموديولات الفرعية للتحديث الفوري
             window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: target }));
         }
         return true;
     }
 });
 
-// حفظ إضافي مضمون عند إغلاق أو مغادرة التطبيق
 window.addEventListener('beforeunload', () => {
     persistUserStateToLocalStorage(window.userState);
 });
@@ -294,7 +290,7 @@ window.activateTenXBoost = async function(durationHours = 1) {
 };
 
 // ==========================================
-// 5. الاستماع اللحظي Firestore (Realtime Sync & Global Event)
+// 5. الاستماع اللحظي Firestore
 // ==========================================
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) return;
@@ -419,7 +415,7 @@ window.updateClaimButtonState = function() {
 };
 
 // ==========================================
-// 7. العداد البصري التدريجي + دعم الخانات العشرية المرنة
+// 7. العداد البصري التدريجي
 // ==========================================
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0.00';
@@ -539,12 +535,36 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 8. التنقل بين القوائم وتنزيل الموديولات المحدثة فوراً
+// 8. التنقل بين القوائم + دالة جلب الواجهات الفرعية
 // ==========================================
 const loadedModules = new Set();
 
+// 💡 دالة عامة مجانية لتحميل القوائم الفرعية (مثل إيداع، سحب، سجلات) داخل أي حاوية
+window.loadSubModule = async function(folderPath, containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return false;
+
+    try {
+        const cacheBuster = `?v=${Date.now()}`;
+        const fileName = folderPath.split('/').pop();
+        const htmlRes = await fetch(`${folderPath}/${fileName}.html${cacheBuster}`);
+        
+        if (htmlRes.ok) {
+            const htmlContent = await htmlRes.text();
+            container.innerHTML = htmlContent;
+            await loadModuleScript(`${folderPath}/${fileName}.js${cacheBuster}`);
+            return true;
+        } else {
+            container.innerHTML = `<div style="text-align:center; padding:20px; color:#888;">جاري التجهيز...</div>`;
+            return false;
+        }
+    } catch (err) {
+        console.error(`خطأ تحميل الموديول الفرعي ${folderPath}:`, err);
+        return false;
+    }
+};
+
 window.switchView = async function(viewName) {
-    // 🎯 توحيد اسم الموديول تلقائياً لشاشات المحفظة والألعاب
     let cleanViewName = viewName.toLowerCase();
     if (cleanViewName === 'wallets') cleanViewName = 'wallet';
     if (cleanViewName === 'game') cleanViewName = 'games';
@@ -567,7 +587,6 @@ window.switchView = async function(viewName) {
             if (res.ok) {
                 const htmlContent = await res.text();
                 
-                // فحص دقيق للتمييز بين الرد الحقيقي والرد البديل (index.html)
                 const isIndexHtmlFallback = htmlContent.includes('id="global-toast-container"') || 
                                            htmlContent.includes('id="main-nav"') || 
                                            htmlContent.includes('<title>Zn Goxe');
@@ -593,24 +612,15 @@ window.switchView = async function(viewName) {
         }
     }
 
-    if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
-        window.onFarmTabOpen();
-    }
-
-    if (cleanViewName === 'shop' && typeof window.updateShopUI === 'function') {
-        window.updateShopUI();
-    }
-
-    if (cleanViewName === 'games' && typeof window.onGamesTabOpen === 'function') {
-        window.onGamesTabOpen();
-    }
+    if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') window.onFarmTabOpen();
+    if (cleanViewName === 'shop' && typeof window.updateShopUI === 'function') window.updateShopUI();
+    if (cleanViewName === 'games' && typeof window.onGamesTabOpen === 'function') window.onGamesTabOpen();
 
     if (cleanViewName === 'wallet') {
         if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
         if (typeof window.initWalletView === 'function') window.initWalletView();
     }
 
-    // استدعاء دالة التهيئة الخاصة بكل موديول عند كل تبديل
     const initFuncName = `init${cleanViewName.charAt(0).toUpperCase() + cleanViewName.slice(1)}View`;
     if (typeof window[initFuncName] === 'function') {
         window[initFuncName]();
