@@ -1,38 +1,64 @@
-<div class="wallet-container">
-    <!-- كارت المحفظة الرئيسي -->
-    <div class="wallet-card">
-        <div class="wallet-icon">👛</div>
-        <h2 class="wallet-title">محفظة TON</h2>
-        <p class="wallet-subtitle">اربط محفظتك لاستلام السحوبات والمكافآت</p>
+<div class="wallet-wrapper">
+    <!-- كارت الرصيد والمحفظة الرئيسي -->
+    <div class="wallet-header-card">
+        <div class="wallet-balance-box">
+            <span class="balance-label">الرصيد الكلي</span>
+            <h1 class="balance-amount" id="wallet-main-balance">0.00 ZN</h1>
+            <span class="balance-usd" id="wallet-usd-val">$0.00 USD</span>
+        </div>
         
-        <div id="wallet-status-box" class="wallet-status disconnected">
-            <span id="wallet-address-text">لم يتم ربط المحفظة</span>
-        </div>
-
-        <button id="connect-wallet-btn" class="wallet-action-btn primary-btn">
-            🔗 ربط محفظة TON
-        </button>
-        <button id="disconnect-wallet-btn" class="wallet-action-btn danger-btn" style="display: none;">
-            ❌ فك الربط
-        </button>
-    </div>
-
-    <!-- قسم الأرصدة والعمليات -->
-    <div class="wallet-actions-grid">
-        <div class="action-card">
-            <span class="action-title">رصيد ZN</span>
-            <span class="action-val" id="wallet-zn-balance">0.00 ZN</span>
-        </div>
-        <div class="action-card">
-            <span class="action-title">رصيد USD</span>
-            <span class="action-val" id="wallet-usd-balance">$0.00</span>
+        <div id="wallet-connect-box" class="connect-box disconnected">
+            <span id="wallet-address-display">لم يتم ربط المحفظة</span>
+            <button id="btn-wallet-connect" class="btn-connect">ربط TON</button>
         </div>
     </div>
 
-    <!-- زر السحب -->
-    <div class="withdraw-section">
-        <button id="withdraw-btn" class="wallet-action-btn success-btn">
-            💸 طلب سحب الأرباح
-        </button>
+    <!-- شريط القوائم الفرعية (Sub-Tabs) -->
+    <div class="wallet-nav-tabs">
+        <button class="w-tab-btn active" data-tab="deposit">📥 إيداع</button>
+        <button class="w-tab-btn" data-tab="withdraw">📤 سحب</button>
+        <button class="w-tab-btn" data-tab="history">📜 السجل</button>
+    </div>
+
+    <!-- محتوى القوائم الفرعية -->
+    <div class="wallet-tab-content">
+        <!-- 1. قائمة الإيداع (Deposit) -->
+        <div id="subtab-deposit" class="w-tab-pane active">
+            <div class="section-card">
+                <h3>عنوان الإيداع المباشر (TON)</h3>
+                <p class="hint-text">أرسل عملة TON إلى العنوان التالي وسيتم تحويلها لـ ZN تلقائياً:</p>
+                <div class="copy-box">
+                    <input type="text" id="deposit-address-input" value="EQB_YOUR_PROJECT_TON_WALLET_ADDRESS" readonly>
+                    <button id="btn-copy-deposit" class="btn-sm">نسخ</button>
+                </div>
+                <div class="info-badge">⚡ الحد الأدنى للإيداع: 0.5 TON</div>
+            </div>
+        </div>
+
+        <!-- 2. قائمة السحب (Withdraw) -->
+        <div id="subtab-withdraw" class="w-tab-pane">
+            <div class="section-card">
+                <h3>طلب سحب الأرباح</h3>
+                <div class="form-group">
+                    <label>المبلغ المراد سحبه (ZN):</label>
+                    <input type="number" id="withdraw-amount-input" placeholder="0.00" min="100">
+                </div>
+                <div class="form-group">
+                    <label>عنوان محفظة TON:</label>
+                    <input type="text" id="withdraw-address-input" placeholder="EQ..." readonly>
+                </div>
+                <button id="btn-submit-withdraw" class="btn-action primary">تأكيد السحب</button>
+            </div>
+        </div>
+
+        <!-- 3. قائمة السجل (History) -->
+        <div id="subtab-history" class="w-tab-pane">
+            <div class="section-card">
+                <h3>سجل العمليات الأخيرة</h3>
+                <div id="wallet-history-list" class="history-list">
+                    <div class="empty-history">جاري تحميل السجل...</div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
