@@ -8,9 +8,9 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
-            --bg-color: #0b0b12;
-            --card-bg: #11111e;
-            --card-border: #222235;
+            --bg-color: #0b0b14;
+            --card-bg: rgba(18, 18, 32, 0.95);
+            --card-border: rgba(255, 255, 255, 0.08);
             --primary: #00cc66;
             --primary-glow: rgba(0, 204, 102, 0.3);
             --telegram-blue: #0088cc;
@@ -25,6 +25,7 @@
         * {
             box-sizing: border-box;
             outline: none;
+            -webkit-tap-highlight-color: transparent;
         }
 
         body {
@@ -37,27 +38,28 @@
             -webkit-user-select: none;
             user-select: none;
             min-height: 100vh;
+            overflow-x: hidden;
         }
 
         /* 🌟 هيدر الرصيد الثلاثي الثابت العلوي */
         .balance-header-fixed {
             position: fixed;
-            top: 12px;
+            top: 10px;
             left: 50%;
             transform: translateX(-50%);
             width: 94%;
             max-width: 480px;
-            background: rgba(13, 15, 26, 0.88);
+            background: rgba(13, 15, 26, 0.92);
             border: 1px solid rgba(255, 204, 0, 0.25);
             padding: 8px 14px;
             border-radius: 20px;
             z-index: 100;
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5), 0 0 15px rgba(255, 204, 0, 0.08);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.6), 0 0 15px rgba(255, 204, 0, 0.08);
             display: flex;
             align-items: center;
             justify-content: space-between;
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
         }
 
         .balance-item {
@@ -69,24 +71,14 @@
             white-space: nowrap;
         }
 
-        .balance-item.zn-item {
-            color: #ffcc00;
-        }
-
+        .balance-item.zn-item { color: #ffcc00; }
         .balance-item.usd-item {
             color: #22c55e;
             border-right: 1px solid rgba(255, 255, 255, 0.1);
             border-left: 1px solid rgba(255, 255, 255, 0.1);
             padding: 0 8px;
         }
-
-        .balance-item.adz-item {
-            color: #38bdf8;
-        }
-
-        .bal-icon {
-            font-size: 0.95rem;
-        }
+        .balance-item.adz-item { color: #38bdf8; }
 
         .tasks-container {
             padding: 15px;
@@ -120,32 +112,21 @@
             transition: all 0.3s ease;
         }
         .tabs-header button.active {
-            background: var(--telegram-blue);
+            background: linear-gradient(135deg, #0088cc, #0284c7);
             color: #fff;
-            box-shadow: 0 4px 12px rgba(0, 136, 204, 0.3);
+            box-shadow: 0 4px 12px rgba(0, 136, 204, 0.35);
         }
 
         /* 🎨 تصميم كارت تحويل وشحن الإعلانات الاحترافي */
         .adz-card-container {
             position: relative;
             background: linear-gradient(135deg, rgba(17, 24, 39, 0.95), rgba(15, 23, 42, 0.95));
-            border: 1px solid rgba(56, 189, 248, 0.25);
+            border: 1px solid rgba(56, 189, 248, 0.3);
             border-radius: 20px;
             padding: 20px;
             margin-bottom: 22px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
             overflow: hidden;
-        }
-
-        .adz-card-container::before {
-            content: '';
-            position: absolute;
-            top: -50px;
-            left: -50px;
-            width: 120px;
-            height: 120px;
-            background: radial-gradient(circle, rgba(56, 189, 248, 0.15) 0%, transparent 70%);
-            pointer-events: none;
         }
 
         .adz-card-badge {
@@ -173,14 +154,14 @@
             width: 48px;
             height: 48px;
             border-radius: 14px;
-            background: rgba(56, 189, 248, 0.1);
-            border: 1px solid rgba(56, 189, 248, 0.2);
+            background: rgba(56, 189, 248, 0.12);
+            border: 1px solid rgba(56, 189, 248, 0.25);
             display: flex;
             align-items: center;
             justify-content: center;
             color: #38bdf8;
             font-size: 20px;
-            box-shadow: 0 0 15px rgba(56, 189, 248, 0.15);
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.2);
         }
 
         .adz-title-group {
@@ -226,7 +207,45 @@
 
         .adz-recharge-btn:active {
             transform: scale(0.98);
-            box-shadow: 0 2px 8px rgba(2, 132, 199, 0.2);
+        }
+
+        /* شبكة كروت اختيار منصات الترويج */
+        .promo-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+
+        .promo-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            padding: 16px;
+            border-radius: 18px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .promo-card:hover, .promo-card:active {
+            border-color: rgba(56, 189, 248, 0.4);
+            transform: translateY(-2px);
+            background: rgba(22, 22, 40, 0.98);
+        }
+
+        .promo-badge {
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            background: rgba(255, 204, 0, 0.15);
+            border: 1px solid rgba(255, 204, 0, 0.3);
+            color: #ffcc00;
+            font-size: 9px;
+            font-weight: 800;
+            padding: 2px 6px;
+            border-radius: 10px;
         }
     </style>
 </head>
@@ -234,19 +253,14 @@
 
     <!-- 🌟 هيدر عرض الرصيد الثلاثي الثابت العلوي -->
     <div class="balance-header-fixed">
-        <!-- اليمين: عملة ZN الأساسية -->
         <div class="balance-item zn-item">
             <span class="bal-icon">🪙</span>
             <span id="top-balance-tasks" class="sync-balance">0 ZN</span>
         </div>
-
-        <!-- الوسط: الدولارات -->
         <div class="balance-item usd-item">
             <span class="bal-icon">💵</span>
             <span id="top-balance-usd">$0.00</span>
         </div>
-
-        <!-- اليسار: الرصيد الإعلاني AdZ -->
         <div class="balance-item adz-item">
             <span class="bal-icon">📢</span>
             <span id="top-balance-adz">0 AdZ</span>
@@ -286,7 +300,7 @@
                         <i class="fas fa-bullhorn"></i>
                     </div>
                     <div class="adz-title-group">
-                        <span class="adz-card-subtitle">رصيد الإعلانات والرعايات</span>
+                        <span class="adz-card-subtitle">محفظة رصيد الإعلانات والرعايات</span>
                         <h2 id="ad-balance-display" class="adz-card-amount">0 AdZ</h2>
                     </div>
                 </div>
@@ -294,30 +308,36 @@
                 <div class="adz-card-footer">
                     <button type="button" class="adz-recharge-btn" onclick="window.convertZnToAdZn()">
                         <i class="fas fa-bolt"></i>
-                        <span>شحن محفظة الإعلانات (من رصيد ZN)</span>
+                        <span>شحن محفظة الإعلانات (تحويل من ZN)</span>
                     </button>
                 </div>
             </div>
 
             <h4 style="color: #fff; margin-bottom: 15px; text-align: right; font-size: 14px; font-weight: 700;">إطلاق حملة ترويجيّة جديدة</h4>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 25px;">
-                <div onclick="window.openAdModal('يوتيوب')" style="background: var(--card-bg); border: 1px solid var(--card-border); padding: 18px; border-radius: 16px; text-align: center; cursor: pointer;">
+            
+            <div class="promo-grid">
+                <div class="promo-card" onclick="window.openAdModal('يوتيوب')">
+                    <span class="promo-badge">أدنى 50 AdZ</span>
                     <i class="fab fa-youtube" style="color: #ef4444; font-size: 28px; margin-bottom: 8px;"></i>
                     <div style="color: #fff; font-size: 13px; font-weight: 700;">مشاهدة / اشتراك</div>
                 </div>
-                <div onclick="window.openAdModal('تيليجرام')" style="background: var(--card-bg); border: 1px solid var(--card-border); padding: 18px; border-radius: 16px; text-align: center; cursor: pointer;">
+                <div class="promo-card" onclick="window.openAdModal('تيليجرام')">
+                    <span class="promo-badge">أدنى 50 AdZ</span>
                     <i class="fab fa-telegram" style="color: #38bdf8; font-size: 28px; margin-bottom: 8px;"></i>
-                    <div style="color: #fff; font-size: 13px; font-weight: 700;">قناة / جروب ربحي</div>
+                    <div style="color: #fff; font-size: 13px; font-weight: 700;">قناة / جروب</div>
                 </div>
-                <div onclick="window.openAdModal('موقع')" style="background: var(--card-bg); border: 1px solid var(--card-border); padding: 18px; border-radius: 16px; text-align: center; cursor: pointer;">
-                    <i class="fas fa-globe" style="color: #28a745; font-size: 28px; margin-bottom: 8px;"></i>
+                <div class="promo-card" onclick="window.openAdModal('موقع')">
+                    <span class="promo-badge" style="color: #28a745; border-color: rgba(40,167,69,0.4);">أدنى 100 AdZ</span>
+                    <i class="fas fa-shield-alt" style="color: #28a745; font-size: 28px; margin-bottom: 8px;"></i>
                     <div style="color: #fff; font-size: 13px; font-weight: 700;">زيارة موقع وفحص آمن</div>
                 </div>
-                <div onclick="window.openAdModal('انستغرام')" style="background: var(--card-bg); border: 1px solid var(--card-border); padding: 18px; border-radius: 16px; text-align: center; cursor: pointer;">
+                <div class="promo-card" onclick="window.openAdModal('انستغرام')">
+                    <span class="promo-badge">أدنى 50 AdZ</span>
                     <i class="fab fa-instagram" style="color: #e1306c; font-size: 28px; margin-bottom: 8px;"></i>
-                    <div style="color: #fff; font-size: 13px; font-weight: 700;">متابعة حساب / لايك</div>
+                    <div style="color: #fff; font-size: 13px; font-weight: 700;">حساب / لايكات</div>
                 </div>
-                <div onclick="window.openAdModal('X')" style="background: var(--card-bg); border: 1px solid var(--card-border); padding: 18px; border-radius: 16px; text-align: center; cursor: pointer; grid-column: span 2;">
+                <div class="promo-card" onclick="window.openAdModal('X')" style="grid-column: span 2;">
+                    <span class="promo-badge">أدنى 50 AdZ</span>
                     <i class="fab fa-twitter" style="color: #fff; font-size: 26px; margin-bottom: 8px;"></i>
                     <div style="color: #fff; font-size: 13px; font-weight: 700;">متابعة وتفاعل منصة X</div>
                 </div>
@@ -329,10 +349,10 @@
 
     </div>
 
-    <!-- نافذة إضافة حملة إعلانية -->
-    <div id="ad-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(5, 5, 10, 0.85); backdrop-filter: blur(8px); z-index: 1000; align-items: center; justify-content: center;">
+    <!-- النافذة المنبثقة لإنشاء حملة إعلانية -->
+    <div id="ad-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(5, 5, 10, 0.88); backdrop-filter: blur(10px); z-index: 1000; align-items: center; justify-content: center;">
         <div style="background: #161626; border: 1px solid #2a2a40; border-radius: 20px; padding: 22px; width: 90%; max-width: 420px; text-align: right; box-shadow: 0 15px 40px rgba(0,0,0,0.6); box-sizing: border-box;">
-            <h3 id="ad-modal-title" style="color: #38bdf8; margin-top: 0; font-size: 18px; font-weight: 700; margin-bottom: 16px;">إنشاء حملة</h3>
+            <h3 id="ad-modal-title" style="color: #38bdf8; margin-top: 0; font-size: 18px; font-weight: 700; margin-bottom: 14px;">إنشاء حملة</h3>
             
             <label style="color: #94a3b8; font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">رابط الحملة:</label>
             <input type="text" id="ad-link" placeholder="https://..." style="width: 100%; padding: 12px; margin-bottom: 14px; background: #0b0b12; border: 1px solid #2c2c3e; color: #fff; border-radius: 10px; box-sizing: border-box; font-size: 13px;" dir="ltr">
@@ -341,14 +361,17 @@
             <select id="ad-desc-select" style="width: 100%; padding: 12px; margin-bottom: 14px; background: #0b0b12; border: 1px solid #2c2c3e; color: #fff; border-radius: 10px; box-sizing: border-box; font-size: 13px; font-family: inherit;">
             </select>
 
-            <label style="color: #94a3b8; font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">مكافأة العضو لكل تفاعل صحيح (AdZ):</label>
-            <input type="number" id="ad-reward" placeholder="مثال: 250" style="width: 100%; padding: 12px; margin-bottom: 14px; background: #0b0b12; border: 1px solid #2c2c3e; color: #fff; border-radius: 10px; box-sizing: border-box; font-size: 13px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label style="color: #94a3b8; font-size: 12px; font-weight: 600;">مكافأة العضو لكل تفاعل (AdZ):</label>
+                <span id="min-reward-hint" style="color: #ffcc00; font-size: 11px; font-weight: bold;">(الحد الأدنى: 50 AdZ)</span>
+            </div>
+            <input type="number" id="ad-reward" placeholder="أدخل مبلغ المكافأة" style="width: 100%; padding: 12px; margin-bottom: 14px; background: #0b0b12; border: 1px solid #2c2c3e; color: #fff; border-radius: 10px; box-sizing: border-box; font-size: 13px;">
 
             <label style="color: #94a3b8; font-size: 12px; font-weight: 600; display: block; margin-bottom: 4px;">إجمالي التفاعلات / الأعضاء المطلوبين:</label>
-            <input type="number" id="ad-users" placeholder="مثال: 100" style="width: 100%; padding: 12px; margin-bottom: 20px; background: #0b0b12; border: 1px solid #2c2c3e; color: #fff; border-radius: 10px; box-sizing: border-box; font-size: 13px;">
+            <input type="number" id="ad-users" placeholder="مثال: 10" style="width: 100%; padding: 12px; margin-bottom: 20px; background: #0b0b12; border: 1px solid #2c2c3e; color: #fff; border-radius: 10px; box-sizing: border-box; font-size: 13px;">
             
             <div style="display: flex; gap: 12px;">
-                <button type="button" id="btn-submit-campaign-action" onclick="window.submitAdCampaign()" style="flex: 2; padding: 12px; background: linear-gradient(90deg, #38bdf8, #0284c7); color: #fff; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 13px;">نشر الحملة</button>
+                <button type="button" id="btn-submit-campaign-action" onclick="window.submitAdCampaign()" style="flex: 2; padding: 12px; background: linear-gradient(90deg, #38bdf8, #0284c7); color: #fff; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 13px;">نشر الحملة 🚀</button>
                 <button type="button" onclick="window.closeAdModal()" style="flex: 1; padding: 12px; background: #27273a; color: #a0a5b5; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 13px;">إلغاء</button>
             </div>
         </div>
@@ -359,7 +382,7 @@
         <div style="padding: 25px; max-width: 380px; width: 90%; background: #11111e; border: 1px solid #222235; border-radius: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.7);">
             <div style="font-size: 40px; margin-bottom: 12px; filter: drop-shadow(0 0 8px #38bdf8);">🛡️</div>
             <h3 style="color: #fff; margin: 0 0 10px 0; font-size: 18px; font-weight: 700;">نظام الفحص الأمني التلقائي</h3>
-            <p style="color: #94a3b8; font-size: 13px; line-height: 1.6; margin-bottom: 20px;">جاري مراجعة الرابط والتأكد من سلامة المحتوى وخلوه من المخالفات البرمجية لحماية المجتمع...</p>
+            <p style="color: #94a3b8; font-size: 13px; line-height: 1.6; margin-bottom: 20px;">جاري مراجعة الرابط والتأكد من سلامة المحتوى وخلوه من المخالفات لحماية المجتمع...</p>
             
             <div style="position: relative; width: 75px; height: 75px; margin: 0 auto 20px auto; display: flex; align-items: center; justify-content: center; background: rgba(56,189,248,0.05); border-radius: 50%; border: 2px dashed #38bdf8;">
                 <span id="review-countdown-timer" style="color: #38bdf8; font-size: 24px; font-weight: 800;">3</span>
@@ -376,12 +399,12 @@
                 <i class="fas fa-check" style="color: #28a745; font-size: 28px;"></i>
             </div>
             <h3 style="color: #fff; margin: 0 0 10px 0; font-size: 19px; font-weight: 800;">تم اجتياز الفحص بنجاح!</h3>
-            <p style="color: #a0a5b8; font-size: 12px; line-height: 1.6; margin-bottom: 22px; padding: 0 5px;">تهانينا! تم فحص الرابط والتأكد من سلامته، الحملة الآن نشطة ومتاحة لجميع الأعضاء، وتم خصم الميزانية من محفظتك بنجاح.</p>
+            <p style="color: #a0a5b8; font-size: 12px; line-height: 1.6; margin-bottom: 22px; padding: 0 5px;">تهانينا! تم فحص الرابط والتأكد من سلامته، الحملة الآن نشطة ومتاحة لجميع الأعضاء، وتم خصم الميزانية من محفظة الإعلانات بنجاح.</p>
             <button type="button" onclick="window.handleSuccessRedirect()" style="width: 100%; padding: 13px; background: linear-gradient(90deg, #28a745, #1e7e34); color: #fff; border: none; border-radius: 12px; font-weight: 700; font-size: 13px; cursor: pointer; box-shadow: 0 5px 15px rgba(40,167,69,0.3); transition: 0.2s;">متابعة الحملات 📢</button>
         </div>
     </div>
 
     <!-- جافا سكريبت الخاص بالصفحة -->
-    <script src="tasks.js?v=19.0"></script>
+    <script src="tasks.js?v=20.0"></script>
 </body>
 </html>
