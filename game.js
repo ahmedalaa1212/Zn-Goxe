@@ -198,7 +198,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 };
 
 // ==========================================
-// 3. جلب سعر TON المباشر وتحديث الباقات
+// 3. جلب سعر TON المباشر ותحديث الباقات
 // ==========================================
 window.fetchTonPrice = async function() {
     try {
@@ -537,32 +537,41 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 8. التنقل بين القوائم وتنزيل الموديولات المحدثة فوراً مع معالجة حماية المحفظة
+// 8. التنقل الديناميكي الآمن وحقن الموديولات تلقائياً
 // ==========================================
 const loadedModules = new Set();
 
 window.switchView = async function(viewName) {
-    let cleanViewName = viewName.toLowerCase();
+    if (!viewName) return;
+
+    let cleanViewName = String(viewName).toLowerCase().replace('nav-', '').replace('view-', '');
     if (cleanViewName === 'wallets') cleanViewName = 'wallet';
     if (cleanViewName === 'game') cleanViewName = 'games';
+    if (cleanViewName === 'task') cleanViewName = 'tasks';
+    if (cleanViewName === 'user') cleanViewName = 'users';
 
-    // 1. تحديث شكل الأزرار في القائمة السفلية
-    document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
+    // 1. تحديث شكل أزرار القائمة السفلية
+    document.querySelectorAll('.nav-item, [id^="nav-"]').forEach(btn => btn.classList.remove('active'));
     const targetNav = document.getElementById(`nav-${cleanViewName}`) || document.getElementById(`nav-${viewName}`);
     if (targetNav) targetNav.classList.add('active');
 
-    // 2. إخفاء جميع الشاشات وتجهيز الشاشة المطلوبة
-    document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
+    // 2. إخفاء جميع الشاشات وإعداد الحاوية
+    document.querySelectorAll('.game-view, [id^="view-"]').forEach(v => v.classList.remove('active'));
     
     let targetView = document.getElementById(`view-${cleanViewName}`) || document.getElementById(`view-${viewName}`);
+    
+    // إنشاء الحاوية تلقائياً في حال عدم وجودها لمنع التجمد الشفاف
     if (!targetView) {
-        hideLoadingScreen();
-        return;
+        const appContainer = document.getElementById('app') || document.body;
+        targetView = document.createElement('div');
+        targetView.id = `view-${cleanViewName}`;
+        targetView.className = 'game-view';
+        appContainer.appendChild(targetView);
     }
     
     targetView.classList.add('active');
 
-    // 3. تحميل الموديول بأمان مع حماية من الأخطاء
+    // 3. جلب المحتوى والموديول وحماية العرض
     try {
         if (!loadedModules.has(cleanViewName)) {
             const cacheBuster = `?v=${Date.now()}`;
@@ -574,17 +583,19 @@ window.switchView = async function(viewName) {
                 await loadModuleScript(`${cleanViewName}/${cleanViewName}.js${cacheBuster}`);
                 loadedModules.add(cleanViewName);
             } else {
-                console.error(`⚠️ فشل جلب ملف ${cleanViewName}/${cleanViewName}.html! كود الاستجابة: ${res.status}`);
+                console.warn(`⚠️ تعذر تحميل ${cleanViewName}/${cleanViewName}.html (HTTP ${res.status})`);
+                if (!targetView.innerHTML.trim()) {
+                    targetView.innerHTML = `<div style="padding: 20px; text-align: center; color: #fff;">جاري تحميل قسم ${cleanViewName}...</div>`;
+                }
             }
         }
     } catch (err) {
-        console.error(`❌ خطأ أثناء تحميل موديول ${cleanViewName}:`, err);
+        console.error(`❌ خطأ أثناء جلب موديول ${cleanViewName}:`, err);
     } finally {
-        // إخفاء شاشة التحميل دائماً مهما كانت النتيجة لضمان عدم تجمد الشاشة
         hideLoadingScreen();
     }
 
-    // 4. تشغيل دالة التهيئة الخاصة بالموديول بأمان تام
+    // 4. تشغيل دالة التهيئة المخصصة لكل موديول
     setTimeout(() => {
         try {
             if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
@@ -596,6 +607,11 @@ window.switchView = async function(viewName) {
             } else if (cleanViewName === 'wallet') {
                 if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
                 else if (typeof window.initWalletView === 'function') window.initWalletView();
+            } else if (cleanViewName === 'tasks') {
+                if (typeof window.initTasksView === 'function') window.initTasksView();
+                else if (typeof window.onTasksTabOpen === 'function') window.onTasksTabOpen();
+            } else if (cleanViewName === 'users') {
+                if (typeof window.initUsersView === 'function') window.initUsersView();
             } else {
                 const initFuncName = `init${cleanViewName.charAt(0).toUpperCase() + cleanViewName.slice(1)}View`;
                 if (typeof window[initFuncName] === 'function') {
@@ -603,7 +619,7 @@ window.switchView = async function(viewName) {
                 }
             }
         } catch (err) {
-            console.error(`⚠️ خطأ في تشغيل دالة تهيئة ${cleanViewName}:`, err);
+            console.error(`⚠️ خطأ في تشغيل دالة ${cleanViewName}:`, err);
         }
         window.updateUI();
     }, 50);
@@ -622,7 +638,7 @@ function loadModuleScript(scriptUrl) {
         script.src = scriptUrl;
         script.onload = () => resolve(true); 
         script.onerror = (err) => {
-            console.error(`فشل تحميل السكريبت: ${scriptUrl}`, err);
+            console.warn(`تعذر تحميل سكريبت الموديول: ${scriptUrl}`);
             resolve(false);
         }; 
         document.body.appendChild(script);
@@ -630,7 +646,23 @@ function loadModuleScript(scriptUrl) {
 }
 
 // ==========================================
-// 9. بدء التطبيق
+// 9. ربط النقر التلقائي بجميع أزرار التبويب
+// ==========================================
+function bindGlobalNavEvents() {
+    document.addEventListener('click', (e) => {
+        const navBtn = e.target.closest('.nav-item, [data-view], [id^="nav-"]');
+        if (navBtn) {
+            let viewName = navBtn.dataset.view || navBtn.id?.replace('nav-', '');
+            if (viewName) {
+                e.preventDefault();
+                window.switchView(viewName);
+            }
+        }
+    });
+}
+
+// ==========================================
+// 10. بدء التطبيق
 // ==========================================
 window.loadUserData = async function() {
     try {
@@ -653,12 +685,15 @@ window.loadUserData = async function() {
 };
 
 function initApp() {
+    bindGlobalNavEvents();
     window.updateUI();
     window.fetchTonPrice();
+    
+    // إجبار فتح قسم المزرعة افتراضياً
     window.switchView('farm');
     
-    // مؤقت أمان لإخفاء شاشة التحميل فوراً في حال حدوث أي تأخير شبكي
-    setTimeout(hideLoadingScreen, 2000);
+    // مؤقت أمان لحذف شاشة التحميل فوراً ومنع التجمد
+    setTimeout(hideLoadingScreen, 1200);
 
     window.loadUserData().then(() => {
         const uid = window.userState.tg_id || tg?.initDataUnsafe?.user?.id;
