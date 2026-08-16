@@ -546,21 +546,28 @@ window.switchView = async function(viewName) {
     if (cleanViewName === 'wallets') cleanViewName = 'wallet';
     if (cleanViewName === 'game') cleanViewName = 'games';
 
+    // 1. تحديث شكل الأزرار في القائمة السفلية
     document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
     const targetNav = document.getElementById(`nav-${cleanViewName}`) || document.getElementById(`nav-${viewName}`);
     if (targetNav) targetNav.classList.add('active');
 
+    // 2. إخفاء جميع الشاشات وتجهيز الشاشة المطلوبة
     document.querySelectorAll('.game-view').forEach(v => v.classList.remove('active'));
     
     let targetView = document.getElementById(`view-${cleanViewName}`) || document.getElementById(`view-${viewName}`);
-    if (!targetView) return;
+    if (!targetView) {
+        hideLoadingScreen();
+        return;
+    }
     
     targetView.classList.add('active');
 
-    if (!loadedModules.has(cleanViewName)) {
-        try {
+    // 3. تحميل الموديول بأمان مع حماية من الأخطاء
+    try {
+        if (!loadedModules.has(cleanViewName)) {
             const cacheBuster = `?v=${Date.now()}`;
             const res = await fetch(`${cleanViewName}/${cleanViewName}.html${cacheBuster}`);
+            
             if (res.ok) {
                 const htmlContent = await res.text();
                 targetView.innerHTML = htmlContent;
@@ -569,36 +576,37 @@ window.switchView = async function(viewName) {
             } else {
                 console.error(`⚠️ فشل جلب ملف ${cleanViewName}/${cleanViewName}.html! كود الاستجابة: ${res.status}`);
             }
-        } catch (err) {
-            console.error(`خطأ تحميل ${cleanViewName}:`, err);
-        }
-    }
-
-    // إخفاء شاشة التحميل فور التنقل
-    hideLoadingScreen();
-
-    // تشغيل دوال التهيئة الخاصة بكل موديول بأمان بدون استدلالات مكررة
-    try {
-        if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
-            window.onFarmTabOpen();
-        } else if (cleanViewName === 'shop' && typeof window.updateShopUI === 'function') {
-            window.updateShopUI();
-        } else if (cleanViewName === 'games' && typeof window.onGamesTabOpen === 'function') {
-            window.onGamesTabOpen();
-        } else if (cleanViewName === 'wallet') {
-            if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
-            else if (typeof window.initWalletView === 'function') window.initWalletView();
-        } else {
-            const initFuncName = `init${cleanViewName.charAt(0).toUpperCase() + cleanViewName.slice(1)}View`;
-            if (typeof window[initFuncName] === 'function') {
-                window[initFuncName]();
-            }
         }
     } catch (err) {
-        console.error(`⚠️ خطأ أثناء تشغيل موديول ${cleanViewName}:`, err);
+        console.error(`❌ خطأ أثناء تحميل موديول ${cleanViewName}:`, err);
+    } finally {
+        // إخفاء شاشة التحميل دائماً مهما كانت النتيجة لضمان عدم تجمد الشاشة
+        hideLoadingScreen();
     }
-    
-    window.updateUI();
+
+    // 4. تشغيل دالة التهيئة الخاصة بالموديول بأمان تام
+    setTimeout(() => {
+        try {
+            if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
+                window.onFarmTabOpen();
+            } else if (cleanViewName === 'shop' && typeof window.updateShopUI === 'function') {
+                window.updateShopUI();
+            } else if (cleanViewName === 'games' && typeof window.onGamesTabOpen === 'function') {
+                window.onGamesTabOpen();
+            } else if (cleanViewName === 'wallet') {
+                if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
+                else if (typeof window.initWalletView === 'function') window.initWalletView();
+            } else {
+                const initFuncName = `init${cleanViewName.charAt(0).toUpperCase() + cleanViewName.slice(1)}View`;
+                if (typeof window[initFuncName] === 'function') {
+                    window[initFuncName]();
+                }
+            }
+        } catch (err) {
+            console.error(`⚠️ خطأ في تشغيل دالة تهيئة ${cleanViewName}:`, err);
+        }
+        window.updateUI();
+    }, 50);
 };
 
 function loadModuleScript(scriptUrl) {
@@ -613,8 +621,8 @@ function loadModuleScript(scriptUrl) {
         const script = document.createElement('script');
         script.src = scriptUrl;
         script.onload = () => resolve(true); 
-        script.onerror = () => {
-            console.error(`فشل تحميل السكريبت: ${scriptUrl}`);
+        script.onerror = (err) => {
+            console.error(`فشل تحميل السكريبت: ${scriptUrl}`, err);
             resolve(false);
         }; 
         document.body.appendChild(script);
