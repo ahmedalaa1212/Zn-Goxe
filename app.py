@@ -41,7 +41,7 @@ app.register_blueprint(shop_bp, url_prefix='/api/shop')
 app.register_blueprint(support_bp, url_prefix='/api/support')
 app.register_blueprint(admin_chat_bp, url_prefix='/api/admin-chat')
 
-# 💳 تسجيل موديول المحفظة بشكل آمن
+# 💳 تسجيل موديول المحفظة بشكل آمن لمنع كسر الخادم
 try:
     from wallet.wallet_api import wallet_bp
     app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
@@ -89,6 +89,7 @@ def get_user_info_main():
             return error_res
         
     try:
+        # فحص حظر الحساب
         if hasattr(database, 'is_user_banned') and database.is_user_banned(telegram_id):
             return jsonify({
                 "success": False, 
@@ -98,6 +99,7 @@ def get_user_info_main():
 
         user_data = database.get_user(telegram_id)
         
+        # تهيئة حساب جديد إن لم يكن موجوداً
         if not user_data:
             first_name = user_info.get('first_name', 'لاعب') if isinstance(user_info, dict) else 'لاعب'
             ref_id = user_info.get('start_param') if isinstance(user_info, dict) else None
@@ -123,11 +125,12 @@ def get_user_info_main():
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب بيانات الحساب"}), 500
 
 # ==========================================
-# 🔒 الأمان وحماية الملفات والمجلدات الفرعية
+# 🔒 الأمان وحماية الملفات والحجم
 # ==========================================
 
 @app.after_request
 def add_security_headers(response):
+    """منع التخزين المؤقت لمسارات الـ API للحصول على بيانات لحظية"""
     if request.path.startswith('/api/'):
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
         response.headers['Pragma'] = 'no-cache'
@@ -164,26 +167,27 @@ def serve_index():
 
 @app.route('/<path:path>')
 def serve_static(path):
-    """تقديم الملفات الثابتة والمجلدات الفرعية مع حظر الملفات الحساسة"""
-    safe_path = os.path.normpath(path).lstrip('/')
-    path_lower = safe_path.lower()
+    """تقديم الملفات الثابتة مع حظر الملفات الحساسة ودعم المجلدات الفرعية للمحفظة"""
+    path_clean = os.path.normpath(path).replace('\\', '/')
+    path_lower = path_clean.lower()
     
     if path_lower == 'tonconnect-manifest.json':
         return serve_tonconnect_manifest()
     
+    # حظر الامتدادات والملفات الحساسة
     forbidden_extensions = ('.py', '.env', '.sh', '.git', '.pem', '.key', '.db', '.sqlite')
     forbidden_files = ('firebase-adminsdk.json', 'config.json', 'requirements.txt', 'dockerfile')
     
     if any(path_lower.endswith(ext) for ext in forbidden_extensions) or any(f in path_lower for f in forbidden_files):
         return jsonify({"success": False, "error": "Access Denied"}), 403
         
-    target_file = os.path.join(BASE_DIR, safe_path)
+    target_file = os.path.join(BASE_DIR, path_clean)
     if os.path.exists(target_file) and os.path.isfile(target_file):
-        return send_from_directory(BASE_DIR, safe_path)
+        return send_from_directory(BASE_DIR, path_clean)
 
-    # إرجاع 404 حقيقي للملفات المطلوبة غير الموجودة بدلاً من إرجاع index.html
-    if safe_path.startswith('api/') or any(path_lower.endswith(ext) for ext in ('.html', '.js', '.css', '.json', '.png', '.jpg', '.svg')):
-        return jsonify({"success": False, "error": f"File not found: {safe_path}"}), 404
+    # حماية من إرجاع index.html عند طلب ملفات البرمجة والواجهات المفقودة
+    if path_clean.startswith('api/') or any(path_lower.endswith(ext) for ext in ('.html', '.js', '.css', '.json')):
+        return jsonify({"success": False, "error": f"File not found: {path_clean}"}), 404
         
     return send_from_directory(BASE_DIR, 'index.html')
 
