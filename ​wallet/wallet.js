@@ -19,7 +19,6 @@
         } catch (err) {
             console.error("❌ خطأ أثناء تهيئة المحفظة:", err);
         } finally {
-            // إخفاء شاشة التحميل لمنع التجمد
             if (typeof hideLoadingScreen === 'function') {
                 hideLoadingScreen();
             }
@@ -54,8 +53,9 @@
 
     // إدارة التنقل بين القوائم الداخلية (إيداع / سحب / سجل)
     function setupSubTabNavigation() {
-        const tabBtns = document.querySelectorAll('.w-tab-btn');
-        const tabPanes = document.querySelectorAll('.w-tab-pane');
+        const wrapper = document.querySelector('.wallet-wrapper') || document;
+        const tabBtns = wrapper.querySelectorAll('.w-tab-btn');
+        const tabPanes = wrapper.querySelectorAll('.w-tab-pane');
 
         tabBtns.forEach(btn => {
             btn.onclick = function () {
