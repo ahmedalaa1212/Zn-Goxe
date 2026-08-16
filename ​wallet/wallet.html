@@ -1,22 +1,33 @@
 <!-- wallet/wallet.html -->
 <div id="wallet-container" class="wallet-wrapper">
+    
+    <!-- 💰 كروت الأرصدة في الأعلى (رصيد ZN ورصيد USDT) -->
     <div class="wallet-header-card">
-        <h3>💼 المحفظة الرئيسية</h3>
-        <div class="balance-display">
-            <span id="wallet-main-balance">0</span> <small>GOXE</small>
+        <div class="balance-card zn-card">
+            <span class="balance-title">🪙 رصيد ZN</span>
+            <div class="balance-value">
+                <span id="wallet-main-balance">0</span> <small>ZN</small>
+            </div>
         </div>
-        <div class="usd-balance" id="wallet-usd-balance">$0.00</div>
+        
+        <div class="balance-card usd-card">
+            <span class="balance-title">💵 رصid USDT</span>
+            <div class="balance-value">
+                <span id="wallet-usd-balance">$0.00</span> <small>USDT</small>
+            </div>
+        </div>
     </div>
 
-    <!-- أزرار التنقل الرئيسية بين الإيداع والسحب والسجلات -->
+    <!-- 🔘 أزرار التنقل الرئيسية: الإيداع (يمين) | السجلات (منتصف) | السحب (يسار) -->
     <div class="wallet-actions">
-        <button id="btn-wallet-deposit" class="btn-action deposit">➕ إيداع</button>
-        <button id="btn-wallet-withdraw" class="btn-action withdraw">➖ سحب</button>
+        <button id="btn-wallet-deposit" class="btn-action deposit active">➕ إيداع</button>
         <button id="btn-wallet-history" class="btn-action history">📜 السجلات</button>
+        <button id="btn-wallet-withdraw" class="btn-action withdraw">➖ سحب</button>
     </div>
 
-    <!-- الحاويات الخاصة بالموديولات الفرعية -->
-    <div id="wallet-tab-deposit" class="wallet-tab-content" style="display: none;"></div>
-    <div id="wallet-tab-withdraw" class="wallet-tab-content" style="display: none;"></div>
+    <!-- 📦 الحاويات الديناميكية للموديولات الفرعية -->
+    <div id="wallet-tab-deposit" class="wallet-tab-content"></div>
     <div id="wallet-tab-history" class="wallet-tab-content" style="display: none;"></div>
+    <div id="wallet-tab-withdraw" class="wallet-tab-content" style="display: none;"></div>
+
 </div>
