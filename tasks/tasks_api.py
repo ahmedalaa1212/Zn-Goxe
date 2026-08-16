@@ -10,28 +10,36 @@ from core.security import get_authenticated_user
 from database import db as firestore_db
 from firebase_admin import firestore
 
+# إنشاء الـ Blueprint الخاص بمسارات المهام والحملات الإعلانية
 tasks_bp = Blueprint('tasks', __name__)
 
-# ==================== الحدود الأدنى لعملة الإعلانات AdZ ====================
-MIN_REWARDS_MAP = {
-    'موقع': 100.0,
-    'يوتيوب': 50.0,
-    'تيليجرام': 50.0,
-    'انستغرام': 50.0,
-    'X': 50.0,
-    'default': 50.0
-}
+# ==================== الإعدادات والثوابت والحماية ====================
+def get_min_reward_for_platform(platform: str) -> float:
+    """
+    تحديد الحد الأدنى للمكافأة حسب نوع المنصة:
+    - زيارة موقع وفحص آمن: 100 AdZ
+    - يوتيوب، تيليجرام، انستغرام، منصة X: 50 AdZ
+    """
+    if str(platform).strip() == 'موقع':
+        return 100.0
+    return 50.0
 
-# 🚫 الكلمات والروابط المحظورة لحماية النظام والبوت من الحظر
-FORBIDDEN_KEYWORDS = ['porn', 'sexy', 'xnx', 'adult', 'gambling', 'casino', 'bet365', '1xbet', 'sex', 'إباحي', 'جنس', 'قمار']
+# 🚫 قائمة الكلمات المحظورة للمواقع والإعلانات المخالفة لحماية البوت من الحظر
+FORBIDDEN_KEYWORDS = [
+    'porn', 'sexy', 'xnx', 'adult', 'gambling', 'casino', 'bet365', '1xbet', 
+    'sex', 'إباحي', 'جنس', 'قمار', 'hack', 'scam', 'phishing', 'exploit', 'malware'
+]
 
-# ==================== In-Memory Cache لتقليل قراءات الفايربيس ====================
+# ==================== In-Memory Cache for Campaigns ====================
 _CAMPAIGNS_CACHE = None
 _CAMPAIGNS_CACHE_TIME = 0
-CAMPAIGNS_CACHE_TTL = 300  # كاش مدته 5 دقائق (300 ثانية)
+CAMPAIGNS_CACHE_TTL = 300  # كاش قائمة الحملات لمدة 5 دقائق لتوفير قراءات Firestore
 
 def get_cached_raw_campaigns():
-    """جلب قائمة الحملات من ذاكرة RAM الخادم وتقليل استهلاك Firestore"""
+    """
+    جلب كافة الحملات الإعلانية من الذاكرة المؤقتة لـ RAM السيرفر.
+    يمنع قراءة الفايربيس في كل طلب عشوائي إلا مرة واحدة كل 5 دقائق.
+    """
     global _CAMPAIGNS_CACHE, _CAMPAIGNS_CACHE_TIME
     now = time.time()
     if _CAMPAIGNS_CACHE is not None and (now - _CAMPAIGNS_CACHE_TIME) < CAMPAIGNS_CACHE_TTL:
@@ -48,17 +56,21 @@ def get_cached_raw_campaigns():
         _CAMPAIGNS_CACHE_TIME = now
         return campaigns
     except Exception as e:
-        print(f"[CACHE ERROR] Error fetching campaigns: {e}")
+        print(f"[CACHE ERROR] Error fetching campaigns from Firestore: {e}")
         return _CAMPAIGNS_CACHE or []
 
 def invalidate_campaigns_cache():
-    """تفريغ الكاش لإجبار السيرفر على تحديث البيانات فوراً عند أي إضافة أو حظر أو إلغاء"""
+    """تفريغ الكاش لإجبار السيرفر على جلب التحديثات الجديدة فوراً عند إنشاء أو تجميد/إلغاء مهمة"""
     global _CAMPAIGNS_CACHE, _CAMPAIGNS_CACHE_TIME
     _CAMPAIGNS_CACHE = None
     _CAMPAIGNS_CACHE_TIME = 0
+# ========================================================================
 
 def is_task_completed_by_user(task, user_completed_data):
-    """تحقق آمن من إكمال المهمة وتطبيق الزيارة اليومية للمواقع"""
+    """
+    التحقق الآمن من إكمال المستخدم للمهمة،
+    مع دعم إعادة فتح مهام زيارة المواقع يومياً.
+    """
     task_id = str(task.get('id', '')).strip()
     platform = str(task.get('platform', '')).strip()
     
@@ -79,6 +91,7 @@ def is_task_completed_by_user(task, user_completed_data):
             return False
 
         record = user_completed_data[task_id]
+        
         if platform == 'موقع':
             if isinstance(record, str):
                 return record == today_str
@@ -103,7 +116,7 @@ def is_task_completed_by_user(task, user_completed_data):
 
 @tasks_bp.route('/get_campaigns', methods=['GET'])
 def get_campaigns():
-    """جلب قائمة الحملات المتاحة للمستخدم بسرعة فائقة وقراءات فايربيس مقتصدة"""
+    """جلب قائمة الحملات المتاحة للمستخدم مع تحديث حالة الإكمال والرصيد"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
     if not success:
         return error_res
@@ -120,7 +133,7 @@ def get_campaigns():
             ad_balance = float(u_data.get('ad_balance', 0.0))
             balance = float(u_data.get('balance', 0.0))
     except Exception as e:
-        print(f"[FIRESTORE ERROR] get_campaigns user fetch: {e}")
+        print(f"[FIRESTORE ERROR] Error fetching user data in get_campaigns: {e}")
 
     user_completed_data = {}
     try:
@@ -128,7 +141,7 @@ def get_campaigns():
         if completed_ref.exists:
             user_completed_data = completed_ref.to_dict() or {}
     except Exception as e:
-        print(f"[FIRESTORE ERROR] completed_tasks fetch: {e}")
+        print(f"[FIRESTORE ERROR] Error fetching completed tasks for user {telegram_id_str}: {e}")
 
     campaigns = get_cached_raw_campaigns()
 
@@ -153,7 +166,7 @@ def get_campaigns():
 
 @tasks_bp.route('/create_campaign', methods=['POST'])
 def create_campaign():
-    """إنشاء حملة إعلانية جديدة وتأمين الخصم برصيد AdZ حصراً"""
+    """إنشاء حملة إعلانية جديدة وتخصيص الميزانية لها"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -182,8 +195,9 @@ def create_campaign():
     if platform == 'X' and not ('x.com' in url_lower or 'twitter.com' in url_lower):
         return jsonify({"success": False, "error": "رابط منصة X غير صحيح"}), 400
 
+    # فحص الأمان ومنع الكلمات أو المواقع المخالفة
     if any(bad_word in url_lower for bad_word in FORBIDDEN_KEYWORDS):
-        return jsonify({"success": False, "error": "الرابط يحتوي على محتوى مخالف لسياسات الأمان"}), 400
+        return jsonify({"success": False, "error": "الرابط يحتوي على محتوى مخالف للسياسات وحماية الحسابات"}), 400
 
     try:
         reward = float(reward)
@@ -193,14 +207,21 @@ def create_campaign():
     except (ValueError, TypeError):
         return jsonify({"success": False, "error": "قيم الكلفة والأعضاء غير صحيحة"}), 400
 
-    min_required_reward = MIN_REWARDS_MAP.get(platform, MIN_REWARDS_MAP['default'])
-    if reward < min_required_reward:
+    min_reward = get_min_reward_for_platform(platform)
+
+    if reward < min_reward:
         return jsonify({
             "success": False,
-            "error": f"الحد الأدنى لتكلفة التفاعل لمنصة ({platform}) هو {int(min_required_reward)} عملة AdZ."
+            "error": f"عذراً، الحد الأدنى لتكلفة المهمة الواحدة لمنصة ({platform}) هو {int(min_reward)} عملة AdZ."
         }), 400
 
     total_cost = reward * users_needed
+
+    if total_cost < min_reward:
+        return jsonify({
+            "success": False,
+            "error": f"عذراً، الحد الأدنى لتكلفة إنشاء أي حملة إعلانية هو {int(min_reward)} عملة AdZ."
+        }), 400
 
     @firestore.transactional
     def run_create_transaction(transaction):
@@ -208,13 +229,13 @@ def create_campaign():
         user_snapshot = user_ref.get(transaction=transaction)
 
         if not user_snapshot.exists:
-            raise ValueError("حساب المستخدم غير موجود")
+            raise ValueError("المستخدم غير موجود في الفايربيس")
 
         user_data = user_snapshot.to_dict() or {}
         current_ad_balance = float(user_data.get('ad_balance', 0.0))
 
         if current_ad_balance < total_cost:
-            raise ValueError(f"رصيد الإعلانات AdZ غير كافٍ. المطلوب: {total_cost} AdZ")
+            raise ValueError(f"رصيدك الإعلاني غير كافٍ. المطلوب: {total_cost} AdZ")
 
         new_ad_balance = current_ad_balance - total_cost
 
@@ -254,13 +275,13 @@ def create_campaign():
     except ValueError as ve:
         return jsonify({"success": False, "error": str(ve)}), 400
     except Exception as e:
-        print(f"[TRANSACTION ERROR] create_campaign: {e}")
+        print(f"[TRANSACTION ERROR] Error creating campaign: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء حفظ الحملة"}), 500
 
 
 @tasks_bp.route('/complete_task', methods=['POST'])
 def complete_task():
-    """تأكيد تنفيذ المهمة وحمايتها من التكرار والغش بصورة آمنة تماماً"""
+    """تأكيد إكمال المهمة إضافة المكافأة إلى رصيد المستخدم بشكل آمن"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -341,13 +362,13 @@ def complete_task():
     except ValueError as ve:
         return jsonify({"success": False, "error": str(ve)}), 400
     except Exception as e:
-        print(f"[TRANSACTION ERROR] complete_task: {e}")
+        print(f"[TRANSACTION ERROR] Error completing task: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء إكمال المهمة"}), 500
 
 
 @tasks_bp.route('/cancel_campaign', methods=['POST'])
 def cancel_campaign():
-    """إلغاء الحملة وإرجاع الميزانية المتبقية فوريّة إلى رصيد AdZ"""
+    """إلغاء الحملة وإرجاع ميزانية الأعضاء المتبقيين لرصيد صاحب الإعلان"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -409,14 +430,14 @@ def cancel_campaign():
     except ValueError as ve:
         return jsonify({"success": False, "error": str(ve)}), 400
     except Exception as e:
-        print(f"[TRANSACTION ERROR] cancel_campaign: {e}")
+        print(f"[TRANSACTION ERROR] Error canceling campaign: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء إلغاء الحملة"}), 500
 
 
 @tasks_bp.route('/convert_adzn', methods=['POST'])
 @tasks_bp.route('/convert_balance', methods=['POST'])
 def convert_adzn():
-    """تحويل رصيد الأرباح ZN إلى رصيد إعلانات AdZ مع خصم 10%"""
+    """تحويل الرصيد العادي (ZN) إلى رصيد إعلانات (ad_balance) مع خصم عمولة 10%"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -475,5 +496,5 @@ def convert_adzn():
     except ValueError as ve:
         return jsonify({"success": False, "error": str(ve)}), 400
     except Exception as e:
-        print(f"[TRANSACTION ERROR] convert_adzn: {e}")
-        return jsonify({"success": False, "error": "حدث خطأ أثناء إجراء التحويل"}), 500
+        print(f"[TRANSACTION ERROR] Error in convert_adzn: {e}")
+        return jsonify({"success": False, "error": "حدث خطأ أثناء إجراء التحويل في السيرفر"}), 500
