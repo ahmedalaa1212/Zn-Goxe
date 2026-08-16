@@ -198,7 +198,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 };
 
 // ==========================================
-// 3. جلب سعر TON المباشر ותحديث الباقات
+// 3. جلب سعر TON المباشر وتحديث الباقات
 // ==========================================
 window.fetchTonPrice = async function() {
     try {
@@ -571,26 +571,33 @@ window.switchView = async function(viewName) {
     
     targetView.classList.add('active');
 
-    // 3. جلب المحتوى والموديول وحماية العرض
+    // 3. جلب المحتوى والموديول بمسار محلي نسبي مُحَصّن للتليجرام
     try {
         if (!loadedModules.has(cleanViewName)) {
             const cacheBuster = `?v=${Date.now()}`;
-            const res = await fetch(`${cleanViewName}/${cleanViewName}.html${cacheBuster}`);
+            const fetchPath = `./${cleanViewName}/${cleanViewName}.html${cacheBuster}`;
+            const res = await fetch(fetchPath);
             
             if (res.ok) {
                 const htmlContent = await res.text();
                 targetView.innerHTML = htmlContent;
-                await loadModuleScript(`${cleanViewName}/${cleanViewName}.js${cacheBuster}`);
+                await loadModuleScript(`./${cleanViewName}/${cleanViewName}.js${cacheBuster}`);
                 loadedModules.add(cleanViewName);
             } else {
-                console.warn(`⚠️ تعذر تحميل ${cleanViewName}/${cleanViewName}.html (HTTP ${res.status})`);
-                if (!targetView.innerHTML.trim()) {
-                    targetView.innerHTML = `<div style="padding: 20px; text-align: center; color: #fff;">جاري تحميل قسم ${cleanViewName}...</div>`;
-                }
+                console.warn(`⚠️ تعذر تحميل ${fetchPath} (HTTP ${res.status})`);
+                targetView.innerHTML = `
+                    <div style="padding: 40px 20px; text-align: center; color: #ff5555; direction: rtl;">
+                        ⚠️ تعذر تحميل قسم: <b>${cleanViewName}</b> (HTTP ${res.status})<br>
+                        <small style="color: #aaa; display: block; margin-top: 8px;">تأكد من وجود الملف ${cleanViewName}/${cleanViewName}.html في السيرفر.</small>
+                    </div>`;
             }
         }
     } catch (err) {
         console.error(`❌ خطأ أثناء جلب موديول ${cleanViewName}:`, err);
+        targetView.innerHTML = `
+            <div style="padding: 40px 20px; text-align: center; color: #ff5555; direction: rtl;">
+                ❌ خطأ في الشبكة أو المسار: ${err.message}
+            </div>`;
     } finally {
         hideLoadingScreen();
     }
@@ -689,8 +696,8 @@ function initApp() {
     window.updateUI();
     window.fetchTonPrice();
     
-    // إجبار فتح قسم المزرعة افتراضياً
-    window.switchView('farm');
+    // فتح قسم المحفظة (wallet) افتراضياً عند تشغيل اللعبة
+    window.switchView('wallet');
     
     // مؤقت أمان لحذف شاشة التحميل فوراً ومنع التجمد
     setTimeout(hideLoadingScreen, 1200);
