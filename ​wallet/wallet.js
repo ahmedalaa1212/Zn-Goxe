@@ -1,47 +1,78 @@
-// ==========================================
-// 💳 جافاسكريبت إدارة تبويبات المحفظة
-// ==========================================
-
-window.currentWalletTab = 'deposit';
-
 window.initWalletView = function() {
-    if (typeof window.updateUI === 'function') window.updateUI();
-    window.switchWalletTab(window.currentWalletTab || 'deposit');
-};
-
-window.onWalletTabOpen = function() {
-    if (typeof window.updateUI === 'function') window.updateUI();
-};
-
-window.switchWalletTab = async function(tabName) {
-    window.currentWalletTab = tabName;
-
-    // 1. تحديث شكل الأزرار
-    const tabs = ['deposit', 'withdraw', 'history'];
-    tabs.forEach(t => {
-        const btn = document.getElementById(`tab-btn-${t}`);
-        if (btn) {
-            if (t === tabName) {
-                btn.style.background = '#3b82f6';
-                btn.style.color = '#ffffff';
-            } else {
-                btn.style.background = 'transparent';
-                btn.style.color = '#94a3b8';
-            }
-        }
+    console.log("تم فتح قائمة المحفظة الرئيسية");
+    
+    // ربط الأزرار لتغيير القوائم الفرعية
+    const tabs = document.querySelectorAll('.wallet-tab-btn');
+    tabs.forEach(tab => {
+        tab.addEventListener('click', (e) => {
+            tabs.forEach(t => t.classList.remove('active'));
+            e.target.classList.add('active');
+            const targetFolder = e.target.getAttribute('data-target');
+            loadWalletSubView(targetFolder);
+        });
     });
 
-    // 2. تحميل واجهة القائمة المطلوبة ديناميكياً
-    const folderPath = `wallet/${tabName}`;
-    const containerId = 'sub-wallet-content';
-    
-    if (typeof window.loadSubModule === 'function') {
-        await window.loadSubModule(folderPath, containerId);
-    }
+    // استدعاء ملف الإيداع كواجهة افتراضية عند فتح المحفظة
+    loadWalletSubView('deposit');
+};
 
-    // 3. استدعاء دالة التهيئة الخاصة بكل قائمة فرعية إذا كانت موجودة
-    const initSubFuncName = `init${tabName.charAt(0).toUpperCase() + tabName.slice(1)}View`;
-    if (typeof window[initSubFuncName] === 'function') {
-        window[initSubFuncName]();
+async function loadWalletSubView(folderName) {
+    const container = document.getElementById('wallet-sub-content');
+    if (!container) return;
+
+    container.innerHTML = '<div style="text-align: center; color: #8b949e; padding: 20px;">جاري تحميل البيانات...</div>';
+
+    try {
+        const cacheBuster = `?v=${Date.now()}`;
+        // مسار جلب الملف بناءً على تقسيمة المجلدات الخاصة بك
+        const response = await fetch(`wallet/${folderName}/${folderName}.html${cacheBuster}`);
+        
+        if (response.ok) {
+            const htmlContent = await response.text();
+            
+            // التأكد من أن الملف ليس فارغاً ولم يرجع index.html بالخطأ
+            if (htmlContent.includes('id="global-toast-container"') || htmlContent.includes('<title>Zn Goxe')) {
+                container.innerHTML = `<div style="text-align: center; color: #f39c12; padding: 20px;">ملف ${folderName}.html لا يزال قيد التطوير.</div>`;
+            } else {
+                container.innerHTML = htmlContent;
+                // جلب سكريبت القائمة الفرعية
+                await loadWalletSubScript(`wallet/${folderName}/${folderName}.js${cacheBuster}`);
+                
+                // تشغيل دالة التهيئة الخاصة بالقائمة الفرعية إذا كانت موجودة
+                const initFunc = `init${folderName.charAt(0).toUpperCase() + folderName.slice(1)}View`;
+                if (typeof window[initFunc] === 'function') {
+                    window[initFunc]();
+                }
+            }
+        } else {
+            container.innerHTML = `<div style="text-align: center; color: #ff4757; padding: 20px;">تعذر تحميل القائمة (${response.status})</div>`;
+        }
+    } catch (err) {
+        console.error(`خطأ أثناء تحميل مجلد ${folderName}:`, err);
+        container.innerHTML = `<div style="text-align: center; color: #ff4757; padding: 20px;">حدث خطأ في الاتصال.</div>`;
+    }
+}
+
+function loadWalletSubScript(scriptUrl) {
+    return new Promise((resolve) => {
+        const cleanUrl = scriptUrl.split('?')[0];
+        const existingScript = document.querySelector(`script[src*="${cleanUrl}"]`);
+        
+        if (existingScript) {
+            existingScript.remove();
+        }
+        
+        const script = document.createElement('script');
+        script.src = scriptUrl;
+        script.onload = () => resolve(); 
+        script.onerror = () => resolve(); 
+        document.body.appendChild(script);
+    });
+}
+
+// دالة تحديث واجهة المحفظة عند إعادة فتحها (يتم استدعاؤها من game.js تلقائياً)
+window.onWalletTabOpen = function() {
+    if (typeof window.updateUI === 'function') {
+        window.updateUI();
     }
 };
