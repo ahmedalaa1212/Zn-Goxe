@@ -41,13 +41,34 @@ app.register_blueprint(shop_bp, url_prefix='/api/shop')
 app.register_blueprint(support_bp, url_prefix='/api/support')
 app.register_blueprint(admin_chat_bp, url_prefix='/api/admin-chat')
 
-# 💳 تسجيل موديول المحفظة بشكل آمن لمنع كسر الخادم
+# 💳 تسجيل موديول المحفظة الرئيسي والقوائم الفرعية بشكل آمن لمنع كسر الخادم
 try:
     from wallet.wallet_api import wallet_bp
     app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
     print("✅ تم تسجيل موديول المحفظة (wallet_bp) بنجاح!")
 except Exception as e:
     print(f"⚠️ تعذر تحميل موديول المحفظة الرئيسي: {e}")
+
+try:
+    from wallet.deposit.deposit_api import deposit_bp
+    app.register_blueprint(deposit_bp, url_prefix='/api/wallet/deposit')
+    print("✅ تم تسجيل موديول الإيداع (deposit_bp) بنجاح!")
+except Exception as e:
+    print(f"⚠️ لم يتم تحميل موديول الإيداع بعد: {e}")
+
+try:
+    from wallet.withdraw.withdraw_api import withdraw_bp
+    app.register_blueprint(withdraw_bp, url_prefix='/api/wallet/withdraw')
+    print("✅ تم تسجيل موديول السحب (withdraw_bp) بنجاح!")
+except Exception as e:
+    print(f"⚠️ لم يتم تحميل موديول السحب بعد: {e}")
+
+try:
+    from wallet.history.history_api import history_bp
+    app.register_blueprint(history_bp, url_prefix='/api/wallet/history')
+    print("✅ تم تسجيل موديول السجلات (history_bp) بنجاح!")
+except Exception as e:
+    print(f"⚠️ لم يتم تحميل موديول السجلات بعد: {e}")
 
 # ⚡ تسجيل موديول الألعاب بشكل آمن
 try:
@@ -89,7 +110,6 @@ def get_user_info_main():
             return error_res
         
     try:
-        # فحص حظر الحساب
         if hasattr(database, 'is_user_banned') and database.is_user_banned(telegram_id):
             return jsonify({
                 "success": False, 
@@ -99,7 +119,6 @@ def get_user_info_main():
 
         user_data = database.get_user(telegram_id)
         
-        # تهيئة حساب جديد إن لم يكن موجوداً
         if not user_data:
             first_name = user_info.get('first_name', 'لاعب') if isinstance(user_info, dict) else 'لاعب'
             ref_id = user_info.get('start_param') if isinstance(user_info, dict) else None
@@ -174,7 +193,6 @@ def serve_static(path):
     if path_lower == 'tonconnect-manifest.json':
         return serve_tonconnect_manifest()
     
-    # حظر الامتدادات والملفات الحساسة
     forbidden_extensions = ('.py', '.env', '.sh', '.git', '.pem', '.key', '.db', '.sqlite')
     forbidden_files = ('firebase-adminsdk.json', 'config.json', 'requirements.txt', 'dockerfile')
     
@@ -185,7 +203,6 @@ def serve_static(path):
     if os.path.exists(target_file) and os.path.isfile(target_file):
         return send_from_directory(BASE_DIR, path_clean)
 
-    # حماية من إرجاع index.html عند طلب ملفات البرمجة والواجهات المفقودة
     if path_clean.startswith('api/') or any(path_lower.endswith(ext) for ext in ('.html', '.js', '.css', '.json')):
         return jsonify({"success": False, "error": f"File not found: {path_clean}"}), 404
         
