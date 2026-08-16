@@ -1,28 +1,26 @@
-import database
+import datetime
 
-def get_wallet_info(telegram_id):
-    """جلب بيانات المحفظة الخاصة باللاعب من قاعدة البيانات"""
-    try:
-        user_data = database.get_user(telegram_id) or {}
-        return {
-            "wallet_address": user_data.get('wallet_address'),
-            "balance": float(user_data.get('balance', 0.0)),
-            "usd_balance": float(user_data.get('usd_balance', 0.0))
+# قاعدة بيانات تجريبية / Firestore integration
+def save_user_wallet_address(user_id, address):
+    # كود حفظ العنوان بداخل قاعدة البيانات (Firestore / SQL)
+    return True
+
+def process_withdrawal_request(user_id, amount, address):
+    # 1. التحقق من رصيد المستخدم في قاعدة البيانات
+    # 2. خصم المبلغ وإضافة طلب سحب في جدول withdrawals
+    # 3. إرجاع النتيجة والرصيد الجديد
+    return {
+        "success": True,
+        "new_balance": 0.00,  # الرصيد المتبقي بعد الخصم
+        "message": "تم تقديم طلب السحب بنجاح"
+    }
+
+def get_user_transaction_history(user_id):
+    # استرجاع المعاملات الخاصة بالمستخدم
+    return [
+        {
+            "type": "deposit",
+            "amount": 50.0,
+            "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         }
-    except Exception as e:
-        print(f"❌ Error in get_wallet_info for {telegram_id}: {e}")
-        return {"wallet_address": None, "balance": 0.0, "usd_balance": 0.0}
-
-def save_wallet_address(telegram_id, wallet_address):
-    """حفظ أو تحديث عنوان محفظة TON الخاصة باللاعب"""
-    try:
-        if hasattr(database, 'update_user'):
-            database.update_user(telegram_id, {"wallet_address": wallet_address})
-        elif hasattr(database, 'db') and database.db:
-            database.db.collection('users').document(str(telegram_id)).update({
-                "wallet_address": wallet_address
-            })
-        return True
-    except Exception as e:
-        print(f"❌ Error in save_wallet_address for {telegram_id}: {e}")
-        return False
+    ]
