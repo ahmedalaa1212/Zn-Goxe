@@ -1,28 +1,19 @@
 # wallet/wallet_db.py
 import database
 
-def set_user_wallet_address(tg_id, wallet_address):
-    """ربط/تحديث عنوان محفظة المستخدم الرئيسي"""
+def get_wallet_info(telegram_id):
+    """جلب تفاصيل المحفظة وال أرصدة المتاحة للمستخدم من قاعدة البيانات"""
     try:
-        if not tg_id or not wallet_address:
-            return False, "عنوان المحفظة غير صالح"
-
-        database.update_user(tg_id, {"wallet_address": str(wallet_address).strip()})
-        return True, "تم حفظ عنوان المحفظة بنجاح!"
-    except Exception as e:
-        print(f"❌ Error setting wallet address for {tg_id}: {e}")
-        return False, f"حدث خطأ: {e}"
-
-def get_user_wallet_summary(tg_id):
-    """جلب ملخص بيانات المحفظة للمستخدم"""
-    try:
-        user_data = database.get_user(tg_id) or {}
+        user = database.get_user(str(telegram_id))
+        if not user:
+            return None
+            
         return {
-            "balance_zn": float(user_data.get("balance", 0.0)),
-            "balance_usd": float(user_data.get("usd_balance", 0.0)),
-            "wallet_address": user_data.get("wallet_address", None)
+            "balance": float(user.get("balance", 0.0)),
+            "usd_balance": float(user.get("usd_balance", 0.0)),
+            "ton_address": user.get("ton_address", ""),
+            "stars_balance": int(user.get("stars_balance", 0))
         }
     except Exception as e:
-        print(f"❌ Error getting wallet summary for {tg_id}: {e}")
-        return {"balance_zn": 0.0, "balance_usd": 0.0, "wallet_address": None}
-
+        print(f"❌ Wallet DB Error: {e}")
+        return None
