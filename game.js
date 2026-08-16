@@ -32,7 +32,9 @@ function hideLoadingScreen() {
     loaders.forEach(el => {
         el.style.opacity = '0';
         el.style.transition = 'opacity 0.3s ease';
-        setTimeout(() => el.remove(), 300);
+        setTimeout(() => {
+            try { el.remove(); } catch(e){}
+        }, 300);
     });
 }
 
@@ -535,7 +537,7 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 8. التنقل بين القوائم وتنزيل الموديولات المحدثة فوراً
+// 8. التنقل بين القوائم وتنزيل الموديولات المحدثة فوراً مع معالجة حماية المحفظة
 // ==========================================
 const loadedModules = new Set();
 
@@ -561,13 +563,9 @@ window.switchView = async function(viewName) {
             const res = await fetch(`${cleanViewName}/${cleanViewName}.html${cacheBuster}`);
             if (res.ok) {
                 const htmlContent = await res.text();
-                
-                // 🚀 تم حذف كود الحماية اللي كان بيعمل شاشة "قريباً..." نهائياً
-                // دلوقتي هيحقن الكود بتاع المحفظة مباشر بدون أي فلسفة
                 targetView.innerHTML = htmlContent;
                 await loadModuleScript(`${cleanViewName}/${cleanViewName}.js${cacheBuster}`);
                 loadedModules.add(cleanViewName);
-                
             } else {
                 console.error(`⚠️ فشل جلب ملف ${cleanViewName}/${cleanViewName}.html! كود الاستجابة: ${res.status}`);
             }
@@ -576,26 +574,28 @@ window.switchView = async function(viewName) {
         }
     }
 
-    if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
-        window.onFarmTabOpen();
-    }
+    // إخفاء شاشة التحميل فور التنقل
+    hideLoadingScreen();
 
-    if (cleanViewName === 'shop' && typeof window.updateShopUI === 'function') {
-        window.updateShopUI();
-    }
-
-    if (cleanViewName === 'games' && typeof window.onGamesTabOpen === 'function') {
-        window.onGamesTabOpen();
-    }
-
-    if (cleanViewName === 'wallet') {
-        if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
-        if (typeof window.initWalletView === 'function') window.initWalletView();
-    }
-
-    const initFuncName = `init${cleanViewName.charAt(0).toUpperCase() + cleanViewName.slice(1)}View`;
-    if (typeof window[initFuncName] === 'function') {
-        window[initFuncName]();
+    // تشغيل دوال التهيئة الخاصة بكل موديول بأمان بدون استدلالات مكررة
+    try {
+        if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
+            window.onFarmTabOpen();
+        } else if (cleanViewName === 'shop' && typeof window.updateShopUI === 'function') {
+            window.updateShopUI();
+        } else if (cleanViewName === 'games' && typeof window.onGamesTabOpen === 'function') {
+            window.onGamesTabOpen();
+        } else if (cleanViewName === 'wallet') {
+            if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
+            else if (typeof window.initWalletView === 'function') window.initWalletView();
+        } else {
+            const initFuncName = `init${cleanViewName.charAt(0).toUpperCase() + cleanViewName.slice(1)}View`;
+            if (typeof window[initFuncName] === 'function') {
+                window[initFuncName]();
+            }
+        }
+    } catch (err) {
+        console.error(`⚠️ خطأ أثناء تشغيل موديول ${cleanViewName}:`, err);
     }
     
     window.updateUI();
@@ -612,8 +612,11 @@ function loadModuleScript(scriptUrl) {
         
         const script = document.createElement('script');
         script.src = scriptUrl;
-        script.onload = () => resolve(); 
-        script.onerror = () => resolve(); 
+        script.onload = () => resolve(true); 
+        script.onerror = () => {
+            console.error(`فشل تحميل السكريبت: ${scriptUrl}`);
+            resolve(false);
+        }; 
         document.body.appendChild(script);
     });
 }
@@ -646,6 +649,9 @@ function initApp() {
     window.fetchTonPrice();
     window.switchView('farm');
     
+    // مؤقت أمان لإخفاء شاشة التحميل فوراً في حال حدوث أي تأخير شبكي
+    setTimeout(hideLoadingScreen, 2000);
+
     window.loadUserData().then(() => {
         const uid = window.userState.tg_id || tg?.initDataUnsafe?.user?.id;
         if (uid) window.initFirebaseRealtimeSync(uid);
