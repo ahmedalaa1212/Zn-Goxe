@@ -1,15 +1,27 @@
+# tasks/tasks_db.py
 from datetime import datetime, timezone
 from firebase_admin import firestore
 import database
 
+def get_min_reward_for_platform(platform: str) -> float:
+    """تحديد الحد الأدنى لتكلفة الضغطة حسب المنصة"""
+    if str(platform).strip() == 'موقع':
+        return 100.0
+    return 50.0
+
 def get_active_campaigns(tg_id):
-    """جلب قائمة المهمات النشطة"""
+    """جلب قائمة المهمات النشطة والتوافق مع المجمّع الرئيسي"""
     try:
         db = database.get_db()
-        user_data = database.get_user(tg_id) or {}
-        completed_list = [str(x) for x in user_data.get("completed_tasks", [])]
+        tg_id_str = str(tg_id).strip()
+        
+        user_doc = db.collection("users").document(tg_id_str).get()
+        user_data = user_doc.to_dict() if user_doc.exists else {}
 
-        campaigns_ref = db.collection("tasks").where("active", "==", True).limit(50)
+        completed_doc = db.collection("completed_tasks").document(tg_id_str).get()
+        user_completed_map = completed_doc.to_dict() if completed_doc.exists else {}
+
+        campaigns_ref = db.collection("campaigns").limit(50)
         docs = campaigns_ref.stream()
 
         campaigns = []
@@ -19,8 +31,10 @@ def get_active_campaigns(tg_id):
             comp_count = int(d.get("users_completed", 0))
             need_count = int(d.get("users_needed", 1))
 
-            if comp_count >= need_count:
+            if comp_count >= need_count and str(d.get("creator_id", "")).strip() != tg_id_str:
                 continue
+
+            is_comp = cid in user_completed_map
 
             campaigns.append({
                 "id": cid,
@@ -31,7 +45,7 @@ def get_active_campaigns(tg_id):
                 "reward": float(d.get("reward", 0) or 0),
                 "users_needed": need_count,
                 "users_completed": comp_count,
-                "is_completed": (cid in completed_list),
+                "is_completed": is_comp,
             })
 
         return (
@@ -45,26 +59,32 @@ def get_active_campaigns(tg_id):
 
 
 def complete_user_task(tg_id, task_id):
-    """إكمال مهمة وتسليم مكافأتها"""
+    """إكمال مهمة وتسليم مكافأتها بأمان مالي"""
     try:
         if not tg_id or not task_id:
             return False, "بيانات غير صالحة", 0.0
         db = database.get_db()
-        tg_id_str, task_id_str = str(tg_id), str(task_id)
+        tg_id_str, task_id_str = str(tg_id).strip(), str(task_id).strip()
 
         user_ref = db.collection("users").document(tg_id_str)
-        task_ref = db.collection("tasks").document(task_id_str)
+        camp_ref = db.collection("campaigns").document(task_id_str)
+        completed_ref = db.collection("completed_tasks").document(tg_id_str)
 
-        user_doc, task_doc = user_ref.get(), task_ref.get()
+        user_doc, camp_doc = user_ref.get(), camp_ref.get()
 
-        if not user_doc.exists or not task_doc.exists:
+        if not user_doc.exists or not camp_doc.exists:
             return False, "المهمة أو المستخدم غير موجود", 0.0
 
         user_data = user_doc.to_dict() or {}
-        task_data = task_doc.to_dict() or {}
+        task_data = camp_doc.to_dict() or {}
 
-        completed = [str(x) for x in user_data.get("completed_tasks", [])]
-        if task_id_str in completed:
+        if str(task_data.get("creator_id", "")).strip() == tg_id_str:
+            return False, "لا يمكنك تنفيذ حملتك الخاصة", float(user_data.get("balance", 0.0) or 0.0)
+
+        completed_doc = completed_ref.get()
+        completed_map = completed_doc.to_dict() if completed_doc.exists else {}
+
+        if task_id_str in completed_map:
             return (
                 False,
                 "تم إكمال المهمة سابقاً!",
@@ -74,11 +94,15 @@ def complete_user_task(tg_id, task_id):
         reward = float(task_data.get("reward", 0.0) or 0.0)
         new_balance = round(float(user_data.get("balance", 0.0) or 0.0) + reward, 2)
 
-        task_ref.update({"users_completed": firestore.Increment(1)})
-        user_ref.update({
-            "balance": new_balance,
-            "completed_tasks": firestore.ArrayUnion([task_id_str]),
-        })
+        now_utc = datetime.now(timezone.utc)
+        task_record = {
+            "date": now_utc.strftime('%Y-%m-%d'),
+            "timestamp": now_utc.timestamp()
+        }
+
+        camp_ref.update({"users_completed": firestore.Increment(1)})
+        user_ref.update({"balance": new_balance})
+        completed_ref.set({task_id_str: task_record}, merge=True)
 
         return True, "تم إكمال المهمة بنجاح!", new_balance
     except Exception as e:
@@ -87,19 +111,21 @@ def complete_user_task(tg_id, task_id):
 
 
 def create_ad_campaign(tg_id, platform, description, url, reward, users_needed):
-    """إنشاء حملة إعلانية جديدة"""
+    """إنشاء حملة إعلانية جديدة مع مراعاة الحدود الأدنى للمنصات"""
     try:
         if not tg_id:
             return False, "معرف غير صالح", 0.0
         db = database.get_db()
-        tg_id_str = str(tg_id)
+        tg_id_str = str(tg_id).strip()
 
         reward = float(reward)
         users_needed = int(users_needed)
         total_cost = reward * users_needed
 
-        if reward < 250 or total_cost < 250:
-            return False, "الحد الأدنى لتكلفة الضغطة والميزانية هو 250 AdZN", 0.0
+        min_reward = get_min_reward_for_platform(platform)
+
+        if reward < min_reward or total_cost < min_reward:
+            return False, f"الحد الأدنى لتكلفة المهمة لهذه المنصة هو {int(min_reward)} AdZ", 0.0
 
         user_ref = db.collection("users").document(tg_id_str)
         user_doc = user_ref.get()
@@ -124,7 +150,7 @@ def create_ad_campaign(tg_id, platform, description, url, reward, users_needed):
             "active": True,
             "created_at": firestore.SERVER_TIMESTAMP,
         }
-        db.collection("tasks").add(campaign_doc)
+        db.collection("campaigns").add(campaign_doc)
 
         return True, "تم إنشاء الحملة بنجاح!", new_ad_bal
     except Exception as e:
@@ -133,12 +159,12 @@ def create_ad_campaign(tg_id, platform, description, url, reward, users_needed):
 
 
 def convert_balance_to_ad_balance(tg_id, amount):
-    """تحويل من الرصيد ZN إلى رصيد الإعلانات AdZN"""
+    """تحويل من الرصيد ZN إلى رصيد الإعلانات AdZ مع عمولة 10%"""
     try:
         if not tg_id or amount <= 0:
             return False, "مبلغ غير صالح", 0.0, 0.0
         db = database.get_db()
-        tg_id_str = str(tg_id)
+        tg_id_str = str(tg_id).strip()
         user_ref = db.collection("users").document(tg_id_str)
         user_doc = user_ref.get()
 
@@ -152,59 +178,18 @@ def convert_balance_to_ad_balance(tg_id, amount):
         if current_bal < amount:
             return False, "رصيدك الأساسي غير كافٍ!", current_bal, current_ad_bal
 
+        fee = amount * 0.10
+        received = amount - fee
+
         new_bal = round(current_bal - amount, 2)
-        new_ad_bal = round(current_ad_bal + amount, 2)
+        new_ad_bal = round(current_ad_bal + received, 2)
 
-        user_ref.update({"balance": new_bal, "ad_balance": new_ad_bal})
+        user_ref.update({
+            "balance": new_bal,
+            "ad_balance": new_ad_bal
+        })
 
-        return True, "تم التحويل بنجاح!", new_bal, new_ad_bal
+        return True, "تم تحويل الرصيد بنجاح!", new_bal, new_ad_bal
     except Exception as e:
         print(f"❌ Error converting balance: {e}")
         return False, f"حدث خطأ: {e}", 0.0, 0.0
-
-
-def claim_daily_reward(tg_id):
-    """استلام المكافأة اليومية للمستخدم"""
-    try:
-        if not tg_id:
-            return False, "معرف غير صالح", 0.0, 0
-        user_data = database.get_user(tg_id)
-        if not user_data:
-            return False, "المستخدم غير موجود", 0.0, 0
-
-        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        last_claim_date = user_data.get("last_daily_claim_date")
-
-        if last_claim_date == today_str:
-            return (
-                False,
-                "لقد استلمت المكافأة اليومية بالفعل اليوم!",
-                user_data.get("balance", 0.0),
-                user_data.get("daily_streak", 0),
-            )
-
-        current_streak = int(user_data.get("daily_streak", 0)) + 1
-        if current_streak > 30:
-            current_streak = 1
-
-        settings = database.get_game_settings()
-        rewards_map = settings.get("daily_rewards", {})
-        reward_amount = float(rewards_map.get(f"day_{current_streak}", 100))
-
-        new_balance = round(float(user_data.get("balance", 0.0) or 0.0) + reward_amount, 2)
-
-        database.update_user(tg_id, {
-            "balance": new_balance,
-            "daily_streak": current_streak,
-            "last_daily_claim_date": today_str,
-        })
-
-        return (
-            True,
-            f"تم استلام مكافأة اليوم {current_streak} بنجاح (+{reward_amount} ZN)!",
-            new_balance,
-            current_streak,
-        )
-    except Exception as e:
-        print(f"❌ Error claiming daily reward: {e}")
-        return False, f"حدث خطأ: {e}", 0.0, 0
