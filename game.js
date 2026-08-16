@@ -1008,27 +1008,77 @@ window.switchView = async function (viewName) {
                 viewName,
                 (async () => {
                     const cacheBuster = `?v=${Date.now()}`;
-                    const htmlPath = `/${encodeURIComponent(viewName)}/${encodeURIComponent(viewName)}.html${cacheBuster}`;
-                    const jsPath = `/${encodeURIComponent(viewName)}/${encodeURIComponent(viewName)}.js${cacheBuster}`;
-                    const htmlUrl = resolveModuleUrl(htmlPath);
+                    const encodedViewName = encodeURIComponent(viewName);
 
-                    const response = await fetch(htmlUrl, {
-                        method: "GET",
-                        headers: { Accept: "text/html" },
-                        cache: "no-store",
-                        credentials: "same-origin"
-                    });
+                    // Try the normal module path first, then common Flask/static
+                    // locations. This keeps the existing layout untouched while
+                    // allowing modules such as wallet to load when served from
+                    // Flask's static directory instead of the web root.
+                    const moduleCandidates = [
+                        {
+                            htmlPath: `/${encodedViewName}/${encodedViewName}.html${cacheBuster}`,
+                            jsPath: `/${encodedViewName}/${encodedViewName}.js${cacheBuster}`
+                        },
+                        {
+                            htmlPath: `/${encodedViewName}.html${cacheBuster}`,
+                            jsPath: `/${encodedViewName}.js${cacheBuster}`
+                        },
+                        {
+                            htmlPath: `/static/${encodedViewName}/${encodedViewName}.html${cacheBuster}`,
+                            jsPath: `/static/${encodedViewName}/${encodedViewName}.js${cacheBuster}`
+                        },
+                        {
+                            htmlPath: `/static/${encodedViewName}.html${cacheBuster}`,
+                            jsPath: `/static/${encodedViewName}.js${cacheBuster}`
+                        }
+                    ];
 
-                    if (!response.ok) {
-                        throw new Error(
-                            `HTML LOAD FAILED: ${htmlPath} → HTTP ${response.status}`
-                        );
+                    let htmlContent = "";
+                    let htmlPath = "";
+                    let jsPath = "";
+                    let htmlUrl = "";
+                    let lastHtmlStatus = null;
+
+                    for (const candidate of moduleCandidates) {
+                        const candidateUrl = resolveModuleUrl(candidate.htmlPath);
+
+                        try {
+                            const response = await fetch(candidateUrl, {
+                                method: "GET",
+                                headers: { Accept: "text/html" },
+                                cache: "no-store",
+                                credentials: "same-origin"
+                            });
+
+                            lastHtmlStatus = response.status;
+
+                            if (!response.ok) {
+                                continue;
+                            }
+
+                            const content = await response.text();
+
+                            if (!content.trim()) {
+                                continue;
+                            }
+
+                            htmlContent = content;
+                            htmlPath = candidate.htmlPath;
+                            jsPath = candidate.jsPath;
+                            htmlUrl = candidateUrl;
+                            break;
+                        } catch (error) {
+                            console.warn(
+                                `⚠️ تعذر تحميل ${candidate.htmlPath}:`,
+                                error
+                            );
+                        }
                     }
 
-                    const htmlContent = await response.text();
-
                     if (!htmlContent.trim()) {
-                        throw new Error(`HTML EMPTY: ${htmlPath}`);
+                        throw new Error(
+                            `HTML LOAD FAILED: /${encodedViewName}/${encodedViewName}.html → HTTP ${lastHtmlStatus ?? "NETWORK"}`
+                        );
                     }
 
                     const fragment = extractModuleFragment(
