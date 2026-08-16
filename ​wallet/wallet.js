@@ -6,9 +6,13 @@ window.initWalletView = function() {
     tabs.forEach(tab => {
         tab.addEventListener('click', (e) => {
             tabs.forEach(t => t.classList.remove('active'));
-            e.target.classList.add('active');
-            const targetFolder = e.target.getAttribute('data-target');
-            loadWalletSubView(targetFolder);
+            // التأكد من اختيار العنصر الصحيح حتى لو تم الضغط على النص بداخله
+            const btn = e.target.closest('.wallet-tab-btn');
+            if (btn) {
+                btn.classList.add('active');
+                const targetFolder = btn.getAttribute('data-target');
+                loadWalletSubView(targetFolder);
+            }
         });
     });
 
@@ -30,9 +34,9 @@ async function loadWalletSubView(folderName) {
         if (response.ok) {
             const htmlContent = await response.text();
             
-            // التأكد من أن الملف ليس فارغاً ولم يرجع index.html بالخطأ
-            if (htmlContent.includes('id="global-toast-container"') || htmlContent.includes('<title>Zn Goxe')) {
-                container.innerHTML = `<div style="text-align: center; color: #f39c12; padding: 20px;">ملف ${folderName}.html لا يزال قيد التطوير.</div>`;
+            // التحقق بدقة لو الاستضافة رجعت الـ index.html بالخطأ
+            if (!htmlContent.trim() || htmlContent.includes('<!DOCTYPE html>') && htmlContent.includes('<title>Zn Goxe')) {
+                container.innerHTML = `<div style="text-align: center; color: #f39c12; padding: 20px;">مجلد أو ملف ${folderName}.html غير موجود أو المسار خاطئ.</div>`;
             } else {
                 container.innerHTML = htmlContent;
                 // جلب سكريبت القائمة الفرعية
@@ -45,11 +49,11 @@ async function loadWalletSubView(folderName) {
                 }
             }
         } else {
-            container.innerHTML = `<div style="text-align: center; color: #ff4757; padding: 20px;">تعذر تحميل القائمة (${response.status})</div>`;
+            container.innerHTML = `<div style="text-align: center; color: #ff4757; padding: 20px;">تعذر تحميل القائمة (${response.status}) - تأكد من رفع مجلد ${folderName}</div>`;
         }
     } catch (err) {
         console.error(`خطأ أثناء تحميل مجلد ${folderName}:`, err);
-        container.innerHTML = `<div style="text-align: center; color: #ff4757; padding: 20px;">حدث خطأ في الاتصال.</div>`;
+        container.innerHTML = `<div style="text-align: center; color: #ff4757; padding: 20px;">حدث خطأ في الاتصال بالملفات الفرعية.</div>`;
     }
 }
 
