@@ -1,157 +1,118 @@
 <!-- wallet/wallet.html -->
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>المحفظة - Wallet</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <style>
-        :root {
-            --bg-color: #0f172a;
-            --card-bg: #1e293b;
-            --accent-gold: #f59e0b;
-            --accent-green: #10b981;
-            --accent-blue: #3b82f6;
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-            --border-color: #334155;
-        }
+<style>
+    .wallet-wrapper {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 10px 5px;
+        color: #f8fafc;
+        box-sizing: border-box;
+    }
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: system-ui, -apple-system, sans-serif;
-            user-select: none;
-        }
+    .balance-card {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        border: 1px solid #334155;
+        border-radius: 20px;
+        padding: 20px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
 
-        body {
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            padding: 16px;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            min-height: 100vh;
-        }
+    .balance-item {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
 
-        /* 💳 كارت الأرصدة العلوي */
-        .balance-card {
-            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-            border: 1px solid var(--border-color);
-            border-radius: 20px;
-            padding: 20px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
+    .balance-title {
+        font-size: 12px;
+        color: #94a3b8;
+        font-weight: 600;
+    }
 
-        .balance-item {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
+    .balance-value {
+        font-size: 20px;
+        font-weight: 800;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
 
-        .balance-title {
-            font-size: 12px;
-            color: var(--text-muted);
-            font-weight: 600;
-        }
+    .val-coin { color: #f59e0b; }
+    .val-usd { color: #10b981; }
 
-        .balance-value {
-            font-size: 22px;
-            font-weight: 800;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
+    .divider {
+        width: 1px;
+        height: 40px;
+        background-color: #334155;
+    }
 
-        .val-coin { color: var(--accent-gold); }
-        .val-usd { color: var(--accent-green); }
+    .action-buttons {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+    }
 
-        .divider {
-            width: 1px;
-            height: 40px;
-            background-color: var(--border-color);
-        }
+    .btn-tab {
+        background-color: #1e293b;
+        border: 1px solid #334155;
+        color: #f8fafc;
+        padding: 12px 8px;
+        border-radius: 14px;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        transition: all 0.2s ease;
+    }
 
-        /* 🔘 الأزرار الثلاثة جنب بعض */
-        .action-buttons {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-        }
+    .btn-tab:active {
+        transform: scale(0.96);
+    }
 
-        .btn-tab {
-            background-color: var(--card-bg);
-            border: 1px solid var(--border-color);
-            color: var(--text-main);
-            padding: 12px 8px;
-            border-radius: 14px;
-            font-size: 13px;
-            font-weight: 700;
-            cursor: pointer;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 6px;
-            transition: all 0.2s ease;
-        }
+    .btn-tab.active {
+        background-color: #2563eb;
+        border-color: #60a5fa;
+        color: #ffffff;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+    }
 
-        .btn-tab:active {
-            transform: scale(0.96);
-        }
+    .content-section {
+        background-color: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 16px;
+        padding: 16px;
+        display: none;
+        flex-direction: column;
+        gap: 12px;
+    }
 
-        .btn-tab.active {
-            background-color: #2563eb;
-            border-color: #60a5fa;
-            color: #ffffff;
-            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
-        }
+    .content-section.active {
+        display: flex;
+    }
 
-        /* 📄 محتوى الأقسام (إيداع / سحب / سجلات) */
-        .content-section {
-            background-color: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 16px;
-            padding: 16px;
-            display: none;
-            flex-direction: column;
-            gap: 12px;
-        }
+    .section-title {
+        font-size: 15px;
+        font-weight: 700;
+        border-bottom: 1px solid #334155;
+        padding-bottom: 8px;
+    }
 
-        .content-section.active {
-            display: flex;
-        }
+    .empty-msg {
+        text-align: center;
+        color: #94a3b8;
+        font-size: 13px;
+        padding: 20px 0;
+    }
+</style>
 
-        .section-title {
-            font-size: 15px;
-            font-weight: 700;
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 8px;
-        }
-
-        .empty-msg {
-            text-align: center;
-            color: var(--text-muted);
-            font-size: 13px;
-            padding: 20px 0;
-        }
-
-        /* 🔄 مؤشر التحميل */
-        .loader {
-            text-align: center;
-            color: var(--accent-gold);
-            font-size: 14px;
-            padding: 10px;
-        }
-    </style>
-</head>
-<body>
-
-    <!-- 1️⃣ كارت عرض الرصيدين فوق -->
+<div class="wallet-wrapper">
+    <!-- 💳 كارت الرصيد -->
     <div class="balance-card">
         <div class="balance-item">
             <span class="balance-title">رصيد النقاط (ZN)</span>
@@ -166,38 +127,38 @@
         <div class="balance-item">
             <span class="balance-title">رصيد الدولار ($)</span>
             <div class="balance-value val-usd">
-                <span id="usd-balance">0.00</span>
+                <span id="usd-balance">$0.00</span>
                 <span style="font-size: 14px;">💵</span>
             </div>
         </div>
     </div>
 
-    <!-- 2️⃣ الأزرار الثلاثة المجاورة -->
+    <!-- 🔘 خيارات المحفظة -->
     <div class="action-buttons">
-        <button class="btn-tab active" onclick="switchTab('deposit')">
+        <button class="btn-tab active" data-tab="deposit" onclick="window.switchWalletTab('deposit')">
             <span>📥</span>
             <span>الإيداع</span>
         </button>
-        <button class="btn-tab" onclick="switchTab('withdraw')">
+        <button class="btn-tab" data-tab="withdraw" onclick="window.switchWalletTab('withdraw')">
             <span>📤</span>
             <span>السحب</span>
         </button>
-        <button class="btn-tab" onclick="switchTab('history')">
+        <button class="btn-tab" data-tab="history" onclick="window.switchWalletTab('history')">
             <span>📜</span>
             <span>السجلات</span>
         </button>
     </div>
 
-    <!-- 3️⃣ محتوى الأقسام التفاعلي -->
+    <!-- 📄 الأقسام التفاعلية -->
     <div id="deposit-section" class="content-section active">
         <div class="section-title">📥 شحن الرصيد</div>
-        <p style="font-size: 13px; color: var(--text-muted);">اختر طريقة الإيداع المناسبة لك:</p>
+        <p style="font-size: 13px; color: #94a3b8;">اختر طريقة الإيداع المناسبة لك:</p>
         <div id="deposit-options" class="empty-msg">جاري تحميل وسائل الإيداع المتاحة...</div>
     </div>
 
     <div id="withdraw-section" class="content-section">
         <div class="section-title">📤 طلب سحب</div>
-        <p style="font-size: 13px; color: var(--text-muted);">قم بتقديم طلب سحب أرباحك إلى محفظتك الخارجيّة.</p>
+        <p style="font-size: 13px; color: #94a3b8;">قم بتقديم طلب سحب أرباحك إلى محفظتك الخارجيّة.</p>
         <div id="withdraw-form" class="empty-msg">جاري تحميل خيارات السحب...</div>
     </div>
 
@@ -205,52 +166,4 @@
         <div class="section-title">📜 سجل العمليات</div>
         <div id="history-list" class="empty-msg">لا توجد عمليات سابقة حتى الآن.</div>
     </div>
-
-    <script>
-        const tg = window.Telegram?.WebApp;
-        if (tg) tg.expand();
-
-        // 🔄 جلب البيانات الحقيقية من API المحفظة
-        async function fetchWalletData() {
-            const initData = tg?.initData || '';
-            
-            try {
-                const response = await fetch('/api/wallet/info', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ initData: initData })
-                });
-
-                const result = await response.json();
-                if (result.success && result.wallet) {
-                    // تحديث الأرقام المباشرة في الشاشة
-                    document.getElementById('coin-balance').innerText = Number(result.wallet.balance || 0).toLocaleString();
-                    document.getElementById('usd-balance').innerText = '$' + Number(result.wallet.usd_balance || 0).toFixed(2);
-                }
-            } catch (err) {
-                console.error("❌ Error fetching wallet info:", err);
-            }
-        }
-
-        // 🔘 التنقل بين الخيارات الثلاثة
-        function switchTab(tabName) {
-            document.querySelectorAll('.btn-tab').forEach(btn => btn.classList.remove('active'));
-            document.querySelectorAll('.content-section').forEach(sec => sec.classList.remove('active'));
-
-            if (tabName === 'deposit') {
-                event.currentTarget.classList.add('active');
-                document.getElementById('deposit-section').classList.add('active');
-            } else if (tabName === 'withdraw') {
-                event.currentTarget.classList.add('active');
-                document.getElementById('withdraw-section').classList.add('active');
-            } else if (tabName === 'history') {
-                event.currentTarget.classList.add('active');
-                document.getElementById('history-section').classList.add('active');
-            }
-        }
-
-        // تشغيل الجلب فور فتح الصفحة
-        document.addEventListener('DOMContentLoaded', fetchWalletData);
-    </script>
-</body>
-</html>
+</div>
