@@ -696,8 +696,8 @@ function initApp() {
     window.updateUI();
     window.fetchTonPrice();
     
-    // فتح قسم المحفظة (wallet) افتراضياً عند تشغيل اللعبة
-    window.switchView('wallet');
+    // إجبار فتح قسم المزرعة افتراضياً عند التشغيل
+    window.switchView('farm');
     
     // مؤقت أمان لحذف شاشة التحميل فوراً ومنع التجمد
     setTimeout(hideLoadingScreen, 1200);
