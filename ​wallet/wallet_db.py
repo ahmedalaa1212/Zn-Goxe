@@ -1,20 +1,28 @@
-import os
-import sys
-
-# ربط قاعدة البيانات الرئيسية بالمحفظة
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if BASE_DIR not in sys.path:
-    sys.path.insert(0, BASE_DIR)
-
 import database
 
-def get_wallet_overview(telegram_id):
-    """جلب نظرة عامة على المحفظة للمستخدم"""
-    user_data = database.get_user(telegram_id)
-    if user_data:
+def get_wallet_info(telegram_id):
+    """جلب بيانات المحفظة الخاصة باللاعب من قاعدة البيانات"""
+    try:
+        user_data = database.get_user(telegram_id) or {}
         return {
-            "balance": user_data.get('balance', 0.0),
-            "usd_balance": user_data.get('usd_balance', 0.0),
-            "wallet_address": user_data.get('wallet_address', None)
+            "wallet_address": user_data.get('wallet_address'),
+            "balance": float(user_data.get('balance', 0.0)),
+            "usd_balance": float(user_data.get('usd_balance', 0.0))
         }
-    return None
+    except Exception as e:
+        print(f"❌ Error in get_wallet_info for {telegram_id}: {e}")
+        return {"wallet_address": None, "balance": 0.0, "usd_balance": 0.0}
+
+def save_wallet_address(telegram_id, wallet_address):
+    """حفظ أو تحديث عنوان محفظة TON الخاصة باللاعب"""
+    try:
+        if hasattr(database, 'update_user'):
+            database.update_user(telegram_id, {"wallet_address": wallet_address})
+        elif hasattr(database, 'db') and database.db:
+            database.db.collection('users').document(str(telegram_id)).update({
+                "wallet_address": wallet_address
+            })
+        return True
+    except Exception as e:
+        print(f"❌ Error in save_wallet_address for {telegram_id}: {e}")
+        return False
