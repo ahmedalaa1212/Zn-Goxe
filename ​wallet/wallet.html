@@ -1,286 +1,138 @@
-<!-- wallet/wallet.html
-     هذا الملف Fragment يتم حقنه داخل #view-wallet بواسطة game.js.
-     لا نضع DOCTYPE/html/head/body أو سكربتات هنا حتى لا تتعارض مع الصفحة الرئيسية.
--->
-
-<div class="wallet-page" dir="rtl" data-wallet-view="1">
-    <style>
-        .wallet-page {
-            --wallet-bg: #0f172a;
-            --wallet-card: #1e293b;
-            --wallet-gold: #f59e0b;
-            --wallet-green: #10b981;
-            --wallet-blue: #3b82f6;
-            --wallet-text: #f8fafc;
-            --wallet-muted: #94a3b8;
-            --wallet-border: #334155;
-            width: 100%;
-            padding: 16px;
-            color: var(--wallet-text);
-        }
-
-        .wallet-page,
-        .wallet-page * {
-            box-sizing: border-box;
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        }
-
-
-        .wallet-balance-card {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 10px;
-            margin-bottom: 16px;
-            background: transparent;
-            border: 0;
-            box-shadow: none;
-            padding: 0;
-        }
-
-        .wallet-balance-item {
-            min-width: 0;
-            min-height: 92px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            gap: 6px;
-            padding: 14px 12px;
-            border-radius: 18px;
-            background: #172033;
-            border: 1px solid #29364d;
-            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.20);
-        }
-
-        .wallet-balance-title {
-            font-size: 12px;
-            color: var(--wallet-muted);
-            font-weight: 700;
-            white-space: nowrap;
-        }
-
-        .wallet-balance-value {
-            min-width: 0;
-            font-size: 19px;
-            line-height: 1.2;
-            font-weight: 800;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            overflow: hidden;
-        }
-
-        .wallet-balance-value > span:first-child {
-            min-width: 0;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            direction: ltr;
-        }
-
-        .wallet-coin {
-            color: var(--wallet-text);
-        }
-
-        .wallet-usd {
-            color: var(--wallet-green);
-        }
-
-        .wallet-divider {
-            display: none;
-        }
-
-        .wallet-action-buttons {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            margin-bottom: 16px;
-        }
-
-        .wallet-btn-tab {
-            appearance: none;
-            border: 1px solid var(--wallet-border);
-            background: var(--wallet-card);
-            color: var(--wallet-text);
-            padding: 12px 8px;
-            border-radius: 14px;
-            font-size: 13px;
-            font-weight: 700;
-            cursor: pointer;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 6px;
-            transition: 0.2s ease;
-        }
-
-        .wallet-btn-tab:active {
-            transform: scale(0.97);
-        }
-
-        .wallet-btn-tab.active {
-            background: #2563eb;
-            border-color: #60a5fa;
-            color: #fff;
-            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
-        }
-
-        .wallet-content-section {
-            display: none;
-            background: var(--wallet-card);
-            border: 1px solid var(--wallet-border);
-            border-radius: 16px;
-            padding: 16px;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .wallet-content-section.active {
-            display: flex;
-        }
-
-        .wallet-section-title {
-            font-size: 15px;
-            font-weight: 700;
-            border-bottom: 1px solid var(--wallet-border);
-            padding-bottom: 8px;
-        }
-
-        .wallet-muted {
-            color: var(--wallet-muted);
-            font-size: 13px;
-        }
-
-        .wallet-empty {
-            text-align: center;
-            color: var(--wallet-muted);
-            font-size: 13px;
-            padding: 20px 0;
-        }
-
-        .wallet-loading {
-            text-align: center;
-            color: var(--wallet-gold);
-            font-size: 14px;
-            padding: 10px;
-        }
-
-        .wallet-method-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 10px;
-            padding: 10px;
-            background: #0f172a;
-            border-radius: 10px;
-            margin-bottom: 8px;
-        }
-
-        .wallet-inline-btn {
-            border: 0;
-            border-radius: 7px;
-            padding: 7px 12px;
-            font-weight: 700;
-            color: #fff;
-            cursor: pointer;
-        }
-
-        .wallet-input {
-            width: 100%;
-            padding: 12px;
-            border-radius: 10px;
-            border: 1px solid var(--wallet-border);
-            background: #0f172a;
-            color: #fff;
-            font-size: 14px;
-            outline: none;
-        }
-
-        .wallet-input:focus {
-            border-color: #60a5fa;
-        }
-
-        .wallet-withdraw-form {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .wallet-history-row {
-            display: grid;
-            grid-template-columns: 1fr auto auto;
-            gap: 10px;
-            align-items: center;
-            padding: 10px 0;
-            border-bottom: 1px solid var(--wallet-border);
-            font-size: 13px;
-        }
-
-        @media (max-width: 420px) {
-            .wallet-balance-card {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 8px;
-            }
-
-            .wallet-balance-item {
-                min-height: 86px;
-                padding: 12px 10px;
-            }
-
-            .wallet-balance-value {
-                font-size: 17px;
-            }
-        }
-    </style>
-
-    <div class="wallet-balance-card" aria-label="أرصدة المحفظة">
-        <div class="wallet-balance-item wallet-coin">
-            <span class="wallet-balance-title">رصيد ZN</span>
-            <div class="wallet-balance-value">
-                <span id="coin-balance" data-bind="balance">0.00</span>
-                <span aria-hidden="true" style="font-size:14px;">🪙</span>
-            </div>
-        </div>
-
-        <div class="wallet-balance-item wallet-usd">
-            <span class="wallet-balance-title">رصيد الدولار ($)</span>
-            <div class="wallet-balance-value">
-                <span id="usd-balance" data-bind="usd_balance">$0.00</span>
-                <span aria-hidden="true" style="font-size:14px;">💵</span>
-            </div>
+<div class="wallet-container">
+    <!-- كارت إجمالي الرصيد -->
+    <div class="wallet-balance-card">
+        <div class="balance-title">إجمالي الرصيد الرقمي</div>
+        <div class="balance-amount-zn" id="wallet-zn-balance">0.00 ZN</div>
+        <div class="balance-amount-usd" id="wallet-usd-balance">$0.00 USD</div>
+        
+        <div class="ton-price-pill">
+            <span>سعر TON الحالي:</span>
+            <span id="ton-price-display">$0.00</span>
         </div>
     </div>
 
-    <div class="wallet-action-buttons">
-        <button type="button" class="wallet-btn-tab active" data-wallet-tab="deposit">
-            <span>📥</span>
+    <!-- أزرار القائمة الفرعية (إيداع - سحب - سجلات) -->
+    <div class="wallet-tabs-nav">
+        <button class="wallet-tab-btn active" id="tab-btn-deposit" onclick="window.switchWalletTab('deposit')">
+            <i class="fas fa-arrow-down"></i>
             <span>الإيداع</span>
         </button>
-
-        <button type="button" class="wallet-btn-tab" data-wallet-tab="withdraw">
-            <span>📤</span>
+        <button class="wallet-tab-btn" id="tab-btn-withdraw" onclick="window.switchWalletTab('withdraw')">
+            <i class="fas fa-arrow-up"></i>
             <span>السحب</span>
         </button>
-
-        <button type="button" class="wallet-btn-tab" data-wallet-tab="history">
-            <span>📜</span>
+        <button class="wallet-tab-btn" id="tab-btn-history" onclick="window.switchWalletTab('history')">
+            <i class="fas fa-history"></i>
             <span>السجلات</span>
         </button>
     </div>
 
-    <section id="deposit-section" class="wallet-content-section active">
-        <div class="wallet-section-title">📥 شحن الرصيد</div>
-        <p class="wallet-muted">اختر طريقة الإيداع المناسبة لك:</p>
-        <div id="deposit-options" class="wallet-loading">جاري تحميل وسائل الإيداع المتاحة...</div>
-    </section>
-
-    <section id="withdraw-section" class="wallet-content-section">
-        <div class="wallet-section-title">📤 طلب سحب</div>
-        <p class="wallet-muted">قم بتقديم طلب سحب أرباحك إلى محفظتك الخارجيّة.</p>
-        <div id="withdraw-form" class="wallet-empty">جاري تحميل خيارات السحب...</div>
-    </section>
-
-    <section id="history-section" class="wallet-content-section">
-        <div class="wallet-section-title">📜 سجل العمليات</div>
-        <div id="history-list" class="wallet-empty">لا توجد عمليات سابقة حتى الآن.</div>
-    </section>
+    <!-- حاوية عرض القوائم الفرعية (Deposit / Withdraw / History) -->
+    <div id="wallet-subview-container" class="wallet-subview-container">
+        <div class="wallet-loading-spinner">
+            <i class="fas fa-circle-notch fa-spin"></i>
+            <p>جاري تحميل البيانات...</p>
+        </div>
+    </div>
 </div>
+
+<style>
+.wallet-container {
+    padding: 15px;
+    color: #ffffff;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.wallet-balance-card {
+    background: linear-gradient(135deg, #1f293d 0%, #111827 100%);
+    border: 1px solid #374151;
+    border-radius: 16px;
+    padding: 20px;
+    text-align: center;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+    margin-bottom: 20px;
+}
+
+.balance-title {
+    font-size: 0.9rem;
+    color: #9ca3af;
+    margin-bottom: 8px;
+}
+
+.balance-amount-zn {
+    font-size: 2.2rem;
+    font-weight: bold;
+    color: #f59e0b;
+    margin-bottom: 4px;
+}
+
+.balance-amount-usd {
+    font-size: 1.1rem;
+    color: #10b981;
+    font-weight: 600;
+}
+
+.ton-price-pill {
+    margin-top: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0, 136, 204, 0.15);
+    border: 1px solid rgba(0, 136, 204, 0.3);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+}
+
+.wallet-tabs-nav {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    background: #1f2937;
+    padding: 5px;
+    border-radius: 12px;
+}
+
+.wallet-tab-btn {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    background: transparent;
+    color: #9ca3af;
+    font-size: 0.95rem;
+    font-weight: bold;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+}
+
+.wallet-tab-btn.active {
+    background: #3b82f6;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.wallet-subview-container {
+    min-height: 250px;
+}
+
+.wallet-loading-spinner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: #6b7280;
+}
+
+.wallet-loading-spinner i {
+    font-size: 2rem;
+    margin-bottom: 10px;
+    color: #3b82f6;
+}
+</style>
