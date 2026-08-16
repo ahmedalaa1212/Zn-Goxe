@@ -14,7 +14,7 @@
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     
     <!-- إضافة رقم إصدار لكسر كاش الملفات الصامت -->
-    <link rel="stylesheet" href="style.css?v=2.0">
+    <link rel="stylesheet" href="style.css?v=2.5">
 
     <!-- تنسيقات حاوية الإشعارات المباشرة فوق أي قائمة -->
     <style>
@@ -81,7 +81,9 @@
     <!-- حاوية الواجهات الفرعية -->
     <div id="app" style="display: none;">
         <div id="view-friends" class="game-view"></div>
-        <div id="view-wallet" class="game-view"></div>
+        <div id="view-wallet" class="game-view">
+            <!-- سيتم تحميل wallet/wallet.html هنا ديناميكياً -->
+        </div>
         <div id="view-tasks" class="game-view"></div>
         <div id="view-farm" class="game-view active"></div>
         <div id="view-games" class="game-view">
@@ -221,10 +223,10 @@
         })();
     </script>
 
-    <!-- إضافة رقم إصدار لملفات الجافا سكربت لكسر الكاش بصرامة -->
-    <script src="game.js?v=2.2"></script>
-    <script src="games/games.js?v=2.0"></script>
-    <script src="shop/shop.js?v=2.0"></script>
+    <!-- استدعاء المحرك الأساسي ثم الموديولات الفرعية بكسر الكاش الصارم -->
+    <script src="game.js?v=2.5"></script>
+    <script src="wallet/wallet.js?v=2.5"></script>
+    <script src="games/games.js?v=2.5"></script>
+    <script src="shop/shop.js?v=2.5"></script>
 </body>
 </html>
-
