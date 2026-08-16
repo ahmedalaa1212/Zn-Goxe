@@ -1,82 +1,57 @@
 window.initWalletView = function() {
-    console.log("تم فتح قائمة المحفظة الرئيسية");
-    
-    // ربط الأزرار لتغيير القوائم الفرعية
-    const tabs = document.querySelectorAll('.wallet-tab-btn');
-    tabs.forEach(tab => {
-        tab.addEventListener('click', (e) => {
-            tabs.forEach(t => t.classList.remove('active'));
-            // التأكد من اختيار العنصر الصحيح حتى لو تم الضغط على النص بداخله
-            const btn = e.target.closest('.wallet-tab-btn');
-            if (btn) {
-                btn.classList.add('active');
-                const targetFolder = btn.getAttribute('data-target');
-                loadWalletSubView(targetFolder);
-            }
-        });
-    });
-
-    // استدعاء ملف الإيداع كواجهة افتراضية عند فتح المحفظة
-    loadWalletSubView('deposit');
+    window.onWalletTabOpen();
 };
 
-async function loadWalletSubView(folderName) {
-    const container = document.getElementById('wallet-sub-content');
-    if (!container) return;
-
-    container.innerHTML = '<div style="text-align: center; color: #8b949e; padding: 20px;">جاري تحميل البيانات...</div>';
-
+window.onWalletTabOpen = async function() {
     try {
-        const cacheBuster = `?v=${Date.now()}`;
-        // مسار جلب الملف بناءً على تقسيمة المجلدات الخاصة بك
-        const response = await fetch(`wallet/${folderName}/${folderName}.html${cacheBuster}`);
-        
-        if (response.ok) {
-            const htmlContent = await response.text();
+        const res = await window.fetchAPI('/api/wallet/info', 'GET');
+        if (res && res.success) {
+            const addrDisplay = document.getElementById('wallet-address-display');
+            const connBtn = document.getElementById('connect-wallet-btn');
             
-            // التحقق بدقة لو الاستضافة رجعت الـ index.html بالخطأ
-            if (!htmlContent.trim() || htmlContent.includes('<!DOCTYPE html>') && htmlContent.includes('<title>Zn Goxe')) {
-                container.innerHTML = `<div style="text-align: center; color: #f39c12; padding: 20px;">مجلد أو ملف ${folderName}.html غير موجود أو المسار خاطئ.</div>`;
+            if (res.wallet_address) {
+                window.userState.wallet_address = res.wallet_address;
+                if (addrDisplay) addrDisplay.innerText = `المحفظة: ${res.wallet_address.substring(0, 6)}...${res.wallet_address.slice(-4)}`;
+                if (connBtn) connBtn.innerText = '⚙️ تغيير العنوان';
             } else {
-                container.innerHTML = htmlContent;
-                // جلب سكريبت القائمة الفرعية
-                await loadWalletSubScript(`wallet/${folderName}/${folderName}.js${cacheBuster}`);
-                
-                // تشغيل دالة التهيئة الخاصة بالقائمة الفرعية إذا كانت موجودة
-                const initFunc = `init${folderName.charAt(0).toUpperCase() + folderName.slice(1)}View`;
-                if (typeof window[initFunc] === 'function') {
-                    window[initFunc]();
-                }
+                if (addrDisplay) addrDisplay.innerText = 'لم يتم ربط محفظة TON حتى الآن';
+                if (connBtn) connBtn.innerText = '🔗 ربط محفظة TON';
             }
-        } else {
-            container.innerHTML = `<div style="text-align: center; color: #ff4757; padding: 20px;">تعذر تحميل القائمة (${response.status}) - تأكد من رفع مجلد ${folderName}</div>`;
         }
     } catch (err) {
-        console.error(`خطأ أثناء تحميل مجلد ${folderName}:`, err);
-        container.innerHTML = `<div style="text-align: center; color: #ff4757; padding: 20px;">حدث خطأ في الاتصال بالملفات الفرعية.</div>`;
+        console.error("خطأ في تحميل بيانات المحفظة:", err);
     }
-}
+};
 
-function loadWalletSubScript(scriptUrl) {
-    return new Promise((resolve) => {
-        const cleanUrl = scriptUrl.split('?')[0];
-        const existingScript = document.querySelector(`script[src*="${cleanUrl}"]`);
-        
-        if (existingScript) {
-            existingScript.remove();
+window.handleWalletConnection = async function() {
+    const currentAddr = window.userState?.wallet_address || '';
+    const newAddr = prompt("أدخل عنوان محفظة TON الخاص بك:", currentAddr);
+    
+    if (newAddr !== null && newAddr.trim() !== '') {
+        try {
+            const res = await window.fetchAPI('/api/wallet/save_address', 'POST', { wallet_address: newAddr.trim() });
+            if (res && res.success) {
+                window.userState.wallet_address = newAddr.trim();
+                alert("✅ تم حفظ عنوان المحفظة بنجاح!");
+                window.onWalletTabOpen();
+            } else {
+                alert(res.error || "حدث خطأ أثناء حفظ المحفظة");
+            }
+        } catch (e) {
+            alert("فشل الاتصال بالسيرفر للحفظ.");
         }
-        
-        const script = document.createElement('script');
-        script.src = scriptUrl;
-        script.onload = () => resolve(); 
-        script.onerror = () => resolve(); 
-        document.body.appendChild(script);
-    });
-}
+    }
+};
 
-// دالة تحديث واجهة المحفظة عند إعادة فتحها (يتم استدعاؤها من game.js تلقائياً)
-window.onWalletTabOpen = function() {
-    if (typeof window.updateUI === 'function') {
-        window.updateUI();
+window.switchWalletSubView = function(sub) {
+    const container = document.getElementById('wallet-subview-container');
+    if (!container) return;
+
+    if (sub === 'deposit') {
+        container.innerHTML = `<div style="padding:5px;"><h4>📥 قسم الإيداع</h4><p style="font-size:12px; color:#aaa;">قم بإرسال TON إلى العنوان المخصص لإعادة شحن رصيدك.</p></div>`;
+    } else if (sub === 'withdraw') {
+        container.innerHTML = `<div style="padding:5px;"><h4>📤 قسم السحب</h4><p style="font-size:12px; color:#aaa;">الحد الأدنى للسحب هو 1.00 TON.</p></div>`;
+    } else if (sub === 'history') {
+        container.innerHTML = `<div style="padding:5px;"><h4>📜 سجل المعاملات</h4><p style="font-size:12px; color:#aaa;">لا توجد معاملات سابقة حتى الآن.</p></div>`;
     }
 };
