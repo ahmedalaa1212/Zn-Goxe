@@ -290,7 +290,7 @@ window.activateTenXBoost = async function(durationHours = 1) {
 };
 
 // ==========================================
-// 5. الاستماع اللحظي Firestore
+// 5. الاستماع اللحظي Firestore (Realtime Sync & Global Event)
 // ==========================================
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) return;
@@ -415,7 +415,7 @@ window.updateClaimButtonState = function() {
 };
 
 // ==========================================
-// 7. العداد البصري التدريجي
+// 7. العداد البصري التدريجي + دعم الخانات العشرية المرنة
 // ==========================================
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0.00';
@@ -535,34 +535,9 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 8. التنقل بين القوائم + دالة جلب الواجهات الفرعية
+// 8. التنقل بين القوائم وتنزيل الموديولات المحدثة فوراً
 // ==========================================
 const loadedModules = new Set();
-
-// 💡 دالة عامة مجانية لتحميل القوائم الفرعية (مثل إيداع، سحب، سجلات) داخل أي حاوية
-window.loadSubModule = async function(folderPath, containerId) {
-    const container = document.getElementById(containerId);
-    if (!container) return false;
-
-    try {
-        const cacheBuster = `?v=${Date.now()}`;
-        const fileName = folderPath.split('/').pop();
-        const htmlRes = await fetch(`${folderPath}/${fileName}.html${cacheBuster}`);
-        
-        if (htmlRes.ok) {
-            const htmlContent = await htmlRes.text();
-            container.innerHTML = htmlContent;
-            await loadModuleScript(`${folderPath}/${fileName}.js${cacheBuster}`);
-            return true;
-        } else {
-            container.innerHTML = `<div style="text-align:center; padding:20px; color:#888;">جاري التجهيز...</div>`;
-            return false;
-        }
-    } catch (err) {
-        console.error(`خطأ تحميل الموديول الفرعي ${folderPath}:`, err);
-        return false;
-    }
-};
 
 window.switchView = async function(viewName) {
     let cleanViewName = viewName.toLowerCase();
@@ -587,23 +562,12 @@ window.switchView = async function(viewName) {
             if (res.ok) {
                 const htmlContent = await res.text();
                 
-                const isIndexHtmlFallback = htmlContent.includes('id="global-toast-container"') || 
-                                           htmlContent.includes('id="main-nav"') || 
-                                           htmlContent.includes('<title>Zn Goxe');
-
-                if (isIndexHtmlFallback) {
-                    targetView.innerHTML = `
-                        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; color: #fff; padding: 20px; text-align: center;">
-                            <i class="fas fa-wallet" style="font-size: 4rem; color: #f39c12; margin-bottom: 15px;"></i>
-                            <h2>قريباً...</h2>
-                            <p style="color: #8b949e; margin-top: 10px;">يتم الآن تجهيز هذه الصفحة، ترقبوا التحديث القادم!</p>
-                        </div>
-                    `;
-                } else {
-                    targetView.innerHTML = htmlContent;
-                    await loadModuleScript(`${cleanViewName}/${cleanViewName}.js${cacheBuster}`);
-                    loadedModules.add(cleanViewName);
-                }
+                // 🚀 تم حذف كود الحماية اللي كان بيعمل شاشة "قريباً..." نهائياً
+                // دلوقتي هيحقن الكود بتاع المحفظة مباشر بدون أي فلسفة
+                targetView.innerHTML = htmlContent;
+                await loadModuleScript(`${cleanViewName}/${cleanViewName}.js${cacheBuster}`);
+                loadedModules.add(cleanViewName);
+                
             } else {
                 console.error(`⚠️ فشل جلب ملف ${cleanViewName}/${cleanViewName}.html! كود الاستجابة: ${res.status}`);
             }
@@ -612,9 +576,17 @@ window.switchView = async function(viewName) {
         }
     }
 
-    if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') window.onFarmTabOpen();
-    if (cleanViewName === 'shop' && typeof window.updateShopUI === 'function') window.updateShopUI();
-    if (cleanViewName === 'games' && typeof window.onGamesTabOpen === 'function') window.onGamesTabOpen();
+    if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
+        window.onFarmTabOpen();
+    }
+
+    if (cleanViewName === 'shop' && typeof window.updateShopUI === 'function') {
+        window.updateShopUI();
+    }
+
+    if (cleanViewName === 'games' && typeof window.onGamesTabOpen === 'function') {
+        window.onGamesTabOpen();
+    }
 
     if (cleanViewName === 'wallet') {
         if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
