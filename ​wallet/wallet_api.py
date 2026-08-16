@@ -1,7 +1,27 @@
 # wallet/wallet_api.py
+import os
+import sys
+
+# 🎯 إدراج مجلد المحفظة والمجلد الرئيسي لبيئة المسارات
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PARENT_DIR = os.path.dirname(CURRENT_DIR)
+
+for path_dir in [CURRENT_DIR, PARENT_DIR]:
+    if path_dir not in sys.path:
+        sys.path.insert(0, path_dir)
+
 from flask import Blueprint, jsonify, request
 from core.security import get_authenticated_user
-from wallet.wallet_db import get_wallet_info
+
+# استيراد مرن لملف wallet_db يتوافق مع بيئة Python بدون __init__.py
+try:
+    from wallet.wallet_db import get_wallet_info
+except Exception:
+    try:
+        from wallet_db import get_wallet_info
+    except Exception as e:
+        print(f"⚠️ تعذر استيراد wallet_db: {e}")
+        get_wallet_info = None
 
 wallet_bp = Blueprint('wallet', __name__)
 
@@ -46,6 +66,9 @@ def get_main_wallet_info():
             telegram_id = str(tg_id_param).strip()
         else:
             return error_res
+
+    if get_wallet_info is None:
+        return jsonify({"success": False, "error": "خدمة المحفظة غير متوفرة حالياً"}), 500
 
     wallet_data = get_wallet_info(telegram_id)
     if wallet_data is None:
