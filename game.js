@@ -899,28 +899,97 @@ window.updateUI = function () {
 // 8. التنقل بين القوائم وتنزيل الموديولات
 // ==========================================
 const loadedModules = new Set();
+const moduleLoadPromises = new Map();
+const moduleStyleHrefs = new Set();
 
-window.switchView = async function (viewName) {
-    document
-        .querySelectorAll(".nav-item")
-        .forEach((btn) => btn.classList.remove("active"));
+function resolveModuleUrl(pathValue) {
+    return new URL(pathValue, window.location.origin + "/").href;
+}
 
-    const targetNav = document.getElementById(`nav-${viewName}`);
+function injectModuleStyles(doc, moduleName, htmlUrl) {
+    const nodes = [
+        ...Array.from(doc.querySelectorAll("head link[rel='stylesheet']")),
+        ...Array.from(doc.querySelectorAll("head style, body style"))
+    ];
 
-    if (targetNav) {
-        targetNav.classList.add("active");
+    for (const node of nodes) {
+        if (node.tagName === "STYLE") {
+            const marker = `${moduleName}:${node.textContent || ""}`;
+            const existing = Array.from(
+                document.head.querySelectorAll("style[data-module-inline-style]")
+            ).some((style) => style.dataset.moduleInlineStyle === marker);
+
+            if (!existing) {
+                const style = document.createElement("style");
+                style.dataset.moduleInlineStyle = marker;
+                style.textContent = node.textContent || "";
+                document.head.appendChild(style);
+            }
+            continue;
+        }
+
+        const href = node.getAttribute("href");
+        if (!href) continue;
+
+        const absoluteHref = new URL(
+            href,
+            new URL(htmlUrl, window.location.origin)
+        ).href;
+
+        if (moduleStyleHrefs.has(absoluteHref)) continue;
+
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = absoluteHref;
+        link.dataset.moduleStylesheet = moduleName;
+        document.head.appendChild(link);
+        moduleStyleHrefs.add(absoluteHref);
+    }
+}
+
+function extractModuleFragment(htmlContent, moduleName, htmlUrl) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlContent, "text/html");
+
+    if (!doc || !doc.body) {
+        throw new Error(`MODULE HTML PARSE FAILED: ${htmlUrl}`);
     }
 
-    document
-        .querySelectorAll(".game-view")
-        .forEach((view) => view.classList.remove("active"));
+    injectModuleStyles(doc, moduleName, htmlUrl);
+
+    // Embedded module scripts are deliberately removed. The main loader
+    // loads exactly one JS file for the module after HTML insertion.
+    doc.body.querySelectorAll("script").forEach((node) => node.remove());
+
+    // The main page owns the global bottom navigation.
+    doc.body.querySelectorAll(
+        "nav.bottom-nav, nav#main-nav, .bottom-nav, #bottom-nav, .nav-bar, .bottom-menu, .footer-nav"
+    ).forEach((node) => node.remove());
+
+    const fragment = doc.body.innerHTML.trim();
+
+    if (!fragment) {
+        throw new Error(`MODULE HTML EMPTY BODY: ${htmlUrl}`);
+    }
+
+    return fragment;
+}
+
+window.switchView = async function (viewName) {
+    document.querySelectorAll(".nav-item").forEach((btn) => {
+        btn.classList.remove("active");
+    });
+
+    const targetNav = document.getElementById(`nav-${viewName}`);
+    if (targetNav) targetNav.classList.add("active");
+
+    document.querySelectorAll(".game-view").forEach((view) => {
+        view.classList.remove("active");
+    });
 
     let targetView = document.getElementById(`view-${viewName}`);
 
-    if (
-        !targetView &&
-        (viewName === "games" || viewName === "game")
-    ) {
+    if (!targetView && (viewName === "games" || viewName === "game")) {
         targetView =
             document.getElementById("view-games") ||
             document.getElementById("view-game");
@@ -934,50 +1003,63 @@ window.switchView = async function (viewName) {
     targetView.classList.add("active");
 
     if (!loadedModules.has(viewName)) {
+        if (!moduleLoadPromises.has(viewName)) {
+            moduleLoadPromises.set(
+                viewName,
+                (async () => {
+                    const cacheBuster = `?v=${Date.now()}`;
+                    const htmlPath = `/${encodeURIComponent(viewName)}/${encodeURIComponent(viewName)}.html${cacheBuster}`;
+                    const jsPath = `/${encodeURIComponent(viewName)}/${encodeURIComponent(viewName)}.js${cacheBuster}`;
+                    const htmlUrl = resolveModuleUrl(htmlPath);
+
+                    const response = await fetch(htmlUrl, {
+                        method: "GET",
+                        headers: { Accept: "text/html" },
+                        cache: "no-store",
+                        credentials: "same-origin"
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(
+                            `HTML LOAD FAILED: ${htmlPath} → HTTP ${response.status}`
+                        );
+                    }
+
+                    const htmlContent = await response.text();
+
+                    if (!htmlContent.trim()) {
+                        throw new Error(`HTML EMPTY: ${htmlPath}`);
+                    }
+
+                    const fragment = extractModuleFragment(
+                        htmlContent,
+                        viewName,
+                        htmlUrl
+                    );
+
+                    targetView.innerHTML = fragment;
+
+                    await loadModuleScript(jsPath, viewName);
+
+                    loadedModules.add(viewName);
+                })().catch((error) => {
+                    moduleLoadPromises.delete(viewName);
+                    throw error;
+                })
+            );
+        }
+
         try {
-            // Absolute root-based path prevents relative-path bugs.
-            const cacheBuster = `?v=${Date.now()}`;
-            const htmlUrl = `/${viewName}/${viewName}.html${cacheBuster}`;
-
-            const res = await fetch(htmlUrl, {
-                method: "GET",
-                headers: { Accept: "text/html" },
-                cache: "no-store",
-            });
-
-            if (!res.ok) {
-                throw new Error(
-                    `${htmlUrl} returned HTTP ${res.status}`
-                );
-            }
-
-            const htmlContent = await res.text();
-
-            // A module must never accept index.html as its own HTML.
-            const looksLikeMainPage =
-                /<html[\s\S]*<body/i.test(htmlContent) ||
-                /id=["']global-toast-container["']/i.test(htmlContent) ||
-                /<title>\s*Zn Goxe\s*-\s*Crypto Mining\s*<\/title>/i.test(
-                    htmlContent
-                );
-
-            if (looksLikeMainPage) {
-                throw new Error(
-                    `${htmlUrl} أعاد index.html بدلاً من ${viewName}.html`
-                );
-            }
-
-            targetView.innerHTML = htmlContent;
-
-            const jsUrl = `/${viewName}/${viewName}.js${cacheBuster}`;
-            await loadModuleScript(jsUrl);
-
-            loadedModules.add(viewName);
+            await moduleLoadPromises.get(viewName);
         } catch (err) {
             console.error(`❌ خطأ تحميل ${viewName}:`, err);
 
-            // Do not replace a failed module with a fake "Coming Soon" page.
-            // Show a real error so the root problem remains visible.
+            const safeMessage = String(err?.message || err || "Unknown error")
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;");
+
             targetView.innerHTML = `
                 <div style="
                     display:flex;
@@ -991,26 +1073,34 @@ window.switchView = async function (viewName) {
                 ">
                     <div style="font-size:42px;margin-bottom:12px;">⚠️</div>
                     <h2 style="margin-bottom:8px;">تعذر تحميل صفحة ${viewName}</h2>
-                    <p style="color:#8b949e;max-width:420px;">
-                        تحقق من ملف ${viewName}/${viewName}.html وملف ${viewName}/${viewName}.js
-                        وسجل الأخطاء في Console.
+                    <p style="color:#8b949e;max-width:520px;line-height:1.8;">
+                        حدث خطأ أثناء تحميل ملفات الصفحة.
                     </p>
+                    <code style="
+                        display:block;
+                        direction:ltr;
+                        text-align:left;
+                        margin-top:12px;
+                        padding:10px;
+                        max-width:520px;
+                        width:100%;
+                        overflow:auto;
+                        background:#0b1220;
+                        border:1px solid #263244;
+                        border-radius:8px;
+                        color:#fca5a5;
+                        font-size:11px;
+                    ">${safeMessage}</code>
                 </div>
             `;
         }
     }
 
-    if (
-        viewName === "farm" &&
-        typeof window.onFarmTabOpen === "function"
-    ) {
+    if (viewName === "farm" && typeof window.onFarmTabOpen === "function") {
         window.onFarmTabOpen();
     }
 
-    if (
-        viewName === "shop" &&
-        typeof window.updateShopUI === "function"
-    ) {
+    if (viewName === "shop" && typeof window.updateShopUI === "function") {
         window.updateShopUI();
     }
 
@@ -1025,35 +1115,30 @@ window.switchView = async function (viewName) {
         `init${viewName.charAt(0).toUpperCase()}${viewName.slice(1)}View`;
 
     if (typeof window[initFuncName] === "function") {
-        window[initFuncName]();
+        try {
+            await Promise.resolve(window[initFuncName]());
+        } catch (error) {
+            console.error(`❌ خطأ تهيئة ${viewName}:`, error);
+        }
     }
 
     window.updateUI();
 };
 
-function loadModuleScript(scriptUrl) {
+function loadModuleScript(scriptUrl, moduleName = "module") {
     return new Promise((resolve, reject) => {
-        const cleanUrl = scriptUrl.split("?")[0];
-        const escapedUrl =
-            typeof CSS !== "undefined" && CSS.escape
-                ? CSS.escape(cleanUrl)
-                : cleanUrl.replace(/"/g, '\\"');
-
-        const existingScript = document.querySelector(
-            `script[src*="${escapedUrl}"]`
-        );
-
-        if (existingScript) {
-            existingScript.remove();
-        }
+        document
+            .querySelectorAll(`script[data-module-script="${CSS.escape(moduleName)}"]`)
+            .forEach((node) => node.remove());
 
         const script = document.createElement("script");
         script.src = scriptUrl;
         script.async = false;
+        script.dataset.moduleScript = moduleName;
 
         script.onload = () => resolve();
         script.onerror = () =>
-            reject(new Error(`تعذر تحميل JavaScript: ${scriptUrl}`));
+            reject(new Error(`JAVASCRIPT LOAD FAILED: ${scriptUrl.split("?")[0]}`));
 
         document.body.appendChild(script);
     });
