@@ -25,43 +25,60 @@
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
 
+
         .wallet-balance-card {
-            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-            border: 1px solid var(--wallet-border);
-            border-radius: 20px;
-            padding: 20px;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.30);
             display: grid;
-            grid-template-columns: 1fr auto 1fr;
-            align-items: center;
-            gap: 16px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
             margin-bottom: 16px;
+            background: transparent;
+            border: 0;
+            box-shadow: none;
+            padding: 0;
         }
 
         .wallet-balance-item {
+            min-width: 0;
+            min-height: 92px;
             display: flex;
             flex-direction: column;
+            justify-content: center;
             gap: 6px;
-            min-width: 0;
+            padding: 14px 12px;
+            border-radius: 18px;
+            background: #172033;
+            border: 1px solid #29364d;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.20);
         }
 
         .wallet-balance-title {
             font-size: 12px;
             color: var(--wallet-muted);
-            font-weight: 600;
+            font-weight: 700;
+            white-space: nowrap;
         }
 
         .wallet-balance-value {
-            font-size: 22px;
+            min-width: 0;
+            font-size: 19px;
+            line-height: 1.2;
             font-weight: 800;
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 5px;
             overflow: hidden;
         }
 
+        .wallet-balance-value > span:first-child {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            direction: ltr;
+        }
+
         .wallet-coin {
-            color: var(--wallet-gold);
+            color: var(--wallet-text);
         }
 
         .wallet-usd {
@@ -69,9 +86,7 @@
         }
 
         .wallet-divider {
-            width: 1px;
-            height: 42px;
-            background: var(--wallet-border);
+            display: none;
         }
 
         .wallet-action-buttons {
@@ -202,36 +217,35 @@
 
         @media (max-width: 420px) {
             .wallet-balance-card {
-                grid-template-columns: 1fr;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px;
             }
 
-            .wallet-divider {
-                width: 100%;
-                height: 1px;
+            .wallet-balance-item {
+                min-height: 86px;
+                padding: 12px 10px;
             }
 
             .wallet-balance-value {
-                font-size: 19px;
+                font-size: 17px;
             }
         }
     </style>
 
-    <div class="wallet-balance-card">
-        <div class="wallet-balance-item">
-            <span class="wallet-balance-title">رصيد النقاط (ZN)</span>
-            <div class="wallet-balance-value wallet-coin">
-                <span id="coin-balance">0.00</span>
-                <span style="font-size:14px;">🪙</span>
+    <div class="wallet-balance-card" aria-label="أرصدة المحفظة">
+        <div class="wallet-balance-item wallet-coin">
+            <span class="wallet-balance-title">رصيد ZN</span>
+            <div class="wallet-balance-value">
+                <span id="coin-balance" data-bind="balance">0.00</span>
+                <span aria-hidden="true" style="font-size:14px;">🪙</span>
             </div>
         </div>
 
-        <div class="wallet-divider"></div>
-
-        <div class="wallet-balance-item">
+        <div class="wallet-balance-item wallet-usd">
             <span class="wallet-balance-title">رصيد الدولار ($)</span>
-            <div class="wallet-balance-value wallet-usd">
-                <span id="usd-balance">0.00</span>
-                <span style="font-size:14px;">💵</span>
+            <div class="wallet-balance-value">
+                <span id="usd-balance" data-bind="usd_balance">$0.00</span>
+                <span aria-hidden="true" style="font-size:14px;">💵</span>
             </div>
         </div>
     </div>
