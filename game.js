@@ -39,10 +39,10 @@ function hideLoadingScreen() {
     const loaders = document.querySelectorAll('#loading-screen, .loading-screen, #loader');
     loaders.forEach(el => {
         el.style.opacity = '0';
-        el.style.transition = 'opacity 0.3s ease';
+        el.style.transition = 'opacity 0.2s ease';
         setTimeout(() => {
             try { el.remove(); } catch(e){}
-        }, 300);
+        }, 200);
     });
 }
 
@@ -581,6 +581,8 @@ window.switchView = async function(viewName) {
     
     targetView.classList.add('active');
     targetView.style.display = 'block';
+    targetView.style.width = '100%';
+    targetView.style.minHeight = '100vh';
 
     // 3. التحقق إذا كان القسم محملاً مسبقاً في DOM
     if (targetView.children.length > 0 && !loadedModules.has(cleanViewName)) {
@@ -603,8 +605,17 @@ window.switchView = async function(viewName) {
                 const res = await fetch(path);
                 if (res.ok) {
                     const htmlContent = await res.text();
-                    targetView.innerHTML = htmlContent;
-                    
+                    // تأكد أن المحتوى جلب HTML حقيقي وليس صفحة خطأ
+                    if (htmlContent && !htmlContent.includes("<!DOCTYPE html>")) {
+                        targetView.innerHTML = htmlContent;
+                    } else if (htmlContent) {
+                        // إذا كانت استجابة السيرفر صفحة رئيسية كاملة (SPA Fallback)، قم باستخراج المحتوى الداخلي فقط
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(htmlContent, 'text/html');
+                        const innerView = doc.querySelector(`#view-${cleanViewName}`) || doc.body;
+                        targetView.innerHTML = innerView.innerHTML;
+                    }
+
                     const jsPath = path.replace('.html', '.js');
                     await loadModuleScript(jsPath);
                     
@@ -686,7 +697,7 @@ function loadModuleScript(scriptUrl) {
 }
 
 // ==========================================
-// 9. ربط النقر التلقائي بجميع أزرار التبويب
+// 9. ربط النقر التلقائي بجميع أزرار التبويب ومنع Reload
 // ==========================================
 function bindGlobalNavEvents() {
     document.addEventListener('click', (e) => {
@@ -695,6 +706,7 @@ function bindGlobalNavEvents() {
             let viewName = navBtn.dataset.view || navBtn.id?.replace('nav-', '');
             if (viewName) {
                 e.preventDefault();
+                e.stopPropagation();
                 window.switchView(viewName);
             }
         }
