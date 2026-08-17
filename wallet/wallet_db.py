@@ -8,7 +8,7 @@ def get_db_connection():
     return conn
 
 def get_user_wallet_balances(user_id: int) -> dict:
-    """استعلام آمن للرصيد مع دعم مرن لأسماء الأعمدة المتقاطعة"""
+    """استعلام آمن للأرصدة مع دعم مرن لجميع المسميات"""
     conn = None
     try:
         conn = get_db_connection()
@@ -36,7 +36,7 @@ def get_user_wallet_balances(user_id: int) -> dict:
             conn.close()
 
 def update_user_balance(user_id: int, amount: float, currency: str = 'zn', operation: str = 'add') -> bool:
-    """تعديل آمن ومزدوج للرصيد بذكاء لضمان تطابق كافة أعمدة قاعدة البيانات تلقائياً"""
+    """تعديل آمن ومباشر للرصيد مع الحفاظ على تزامن الجداول بدون تعارض"""
     conn = None
     curr = str(currency).lower()
     
