@@ -558,9 +558,9 @@ window.switchView = async function(viewName) {
     if (cleanViewName === 'task') cleanViewName = 'tasks';
     if (cleanViewName === 'user' || cleanViewName === 'friends' || cleanViewName === 'friend') cleanViewName = 'friends';
 
-    // 1. تحديث زر القائمة السفلية
-    document.querySelectorAll('.nav-item, [id^="nav-"]').forEach(btn => btn.classList.remove('active'));
-    const targetNav = document.getElementById(`nav-${cleanViewName}`) || document.getElementById(`nav-${viewName}`);
+    // 1. تحديث إضاءة أزرار القائمة السفلى
+    document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
+    const targetNav = document.getElementById(`nav-${cleanViewName}`) || document.querySelector(`[data-view="${cleanViewName}"]`);
     if (targetNav) targetNav.classList.add('active');
 
     // 2. إخفاء الشاشات الأخرى وتفعيل الحاوية الحالية
@@ -569,7 +569,7 @@ window.switchView = async function(viewName) {
         v.style.display = 'none';
     });
     
-    let targetView = document.getElementById(`view-${cleanViewName}`) || document.getElementById(`view-${viewName}`);
+    let targetView = document.getElementById(`view-${cleanViewName}`);
     
     if (!targetView) {
         const appContainer = document.getElementById('app') || document.body;
@@ -587,49 +587,28 @@ window.switchView = async function(viewName) {
     // 3. جلب المحتوى المباشر من ملف الـ HTML الخاص بكل قسم
     if (!loadedModules.has(cleanViewName) || targetView.innerHTML.trim() === '') {
         const cacheBuster = `?v=${Date.now()}`;
-        const pathsToTry = [
-            `./${cleanViewName}/${cleanViewName}.html${cacheBuster}`,
-            `/${cleanViewName}/${cleanViewName}.html${cacheBuster}`,
-            `${cleanViewName}/${cleanViewName}.html${cacheBuster}`
-        ];
+        const htmlPath = `./${cleanViewName}/${cleanViewName}.html${cacheBuster}`;
 
-        let loadedSuccess = false;
+        try {
+            const res = await fetch(htmlPath);
+            if (res.ok) {
+                const htmlContent = await res.text();
+                targetView.innerHTML = htmlContent;
 
-        for (const path of pathsToTry) {
-            try {
-                const res = await fetch(path);
-                if (res.ok) {
-                    const htmlContent = await res.text();
-                    // التحقق من جلب محتوى html حقيقي وليس تحويل صفحة الخطأ SPA
-                    if (htmlContent && !htmlContent.trim().toLowerCase().startsWith('<!doctype html')) {
-                        targetView.innerHTML = htmlContent;
-                    } else if (htmlContent) {
-                        const parser = new DOMParser();
-                        const doc = parser.parseFromString(htmlContent, 'text/html');
-                        const innerView = doc.querySelector(`#view-${cleanViewName}`) || doc.body;
-                        if (innerView) {
-                            targetView.innerHTML = innerView.innerHTML;
-                        }
-                    }
-
-                    const jsPath = path.replace('.html', '.js');
-                    await loadModuleScript(jsPath);
-                    
-                    loadedModules.add(cleanViewName);
-                    loadedSuccess = true;
-                    break;
-                }
-            } catch (e) {
-                console.warn(`فشل جلب المسار ${path}:`, e);
+                const jsPath = `./${cleanViewName}/${cleanViewName}.js${cacheBuster}`;
+                await loadModuleScript(jsPath);
+                
+                loadedModules.add(cleanViewName);
+            } else {
+                throw new Error(`HTTP ${res.status}`);
             }
-        }
-
-        if (!loadedSuccess && targetView.children.length === 0) {
+        } catch (e) {
+            console.warn(`فشل جلب ملف ${cleanViewName}:`, e);
             targetView.innerHTML = `
                 <div style="padding: 50px 20px; text-align: center; color: #ffffff; direction: rtl;">
                     <div style="font-size: 40px; margin-bottom: 15px;">⚠️</div>
                     <h3 style="margin-bottom: 10px; color: #ff5555;">تعذر تحميل قسم (${cleanViewName})</h3>
-                    <p style="color: #aaa; font-size: 14px; margin-bottom: 20px;">يرجى التأكد من مسار ${cleanViewName}/${cleanViewName}.html على السيرفر.</p>
+                    <p style="color: #aaa; font-size: 14px; margin-bottom: 20px;">يرجى التأكد من وجود ملف ${cleanViewName}/${cleanViewName}.html على السيرفر.</p>
                     <button onclick="window.switchView('${cleanViewName}')" style="padding: 10px 20px; background: #0088cc; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">
                         🔄 إعادة المحاولة
                     </button>
