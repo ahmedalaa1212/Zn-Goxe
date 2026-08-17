@@ -122,8 +122,11 @@ try:
 except Exception as e:
     print(f"⚠️ خطأ في تحميل users_db: {e}")
 
-# 11. Wallet Module
+# 11. Wallet Module (يشمل الموديولات الفرعية: deposit_db, history_db, withdraw_db)
 try:
     from wallet.wallet_db import *
+    from wallet.deposit.deposit_db import *
+    from wallet.history.history_db import *
+    from wallet.withdraw.withdraw_db import *
 except Exception as e:
-    print(f"⚠️ خطأ في تحميل wallet_db: {e}")
+    print(f"⚠️ خطأ في تحميل wallet_db وموديولاتها الفرعية: {e}")
