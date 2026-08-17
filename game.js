@@ -45,6 +45,7 @@ function hideLoadingScreen() {
         }, 200);
     });
 }
+window.hideLoadingScreen = hideLoadingScreen;
 
 function getSavedState() {
     const startParam = tg?.initDataUnsafe?.start_param || null;
@@ -133,7 +134,6 @@ window.addEventListener('beforeunload', () => {
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
     
-    // إضافة معرف المستخدم ورأس المبادرة تلقائياً
     if (window.userState?.tg_id) {
         headers['X-Telegram-User-Id'] = String(window.userState.tg_id);
     }
@@ -336,10 +336,8 @@ window.initFirebaseRealtimeSync = function(userId) {
             } finally {
                 isFirebaseUpdating = false;
                 persistUserStateToLocalStorage(window.userState);
-                window.updateUI();
-                if (typeof window.updateFarmUI === 'function') {
-                    window.updateFarmUI();
-                }
+                if (typeof window.updateUI === 'function') window.updateUI();
+                if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
                 window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
             }
         }, err => console.error("Firebase Sync Error:", err));
@@ -554,19 +552,70 @@ window.updateUI = function() {
 // ==========================================
 const loadedModules = new Set();
 
+function renderDefaultWalletUI() {
+    const address = window.userState?.wallet_address;
+    const formattedAddr = address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'غير متصل';
+    const usdBal = window.formatBalance(window.userState?.usd_balance || 0);
+    const znBal = window.formatBalance(window.userState?.balance || 0);
+
+    return `
+        <div style="padding: 20px; color: #fff; direction: rtl; font-family: sans-serif; max-width: 500px; margin: 0 auto;">
+            <div style="background: linear-gradient(135deg, #1e293b, #0f172a); border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <span style="color: #94a3b8; font-size: 14px;">💼 محفظة TON</span>
+                    <span style="background: rgba(0,136,204,0.2); color: #38bdf8; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold;">
+                        ${address ? '🟢 متصل' : '🔴 غير متصل'}
+                    </span>
+                </div>
+                <div style="font-size: 28px; font-weight: bold; margin-bottom: 5px; color: #38bdf8;">
+                    $${usdBal} USD
+                </div>
+                <div style="font-size: 14px; color: #cbd5e1; margin-bottom: 15px;">
+                    رصيد العملة: <strong style="color: #f59e0b;">${znBal} ZN</strong>
+                </div>
+                <div style="font-size: 13px; color: #94a3b8; background: rgba(0,0,0,0.2); padding: 8px 12px; border-radius: 8px; word-break: break-all;">
+                    العنوان: <span style="color: #fff;" dir="ltr">${formattedAddr}</span>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
+                <button onclick="alert('خدمة الإيداع ستكون متاحة قريباً!')" style="padding: 12px; background: #0088cc; color: #fff; border: none; border-radius: 12px; font-weight: bold; cursor: pointer;">
+                    📥 إيداع
+                </button>
+                <button onclick="alert('خدمة السحب ستكون متاحة قريباً!')" style="padding: 12px; background: #334155; color: #fff; border: none; border-radius: 12px; font-weight: bold; cursor: pointer;">
+                    📤 سحب
+                </button>
+            </div>
+        </div>
+    `;
+}
+
 window.switchView = async function(viewName) {
     if (!viewName) return;
 
-    let cleanViewName = String(viewName).toLowerCase().replace('nav-', '').replace('view-', '');
-    if (cleanViewName === 'wallets' || cleanViewName === 'tools' || cleanViewName === 'settings' || cleanViewName === 'wallet') cleanViewName = 'wallet';
-    if (cleanViewName === 'game') cleanViewName = 'games';
-    if (cleanViewName === 'task') cleanViewName = 'tasks';
-    if (cleanViewName === 'user' || cleanViewName === 'friends' || cleanViewName === 'friend') cleanViewName = 'friends';
+    const rawView = String(viewName).toLowerCase().trim().replace('nav-', '').replace('view-', '');
+    let cleanViewName = rawView;
+
+    if (['wallets', 'tools', 'settings', 'wallet'].includes(rawView)) {
+        cleanViewName = 'wallet';
+    } else if (['game', 'games'].includes(rawView)) {
+        cleanViewName = 'games';
+    } else if (['task', 'tasks'].includes(rawView)) {
+        cleanViewName = 'tasks';
+    } else if (['user', 'friends', 'friend', 'referral', 'invite'].includes(rawView)) {
+        cleanViewName = 'friends';
+    }
 
     // 1. تحديث إضاءة أزرار القائمة السفلى
-    document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
-    const targetNav = document.getElementById(`nav-${cleanViewName}`) || document.querySelector(`[data-view="${cleanViewName}"]`);
-    if (targetNav) targetNav.classList.add('active');
+    document.querySelectorAll('.nav-item, [data-view], [id^="nav-"]').forEach(btn => {
+        const btnView = (btn.dataset.view || btn.id?.replace('nav-', '') || '').toLowerCase();
+        if (btnView === rawView || btnView === cleanViewName || 
+            (cleanViewName === 'wallet' && ['wallet', 'wallets', 'tools', 'settings'].includes(btnView))) {
+            btn.classList.add('active');
+        } else if (btn.classList.contains('nav-item')) {
+            btn.classList.remove('active');
+        }
+    });
 
     // 2. إخفاء الشاشات الأخرى وتفعيل الحاوية الحالية
     document.querySelectorAll('.game-view, [id^="view-"]').forEach(v => {
@@ -575,6 +624,10 @@ window.switchView = async function(viewName) {
     });
     
     let targetView = document.getElementById(`view-${cleanViewName}`);
+    if (!targetView && cleanViewName === 'wallet') {
+        targetView = document.getElementById('view-tools') || document.getElementById('view-wallets') || document.getElementById('view-settings');
+        if (targetView) targetView.id = 'view-wallet';
+    }
     
     if (!targetView) {
         const appContainer = document.getElementById('app') || document.body;
@@ -585,62 +638,85 @@ window.switchView = async function(viewName) {
     }
     
     targetView.classList.add('active');
-    targetView.style.display = 'block';
-    targetView.style.width = '100%';
-    targetView.style.minHeight = '100vh';
+    targetView.style.cssText = 'display: block !important; visibility: visible !important; opacity: 1 !important; width: 100%; min-height: 80vh; position: relative; z-index: 1;';
 
-    // 3. جلب المحتوى المباشر من ملف الـ HTML الخاص بكل قسم
+    // 3. جلب المحتوى المباشر مع محاولة مسارات متعددة
     if (!loadedModules.has(cleanViewName) || targetView.innerHTML.trim() === '') {
+        let candidates = [cleanViewName];
+        if (cleanViewName === 'wallet') {
+            candidates = ['wallet', 'wallets', 'tools', 'settings'];
+        } else if (cleanViewName === 'tasks') {
+            candidates = ['tasks', 'task'];
+        } else if (cleanViewName === 'friends') {
+            candidates = ['friends', 'friend'];
+        } else if (cleanViewName === 'games') {
+            candidates = ['games', 'game'];
+        }
+
+        let loadedSuccessfully = false;
         const cacheBuster = `?v=${Date.now()}`;
-        const htmlPath = `./${cleanViewName}/${cleanViewName}.html${cacheBuster}`;
 
-        try {
-            const res = await fetch(htmlPath);
-            if (res.ok) {
-                const htmlContent = await res.text();
-                targetView.innerHTML = htmlContent;
-
-                const jsPath = `./${cleanViewName}/${cleanViewName}.js${cacheBuster}`;
-                await loadModuleScript(jsPath);
-                
-                loadedModules.add(cleanViewName);
-            } else {
-                throw new Error(`HTTP ${res.status}`);
+        for (const candidate of candidates) {
+            const htmlPath = `./${candidate}/${candidate}.html${cacheBuster}`;
+            try {
+                const res = await fetch(htmlPath);
+                if (res.ok) {
+                    const htmlContent = await res.text();
+                    if (htmlContent && htmlContent.trim().length > 0) {
+                        targetView.innerHTML = htmlContent;
+                        const jsPath = `./${candidate}/${candidate}.js${cacheBuster}`;
+                        await loadModuleScript(jsPath);
+                        loadedModules.add(cleanViewName);
+                        loadedSuccessfully = true;
+                        break;
+                    }
+                }
+            } catch (e) {
+                console.warn(`تخطي المسار ${htmlPath}:`, e);
             }
-        } catch (e) {
-            console.warn(`فشل جلب ملف ${cleanViewName}:`, e);
-            targetView.innerHTML = `
-                <div style="padding: 50px 20px; text-align: center; color: #ffffff; direction: rtl;">
-                    <div style="font-size: 40px; margin-bottom: 15px;">⚠️</div>
-                    <h3 style="margin-bottom: 10px; color: #ff5555;">تعذر تحميل قسم (${cleanViewName})</h3>
-                    <p style="color: #aaa; font-size: 14px; margin-bottom: 20px;">يرجى التأكد من وجود ملف ${cleanViewName}/${cleanViewName}.html على السيرفر.</p>
-                    <button onclick="window.switchView('${cleanViewName}')" style="padding: 10px 20px; background: #0088cc; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">
-                        🔄 إعادة المحاولة
-                    </button>
-                </div>`;
+        }
+
+        if (!loadedSuccessfully && targetView.innerHTML.trim() === '') {
+            if (cleanViewName === 'wallet') {
+                targetView.innerHTML = renderDefaultWalletUI();
+            } else {
+                targetView.innerHTML = `
+                    <div style="padding: 50px 20px; text-align: center; color: #ffffff; direction: rtl;">
+                        <div style="font-size: 40px; margin-bottom: 15px;">⚠️</div>
+                        <h3 style="margin-bottom: 10px; color: #ff5555;">تعذر تحميل قسم (${cleanViewName})</h3>
+                        <p style="color: #aaa; font-size: 14px; margin-bottom: 20px;">يرجى التأكد من وجود ملف ${cleanViewName}/${cleanViewName}.html على السيرفر.</p>
+                        <button onclick="window.switchView('${cleanViewName}')" style="padding: 10px 20px; background: #0088cc; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">
+                            🔄 إعادة المحاولة
+                        </button>
+                    </div>`;
+            }
         }
     }
 
     hideLoadingScreen();
 
-    // 4. تشغيل دالة التهيئة المخصصة للتبويب فورياً
+    // 4. تشغيل دالة التهيئة المخصصة للتبويب بأمان
     const runTabInit = () => {
         try {
-            if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
-                window.onFarmTabOpen();
-            } else if (cleanViewName === 'shop' && typeof window.updateShopUI === 'function') {
-                window.updateShopUI();
-            } else if (cleanViewName === 'games' && typeof window.onGamesTabOpen === 'function') {
-                window.onGamesTabOpen();
+            if (cleanViewName === 'farm') {
+                if (typeof window.onFarmTabOpen === 'function') window.onFarmTabOpen();
+                if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
+            } else if (cleanViewName === 'shop') {
+                if (typeof window.updateShopUI === 'function') window.updateShopUI();
+                if (typeof window.initShopView === 'function') window.initShopView();
+            } else if (cleanViewName === 'games') {
+                if (typeof window.onGamesTabOpen === 'function') window.onGamesTabOpen();
+                if (typeof window.initGamesView === 'function') window.initGamesView();
             } else if (cleanViewName === 'friends') {
                 if (typeof window.initFriendsView === 'function') window.initFriendsView();
-                else if (typeof window.onFriendsTabOpen === 'function') window.onFriendsTabOpen();
+                if (typeof window.onFriendsTabOpen === 'function') window.onFriendsTabOpen();
             } else if (cleanViewName === 'wallet') {
                 if (typeof window.initWalletView === 'function') window.initWalletView();
-                else if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
+                if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
+                if (typeof window.updateWalletUI === 'function') window.updateWalletUI();
             } else if (cleanViewName === 'tasks') {
                 if (typeof window.initTasksView === 'function') window.initTasksView();
-                else if (typeof window.onTasksTabOpen === 'function') window.onTasksTabOpen();
+                if (typeof window.onTasksTabOpen === 'function') window.onTasksTabOpen();
             } else {
                 const initFuncName = `init${cleanViewName.charAt(0).toUpperCase() + cleanViewName.slice(1)}View`;
                 if (typeof window[initFuncName] === 'function') {
