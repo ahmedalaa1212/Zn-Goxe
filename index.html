@@ -1,99 +1,81 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-    <!-- Monetag Rewarded Interstitial SDK -->
     <script src='//libtl.com/sdk.js' data-zone='11322720' data-sdk='show_11322720'></script>
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Zn Goxe - Crypto Mining</title>
 
-    <!-- FontAwesome & Telegram SDKs -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     
-    <!-- تحميل مكتبة TON Connect بشكل غير حاط للتحميل (Non-blocking) -->
-    <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js" defer></script>
-    
-    <!-- CSS الخاص بالهيكل العام وأزرار التنقل -->
     <link rel="stylesheet" href="style.css?v=3.3">
 </head>
 <body>
 
-    <!-- حاوية الإشعارات المنبثقة المباشرة -->
     <div id="global-toast-container"></div>
 
-    <!-- شاشة التحميل الرئيسية -->
     <div id="loading-screen">
         <div class="loader-rocket">🚀</div>
         <h2>جاري تحميل اللعبة...</h2>
     </div>
 
-    <!-- حاوية الأقسام الرئيسية -->
     <div id="app" style="display: none;">
-        <!-- واجهة الأصدقاء -->
         <div id="view-friends" class="game-view"></div>
         
-        <!-- واجهة المحفظة -->
         <div id="view-wallet" class="game-view"></div>
 
-        <!-- واجهة المهام -->
         <div id="view-tasks" class="game-view"></div>
 
-        <!-- واجهة المزرعة -->
         <div id="view-farm" class="game-view active"></div>
 
-        <!-- واجهة الألعاب -->
         <div id="view-games" class="game-view"></div>
 
-        <!-- واجهة المتجر -->
         <div id="view-shop" class="game-view"></div>
 
-        <!-- واجهة الإعدادات -->
         <div id="view-settings" class="game-view"></div>
     </div>
 
-    <!-- شريط التنقل السفلي -->
     <nav class="bottom-nav" id="main-nav" style="display: none;">
-        <button class="nav-item" onclick="switchView('friends')" id="nav-friends" data-view="friends">
+        <button class="nav-item" id="nav-friends" data-view="friends">
             <i class="fas fa-users"></i>
             <span>الأصدقاء</span>
         </button>
 
-        <button class="nav-item" onclick="switchView('wallet')" id="nav-wallet" data-view="wallet">
+        <button class="nav-item" id="nav-wallet" data-view="wallet">
             <i class="fas fa-wallet"></i>
             <span>المحفظة</span>
         </button>
 
-        <button class="nav-item" onclick="switchView('tasks')" id="nav-tasks" data-view="tasks">
+        <button class="nav-item" id="nav-tasks" data-view="tasks">
             <i class="fas fa-list-check"></i>
             <span>المهام</span>
         </button>
 
-        <button class="nav-item nav-center-btn active" onclick="switchView('farm')" id="nav-farm" data-view="farm">
+        <button class="nav-item nav-center-btn active" id="nav-farm" data-view="farm">
             <div class="farm-btn-inner">
                 <i class="fas fa-screwdriver-wrench"></i>
                 <span>المزرعة</span>
             </div>
         </button>
 
-        <button class="nav-item" onclick="switchView('games')" id="nav-games" data-view="games">
+        <button class="nav-item" id="nav-games" data-view="games">
             <i class="fas fa-gamepad"></i>
             <span>الألعاب</span>
         </button>
 
-        <button class="nav-item" onclick="switchView('shop')" id="nav-shop" data-view="shop">
+        <button class="nav-item" id="nav-shop" data-view="shop">
             <i class="fas fa-store"></i>
             <span>المتجر</span>
         </button>
 
-        <button class="nav-item" onclick="switchView('settings')" id="nav-settings" data-view="settings">
+        <button class="nav-item" id="nav-settings" data-view="settings">
             <i class="fas fa-cog"></i>
             <span>الإعدادات</span>
         </button>
     </nav>
 
-    <!-- كشف ظهور لوحة المفاتيح الهاتفي -->
     <script>
         (function initKeyboardDetection() {
             const viewport = window.visualViewport;
@@ -118,7 +100,6 @@
         })();
     </script>
 
-    <!-- المحرك الرئيسي المحمل للملفات والأقسام -->
     <script src="game.js?v=3.3"></script>
 </body>
 </html>
