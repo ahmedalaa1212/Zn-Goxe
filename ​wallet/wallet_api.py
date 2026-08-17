@@ -3,11 +3,14 @@ from wallet.wallet_db import save_user_wallet_address, process_withdrawal_reques
 
 wallet_bp = Blueprint('wallet', __name__)
 
+def get_user_id_from_req():
+    return request.headers.get('X-Telegram-User-Id') or request.args.get('user_id') or (request.get_json(silent=True) or {}).get('user_id')
+
 @wallet_bp.route('/api/wallet/save_address', methods=['POST'])
 def save_address():
     try:
         data = request.get_json(silent=True) or {}
-        user_id = request.headers.get('X-Telegram-User-Id') or data.get('user_id')
+        user_id = get_user_id_from_req()
         wallet_address = data.get('wallet_address')
 
         if not user_id or not wallet_address:
@@ -22,7 +25,7 @@ def save_address():
 def withdraw():
     try:
         data = request.get_json(silent=True) or {}
-        user_id = request.headers.get('X-Telegram-User-Id') or data.get('user_id')
+        user_id = get_user_id_from_req()
         amount = float(data.get('amount', 0))
         address = data.get('address')
 
@@ -37,8 +40,8 @@ def withdraw():
 @wallet_bp.route('/api/wallet/history', methods=['GET'])
 def history():
     try:
-        user_id = request.headers.get('X-Telegram-User-Id') or request.args.get('user_id')
-        history_data = get_user_transaction_history(user_id)
+        user_id = get_user_id_from_req()
+        history_data = get_user_transaction_history(user_id) if user_id else []
         return jsonify({"success": True, "history": history_data}), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
