@@ -1,5 +1,4 @@
 <div class="wallet-wrapper" style="padding: 20px; color: #ffffff; direction: rtl; min-height: 100vh; background: #0d131d; box-sizing: border-box;">
-    <!-- الرأسية والإن ان -->
     <div style="background: #161f2e; padding: 20px; border-radius: 16px; margin-bottom: 20px; text-align: center; border: 1px solid rgba(255,255,255,0.08);">
         <h2 style="margin: 0 0 10px 0; font-size: 18px; color: #8a9ba8;">رصيد المحفظة</h2>
         <div id="wallet-main-balance" style="font-size: 28px; font-weight: bold; color: #0088cc; margin-bottom: 5px;">0.00 ZN</div>
@@ -11,15 +10,13 @@
         </div>
     </div>
 
-    <!-- التبويبات الداخلية -->
     <div style="display: flex; gap: 10px; margin-bottom: 20px;">
         <button class="w-tab-btn active" data-tab="deposit" style="flex: 1; padding: 10px; background: #0088cc; border: none; color: white; border-radius: 8px; font-weight: bold; cursor: pointer;">📥 إيداع</button>
         <button class="w-tab-btn" data-tab="withdraw" style="flex: 1; padding: 10px; background: #161f2e; border: none; color: white; border-radius: 8px; font-weight: bold; cursor: pointer;">📤 سحب</button>
         <button class="w-tab-btn" data-tab="history" style="flex: 1; padding: 10px; background: #161f2e; border: none; color: white; border-radius: 8px; font-weight: bold; cursor: pointer;">📜 السجل</button>
     </div>
 
-    <!-- محتوى التبويبات -->
-    <div id="subtab-deposit" class="w-tab-pane active">
+    <div id="subtab-deposit" class="w-tab-pane active" style="display: block;">
         <div style="background: #161f2e; padding: 15px; border-radius: 12px;">
             <p style="font-size: 14px; color: #ccc;">عنوان الإيداع الخاص بك (TON):</p>
             <input type="text" id="deposit-address-input" readonly value="EQD...ZN_DEPOSIT_ADDRESS" style="width: 100%; padding: 10px; background: #0d131d; border: 1px solid #333; color: #fff; border-radius: 8px; text-align: center; margin-bottom: 10px; box-sizing: border-box;">
