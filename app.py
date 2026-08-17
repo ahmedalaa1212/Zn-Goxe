@@ -41,33 +41,13 @@ app.register_blueprint(shop_bp, url_prefix='/api/shop')
 app.register_blueprint(support_bp, url_prefix='/api/support')
 app.register_blueprint(admin_chat_bp, url_prefix='/api/admin-chat')
 
-# 💳 تسجيل موديول المحفظة والقوائم الفرعية بشكل آمن
+# 💳 تسجيل موديول المحفظة الرئيسي بشكل نقي لمنع تكرار الـ Prefix (/api/wallet)
 try:
     from wallet.wallet_api import wallet_bp
     app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
-    print("✅ تم تسجيل موديول المحفظة (wallet_bp) بنجاح!")
-    
-    # ربط مسارات الـ 3 قوائم الخاصة بالمحفظة (بدون كسر في حال كانت الملفات فارغة)
-    try:
-        from wallet.deposit.deposit_api import deposit_bp
-        app.register_blueprint(deposit_bp, url_prefix='/api/wallet/deposit')
-    except Exception as e:
-        print(f"⚠️ جاري تجهيز موديول الإيداع: {e}")
-        
-    try:
-        from wallet.withdraw.withdraw_api import withdraw_bp
-        app.register_blueprint(withdraw_bp, url_prefix='/api/wallet/withdraw')
-    except Exception as e:
-        print(f"⚠️ جاري تجهيز موديول السحب: {e}")
-        
-    try:
-        from wallet.history.history_api import history_bp
-        app.register_blueprint(history_bp, url_prefix='/api/wallet/history')
-    except Exception as e:
-        print(f"⚠️ جاري تجهيز موديول السجلات: {e}")
-
+    print("✅ تم تسجيل موديول المحفظة (wallet_bp) بنجاح على /api/wallet!")
 except Exception as e:
-    print(f"⚠️ تعذر تحميل موديول المحفظة الرئيسي: {e}")
+    print(f"❌ تعذر تحميل موديول المحفظة الرئيسي: {e}")
 
 # ⚡ تسجيل موديول الألعاب بشكل آمن
 try:
@@ -194,7 +174,6 @@ def serve_static(path):
     if path_lower == 'tonconnect-manifest.json':
         return serve_tonconnect_manifest()
     
-    # حظر الامتدادات والملفات الحساسة
     forbidden_extensions = ('.py', '.env', '.sh', '.git', '.pem', '.key', '.db', '.sqlite')
     forbidden_files = ('firebase-adminsdk.json', 'config.json', 'requirements.txt', 'dockerfile')
     
@@ -205,7 +184,6 @@ def serve_static(path):
     if os.path.exists(target_file) and os.path.isfile(target_file):
         return send_from_directory(BASE_DIR, path_clean)
 
-    # حماية من إرجاع index.html عند طلب ملفات البرمجة والواجهات المفقودة
     if path_clean.startswith('api/') or any(path_lower.endswith(ext) for ext in ('.html', '.js', '.css', '.json')):
         return jsonify({"success": False, "error": f"File not found: {path_clean}"}), 404
         
