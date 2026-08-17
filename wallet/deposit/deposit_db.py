@@ -2,7 +2,7 @@ import sqlite3
 import uuid
 
 DB_PATH = 'database.db'
-OFFICIAL_TON_WALLET = 'UQCK...VGtc'  # عنوان محفظة TON الرسمية المربوطة
+OFFICIAL_TON_WALLET = 'UQCK...VGtc'  # عنوان محفظة TON الرسمية
 
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH, timeout=10.0)
@@ -10,13 +10,35 @@ def get_db_connection():
     return conn
 
 def init_deposit_tables():
-    """إنشاء جداول الباقات والسجلات تلقائياً وإضافة الباقات الـ 5 إذا لم تكن موجودة"""
+    """إنشاء ومزامنة مستند deposit_settings في Firebase Firestore وجداول SQLite"""
+    # 1. إنشاء ومزامنة المستند في Firebase Firestore تحت مجموعة settings
+    try:
+        from database import get_db
+        fs_db = get_db()
+        if fs_db:
+            doc_ref = fs_db.collection('settings').document('deposit_settings')
+            doc = doc_ref.get()
+            if not doc.exists:
+                doc_ref.set({
+                    'official_ton_wallet': OFFICIAL_TON_WALLET,
+                    'packages': [
+                        {'id': 1, 'usdt_amount': 0.5, 'name_ar': 'باقة $0.5 USDT', 'is_active': True, 'sort_order': 1},
+                        {'id': 2, 'usdt_amount': 1.5, 'name_ar': 'باقة $1.5 USDT', 'is_active': True, 'sort_order': 2},
+                        {'id': 3, 'usdt_amount': 5.0, 'name_ar': 'باقة $5 USDT', 'is_active': True, 'sort_order': 3},
+                        {'id': 4, 'usdt_amount': 10.0, 'name_ar': 'باقة $10 USDT', 'is_active': True, 'sort_order': 4},
+                        {'id': 5, 'usdt_amount': 15.0, 'name_ar': 'باقة $15 USDT', 'is_active': True, 'sort_order': 5}
+                    ]
+                })
+                print("✅ تم إنشاء مستند deposit_settings بنجاح في Firebase Firestore داخل مجموعة settings!")
+    except Exception as e:
+        print(f"⚠️ تنبيه أثناء إعداد مستند Firebase deposit_settings: {e}")
+
+    # 2. إنشاء الجداول المحلية SQLite
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # جدول باقات الشحن المستقل لسهولة التعديل مستقبلاً
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS deposit_packages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,7 +49,6 @@ def init_deposit_tables():
             )
         ''')
 
-        # جدول سجلات وتتبع عمليات الإيداع
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS deposit_invoices (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,30 +63,46 @@ def init_deposit_tables():
 
         conn.commit()
 
-        # إضافة الباقات الـ 5 المحددة إن كانت القائمة فارغة
         cursor.execute("SELECT COUNT(*) as count FROM deposit_packages")
         if cursor.fetchone()['count'] == 0:
             default_packages = [
-                (0.5, "باقة $0.5 USDT", 1, 1),
-                (1.5, "باقة $1.5 USDT", 1, 2),
-                (5.0, "باقة $5 USDT", 1, 3),
-                (10.0, "باقة $10 USDT", 1, 4),
-                (15.0, "باقة $15 USDT", 1, 5)
+                (1, 0.5, "باقة $0.5 USDT", 1, 1),
+                (2, 1.5, "باقة $1.5 USDT", 1, 2),
+                (3, 5.0, "باقة $5 USDT", 1, 3),
+                (4, 10.0, "باقة $10 USDT", 1, 4),
+                (5, 15.0, "باقة $15 USDT", 1, 5)
             ]
             cursor.executemany(
-                "INSERT INTO deposit_packages (usdt_amount, name_ar, is_active, sort_order) VALUES (?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO deposit_packages (id, usdt_amount, name_ar, is_active, sort_order) VALUES (?, ?, ?, ?, ?)",
                 default_packages
             )
             conn.commit()
     except Exception as e:
-        print(f"Error initializing deposit tables: {e}")
+        print(f"Error initializing SQLite deposit tables: {e}")
     finally:
         if conn:
             conn.close()
 
 def get_active_deposit_packages():
-    """جلب الباقات المتاحة مرتبة"""
+    """جلب الباقات المتاحة من Firebase أولاً للتزامن اللحظي، ثم SQLite كاحتياطي"""
     init_deposit_tables()
+    
+    # محاولة الجلب المباشر من Firebase Firestore
+    try:
+        from database import get_db
+        fs_db = get_db()
+        if fs_db:
+            doc = fs_db.collection('settings').document('deposit_settings').get()
+            if doc.exists:
+                data = doc.to_dict()
+                packages = [p for p in data.get('packages', []) if p.get('is_active', True)]
+                if packages:
+                    packages.sort(key=lambda x: x.get('sort_order', 0))
+                    return packages
+    except Exception as e:
+        print(f"⚠️ قراءة الباقات من Firebase فشلت، الانتقال للنسخة المحلية: {e}")
+
+    # الاحتياطي المحلي SQLite
     conn = None
     try:
         conn = get_db_connection()
@@ -75,28 +112,25 @@ def get_active_deposit_packages():
         return [dict(row) for row in rows]
     except Exception as e:
         print(f"Error fetching packages: {e}")
-        return []
+        return [
+            {'id': 1, 'usdt_amount': 0.5, 'name_ar': 'باقة $0.5 USDT'},
+            {'id': 2, 'usdt_amount': 1.5, 'name_ar': 'باقة $1.5 USDT'},
+            {'id': 3, 'usdt_amount': 5.0, 'name_ar': 'باقة $5 USDT'},
+            {'id': 4, 'usdt_amount': 10.0, 'name_ar': 'باقة $10 USDT'},
+            {'id': 5, 'usdt_amount': 15.0, 'name_ar': 'باقة $15 USDT'}
+        ]
     finally:
         if conn:
             conn.close()
 
 def get_package_by_id(pkg_id: int):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM deposit_packages WHERE id = ?", (pkg_id,))
-        row = cursor.fetchone()
-        return dict(row) if row else None
-    except Exception as e:
-        print(f"Error fetching package: {e}")
-        return None
-    finally:
-        if conn:
-            conn.close()
+    packages = get_active_deposit_packages()
+    for pkg in packages:
+        if int(pkg.get('id', 0)) == int(pkg_id):
+            return pkg
+    return None
 
 def create_deposit_invoice(user_id: int, usdt_amount: float, ton_amount: float) -> dict:
-    """إنشاء وتوثيق فاتورة الإيداع مع توليد رمز Memo فريد"""
     conn = None
     memo = f"DEP-{user_id}-{uuid.uuid4().hex[:6].upper()}"
     try:
@@ -121,5 +155,4 @@ def create_deposit_invoice(user_id: int, usdt_amount: float, ton_amount: float) 
         if conn:
             conn.close()
 
-# تهيئة الجداول تلقائياً عند استدعاء الملف
 init_deposit_tables()
