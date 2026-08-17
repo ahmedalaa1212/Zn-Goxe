@@ -36,21 +36,31 @@ def get_user_wallet_balances(user_id: int) -> dict:
             conn.close()
 
 def update_user_balance(user_id: int, amount: float, currency: str = 'zn', operation: str = 'add') -> bool:
-    """تعديل الرصيد بحماية ضد الثغرات ومعالجة آمنة للعمليات"""
+    """تعديل آمن ومزدوج للرصيد بذكاء لضمان تطابق كافة أعمدة قاعدة البيانات تلقائياً"""
     conn = None
-    col_name = 'zn_balance' if currency.lower() == 'zn' else 'usdt_balance'
+    curr = str(currency).lower()
+    
+    if curr in ['zn', 'balance']:
+        target_cols = ['zn_balance', 'balance']
+    else:
+        target_cols = ['usdt_balance', 'usd_balance']
     
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         operator = '+' if operation == 'add' else '-'
         
-        query = f"UPDATE users SET {col_name} = MAX(0, {col_name} {operator} ?) WHERE user_id = ? OR tg_id = ?"
-        cursor.execute(query, (abs(amount), user_id, user_id))
+        set_statements = [f"{col} = MAX(0, COALESCE({col}, 0) {operator} ?)" for col in target_cols]
+        set_clause = ", ".join(set_statements)
+        
+        params = [abs(float(amount))] * len(target_cols) + [user_id, user_id]
+        
+        query = f"UPDATE users SET {set_clause} WHERE user_id = ? OR tg_id = ?"
+        cursor.execute(query, params)
         conn.commit()
         return True
     except Exception as e:
-        print(f"Error updating balance: {e}")
+        print(f"Error updating balance in database: {e}")
         if conn:
             conn.rollback()
         return False
