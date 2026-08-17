@@ -545,7 +545,7 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 8. التنقل الديناميكي المحصن وحقن الموديولات تلقائياً
+// 8. التنقل الديناميكي المحصن وحقن ملفات HTML مباشرة
 // ==========================================
 const loadedModules = new Set();
 
@@ -556,7 +556,7 @@ window.switchView = async function(viewName) {
     if (cleanViewName === 'wallets') cleanViewName = 'wallet';
     if (cleanViewName === 'game') cleanViewName = 'games';
     if (cleanViewName === 'task') cleanViewName = 'tasks';
-    if (cleanViewName === 'user') cleanViewName = 'users';
+    if (cleanViewName === 'user' || cleanViewName === 'friends' || cleanViewName === 'friend') cleanViewName = 'friends';
 
     // 1. تحديث زر القائمة السفلية
     document.querySelectorAll('.nav-item, [id^="nav-"]').forEach(btn => btn.classList.remove('active'));
@@ -584,13 +584,8 @@ window.switchView = async function(viewName) {
     targetView.style.width = '100%';
     targetView.style.minHeight = '100vh';
 
-    // 3. التحقق إذا كان القسم محملاً مسبقاً في DOM
-    if (targetView.children.length > 0 && !loadedModules.has(cleanViewName)) {
-        loadedModules.add(cleanViewName);
-    }
-
-    // 4. جلب المحتوى والموديول بمسارات متعددة لضمان التحميل
-    if (!loadedModules.has(cleanViewName)) {
+    // 3. جلب المحتوى المباشر من ملف الـ HTML الخاص بكل قسم
+    if (!loadedModules.has(cleanViewName) || targetView.innerHTML.trim() === '') {
         const cacheBuster = `?v=${Date.now()}`;
         const pathsToTry = [
             `./${cleanViewName}/${cleanViewName}.html${cacheBuster}`,
@@ -605,15 +600,16 @@ window.switchView = async function(viewName) {
                 const res = await fetch(path);
                 if (res.ok) {
                     const htmlContent = await res.text();
-                    // تأكد أن المحتوى جلب HTML حقيقي وليس صفحة خطأ
-                    if (htmlContent && !htmlContent.includes("<!DOCTYPE html>")) {
+                    // التحقق من جلب محتوى html حقيقي وليس تحويل صفحة الخطأ SPA
+                    if (htmlContent && !htmlContent.trim().toLowerCase().startsWith('<!doctype html')) {
                         targetView.innerHTML = htmlContent;
                     } else if (htmlContent) {
-                        // إذا كانت استجابة السيرفر صفحة رئيسية كاملة (SPA Fallback)، قم باستخراج المحتوى الداخلي فقط
                         const parser = new DOMParser();
                         const doc = parser.parseFromString(htmlContent, 'text/html');
                         const innerView = doc.querySelector(`#view-${cleanViewName}`) || doc.body;
-                        targetView.innerHTML = innerView.innerHTML;
+                        if (innerView) {
+                            targetView.innerHTML = innerView.innerHTML;
+                        }
                     }
 
                     const jsPath = path.replace('.html', '.js');
@@ -633,7 +629,7 @@ window.switchView = async function(viewName) {
                 <div style="padding: 50px 20px; text-align: center; color: #ffffff; direction: rtl;">
                     <div style="font-size: 40px; margin-bottom: 15px;">⚠️</div>
                     <h3 style="margin-bottom: 10px; color: #ff5555;">تعذر تحميل قسم (${cleanViewName})</h3>
-                    <p style="color: #aaa; font-size: 14px; margin-bottom: 20px;">يرجى التأكد من وجود ملفات ${cleanViewName}/${cleanViewName}.html على السيرفر.</p>
+                    <p style="color: #aaa; font-size: 14px; margin-bottom: 20px;">يرجى التأكد من مسار ${cleanViewName}/${cleanViewName}.html على السيرفر.</p>
                     <button onclick="window.switchView('${cleanViewName}')" style="padding: 10px 20px; background: #0088cc; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">
                         🔄 إعادة المحاولة
                     </button>
@@ -643,7 +639,7 @@ window.switchView = async function(viewName) {
 
     hideLoadingScreen();
 
-    // 5. تشغيل دالة التهيئة المخصصة للتبويب فورياً وبطريقة آمنة
+    // 4. تشغيل دالة التهيئة المخصصة للتبويب فورياً
     const runTabInit = () => {
         try {
             if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
@@ -652,14 +648,17 @@ window.switchView = async function(viewName) {
                 window.updateShopUI();
             } else if (cleanViewName === 'games' && typeof window.onGamesTabOpen === 'function') {
                 window.onGamesTabOpen();
+            } else if (cleanViewName === 'friends') {
+                if (typeof window.initFriendsView === 'function') window.initFriendsView();
+                else if (typeof window.onFriendsTabOpen === 'function') window.onFriendsTabOpen();
             } else if (cleanViewName === 'wallet') {
                 if (typeof window.initWalletView === 'function') window.initWalletView();
                 else if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
             } else if (cleanViewName === 'tasks') {
                 if (typeof window.initTasksView === 'function') window.initTasksView();
                 else if (typeof window.onTasksTabOpen === 'function') window.onTasksTabOpen();
-            } else if (cleanViewName === 'users') {
-                if (typeof window.initUsersView === 'function') window.initUsersView();
+            } else if (cleanViewName === 'settings') {
+                if (typeof window.initSettingsView === 'function') window.initSettingsView();
             } else {
                 const initFuncName = `init${cleanViewName.charAt(0).toUpperCase() + cleanViewName.slice(1)}View`;
                 if (typeof window[initFuncName] === 'function') {
