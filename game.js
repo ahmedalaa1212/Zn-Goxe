@@ -45,7 +45,6 @@ function hideLoadingScreen() {
         }, 200);
     });
 }
-window.hideLoadingScreen = hideLoadingScreen;
 
 function getSavedState() {
     const startParam = tg?.initDataUnsafe?.start_param || null;
@@ -134,6 +133,7 @@ window.addEventListener('beforeunload', () => {
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
     
+    // إضافة معرف المستخدم ورأس المبادرة تلقائياً
     if (window.userState?.tg_id) {
         headers['X-Telegram-User-Id'] = String(window.userState.tg_id);
     }
@@ -336,8 +336,10 @@ window.initFirebaseRealtimeSync = function(userId) {
             } finally {
                 isFirebaseUpdating = false;
                 persistUserStateToLocalStorage(window.userState);
-                if (typeof window.updateUI === 'function') window.updateUI();
-                if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
+                window.updateUI();
+                if (typeof window.updateFarmUI === 'function') {
+                    window.updateFarmUI();
+                }
                 window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
             }
         }, err => console.error("Firebase Sync Error:", err));
@@ -473,42 +475,268 @@ function renderSmoothBalance(targetVal) {
 
     if (visualBalance === null || isNaN(visualBalance)) {
         visualBalance = targetVal;
+        applyBalanceToUI(visualBalance);
+        return;
+    }
+
+    const diff = targetVal - visualBalance;
+    if (Math.abs(diff) > 10) {
+        visualBalance = targetVal;
+    } else if (Math.abs(diff) < 0.000001) {
+        visualBalance = targetVal;
     } else {
-        const diff = targetVal - visualBalance;
-        if (Math.abs(diff) < 0.000001) {
-            visualBalance = targetVal;
+        visualBalance += diff * 0.08;
+    }
+    applyBalanceToUI(visualBalance);
+}
+
+function applyBalanceToUI(val) {
+    const formatted = window.formatNumberHTML(val);
+    const rawFormatted = window.formatBalance(val);
+    
+    const selectors = '[data-bind="balance"], .user-balance, #farm-balance, #user-balance, #main-balance, #balance, .sync-balance, #top-balance-tasks, .user-balance-val, [data-bind="user_balance"]';
+    
+    document.querySelectorAll(selectors).forEach(el => {
+        if (el.id === 'shop-balance-text' || el.id === 'top-balance-games') return;
+
+        if (el.tagName === 'INPUT') {
+            el.value = rawFormatted;
+        } else if (el.id === 'top-balance-tasks') {
+            el.innerText = `ZN ${rawFormatted}`;
         } else {
-            visualBalance += diff * 0.1;
+            if (el.classList.contains('plain-text')) {
+                el.innerText = `${rawFormatted} ZN`;
+            } else {
+                el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">${formatted} ZN</span>`;
+            }
+        }
+    });
+}
+
+window.updateUI = function() {
+    window.updateClaimButtonState();
+    window.updateTonPriceUI();
+
+    const currentMaxCap = parseFloat(window.userState.max_cap ?? 100);
+    document.querySelectorAll('#storage-max, .max-storage-val, [data-bind="max_cap"], #farm-storage-max').forEach(el => {
+        if (el.tagName === 'INPUT') {
+            el.value = currentMaxCap.toFixed(2);
+        } else {
+            el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">${window.formatBalance(currentMaxCap)}</span>`;
+        }
+    });
+
+    const adBal = parseFloat(window.userState.ad_balance || 0);
+    const formattedAd = window.formatBalance(adBal);
+    document.querySelectorAll('#ad-balance-display, .ad-balance-val, [data-bind="ad_balance"]').forEach(el => {
+        if (el.id === 'ad-balance-display') {
+            el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">AdZN ${formattedAd}</span>`;
+        } else {
+            el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">${formattedAd}</span>`;
+        }
+    });
+
+    const usdBal = parseFloat(window.userState.usd_balance || 0);
+    const formattedUsd = window.formatBalance(usdBal);
+    document.querySelectorAll('.usd-balance-val, [data-bind="usd_balance"]').forEach(el => {
+        if (el.id === 'shop-usd-text') return;
+        el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">$${formattedUsd}</span>`;
+    });
+
+    if (visualBalance === null && window.userState?.balance !== undefined) {
+        visualBalance = parseFloat(window.userState.balance) || 0;
+        applyBalanceToUI(visualBalance);
+    }
+};
+
+// ==========================================
+// 8. التنقل الديناميكي المحصن وحقن ملفات HTML مباشرة
+// ==========================================
+const loadedModules = new Set();
+
+window.switchView = async function(viewName) {
+    if (!viewName) return;
+
+    let cleanViewName = String(viewName).toLowerCase().replace('nav-', '').replace('view-', '');
+    if (cleanViewName === 'wallets' || cleanViewName === 'tools' || cleanViewName === 'settings' || cleanViewName === 'wallet') cleanViewName = 'wallet';
+    if (cleanViewName === 'game') cleanViewName = 'games';
+    if (cleanViewName === 'task') cleanViewName = 'tasks';
+    if (cleanViewName === 'user' || cleanViewName === 'friends' || cleanViewName === 'friend') cleanViewName = 'friends';
+
+    // 1. تحديث إضاءة أزرار القائمة السفلى
+    document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
+    const targetNav = document.getElementById(`nav-${cleanViewName}`) || document.querySelector(`[data-view="${cleanViewName}"]`);
+    if (targetNav) targetNav.classList.add('active');
+
+    // 2. إخفاء الشاشات الأخرى وتفعيل الحاوية الحالية
+    document.querySelectorAll('.game-view, [id^="view-"]').forEach(v => {
+        v.classList.remove('active');
+        v.style.display = 'none';
+    });
+    
+    let targetView = document.getElementById(`view-${cleanViewName}`);
+    
+    if (!targetView) {
+        const appContainer = document.getElementById('app') || document.body;
+        targetView = document.createElement('div');
+        targetView.id = `view-${cleanViewName}`;
+        targetView.className = 'game-view';
+        appContainer.appendChild(targetView);
+    }
+    
+    targetView.classList.add('active');
+    targetView.style.display = 'block';
+    targetView.style.width = '100%';
+    targetView.style.minHeight = '100vh';
+
+    // 3. جلب المحتوى المباشر من ملف الـ HTML الخاص بكل قسم
+    if (!loadedModules.has(cleanViewName) || targetView.innerHTML.trim() === '') {
+        const cacheBuster = `?v=${Date.now()}`;
+        const htmlPath = `./${cleanViewName}/${cleanViewName}.html${cacheBuster}`;
+
+        try {
+            const res = await fetch(htmlPath);
+            if (res.ok) {
+                const htmlContent = await res.text();
+                targetView.innerHTML = htmlContent;
+
+                const jsPath = `./${cleanViewName}/${cleanViewName}.js${cacheBuster}`;
+                await loadModuleScript(jsPath);
+                
+                loadedModules.add(cleanViewName);
+            } else {
+                throw new Error(`HTTP ${res.status}`);
+            }
+        } catch (e) {
+            console.warn(`فشل جلب ملف ${cleanViewName}:`, e);
+            targetView.innerHTML = `
+                <div style="padding: 50px 20px; text-align: center; color: #ffffff; direction: rtl;">
+                    <div style="font-size: 40px; margin-bottom: 15px;">⚠️</div>
+                    <h3 style="margin-bottom: 10px; color: #ff5555;">تعذر تحميل قسم (${cleanViewName})</h3>
+                    <p style="color: #aaa; font-size: 14px; margin-bottom: 20px;">يرجى التأكد من وجود ملف ${cleanViewName}/${cleanViewName}.html على السيرفر.</p>
+                    <button onclick="window.switchView('${cleanViewName}')" style="padding: 10px 20px; background: #0088cc; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">
+                        🔄 إعادة المحاولة
+                    </button>
+                </div>`;
         }
     }
 
-    const balanceElems = document.querySelectorAll('#user-balance, .user-balance, [data-bind="balance"]');
-    balanceElems.forEach(el => {
-        el.innerText = window.formatBalance(visualBalance);
+    hideLoadingScreen();
+
+    // 4. تشغيل دالة التهيئة المخصصة للتبويب فورياً
+    const runTabInit = () => {
+        try {
+            if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
+                window.onFarmTabOpen();
+            } else if (cleanViewName === 'shop' && typeof window.updateShopUI === 'function') {
+                window.updateShopUI();
+            } else if (cleanViewName === 'games' && typeof window.onGamesTabOpen === 'function') {
+                window.onGamesTabOpen();
+            } else if (cleanViewName === 'friends') {
+                if (typeof window.initFriendsView === 'function') window.initFriendsView();
+                else if (typeof window.onFriendsTabOpen === 'function') window.onFriendsTabOpen();
+            } else if (cleanViewName === 'wallet') {
+                if (typeof window.initWalletView === 'function') window.initWalletView();
+                else if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
+            } else if (cleanViewName === 'tasks') {
+                if (typeof window.initTasksView === 'function') window.initTasksView();
+                else if (typeof window.onTasksTabOpen === 'function') window.onTasksTabOpen();
+            } else {
+                const initFuncName = `init${cleanViewName.charAt(0).toUpperCase() + cleanViewName.slice(1)}View`;
+                if (typeof window[initFuncName] === 'function') {
+                    window[initFuncName]();
+                }
+            }
+        } catch (err) {
+            console.error(`⚠️ خطأ في تشغيل دالة ${cleanViewName}:`, err);
+        }
+        window.updateUI();
+    };
+
+    runTabInit();
+    setTimeout(runTabInit, 100);
+};
+
+function loadModuleScript(scriptUrl) {
+    return new Promise((resolve) => {
+        const cleanUrl = scriptUrl.split('?')[0];
+        const existingScript = document.querySelector(`script[src*="${cleanUrl}"]`);
+        
+        if (existingScript) {
+            existingScript.remove();
+        }
+        
+        const script = document.createElement('script');
+        script.src = scriptUrl;
+        script.onload = () => resolve(true); 
+        script.onerror = () => {
+            console.warn(`تعذر تحميل سكريبت الموديول: ${scriptUrl}`);
+            resolve(false);
+        }; 
+        document.body.appendChild(script);
     });
 }
 
 // ==========================================
-// 8. تشغيل التطبيق وإخفاء شاشة التحميل التلقائي
+// 9. ربط النقر التلقائي بجميع أزرار التبويب ومنع Reload
 // ==========================================
-document.addEventListener('DOMContentLoaded', () => {
-    startLocalMiningSimulator();
-    window.fetchTonPrice();
+function bindGlobalNavEvents() {
+    document.addEventListener('click', (e) => {
+        const navBtn = e.target.closest('.nav-item, [data-view], [id^="nav-"]');
+        if (navBtn) {
+            let viewName = navBtn.dataset.view || navBtn.id?.replace('nav-', '');
+            if (viewName) {
+                e.preventDefault();
+                e.stopPropagation();
+                window.switchView(viewName);
+            }
+        }
+    });
+}
 
-    if (window.userState?.tg_id && typeof window.initFirebaseRealtimeSync === 'function') {
-        window.initFirebaseRealtimeSync(window.userState.tg_id);
+// ==========================================
+// 10. بدء التطبيق
+// ==========================================
+window.loadUserData = async function() {
+    try {
+        const startParam = tg?.initDataUnsafe?.start_param || null;
+        const d = await window.fetchAPI('/api/farm/player_data', 'POST', {
+            referrer_id: startParam,
+            first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب"
+        });
+        if (d?.success) {
+            const u = d.player || d.user || d.data || {};
+            Object.assign(window.userState, u);
+        }
+    } catch (err) {
+        console.error("Error player_data:", err);
+    } finally { 
+        window.updateUI();
+        if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
+        hideLoadingScreen();
     }
+};
 
-    // إخفاء شاشة الصاروخ فور إتمام التهيئة
-    setTimeout(() => {
-        hideLoadingScreen();
-    }, 300);
-});
+function initApp() {
+    bindGlobalNavEvents();
+    window.updateUI();
+    window.fetchTonPrice();
+    
+    // إجبار فتح قسم المزرعة افتراضياً
+    window.switchView('farm');
+    
+    // مؤقت أمان لحذف شاشة التحميل فوراً ومنع التجمد
+    setTimeout(hideLoadingScreen, 1200);
 
-// إجراء احتياطي في حالة تم تحميل المستند بالفعل
-if (document.readyState === 'interactive' || document.readyState === 'complete') {
+    window.loadUserData().then(() => {
+        const uid = window.userState.tg_id || tg?.initDataUnsafe?.user?.id;
+        if (uid) window.initFirebaseRealtimeSync(uid);
+    });
     startLocalMiningSimulator();
-    setTimeout(() => {
-        hideLoadingScreen();
-    }, 300);
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+} else {
+    initApp();
 }
