@@ -1,6 +1,13 @@
 window.depositModule = (function () {
     let tonPriceUsd = 1.32;
-    let currentPackages = [];
+    // الباقات الـ 5 الافتراضية لمنع تعليق الشاشة إطلاقاً
+    let currentPackages = [
+        { id: 1, usdt_amount: 0.5, name_ar: "باقة $0.5 USDT" },
+        { id: 2, usdt_amount: 1.5, name_ar: "باقة $1.5 USDT" },
+        { id: 3, usdt_amount: 5.0, name_ar: "باقة $5 USDT" },
+        { id: 4, usdt_amount: 10.0, name_ar: "باقة $10 USDT" },
+        { id: 5, usdt_amount: 15.0, name_ar: "باقة $15 USDT" }
+    ];
 
     async function fetchTonLivePrice() {
         try {
@@ -12,25 +19,24 @@ window.depositModule = (function () {
                 if (priceElem) priceElem.innerText = `$${tonPriceUsd.toFixed(2)}`;
             }
         } catch (e) {
-            console.warn("⚠️ استخدام السعر المرجعي الافتراضي لـ TON:", e);
+            console.warn("⚠️ استخدام السعر المرجعي لـ TON:", e);
         }
     }
 
     async function loadPackages() {
-        const grid = document.getElementById('deposit-packages-grid');
-        if (!grid) return;
+        renderPackages(currentPackages); // عرض فورى للباقات أولاً
 
         try {
             const res = await fetch('/api/wallet/deposit/packages');
-            const data = await res.json();
-
-            if (data.success && data.packages) {
-                currentPackages = data.packages;
-                renderPackages(data.packages);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success && data.packages && data.packages.length > 0) {
+                    currentPackages = data.packages;
+                    renderPackages(data.packages);
+                }
             }
         } catch (err) {
-            console.error("فشل جلب باقات الشحن:", err);
-            if (grid) grid.innerHTML = `<div style="color:#ef4444; grid-column:1/-1; text-align:center; padding:15px;">فشل تحميل الباقات، حاول مجدداً</div>`;
+            console.warn("⚠️ الاعتماد على باقات الإيداع المحمّلة إفتراضياً:", err);
         }
     }
 
@@ -41,7 +47,7 @@ window.depositModule = (function () {
         grid.innerHTML = packages.map(pkg => {
             const tonEst = (pkg.usdt_amount / tonPriceUsd).toFixed(3);
             return `
-                <div onclick="window.depositModule?.selectPackage(${pkg.id})" style="background: linear-gradient(145deg, rgba(255,255,255,0.05), rgba(15,23,42,0.6)); border: 1px solid rgba(0, 152, 234, 0.25); border-radius: 14px; padding: 14px 10px; text-align: center; cursor: pointer; transition: all 0.2s ease; position: relative; overflow: hidden;" onmouseover="this.style.borderColor='#0098EA'; this.style.transform='translateY(-2px)';" onmouseout="this.style.borderColor='rgba(0, 152, 234, 0.25)'; this.style.transform='translateY(0)';">
+                <div onclick="window.depositModule?.selectPackage(${pkg.id})" style="background: linear-gradient(145deg, rgba(255,255,255,0.06), rgba(15,23,42,0.7)); border: 1px solid rgba(0, 152, 234, 0.3); border-radius: 14px; padding: 14px 10px; text-align: center; cursor: pointer; transition: all 0.2s ease; position: relative; overflow: hidden;">
                     <div style="font-size: 22px; margin-bottom: 4px;">💎</div>
                     <div style="font-size: 16px; font-weight: 800; color: #34d399; margin-bottom: 2px;">+$${pkg.usdt_amount} USDT</div>
                     <div style="font-size: 11px; color: #94a3b8; margin-bottom: 10px;">بشراء بعملة TON</div>
@@ -67,7 +73,7 @@ window.depositModule = (function () {
                     'Content-Type': 'application/json',
                     'X-Telegram-User-Id': String(userId)
                 },
-                body: JSON.stringify({ package_id: packageId, ton_price: tonPriceUsd })
+                body: JSON.stringify({ package_id: packageId, ton_price: tonPriceUsd, usdt_amount: pkg.usdt_amount })
             });
 
             const data = await res.json();
