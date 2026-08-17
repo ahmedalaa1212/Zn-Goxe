@@ -98,10 +98,14 @@ window.userState = new Proxy(getSavedState(), {
     set(target, prop, value) {
         if (['balance', 'usd_balance', 'ad_balance', 'hourly_rate', 'extra_storage', 'max_cap', 'unclaimed'].includes(prop)) {
             const num = parseFloat(value);
-            target[prop] = isNaN(num) ? 0.0 : num;
-        } else {
-            target[prop] = value;
+            value = isNaN(num) ? 0.0 : num;
         }
+
+        if (target[prop] === value && typeof value !== 'object') {
+            return true;
+        }
+
+        target[prop] = value;
         
         if (!window.PlayerData) window.PlayerData = {};
         window.PlayerData[prop] = target[prop];
@@ -112,7 +116,7 @@ window.userState = new Proxy(getSavedState(), {
                 if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
                 saveDebounceTimer = setTimeout(() => {
                     persistUserStateToLocalStorage(target);
-                }, 500);
+                }, 400);
             }
 
             if (typeof window.updateUI === 'function') window.updateUI();
@@ -305,13 +309,20 @@ window.activateTenXBoost = async function(durationHours = 1) {
 };
 
 // ==========================================
-// 5. الاستماع اللحظي Firestore (Realtime Sync & Global Event)
+// 5. الاستماع اللحظي المحصن Firestore (Realtime Sync & Cost Savings)
 // ==========================================
+window._firebaseUnsubscribe = null;
+
 window.initFirebaseRealtimeSync = function(userId) {
     if (!window.db || !userId) return;
     
+    if (window._firebaseUnsubscribe) {
+        window._firebaseUnsubscribe();
+        window._firebaseUnsubscribe = null;
+    }
+
     try {
-        window.db.collection('users').doc(String(userId)).onSnapshot(doc => {
+        window._firebaseUnsubscribe = window.db.collection('users').doc(String(userId)).onSnapshot(doc => {
             if (!doc.exists) return;
             const d = doc.data() || {};
             
@@ -323,12 +334,15 @@ window.initFirebaseRealtimeSync = function(userId) {
 
                 if (d.balance !== undefined && d.balance !== null) {
                     const bal = parseFloat(d.balance);
-                    if (!isNaN(bal)) window.userState.balance = bal;
+                    if (!isNaN(bal) && window.userState.balance !== bal) window.userState.balance = bal;
                 }
-                if (d.usd_balance !== undefined) window.userState.usd_balance = parseFloat(d.usd_balance) || 0;
+                if (d.usd_balance !== undefined) {
+                    const u = parseFloat(d.usd_balance) || 0;
+                    if (window.userState.usd_balance !== u) window.userState.usd_balance = u;
+                }
                 
                 ['ad_balance', 'hourly_rate', 'energy', 'storage_level', 'extra_storage', 'max_cap', 'daily_streak', 'daily_day', 'last_daily_claim_date', 'upgrades', 'last_claim_time', 'unclaimed', 'boost_multiplier', 'boost_active', 'boost_expires_at', 'wallet_address'].forEach(k => {
-                    if (d[k] !== undefined) {
+                    if (d[k] !== undefined && window.userState[k] !== d[k]) {
                         window.userState[k] = d[k];
                     }
                 });
@@ -428,7 +442,7 @@ window.updateClaimButtonState = function() {
 };
 
 // ==========================================
-// 7. العداد البصري التدريجي + دعم الخانات العشرية المرنة
+// 7. العداد البصري التدريجي الموفر للطاقة
 // ==========================================
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0.00';
@@ -461,8 +475,10 @@ function startLocalMiningSimulator() {
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     
     function tick() {
-        const targetVal = parseFloat(window.userState?.balance || 0);
-        renderSmoothBalance(targetVal);
+        if (!document.hidden) {
+            const targetVal = parseFloat(window.userState?.balance || 0);
+            renderSmoothBalance(targetVal);
+        }
         animationFrameId = requestAnimationFrame(tick);
     }
     animationFrameId = requestAnimationFrame(tick);
@@ -478,9 +494,7 @@ function renderSmoothBalance(targetVal) {
     }
 
     const diff = targetVal - visualBalance;
-    if (Math.abs(diff) > 10) {
-        visualBalance = targetVal;
-    } else if (Math.abs(diff) < 0.000001) {
+    if (Math.abs(diff) > 10 || Math.abs(diff) < 0.000001) {
         visualBalance = targetVal;
     } else {
         visualBalance += diff * 0.08;
