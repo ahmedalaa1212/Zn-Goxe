@@ -571,11 +571,26 @@ window.initSettingsView = function() {
     }
 };
 
-window.saveWalletAddress = function() {
+window.saveWalletAddress = async function() {
     const input = document.querySelector('#wallet-address-input, #wallet-address');
     if (input) {
-        window.userState.wallet_address = input.value.trim();
-        alert('تم حفظ عنوان المحفظة بنجاح!');
+        const addr = input.value.trim();
+        if (!addr) {
+            alert('يرجى إدخال عنوان محفظة صحيح');
+            return;
+        }
+        try {
+            const res = await window.fetchAPI('/api/wallet/save_address', 'POST', { wallet_address: addr });
+            if (res && res.success) {
+                window.userState.wallet_address = addr;
+                alert('تم حفظ عنوان المحفظة بنجاح!');
+            } else {
+                alert(res?.error || 'فشل حفظ العنوان في السيرفر');
+            }
+        } catch (err) {
+            window.userState.wallet_address = addr;
+            alert('تم حفظ العنوان محلياً');
+        }
     }
 };
 
@@ -714,106 +729,4 @@ window.switchView = async function(viewName) {
                 else if (typeof window.onFriendsTabOpen === 'function') window.onFriendsTabOpen();
             } else if (cleanViewName === 'wallet') {
                 if (typeof window.initWalletView === 'function') window.initWalletView();
-                else if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
-            } else if (cleanViewName === 'settings') {
-                if (typeof window.initSettingsView === 'function') window.initSettingsView();
-            } else if (cleanViewName === 'tasks') {
-                if (typeof window.initTasksView === 'function') window.initTasksView();
-                else if (typeof window.onTasksTabOpen === 'function') window.onTasksTabOpen();
-            } else {
-                const initFuncName = `init${cleanViewName.charAt(0).toUpperCase() + cleanViewName.slice(1)}View`;
-                if (typeof window[initFuncName] === 'function') {
-                    window[initFuncName]();
-                }
-            }
-        } catch (err) {
-            console.error(`⚠️ خطأ في تشغيل دالة ${cleanViewName}:`, err);
-        }
-        window.updateUI();
-    };
-
-    runTabInit();
-    setTimeout(runTabInit, 100);
-};
-
-function loadModuleScript(scriptUrl) {
-    return new Promise((resolve) => {
-        const cleanUrl = scriptUrl.split('?')[0];
-        const existingScript = document.querySelector(`script[src*="${cleanUrl}"]`);
-        
-        if (existingScript) {
-            existingScript.remove();
-        }
-        
-        const script = document.createElement('script');
-        script.src = scriptUrl;
-        script.onload = () => resolve(true); 
-        script.onerror = () => {
-            console.warn(`تعذر تحميل سكريبت الموديول: ${scriptUrl}`);
-            resolve(false);
-        }; 
-        document.body.appendChild(script);
-    });
-}
-
-// ==========================================
-// 10. ربط التنقل بالسقوط المباشر
-// ==========================================
-function bindGlobalNavEvents() {
-    document.addEventListener('click', (e) => {
-        const navBtn = e.target.closest('.nav-item, [data-view], [id^="nav-"]');
-        if (navBtn) {
-            let viewName = navBtn.dataset.view || navBtn.id?.replace('nav-', '');
-            if (viewName) {
-                e.preventDefault();
-                e.stopPropagation();
-                window.switchView(viewName);
-            }
-        }
-    });
-}
-
-// ==========================================
-// 11. بدء التطبيق
-// ==========================================
-window.loadUserData = async function() {
-    try {
-        const startParam = tg?.initDataUnsafe?.start_param || null;
-        const d = await window.fetchAPI('/api/farm/player_data', 'POST', {
-            referrer_id: startParam,
-            first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب"
-        });
-        if (d?.success) {
-            const u = d.player || d.user || d.data || {};
-            Object.assign(window.userState, u);
-        }
-    } catch (err) {
-        console.error("Error player_data:", err);
-    } finally { 
-        window.updateUI();
-        if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
-        hideLoadingScreen();
-    }
-};
-
-function initApp() {
-    hideLoadingScreen();
-    bindGlobalNavEvents();
-    window.updateUI();
-    window.fetchTonPrice();
-    
-    // فتح قسم المزرعة افتراضياً
-    window.switchView('farm');
-
-    window.loadUserData().then(() => {
-        const uid = window.userState.tg_id || tg?.initDataUnsafe?.user?.id;
-        if (uid) window.initFirebaseRealtimeSync(uid);
-    });
-    startLocalMiningSimulator();
-}
-
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initApp);
-} else {
-    initApp();
-}
+                else if (typeof window.onWallet
