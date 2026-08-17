@@ -1,45 +1,40 @@
-<div class="wallet-main-wrapper" style="padding: 15px; color: #ffffff; direction: rtl; max-width: 500px; margin: 0 auto;">
+<div class="wallet-container" style="direction: rtl; padding: 15px; color: #ffffff; max-width: 500px; margin: 0 auto; font-family: sans-serif;">
     
-    <!-- عرض الأرصدة (ZN & USDT) -->
-    <div class="wallet-balance-card" style="background: linear-gradient(135deg, rgba(0,136,204,0.15), rgba(0,0,0,0.4)); border: 1px solid rgba(0,136,204,0.3); border-radius: 16px; padding: 18px; margin-bottom: 20px; box-shadow: 0 8px 20px rgba(0,0,0,0.3);">
-        <div style="display: flex; justify-content: space-between; align-items: center; text-align: center;">
-            <!-- رصيد ZN -->
-            <div style="flex: 1; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 10px;">
-                <span style="font-size: 13px; color: #aaa; display: block; margin-bottom: 5px;">رصيد العملة (ZN)</span>
-                <span style="font-size: 20px; font-weight: bold; color: #0088cc;" data-bind="balance">0.00</span>
-                <span style="font-size: 12px; color: #0088cc; font-weight: bold;"> ZN</span>
-            </div>
-            
-            <!-- رصيد USDT -->
-            <div style="flex: 1; padding-right: 10px;">
-                <span style="font-size: 13px; color: #aaa; display: block; margin-bottom: 5px;">رصيد الدولار (USDT)</span>
-                <span style="font-size: 20px; font-weight: bold; color: #26a17b;">$</span>
-                <span style="font-size: 20px; font-weight: bold; color: #26a17b;" data-bind="usd_balance">0.00</span>
-            </div>
+    <!-- كارت الأرصدة (عرض ZN و USDT) -->
+    <div class="wallet-balance-card" style="display: flex; background: linear-gradient(135deg, rgba(0,136,204,0.15), rgba(0,0,0,0.4)); border: 1px solid rgba(0,136,204,0.3); border-radius: 16px; padding: 16px; margin-bottom: 20px;">
+        <!-- رصيد ZN -->
+        <div style="flex: 1; text-align: center; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 5px;">
+            <span style="font-size: 12px; color: #aaa; display: block; margin-bottom: 4px;">رصيد العملة (ZN)</span>
+            <span id="zn-balance-display" style="font-size: 18px; font-weight: bold; color: #0088cc;">0.00</span>
+            <span style="font-size: 11px; color: #0088cc; font-weight: bold;"> ZN</span>
+        </div>
+        
+        <!-- رصيد USDT -->
+        <div style="flex: 1; text-align: center; padding-right: 5px;">
+            <span style="font-size: 12px; color: #aaa; display: block; margin-bottom: 4px;">رصيد الدولار (USDT)</span>
+            <span style="font-size: 18px; font-weight: bold; color: #26a17b;">$</span>
+            <span id="usdt-balance-display" style="font-size: 18px; font-weight: bold; color: #26a17b;">0.00</span>
         </div>
     </div>
 
-    <!-- الأزرار الثلاثة (يمين: إيداع | وسط: سجلات | يسار: سحب) -->
-    <div class="wallet-nav-actions" style="display: flex; gap: 10px; margin-bottom: 20px;">
-        <button id="btn-tab-deposit" onclick="window.switchWalletTab('deposit')" style="flex: 1; padding: 12px 8px; background: #0088cc; color: #fff; border: none; border-radius: 12px; font-weight: bold; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s;">
-            <i class="fas fa-arrow-down-left"></i>
-            <span>الإيداع</span>
+    <!-- الأزرار الثلاثة مرتبة أفقياً (اليمين: الإيداع | الوسط: السجلات | اليسار: السحب) -->
+    <div class="wallet-tabs" style="display: flex; gap: 8px; margin-bottom: 20px;">
+        <!-- اليمين -->
+        <button id="tab-btn-deposit" onclick="window.walletModule.switchTab('deposit')" style="flex: 1; padding: 12px 6px; background: #0088cc; color: #fff; border: none; border-radius: 12px; font-weight: bold; font-size: 13px; cursor: pointer; transition: 0.2s;">
+            📥 الإيداع
         </button>
-
-        <button id="btn-tab-history" onclick="window.switchWalletTab('history')" style="flex: 1; padding: 12px 8px; background: rgba(255,255,255,0.08); color: #ccc; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; font-weight: bold; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s;">
-            <i class="fas fa-receipt"></i>
-            <span>السجلات</span>
+        <!-- الوسط -->
+        <button id="tab-btn-history" onclick="window.walletModule.switchTab('history')" style="flex: 1; padding: 12px 6px; background: rgba(255,255,255,0.08); color: #ccc; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; font-weight: bold; font-size: 13px; cursor: pointer; transition: 0.2s;">
+            📜 السجلات
         </button>
-
-        <button id="btn-tab-withdraw" onclick="window.switchWalletTab('withdraw')" style="flex: 1; padding: 12px 8px; background: rgba(255,255,255,0.08); color: #ccc; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; font-weight: bold; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s;">
-            <i class="fas fa-arrow-up-right"></i>
-            <span>السحب</span>
+        <!-- اليسار -->
+        <button id="tab-btn-withdraw" onclick="window.walletModule.switchTab('withdraw')" style="flex: 1; padding: 12px 6px; background: rgba(255,255,255,0.08); color: #ccc; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; font-weight: bold; font-size: 13px; cursor: pointer; transition: 0.2s;">
+            📤 السحب
         </button>
     </div>
 
-    <!-- الحاوية الديناميكية للقوائم الفرعية -->
-    <div id="wallet-sub-content" class="wallet-sub-view-container">
-        <!-- يتم تحميل المحتوى هنا تلقائياً -->
+    <!-- حاوية تحميل القوائم الفرعية الديناميكية -->
+    <div id="wallet-subview-container">
+        <!-- يتم تحميل محتوى deposit/history/withdraw هنا -->
     </div>
-
 </div>
