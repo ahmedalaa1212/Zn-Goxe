@@ -6,14 +6,15 @@ window.walletModule = (function () {
         try {
             const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '';
             const res = await fetch(`/api/wallet/data?user_id=${userId}`);
+            if (!res.ok) return;
             const data = await res.json();
             
             if (data.success) {
                 const znElem = document.getElementById('zn-balance-display');
                 const usdtElem = document.getElementById('usdt-balance-display');
                 
-                if (znElem) znElem.innerText = Number(data.zn_balance).toFixed(2);
-                if (usdtElem) usdtElem.innerText = Number(data.usdt_balance).toFixed(2);
+                if (znElem) znElem.innerText = Number(data.zn_balance || 0).toFixed(2);
+                if (usdtElem) usdtElem.innerText = Number(data.usdt_balance || 0).toFixed(2);
             }
         } catch (err) {
             console.error("خطأ في تحديث أرصدة المحفظة:", err);
@@ -44,8 +45,12 @@ window.walletModule = (function () {
         if (!container) return;
 
         try {
-            // استدعاء ملف HTML الخاص بالقائمة الفرعية المقابلة
-            const response = await fetch(`./wallet/${tabName}/${tabName}.html`);
+            // المحاولة بمسارات متعددة لضمان التحميل بغض النظر عن المسار الحالي
+            let response = await fetch(`/wallet/${tabName}/${tabName}.html`);
+            if (!response.ok) {
+                response = await fetch(`wallet/${tabName}/${tabName}.html`);
+            }
+
             if (response.ok) {
                 container.innerHTML = await response.text();
                 
@@ -55,7 +60,7 @@ window.walletModule = (function () {
                     window[initFuncName]();
                 }
             } else {
-                container.innerHTML = `<div style="text-align:center; padding:20px; color:#aaa;">جاري تحميل ${tabName}...</div>`;
+                container.innerHTML = `<div style="text-align:center; padding:20px; color:#aaa;">تعذر تحميل واجهة ${tabName}</div>`;
             }
         } catch (e) {
             console.error(`فشل تحميل واجهة ${tabName}:`, e);
@@ -74,7 +79,10 @@ window.walletModule = (function () {
     };
 })();
 
-// تشغيل التلقائي عند التحميل
+// تشغيل عند الجاهزية المباشرة أو عند تحميل DOM
+if (document.getElementById('wallet-subview-container')) {
+    window.walletModule.init();
+}
 document.addEventListener('DOMContentLoaded', () => {
     if (document.getElementById('wallet-subview-container')) {
         window.walletModule.init();
