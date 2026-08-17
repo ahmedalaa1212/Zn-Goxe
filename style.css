@@ -287,22 +287,175 @@ img {
 }
 
 /* ==========================================
-   إصلاح واجهة الإعدادات (Settings View Fix)
+   تنسيقات الشاملة والفاخرة لإعدادات التطبيق والدعم الفني
    ========================================== */
 #view-settings {
+    max-width: 600px;
+    margin: 0 auto;
+    padding-bottom: 20px;
+}
+
+#view-settings a {
+    text-decoration: none !important;
+    color: inherit;
+}
+
+/* ملف المستخدم والهيدر */
+#view-settings .settings-profile-header {
     text-align: center;
+    margin-bottom: 18px;
 }
 
 #view-settings img,
 .settings-avatar-img {
-    width: 110px !important;
-    height: 110px !important;
+    width: 105px !important;
+    height: 105px !important;
     border-radius: 50% !important;
     object-fit: cover !important;
-    margin: 15px auto !important;
+    margin: 10px auto 12px auto !important;
     display: block !important;
     border: 3px solid #f59e0b !important;
-    box-shadow: 0 0 20px rgba(245, 158, 11, 0.3) !important;
+    box-shadow: 0 0 25px rgba(245, 158, 11, 0.4) !important;
+}
+
+#view-settings h2, 
+#view-settings h3 {
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: 800;
+    margin-bottom: 6px;
+}
+
+#view-settings .user-id-pill,
+#view-settings div[class*="id"] {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    color: #f59e0b;
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 700;
+    margin-top: 4px;
+}
+
+/* إحصائيات النشاط الحية */
+#view-settings .stats-card,
+#view-settings div:has(> .status-online-dot),
+#view-settings fieldset {
+    background: rgba(30, 41, 59, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+}
+
+/* الروابط والقنوات الرسمية (الأزرار الشيك) */
+#view-settings a,
+#view-settings .social-link-item,
+#view-settings ul li {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    background: linear-gradient(145deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.9)) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 14px !important;
+    padding: 12px 16px !important;
+    margin-bottom: 10px !important;
+    color: #ffffff !important;
+    font-size: 13.5px !important;
+    font-weight: 600 !important;
+    transition: all 0.22s ease !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+    list-style: none !important;
+}
+
+#view-settings a:hover,
+#view-settings a:active,
+#view-settings ul li:active {
+    background: rgba(45, 62, 80, 0.95) !important;
+    border-color: #f59e0b !important;
+    transform: translateY(-2px) !important;
+    color: #f59e0b !important;
+}
+
+/* إصلاح ألوان وأحجام أيقونات الروابط */
+#view-settings a i, 
+#view-settings ul li i {
+    font-size: 18px !important;
+    color: #38bdf8 !important;
+}
+
+/* الدعم الفني المباشر ومحادثات خدمة العملاء */
+#view-settings .support-container,
+#view-settings div:has(> #chat-messages),
+#view-settings div:has(> .chat-input) {
+    background: rgba(30, 41, 59, 0.85);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    border-radius: 16px;
+    padding: 14px;
+    margin-top: 10px;
+}
+
+/* أزرار الاقتراحات والأسئلة السريعة (Chips) */
+#view-settings button,
+#view-settings .chip-btn,
+#view-settings .quick-ask-btn {
+    background: rgba(15, 23, 42, 0.95) !important;
+    border: 1px solid rgba(245, 158, 11, 0.4) !important;
+    color: #ffffff !important;
+    padding: 8px 12px !important;
+    border-radius: 20px !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+    margin: 3px !important;
+}
+
+#view-settings button:hover,
+#view-settings button:active,
+#view-settings .chip-btn:active {
+    background: #f59e0b !important;
+    color: #0f172a !important;
+    border-color: #f59e0b !important;
+    transform: scale(0.96) !important;
+}
+
+/* مربع أدخال رسالة الدعم */
+#view-settings input[type="text"],
+#view-settings .chat-input-field {
+    width: 100% !important;
+    background: #0f172a !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    color: #ffffff !important;
+    padding: 10px 14px !important;
+    border-radius: 10px !important;
+    font-size: 13px !important;
+    outline: none !important;
+    box-sizing: border-box !important;
+}
+
+#view-settings input[type="text"]:focus {
+    border-color: #f59e0b !important;
+}
+
+/* زر إرسال الدعم المميز */
+#view-settings button.send-msg-btn,
+#view-settings button[type="submit"] {
+    background: linear-gradient(135deg, #f59e0b, #d97706) !important;
+    color: #ffffff !important;
+    border: none !important;
+    padding: 10px 18px !important;
+    border-radius: 10px !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
 }
 
 /* ==========================================
