@@ -18,6 +18,12 @@ body {
     -webkit-overflow-scrolling: touch;
 }
 
+img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
 #app {
     min-height: 100vh;
     padding: 12px;
@@ -25,7 +31,7 @@ body {
 }
 
 /* ==========================================
-   شاشة التحميل المشوقة
+   شاشة التحميل
    ========================================== */
 #loading-screen {
     position: fixed;
@@ -59,10 +65,11 @@ body {
 }
 
 /* ==========================================
-   إدارة واجهات الأقسام بخصائص سلسة
+   إدارة واجهات الأقسام
    ========================================== */
 .game-view {
     display: none;
+    width: 100%;
 }
 
 .game-view.active {
@@ -100,7 +107,6 @@ body {
     transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, visibility 0.2s;
 }
 
-/* أزرار القائمة العادية */
 .nav-item {
     flex: 1;
     min-width: 0;
@@ -138,7 +144,6 @@ body {
     padding: 0 1px;
 }
 
-/* حالة التفعيل */
 .nav-item.active {
     color: #f59e0b;
 }
@@ -166,9 +171,7 @@ body {
     transform: scale(0.92);
 }
 
-/* ==========================================
-   زر المزرعة المركزي المميز
-   ========================================== */
+/* زر المزرعة المركزي المميز */
 .nav-item.nav-center-btn {
     flex: 0 0 50px;
     height: 50px;
@@ -220,13 +223,8 @@ body {
 }
 
 /* ==========================================
-   فئات مساعدة للتنسيقات العامة للبطاقات والأرقام
+   البطاقات العامة والتصاميم الموحدة
    ========================================== */
-.small-decimal {
-    font-size: 0.75em;
-    opacity: 0.85;
-}
-
 .card-glass {
     background: rgba(30, 41, 59, 0.7);
     backdrop-filter: blur(8px);
@@ -238,7 +236,112 @@ body {
 }
 
 /* ==========================================
-   تنسيقات قسم المحفظة الاحترافية (Wallet View)
+   إصلاح واجهة الإعدادات (Settings View Fix)
+   ========================================== */
+#view-settings {
+    text-align: center;
+}
+
+#view-settings img,
+.settings-avatar-img {
+    width: 110px !important;
+    height: 110px !important;
+    border-radius: 50% !important;
+    object-fit: cover !important;
+    margin: 15px auto !important;
+    display: block !important;
+    border: 3px solid #f59e0b !important;
+    box-shadow: 0 0 20px rgba(245, 158, 11, 0.3) !important;
+}
+
+/* ==========================================
+   إصلاح واجهة الأصدقاء (Friends View Fix)
+   ========================================== */
+.referral-box {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 12px 0;
+}
+
+.referral-input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    direction: ltr;
+    width: 100%;
+}
+
+.referral-input-wrapper input {
+    flex: 1;
+    background: #0f172a;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #38bdf8;
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    text-align: center;
+}
+
+.referral-actions {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+}
+
+.referral-actions button {
+    flex: 1;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 13px;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.btn-copy {
+    background: #38bdf8;
+    color: #0f172a;
+}
+
+.btn-share {
+    background: #0284c7;
+    color: #ffffff;
+}
+
+/* ==========================================
+   إصلاح واجهة المهام (Tasks View Fix)
+   ========================================== */
+.tasks-header-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: rgba(30, 41, 59, 0.8);
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 15px;
+}
+
+.tasks-stats-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.tasks-badges-row {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+/* ==========================================
+   تنسيقات قسم المحفظة (Wallet View)
    ========================================== */
 .wallet-container {
     display: flex;
@@ -437,9 +540,7 @@ body {
     font-size: 13px;
 }
 
-/* ==========================================
-   إخفاء القائمة السفلى عند فتح الكيبورد
-   ========================================== */
+/* إخفاء القائمة السفلى عند فتح الكيبورد */
 body.keyboard-open .bottom-nav,
 .bottom-nav.hide-keyboard {
     transform: translateY(100%);
