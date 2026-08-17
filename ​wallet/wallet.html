@@ -1,64 +1,45 @@
-<div class="wallet-wrapper">
-    <!-- كارت الرصيد والمحفظة الرئيسي -->
-    <div class="wallet-header-card">
-        <div class="wallet-balance-box">
-            <span class="balance-label">الرصيد الكلي</span>
-            <h1 class="balance-amount" id="wallet-main-balance">0.00 ZN</h1>
-            <span class="balance-usd" id="wallet-usd-val">$0.00 USD</span>
-        </div>
+<div class="wallet-wrapper" style="padding: 20px; color: #ffffff; direction: rtl; min-height: 100vh; background: #0d131d; box-sizing: border-box;">
+    <!-- الرأسية والإن ان -->
+    <div style="background: #161f2e; padding: 20px; border-radius: 16px; margin-bottom: 20px; text-align: center; border: 1px solid rgba(255,255,255,0.08);">
+        <h2 style="margin: 0 0 10px 0; font-size: 18px; color: #8a9ba8;">رصيد المحفظة</h2>
+        <div id="wallet-main-balance" style="font-size: 28px; font-weight: bold; color: #0088cc; margin-bottom: 5px;">0.00 ZN</div>
+        <div id="wallet-usd-val" style="font-size: 14px; color: #4caf50;">$0.00 USD</div>
         
-        <div id="wallet-connect-box" class="connect-box disconnected">
-            <span id="wallet-address-display">لم يتم ربط المحفظة</span>
-            <button id="btn-wallet-connect" class="btn-connect">ربط TON</button>
+        <div id="wallet-connect-box" style="margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 10px;">
+            <div id="wallet-address-display" style="font-size: 13px; color: #aaa; margin-bottom: 10px;">جاري الفحص...</div>
+            <div id="ton-connect-btn-container" style="display: flex; justify-content: center;"></div>
         </div>
     </div>
 
-    <!-- شريط القوائم الفرعية (Sub-Tabs) -->
-    <div class="wallet-nav-tabs">
-        <button class="w-tab-btn active" data-tab="deposit">📥 إيداع</button>
-        <button class="w-tab-btn" data-tab="withdraw">📤 سحب</button>
-        <button class="w-tab-btn" data-tab="history">📜 السجل</button>
+    <!-- التبويبات الداخلية -->
+    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+        <button class="w-tab-btn active" data-tab="deposit" style="flex: 1; padding: 10px; background: #0088cc; border: none; color: white; border-radius: 8px; font-weight: bold; cursor: pointer;">📥 إيداع</button>
+        <button class="w-tab-btn" data-tab="withdraw" style="flex: 1; padding: 10px; background: #161f2e; border: none; color: white; border-radius: 8px; font-weight: bold; cursor: pointer;">📤 سحب</button>
+        <button class="w-tab-btn" data-tab="history" style="flex: 1; padding: 10px; background: #161f2e; border: none; color: white; border-radius: 8px; font-weight: bold; cursor: pointer;">📜 السجل</button>
     </div>
 
-    <!-- محتوى القوائم الفرعية -->
-    <div class="wallet-tab-content">
-        <!-- 1. قائمة الإيداع (Deposit) -->
-        <div id="subtab-deposit" class="w-tab-pane active">
-            <div class="section-card">
-                <h3>عنوان الإيداع المباشر (TON)</h3>
-                <p class="hint-text">أرسل عملة TON إلى العنوان التالي وسيتم تحويلها لـ ZN تلقائياً:</p>
-                <div class="copy-box">
-                    <input type="text" id="deposit-address-input" value="EQB_YOUR_PROJECT_TON_WALLET_ADDRESS" readonly>
-                    <button id="btn-copy-deposit" class="btn-sm">نسخ</button>
-                </div>
-                <div class="info-badge">⚡ الحد الأدنى للإيداع: 0.5 TON</div>
-            </div>
+    <!-- محتوى التبويبات -->
+    <div id="subtab-deposit" class="w-tab-pane active">
+        <div style="background: #161f2e; padding: 15px; border-radius: 12px;">
+            <p style="font-size: 14px; color: #ccc;">عنوان الإيداع الخاص بك (TON):</p>
+            <input type="text" id="deposit-address-input" readonly value="EQD...ZN_DEPOSIT_ADDRESS" style="width: 100%; padding: 10px; background: #0d131d; border: 1px solid #333; color: #fff; border-radius: 8px; text-align: center; margin-bottom: 10px; box-sizing: border-box;">
+            <button id="btn-copy-deposit" style="width: 100%; padding: 12px; background: #0088cc; border: none; color: white; border-radius: 8px; font-weight: bold; cursor: pointer;">📋 نسخ العنوان</button>
         </div>
+    </div>
 
-        <!-- 2. قائمة السحب (Withdraw) -->
-        <div id="subtab-withdraw" class="w-tab-pane">
-            <div class="section-card">
-                <h3>طلب سحب الأرباح</h3>
-                <div class="form-group">
-                    <label>المبلغ المراد سحبه (ZN):</label>
-                    <input type="number" id="withdraw-amount-input" placeholder="0.00" min="100">
-                </div>
-                <div class="form-group">
-                    <label>عنوان محفظة TON:</label>
-                    <input type="text" id="withdraw-address-input" placeholder="EQ..." readonly>
-                </div>
-                <button id="btn-submit-withdraw" class="btn-action primary">تأكيد السحب</button>
-            </div>
+    <div id="subtab-withdraw" class="w-tab-pane" style="display: none;">
+        <div style="background: #161f2e; padding: 15px; border-radius: 12px;">
+            <p style="font-size: 14px; color: #ccc;">المبلغ المراد سحبه:</p>
+            <input type="number" id="withdraw-amount-input" placeholder="0.00" style="width: 100%; padding: 10px; background: #0d131d; border: 1px solid #333; color: #fff; border-radius: 8px; margin-bottom: 10px; box-sizing: border-box;">
+            <p style="font-size: 14px; color: #ccc;">عنوان المحفظة المستلمة:</p>
+            <input type="text" id="withdraw-address-input" placeholder="EQ..." style="width: 100%; padding: 10px; background: #0d131d; border: 1px solid #333; color: #fff; border-radius: 8px; margin-bottom: 15px; box-sizing: border-box;">
+            <button id="btn-submit-withdraw" style="width: 100%; padding: 12px; background: #4caf50; border: none; color: white; border-radius: 8px; font-weight: bold; cursor: pointer;">🚀 تأكيد السحب</button>
         </div>
+    </div>
 
-        <!-- 3. قائمة السجل (History) -->
-        <div id="subtab-history" class="w-tab-pane">
-            <div class="section-card">
-                <h3>سجل العمليات الأخيرة</h3>
-                <div id="wallet-history-list" class="history-list">
-                    <div class="empty-history">جاري تحميل السجل...</div>
-                </div>
-            </div>
+    <div id="subtab-history" class="w-tab-pane" style="display: none;">
+        <div id="wallet-history-list" style="background: #161f2e; padding: 15px; border-radius: 12px; text-align: center; color: #aaa;">
+            جاري تحميل المعاملات...
         </div>
     </div>
 </div>
