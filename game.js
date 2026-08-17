@@ -309,7 +309,7 @@ window.activateTenXBoost = async function(durationHours = 1) {
 };
 
 // ==========================================
-// 5. الاستماع اللحظي المحصن Firestore (Realtime Sync & Cost Savings)
+// 5. الاستماع اللحظي المحصن Firestore
 // ==========================================
 window._firebaseUnsubscribe = null;
 
@@ -328,7 +328,7 @@ window.initFirebaseRealtimeSync = function(userId) {
             
             try {
                 isFirebaseUpdating = true;
-                if (!window.PlayerData) window.PlayerData = {};
+                if (!windowPlayerData) window.PlayerData = {};
                 
                 Object.assign(window.PlayerData, d);
 
@@ -442,7 +442,7 @@ window.updateClaimButtonState = function() {
 };
 
 // ==========================================
-// 7. العداد البصري التدريجي الموفر للطاقة
+// 7. العداد البصري التدريجي
 // ==========================================
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0.00';
@@ -565,12 +565,8 @@ window.updateUI = function() {
 // 8. تهيئة واجهة المحفظة والإعدادات
 // ==========================================
 window.initWalletView = function() {
-    const walletView = document.getElementById('view-wallet');
-    if (walletView) {
-        const addrInput = walletView.querySelector('#wallet-address-input, #wallet-address, [name="wallet_address"]');
-        if (addrInput && window.userState?.wallet_address) {
-            addrInput.value = window.userState.wallet_address;
-        }
+    if (window.walletModule && typeof window.walletModule.init === 'function') {
+        window.walletModule.init();
     }
 };
 window.onWalletTabOpen = window.initWalletView;
@@ -614,6 +610,7 @@ window.saveWalletAddress = async function() {
 const loadedModules = new Set();
 const pendingLoads = new Map();
 
+// تحميل الواجهات البديلة المحصنة في حال التعذر
 function renderDefaultViewContent(cleanViewName, targetView) {
     if (cleanViewName === 'settings') {
         targetView.innerHTML = `
@@ -625,68 +622,19 @@ function renderDefaultViewContent(cleanViewName, targetView) {
                 </div>
             </div>`;
     } else if (cleanViewName === 'wallet') {
-        targetView.innerHTML = `
-            <div class="wallet-main-wrapper" style="padding: 20px; color: #ffffff; direction: rtl; max-width: 500px; margin: 0 auto;">
-                <div style="background: linear-gradient(135deg, rgba(0,136,204,0.2), rgba(0,0,0,0.4)); padding: 20px; border-radius: 16px; text-align: center; border: 1px solid rgba(0,136,204,0.3); margin-bottom: 20px;">
-                    <i class="fas fa-wallet" style="font-size: 32px; color: #0088cc; margin-bottom: 10px;"></i>
-                    <h3 style="margin: 0 0 5px 0;">محفظة Zn Goxe</h3>
-                    <div style="font-size: 26px; font-weight: bold; color: #fff; margin: 10px 0;">
-                        <span class="usd-balance-val">$${window.formatBalance(window.userState?.usd_balance || 0)}</span>
-                    </div>
-                </div>
-
-                <!-- Sub Navigation Tabs inside Wallet -->
-                <div class="wallet-nav-tabs" style="display: flex; gap: 8px; margin-bottom: 20px; justify-content: space-between; background: rgba(255,255,255,0.05); padding: 5px; border-radius: 12px;">
-                    <button class="wallet-sub-tab-btn active" data-tab="deposit" style="flex:1; padding: 10px; border: none; border-radius: 8px; background: #0088cc; color: #fff; font-weight: bold; cursor: pointer;">إيداع</button>
-                    <button class="wallet-sub-tab-btn" data-tab="withdraw" style="flex:1; padding: 10px; border: none; border-radius: 8px; background: transparent; color: #aaa; font-weight: bold; cursor: pointer;">سحب</button>
-                    <button class="wallet-sub-tab-btn" data-tab="address" style="flex:1; padding: 10px; border: none; border-radius: 8px; background: transparent; color: #aaa; font-weight: bold; cursor: pointer;">العنوان</button>
-                </div>
-
-                <!-- Wallet Sub Content Screens -->
-                <div id="wallet-sub-views">
-                    <div id="wallet-tab-deposit" class="wallet-sub-page" style="display: block;">
-                        <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; text-align: center;">
-                            <p style="margin-bottom: 15px;">اختر شبكة الإيداع المتاحة:</p>
-                            <button style="width: 100%; padding: 12px; background: rgba(0,136,204,0.15); border: 1px solid #0088cc; color: #fff; border-radius: 10px; font-size: 15px; cursor: pointer;"><i class="fas fa-coins"></i> إيداع عبر شبكة TON</button>
-                        </div>
-                    </div>
-
-                    <div id="wallet-tab-withdraw" class="wallet-sub-page" style="display: none;">
-                        <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
-                            <label style="display: block; margin-bottom: 8px;">المبلغ المراد سحبه:</label>
-                            <input type="number" placeholder="0.00" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: #fff; margin-bottom: 12px; box-sizing: border-box;">
-                            <button style="width: 100%; padding: 12px; background: #28a745; border: none; border-radius: 8px; color: #fff; font-weight: bold; cursor: pointer;">طلب السحب</button>
-                        </div>
-                    </div>
-
-                    <div id="wallet-tab-address" class="wallet-sub-page" style="display: none;">
-                        <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
-                            <label style="display: block; margin-bottom: 8px;">عنوان محفظتك لتلقي السحوبات:</label>
-                            <input type="text" id="wallet-address-input" value="${window.userState?.wallet_address || ''}" placeholder="أدخل عنوان المحفظة الخاص بك" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: #fff; margin-bottom: 12px; box-sizing: border-box;">
-                            <button onclick="window.saveWalletAddress()" style="width: 100%; padding: 12px; background: #0088cc; border: none; border-radius: 8px; color: #fff; font-weight: bold; cursor: pointer;">حفظ العنوان</button>
-                        </div>
-                    </div>
-                </div>
-            </div>`;
-
-        // ربط أحداث القوائم الداخلية للمحفظة فورياً
-        targetView.querySelectorAll('.wallet-sub-tab-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const tab = btn.getAttribute('data-tab');
-                targetView.querySelectorAll('.wallet-sub-tab-btn').forEach(b => {
-                    b.classList.remove('active');
-                    b.style.background = 'transparent';
-                    b.style.color = '#aaa';
-                });
-                btn.classList.add('active');
-                btn.style.background = '#0088cc';
-                btn.style.color = '#fff';
-
-                targetView.querySelectorAll('.wallet-sub-page').forEach(p => p.style.display = 'none');
-                const activePage = targetView.querySelector(`#wallet-tab-${tab}`);
-                if (activePage) activePage.style.display = 'block';
+        // تحميل ملف wallet.html المباشر وإعادة ربطه بـ walletModule
+        const cacheBuster = `?v=${Date.now()}`;
+        fetch(`/wallet/wallet.html${cacheBuster}`)
+            .then(res => res.text())
+            .then(html => {
+                targetView.innerHTML = html;
+                if (window.walletModule && typeof window.walletModule.init === 'function') {
+                    window.walletModule.init();
+                }
+            })
+            .catch(err => {
+                console.error("فشل جلب واجهة المحفظة:", err);
             });
-        });
     }
 }
 
@@ -747,7 +695,7 @@ window.switchView = async function(viewName) {
     targetView.style.width = '100%';
     targetView.style.minHeight = '100vh';
 
-    // 4. جلب المحتوى إن لم يكن موجوداً
+    // 4. جلب المحتوى من المجلد المخصص لكل تبويب
     const hasRealContent = targetView.innerText.trim().length > 10 || targetView.querySelector('button, input, h1, h2, h3, h4');
 
     if (!loadedModules.has(cleanViewName) && !hasRealContent) {
@@ -782,7 +730,6 @@ window.switchView = async function(viewName) {
                     if (htmlContent) {
                         targetView.innerHTML = htmlContent;
                         
-                        // إعادة تشغيل عناصر السكريبت المضمنة إن وجدت
                         const inlineScripts = targetView.querySelectorAll('script');
                         inlineScripts.forEach(s => {
                             const newScript = document.createElement('script');
@@ -836,10 +783,6 @@ window.switchView = async function(viewName) {
             if (window.walletModule && typeof window.walletModule.init === 'function') {
                 window.walletModule.init();
             }
-            if (typeof window.initWallet === 'function') window.initWallet();
-            if (typeof window.initWalletView === 'function') window.initWalletView();
-            if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
-            if (typeof window.loadWalletData === 'function') window.loadWalletData();
         } else if (cleanViewName === 'settings') {
             if (typeof window.initSettingsView === 'function') window.initSettingsView();
         }
