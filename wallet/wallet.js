@@ -1,8 +1,9 @@
 window.walletModule = (function () {
     let currentTab = 'deposit';
     let isListening = false;
+    const viewCache = {}; // تخزين القوائم للتحميل اللحظي وبدون إعادة جلب
 
-    // تنسيق الأرقام العشرية: 4 أرقام للأرقام الصغيرة (< 100)، ورقمين للأرقام الكبيرة
+    // تنسيق الأرقام العشرية بشكل ثابت يمنع التمدد المفاجئ
     function formatSmartBalance(val) {
         const num = parseFloat(val || 0);
         if (isNaN(num)) return "0.00";
@@ -12,7 +13,7 @@ window.walletModule = (function () {
         return num.toFixed(2);
     }
 
-    // تحديث الواجهة فورياً من الحالة المحلية بالذاكرة (0ms Latency)
+    // تحديث قيم النصوص فقط لمنع اهتزاز القوائم الفرعية
     function updateBalancesUI() {
         const znElem = document.getElementById('zn-balance-display');
         const usdtElem = document.getElementById('usdt-balance-display');
@@ -20,11 +21,13 @@ window.walletModule = (function () {
         const znVal = window.userState?.balance !== undefined ? window.userState.balance : (window.PlayerData?.balance || 0);
         const usdtVal = window.userState?.usd_balance !== undefined ? window.userState.usd_balance : (window.PlayerData?.usd_balance || 0);
 
-        if (znElem) znElem.innerText = formatSmartBalance(znVal);
-        if (usdtElem) usdtElem.innerText = formatSmartBalance(usdtVal);
+        const newZnText = formatSmartBalance(znVal);
+        const newUsdtText = formatSmartBalance(usdtVal);
+
+        if (znElem && znElem.innerText !== newZnText) znElem.innerText = newZnText;
+        if (usdtElem && usdtElem.innerText !== newUsdtText) usdtElem.innerText = newUsdtText;
     }
 
-    // الاستماع المباشر للتغيرات في الفايربيس والحالة العامة للعبة
     function attachRealtimeListeners() {
         if (isListening) return;
         isListening = true;
@@ -34,7 +37,6 @@ window.walletModule = (function () {
         });
     }
 
-    // جلب الأرصدة من السيرفر كبديل موازي دون تعطيل سرعة العرض المباشر
     async function fetchWalletBalances() {
         updateBalancesUI();
 
@@ -61,13 +63,16 @@ window.walletModule = (function () {
                 updateBalancesUI();
             }
         } catch (err) {
-            console.warn("⚠️ تم الاعتماد على المزامنة اللحظية المحلية والفايربيس:", err);
+            console.warn("⚠️ اعتماد التحديث اللحظي المحلي:", err);
             updateBalancesUI();
         }
     }
 
-    // التنقل السلس والآمن بين القوائم
-    async function switchTab(tabName) {
+    // الربط والتنقل الثابت بين قوائم (الإيداع - السجلات - السحب)
+    async function switchTab(tabName, force = false) {
+        if (currentTab === tabName && !force && document.getElementById('wallet-subview-container')?.children.length > 0) {
+            return;
+        }
         currentTab = tabName;
 
         ['deposit', 'history', 'withdraw'].forEach(t => {
@@ -90,6 +95,13 @@ window.walletModule = (function () {
         const container = document.getElementById('wallet-subview-container');
         if (!container) return;
 
+        // استرجاع القائمة فوراً إذا كانت مخزنة مسبقاً لمنع الرشة والاهتزاز
+        if (viewCache[tabName]) {
+            container.innerHTML = viewCache[tabName];
+            executeSubModuleInit(tabName);
+            return;
+        }
+
         try {
             const cacheBuster = `?v=${Date.now()}`;
             let response = await fetch(`/wallet/${tabName}/${tabName}.html${cacheBuster}`);
@@ -98,17 +110,24 @@ window.walletModule = (function () {
             }
 
             if (response.ok) {
-                container.innerHTML = await response.text();
-                
-                const initFuncName = `init_${tabName}_module`;
-                if (typeof window[initFuncName] === 'function') {
-                    window[initFuncName]();
-                }
+                const htmlContent = await response.text();
+                viewCache[tabName] = htmlContent;
+                container.innerHTML = htmlContent;
+                executeSubModuleInit(tabName);
             } else {
                 container.innerHTML = `<div style="text-align:center; padding:20px; color:#aaa; background:rgba(255,255,255,0.05); border-radius:12px;">جاري تحميل ${tabName}...</div>`;
             }
         } catch (e) {
             console.error(`فشل تحميل واجهة ${tabName}:`, e);
+        }
+    }
+
+    function executeSubModuleInit(tabName) {
+        const initFuncName = `init_${tabName}_module`;
+        if (typeof window[initFuncName] === 'function') {
+            window[initFuncName]();
+        } else if (window[`${tabName}Module`]?.init) {
+            window[`${tabName}Module`].init();
         }
     }
 
