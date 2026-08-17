@@ -1,15 +1,32 @@
 from flask import Blueprint, request, jsonify
-from core.security import get_authenticated_user
-from wallet.wallet_db import save_user_wallet_address, process_withdrawal_request, get_user_transaction_history
+
+# استدعاء أمان المصادقة بشكل مرن
+try:
+    from core.security import get_authenticated_user
+except ImportError:
+    try:
+        from security import get_authenticated_user
+    except ImportError:
+        get_authenticated_user = None
+
+# استدعاء ملف قواعد بيانات المحفظة بشكل محصن يمنع No module named 'wallet'
+try:
+    from wallet.wallet_db import save_user_wallet_address, process_withdrawal_request, get_user_transaction_history
+except (ImportError, ValueError):
+    try:
+        from .wallet_db import save_user_wallet_address, process_withdrawal_request, get_user_transaction_history
+    except (ImportError, ValueError):
+        from wallet_db import save_user_wallet_address, process_withdrawal_request, get_user_transaction_history
 
 wallet_bp = Blueprint('wallet', __name__)
 
 def get_auth_user_id(is_post=True):
     """استخراج المعرف الخاص بالمستخدم بأمان من Telegram Auth مع دعم الاحتياط"""
     try:
-        success, telegram_id, user_info, _ = get_authenticated_user(request, is_post=is_post)
-        if success and telegram_id:
-            return str(telegram_id)
+        if get_authenticated_user:
+            success, telegram_id, user_info, _ = get_authenticated_user(request, is_post=is_post)
+            if success and telegram_id:
+                return str(telegram_id)
     except Exception as e:
         print(f"⚠️ Warning in Auth extraction: {e}")
         
