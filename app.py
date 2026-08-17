@@ -83,6 +83,16 @@ except Exception as e:
 # 🌐 مسارات الخدمة والمستخدم الأساسية
 # ==========================================
 
+@app.route('/')
+def serve_index():
+    """تقديم الواجهة الرئيسية للـ Telegram Mini App وإصلاح خطأ 404"""
+    try:
+        return send_from_directory(BASE_DIR, 'index.html')
+    except Exception as e:
+        print(f"❌ Index File Error: {e}")
+        return jsonify({"success": False, "error": "Index file not found"}), 404
+
+
 @app.route('/tonconnect-manifest.json')
 def serve_tonconnect_manifest():
     """تقديم ملف بيانات TON Connect لمنع مشاكل الـ CORS في المحافظ"""
