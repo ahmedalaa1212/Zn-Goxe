@@ -1,20 +1,32 @@
-// ==========================================
-// إدارة المحفظة الرئيسية والتحويل بين التبويبات
-// ==========================================
-(function() {
-    window.currentWalletTab = window.currentWalletTab || 'deposit';
+window.walletModule = (function () {
+    let currentTab = 'deposit';
 
-    window.initWalletView = function() {
-        if (typeof window.updateUI === 'function') window.updateUI();
-        window.switchWalletTab(window.currentWalletTab);
-    };
+    // جلب تحديث الأرصدة من السيرفر
+    async function fetchWalletBalances() {
+        try {
+            const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '';
+            const res = await fetch(`/api/wallet/data?user_id=${userId}`);
+            const data = await res.json();
+            
+            if (data.success) {
+                const znElem = document.getElementById('zn-balance-display');
+                const usdtElem = document.getElementById('usdt-balance-display');
+                
+                if (znElem) znElem.innerText = Number(data.zn_balance).toFixed(2);
+                if (usdtElem) usdtElem.innerText = Number(data.usdt_balance).toFixed(2);
+            }
+        } catch (err) {
+            console.error("خطأ في تحديث أرصدة المحفظة:", err);
+        }
+    }
 
-    window.switchWalletTab = function(tabName) {
-        window.currentWalletTab = tabName;
+    // التنقل بين القوائم الثلاثة وتحميل ملفاتها الفرعية
+    async function switchTab(tabName) {
+        currentTab = tabName;
 
-        const tabs = ['deposit', 'history', 'withdraw'];
-        tabs.forEach(t => {
-            const btn = document.getElementById(`btn-tab-${t}`);
+        // تحديث حالة الأزرار
+        ['deposit', 'history', 'withdraw'].forEach(t => {
+            const btn = document.getElementById(`tab-btn-${t}`);
             if (btn) {
                 if (t === tabName) {
                     btn.style.background = '#0088cc';
@@ -28,21 +40,43 @@
             }
         });
 
-        const container = document.getElementById('wallet-sub-content');
+        const container = document.getElementById('wallet-subview-container');
         if (!container) return;
 
-        if (tabName === 'deposit') {
-            if (typeof window.renderDepositView === 'function') window.renderDepositView(container);
-        } else if (tabName === 'history') {
-            if (typeof window.renderHistoryView === 'function') window.renderHistoryView(container);
-        } else if (tabName === 'withdraw') {
-            if (typeof window.renderWithdrawView === 'function') window.renderWithdrawView(container);
+        try {
+            // استدعاء ملف HTML الخاص بالقائمة الفرعية المقابلة
+            const response = await fetch(`./wallet/${tabName}/${tabName}.html`);
+            if (response.ok) {
+                container.innerHTML = await response.text();
+                
+                // تشغيل دالة التهيئة المخصصة للقائمة الفرعية إن وجدت
+                const initFuncName = `init_${tabName}_module`;
+                if (typeof window[initFuncName] === 'function') {
+                    window[initFuncName]();
+                }
+            } else {
+                container.innerHTML = `<div style="text-align:center; padding:20px; color:#aaa;">جاري تحميل ${tabName}...</div>`;
+            }
+        } catch (e) {
+            console.error(`فشل تحميل واجهة ${tabName}:`, e);
         }
-    };
-
-    window.onWalletTabOpen = window.initWalletView;
-
-    if (document.getElementById('view-wallet')?.classList.contains('active')) {
-        window.initWalletView();
     }
+
+    function init() {
+        fetchWalletBalances();
+        switchTab('deposit');
+    }
+
+    return {
+        init,
+        switchTab,
+        fetchWalletBalances
+    };
 })();
+
+// تشغيل التلقائي عند التحميل
+document.addEventListener('DOMContentLoaded', () => {
+    if (document.getElementById('wallet-subview-container')) {
+        window.walletModule.init();
+    }
+});
