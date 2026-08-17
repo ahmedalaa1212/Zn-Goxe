@@ -45,6 +45,7 @@ function hideLoadingScreen() {
         }, 200);
     });
 }
+window.hideLoadingScreen = hideLoadingScreen;
 
 function getSavedState() {
     const startParam = tg?.initDataUnsafe?.start_param || null;
@@ -133,7 +134,6 @@ window.addEventListener('beforeunload', () => {
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
     
-    // إضافة معرف المستخدم ورأس المبادرة تلقائياً
     if (window.userState?.tg_id) {
         headers['X-Telegram-User-Id'] = String(window.userState.tg_id);
     }
@@ -336,10 +336,8 @@ window.initFirebaseRealtimeSync = function(userId) {
             } finally {
                 isFirebaseUpdating = false;
                 persistUserStateToLocalStorage(window.userState);
-                window.updateUI();
-                if (typeof window.updateFarmUI === 'function') {
-                    window.updateFarmUI();
-                }
+                if (typeof window.updateUI === 'function') window.updateUI();
+                if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
                 window.dispatchEvent(new CustomEvent('userStateUpdated', { detail: window.userState }));
             }
         }, err => console.error("Firebase Sync Error:", err));
@@ -474,3 +472,43 @@ function renderSmoothBalance(targetVal) {
     if (isNaN(targetVal)) targetVal = 0;
 
     if (visualBalance === null || isNaN(visualBalance)) {
+        visualBalance = targetVal;
+    } else {
+        const diff = targetVal - visualBalance;
+        if (Math.abs(diff) < 0.000001) {
+            visualBalance = targetVal;
+        } else {
+            visualBalance += diff * 0.1;
+        }
+    }
+
+    const balanceElems = document.querySelectorAll('#user-balance, .user-balance, [data-bind="balance"]');
+    balanceElems.forEach(el => {
+        el.innerText = window.formatBalance(visualBalance);
+    });
+}
+
+// ==========================================
+// 8. تشغيل التطبيق وإخفاء شاشة التحميل التلقائي
+// ==========================================
+document.addEventListener('DOMContentLoaded', () => {
+    startLocalMiningSimulator();
+    window.fetchTonPrice();
+
+    if (window.userState?.tg_id && typeof window.initFirebaseRealtimeSync === 'function') {
+        window.initFirebaseRealtimeSync(window.userState.tg_id);
+    }
+
+    // إخفاء شاشة الصاروخ فور إتمام التهيئة
+    setTimeout(() => {
+        hideLoadingScreen();
+    }, 300);
+});
+
+// إجراء احتياطي في حالة تم تحميل المستند بالفعل
+if (document.readyState === 'interactive' || document.readyState === 'complete') {
+    startLocalMiningSimulator();
+    setTimeout(() => {
+        hideLoadingScreen();
+    }, 300);
+}
