@@ -13,75 +13,27 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     
-    <!-- رفع إصدار CSS لكسر كاش المتصفح وتأكيد التعديلات -->
-    <link rel="stylesheet" href="style.css?v=3.0">
-
-    <style>
-        #global-toast-container {
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 999999;
-            width: 90%;
-            max-width: 400px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            pointer-events: none;
-        }
-
-        .global-toast {
-            background: rgba(22, 27, 34, 0.95);
-            border: 1px solid #238636;
-            border-right: 5px solid #2ea043;
-            color: #ffffff;
-            padding: 14px 18px;
-            border-radius: 12px;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(8px);
-            font-family: inherit;
-            font-size: 14px;
-            font-weight: 600;
-            opacity: 0;
-            transform: translateY(-20px);
-            transition: all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            pointer-events: auto;
-        }
-
-        .global-toast.show {
-            opacity: 1;
-            transform: translateY(0);
-        }
-
-        .global-toast .toast-content {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .global-toast i {
-            font-size: 20px;
-            color: #3fb950;
-        }
-    </style>
+    <!-- رفع إصدار CSS لكسر كاش المتصفح -->
+    <link rel="stylesheet" href="style.css?v=3.1">
 </head>
 <body>
 
     <!-- حاوية الإشعارات المنبثقة المباشرة -->
     <div id="global-toast-container"></div>
 
-    <!-- شاشة التحميل -->
+    <!-- شاشة التحميل الرئسية -->
     <div id="loading-screen">
         <div class="loader-rocket">🚀</div>
         <h2>جاري تحميل اللعبة...</h2>
     </div>
 
-    <!-- حاوية الواجهات الفرعية -->
+    <!-- حاوية الواجهات والتطبيقات -->
     <div id="app" style="display: none;">
+        
+        <!-- واجهة الأصدقاء -->
         <div id="view-friends" class="game-view"></div>
         
-        <!-- واجهة المحفظة المباشرة المدمجة -->
+        <!-- واجهة المحفظة المدمجة والديناميكية -->
         <div id="view-wallet" class="game-view">
             <div class="wallet-container">
                 <div class="card-glass wallet-main-card">
@@ -90,9 +42,11 @@
                         <span>رصيد المحفظة</span>
                     </div>
                     <div class="wallet-balance-amount" id="wallet-balance-display">
-                        <span class="user-balance-val">1,530.69</span> <span class="currency-tag">ZN</span>
+                        <span class="user-balance-val plain-text" data-bind="balance">0.00 ZN</span>
                     </div>
-                    <div class="wallet-usd-value" id="wallet-usd-display">$888,886.75 USD</div>
+                    <div class="wallet-usd-value" id="wallet-usd-display">
+                        <span class="usd-balance-val" data-bind="usd_balance">$0.00</span>
+                    </div>
                     
                     <div class="ton-connect-wrapper">
                         <div id="ton-connect-btn"></div>
@@ -152,58 +106,63 @@
             </div>
         </div>
 
+        <!-- واجهة المهام -->
         <div id="view-tasks" class="game-view"></div>
+
+        <!-- واجهة المزرعة (التعدين الرئيسي) -->
         <div id="view-farm" class="game-view active"></div>
-        <div id="view-games" class="game-view">
-            <!-- سيتم تحميل games/games.html هنا ديناميكياً -->
-        </div>
-        <div id="view-shop" class="game-view">
-            <!-- سيتم تحميل shop/shop.html هنا ديناميكياً -->
-        </div>
+
+        <!-- واجهة الألعاب (تُحمل ديناميكياً) -->
+        <div id="view-games" class="game-view"></div>
+
+        <!-- واجهة المتجر (تُحمل ديناميكياً) -->
+        <div id="view-shop" class="game-view"></div>
+
+        <!-- واجهة الإعدادات -->
         <div id="view-settings" class="game-view"></div>
     </div>
 
-    <!-- شريط التنقل السفلي الاحترافي -->
+    <!-- شريط التنقل السفلي -->
     <nav class="bottom-nav" id="main-nav" style="display: none;">
-        <button class="nav-item" onclick="switchView('friends')" id="nav-friends">
+        <button class="nav-item" onclick="switchView('friends')" id="nav-friends" data-view="friends">
             <i class="fas fa-users"></i>
             <span>الأصدقاء</span>
         </button>
 
-        <button class="nav-item" onclick="switchView('wallet')" id="nav-wallet">
+        <button class="nav-item" onclick="switchView('wallet')" id="nav-wallet" data-view="wallet">
             <i class="fas fa-wallet"></i>
             <span>المحفظة</span>
         </button>
 
-        <button class="nav-item" onclick="switchView('tasks')" id="nav-tasks">
+        <button class="nav-item" onclick="switchView('tasks')" id="nav-tasks" data-view="tasks">
             <i class="fas fa-list-check"></i>
             <span>المهام</span>
         </button>
 
-        <button class="nav-item nav-center-btn active" onclick="switchView('farm')" id="nav-farm">
+        <button class="nav-item nav-center-btn active" onclick="switchView('farm')" id="nav-farm" data-view="farm">
             <div class="farm-btn-inner">
                 <i class="fas fa-screwdriver-wrench"></i>
                 <span>المزرعة</span>
             </div>
         </button>
 
-        <button class="nav-item" onclick="switchView('games')" id="nav-games">
+        <button class="nav-item" onclick="switchView('games')" id="nav-games" data-view="games">
             <i class="fas fa-gamepad"></i>
             <span>الألعاب</span>
         </button>
 
-        <button class="nav-item" onclick="switchView('shop')" id="nav-shop">
+        <button class="nav-item" onclick="switchView('shop')" id="nav-shop" data-view="shop">
             <i class="fas fa-store"></i>
             <span>المتجر</span>
         </button>
 
-        <button class="nav-item" onclick="switchView('settings')" id="nav-settings">
+        <button class="nav-item" onclick="switchView('settings')" id="nav-settings" data-view="settings">
             <i class="fas fa-cog"></i>
             <span>الإعدادات</span>
         </button>
     </nav>
 
-    <!-- كود كشف الكيبورد الذكي بدون رعشة -->
+    <!-- كشف ظهور لوحة المفاتيح الهاتفي -->
     <script>
         (function initKeyboardDetection() {
             const viewport = window.visualViewport;
@@ -211,9 +170,7 @@
 
             function handleViewportChange() {
                 if (!viewport) return;
-
                 const open = (window.innerHeight - viewport.height) > 150;
-
                 if (open !== isKeyboardOpen) {
                     isKeyboardOpen = open;
                     if (isKeyboardOpen) {
@@ -230,7 +187,7 @@
         })();
     </script>
 
-    <!-- وظائف تفاعلية للتحكم بتبويبات المحفظة -->
+    <!-- وظائف تفاعلية للمحفظة -->
     <script>
         window.switchWalletTab = function(tabName) {
             document.querySelectorAll('.w-tab').forEach(b => b.classList.remove('active'));
@@ -263,7 +220,7 @@
         };
     </script>
 
-    <!-- محرك الإشعارات الفوري وتحديث الرصيد اللحظي -->
+    <!-- محرك الإشعارات الفوري -->
     <script>
         (function initRealtimeNotificationSystem() {
             window.showGlobalToast = function(msg, iconClass = 'fa-circle-check') {
@@ -305,12 +262,8 @@
                             if (data.has_notification && data.message) {
                                 showGlobalToast(data.message);
                             }
-
-                            if (data.balance !== undefined) {
-                                const balanceSelectors = document.querySelectorAll('.user-balance-val, #user-balance, #balance-display, .balance-amount');
-                                balanceSelectors.forEach(el => {
-                                    el.textContent = data.balance;
-                                });
+                            if (data.balance !== undefined && window.userState) {
+                                window.userState.balance = parseFloat(data.balance);
                             }
                         }
                     })
@@ -319,12 +272,12 @@
 
             document.addEventListener('DOMContentLoaded', () => {
                 pollNotificationsAndBalance();
-                setInterval(pollNotificationsAndBalance, 3500);
+                setInterval(pollNotificationsAndBalance, 5000);
             });
         })();
     </script>
 
-    <!-- استدعاء المحرك الأساسي بكسر الكاش الصارم -->
-    <script src="game.js?v=3.0"></script>
+    <!-- المحرك الرئيسي اللحظي -->
+    <script src="game.js?v=3.1"></script>
 </body>
 </html>
