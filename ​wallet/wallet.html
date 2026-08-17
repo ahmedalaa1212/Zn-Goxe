@@ -20,15 +20,15 @@
     <!-- الأزرار الثلاثة مرتبة أفقياً (اليمين: الإيداع | الوسط: السجلات | اليسار: السحب) -->
     <div class="wallet-tabs" style="display: flex; gap: 8px; margin-bottom: 20px;">
         <!-- اليمين -->
-        <button id="tab-btn-deposit" onclick="window.walletModule.switchTab('deposit')" style="flex: 1; padding: 12px 6px; background: #0088cc; color: #fff; border: none; border-radius: 12px; font-weight: bold; font-size: 13px; cursor: pointer; transition: 0.2s;">
+        <button id="tab-btn-deposit" onclick="window.walletModule?.switchTab('deposit')" style="flex: 1; padding: 12px 6px; background: #0088cc; color: #fff; border: none; border-radius: 12px; font-weight: bold; font-size: 13px; cursor: pointer; transition: 0.2s;">
             📥 الإيداع
         </button>
         <!-- الوسط -->
-        <button id="tab-btn-history" onclick="window.walletModule.switchTab('history')" style="flex: 1; padding: 12px 6px; background: rgba(255,255,255,0.08); color: #ccc; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; font-weight: bold; font-size: 13px; cursor: pointer; transition: 0.2s;">
+        <button id="tab-btn-history" onclick="window.walletModule?.switchTab('history')" style="flex: 1; padding: 12px 6px; background: rgba(255,255,255,0.08); color: #ccc; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; font-weight: bold; font-size: 13px; cursor: pointer; transition: 0.2s;">
             📜 السجلات
         </button>
         <!-- اليسار -->
-        <button id="tab-btn-withdraw" onclick="window.walletModule.switchTab('withdraw')" style="flex: 1; padding: 12px 6px; background: rgba(255,255,255,0.08); color: #ccc; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; font-weight: bold; font-size: 13px; cursor: pointer; transition: 0.2s;">
+        <button id="tab-btn-withdraw" onclick="window.walletModule?.switchTab('withdraw')" style="flex: 1; padding: 12px 6px; background: rgba(255,255,255,0.08); color: #ccc; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; font-weight: bold; font-size: 13px; cursor: pointer; transition: 0.2s;">
             📤 السحب
         </button>
     </div>
@@ -38,3 +38,6 @@
         <!-- يتم تحميل محتوى deposit/history/withdraw هنا -->
     </div>
 </div>
+
+<!-- محفز تلقائي لتشغيل السكريبت فور إدراج الواجهة dynamic -->
+<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onload="if(window.walletModule){window.walletModule.init();}" style="display:none;" />
