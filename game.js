@@ -548,89 +548,14 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 8. تصميم واجهة المحفظة المدمجة للأنظمة (Embedded Wallet UI)
+// 8. تهيئة واجهة المحفظة 
 // ==========================================
-window.renderDefaultWalletUI = function(container) {
-    if (!container) return;
-    const walletAddr = window.userState?.wallet_address || '';
-    const balance = window.formatBalance(window.userState?.balance || 0);
-    const usdBalance = window.formatBalance(window.userState?.usd_balance || 0);
-    const tonPrice = (window.currentTonPriceUSD || 6.50).toFixed(2);
-
-    container.innerHTML = `
-        <div class="wallet-page-container" style="padding: 20px 15px 90px; color: #fff; font-family: system-ui, -apple-system, sans-serif; direction: rtl; max-width: 500px; margin: 0 auto;">
-            <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 20px; padding: 25px 20px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); margin-bottom: 20px; position: relative; overflow: hidden;">
-                <div style="position: absolute; top: -20px; left: -20px; width: 100px; height: 100px; background: rgba(0, 136, 204, 0.15); filter: blur(30px); border-radius: 50%;"></div>
-                
-                <div style="font-size: 14px; color: #94a3b8; margin-bottom: 8px;">إجمالي الرصيد القابل للسحب</div>
-                <div style="font-size: 32px; font-weight: 800; color: #0088cc; margin-bottom: 5px; direction: ltr;" id="wallet-main-balance">${balance} ZN</div>
-                <div style="font-size: 14px; color: #38bdf8;" id="wallet-usd-balance">≈ $${usdBalance} USD</div>
-                
-                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #cbd5e1;">
-                    <span>سعر TON الحالي:</span>
-                    <span style="color: #0088cc; font-weight: bold; direction: ltr;">$${tonPrice}</span>
-                </div>
-            </div>
-
-            <div style="background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 20px; margin-bottom: 20px;">
-                <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #f8fafc; display: flex; align-items: center; gap: 8px;">
-                    <span>💎</span> محفظة TON الخاصة بك
-                </h3>
-                
-                <div style="margin-bottom: 15px;">
-                    <input type="text" id="wallet-address-input" placeholder="أدخل عنوان محفظة TON (e.g. EQD...)" value="${walletAddr}" style="width: 100%; padding: 12px 15px; background: #0f172a; border: 1px solid #475569; border-radius: 10px; color: #fff; font-size: 13px; text-align: left; direction: ltr; box-sizing: border-box; outline: none;">
-                </div>
-                
-                <button id="save-wallet-btn" onclick="window.saveWalletAddressFromUI()" style="width: 100%; padding: 12px; background: linear-gradient(90deg, #0088cc, #00aaff); color: #fff; border: none; border-radius: 10px; font-weight: bold; font-size: 14px; cursor: pointer; transition: all 0.2s;">
-                    ${walletAddr ? '✅ تم حفظ المحفظة (تحديث)' : '🔗 ربط المحفظة'}
-                </button>
-            </div>
-
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
-                <button onclick="alert('خدمة الإيداع ستكون متاحة قريباً!')" style="padding: 15px; background: #1e293b; border: 1px solid #334155; border-radius: 14px; color: #fff; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 8px;">
-                    <span style="font-size: 24px;">📥</span>
-                    <span>إيداع</span>
-                </button>
-                <button onclick="alert('حد السحب الأدنى 10,000 ZN')" style="padding: 15px; background: #1e293b; border: 1px solid #334155; border-radius: 14px; color: #fff; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 8px;">
-                    <span style="font-size: 24px;">📤</span>
-                    <span>سحب الأرباح</span>
-                </button>
-            </div>
-
-            <div style="background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 20px; text-align: center;">
-                <h4 style="margin: 0 0 10px 0; color: #94a3b8; font-size: 14px;">سجل المعاملات</h4>
-                <p style="margin: 0; color: #64748b; font-size: 13px;">لا توجد معاملات سحب أو إيداع سابقة.</p>
-            </div>
-        </div>
-    `;
-};
-
-window.saveWalletAddressFromUI = function() {
-    const input = document.getElementById('wallet-address-input');
-    if (!input) return;
-    const val = input.value.trim();
-    if (!val) {
-        alert('يرجى إدخال عنوان المحفظة أولاً');
-        return;
-    }
-    window.userState.wallet_address = val;
-    alert('🎉 تم حفظ عنوان المحفظة بنجاح!');
-    if (typeof window.fetchAPI === 'function') {
-        window.fetchAPI('/api/user/update_wallet', 'POST', { wallet_address: val }).catch(e => console.warn(e));
-    }
-};
-
 window.initWalletView = function() {
     const walletView = document.getElementById('view-wallet');
     if (walletView) {
-        const hasSubstance = walletView.querySelector('.wallet-page-container') || walletView.querySelector('#wallet-address-input') || (walletView.children.length > 0 && walletView.innerText.trim().length > 30);
-        if (!hasSubstance) {
-            window.renderDefaultWalletUI(walletView);
-        } else {
-            const addrInput = walletView.querySelector('#wallet-address-input, #wallet-address, [name="wallet_address"]');
-            if (addrInput && window.userState?.wallet_address) {
-                addrInput.value = window.userState.wallet_address;
-            }
+        const addrInput = walletView.querySelector('#wallet-address-input, #wallet-address, [name="wallet_address"]');
+        if (addrInput && window.userState?.wallet_address) {
+            addrInput.value = window.userState.wallet_address;
         }
     }
 };
@@ -640,6 +565,7 @@ window.onWalletTabOpen = window.initWalletView;
 // 9. التنقل الديناميكي المحصن وحقن ملفات HTML مباشرة
 // ==========================================
 const loadedModules = new Set();
+const pendingLoads = new Map();
 
 window.switchView = async function(viewName) {
     if (!viewName) return;
@@ -678,55 +604,68 @@ window.switchView = async function(viewName) {
     targetView.style.width = '100%';
     targetView.style.minHeight = '100vh';
 
-    // 3. جلب المحتوى المباشر أو عرض الواجهة المدمجة لمنع الشاشة السوداء نهائياً
-    const hasRealContent = targetView.innerText.trim().length > 15 || targetView.querySelector('button, input, h1, h2, h3, h4, .wallet-page-container');
+    // إخفاء شاشة التحميل وإظهار التطبيق فوراً
+    hideLoadingScreen();
+
+    // 3. جلب المحتوى المباشر بدون تكرار التحميل للقسم نفسه
+    const hasRealContent = targetView.innerText.trim().length > 15 || targetView.querySelector('button, input, h1, h2, h3, h4');
 
     if (!loadedModules.has(cleanViewName) || !hasRealContent) {
-        const cacheBuster = `?v=${Date.now()}`;
-        let loadedSuccessfully = false;
+        if (pendingLoads.has(cleanViewName)) {
+            await pendingLoads.get(cleanViewName);
+        } else {
+            const loadPromise = (async () => {
+                const cacheBuster = `?v=${Date.now()}`;
+                let loadedSuccessfully = false;
 
-        try {
-            const htmlPath1 = `./${cleanViewName}/${cleanViewName}.html${cacheBuster}`;
-            let res = await fetch(htmlPath1);
-            
-            if (!res.ok) {
-                const htmlPath2 = `./${cleanViewName}.html${cacheBuster}`;
-                res = await fetch(htmlPath2);
-            }
+                try {
+                    const htmlPath1 = `./${cleanViewName}/${cleanViewName}.html${cacheBuster}`;
+                    let res = await fetch(htmlPath1);
+                    
+                    if (!res.ok) {
+                        const htmlPath2 = `./${cleanViewName}.html${cacheBuster}`;
+                        res = await fetch(htmlPath2);
+                    }
 
-            if (res.ok) {
-                const htmlContent = await res.text();
-                if (htmlContent && htmlContent.trim().length > 10) {
-                    targetView.innerHTML = htmlContent;
-                    const jsPath = `./${cleanViewName}/${cleanViewName}.js${cacheBuster}`;
-                    await loadModuleScript(jsPath);
-                    loadedModules.add(cleanViewName);
-                    loadedSuccessfully = true;
+                    if (res.ok) {
+                        const htmlContent = await res.text();
+                        if (htmlContent && htmlContent.trim().length > 10) {
+                            targetView.innerHTML = htmlContent;
+                            const jsPath = `./${cleanViewName}/${cleanViewName}.js${cacheBuster}`;
+                            const jsSuccess = await loadModuleScript(jsPath);
+                            if (jsSuccess) {
+                                loadedModules.add(cleanViewName);
+                                loadedSuccessfully = true;
+                            } else {
+                                console.warn(`فشل تحميل سكريبت القسم: ${jsPath}`);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`فشل جلب ملف ${cleanViewName} خارجي:`, e);
                 }
-            }
-        } catch (e) {
-            console.warn(`فشل جلب ملف ${cleanViewName} خارجي:`, e);
-        }
 
-        if (!loadedSuccessfully) {
-            if (cleanViewName === 'wallet') {
-                window.renderDefaultWalletUI(targetView);
-                loadedModules.add(cleanViewName);
-            } else {
-                targetView.innerHTML = `
-                    <div style="padding: 50px 20px; text-align: center; color: #ffffff; direction: rtl;">
-                        <div style="font-size: 40px; margin-bottom: 15px;">⚠️</div>
-                        <h3 style="margin-bottom: 10px; color: #ff5555;">تعذر تحميل قسم (${cleanViewName})</h3>
-                        <p style="color: #aaa; font-size: 14px; margin-bottom: 20px;">يرجى التأكد من وجود ملف ${cleanViewName}/${cleanViewName}.html على السيرفر.</p>
-                        <button onclick="window.switchView('${cleanViewName}')" style="padding: 10px 20px; background: #0088cc; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">
-                            🔄 إعادة المحاولة
-                        </button>
-                    </div>`;
+                if (!loadedSuccessfully) {
+                    targetView.innerHTML = `
+                        <div style="padding: 50px 20px; text-align: center; color: #ffffff; direction: rtl;">
+                            <div style="font-size: 40px; margin-bottom: 15px;">⚠️</div>
+                            <h3 style="margin-bottom: 10px; color: #ff5555;">تعذر تحميل قسم (${cleanViewName})</h3>
+                            <p style="color: #aaa; font-size: 14px; margin-bottom: 20px;">حدث خطأ أثناء تحميل ملفات القسم.</p>
+                            <button onclick="window.switchView('${cleanViewName}')" style="padding: 10px 20px; background: #0088cc; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">
+                                🔄 إعادة المحاولة
+                            </button>
+                        </div>`;
+                }
+            })();
+
+            pendingLoads.set(cleanViewName, loadPromise);
+            try {
+                await loadPromise;
+            } finally {
+                pendingLoads.delete(cleanViewName);
             }
         }
     }
-
-    hideLoadingScreen();
 
     // 4. تشغيل دالة التهيئة المخصصة للتبويب فورياً
     const runTabInit = () => {
@@ -823,15 +762,15 @@ window.loadUserData = async function() {
 };
 
 function initApp() {
+    // إظهار الواجهة وإخفاء شاشة التحميل فوراً
+    hideLoadingScreen();
+    
     bindGlobalNavEvents();
     window.updateUI();
     window.fetchTonPrice();
     
-    // إجبار فتح قسم المزرعة افتراضياً
+    // فتح قسم المزرعة افتراضياً
     window.switchView('farm');
-    
-    // مؤقت أمان لحذف شاشة التحميل فوراً ومنع التجمد
-    setTimeout(hideLoadingScreen, 1200);
 
     window.loadUserData().then(() => {
         const uid = window.userState.tg_id || tg?.initDataUnsafe?.user?.id;
