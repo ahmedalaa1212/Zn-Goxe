@@ -1,97 +1,51 @@
-import datetime
-import database
+import sqlite3
 
-def save_user_wallet_address(user_id, address):
-    """حفظ عنوان محفظة المستخدم الحقيقي في قاعدة البيانات"""
+DB_PATH = 'database.db'
+
+def get_db_connection():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def get_user_wallet_balances(user_id: int) -> dict:
+    """استعلام عن أرصدة ZN و USDT من قاعدة البيانات"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
     try:
-        user_id = str(user_id).strip()
-        user_data = database.get_user(user_id) or {}
-        user_data['wallet_address'] = address
-        
-        if hasattr(database, 'update_user'):
-            database.update_user(user_id, {'wallet_address': address})
-        elif hasattr(database, 'save_user'):
-            database.save_user(user_id, user_data)
-        elif hasattr(database, 'set_user_field'):
-            database.set_user_field(user_id, 'wallet_address', address)
-        elif hasattr(database, 'db') and hasattr(database.db, 'collection'):
-            database.db.collection('users').document(user_id).set({'wallet_address': address}, merge=True)
-            
+        cursor.execute(
+            "SELECT zn_balance, usdt_balance FROM users WHERE user_id = ?", 
+            (user_id,)
+        )
+        row = cursor.fetchone()
+        if row:
+            return {
+                'zn_balance': float(row['zn_balance'] or 0.0),
+                'usdt_balance': float(row['usdt_balance'] or 0.0)
+            }
+        return {'zn_balance': 0.0, 'usdt_balance': 0.0}
+    except Exception as e:
+        print(f"Error reading wallet balances: {e}")
+        return {'zn_balance': 0.0, 'usdt_balance': 0.0}
+    finally:
+        conn.close()
+
+def update_user_balance(user_id: int, amount: float, currency: str = 'zn', operation: str = 'add') -> bool:
+    """تعديل الرصيد (إضافة أو خصم) لكل من ZN أو USDT"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    column = 'zn_balance' if currency.lower() == 'zn' else 'usdt_balance'
+    
+    try:
+        operator = '+' if operation == 'add' else '-'
+        cursor.execute(
+            f"UPDATE users SET {column} = MAX(0, {column} {operator} ?) WHERE user_id = ?",
+            (amount, user_id)
+        )
+        conn.commit()
         return True
     except Exception as e:
-        print(f"❌ Error in save_user_wallet_address: {e}")
+        print(f"Error updating balance: {e}")
+        conn.rollback()
         return False
-
-def process_withdrawal_request(user_id, amount, address):
-    """
-    التحقق من الرصيد الحقيقي للمستخدم في قاعدة البيانات وتحديثه سيرفر-سايد
-    """
-    try:
-        user_id = str(user_id).strip()
-        user_data = database.get_user(user_id)
-        
-        if not user_data:
-            return {"success": False, "error": "المستخدم غير موجود في قاعدة البيانات"}
-
-        current_balance = float(user_data.get('balance', 0.0))
-        amount = float(amount)
-
-        if amount <= 0:
-            return {"success": False, "error": "مبلغ السحب غير صحيح"}
-
-        if current_balance < amount:
-            return {
-                "success": False, 
-                "error": f"رصيدك الحقيقي غير كافٍ لتنفيذ السحب. الرصيد الحالي: {current_balance} ZN"
-            }
-
-        new_balance = round(current_balance - amount, 4)
-        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-
-        tx_entry = {
-            "type": "withdraw",
-            "amount": amount,
-            "address": address,
-            "date": now_str,
-            "status": "pending"
-        }
-
-        history = list(user_data.get('history', []))
-        history.insert(0, tx_entry)
-
-        update_payload = {
-            'balance': new_balance,
-            'history': history
-        }
-
-        if hasattr(database, 'update_user'):
-            database.update_user(user_id, update_payload)
-        elif hasattr(database, 'save_user'):
-            user_data['balance'] = new_balance
-            user_data['history'] = history
-            database.save_user(user_id, user_data)
-        elif hasattr(database, 'db') and hasattr(database.db, 'collection'):
-            database.db.collection('users').document(user_id).set(update_payload, merge=True)
-
-        return {
-            "success": True,
-            "new_balance": new_balance,
-            "message": "تم تقديم طلب السحب بنجاح وحسم المبلغ من رصيدك الحقيقي."
-        }
-    except Exception as e:
-        print(f"❌ Error processing withdrawal: {e}")
-        return {"success": False, "error": f"حدث خطأ أثناء معالجة السحب: {str(e)}"}
-
-def get_user_transaction_history(user_id):
-    """استرجاع سجل المعاملات الحقيقي للمستخدم من قاعدة البيانات"""
-    try:
-        user_id = str(user_id).strip()
-        user_data = database.get_user(user_id) or {}
-        
-        history = user_data.get('history', [])
-        if isinstance(history, list):
-            return history
-        return []
-    except Exception as e:
-        print(f"❌ Error getting transaction history: {e}")
-        return []
+    finally:
+        conn.close()
