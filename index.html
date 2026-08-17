@@ -13,8 +13,8 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     
-    <!-- رفع إصدار CSS لكسر كاش المتصفح -->
-    <link rel="stylesheet" href="style.css?v=3.2">
+    <!-- CSS الخاص بالهيكل العام وأزرار التنقل -->
+    <link rel="stylesheet" href="style.css?v=3.3">
 </head>
 <body>
 
@@ -27,102 +27,31 @@
         <h2>جاري تحميل اللعبة...</h2>
     </div>
 
-    <!-- حاوية الواجهات والتطبيقات -->
+    <!-- حاوية الأقسام الرئيسية (تُحمل محتوياتها من ملفات المجلدات الخاصة بكل قسم) -->
     <div id="app" style="display: none;">
-        
-        <!-- واجهة الأصدقاء -->
+        <!-- واجهة الأصدقاء (friends/friends.html) -->
         <div id="view-friends" class="game-view"></div>
         
-        <!-- واجهة المحفظة المدمجة والديناميكية -->
-        <div id="view-wallet" class="game-view">
-            <div class="wallet-container">
-                <div class="card-glass wallet-main-card">
-                    <div class="wallet-header-title">
-                        <i class="fas fa-wallet"></i>
-                        <span>رصيد المحفظة</span>
-                    </div>
-                    <div class="wallet-balance-amount" id="wallet-balance-display">
-                        <span class="user-balance-val plain-text" data-bind="balance">0.00 ZN</span>
-                    </div>
-                    <div class="wallet-usd-value" id="wallet-usd-display">
-                        <span class="usd-balance-val" data-bind="usd_balance">$0.00</span>
-                    </div>
-                    
-                    <div class="ton-connect-wrapper">
-                        <div id="ton-connect-btn"></div>
-                        <div class="wallet-status" id="wallet-status-text">
-                            <i class="fas fa-link-slash"></i> المحفظة غير متصلة
-                        </div>
-                    </div>
-                </div>
+        <!-- واجهة المحفظة (wallet/wallet.html) -->
+        <div id="view-wallet" class="game-view"></div>
 
-                <div class="wallet-tabs">
-                    <button class="w-tab active" onclick="switchWalletTab('deposit')">
-                        <i class="fas fa-arrow-down-left"></i> إيداع
-                    </button>
-                    <button class="w-tab" onclick="switchWalletTab('withdraw')">
-                        <i class="fas fa-arrow-up-right"></i> سحب
-                    </button>
-                    <button class="w-tab" onclick="switchWalletTab('history')">
-                        <i class="fas fa-clock-rotate-left"></i> السجل
-                    </button>
-                </div>
-
-                <div id="w-pane-deposit" class="w-pane active">
-                    <div class="card-glass">
-                        <div class="pane-title"><i class="fas fa-qrcode"></i> عنوان إيداع TON</div>
-                        <p class="pane-desc">انسخ العنوان أدناه لإيداع عملات TON في حسابك مباشرة:</p>
-                        <div class="copy-box">
-                            <input type="text" id="deposit-address" value="EQD_YOUR_TON_DEPOSIT_ADDRESS_HERE" readonly>
-                            <button onclick="copyDepositAddress()"><i class="fas fa-copy"></i> نسخ</button>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="w-pane-withdraw" class="w-pane" style="display: none;">
-                    <div class="card-glass">
-                        <div class="pane-title"><i class="fas fa-paper-plane"></i> سحب الأرباح</div>
-                        <div class="form-group">
-                            <label>مبلغ السحب (ZN):</label>
-                            <input type="number" id="withdraw-amount" placeholder="أدخل المبلغ...">
-                        </div>
-                        <div class="form-group">
-                            <label>عنوان محفظة TON المستلمة:</label>
-                            <input type="text" id="withdraw-address" placeholder="EQ...">
-                        </div>
-                        <button class="btn-primary-action" onclick="submitWithdrawal()"><i class="fas fa-check-circle"></i> تأكيد السحب</button>
-                    </div>
-                </div>
-
-                <div id="w-pane-history" class="w-pane" style="display: none;">
-                    <div class="card-glass">
-                        <div class="pane-title"><i class="fas fa-list"></i> سجل المعاملات</div>
-                        <div id="wallet-history-list" class="history-empty">
-                            <i class="fas fa-receipt"></i>
-                            <p>لا توجد معاملات عملية حتى الآن</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- واجهة المهام -->
+        <!-- واجهة المهام (tasks/tasks.html) -->
         <div id="view-tasks" class="game-view"></div>
 
-        <!-- واجهة المزرعة (التعدين الرئيسي) -->
+        <!-- واجهة المزرعة (farm/farm.html) -->
         <div id="view-farm" class="game-view active"></div>
 
-        <!-- واجهة الألعاب (تُحمل ديناميكياً) -->
+        <!-- واجهة الألعاب (games/games.html) -->
         <div id="view-games" class="game-view"></div>
 
-        <!-- واجهة المتجر (تُحمل ديناميكياً) -->
+        <!-- واجهة المتجر (shop/shop.html) -->
         <div id="view-shop" class="game-view"></div>
 
-        <!-- واجهة الإعدادات -->
+        <!-- واجهة الإعدادات (settings/settings.html) -->
         <div id="view-settings" class="game-view"></div>
     </div>
 
-    <!-- شريط التنقل السفلي -->
+    <!-- شريط التنقل السفلي للربط بين الأقسام -->
     <nav class="bottom-nav" id="main-nav" style="display: none;">
         <button class="nav-item" onclick="switchView('friends')" id="nav-friends" data-view="friends">
             <i class="fas fa-users"></i>
@@ -162,7 +91,7 @@
         </button>
     </nav>
 
-    <!-- كشف ظهور لوحة المفاتيح الهاتفي -->
+    <!-- كشف ظهور لوحة المفاتيح الهاتفي لإخفاء الشريط السفلي عند الكتابة -->
     <script>
         (function initKeyboardDetection() {
             const viewport = window.visualViewport;
@@ -187,97 +116,7 @@
         })();
     </script>
 
-    <!-- وظائف تفاعلية للمحفظة -->
-    <script>
-        window.switchWalletTab = function(tabName) {
-            document.querySelectorAll('.w-tab').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.w-pane').forEach(p => {
-                p.style.display = 'none';
-                p.classList.remove('active');
-            });
-            
-            const activeBtn = document.querySelector(`.w-tab[onclick*="${tabName}"]`);
-            if (activeBtn) activeBtn.classList.add('active');
-            
-            const targetPane = document.getElementById(`w-pane-${tabName}`);
-            if (targetPane) {
-                targetPane.style.display = 'block';
-                targetPane.classList.add('active');
-            }
-        };
-
-        window.copyDepositAddress = function() {
-            const input = document.getElementById('deposit-address');
-            if (input) {
-                input.select();
-                navigator.clipboard.writeText(input.value);
-                if (typeof window.showGlobalToast === 'function') {
-                    window.showGlobalToast('تم نسخ عنوان الإيداع بنجاح!');
-                } else {
-                    alert('تم نسخ عنوان الإيداع!');
-                }
-            }
-        };
-    </script>
-
-    <!-- محرك الإشعارات الفوري -->
-    <script>
-        (function initRealtimeNotificationSystem() {
-            window.showGlobalToast = function(msg, iconClass = 'fa-circle-check') {
-                const container = document.getElementById('global-toast-container');
-                if (!container || !msg) return;
-
-                const toast = document.createElement('div');
-                toast.className = 'global-toast';
-                toast.innerHTML = `
-                    <div class="toast-content">
-                        <i class="fas ${iconClass}"></i>
-                        <span>${msg}</span>
-                    </div>
-                `;
-                container.appendChild(toast);
-
-                setTimeout(() => toast.classList.add('show'), 20);
-
-                setTimeout(() => {
-                    toast.classList.remove('show');
-                    setTimeout(() => toast.remove(), 400);
-                }, 4500);
-            };
-
-            function pollNotificationsAndBalance() {
-                let uid = "";
-                if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
-                    uid = window.Telegram.WebApp.initDataUnsafe.user.id;
-                }
-                if (!uid) {
-                    uid = localStorage.getItem('tg_id') || localStorage.getItem('uid') || localStorage.getItem('user_id') || "";
-                }
-                if (!uid) return;
-
-                fetch(`/api/games/check_notifications?tg_id=${encodeURIComponent(uid)}`)
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data && data.success) {
-                            if (data.has_notification && data.message) {
-                                showGlobalToast(data.message);
-                            }
-                            if (data.balance !== undefined && window.userState) {
-                                window.userState.balance = parseFloat(data.balance);
-                            }
-                        }
-                    })
-                    .catch(() => {});
-            }
-
-            document.addEventListener('DOMContentLoaded', () => {
-                pollNotificationsAndBalance();
-                setInterval(pollNotificationsAndBalance, 5000);
-            });
-        })();
-    </script>
-
-    <!-- المحرك الرئيسي اللحظي -->
-    <script src="game.js?v=3.2"></script>
+    <!-- المحرك الرئيسي المحمل للملفات والأقسام -->
+    <script src="game.js?v=3.3"></script>
 </body>
 </html>
