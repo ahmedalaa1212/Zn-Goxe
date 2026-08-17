@@ -624,6 +624,69 @@ function renderDefaultViewContent(cleanViewName, targetView) {
                     <p style="margin-bottom: 12px; font-size: 15px;">🆔 <b>معرّف تليجرام:</b> <span id="settings-user-id">${window.userState?.tg_id || 'غير معروف'}</span></p>
                 </div>
             </div>`;
+    } else if (cleanViewName === 'wallet') {
+        targetView.innerHTML = `
+            <div class="wallet-main-wrapper" style="padding: 20px; color: #ffffff; direction: rtl; max-width: 500px; margin: 0 auto;">
+                <div style="background: linear-gradient(135deg, rgba(0,136,204,0.2), rgba(0,0,0,0.4)); padding: 20px; border-radius: 16px; text-align: center; border: 1px solid rgba(0,136,204,0.3); margin-bottom: 20px;">
+                    <i class="fas fa-wallet" style="font-size: 32px; color: #0088cc; margin-bottom: 10px;"></i>
+                    <h3 style="margin: 0 0 5px 0;">محفظة Zn Goxe</h3>
+                    <div style="font-size: 26px; font-weight: bold; color: #fff; margin: 10px 0;">
+                        <span class="usd-balance-val">$${window.formatBalance(window.userState?.usd_balance || 0)}</span>
+                    </div>
+                </div>
+
+                <!-- Sub Navigation Tabs inside Wallet -->
+                <div class="wallet-nav-tabs" style="display: flex; gap: 8px; margin-bottom: 20px; justify-content: space-between; background: rgba(255,255,255,0.05); padding: 5px; border-radius: 12px;">
+                    <button class="wallet-sub-tab-btn active" data-tab="deposit" style="flex:1; padding: 10px; border: none; border-radius: 8px; background: #0088cc; color: #fff; font-weight: bold; cursor: pointer;">إيداع</button>
+                    <button class="wallet-sub-tab-btn" data-tab="withdraw" style="flex:1; padding: 10px; border: none; border-radius: 8px; background: transparent; color: #aaa; font-weight: bold; cursor: pointer;">سحب</button>
+                    <button class="wallet-sub-tab-btn" data-tab="address" style="flex:1; padding: 10px; border: none; border-radius: 8px; background: transparent; color: #aaa; font-weight: bold; cursor: pointer;">العنوان</button>
+                </div>
+
+                <!-- Wallet Sub Content Screens -->
+                <div id="wallet-sub-views">
+                    <div id="wallet-tab-deposit" class="wallet-sub-page" style="display: block;">
+                        <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; text-align: center;">
+                            <p style="margin-bottom: 15px;">اختر شبكة الإيداع المتاحة:</p>
+                            <button style="width: 100%; padding: 12px; background: rgba(0,136,204,0.15); border: 1px solid #0088cc; color: #fff; border-radius: 10px; font-size: 15px; cursor: pointer;"><i class="fas fa-coins"></i> إيداع عبر شبكة TON</button>
+                        </div>
+                    </div>
+
+                    <div id="wallet-tab-withdraw" class="wallet-sub-page" style="display: none;">
+                        <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
+                            <label style="display: block; margin-bottom: 8px;">المبلغ المراد سحبه:</label>
+                            <input type="number" placeholder="0.00" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: #fff; margin-bottom: 12px; box-sizing: border-box;">
+                            <button style="width: 100%; padding: 12px; background: #28a745; border: none; border-radius: 8px; color: #fff; font-weight: bold; cursor: pointer;">طلب السحب</button>
+                        </div>
+                    </div>
+
+                    <div id="wallet-tab-address" class="wallet-sub-page" style="display: none;">
+                        <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px;">
+                            <label style="display: block; margin-bottom: 8px;">عنوان محفظتك لتلقي السحوبات:</label>
+                            <input type="text" id="wallet-address-input" value="${window.userState?.wallet_address || ''}" placeholder="أدخل عنوان المحفظة الخاص بك" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: #fff; margin-bottom: 12px; box-sizing: border-box;">
+                            <button onclick="window.saveWalletAddress()" style="width: 100%; padding: 12px; background: #0088cc; border: none; border-radius: 8px; color: #fff; font-weight: bold; cursor: pointer;">حفظ العنوان</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+
+        // ربط أحداث القوائم الداخلية للمحفظة فورياً
+        targetView.querySelectorAll('.wallet-sub-tab-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const tab = btn.getAttribute('data-tab');
+                targetView.querySelectorAll('.wallet-sub-tab-btn').forEach(b => {
+                    b.classList.remove('active');
+                    b.style.background = 'transparent';
+                    b.style.color = '#aaa';
+                });
+                btn.classList.add('active');
+                btn.style.background = '#0088cc';
+                btn.style.color = '#fff';
+
+                targetView.querySelectorAll('.wallet-sub-page').forEach(p => p.style.display = 'none');
+                const activePage = targetView.querySelector(`#wallet-tab-${tab}`);
+                if (activePage) activePage.style.display = 'block';
+            });
+        });
     }
 }
 
@@ -770,7 +833,6 @@ window.switchView = async function(viewName) {
             if (typeof window.initFriendsView === 'function') window.initFriendsView();
             else if (typeof window.onFriendsTabOpen === 'function') window.onFriendsTabOpen();
         } else if (cleanViewName === 'wallet') {
-            // تشغيل موديل المحفظة المخصص
             if (window.walletModule && typeof window.walletModule.init === 'function') {
                 window.walletModule.init();
             }
