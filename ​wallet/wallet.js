@@ -5,11 +5,15 @@
         try {
             console.log("⚡ جاري فتح شاشة المحفظة...");
 
-            // 1. تحديث بيانات الواجهة الرئيسية بحماية من الأخطاء
+            // 1. تحديث بيانات الواجهة الرئيسية
             updateWalletHeaderUI();
 
-            // 2. تهيئة TON Connect المباشر
-            initTonConnectSDK();
+            // 2. تهيئة TON Connect المباشر مع حماية من الأخطاء
+            try {
+                initTonConnectSDK();
+            } catch (tcErr) {
+                console.warn("TON Connect Initialization skipped/error:", tcErr);
+            }
 
             // 3. ربط أزرار التبويب الداخلي
             setupSubTabNavigation();
@@ -18,7 +22,7 @@
             setupWalletActionEvents();
 
             // 5. تحميل سجل العمليات
-            await loadWalletHistory();
+            loadWalletHistory().catch(e => console.warn("History load warn:", e));
 
         } catch (err) {
             console.error("❌ خطأ أثناء تهيئة المحفظة:", err);
@@ -84,12 +88,26 @@
         tabBtns.forEach(btn => {
             btn.onclick = function () {
                 const targetTab = this.dataset.tab;
-                tabBtns.forEach(b => b.classList.remove('active'));
-                tabPanes.forEach(p => p.classList.remove('active'));
-
+                
+                // تحديث الأزرار
+                tabBtns.forEach(b => {
+                    b.classList.remove('active');
+                    b.style.background = '#161f2e';
+                });
                 this.classList.add('active');
+                this.style.background = '#0088cc';
+
+                // تحديث التبويبات الصريحة
+                tabPanes.forEach(p => {
+                    p.classList.remove('active');
+                    p.style.display = 'none';
+                });
+
                 const selectedPane = document.getElementById(`subtab-${targetTab}`);
-                if (selectedPane) selectedPane.classList.add('active');
+                if (selectedPane) {
+                    selectedPane.classList.add('active');
+                    selectedPane.style.display = 'block';
+                }
 
                 if (targetTab === 'history') {
                     loadWalletHistory();
@@ -146,19 +164,19 @@
             const res = await window.fetchAPI('/api/wallet/history', 'GET');
             if (res && res.success && Array.isArray(res.history) && res.history.length > 0) {
                 historyContainer.innerHTML = res.history.map(item => `
-                    <div class="history-item ${item.type}">
+                    <div class="history-item ${item.type}" style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #333;">
                         <div class="h-info">
-                            <span class="h-type">${item.type === 'deposit' ? '📥 إيداع' : '📤 سحب'}</span>
-                            <span class="h-date">${item.date}</span>
+                            <div class="h-type" style="font-weight: bold; font-size: 14px;">${item.type === 'deposit' ? '📥 إيداع' : '📤 سحب'}</div>
+                            <div class="h-date" style="font-size: 12px; color: #888;">${item.date}</div>
                         </div>
-                        <div class="h-amount ${item.type}">${item.type === 'deposit' ? '+' : '-'}${item.amount} ZN</div>
+                        <div class="h-amount ${item.type}" style="font-weight: bold; color: ${item.type === 'deposit' ? '#4caf50' : '#f44336'};">${item.type === 'deposit' ? '+' : '-'}${item.amount} ZN</div>
                     </div>
                 `).join('');
             } else {
-                historyContainer.innerHTML = `<div class="empty-history">لا توجد معاملات مسجلة حتى الآن.</div>`;
+                historyContainer.innerHTML = `<div class="empty-history" style="padding: 10px; color: #aaa;">لا توجد معاملات مسجلة حتى الآن.</div>`;
             }
         } catch (e) {
-            historyContainer.innerHTML = `<div class="empty-history">فشل تحميل السجل.</div>`;
+            historyContainer.innerHTML = `<div class="empty-history" style="padding: 10px; color: #ff5555;">تعذر تحميل السجل.</div>`;
         }
     }
 
