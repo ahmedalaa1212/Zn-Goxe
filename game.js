@@ -632,8 +632,8 @@ window.switchView = async function(viewName) {
 
     hideLoadingScreen();
 
-    // 5. تشغيل دالة التهيئة المخصصة للتبويب
-    setTimeout(() => {
+    // 5. تشغيل دالة التهيئة المخصصة للتبويب فورياً وبطريقة آمنة
+    const runTabInit = () => {
         try {
             if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
                 window.onFarmTabOpen();
@@ -642,8 +642,8 @@ window.switchView = async function(viewName) {
             } else if (cleanViewName === 'games' && typeof window.onGamesTabOpen === 'function') {
                 window.onGamesTabOpen();
             } else if (cleanViewName === 'wallet') {
-                if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
-                else if (typeof window.initWalletView === 'function') window.initWalletView();
+                if (typeof window.initWalletView === 'function') window.initWalletView();
+                else if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
             } else if (cleanViewName === 'tasks') {
                 if (typeof window.initTasksView === 'function') window.initTasksView();
                 else if (typeof window.onTasksTabOpen === 'function') window.onTasksTabOpen();
@@ -659,7 +659,10 @@ window.switchView = async function(viewName) {
             console.error(`⚠️ خطأ في تشغيل دالة ${cleanViewName}:`, err);
         }
         window.updateUI();
-    }, 50);
+    };
+
+    runTabInit();
+    setTimeout(runTabInit, 100);
 };
 
 function loadModuleScript(scriptUrl) {
