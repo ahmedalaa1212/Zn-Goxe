@@ -615,21 +615,7 @@ const loadedModules = new Set();
 const pendingLoads = new Map();
 
 function renderDefaultViewContent(cleanViewName, targetView) {
-    if (cleanViewName === 'wallet') {
-        targetView.innerHTML = `
-            <div style="padding: 20px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto;">
-                <h2 style="margin-bottom: 20px; color: #0088cc;"><i class="fas fa-wallet"></i> المحفظة (Wallet)</h2>
-                <div style="background: rgba(255, 255, 255, 0.08); padding: 20px; border-radius: 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
-                    <p style="margin-bottom: 12px; font-size: 15px; color: #ddd;">عنوان المحفظة الخاص بك:</p>
-                    <input type="text" id="wallet-address-input" placeholder="أدخل عنوان محفظتك هنا..." 
-                           style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #444; background: #1a1a1a; color: #fff; text-align: center; font-size: 14px; box-sizing: border-box;" 
-                           value="${window.userState?.wallet_address || ''}">
-                    <button onclick="window.saveWalletAddress()" style="margin-top: 15px; width: 100%; padding: 12px; background: #0088cc; color: #fff; border: none; border-radius: 8px; font-weight: bold; font-size: 15px; cursor: pointer;">
-                        💾 حفظ المحفظة
-                    </button>
-                </div>
-            </div>`;
-    } else if (cleanViewName === 'settings') {
+    if (cleanViewName === 'settings') {
         targetView.innerHTML = `
             <div style="padding: 20px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto;">
                 <h2 style="margin-bottom: 20px; color: #0088cc;"><i class="fas fa-cog"></i> الإعدادات (Settings)</h2>
@@ -710,23 +696,49 @@ window.switchView = async function(viewName) {
                 let loadedSuccessfully = false;
 
                 try {
-                    const htmlPath1 = `./${cleanViewName}/${cleanViewName}.html${cacheBuster}`;
-                    let res = await fetch(htmlPath1);
+                    const pathsToTry = [
+                        `./${cleanViewName}/${cleanViewName}.html${cacheBuster}`,
+                        `/${cleanViewName}/${cleanViewName}.html${cacheBuster}`,
+                        `./${cleanViewName}.html${cacheBuster}`
+                    ];
                     
-                    if (!res.ok) {
-                        const htmlPath2 = `./${cleanViewName}.html${cacheBuster}`;
-                        res = await fetch(htmlPath2);
+                    let htmlContent = null;
+                    for (const p of pathsToTry) {
+                        try {
+                            const res = await fetch(p);
+                            if (res.ok) {
+                                const txt = await res.text();
+                                if (txt && txt.trim().length > 10) {
+                                    htmlContent = txt;
+                                    break;
+                                }
+                            }
+                        } catch (e) {}
                     }
 
-                    if (res.ok) {
-                        const htmlContent = await res.text();
-                        if (htmlContent && htmlContent.trim().length > 10) {
-                            targetView.innerHTML = htmlContent;
-                            const jsPath = `./${cleanViewName}/${cleanViewName}.js${cacheBuster}`;
-                            await loadModuleScript(jsPath);
-                            loadedModules.add(cleanViewName);
-                            loadedSuccessfully = true;
+                    if (htmlContent) {
+                        targetView.innerHTML = htmlContent;
+                        
+                        // إعادة تشغيل عناصر السكريبت المضمنة إن وجدت
+                        const inlineScripts = targetView.querySelectorAll('script');
+                        inlineScripts.forEach(s => {
+                            const newScript = document.createElement('script');
+                            if (s.src) newScript.src = s.src;
+                            else newScript.textContent = s.textContent;
+                            document.body.appendChild(newScript);
+                        });
+
+                        const jsPathsToTry = [
+                            `./${cleanViewName}/${cleanViewName}.js${cacheBuster}`,
+                            `/${cleanViewName}/${cleanViewName}.js${cacheBuster}`
+                        ];
+                        for (const jsP of jsPathsToTry) {
+                            const loaded = await loadModuleScript(jsP);
+                            if (loaded) break;
                         }
+
+                        loadedModules.add(cleanViewName);
+                        loadedSuccessfully = true;
                     }
                 } catch (e) {
                     console.warn(`فشل جلب ملف ${cleanViewName} خارجي:`, e);
@@ -758,8 +770,10 @@ window.switchView = async function(viewName) {
             if (typeof window.initFriendsView === 'function') window.initFriendsView();
             else if (typeof window.onFriendsTabOpen === 'function') window.onFriendsTabOpen();
         } else if (cleanViewName === 'wallet') {
+            if (typeof window.initWallet === 'function') window.initWallet();
             if (typeof window.initWalletView === 'function') window.initWalletView();
-            else if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
+            if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
+            if (typeof window.loadWalletData === 'function') window.loadWalletData();
         } else if (cleanViewName === 'settings') {
             if (typeof window.initSettingsView === 'function') window.initSettingsView();
         }
