@@ -1,5 +1,22 @@
 import sqlite3
 
+# ==================== Sub-Modules Re-exports ====================
+# ربط موديولات قواعد البيانات الفرعية للمحفظة (الإيداع، السجلات، السحب)
+try:
+    from .deposit.deposit_db import *
+except Exception as e:
+    print(f"⚠️ تنبيه أثناء تحميل deposit_db في wallet_db: {e}")
+
+try:
+    from .history.history_db import *
+except Exception as e:
+    print(f"⚠️ تنبيه أثناء تحميل history_db في wallet_db: {e}")
+
+try:
+    from .withdraw.withdraw_db import *
+except Exception as e:
+    print(f"⚠️ تنبيه أثناء تحميل withdraw_db في wallet_db: {e}")
+
 DB_PATH = 'database.db'
 
 def get_db_connection():
