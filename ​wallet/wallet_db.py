@@ -3,49 +3,57 @@ import sqlite3
 DB_PATH = 'database.db'
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
     return conn
 
 def get_user_wallet_balances(user_id: int) -> dict:
-    """استعلام عن أرصدة ZN و USDT من قاعدة البيانات"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    """استعلام آمن للرصيد مع دعم مرن لأسماء الأعمدة المتقاطعة"""
+    conn = None
     try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
         cursor.execute(
-            "SELECT zn_balance, usdt_balance FROM users WHERE user_id = ?", 
-            (user_id,)
+            "SELECT balance, zn_balance, usd_balance, usdt_balance FROM users WHERE user_id = ? OR tg_id = ?", 
+            (user_id, user_id)
         )
         row = cursor.fetchone()
         if row:
+            keys = row.keys()
+            zn_val = row['zn_balance'] if 'zn_balance' in keys and row['zn_balance'] is not None else row['balance']
+            usdt_val = row['usdt_balance'] if 'usdt_balance' in keys and row['usdt_balance'] is not None else row['usd_balance']
+            
             return {
-                'zn_balance': float(row['zn_balance'] or 0.0),
-                'usdt_balance': float(row['usdt_balance'] or 0.0)
+                'zn_balance': float(zn_val or 0.0),
+                'usdt_balance': float(usdt_val or 0.0)
             }
         return {'zn_balance': 0.0, 'usdt_balance': 0.0}
     except Exception as e:
         print(f"Error reading wallet balances: {e}")
         return {'zn_balance': 0.0, 'usdt_balance': 0.0}
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 def update_user_balance(user_id: int, amount: float, currency: str = 'zn', operation: str = 'add') -> bool:
-    """تعديل الرصيد (إضافة أو خصم) لكل من ZN أو USDT"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    column = 'zn_balance' if currency.lower() == 'zn' else 'usdt_balance'
+    """تعديل الرصيد بحماية ضد الثغرات ومعالجة آمنة للعمليات"""
+    conn = None
+    col_name = 'zn_balance' if currency.lower() == 'zn' else 'usdt_balance'
     
     try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
         operator = '+' if operation == 'add' else '-'
-        cursor.execute(
-            f"UPDATE users SET {column} = MAX(0, {column} {operator} ?) WHERE user_id = ?",
-            (amount, user_id)
-        )
+        
+        query = f"UPDATE users SET {col_name} = MAX(0, {col_name} {operator} ?) WHERE user_id = ? OR tg_id = ?"
+        cursor.execute(query, (abs(amount), user_id, user_id))
         conn.commit()
         return True
     except Exception as e:
         print(f"Error updating balance: {e}")
-        conn.rollback()
+        if conn:
+            conn.rollback()
         return False
     finally:
-        conn.close()
+        if conn:
+            conn.close()
