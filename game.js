@@ -548,74 +548,114 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 8. التنقل الديناميكي المحصن وحقن ملفات HTML مباشرة
+// 8. تصميم واجهة المحفظة المدمجة للأنظمة (Embedded Wallet UI)
 // ==========================================
-const loadedModules = new Set();
+window.renderDefaultWalletUI = function(container) {
+    if (!container) return;
+    const walletAddr = window.userState?.wallet_address || '';
+    const balance = window.formatBalance(window.userState?.balance || 0);
+    const usdBalance = window.formatBalance(window.userState?.usd_balance || 0);
+    const tonPrice = (window.currentTonPriceUSD || 6.50).toFixed(2);
 
-function renderDefaultWalletUI() {
-    const address = window.userState?.wallet_address;
-    const formattedAddr = address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'غير متصل';
-    const usdBal = window.formatBalance(window.userState?.usd_balance || 0);
-    const znBal = window.formatBalance(window.userState?.balance || 0);
-
-    return `
-        <div style="padding: 20px; color: #fff; direction: rtl; font-family: sans-serif; max-width: 500px; margin: 0 auto;">
-            <div style="background: linear-gradient(135deg, #1e293b, #0f172a); border-radius: 16px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); margin-bottom: 20px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <span style="color: #94a3b8; font-size: 14px;">💼 محفظة TON</span>
-                    <span style="background: rgba(0,136,204,0.2); color: #38bdf8; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold;">
-                        ${address ? '🟢 متصل' : '🔴 غير متصل'}
-                    </span>
-                </div>
-                <div style="font-size: 28px; font-weight: bold; margin-bottom: 5px; color: #38bdf8;">
-                    $${usdBal} USD
-                </div>
-                <div style="font-size: 14px; color: #cbd5e1; margin-bottom: 15px;">
-                    رصيد العملة: <strong style="color: #f59e0b;">${znBal} ZN</strong>
-                </div>
-                <div style="font-size: 13px; color: #94a3b8; background: rgba(0,0,0,0.2); padding: 8px 12px; border-radius: 8px; word-break: break-all;">
-                    العنوان: <span style="color: #fff;" dir="ltr">${formattedAddr}</span>
+    container.innerHTML = `
+        <div class="wallet-page-container" style="padding: 20px 15px 90px; color: #fff; font-family: system-ui, -apple-system, sans-serif; direction: rtl; max-width: 500px; margin: 0 auto;">
+            <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #334155; border-radius: 20px; padding: 25px 20px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); margin-bottom: 20px; position: relative; overflow: hidden;">
+                <div style="position: absolute; top: -20px; left: -20px; width: 100px; height: 100px; background: rgba(0, 136, 204, 0.15); filter: blur(30px); border-radius: 50%;"></div>
+                
+                <div style="font-size: 14px; color: #94a3b8; margin-bottom: 8px;">إجمالي الرصيد القابل للسحب</div>
+                <div style="font-size: 32px; font-weight: 800; color: #0088cc; margin-bottom: 5px; direction: ltr;" id="wallet-main-balance">${balance} ZN</div>
+                <div style="font-size: 14px; color: #38bdf8;" id="wallet-usd-balance">≈ $${usdBalance} USD</div>
+                
+                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #cbd5e1;">
+                    <span>سعر TON الحالي:</span>
+                    <span style="color: #0088cc; font-weight: bold; direction: ltr;">$${tonPrice}</span>
                 </div>
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
-                <button onclick="alert('خدمة الإيداع ستكون متاحة قريباً!')" style="padding: 12px; background: #0088cc; color: #fff; border: none; border-radius: 12px; font-weight: bold; cursor: pointer;">
-                    📥 إيداع
+            <div style="background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 20px; margin-bottom: 20px;">
+                <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #f8fafc; display: flex; align-items: center; gap: 8px;">
+                    <span>💎</span> محفظة TON الخاصة بك
+                </h3>
+                
+                <div style="margin-bottom: 15px;">
+                    <input type="text" id="wallet-address-input" placeholder="أدخل عنوان محفظة TON (e.g. EQD...)" value="${walletAddr}" style="width: 100%; padding: 12px 15px; background: #0f172a; border: 1px solid #475569; border-radius: 10px; color: #fff; font-size: 13px; text-align: left; direction: ltr; box-sizing: border-box; outline: none;">
+                </div>
+                
+                <button id="save-wallet-btn" onclick="window.saveWalletAddressFromUI()" style="width: 100%; padding: 12px; background: linear-gradient(90deg, #0088cc, #00aaff); color: #fff; border: none; border-radius: 10px; font-weight: bold; font-size: 14px; cursor: pointer; transition: all 0.2s;">
+                    ${walletAddr ? '✅ تم حفظ المحفظة (تحديث)' : '🔗 ربط المحفظة'}
                 </button>
-                <button onclick="alert('خدمة السحب ستكون متاحة قريباً!')" style="padding: 12px; background: #334155; color: #fff; border: none; border-radius: 12px; font-weight: bold; cursor: pointer;">
-                    📤 سحب
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
+                <button onclick="alert('خدمة الإيداع ستكون متاحة قريباً!')" style="padding: 15px; background: #1e293b; border: 1px solid #334155; border-radius: 14px; color: #fff; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                    <span style="font-size: 24px;">📥</span>
+                    <span>إيداع</span>
                 </button>
+                <button onclick="alert('حد السحب الأدنى 10,000 ZN')" style="padding: 15px; background: #1e293b; border: 1px solid #334155; border-radius: 14px; color: #fff; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                    <span style="font-size: 24px;">📤</span>
+                    <span>سحب الأرباح</span>
+                </button>
+            </div>
+
+            <div style="background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 20px; text-align: center;">
+                <h4 style="margin: 0 0 10px 0; color: #94a3b8; font-size: 14px;">سجل المعاملات</h4>
+                <p style="margin: 0; color: #64748b; font-size: 13px;">لا توجد معاملات سحب أو إيداع سابقة.</p>
             </div>
         </div>
     `;
-}
+};
+
+window.saveWalletAddressFromUI = function() {
+    const input = document.getElementById('wallet-address-input');
+    if (!input) return;
+    const val = input.value.trim();
+    if (!val) {
+        alert('يرجى إدخال عنوان المحفظة أولاً');
+        return;
+    }
+    window.userState.wallet_address = val;
+    alert('🎉 تم حفظ عنوان المحفظة بنجاح!');
+    if (typeof window.fetchAPI === 'function') {
+        window.fetchAPI('/api/user/update_wallet', 'POST', { wallet_address: val }).catch(e => console.warn(e));
+    }
+};
+
+window.initWalletView = function() {
+    const walletView = document.getElementById('view-wallet');
+    if (walletView) {
+        const hasSubstance = walletView.querySelector('.wallet-page-container') || walletView.querySelector('#wallet-address-input') || (walletView.children.length > 0 && walletView.innerText.trim().length > 30);
+        if (!hasSubstance) {
+            window.renderDefaultWalletUI(walletView);
+        } else {
+            const addrInput = walletView.querySelector('#wallet-address-input, #wallet-address, [name="wallet_address"]');
+            if (addrInput && window.userState?.wallet_address) {
+                addrInput.value = window.userState.wallet_address;
+            }
+        }
+    }
+};
+window.onWalletTabOpen = window.initWalletView;
+
+// ==========================================
+// 9. التنقل الديناميكي المحصن وحقن ملفات HTML مباشرة
+// ==========================================
+const loadedModules = new Set();
 
 window.switchView = async function(viewName) {
     if (!viewName) return;
 
-    const rawView = String(viewName).toLowerCase().trim().replace('nav-', '').replace('view-', '');
-    let cleanViewName = rawView;
-
-    if (['wallets', 'tools', 'settings', 'wallet'].includes(rawView)) {
-        cleanViewName = 'wallet';
-    } else if (['game', 'games'].includes(rawView)) {
-        cleanViewName = 'games';
-    } else if (['task', 'tasks'].includes(rawView)) {
-        cleanViewName = 'tasks';
-    } else if (['user', 'friends', 'friend', 'referral', 'invite'].includes(rawView)) {
-        cleanViewName = 'friends';
-    }
+    let cleanViewName = String(viewName).toLowerCase().replace('nav-', '').replace('view-', '');
+    if (cleanViewName === 'wallets' || cleanViewName === 'tools' || cleanViewName === 'settings' || cleanViewName === 'wallet') cleanViewName = 'wallet';
+    if (cleanViewName === 'game') cleanViewName = 'games';
+    if (cleanViewName === 'task') cleanViewName = 'tasks';
+    if (cleanViewName === 'user' || cleanViewName === 'friends' || cleanViewName === 'friend') cleanViewName = 'friends';
 
     // 1. تحديث إضاءة أزرار القائمة السفلى
-    document.querySelectorAll('.nav-item, [data-view], [id^="nav-"]').forEach(btn => {
-        const btnView = (btn.dataset.view || btn.id?.replace('nav-', '') || '').toLowerCase();
-        if (btnView === rawView || btnView === cleanViewName || 
-            (cleanViewName === 'wallet' && ['wallet', 'wallets', 'tools', 'settings'].includes(btnView))) {
-            btn.classList.add('active');
-        } else if (btn.classList.contains('nav-item')) {
-            btn.classList.remove('active');
-        }
-    });
+    document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
+    const targetNav = document.getElementById(`nav-${cleanViewName}`) || 
+                      document.querySelector(`[data-view="${cleanViewName}"]`) ||
+                      document.querySelector(`[data-view="${viewName}"]`);
+    if (targetNav) targetNav.classList.add('active');
 
     // 2. إخفاء الشاشات الأخرى وتفعيل الحاوية الحالية
     document.querySelectorAll('.game-view, [id^="view-"]').forEach(v => {
@@ -624,10 +664,6 @@ window.switchView = async function(viewName) {
     });
     
     let targetView = document.getElementById(`view-${cleanViewName}`);
-    if (!targetView && cleanViewName === 'wallet') {
-        targetView = document.getElementById('view-tools') || document.getElementById('view-wallets') || document.getElementById('view-settings');
-        if (targetView) targetView.id = 'view-wallet';
-    }
     
     if (!targetView) {
         const appContainer = document.getElementById('app') || document.body;
@@ -638,47 +674,44 @@ window.switchView = async function(viewName) {
     }
     
     targetView.classList.add('active');
-    targetView.style.cssText = 'display: block !important; visibility: visible !important; opacity: 1 !important; width: 100%; min-height: 80vh; position: relative; z-index: 1;';
+    targetView.style.display = 'block';
+    targetView.style.width = '100%';
+    targetView.style.minHeight = '100vh';
 
-    // 3. جلب المحتوى المباشر مع محاولة مسارات متعددة
-    if (!loadedModules.has(cleanViewName) || targetView.innerHTML.trim() === '') {
-        let candidates = [cleanViewName];
-        if (cleanViewName === 'wallet') {
-            candidates = ['wallet', 'wallets', 'tools', 'settings'];
-        } else if (cleanViewName === 'tasks') {
-            candidates = ['tasks', 'task'];
-        } else if (cleanViewName === 'friends') {
-            candidates = ['friends', 'friend'];
-        } else if (cleanViewName === 'games') {
-            candidates = ['games', 'game'];
-        }
+    // 3. جلب المحتوى المباشر أو عرض الواجهة المدمجة لمنع الشاشة السوداء نهائياً
+    const hasRealContent = targetView.innerText.trim().length > 15 || targetView.querySelector('button, input, h1, h2, h3, h4, .wallet-page-container');
 
-        let loadedSuccessfully = false;
+    if (!loadedModules.has(cleanViewName) || !hasRealContent) {
         const cacheBuster = `?v=${Date.now()}`;
+        let loadedSuccessfully = false;
 
-        for (const candidate of candidates) {
-            const htmlPath = `./${candidate}/${candidate}.html${cacheBuster}`;
-            try {
-                const res = await fetch(htmlPath);
-                if (res.ok) {
-                    const htmlContent = await res.text();
-                    if (htmlContent && htmlContent.trim().length > 0) {
-                        targetView.innerHTML = htmlContent;
-                        const jsPath = `./${candidate}/${candidate}.js${cacheBuster}`;
-                        await loadModuleScript(jsPath);
-                        loadedModules.add(cleanViewName);
-                        loadedSuccessfully = true;
-                        break;
-                    }
-                }
-            } catch (e) {
-                console.warn(`تخطي المسار ${htmlPath}:`, e);
+        try {
+            const htmlPath1 = `./${cleanViewName}/${cleanViewName}.html${cacheBuster}`;
+            let res = await fetch(htmlPath1);
+            
+            if (!res.ok) {
+                const htmlPath2 = `./${cleanViewName}.html${cacheBuster}`;
+                res = await fetch(htmlPath2);
             }
+
+            if (res.ok) {
+                const htmlContent = await res.text();
+                if (htmlContent && htmlContent.trim().length > 10) {
+                    targetView.innerHTML = htmlContent;
+                    const jsPath = `./${cleanViewName}/${cleanViewName}.js${cacheBuster}`;
+                    await loadModuleScript(jsPath);
+                    loadedModules.add(cleanViewName);
+                    loadedSuccessfully = true;
+                }
+            }
+        } catch (e) {
+            console.warn(`فشل جلب ملف ${cleanViewName} خارجي:`, e);
         }
 
-        if (!loadedSuccessfully && targetView.innerHTML.trim() === '') {
+        if (!loadedSuccessfully) {
             if (cleanViewName === 'wallet') {
-                targetView.innerHTML = renderDefaultWalletUI();
+                window.renderDefaultWalletUI(targetView);
+                loadedModules.add(cleanViewName);
             } else {
                 targetView.innerHTML = `
                     <div style="padding: 50px 20px; text-align: center; color: #ffffff; direction: rtl;">
@@ -695,28 +728,24 @@ window.switchView = async function(viewName) {
 
     hideLoadingScreen();
 
-    // 4. تشغيل دالة التهيئة المخصصة للتبويب بأمان
+    // 4. تشغيل دالة التهيئة المخصصة للتبويب فورياً
     const runTabInit = () => {
         try {
-            if (cleanViewName === 'farm') {
-                if (typeof window.onFarmTabOpen === 'function') window.onFarmTabOpen();
-                if (typeof window.updateFarmUI === 'function') window.updateFarmUI();
-            } else if (cleanViewName === 'shop') {
-                if (typeof window.updateShopUI === 'function') window.updateShopUI();
-                if (typeof window.initShopView === 'function') window.initShopView();
-            } else if (cleanViewName === 'games') {
-                if (typeof window.onGamesTabOpen === 'function') window.onGamesTabOpen();
-                if (typeof window.initGamesView === 'function') window.initGamesView();
+            if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
+                window.onFarmTabOpen();
+            } else if (cleanViewName === 'shop' && typeof window.updateShopUI === 'function') {
+                window.updateShopUI();
+            } else if (cleanViewName === 'games' && typeof window.onGamesTabOpen === 'function') {
+                window.onGamesTabOpen();
             } else if (cleanViewName === 'friends') {
                 if (typeof window.initFriendsView === 'function') window.initFriendsView();
-                if (typeof window.onFriendsTabOpen === 'function') window.onFriendsTabOpen();
+                else if (typeof window.onFriendsTabOpen === 'function') window.onFriendsTabOpen();
             } else if (cleanViewName === 'wallet') {
                 if (typeof window.initWalletView === 'function') window.initWalletView();
-                if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
-                if (typeof window.updateWalletUI === 'function') window.updateWalletUI();
+                else if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
             } else if (cleanViewName === 'tasks') {
                 if (typeof window.initTasksView === 'function') window.initTasksView();
-                if (typeof window.onTasksTabOpen === 'function') window.onTasksTabOpen();
+                else if (typeof window.onTasksTabOpen === 'function') window.onTasksTabOpen();
             } else {
                 const initFuncName = `init${cleanViewName.charAt(0).toUpperCase() + cleanViewName.slice(1)}View`;
                 if (typeof window[initFuncName] === 'function') {
@@ -754,7 +783,7 @@ function loadModuleScript(scriptUrl) {
 }
 
 // ==========================================
-// 9. ربط النقر التلقائي بجميع أزرار التبويب ومنع Reload
+// 10. ربط النقر التلقائي بجميع أزرار التبويب ومنع Reload
 // ==========================================
 function bindGlobalNavEvents() {
     document.addEventListener('click', (e) => {
@@ -771,7 +800,7 @@ function bindGlobalNavEvents() {
 }
 
 // ==========================================
-// 10. بدء التطبيق
+// 11. بدء التطبيق
 // ==========================================
 window.loadUserData = async function() {
     try {
