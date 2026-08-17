@@ -1,5 +1,6 @@
 window.walletModule = (function () {
     let currentTab = 'deposit';
+    let isListening = false;
 
     // تنسيق الأرقام العشرية: 4 أرقام للأرقام الصغيرة (< 100)، ورقمين للأرقام الكبيرة
     function formatSmartBalance(val) {
@@ -11,12 +12,38 @@ window.walletModule = (function () {
         return num.toFixed(2);
     }
 
-    // جلب الأرصدة مع إرسال الترويسات الآمنة وتحديث التنسيق
+    // تحديث الواجهة فورياً من الحالة المحلية بالذاكرة (0ms Latency)
+    function updateBalancesUI() {
+        const znElem = document.getElementById('zn-balance-display');
+        const usdtElem = document.getElementById('usdt-balance-display');
+
+        const znVal = window.userState?.balance !== undefined ? window.userState.balance : (window.PlayerData?.balance || 0);
+        const usdtVal = window.userState?.usd_balance !== undefined ? window.userState.usd_balance : (window.PlayerData?.usd_balance || 0);
+
+        if (znElem) znElem.innerText = formatSmartBalance(znVal);
+        if (usdtElem) usdtElem.innerText = formatSmartBalance(usdtVal);
+    }
+
+    // الاستماع المباشر للتغيرات في الفايربيس والحالة العامة للعبة
+    function attachRealtimeListeners() {
+        if (isListening) return;
+        isListening = true;
+
+        window.addEventListener('userStateUpdated', () => {
+            updateBalancesUI();
+        });
+    }
+
+    // جلب الأرصدة من السيرفر كبديل موازي دون تعطيل سرعة العرض المباشر
     async function fetchWalletBalances() {
+        updateBalancesUI();
+
         try {
             const tg = window.Telegram?.WebApp;
             const userId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id || '';
             const initData = tg?.initData || '';
+
+            if (!userId) return;
 
             const headers = { 'Content-Type': 'application/json' };
             if (userId) headers['X-Telegram-User-Id'] = String(userId);
@@ -27,25 +54,15 @@ window.walletModule = (function () {
             const data = await res.json();
             
             if (data.success) {
-                const znElem = document.getElementById('zn-balance-display');
-                const usdtElem = document.getElementById('usdt-balance-display');
-                
-                const znVal = data.zn_balance !== undefined ? data.zn_balance : (window.userState?.balance || 0);
-                const usdtVal = data.usdt_balance !== undefined ? data.usdt_balance : (window.userState?.usd_balance || 0);
-
-                if (znElem) znElem.innerText = formatSmartBalance(znVal);
-                if (usdtElem) usdtElem.innerText = formatSmartBalance(usdtVal);
+                if (window.userState) {
+                    if (data.zn_balance !== undefined) window.userState.balance = parseFloat(data.zn_balance);
+                    if (data.usdt_balance !== undefined) window.userState.usd_balance = parseFloat(data.usdt_balance);
+                }
+                updateBalancesUI();
             }
         } catch (err) {
-            console.warn("⚠️ استخدام البيانات المحلية مؤقتاً لتخفيف ضغط الاستعلامات:", err);
-            const znElem = document.getElementById('zn-balance-display');
-            const usdtElem = document.getElementById('usdt-balance-display');
-            if (znElem && window.userState?.balance !== undefined) {
-                znElem.innerText = formatSmartBalance(window.userState.balance);
-            }
-            if (usdtElem && window.userState?.usd_balance !== undefined) {
-                usdtElem.innerText = formatSmartBalance(window.userState.usd_balance);
-            }
+            console.warn("⚠️ تم الاعتماد على المزامنة اللحظية المحلية والفايربيس:", err);
+            updateBalancesUI();
         }
     }
 
@@ -53,7 +70,6 @@ window.walletModule = (function () {
     async function switchTab(tabName) {
         currentTab = tabName;
 
-        // تحديث إضاءة الأزرار بالتسلسل المطلوب
         ['deposit', 'history', 'withdraw'].forEach(t => {
             const btn = document.getElementById(`tab-btn-${t}`);
             if (btn) {
@@ -97,14 +113,17 @@ window.walletModule = (function () {
     }
 
     function init() {
+        attachRealtimeListeners();
+        updateBalancesUI();
         fetchWalletBalances();
-        switchTab('deposit');
+        switchTab(currentTab || 'deposit');
     }
 
     return {
         init,
         switchTab,
         fetchWalletBalances,
+        updateBalancesUI,
         formatSmartBalance
     };
 })();
