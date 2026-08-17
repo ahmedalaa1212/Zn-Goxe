@@ -106,6 +106,19 @@ def serve_tonconnect_manifest():
         return jsonify({"success": False, "error": "Manifest file not found"}), 404
 
 
+@app.route('/<path:filename>')
+def serve_static_files(filename):
+    """خدمة كافة الملفات الثابتة والأقسام الفرعية بشكل مباشر (مثل مجلد wallet ومحتوياته deposit, withdraw, history)"""
+    file_path = os.path.join(BASE_DIR, filename)
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        return send_from_directory(BASE_DIR, filename)
+    elif os.path.isdir(file_path):
+        index_in_dir = os.path.join(file_path, 'index.html')
+        if os.path.exists(index_in_dir):
+            return send_from_directory(file_path, 'index.html')
+    return jsonify({"success": False, "error": f"File {filename} not found"}), 404
+
+
 @app.route('/api/user/info', methods=['GET', 'POST'])
 def get_user_info_main():
     """جلب بيانات حساب المستخدم والتحقق من الحظر وتهيئة الحسابات الجديدة"""
