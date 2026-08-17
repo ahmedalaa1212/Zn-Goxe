@@ -16,6 +16,7 @@ body {
     min-height: 100vh;
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
+    direction: rtl;
 }
 
 img {
@@ -28,6 +29,56 @@ img {
     min-height: 100vh;
     padding: 12px;
     padding-bottom: calc(85px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ==========================================
+   إشعارات التوست العامة (Toast Notifications)
+   ========================================== */
+#global-toast-container {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 999999;
+    width: 90%;
+    max-width: 400px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+}
+
+.global-toast {
+    background: rgba(22, 27, 34, 0.95);
+    border: 1px solid #238636;
+    border-right: 5px solid #2ea043;
+    color: #ffffff;
+    padding: 14px 18px;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(8px);
+    font-size: 14px;
+    font-weight: 600;
+    opacity: 0;
+    transform: translateY(-20px);
+    transition: all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    pointer-events: auto;
+}
+
+.global-toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.global-toast .toast-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.global-toast i {
+    font-size: 20px;
+    color: #3fb950;
 }
 
 /* ==========================================
@@ -65,7 +116,7 @@ img {
 }
 
 /* ==========================================
-   إدارة واجهات الأقسام
+   إدارة واجهات الأقسام (Game Views)
    ========================================== */
 .game-view {
     display: none;
@@ -538,6 +589,37 @@ img {
 
 .history-empty p {
     font-size: 13px;
+}
+
+/* ==========================================
+   أزرار المزرعة وحالات التأخير (Claim Action States)
+   ========================================== */
+.claim-action-btn {
+    width: 100%;
+    padding: 14px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: bold;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.claim-action-btn.btn-ready {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: #ffffff;
+    box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
+}
+
+.claim-action-btn.btn-disabled {
+    background: rgba(51, 65, 85, 0.6);
+    color: #94a3b8;
+    cursor: not-allowed;
+    box-shadow: none;
 }
 
 /* إخفاء القائمة السفلى عند فتح الكيبورد */
