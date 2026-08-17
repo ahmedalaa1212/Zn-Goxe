@@ -8,10 +8,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Zn Goxe - Crypto Mining</title>
 
-    <!-- FontAwesome & Telegram & TON Connect SDKs -->
+    <!-- FontAwesome & Telegram SDKs -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
+    
+    <!-- تحميل مكتبة TON Connect بشكل غير حاط للتحميل (Non-blocking) -->
+    <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js" defer></script>
     
     <!-- CSS الخاص بالهيكل العام وأزرار التنقل -->
     <link rel="stylesheet" href="style.css?v=3.3">
@@ -27,31 +29,31 @@
         <h2>جاري تحميل اللعبة...</h2>
     </div>
 
-    <!-- حاوية الأقسام الرئيسية (تُحمل محتوياتها من ملفات المجلدات الخاصة بكل قسم) -->
+    <!-- حاوية الأقسام الرئيسية -->
     <div id="app" style="display: none;">
-        <!-- واجهة الأصدقاء (friends/friends.html) -->
+        <!-- واجهة الأصدقاء -->
         <div id="view-friends" class="game-view"></div>
         
-        <!-- واجهة المحفظة (wallet/wallet.html) -->
+        <!-- واجهة المحفظة -->
         <div id="view-wallet" class="game-view"></div>
 
-        <!-- واجهة المهام (tasks/tasks.html) -->
+        <!-- واجهة المهام -->
         <div id="view-tasks" class="game-view"></div>
 
-        <!-- واجهة المزرعة (farm/farm.html) -->
+        <!-- واجهة المزرعة -->
         <div id="view-farm" class="game-view active"></div>
 
-        <!-- واجهة الألعاب (games/games.html) -->
+        <!-- واجهة الألعاب -->
         <div id="view-games" class="game-view"></div>
 
-        <!-- واجهة المتجر (shop/shop.html) -->
+        <!-- واجهة المتجر -->
         <div id="view-shop" class="game-view"></div>
 
-        <!-- واجهة الإعدادات (settings/settings.html) -->
+        <!-- واجهة الإعدادات -->
         <div id="view-settings" class="game-view"></div>
     </div>
 
-    <!-- شريط التنقل السفلي للربط بين الأقسام -->
+    <!-- شريط التنقل السفلي -->
     <nav class="bottom-nav" id="main-nav" style="display: none;">
         <button class="nav-item" onclick="switchView('friends')" id="nav-friends" data-view="friends">
             <i class="fas fa-users"></i>
@@ -91,7 +93,7 @@
         </button>
     </nav>
 
-    <!-- كشف ظهور لوحة المفاتيح الهاتفي لإخفاء الشريط السفلي عند الكتابة -->
+    <!-- كشف ظهور لوحة المفاتيح الهاتفي -->
     <script>
         (function initKeyboardDetection() {
             const viewport = window.visualViewport;
