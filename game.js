@@ -548,7 +548,7 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 8. تهيئة واجهة المحفظة 
+// 8. تهيئة واجهة المحفظة والإعدادات
 // ==========================================
 window.initWalletView = function() {
     const walletView = document.getElementById('view-wallet');
@@ -561,29 +561,77 @@ window.initWalletView = function() {
 };
 window.onWalletTabOpen = window.initWalletView;
 
+window.initSettingsView = function() {
+    const settingsView = document.getElementById('view-settings');
+    if (settingsView) {
+        const nameEl = settingsView.querySelector('#settings-user-name');
+        const idEl = settingsView.querySelector('#settings-user-id');
+        if (nameEl && window.userState?.first_name) nameEl.innerText = window.userState.first_name;
+        if (idEl && window.userState?.tg_id) idEl.innerText = window.userState.tg_id;
+    }
+};
+
+window.saveWalletAddress = function() {
+    const input = document.querySelector('#wallet-address-input, #wallet-address');
+    if (input) {
+        window.userState.wallet_address = input.value.trim();
+        alert('تم حفظ عنوان المحفظة بنجاح!');
+    }
+};
+
 // ==========================================
-// 9. التنقل الديناميكي المحصن وحقن ملفات HTML مباشرة
+// 9. التنقل الديناميكي المحصن
 // ==========================================
 const loadedModules = new Set();
 const pendingLoads = new Map();
+
+function renderDefaultViewContent(cleanViewName, targetView) {
+    if (cleanViewName === 'wallet') {
+        targetView.innerHTML = `
+            <div style="padding: 20px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto;">
+                <h2 style="margin-bottom: 20px; color: #0088cc;"><i class="fas fa-wallet"></i> المحفظة (Wallet)</h2>
+                <div style="background: rgba(255, 255, 255, 0.08); padding: 20px; border-radius: 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+                    <p style="margin-bottom: 12px; font-size: 15px; color: #ddd;">عنوان المحفظة الخاص بك:</p>
+                    <input type="text" id="wallet-address-input" placeholder="أدخل عنوان محفظتك هنا..." 
+                           style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #444; background: #1a1a1a; color: #fff; text-align: center; font-size: 14px; box-sizing: border-box;" 
+                           value="${window.userState?.wallet_address || ''}">
+                    <button onclick="window.saveWalletAddress()" style="margin-top: 15px; width: 100%; padding: 12px; background: #0088cc; color: #fff; border: none; border-radius: 8px; font-weight: bold; font-size: 15px; cursor: pointer;">
+                        💾 حفظ المحفظة
+                    </button>
+                </div>
+            </div>`;
+    } else if (cleanViewName === 'settings') {
+        targetView.innerHTML = `
+            <div style="padding: 20px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto;">
+                <h2 style="margin-bottom: 20px; color: #0088cc;"><i class="fas fa-cog"></i> الإعدادات (Settings)</h2>
+                <div style="background: rgba(255, 255, 255, 0.08); padding: 20px; border-radius: 14px; text-align: right; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+                    <p style="margin-bottom: 12px; font-size: 15px;">👤 <b>اسم اللاعب:</b> <span id="settings-user-name">${window.userState?.first_name || 'لاعب'}</span></p>
+                    <p style="margin-bottom: 12px; font-size: 15px;">🆔 <b>معرّف تليجرام:</b> <span id="settings-user-id">${window.userState?.tg_id || 'غير معروف'}</span></p>
+                </div>
+            </div>`;
+    }
+}
 
 window.switchView = async function(viewName) {
     if (!viewName) return;
 
     let cleanViewName = String(viewName).toLowerCase().replace('nav-', '').replace('view-', '');
-    if (cleanViewName === 'wallets' || cleanViewName === 'tools' || cleanViewName === 'settings' || cleanViewName === 'wallet') cleanViewName = 'wallet';
+    if (cleanViewName === 'wallets' || cleanViewName === 'tools' || cleanViewName === 'wallet') cleanViewName = 'wallet';
     if (cleanViewName === 'game') cleanViewName = 'games';
     if (cleanViewName === 'task') cleanViewName = 'tasks';
     if (cleanViewName === 'user' || cleanViewName === 'friends' || cleanViewName === 'friend') cleanViewName = 'friends';
 
-    // 1. تحديث إضاءة أزرار القائمة السفلى
+    // 1. إخفاء شاشة التحميل فوراً
+    hideLoadingScreen();
+
+    // 2. تحديث إضاءة أزرار القائمة السفلى
     document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
     const targetNav = document.getElementById(`nav-${cleanViewName}`) || 
                       document.querySelector(`[data-view="${cleanViewName}"]`) ||
                       document.querySelector(`[data-view="${viewName}"]`);
     if (targetNav) targetNav.classList.add('active');
 
-    // 2. إخفاء الشاشات الأخرى وتفعيل الحاوية الحالية
+    // 3. إخفاء الشاشات الأخرى وتفعيل الحاوية الحالية
     document.querySelectorAll('.game-view, [id^="view-"]').forEach(v => {
         v.classList.remove('active');
         v.style.display = 'none';
@@ -604,13 +652,10 @@ window.switchView = async function(viewName) {
     targetView.style.width = '100%';
     targetView.style.minHeight = '100vh';
 
-    // إخفاء شاشة التحميل وإظهار التطبيق فوراً
-    hideLoadingScreen();
+    // 4. جلب المحتوى إن لم يكن موجوداً
+    const hasRealContent = targetView.innerText.trim().length > 10 || targetView.querySelector('button, input, h1, h2, h3, h4');
 
-    // 3. جلب المحتوى المباشر بدون تكرار التحميل للقسم نفسه
-    const hasRealContent = targetView.innerText.trim().length > 15 || targetView.querySelector('button, input, h1, h2, h3, h4');
-
-    if (!loadedModules.has(cleanViewName) || !hasRealContent) {
+    if (!loadedModules.has(cleanViewName) && !hasRealContent) {
         if (pendingLoads.has(cleanViewName)) {
             await pendingLoads.get(cleanViewName);
         } else {
@@ -632,13 +677,9 @@ window.switchView = async function(viewName) {
                         if (htmlContent && htmlContent.trim().length > 10) {
                             targetView.innerHTML = htmlContent;
                             const jsPath = `./${cleanViewName}/${cleanViewName}.js${cacheBuster}`;
-                            const jsSuccess = await loadModuleScript(jsPath);
-                            if (jsSuccess) {
-                                loadedModules.add(cleanViewName);
-                                loadedSuccessfully = true;
-                            } else {
-                                console.warn(`فشل تحميل سكريبت القسم: ${jsPath}`);
-                            }
+                            await loadModuleScript(jsPath);
+                            loadedModules.add(cleanViewName);
+                            loadedSuccessfully = true;
                         }
                     }
                 } catch (e) {
@@ -646,15 +687,7 @@ window.switchView = async function(viewName) {
                 }
 
                 if (!loadedSuccessfully) {
-                    targetView.innerHTML = `
-                        <div style="padding: 50px 20px; text-align: center; color: #ffffff; direction: rtl;">
-                            <div style="font-size: 40px; margin-bottom: 15px;">⚠️</div>
-                            <h3 style="margin-bottom: 10px; color: #ff5555;">تعذر تحميل قسم (${cleanViewName})</h3>
-                            <p style="color: #aaa; font-size: 14px; margin-bottom: 20px;">حدث خطأ أثناء تحميل ملفات القسم.</p>
-                            <button onclick="window.switchView('${cleanViewName}')" style="padding: 10px 20px; background: #0088cc; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">
-                                🔄 إعادة المحاولة
-                            </button>
-                        </div>`;
+                    renderDefaultViewContent(cleanViewName, targetView);
                 }
             })();
 
@@ -667,7 +700,7 @@ window.switchView = async function(viewName) {
         }
     }
 
-    // 4. تشغيل دالة التهيئة المخصصة للتبويب فورياً
+    // 5. تشغيل دالة التهيئة المخصصة للتبويب فورياً
     const runTabInit = () => {
         try {
             if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
@@ -682,6 +715,8 @@ window.switchView = async function(viewName) {
             } else if (cleanViewName === 'wallet') {
                 if (typeof window.initWalletView === 'function') window.initWalletView();
                 else if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
+            } else if (cleanViewName === 'settings') {
+                if (typeof window.initSettingsView === 'function') window.initSettingsView();
             } else if (cleanViewName === 'tasks') {
                 if (typeof window.initTasksView === 'function') window.initTasksView();
                 else if (typeof window.onTasksTabOpen === 'function') window.onTasksTabOpen();
@@ -722,7 +757,7 @@ function loadModuleScript(scriptUrl) {
 }
 
 // ==========================================
-// 10. ربط النقر التلقائي بجميع أزرار التبويب ومنع Reload
+// 10. ربط التنقل بالسقوط المباشر
 // ==========================================
 function bindGlobalNavEvents() {
     document.addEventListener('click', (e) => {
@@ -762,9 +797,7 @@ window.loadUserData = async function() {
 };
 
 function initApp() {
-    // إظهار الواجهة وإخفاء شاشة التحميل فوراً
     hideLoadingScreen();
-    
     bindGlobalNavEvents();
     window.updateUI();
     window.fetchTonPrice();
