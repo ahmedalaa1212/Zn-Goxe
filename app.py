@@ -24,30 +24,52 @@ WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app')
 # ==========================================
 # 🔌 تسجيل موديولات المسارات (Blueprints)
 # ==========================================
-from farm.farm_api import farm_bp
-from settings.settings_api import settings_bp
-from friends.friends_api import friends_bp
-from tasks.tasks_api import tasks_bp
-from shop.shop_api import shop_bp
-from support.support_api import support_bp
-from admin_chat.admin_chat_api import admin_chat_bp
 
-# تسجيل المسارات الأساسية
-app.register_blueprint(farm_bp, url_prefix='/api/farm')
-app.register_blueprint(settings_bp, url_prefix='/api/settings')
-app.register_blueprint(friends_bp, url_prefix='/api/friends')
-app.register_blueprint(tasks_bp, url_prefix='/api/tasks')
-app.register_blueprint(shop_bp, url_prefix='/api/shop')
-app.register_blueprint(support_bp, url_prefix='/api/support')
-app.register_blueprint(admin_chat_bp, url_prefix='/api/admin-chat')
+# الدوال الاستعراضية مع المحافظة على الأمان والاستدعاء المرن
+def safe_import_blueprint(module_name, blueprint_name):
+    try:
+        mod = __import__(f"{module_name}.{module_name}_api", fromlist=[blueprint_name])
+        return getattr(mod, blueprint_name)
+    except Exception:
+        try:
+            mod = __import__(f"{module_name}_api", fromlist=[blueprint_name])
+            return getattr(mod, blueprint_name)
+        except Exception as e:
+            print(f"⚠️ فشل استدعاء {module_name}: {e}")
+            return None
 
-# 💳 تسجيل موديول المحفظة الرئيسي بشكل نقي لمنع تكرار الـ Prefix (/api/wallet)
+farm_bp = safe_import_blueprint('farm', 'farm_bp')
+settings_bp = safe_import_blueprint('settings', 'settings_bp')
+friends_bp = safe_import_blueprint('friends', 'friends_bp')
+tasks_bp = safe_import_blueprint('tasks', 'tasks_bp')
+shop_bp = safe_import_blueprint('shop', 'shop_bp')
+support_bp = safe_import_blueprint('support', 'support_bp')
+admin_chat_bp = safe_import_blueprint('admin_chat', 'admin_chat_bp')
+
+if farm_bp: app.register_blueprint(farm_bp, url_prefix='/api/farm')
+if settings_bp: app.register_blueprint(settings_bp, url_prefix='/api/settings')
+if friends_bp: app.register_blueprint(friends_bp, url_prefix='/api/friends')
+if tasks_bp: app.register_blueprint(tasks_bp, url_prefix='/api/tasks')
+if shop_bp: app.register_blueprint(shop_bp, url_prefix='/api/shop')
+if support_bp: app.register_blueprint(support_bp, url_prefix='/api/support')
+if admin_chat_bp: app.register_blueprint(admin_chat_bp, url_prefix='/api/admin-chat')
+
+# 💳 تسجيل موديول المحفظة الرئيسي بشكل نقي وقوي جداً
+wallet_bp = None
 try:
     from wallet.wallet_api import wallet_bp
-    app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
-    print("✅ تم تسجيل موديول المحفظة (wallet_bp) بنجاح على /api/wallet!")
-except Exception as e:
-    print(f"❌ تعذر تحميل موديول المحفظة الرئيسي: {e}")
+except ImportError:
+    try:
+        from wallet_api import wallet_bp
+    except ImportError as e:
+        print(f"❌ تعذر استدعاء ملف wallet_api: {e}")
+
+if wallet_bp:
+    try:
+        app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
+        print("✅ تم تسجيل موديول المحفظة (wallet_bp) بنجاح على /api/wallet!")
+    except Exception as e:
+        print(f"❌ تعذر تسجيل موديول المحفظة في Flask: {e}")
 
 # ⚡ تسجيل موديول الألعاب بشكل آمن
 try:
@@ -128,68 +150,4 @@ def get_user_info_main():
 # 🔒 الأمان وحماية الملفات والحجم
 # ==========================================
 
-@app.after_request
-def add_security_headers(response):
-    """منع التخزين المؤقت لمسارات الـ API للحصول على بيانات لحظية"""
-    if request.path.startswith('/api/'):
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
-    return response
-
-
-@app.errorhandler(500)
-def handle_500_error(e):
-    return jsonify({
-        "status": "error", 
-        "success": False, 
-        "error": "حدث خطأ داخلي في السيرفر", 
-        "message": "خطأ في الاتصال بالخادم."
-    }), 500
-
-
-@app.errorhandler(404)
-def handle_404_error(e):
-    if request.path.startswith('/api/'):
-        return jsonify({
-            "status": "error", 
-            "success": False, 
-            "error": "المسار غير موجود", 
-            "message": "خطأ في الاتصال بالخادم."
-        }), 404
-    return send_from_directory(BASE_DIR, 'index.html')
-
-
-@app.route('/')
-def serve_index():
-    return send_from_directory(BASE_DIR, 'index.html')
-
-
-@app.route('/<path:path>')
-def serve_static(path):
-    """تقديم الملفات الثابتة مع حظر الملفات الحساسة ودعم المجلدات الفرعية للمحفظة"""
-    path_clean = os.path.normpath(path).replace('\\', '/')
-    path_lower = path_clean.lower()
-    
-    if path_lower == 'tonconnect-manifest.json':
-        return serve_tonconnect_manifest()
-    
-    forbidden_extensions = ('.py', '.env', '.sh', '.git', '.pem', '.key', '.db', '.sqlite')
-    forbidden_files = ('firebase-adminsdk.json', 'config.json', 'requirements.txt', 'dockerfile')
-    
-    if any(path_lower.endswith(ext) for ext in forbidden_extensions) or any(f in path_lower for f in forbidden_files):
-        return jsonify({"success": False, "error": "Access Denied"}), 403
-        
-    target_file = os.path.join(BASE_DIR, path_clean)
-    if os.path.exists(target_file) and os.path.isfile(target_file):
-        return send_from_directory(BASE_DIR, path_clean)
-
-    if path_clean.startswith('api/') or any(path_lower.endswith(ext) for ext in ('.html', '.js', '.css', '.json')):
-        return jsonify({"success": False, "error": f"File not found: {path_clean}"}), 404
-        
-    return send_from_directory(BASE_DIR, 'index.html')
-
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port, debug=False)
+@app.after
