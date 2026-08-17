@@ -627,6 +627,23 @@ function renderDefaultViewContent(cleanViewName, targetView) {
     }
 }
 
+async function loadModuleScript(jsPath) {
+    return new Promise((resolve) => {
+        if (document.querySelector(`script[src="${jsPath}"]`)) {
+            resolve(true);
+            return;
+        }
+        const script = document.createElement('script');
+        script.src = jsPath;
+        script.onload = () => resolve(true);
+        script.onerror = () => {
+            console.warn(`فشل تحميل السكريبت: ${jsPath}`);
+            resolve(false);
+        };
+        document.body.appendChild(script);
+    });
+}
+
 window.switchView = async function(viewName) {
     if (!viewName) return;
 
@@ -716,17 +733,54 @@ window.switchView = async function(viewName) {
     }
 
     // 5. تشغيل دالة التهيئة المخصصة للتبويب فورياً
-    const runTabInit = () => {
-        try {
-            if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
-                window.onFarmTabOpen();
-            } else if (cleanViewName === 'shop' && typeof window.updateShopUI === 'function') {
-                window.updateShopUI();
-            } else if (cleanViewName === 'games' && typeof window.onGamesTabOpen === 'function') {
-                window.onGamesTabOpen();
-            } else if (cleanViewName === 'friends') {
-                if (typeof window.initFriendsView === 'function') window.initFriendsView();
-                else if (typeof window.onFriendsTabOpen === 'function') window.onFriendsTabOpen();
-            } else if (cleanViewName === 'wallet') {
-                if (typeof window.initWalletView === 'function') window.initWalletView();
-                else if (typeof window.onWallet
+    try {
+        if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
+            window.onFarmTabOpen();
+        } else if (cleanViewName === 'shop' && typeof window.updateShopUI === 'function') {
+            window.updateShopUI();
+        } else if (cleanViewName === 'games' && typeof window.onGamesTabOpen === 'function') {
+            window.onGamesTabOpen();
+        } else if (cleanViewName === 'friends') {
+            if (typeof window.initFriendsView === 'function') window.initFriendsView();
+            else if (typeof window.onFriendsTabOpen === 'function') window.onFriendsTabOpen();
+        } else if (cleanViewName === 'wallet') {
+            if (typeof window.initWalletView === 'function') window.initWalletView();
+            else if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
+        } else if (cleanViewName === 'settings') {
+            if (typeof window.initSettingsView === 'function') window.initSettingsView();
+        }
+    } catch (err) {
+        console.error("خطأ أثناء تشغيل تهيئة التبويب:", err);
+    }
+
+    if (typeof window.updateUI === 'function') window.updateUI();
+};
+
+// ==========================================
+// 10. التشغيل المباشر عند بدء الصفحة
+// ==========================================
+document.addEventListener('DOMContentLoaded', async () => {
+    hideLoadingScreen();
+    startLocalMiningSimulator();
+    window.fetchTonPrice();
+
+    try {
+        await window.fetchAPI('/api/user/info');
+    } catch (e) {
+        console.warn("⚠️ تعذر جلب بيانات المستخدم المبدئية عند الإقلاع:", e);
+    }
+
+    if (window.userState?.tg_id) {
+        window.initFirebaseRealtimeSync(window.userState.tg_id);
+    }
+
+    document.querySelectorAll('.nav-item, [data-view]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const view = btn.getAttribute('data-view') || btn.id.replace('nav-', '');
+            if (view) window.switchView(view);
+        });
+    });
+
+    window.switchView('farm');
+});
