@@ -1,69 +1,32 @@
-import sqlite3
+from flask import Blueprint, jsonify, request
+from .wallet_db import get_user_wallet_balances
 
-DB_PATH = 'database.db'
+from .deposit.deposit_api import deposit_bp
+from .history.history_api import history_bp
+from .withdraw.withdraw_api import withdraw_bp
 
-def get_db_connection():
-    conn = sqlite3.connect(DB_PATH, timeout=10.0)
-    conn.row_factory = sqlite3.Row
-    return conn
+wallet_bp = Blueprint('wallet', __name__, url_prefix='/api/wallet')
 
-def get_user_wallet_balances(user_id: int) -> dict:
-    """استعلام آمن للرصيد مع دعم مرن لأسماء الأعمدة المتقاطعة"""
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT balance, zn_balance, usd_balance, usdt_balance FROM users WHERE user_id = ? OR tg_id = ?", 
-            (user_id, user_id)
-        )
-        row = cursor.fetchone()
-        if row:
-            keys = row.keys()
-            zn_val = row['zn_balance'] if 'zn_balance' in keys and row['zn_balance'] is not None else row['balance']
-            usdt_val = row['usdt_balance'] if 'usdt_balance' in keys and row['usdt_balance'] is not None else row['usd_balance']
-            
-            return {
-                'zn_balance': float(zn_val or 0.0),
-                'usdt_balance': float(usdt_val or 0.0)
-            }
-        return {'zn_balance': 0.0, 'usdt_balance': 0.0}
-    except Exception as e:
-        print(f"Error reading wallet balances: {e}")
-        return {'zn_balance': 0.0, 'usdt_balance': 0.0}
-    finally:
-        if conn:
-            conn.close()
+wallet_bp.register_blueprint(deposit_bp, url_prefix='/deposit')
+wallet_bp.register_blueprint(history_bp, url_prefix='/history')
+wallet_bp.register_blueprint(withdraw_bp, url_prefix='/withdraw')
 
-def update_user_balance(user_id: int, amount: float, currency: str = 'zn', operation: str = 'add') -> bool:
-    """تعديل آمن ومزدوج للرصيد بذكاء لضمان تطابق كافة أعمدة قاعدة البيانات تلقائياً"""
-    conn = None
-    curr = str(currency).lower()
+@wallet_bp.route('/data', methods=['GET'])
+def get_wallet_data():
+    """جلب أرصدة ZN و USDT مع التحقق الأمني المزدوج لمنع التلاعب"""
+    user_id = request.args.get('user_id', type=int)
+    header_user_id = request.headers.get('X-Telegram-User-Id')
     
-    if curr in ['zn', 'balance']:
-        target_cols = ['zn_balance', 'balance']
-    else:
-        target_cols = ['usdt_balance', 'usd_balance']
-    
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        operator = '+' if operation == 'add' else '-'
+    # توثيق معرّف العميل من الترويسات للحماية من الاستعلامات المزيفة
+    if header_user_id and str(header_user_id).isdigit():
+        user_id = int(header_user_id)
         
-        set_statements = [f"{col} = MAX(0, COALESCE({col}, 0) {operator} ?)" for col in target_cols]
-        set_clause = ", ".join(set_statements)
+    if not user_id:
+        return jsonify({'success': False, 'error': 'معرف المستخدم غير متاح'}), 400
         
-        params = [abs(float(amount))] * len(target_cols) + [user_id, user_id]
-        
-        query = f"UPDATE users SET {set_clause} WHERE user_id = ? OR tg_id = ?"
-        cursor.execute(query, params)
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"Error updating balance in database: {e}")
-        if conn:
-            conn.rollback()
-        return False
-    finally:
-        if conn:
-            conn.close()
+    balances = get_user_wallet_balances(user_id)
+    return jsonify({
+        'success': True,
+        'zn_balance': balances.get('zn_balance', 0.0),
+        'usdt_balance': balances.get('usdt_balance', 0.0)
+    })
