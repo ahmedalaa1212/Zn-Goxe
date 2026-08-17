@@ -770,6 +770,10 @@ window.switchView = async function(viewName) {
             if (typeof window.initFriendsView === 'function') window.initFriendsView();
             else if (typeof window.onFriendsTabOpen === 'function') window.onFriendsTabOpen();
         } else if (cleanViewName === 'wallet') {
+            // تشغيل موديل المحفظة المخصص
+            if (window.walletModule && typeof window.walletModule.init === 'function') {
+                window.walletModule.init();
+            }
             if (typeof window.initWallet === 'function') window.initWallet();
             if (typeof window.initWalletView === 'function') window.initWalletView();
             if (typeof window.onWalletTabOpen === 'function') window.onWalletTabOpen();
