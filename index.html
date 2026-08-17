@@ -14,10 +14,56 @@
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     
     <!-- إضافة رقم إصدار لكسر كاش الملفات الصامت -->
-    <link rel="stylesheet" href="style.css?v=2.5">
+    <link rel="stylesheet" href="style.css?v=2.7">
 
-    <!-- تنسيقات حاوية الإشعارات المباشرة فوق أي قائمة -->
+    <!-- تنسيقات الحاوية والعرض وضمان عدم حدوث الشاشة الزرقاء الفارغة -->
     <style>
+        /* إجبار أبعاد الحاويات لمنع انهيار الارتفاع بالشاشة الزرقاء */
+        #app {
+            width: 100%;
+            min-height: 100vh;
+            position: relative;
+            box-sizing: border-box;
+        }
+
+        .game-view {
+            display: none;
+            width: 100%;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+
+        .game-view.active {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+
+        /* تنسيقات شاشة التحميل وضمان عدم حجبها للرؤية عند الإخفاء */
+        #loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #0d131d;
+            z-index: 99999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #ffffff;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+
+        #loading-screen.hidden {
+            opacity: 0 !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+            display: none !important;
+        }
+
+        /* حاوية الإشعارات المباشرة فوق أي قائمة */
         #global-toast-container {
             position: fixed;
             top: 20px;
@@ -80,56 +126,56 @@
 
     <!-- حاوية الواجهات الفرعية -->
     <div id="app" style="display: none;">
-        <div id="view-friends" class="game-view"></div>
-        <div id="view-wallet" class="game-view">
+        <div id="view-friends" class="game-view" data-view="friends"></div>
+        <div id="view-wallet" class="game-view" data-view="wallet">
             <!-- سيتم تحميل wallet/wallet.html هنا ديناميكياً -->
         </div>
-        <div id="view-tasks" class="game-view"></div>
-        <div id="view-farm" class="game-view active"></div>
-        <div id="view-games" class="game-view">
+        <div id="view-tasks" class="game-view" data-view="tasks"></div>
+        <div id="view-farm" class="game-view active" data-view="farm"></div>
+        <div id="view-games" class="game-view" data-view="games">
             <!-- سيتم تحميل games/games.html هنا ديناميكياً -->
         </div>
-        <div id="view-shop" class="game-view">
+        <div id="view-shop" class="game-view" data-view="shop">
             <!-- سيتم تحميل shop/shop.html هنا ديناميكياً -->
         </div>
-        <div id="view-settings" class="game-view"></div>
+        <div id="view-settings" class="game-view" data-view="settings"></div>
     </div>
 
     <!-- شريط التنقل السفلي الاحترافي -->
     <nav class="bottom-nav" id="main-nav" style="display: none;">
-        <button class="nav-item" onclick="switchView('friends')" id="nav-friends">
+        <button class="nav-item" data-view="friends" id="nav-friends">
             <i class="fas fa-users"></i>
             <span>الأصدقاء</span>
         </button>
 
-        <button class="nav-item" onclick="switchView('wallet')" id="nav-wallet">
+        <button class="nav-item" data-view="wallet" id="nav-wallet">
             <i class="fas fa-wallet"></i>
             <span>المحفظة</span>
         </button>
 
-        <button class="nav-item" onclick="switchView('tasks')" id="nav-tasks">
+        <button class="nav-item" data-view="tasks" id="nav-tasks">
             <i class="fas fa-list-check"></i>
             <span>المهام</span>
         </button>
 
-        <button class="nav-item nav-center-btn active" onclick="switchView('farm')" id="nav-farm">
+        <button class="nav-item nav-center-btn active" data-view="farm" id="nav-farm">
             <div class="farm-btn-inner">
                 <i class="fas fa-screwdriver-wrench"></i>
                 <span>المزرعة</span>
             </div>
         </button>
 
-        <button class="nav-item" onclick="switchView('games')" id="nav-games">
+        <button class="nav-item" data-view="games" id="nav-games">
             <i class="fas fa-gamepad"></i>
             <span>الألعاب</span>
         </button>
 
-        <button class="nav-item" onclick="switchView('shop')" id="nav-shop">
+        <button class="nav-item" data-view="shop" id="nav-shop">
             <i class="fas fa-store"></i>
             <span>المتجر</span>
         </button>
 
-        <button class="nav-item" onclick="switchView('settings')" id="nav-settings">
+        <button class="nav-item" data-view="settings" id="nav-settings">
             <i class="fas fa-cog"></i>
             <span>الإعدادات</span>
         </button>
@@ -223,7 +269,7 @@
         })();
     </script>
 
-    <!-- استدعاء المحرك الأساسي ثم الموديولات الفرعية بكسر الكاش الصارم -->
-    <script src="game.js?v=2.6"></script>
+    <!-- استدعاء المحرك الأساسي بكسر الكاش الصارم -->
+    <script src="game.js?v=2.7"></script>
 </body>
 </html>
