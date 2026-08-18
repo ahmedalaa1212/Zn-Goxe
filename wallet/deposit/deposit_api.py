@@ -32,7 +32,7 @@ def get_packages():
         print(f"❌ [deposit_api Error]: {exc}")
         return jsonify({
             'success': False,
-            'error': f"فشل الاتصال بقاعدة بيانات الفايربيس: {str(exc)}"
+            'error': f"فشل الاتصال بقاعدة البيانات: {str(exc)}"
         }), 500
 
 @deposit_bp.route('/create_invoice', methods=['GET', 'POST', 'OPTIONS'], strict_slashes=False)
@@ -68,7 +68,10 @@ def create_invoice():
 
         wallet_address = get_official_ton_wallet()
         invoice = create_deposit_invoice(user_id, usdt_amount, ton_amount)
-        pay_url = f"ton://transfer/{wallet_address}?amount={int(ton_amount * 1e9)}&text={invoice['memo']}"
+        
+        # رابط محفظة TON المباشر
+        nano_ton = int(ton_amount * 1e9)
+        pay_url = f"ton://transfer/{wallet_address}?amount={nano_ton}&text={invoice['memo']}"
 
         return jsonify({
             'success': True,
@@ -102,11 +105,12 @@ def confirm_payment():
         usdt_amount = float(data.get('usdt_amount', 0.0))
 
         if user_id > 0 and usdt_amount > 0:
-            new_balance = credit_user_balance(user_id, usdt_amount)
+            new_usd_balance = credit_user_balance(user_id, usdt_amount)
             return jsonify({
                 'success': True,
-                'message': 'تم إضافة الرصيد بنجاح!',
-                'new_balance': new_balance
+                'message': 'تم إضافة رصيد USDT بنجاح!',
+                'new_balance': new_usd_balance,
+                'usd_balance': new_usd_balance
             })
         else:
             return jsonify({'success': False, 'error': 'بيانات غير صحيحة'}), 400
