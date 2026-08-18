@@ -12,10 +12,11 @@ window.historyModule = (function () {
         const urlId = urlParams.get('user_id') || urlParams.get('tg_id') || urlParams.get('uid');
         if (urlId) return urlId;
 
-        const localId = localStorage.getItem('tg_user_id') || localStorage.getItem('user_id') || localStorage.getItem('tg_id');
+        const localId = localStorage.getItem('tg_user_id') || localStorage.getItem('user_id') || localStorage.getItem('tg_id') || sessionStorage.getItem('user_id');
         if (localId) return localId;
 
         if (window.currentUser && window.currentUser.id) return window.currentUser.id;
+        if (window.userId) return window.userId;
 
         return null;
     }
@@ -221,8 +222,16 @@ window.historyModule = (function () {
         if (modal) modal.style.display = 'none';
     }
 
-    // Auto Init
-    setTimeout(fetchTransactions, 50);
+    // Auto Run with Retry Mechanism
+    function safeInit() {
+        if (document.getElementById('history-list-container')) {
+            fetchTransactions();
+        } else {
+            setTimeout(safeInit, 100);
+        }
+    }
+
+    setTimeout(safeInit, 50);
 
     return {
         init: fetchTransactions,
