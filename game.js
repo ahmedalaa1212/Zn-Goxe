@@ -8,7 +8,7 @@ if (tg) {
     if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
 }
 
-window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 6.50;
+window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 1.32;
 window.serverTimeOffset = 0;
 
 window.formatTime = function(seconds) {
@@ -328,7 +328,7 @@ window.initFirebaseRealtimeSync = function(userId) {
             
             try {
                 isFirebaseUpdating = true;
-                if (!windowPlayerData) window.PlayerData = {};
+                if (!window.PlayerData) window.PlayerData = {};
                 
                 Object.assign(window.PlayerData, d);
 
@@ -568,6 +568,9 @@ window.initWalletView = function() {
     if (window.walletModule && typeof window.walletModule.init === 'function') {
         window.walletModule.init();
     }
+    if (window.depositModule && typeof window.depositModule.init === 'function') {
+        window.depositModule.init();
+    }
 };
 window.onWalletTabOpen = window.initWalletView;
 
@@ -610,7 +613,6 @@ window.saveWalletAddress = async function() {
 const loadedModules = new Set();
 const pendingLoads = new Map();
 
-// تحميل الواجهات البديلة المحصنة في حال التعذر
 function renderDefaultViewContent(cleanViewName, targetView) {
     if (cleanViewName === 'settings') {
         targetView.innerHTML = `
@@ -622,7 +624,6 @@ function renderDefaultViewContent(cleanViewName, targetView) {
                 </div>
             </div>`;
     } else if (cleanViewName === 'wallet') {
-        // تحميل ملف wallet.html المباشر وإعادة ربطه بـ walletModule
         const cacheBuster = `?v=${Date.now()}`;
         fetch(`/wallet/wallet.html${cacheBuster}`)
             .then(res => res.text())
@@ -630,6 +631,9 @@ function renderDefaultViewContent(cleanViewName, targetView) {
                 targetView.innerHTML = html;
                 if (window.walletModule && typeof window.walletModule.init === 'function') {
                     window.walletModule.init();
+                }
+                if (window.depositModule && typeof window.depositModule.init === 'function') {
+                    window.depositModule.init();
                 }
             })
             .catch(err => {
@@ -694,6 +698,13 @@ window.switchView = async function(viewName) {
     targetView.style.display = 'block';
     targetView.style.width = '100%';
     targetView.style.minHeight = '100vh';
+
+    // تحميل سكريبت المحفظة وسكريبت الإيداع تلقائياً لضمان الربط
+    if (cleanViewName === 'wallet') {
+        const cb = `?v=${Date.now()}`;
+        await loadModuleScript(`/wallet/wallet.js${cb}`);
+        await loadModuleScript(`/wallet/deposit/deposit.js${cb}`);
+    }
 
     // 4. جلب المحتوى من المجلد المخصص لكل تبويب
     const hasRealContent = targetView.innerText.trim().length > 10 || targetView.querySelector('button, input, h1, h2, h3, h4');
@@ -782,6 +793,9 @@ window.switchView = async function(viewName) {
         } else if (cleanViewName === 'wallet') {
             if (window.walletModule && typeof window.walletModule.init === 'function') {
                 window.walletModule.init();
+            }
+            if (window.depositModule && typeof window.depositModule.init === 'function') {
+                window.depositModule.init();
             }
         } else if (cleanViewName === 'settings') {
             if (typeof window.initSettingsView === 'function') window.initSettingsView();
