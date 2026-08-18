@@ -65,15 +65,18 @@ def prepare_ton_pay():
         if pkg and 'usdt_amount' in pkg:
             usdt_amount = float(pkg['usdt_amount'])
         else:
-            usdt_amount = float(data.get('usdt_amount', 0.5))
+            try:
+                usdt_amount = float(data.get('usdt_amount', 0.5))
+            except (ValueError, TypeError):
+                usdt_amount = 0.5
 
         ton_amount = round(usdt_amount / ton_price, 4)
-        nano_ton = int(ton_amount * 1e9)  # التحويل لـ NanoTON (1 TON = 10^9 NanoTON)
+        nano_ton = int(round(ton_amount * 1e9))  # التحويل لـ NanoTON مع الحفاظ على الدقة
 
         wallet_address = get_official_ton_wallet()
         invoice = create_deposit_invoice(user_id, usdt_amount, ton_amount)
         
-        payload_memo = invoice['memo']
+        payload_memo = invoice.get('memo', '')
 
         return jsonify({
             'success': True,
@@ -117,19 +120,37 @@ def verify_and_apply():
         if pkg and 'usdt_amount' in pkg:
             usdt_amount = float(pkg['usdt_amount'])
         else:
-            usdt_amount = float(data.get('usdt_amount', 0.0))
+            try:
+                usdt_amount = float(data.get('usdt_amount', 0.0))
+            except (ValueError, TypeError):
+                usdt_amount = 0.0
 
-        if user_id > 0 and usdt_amount > 0:
+        if user_id <= 0:
+            return jsonify({'success': False, 'error': 'معرف المستخدم غير معروف'}), 400
+
+        if usdt_amount <= 0:
+            return jsonify({'success': False, 'error': 'مبلغ الباقة غير صحيح'}), 400
+
+        try:
             new_usd_balance = verify_and_process_ton_boc(user_id, usdt_amount, memo, boc)
             return jsonify({
                 'success': True,
                 'message': 'تمت عملية الدفع بنجاح وزيادة الرصيد!',
                 'new_balance': new_usd_balance,
-                'usd_balance': new_usd_balance
+                'usd_balance': new_usd_balance,
+                'usdt_balance': new_usd_balance
             })
-        else:
-            return jsonify({'success': False, 'error': 'بيانات غير صحيحة أو مستخدم غير معروف'}), 400
+        except ValueError as val_err:
+            return jsonify({
+                'success': False,
+                'error': str(val_err)
+            }), 400
+        except Exception as proc_err:
+            err_msg = str(proc_err)
+            if "سابقاً" in err_msg or "used" in err_msg.lower():
+                return jsonify({'success': False, 'error': err_msg}), 400
+            raise proc_err
 
     except Exception as exc:
         print(f"❌ [verify_and_apply Error]: {exc}")
-        return jsonify({'success': False, 'error': str(exc)}), 500
+        return jsonify({'success': False, 'error': f"خطأ في معالجة الشحن: {str(exc)}"}), 500
