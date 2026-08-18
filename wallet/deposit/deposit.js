@@ -106,10 +106,10 @@ window.depositModule = (function () {
             if (res.ok && data.success) {
                 currentActiveInvoice = data;
                 
-                // 1. فتح رابط تحويل TON في المحفظة الرسمية لتلجرام مباشرة
-                openTonTransferLink(data.ton_url || data.pay_url);
+                // فتح المحفظة بأمان تام لتجنب ERR_UNKNOWN_URL_SCHEME
+                openTonTransferLink(data);
 
-                // 2. إظهار النافذة للتحقق بعد التحويل (دون إعطاء نجاح وهمي فوري)
+                // إظهار نافذة متابعة حالة التحويل
                 showPendingModal();
             } else {
                 alert(data.error || "تعذر إنشاء طلب الشحن");
@@ -120,20 +120,28 @@ window.depositModule = (function () {
         }
     }
 
-    function openTonTransferLink(url) {
-        if (!url) return;
+    function openTonTransferLink(invoiceData) {
+        if (!invoiceData) return;
         const tg = window.Telegram?.WebApp;
+        
+        const tgUrl = invoiceData.tg_wallet_url || invoiceData.pay_url;
+        const webUrl = invoiceData.web_url || invoiceData.tonkeeper_url;
+
         try {
-            if (tg && typeof tg.openTelegramLink === 'function' && url.startsWith('https://t.me/')) {
-                tg.openTelegramLink(url);
-            } else if (tg && typeof tg.openLink === 'function') {
-                tg.openLink(url);
-            } else {
-                window.location.href = url;
+            if (tg && typeof tg.openTelegramLink === 'function' && tgUrl && tgUrl.startsWith('https://t.me/')) {
+                tg.openTelegramLink(tgUrl);
+            } else if (tg && typeof tg.openLink === 'function' && webUrl) {
+                tg.openLink(webUrl);
+            } else if (tg && typeof tg.openLink === 'function' && tgUrl) {
+                tg.openLink(tgUrl);
+            } else if (webUrl) {
+                window.open(webUrl, '_blank');
+            } else if (tgUrl) {
+                window.open(tgUrl, '_blank');
             }
         } catch (e) {
             console.warn("⚠️ تعذر فتح المحفظة تلقائياً:", e);
-            window.location.href = url;
+            if (webUrl) window.open(webUrl, '_blank');
         }
     }
 
@@ -143,8 +151,8 @@ window.depositModule = (function () {
     }
 
     function reopenWallet() {
-        if (currentActiveInvoice && currentActiveInvoice.ton_url) {
-            openTonTransferLink(currentActiveInvoice.ton_url);
+        if (currentActiveInvoice) {
+            openTonTransferLink(currentActiveInvoice);
         }
     }
 
