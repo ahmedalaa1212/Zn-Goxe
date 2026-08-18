@@ -2,6 +2,7 @@ import sqlite3
 import uuid
 import os
 import sys
+import json
 
 # ضمان الوصول للمجلد الرئيسي (Root) لاستدعاء database.py ومجلد قاعدة البيانات
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -27,18 +28,38 @@ def get_db_connection():
     return conn
 
 def get_firestore_db():
-    """جلب كائن الفايربيس المباشر من database.py في Root"""
+    """جلب كائن الفايربيس المباشر من database.py أو التهيئة الذاتية الحرة"""
     try:
         import database
-        db_inst = database.get_db()
-        if db_inst:
-            return db_inst
+        if hasattr(database, 'get_db'):
+            db_inst = database.get_db()
+            if db_inst:
+                return db_inst
     except Exception as e:
         print(f"⚠️ [deposit_db] خطأ استيراد database.py: {e}")
 
     try:
         import firebase_admin
-        from firebase_admin import firestore
+        from firebase_admin import credentials, firestore
+
+        if not firebase_admin._apps:
+            cred_env = os.getenv('FIREBASE_CREDENTIALS') or os.getenv('FIREBASE_SERVICE_ACCOUNT')
+            if cred_env:
+                if os.path.exists(cred_env):
+                    cred = credentials.Certificate(cred_env)
+                else:
+                    try:
+                        cred_dict = json.loads(cred_env)
+                        cred = credentials.Certificate(cred_dict)
+                    except Exception:
+                        cred = credentials.Certificate(cred_env)
+                firebase_admin.initialize_app(cred)
+            else:
+                service_key_path = os.path.join(ROOT_DIR, "serviceAccountKey.json")
+                if os.path.exists(service_key_path):
+                    cred = credentials.Certificate(service_key_path)
+                    firebase_admin.initialize_app(cred)
+
         if firebase_admin._apps:
             return firestore.client()
     except Exception as e:
@@ -68,26 +89,32 @@ def get_official_ton_wallet():
 def ensure_firebase_deposit_settings():
     """
     التحقق من وجود مستند settings/deposit_settings في الفايربيس.
-    إذا لم يكن موجوداً، يتم إنشاؤه لأول مرة في الفايربيس لتستقر البيانات هناك نهائياً.
+    إذا لم يكن موجوداً، يتم إنشاؤه لأول مرة تلقائياً.
+    إذا تعذر الاتصال بالفايربيس، يتم إرجاع الباقات الافتراضية لمنع إيقاف الخادم (500 Server Error).
     """
     fs_db = get_firestore_db()
     if not fs_db:
-        raise RuntimeError("تعذر الاتصال بقاعدة الفايربيس (Firestore). يرجى التأكد من ضبط متغير FIREBASE_CREDENTIALS بشكل صحيح.")
+        print("⚠️ [deposit_db] تعذر الاتصال بقاعدة الفايربيس (Firestore)، سيتم الاعتماد على الباقات الافتراضية مؤقتاً.")
+        return {'official_ton_wallet': OFFICIAL_TON_WALLET, 'packages': SEED_PACKAGES}
 
-    doc_ref = fs_db.collection('settings').document('deposit_settings')
-    doc = doc_ref.get()
+    try:
+        doc_ref = fs_db.collection('settings').document('deposit_settings')
+        doc = doc_ref.get()
 
-    if not doc.exists:
-        wallet_to_save = get_official_ton_wallet()
-        initial_data = {
-            'official_ton_wallet': wallet_to_save,
-            'packages': SEED_PACKAGES
-        }
-        doc_ref.set(initial_data)
-        print("🔥 [Firebase Success] تم إنشاء مستند settings/deposit_settings بنجاح في الفايربيس لأول مرة!")
-        return initial_data
-    else:
-        return doc.to_dict() or {}
+        if not doc.exists:
+            wallet_to_save = get_official_ton_wallet()
+            initial_data = {
+                'official_ton_wallet': wallet_to_save,
+                'packages': SEED_PACKAGES
+            }
+            doc_ref.set(initial_data)
+            print("🔥 [Firebase Success] تم إنشاء مستند settings/deposit_settings بنجاح في الفايربيس تلقائياً!")
+            return initial_data
+        else:
+            return doc.to_dict() or {}
+    except Exception as e:
+        print(f"⚠️ خطأ في إنشاء أو جلب مستند الفايربيس: {e}")
+        return {'official_ton_wallet': OFFICIAL_TON_WALLET, 'packages': SEED_PACKAGES}
 
 def init_deposit_tables():
     """تجهيز الجداول المحلية للفواتير والأرصدة"""
@@ -123,13 +150,13 @@ def init_deposit_tables():
             conn.close()
 
 def get_active_deposit_packages():
-    """جلب الباقات حصرياً ومباشرة من مستند الفايربيس بدون أي قيم افتراضية بديلة"""
+    """جلب الباقات المتاحة من مستند الفايربيس مع الأمان التام ضد الأعطال"""
     init_deposit_tables()
     data = ensure_firebase_deposit_settings()
     
     raw_pkgs = data.get('packages', [])
     if not raw_pkgs or not isinstance(raw_pkgs, list):
-        return []
+        raw_pkgs = SEED_PACKAGES
 
     packages = []
     for p in raw_pkgs:
