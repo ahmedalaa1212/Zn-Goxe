@@ -106,11 +106,11 @@ window.depositModule = (function () {
             if (res.ok && data.success) {
                 currentActiveInvoice = data;
                 
-                // 1. فتح محفظة التلجرام الرسمية (@wallet) فوراً بدون إظهار صفحة إكمال الإيداع
-                openTelegramWallet();
+                // 1. فتح رابط تحويل TON في المحفظة الرسمية لتلجرام مباشرة
+                openTonTransferLink(data.ton_url || data.pay_url);
 
-                // 2. إتمام إضافة الرصيد مباشرة وإظهار رسالة النجاح
-                await processDirectDeposit(data);
+                // 2. إظهار النافذة للتحقق بعد التحويل (دون إعطاء نجاح وهمي فوري)
+                showPendingModal();
             } else {
                 alert(data.error || "تعذر إنشاء طلب الشحن");
             }
@@ -120,24 +120,39 @@ window.depositModule = (function () {
         }
     }
 
-    function openTelegramWallet() {
+    function openTonTransferLink(url) {
+        if (!url) return;
         const tg = window.Telegram?.WebApp;
-        const tgWalletLink = 'https://t.me/wallet';
         try {
-            if (tg && typeof tg.openTelegramLink === 'function') {
-                tg.openTelegramLink(tgWalletLink);
+            if (tg && typeof tg.openTelegramLink === 'function' && url.startsWith('https://t.me/')) {
+                tg.openTelegramLink(url);
             } else if (tg && typeof tg.openLink === 'function') {
-                tg.openLink(tgWalletLink, { try_instant_view: false });
+                tg.openLink(url);
             } else {
-                window.open(tgWalletLink, '_blank');
+                window.location.href = url;
             }
         } catch (e) {
-            console.warn("⚠️ تعذر فتح محفظة تلجرام تلقائياً:", e);
+            console.warn("⚠️ تعذر فتح المحفظة تلقائياً:", e);
+            window.location.href = url;
         }
     }
 
-    async function processDirectDeposit(invoiceData) {
-        if (!invoiceData) return;
+    function showPendingModal() {
+        const modal = document.getElementById('deposit-pay-modal');
+        if (modal) modal.style.display = 'flex';
+    }
+
+    function reopenWallet() {
+        if (currentActiveInvoice && currentActiveInvoice.ton_url) {
+            openTonTransferLink(currentActiveInvoice.ton_url);
+        }
+    }
+
+    async function verifyPayment() {
+        if (!currentActiveInvoice) {
+            alert("لا يوجد طلب شحن نشط حالياً.");
+            return;
+        }
 
         const tg = window.Telegram?.WebApp;
         const userId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id || 0;
@@ -151,15 +166,15 @@ window.depositModule = (function () {
                 headers: headers,
                 body: JSON.stringify({
                     user_id: userId,
-                    usdt_amount: invoiceData.usdt_amount,
-                    memo: invoiceData.memo
+                    usdt_amount: currentActiveInvoice.usdt_amount,
+                    memo: currentActiveInvoice.memo,
+                    invoice_id: currentActiveInvoice.invoice_id
                 })
             });
 
             const data = await res.json();
             if (res.ok && data.success) {
-                // إظهار الرسالة المطلوبة مباشرة
-                alert(`تمت عملية الدفع بنجاح وزيادة الرصيد!\nرصيد الدولار الجديد: $${data.new_balance.toFixed(2)} USDT`);
+                alert(`✅ تمت عملية الدفع بنجاح وزيادة الرصيد!\nرصيد الدولار الجديد: $${parseFloat(data.new_balance).toFixed(2)} USDT`);
                 
                 if (window.userState) {
                     window.userState.usd_balance = data.new_balance;
@@ -168,11 +183,16 @@ window.depositModule = (function () {
                 
                 const usdBalanceElems = document.querySelectorAll('#top-balance-usd, #usd-balance, .usd-balance, #usdt-balance, .usdt-balance');
                 usdBalanceElems.forEach(el => {
-                    el.innerText = `$${data.new_balance.toFixed(2)}`;
+                    el.innerText = `$${parseFloat(data.new_balance).toFixed(2)}`;
                 });
+
+                closeModal();
+            } else {
+                alert(`⚠️ ${data.error || 'لم يتم تأكيد وصول التحويل بعد، يرجى التأكد من إتمام الدفع في المحفظة.'}`);
             }
         } catch (e) {
             console.error("خطأ أثناء تأكيد الإيداع:", e);
+            alert("حدث خطأ أثناء فحص المعاملة، يرجى المحاولة لاحقاً.");
         }
     }
 
@@ -199,6 +219,8 @@ window.depositModule = (function () {
     return {
         init,
         selectPackage,
+        reopenWallet,
+        verifyPayment,
         closeModal,
         copyToClipboard
     };
