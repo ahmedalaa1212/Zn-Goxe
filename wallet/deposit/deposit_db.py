@@ -2,7 +2,7 @@ import sqlite3
 import uuid
 
 DB_PATH = 'database.db'
-OFFICIAL_TON_WALLET = 'UQCK...VGtc'  # عنوان محفظة TON الرسمية
+OFFICIAL_TON_WALLET = 'UQCK...VGtc'
 
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH, timeout=10.0)
@@ -11,7 +11,6 @@ def get_db_connection():
 
 def init_deposit_tables():
     """إنشاء ومزامنة مستند deposit_settings في Firebase Firestore وجداول SQLite"""
-    # 1. إنشاء ومزامنة المستند في Firebase Firestore تحت مجموعة settings
     try:
         from database import get_db
         fs_db = get_db()
@@ -29,11 +28,9 @@ def init_deposit_tables():
                         {'id': 5, 'usdt_amount': 15.0, 'name_ar': 'باقة $15 USDT', 'is_active': True, 'sort_order': 5}
                     ]
                 })
-                print("✅ تم إنشاء مستند deposit_settings بنجاح في Firebase Firestore داخل مجموعة settings!")
     except Exception as e:
-        print(f"⚠️ تنبيه أثناء إعداد مستند Firebase deposit_settings: {e}")
+        print(f"⚠️ تنبيه إعداد الفايربيس: {e}")
 
-    # 2. إنشاء الجداول المحلية SQLite
     conn = None
     try:
         conn = get_db_connection()
@@ -41,7 +38,7 @@ def init_deposit_tables():
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS deposit_packages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY,
                 usdt_amount REAL NOT NULL,
                 name_ar TEXT NOT NULL,
                 is_active INTEGER DEFAULT 1,
@@ -62,57 +59,77 @@ def init_deposit_tables():
         ''')
 
         conn.commit()
-
-        cursor.execute("SELECT COUNT(*) as count FROM deposit_packages")
-        if cursor.fetchone()['count'] == 0:
-            default_packages = [
-                (1, 0.5, "باقة $0.5 USDT", 1, 1),
-                (2, 1.5, "باقة $1.5 USDT", 1, 2),
-                (3, 5.0, "باقة $5 USDT", 1, 3),
-                (4, 10.0, "باقة $10 USDT", 1, 4),
-                (5, 15.0, "باقة $15 USDT", 1, 5)
-            ]
-            cursor.executemany(
-                "INSERT OR REPLACE INTO deposit_packages (id, usdt_amount, name_ar, is_active, sort_order) VALUES (?, ?, ?, ?, ?)",
-                default_packages
-            )
-            conn.commit()
     except Exception as e:
         print(f"Error initializing SQLite deposit tables: {e}")
     finally:
         if conn:
             conn.close()
 
+def sync_sqlite_with_firebase(packages):
+    """تحديث قاعدة البيانات المحلية بالبيانات المجلوبة حديثاً من الفايربيس"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM deposit_packages")
+        for p in packages:
+            cursor.execute(
+                "INSERT INTO deposit_packages (id, usdt_amount, name_ar, is_active, sort_order) VALUES (?, ?, ?, ?, ?)",
+                (int(p['id']), float(p['usdt_amount']), str(p['name_ar']), 1 if p.get('is_active') else 0, int(p.get('sort_order', 0)))
+            )
+        conn.commit()
+    except Exception as e:
+        print(f"⚠️ خطأ تحديث SQLite المحلي: {e}")
+    finally:
+        if conn:
+            conn.close()
+
 def get_active_deposit_packages():
-    """جلب الباقات المتاحة من Firebase أولاً للتزامن اللحظي، ثم SQLite كاحتياطي"""
+    """جلب الباقات مباشرة من Firebase Firestore بدقة وإلغاء الاعتماد على الكاش القديم"""
     init_deposit_tables()
     
-    # محاولة الجلب المباشر من Firebase Firestore
     try:
         from database import get_db
         fs_db = get_db()
         if fs_db:
             doc = fs_db.collection('settings').document('deposit_settings').get()
             if doc.exists:
-                data = doc.to_dict()
+                data = doc.to_dict() or {}
                 raw_pkgs = data.get('packages', [])
                 packages = []
+                
                 for p in raw_pkgs:
-                    if p.get('is_active', True):
-                        packages.append({
-                            'id': int(p.get('id', 0)),
-                            'usdt_amount': float(p.get('usdt_amount', 0)),
-                            'name_ar': str(p.get('name_ar', '')),
-                            'is_active': bool(p.get('is_active', True)),
-                            'sort_order': int(p.get('sort_order', 0))
-                        })
+                    is_active = p.get('is_active', True)
+                    if is_active is not False and str(is_active).lower() != 'false':
+                        try:
+                            pkg_id = int(p.get('id', 0))
+                            usdt_amt = float(p.get('usdt_amount', 0))
+                            name_ar = str(p.get('name_ar', f"باقة ${usdt_amt} USDT"))
+                            sort_order = int(p.get('sort_order', 0))
+
+                            packages.append({
+                                'id': pkg_id,
+                                'usdt_amount': usdt_amt,
+                                'name_ar': name_ar,
+                                'is_active': True,
+                                'sort_order': sort_order
+                            })
+                        except (ValueError, TypeError) as err:
+                            print(f"⚠️ خطأ في تحويل بيانات باقة من الفايربيس: {err}")
+                            continue
+
                 if packages:
                     packages.sort(key=lambda x: x.get('sort_order', 0))
+                    sync_sqlite_with_firebase(packages)
                     return packages
+            else:
+                print("⚠️ مستند deposit_settings غير موجود في الفايربيس!")
+        else:
+            print("⚠️ لم يتم الاتصال بقاعدة الفايربيس (get_db returned None)")
     except Exception as e:
-        print(f"⚠️ قراءة الباقات من Firebase فشلت، الانتقال للنسخة المحلية: {e}")
+        print(f"⚠️ فشل قراءة الفايربيس: {e}")
 
-    # الاحتياطي المحلي SQLite
+    # احتياطي محلي في حال انقطاع الفايربيس تماماً
     conn = None
     try:
         conn = get_db_connection()
@@ -121,7 +138,6 @@ def get_active_deposit_packages():
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
     except Exception as e:
-        print(f"Error fetching packages: {e}")
         return [
             {'id': 1, 'usdt_amount': 0.5, 'name_ar': 'باقة $0.5 USDT', 'is_active': True, 'sort_order': 1},
             {'id': 2, 'usdt_amount': 1.5, 'name_ar': 'باقة $1.5 USDT', 'is_active': True, 'sort_order': 2},
@@ -161,7 +177,6 @@ def create_deposit_invoice(user_id: int, usdt_amount: float, ton_amount: float) 
             'memo': memo
         }
     except Exception as e:
-        print(f"Error creating invoice: {e}")
         return {'memo': memo, 'invoice_id': 0, 'usdt_amount': usdt_amount, 'ton_amount': ton_amount}
     finally:
         if conn:
