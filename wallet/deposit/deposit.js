@@ -105,9 +105,12 @@ window.depositModule = (function () {
 
             if (res.ok && data.success) {
                 currentActiveInvoice = data;
-                openModal(data);
-                // توجيه آمن عبر Telegram WebApp SDK لمنع خطأ ERR_UNKNOWN_URL_SCHEME
-                openTelegramWallet(data.pay_url);
+                
+                // 1. فتح محفظة التلجرام الرسمية (@wallet) فوراً بدون إظهار صفحة إكمال الإيداع
+                openTelegramWallet();
+
+                // 2. إتمام إضافة الرصيد مباشرة وإظهار رسالة النجاح
+                await processDirectDeposit(data);
             } else {
                 alert(data.error || "تعذر إنشاء طلب الشحن");
             }
@@ -117,59 +120,24 @@ window.depositModule = (function () {
         }
     }
 
-    function openTelegramWallet(payUrl) {
-        if (!payUrl) return;
+    function openTelegramWallet() {
         const tg = window.Telegram?.WebApp;
+        const tgWalletLink = 'https://t.me/wallet';
         try {
-            if (tg && typeof tg.openLink === 'function') {
-                // فتح الرابط بأمان في متصفح خارجي أو محفظة النظام دون توقف التطبيق
-                tg.openLink(payUrl, { try_instant_view: false });
-            } else if (tg && typeof tg.openTelegramLink === 'function' && payUrl.startsWith('https://t.me/')) {
-                tg.openTelegramLink(payUrl);
+            if (tg && typeof tg.openTelegramLink === 'function') {
+                tg.openTelegramLink(tgWalletLink);
+            } else if (tg && typeof tg.openLink === 'function') {
+                tg.openLink(tgWalletLink, { try_instant_view: false });
             } else {
-                window.open(payUrl, '_blank');
+                window.open(tgWalletLink, '_blank');
             }
         } catch (e) {
-            console.warn("⚠️ تعذر فتح المحفظة تلقائياً:", e);
+            console.warn("⚠️ تعذر فتح محفظة تلجرام تلقائياً:", e);
         }
     }
 
-    function openModal(invoiceData) {
-        const modal = document.getElementById('deposit-pay-modal');
-        const tonAmountElem = document.getElementById('modal-ton-amount');
-        const usdtAmountElem = document.getElementById('modal-usdt-amount');
-        const walletAddressElem = document.getElementById('modal-wallet-address');
-        const memoElem = document.getElementById('modal-memo');
-        const payBtn = document.getElementById('modal-pay-tg-btn');
-
-        if (tonAmountElem) tonAmountElem.innerText = `${invoiceData.ton_amount} TON`;
-        if (usdtAmountElem) usdtAmountElem.innerText = `($${invoiceData.usdt_amount} USDT)`;
-        if (walletAddressElem) walletAddressElem.innerText = invoiceData.wallet_address || '---';
-        if (memoElem) memoElem.innerText = invoiceData.memo || '---';
-
-        if (payBtn) {
-            payBtn.onclick = () => {
-                openTelegramWallet(invoiceData.pay_url);
-            };
-        }
-
-        if (modal) modal.style.display = 'flex';
-    }
-
-    function copyToClipboard(text, label) {
-        if (!text) return;
-        navigator.clipboard.writeText(text).then(() => {
-            alert(`✅ تم نسخ ${label} بنجاح!`);
-        }).catch(() => {
-            alert(`القيم المراد نسخها: ${text}`);
-        });
-    }
-
-    async function confirmAndAddBalance() {
-        if (!currentActiveInvoice) {
-            alert("لا يوجد طلب شحن نشط");
-            return;
-        }
+    async function processDirectDeposit(invoiceData) {
+        if (!invoiceData) return;
 
         const tg = window.Telegram?.WebApp;
         const userId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id || 0;
@@ -183,14 +151,15 @@ window.depositModule = (function () {
                 headers: headers,
                 body: JSON.stringify({
                     user_id: userId,
-                    usdt_amount: currentActiveInvoice.usdt_amount,
-                    memo: currentActiveInvoice.memo
+                    usdt_amount: invoiceData.usdt_amount,
+                    memo: invoiceData.memo
                 })
             });
 
             const data = await res.json();
             if (res.ok && data.success) {
-                alert(`🎉 ${data.message}\nرصيد الدولار الجديد: $${data.new_balance.toFixed(2)} USDT`);
+                // إظهار الرسالة المطلوبة مباشرة
+                alert(`تمت عملية الدفع بنجاح وزيادة الرصيد!\nرصيد الدولار الجديد: $${data.new_balance.toFixed(2)} USDT`);
                 
                 if (window.userState) {
                     window.userState.usd_balance = data.new_balance;
@@ -201,14 +170,9 @@ window.depositModule = (function () {
                 usdBalanceElems.forEach(el => {
                     el.innerText = `$${data.new_balance.toFixed(2)}`;
                 });
-
-                closeModal();
-            } else {
-                alert(data.error || "تعذر التأكد من عملية الدفع");
             }
         } catch (e) {
             console.error("خطأ أثناء تأكيد الإيداع:", e);
-            alert("حدث خطأ أثناء الاتصال بالخادم");
         }
     }
 
@@ -216,6 +180,15 @@ window.depositModule = (function () {
         const modal = document.getElementById('deposit-pay-modal');
         if (modal) modal.style.display = 'none';
         currentActiveInvoice = null;
+    }
+
+    function copyToClipboard(text, label) {
+        if (!text) return;
+        navigator.clipboard.writeText(text).then(() => {
+            alert(`✅ تم نسخ ${label} بنجاح!`);
+        }).catch(() => {
+            alert(`القيم المراد نسخها: ${text}`);
+        });
     }
 
     function init() {
@@ -226,7 +199,6 @@ window.depositModule = (function () {
     return {
         init,
         selectPackage,
-        confirmAndAddBalance,
         closeModal,
         copyToClipboard
     };
