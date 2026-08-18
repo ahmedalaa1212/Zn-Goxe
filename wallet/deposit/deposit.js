@@ -5,63 +5,70 @@ window.depositModule = (function () {
     let lastSelectedPackageId = null;
     let scriptLoadingPromise = null;
 
-    // 🛠️ دالة تحويل النص العادي (Memo) إلى صيغة Base64 BOC المقبولة في TON Connect
+    // 🛠️ دالة ترميز الميمو إلى صيغة BoC القياسية المقبولة لدى محفظة تلجرام (@Wallet) وجميع المحافظ
     function textToTonCommentBoc(text) {
         if (!text) return undefined;
         
-        // إذا كان النص مجهّزاً كـ BOC بالفعل من السيرفر
+        // إذا كان النص مجهّزاً كـ BoC بالفعل من السيرفر
         if (typeof text === 'string' && (text.startsWith('te6cc') || text.startsWith('b5ee'))) {
             return text;
         }
 
         try {
-            const encoder = new TextEncoder();
-            const textBytes = encoder.encode(String(text));
+            const textBytes = new TextEncoder().encode(String(text));
             
             // 4 أظرف أصفار (OpCode الخاص بالتعليقات النصية) + نص UTF-8
-            const payloadBytes = new Uint8Array(4 + textBytes.length);
-            payloadBytes.set([0, 0, 0, 0], 0);
-            payloadBytes.set(textBytes, 4);
+            const dataBytes = new Uint8Array(4 + textBytes.length);
+            dataBytes.set([0, 0, 0, 0], 0);
+            dataBytes.set(textBytes, 4);
 
-            const bitLen = payloadBytes.length * 8;
-            const d1 = 0;
-            const d2 = Math.ceil(bitLen / 8) + Math.floor(bitLen / 8);
+            const dataLen = dataBytes.length;
+            
+            // وصف الخلية (d1 = 0 عدم وجود المراجع، d2 = مضاعف طول البيانات البايتية)
+            const d1 = 0x00; 
+            const d2 = dataLen * 2; 
 
-            const cellData = new Uint8Array(2 + payloadBytes.length);
-            cellData[0] = d1;
-            cellData[1] = d2;
-            cellData.set(payloadBytes, 2);
+            const cellBytes = new Uint8Array(2 + dataLen);
+            cellBytes[0] = d1;
+            cellBytes[1] = d2;
+            cellBytes.set(dataBytes, 2);
 
+            // الهيكل القياسي لـ TON BoC Header
             const header = new Uint8Array([
-                0xb5, 0xee, 0x9c, 0x72, // BoC Magic Prefix
-                0x21, 0x01, 0x01, 0x00,
-                cellData.length, 0x00
+                0xb5, 0xee, 0x9c, 0x72, // Magic Prefix
+                0x41,                   // Flags (has_crc32=1, size_bytes=1)
+                0x01,                   // off_bytes=1
+                0x01,                   // cells_num=1
+                0x01,                   // roots_num=1
+                0x00,                   // absent_num=0
+                cellBytes.length,       // total cell length
+                0x00                    // root_idx=0
             ]);
 
-            const body = new Uint8Array(header.length + cellData.length);
-            body.set(header, 0);
-            body.set(cellData, header.length);
+            const bocWithoutCrc = new Uint8Array(header.length + cellBytes.length);
+            bocWithoutCrc.set(header, 0);
+            bocWithoutCrc.set(cellBytes, header.length);
 
-            // حساب CRC32-C لسلامة التوقيع
+            // حساب CRC32-C لسلامة التوقيع داخل المحفظة
             let crc = 0xFFFFFFFF;
-            for (let i = 0; i < body.length; i++) {
-                crc ^= body[i];
+            for (let i = 0; i < bocWithoutCrc.length; i++) {
+                crc ^= bocWithoutCrc[i];
                 for (let j = 0; j < 8; j++) {
                     crc = (crc & 1) ? ((crc >>> 1) ^ 0x82F63B78) : (crc >>> 1);
                 }
             }
             crc = (crc ^ 0xFFFFFFFF) >>> 0;
 
-            const fullBoc = new Uint8Array(body.length + 4);
-            fullBoc.set(body, 0);
-            fullBoc[body.length] = crc & 0xFF;
-            fullBoc[body.length + 1] = (crc >> 8) & 0xFF;
-            fullBoc[body.length + 2] = (crc >> 16) & 0xFF;
-            fullBoc[body.length + 3] = (crc >> 24) & 0xFF;
+            const finalBoc = new Uint8Array(bocWithoutCrc.length + 4);
+            finalBoc.set(bocWithoutCrc, 0);
+            finalBoc[bocWithoutCrc.length] = crc & 0xFF;
+            finalBoc[bocWithoutCrc.length + 1] = (crc >> 8) & 0xFF;
+            finalBoc[bocWithoutCrc.length + 2] = (crc >> 16) & 0xFF;
+            finalBoc[bocWithoutCrc.length + 3] = (crc >> 24) & 0xFF;
 
             let binary = '';
-            for (let i = 0; i < fullBoc.length; i++) {
-                binary += String.fromCharCode(fullBoc[i]);
+            for (let i = 0; i < finalBoc.length; i++) {
+                binary += String.fromCharCode(finalBoc[i]);
             }
             return btoa(binary);
         } catch (e) {
