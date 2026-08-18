@@ -4,33 +4,21 @@ import uuid
 DB_PATH = 'database.db'
 OFFICIAL_TON_WALLET = 'UQCK...VGtc'
 
+DEFAULT_PACKAGES = [
+    {'id': 1, 'usdt_amount': 0.5, 'name_ar': 'باقة $0.5 USDT', 'is_active': True, 'sort_order': 1},
+    {'id': 2, 'usdt_amount': 1.5, 'name_ar': 'باقة $1.5 USDT', 'is_active': True, 'sort_order': 2},
+    {'id': 3, 'usdt_amount': 5.0, 'name_ar': 'باقة $5 USDT', 'is_active': True, 'sort_order': 3},
+    {'id': 4, 'usdt_amount': 10.0, 'name_ar': 'باقة $10 USDT', 'is_active': True, 'sort_order': 4},
+    {'id': 5, 'usdt_amount': 15.0, 'name_ar': 'باقة $15 USDT', 'is_active': True, 'sort_order': 5}
+]
+
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
     return conn
 
 def init_deposit_tables():
-    """إنشاء ومزامنة مستند deposit_settings في Firebase Firestore وجداول SQLite"""
-    try:
-        from database import get_db
-        fs_db = get_db()
-        if fs_db:
-            doc_ref = fs_db.collection('settings').document('deposit_settings')
-            doc = doc_ref.get()
-            if not doc.exists:
-                doc_ref.set({
-                    'official_ton_wallet': OFFICIAL_TON_WALLET,
-                    'packages': [
-                        {'id': 1, 'usdt_amount': 0.5, 'name_ar': 'باقة $0.5 USDT', 'is_active': True, 'sort_order': 1},
-                        {'id': 2, 'usdt_amount': 1.5, 'name_ar': 'باقة $1.5 USDT', 'is_active': True, 'sort_order': 2},
-                        {'id': 3, 'usdt_amount': 5.0, 'name_ar': 'باقة $5 USDT', 'is_active': True, 'sort_order': 3},
-                        {'id': 4, 'usdt_amount': 10.0, 'name_ar': 'باقة $10 USDT', 'is_active': True, 'sort_order': 4},
-                        {'id': 5, 'usdt_amount': 15.0, 'name_ar': 'باقة $15 USDT', 'is_active': True, 'sort_order': 5}
-                    ]
-                })
-    except Exception as e:
-        print(f"⚠️ تنبيه إعداد الفايربيس: {e}")
-
+    """تجهيز جداول SQLite المحلية للاحتياط"""
     conn = None
     try:
         conn = get_db_connection()
@@ -66,7 +54,7 @@ def init_deposit_tables():
             conn.close()
 
 def sync_sqlite_with_firebase(packages):
-    """تحديث قاعدة البيانات المحلية بالبيانات المجلوبة حديثاً من الفايربيس"""
+    """تحديث قاعدة البيانات المحلية بالبيانات الجديدة من الفايربيس"""
     conn = None
     try:
         conn = get_db_connection()
@@ -85,69 +73,71 @@ def sync_sqlite_with_firebase(packages):
             conn.close()
 
 def get_active_deposit_packages():
-    """جلب الباقات مباشرة من Firebase Firestore بدقة وإلغاء الاعتماد على الكاش القديم"""
+    """جلب الباقات من Firebase وإنشاء المستند تلقائياً إذا كان مفقوداً"""
     init_deposit_tables()
     
     try:
         from database import get_db
         fs_db = get_db()
         if fs_db:
-            doc = fs_db.collection('settings').document('deposit_settings').get()
-            if doc.exists:
-                data = doc.to_dict() or {}
-                raw_pkgs = data.get('packages', [])
-                packages = []
-                
-                for p in raw_pkgs:
-                    is_active = p.get('is_active', True)
-                    if is_active is not False and str(is_active).lower() != 'false':
-                        try:
-                            pkg_id = int(p.get('id', 0))
-                            usdt_amt = float(p.get('usdt_amount', 0))
-                            name_ar = str(p.get('name_ar', f"باقة ${usdt_amt} USDT"))
-                            sort_order = int(p.get('sort_order', 0))
+            doc_ref = fs_db.collection('settings').document('deposit_settings')
+            doc = doc_ref.get()
+            
+            # إذا لم يكن المستند موجوداً في الفايربيس يتم إنشاؤه تلقائياً بالحقول المطلوبة
+            if not doc.exists:
+                initial_data = {
+                    'official_ton_wallet': OFFICIAL_TON_WALLET,
+                    'packages': DEFAULT_PACKAGES
+                }
+                doc_ref.set(initial_data)
+                sync_sqlite_with_firebase(DEFAULT_PACKAGES)
+                return DEFAULT_PACKAGES
 
-                            packages.append({
-                                'id': pkg_id,
-                                'usdt_amount': usdt_amt,
-                                'name_ar': name_ar,
-                                'is_active': True,
-                                'sort_order': sort_order
-                            })
-                        except (ValueError, TypeError) as err:
-                            print(f"⚠️ خطأ في تحويل بيانات باقة من الفايربيس: {err}")
-                            continue
+            # في حال وجود المستند يتم قراءته وتحديث القائمة فوراً
+            data = doc.to_dict() or {}
+            raw_pkgs = data.get('packages', [])
+            packages = []
+            
+            for p in raw_pkgs:
+                is_active = p.get('is_active', True)
+                if is_active is not False and str(is_active).lower() != 'false':
+                    try:
+                        pkg_id = int(p.get('id', 0))
+                        usdt_amt = float(p.get('usdt_amount', 0))
+                        name_ar = str(p.get('name_ar', f"باقة ${usdt_amt} USDT"))
+                        sort_order = int(p.get('sort_order', 0))
 
-                if packages:
-                    packages.sort(key=lambda x: x.get('sort_order', 0))
-                    sync_sqlite_with_firebase(packages)
-                    return packages
-            else:
-                print("⚠️ مستند deposit_settings غير موجود في الفايربيس!")
-        else:
-            print("⚠️ لم يتم الاتصال بقاعدة الفايربيس (get_db returned None)")
+                        packages.append({
+                            'id': pkg_id,
+                            'usdt_amount': usdt_amt,
+                            'name_ar': name_ar,
+                            'is_active': True,
+                            'sort_order': sort_order
+                        })
+                    except (ValueError, TypeError) as err:
+                        print(f"⚠️ خطأ في قراءة باقة: {err}")
+                        continue
+
+            if packages:
+                packages.sort(key=lambda x: x.get('sort_order', 0))
+                sync_sqlite_with_firebase(packages)
+                return packages
     except Exception as e:
-        print(f"⚠️ فشل قراءة الفايربيس: {e}")
+        print(f"⚠️ فشل الاتصال بالفايربيس: {e}")
 
-    # احتياطي محلي في حال انقطاع الفايربيس تماماً
+    # احتياطي محلي في حال انقطاع الخدمة تماماً
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM deposit_packages WHERE is_active = 1 ORDER BY sort_order ASC")
         rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        if rows:
+            return [dict(row) for row in rows]
     except Exception as e:
-        return [
-            {'id': 1, 'usdt_amount': 0.5, 'name_ar': 'باقة $0.5 USDT', 'is_active': True, 'sort_order': 1},
-            {'id': 2, 'usdt_amount': 1.5, 'name_ar': 'باقة $1.5 USDT', 'is_active': True, 'sort_order': 2},
-            {'id': 3, 'usdt_amount': 5.0, 'name_ar': 'باقة $5 USDT', 'is_active': True, 'sort_order': 3},
-            {'id': 4, 'usdt_amount': 10.0, 'name_ar': 'باقة $10 USDT', 'is_active': True, 'sort_order': 4},
-            {'id': 5, 'usdt_amount': 15.0, 'name_ar': 'باقة $15 USDT', 'is_active': True, 'sort_order': 5}
-        ]
-    finally:
-        if conn:
-            conn.close()
+        pass
+
+    return DEFAULT_PACKAGES
 
 def get_package_by_id(pkg_id):
     if pkg_id is None:
