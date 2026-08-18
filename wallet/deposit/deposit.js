@@ -27,7 +27,6 @@ window.depositModule = (function () {
 
     async function loadPackages() {
         try {
-            // كسر الكاش بطلب طازج لمنع حفظ القوائم القديمة بدون استهلاك قراءات زائدة
             const res = await fetch(`/api/wallet/deposit/packages?_t=${Date.now()}`, {
                 cache: 'no-store',
                 headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
