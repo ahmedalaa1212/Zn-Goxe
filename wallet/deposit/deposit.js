@@ -122,7 +122,6 @@ window.depositModule = (function () {
         try {
             await loadTonConnectScript();
             
-            // جلب الكلاس بغض النظر عن اسم المتغير العام المصدّر من المكتبة
             const TonConnectClass = window.TON_CONNECT_UI?.TonConnectUI || 
                                     window.TonConnectUI?.TonConnectUI || 
                                     window.TonConnectUI || 
@@ -242,7 +241,6 @@ window.depositModule = (function () {
             return;
         }
 
-        // 1. فتح نافذة ربط المحفظة إن لم تكن متصلة
         if (!tc.connected) {
             try {
                 await tc.openModal();
@@ -276,7 +274,6 @@ window.depositModule = (function () {
                 return;
             }
 
-            // ترميز النص المرتجع إلى Base64 BOC مطابق لاشتراطات SDK TON Connect
             const rawMemo = prepData.payload_memo || prepData.memo;
             const validPayloadBoc = textToTonCommentBoc(rawMemo);
 
@@ -289,7 +286,6 @@ window.depositModule = (function () {
                 msg.payload = validPayloadBoc;
             }
 
-            // 2. إرسال طلب التوقيع المصلح للمحفظة
             const transaction = {
                 validUntil: Math.floor(Date.now() / 1000) + 600,
                 messages: [msg]
@@ -304,7 +300,6 @@ window.depositModule = (function () {
                 throw new Error("لم يتم استلام كود إثبات المعاملة المشفر (BOC)");
             }
 
-            // 3. التحقق والتطبيق
             showModal("⚡ جاري التحقق من التحويل وإضافة الرصيد...");
 
             const verifyRes = await fetch('/api/wallet/deposit/verify_and_apply', {
