@@ -1,19 +1,17 @@
 window.depositModule = (function () {
     let tonPriceUsd = 1.32;
-    let packagesUnsubscribe = null;
 
-    // الباقات الافتراضية للتحميل اللحظي الفوري
     let currentPackages = [
-        { id: 1, usdt_amount: 0.5, name_ar: "باقة $0.5 USDT", is_active: true, sort_order: 1 },
-        { id: 2, usdt_amount: 1.5, name_ar: "باقة $1.5 USDT", is_active: true, sort_order: 2 },
-        { id: 3, usdt_amount: 5.0, name_ar: "باقة $5 USDT", is_active: true, sort_order: 3 },
-        { id: 4, usdt_amount: 10.0, name_ar: "باقة $10 USDT", is_active: true, sort_order: 4 },
-        { id: 5, usdt_amount: 15.0, name_ar: "باقة $15 USDT", is_active: true, sort_order: 5 }
+        { id: 1, usdt_amount: 0.5, name_ar: "باقة $0.5 USDT" },
+        { id: 2, usdt_amount: 1.5, name_ar: "باقة $1.5 USDT" },
+        { id: 3, usdt_amount: 5.0, name_ar: "باقة $5 USDT" },
+        { id: 4, usdt_amount: 10.0, name_ar: "باقة $10 USDT" },
+        { id: 5, usdt_amount: 15.0, name_ar: "باقة $15 USDT" }
     ];
 
     async function fetchTonLivePrice() {
         try {
-            const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd');
+            const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd', { cache: 'no-store' });
             if (res.ok) {
                 const data = await res.json();
                 if (data['the-open-network']?.usd) {
@@ -27,59 +25,23 @@ window.depositModule = (function () {
         }
     }
 
-    // الربط اللحظي المباشر مع Firebase Firestore
-    function listenToFirebasePackages() {
-        if (!window.db) return false;
-
-        try {
-            if (packagesUnsubscribe) {
-                packagesUnsubscribe();
-                packagesUnsubscribe = null;
-            }
-
-            packagesUnsubscribe = window.db.collection('settings').doc('deposit_settings')
-                .onSnapshot(doc => {
-                    if (doc.exists) {
-                        const data = doc.data() || {};
-                        const pkgs = data.packages || [];
-                        const activePkgs = pkgs.filter(p => p.is_active !== false);
-                        if (activePkgs.length > 0) {
-                            activePkgs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-                            currentPackages = activePkgs;
-                            renderPackages(currentPackages);
-                        }
-                    }
-                }, err => {
-                    console.warn("⚠️ خطأ المزامنة اللحظية لباقات الإيداع:", err);
-                });
-            return true;
-        } catch (e) {
-            console.warn("⚠️ تعذر تشغيل مستمع الفايربيس للحظي:", e);
-            return false;
-        }
-    }
-
     async function loadPackages() {
-        // 1. عرض فوري للباقات الحالية
-        renderPackages(currentPackages);
-
-        // 2. تفعيل المزامنة اللحظية المباشرة مع الفايربيس
-        const isRealtimeActive = listenToFirebasePackages();
-
-        // 3. جلب الاحتياطي عبر API إذا لم يكن Firestore Realtime متصلاً
-        if (!isRealtimeActive) {
-            try {
-                const res = await fetch('/api/wallet/deposit/packages');
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.success && data.packages && data.packages.length > 0) {
-                        currentPackages = data.packages;
-                        renderPackages(data.packages);
-                    }
+        try {
+            // كسر الكاش بطلب طازج لمنع حفظ القوائم القديمة بدون استهلاك قراءات زائدة
+            const res = await fetch(`/api/wallet/deposit/packages?_t=${Date.now()}`, {
+                cache: 'no-store',
+                headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
+            });
+            
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success && data.packages && data.packages.length > 0) {
+                    currentPackages = data.packages;
+                    renderPackages(data.packages);
                 }
-            } catch (err) {
-                console.warn("⚠️ الاعتماد على باقات الإيداع المحمّلة إفتراضياً:", err);
             }
+        } catch (err) {
+            console.warn("⚠️ تعذر جلب الباقات المحدثة:", err);
         }
     }
 
@@ -104,10 +66,9 @@ window.depositModule = (function () {
     }
 
     async function selectPackage(packageId) {
-        // المطابقة المرنة لمنع الاختلاف بين الـ String والـ Number
         const pkg = currentPackages.find(p => String(p.id) === String(packageId));
         if (!pkg) {
-            alert("الباقة غير متوفرة");
+            alert("الباقة غير متوفرة حالياً");
             return;
         }
 
@@ -117,7 +78,6 @@ window.depositModule = (function () {
         try {
             const headers = { 'Content-Type': 'application/json' };
             if (userId) headers['X-Telegram-User-Id'] = String(userId);
-            if (tg?.initData) headers['X-Telegram-Init-Data'] = tg.initData;
 
             const res = await fetch('/api/wallet/deposit/create_invoice', {
                 method: 'POST',
@@ -157,16 +117,12 @@ window.depositModule = (function () {
                 const tg = window.Telegram?.WebApp;
 
                 try {
-                    // فتح الرابط بأمان مع حماية البروتوكول
                     if (tg && typeof tg.openLink === 'function') {
                         tg.openLink(payUrl);
-                    } else if (tg && typeof tg.openTelegramLink === 'function' && payUrl.startsWith('https://t.me/')) {
-                        tg.openTelegramLink(payUrl);
                     } else {
                         window.location.href = payUrl;
                     }
                 } catch (e) {
-                    console.warn("فشل التحويل التلقائي عبر Telegram API، الانتقال المباشر:", e);
                     window.location.href = payUrl;
                 }
             };
@@ -181,6 +137,7 @@ window.depositModule = (function () {
     }
 
     function init() {
+        renderPackages(currentPackages);
         fetchTonLivePrice();
         loadPackages();
     }
