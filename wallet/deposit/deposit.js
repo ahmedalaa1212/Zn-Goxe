@@ -1,6 +1,12 @@
 window.depositModule = (function () {
     let tonPriceUsd = 1.30;
-    let currentPackages = [];
+    let currentPackages = [
+        { id: 1, usdt_amount: 0.5 },
+        { id: 2, usdt_amount: 1.5 },
+        { id: 3, usdt_amount: 5.0 },
+        { id: 4, usdt_amount: 10.0 },
+        { id: 5, usdt_amount: 15.0 }
+    ];
     let currentActiveInvoice = null;
 
     async function fetchTonLivePrice() {
@@ -20,6 +26,8 @@ window.depositModule = (function () {
     }
 
     async function loadPackages() {
+        renderPackages(currentPackages); // عرض باقات افتراضية سريعة فوراً لحين اكتمال الـ fetch
+
         try {
             const res = await fetch(`/api/wallet/deposit/packages?_t=${Date.now()}`, {
                 cache: 'no-store',
@@ -28,7 +36,7 @@ window.depositModule = (function () {
             
             if (res.ok) {
                 const data = await res.json();
-                if (data.success && data.packages) {
+                if (data.success && data.packages && data.packages.length > 0) {
                     currentPackages = data.packages;
                     renderPackages(data.packages);
                 }
@@ -40,10 +48,13 @@ window.depositModule = (function () {
 
     function renderPackages(packages) {
         const grid = document.getElementById('deposit-packages-grid');
-        if (!grid) return;
+        if (!grid) {
+            setTimeout(() => renderPackages(packages), 100);
+            return;
+        }
 
         if (!packages || packages.length === 0) {
-            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 20px;">لا توجد باقات متاحة حالياً في الفايربيس</div>`;
+            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 20px;">لا توجد باقات متاحة حالياً</div>`;
             return;
         }
 
@@ -205,3 +216,10 @@ window.init_deposit_module = function () {
         window.depositModule.init();
     }
 };
+
+// تشغيل فوري تلقائي عند فتح الصفحة
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => window.depositModule?.init());
+} else {
+    window.depositModule?.init();
+}
