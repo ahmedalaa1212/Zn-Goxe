@@ -18,7 +18,11 @@ def get_history_transactions():
     جلب كافة سجلات الإيداع والسحب الخاصة بالمستخدم الحالي
     """
     if request.method == 'OPTIONS':
-        return jsonify({'status': 'ok'}), 200
+        res = jsonify({'status': 'ok'})
+        res.headers['Access-Control-Allow-Origin'] = '*'
+        res.headers['Access-Control-Allow-Headers'] = '*'
+        res.headers['Access-Control-Allow-Methods'] = '*'
+        return res, 200
 
     try:
         req_json = request.get_json(silent=True) if request.is_json else {}
@@ -31,26 +35,32 @@ def get_history_transactions():
         )
 
         if not user_id_raw:
-            return jsonify({
+            response = jsonify({
                 'success': False,
                 'message': 'معرّف المستخدم غير موجود (User ID missing)',
                 'transactions': []
-            }), 400
+            })
+            response.headers['Access-Control-Allow-Origin'] = '*'
+            return response, 400
 
         user_id = str(user_id_raw).strip()
         transactions = get_user_transaction_history(user_id)
 
-        return jsonify({
+        response = jsonify({
             'success': True,
             'count': len(transactions),
             'transactions': transactions
-        }), 200
+        })
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response, 200
 
     except Exception as e:
         logger.error(f"❌ [history_api] Error fetching transactions: {e}")
-        return jsonify({
+        response = jsonify({
             'success': False,
             'message': 'حدث خطأ داخلي أثناء استرجاع السجلات',
             'error': str(e),
             'transactions': []
-        }), 500
+        })
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response, 500
