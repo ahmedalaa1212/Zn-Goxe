@@ -4,7 +4,8 @@ from .deposit_db import (
     create_deposit_invoice,
     get_package_by_id,
     get_official_ton_wallet,
-    credit_user_balance
+    credit_user_balance,
+    verify_and_process_ton_boc
 )
 
 deposit_bp = Blueprint('deposit', __name__)
@@ -35,8 +36,10 @@ def get_packages():
             'error': f"فشل الاتصال بقاعدة البيانات: {str(exc)}"
         }), 500
 
+# المرحلة 2: تجهيز بيانات المعاملة (Backend Prepare)
+@deposit_bp.route('/prepare_ton_pay', methods=['POST', 'OPTIONS'], strict_slashes=False)
 @deposit_bp.route('/create_invoice', methods=['GET', 'POST', 'OPTIONS'], strict_slashes=False)
-def create_invoice():
+def prepare_ton_pay():
     if request.method == 'OPTIONS':
         return jsonify({'success': True}), 200
 
@@ -65,39 +68,36 @@ def create_invoice():
             usdt_amount = float(data.get('usdt_amount', 0.5))
 
         ton_amount = round(usdt_amount / ton_price, 4)
+        nano_ton = int(ton_amount * 1e9)  # التحويل لـ NanoTON (1 TON = 10^9 NanoTON)
 
         wallet_address = get_official_ton_wallet()
         invoice = create_deposit_invoice(user_id, usdt_amount, ton_amount)
         
-        nano_ton = int(ton_amount * 1e9)
-        
-        # إنشاء روابط HTTPS آمنة ومقبولة داخل WebApp بدون خطأ ERR_UNKNOWN_URL_SCHEME
-        ton_url = f"ton://transfer/{wallet_address}?amount={nano_ton}&text={invoice['memo']}"
-        tg_wallet_url = f"https://t.me/wallet?startattach=ton_transfer_{invoice['memo']}"
-        tonkeeper_url = f"https://app.tonkeeper.com/transfer/{wallet_address}?amount={nano_ton}&text={invoice['memo']}"
+        payload_memo = invoice['memo']
 
         return jsonify({
             'success': True,
             'invoice_id': invoice.get('invoice_id', 0),
+            'package_id': package_id,
             'usdt_amount': usdt_amount,
             'ton_amount': ton_amount,
-            'memo': invoice['memo'],
-            'wallet_address': wallet_address,
-            'pay_url': tg_wallet_url,
-            'tg_wallet_url': tg_wallet_url,
-            'tonkeeper_url': tonkeeper_url,
-            'web_url': tonkeeper_url,
-            'ton_url': ton_url
+            'nano_ton': nano_ton,
+            'memo': payload_memo,
+            'payload_memo': payload_memo,
+            'wallet_address': wallet_address
         })
     except Exception as exc:
-        print(f"❌ [create_invoice Error]: {exc}")
+        print(f"❌ [prepare_ton_pay Error]: {exc}")
         return jsonify({
             'success': False,
-            'error': f"فشل إنشاء طلب الإيداع: {str(exc)}"
+            'error': f"فشل تجهيز المعاملة: {str(exc)}"
         }), 500
 
+# المرحلة 4: التحقق والتطبيق الآمن (Verify & Apply)
+@deposit_bp.route('/verify_and_apply', methods=['POST', 'OPTIONS'], strict_slashes=False)
+@deposit_bp.route('/verify_and_apply_package', methods=['POST', 'OPTIONS'], strict_slashes=False)
 @deposit_bp.route('/confirm_payment', methods=['GET', 'POST', 'OPTIONS'], strict_slashes=False)
-def confirm_payment():
+def verify_and_apply():
     if request.method == 'OPTIONS':
         return jsonify({'success': True}), 200
 
@@ -109,10 +109,19 @@ def confirm_payment():
         except (ValueError, TypeError):
             user_id = 0
 
-        usdt_amount = float(data.get('usdt_amount', 0.0))
+        boc = data.get('boc')
+        memo = data.get('memo') or data.get('payload_memo')
+        package_id = data.get('package_id')
+
+        pkg = get_package_by_id(package_id) if package_id is not None else None
+        if pkg and 'usdt_amount' in pkg:
+            usdt_amount = float(pkg['usdt_amount'])
+        else:
+            usdt_amount = float(data.get('usdt_amount', 0.0))
 
         if user_id > 0 and usdt_amount > 0:
-            new_usd_balance = credit_user_balance(user_id, usdt_amount)
+            # تنفيذ العملية الآمنة التي لا تقبل التكرار (Firestore Transaction)
+            new_usd_balance = verify_and_process_ton_boc(user_id, usdt_amount, memo, boc)
             return jsonify({
                 'success': True,
                 'message': 'تمت عملية الدفع بنجاح وزيادة الرصيد!',
@@ -123,4 +132,5 @@ def confirm_payment():
             return jsonify({'success': False, 'error': 'بيانات غير صحيحة أو مستخدم غير معروف'}), 400
 
     except Exception as exc:
+        print(f"❌ [verify_and_apply Error]: {exc}")
         return jsonify({'success': False, 'error': str(exc)}), 500
