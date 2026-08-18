@@ -3,7 +3,7 @@ from .deposit_db import (
     get_active_deposit_packages,
     create_deposit_invoice,
     get_package_by_id,
-    OFFICIAL_TON_WALLET
+    get_official_ton_wallet
 )
 
 deposit_bp = Blueprint('deposit', __name__)
@@ -12,11 +12,12 @@ deposit_bp = Blueprint('deposit', __name__)
 def get_packages():
     """عرض باقات الشحن المتاحة مباشرة من Firebase وبدون كاش"""
     packages = get_active_deposit_packages()
+    official_wallet = get_official_ton_wallet()
     
     response = make_response(jsonify({
         'success': True,
         'packages': packages,
-        'official_wallet': OFFICIAL_TON_WALLET
+        'official_wallet': official_wallet
     }))
     
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
@@ -24,9 +25,12 @@ def get_packages():
     response.headers["Expires"] = "0"
     return response
 
-@deposit_bp.route('/create_invoice', methods=['POST'])
+@deposit_bp.route('/create_invoice', methods=['POST', 'OPTIONS'])
 def create_invoice():
     """إنشاء طلب الشحن وتجهيز رابط الدفع"""
+    if request.method == 'OPTIONS':
+        return jsonify({'success': True}), 200
+
     try:
         data = request.get_json(silent=True) or {}
         package_id = data.get('package_id')
@@ -53,8 +57,9 @@ def create_invoice():
 
         ton_amount = round(usdt_amount / ton_price, 4)
 
+        wallet_address = get_official_ton_wallet()
         invoice = create_deposit_invoice(user_id, usdt_amount, ton_amount)
-        pay_url = f"ton://transfer/{OFFICIAL_TON_WALLET}?amount={int(ton_amount * 1e9)}&text={invoice['memo']}"
+        pay_url = f"ton://transfer/{wallet_address}?amount={int(ton_amount * 1e9)}&text={invoice['memo']}"
 
         return jsonify({
             'success': True,
@@ -62,7 +67,7 @@ def create_invoice():
             'usdt_amount': usdt_amount,
             'ton_amount': ton_amount,
             'memo': invoice['memo'],
-            'wallet_address': OFFICIAL_TON_WALLET,
+            'wallet_address': wallet_address,
             'pay_url': pay_url
         })
     except Exception as exc:
