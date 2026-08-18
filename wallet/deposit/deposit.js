@@ -7,6 +7,7 @@ window.depositModule = (function () {
         { id: 4, usdt_amount: 10.0, name_ar: "باقة $10 USDT" },
         { id: 5, usdt_amount: 15.0, name_ar: "باقة $15 USDT" }
     ];
+    let currentActiveInvoice = null;
 
     async function fetchTonLivePrice() {
         try {
@@ -76,7 +77,7 @@ window.depositModule = (function () {
         }
 
         const tg = window.Telegram?.WebApp;
-        const userId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id || '';
+        const userId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id || 0;
 
         try {
             const headers = { 'Content-Type': 'application/json' };
@@ -105,6 +106,7 @@ window.depositModule = (function () {
             }
 
             if (res.ok && data.success) {
+                currentActiveInvoice = data;
                 openModal(data);
             } else {
                 alert(data.error || "تعذر إنشاء طلب الشحن");
@@ -119,10 +121,14 @@ window.depositModule = (function () {
         const modal = document.getElementById('deposit-pay-modal');
         const tonAmountElem = document.getElementById('modal-ton-amount');
         const usdtAmountElem = document.getElementById('modal-usdt-amount');
+        const walletAddressElem = document.getElementById('modal-wallet-address');
+        const memoElem = document.getElementById('modal-memo');
         const payBtn = document.getElementById('modal-pay-tg-btn');
 
         if (tonAmountElem) tonAmountElem.innerText = `${invoiceData.ton_amount} TON`;
         if (usdtAmountElem) usdtAmountElem.innerText = `($${invoiceData.usdt_amount} USDT)`;
+        if (walletAddressElem) walletAddressElem.innerText = invoiceData.wallet_address || '---';
+        if (memoElem) memoElem.innerText = invoiceData.memo || '---';
 
         if (payBtn) {
             payBtn.onclick = () => {
@@ -144,9 +150,57 @@ window.depositModule = (function () {
         if (modal) modal.style.display = 'flex';
     }
 
+    async function confirmAndAddBalance() {
+        if (!currentActiveInvoice) {
+            alert("لا يوجد طلب شحن نشط");
+            return;
+        }
+
+        const tg = window.Telegram?.WebApp;
+        const userId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id || 0;
+
+        try {
+            const headers = { 'Content-Type': 'application/json' };
+            if (userId) headers['X-Telegram-User-Id'] = String(userId);
+
+            const res = await fetch('/api/wallet/deposit/confirm_payment', {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({
+                    user_id: userId,
+                    usdt_amount: currentActiveInvoice.usdt_amount,
+                    memo: currentActiveInvoice.memo
+                })
+            });
+
+            const data = await res.json();
+            if (res.ok && data.success) {
+                alert(`🎉 ${data.message}\nرصيدك الجديد: $${data.new_balance.toFixed(2)} USDT`);
+                
+                // تحديث الرصيد المعروض أعلى الشاشة وفي حالة النظام
+                if (window.userState) {
+                    window.userState.balance = data.new_balance;
+                }
+                
+                const topBalanceElems = document.querySelectorAll('#user-balance, .user-balance, #usdt-balance, #top-balance-usd');
+                topBalanceElems.forEach(el => {
+                    el.innerText = `$${data.new_balance.toFixed(2)}`;
+                });
+
+                closeModal();
+            } else {
+                alert(data.error || "تعذر التأكد من عملية الدفع");
+            }
+        } catch (e) {
+            console.error("خطأ أثناء تأكيد الإيداع:", e);
+            alert("حدث خطأ أثناء الاتصال بالخادم");
+        }
+    }
+
     function closeModal() {
         const modal = document.getElementById('deposit-pay-modal');
         if (modal) modal.style.display = 'none';
+        currentActiveInvoice = null;
     }
 
     function init() {
@@ -158,6 +212,7 @@ window.depositModule = (function () {
     return {
         init,
         selectPackage,
+        confirmAndAddBalance,
         closeModal
     };
 })();
