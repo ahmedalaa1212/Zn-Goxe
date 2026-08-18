@@ -12,7 +12,7 @@ deposit_bp = Blueprint('deposit', __name__)
 
 @deposit_bp.route('/packages', methods=['GET', 'POST', 'OPTIONS'], strict_slashes=False)
 def get_packages():
-    """عرض باقات الشحن المتاحة مباشرة من Firebase وبدون كاش"""
+    """إجبار إنشاء المستند وقراءة الباقات المحدثة فورياً من الفايربيس"""
     if request.method == 'OPTIONS':
         return jsonify({'success': True}), 200
 
@@ -40,7 +40,6 @@ def get_packages():
 
 @deposit_bp.route('/create_invoice', methods=['GET', 'POST', 'OPTIONS'], strict_slashes=False)
 def create_invoice():
-    """إنشاء طلب الشحن وتجهيز رابط الدفع بأمان"""
     if request.method == 'OPTIONS':
         return jsonify({'success': True}), 200
 
@@ -49,11 +48,11 @@ def create_invoice():
         package_id = data.get('package_id')
         
         try:
-            ton_price = float(data.get('ton_price', 1.32))
+            ton_price = float(data.get('ton_price', 1.30))
             if ton_price <= 0:
-                ton_price = 1.32
+                ton_price = 1.30
         except (ValueError, TypeError):
-            ton_price = 1.32
+            ton_price = 1.30
 
         user_id = request.headers.get('X-Telegram-User-Id') or data.get('user_id') or 0
         try:
@@ -92,7 +91,6 @@ def create_invoice():
 
 @deposit_bp.route('/confirm_payment', methods=['GET', 'POST', 'OPTIONS'], strict_slashes=False)
 def confirm_payment():
-    """تأكيد العملية وإضافة الرصيد لحساب المستخدم فوراً"""
     if request.method == 'OPTIONS':
         return jsonify({'success': True}), 200
 
