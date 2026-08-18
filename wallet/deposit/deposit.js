@@ -3,22 +3,76 @@ window.depositModule = (function () {
     let currentPackages = [];
     let tcInstance = null;
     let lastSelectedPackageId = null;
+    let scriptLoadingPromise = null;
 
-    // 1. تهيئة TON Connect UI
-    function initTonConnect() {
+    // تحميل مكتبة TON Connect UI ديناميكياً في head الصفحة في حال عدم وجودها
+    function loadTonConnectScript() {
+        if (window.TON_CONNECT_UI || window.TonConnectUI) {
+            return Promise.resolve();
+        }
+        if (scriptLoadingPromise) {
+            return scriptLoadingPromise;
+        }
+
+        scriptLoadingPromise = new Promise((resolve, reject) => {
+            const existingScript = document.querySelector('script[src*="tonconnect-ui"]');
+            if (existingScript) {
+                if (window.TON_CONNECT_UI || window.TonConnectUI) {
+                    resolve();
+                    return;
+                }
+                existingScript.addEventListener('load', () => resolve());
+                existingScript.addEventListener('error', (err) => reject(err));
+                return;
+            }
+
+            const script = document.createElement('script');
+            script.src = 'https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js';
+            script.async = true;
+            script.onload = () => {
+                console.log("✅ تم تحميل مكتبة TON Connect UI بنجاح");
+                resolve();
+            };
+            script.onerror = () => {
+                scriptLoadingPromise = null;
+                reject(new Error("فشل تحميل مكتبة TON Connect من الخادم الخارجي CDN"));
+            };
+            document.head.appendChild(script);
+        });
+
+        return scriptLoadingPromise;
+    }
+
+    // تهيئة كائن المكتبة بأمان
+    async function initTonConnect() {
         if (tcInstance) return tcInstance;
 
         try {
-            if (window.TON_CONNECT_UI) {
+            await loadTonConnectScript();
+            
+            // جلب الكلاس بغض النظر عن اسم المتغير العام المصدّر من المكتبة
+            const TonConnectClass = window.TON_CONNECT_UI?.TonConnectUI || 
+                                    window.TonConnectUI?.TonConnectUI || 
+                                    window.TonConnectUI || 
+                                    window.TON_CONNECT_UI;
+
+            if (TonConnectClass) {
                 const manifestUrl = `${window.location.origin}/tonconnect-manifest.json`;
-                tcInstance = new TON_CONNECT_UI.TonConnectUI({
-                    manifestUrl: manifestUrl,
-                    buttonRootId: 'ton-connect-btn-container'
-                });
+                const btnContainer = document.getElementById('ton-connect-btn-container');
+                
+                const options = { manifestUrl: manifestUrl };
+                if (btnContainer) {
+                    options.buttonRootId = 'ton-connect-btn-container';
+                }
+
+                tcInstance = new TonConnectClass(options);
+            } else {
+                console.warn("⚠️ تعذر تحديد كلاس TonConnectUI في النطاق العام");
             }
         } catch (e) {
-            console.warn("⚠️ خطأ تهيئة مكتبة TON Connect UI:", e);
+            console.warn("⚠️ خطأ أثناء تهيئة مكتبة TON Connect UI:", e);
         }
+
         return tcInstance;
     }
 
@@ -95,7 +149,6 @@ window.depositModule = (function () {
         }).join('');
     }
 
-    // التنفيذ الفعلي لدورة الدفع التلقائي المكونة من 4 مراحل
     async function buyPackageWithTon(packageId) {
         lastSelectedPackageId = packageId;
         const pkg = currentPackages.find(p => String(p.id) === String(packageId));
@@ -104,25 +157,33 @@ window.depositModule = (function () {
             return;
         }
 
-        const tc = initTonConnect();
+        showModal("⏳ جاري الاتصال بمكتبة المحفظة...");
+
+        const tc = await initTonConnect();
         const tg = window.Telegram?.WebApp;
         const initData = tg?.initData || '';
         const userId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id || 0;
 
-        // المرحلة 1: تهيئة الاتصال والمحفظة
-        if (tc && !tc.connected) {
+        if (!tc) {
+            alert("تعذر الاتصال بمكتبة TON Connect. يرجى التحقق من الاتصال بالإنترنت والمحاولة مجدداً.");
+            closeModal();
+            return;
+        }
+
+        // 1. فتح نافذة ربط المحفظة إن لم تكن متصلة
+        if (!tc.connected) {
             try {
                 await tc.openModal();
             } catch (e) {
-                console.warn("إلغاء ربط المحفظة:", e);
+                console.warn("إلغاء نافذة الربط:", e);
+                closeModal();
                 return;
             }
         }
 
         try {
-            showModal("⏳ جاري تجهيز المعاملة وسعر الصرف...");
+            showModal("⏳ جاري تجهيز بيانات المعاملة...");
 
-            // المرحلة 2: تجهيز بيانات المعاملة (Backend Prepare)
             const headers = { 'Content-Type': 'application/json' };
             if (userId) headers['X-Telegram-User-Id'] = String(userId);
 
@@ -143,9 +204,9 @@ window.depositModule = (function () {
                 return;
             }
 
-            // المرحلة 3: توقيع الدفع داخل تلجرام (Transaction Prompt)
+            // 2. إرسال طلب التوقيع للمحفظة
             const transaction = {
-                validUntil: Math.floor(Date.now() / 1000) + 600, // صلاحية المعاملة 10 دقائق
+                validUntil: Math.floor(Date.now() / 1000) + 600,
                 messages: [
                     {
                         address: prepData.wallet_address,
@@ -155,22 +216,17 @@ window.depositModule = (function () {
                 ]
             };
 
-            showModal("📲 يرجى تأكيد المعاملة داخل المحفظة...");
+            showModal("📲 يرجى تأكيد العملية داخل المحفظة...");
 
-            let txResult = null;
-            if (tc) {
-                txResult = await tc.sendTransaction(transaction);
-            } else {
-                throw new Error("لم يتم تحميل مكتبة TON Connect UI");
-            }
-
+            const txResult = await tc.sendTransaction(transaction);
             const boc = txResult?.boc;
+
             if (!boc) {
                 throw new Error("لم يتم استلام كود إثبات المعاملة المشفر (BOC)");
             }
 
-            // المرحلة 4: التحقق والتطبيق الآمن (Verify & Apply)
-            showModal("⚡ جاري التحقق من المعاملة وإضافة الرصيد...");
+            // 3. التحقق والتطبيق
+            showModal("⚡ جاري التحقق من التحويل وإضافة الرصيد...");
 
             const verifyRes = await fetch('/api/wallet/deposit/verify_and_apply', {
                 method: 'POST',
@@ -206,8 +262,8 @@ window.depositModule = (function () {
 
         } catch (e) {
             console.error("❌ خطأ عملية الشحن التلقائي:", e);
-            if (e.message && e.message.includes('User rejected')) {
-                alert("تم إلغاء عملية الدفع.");
+            if (e.message && (e.message.includes('User rejected') || e.message.includes('Canceled'))) {
+                alert("تم إلغاء عملية الدفع من قبل المستخدم.");
             } else {
                 alert(`حدث خطأ أثناء تنفيذ الدفع: ${e.message || 'خطأ غير معروف'}`);
             }
