@@ -1,3 +1,4 @@
+
 from flask import Blueprint, jsonify, request, make_response
 from .deposit_db import (
     get_active_deposit_packages,
@@ -69,10 +70,10 @@ def create_invoice():
         wallet_address = get_official_ton_wallet()
         invoice = create_deposit_invoice(user_id, usdt_amount, ton_amount)
         
-        # إنشاء روابط عالمية متوافقة لتفادي ERR_UNKNOWN_URL_SCHEME
+        # رابط الفتح المباشر لمحفظة تلجرام الرسمية دون فتح Tonkeeper
         nano_ton = int(ton_amount * 1e9)
         ton_url = f"ton://transfer/{wallet_address}?amount={nano_ton}&text={invoice['memo']}"
-        universal_url = f"https://app.tonkeeper.com/transfer/{wallet_address}?amount={nano_ton}&text={invoice['memo']}"
+        tg_wallet_url = "https://t.me/wallet"
 
         return jsonify({
             'success': True,
@@ -81,7 +82,7 @@ def create_invoice():
             'ton_amount': ton_amount,
             'memo': invoice['memo'],
             'wallet_address': wallet_address,
-            'pay_url': universal_url,  # استخدام رابط الكوسموس الآمن افتراضياً
+            'pay_url': tg_wallet_url,
             'ton_url': ton_url
         })
     except Exception as exc:
@@ -110,7 +111,7 @@ def confirm_payment():
             new_usd_balance = credit_user_balance(user_id, usdt_amount)
             return jsonify({
                 'success': True,
-                'message': 'تم إضافة رصيد USDT بنجاح!',
+                'message': 'تمت عملية الدفع بنجاح وزيادة الرصيد!',
                 'new_balance': new_usd_balance,
                 'usd_balance': new_usd_balance
             })
