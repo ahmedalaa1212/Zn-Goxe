@@ -69,10 +69,12 @@ def create_invoice():
         wallet_address = get_official_ton_wallet()
         invoice = create_deposit_invoice(user_id, usdt_amount, ton_amount)
         
-        # إنشاء رابط بروتوكول TON المباشر الذي تستجيب له محفظة تلجرام الرسمية natively
         nano_ton = int(ton_amount * 1e9)
+        
+        # إنشاء روابط HTTPS آمنة ومقبولة داخل WebApp بدون خطأ ERR_UNKNOWN_URL_SCHEME
         ton_url = f"ton://transfer/{wallet_address}?amount={nano_ton}&text={invoice['memo']}"
         tg_wallet_url = f"https://t.me/wallet?startattach=ton_transfer_{invoice['memo']}"
+        tonkeeper_url = f"https://app.tonkeeper.com/transfer/{wallet_address}?amount={nano_ton}&text={invoice['memo']}"
 
         return jsonify({
             'success': True,
@@ -81,7 +83,10 @@ def create_invoice():
             'ton_amount': ton_amount,
             'memo': invoice['memo'],
             'wallet_address': wallet_address,
-            'pay_url': ton_url,
+            'pay_url': tg_wallet_url,
+            'tg_wallet_url': tg_wallet_url,
+            'tonkeeper_url': tonkeeper_url,
+            'web_url': tonkeeper_url,
             'ton_url': ton_url
         })
     except Exception as exc:
