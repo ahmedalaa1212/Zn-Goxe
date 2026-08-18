@@ -6,7 +6,6 @@ window.depositModule = (function () {
     let scriptLoadingPromise = null;
     let isInitializing = false;
 
-    // 🛠️ دالة ترميز الميمو إلى صيغة BoC القياسية المقبولة لدى محفظة تلجرام (@Wallet) وجميع المحافظ
     function textToTonCommentBoc(text) {
         if (!text) return undefined;
         
@@ -16,14 +15,11 @@ window.depositModule = (function () {
 
         try {
             const textBytes = new TextEncoder().encode(String(text));
-            
-            // 4 أظرف أصفار (OpCode الخاص بالتعليقات النصية) + نص UTF-8
             const dataBytes = new Uint8Array(4 + textBytes.length);
             dataBytes.set([0, 0, 0, 0], 0);
             dataBytes.set(textBytes, 4);
 
             const dataLen = dataBytes.length;
-            
             const d1 = 0x00; 
             const d2 = dataLen * 2; 
 
@@ -33,14 +29,14 @@ window.depositModule = (function () {
             cellBytes.set(dataBytes, 2);
 
             const header = new Uint8Array([
-                0xb5, 0xee, 0x9c, 0x72, // Magic Prefix
-                0x41,                   // Flags (has_crc32=1, size_bytes=1)
-                0x01,                   // off_bytes=1
-                0x01,                   // cells_num=1
-                0x01,                   // roots_num=1
-                0x00,                   // absent_num=0
-                cellBytes.length,       // total cell length
-                0x00                    // root_idx=0
+                0xb5, 0xee, 0x9c, 0x72,
+                0x41,
+                0x01,
+                0x01,
+                0x01,
+                0x00,
+                cellBytes.length,
+                0x00
             ]);
 
             const bocWithoutCrc = new Uint8Array(header.length + cellBytes.length);
@@ -133,8 +129,6 @@ window.depositModule = (function () {
                 } else if (btnContainer) {
                     tcInstance.uiOptions = { buttonRootId: 'ton-connect-btn-container' };
                 }
-            } else {
-                console.warn("⚠️ تعذر تحديد كلاس TonConnectUI في النطاق العام");
             }
         } catch (e) {
             console.warn("⚠️ خطأ أثناء تهيئة مكتبة TON Connect UI:", e);
