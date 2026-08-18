@@ -4,12 +4,12 @@ window.depositModule = (function () {
     let tcInstance = null;
     let lastSelectedPackageId = null;
     let scriptLoadingPromise = null;
+    let isInitializing = false;
 
     // 🛠️ دالة ترميز الميمو إلى صيغة BoC القياسية المقبولة لدى محفظة تلجرام (@Wallet) وجميع المحافظ
     function textToTonCommentBoc(text) {
         if (!text) return undefined;
         
-        // إذا كان النص مجهّزاً كـ BoC بالفعل من السيرفر
         if (typeof text === 'string' && (text.startsWith('te6cc') || text.startsWith('b5ee'))) {
             return text;
         }
@@ -24,7 +24,6 @@ window.depositModule = (function () {
 
             const dataLen = dataBytes.length;
             
-            // وصف الخلية (d1 = 0 عدم وجود المراجع، d2 = مضاعف طول البيانات البايتية)
             const d1 = 0x00; 
             const d2 = dataLen * 2; 
 
@@ -33,7 +32,6 @@ window.depositModule = (function () {
             cellBytes[1] = d2;
             cellBytes.set(dataBytes, 2);
 
-            // الهيكل القياسي لـ TON BoC Header
             const header = new Uint8Array([
                 0xb5, 0xee, 0x9c, 0x72, // Magic Prefix
                 0x41,                   // Flags (has_crc32=1, size_bytes=1)
@@ -49,7 +47,6 @@ window.depositModule = (function () {
             bocWithoutCrc.set(header, 0);
             bocWithoutCrc.set(cellBytes, header.length);
 
-            // حساب CRC32-C لسلامة التوقيع داخل المحفظة
             let crc = 0xFFFFFFFF;
             for (let i = 0; i < bocWithoutCrc.length; i++) {
                 crc ^= bocWithoutCrc[i];
@@ -77,7 +74,6 @@ window.depositModule = (function () {
         }
     }
 
-    // تحميل مكتبة TON Connect UI ديناميكياً في head الصفحة في حال عدم وجودها
     function loadTonConnectScript() {
         if (window.TON_CONNECT_UI || window.TonConnectUI) {
             return Promise.resolve();
@@ -115,10 +111,7 @@ window.depositModule = (function () {
         return scriptLoadingPromise;
     }
 
-    // تهيئة كائن المكتبة بأمان
     async function initTonConnect() {
-        if (tcInstance) return tcInstance;
-
         try {
             await loadTonConnectScript();
             
@@ -130,13 +123,16 @@ window.depositModule = (function () {
             if (TonConnectClass) {
                 const manifestUrl = `${window.location.origin}/tonconnect-manifest.json`;
                 const btnContainer = document.getElementById('ton-connect-btn-container');
-                
-                const options = { manifestUrl: manifestUrl };
-                if (btnContainer) {
-                    options.buttonRootId = 'ton-connect-btn-container';
-                }
 
-                tcInstance = new TonConnectClass(options);
+                if (!tcInstance) {
+                    const options = { manifestUrl: manifestUrl };
+                    if (btnContainer) {
+                        options.buttonRootId = 'ton-connect-btn-container';
+                    }
+                    tcInstance = new TonConnectClass(options);
+                } else if (btnContainer) {
+                    tcInstance.uiOptions = { buttonRootId: 'ton-connect-btn-container' };
+                }
             } else {
                 console.warn("⚠️ تعذر تحديد كلاس TonConnectUI في النطاق العام");
             }
@@ -156,6 +152,9 @@ window.depositModule = (function () {
                     tonPriceUsd = parseFloat(data['the-open-network'].usd);
                     const priceElem = document.getElementById('ton-live-price');
                     if (priceElem) priceElem.innerText = `$${tonPriceUsd.toFixed(2)}`;
+                    if (currentPackages.length > 0) {
+                        renderPackages(currentPackages);
+                    }
                 }
             }
         } catch (e) {
@@ -192,10 +191,7 @@ window.depositModule = (function () {
 
     function renderPackages(packages) {
         const grid = document.getElementById('deposit-packages-grid');
-        if (!grid) {
-            setTimeout(() => renderPackages(packages), 100);
-            return;
-        }
+        if (!grid) return;
 
         if (!packages || packages.length === 0) {
             grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 20px; background: rgba(255,255,255,0.03); border-radius: 12px;">لا توجد باقات متاحة حالياً</div>`;
@@ -233,7 +229,7 @@ window.depositModule = (function () {
         const tc = await initTonConnect();
         const tg = window.Telegram?.WebApp;
         const initData = tg?.initData || '';
-        const userId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id || 0;
+        const userId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.id || localStorage.getItem('tg_id') || 0;
 
         if (!tc) {
             alert("تعذر الاتصال بمكتبة TON Connect. يرجى التحقق من الاتصال بالإنترنت والمحاولة مجدداً.");
@@ -262,6 +258,7 @@ window.depositModule = (function () {
                 headers: headers,
                 body: JSON.stringify({
                     package_id: pkg.id,
+                    ton_price: tonPriceUsd,
                     initData: initData,
                     user_id: userId
                 })
@@ -316,16 +313,17 @@ window.depositModule = (function () {
 
             const verifyData = await verifyRes.json();
             if (verifyRes.ok && verifyData.success) {
-                alert(`✅ تمت عملية الدفع بنجاح وزيادة الرصيد!\nرصيد الدولار الجديد: $${parseFloat(verifyData.new_balance).toFixed(2)} USDT`);
+                const updatedBalance = parseFloat(verifyData.new_balance || verifyData.usd_balance || 0).toFixed(2);
+                alert(`✅ تمت عملية الدفع بنجاح وزيادة الرصيد!\nرصيد الدولار الجديد: $${updatedBalance} USDT`);
                 
                 if (window.userState) {
                     window.userState.usd_balance = verifyData.new_balance;
                     window.userState.usdt_balance = verifyData.new_balance;
                 }
                 
-                const usdBalanceElems = document.querySelectorAll('#top-balance-usd, #usd-balance, .usd-balance, #usdt-balance, .usdt-balance');
+                const usdBalanceElems = document.querySelectorAll('#top-balance-usd, #usd-balance, .usd-balance, #usdt-balance, .usdt-balance, #user-balance');
                 usdBalanceElems.forEach(el => {
-                    el.innerText = `$${parseFloat(verifyData.new_balance).toFixed(2)}`;
+                    el.innerText = `$${updatedBalance}`;
                 });
 
                 closeModal();
@@ -336,7 +334,7 @@ window.depositModule = (function () {
 
         } catch (e) {
             console.error("❌ خطأ عملية الشحن التلقائي:", e);
-            if (e.message && (e.message.includes('User rejected') || e.message.includes('Canceled'))) {
+            if (e.message && (e.message.includes('User rejected') || e.message.includes('Canceled') || e.message.includes('Reject'))) {
                 alert("تم إلغاء عملية الدفع من قبل المستخدم.");
             } else {
                 alert(`حدث خطأ أثناء تنفيذ الدفع: ${e.message || 'خطأ غير معروف'}`);
@@ -364,9 +362,14 @@ window.depositModule = (function () {
     }
 
     function init() {
+        if (isInitializing) return;
+        isInitializing = true;
+
         initTonConnect();
         fetchTonLivePrice();
-        loadPackages();
+        loadPackages().finally(() => {
+            isInitializing = false;
+        });
     }
 
     return {
