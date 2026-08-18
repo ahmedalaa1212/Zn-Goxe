@@ -177,10 +177,6 @@ def init_deposit_tables():
             conn.close()
 
 def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc: str) -> float:
-    """
-    عملية آمنة لا تقبل التكرار (Firestore Transaction).
-    تُقوم أيضاً بحفظ السجلات لكل مستخدم داخل المجموعات الفرعية للجاهزية المستقبلية.
-    """
     if not user_id or usdt_amount <= 0:
         raise ValueError("بيانات المستخدم أو قيمة الباقة غير صحيحة")
 
@@ -193,7 +189,6 @@ def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc:
 
         @firestore.transactional
         def run_in_transaction(transaction, tx_ref, user_ref, user_history_ref):
-            # 1. القراءة أولاً (READS) - تحويل المولد generator إلى قائمة لضمان الحصول على كائن DocumentSnapshot
             tx_snaps = list(transaction.get(tx_ref))
             tx_snap = tx_snaps[0] if tx_snaps else None
             if tx_snap and tx_snap.exists:
@@ -209,7 +204,6 @@ def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc:
             else:
                 new_bal = usdt_amount
 
-            # 2. الكتابة ثانياً (WRITES)
             tx_data = {
                 'tx_hash': tx_hash,
                 'user_id': user_id,
@@ -221,13 +215,9 @@ def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc:
                 'processed_at': firestore.SERVER_TIMESTAMP
             }
 
-            # تسجيل العملية عالمياً للتحقق من التكرار
             transaction.set(tx_ref, tx_data)
-
-            # تسجيل العملية في سجلات المستخدم الخاصة (users/{user_id}/deposit_history/{tx_hash})
             transaction.set(user_history_ref, tx_data)
 
-            # تحديث الرصيد بزيادة usd_balance فقط
             if user_snap and user_snap.exists:
                 transaction.update(user_ref, {
                     'usd_balance': firestore.Increment(usdt_amount)
