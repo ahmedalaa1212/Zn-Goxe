@@ -89,8 +89,18 @@ window.depositModule = (function () {
                 })
             });
 
-            const data = await res.json();
-            if (data.success) {
+            let data;
+            const contentType = res.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                data = await res.json();
+            } else {
+                const textData = await res.text();
+                console.error("استجابة غير متوقعة من الخادم:", textData);
+                alert("حدث خطأ في استجابة الخادم (" + res.status + ")");
+                return;
+            }
+
+            if (res.ok && data.success) {
                 openModal(data);
             } else {
                 alert(data.error || "تعذر إنشاء طلب الشحن");
