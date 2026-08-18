@@ -19,7 +19,6 @@ def get_db_connection():
     return conn
 
 def get_firestore_db():
-    """الاتصال بـ Firestore جلب المرجع التلقائي"""
     try:
         import database
         if hasattr(database, 'get_db'):
@@ -59,7 +58,6 @@ def get_firestore_db():
     return None
 
 def parse_timestamp(val):
-    """تحويل أوقات Firestore المتنوعة إلى Timestamp نقي"""
     if val is None:
         return time.time()
     if hasattr(val, 'timestamp'):
@@ -69,7 +67,7 @@ def parse_timestamp(val):
             pass
     if isinstance(val, (int, float)):
         val_f = float(val)
-        if val_f > 1e11:  # Milliseconds timestamp
+        if val_f > 1e11:
             return val_f / 1000.0
         return val_f
     if isinstance(val, str):
@@ -89,9 +87,6 @@ def parse_timestamp(val):
     return time.time()
 
 def get_user_transaction_history(user_id):
-    """
-    تجميع سجلات الإيداع والسحب الخاصة بالمستخدم والبحث بكل الطرق الممكنة (String / Int / Root / Subcollections)
-    """
     transactions = []
     seen_ids = set()
 
@@ -102,81 +97,76 @@ def get_user_transaction_history(user_id):
     tg_int = int(tg_str) if tg_str.isdigit() else None
     
     search_ids = [tg_str]
-    if tg_int is not None:
+    if tg_int is not None and tg_int not in search_ids:
         search_ids.append(tg_int)
 
-    # -------------------------------------------------------------
     # 1. الاستعلام الشامل من Firebase / Firestore
-    # -------------------------------------------------------------
     fs_db = get_firestore_db()
     if fs_db:
-        # (أ) الاستعلام من المجموعة الرئيسية processed_txs (الإيداعات)
+        # (أ) الاستعلام من processed_txs (الإيداعات)
         try:
-            for s_id in search_ids:
-                docs = fs_db.collection('processed_txs').where('user_id', '==', s_id).get()
+            docs = fs_db.collection('processed_txs').where('user_id', 'in', search_ids).get()
+            for doc in docs:
+                d = doc.to_dict() or {}
+                tx_id = str(d.get('tx_hash') or d.get('memo') or doc.id)
+                if tx_id in seen_ids:
+                    continue
+                seen_ids.add(tx_id)
+
+                tx_type = d.get('type', 'deposit')
+                status = d.get('status', 'completed')
+                status_ar = 'مكتمل' if status in ['completed', 'success'] else ('فاشل' if status in ['failed', 'rejected'] else 'قيد الانتظار')
+                ts = parse_timestamp(d.get('processed_at') or d.get('created_at'))
+
+                transactions.append({
+                    'id': tx_id,
+                    'type': tx_type,
+                    'type_ar': 'إيداع' if tx_type == 'deposit' else 'سحب',
+                    'amount': float(d.get('usdt_amount') or d.get('amount') or 0.0),
+                    'currency': d.get('currency', 'USDT'),
+                    'status': status,
+                    'status_ar': status_ar,
+                    'failure_reason': d.get('failure_reason') or d.get('error') or None,
+                    'timestamp': ts,
+                    'details': d.get('memo') or d.get('details') or ('إيداع USDT تلقائي عبر شبكة TON' if tx_type == 'deposit' else 'سحب USDT')
+                })
+        except Exception as e:
+            logger.error(f"⚠️ [history_db] Firestore processed_txs query error: {e}")
+
+        # (ب) الاستعلام من مجموعات طلبات السحب
+        for col_name in ['withdraw_requests', 'withdrawals', 'transactions']:
+            try:
+                docs = fs_db.collection(col_name).where('user_id', 'in', search_ids).get()
                 for doc in docs:
                     d = doc.to_dict() or {}
-                    tx_id = str(d.get('tx_hash') or d.get('memo') or doc.id)
+                    tx_id = str(d.get('tx_id') or d.get('tx_hash') or d.get('request_id') or doc.id)
                     if tx_id in seen_ids:
                         continue
                     seen_ids.add(tx_id)
 
-                    tx_type = d.get('type', 'deposit')
-                    status = d.get('status', 'completed')
-                    status_ar = 'مكتمل' if status in ['completed', 'success'] else ('فاشل' if status in ['failed', 'rejected'] else 'قيد الانتظار')
-                    ts = parse_timestamp(d.get('processed_at') or d.get('created_at'))
+                    tx_type = d.get('type', 'withdraw')
+                    status = d.get('status', 'pending')
+                    status_ar = 'مكتمل' if status in ['completed', 'success'] else ('مرفوض/فاشل' if status in ['failed', 'rejected'] else 'قيد الانتظار')
+                    ts = parse_timestamp(d.get('created_at') or d.get('timestamp') or d.get('processed_at'))
 
                     transactions.append({
                         'id': tx_id,
                         'type': tx_type,
                         'type_ar': 'إيداع' if tx_type == 'deposit' else 'سحب',
-                        'amount': float(d.get('usdt_amount') or d.get('amount') or 0.0),
+                        'amount': float(d.get('amount') or d.get('usdt_amount') or 0.0),
                         'currency': d.get('currency', 'USDT'),
                         'status': status,
                         'status_ar': status_ar,
-                        'failure_reason': d.get('failure_reason') or d.get('error') or None,
+                        'failure_reason': d.get('failure_reason') or d.get('reject_reason') or d.get('note') or None,
                         'timestamp': ts,
-                        'details': d.get('memo') or d.get('details') or ('إيداع USDT تلقائي عبر شبكة TON' if tx_type == 'deposit' else 'سحب USDT')
+                        'details': d.get('details') or (f"سحب إلى: {d.get('wallet_address', 'محفظة TON')}" if tx_type == 'withdraw' else 'إيداع عبر TON')
                     })
-        except Exception as e:
-            logger.error(f"⚠️ [history_db] Firestore processed_txs query error: {e}")
-
-        # (ب) الاستعلام من طلبات السحب withdraw_requests / withdrawals / transactions
-        for col_name in ['withdraw_requests', 'withdrawals', 'transactions']:
-            try:
-                for s_id in search_ids:
-                    docs = fs_db.collection(col_name).where('user_id', '==', s_id).get()
-                    for doc in docs:
-                        d = doc.to_dict() or {}
-                        tx_id = str(d.get('tx_id') or d.get('tx_hash') or d.get('request_id') or doc.id)
-                        if tx_id in seen_ids:
-                            continue
-                        seen_ids.add(tx_id)
-
-                        tx_type = d.get('type', 'withdraw')
-                        status = d.get('status', 'pending')
-                        status_ar = 'مكتمل' if status in ['completed', 'success'] else ('مرفوض/فاشل' if status in ['failed', 'rejected'] else 'قيد الانتظار')
-                        ts = parse_timestamp(d.get('created_at') or d.get('timestamp') or d.get('processed_at'))
-
-                        transactions.append({
-                            'id': tx_id,
-                            'type': tx_type,
-                            'type_ar': 'إيداع' if tx_type == 'deposit' else 'سحب',
-                            'amount': float(d.get('amount') or d.get('usdt_amount') or 0.0),
-                            'currency': d.get('currency', 'USDT'),
-                            'status': status,
-                            'status_ar': status_ar,
-                            'failure_reason': d.get('failure_reason') or d.get('reject_reason') or d.get('note') or None,
-                            'timestamp': ts,
-                            'details': d.get('details') or (f"سحب إلى: {d.get('wallet_address', 'محفظة TON')}" if tx_type == 'withdraw' else 'إيداع عبر TON')
-                        })
             except Exception as e:
                 logger.error(f"⚠️ [history_db] Firestore {col_name} error: {e}")
 
-        # (جـ) الاستعلام الاحتياطي من المجلدات الفرعية داخل users/{user_id}/...
+        # (جـ) الاستعلام من المجلدات الفرعية داخل users/{user_id}/...
         try:
             user_ref = fs_db.collection('users').document(tg_str)
-            
             for sub_col in ['deposit_history', 'withdraw_history', 'transactions']:
                 sub_docs = user_ref.collection(sub_col).limit(50).get()
                 for doc in sub_docs:
@@ -207,9 +197,7 @@ def get_user_transaction_history(user_id):
         except Exception as e:
             logger.error(f"⚠️ [history_db] Firestore user subcollections query error: {e}")
 
-    # -------------------------------------------------------------
     # 2. الاستعلام الاحتياطي من SQLite
-    # -------------------------------------------------------------
     try:
         if os.path.exists(DB_PATH):
             conn = get_db_connection()
@@ -270,6 +258,5 @@ def get_user_transaction_history(user_id):
     except Exception as e:
         logger.error(f"⚠️ [history_db] SQLite query error: {e}")
 
-    # 3. ترتيب المعاملات من الأحدث للأقدم
     transactions.sort(key=lambda x: x['timestamp'], reverse=True)
     return transactions
