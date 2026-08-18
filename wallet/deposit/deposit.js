@@ -1,12 +1,6 @@
 window.depositModule = (function () {
     let tonPriceUsd = 1.30;
-    let currentPackages = [
-        { id: 1, usdt_amount: 0.5 },
-        { id: 2, usdt_amount: 1.5 },
-        { id: 3, usdt_amount: 5.0 },
-        { id: 4, usdt_amount: 10.0 },
-        { id: 5, usdt_amount: 15.0 }
-    ];
+    let currentPackages = [];
     let currentActiveInvoice = null;
 
     async function fetchTonLivePrice() {
@@ -26,7 +20,10 @@ window.depositModule = (function () {
     }
 
     async function loadPackages() {
-        renderPackages(currentPackages); // عرض باقات افتراضية سريعة فوراً لحين اكتمال الـ fetch
+        const grid = document.getElementById('deposit-packages-grid');
+        if (grid) {
+            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #38bdf8; padding: 30px; font-weight: bold;">⏳ جاري جلب باقات الشحن من الفايربيس...</div>`;
+        }
 
         try {
             const res = await fetch(`/api/wallet/deposit/packages?_t=${Date.now()}`, {
@@ -39,10 +36,15 @@ window.depositModule = (function () {
                 if (data.success && data.packages && data.packages.length > 0) {
                     currentPackages = data.packages;
                     renderPackages(data.packages);
+                } else {
+                    if (grid) grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 20px;">لا توجد باقات متاحة في الفايربيس حالياً</div>`;
                 }
+            } else {
+                if (grid) grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 20px;">فشل الاتصال بخادم الفايربيس</div>`;
             }
         } catch (err) {
-            console.warn("⚠️ تعذر جلب باقات الفايربيس:", err);
+            console.error("❌ تعذر جلب باقات الفايربيس:", err);
+            if (grid) grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 20px;">حدث خطأ في تحميل الباقات من القاعدة</div>`;
         }
     }
 
@@ -54,17 +56,19 @@ window.depositModule = (function () {
         }
 
         if (!packages || packages.length === 0) {
-            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 20px;">لا توجد باقات متاحة حالياً</div>`;
+            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 20px;">لا توجد باقات متاحة حالياً في الفايربيس</div>`;
             return;
         }
 
         grid.innerHTML = packages.map(pkg => {
             const usdtVal = parseFloat(pkg.usdt_amount || 0);
             const tonEst = (usdtVal / tonPriceUsd).toFixed(3);
+            const titleName = pkg.name_ar || `+$${usdtVal} USDT`;
+
             return `
                 <div onclick="window.depositModule?.selectPackage(${pkg.id})" style="background: linear-gradient(145deg, rgba(255,255,255,0.06), rgba(15,23,42,0.7)); border: 1px solid rgba(0, 152, 234, 0.3); border-radius: 14px; padding: 14px 10px; text-align: center; cursor: pointer; transition: all 0.2s ease; position: relative; overflow: hidden;">
                     <div style="font-size: 22px; margin-bottom: 4px;">💵</div>
-                    <div style="font-size: 16px; font-weight: 800; color: #34d399; margin-bottom: 2px;">+$${usdtVal} USDT</div>
+                    <div style="font-size: 15px; font-weight: 800; color: #34d399; margin-bottom: 2px;">${titleName}</div>
                     <div style="font-size: 11px; color: #94a3b8; margin-bottom: 10px;">بشراء بعملة TON</div>
                     <div style="background: #0098EA; color: #fff; border-radius: 8px; padding: 6px 4px; font-size: 12px; font-weight: 700;">
                         ~ ${tonEst} TON
@@ -217,7 +221,6 @@ window.init_deposit_module = function () {
     }
 };
 
-// تشغيل فوري تلقائي عند فتح الصفحة
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => window.depositModule?.init());
 } else {
