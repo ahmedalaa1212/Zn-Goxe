@@ -19,14 +19,14 @@ def get_db_connection():
     return conn
 
 def get_firestore_db():
-    """جلب اتصال الفايربيس القوي والمباشر لمنع السقوط في المحاكي المحلي"""
+    """جلب اتصال الفايربيس المباشر والمضمون بأكثر من طريقة"""
     try:
         import firebase_admin
         from firebase_admin import firestore
         if firebase_admin._apps:
             return firestore.client()
     except Exception as e:
-        print(f"⚠️ [Firebase Direct Client Error]: {e}")
+        print(f"⚠️ [Firebase Admin Direct Client Error]: {e}")
 
     try:
         import database
@@ -39,10 +39,17 @@ def get_firestore_db():
     except Exception as e:
         print(f"⚠️ [Firebase Import database.py Error]: {e}")
 
+    try:
+        import sys
+        if 'database' in sys.modules and hasattr(sys.modules['database'], 'db'):
+            return sys.modules['database'].db
+    except Exception:
+        pass
+
     return None
 
 def get_official_ton_wallet():
-    """جلب عنوان المحفظة من متغير البيئة في Railway أولاً ثم الفايربيس"""
+    """جلب عنوان المحفظة من متغيرات البيئة أو الفايربيس"""
     env_wallet = os.getenv('PROJECT_WALLET') or os.environ.get('PROJECT_WALLET')
     if env_wallet and str(env_wallet).strip():
         return str(env_wallet).strip()
@@ -61,7 +68,7 @@ def get_official_ton_wallet():
     return OFFICIAL_TON_WALLET
 
 def ensure_firebase_deposit_settings():
-    """إجبار إنشاء مستند deposit_settings داخل settings بالفايربيس فورا عند عدم وجوده"""
+    """إنشاء مستند deposit_settings داخل settings بالفايربيس فوراً"""
     fs_db = get_firestore_db()
     if not fs_db:
         print("❌ [Firebase Connection Error]: لم يتم الوصول لقاعدة الفايربيس")
@@ -78,11 +85,11 @@ def ensure_firebase_deposit_settings():
                 'packages': DEFAULT_PACKAGES
             }
             doc_ref.set(initial_data)
-            print("🔥 [Firebase Success] تم إنشاء مستند settings/deposit_settings بنجاح في الفايربيس الآن!")
+            print("🔥 [Firebase Success] تم إنشاء مستند settings/deposit_settings بنجاح في الفايربيس!")
             return initial_data
         else:
             data = doc.to_dict() or {}
-            if 'packages' not in data or data['packages'] is None:
+            if 'packages' not in data or not data['packages']:
                 doc_ref.set({'packages': DEFAULT_PACKAGES, 'official_ton_wallet': wallet_to_save}, merge=True)
                 data['packages'] = DEFAULT_PACKAGES
             return data
@@ -91,7 +98,7 @@ def ensure_firebase_deposit_settings():
         return None
 
 def init_deposit_tables():
-    """تحديث وتجهيز الجداول المحلية"""
+    """تجهيز الجداول المحلية"""
     conn = None
     try:
         conn = get_db_connection()
@@ -134,11 +141,11 @@ def init_deposit_tables():
             conn.close()
 
 def get_active_deposit_packages():
-    """جلب الباقات مباشرة ومحصورة بالبيانات المكتوبة داخل الفايربيس فقط"""
+    """جلب الباقات المحدثة من الفايربيس فوراً"""
     init_deposit_tables()
     data = ensure_firebase_deposit_settings()
     
-    if data and 'packages' in data:
+    if data and 'packages' in data and isinstance(data['packages'], list) and len(data['packages']) > 0:
         raw_pkgs = data.get('packages', [])
         packages = []
         
@@ -148,7 +155,7 @@ def get_active_deposit_packages():
                 try:
                     pkg_id = int(p.get('id', 0))
                     usdt_amt = float(p.get('usdt_amount', 0))
-                    dynamic_name = f"باقة ${usdt_amt} USDT"
+                    dynamic_name = p.get('name_ar') or f"باقة ${usdt_amt} USDT"
                     sort_order = int(p.get('sort_order', 0))
 
                     packages.append({
@@ -162,8 +169,9 @@ def get_active_deposit_packages():
                     print(f"⚠️ خطأ قراءة باقة: {err}")
                     continue
 
-        packages.sort(key=lambda x: x.get('sort_order', 0))
-        return packages
+        if packages:
+            packages.sort(key=lambda x: x.get('sort_order', 0))
+            return packages
 
     return DEFAULT_PACKAGES
 
@@ -203,7 +211,7 @@ def create_deposit_invoice(user_id: int, usdt_amount: float, ton_amount: float) 
             conn.close()
 
 def credit_user_balance(user_id: int, usdt_amount: float) -> float:
-    """إضافة الرصيد مباشرة بالفايربيس و SQLite"""
+    """إضافة الرصيد للمستخدم بالفايربيس و SQLite"""
     if not user_id:
         return 0.0
 
