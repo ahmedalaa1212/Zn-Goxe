@@ -72,8 +72,25 @@ def sync_sqlite_with_firebase(packages):
         if conn:
             conn.close()
 
+def get_official_ton_wallet():
+    """جلب عنوان المحفظة الرسمية من الفايربيس أو من المتغير المرجعي"""
+    try:
+        from database import get_db
+        fs_db = get_db()
+        if fs_db:
+            doc_ref = fs_db.collection('settings').document('deposit_settings')
+            doc = doc_ref.get()
+            if doc.exists:
+                data = doc.to_dict() or {}
+                wallet = data.get('official_ton_wallet')
+                if wallet:
+                    return str(wallet)
+    except Exception:
+        pass
+    return OFFICIAL_TON_WALLET
+
 def get_active_deposit_packages():
-    """جلب الباقات من Firebase وإنشاء المستند تلقائياً إذا كان مفقوداً"""
+    """جلب الباقات من Firebase وإنشاء المستند تلقائياً في settings/deposit_settings إذا كان مفقوداً"""
     init_deposit_tables()
     
     try:
@@ -83,7 +100,7 @@ def get_active_deposit_packages():
             doc_ref = fs_db.collection('settings').document('deposit_settings')
             doc = doc_ref.get()
             
-            # إذا لم يكن المستند موجوداً في الفايربيس يتم إنشاؤه تلقائياً بالحقول المطلوبة
+            # إنشاؤه تلقائياً في الفايربيس بالحقول الصحيحة إذا لم يكن موجوداً
             if not doc.exists:
                 initial_data = {
                     'official_ton_wallet': OFFICIAL_TON_WALLET,
@@ -93,14 +110,14 @@ def get_active_deposit_packages():
                 sync_sqlite_with_firebase(DEFAULT_PACKAGES)
                 return DEFAULT_PACKAGES
 
-            # في حال وجود المستند يتم قراءته وتحديث القائمة فوراً
+            # جلب البيانات وقراءتها بشكل آمن يتحمل تعديل الأنواع (Numbers/Strings/Booleans)
             data = doc.to_dict() or {}
             raw_pkgs = data.get('packages', [])
             packages = []
             
             for p in raw_pkgs:
                 is_active = p.get('is_active', True)
-                if is_active is not False and str(is_active).lower() != 'false':
+                if is_active is True or str(is_active).lower() == 'true' or str(is_active) == '1':
                     try:
                         pkg_id = int(p.get('id', 0))
                         usdt_amt = float(p.get('usdt_amount', 0))
@@ -125,7 +142,7 @@ def get_active_deposit_packages():
     except Exception as e:
         print(f"⚠️ فشل الاتصال بالفايربيس: {e}")
 
-    # احتياطي محلي في حال انقطاع الخدمة تماماً
+    # احتياطي محلي في حال تعذر الاتصال بالفايربيس
     conn = None
     try:
         conn = get_db_connection()
@@ -149,6 +166,7 @@ def get_package_by_id(pkg_id):
     return None
 
 def create_deposit_invoice(user_id: int, usdt_amount: float, ton_amount: float) -> dict:
+    init_deposit_tables()
     conn = None
     memo = f"DEP-{user_id}-{uuid.uuid4().hex[:6].upper()}"
     try:
@@ -167,6 +185,7 @@ def create_deposit_invoice(user_id: int, usdt_amount: float, ton_amount: float) 
             'memo': memo
         }
     except Exception as e:
+        print(f"⚠️ خطأ أثناء إنشاء الفاتورة: {e}")
         return {'memo': memo, 'invoice_id': 0, 'usdt_amount': usdt_amount, 'ton_amount': ton_amount}
     finally:
         if conn:
