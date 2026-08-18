@@ -95,7 +95,17 @@ def get_active_deposit_packages():
             doc = fs_db.collection('settings').document('deposit_settings').get()
             if doc.exists:
                 data = doc.to_dict()
-                packages = [p for p in data.get('packages', []) if p.get('is_active', True)]
+                raw_pkgs = data.get('packages', [])
+                packages = []
+                for p in raw_pkgs:
+                    if p.get('is_active', True):
+                        packages.append({
+                            'id': int(p.get('id', 0)),
+                            'usdt_amount': float(p.get('usdt_amount', 0)),
+                            'name_ar': str(p.get('name_ar', '')),
+                            'is_active': bool(p.get('is_active', True)),
+                            'sort_order': int(p.get('sort_order', 0))
+                        })
                 if packages:
                     packages.sort(key=lambda x: x.get('sort_order', 0))
                     return packages
@@ -113,20 +123,22 @@ def get_active_deposit_packages():
     except Exception as e:
         print(f"Error fetching packages: {e}")
         return [
-            {'id': 1, 'usdt_amount': 0.5, 'name_ar': 'باقة $0.5 USDT'},
-            {'id': 2, 'usdt_amount': 1.5, 'name_ar': 'باقة $1.5 USDT'},
-            {'id': 3, 'usdt_amount': 5.0, 'name_ar': 'باقة $5 USDT'},
-            {'id': 4, 'usdt_amount': 10.0, 'name_ar': 'باقة $10 USDT'},
-            {'id': 5, 'usdt_amount': 15.0, 'name_ar': 'باقة $15 USDT'}
+            {'id': 1, 'usdt_amount': 0.5, 'name_ar': 'باقة $0.5 USDT', 'is_active': True, 'sort_order': 1},
+            {'id': 2, 'usdt_amount': 1.5, 'name_ar': 'باقة $1.5 USDT', 'is_active': True, 'sort_order': 2},
+            {'id': 3, 'usdt_amount': 5.0, 'name_ar': 'باقة $5 USDT', 'is_active': True, 'sort_order': 3},
+            {'id': 4, 'usdt_amount': 10.0, 'name_ar': 'باقة $10 USDT', 'is_active': True, 'sort_order': 4},
+            {'id': 5, 'usdt_amount': 15.0, 'name_ar': 'باقة $15 USDT', 'is_active': True, 'sort_order': 5}
         ]
     finally:
         if conn:
             conn.close()
 
-def get_package_by_id(pkg_id: int):
+def get_package_by_id(pkg_id):
+    if pkg_id is None:
+        return None
     packages = get_active_deposit_packages()
     for pkg in packages:
-        if int(pkg.get('id', 0)) == int(pkg_id):
+        if str(pkg.get('id')) == str(pkg_id):
             return pkg
     return None
 
