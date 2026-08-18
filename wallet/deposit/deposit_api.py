@@ -4,7 +4,6 @@ from .deposit_db import (
     create_deposit_invoice,
     get_package_by_id,
     get_official_ton_wallet,
-    ensure_firebase_deposit_settings,
     credit_user_balance
 )
 
@@ -16,8 +15,6 @@ def get_packages():
         return jsonify({'success': True}), 200
 
     try:
-        # التأكد من وجود المستند في الفايربيس وجلب الباقات منه مباشرة
-        ensure_firebase_deposit_settings()
         packages = get_active_deposit_packages()
         official_wallet = get_official_ton_wallet()
         
@@ -35,7 +32,7 @@ def get_packages():
         print(f"❌ [deposit_api Error]: {exc}")
         return jsonify({
             'success': False,
-            'error': str(exc)
+            'error': f"فشل الاتصال بقاعدة بيانات الفايربيس: {str(exc)}"
         }), 500
 
 @deposit_bp.route('/create_invoice', methods=['GET', 'POST', 'OPTIONS'], strict_slashes=False)
