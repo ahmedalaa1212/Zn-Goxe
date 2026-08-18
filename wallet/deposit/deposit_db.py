@@ -71,17 +71,14 @@ def get_firestore_db():
     return None
 
 def get_official_ton_wallet():
-    env_wallet = os.getenv('PROJECT_WALLET') or os.environ.get('PROJECT_WALLET')
+    env_wallet = os.getenv('PROJECT_WALLET') or os.getenv('OFFICIAL_TON_WALLET') or os.getenv('TON_WALLET')
     if env_wallet and str(env_wallet).strip():
         return str(env_wallet).strip()
 
-    try:
-        data = ensure_firebase_deposit_settings()
-        if data.get('official_ton_wallet'):
-            return str(data['official_ton_wallet'])
-    except Exception as e:
-        print(f"⚠️ خطأ جلب المحفظة: {e}")
-        
+    global _SETTINGS_CACHE
+    if _SETTINGS_CACHE and _SETTINGS_CACHE.get('official_ton_wallet'):
+        return str(_SETTINGS_CACHE['official_ton_wallet'])
+
     return OFFICIAL_TON_WALLET
 
 def ensure_firebase_deposit_settings():
@@ -91,20 +88,23 @@ def ensure_firebase_deposit_settings():
     if _SETTINGS_CACHE and (now - _SETTINGS_CACHE_TIME < CACHE_TTL_SECONDS):
         return _SETTINGS_CACHE
 
+    default_wallet = get_official_ton_wallet()
+    fallback_settings = {'official_ton_wallet': default_wallet, 'packages': SEED_PACKAGES}
+
     fs_db = get_firestore_db()
     if not fs_db:
         print("⚠️ [deposit_db] تعذر الاتصال بقاعدة الفايربيس، سيتم الاعتماد على الباقات الافتراضية مؤقتاً.")
-        return {'official_ton_wallet': get_official_ton_wallet(), 'packages': SEED_PACKAGES}
+        _SETTINGS_CACHE = fallback_settings
+        _SETTINGS_CACHE_TIME = now
+        return fallback_settings
 
     try:
         doc_ref = fs_db.collection('settings').document('deposit_settings')
         doc = doc_ref.get()
 
         if not doc.exists:
-            wallet_to_save = get_official_ton_wallet()
-
             initial_data = {
-                'official_ton_wallet': wallet_to_save,
+                'official_ton_wallet': default_wallet,
                 'packages': SEED_PACKAGES
             }
             doc_ref.set(initial_data)
@@ -113,12 +113,20 @@ def ensure_firebase_deposit_settings():
             print("🔥 [Firebase Success] تم إنشاء مستند settings/deposit_settings بنجاح في الفايربيس تلقائياً!")
             return initial_data
         else:
-            _SETTINGS_CACHE = doc.to_dict() or {}
+            data = doc.to_dict() or {}
+            if not data.get('official_ton_wallet'):
+                data['official_ton_wallet'] = default_wallet
+            if not data.get('packages'):
+                data['packages'] = SEED_PACKAGES
+
+            _SETTINGS_CACHE = data
             _SETTINGS_CACHE_TIME = now
             return _SETTINGS_CACHE
     except Exception as e:
         print(f"⚠️ خطأ في إنشاء أو جلب مستند الفايربيس: {e}")
-        return {'official_ton_wallet': get_official_ton_wallet(), 'packages': SEED_PACKAGES}
+        _SETTINGS_CACHE = fallback_settings
+        _SETTINGS_CACHE_TIME = now
+        return fallback_settings
 
 def init_deposit_tables():
     conn = None
@@ -152,12 +160,18 @@ def init_deposit_tables():
             CREATE TABLE IF NOT EXISTS users (
                 tg_id INTEGER PRIMARY KEY,
                 balance REAL DEFAULT 0.0,
-                usd_balance REAL DEFAULT 0.0
+                usd_balance REAL DEFAULT 0.0,
+                usdt_balance REAL DEFAULT 0.0
             )
         ''')
 
         try:
             cursor.execute("ALTER TABLE users ADD COLUMN usd_balance REAL DEFAULT 0.0")
+        except Exception:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN usdt_balance REAL DEFAULT 0.0")
         except Exception:
             pass
 
@@ -188,13 +202,13 @@ def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc:
             # 1. القراءة أولاً (READS)
             tx_snap = transaction.get(tx_ref)
             if tx_snap.exists:
-                raise Exception("هذه المعاملة تم استخدامها وشحنها سابقاً!")
+                raise ValueError("هذه المعاملة تم استخدامها وشحنها سابقاً!")
 
             user_snap = transaction.get(user_ref)
 
             if user_snap.exists:
                 updated_data = user_snap.to_dict() or {}
-                current_bal = float(updated_data.get('usd_balance', 0.0) or updated_data.get('usdt_balance', 0.0))
+                current_bal = float(updated_data.get('usd_balance', 0.0) or updated_data.get('usdt_balance', 0.0) or 0.0)
                 new_bal = current_bal + usdt_amount
             else:
                 new_bal = usdt_amount
@@ -204,7 +218,8 @@ def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc:
                 'tx_hash': tx_hash,
                 'user_id': user_id,
                 'usdt_amount': usdt_amount,
-                'memo': memo,
+                'memo': memo or '',
+                'boc': boc or '',
                 'type': 'deposit',
                 'status': 'completed',
                 'processed_at': firestore.SERVER_TIMESTAMP
@@ -253,13 +268,14 @@ def credit_user_balance_sqlite(user_id: int, usdt_amount: float, tx_hash: str = 
             cursor.execute("INSERT OR IGNORE INTO processed_txs (tx_hash, user_id, usdt_amount, memo) VALUES (?, ?, ?, ?)",
                            (tx_hash, user_id, usdt_amount, memo))
 
-        cursor.execute("SELECT usd_balance FROM users WHERE tg_id = ?", (user_id,))
+        cursor.execute("SELECT usd_balance, usdt_balance FROM users WHERE tg_id = ?", (user_id,))
         row = cursor.fetchone()
         if row:
-            new_usd = float(row['usd_balance'] or 0.0) + usdt_amount
-            cursor.execute("UPDATE users SET usd_balance = ? WHERE tg_id = ?", (new_usd, user_id))
+            curr_val = float(row['usd_balance'] or row['usdt_balance'] or 0.0)
+            new_usd = curr_val + usdt_amount
+            cursor.execute("UPDATE users SET usd_balance = ?, usdt_balance = ? WHERE tg_id = ?", (new_usd, new_usd, user_id))
         else:
-            cursor.execute("INSERT INTO users (tg_id, usd_balance) VALUES (?, ?)", (user_id, usdt_amount))
+            cursor.execute("INSERT INTO users (tg_id, usd_balance, usdt_balance) VALUES (?, ?, ?)", (user_id, new_usd, new_usd))
         conn.commit()
     except Exception as e:
         print(f"⚠️ خطأ تحديث رصيد SQLite: {e}")
