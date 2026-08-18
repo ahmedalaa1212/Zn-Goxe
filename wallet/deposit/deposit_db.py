@@ -74,7 +74,7 @@ def get_firestore_db():
     return None
 
 def get_official_ton_wallet():
-    """جلب عنوان المحفظة من الفايربيس أو متغيرات البيئة"""
+    """جلب عنوان المحفظة الحقيقي من متغيرات البيئة في Railway أولاً ثم الفايربيس"""
     env_wallet = os.getenv('PROJECT_WALLET') or os.environ.get('PROJECT_WALLET')
     if env_wallet and str(env_wallet).strip():
         return str(env_wallet).strip()
@@ -99,17 +99,14 @@ def ensure_firebase_deposit_settings():
     fs_db = get_firestore_db()
     if not fs_db:
         print("⚠️ [deposit_db] تعذر الاتصال بقاعدة الفايربيس، سيتم الاعتماد على الباقات الافتراضية مؤقتاً.")
-        return {'official_ton_wallet': OFFICIAL_TON_WALLET, 'packages': SEED_PACKAGES}
+        return {'official_ton_wallet': get_official_ton_wallet(), 'packages': SEED_PACKAGES}
 
     try:
         doc_ref = fs_db.collection('settings').document('deposit_settings')
         doc = doc_ref.get()
 
         if not doc.exists:
-            wallet_to_save = OFFICIAL_TON_WALLET
-            env_w = os.getenv('PROJECT_WALLET') or os.environ.get('PROJECT_WALLET')
-            if env_w and str(env_w).strip():
-                wallet_to_save = str(env_w).strip()
+            wallet_to_save = get_official_ton_wallet()
 
             initial_data = {
                 'official_ton_wallet': wallet_to_save,
@@ -126,7 +123,7 @@ def ensure_firebase_deposit_settings():
             return _SETTINGS_CACHE
     except Exception as e:
         print(f"⚠️ خطأ في إنشاء أو جلب مستند الفايربيس: {e}")
-        return {'official_ton_wallet': OFFICIAL_TON_WALLET, 'packages': SEED_PACKAGES}
+        return {'official_ton_wallet': get_official_ton_wallet(), 'packages': SEED_PACKAGES}
 
 def init_deposit_tables():
     """تجهيز الجداول المحلية للفواتير والتحقق من المعاملات المكررة"""
@@ -179,8 +176,7 @@ def init_deposit_tables():
 
 def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc: str) -> float:
     """
-    عملية آمنة لا تقبل التكرار (Firestore Transaction)، يسجل الـ BOC في مجموعة processed_txs
-    لضمان عدم إعادة استخدامه، ثم يضيف الرصيد فوراً لحساب المستخدم.
+    عملية آمنة لا تقبل التكرار (Firestore Transaction) متوافقة تماماً مع قواعد الفايربيس (قراءة أولاً ثم كتابة).
     """
     if not user_id or usdt_amount <= 0:
         raise ValueError("بيانات المستخدم أو قيمة الباقة غير صحيحة")
@@ -194,11 +190,22 @@ def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc:
 
         @firestore.transactional
         def run_in_transaction(transaction, tx_ref, user_ref):
-            tx_snap = tx_ref.get(transaction=transaction)
+            # 1. كل عمليات القراءة أولاً (ALL READS FIRST)
+            tx_snap = transaction.get(tx_ref)
             if tx_snap.exists:
                 raise Exception("هذه المعاملة تم استخدامها وشحنها سابقاً!")
 
-            # تسجيل المعاملة في processed_txs لمنع التكرار
+            user_snap = transaction.get(user_ref)
+
+            # حساب الرصيد الجديد قبل تنفيذ عمليات الكتابة
+            if user_snap.exists:
+                updated_data = user_snap.to_dict() or {}
+                current_bal = float(updated_data.get('usd_balance', 0.0) or updated_data.get('usdt_balance', 0.0))
+                new_bal = current_bal + usdt_amount
+            else:
+                new_bal = usdt_amount
+
+            # 2. كل عمليات الكتابة والتحديث ثانياً (ALL WRITES AFTER)
             transaction.set(tx_ref, {
                 'tx_hash': tx_hash,
                 'user_id': user_id,
@@ -207,21 +214,18 @@ def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc:
                 'processed_at': firestore.SERVER_TIMESTAMP
             })
 
-            # زيادة رصيد الدولار فوراً للمستخدم
-            user_snap = user_ref.get(transaction=transaction)
             if user_snap.exists:
                 transaction.update(user_ref, {
                     'usd_balance': firestore.Increment(usdt_amount),
                     'usdt_balance': firestore.Increment(usdt_amount)
                 })
-                updated_data = user_snap.to_dict() or {}
-                return float(updated_data.get('usd_balance', 0.0) or updated_data.get('usdt_balance', 0.0)) + usdt_amount
             else:
                 transaction.set(user_ref, {
                     'usd_balance': usdt_amount,
                     'usdt_balance': usdt_amount
                 }, merge=True)
-                return usdt_amount
+
+            return new_bal
 
         tx_ref = fs_db.collection('processed_txs').document(tx_hash)
         user_ref = fs_db.collection('users').document(str(user_id))
@@ -234,7 +238,7 @@ def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc:
         return new_balance
     else:
         # البديل في حال عدم الاتصال بالفايربيس
-        return credit_user_balance(user_id, usdt_amount)
+        return credit_user_balance_sqlite(user_id, usdt_amount)
 
 def credit_user_balance_sqlite(user_id: int, usdt_amount: float) -> float:
     conn = None
@@ -246,7 +250,7 @@ def credit_user_balance_sqlite(user_id: int, usdt_amount: float) -> float:
         row = cursor.fetchone()
         if row:
             new_usd = float(row['usd_balance'] or 0.0) + usdt_amount
-            cursor.execute("UPDATE users SET usd_balance = ? WHERE tg_id = ?", (new_usd, user_id))
+            cursor.execute("UPDATE users SET usd_balance = ? WHERE tg_id = ?", (user_id, user_id))
         else:
             cursor.execute("INSERT INTO users (tg_id, usd_balance) VALUES (?, ?)", (user_id, usdt_amount))
         conn.commit()
