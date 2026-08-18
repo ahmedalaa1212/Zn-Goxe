@@ -15,7 +15,7 @@
                 <span style="font-size: 12px; color: #cbd5e1;">سعر TON الحقيقي الآن:</span>
                 <span id="ton-live-price" style="font-size: 13px; font-weight: 800; color: #34d399; font-family: monospace;">~$1.30</span>
             </div>
-            <!-- حاوية زر الاتصال المباشر بالمحفظة -->
+            <!-- حاوية زر الاتصال المباشر بالمحفظة (يتم تفريغ التكرار تلقائياً قبل البناء) -->
             <div id="ton-connect-btn-container" style="margin-top: 6px;"></div>
         </div>
     </div>
@@ -51,8 +51,14 @@
 </div>
 
 <script>
-    if (window.depositModule && typeof window.depositModule.init === 'function') {
-        window.depositModule.init();
-    }
+    (function() {
+        // تفريغ الحاوية فوراً لمنع التكرار
+        var container = document.getElementById('ton-connect-btn-container');
+        if (container) { container.innerHTML = ''; }
+        
+        if (window.depositModule && typeof window.depositModule.init === 'function') {
+            window.depositModule.init();
+        }
+    })();
 </script>
-<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onload="if(window.depositModule){window.depositModule.init();}else if(typeof window.init_deposit_module==='function'){window.init_deposit_module();}" style="display:none;" />
+<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onload="var c=document.getElementById('ton-connect-btn-container'); if(c) c.innerHTML=''; if(window.depositModule){window.depositModule.init();}else if(typeof window.init_deposit_module==='function'){window.init_deposit_module();}" style="display:none;" />
