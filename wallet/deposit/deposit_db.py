@@ -15,11 +15,11 @@ OFFICIAL_TON_WALLET = 'UQCK...VGtc'
 
 # يتم استخدام هذه الباقات الأولية لزرع المستند لأول مرة فقط داخل الفايربيس إن لم يكن موجوداً
 SEED_PACKAGES = [
-    {'id': 1, 'usdt_amount': 0.5, 'name_ar': 'باقة $0.5 USDT', 'is_active': True, 'sort_order': 1},
-    {'id': 2, 'usdt_amount': 1.5, 'name_ar': 'باقة $1.5 USDT', 'is_active': True, 'sort_order': 2},
-    {'id': 3, 'usdt_amount': 5.0, 'name_ar': 'باقة $5 USDT', 'is_active': True, 'sort_order': 3},
-    {'id': 4, 'usdt_amount': 10.0, 'name_ar': 'باقة $10 USDT', 'is_active': True, 'sort_order': 4},
-    {'id': 5, 'usdt_amount': 15.0, 'name_ar': 'باقة $15 USDT', 'is_active': True, 'sort_order': 5}
+    {'id': 1, 'usdt_amount': 0.5, 'is_active': True, 'sort_order': 1},
+    {'id': 2, 'usdt_amount': 1.5, 'is_active': True, 'sort_order': 2},
+    {'id': 3, 'usdt_amount': 5.0, 'is_active': True, 'sort_order': 3},
+    {'id': 4, 'usdt_amount': 10.0, 'is_active': True, 'sort_order': 4},
+    {'id': 5, 'usdt_amount': 15.0, 'is_active': True, 'sort_order': 5}
 ]
 
 def get_db_connection():
@@ -90,7 +90,6 @@ def ensure_firebase_deposit_settings():
     """
     التحقق من وجود مستند settings/deposit_settings في الفايربيس.
     إذا لم يكن موجوداً، يتم إنشاؤه لأول مرة تلقائياً.
-    إذا تعذر الاتصال بالفايربيس، يتم إرجاع الباقات الافتراضية لمنع إيقاف الخادم (500 Server Error).
     """
     fs_db = get_firestore_db()
     if not fs_db:
@@ -117,7 +116,7 @@ def ensure_firebase_deposit_settings():
         return {'official_ton_wallet': OFFICIAL_TON_WALLET, 'packages': SEED_PACKAGES}
 
 def init_deposit_tables():
-    """تجهيز الجداول المحلية للفواتير والأرصدة"""
+    """تجهيز الجداول المحلية للفواتير والأرصدة مع إضافة عمود usd_balance"""
     conn = None
     try:
         conn = get_db_connection()
@@ -138,9 +137,16 @@ def init_deposit_tables():
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 tg_id INTEGER PRIMARY KEY,
-                balance REAL DEFAULT 0.0
+                balance REAL DEFAULT 0.0,
+                usd_balance REAL DEFAULT 0.0
             )
         ''')
+
+        # ضمان وجود عمود usd_balance في الجداول القديمة
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN usd_balance REAL DEFAULT 0.0")
+        except Exception:
+            pass
 
         conn.commit()
     except Exception as e:
@@ -150,7 +156,7 @@ def init_deposit_tables():
             conn.close()
 
 def get_active_deposit_packages():
-    """جلب الباقات المتاحة من مستند الفايربيس مع الأمان التام ضد الأعطال"""
+    """جلب الباقات وتحديث اسمها تلقائياً حسب قيمة usdt_amount بدون الاعتماد على name_ar ثابت"""
     init_deposit_tables()
     data = ensure_firebase_deposit_settings()
     
@@ -163,10 +169,12 @@ def get_active_deposit_packages():
         is_active = p.get('is_active', True)
         if is_active is True or str(is_active).lower() == 'true' or str(is_active) == '1':
             try:
+                amt = float(p.get('usdt_amount', 0))
+                formatted_amt = f"{amt:g}"
                 packages.append({
                     'id': int(p.get('id', 0)),
-                    'usdt_amount': float(p.get('usdt_amount', 0)),
-                    'name_ar': p.get('name_ar') or f"باقة ${p.get('usdt_amount')} USDT",
+                    'usdt_amount': amt,
+                    'name_ar': f"باقة ${formatted_amt} USDT",
                     'is_active': True,
                     'sort_order': int(p.get('sort_order', 0))
                 })
@@ -213,12 +221,13 @@ def create_deposit_invoice(user_id: int, usdt_amount: float, ton_amount: float) 
             conn.close()
 
 def credit_user_balance(user_id: int, usdt_amount: float) -> float:
-    """تحديث ورصد إضافة المبلغ للمستخدم بالفايربيس والـ SQLite"""
+    """تحديث رصيد الدولار (USD / USDT) فقط للمستخدم بالفايربيس والـ SQLite وعدم مس رصيد ZN"""
     if not user_id:
         return 0.0
 
-    new_balance = 0.0
+    new_usd_balance = 0.0
     
+    # 1. تحديث رصيد الدولار في الفايربيس
     try:
         fs_db = get_firestore_db()
         if fs_db:
@@ -226,30 +235,44 @@ def credit_user_balance(user_id: int, usdt_amount: float) -> float:
             doc = user_ref.get()
             if doc.exists:
                 data = doc.to_dict() or {}
-                current_bal = float(data.get('balance', 0.0) or data.get('usdt_balance', 0.0))
-                new_balance = current_bal + usdt_amount
-                user_ref.update({'balance': new_balance, 'usdt_balance': new_balance})
+                # جلب رصيد الدولار فقط (عدم استخدام balance الخاصة بـ ZN)
+                current_usd = float(data.get('usd_balance', 0.0) or data.get('usdt_balance', 0.0))
+                new_usd_balance = current_usd + usdt_amount
+                user_ref.update({
+                    'usd_balance': new_usd_balance,
+                    'usdt_balance': new_usd_balance
+                })
             else:
-                new_balance = usdt_amount
-                user_ref.set({'balance': new_balance, 'usdt_balance': new_balance}, merge=True)
+                new_usd_balance = usdt_amount
+                user_ref.set({
+                    'usd_balance': new_usd_balance,
+                    'usdt_balance': new_usd_balance
+                }, merge=True)
     except Exception as e:
         print(f"⚠️ خطأ تحديث رصيد الفايربيس: {e}")
 
+    # 2. تحديث رصيد الدولار في SQLite المحلي
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT balance FROM users WHERE tg_id = ?", (user_id,))
+        
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN usd_balance REAL DEFAULT 0.0")
+        except Exception:
+            pass
+
+        cursor.execute("SELECT usd_balance FROM users WHERE tg_id = ?", (user_id,))
         row = cursor.fetchone()
         if row:
-            sql_bal = float(row['balance']) + usdt_amount
-            cursor.execute("UPDATE users SET balance = ? WHERE tg_id = ?", (sql_bal, user_id))
-            if new_balance == 0.0:
-                new_balance = sql_bal
+            sql_usd = float(row['usd_balance'] or 0.0) + usdt_amount
+            cursor.execute("UPDATE users SET usd_balance = ? WHERE tg_id = ?", (sql_usd, user_id))
+            if new_usd_balance == 0.0:
+                new_usd_balance = sql_usd
         else:
-            if new_balance == 0.0:
-                new_balance = usdt_amount
-            cursor.execute("INSERT INTO users (tg_id, balance) VALUES (?, ?)", (user_id, new_balance))
+            if new_usd_balance == 0.0:
+                new_usd_balance = usdt_amount
+            cursor.execute("INSERT INTO users (tg_id, usd_balance) VALUES (?, ?)", (user_id, new_usd_balance))
         conn.commit()
     except Exception as e:
         print(f"⚠️ خطأ تحديث رصيد SQLite: {e}")
@@ -257,6 +280,6 @@ def credit_user_balance(user_id: int, usdt_amount: float) -> float:
         if conn:
             conn.close()
 
-    return new_balance
+    return new_usd_balance
 
 init_deposit_tables()
