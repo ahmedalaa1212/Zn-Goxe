@@ -16,6 +16,7 @@ def get_packages():
         return jsonify({'success': True}), 200
 
     try:
+        # التأكد من وجود المستند في الفايربيس وجلب الباقات منه مباشرة
         ensure_firebase_deposit_settings()
         packages = get_active_deposit_packages()
         official_wallet = get_official_ton_wallet()
