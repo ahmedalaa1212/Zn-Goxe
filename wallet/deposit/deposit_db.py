@@ -1,6 +1,13 @@
 import sqlite3
 import uuid
 import os
+import sys
+
+# ضمان الوصول إلى database.py في المجلد الرئيسي (Root)
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../../"))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
 DB_PATH = 'database.db'
 OFFICIAL_TON_WALLET = 'UQCK...VGtc'
@@ -19,15 +26,7 @@ def get_db_connection():
     return conn
 
 def get_firestore_db():
-    """جلب اتصال الفايربيس المباشر والمضمون بأكثر من طريقة"""
-    try:
-        import firebase_admin
-        from firebase_admin import firestore
-        if firebase_admin._apps:
-            return firestore.client()
-    except Exception as e:
-        print(f"⚠️ [Firebase Admin Direct Client Error]: {e}")
-
+    """جلب اتصال الفايربيس المباشر من المجلد الرئيسي أو firebase_admin"""
     try:
         import database
         if hasattr(database, 'db') and database.db is not None:
@@ -40,16 +39,17 @@ def get_firestore_db():
         print(f"⚠️ [Firebase Import database.py Error]: {e}")
 
     try:
-        import sys
-        if 'database' in sys.modules and hasattr(sys.modules['database'], 'db'):
-            return sys.modules['database'].db
-    except Exception:
-        pass
+        import firebase_admin
+        from firebase_admin import firestore
+        if firebase_admin._apps:
+            return firestore.client()
+    except Exception as e:
+        print(f"⚠️ [Firebase Admin Error]: {e}")
 
     return None
 
 def get_official_ton_wallet():
-    """جلب عنوان المحفظة من متغيرات البيئة أو الفايربيس"""
+    """جلب عنوان المحفظة الرسمية من الفايربيس أو متغيرات البيئة"""
     env_wallet = os.getenv('PROJECT_WALLET') or os.environ.get('PROJECT_WALLET')
     if env_wallet and str(env_wallet).strip():
         return str(env_wallet).strip()
@@ -68,10 +68,10 @@ def get_official_ton_wallet():
     return OFFICIAL_TON_WALLET
 
 def ensure_firebase_deposit_settings():
-    """إنشاء مستند deposit_settings داخل settings بالفايربيس فوراً"""
+    """إنشاء مستند settings/deposit_settings في الفايربيس فوراً إن لم يكن موجوداً"""
     fs_db = get_firestore_db()
     if not fs_db:
-        print("❌ [Firebase Connection Error]: لم يتم الوصول لقاعدة الفايربيس")
+        print("❌ [Firebase Error]: تعذر الاتصال بـ Firestore")
         return None
     
     try:
@@ -98,7 +98,7 @@ def ensure_firebase_deposit_settings():
         return None
 
 def init_deposit_tables():
-    """تجهيز الجداول المحلية"""
+    """تجهيز الجداول المحلية للنسخ الاحتياطي والفواتير"""
     conn = None
     try:
         conn = get_db_connection()
@@ -141,7 +141,7 @@ def init_deposit_tables():
             conn.close()
 
 def get_active_deposit_packages():
-    """جلب الباقات المحدثة من الفايربيس فوراً"""
+    """جلب الباقات المحدثة مباشرة من مستند الفايربيس"""
     init_deposit_tables()
     data = ensure_firebase_deposit_settings()
     
@@ -166,7 +166,7 @@ def get_active_deposit_packages():
                         'sort_order': sort_order
                     })
                 except (ValueError, TypeError) as err:
-                    print(f"⚠️ خطأ قراءة باقة: {err}")
+                    print(f"⚠️ خطأ قراءة باقة من الفايربيس: {err}")
                     continue
 
         if packages:
