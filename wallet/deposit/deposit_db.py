@@ -6,19 +6,17 @@ import json
 import time
 import hashlib
 
-# ضمان الوصول للمجلد الرئيسي (Root) لاستدعاء database.py ومجلد قاعدة البيانات
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../../"))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 DB_PATH = os.path.join(ROOT_DIR, 'database.db')
-OFFICIAL_TON_WALLET = 'UQCK...VGtc'
+OFFICIAL_TON_WALLET = 'UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc'
 
-# كاش مؤقت لإعدادات الفايربيس لتوفير القراءات وتسرع الاستجابة
 _SETTINGS_CACHE = None
 _SETTINGS_CACHE_TIME = 0
-CACHE_TTL_SECONDS = 60  # إعادة التحديث كل 60 ثانية
+CACHE_TTL_SECONDS = 60
 
 SEED_PACKAGES = [
     {'id': 1, 'usdt_amount': 0.5, 'is_active': True, 'sort_order': 1},
@@ -34,7 +32,6 @@ def get_db_connection():
     return conn
 
 def get_firestore_db():
-    """جلب كائن الفايربيس المباشر من database.py أو التهيئة الذاتية الحرة"""
     try:
         import database
         if hasattr(database, 'get_db'):
@@ -74,7 +71,6 @@ def get_firestore_db():
     return None
 
 def get_official_ton_wallet():
-    """جلب عنوان المحفظة الحقيقي من متغيرات البيئة في Railway أولاً ثم الفايربيس"""
     env_wallet = os.getenv('PROJECT_WALLET') or os.environ.get('PROJECT_WALLET')
     if env_wallet and str(env_wallet).strip():
         return str(env_wallet).strip()
@@ -89,7 +85,6 @@ def get_official_ton_wallet():
     return OFFICIAL_TON_WALLET
 
 def ensure_firebase_deposit_settings():
-    """التحقق من وجود مستند settings/deposit_settings في الفايربيس استخدام نظام الكاش"""
     global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     now = time.time()
 
@@ -126,7 +121,6 @@ def ensure_firebase_deposit_settings():
         return {'official_ton_wallet': get_official_ton_wallet(), 'packages': SEED_PACKAGES}
 
 def init_deposit_tables():
-    """تجهيز الجداول المحلية للفواتير والتحقق من المعاملات المكررة"""
     conn = None
     try:
         conn = get_db_connection()
@@ -176,7 +170,8 @@ def init_deposit_tables():
 
 def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc: str) -> float:
     """
-    عملية آمنة لا تقبل التكرار (Firestore Transaction) متوافقة تماماً مع قواعد الفايربيس (قراءة أولاً ثم كتابة).
+    عملية آمنة لا تقبل التكرار (Firestore Transaction).
+    تُقوم أيضاً بحفظ السجلات لكل مستخدم داخل المجموعات الفرعية للجاهزية المستقبلية.
     """
     if not user_id or usdt_amount <= 0:
         raise ValueError("بيانات المستخدم أو قيمة الباقة غير صحيحة")
@@ -189,15 +184,14 @@ def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc:
         from firebase_admin import firestore
 
         @firestore.transactional
-        def run_in_transaction(transaction, tx_ref, user_ref):
-            # 1. كل عمليات القراءة أولاً (ALL READS FIRST)
+        def run_in_transaction(transaction, tx_ref, user_ref, user_history_ref):
+            # 1. القراءة أولاً (READS)
             tx_snap = transaction.get(tx_ref)
             if tx_snap.exists:
                 raise Exception("هذه المعاملة تم استخدامها وشحنها سابقاً!")
 
             user_snap = transaction.get(user_ref)
 
-            # حساب الرصيد الجديد قبل تنفيذ عمليات الكتابة
             if user_snap.exists:
                 updated_data = user_snap.to_dict() or {}
                 current_bal = float(updated_data.get('usd_balance', 0.0) or updated_data.get('usdt_balance', 0.0))
@@ -205,15 +199,24 @@ def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc:
             else:
                 new_bal = usdt_amount
 
-            # 2. كل عمليات الكتابة والتحديث ثانياً (ALL WRITES AFTER)
-            transaction.set(tx_ref, {
+            # 2. الكتابة ثانياً (WRITES)
+            tx_data = {
                 'tx_hash': tx_hash,
                 'user_id': user_id,
                 'usdt_amount': usdt_amount,
                 'memo': memo,
+                'type': 'deposit',
+                'status': 'completed',
                 'processed_at': firestore.SERVER_TIMESTAMP
-            })
+            }
 
+            # تسجيل العملية عالمياً للتحقق من التكرار
+            transaction.set(tx_ref, tx_data)
+
+            # تسجيل العملية في سجلات المستخدم الخاصة (users/{user_id}/deposit_history/{tx_hash})
+            transaction.set(user_history_ref, tx_data)
+
+            # تحديث الرصيد
             if user_snap.exists:
                 transaction.update(user_ref, {
                     'usd_balance': firestore.Increment(usdt_amount),
@@ -229,28 +232,32 @@ def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc:
 
         tx_ref = fs_db.collection('processed_txs').document(tx_hash)
         user_ref = fs_db.collection('users').document(str(user_id))
+        user_history_ref = user_ref.collection('deposit_history').document(tx_hash)
 
         transaction = fs_db.transaction()
-        new_balance = run_in_transaction(transaction, tx_ref, user_ref)
+        new_balance = run_in_transaction(transaction, tx_ref, user_ref, user_history_ref)
         
-        # مزامنة الرصيد محلياً في SQLite أيضاً
-        credit_user_balance_sqlite(user_id, usdt_amount)
+        credit_user_balance_sqlite(user_id, usdt_amount, tx_hash, memo)
         return new_balance
     else:
-        # البديل في حال عدم الاتصال بالفايربيس
-        return credit_user_balance_sqlite(user_id, usdt_amount)
+        return credit_user_balance_sqlite(user_id, usdt_amount, tx_hash, memo)
 
-def credit_user_balance_sqlite(user_id: int, usdt_amount: float) -> float:
+def credit_user_balance_sqlite(user_id: int, usdt_amount: float, tx_hash: str = None, memo: str = None) -> float:
     conn = None
     new_usd = usdt_amount
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
+        
+        if tx_hash:
+            cursor.execute("INSERT OR IGNORE INTO processed_txs (tx_hash, user_id, usdt_amount, memo) VALUES (?, ?, ?, ?)",
+                           (tx_hash, user_id, usdt_amount, memo))
+
         cursor.execute("SELECT usd_balance FROM users WHERE tg_id = ?", (user_id,))
         row = cursor.fetchone()
         if row:
             new_usd = float(row['usd_balance'] or 0.0) + usdt_amount
-            cursor.execute("UPDATE users SET usd_balance = ? WHERE tg_id = ?", (user_id, user_id))
+            cursor.execute("UPDATE users SET usd_balance = ? WHERE tg_id = ?", (new_usd, user_id))
         else:
             cursor.execute("INSERT INTO users (tg_id, usd_balance) VALUES (?, ?)", (user_id, usdt_amount))
         conn.commit()
@@ -262,7 +269,6 @@ def credit_user_balance_sqlite(user_id: int, usdt_amount: float) -> float:
     return new_usd
 
 def get_active_deposit_packages():
-    """جلب الباقات من الفايربيس"""
     init_deposit_tables()
     data = ensure_firebase_deposit_settings()
     
@@ -327,7 +333,6 @@ def create_deposit_invoice(user_id: int, usdt_amount: float, ton_amount: float) 
             conn.close()
 
 def credit_user_balance(user_id: int, usdt_amount: float) -> float:
-    """تحديث رصيد الدولار فقط للمستخدم دون مس رصيد ZN"""
     if not user_id:
         return 0.0
     return verify_and_process_ton_boc(user_id, usdt_amount, f"MANUAL-{time.time()}", f"BOC-MANUAL-{uuid.uuid4().hex}")
