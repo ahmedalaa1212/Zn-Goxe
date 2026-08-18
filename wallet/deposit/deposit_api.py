@@ -4,18 +4,20 @@ from .deposit_db import (
     create_deposit_invoice,
     get_package_by_id,
     get_official_ton_wallet,
-    ensure_firebase_deposit_settings
+    ensure_firebase_deposit_settings,
+    credit_user_balance
 )
 
 deposit_bp = Blueprint('deposit', __name__)
 
-@deposit_bp.route('/packages', methods=['GET'])
+@deposit_bp.route('/packages', methods=['GET', 'POST', 'OPTIONS'], strict_slashes=False)
 def get_packages():
     """عرض باقات الشحن المتاحة مباشرة من Firebase وبدون كاش"""
+    if request.method == 'OPTIONS':
+        return jsonify({'success': True}), 200
+
     try:
-        # التأكد الفوري من إنشاء مستند settings/deposit_settings عند جلب الطلب
         ensure_firebase_deposit_settings()
-        
         packages = get_active_deposit_packages()
         official_wallet = get_official_ton_wallet()
         
@@ -36,14 +38,14 @@ def get_packages():
             'error': str(exc)
         }), 500
 
-@deposit_bp.route('/create_invoice', methods=['POST', 'OPTIONS'])
+@deposit_bp.route('/create_invoice', methods=['GET', 'POST', 'OPTIONS'], strict_slashes=False)
 def create_invoice():
-    """إنشاء طلب الشحن وتجهيز رابط الدفع"""
+    """إنشاء طلب الشحن وتجهيز رابط الدفع بأمان"""
     if request.method == 'OPTIONS':
         return jsonify({'success': True}), 200
 
     try:
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(silent=True) or request.form or {}
         package_id = data.get('package_id')
         
         try:
@@ -82,7 +84,37 @@ def create_invoice():
             'pay_url': pay_url
         })
     except Exception as exc:
+        print(f"❌ [create_invoice Error]: {exc}")
         return jsonify({
             'success': False,
             'error': f"فشل إنشاء طلب الإيداع: {str(exc)}"
         }), 500
+
+@deposit_bp.route('/confirm_payment', methods=['GET', 'POST', 'OPTIONS'], strict_slashes=False)
+def confirm_payment():
+    """تأكيد العملية وإضافة الرصيد لحساب المستخدم فوراً"""
+    if request.method == 'OPTIONS':
+        return jsonify({'success': True}), 200
+
+    try:
+        data = request.get_json(silent=True) or request.form or {}
+        user_id = request.headers.get('X-Telegram-User-Id') or data.get('user_id') or 0
+        try:
+            user_id = int(user_id)
+        except (ValueError, TypeError):
+            user_id = 0
+
+        usdt_amount = float(data.get('usdt_amount', 0.0))
+
+        if user_id > 0 and usdt_amount > 0:
+            new_balance = credit_user_balance(user_id, usdt_amount)
+            return jsonify({
+                'success': True,
+                'message': 'تم إضافة الرصيد بنجاح!',
+                'new_balance': new_balance
+            })
+        else:
+            return jsonify({'success': False, 'error': 'بيانات غير صحيحة'}), 400
+
+    except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 500
