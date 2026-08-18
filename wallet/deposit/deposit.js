@@ -5,6 +5,71 @@ window.depositModule = (function () {
     let lastSelectedPackageId = null;
     let scriptLoadingPromise = null;
 
+    // 🛠️ دالة تحويل النص العادي (Memo) إلى صيغة Base64 BOC المقبولة في TON Connect
+    function textToTonCommentBoc(text) {
+        if (!text) return undefined;
+        
+        // إذا كان النص مجهّزاً كـ BOC بالفعل من السيرفر
+        if (typeof text === 'string' && (text.startsWith('te6cc') || text.startsWith('b5ee'))) {
+            return text;
+        }
+
+        try {
+            const encoder = new TextEncoder();
+            const textBytes = encoder.encode(String(text));
+            
+            // 4 أظرف أصفار (OpCode الخاص بالتعليقات النصية) + نص UTF-8
+            const payloadBytes = new Uint8Array(4 + textBytes.length);
+            payloadBytes.set([0, 0, 0, 0], 0);
+            payloadBytes.set(textBytes, 4);
+
+            const bitLen = payloadBytes.length * 8;
+            const d1 = 0;
+            const d2 = Math.ceil(bitLen / 8) + Math.floor(bitLen / 8);
+
+            const cellData = new Uint8Array(2 + payloadBytes.length);
+            cellData[0] = d1;
+            cellData[1] = d2;
+            cellData.set(payloadBytes, 2);
+
+            const header = new Uint8Array([
+                0xb5, 0xee, 0x9c, 0x72, // BoC Magic Prefix
+                0x21, 0x01, 0x01, 0x00,
+                cellData.length, 0x00
+            ]);
+
+            const body = new Uint8Array(header.length + cellData.length);
+            body.set(header, 0);
+            body.set(cellData, header.length);
+
+            // حساب CRC32-C لسلامة التوقيع
+            let crc = 0xFFFFFFFF;
+            for (let i = 0; i < body.length; i++) {
+                crc ^= body[i];
+                for (let j = 0; j < 8; j++) {
+                    crc = (crc & 1) ? ((crc >>> 1) ^ 0x82F63B78) : (crc >>> 1);
+                }
+            }
+            crc = (crc ^ 0xFFFFFFFF) >>> 0;
+
+            const fullBoc = new Uint8Array(body.length + 4);
+            fullBoc.set(body, 0);
+            fullBoc[body.length] = crc & 0xFF;
+            fullBoc[body.length + 1] = (crc >> 8) & 0xFF;
+            fullBoc[body.length + 2] = (crc >> 16) & 0xFF;
+            fullBoc[body.length + 3] = (crc >> 24) & 0xFF;
+
+            let binary = '';
+            for (let i = 0; i < fullBoc.length; i++) {
+                binary += String.fromCharCode(fullBoc[i]);
+            }
+            return btoa(binary);
+        } catch (e) {
+            console.error("⚠️ خطأ أثناء ترميز الميمو لـ BOC:", e);
+            return undefined;
+        }
+    }
+
     // تحميل مكتبة TON Connect UI ديناميكياً في head الصفحة في حال عدم وجودها
     function loadTonConnectScript() {
         if (window.TON_CONNECT_UI || window.TonConnectUI) {
@@ -204,16 +269,23 @@ window.depositModule = (function () {
                 return;
             }
 
-            // 2. إرسال طلب التوقيع للمحفظة
+            // ترميز النص المرتجع إلى Base64 BOC مطابق لاشتراطات SDK TON Connect
+            const rawMemo = prepData.payload_memo || prepData.memo;
+            const validPayloadBoc = textToTonCommentBoc(rawMemo);
+
+            const msg = {
+                address: prepData.wallet_address,
+                amount: String(prepData.nano_ton)
+            };
+
+            if (validPayloadBoc) {
+                msg.payload = validPayloadBoc;
+            }
+
+            // 2. إرسال طلب التوقيع المصلح للمحفظة
             const transaction = {
                 validUntil: Math.floor(Date.now() / 1000) + 600,
-                messages: [
-                    {
-                        address: prepData.wallet_address,
-                        amount: String(prepData.nano_ton),
-                        payload: prepData.payload_memo || prepData.memo
-                    }
-                ]
+                messages: [msg]
             };
 
             showModal("📲 يرجى تأكيد العملية داخل المحفظة...");
@@ -234,7 +306,7 @@ window.depositModule = (function () {
                 body: JSON.stringify({
                     boc: boc,
                     package_id: pkg.id,
-                    memo: prepData.payload_memo || prepData.memo,
+                    memo: rawMemo,
                     initData: initData,
                     user_id: userId
                 })
