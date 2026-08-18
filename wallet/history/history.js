@@ -2,12 +2,15 @@ window.historyModule = (function () {
     let allTransactions = [];
     let currentFilter = 'all';
 
-    // Get Telegram User ID securely from all sources
+    // جلب معرف المستخدم بكل الطرق الممكنة
     function getUserId() {
-        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe?.user?.id) {
+        if (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
             return window.Telegram.WebApp.initDataUnsafe.user.id;
         }
         
+        if (window.userState?.tg_id) return window.userState.tg_id;
+        if (window.userState?.user_id) return window.userState.user_id;
+
         const urlParams = new URLSearchParams(window.location.search);
         const urlId = urlParams.get('user_id') || urlParams.get('tg_id') || urlParams.get('uid');
         if (urlId) return urlId;
@@ -21,7 +24,6 @@ window.historyModule = (function () {
         return null;
     }
 
-    // Format Arabic Date & Time
     function formatArabicDate(timestamp) {
         if (!timestamp) return 'غير محدد';
         try {
@@ -40,7 +42,6 @@ window.historyModule = (function () {
         }
     }
 
-    // Load Data from Backend API
     async function fetchTransactions() {
         const container = document.getElementById('history-list-container');
         if (!container) return;
@@ -85,7 +86,6 @@ window.historyModule = (function () {
         }
     }
 
-    // Update Filter Badges
     function updateCounts() {
         const depositCount = allTransactions.filter(t => t.type === 'deposit').length;
         const withdrawCount = allTransactions.filter(t => t.type === 'withdraw').length;
@@ -99,7 +99,6 @@ window.historyModule = (function () {
         if (countWithdraw) countWithdraw.innerText = withdrawCount;
     }
 
-    // Filter Logic
     function filterHistory(type) {
         currentFilter = type;
         document.querySelectorAll('.filter-btn').forEach(btn => {
@@ -108,7 +107,6 @@ window.historyModule = (function () {
         renderList();
     }
 
-    // Render Cards List
     function renderList() {
         const container = document.getElementById('history-list-container');
         if (!container) return;
@@ -187,7 +185,6 @@ window.historyModule = (function () {
         container.innerHTML = html;
     }
 
-    // Helper to Copy Hash or Memo
     function copyText(text) {
         if (!text) return;
         if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -210,7 +207,7 @@ window.historyModule = (function () {
     }
 
     function showNotice(msg) {
-        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.showAlert) {
+        if (window.Telegram?.WebApp?.showAlert) {
             window.Telegram.WebApp.showAlert(msg);
         } else {
             alert(msg);
@@ -221,17 +218,6 @@ window.historyModule = (function () {
         const modal = document.getElementById('tx-details-modal');
         if (modal) modal.style.display = 'none';
     }
-
-    // Auto Run with Retry Mechanism
-    function safeInit() {
-        if (document.getElementById('history-list-container')) {
-            fetchTransactions();
-        } else {
-            setTimeout(safeInit, 100);
-        }
-    }
-
-    setTimeout(safeInit, 50);
 
     return {
         init: fetchTransactions,
