@@ -4,6 +4,7 @@ import os
 import sys
 import json
 import time
+import hashlib
 
 # ضمان الوصول للمجلد الرئيسي (Root) لاستدعاء database.py ومجلد قاعدة البيانات
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -88,10 +89,7 @@ def get_official_ton_wallet():
     return OFFICIAL_TON_WALLET
 
 def ensure_firebase_deposit_settings():
-    """
-    التحقق من وجود مستند settings/deposit_settings في الفايربيس.
-    استخدام نظام الكاش لتقليل قراءات الفايربيس وتسريع استجابة البوت.
-    """
+    """التحقق من وجود مستند settings/deposit_settings في الفايربيس استخدام نظام الكاش"""
     global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     now = time.time()
 
@@ -131,7 +129,7 @@ def ensure_firebase_deposit_settings():
         return {'official_ton_wallet': OFFICIAL_TON_WALLET, 'packages': SEED_PACKAGES}
 
 def init_deposit_tables():
-    """تجهيز الجداول المحلية للفواتير والأرصدة مع إضافة عمود usd_balance"""
+    """تجهيز الجداول المحلية للفواتير والتحقق من المعاملات المكررة"""
     conn = None
     try:
         conn = get_db_connection()
@@ -145,6 +143,16 @@ def init_deposit_tables():
                 ton_amount REAL NOT NULL,
                 memo TEXT UNIQUE NOT NULL,
                 status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS processed_txs (
+                tx_hash TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                usdt_amount REAL NOT NULL,
+                memo TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -169,8 +177,88 @@ def init_deposit_tables():
         if conn:
             conn.close()
 
+def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc: str) -> float:
+    """
+    عملية آمنة لا تقبل التكرار (Firestore Transaction)، يسجل الـ BOC في مجموعة processed_txs
+    لضمان عدم إعادة استخدامه، ثم يضيف الرصيد فوراً لحساب المستخدم.
+    """
+    if not user_id or usdt_amount <= 0:
+        raise ValueError("بيانات المستخدم أو قيمة الباقة غير صحيحة")
+
+    tx_identifier = boc or memo or str(uuid.uuid4())
+    tx_hash = hashlib.sha256(tx_identifier.encode('utf-8')).hexdigest()
+
+    fs_db = get_firestore_db()
+    if fs_db:
+        from firebase_admin import firestore
+
+        @firestore.transactional
+        def run_in_transaction(transaction, tx_ref, user_ref):
+            tx_snap = tx_ref.get(transaction=transaction)
+            if tx_snap.exists:
+                raise Exception("هذه المعاملة تم استخدامها وشحنها سابقاً!")
+
+            # تسجيل المعاملة في processed_txs لمنع التكرار
+            transaction.set(tx_ref, {
+                'tx_hash': tx_hash,
+                'user_id': user_id,
+                'usdt_amount': usdt_amount,
+                'memo': memo,
+                'processed_at': firestore.SERVER_TIMESTAMP
+            })
+
+            # زيادة رصيد الدولار فوراً للمستخدم
+            user_snap = user_ref.get(transaction=transaction)
+            if user_snap.exists:
+                transaction.update(user_ref, {
+                    'usd_balance': firestore.Increment(usdt_amount),
+                    'usdt_balance': firestore.Increment(usdt_amount)
+                })
+                updated_data = user_snap.to_dict() or {}
+                return float(updated_data.get('usd_balance', 0.0) or updated_data.get('usdt_balance', 0.0)) + usdt_amount
+            else:
+                transaction.set(user_ref, {
+                    'usd_balance': usdt_amount,
+                    'usdt_balance': usdt_amount
+                }, merge=True)
+                return usdt_amount
+
+        tx_ref = fs_db.collection('processed_txs').document(tx_hash)
+        user_ref = fs_db.collection('users').document(str(user_id))
+
+        transaction = fs_db.transaction()
+        new_balance = run_in_transaction(transaction, tx_ref, user_ref)
+        
+        # مزامنة الرصيد محلياً في SQLite أيضاً
+        credit_user_balance_sqlite(user_id, usdt_amount)
+        return new_balance
+    else:
+        # البديل في حال عدم الاتصال بالفايربيس
+        return credit_user_balance(user_id, usdt_amount)
+
+def credit_user_balance_sqlite(user_id: int, usdt_amount: float) -> float:
+    conn = None
+    new_usd = usdt_amount
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT usd_balance FROM users WHERE tg_id = ?", (user_id,))
+        row = cursor.fetchone()
+        if row:
+            new_usd = float(row['usd_balance'] or 0.0) + usdt_amount
+            cursor.execute("UPDATE users SET usd_balance = ? WHERE tg_id = ?", (new_usd, user_id))
+        else:
+            cursor.execute("INSERT INTO users (tg_id, usd_balance) VALUES (?, ?)", (user_id, usdt_amount))
+        conn.commit()
+    except Exception as e:
+        print(f"⚠️ خطأ تحديث رصيد SQLite: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return new_usd
+
 def get_active_deposit_packages():
-    """جلب الباقات وتحديث اسمها تلقائياً حسب قيمة usdt_amount بدون الاعتماد على name_ar ثابت"""
+    """جلب الباقات من الفايربيس"""
     init_deposit_tables()
     data = ensure_firebase_deposit_settings()
     
@@ -235,65 +323,9 @@ def create_deposit_invoice(user_id: int, usdt_amount: float, ton_amount: float) 
             conn.close()
 
 def credit_user_balance(user_id: int, usdt_amount: float) -> float:
-    """تحديث آمن ورصين لرصيد الدولار فقط للمستخدم بالفايربيس والـ SQLite ودون مس رصيد ZN"""
+    """تحديث رصيد الدولار فقط للمستخدم دون مس رصيد ZN"""
     if not user_id:
         return 0.0
-
-    new_usd_balance = 0.0
-    
-    try:
-        fs_db = get_firestore_db()
-        if fs_db:
-            from firebase_admin import firestore
-            user_ref = fs_db.collection('users').document(str(user_id))
-            doc = user_ref.get()
-            
-            if doc.exists:
-                user_ref.update({
-                    'usd_balance': firestore.Increment(usdt_amount),
-                    'usdt_balance': firestore.Increment(usdt_amount)
-                })
-                updated_doc = user_ref.get()
-                if updated_doc.exists:
-                    data = updated_doc.to_dict() or {}
-                    new_usd_balance = float(data.get('usd_balance', 0.0) or data.get('usdt_balance', 0.0))
-            else:
-                new_usd_balance = usdt_amount
-                user_ref.set({
-                    'usd_balance': new_usd_balance,
-                    'usdt_balance': new_usd_balance
-                }, merge=True)
-    except Exception as e:
-        print(f"⚠️ خطأ تحديث رصيد الفايربيس: {e}")
-
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        try:
-            cursor.execute("ALTER TABLE users ADD COLUMN usd_balance REAL DEFAULT 0.0")
-        except Exception:
-            pass
-
-        cursor.execute("SELECT usd_balance FROM users WHERE tg_id = ?", (user_id,))
-        row = cursor.fetchone()
-        if row:
-            sql_usd = float(row['usd_balance'] or 0.0) + usdt_amount
-            cursor.execute("UPDATE users SET usd_balance = ? WHERE tg_id = ?", (sql_usd, user_id))
-            if new_usd_balance == 0.0:
-                new_usd_balance = sql_usd
-        else:
-            if new_usd_balance == 0.0:
-                new_usd_balance = usdt_amount
-            cursor.execute("INSERT INTO users (tg_id, usd_balance) VALUES (?, ?)", (user_id, new_usd_balance))
-        conn.commit()
-    except Exception as e:
-        print(f"⚠️ خطأ تحديث رصيد SQLite: {e}")
-    finally:
-        if conn:
-            conn.close()
-
-    return new_usd_balance
+    return verify_and_process_ton_boc(user_id, usdt_amount, f"MANUAL-{time.time()}", f"BOC-MANUAL-{uuid.uuid4().hex}")
 
 init_deposit_tables()
