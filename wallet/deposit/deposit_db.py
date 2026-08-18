@@ -3,16 +3,17 @@ import uuid
 import os
 import sys
 
-# ضمان الوصول إلى database.py في المجلد الرئيسي (Root)
+# ضمان الوصول للمجلد الرئيسي (Root) لاستدعاء database.py ومجلد قاعدة البيانات
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../../"))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-DB_PATH = 'database.db'
+DB_PATH = os.path.join(ROOT_DIR, 'database.db')
 OFFICIAL_TON_WALLET = 'UQCK...VGtc'
 
-DEFAULT_PACKAGES = [
+# يتم استخدام هذه الباقات الأولية لزرع المستند لأول مرة فقط داخل الفايربيس إن لم يكن موجوداً
+SEED_PACKAGES = [
     {'id': 1, 'usdt_amount': 0.5, 'name_ar': 'باقة $0.5 USDT', 'is_active': True, 'sort_order': 1},
     {'id': 2, 'usdt_amount': 1.5, 'name_ar': 'باقة $1.5 USDT', 'is_active': True, 'sort_order': 2},
     {'id': 3, 'usdt_amount': 5.0, 'name_ar': 'باقة $5 USDT', 'is_active': True, 'sort_order': 3},
@@ -26,17 +27,14 @@ def get_db_connection():
     return conn
 
 def get_firestore_db():
-    """جلب اتصال الفايربيس المباشر من المجلد الرئيسي أو firebase_admin"""
+    """جلب كائن الفايربيس المباشر من database.py في Root"""
     try:
         import database
-        if hasattr(database, 'db') and database.db is not None:
-            return database.db
-        if hasattr(database, 'get_db'):
-            db_inst = database.get_db()
-            if db_inst:
-                return db_inst
+        db_inst = database.get_db()
+        if db_inst:
+            return db_inst
     except Exception as e:
-        print(f"⚠️ [Firebase Import database.py Error]: {e}")
+        print(f"⚠️ [deposit_db] خطأ استيراد database.py: {e}")
 
     try:
         import firebase_admin
@@ -44,12 +42,12 @@ def get_firestore_db():
         if firebase_admin._apps:
             return firestore.client()
     except Exception as e:
-        print(f"⚠️ [Firebase Admin Error]: {e}")
+        print(f"⚠️ [deposit_db] خطأ الوصول المباشر لـ Firestore: {e}")
 
     return None
 
 def get_official_ton_wallet():
-    """جلب عنوان المحفظة الرسمية من الفايربيس أو متغيرات البيئة"""
+    """جلب عنوان المحفظة من الفايربيس أو متغيرات البيئة"""
     env_wallet = os.getenv('PROJECT_WALLET') or os.environ.get('PROJECT_WALLET')
     if env_wallet and str(env_wallet).strip():
         return str(env_wallet).strip()
@@ -68,51 +66,35 @@ def get_official_ton_wallet():
     return OFFICIAL_TON_WALLET
 
 def ensure_firebase_deposit_settings():
-    """إنشاء مستند settings/deposit_settings في الفايربيس فوراً إن لم يكن موجوداً"""
+    """
+    التحقق من وجود مستند settings/deposit_settings في الفايربيس.
+    إذا لم يكن موجوداً، يتم إنشاؤه لأول مرة في الفايربيس لتستقر البيانات هناك نهائياً.
+    """
     fs_db = get_firestore_db()
     if not fs_db:
-        print("❌ [Firebase Error]: تعذر الاتصال بـ Firestore")
-        return None
-    
-    try:
-        doc_ref = fs_db.collection('settings').document('deposit_settings')
-        doc = doc_ref.get()
-        wallet_to_save = get_official_ton_wallet()
+        raise RuntimeError("تعذر الاتصال بقاعدة الفايربيس (Firestore). يرجى التأكد من ضبط متغير FIREBASE_CREDENTIALS بشكل صحيح.")
 
-        if not doc.exists:
-            initial_data = {
-                'official_ton_wallet': wallet_to_save,
-                'packages': DEFAULT_PACKAGES
-            }
-            doc_ref.set(initial_data)
-            print("🔥 [Firebase Success] تم إنشاء مستند settings/deposit_settings بنجاح في الفايربيس!")
-            return initial_data
-        else:
-            data = doc.to_dict() or {}
-            if 'packages' not in data or not data['packages']:
-                doc_ref.set({'packages': DEFAULT_PACKAGES, 'official_ton_wallet': wallet_to_save}, merge=True)
-                data['packages'] = DEFAULT_PACKAGES
-            return data
-    except Exception as e:
-        print(f"❌ [Firebase Deposit Settings Error]: {e}")
-        return None
+    doc_ref = fs_db.collection('settings').document('deposit_settings')
+    doc = doc_ref.get()
+
+    if not doc.exists:
+        wallet_to_save = get_official_ton_wallet()
+        initial_data = {
+            'official_ton_wallet': wallet_to_save,
+            'packages': SEED_PACKAGES
+        }
+        doc_ref.set(initial_data)
+        print("🔥 [Firebase Success] تم إنشاء مستند settings/deposit_settings بنجاح في الفايربيس لأول مرة!")
+        return initial_data
+    else:
+        return doc.to_dict() or {}
 
 def init_deposit_tables():
-    """تجهيز الجداول المحلية للنسخ الاحتياطي والفواتير"""
+    """تجهيز الجداول المحلية للفواتير والأرصدة"""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS deposit_packages (
-                id INTEGER PRIMARY KEY,
-                usdt_amount REAL NOT NULL,
-                name_ar TEXT NOT NULL,
-                is_active INTEGER DEFAULT 1,
-                sort_order INTEGER DEFAULT 0
-            )
-        ''')
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS deposit_invoices (
@@ -141,39 +123,32 @@ def init_deposit_tables():
             conn.close()
 
 def get_active_deposit_packages():
-    """جلب الباقات المحدثة مباشرة من مستند الفايربيس"""
+    """جلب الباقات حصرياً ومباشرة من مستند الفايربيس بدون أي قيم افتراضية بديلة"""
     init_deposit_tables()
     data = ensure_firebase_deposit_settings()
     
-    if data and 'packages' in data and isinstance(data['packages'], list) and len(data['packages']) > 0:
-        raw_pkgs = data.get('packages', [])
-        packages = []
-        
-        for p in raw_pkgs:
-            is_active = p.get('is_active', True)
-            if is_active is True or str(is_active).lower() == 'true' or str(is_active) == '1':
-                try:
-                    pkg_id = int(p.get('id', 0))
-                    usdt_amt = float(p.get('usdt_amount', 0))
-                    dynamic_name = p.get('name_ar') or f"باقة ${usdt_amt} USDT"
-                    sort_order = int(p.get('sort_order', 0))
+    raw_pkgs = data.get('packages', [])
+    if not raw_pkgs or not isinstance(raw_pkgs, list):
+        return []
 
-                    packages.append({
-                        'id': pkg_id,
-                        'usdt_amount': usdt_amt,
-                        'name_ar': dynamic_name,
-                        'is_active': True,
-                        'sort_order': sort_order
-                    })
-                except (ValueError, TypeError) as err:
-                    print(f"⚠️ خطأ قراءة باقة من الفايربيس: {err}")
-                    continue
+    packages = []
+    for p in raw_pkgs:
+        is_active = p.get('is_active', True)
+        if is_active is True or str(is_active).lower() == 'true' or str(is_active) == '1':
+            try:
+                packages.append({
+                    'id': int(p.get('id', 0)),
+                    'usdt_amount': float(p.get('usdt_amount', 0)),
+                    'name_ar': p.get('name_ar') or f"باقة ${p.get('usdt_amount')} USDT",
+                    'is_active': True,
+                    'sort_order': int(p.get('sort_order', 0))
+                })
+            except (ValueError, TypeError) as err:
+                print(f"⚠️ خطأ قراءة باقة من الفايربيس: {err}")
+                continue
 
-        if packages:
-            packages.sort(key=lambda x: x.get('sort_order', 0))
-            return packages
-
-    return DEFAULT_PACKAGES
+    packages.sort(key=lambda x: x.get('sort_order', 0))
+    return packages
 
 def get_package_by_id(pkg_id):
     if pkg_id is None:
@@ -211,7 +186,7 @@ def create_deposit_invoice(user_id: int, usdt_amount: float, ton_amount: float) 
             conn.close()
 
 def credit_user_balance(user_id: int, usdt_amount: float) -> float:
-    """إضافة الرصيد للمستخدم بالفايربيس و SQLite"""
+    """تحديث ورصد إضافة المبلغ للمستخدم بالفايربيس والـ SQLite"""
     if not user_id:
         return 0.0
 
