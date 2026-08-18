@@ -10,7 +10,7 @@ deposit_bp = Blueprint('deposit', __name__)
 
 @deposit_bp.route('/packages', methods=['GET'])
 def get_packages():
-    """عرض باقات الشحن المتاحة من Firebase وإلغاء الكاش تماماً"""
+    """عرض باقات الشحن المتاحة مباشرة من Firebase وبدون كاش"""
     packages = get_active_deposit_packages()
     
     response = make_response(jsonify({
@@ -26,7 +26,7 @@ def get_packages():
 
 @deposit_bp.route('/create_invoice', methods=['POST'])
 def create_invoice():
-    """إنشاء رابط دفع وتوثيق العملية"""
+    """إنشاء طلب الشحن وتجهيز رابط الدفع"""
     try:
         data = request.get_json(silent=True) or {}
         package_id = data.get('package_id')
