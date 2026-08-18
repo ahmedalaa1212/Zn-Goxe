@@ -17,6 +17,18 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
+def get_firestore_db():
+    """جلب اتصال الفايربيس بشكل آمن يمنع التجاهل"""
+    try:
+        import database
+        if hasattr(database, 'get_db'):
+            return database.get_db()
+        elif hasattr(database, 'db'):
+            return database.db
+    except Exception as e:
+        print(f"⚠️ فشل استيراد اتصال الفايربيس: {e}")
+    return None
+
 def init_deposit_tables():
     """تجهيز جداول SQLite المحلية للاحتياط"""
     conn = None
@@ -73,10 +85,9 @@ def sync_sqlite_with_firebase(packages):
             conn.close()
 
 def get_official_ton_wallet():
-    """جلب عنوان المحفظة الرسمية من الفايربيس أو من المتغير المرجعي"""
+    """جلب عنوان المحفظة الرسمية من الفايربيس أو إنشائه في مستند deposit_settings تلقائياً"""
     try:
-        from database import get_db
-        fs_db = get_db()
+        fs_db = get_firestore_db()
         if fs_db:
             doc_ref = fs_db.collection('settings').document('deposit_settings')
             doc = doc_ref.get()
@@ -85,36 +96,45 @@ def get_official_ton_wallet():
                 wallet = data.get('official_ton_wallet')
                 if wallet:
                     return str(wallet)
-    except Exception:
-        pass
+            else:
+                doc_ref.set({
+                    'official_ton_wallet': OFFICIAL_TON_WALLET,
+                    'packages': DEFAULT_PACKAGES
+                }, merge=True)
+    except Exception as e:
+        print(f"⚠️ خطأ جلب المحفظة من الفايربيس: {e}")
     return OFFICIAL_TON_WALLET
 
 def get_active_deposit_packages():
-    """جلب الباقات من Firebase وإنشاء المستند تلقائياً في settings/deposit_settings إذا كان مفقوداً"""
+    """جلب الباقات من Firebase وإنشاء المستند تلقائياً في settings/deposit_settings فوراً إذا كان غير موجود"""
     init_deposit_tables()
     
     try:
-        from database import get_db
-        fs_db = get_db()
+        fs_db = get_firestore_db()
         if fs_db:
             doc_ref = fs_db.collection('settings').document('deposit_settings')
             doc = doc_ref.get()
             
-            # إنشاؤه تلقائياً في الفايربيس بالحقول الصحيحة إذا لم يكن موجوداً
+            # إجبار إنشاء المستند كلياً في الفايربيس إذا لم يكن موجواً
             if not doc.exists:
                 initial_data = {
                     'official_ton_wallet': OFFICIAL_TON_WALLET,
                     'packages': DEFAULT_PACKAGES
                 }
                 doc_ref.set(initial_data)
+                print("🔥 [Firebase] تم إنشاء مستند settings/deposit_settings بنجاح في الفايربيس!")
                 sync_sqlite_with_firebase(DEFAULT_PACKAGES)
                 return DEFAULT_PACKAGES
 
-            # جلب البيانات وقراءتها بشكل آمن يتحمل تعديل الأنواع (Numbers/Strings/Booleans)
             data = doc.to_dict() or {}
             raw_pkgs = data.get('packages', [])
+
+            # إذا كان المستند موجوداً ولكن حقل الباقات فارغ، نقوم بكتابته
+            if not raw_pkgs:
+                doc_ref.set({'packages': DEFAULT_PACKAGES}, merge=True)
+                raw_pkgs = DEFAULT_PACKAGES
+
             packages = []
-            
             for p in raw_pkgs:
                 is_active = p.get('is_active', True)
                 if is_active is True or str(is_active).lower() == 'true' or str(is_active) == '1':
