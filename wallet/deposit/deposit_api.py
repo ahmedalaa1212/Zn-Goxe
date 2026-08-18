@@ -120,7 +120,6 @@ def verify_and_apply():
             usdt_amount = float(data.get('usdt_amount', 0.0))
 
         if user_id > 0 and usdt_amount > 0:
-            # تنفيذ العملية الآمنة التي لا تقبل التكرار (Firestore Transaction)
             new_usd_balance = verify_and_process_ton_boc(user_id, usdt_amount, memo, boc)
             return jsonify({
                 'success': True,
