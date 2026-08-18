@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, make_response
 from .deposit_db import (
     get_active_deposit_packages,
     create_deposit_invoice,
@@ -10,17 +10,23 @@ deposit_bp = Blueprint('deposit', __name__)
 
 @deposit_bp.route('/packages', methods=['GET'])
 def get_packages():
-    """عرض باقات الشحن المتاحة من Firebase/SQLite مع تحصين الردور"""
+    """عرض باقات الشحن المتاحة من Firebase وإلغاء الكاش تماماً"""
     packages = get_active_deposit_packages()
-    return jsonify({
+    
+    response = make_response(jsonify({
         'success': True,
         'packages': packages,
         'official_wallet': OFFICIAL_TON_WALLET
-    })
+    }))
+    
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 @deposit_bp.route('/create_invoice', methods=['POST'])
 def create_invoice():
-    """إنشاء رابط دفع وتوثيق العملية عبر محفظة TON وتلجرام"""
+    """إنشاء رابط دفع وتوثيق العملية"""
     try:
         data = request.get_json(silent=True) or {}
         package_id = data.get('package_id')
@@ -32,7 +38,6 @@ def create_invoice():
         except (ValueError, TypeError):
             ton_price = 1.32
 
-        # استخراج معرّف المستخدم بأمان عالي
         user_id = request.headers.get('X-Telegram-User-Id') or data.get('user_id') or 0
         try:
             user_id = int(user_id)
@@ -49,8 +54,6 @@ def create_invoice():
         ton_amount = round(usdt_amount / ton_price, 4)
 
         invoice = create_deposit_invoice(user_id, usdt_amount, ton_amount)
-
-        # رابط الدفع لشبكة TON ومحفظة تليجرام المباشرة
         pay_url = f"ton://transfer/{OFFICIAL_TON_WALLET}?amount={int(ton_amount * 1e9)}&text={invoice['memo']}"
 
         return jsonify({
