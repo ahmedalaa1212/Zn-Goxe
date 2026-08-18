@@ -22,7 +22,7 @@ window.depositModule = (function () {
     async function loadPackages() {
         const grid = document.getElementById('deposit-packages-grid');
         if (grid) {
-            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #38bdf8; padding: 30px; font-weight: bold;">⏳ جاري جلب باقات الشحن من الفايربيس...</div>`;
+            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #38bdf8; padding: 30px; font-weight: bold;">⏳ جاري جلب باقات الشحن...</div>`;
         }
 
         try {
@@ -54,14 +54,15 @@ window.depositModule = (function () {
         }
 
         if (!packages || packages.length === 0) {
-            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 20px; background: rgba(255,255,255,0.03); border-radius: 12px;">لا توجد باقات متاحة حالياً في مستند الفايربيس</div>`;
+            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 20px; background: rgba(255,255,255,0.03); border-radius: 12px;">لا توجد باقات متاحة حالياً</div>`;
             return;
         }
 
         grid.innerHTML = packages.map(pkg => {
             const usdtVal = parseFloat(pkg.usdt_amount || 0);
             const tonEst = (usdtVal / tonPriceUsd).toFixed(3);
-            const titleName = pkg.name_ar || `+$${usdtVal} USDT`;
+            // توليد عنوان الباقة تلقائياً بناءً على سعر usdt_amount حصراً
+            const titleName = `باقة $${usdtVal} USDT`;
 
             return `
                 <div onclick="window.depositModule?.selectPackage(${pkg.id})" style="background: linear-gradient(145deg, rgba(255,255,255,0.06), rgba(15,23,42,0.7)); border: 1px solid rgba(0, 152, 234, 0.3); border-radius: 14px; padding: 14px 10px; text-align: center; cursor: pointer; transition: all 0.2s ease; position: relative; overflow: hidden;">
@@ -106,12 +107,30 @@ window.depositModule = (function () {
             if (res.ok && data.success) {
                 currentActiveInvoice = data;
                 openModal(data);
+                // فتح المحفظة تلقائياً للتسهيل فور الضغط
+                openTelegramWallet(data.pay_url);
             } else {
                 alert(data.error || "تعذر إنشاء طلب الشحن");
             }
         } catch (e) {
             console.error("خطأ في إنشاء طلب الإيداع:", e);
             alert("حدث خطأ في الاتصال، يرجى المحاولة لاحقاً");
+        }
+    }
+
+    function openTelegramWallet(payUrl) {
+        if (!payUrl) return;
+        const tg = window.Telegram?.WebApp;
+        try {
+            if (tg && typeof tg.openTelegramLink === 'function' && payUrl.startsWith('https://t.me/')) {
+                tg.openTelegramLink(payUrl);
+            } else if (tg && typeof tg.openLink === 'function') {
+                tg.openLink(payUrl);
+            } else {
+                window.location.href = payUrl;
+            }
+        } catch (e) {
+            window.location.href = payUrl;
         }
     }
 
@@ -130,18 +149,7 @@ window.depositModule = (function () {
 
         if (payBtn) {
             payBtn.onclick = () => {
-                const payUrl = invoiceData.pay_url;
-                const tg = window.Telegram?.WebApp;
-
-                try {
-                    if (tg && typeof tg.openLink === 'function') {
-                        tg.openLink(payUrl);
-                    } else {
-                        window.location.href = payUrl;
-                    }
-                } catch (e) {
-                    window.location.href = payUrl;
-                }
+                openTelegramWallet(invoiceData.pay_url);
             };
         }
 
@@ -173,14 +181,17 @@ window.depositModule = (function () {
 
             const data = await res.json();
             if (res.ok && data.success) {
-                alert(`🎉 ${data.message}\nرصيدك الجديد: $${data.new_balance.toFixed(2)} USDT`);
+                alert(`🎉 ${data.message}\nرصيد الدولار الجديد: $${data.new_balance.toFixed(2)} USDT`);
                 
+                // تحديث رصيد الدولار في حالة المستخدم البرمجية
                 if (window.userState) {
-                    window.userState.balance = data.new_balance;
+                    window.userState.usd_balance = data.new_balance;
+                    window.userState.usdt_balance = data.new_balance;
                 }
                 
-                const topBalanceElems = document.querySelectorAll('#user-balance, .user-balance, #usdt-balance, #top-balance-usd');
-                topBalanceElems.forEach(el => {
+                // تحديث كافة عناصر رصيد الدولار في الواجهة (عدم مس عناصر ZN)
+                const usdBalanceElems = document.querySelectorAll('#top-balance-usd, #usd-balance, .usd-balance, #usdt-balance, .usdt-balance');
+                usdBalanceElems.forEach(el => {
                     el.innerText = `$${data.new_balance.toFixed(2)}`;
                 });
 
