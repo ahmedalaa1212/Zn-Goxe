@@ -1,4 +1,3 @@
-
 from flask import Blueprint, jsonify, request, make_response
 from .deposit_db import (
     get_active_deposit_packages,
@@ -70,10 +69,10 @@ def create_invoice():
         wallet_address = get_official_ton_wallet()
         invoice = create_deposit_invoice(user_id, usdt_amount, ton_amount)
         
-        # رابط الفتح المباشر لمحفظة تلجرام الرسمية دون فتح Tonkeeper
+        # إنشاء رابط بروتوكول TON المباشر الذي تستجيب له محفظة تلجرام الرسمية natively
         nano_ton = int(ton_amount * 1e9)
         ton_url = f"ton://transfer/{wallet_address}?amount={nano_ton}&text={invoice['memo']}"
-        tg_wallet_url = "https://t.me/wallet"
+        tg_wallet_url = f"https://t.me/wallet?startattach=ton_transfer_{invoice['memo']}"
 
         return jsonify({
             'success': True,
@@ -82,7 +81,7 @@ def create_invoice():
             'ton_amount': ton_amount,
             'memo': invoice['memo'],
             'wallet_address': wallet_address,
-            'pay_url': tg_wallet_url,
+            'pay_url': ton_url,
             'ton_url': ton_url
         })
     except Exception as exc:
@@ -116,7 +115,7 @@ def confirm_payment():
                 'usd_balance': new_usd_balance
             })
         else:
-            return jsonify({'success': False, 'error': 'بيانات غير صحيحة'}), 400
+            return jsonify({'success': False, 'error': 'بيانات غير صحيحة أو مستخدم غير معروف'}), 400
 
     except Exception as exc:
         return jsonify({'success': False, 'error': str(exc)}), 500
