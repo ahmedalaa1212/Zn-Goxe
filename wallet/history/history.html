@@ -1,1 +1,350 @@
+<div class="history-page-wrapper dir-rtl">
+    <!-- Header & Nav Filters -->
+    <div class="history-header">
+        <div class="history-title-box">
+            <div class="history-icon">📜</div>
+            <div>
+                <h3 class="history-title">سجل المعاملات</h3>
+                <p class="history-subtitle">تابع جميع عمليات الإيداع والسحب الخاصة بك</p>
+            </div>
+        </div>
+
+        <!-- Filter Buttons -->
+        <div class="history-filters">
+            <button class="filter-btn active" data-filter="all" onclick="historyModule.filterHistory('all')">
+                الكل <span id="count-all" class="badge">0</span>
+            </button>
+            <button class="filter-btn deposit-filter" data-filter="deposit" onclick="historyModule.filterHistory('deposit')">
+                📥 إيداع <span id="count-deposit" class="badge">0</span>
+            </button>
+            <button class="filter-btn withdraw-filter" data-filter="withdraw" onclick="historyModule.filterHistory('withdraw')">
+                📤 سحب <span id="count-withdraw" class="badge">0</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- History Transactions List Container -->
+    <div id="history-list-container" class="history-list-container">
+        <!-- Loading Spinner -->
+        <div class="history-loading">
+            <div class="spinner"></div>
+            <span>جاري تحميل سجل المعاملات...</span>
+        </div>
+    </div>
+</div>
+
+<!-- Modal for Extended Transaction Details -->
+<div id="tx-details-modal" class="history-modal" style="display: none;">
+    <div class="history-modal-content">
+        <div class="modal-header">
+            <h4>تفاصيل المعاملة</h4>
+            <span class="close-btn" onclick="historyModule.closeModal()">&times;</span>
+        </div>
+        <div id="modal-tx-body" class="modal-body">
+            <!-- Dynamic Content Injected Here -->
+        </div>
+    </div>
+</div>
+
+<style>
+/* History Module Styles */
+.history-page-wrapper {
+    padding: 12px;
+    font-family: 'Tajawal', system-ui, -apple-system, sans-serif;
+    color: #f1f5f9;
+}
+
+.history-header {
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.9));
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 16px;
+    backdrop-filter: blur(10px);
+}
+
+.history-title-box {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.history-icon {
+    font-size: 28px;
+    background: rgba(56, 189, 248, 0.1);
+    padding: 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(56, 189, 248, 0.2);
+}
+
+.history-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.history-subtitle {
+    margin: 4px 0 0 0;
+    font-size: 12px;
+    color: #94a3b8;
+}
+
+/* Filter Nav */
+.history-filters {
+    display: flex;
+    gap: 8px;
+    background: rgba(15, 23, 42, 0.6);
+    padding: 4px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.filter-btn {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.filter-btn.active {
+    background: #0098EA;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(0, 152, 234, 0.3);
+}
+
+.filter-btn .badge {
+    background: rgba(255, 255, 255, 0.2);
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 11px;
+}
+
+/* List Items */
+.history-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.tx-card {
+    background: rgba(30, 41, 59, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    padding: 14px;
+    transition: transform 0.2s, border-color 0.2s;
+    position: relative;
+    overflow: hidden;
+}
+
+.tx-card:hover {
+    border-color: rgba(56, 189, 248, 0.3);
+    transform: translateY(-2px);
+}
+
+.tx-card-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.tx-type-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.tx-type-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+}
+
+.tx-type-icon.deposit {
+    background: rgba(52, 211, 153, 0.15);
+    color: #34d399;
+    border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.tx-type-icon.withdraw {
+    background: rgba(248, 113, 113, 0.15);
+    color: #f87171;
+    border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+.tx-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f8fafc;
+    margin: 0;
+}
+
+.tx-date {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 2px;
+}
+
+.tx-amount-group {
+    text-align: left;
+}
+
+.tx-amount {
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.tx-amount.deposit {
+    color: #34d399;
+}
+
+.tx-amount.withdraw {
+    color: #f87171;
+}
+
+.tx-status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 700;
+    margin-top: 4px;
+}
+
+.status-completed {
+    background: rgba(52, 211, 153, 0.1);
+    color: #34d399;
+    border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.status-pending {
+    background: rgba(251, 191, 36, 0.1);
+    color: #fbbf24;
+    border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.status-failed {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* Footer Section of Card */
+.tx-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+    padding-top: 8px;
+    margin-top: 8px;
+    font-size: 11px;
+    color: #94a3b8;
+}
+
+.tx-id-box {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(15, 23, 42, 0.5);
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-family: monospace;
+}
+
+.copy-btn {
+    cursor: pointer;
+    color: #38bdf8;
+    transition: color 0.2s;
+}
+
+.copy-btn:hover {
+    color: #60a5fa;
+}
+
+/* Failure Reason Box */
+.failure-reason-box {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-top: 8px;
+    font-size: 12px;
+    color: #fca5a5;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+/* Empty State & Loader */
+.history-empty, .history-loading {
+    text-align: center;
+    padding: 35px 20px;
+    color: #64748b;
+    background: rgba(30, 41, 59, 0.3);
+    border-radius: 16px;
+    border: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.spinner {
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border-left-color: #0098EA;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 10px auto;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Modal Styling */
+.history-modal {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(5px);
+    z-index: 999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.history-modal-content {
+    background: #0f172a;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 400px;
+    padding: 16px;
+}
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 10px;
+}
+.modal-header h4 { margin: 0; color: #fff; }
+.close-btn { font-size: 20px; cursor: pointer; color: #94a3b8; }
+</style>
 
