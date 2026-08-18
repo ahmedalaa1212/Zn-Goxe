@@ -23,7 +23,7 @@
     </div>
 
     <div id="deposit-packages-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; min-height: 180px;">
-        <!-- يتم بناء الباقات تلقائياً هنا من الفايربيس -->
+        <!-- يتم بناء الباقات تلقائياً هنا -->
     </div>
 
     <!-- نافذة تأكيد وتتبع الإيداع Modal -->
@@ -41,7 +41,7 @@
             <div style="background: rgba(0, 0, 0, 0.3); border-radius: 10px; padding: 10px; font-size: 11px; color: #cbd5e1; margin-bottom: 14px; text-align: right; word-break: break-all;">
                 <div style="color: #94a3b8; margin-bottom: 2px;">عنوان المحفظة:</div>
                 <div id="modal-wallet-address" style="font-family: monospace; color: #38bdf8; margin-bottom: 6px;">---</div>
-                <div style="color: #94a3b8; margin-bottom: 2px;">المعرف الخص الملاحظة (MEMO):</div>
+                <div style="color: #94a3b8; margin-bottom: 2px;">المعرف الخاص بالملاحظة (MEMO):</div>
                 <div id="modal-memo" style="font-family: monospace; color: #34d399;">---</div>
             </div>
 
@@ -60,4 +60,9 @@
     </div>
 </div>
 
+<script>
+    if (window.depositModule && typeof window.depositModule.init === 'function') {
+        window.depositModule.init();
+    }
+</script>
 <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onload="if(window.depositModule){window.depositModule.init();}else if(typeof window.init_deposit_module==='function'){window.init_deposit_module();}" style="display:none;" />
