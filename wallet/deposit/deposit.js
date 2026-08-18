@@ -1,12 +1,6 @@
 window.depositModule = (function () {
-    let tonPriceUsd = 1.32;
-    let currentPackages = [
-        { id: 1, usdt_amount: 0.5, name_ar: "باقة $0.5 USDT" },
-        { id: 2, usdt_amount: 1.5, name_ar: "باقة $1.5 USDT" },
-        { id: 3, usdt_amount: 5.0, name_ar: "باقة $5 USDT" },
-        { id: 4, usdt_amount: 10.0, name_ar: "باقة $10 USDT" },
-        { id: 5, usdt_amount: 15.0, name_ar: "باقة $15 USDT" }
-    ];
+    let tonPriceUsd = 1.30;
+    let currentPackages = [];
     let currentActiveInvoice = null;
 
     async function fetchTonLivePrice() {
@@ -34,16 +28,13 @@ window.depositModule = (function () {
             
             if (res.ok) {
                 const data = await res.json();
-                if (data.success && data.packages && data.packages.length > 0) {
-                    currentPackages = data.packages;
-                    renderPackages(data.packages);
-                } else if (data.packages) {
+                if (data.success && data.packages) {
                     currentPackages = data.packages;
                     renderPackages(data.packages);
                 }
             }
         } catch (err) {
-            console.warn("⚠️ تعذر جلب الباقات المحدثة:", err);
+            console.warn("⚠️ تعذر جلب باقات الفايربيس:", err);
         }
     }
 
@@ -51,9 +42,12 @@ window.depositModule = (function () {
         const grid = document.getElementById('deposit-packages-grid');
         if (!grid) return;
 
-        const listToRender = (packages && packages.length > 0) ? packages : currentPackages;
+        if (!packages || packages.length === 0) {
+            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 20px;">لا توجد باقات متاحة حالياً في الفايربيس</div>`;
+            return;
+        }
 
-        grid.innerHTML = listToRender.map(pkg => {
+        grid.innerHTML = packages.map(pkg => {
             const usdtVal = parseFloat(pkg.usdt_amount || 0);
             const tonEst = (usdtVal / tonPriceUsd).toFixed(3);
             return `
@@ -94,16 +88,7 @@ window.depositModule = (function () {
                 })
             });
 
-            let data;
-            const contentType = res.headers.get('content-type') || '';
-            if (contentType.includes('application/json')) {
-                data = await res.json();
-            } else {
-                const textData = await res.text();
-                console.error("استجابة غير متوقعة من الخادم:", textData);
-                alert("حدث خطأ في استجابة الخادم (" + res.status + ")");
-                return;
-            }
+            const data = await res.json();
 
             if (res.ok && data.success) {
                 currentActiveInvoice = data;
@@ -177,7 +162,6 @@ window.depositModule = (function () {
             if (res.ok && data.success) {
                 alert(`🎉 ${data.message}\nرصيدك الجديد: $${data.new_balance.toFixed(2)} USDT`);
                 
-                // تحديث الرصيد المعروض أعلى الشاشة وفي حالة النظام
                 if (window.userState) {
                     window.userState.balance = data.new_balance;
                 }
@@ -204,7 +188,6 @@ window.depositModule = (function () {
     }
 
     function init() {
-        renderPackages(currentPackages);
         fetchTonLivePrice();
         loadPackages();
     }
