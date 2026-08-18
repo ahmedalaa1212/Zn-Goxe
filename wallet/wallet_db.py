@@ -1,7 +1,16 @@
 import sqlite3
+import os
+import sys
+
+# توحيد مسار المشروع الرئيسي (Root) لجلب قاعدة SQLite
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../"))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+DB_PATH = os.path.join(ROOT_DIR, 'database.db')
 
 # ==================== Sub-Modules Re-exports ====================
-# ربط موديولات قواعد البيانات الفرعية للمحفظة (الإيداع، السجلات، السحب)
 try:
     from .deposit.deposit_db import *
 except Exception as e:
@@ -17,15 +26,13 @@ try:
 except Exception as e:
     print(f"⚠️ تنبيه أثناء تحميل withdraw_db في wallet_db: {e}")
 
-DB_PATH = 'database.db'
-
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
     return conn
 
 def get_user_wallet_balances(user_id: int) -> dict:
-    """استعلام آمن للأرصدة مع دعم مرن لجميع المسميات"""
+    """استعلام آمن للأرصدة من قاعدة البيانات الرئيسية"""
     conn = None
     try:
         conn = get_db_connection()
@@ -53,7 +60,7 @@ def get_user_wallet_balances(user_id: int) -> dict:
             conn.close()
 
 def update_user_balance(user_id: int, amount: float, currency: str = 'zn', operation: str = 'add') -> bool:
-    """تعديل آمن ومباشر للرصيد مع الحفاظ على تزامن الجداول بدون تعارض"""
+    """تعديل آمن ومباشر للرصيد مع الحفاظ على تزامن الجداول"""
     conn = None
     curr = str(currency).lower()
     
