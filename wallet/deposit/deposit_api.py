@@ -12,7 +12,6 @@ deposit_bp = Blueprint('deposit', __name__)
 
 @deposit_bp.route('/packages', methods=['GET', 'POST', 'OPTIONS'], strict_slashes=False)
 def get_packages():
-    """إجبار إنشاء المستند وقراءة الباقات المحدثة فورياً من الفايربيس"""
     if request.method == 'OPTIONS':
         return jsonify({'success': True}), 200
 
