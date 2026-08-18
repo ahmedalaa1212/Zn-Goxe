@@ -3,6 +3,7 @@ import uuid
 import os
 import sys
 import json
+import time
 
 # ضمان الوصول للمجلد الرئيسي (Root) لاستدعاء database.py ومجلد قاعدة البيانات
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -13,7 +14,11 @@ if ROOT_DIR not in sys.path:
 DB_PATH = os.path.join(ROOT_DIR, 'database.db')
 OFFICIAL_TON_WALLET = 'UQCK...VGtc'
 
-# يتم استخدام هذه الباقات الأولية لزرع المستند لأول مرة فقط داخل الفايربيس إن لم يكن موجوداً
+# كاش مؤقت لإعدادات الفايربيس لتوفير القراءات وتسرع الاستجابة
+_SETTINGS_CACHE = None
+_SETTINGS_CACHE_TIME = 0
+CACHE_TTL_SECONDS = 60  # إعادة التحديث كل 60 ثانية
+
 SEED_PACKAGES = [
     {'id': 1, 'usdt_amount': 0.5, 'is_active': True, 'sort_order': 1},
     {'id': 2, 'usdt_amount': 1.5, 'is_active': True, 'sort_order': 2},
@@ -74,26 +79,29 @@ def get_official_ton_wallet():
         return str(env_wallet).strip()
 
     try:
-        fs_db = get_firestore_db()
-        if fs_db:
-            doc = fs_db.collection('settings').document('deposit_settings').get()
-            if doc.exists:
-                data = doc.to_dict() or {}
-                if data.get('official_ton_wallet'):
-                    return str(data['official_ton_wallet'])
+        data = ensure_firebase_deposit_settings()
+        if data.get('official_ton_wallet'):
+            return str(data['official_ton_wallet'])
     except Exception as e:
-        print(f"⚠️ خطأ جلب المحفظة من الفايربيس: {e}")
+        print(f"⚠️ خطأ جلب المحفظة: {e}")
         
     return OFFICIAL_TON_WALLET
 
 def ensure_firebase_deposit_settings():
     """
     التحقق من وجود مستند settings/deposit_settings في الفايربيس.
-    إذا لم يكن موجوداً، يتم إنشاؤه لأول مرة تلقائياً.
+    استخدام نظام الكاش لتقليل قراءات الفايربيس وتسريع استجابة البوت.
     """
+    global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
+    now = time.time()
+
+    # ارجاع الكاش فوراً إذا كان صالحاً
+    if _SETTINGS_CACHE and (now - _SETTINGS_CACHE_TIME < CACHE_TTL_SECONDS):
+        return _SETTINGS_CACHE
+
     fs_db = get_firestore_db()
     if not fs_db:
-        print("⚠️ [deposit_db] تعذر الاتصال بقاعدة الفايربيس (Firestore)، سيتم الاعتماد على الباقات الافتراضية مؤقتاً.")
+        print("⚠️ [deposit_db] تعذر الاتصال بقاعدة الفايربيس، سيتم الاعتماد على الباقات الافتراضية مؤقتاً.")
         return {'official_ton_wallet': OFFICIAL_TON_WALLET, 'packages': SEED_PACKAGES}
 
     try:
@@ -101,16 +109,24 @@ def ensure_firebase_deposit_settings():
         doc = doc_ref.get()
 
         if not doc.exists:
-            wallet_to_save = get_official_ton_wallet()
+            wallet_to_save = OFFICIAL_TON_WALLET
+            env_w = os.getenv('PROJECT_WALLET') or os.environ.get('PROJECT_WALLET')
+            if env_w and str(env_w).strip():
+                wallet_to_save = str(env_w).strip()
+
             initial_data = {
                 'official_ton_wallet': wallet_to_save,
                 'packages': SEED_PACKAGES
             }
             doc_ref.set(initial_data)
+            _SETTINGS_CACHE = initial_data
+            _SETTINGS_CACHE_TIME = now
             print("🔥 [Firebase Success] تم إنشاء مستند settings/deposit_settings بنجاح في الفايربيس تلقائياً!")
             return initial_data
         else:
-            return doc.to_dict() or {}
+            _SETTINGS_CACHE = doc.to_dict() or {}
+            _SETTINGS_CACHE_TIME = now
+            return _SETTINGS_CACHE
     except Exception as e:
         print(f"⚠️ خطأ في إنشاء أو جلب مستند الفايربيس: {e}")
         return {'official_ton_wallet': OFFICIAL_TON_WALLET, 'packages': SEED_PACKAGES}
@@ -221,27 +237,30 @@ def create_deposit_invoice(user_id: int, usdt_amount: float, ton_amount: float) 
             conn.close()
 
 def credit_user_balance(user_id: int, usdt_amount: float) -> float:
-    """تحديث رصيد الدولار (USD / USDT) فقط للمستخدم بالفايربيس والـ SQLite وعدم مس رصيد ZN"""
+    """تحديث آمن ورصين لرصيد الدولار فقط للمستخدم بالفايربيس والـ SQLite ودون مس رصيد ZN"""
     if not user_id:
         return 0.0
 
     new_usd_balance = 0.0
     
-    # 1. تحديث رصيد الدولار في الفايربيس
+    # 1. تحديث آمن في الفايربيس باستخدام Increment لحماية التزامن
     try:
         fs_db = get_firestore_db()
         if fs_db:
+            from firebase_admin import firestore
             user_ref = fs_db.collection('users').document(str(user_id))
             doc = user_ref.get()
+            
             if doc.exists:
-                data = doc.to_dict() or {}
-                # جلب رصيد الدولار فقط (عدم استخدام balance الخاصة بـ ZN)
-                current_usd = float(data.get('usd_balance', 0.0) or data.get('usdt_balance', 0.0))
-                new_usd_balance = current_usd + usdt_amount
                 user_ref.update({
-                    'usd_balance': new_usd_balance,
-                    'usdt_balance': new_usd_balance
+                    'usd_balance': firestore.Increment(usdt_amount),
+                    'usdt_balance': firestore.Increment(usdt_amount)
                 })
+                # قراءة الرصيد الجديد بعد التحديث
+                updated_doc = user_ref.get()
+                if updated_doc.exists:
+                    data = updated_doc.to_dict() or {}
+                    new_usd_balance = float(data.get('usd_balance', 0.0) or data.get('usdt_balance', 0.0))
             else:
                 new_usd_balance = usdt_amount
                 user_ref.set({
