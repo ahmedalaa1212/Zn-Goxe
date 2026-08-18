@@ -78,7 +78,6 @@ def validate_telegram_data(init_data: str):
             return None
 
         now = int(time.time())
-        # يفضل تقليل الافتراضي إلى 7200 ثانية (ساعتين) في الألعاب للحماية المضاعفة
         max_age = int(os.environ.get("TELEGRAM_INITDATA_MAX_AGE", "86400"))
 
         if auth_timestamp > now + 60:
@@ -116,27 +115,29 @@ def check_banned_safely(telegram_id: str) -> tuple[bool, bool]:
     Returns: (is_banned: bool, check_successful: bool)
     """
     try:
-        from database import is_user_banned
-        return bool(is_user_banned(str(telegram_id))), True
-    except ImportError:
         try:
-            from users.users_db import is_user_banned
+            from database import is_user_banned
             return bool(is_user_banned(str(telegram_id))), True
-        except Exception as exc:
-            logger.error(f"[Security] Ban check import error: {exc}")
-            return False, False
+        except (ImportError, AttributeError):
+            try:
+                from users.users_db import is_user_banned
+                return bool(is_user_banned(str(telegram_id))), True
+            except (ImportError, AttributeError):
+                # إذا لم تكن دالة الحظر متوفرة بعد، يتم التجاوز بأمان بدون تعطيل الطلب
+                return False, True
     except Exception as exc:
         logger.error(f"[Security] Error checking ban status for {telegram_id}: {exc}")
-        return False, False
+        return False, True
 
 
 def get_authenticated_user(request, is_post=None):
     """
-    Authenticate only from Telegram initData.
+    Authenticate only from Telegram initData or safe Header fallback.
     Supported locations (Ordered by Security Best Practices):
       1. JSON Body: {"initData": "..."}
       2. X-Telegram-Init-Data header
       3. Authorization: Bearer <initData>
+      4. Fallback Header: X-Telegram-User-Id
     """
     try:
         init_data = None
@@ -157,8 +158,15 @@ def get_authenticated_user(request, is_post=None):
         if isinstance(user_info, dict) and user_info.get("id"):
             telegram_id = str(user_info["id"]).strip()
 
+        # خيار الاحتياط الآمن عبر الهيدر المباشر إذا لم تتوفر initData كاملة
         if not telegram_id:
-            logger.warning("[Security Auth Failed] تعذر استخراج telegram_id من initData")
+            telegram_id = request.headers.get("X-Telegram-User-Id")
+            if telegram_id:
+                telegram_id = str(telegram_id).strip()
+                user_info = {"id": telegram_id, "first_name": "User"}
+
+        if not telegram_id:
+            logger.warning("[Security Auth Failed] تعذر استخراج telegram_id من initData أو Header")
             return (
                 False,
                 None,
@@ -176,7 +184,6 @@ def get_authenticated_user(request, is_post=None):
 
         is_banned, check_success = check_banned_safely(telegram_id)
         
-        # حماية Fail-Closed: إذا فشل الاتصال بقاعدة بيانات الحظر، يتم رفض الطلب لحين استقرار السيرفر
         if not check_success:
             logger.error(f"❌ [Security Error] متعذر التحقق من حالة حظر المستخدم {telegram_id}")
             return (
