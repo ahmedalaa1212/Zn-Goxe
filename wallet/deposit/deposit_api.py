@@ -36,7 +36,6 @@ def get_packages():
             'error': f"فشل الاتصال بقاعدة البيانات: {str(exc)}"
         }), 500
 
-# المرحلة 2: تجهيز بيانات المعاملة (Backend Prepare)
 @deposit_bp.route('/prepare_ton_pay', methods=['POST', 'OPTIONS'], strict_slashes=False)
 @deposit_bp.route('/create_invoice', methods=['GET', 'POST', 'OPTIONS'], strict_slashes=False)
 def prepare_ton_pay():
@@ -71,7 +70,7 @@ def prepare_ton_pay():
                 usdt_amount = 0.5
 
         ton_amount = round(usdt_amount / ton_price, 4)
-        nano_ton = int(round(ton_amount * 1e9))  # التحويل لـ NanoTON مع الحفاظ على الدقة
+        nano_ton = int(round(ton_amount * 1e9))
 
         wallet_address = get_official_ton_wallet()
         invoice = create_deposit_invoice(user_id, usdt_amount, ton_amount)
@@ -96,7 +95,6 @@ def prepare_ton_pay():
             'error': f"فشل تجهيز المعاملة: {str(exc)}"
         }), 500
 
-# المرحلة 4: التحقق والتطبيق الآمن (Verify & Apply)
 @deposit_bp.route('/verify_and_apply', methods=['POST', 'OPTIONS'], strict_slashes=False)
 @deposit_bp.route('/verify_and_apply_package', methods=['POST', 'OPTIONS'], strict_slashes=False)
 @deposit_bp.route('/confirm_payment', methods=['GET', 'POST', 'OPTIONS'], strict_slashes=False)
