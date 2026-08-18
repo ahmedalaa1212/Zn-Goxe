@@ -95,7 +95,6 @@ def ensure_firebase_deposit_settings():
     global _SETTINGS_CACHE, _SETTINGS_CACHE_TIME
     now = time.time()
 
-    # ارجاع الكاش فوراً إذا كان صالحاً
     if _SETTINGS_CACHE and (now - _SETTINGS_CACHE_TIME < CACHE_TTL_SECONDS):
         return _SETTINGS_CACHE
 
@@ -158,7 +157,6 @@ def init_deposit_tables():
             )
         ''')
 
-        # ضمان وجود عمود usd_balance في الجداول القديمة
         try:
             cursor.execute("ALTER TABLE users ADD COLUMN usd_balance REAL DEFAULT 0.0")
         except Exception:
@@ -243,7 +241,6 @@ def credit_user_balance(user_id: int, usdt_amount: float) -> float:
 
     new_usd_balance = 0.0
     
-    # 1. تحديث آمن في الفايربيس باستخدام Increment لحماية التزامن
     try:
         fs_db = get_firestore_db()
         if fs_db:
@@ -256,7 +253,6 @@ def credit_user_balance(user_id: int, usdt_amount: float) -> float:
                     'usd_balance': firestore.Increment(usdt_amount),
                     'usdt_balance': firestore.Increment(usdt_amount)
                 })
-                # قراءة الرصيد الجديد بعد التحديث
                 updated_doc = user_ref.get()
                 if updated_doc.exists:
                     data = updated_doc.to_dict() or {}
@@ -270,7 +266,6 @@ def credit_user_balance(user_id: int, usdt_amount: float) -> float:
     except Exception as e:
         print(f"⚠️ خطأ تحديث رصيد الفايربيس: {e}")
 
-    # 2. تحديث رصيد الدولار في SQLite المحلي
     conn = None
     try:
         conn = get_db_connection()
