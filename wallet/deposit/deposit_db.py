@@ -19,53 +19,57 @@ def get_db_connection():
     return conn
 
 def get_firestore_db():
-    """جلب اتصال الفايربيس بجميع الطرق الممكنة لضمان التوصيل المباشر"""
-    try:
-        import database
-        if hasattr(database, 'get_db'):
-            db_inst = database.get_db()
-            if db_inst:
-                return db_inst
-        if hasattr(database, 'db') and database.db is not None:
-            return database.db
-    except Exception as e:
-        print(f"⚠️ [Firebase Import database.py]: {e}")
-
+    """جلب اتصال الفايربيس القوي والمباشر لمنع السقوط في المحاكي المحلي"""
     try:
         import firebase_admin
         from firebase_admin import firestore
         if firebase_admin._apps:
             return firestore.client()
     except Exception as e:
-        print(f"⚠️ [Firebase Admin Direct]: {e}")
+        print(f"⚠️ [Firebase Direct Client Error]: {e}")
+
+    try:
+        import database
+        if hasattr(database, 'db') and database.db is not None:
+            return database.db
+        if hasattr(database, 'get_db'):
+            db_inst = database.get_db()
+            if db_inst:
+                return db_inst
+    except Exception as e:
+        print(f"⚠️ [Firebase Import database.py Error]: {e}")
 
     return None
 
 def get_official_ton_wallet():
-    """جلب عنوان المحفظة الرسمية أولاً من متغيرات البيئة Railway Variables للأمان"""
+    """جلب عنوان المحفظة من متغير البيئة في Railway أولاً ثم الفايربيس"""
     env_wallet = os.getenv('PROJECT_WALLET') or os.environ.get('PROJECT_WALLET')
     if env_wallet and str(env_wallet).strip():
         return str(env_wallet).strip()
 
     try:
-        data = ensure_firebase_deposit_settings()
-        if data and data.get('official_ton_wallet'):
-            return str(data['official_ton_wallet'])
+        fs_db = get_firestore_db()
+        if fs_db:
+            doc = fs_db.collection('settings').document('deposit_settings').get()
+            if doc.exists:
+                data = doc.to_dict() or {}
+                if data.get('official_ton_wallet'):
+                    return str(data['official_ton_wallet'])
     except Exception as e:
         print(f"⚠️ خطأ جلب المحفظة من الفايربيس: {e}")
+        
     return OFFICIAL_TON_WALLET
 
 def ensure_firebase_deposit_settings():
-    """إجبار إنشاء مستند deposit_settings داخل مجموعة settings في الفايربيس فوراً"""
+    """إجبار إنشاء مستند deposit_settings داخل settings بالفايربيس فورا عند عدم وجوده"""
+    fs_db = get_firestore_db()
+    if not fs_db:
+        print("❌ [Firebase Connection Error]: لم يتم الوصول لقاعدة الفايربيس")
+        return None
+    
     try:
-        fs_db = get_firestore_db()
-        if not fs_db:
-            print("❌ [Firebase] تعذر الوصول للفايربيس")
-            return None
-        
         doc_ref = fs_db.collection('settings').document('deposit_settings')
         doc = doc_ref.get()
-        
         wallet_to_save = get_official_ton_wallet()
 
         if not doc.exists:
@@ -74,20 +78,20 @@ def ensure_firebase_deposit_settings():
                 'packages': DEFAULT_PACKAGES
             }
             doc_ref.set(initial_data)
-            print("🔥 [Firebase] تم إنشاء مستند settings/deposit_settings بنجاح في الفايربيس!")
+            print("🔥 [Firebase Success] تم إنشاء مستند settings/deposit_settings بنجاح في الفايربيس الآن!")
             return initial_data
         else:
             data = doc.to_dict() or {}
-            if 'packages' not in data or not data['packages']:
+            if 'packages' not in data or data['packages'] is None:
                 doc_ref.set({'packages': DEFAULT_PACKAGES, 'official_ton_wallet': wallet_to_save}, merge=True)
                 data['packages'] = DEFAULT_PACKAGES
             return data
     except Exception as e:
-        print(f"❌ [Firebase Error] أثناء الكشف/الإنشاء: {e}")
+        print(f"❌ [Firebase Deposit Settings Error]: {e}")
         return None
 
 def init_deposit_tables():
-    """تجهيز جداول SQLite المحلية للاحتياط وحفظ المستخدمين والرصيد"""
+    """تحديث وتجهيز الجداول المحلية"""
     conn = None
     try:
         conn = get_db_connection()
@@ -129,79 +133,37 @@ def init_deposit_tables():
         if conn:
             conn.close()
 
-def sync_sqlite_with_firebase(packages):
-    """تحديث قاعدة البيانات المحلية بالبيانات الجديدة من الفايربيس"""
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM deposit_packages")
-        for p in packages:
-            cursor.execute(
-                "INSERT INTO deposit_packages (id, usdt_amount, name_ar, is_active, sort_order) VALUES (?, ?, ?, ?, ?)",
-                (int(p['id']), float(p['usdt_amount']), str(p['name_ar']), 1 if p.get('is_active') else 0, int(p.get('sort_order', 0)))
-            )
-        conn.commit()
-    except Exception as e:
-        print(f"⚠️ خطأ تحديث SQLite المحلي: {e}")
-    finally:
-        if conn:
-            conn.close()
-
 def get_active_deposit_packages():
-    """جلب الباقات المتاحة وتكوين الاسم تلقائياً بناءً على السعر المكتوب بالفايربيس"""
+    """جلب الباقات مباشرة ومحصورة بالبيانات المكتوبة داخل الفايربيس فقط"""
     init_deposit_tables()
+    data = ensure_firebase_deposit_settings()
     
-    try:
-        data = ensure_firebase_deposit_settings()
-        if data and 'packages' in data:
-            raw_pkgs = data.get('packages', [])
-            packages = []
-            
-            for p in raw_pkgs:
-                is_active = p.get('is_active', True)
-                if is_active is True or str(is_active).lower() == 'true' or str(is_active) == '1':
-                    try:
-                        pkg_id = int(p.get('id', 0))
-                        usdt_amt = float(p.get('usdt_amount', 0))
-                        # ربط الاسم تلقائياً بالسعر دون الحاجة لتغيير الاسم يدوي في الفايربيس
-                        dynamic_name = f"باقة ${usdt_amt} USDT"
-                        sort_order = int(p.get('sort_order', 0))
+    if data and 'packages' in data:
+        raw_pkgs = data.get('packages', [])
+        packages = []
+        
+        for p in raw_pkgs:
+            is_active = p.get('is_active', True)
+            if is_active is True or str(is_active).lower() == 'true' or str(is_active) == '1':
+                try:
+                    pkg_id = int(p.get('id', 0))
+                    usdt_amt = float(p.get('usdt_amount', 0))
+                    dynamic_name = f"باقة ${usdt_amt} USDT"
+                    sort_order = int(p.get('sort_order', 0))
 
-                        packages.append({
-                            'id': pkg_id,
-                            'usdt_amount': usdt_amt,
-                            'name_ar': dynamic_name,
-                            'is_active': True,
-                            'sort_order': sort_order
-                        })
-                    except (ValueError, TypeError) as err:
-                        print(f"⚠️ خطأ في قراءة باقة: {err}")
-                        continue
+                    packages.append({
+                        'id': pkg_id,
+                        'usdt_amount': usdt_amt,
+                        'name_ar': dynamic_name,
+                        'is_active': True,
+                        'sort_order': sort_order
+                    })
+                except (ValueError, TypeError) as err:
+                    print(f"⚠️ خطأ قراءة باقة: {err}")
+                    continue
 
-            if packages:
-                packages.sort(key=lambda x: x.get('sort_order', 0))
-                sync_sqlite_with_firebase(packages)
-                return packages
-    except Exception as e:
-        print(f"⚠️ فشل جلب الباقات من الفايربيس: {e}")
-
-    # احتياطي محلي في حال تعذر الاتصال بالفايربيس
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM deposit_packages WHERE is_active = 1 ORDER BY sort_order ASC")
-        rows = cursor.fetchall()
-        if rows:
-            res = []
-            for row in rows:
-                r = dict(row)
-                r['name_ar'] = f"باقة ${r['usdt_amount']} USDT"
-                res.append(r)
-            return res
-    except Exception as e:
-        pass
+        packages.sort(key=lambda x: x.get('sort_order', 0))
+        return packages
 
     return DEFAULT_PACKAGES
 
@@ -234,20 +196,19 @@ def create_deposit_invoice(user_id: int, usdt_amount: float, ton_amount: float) 
             'memo': memo
         }
     except Exception as e:
-        print(f"⚠️ خطأ أثناء إنشاء الفاتورة: {e}")
+        print(f"⚠️ خطأ إنشاء الفاتورة: {e}")
         return {'memo': memo, 'invoice_id': 0, 'usdt_amount': usdt_amount, 'ton_amount': ton_amount}
     finally:
         if conn:
             conn.close()
 
 def credit_user_balance(user_id: int, usdt_amount: float) -> float:
-    """إضافة المبلغ إلى رصيد المستخدم في قاعدة البيانات والفايربيس"""
+    """إضافة الرصيد مباشرة بالفايربيس و SQLite"""
     if not user_id:
         return 0.0
 
     new_balance = 0.0
     
-    # 1. التحديث في الفايربيس
     try:
         fs_db = get_firestore_db()
         if fs_db:
@@ -262,9 +223,8 @@ def credit_user_balance(user_id: int, usdt_amount: float) -> float:
                 new_balance = usdt_amount
                 user_ref.set({'balance': new_balance, 'usdt_balance': new_balance}, merge=True)
     except Exception as e:
-        print(f"⚠️ خطأ إضافة الرصيد في الفايربيس: {e}")
+        print(f"⚠️ خطأ تحديث رصيد الفايربيس: {e}")
 
-    # 2. التحديث في SQLite المحلي
     conn = None
     try:
         conn = get_db_connection()
@@ -282,7 +242,7 @@ def credit_user_balance(user_id: int, usdt_amount: float) -> float:
             cursor.execute("INSERT INTO users (tg_id, balance) VALUES (?, ?)", (user_id, new_balance))
         conn.commit()
     except Exception as e:
-        print(f"⚠️ خطأ إضافة الرصيد في SQLite: {e}")
+        print(f"⚠️ خطأ تحديث رصيد SQLite: {e}")
     finally:
         if conn:
             conn.close()
@@ -290,7 +250,3 @@ def credit_user_balance(user_id: int, usdt_amount: float) -> float:
     return new_balance
 
 init_deposit_tables()
-try:
-    ensure_firebase_deposit_settings()
-except Exception:
-    pass
