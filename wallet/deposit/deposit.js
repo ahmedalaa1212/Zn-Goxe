@@ -318,10 +318,9 @@ window.depositModule = (function () {
                 
                 if (window.userState) {
                     window.userState.usd_balance = verifyData.new_balance;
-                    window.userState.usdt_balance = verifyData.new_balance;
                 }
                 
-                const usdBalanceElems = document.querySelectorAll('#top-balance-usd, #usd-balance, .usd-balance, #usdt-balance, .usdt-balance, #user-balance');
+                const usdBalanceElems = document.querySelectorAll('#top-balance-usd, #usd-balance, .usd-balance, #user-balance');
                 usdBalanceElems.forEach(el => {
                     el.innerText = `$${updatedBalance}`;
                 });
