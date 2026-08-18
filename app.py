@@ -22,75 +22,60 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app').strip().rstrip('/')
 
 # ==========================================
-# 🔌 تسجيل موديولات المسارات (Blueprints)
+# 🔌 دالة استدعاء الموديولات الموحدة والآمنة
 # ==========================================
-
-# الدوال الاستعراضية مع المحافظة على الأمان والاستدعاء المرن
-def safe_import_blueprint(module_name, blueprint_name):
+def safe_import_blueprint(module_path, blueprint_name):
+    """
+    استدعاء آمن لـ Blueprint سواء كان في مجلد رئيسي أو فرعي دون إيقاف السيرفر.
+    """
     try:
-        mod = __import__(f"{module_name}.{module_name}_api", fromlist=[blueprint_name])
+        mod = __import__(module_path, fromlist=[blueprint_name])
         return getattr(mod, blueprint_name)
     except Exception:
         try:
-            mod = __import__(f"{module_name}_api", fromlist=[blueprint_name])
+            mod = __import__(f"{module_path}.{module_path}_api", fromlist=[blueprint_name])
             return getattr(mod, blueprint_name)
+        except Exception:
+            try:
+                mod = __import__(f"{module_path}_api", fromlist=[blueprint_name])
+                return getattr(mod, blueprint_name)
+            except Exception:
+                return None
+
+# ==========================================
+# 🔌 قائمة تسجيل الموديولات (Blueprints)
+# ==========================================
+blueprints_config = [
+    # (مسار الموديول/المجلد, اسم الـ Blueprint, بادئة المسار)
+    ('farm', 'farm_bp', '/api/farm'),
+    ('settings', 'settings_bp', '/api/settings'),
+    ('friends', 'friends_bp', '/api/friends'),
+    ('tasks', 'tasks_bp', '/api/tasks'),
+    ('shop', 'shop_bp', '/api/shop'),
+    ('support', 'support_bp', '/api/support'),
+    ('admin_chat', 'admin_chat_bp', '/api/admin-chat'),
+    
+    # 💳 موديولات المحفظة (الرئيسية والفرعية)
+    ('wallet', 'wallet_bp', '/api/wallet'),
+    ('wallet.deposit.deposit_api', 'deposit_bp', '/api/wallet/deposit'),
+    ('wallet.withdraw.withdraw_api', 'withdraw_bp', '/api/wallet/withdraw'),
+    ('wallet.history.history_api', 'history_bp', '/api/wallet/history'),
+    ('wallet.exchange.exchange_api', 'exchange_bp', '/api/wallet/exchange'),
+    
+    # ⚡ موديولات الألعاب (الرئيسية والفرعية)
+    ('games', 'games_bp', '/api/games'),
+    ('games.card_api', 'card_bp', '/api/games/card'),
+]
+
+# تنفيذ التسجيل التلقائي للموديولات
+for mod_path, bp_name, prefix in blueprints_config:
+    bp = safe_import_blueprint(mod_path, bp_name)
+    if bp:
+        try:
+            app.register_blueprint(bp, url_prefix=prefix)
+            print(f"✅ تم تسجيل الموديول: {bp_name} على المسار {prefix}")
         except Exception as e:
-            print(f"⚠️ فشل استدعاء {module_name}: {e}")
-            return None
-
-farm_bp = safe_import_blueprint('farm', 'farm_bp')
-settings_bp = safe_import_blueprint('settings', 'settings_bp')
-friends_bp = safe_import_blueprint('friends', 'friends_bp')
-tasks_bp = safe_import_blueprint('tasks', 'tasks_bp')
-shop_bp = safe_import_blueprint('shop', 'shop_bp')
-support_bp = safe_import_blueprint('support', 'support_bp')
-admin_chat_bp = safe_import_blueprint('admin_chat', 'admin_chat_bp')
-
-if farm_bp: app.register_blueprint(farm_bp, url_prefix='/api/farm')
-if settings_bp: app.register_blueprint(settings_bp, url_prefix='/api/settings')
-if friends_bp: app.register_blueprint(friends_bp, url_prefix='/api/friends')
-if tasks_bp: app.register_blueprint(tasks_bp, url_prefix='/api/tasks')
-if shop_bp: app.register_blueprint(shop_bp, url_prefix='/api/shop')
-if support_bp: app.register_blueprint(support_bp, url_prefix='/api/support')
-if admin_chat_bp: app.register_blueprint(admin_chat_bp, url_prefix='/api/admin-chat')
-
-# 💳 تسجيل موديول المحفظة الرئيسي بشكل نقي وقوي جداً
-wallet_bp = None
-try:
-    from wallet.wallet_api import wallet_bp
-except ImportError:
-    try:
-        from wallet_api import wallet_bp
-    except ImportError as e:
-        print(f"❌ تعذر استدعاء ملف wallet_api: {e}")
-
-if wallet_bp:
-    try:
-        app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
-        print("✅ تم تسجيل موديول المحفظة (wallet_bp) بنجاح على /api/wallet!")
-    except Exception as e:
-        print(f"❌ تعذر تسجيل موديول المحفظة في Flask: {e}")
-
-# 📥 تسجيل موديول الإيداع الفرعي (deposit_bp) مباشرة لضمان الربط التام مع API الإيداع
-try:
-    from wallet.deposit.deposit_api import deposit_bp
-    app.register_blueprint(deposit_bp, url_prefix='/api/wallet/deposit')
-    print("✅ تم تسجيل موديول الإيداع (deposit_bp) بنجاح على /api/wallet/deposit!")
-except Exception as e:
-    try:
-        from deposit_api import deposit_bp
-        app.register_blueprint(deposit_bp, url_prefix='/api/wallet/deposit')
-        print("✅ تم تسجيل موديول الإيداع (deposit_bp) بنجاح!")
-    except Exception as ex:
-        print(f"⚠️ تعذر تسجيل deposit_bp بشكل منفصل: {ex}")
-
-# ⚡ تسجيل موديول الألعاب بشكل آمن
-try:
-    from games.games_api import games_bp
-    app.register_blueprint(games_bp)
-    print("✅ تم تسجيل موديول الألعاب الرئيسي (games_bp) بنجاح!")
-except Exception as e:
-    print(f"⚠️ مجلد الألعاب غير موجود أو به خطأ، تم تخطيه: {e}")
+            print(f"⚠️ خطأ أثناء تسجيل {bp_name}: {e}")
 
 # ==========================================
 # 🌐 مسارات الخدمة والمستخدم الأساسية
@@ -183,7 +168,7 @@ def get_user_info_main():
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب بيانات الحساب"}), 500
 
 # ==========================================
-# 🔒 الأمان وحماية الملفات والحجم
+# 🔒 الأمان وحماية الملفات
 # ==========================================
 
 @app.after_request
