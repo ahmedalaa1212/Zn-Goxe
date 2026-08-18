@@ -71,6 +71,19 @@ if wallet_bp:
     except Exception as e:
         print(f"❌ تعذر تسجيل موديول المحفظة في Flask: {e}")
 
+# 📥 تسجيل موديول الإيداع الفرعي (deposit_bp) مباشرة لضمان الربط التام مع API الإيداع
+try:
+    from wallet.deposit.deposit_api import deposit_bp
+    app.register_blueprint(deposit_bp, url_prefix='/api/wallet/deposit')
+    print("✅ تم تسجيل موديول الإيداع (deposit_bp) بنجاح على /api/wallet/deposit!")
+except Exception as e:
+    try:
+        from deposit_api import deposit_bp
+        app.register_blueprint(deposit_bp, url_prefix='/api/wallet/deposit')
+        print("✅ تم تسجيل موديول الإيداع (deposit_bp) بنجاح!")
+    except Exception as ex:
+        print(f"⚠️ تعذر تسجيل deposit_bp بشكل منفصل: {ex}")
+
 # ⚡ تسجيل موديول الألعاب بشكل آمن
 try:
     from games.games_api import games_bp
