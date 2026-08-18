@@ -137,8 +137,7 @@ def verify_and_apply():
                 'success': True,
                 'message': 'تمت عملية الدفع بنجاح وزيادة الرصيد!',
                 'new_balance': new_usd_balance,
-                'usd_balance': new_usd_balance,
-                'usdt_balance': new_usd_balance
+                'usd_balance': new_usd_balance
             })
         except ValueError as val_err:
             return jsonify({
