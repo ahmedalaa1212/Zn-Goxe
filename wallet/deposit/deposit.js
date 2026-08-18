@@ -61,7 +61,6 @@ window.depositModule = (function () {
         grid.innerHTML = packages.map(pkg => {
             const usdtVal = parseFloat(pkg.usdt_amount || 0);
             const tonEst = (usdtVal / tonPriceUsd).toFixed(3);
-            // توليد عنوان الباقة تلقائياً بناءً على سعر usdt_amount حصراً
             const titleName = `باقة $${usdtVal} USDT`;
 
             return `
@@ -107,7 +106,7 @@ window.depositModule = (function () {
             if (res.ok && data.success) {
                 currentActiveInvoice = data;
                 openModal(data);
-                // فتح المحفظة تلقائياً للتسهيل فور الضغط
+                // توجيه آمن عبر Telegram WebApp SDK لمنع خطأ ERR_UNKNOWN_URL_SCHEME
                 openTelegramWallet(data.pay_url);
             } else {
                 alert(data.error || "تعذر إنشاء طلب الشحن");
@@ -122,15 +121,16 @@ window.depositModule = (function () {
         if (!payUrl) return;
         const tg = window.Telegram?.WebApp;
         try {
-            if (tg && typeof tg.openTelegramLink === 'function' && payUrl.startsWith('https://t.me/')) {
+            if (tg && typeof tg.openLink === 'function') {
+                // فتح الرابط بأمان في متصفح خارجي أو محفظة النظام دون توقف التطبيق
+                tg.openLink(payUrl, { try_instant_view: false });
+            } else if (tg && typeof tg.openTelegramLink === 'function' && payUrl.startsWith('https://t.me/')) {
                 tg.openTelegramLink(payUrl);
-            } else if (tg && typeof tg.openLink === 'function') {
-                tg.openLink(payUrl);
             } else {
-                window.location.href = payUrl;
+                window.open(payUrl, '_blank');
             }
         } catch (e) {
-            window.location.href = payUrl;
+            console.warn("⚠️ تعذر فتح المحفظة تلقائياً:", e);
         }
     }
 
@@ -154,6 +154,15 @@ window.depositModule = (function () {
         }
 
         if (modal) modal.style.display = 'flex';
+    }
+
+    function copyToClipboard(text, label) {
+        if (!text) return;
+        navigator.clipboard.writeText(text).then(() => {
+            alert(`✅ تم نسخ ${label} بنجاح!`);
+        }).catch(() => {
+            alert(`القيم المراد نسخها: ${text}`);
+        });
     }
 
     async function confirmAndAddBalance() {
@@ -183,13 +192,11 @@ window.depositModule = (function () {
             if (res.ok && data.success) {
                 alert(`🎉 ${data.message}\nرصيد الدولار الجديد: $${data.new_balance.toFixed(2)} USDT`);
                 
-                // تحديث رصيد الدولار في حالة المستخدم البرمجية
                 if (window.userState) {
                     window.userState.usd_balance = data.new_balance;
                     window.userState.usdt_balance = data.new_balance;
                 }
                 
-                // تحديث كافة عناصر رصيد الدولار في الواجهة (عدم مس عناصر ZN)
                 const usdBalanceElems = document.querySelectorAll('#top-balance-usd, #usd-balance, .usd-balance, #usdt-balance, .usdt-balance');
                 usdBalanceElems.forEach(el => {
                     el.innerText = `$${data.new_balance.toFixed(2)}`;
@@ -220,7 +227,8 @@ window.depositModule = (function () {
         init,
         selectPackage,
         confirmAndAddBalance,
-        closeModal
+        closeModal,
+        copyToClipboard
     };
 })();
 
