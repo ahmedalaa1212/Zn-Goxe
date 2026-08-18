@@ -69,9 +69,10 @@ def create_invoice():
         wallet_address = get_official_ton_wallet()
         invoice = create_deposit_invoice(user_id, usdt_amount, ton_amount)
         
-        # رابط محفظة TON المباشر
+        # إنشاء روابط عالمية متوافقة لتفادي ERR_UNKNOWN_URL_SCHEME
         nano_ton = int(ton_amount * 1e9)
-        pay_url = f"ton://transfer/{wallet_address}?amount={nano_ton}&text={invoice['memo']}"
+        ton_url = f"ton://transfer/{wallet_address}?amount={nano_ton}&text={invoice['memo']}"
+        universal_url = f"https://app.tonkeeper.com/transfer/{wallet_address}?amount={nano_ton}&text={invoice['memo']}"
 
         return jsonify({
             'success': True,
@@ -80,7 +81,8 @@ def create_invoice():
             'ton_amount': ton_amount,
             'memo': invoice['memo'],
             'wallet_address': wallet_address,
-            'pay_url': pay_url
+            'pay_url': universal_url,  # استخدام رابط الكوسموس الآمن افتراضياً
+            'ton_url': ton_url
         })
     except Exception as exc:
         print(f"❌ [create_invoice Error]: {exc}")
