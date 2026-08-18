@@ -1,13 +1,6 @@
 window.depositModule = (function () {
     let tonPriceUsd = 1.32;
-
-    let currentPackages = [
-        { id: 1, usdt_amount: 0.5, name_ar: "باقة $0.5 USDT" },
-        { id: 2, usdt_amount: 1.5, name_ar: "باقة $1.5 USDT" },
-        { id: 3, usdt_amount: 5.0, name_ar: "باقة $5 USDT" },
-        { id: 4, usdt_amount: 10.0, name_ar: "باقة $10 USDT" },
-        { id: 5, usdt_amount: 15.0, name_ar: "باقة $15 USDT" }
-    ];
+    let currentPackages = [];
 
     async function fetchTonLivePrice() {
         try {
@@ -47,6 +40,11 @@ window.depositModule = (function () {
     function renderPackages(packages) {
         const grid = document.getElementById('deposit-packages-grid');
         if (!grid) return;
+
+        if (!packages || packages.length === 0) {
+            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 20px;">جاري تحميل باقات الشحن...</div>`;
+            return;
+        }
 
         grid.innerHTML = packages.map(pkg => {
             const usdtVal = parseFloat(pkg.usdt_amount || 0);
