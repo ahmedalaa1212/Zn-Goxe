@@ -1,5 +1,24 @@
 <div class="deposit-container" style="direction: rtl; font-family: system-ui, -apple-system, sans-serif; color: #fff; max-width: 500px; margin: 0 auto; padding: 10px;">
     
+    <!-- إخفاء صريح لجميع عناصر وأزرار عرض عنوان المحفظة من الشاشة نهائياً -->
+    <style>
+        #ton-connect-btn-container,
+        #ton-connect-btn-container *,
+        tc-root,
+        ton-connect-button,
+        div[class*="tc-"] {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+            height: 0 !important;
+            width: 0 !important;
+            overflow: hidden !important;
+            position: absolute !important;
+            left: -9999px !important;
+        }
+    </style>
+
     <!-- كارت رأس القائمة ورمز شبكة TON -->
     <div style="background: linear-gradient(145deg, rgba(0, 152, 234, 0.18), rgba(15, 23, 42, 0.95)); border: 1px solid rgba(0, 152, 234, 0.35); border-radius: 18px; padding: 18px; margin-bottom: 20px; text-align: center; box-shadow: 0 8px 20px rgba(0,0,0,0.3);">
         <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 8px;">
@@ -15,8 +34,9 @@
                 <span style="font-size: 12px; color: #cbd5e1;">سعر TON الحقيقي الآن:</span>
                 <span id="ton-live-price" style="font-size: 13px; font-weight: 800; color: #34d399; font-family: monospace;">~$1.30</span>
             </div>
-            <!-- حاوية زر الاتصال المباشر بالمحفظة -->
-            <div id="ton-connect-btn-container" style="margin-top: 6px; min-height: 40px; display: flex; justify-content: center; align-items: center;"></div>
+            
+            <!-- حاوية أزرار المحفظة المخفية تماماً برمجياً -->
+            <div id="ton-connect-btn-container" style="display: none !important; visibility: hidden !important; width: 0 !important; height: 0 !important;"></div>
         </div>
     </div>
 
