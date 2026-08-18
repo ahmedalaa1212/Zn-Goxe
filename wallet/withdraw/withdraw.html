@@ -1,1 +1,57 @@
+<div class="withdraw-container" style="direction: rtl; color: #ffffff; font-family: system-ui, -apple-system, sans-serif;">
+    
+    <!-- بطاقة مستوى السحب الحالي -->
+    <div id="withdraw-tier-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(0, 136, 204, 0.3); border-radius: 14px; padding: 14px; margin-bottom: 15px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span id="tier-title" style="font-size: 13px; font-weight: bold; color: #38bdf8;">جاري تحميل مستوى السحب...</span>
+            <span id="tier-badge" style="font-size: 11px; padding: 3px 8px; border-radius: 20px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-weight: bold;">--</span>
+        </div>
+        <div style="font-size: 12px; color: #94a3b8; line-height: 1.5;">
+            <div>الحد الأدنى: <strong id="tier-min" style="color: #fff;">0</strong> ZN</div>
+            <div>الحد الأقصى: <strong id="tier-max" style="color: #fff;">0</strong> ZN</div>
+            <div id="utc-limit-note" style="margin-top: 4px; color: #f59e0b; font-size: 11px; display: none;">⚠️ لقد استنفذت حد السحب اليومي (توقيت UTC). يمكنك السحب مجدداً غداً.</div>
+        </div>
+    </div>
+
+    <!-- نموذج السحب -->
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+        <!-- عنوان عنوان محفظة TON -->
+        <div>
+            <label style="display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 6px; font-weight: 600;">عنوان محفظة TON الخاص بك:</label>
+            <input type="text" id="withdraw-address-input" placeholder="EQ... أو UQ..." style="width: 100%; padding: 12px; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 10px; color: #fff; font-size: 13px; outline: none; box-sizing: border-box; font-family: monospace;">
+        </div>
+
+        <!-- إدخال كمية العملات ZN -->
+        <div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                <label style="font-size: 12px; color: #cbd5e1; font-weight: 600;">كمية عملات ZN:</label>
+                <span onclick="window.withdrawModule?.setMaxAmount()" style="font-size: 11px; color: #38bdf8; cursor: pointer; font-weight: bold;">[ الحد الأقصى المتاح ]</span>
+            </div>
+            <input type="number" id="withdraw-amount-input" placeholder="0" oninput="window.withdrawModule?.calculateDetails()" style="width: 100%; padding: 12px; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 10px; color: #fff; font-size: 14px; outline: none; box-sizing: border-box; font-weight: bold;">
+        </div>
+
+        <!-- تفاصيل وحسبة السحب اللحظية -->
+        <div style="background: rgba(255, 255, 255, 0.03); border: 1px dashed rgba(255, 255, 255, 0.15); border-radius: 10px; padding: 12px; font-size: 12px; display: flex; flex-direction: column; gap: 6px;">
+            <div style="display: flex; justify-content: space-between;">
+                <span style="color: #94a3b8;">خصم رسوم التحويل (3%):</span>
+                <span id="calc-fee" style="color: #ef4444; font-weight: bold;">0 ZN</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <span style="color: #94a3b8;">الصافي المتبقي بالدولار:</span>
+                <span id="calc-net-usd" style="color: #34d399; font-weight: bold;">$0.00</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 6px;">
+                <span style="color: #94a3b8;">الصافي المقدر بعملة TON:</span>
+                <span id="calc-net-ton" style="color: #38bdf8; font-weight: 800;">0.0000 TON</span>
+            </div>
+        </div>
+
+        <!-- زر التأكيد -->
+        <button id="withdraw-submit-btn" onclick="window.withdrawModule?.submitWithdrawal()" style="width: 100%; padding: 14px; background: linear-gradient(135deg, #0088cc, #0284c7); color: #fff; border: none; border-radius: 12px; font-weight: bold; font-size: 14px; cursor: pointer; transition: opacity 0.2s; margin-top: 5px;">
+            تأكيد طلب السحب
+        </button>
+    </div>
+</div>
+
+<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onload="if(window.withdrawModule){window.withdrawModule.init();}" style="display:none;" />
 
