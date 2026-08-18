@@ -2,28 +2,41 @@ window.historyModule = (function () {
     let allTransactions = [];
     let currentFilter = 'all';
 
-    // Get Telegram User ID securely
+    // Get Telegram User ID securely from all sources
     function getUserId() {
-        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe?.user) {
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe?.user?.id) {
             return window.Telegram.WebApp.initDataUnsafe.user.id;
         }
-        // Fallback for debugging/testing
+        
         const urlParams = new URLSearchParams(window.location.search);
-        return urlParams.get('user_id') || localStorage.getItem('tg_user_id') || '123456789';
+        const urlId = urlParams.get('user_id') || urlParams.get('tg_id') || urlParams.get('uid');
+        if (urlId) return urlId;
+
+        const localId = localStorage.getItem('tg_user_id') || localStorage.getItem('user_id') || localStorage.getItem('tg_id');
+        if (localId) return localId;
+
+        if (window.currentUser && window.currentUser.id) return window.currentUser.id;
+
+        return null;
     }
 
     // Format Arabic Date & Time
     function formatArabicDate(timestamp) {
         if (!timestamp) return 'غير محدد';
-        const date = new Date(timestamp * 1000);
-        
-        const optionsDate = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-        const optionsTime = { hour: '2-digit', minute: '2-digit', hour12: true };
+        try {
+            const date = new Date(timestamp * 1000);
+            if (isNaN(date.getTime())) return 'غير محدد';
+            
+            const optionsDate = { year: 'numeric', month: 'short', day: 'numeric' };
+            const optionsTime = { hour: '2-digit', minute: '2-digit', hour12: true };
 
-        const dateStr = date.toLocaleDateString('ar-EG', optionsDate);
-        const timeStr = date.toLocaleTimeString('ar-EG', optionsTime);
+            const dateStr = date.toLocaleDateString('ar-EG', optionsDate);
+            const timeStr = date.toLocaleTimeString('ar-EG', optionsTime);
 
-        return `${dateStr} - ${timeStr}`;
+            return `${dateStr} - ${timeStr}`;
+        } catch (e) {
+            return 'غير محدد';
+        }
     }
 
     // Load Data from Backend API
@@ -31,16 +44,30 @@ window.historyModule = (function () {
         const container = document.getElementById('history-list-container');
         if (!container) return;
 
+        container.innerHTML = `
+            <div class="history-loading">
+                <div class="spinner"></div>
+                <span>جاري تحميل سجل المعاملات...</span>
+            </div>`;
+
         const userId = getUserId();
+        if (!userId) {
+            container.innerHTML = `<div class="history-empty">⚠️ تعذر تحديد معرف المستخدم. حاول إعادة فتح التطبيق.</div>`;
+            return;
+        }
         
         try {
-            const response = await fetch(`/api/wallet/history/transactions?user_id=${userId}`, {
+            const response = await fetch(`/api/wallet/history/transactions?user_id=${encodeURIComponent(userId)}`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-Telegram-User-Id': userId.toString()
                 }
             });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
 
             const data = await response.json();
 
@@ -49,7 +76,7 @@ window.historyModule = (function () {
                 updateCounts();
                 renderList();
             } else {
-                container.innerHTML = `<div class="history-empty">⚠️ فشل جلب البيانات: ${data.message || 'خطأ غير معروف'}</div>`;
+                container.innerHTML = `<div class="history-empty">⚠️ ${data.message || 'لا توجد معاملات متاحة حالياً'}</div>`;
             }
         } catch (error) {
             console.error('⚠️ [history.js] Error fetching history:', error);
@@ -62,9 +89,13 @@ window.historyModule = (function () {
         const depositCount = allTransactions.filter(t => t.type === 'deposit').length;
         const withdrawCount = allTransactions.filter(t => t.type === 'withdraw').length;
 
-        document.getElementById('count-all').innerText = allTransactions.length;
-        document.getElementById('count-deposit').innerText = depositCount;
-        document.getElementById('count-withdraw').innerText = withdrawCount;
+        const countAll = document.getElementById('count-all');
+        const countDeposit = document.getElementById('count-deposit');
+        const countWithdraw = document.getElementById('count-withdraw');
+
+        if (countAll) countAll.innerText = allTransactions.length;
+        if (countDeposit) countDeposit.innerText = depositCount;
+        if (countWithdraw) countWithdraw.innerText = withdrawCount;
     }
 
     // Filter Logic
@@ -87,10 +118,11 @@ window.historyModule = (function () {
         }
 
         if (filtered.length === 0) {
+            const filterLabel = currentFilter === 'deposit' ? 'إيداع' : (currentFilter === 'withdraw' ? 'سحب' : '');
             container.innerHTML = `
                 <div class="history-empty">
                     <div style="font-size: 32px; margin-bottom: 8px;">📭</div>
-                    <div>لا توجد معاملات في هذه القائمة حتى الآن</div>
+                    <div>لا توجد معاملات ${filterLabel} في هذه القائمة حتى الآن</div>
                 </div>`;
             return;
         }
@@ -115,7 +147,8 @@ window.historyModule = (function () {
             }
 
             const formattedDate = formatArabicDate(tx.timestamp);
-            const shortTxId = tx.id && tx.id.length > 16 ? tx.id.substring(0, 10) + '...' + tx.id.substring(tx.id.length - 4) : tx.id;
+            const rawId = String(tx.id || '');
+            const shortTxId = rawId.length > 16 ? rawId.substring(0, 8) + '...' + rawId.substring(rawId.length - 4) : rawId;
 
             html += `
             <div class="tx-card">
@@ -123,12 +156,12 @@ window.historyModule = (function () {
                     <div class="tx-type-group">
                         <div class="tx-type-icon ${iconClass}">${icon}</div>
                         <div>
-                            <h4 class="tx-title">${tx.type_ar} ${tx.currency || 'USDT'}</h4>
+                            <h4 class="tx-title">${tx.type_ar || (isDeposit ? 'إيداع' : 'سحب')} ${tx.currency || 'USDT'}</h4>
                             <div class="tx-date">${formattedDate}</div>
                         </div>
                     </div>
                     <div class="tx-amount-group">
-                        <div class="tx-amount ${amountClass}">${sign}${parseFloat(tx.amount).toFixed(2)} ${tx.currency || 'USDT'}</div>
+                        <div class="tx-amount ${amountClass}">${sign}${parseFloat(tx.amount || 0).toFixed(4)} ${tx.currency || 'USDT'}</div>
                         <span class="tx-status-badge ${statusClass}">${statusText}</span>
                     </div>
                 </div>
@@ -137,7 +170,7 @@ window.historyModule = (function () {
                     <div>تفاصيل: <span style="color: #cbd5e1;">${tx.details || 'معاملة شبكة TON'}</span></div>
                     <div class="tx-id-box">
                         <span>#${shortTxId}</span>
-                        <span class="copy-btn" onclick="historyModule.copyText('${tx.id}')" title="نسخ المعاملة">📋</span>
+                        <span class="copy-btn" onclick="historyModule.copyText('${rawId}')" title="نسخ المعاملة">📋</span>
                     </div>
                 </div>
 
@@ -156,13 +189,31 @@ window.historyModule = (function () {
     // Helper to Copy Hash or Memo
     function copyText(text) {
         if (!text) return;
-        navigator.clipboard.writeText(text).then(() => {
-            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.showAlert) {
-                window.Telegram.WebApp.showAlert('تم نسخ رقم المعاملة للحافظة!');
-            } else {
-                alert('تم نسخ رقم المعاملة: ' + text);
-            }
-        });
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => {
+                showNotice('تم نسخ رقم المعاملة للحافظة!');
+            }).catch(() => fallbackCopy(text));
+        } else {
+            fallbackCopy(text);
+        }
+    }
+
+    function fallbackCopy(text) {
+        const input = document.createElement('input');
+        input.value = text;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+        showNotice('تم نسخ رقم المعاملة!');
+    }
+
+    function showNotice(msg) {
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.showAlert) {
+            window.Telegram.WebApp.showAlert(msg);
+        } else {
+            alert(msg);
+        }
     }
 
     function closeModal() {
@@ -170,8 +221,8 @@ window.historyModule = (function () {
         if (modal) modal.style.display = 'none';
     }
 
-    // Auto Init on script load
-    setTimeout(fetchTransactions, 100);
+    // Auto Init
+    setTimeout(fetchTransactions, 50);
 
     return {
         init: fetchTransactions,
