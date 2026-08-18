@@ -160,18 +160,12 @@ def init_deposit_tables():
             CREATE TABLE IF NOT EXISTS users (
                 tg_id INTEGER PRIMARY KEY,
                 balance REAL DEFAULT 0.0,
-                usd_balance REAL DEFAULT 0.0,
-                usdt_balance REAL DEFAULT 0.0
+                usd_balance REAL DEFAULT 0.0
             )
         ''')
 
         try:
             cursor.execute("ALTER TABLE users ADD COLUMN usd_balance REAL DEFAULT 0.0")
-        except Exception:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE users ADD COLUMN usdt_balance REAL DEFAULT 0.0")
         except Exception:
             pass
 
@@ -199,16 +193,18 @@ def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc:
 
         @firestore.transactional
         def run_in_transaction(transaction, tx_ref, user_ref, user_history_ref):
-            # 1. القراءة أولاً (READS)
-            tx_snap = transaction.get(tx_ref)
-            if tx_snap.exists:
+            # 1. القراءة أولاً (READS) - تحويل المولد generator إلى قائمة لضمان الحصول على كائن DocumentSnapshot
+            tx_snaps = list(transaction.get(tx_ref))
+            tx_snap = tx_snaps[0] if tx_snaps else None
+            if tx_snap and tx_snap.exists:
                 raise ValueError("هذه المعاملة تم استخدامها وشحنها سابقاً!")
 
-            user_snap = transaction.get(user_ref)
+            user_snaps = list(transaction.get(user_ref))
+            user_snap = user_snaps[0] if user_snaps else None
 
-            if user_snap.exists:
+            if user_snap and user_snap.exists:
                 updated_data = user_snap.to_dict() or {}
-                current_bal = float(updated_data.get('usd_balance', 0.0) or updated_data.get('usdt_balance', 0.0) or 0.0)
+                current_bal = float(updated_data.get('usd_balance', 0.0) or 0.0)
                 new_bal = current_bal + usdt_amount
             else:
                 new_bal = usdt_amount
@@ -231,16 +227,14 @@ def verify_and_process_ton_boc(user_id: int, usdt_amount: float, memo: str, boc:
             # تسجيل العملية في سجلات المستخدم الخاصة (users/{user_id}/deposit_history/{tx_hash})
             transaction.set(user_history_ref, tx_data)
 
-            # تحديث الرصيد
-            if user_snap.exists:
+            # تحديث الرصيد بزيادة usd_balance فقط
+            if user_snap and user_snap.exists:
                 transaction.update(user_ref, {
-                    'usd_balance': firestore.Increment(usdt_amount),
-                    'usdt_balance': firestore.Increment(usdt_amount)
+                    'usd_balance': firestore.Increment(usdt_amount)
                 })
             else:
                 transaction.set(user_ref, {
-                    'usd_balance': usdt_amount,
-                    'usdt_balance': usdt_amount
+                    'usd_balance': usdt_amount
                 }, merge=True)
 
             return new_bal
@@ -268,14 +262,14 @@ def credit_user_balance_sqlite(user_id: int, usdt_amount: float, tx_hash: str = 
             cursor.execute("INSERT OR IGNORE INTO processed_txs (tx_hash, user_id, usdt_amount, memo) VALUES (?, ?, ?, ?)",
                            (tx_hash, user_id, usdt_amount, memo))
 
-        cursor.execute("SELECT usd_balance, usdt_balance FROM users WHERE tg_id = ?", (user_id,))
+        cursor.execute("SELECT usd_balance FROM users WHERE tg_id = ?", (user_id,))
         row = cursor.fetchone()
         if row:
-            curr_val = float(row['usd_balance'] or row['usdt_balance'] or 0.0)
+            curr_val = float(row['usd_balance'] or 0.0)
             new_usd = curr_val + usdt_amount
-            cursor.execute("UPDATE users SET usd_balance = ?, usdt_balance = ? WHERE tg_id = ?", (new_usd, new_usd, user_id))
+            cursor.execute("UPDATE users SET usd_balance = ? WHERE tg_id = ?", (new_usd, user_id))
         else:
-            cursor.execute("INSERT INTO users (tg_id, usd_balance, usdt_balance) VALUES (?, ?, ?)", (user_id, new_usd, new_usd))
+            cursor.execute("INSERT INTO users (tg_id, usd_balance) VALUES (?, ?)", (user_id, new_usd))
         conn.commit()
     except Exception as e:
         print(f"⚠️ خطأ تحديث رصيد SQLite: {e}")
