@@ -3,7 +3,8 @@ from .deposit_db import (
     get_active_deposit_packages,
     create_deposit_invoice,
     get_package_by_id,
-    get_official_ton_wallet
+    get_official_ton_wallet,
+    ensure_firebase_deposit_settings
 )
 
 deposit_bp = Blueprint('deposit', __name__)
@@ -11,19 +12,29 @@ deposit_bp = Blueprint('deposit', __name__)
 @deposit_bp.route('/packages', methods=['GET'])
 def get_packages():
     """عرض باقات الشحن المتاحة مباشرة من Firebase وبدون كاش"""
-    packages = get_active_deposit_packages()
-    official_wallet = get_official_ton_wallet()
-    
-    response = make_response(jsonify({
-        'success': True,
-        'packages': packages,
-        'official_wallet': official_wallet
-    }))
-    
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
+    try:
+        # التأكد الفوري من إنشاء مستند settings/deposit_settings عند جلب الطلب
+        ensure_firebase_deposit_settings()
+        
+        packages = get_active_deposit_packages()
+        official_wallet = get_official_ton_wallet()
+        
+        response = make_response(jsonify({
+            'success': True,
+            'packages': packages,
+            'official_wallet': official_wallet
+        }))
+        
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+    except Exception as exc:
+        print(f"❌ [deposit_api Error]: {exc}")
+        return jsonify({
+            'success': False,
+            'error': str(exc)
+        }), 500
 
 @deposit_bp.route('/create_invoice', methods=['POST', 'OPTIONS'])
 def create_invoice():
