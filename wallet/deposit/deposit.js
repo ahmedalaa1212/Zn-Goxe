@@ -31,20 +31,18 @@ window.depositModule = (function () {
                 headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
             });
             
-            if (res.ok) {
-                const data = await res.json();
-                if (data.success && data.packages && data.packages.length > 0) {
-                    currentPackages = data.packages;
-                    renderPackages(data.packages);
-                } else {
-                    if (grid) grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 20px;">لا توجد باقات متاحة في الفايربيس حالياً</div>`;
-                }
+            const data = await res.json();
+
+            if (res.ok && data.success) {
+                currentPackages = data.packages || [];
+                renderPackages(currentPackages);
             } else {
-                if (grid) grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 20px;">فشل الاتصال بخادم الفايربيس</div>`;
+                const errText = data.error || "فشل جلب باقات الشحن من الفايربيس";
+                if (grid) grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 20px; font-weight: bold; background: rgba(239, 68, 68, 0.1); border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">⚠️ ${errText}</div>`;
             }
         } catch (err) {
             console.error("❌ تعذر جلب باقات الفايربيس:", err);
-            if (grid) grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 20px;">حدث خطأ في تحميل الباقات من القاعدة</div>`;
+            if (grid) grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 20px; font-weight: bold; background: rgba(239, 68, 68, 0.1); border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">⚠️ حدث خطأ في الاتصال بالخادم</div>`;
         }
     }
 
@@ -56,7 +54,7 @@ window.depositModule = (function () {
         }
 
         if (!packages || packages.length === 0) {
-            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 20px;">لا توجد باقات متاحة حالياً في الفايربيس</div>`;
+            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 20px; background: rgba(255,255,255,0.03); border-radius: 12px;">لا توجد باقات متاحة حالياً في مستند الفايربيس</div>`;
             return;
         }
 
