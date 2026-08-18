@@ -1,9 +1,8 @@
 window.walletModule = (function () {
     let currentTab = 'deposit';
     let isListening = false;
-    const viewCache = {}; // تخزين القوائم للتحميل اللحظي وبدون إعادة جلب
+    const viewCache = {}; // تخزين القوائم للتحميل اللحظي
 
-    // تنسيق الأرقام العشرية بشكل ثابت يمنع التمدد المفاجئ
     function formatSmartBalance(val) {
         const num = parseFloat(val || 0);
         if (isNaN(num)) return "0.00";
@@ -13,7 +12,6 @@ window.walletModule = (function () {
         return num.toFixed(2);
     }
 
-    // تحديث قيم النصوص فقط لمنع اهتزاز القوائم الفرعية
     function updateBalancesUI() {
         const znElem = document.getElementById('zn-balance-display');
         const usdtElem = document.getElementById('usdt-balance-display');
@@ -42,7 +40,7 @@ window.walletModule = (function () {
 
         try {
             const tg = window.Telegram?.WebApp;
-            const userId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id || '';
+            const userId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.user_id || '';
             const initData = tg?.initData || '';
 
             if (!userId) return;
@@ -68,11 +66,31 @@ window.walletModule = (function () {
         }
     }
 
-    // الربط والتنقل الثابت بين قوائم (الإيداع - السجلات - السحب)
+    // جلب وملف السكربت JS الخاص بالقائمة الفرعية ديناميكياً إذا لم يكن مجملاً
+    async function ensureSubModuleScriptLoaded(tabName) {
+        const moduleName = `${tabName}Module`;
+        if (window[moduleName]) return;
+
+        return new Promise((resolve) => {
+            const scriptId = `script-submodule-${tabName}`;
+            if (document.getElementById(scriptId)) {
+                resolve();
+                return;
+            }
+            const script = document.createElement('script');
+            script.id = scriptId;
+            script.src = `wallet/${tabName}/${tabName}.js?v=${Date.now()}`;
+            script.onload = () => resolve();
+            script.onerror = () => {
+                console.error(`⚠️ فشل تحميل السكربت: wallet/${tabName}/${tabName}.js`);
+                resolve();
+            };
+            document.head.appendChild(script);
+        });
+    }
+
+    // التنقل الثابت بين القوائم
     async function switchTab(tabName, force = false) {
-        if (currentTab === tabName && !force && document.getElementById('wallet-subview-container')?.children.length > 0) {
-            return;
-        }
         currentTab = tabName;
 
         ['deposit', 'history', 'withdraw'].forEach(t => {
@@ -95,9 +113,10 @@ window.walletModule = (function () {
         const container = document.getElementById('wallet-subview-container');
         if (!container) return;
 
-        // استرجاع القائمة فوراً إذا كانت مخزنة مسبقاً لمنع الرشة والاهتزاز
+        // استرجاع القائمة فوراً إذا كانت مخزنة مسبقاً
         if (viewCache[tabName]) {
             container.innerHTML = viewCache[tabName];
+            await ensureSubModuleScriptLoaded(tabName);
             executeSubModuleInit(tabName);
             return;
         }
@@ -113,6 +132,8 @@ window.walletModule = (function () {
                 const htmlContent = await response.text();
                 viewCache[tabName] = htmlContent;
                 container.innerHTML = htmlContent;
+                
+                await ensureSubModuleScriptLoaded(tabName);
                 executeSubModuleInit(tabName);
             } else {
                 container.innerHTML = `<div style="text-align:center; padding:20px; color:#aaa; background:rgba(255,255,255,0.05); border-radius:12px;">جاري تحميل ${tabName}...</div>`;
