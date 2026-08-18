@@ -1,3 +1,6 @@
+<!-- تحميل مكتبة TON Connect UI الرسمية -->
+<script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
+
 <div class="deposit-container" style="direction: rtl; font-family: system-ui, -apple-system, sans-serif; color: #fff; max-width: 500px; margin: 0 auto;">
     
     <!-- كارت رأس القائمة ورمز شبكة TON -->
@@ -8,11 +11,15 @@
             </div>
             <span style="font-weight: 800; font-size: 17px; color: #38bdf8;">شحن رصيد USDT عبر شبكة TON</span>
         </div>
-        <p style="font-size: 12px; color: #94a3b8; margin: 0 0 12px 0; line-height: 1.5;">اختر باقة الشحن ليتم فتح محفظة تلجرام الرسمية (@wallet) تلقائياً ودفع المعاملة</p>
+        <p style="font-size: 12px; color: #94a3b8; margin: 0 0 12px 0; line-height: 1.5;">اختر باقة الشحن ليتم ربط المحفظة تلقائياً ودفع المعاملة بضغطة واحدة</p>
         
-        <div style="background: rgba(0, 0, 0, 0.3); border-radius: 12px; padding: 8px 14px; display: inline-flex; align-items: center; gap: 10px; border: 1px solid rgba(255, 255, 255, 0.08);">
-            <span style="font-size: 12px; color: #cbd5e1;">سعر TON الحقيقي الآن:</span>
-            <span id="ton-live-price" style="font-size: 13px; font-weight: 800; color: #34d399; font-family: monospace;">~$1.30</span>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
+            <div style="background: rgba(0, 0, 0, 0.3); border-radius: 12px; padding: 8px 14px; display: inline-flex; align-items: center; gap: 10px; border: 1px solid rgba(255, 255, 255, 0.08);">
+                <span style="font-size: 12px; color: #cbd5e1;">سعر TON الحقيقي الآن:</span>
+                <span id="ton-live-price" style="font-size: 13px; font-weight: 800; color: #34d399; font-family: monospace;">~$1.30</span>
+            </div>
+            <!-- زر اتصال TON Connect التلقائي -->
+            <div id="ton-connect-btn-container" style="margin-top: 6px;"></div>
         </div>
     </div>
 
@@ -30,16 +37,13 @@
     <div id="deposit-pay-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); z-index: 99999; align-items: center; justify-content: center; padding: 20px;">
         <div style="background: #0f172a; border: 1px solid rgba(0, 152, 234, 0.4); border-radius: 20px; padding: 24px; max-width: 400px; width: 100%; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
             <div style="font-size: 40px; margin-bottom: 10px;">📲</div>
-            <h3 style="margin: 0 0 10px 0; color: #38bdf8; font-size: 18px;">جاري إكمال الدفع في المحفظة</h3>
-            <p style="font-size: 13px; color: #94a3b8; line-height: 1.6; margin-bottom: 20px;">
-                تم فتح نافذة محفظة تلجرام الرسمية. يرجى تأكيد عملية التحويل داخل المحفظة، ثم الضغط على زر التحقق أدناه بعد إتمام التحويل.
+            <h3 style="margin: 0 0 10px 0; color: #38bdf8; font-size: 18px;">جاري إكمال الدفع بالمحفظة</h3>
+            <p id="deposit-modal-status" style="font-size: 13px; color: #94a3b8; line-height: 1.6; margin-bottom: 20px;">
+                يرجى مواصلة وتأكيد عملية التحويل داخل نافذة المحفظة.
             </p>
             <div style="display: flex; flex-direction: column; gap: 10px;">
-                <button onclick="window.depositModule?.reopenWallet()" style="background: #0098EA; color: #fff; border: none; padding: 12px; border-radius: 12px; font-weight: bold; cursor: pointer; font-size: 14px;">
-                    💎 إعادة فتح المحفظة
-                </button>
-                <button onclick="window.depositModule?.verifyPayment()" style="background: #10b981; color: #fff; border: none; padding: 12px; border-radius: 12px; font-weight: bold; cursor: pointer; font-size: 14px;">
-                    ✅ تأكيد الشحن والتحقق
+                <button onclick="window.depositModule?.retrySelectedPackage()" style="background: #0098EA; color: #fff; border: none; padding: 12px; border-radius: 12px; font-weight: bold; cursor: pointer; font-size: 14px;">
+                    💎 إعادة المحاولة
                 </button>
                 <button onclick="window.depositModule?.closeModal()" style="background: rgba(255,255,255,0.08); color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); padding: 10px; border-radius: 12px; cursor: pointer; font-size: 13px;">
                     إلغاء
