@@ -12,12 +12,35 @@ window.walletModule = (function () {
         return num.toFixed(2);
     }
 
+    // دالة مرنة لجلب قيمة الرصيد من أي كائن عام متوفر في التطبيق
+    function getGlobalBalance(keys) {
+        const sources = [
+            window.userState,
+            window.PlayerData,
+            window.currentUser,
+            window.user,
+            window.appData
+        ];
+
+        for (const src of sources) {
+            if (!src) continue;
+            for (const key of keys) {
+                if (src[key] !== undefined && src[key] !== null) {
+                    const val = parseFloat(src[key]);
+                    if (!isNaN(val)) return val;
+                }
+            }
+        }
+        return 0;
+    }
+
     function updateBalancesUI() {
         const znElem = document.getElementById('zn-balance-display');
         const usdtElem = document.getElementById('usdt-balance-display');
 
-        const znVal = window.userState?.balance !== undefined ? window.userState.balance : (window.PlayerData?.balance || 0);
-        const usdtVal = window.userState?.usd_balance !== undefined ? window.userState.usd_balance : (window.PlayerData?.usd_balance || 0);
+        // البحث الشامل عن رصيد ZN ورصيد USDT من جميع المصادر الممكنة
+        const znVal = getGlobalBalance(['balance', 'zn_balance', 'user_balance', 'coins']);
+        const usdtVal = getGlobalBalance(['usd_balance', 'usdt_balance', 'dollars', 'usd']);
 
         const newZnText = formatSmartBalance(znVal);
         const newUsdtText = formatSmartBalance(usdtVal);
@@ -40,10 +63,15 @@ window.walletModule = (function () {
 
         try {
             const tg = window.Telegram?.WebApp;
-            const userId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.user_id || '';
+            const userId = tg?.initDataUnsafe?.user?.id || 
+                           window.userState?.tg_id || window.userState?.user_id || window.userState?.id ||
+                           window.PlayerData?.tg_id || window.PlayerData?.user_id || window.PlayerData?.id || '';
             const initData = tg?.initData || '';
 
-            if (!userId) return;
+            if (!userId) {
+                updateBalancesUI();
+                return;
+            }
 
             const headers = { 'Content-Type': 'application/json' };
             if (userId) headers['X-Telegram-User-Id'] = String(userId);
@@ -54,10 +82,23 @@ window.walletModule = (function () {
             const data = await res.json();
             
             if (data.success) {
-                if (window.userState) {
-                    if (data.zn_balance !== undefined) window.userState.balance = parseFloat(data.zn_balance);
-                    if (data.usdt_balance !== undefined) window.userState.usd_balance = parseFloat(data.usdt_balance);
+                const newZn = parseFloat(data.zn_balance || 0);
+                const newUsdt = parseFloat(data.usdt_balance || 0);
+
+                // تحديث الذاكرة العامة للتطبيق
+                if (!window.userState) window.userState = {};
+                window.userState.balance = newZn;
+                window.userState.zn_balance = newZn;
+                window.userState.usd_balance = newUsdt;
+                window.userState.usdt_balance = newUsdt;
+
+                if (window.PlayerData) {
+                    window.PlayerData.balance = newZn;
+                    window.PlayerData.zn_balance = newZn;
+                    window.PlayerData.usd_balance = newUsdt;
+                    window.PlayerData.usdt_balance = newUsdt;
                 }
+
                 updateBalancesUI();
             }
         } catch (err) {
@@ -112,6 +153,9 @@ window.walletModule = (function () {
 
         const container = document.getElementById('wallet-subview-container');
         if (!container) return;
+
+        // تحديث الرصيد عند التنقل بين التبويبات
+        updateBalancesUI();
 
         // استرجاع القائمة فوراً إذا كانت مخزنة مسبقاً
         if (viewCache[tabName]) {
