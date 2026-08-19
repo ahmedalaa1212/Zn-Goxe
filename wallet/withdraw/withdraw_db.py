@@ -5,11 +5,13 @@ from firebase_admin import firestore
 db = firestore.client()
 
 def get_withdraw_config():
+    """جلب الإعدادات من Firestore لتسهيل تعديل القيم مستقبلاً"""
     doc = db.collection('settings').document('withdraw_config').get()
     if doc.exists:
         return doc.to_dict()
-    # افتراضي في حال عدم وجود المستند
-    return {
+    
+    # القيم الافتراضية
+    default_config = {
         "rate_coins_per_usd": 100000,
         "fee_percent": 3,
         "levels": [
@@ -21,47 +23,63 @@ def get_withdraw_config():
             {"level": 6, "type": "manual", "min": 1000000, "max": 1500000}
         ]
     }
+    db.collection('settings').document('withdraw_config').set(default_config)
+    return default_config
 
 def has_withdrawn_today(user_id):
+    """فحص الحد اليومي بناءً على توقيت 00:00 UTC"""
     today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     user_doc = db.collection('users').document(str(user_id)).get()
     if user_doc.exists:
-        last_date = user_doc.to_dict().get('last_withdraw_date')
-        return last_date == today_utc
+        return user_doc.to_dict().get('last_withdraw_date') == today_utc
     return False
+
+def get_user_wallet(user_id):
+    user_doc = db.collection('users').document(str(user_id)).get()
+    if user_doc.exists:
+        return user_doc.to_dict().get('wallet_address')
+    return None
 
 def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_address):
     user_ref = db.collection('users').document(str(user_id))
     user_doc = user_ref.get()
+    
     if not user_doc.exists:
         return False, "المستخدم غير موجود"
     
     user_data = user_doc.to_dict()
-    if user_data.get('balance', 0) < coins_amount:
-        return False, "رصيدك غير كافي"
+    current_balance = user_data.get('balance', 0)
+    
+    if current_balance < coins_amount:
+        return False, "رصيدك غير كافٍ لإجراء العملية"
 
     today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-    current_count = user_data.get('withdraw_count', 0) + 1
     
-    # خصم الرصيد وتحديث تاريخ السحب
+    # 1. خصم الرصيد وتحديث بيانات المستخدم
     user_ref.update({
         'balance': firestore.Increment(-coins_amount),
         'last_withdraw_date': today_utc,
-        'withdraw_count': current_count,
         'wallet_address': wallet_address
     })
 
-    # تسجيل المعاملة
+    # 2. إنشاء المعاملة في Firestore
     tx_ref = db.collection('processed_txs').document()
-    tx_data = {
+    status = "completed" if level_info['type'] == "auto" else "pending"
+    
+    tx_ref.set({
         'user_id': str(user_id),
         'coins': coins_amount,
         'ton_amount': ton_amount,
         'wallet': wallet_address,
-        'status': 'completed' if level_info['type'] == 'auto' else 'pending',
+        'status': status,
         'level': level_info['level'],
+        'type': level_info['type'],
         'created_at': firestore.SERVER_TIMESTAMP
-    }
-    tx_ref.set(tx_data)
-    
-    return True, tx_data
+    })
+
+    if level_info['type'] == 'manual':
+        msg = f"تم تسجيل طلب السحب (المستوى {level_info['level']}). الطلب يتطلب موافقة الأدمن وسوف يصلك في خلال 48 ساعة."
+    else:
+        msg = f"تم تنفيذ طلب السحب التلقائي (المستوى {level_info['level']}) بنجاح!"
+
+    return True, msg
