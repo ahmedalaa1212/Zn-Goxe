@@ -1,9 +1,39 @@
 let tonPriceUSD = 0;
 let withdrawConfig = null;
 let currentWalletAddress = null;
-let currentLevel = null;
+let tonConnectUI = null;
 
-// تهيئة الواجهة
+document.addEventListener("DOMContentLoaded", function() {
+  const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "5102387551";
+  initTonConnect();
+  initWithdrawPage(userId);
+
+  // إعداد استماع مدخلات العملة
+  const coinsInput = document.getElementById("coins-input");
+  if (coinsInput) {
+    coinsInput.addEventListener("input", calculateWithdraw);
+  }
+});
+
+// تهيئة TonConnect الحقيقي
+function initTonConnect() {
+  tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
+    manifestUrl: window.location.origin + '/tonconnect-manifest.json',
+    buttonRootId: 'ton-connect-button'
+  });
+
+  tonConnectUI.onStatusChange(wallet => {
+    if (wallet) {
+      currentWalletAddress = wallet.account.address;
+      calculateWithdraw();
+    } else {
+      currentWalletAddress = null;
+      calculateWithdraw();
+    }
+  });
+}
+
+// جلب الإعدادات وسعر TON
 async function initWithdrawPage(userId) {
   try {
     const response = await fetch(`/api/withdraw/config?user_id=${userId}`);
@@ -11,80 +41,56 @@ async function initWithdrawPage(userId) {
 
     if (data.success) {
       withdrawConfig = data.config;
-      tonPriceUSD = data.ton_price;
-
-      if (data.already_withdrawn) {
-        alert("⚠️ تم إكمال سحبتك اليومية. يمكنك السحب مجدداً غداً بعد 00:00 UTC.");
-      }
-
-      if (data.saved_wallet) {
-        setConnectedWallet(data.saved_wallet);
-      }
+      tonPriceUSD = data.ton_price || 5.50; // سعر افتراضي في حال التأخر
+      calculateWithdraw();
     }
   } catch (err) {
-    console.error("فشل تحميل إعدادات السحب", err);
+    console.error("خطأ في جلب بيانات السحب:", err);
   }
-}
-
-// محاكاة أو ربط TonConnect
-function connectWallet() {
-  // يمكن دمج TonConnect UI SDK هنا
-  const mockAddress = "EQD" + Math.random().toString(36).substring(2, 10).toUpperCase() + "...";
-  setConnectedWallet(mockAddress);
-}
-
-function setConnectedWallet(address) {
-  currentWalletAddress = address;
-  document.getElementById("wallet-not-connected").style.display = "none";
-  document.getElementById("wallet-connected").style.display = "block";
-  document.getElementById("connected-address-text").innerText = address;
-  calculateWithdraw();
 }
 
 // الحساب الفوري ومطابقة المستويات
 function calculateWithdraw() {
-  const coinsInput = parseFloat(document.getElementById("coins-input").value) || 0;
+  const coinsInputVal = parseFloat(document.getElementById("coins-input").value) || 0;
   const btn = document.getElementById("confirm-withdraw-btn");
   const levelBadge = document.getElementById("level-indicator");
 
-  if (!withdrawConfig || coinsInput <= 0) {
+  if (!withdrawConfig || !tonPriceUSD || coinsInputVal <= 0) {
     resetCalculations();
     btn.disabled = true;
     return;
   }
 
-  // 1. تحديد المستوى المتاح بناءً على الكمية المدخلة
   const levels = withdrawConfig.levels;
-  currentLevel = levels.find(l => coinsInput >= l.min && coinsInput <= l.max);
+  const matchedLevel = levels.find(l => coinsInputVal >= l.min && coinsInputVal <= l.max);
 
-  if (!currentLevel) {
-    levelBadge.innerText = "غير مطابقة للمستويات";
+  if (!matchedLevel) {
+    levelBadge.innerText = "خارج حدود المستويات";
     levelBadge.style.color = "#ff4757";
     resetCalculations();
     btn.disabled = true;
     return;
   }
 
-  levelBadge.innerText = `المستوى ${currentLevel.level} (${currentLevel.type === 'auto' ? 'فوري' : 'يدوي'})`;
+  levelBadge.innerText = `المستوى ${matchedLevel.level} (${matchedLevel.type === 'auto' ? 'فوري' : 'يدوي'})`;
   levelBadge.style.color = "#00a8ff";
 
-  // 2. حساب القيمة بـ USD ثم تحويلها لـ TON
-  const usdRate = withdrawConfig.rate_coins_per_usd; // 100,000 ZN = $1
-  const usdValue = coinsInput / usdRate;
+  // الحسابات المباشرة
+  const usdRate = withdrawConfig.rate_coins_per_usd || 100000;
+  const usdValue = coinsInputVal / usdRate;
   const rawTon = usdValue / tonPriceUSD;
 
-  // 3. خصم 3%
-  const feeCoins = coinsInput * (withdrawConfig.fee_percent / 100);
-  const netCoins = coinsInput - feeCoins;
+  const feePercent = withdrawConfig.fee_percent || 3;
+  const feeCoins = coinsInputVal * (feePercent / 100);
+  const netCoins = coinsInputVal - feeCoins;
   const netUsd = netCoins / usdRate;
   const netTon = netUsd / tonPriceUSD;
 
-  // 4. تحديث الشاشة
   document.getElementById("ton-output").value = rawTon.toFixed(4) + " TON";
   document.getElementById("fee-amount").innerText = `${feeCoins.toLocaleString()} ZN`;
   document.getElementById("net-ton").innerText = `${netTon.toFixed(4)} TON`;
 
-  // تفعيل الزر شرط ربط المحفظة
+  // تفعيل الزر عند مطابقة الكمية وربط المحفظة
   btn.disabled = !currentWalletAddress;
 }
 
@@ -94,12 +100,12 @@ function resetCalculations() {
   document.getElementById("net-ton").innerText = "0.0000 TON";
 }
 
-// إرسال طلب السحب
+// إرسال طلب السحب للـ Backend
 async function submitWithdrawal() {
   const coins = parseFloat(document.getElementById("coins-input").value);
   const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "5102387551";
-
   const btn = document.getElementById("confirm-withdraw-btn");
+
   btn.disabled = true;
   btn.innerText = "جاري الإرسال...";
 
@@ -116,10 +122,10 @@ async function submitWithdrawal() {
     
     const data = await res.json();
     alert(data.message);
-    if(data.success) location.reload();
+    if (data.success) location.reload();
 
   } catch (err) {
-    alert("حدث خطأ أثناء تنفيذ الطلب.");
+    alert("حدث خطأ في الاتصال بالخادم.");
   } finally {
     btn.innerText = "تأكيد السحب";
     btn.disabled = false;
