@@ -12,7 +12,7 @@ window.walletModule = (function () {
         return num.toFixed(2);
     }
 
-    // دالة مرنة لجلب قيمة الرصيد من أي كائن عام متوفر في التطبيق
+    // جلب قيم الرصيد المتاحة في الذاكرة الحية للجافاسكربت
     function getGlobalBalance(keys) {
         const sources = [
             window.userState,
@@ -31,16 +31,15 @@ window.walletModule = (function () {
                 }
             }
         }
-        return 0;
+        return null;
     }
 
     function updateBalancesUI() {
         const znElem = document.getElementById('zn-balance-display');
         const usdtElem = document.getElementById('usdt-balance-display');
 
-        // البحث الشامل عن رصيد ZN ورصيد USDT من جميع المصادر الممكنة
-        const znVal = getGlobalBalance(['balance', 'zn_balance', 'user_balance', 'coins']);
-        const usdtVal = getGlobalBalance(['usd_balance', 'usdt_balance', 'dollars', 'usd']);
+        const znVal = getGlobalBalance(['balance', 'zn_balance', 'user_balance', 'coins']) ?? 0;
+        const usdtVal = getGlobalBalance(['usd_balance', 'usdt_balance', 'dollars', 'usd']) ?? 0;
 
         const newZnText = formatSmartBalance(znVal);
         const newUsdtText = formatSmartBalance(usdtVal);
@@ -59,6 +58,7 @@ window.walletModule = (function () {
     }
 
     async function fetchWalletBalances() {
+        // عرض القيمة الموجودة بالذاكرة الحية فوراً
         updateBalancesUI();
 
         try {
@@ -85,18 +85,23 @@ window.walletModule = (function () {
                 const newZn = parseFloat(data.zn_balance || 0);
                 const newUsdt = parseFloat(data.usdt_balance || 0);
 
-                // تحديث الذاكرة العامة للتطبيق
                 if (!window.userState) window.userState = {};
-                window.userState.balance = newZn;
-                window.userState.zn_balance = newZn;
-                window.userState.usd_balance = newUsdt;
-                window.userState.usdt_balance = newUsdt;
+
+                // تحديث الذاكرة بالرصيد الحقيقي القادم من Firestore
+                if (newZn > 0 || !window.userState.balance) {
+                    window.userState.balance = newZn;
+                    window.userState.zn_balance = newZn;
+                }
+                if (newUsdt > 0 || !window.userState.usd_balance) {
+                    window.userState.usd_balance = newUsdt;
+                    window.userState.usdt_balance = newUsdt;
+                }
 
                 if (window.PlayerData) {
-                    window.PlayerData.balance = newZn;
-                    window.PlayerData.zn_balance = newZn;
-                    window.PlayerData.usd_balance = newUsdt;
-                    window.PlayerData.usdt_balance = newUsdt;
+                    window.PlayerData.balance = window.userState.balance;
+                    window.PlayerData.zn_balance = window.userState.zn_balance;
+                    window.PlayerData.usd_balance = window.userState.usd_balance;
+                    window.PlayerData.usdt_balance = window.userState.usdt_balance;
                 }
 
                 updateBalancesUI();
@@ -107,7 +112,7 @@ window.walletModule = (function () {
         }
     }
 
-    // جلب وملف السكربت JS الخاص بالقائمة الفرعية ديناميكياً إذا لم يكن مجملاً
+    // جلب ملف السكربت JS الخاص بالقائمة الفرعية ديناميكياً
     async function ensureSubModuleScriptLoaded(tabName) {
         const moduleName = `${tabName}Module`;
         if (window[moduleName]) return;
@@ -154,10 +159,8 @@ window.walletModule = (function () {
         const container = document.getElementById('wallet-subview-container');
         if (!container) return;
 
-        // تحديث الرصيد عند التنقل بين التبويبات
         updateBalancesUI();
 
-        // استرجاع القائمة فوراً إذا كانت مخزنة مسبقاً
         if (viewCache[tabName]) {
             container.innerHTML = viewCache[tabName];
             await ensureSubModuleScriptLoaded(tabName);
