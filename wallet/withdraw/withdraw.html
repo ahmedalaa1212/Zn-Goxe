@@ -1,37 +1,74 @@
-<div class="withdraw-container">
-    <!-- قسم ربط المحفظة -->
-    <div id="wallet-connect-section" class="card">
-        <h3>ربط المحفظة</h3>
-        <button id="ton-connect-btn" class="btn-primary">ربط المحفظة (Tonkeeper / Telegram)</button>
-        <p id="connected-address" class="address-text hidden"></p>
+<div class="withdraw-wrapper">
+    <!-- بطاقة ربط المحفظة -->
+    <div class="app-card wallet-card">
+        <div class="card-header">
+            <span class="icon">👛</span>
+            <h3>ربط المحفظة</h3>
+        </div>
+        <p class="card-desc">اربط محفظتك على شبكة TON لاستلام السحوبات الفورية</p>
+        
+        <button id="ton-connect-btn" class="btn-wallet">
+            <span class="btn-icon">⚡</span>
+            <span id="btn-wallet-text">ربط المحفظة (Tonkeeper / Telegram)</span>
+        </button>
+        <div id="connected-wallet-box" class="wallet-status-box hidden">
+            <span class="status-indicator online"></span>
+            <span id="wallet-address-display" class="address-text"></span>
+        </div>
     </div>
 
     <!-- نموذج السحب -->
-    <div id="withdraw-form" class="card disabled-form">
-        <div class="input-group">
-            <label>عدد العملات المراد سحبها:</label>
-            <input type="number" id="coins-input" placeholder="أدخل عدد العملات" />
+    <div class="app-card withdraw-card">
+        <div class="card-header">
+            <span class="icon">💎</span>
+            <h3>طلب سحب الرصيد</h3>
         </div>
 
-        <div class="input-group">
-            <label>القيمة المقابلة بـ TON (غير قابل للتعديل):</label>
-            <input type="text" id="ton-output" readonly placeholder="0.00 TON" />
+        <div class="form-group">
+            <label for="coins-input">عدد العملات المراد سحبها</label>
+            <div class="input-wrapper">
+                <input type="number" id="coins-input" placeholder="0.00" dir="ltr" autocomplete="off" />
+                <span class="input-badge">ZN</span>
+            </div>
         </div>
 
-        <!-- تفاصيل الرسوم -->
-        <div class="fee-details">
-            <p>خصم رسوم التحويل (3%): <span id="fee-amount">0 COINS</span></p>
-            <p>الصافي النهائي للمحفظة: <span id="net-ton">0.00 TON</span></p>
+        <div class="form-group">
+            <label for="ton-output">القيمة المقابلة بـ TON (تقريبي)</label>
+            <div class="input-wrapper disabled">
+                <input type="text" id="ton-output" readonly value="0.00 TON" dir="ltr" />
+                <span class="input-badge ton">TON</span>
+            </div>
         </div>
 
-        <!-- التنبيهات -->
+        <!-- تفاصيل العملية -->
+        <div class="summary-box">
+            <div class="summary-row">
+                <span>خصم رسوم التحويل (3%):</span>
+                <strong id="fee-amount">0 ZN</strong>
+            </div>
+            <div class="summary-row highlight">
+                <span>الصافي النهائي للمحفظة:</span>
+                <strong id="net-ton">0.00 TON</strong>
+            </div>
+        </div>
+
+        <!-- تنبيهات الأمن والمعالجة -->
         <div class="notice-box warning">
-            ⚠️ <strong>تنبيه منع الغش:</strong> استخدام الحسابات المتعددة أو برامج التلاعب يؤدي لبند دائم وحظر الأرباح.
-        </div>
-        <div class="notice-box info">
-            ℹ️ استلام السحب يستغرق من <strong>دقيقة واحدة إلى 48 ساعة</strong> حسب مستوى السحب.
+            <span class="notice-icon">⚠️</span>
+            <div class="notice-text">
+                <strong>تنبيه منع الغش:</strong> استخدام الحسابات المتعددة أو البرمجيات الضارة يؤدي لحظر حسابك نهائياً.
+            </div>
         </div>
 
-        <button id="confirm-withdraw-btn" class="btn-success" disabled>تأكيد السحب</button>
+        <div class="notice-box info">
+            <span class="notice-icon">⏱️</span>
+            <div class="notice-text">
+                استلام السحب يستغرق من <strong>دقيقة واحدة إلى 48 ساعة</strong> حسب مستوى السحب.
+            </div>
+        </div>
+
+        <button id="confirm-withdraw-btn" class="btn-submit" disabled>
+            تأكيد إرسال طلب السحب
+        </button>
     </div>
 </div>
