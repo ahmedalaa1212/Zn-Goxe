@@ -4,8 +4,16 @@ window.walletModule = (function () {
     const viewCache = {}; // تخزين القوائم للتحميل اللحظي
 
     function formatSmartBalance(val) {
+        if (typeof val === 'string') {
+            val = val.replace(/[^0-9.-]/g, '');
+        }
         const num = parseFloat(val || 0);
         if (isNaN(num)) return "0.00";
+
+        // تنسيق الأرقام الكبيرة بشكل منظم باستخدام الفواصل
+        if (num >= 1000) {
+            return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+        }
         if (num > 0 && num < 100) {
             return num.toFixed(4);
         }
@@ -26,8 +34,10 @@ window.walletModule = (function () {
             if (!src) continue;
             for (const key of keys) {
                 if (src[key] !== undefined && src[key] !== null) {
-                    const val = parseFloat(src[key]);
-                    if (!isNaN(val)) return val;
+                    let val = src[key];
+                    if (typeof val === 'string') val = val.replace(/[^0-9.-]/g, '');
+                    const num = parseFloat(val);
+                    if (!isNaN(num)) return num;
                 }
             }
         }
@@ -58,7 +68,6 @@ window.walletModule = (function () {
     }
 
     async function fetchWalletBalances() {
-        // عرض القيمة الموجودة بالذاكرة الحية فوراً
         updateBalancesUI();
 
         try {
@@ -87,7 +96,6 @@ window.walletModule = (function () {
 
                 if (!window.userState) window.userState = {};
 
-                // تحديث الذاكرة بالرصيد الحقيقي القادم من Firestore
                 if (newZn > 0 || !window.userState.balance) {
                     window.userState.balance = newZn;
                     window.userState.zn_balance = newZn;
