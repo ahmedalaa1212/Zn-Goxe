@@ -5,12 +5,11 @@ from firebase_admin import firestore
 db = firestore.client()
 
 def get_withdraw_config():
-    """جلب الإعدادات من Firestore لتسهيل تعديل القيم مستقبلاً"""
+    """قراءة القواعد المستندة في Firestore"""
     doc = db.collection('settings').document('withdraw_config').get()
     if doc.exists:
         return doc.to_dict()
     
-    # القيم الافتراضية
     default_config = {
         "rate_coins_per_usd": 100000,
         "fee_percent": 3,
@@ -27,59 +26,53 @@ def get_withdraw_config():
     return default_config
 
 def has_withdrawn_today(user_id):
-    """فحص الحد اليومي بناءً على توقيت 00:00 UTC"""
+    """فحص الحد اليومي بناءً على UTC 00:00"""
     today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     user_doc = db.collection('users').document(str(user_id)).get()
     if user_doc.exists:
         return user_doc.to_dict().get('last_withdraw_date') == today_utc
     return False
 
-def get_user_wallet(user_id):
-    user_doc = db.collection('users').document(str(user_id)).get()
-    if user_doc.exists:
-        return user_doc.to_dict().get('wallet_address')
-    return None
-
 def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_address):
+    """تحديث الرصيد وإنشاء المعاملة داخل Transaction أمنة"""
+    transaction = db.transaction()
     user_ref = db.collection('users').document(str(user_id))
-    user_doc = user_ref.get()
     
-    if not user_doc.exists:
-        return False, "المستخدم غير موجود"
-    
-    user_data = user_doc.to_dict()
-    current_balance = user_data.get('balance', 0)
-    
-    if current_balance < coins_amount:
-        return False, "رصيدك غير كافٍ لإجراء العملية"
+    @firestore.transactional
+    def execute_in_transaction(txn, ref):
+        snapshot = ref.get(transaction=txn)
+        if not snapshot.exists:
+            return False, "المستخدم غير موجود", None
+        
+        user_data = snapshot.to_dict()
+        if user_data.get('balance', 0) < coins_amount:
+            return False, "رصيدك الحالي غير كافٍ.", None
 
-    today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-    
-    # 1. خصم الرصيد وتحديث بيانات المستخدم
-    user_ref.update({
-        'balance': firestore.Increment(-coins_amount),
-        'last_withdraw_date': today_utc,
-        'wallet_address': wallet_address
-    })
+        today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        
+        # 1. خصم الرصيد وتثبيت المحفظة وتاريخ السحب
+        txn.update(ref, {
+            'balance': firestore.Increment(-coins_amount),
+            'last_withdraw_date': today_utc,
+            'wallet_address': wallet_address
+        })
 
-    # 2. إنشاء المعاملة في Firestore
-    tx_ref = db.collection('processed_txs').document()
-    status = "completed" if level_info['type'] == "auto" else "pending"
-    
-    tx_ref.set({
-        'user_id': str(user_id),
-        'coins': coins_amount,
-        'ton_amount': ton_amount,
-        'wallet': wallet_address,
-        'status': status,
-        'level': level_info['level'],
-        'type': level_info['type'],
-        'created_at': firestore.SERVER_TIMESTAMP
-    })
+        # 2. تسجل المعاملة
+        tx_ref = db.collection('processed_txs').document()
+        status = "completed" if level_info['type'] == "auto" else "pending"
+        
+        txn.set(tx_ref, {
+            'user_id': str(user_id),
+            'coins': coins_amount,
+            'ton_amount': ton_amount,
+            'wallet': wallet_address,
+            'status': status,
+            'level': level_info['level'],
+            'type': level_info['type'],
+            'created_at': firestore.SERVER_TIMESTAMP
+        })
 
-    if level_info['type'] == 'manual':
-        msg = f"تم تسجيل طلب السحب (المستوى {level_info['level']}). الطلب يتطلب موافقة الأدمن وسوف يصلك في خلال 48 ساعة."
-    else:
-        msg = f"تم تنفيذ طلب السحب التلقائي (المستوى {level_info['level']}) بنجاح!"
+        msg = "تم السحب تلقائياً بنجاح!" if level_info['type'] == 'auto' else "تم إرسال الطلب للأدمن للمراجعة."
+        return True, msg, tx_ref.id
 
-    return True, msg
+    return execute_in_transaction(transaction, user_ref)
