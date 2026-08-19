@@ -1,79 +1,67 @@
-import os
-import sys
-import datetime
+from datetime import datetime, timezone
+import firebase_admin
+from firebase_admin import firestore
 
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../../"))
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
+db = firestore.client()
 
-from wallet.wallet_db import get_user_wallet_balances, update_user_balance, get_firestore_db, get_sqlite_conn
+def get_withdraw_config():
+    doc = db.collection('settings').document('withdraw_config').get()
+    if doc.exists:
+        return doc.to_dict()
+    # افتراضي في حال عدم وجود المستند
+    return {
+        "rate_coins_per_usd": 100000,
+        "fee_percent": 3,
+        "levels": [
+            {"level": 1, "type": "auto", "min": 10, "max": 100},
+            {"level": 2, "type": "auto", "min": 500, "max": 1500},
+            {"level": 3, "type": "auto", "min": 10000, "max": 50000},
+            {"level": 4, "type": "manual", "min": 100000, "max": 200000},
+            {"level": 5, "type": "manual", "min": 400000, "max": 800000},
+            {"level": 6, "type": "manual", "min": 1000000, "max": 1500000}
+        ]
+    }
 
-def process_withdraw_request(user_id: int, address: str, amount_zn: float) -> dict:
-    """خصم الرصيد وتسجيل العملية في Firestore و SQLite بدقة"""
-    balances = get_user_wallet_balances(user_id)
-    current_zn = balances.get('zn_balance', 0.0)
+def has_withdrawn_today(user_id):
+    today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    user_doc = db.collection('users').document(str(user_id)).get()
+    if user_doc.exists:
+        last_date = user_doc.to_dict().get('last_withdraw_date')
+        return last_date == today_utc
+    return False
 
-    if current_zn < amount_zn:
-        return {'success': False, 'error': 'الرصيد غير كافٍ لإتمام السحب'}
+def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_address):
+    user_ref = db.collection('users').document(str(user_id))
+    user_doc = user_ref.get()
+    if not user_doc.exists:
+        return False, "المستخدم غير موجود"
+    
+    user_data = user_doc.to_dict()
+    if user_data.get('balance', 0) < coins_amount:
+        return False, "رصيدك غير كافي"
 
-    # 100,000 ZN = $1.00 USD
-    net_zn = amount_zn * 0.97
-    usd_value = net_zn / 100000.0
+    today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    current_count = user_data.get('withdraw_count', 0) + 1
+    
+    # خصم الرصيد وتحديث تاريخ السحب
+    user_ref.update({
+        'balance': firestore.Increment(-coins_amount),
+        'last_withdraw_date': today_utc,
+        'withdraw_count': current_count,
+        'wallet_address': wallet_address
+    })
 
-    # 1. خصم الرصيد عبر دالة التحديث الموحدة
-    deduct_success = update_user_balance(user_id, amount_zn, currency='zn', operation='subtract')
-    if not deduct_success:
-        return {'success': False, 'error': 'فشل خصم الرصيد من قاعدة البيانات'}
-
+    # تسجيل المعاملة
+    tx_ref = db.collection('processed_txs').document()
     tx_data = {
         'user_id': str(user_id),
-        'address': address,
-        'amount_zn': amount_zn,
-        'net_zn': net_zn,
-        'usd_value': usd_value,
-        'status': 'pending',
-        'type': 'withdraw',
-        'created_at': datetime.datetime.utcnow().isoformat()
+        'coins': coins_amount,
+        'ton_amount': ton_amount,
+        'wallet': wallet_address,
+        'status': 'completed' if level_info['type'] == 'auto' else 'pending',
+        'level': level_info['level'],
+        'created_at': firestore.SERVER_TIMESTAMP
     }
-
-    # 2. حفظ السجل في Firestore
-    db = get_firestore_db()
-    if db:
-        try:
-            db.collection('withdrawals').add(tx_data)
-        except Exception as e:
-            print(f"⚠️ خطأ حفظ طلب السحب في Firestore: {e}")
-
-    # 3. حفظ السجل في SQLite
-    conn = get_sqlite_conn()
-    if conn:
-        try:
-            cursor = conn.cursor()
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS withdraw_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id TEXT,
-                    address TEXT,
-                    amount_zn REAL,
-                    usd_value REAL,
-                    status TEXT,
-                    created_at TEXT
-                )
-            ''')
-            cursor.execute('''
-                INSERT INTO withdraw_history (user_id, address, amount_zn, usd_value, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (str(user_id), address, amount_zn, usd_value, 'pending', tx_data['created_at']))
-            conn.commit()
-        except Exception as e:
-            print(f"⚠️ خطأ حفظ طلب السحب في SQLite: {e}")
-        finally:
-            conn.close()
-
-    new_balances = get_user_wallet_balances(user_id)
-    return {
-        'success': True,
-        'message': 'تم تقديم طلب السحب بنجاح!',
-        'new_balance': new_balances.get('zn_balance', 0.0)
-    }
+    tx_ref.set(tx_data)
+    
+    return True, tx_data
