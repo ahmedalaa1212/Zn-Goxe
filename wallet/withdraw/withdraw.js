@@ -1,205 +1,198 @@
 window.withdrawModule = (function () {
-    let currentTierInfo = null;
-    let tonPriceUsd = 6.0; // قيمة افتراضية لحين الجلب من السيرفر
+    let tonPriceUsd = 1.30; // سعر افتراضي لحين جلب السعر اللحظي
+    const ZN_PER_USD = 100000; // 100,000 ZN = $1.00 USD
+    const FEE_PERCENT = 0.03;  // رسوم 3%
 
-    async function fetchWithdrawInfo() {
+    async function fetchTonLivePrice() {
+        try {
+            const res = await fetch('/api/wallet/withdraw/ton-price');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success && data.ton_price > 0) {
+                    tonPriceUsd = parseFloat(data.ton_price);
+                }
+            }
+        } catch (e) {
+            console.warn("⚠️ استخدام سعر TON المحلي الحقيقي:", e);
+        }
+        
+        const rateElem = document.getElementById('withdraw-ton-rate-info');
+        if (rateElem) {
+            rateElem.innerText = `(سعر 1 TON = $${tonPriceUsd.toFixed(2)} USD)`;
+        }
+        calculateLiveExchange();
+    }
+
+    function calculateLiveExchange() {
+        const amountInput = document.getElementById('withdraw-amount-input');
+        const feeElem = document.getElementById('withdraw-fee-display');
+        const usdElem = document.getElementById('withdraw-usd-display');
+        const tonElem = document.getElementById('withdraw-ton-display');
+
+        if (!amountInput || !feeElem || !usdElem || !tonElem) return;
+
+        const amountZN = parseFloat(amountInput.value) || 0;
+
+        if (amountZN <= 0) {
+            feeElem.innerText = "0 ZN";
+            usdElem.innerText = "$0.00";
+            tonElem.innerText = "0.0000 TON";
+            return;
+        }
+
+        // حساب الرسوم والصافي
+        const feeZN = amountZN * FEE_PERCENT;
+        const netZN = Math.max(0, amountZN - feeZN);
+        
+        // التحويل للدولار (100,000 ZN = $1)
+        const netUSD = netZN / ZN_PER_USD;
+        
+        // التحويل لعملة TON بناءً على السعر المباشر
+        const netTON = tonPriceUsd > 0 ? (netUSD / tonPriceUsd) : 0;
+
+        // تحديث الواجهة
+        feeElem.innerText = `${feeZN.toLocaleString('en-US', { maximumFractionDigits: 2 })} ZN`;
+        usdElem.innerText = `$${netUSD.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+        tonElem.innerText = `${netTON.toFixed(4)} TON`;
+    }
+
+    function setMaxAmount() {
+        const amountInput = document.getElementById('withdraw-amount-input');
+        const userZn = window.userState?.balance || window.userState?.zn_balance || window.PlayerData?.balance || 0;
+        
+        if (amountInput) {
+            amountInput.value = userZn;
+            calculateLiveExchange();
+        }
+    }
+
+    function connectWallet() {
+        const addressInput = document.getElementById('withdraw-address-input');
+        const msgElem = document.getElementById('withdraw-status-msg');
+
+        // البحث عن محفظة مسجلة سابقاً في ذاكرة المستخدم أو Telegram WebApp
+        const savedAddress = window.userState?.wallet_address || 
+                             window.PlayerData?.wallet_address || 
+                             window.Telegram?.WebApp?.initDataUnsafe?.user?.wallet_address;
+
+        if (savedAddress && savedAddress.length > 10) {
+            addressInput.value = savedAddress;
+            showStatus("✅ تم ربط محفظتك المسجلة بنجاح!", "#34d399");
+        } else if (window.Telegram?.WebApp?.openTelegramLink) {
+            // توجيه مستخدمي تليجرام للتأكيد أو استخدام TON Connect إذا وجد
+            showStatus("💡 أدخل عنوان محفظة TON الخاصة بك مباشرة (EQ... / UQ...)", "#38bdf8");
+        } else {
+            showStatus("💡 يرجى لصق عنوان محفظتك بصيغة EQ... أو UQ...", "#38bdf8");
+        }
+    }
+
+    function showStatus(text, color) {
+        const msgElem = document.getElementById('withdraw-status-msg');
+        if (msgElem) {
+            msgElem.style.display = 'block';
+            msgElem.style.color = color;
+            msgElem.style.background = 'rgba(0,0,0,0.4)';
+            msgElem.innerText = text;
+        }
+    }
+
+    async function submitWithdrawal() {
+        const addressInput = document.getElementById('withdraw-address-input');
+        const amountInput = document.getElementById('withdraw-amount-input');
+        const btn = document.getElementById('withdraw-submit-btn');
+
+        const address = addressInput?.value?.trim() || '';
+        const amountZN = parseFloat(amountInput?.value) || 0;
+        const currentBalance = window.userState?.balance || window.PlayerData?.balance || 0;
+
+        // التحقق من صحة المدخلات
+        if (!address || address.length < 20) {
+            showStatus("❌ يرجى إدخال أو ربط عنوان محفظة TON صحيح!", "#f87171");
+            return;
+        }
+
+        if (amountZN <= 0) {
+            showStatus("❌ يرجى إدخال كمية عملات ZN مقبولة للسحب!", "#f87171");
+            return;
+        }
+
+        if (amountZN > currentBalance) {
+            showStatus("❌ رصيدك الحالي لا يكفي لتمام عملية السحب!", "#f87171");
+            return;
+        }
+
+        btn.disabled = true;
+        btn.innerText = "جاري معالجة طلب السحب...";
+        showStatus("⏳ جاري تسجيل طلب السحب الفوري...", "#38bdf8");
+
         try {
             const tg = window.Telegram?.WebApp;
             const userId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.user_id || '';
             const initData = tg?.initData || '';
 
-            if (!userId) return;
-
-            const res = await fetch(`/api/wallet/withdraw/info?user_id=${userId}`, {
-                headers: {
-                    'X-Telegram-User-Id': String(userId),
-                    'Authorization': `Bearer ${initData}`
-                }
-            });
-
-            const data = await res.json();
-            if (data.success) {
-                currentTierInfo = data.tier_info;
-                tonPriceUsd = data.ton_price || 6.0;
-                renderTierInfo();
-            }
-        } catch (err) {
-            console.error("خطأ في جلب بيانات السحب:", err);
-        }
-    }
-
-    function renderTierInfo() {
-        if (!currentTierInfo) return;
-
-        const titleElem = document.getElementById('tier-title');
-        const badgeElem = document.getElementById('tier-badge');
-        const minElem = document.getElementById('tier-min');
-        const maxElem = document.getElementById('tier-max');
-        const noteElem = document.getElementById('utc-limit-note');
-        const btnElem = document.getElementById('withdraw-submit-btn');
-
-        if (titleElem) titleElem.innerText = `السحبة رقم (${currentTierInfo.withdraw_count + 1}) - ${currentTierInfo.tier_name}`;
-        
-        if (badgeElem) {
-            badgeElem.innerText = currentTierInfo.is_auto ? "تلقائي فوري" : "يدوي (موافقة أدمن)";
-            badgeElem.style.background = currentTierInfo.is_auto ? "rgba(52, 211, 153, 0.15)" : "rgba(245, 158, 11, 0.15)";
-            badgeElem.style.color = currentTierInfo.is_auto ? "#34d399" : "#f59e0b";
-        }
-
-        if (minElem) minElem.innerText = currentTierInfo.min_zn.toLocaleString();
-        if (maxElem) maxElem.innerText = currentTierInfo.max_zn ? currentTierInfo.max_zn.toLocaleString() : "مفتوح (بلا حد)";
-
-        if (currentTierInfo.has_withdrawn_today) {
-            if (noteElem) noteElem.style.display = 'block';
-            if (btnElem) {
-                btnElem.disabled = true;
-                btnElem.style.opacity = "0.5";
-                btnElem.style.cursor = "not-allowed";
-                btnElem.innerText = "تم السحب اليوم (توقيت UTC)";
-            }
-        }
-    }
-
-    function calculateDetails() {
-        const inputElem = document.getElementById('withdraw-amount-input');
-        const feeElem = document.getElementById('calc-fee');
-        const usdElem = document.getElementById('calc-net-usd');
-        const tonElem = document.getElementById('calc-net-ton');
-
-        const amount = parseFloat(inputElem?.value || 0);
-
-        if (amount <= 0 || isNaN(amount)) {
-            if (feeElem) feeElem.innerText = "0 ZN";
-            if (usdElem) usdElem.innerText = "$0.00";
-            if (tonElem) tonElem.innerText = "0.0000 TON";
-            return;
-        }
-
-        const feeZN = amount * 0.03; // خصم 3%
-        const netZN = Math.max(0, amount - feeZN);
-        
-        // 100,000 ZN = $1.00 USD
-        const netUSD = netZN / 100000.0;
-        const netTON = tonPriceUsd > 0 ? (netUSD / tonPriceUsd) : 0;
-
-        if (feeElem) feeElem.innerText = `${feeZN.toFixed(2)} ZN`;
-        if (usdElem) usdElem.innerText = `$${netUSD.toFixed(4)}`;
-        if (tonElem) tonElem.innerText = `${netTON.toFixed(4)} TON`;
-    }
-
-    function setMaxAmount() {
-        if (!currentTierInfo) return;
-        const userBalance = window.userState?.balance || 0;
-        let target = userBalance;
-
-        if (currentTierInfo.max_zn && target > currentTierInfo.max_zn) {
-            target = currentTierInfo.max_zn;
-        }
-
-        const inputElem = document.getElementById('withdraw-amount-input');
-        if (inputElem) {
-            inputElem.value = target;
-            calculateDetails();
-        }
-    }
-
-    async function submitWithdrawal() {
-        const address = document.getElementById('withdraw-address-input')?.value?.trim();
-        const amount = parseFloat(document.getElementById('withdraw-amount-input')?.value || 0);
-        const userBalance = window.userState?.balance || 0;
-
-        if (!address || address.length < 20) {
-            alert("يرجى إدخال عنوان محفظة TON صحيح!");
-            return;
-        }
-
-        if (!amount || amount <= 0) {
-            alert("يرجى إدخال كمية سحب صالحة!");
-            return;
-        }
-
-        if (amount > userBalance) {
-            alert("رصيدك الحالي غير كافٍ لإجراء السحب!");
-            return;
-        }
-
-        if (currentTierInfo) {
-            if (amount < currentTierInfo.min_zn) {
-                alert(`الحد الأدنى لهذا المستوى هو ${currentTierInfo.min_zn.toLocaleString()} ZN`);
-                return;
-            }
-            if (currentTierInfo.max_zn && amount > currentTierInfo.max_zn) {
-                alert(`الحد الأقصى لهذا المستوى هو ${currentTierInfo.max_zn.toLocaleString()} ZN`);
-                return;
-            }
-        }
-
-        const btn = document.getElementById('withdraw-submit-btn');
-        if (btn) {
-            btn.disabled = true;
-            btn.innerText = "جاري معالجة الطلب...";
-        }
-
-        try {
-            const tg = window.Telegram?.WebApp;
-            const userId = tg?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.user_id || '';
-
             const res = await fetch('/api/wallet/withdraw/request', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-Telegram-User-Id': String(userId)
+                    'X-Telegram-User-Id': String(userId),
+                    'Authorization': `Bearer ${initData}`
                 },
                 body: JSON.stringify({
                     user_id: userId,
-                    amount_zn: amount,
-                    wallet_address: address
+                    address: address,
+                    amount_zn: amountZN
                 })
             });
 
             const data = await res.json();
+
             if (data.success) {
-                alert(data.message || "تم تقديم طلب السحب بنجاح!");
-                
-                // تحديث الرصيد المحلي مباشرة
-                if (window.userState && data.new_balance !== undefined) {
-                    window.userState.balance = data.new_balance;
-                    if (window.walletModule?.updateBalancesUI) {
-                        window.walletModule.updateBalancesUI();
-                    }
+                showStatus("✅ تم تقديم طلب السحب بنجاح وخصم الرصيد!", "#34d399");
+
+                // تحديث رصيد المستخدم محلياً فوراً
+                if (data.new_balance !== undefined) {
+                    if (window.userState) window.userState.balance = data.new_balance;
+                    if (window.PlayerData) window.PlayerData.balance = data.new_balance;
+                } else {
+                    if (window.userState) window.userState.balance -= amountZN;
+                    if (window.PlayerData) window.PlayerData.balance -= amountZN;
                 }
-                
-                // إعادة جلب معلومات التبويب لتعطيل السحب اليومي
-                fetchWithdrawInfo();
+
+                // تحديث واجهة المحفظة العلوية
+                if (window.walletModule?.updateBalancesUI) {
+                    window.walletModule.updateBalancesUI();
+                }
+
+                amountInput.value = "";
+                calculateLiveExchange();
             } else {
-                alert(data.error || "فشل تقديم طلب السحب!");
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerText = "تأكيد طلب السحب";
-                }
+                showStatus(`❌ فشل السحب: ${data.error || 'حدث خطأ غير متوقع'}`, "#f87171");
             }
-        } catch (e) {
-            console.error("Error submitting withdrawal:", e);
-            alert("حدث خطأ أثناء الاتصال بالسيرفر!");
-            if (btn) {
-                btn.disabled = false;
-                btn.innerText = "تأكيد طلب السحب";
-            }
+        } catch (err) {
+            console.error("خطأ السحب:", err);
+            showStatus("❌ تعذر الاتصال بالسيرفر، حاول مجدداً.", "#f87171");
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "تأكيد طلب السحب الفوري 🚀";
         }
     }
 
     function init() {
-        fetchWithdrawInfo();
+        fetchTonLivePrice();
+        connectWallet();
     }
 
     return {
         init,
-        calculateDetails,
+        fetchTonLivePrice,
+        calculateLiveExchange,
         setMaxAmount,
+        connectWallet,
         submitWithdrawal
     };
 })();
 
-function init_withdraw_module() {
-    window.withdrawModule?.init();
+// تشغيل عند التحميل
+if (document.getElementById('withdraw-amount-input')) {
+    window.withdrawModule.init();
 }
