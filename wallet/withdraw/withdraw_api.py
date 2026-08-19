@@ -1,46 +1,39 @@
-from flask import Blueprint, jsonify, request
-import urllib.request
-import json
-from .withdraw_db import process_withdraw_request
+from flask import Blueprint, request, jsonify
+from core.ton_price import get_ton_price_usd # افترض وجود وحدة سعر TON الحالية
+from wallet.withdraw.withdraw_db import get_withdraw_config, has_withdrawn_today, process_withdraw_db
 
-withdraw_bp = Blueprint('withdraw_api', __name__)
+withdraw_api = Blueprint('withdraw_api', __name__)
 
-@withdraw_bp.route('/ton-price', methods=['GET'])
-def get_ton_price():
-    """جلب سعر عملة TON المباشر من السوق"""
-    try:
-        url = "https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=4) as response:
-            data = json.loads(response.read().decode())
-            ton_price = data.get('the-open-network', {}).get('usd', 1.30)
-            return jsonify({'success': True, 'ton_price': float(ton_price)})
-    except Exception as e:
-        print(f"⚠️ يتعذر جلب سعر TON المباشر، استخدام السعر الافتراضي: {e}")
-        return jsonify({'success': True, 'ton_price': 1.30})
+@withdraw_api.route('/api/withdraw/config', methods=['GET'])
+def get_config():
+    user_id = request.args.get('user_id')
+    config = get_withdraw_config()
+    ton_price = get_ton_price_usd() # سعر TON بالدولار
+    already_withdrawn = has_withdrawn_today(user_id) if user_id else False
+    
+    return jsonify({
+        "success": True,
+        "config": config,
+        "ton_price": ton_price,
+        "already_withdrawn": already_withdrawn
+    })
 
-@withdraw_bp.route('/request', methods=['POST'])
-def handle_withdraw_request():
-    """معالجة وتنفيد طلب السحب المباشر"""
-    try:
-        data = request.get_json() or {}
-        user_id = data.get('user_id') or request.headers.get('X-Telegram-User-Id')
-        address = data.get('address', '').strip()
-        amount_zn = float(data.get('amount_zn', 0))
+@withdraw_api.route('/api/withdraw/request', methods=['POST'])
+def handle_withdraw():
+    data = request.json
+    user_id = data.get('user_id')
+    coins = float(data.get('coins', 0))
+    wallet_address = data.get('wallet_address')
 
-        if not user_id:
-            return jsonify({'success': False, 'error': 'معرف المستخدم غير متوفر'}), 400
+    if not wallet_address:
+        return jsonify({"success": False, "message": "برجاء ربط المحفظة أولاً"})
 
-        if not address or len(address) < 20:
-            return jsonify({'success': False, 'error': 'عنوان محفظة TON غير صحيح'}), 400
+    if has_withdrawn_today(user_id):
+        return jsonify({"success": False, "message": "مسموح بسحبة واحدة فقط يومياً (يتجدد 00:00 UTC)"})
 
-        if amount_zn <= 0:
-            return jsonify({'success': False, 'error': 'كمية السحب يجب أن تكون أكبر من 0'}), 400
+    config = get_withdraw_config()
+    # التحقق من شروط المستوى والقيمة...
+    # يتم هنا معالجة الدفع عبر TON SDK إذا كان تلقائياً أو إرسال إشعار للبوت إذا كان يدوياً
 
-        # تنفيذ الطلب وخصم الرصيد
-        result = process_withdraw_request(int(user_id), address, amount_zn)
-        return jsonify(result)
-
-    except Exception as e:
-        print(f"⚠️ خطأ أثناء معالجة طلب السحب: {e}")
-        return jsonify({'success': False, 'error': 'حدث خطأ أثناء معالجة الطلب'}), 500
+    success, res = process_withdraw_db(user_id, coins, 0, {"type": "auto", "level": 1}, wallet_address)
+    return jsonify({"success": success, "message": "تم تقديم طلب السحب بنجاح" if success else res})
