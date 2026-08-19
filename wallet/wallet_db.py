@@ -32,7 +32,7 @@ def get_db_connection():
     return conn
 
 def get_user_wallet_balances(user_id: int) -> dict:
-    """استعلام آمن للأرصدة من قاعدة البيانات الرئيسية"""
+    """استعلام آمن للأرصدة من قاعدة البيانات الرئيسية مع إعطاء الأولوية للقيم الفعلية غير الصفرية"""
     conn = None
     try:
         conn = get_db_connection()
@@ -44,12 +44,33 @@ def get_user_wallet_balances(user_id: int) -> dict:
         row = cursor.fetchone()
         if row:
             keys = row.keys()
-            zn_val = row['zn_balance'] if 'zn_balance' in keys and row['zn_balance'] is not None else row['balance']
-            usdt_val = row['usdt_balance'] if 'usdt_balance' in keys and row['usdt_balance'] is not None else row['usd_balance']
             
+            # جلب القيم المتاحة
+            zn_b = float(row['zn_balance']) if 'zn_balance' in keys and row['zn_balance'] is not None else None
+            b = float(row['balance']) if 'balance' in keys and row['balance'] is not None else None
+            
+            # تحديد رصيد ZN بناءً على القيمة الأكبر أو المتوفرة
+            if zn_b is not None and zn_b > 0:
+                final_zn = zn_b
+            elif b is not None and b > 0:
+                final_zn = b
+            else:
+                final_zn = zn_b if zn_b is not None else (b or 0.0)
+
+            # جلب وتحديد رصيد USDT
+            usdt_b = float(row['usdt_balance']) if 'usdt_balance' in keys and row['usdt_balance'] is not None else None
+            usd_b = float(row['usd_balance']) if 'usd_balance' in keys and row['usd_balance'] is not None else None
+            
+            if usdt_b is not None and usdt_b > 0:
+                final_usdt = usdt_b
+            elif usd_b is not None and usd_b > 0:
+                final_usdt = usd_b
+            else:
+                final_usdt = usdt_b if usdt_b is not None else (usd_b or 0.0)
+
             return {
-                'zn_balance': float(zn_val or 0.0),
-                'usdt_balance': float(usdt_val or 0.0)
+                'zn_balance': final_zn,
+                'usdt_balance': final_usdt
             }
         return {'zn_balance': 0.0, 'usdt_balance': 0.0}
     except Exception as e:
