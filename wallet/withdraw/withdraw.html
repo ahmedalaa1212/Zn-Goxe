@@ -1,74 +1,192 @@
+<style>
+  .withdraw-wrapper {
+    padding: 12px;
+    color: #ffffff;
+    font-family: 'Cairo', sans-serif;
+    direction: rtl;
+  }
+  .w-card {
+    background: #141f32;
+    border: 1px solid #202f4a;
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 14px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+  }
+  .w-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: #00a8ff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn-connect-wallet {
+    width: 100%;
+    background: linear-gradient(135deg, #0088cc, #00a8ff);
+    color: #fff;
+    border: none;
+    padding: 12px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.2s ease;
+  }
+  .btn-connect-wallet:active {
+    transform: scale(0.98);
+  }
+  .wallet-status {
+    background: #1e2c44;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    color: #2ed573;
+    word-break: break-all;
+    border: 1px solid #2a3d5e;
+  }
+  .w-input-group {
+    margin-bottom: 12px;
+  }
+  .w-label {
+    display: block;
+    font-size: 12px;
+    color: #a0aec0;
+    margin-bottom: 6px;
+  }
+  .w-input {
+    width: 100%;
+    background: #0d1626;
+    border: 1px solid #2a3d5e;
+    border-radius: 10px;
+    padding: 12px;
+    color: #fff;
+    font-size: 15px;
+    box-sizing: border-box;
+    outline: none;
+  }
+  .w-input:focus {
+    border-color: #00a8ff;
+  }
+  .w-input[readonly] {
+    background: #09101c;
+    color: #00e676;
+    font-weight: bold;
+  }
+  .fee-details {
+    background: #0d1626;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+  .fee-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .fee-row:last-child { margin-bottom: 0; }
+  .fee-val { font-weight: bold; color: #eccc68; }
+  .net-val { font-weight: bold; color: #2ed573; font-size: 13px; }
+  .notice-box {
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-size: 11px;
+    line-height: 1.5;
+    margin-bottom: 10px;
+  }
+  .notice-warning {
+    background: rgba(255, 71, 87, 0.1);
+    border: 1px solid rgba(255, 71, 87, 0.3);
+    color: #ff6b81;
+  }
+  .notice-info {
+    background: rgba(30, 144, 255, 0.1);
+    border: 1px solid rgba(30, 144, 255, 0.3);
+    color: #70a1ff;
+  }
+  .btn-submit-withdraw {
+    width: 100%;
+    background: linear-gradient(135deg, #2ed573, #1e90ff);
+    color: #fff;
+    border: none;
+    padding: 14px;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  .btn-submit-withdraw:disabled {
+    background: #2c3e50;
+    color: #7f8c8d;
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  .level-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: #2a3d5e;
+    color: #00a8ff;
+    margin-right: auto;
+  }
+</style>
+
 <div class="withdraw-wrapper">
-    <!-- بطاقة ربط المحفظة -->
-    <div class="app-card wallet-card">
-        <div class="card-header">
-            <span class="icon">👛</span>
-            <h3>ربط المحفظة</h3>
-        </div>
-        <p class="card-desc">اربط محفظتك على شبكة TON لاستلام السحوبات الفورية</p>
-        
-        <button id="ton-connect-btn" class="btn-wallet">
-            <span class="btn-icon">⚡</span>
-            <span id="btn-wallet-text">ربط المحفظة (Tonkeeper / Telegram)</span>
-        </button>
-        <div id="connected-wallet-box" class="wallet-status-box hidden">
-            <span class="status-indicator online"></span>
-            <span id="wallet-address-display" class="address-text"></span>
-        </div>
+  <!-- 1. ربط المحفظة -->
+  <div class="w-card">
+    <div class="w-title">
+      <span>💎 ربط المحفظة (TON)</span>
+    </div>
+    <div id="wallet-not-connected">
+      <button id="ton-connect-btn" class="btn-connect-wallet" onclick="connectWallet()">
+        ربط المحفظة (Tonkeeper / Telegram)
+      </button>
+    </div>
+    <div id="wallet-connected" class="wallet-status" style="display: none;">
+      تم الربط: <span id="connected-address-text">--</span>
+    </div>
+  </div>
+
+  <!-- 2. نموذج السحب -->
+  <div class="w-card">
+    <div class="w-title">
+      <span>طلب سحب الأرباح</span>
+      <span id="level-indicator" class="level-badge">المستوى: --</span>
     </div>
 
-    <!-- نموذج السحب -->
-    <div class="app-card withdraw-card">
-        <div class="card-header">
-            <span class="icon">💎</span>
-            <h3>طلب سحب الرصيد</h3>
-        </div>
-
-        <div class="form-group">
-            <label for="coins-input">عدد العملات المراد سحبها</label>
-            <div class="input-wrapper">
-                <input type="number" id="coins-input" placeholder="0.00" dir="ltr" autocomplete="off" />
-                <span class="input-badge">ZN</span>
-            </div>
-        </div>
-
-        <div class="form-group">
-            <label for="ton-output">القيمة المقابلة بـ TON (تقريبي)</label>
-            <div class="input-wrapper disabled">
-                <input type="text" id="ton-output" readonly value="0.00 TON" dir="ltr" />
-                <span class="input-badge ton">TON</span>
-            </div>
-        </div>
-
-        <!-- تفاصيل العملية -->
-        <div class="summary-box">
-            <div class="summary-row">
-                <span>خصم رسوم التحويل (3%):</span>
-                <strong id="fee-amount">0 ZN</strong>
-            </div>
-            <div class="summary-row highlight">
-                <span>الصافي النهائي للمحفظة:</span>
-                <strong id="net-ton">0.00 TON</strong>
-            </div>
-        </div>
-
-        <!-- تنبيهات الأمن والمعالجة -->
-        <div class="notice-box warning">
-            <span class="notice-icon">⚠️</span>
-            <div class="notice-text">
-                <strong>تنبيه منع الغش:</strong> استخدام الحسابات المتعددة أو البرمجيات الضارة يؤدي لحظر حسابك نهائياً.
-            </div>
-        </div>
-
-        <div class="notice-box info">
-            <span class="notice-icon">⏱️</span>
-            <div class="notice-text">
-                استلام السحب يستغرق من <strong>دقيقة واحدة إلى 48 ساعة</strong> حسب مستوى السحب.
-            </div>
-        </div>
-
-        <button id="confirm-withdraw-btn" class="btn-submit" disabled>
-            تأكيد إرسال طلب السحب
-        </button>
+    <div class="w-input-group">
+      <label class="w-label">عدد العملات المراد سحبها:</label>
+      <input type="number" id="coins-input" class="w-input" placeholder="أدخل عدد العملات" oninput="calculateWithdraw()" />
     </div>
+
+    <div class="w-input-group">
+      <label class="w-label">القيمة المقابلة بـ TON (غير قابل للتعديل):</label>
+      <input type="text" id="ton-output" class="w-input" readonly placeholder="0.0000 TON" />
+    </div>
+
+    <div class="fee-details">
+      <div class="fee-row">
+        <span>رسوم التحويل (3%):</span>
+        <span id="fee-amount" class="fee-val">0 ZN</span>
+      </div>
+      <div class="fee-row">
+        <span>الصافي الذي سيصل محفظتك:</span>
+        <span id="net-ton" class="net-val">0.0000 TON</span>
+      </div>
+    </div>
+
+    <div class="notice-box notice-warning">
+      ⚠️ <strong>تنبيه الغش:</strong> الحسابات المتعددة أو برامج التلاعب تؤدي لحظر الحساب نهائياً وإلغاء الأرباح.
+    </div>
+
+    <div class="notice-box notice-info">
+      ℹ️ استلام السحب يستغرق من <strong>دقيقة واحدة إلى 48 ساعة</strong> بناءً على مستوى السحب.
+    </div>
+
+    <button id="confirm-withdraw-btn" class="btn-submit-withdraw" disabled onclick="submitWithdrawal()">
+      تأكيد السحب
+    </button>
+  </div>
 </div>
