@@ -1,8 +1,9 @@
 import os
 import requests
 from flask import Blueprint, request, jsonify
+from firebase_admin import firestore
 from core.ton_price import get_ton_price_usd
-from wallet.withdraw.withdraw_db import get_withdraw_config, has_withdrawn_today, process_withdraw_db
+from wallet.withdraw.withdraw_db import db, get_withdraw_config, has_withdrawn_today, process_withdraw_db, get_user_full_details
 
 withdraw_api = Blueprint('withdraw_api', __name__)
 
@@ -11,7 +12,6 @@ def get_config():
     user_id = request.args.get('user_id')
     config = get_withdraw_config()
     
-    # جلب سعر TON مع قيمة احتياطية للوقاية من توقف API
     try:
         ton_price = get_ton_price_usd() or 5.50
     except:
@@ -56,7 +56,6 @@ def handle_withdraw():
     fee_coins = coins * (config['fee_percent'] / 100)
     net_ton = ((coins - fee_coins) / config['rate_coins_per_usd']) / ton_price
 
-    # تنفيذ العملية وقفل Firestore
     success, msg, tx_id = process_withdraw_db(
         user_id=user_id,
         coins_amount=coins,
@@ -68,15 +67,50 @@ def handle_withdraw():
     if not success:
         return jsonify({"success": False, "message": msg})
 
-    # إرسال تحويل أو تنبيه الأدمن
     if matched_level['type'] == 'auto':
-        # استدعاء دالة التحويل الآلي من محفظة السيرفر
         execute_auto_transfer(wallet_address, net_ton, tx_id)
     else:
-        # إرسال إشعار للأدمن لطلب السحب اليدوي
         notify_admin_for_manual_approval(user_id, coins, net_ton, wallet_address, matched_level['level'], tx_id)
 
     return jsonify({"success": True, "message": msg})
+
+@withdraw_api.route('/api/withdraw/admin-approve', methods=['POST'])
+def handle_admin_decision():
+    """معالجة قرارات الموافقة أو الرفض الصادرة من بوت الأدمن"""
+    data = request.json or {}
+    tx_id = data.get('tx_id')
+    action = data.get('action') # 'approve' أو 'reject'
+
+    if not tx_id or not action:
+        return jsonify({"success": False, "message": "بيانات الطلب غير مكتملة."})
+
+    tx_ref = db.collection('processed_txs').document(tx_id)
+    tx_doc = tx_ref.get()
+
+    if not tx_doc.exists:
+        return jsonify({"success": False, "message": "المعاملة غير موجودة."})
+
+    tx_data = tx_doc.to_dict()
+    if tx_data.get('status') != 'pending':
+        return jsonify({"success": False, "message": "تم اتخاذ قرار في هذه المعاملة سابقاً."})
+
+    user_ref = db.collection('users').document(str(tx_data['user_id']))
+
+    if action == 'approve':
+        success = execute_auto_transfer(tx_data['wallet'], tx_data['ton_amount'], tx_id)
+        if success:
+            tx_ref.update({'status': 'completed', 'updated_at': firestore.SERVER_TIMESTAMP})
+            user_ref.update({'withdraw_count': firestore.Increment(1)})
+            return jsonify({"success": True, "message": "تمت الموافقة والتحويل بنجاح."})
+        else:
+            return jsonify({"success": False, "message": "فشل تنفيذ عملية التحويل الشبكي."})
+
+    elif action == 'reject':
+        user_ref.update({'balance': firestore.Increment(tx_data['coins'])})
+        tx_ref.update({'status': 'rejected', 'updated_at': firestore.SERVER_TIMESTAMP})
+        return jsonify({"success": True, "message": "تم الرفض وإعادة العملات لرصيد المستخدم."})
+
+    return jsonify({"success": False, "message": "إجراء غير معروف."})
 
 def execute_auto_transfer(to_address, ton_amount, tx_id):
     """إرسال TON تلقائياً من محفظة السيرفر عبر TonCenter API"""
@@ -84,21 +118,36 @@ def execute_auto_transfer(to_address, ton_amount, tx_id):
     api_key = os.getenv("TONCENTER_API_KEY")
     if not server_seed:
         return False
-    # يتم هنا توقيع المعاملة ببث payload إلى TonCenter
     return True
 
 def notify_admin_for_manual_approval(user_id, coins, ton_amount, wallet, level, tx_id):
-    """إرسال إشعار لبوت الأدمن لمراجعة السحب اليدوي"""
+    """إرسال تقرير رقابي مفصل لبوت الأدمن للمراجعة بالمجموعة الخاصة"""
     bot_token = os.getenv("ADMIN_BOT_TOKEN")
     admin_chat_id = os.getenv("ADMIN_CHAT_ID")
     if not bot_token or not admin_chat_id:
         return
 
-    text = f"🚨 **طلب سحب يدوي جديد (مستوى {level})**\n\n" \
-           f"المستخدم: `{user_id}`\n" \
-           f"العملات: {coins:,.0f} ZN\n" \
-           f"المقابل: {ton_amount:.4f} TON\n" \
-           f"المحفظة: `{wallet}`"
+    user_info = get_user_full_details(user_id) or {}
+    username_text = f"@{user_info.get('username')}" if user_info.get('username') != 'لا يوجد' else 'بدون معرف'
+
+    text = (
+        f"🚨 **طلب سحب يدوي جديد (مستوى {level})**\n\n"
+        f"👤 **بيانات الحساب:**\n"
+        f"• ID: `{user_id}`\n"
+        f"• الاسم: {user_info.get('first_name')}\n"
+        f"• اليوزر: {username_text}\n"
+        f"• تاريخ الانضمام: `{user_info.get('joined_at')}`\n\n"
+        f"📊 **سجل النشاط وفحص الغش:**\n"
+        f"• عدد الإحالات (الدعوات): `{user_info.get('referrals_count')}` شخص\n"
+        f"• الرصيد المتبقي: `{user_info.get('balance'):,.0f}` ZN\n"
+        f"• إجمالي الأرباح: `{user_info.get('total_earned'):,.0f}` ZN\n"
+        f"• عدد السحوبات الناجحة: `{user_info.get('withdraw_count')}` مرة\n"
+        f"• آخر سحب: `{user_info.get('last_withdraw_date')}`\n\n"
+        f"💎 **تفاصيل طلب السحب:**\n"
+        f"• المبلغ المطلوب: `{coins:,.0f}` ZN\n"
+        f"• المستحق للتحويل: `{ton_amount:.4f}` TON\n"
+        f"• المحفظة: `{wallet}`"
+    )
 
     payload = {
         "chat_id": admin_chat_id,
@@ -107,7 +156,7 @@ def notify_admin_for_manual_approval(user_id, coins, ton_amount, wallet, level, 
         "reply_markup": {
             "inline_keyboard": [[
                 {"text": "موافقة 🟢", "callback_data": f"approve_tx_{tx_id}"},
-                {"text": "رفض 🔴", "callback_data": f"reject_tx_{tx_id}"}
+                {"text": "رفض وإعادة الرصيد 🔴", "callback_data": f"reject_tx_{tx_id}"}
             ]]
         }
     }
