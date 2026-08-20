@@ -33,6 +33,33 @@ def has_withdrawn_today(user_id):
         return user_doc.to_dict().get('last_withdraw_date') == today_utc
     return False
 
+def get_user_full_details(user_id):
+    """جلب كشف حساب وتفاصيل المستخدم الكاملة لكشف محاولات الغش"""
+    user_doc = db.collection('users').document(str(user_id)).get()
+    if not user_doc.exists:
+        return None
+    
+    data = user_doc.to_dict()
+    created_at = data.get('created_at')
+    
+    if hasattr(created_at, 'strftime'):
+        joined_date = created_at.strftime('%Y-%m-%d %H:%M UTC')
+    else:
+        joined_date = str(created_at or 'غير محدد')
+
+    return {
+        "user_id": user_id,
+        "first_name": data.get('first_name', 'غير محدد'),
+        "username": data.get('username', 'لا يوجد'),
+        "joined_at": joined_date,
+        "referrals_count": data.get('referrals_count', 0),
+        "balance": data.get('balance', 0),
+        "total_earned": data.get('total_earned', 0),
+        "withdraw_count": data.get('withdraw_count', 0),
+        "last_withdraw_date": data.get('last_withdraw_date', 'لم يسحب من قبل'),
+        "is_banned": data.get('is_banned', False)
+    }
+
 def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_address):
     """تحديث الرصيد وإنشاء المعاملة داخل Transaction أمنة"""
     transaction = db.transaction()
@@ -57,7 +84,7 @@ def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_ad
             'wallet_address': wallet_address
         })
 
-        # 2. تسجل المعاملة
+        # 2. تسجيل المعاملة
         tx_ref = db.collection('processed_txs').document()
         status = "completed" if level_info['type'] == "auto" else "pending"
         
