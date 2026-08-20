@@ -15,20 +15,41 @@ document.addEventListener("DOMContentLoaded", function() {
 });
 
 function initTonConnect() {
-  tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
-    manifestUrl: window.location.origin + '/tonconnect-manifest.json',
-    buttonRootId: 'ton-connect-button'
-  });
+  try {
+    tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
+      manifestUrl: window.location.origin + '/tonconnect-manifest.json',
+      buttonRootId: 'ton-connect-button'
+    });
 
-  tonConnectUI.onStatusChange(wallet => {
-    if (wallet) {
-      currentWalletAddress = wallet.account.address;
+    tonConnectUI.onStatusChange(wallet => {
+      const statusBadge = document.getElementById("wallet-connect-status");
+      const walletBox = document.getElementById("connected-wallet-box");
+      const addressDisplay = document.getElementById("wallet-address-display");
+
+      if (wallet) {
+        currentWalletAddress = wallet.account.address;
+        if (statusBadge) {
+          statusBadge.innerText = "متصل ✅";
+          statusBadge.style.color = "#4ade80";
+        }
+        if (walletBox) walletBox.style.display = "flex";
+        if (addressDisplay) {
+          const shortAddr = currentWalletAddress.substring(0, 6) + "..." + currentWalletAddress.substring(currentWalletAddress.length - 4);
+          addressDisplay.innerText = shortAddr;
+        }
+      } else {
+        currentWalletAddress = null;
+        if (statusBadge) {
+          statusBadge.innerText = "غير متصل";
+          statusBadge.style.color = "#ef4444";
+        }
+        if (walletBox) walletBox.style.display = "none";
+      }
       calculateWithdraw();
-    } else {
-      currentWalletAddress = null;
-      calculateWithdraw();
-    }
-  });
+    });
+  } catch (e) {
+    console.error("خطأ تهيئة TonConnect:", e);
+  }
 }
 
 async function initWithdrawPage(userId) {
@@ -42,7 +63,7 @@ async function initWithdrawPage(userId) {
       calculateWithdraw();
     }
   } catch (err) {
-    console.error("خطأ في جلب بيانات السحب:", err);
+    console.error("خطأ في جلب إعدادات السحب:", err);
   }
 }
 
@@ -57,19 +78,23 @@ function calculateWithdraw() {
     return;
   }
 
-  const levels = withdrawConfig.levels;
+  const levels = withdrawConfig.levels || [];
   const matchedLevel = levels.find(l => coinsInputVal >= l.min && coinsInputVal <= l.max);
 
   if (!matchedLevel) {
-    levelBadge.innerText = "خارج حدود المستويات";
-    levelBadge.style.color = "#ff4757";
+    if (levelBadge) {
+      levelBadge.innerText = "خارج حدود المستويات";
+      levelBadge.style.color = "#ef4444";
+    }
     resetCalculations();
     btn.disabled = true;
     return;
   }
 
-  levelBadge.innerText = `المستوى ${matchedLevel.level} (${matchedLevel.type === 'auto' ? 'فوري' : 'يدوي'})`;
-  levelBadge.style.color = "#00a8ff";
+  if (levelBadge) {
+    levelBadge.innerText = `المستوى ${matchedLevel.level} (${matchedLevel.type === 'auto' ? 'فوري ⚡' : 'يدوي 🛡️'})`;
+    levelBadge.style.color = "#38bdf8";
+  }
 
   const usdRate = withdrawConfig.rate_coins_per_usd || 100000;
   const usdValue = coinsInputVal / usdRate;
@@ -85,7 +110,7 @@ function calculateWithdraw() {
   document.getElementById("fee-amount").innerText = `${feeCoins.toLocaleString()} ZN`;
   document.getElementById("net-ton").innerText = `${netTon.toFixed(4)} TON`;
 
-  btn.disabled = !currentWalletAddress;
+  btn.disabled = !currentWalletAddress || coinsInputVal <= 0;
 }
 
 function resetCalculations() {
@@ -99,8 +124,13 @@ async function submitWithdrawal() {
   const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "5102387551";
   const btn = document.getElementById("confirm-withdraw-btn");
 
+  if (!currentWalletAddress) {
+    alert("يرجى ربط محفظة TON أولاً قبل تأكيد السحب!");
+    return;
+  }
+
   btn.disabled = true;
-  btn.innerText = "جاري الإرسال...";
+  btn.innerText = "جاري معالجة الطلب...";
 
   try {
     const res = await fetch('/api/withdraw/request', {
@@ -115,10 +145,11 @@ async function submitWithdrawal() {
     
     const data = await res.json();
     alert(data.message);
-    if (data.success) location.reload();
-
+    if (data.success) {
+      location.reload();
+    }
   } catch (err) {
-    alert("حدث خطأ في الاتصال بالخادم.");
+    alert("حدث خطأ أثناء الاتصال بالخادم.");
   } finally {
     btn.innerText = "تأكيد السحب";
     btn.disabled = false;
