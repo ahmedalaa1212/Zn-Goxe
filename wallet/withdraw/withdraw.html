@@ -2,33 +2,43 @@
 <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
 
 <style>
-  .withdraw-wrapper { padding: 12px; color: #fff; font-family: 'Cairo', sans-serif; direction: rtl; }
-  .w-card { background: #141f32; border: 1px solid #202f4a; border-radius: 16px; padding: 16px; margin-bottom: 14px; }
-  .w-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; color: #00a8ff; display: flex; justify-content: space-between; align-items: center; }
-  #ton-connect-button { display: flex; justify-content: center; margin-top: 10px; }
-  .w-input-group { margin-bottom: 12px; }
-  .w-label { display: block; font-size: 12px; color: #a0aec0; margin-bottom: 6px; }
-  .w-input { width: 100%; background: #0d1626; border: 1px solid #2a3d5e; border-radius: 10px; padding: 12px; color: #fff; font-size: 15px; box-sizing: border-box; outline: none; }
-  .w-input[readonly] { background: #09101c; color: #00e676; font-weight: bold; }
-  .fee-details { background: #0d1626; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; font-size: 12px; }
-  .fee-row { display: flex; justify-content: space-between; margin-bottom: 6px; }
-  .fee-val { font-weight: bold; color: #eccc68; }
-  .net-val { font-weight: bold; color: #2ed573; font-size: 13px; }
-  .notice-box { padding: 10px 12px; border-radius: 10px; font-size: 11px; line-height: 1.5; margin-bottom: 10px; }
-  .notice-warning { background: rgba(255, 71, 87, 0.1); border: 1px solid rgba(255, 71, 87, 0.3); color: #ff6b81; }
-  .notice-info { background: rgba(30, 144, 255, 0.1); border: 1px solid rgba(30, 144, 255, 0.3); color: #70a1ff; }
-  .btn-submit-withdraw { width: 100%; background: linear-gradient(135deg, #2ed573, #1e90ff); color: #fff; border: none; padding: 14px; border-radius: 12px; font-size: 15px; font-weight: bold; cursor: pointer; }
-  .btn-submit-withdraw:disabled { background: #2c3e50; color: #7f8c8d; cursor: not-allowed; opacity: 0.6; }
-  .level-badge { font-size: 11px; padding: 2px 8px; border-radius: 6px; background: #2a3d5e; color: #00a8ff; }
+  .withdraw-wrapper { padding: 14px; color: #f8fafc; font-family: 'Cairo', system-ui, sans-serif; direction: rtl; max-width: 480px; margin: 0 auto; }
+  .w-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 18px; padding: 18px; margin-bottom: 16px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3); }
+  .w-title { font-size: 15px; font-weight: 700; margin-bottom: 14px; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
+  #ton-connect-button { display: flex; justify-content: center; margin-top: 8px; }
+  .wallet-status { background: #1e293b; border-radius: 10px; padding: 10px 12px; margin-top: 10px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
+  .wallet-address-text { font-family: monospace; color: #4ade80; direction: ltr; font-weight: bold; }
+  .w-input-group { margin-bottom: 14px; }
+  .w-label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 6px; font-weight: 600; }
+  .w-input { width: 100%; background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; color: #fff; font-size: 15px; box-sizing: border-box; outline: none; transition: border-color 0.2s; }
+  .w-input:focus { border-color: #38bdf8; }
+  .w-input[readonly] { background: #090d16; color: #4ade80; font-weight: bold; }
+  .fee-details { background: #020617; border: 1px solid #1e293b; border-radius: 12px; padding: 12px; margin-bottom: 14px; font-size: 13px; }
+  .fee-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .fee-row:last-child { margin-bottom: 0; }
+  .fee-val { font-weight: bold; color: #fbbf24; }
+  .net-val { font-weight: bold; color: #4ade80; font-size: 14px; }
+  .notice-box { padding: 12px; border-radius: 12px; font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
+  .notice-warning { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #fca5a5; }
+  .notice-info { background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); color: #93c5fd; }
+  .btn-submit-withdraw { width: 100%; background: linear-gradient(135deg, #10b981, #0284c7); color: #fff; border: none; padding: 15px; border-radius: 14px; font-size: 16px; font-weight: bold; cursor: pointer; transition: transform 0.1s, opacity 0.2s; }
+  .btn-submit-withdraw:active { transform: scale(0.98); }
+  .btn-submit-withdraw:disabled { background: #334155; color: #64748b; cursor: not-allowed; opacity: 0.6; }
+  .level-badge { font-size: 11px; padding: 3px 10px; border-radius: 8px; background: #1e293b; color: #38bdf8; font-weight: 600; }
 </style>
 
 <div class="withdraw-wrapper">
-  <!-- 1. زر ربط المحفظة الحقيقي -->
+  <!-- 1. ربط المحفظة (TON) -->
   <div class="w-card">
     <div class="w-title">
-      <span>💎 ربط المحفظة (TON)</span>
+      <span>💎 ربط محفظة TON</span>
+      <span id="wallet-connect-status" class="level-badge" style="color:#ef4444;">غير متصل</span>
     </div>
     <div id="ton-connect-button"></div>
+    <div id="connected-wallet-box" class="wallet-status" style="display: none;">
+      <span>المحفظة النشطة:</span>
+      <span id="wallet-address-display" class="wallet-address-text">--</span>
+    </div>
   </div>
 
   <!-- 2. نموذج السحب -->
@@ -39,18 +49,18 @@
     </div>
 
     <div class="w-input-group">
-      <label class="w-label">عدد العملات المراد سحبها:</label>
-      <input type="number" id="coins-input" class="w-input" placeholder="أدخل عدد العملات" />
+      <label class="w-label">عدد العملات المراد سحبها (ZN):</label>
+      <input type="number" id="coins-input" class="w-input" placeholder="أدخل عدد العملات" min="1" />
     </div>
 
     <div class="w-input-group">
-      <label class="w-label">القيمة المقابلة بـ TON (غير قابل للتعديل):</label>
+      <label class="w-label">القيمة المقابلة بـ TON:</label>
       <input type="text" id="ton-output" class="w-input" readonly value="0.0000 TON" />
     </div>
 
     <div class="fee-details">
       <div class="fee-row">
-        <span>رسوم التحويل (3%):</span>
+        <span>رسوم التحويل:</span>
         <span id="fee-amount" class="fee-val">0 ZN</span>
       </div>
       <div class="fee-row">
@@ -60,11 +70,11 @@
     </div>
 
     <div class="notice-box notice-warning">
-      ⚠️ <strong>تنبيه منع الغش:</strong> استخدام الحسابات المتعددة أو برامج التلاعب يؤدي لبند دائم وحظر الأرباح.
+      ⚠️ <strong>تنبيه منع الغش:</strong> يمنع استخدام الحسابات المتعددة أو برامج التلاعب. أي مخالفة تؤدي لحظر الحساب نهائياً.
     </div>
 
     <div class="notice-box notice-info">
-      ℹ️ استلام السحب يستغرق من <strong>دقيقة واحدة إلى 48 ساعة</strong> بناءً على مستوى السحب.
+      ℹ️ السحب الفوري ينفذ تلقائياً، والطلبات الكبيرة تخضع لمراجعة الإدارة (1 - 48 ساعة).
     </div>
 
     <button id="confirm-withdraw-btn" class="btn-submit-withdraw" disabled onclick="submitWithdrawal()">
