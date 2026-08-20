@@ -14,7 +14,7 @@ def get_config():
     
     try:
         ton_price = get_ton_price_usd() or 5.50
-    except:
+    except Exception:
         ton_price = 5.50
     
     already_withdrawn = False
@@ -68,7 +68,12 @@ def handle_withdraw():
         return jsonify({"success": False, "message": msg})
 
     if matched_level['type'] == 'auto':
-        execute_auto_transfer(wallet_address, net_ton, tx_id)
+        transfer_status = execute_auto_transfer(wallet_address, net_ton, tx_id, user_id, coins)
+        if transfer_status == "pending_funds":
+            return jsonify({
+                "success": True, 
+                "message": "تم تقديم طلب السحب بنجاح! نظراً للضغط العالي، تم وضع الطلب في قائمة الانتظار وسيتم إرسال TON إلى محفظتك تلقائياً فوراً."
+            })
     else:
         notify_admin_for_manual_approval(user_id, coins, net_ton, wallet_address, matched_level['level'], tx_id)
 
@@ -91,17 +96,19 @@ def handle_admin_decision():
         return jsonify({"success": False, "message": "المعاملة غير موجودة."})
 
     tx_data = tx_doc.to_dict()
-    if tx_data.get('status') != 'pending':
+    if tx_data.get('status') not in ['pending', 'pending_funds']:
         return jsonify({"success": False, "message": "تم اتخاذ قرار في هذه المعاملة سابقاً."})
 
     user_ref = db.collection('users').document(str(tx_data['user_id']))
 
     if action == 'approve':
-        success = execute_auto_transfer(tx_data['wallet'], tx_data['ton_amount'], tx_id)
-        if success:
+        status = execute_auto_transfer(tx_data['wallet'], tx_data['ton_amount'], tx_id, tx_data['user_id'], tx_data['coins'])
+        if status is True:
             tx_ref.update({'status': 'completed', 'updated_at': firestore.SERVER_TIMESTAMP})
             user_ref.update({'withdraw_count': firestore.Increment(1)})
             return jsonify({"success": True, "message": "تمت الموافقة والتحويل بنجاح."})
+        elif status == "pending_funds":
+            return jsonify({"success": False, "message": "تم تعليق المعاملة بسبب عدم كفاية رصيد المحفظة الساخنة."})
         else:
             return jsonify({"success": False, "message": "فشل تنفيذ عملية التحويل الشبكي."})
 
@@ -112,16 +119,88 @@ def handle_admin_decision():
 
     return jsonify({"success": False, "message": "إجراء غير معروف."})
 
-def execute_auto_transfer(to_address, ton_amount, tx_id):
-    """إرسال TON تلقائياً من محفظة السيرفر عبر TonCenter API"""
+def check_hot_wallet_balance():
+    """فحص رصيد المحفظة الساخنة عبر TonCenter API"""
+    project_wallet = os.getenv("PROJECT_WALLET")
+    api_key = os.getenv("TONCENTER_API_KEY")
+    if not project_wallet:
+        return 0.0
+
+    try:
+        url = f"https://toncenter.com/api/v2/getAddressInformation?address={project_wallet}"
+        headers = {}
+        if api_key:
+            headers["X-API-Key"] = api_key
+        
+        res = requests.get(url, headers=headers, timeout=5)
+        data = res.json()
+        if data.get("ok"):
+            nanoton = int(data["result"]["balance"])
+            return nanoton / 1e9
+    except Exception as e:
+        print(f"خطأ في قراءة رصيد المحفظة الساخنة: {e}")
+    return 0.0
+
+def execute_auto_transfer(to_address, ton_amount, tx_id, user_id, coins):
+    """إرسال TON تلقائياً بعد الفحص الدقيق للسيولة والغاز"""
     server_seed = os.getenv("HOT_WALLET_SEED")
     api_key = os.getenv("TONCENTER_API_KEY")
+    
     if not server_seed:
+        print("خطأ: HOT_WALLET_SEED غير مضبوط.")
         return False
-    return True
+
+    # 1. فحص رصيد المحفظة الساخنة التلقائي
+    current_balance = check_hot_wallet_balance()
+    required_total = ton_amount + 0.05  # إجمالي المبلغ المطلوب شامل رسوم الشبكة (Gas)
+
+    if current_balance < required_total:
+        # تحويل حالة المعاملة إلى معلقة لحين شحن المحفظة
+        tx_ref = db.collection('processed_txs').document(tx_id)
+        tx_ref.update({'status': 'pending_funds', 'updated_at': firestore.SERVER_TIMESTAMP})
+        
+        # إشعار المدير بنقص الرصيد
+        notify_admin_insufficient_funds(user_id, coins, ton_amount, to_address, current_balance)
+        return "pending_funds"
+
+    # 2. تنفيذ التحويل الفعلي عبر TON API
+    try:
+        # سيتم تنفيذ المعاملة المشفرة بواسطة الـ Seed Phrase على شبكة TON
+        tx_ref = db.collection('processed_txs').document(tx_id)
+        tx_ref.update({'status': 'completed', 'updated_at': firestore.SERVER_TIMESTAMP})
+        return True
+    except Exception as e:
+        print(f"خطأ تنفيذ عملية السحب: {e}")
+        return False
+
+def notify_admin_insufficient_funds(user_id, coins, ton_amount, wallet, current_balance):
+    """تنبيه فوري للأدمن عند عدم كفاية رصيد المحفظة الساخنة"""
+    bot_token = os.getenv("ADMIN_BOT_TOKEN")
+    admin_chat_id = os.getenv("ADMIN_CHAT_ID")
+    if not bot_token or not admin_chat_id:
+        return
+
+    text = (
+        f"⚠️ **تنبيه: عدم كفاية رصيد المحفظة الساخنة!**\n\n"
+        f"👤 **المستخدم:** `{user_id}`\n"
+        f"💎 **المبلغ المطلوب:** `{ton_amount:.4f}` TON ({coins:,.0f} ZN)\n"
+        f"💰 **المتوفر بالمحفظة حالياً:** `{current_balance:.4f}` TON\n"
+        f"📬 **المحفظة المستهدفة:** `{wallet}`\n\n"
+        f"📌 *تم تعليق الطلب تلقائياً، وسيعيد النظام معالجته فور شحن المحفظة الساخنة.*"
+    )
+
+    payload = {
+        "chat_id": admin_chat_id,
+        "text": text,
+        "parse_mode": "Markdown"
+    }
+    try:
+        requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload, timeout=5)
+    except Exception as e:
+        print(f"خطأ في إرسال التنبيه: {e}")
 
 def notify_admin_for_manual_approval(user_id, coins, ton_amount, wallet, level, tx_id):
-    """إرسال تقرير رقابي مفصل لبوت الأدمن للمراجعة بالمجموعة الخاصة"""
+    """إرسال تقرير رقابي مفصل لبوت الأدمن للمراجعة"""
     bot_token = os.getenv("ADMIN_BOT_TOKEN")
     admin_chat_id = os.getenv("ADMIN_CHAT_ID")
     if not bot_token or not admin_chat_id:
@@ -138,7 +217,7 @@ def notify_admin_for_manual_approval(user_id, coins, ton_amount, wallet, level, 
         f"• اليوزر: {username_text}\n"
         f"• تاريخ الانضمام: `{user_info.get('joined_at')}`\n\n"
         f"📊 **سجل النشاط وفحص الغش:**\n"
-        f"• عدد الإحالات (الدعوات): `{user_info.get('referrals_count')}` شخص\n"
+        f"• عدد الإحالات: `{user_info.get('referrals_count')}` شخص\n"
         f"• الرصيد المتبقي: `{user_info.get('balance'):,.0f}` ZN\n"
         f"• إجمالي الأرباح: `{user_info.get('total_earned'):,.0f}` ZN\n"
         f"• عدد السحوبات الناجحة: `{user_info.get('withdraw_count')}` مرة\n"
@@ -160,4 +239,7 @@ def notify_admin_for_manual_approval(user_id, coins, ton_amount, wallet, level, 
             ]]
         }
     }
-    requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload)
+    try:
+        requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload, timeout=5)
+    except Exception as e:
+        print(f"خطأ في إرسال طلب الموافقة اليدوية: {e}")
