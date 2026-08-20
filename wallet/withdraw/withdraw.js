@@ -8,14 +8,12 @@ document.addEventListener("DOMContentLoaded", function() {
   initTonConnect();
   initWithdrawPage(userId);
 
-  // إعداد استماع مدخلات العملة
   const coinsInput = document.getElementById("coins-input");
   if (coinsInput) {
     coinsInput.addEventListener("input", calculateWithdraw);
   }
 });
 
-// تهيئة TonConnect الحقيقي
 function initTonConnect() {
   tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
     manifestUrl: window.location.origin + '/tonconnect-manifest.json',
@@ -33,7 +31,6 @@ function initTonConnect() {
   });
 }
 
-// جلب الإعدادات وسعر TON
 async function initWithdrawPage(userId) {
   try {
     const response = await fetch(`/api/withdraw/config?user_id=${userId}`);
@@ -41,7 +38,7 @@ async function initWithdrawPage(userId) {
 
     if (data.success) {
       withdrawConfig = data.config;
-      tonPriceUSD = data.ton_price || 5.50; // سعر افتراضي في حال التأخر
+      tonPriceUSD = data.ton_price || 5.50;
       calculateWithdraw();
     }
   } catch (err) {
@@ -49,7 +46,6 @@ async function initWithdrawPage(userId) {
   }
 }
 
-// الحساب الفوري ومطابقة المستويات
 function calculateWithdraw() {
   const coinsInputVal = parseFloat(document.getElementById("coins-input").value) || 0;
   const btn = document.getElementById("confirm-withdraw-btn");
@@ -75,7 +71,6 @@ function calculateWithdraw() {
   levelBadge.innerText = `المستوى ${matchedLevel.level} (${matchedLevel.type === 'auto' ? 'فوري' : 'يدوي'})`;
   levelBadge.style.color = "#00a8ff";
 
-  // الحسابات المباشرة
   const usdRate = withdrawConfig.rate_coins_per_usd || 100000;
   const usdValue = coinsInputVal / usdRate;
   const rawTon = usdValue / tonPriceUSD;
@@ -90,7 +85,6 @@ function calculateWithdraw() {
   document.getElementById("fee-amount").innerText = `${feeCoins.toLocaleString()} ZN`;
   document.getElementById("net-ton").innerText = `${netTon.toFixed(4)} TON`;
 
-  // تفعيل الزر عند مطابقة الكمية وربط المحفظة
   btn.disabled = !currentWalletAddress;
 }
 
@@ -100,7 +94,6 @@ function resetCalculations() {
   document.getElementById("net-ton").innerText = "0.0000 TON";
 }
 
-// إرسال طلب السحب للـ Backend
 async function submitWithdrawal() {
   const coins = parseFloat(document.getElementById("coins-input").value);
   const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "5102387551";
