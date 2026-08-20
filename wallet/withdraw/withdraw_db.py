@@ -61,7 +61,7 @@ def get_user_full_details(user_id):
     }
 
 def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_address):
-    """تحديث الرصيد وإنشاء المعاملة داخل Transaction أمنة"""
+    """تحديث الرصيد وإنشاء المعاملة داخل Transaction آمنة"""
     transaction = db.transaction()
     user_ref = db.collection('users').document(str(user_id))
     
@@ -99,7 +99,7 @@ def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_ad
             'created_at': firestore.SERVER_TIMESTAMP
         })
 
-        msg = "تم السحب تلقائياً بنجاح!" if level_info['type'] == 'auto' else "تم إرسال الطلب للأدمن للمراجعة."
+        msg = "تم طلب السحب بنجاح!" if level_info['type'] == 'auto' else "تم إرسال الطلب للأدمن للمراجعة."
         return True, msg, tx_ref.id
 
     return execute_in_transaction(transaction, user_ref)
