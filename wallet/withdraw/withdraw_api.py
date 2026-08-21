@@ -178,12 +178,12 @@ def handle_withdraw():
 
     if matched_level['type'] == 'auto':
         transfer_status = execute_auto_transfer(wallet_address, net_ton, tx_id, user_id, coins)
-        if transfer_status == True:
+        if transfer_status is True:
             return jsonify({"success": True, "message": f"تم تحويل {net_ton:.4f} TON بنجاح إلى محفظتك!"}), 200
         elif transfer_status == "pending_funds":
             return jsonify({
                 "success": True, 
-                "message": "تم تقديم طلب السحب بنجاح! تم وضع الطلب في قائمة الانتظار وسيتم إرسال TON إلى محفظتك تلقائياً."
+                "message": "تم تقديم طلب السحب بنجاح! المحفظة الساخنة تحتاج شحن بالـ TON لتنفيذ التحويل تلقائياً."
             }), 200
         else:
             return jsonify({"success": True, "message": "تم تسجيل طلب السحب ووضعه قيد المعالجة الشبكية."}), 200
@@ -267,6 +267,7 @@ def send_ton_onchain(server_seed, to_address, ton_amount, comment="ZN Goxe Withd
         from tonsdk.contract.wallet import WalletVersionEnum, WalletContract
         from tonsdk.crypto import Mnemonic
         from tonsdk.utils import bytes_to_b64str
+        from tonsdk.utils import Address
     except ImportError:
         print("❌ موديول tonsdk غير مثبت. يرجى تثبيته عبر: pip install tonsdk")
         return False, "موديول tonsdk غير متاح في السيرفر."
@@ -305,8 +306,11 @@ def send_ton_onchain(server_seed, to_address, ton_amount, comment="ZN Goxe Withd
 
         nano_amount = int(ton_amount * 1e9)
 
+        # تحويل العنوان إلى صيغة آمنة للشبكة
+        target_addr = Address(to_address).to_string(True, True, False)
+
         transfer_query = wallet.create_transfer_message(
-            to_addr=to_address,
+            to_addr=target_addr,
             amount=nano_amount,
             seqno=seqno,
             payload=comment
