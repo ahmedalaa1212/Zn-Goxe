@@ -256,7 +256,8 @@ def execute_auto_transfer(to_address, ton_amount, tx_id, user_id, coins):
         return False
 
     current_balance = check_hot_wallet_balance()
-    required_total = ton_amount + 0.05
+    # تم تعديل رسوم احتياطي غاز الشبكة إلى 0.005 TON بدلاً من 0.05 TON
+    required_total = ton_amount + 0.005
 
     if current_balance < required_total:
         if db:
