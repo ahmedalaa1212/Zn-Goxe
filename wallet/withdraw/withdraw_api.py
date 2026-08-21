@@ -101,19 +101,21 @@ def get_live_crypto_prices():
     return PRICE_CACHE["data"] if PRICE_CACHE["data"] else fallback_prices
 
 
-# دالة التحويل الآلي عبر FaucetPay API
+# دالة التحويل الآلي عبر FaucetPay API (تم تعديلها للتحويل إلى Satoshis)
 def send_faucetpay_payment(to_address_or_email, amount, currency, tx_id):
     api_key = os.getenv("FAUCETPAY_API_KEY")
     if not api_key:
         return False, "مفتاح FAUCETPAY_API_KEY غير متوفر ببيئة التشغيل."
 
     url = "https://faucetpay.io/api/v1/send"
-    formatted_amount = f"{amount:.8f}" if currency.upper() in ["DOGE", "TRX", "LTC"] else f"{amount:.2f}"
+    
+    # تحويل قيمة العملات إلى ساتوشي (Satoshis) المطلوبة في FaucetPay API (1 Coin = 100,000,000 Satoshis)
+    satoshis_amount = int(round(amount * 100_000_000))
 
     payload = {
         "api_key": api_key,
         "to": to_address_or_email,
-        "amount": formatted_amount,
+        "amount": satoshis_amount,
         "currency": currency.upper(),
         "referral": "false"
     }
@@ -285,7 +287,6 @@ def handle_withdraw():
     net_usd = net_coins / rate_coins_per_usd
     net_crypto = net_usd / selected_price
 
-    # تم إصلاح خطأ المتغير هنا ليطابق قاعدة البيانات (crypto_net_amount بدلاً من crypto_amount)
     success, msg, tx_id = process_withdraw_db(
         user_id=user_id,
         coins_amount=coins,
@@ -323,7 +324,6 @@ def handle_withdraw():
                     'updated_at': firestore.SERVER_TIMESTAMP
                 })
             
-            # فحص إذا كان الخطأ بسبب عدم وجود رصيد كافي في محفظة الفوست باي الخاصة بك
             error_lower = transfer_msg.lower()
             if "fund" in error_lower or "balance" in error_lower or "sufficient" in error_lower:
                 notify_admin_empty_faucetpay(user_id, coins, net_crypto, currency, tx_id)
