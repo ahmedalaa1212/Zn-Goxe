@@ -101,7 +101,7 @@ def get_live_crypto_prices():
     return PRICE_CACHE["data"] if PRICE_CACHE["data"] else fallback_prices
 
 
-# دالة التحويل الآلي عبر FaucetPay API (تم تعديلها للتحويل إلى Satoshis)
+# دالة التحويل الآلي عبر FaucetPay API (بالساتوشي)
 def send_faucetpay_payment(to_address_or_email, amount, currency, tx_id):
     api_key = os.getenv("FAUCETPAY_API_KEY")
     if not api_key:
@@ -109,7 +109,7 @@ def send_faucetpay_payment(to_address_or_email, amount, currency, tx_id):
 
     url = "https://faucetpay.io/api/v1/send"
     
-    # تحويل قيمة العملات إلى ساتوشي (Satoshis) المطلوبة في FaucetPay API (1 Coin = 100,000,000 Satoshis)
+    # تحويل قيمة العملة إلى satoshis لـ FaucetPay API
     satoshis_amount = int(round(amount * 100_000_000))
 
     payload = {
@@ -336,34 +336,31 @@ def handle_withdraw():
 
     return jsonify({"success": True, "message": "تم إرسال طلب السحب بنجاح للمراجعة والاعتماد."}), 200
 
-@withdraw_bp.route('/admin-approve', methods=['POST'])
-def handle_admin_decision():
-    data = request.json or {}
-    tx_id = data.get('tx_id')
-    action = data.get('action')
 
+def execute_admin_decision(tx_id, action):
+    """منطق دالة المعالجة المشترك لقرارات الأدمن"""
     if not tx_id or not action:
-        return jsonify({"success": False, "message": "بيانات الطلب غير مكتملة."}), 400
+        return False, "بيانات الطلب غير مكتملة."
 
     db = _get_firestore_client()
     if not db:
-        return jsonify({"success": False, "message": "خطأ في الاتصال بقاعدة البيانات."}), 500
+        return False, "خطأ في الاتصال بقاعدة البيانات."
 
     tx_ref = db.collection('processed_txs').document(tx_id)
     tx_doc = tx_ref.get()
 
     if not tx_doc.exists:
-        return jsonify({"success": False, "message": "المعاملة غير موجودة."}), 404
+        return False, "المعاملة غير موجودة."
 
     tx_data = tx_doc.to_dict()
     if tx_data.get('status') not in ['pending', 'processing', 'pending_retry']:
-        return jsonify({"success": False, "message": "تم اتخاذ قرار في هذه المعاملة سابقاً."}), 400
+        return False, "تم اتخاذ قرار في هذه المعاملة سابقاً."
 
     user_ref, _ = get_user_doc(tx_data['user_id'])
     if not user_ref:
         user_ref = db.collection('users').document(str(tx_data['user_id']))
 
-    crypto_amount = tx_data.get('crypto_amount', tx_data.get('amount_crypto', 0.0))
+    crypto_amount = tx_data.get('crypto_net_amount', tx_data.get('crypto_amount', tx_data.get('amount_crypto', 0.0)))
     currency = tx_data.get('currency', 'DOGE')
 
     if action == 'approve':
@@ -380,9 +377,9 @@ def handle_admin_decision():
                 'updated_at': firestore.SERVER_TIMESTAMP
             })
             notify_manual_decision(tx_data['user_id'], tx_data['coins'], crypto_amount, currency, tx_data['wallet'], "approve", tx_id)
-            return jsonify({"success": True, "message": "تمت الموافقة والتحويل الآلي بنجاح عبر FaucetPay."}), 200
+            return True, "تمت الموافقة والتحويل الآلي بنجاح عبر FaucetPay."
         else:
-            return jsonify({"success": False, "message": f"فشل التحويل الشبكي: {transfer_msg}"}), 500
+            return False, f"فشل التحويل الشبكي: {transfer_msg}"
 
     elif action == 'reject':
         user_ref.update({
@@ -391,9 +388,85 @@ def handle_admin_decision():
         })
         tx_ref.update({'status': 'rejected', 'updated_at': firestore.SERVER_TIMESTAMP})
         notify_manual_decision(tx_data['user_id'], tx_data['coins'], crypto_amount, currency, tx_data['wallet'], "reject", tx_id)
-        return jsonify({"success": True, "message": "تم الرفض وإعادة العملات لرصيد المستخدم."}), 200
+        return True, "تم الرفض وإعادة العملات لرصيد المستخدم."
 
-    return jsonify({"success": False, "message": "إجراء غير معروف."}), 400
+    return False, "إجراء غير معروف."
+
+
+@withdraw_bp.route('/admin-approve', methods=['POST'])
+def handle_admin_decision():
+    data = request.json or {}
+    tx_id = data.get('tx_id')
+    action = data.get('action')
+    success, msg = execute_admin_decision(tx_id, action)
+    status_code = 200 if success else 400
+    return jsonify({"success": success, "message": msg}), status_code
+
+
+# ==================== استقبال ضغطات أزرار التليجرام (Webhook Handler) ====================
+
+@withdraw_bp.route('/telegram-webhook', methods=['POST'])
+def telegram_webhook():
+    """مسار استقبال الأزرار التفاعلية من التليجرام مباشرة"""
+    update = request.json or {}
+    
+    if "callback_query" in update:
+        cb = update["callback_query"]
+        cb_id = cb.get("id")
+        cb_data = cb.get("data", "")
+        msg = cb.get("message", {})
+        chat_id = msg.get("chat", {}).get("id")
+        message_id = msg.get("message_id")
+        orig_text = msg.get("text", "")
+
+        tx_id = None
+        action = None
+
+        if cb_data.startswith("approve_tx_"):
+            tx_id = cb_data.replace("approve_tx_", "")
+            action = "approve"
+        elif cb_data.startswith("reject_tx_"):
+            tx_id = cb_data.replace("reject_tx_", "")
+            action = "reject"
+
+        if tx_id and action:
+            success, result_msg = execute_admin_decision(tx_id, action)
+            _answer_telegram_callback(cb_id, result_msg)
+            
+            if success:
+                decision_badge = "\n\n✅ <b>تمت الموافقة والتحويل بنجاح!</b>" if action == "approve" else "\n\n❌ <b>تم رفض الطلب وإعادة الرصيد.</b>"
+                _edit_telegram_message(chat_id, message_id, orig_text + decision_badge)
+        else:
+            _answer_telegram_callback(cb_id, "إجراء غير معروف.")
+
+    return jsonify({"status": "ok"}), 200
+
+
+def _answer_telegram_callback(callback_query_id, text):
+    bot_token = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+    if not bot_token:
+        return
+    url = f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery"
+    try:
+        requests.post(url, json={"callback_query_id": callback_query_id, "text": text, "show_alert": True}, timeout=5)
+    except Exception as e:
+        print(f"❌ خطأ إجابة callback تليجرام: {e}")
+
+
+def _edit_telegram_message(chat_id, message_id, text):
+    bot_token = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+    if not bot_token:
+        return
+    url = f"https://api.telegram.org/bot{bot_token}/editMessageText"
+    try:
+        requests.post(url, json={
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": "HTML"
+        }, timeout=5)
+    except Exception as e:
+        print(f"❌ خطأ تعديل رسالة تليجرام: {e}")
 
 
 # ==================== نظام الإشعارات والرسائل للتليجرام ====================
