@@ -154,8 +154,14 @@ def handle_withdraw():
         return jsonify({"success": False, "message": f"المبلغ المدخل خارج حدود السحبة الحالية ({matched_level['min']:,} - {matched_level['max']:,} ZN)."}), 400
 
     ton_price = get_ton_price_usd() or 5.50
-    fee_coins = coins * (config.get('fee_percent', 3) / 100)
-    net_ton = ((coins - fee_coins) / config.get('rate_coins_per_usd', 100000)) / ton_price
+    rate_coins_per_usd = config.get('rate_coins_per_usd', 100000)
+    fee_percent = config.get('fee_percent', 3)
+    
+    # حساب الصافي: 100,000 ZN = 1 USD
+    fee_coins = coins * (fee_percent / 100)
+    net_coins = coins - fee_coins
+    net_usd = net_coins / rate_coins_per_usd
+    net_ton = net_usd / ton_price
 
     success, msg, tx_id = process_withdraw_db(
         user_id=user_id,
@@ -170,11 +176,15 @@ def handle_withdraw():
 
     if matched_level['type'] == 'auto':
         transfer_status = execute_auto_transfer(wallet_address, net_ton, tx_id, user_id, coins)
-        if transfer_status == "pending_funds":
+        if transfer_status == True:
+            return jsonify({"success": True, "message": f"تم تحويل {net_ton:.4f} TON بنجاح إلى محفظتك!"}), 200
+        elif transfer_status == "pending_funds":
             return jsonify({
                 "success": True, 
                 "message": "تم تقديم طلب السحب بنجاح! تم وضع الطلب في قائمة الانتظار وسيتم إرسال TON إلى محفظتك تلقائياً."
             }), 200
+        else:
+            return jsonify({"success": True, "message": "تم تسجيل طلب السحب ووضعه قيد المعالجة الشبكية."}), 200
     else:
         notify_admin_for_manual_approval(user_id, coins, net_ton, wallet_address, matched_level['level'], tx_id)
 
@@ -200,7 +210,7 @@ def handle_admin_decision():
         return jsonify({"success": False, "message": "المعاملة غير موجودة."}), 404
 
     tx_data = tx_doc.to_dict()
-    if tx_data.get('status') not in ['pending', 'pending_funds']:
+    if tx_data.get('status') not in ['pending', 'pending_funds', 'processing']:
         return jsonify({"success": False, "message": "تم اتخاذ قرار في هذه المعاملة سابقاً."}), 400
 
     user_ref = db.collection('users').document(str(tx_data['user_id']))
@@ -208,8 +218,7 @@ def handle_admin_decision():
     if action == 'approve':
         status = execute_auto_transfer(tx_data['wallet'], tx_data['ton_amount'], tx_id, tx_data['user_id'], tx_data['coins'])
         if status is True:
-            tx_ref.update({'status': 'completed', 'updated_at': firestore.SERVER_TIMESTAMP})
-            return jsonify({"success": True, "message": "تمت الموافقة والتحويل بنجاح."}), 200
+            return jsonify({"success": True, "message": "تمت الموافقة والتحويل الشبكي بنجاح."}), 200
         elif status == "pending_funds":
             return jsonify({"success": False, "message": "تم تعليق المعاملة بسبب عدم كفاية رصيد المحفظة الساخنة."}), 400
         else:
@@ -247,17 +256,92 @@ def check_hot_wallet_balance():
         print(f"خطأ في قراءة رصيد المحفظة الساخنة: {e}")
     return 0.0
 
+def send_ton_onchain(server_seed, to_address, ton_amount, comment="ZN Goxe Withdraw"):
+    """إرسال TON حقيقي عبر شبكة TON باستخدام tonsdk و Toncenter API"""
+    try:
+        import tonsdk
+        from tonsdk.contract.wallet import WalletVersionEnum, WalletContract
+        from tonsdk.crypto import Mnemonic
+        from tonsdk.utils import bytes_to_b64str
+    except ImportError:
+        print("❌ موديول tonsdk غير مثبت. يرجى تثبيته عبر: pip install tonsdk")
+        return False, "موديول tonsdk غير متاح في السيرفر."
+
+    api_key = os.getenv("TONCENTER_API_KEY")
+    headers = {"X-API-Key": api_key} if api_key else {}
+
+    try:
+        mnemonics = server_seed.strip().split()
+        if len(mnemonics) not in [12, 24]:
+            return False, "مفتاح البذور HOT_WALLET_SEED غير صحيح."
+
+        _mnemonics, _pub_k, _priv_k, wallet = WalletContract.create(
+            version=WalletVersionEnum.v4r2,
+            mnemonics=mnemonics
+        )
+        
+        wallet_addr_str = wallet.address.to_string(True, True, True)
+
+        # جلب seqno الحالي للمحفظة
+        seqno_url = "https://toncenter.com/api/v2/runGetMethod"
+        seqno_payload = {
+            "address": wallet_addr_str,
+            "method": "seqno",
+            "stack": []
+        }
+        seqno_res = requests.post(seqno_url, json=seqno_payload, headers=headers, timeout=10)
+        seqno_data = seqno_res.json()
+        
+        seqno = 0
+        if seqno_data.get("ok") and seqno_data.get("result", {}).get("exit_code") == 0:
+            stack = seqno_data["result"].get("stack", [])
+            if stack and len(stack) > 0 and stack[0][0] == "num":
+                raw_hex = stack[0][1]
+                seqno = int(raw_hex, 16) if isinstance(raw_hex, str) and raw_hex.startswith("0x") else int(raw_hex)
+
+        nano_amount = int(ton_amount * 1e9)
+
+        transfer_query = wallet.create_transfer_message(
+            to_addr=to_address,
+            amount=nano_amount,
+            seqno=seqno,
+            payload=comment
+        )
+
+        boc_bytes = transfer_query['message'].to_boc(False)
+        boc_b64 = bytes_to_b64str(boc_bytes)
+
+        send_url = "https://toncenter.com/api/v2/sendBoc"
+        send_res = requests.post(send_url, json={"boc": boc_b64}, headers=headers, timeout=10)
+        send_data = send_res.json()
+
+        if send_data.get("ok"):
+            tx_hash = send_data.get("result", {}).get("@type", "success")
+            print(f"✅ تم إرسال عملات TON بنجاح على الشبكة! Hash: {tx_hash}")
+            return True, "تم الإرسال على شبكة TON بنجاح."
+        else:
+            err = send_data.get("error", "فشل إرسال BOC")
+            print(f"❌ خطأ إرسال BOC: {err}")
+            return False, err
+
+    except Exception as e:
+        print(f"❌ خطأ أثناء إرسال TON على الشبكة: {e}")
+        return False, str(e)
+
 def execute_auto_transfer(to_address, ton_amount, tx_id, user_id, coins):
+    """تنفيذ التحويل الشبكي الفعلي لعملات TON وتحديث حالة السجل"""
     server_seed = os.getenv("HOT_WALLET_SEED")
     db = _get_firestore_client()
     
     if not server_seed:
-        print("خطأ: HOT_WALLET_SEED غير مضبوط.")
+        print("خطأ: HOT_WALLET_SEED غير مضبوط في متغيرات البيئة.")
+        if db:
+            tx_ref = db.collection('processed_txs').document(tx_id)
+            tx_ref.update({'status': 'pending_config', 'updated_at': firestore.SERVER_TIMESTAMP})
         return False
 
     current_balance = check_hot_wallet_balance()
-    # تم تعديل رسوم احتياطي غاز الشبكة إلى 0.005 TON بدلاً من 0.05 TON
-    required_total = ton_amount + 0.005
+    required_total = ton_amount + 0.005  # إجمالي TON المطلوبة شاملاً رسوم الغاز
 
     if current_balance < required_total:
         if db:
@@ -267,13 +351,32 @@ def execute_auto_transfer(to_address, ton_amount, tx_id, user_id, coins):
         notify_admin_insufficient_funds(user_id, coins, ton_amount, to_address, current_balance)
         return "pending_funds"
 
-    try:
+    # إرسال المعاملة المباشرة إلى بلاك تشين TON
+    success_onchain, msg_onchain = send_ton_onchain(
+        server_seed=server_seed,
+        to_address=to_address,
+        ton_amount=ton_amount,
+        comment=f"ZN Goxe Withdrawal #{tx_id[-6:]}"
+    )
+
+    if success_onchain:
         if db:
             tx_ref = db.collection('processed_txs').document(tx_id)
-            tx_ref.update({'status': 'completed', 'updated_at': firestore.SERVER_TIMESTAMP})
+            tx_ref.update({
+                'status': 'completed',
+                'tx_note': msg_onchain,
+                'updated_at': firestore.SERVER_TIMESTAMP
+            })
         return True
-    except Exception as e:
-        print(f"خطأ تنفيذ عملية السحب: {e}")
+    else:
+        print(f"⚠️ فشل التحويل الشبكي التلقائي: {msg_onchain}")
+        if db:
+            tx_ref = db.collection('processed_txs').document(tx_id)
+            tx_ref.update({
+                'status': 'pending_retry',
+                'error_log': msg_onchain,
+                'updated_at': firestore.SERVER_TIMESTAMP
+            })
         return False
 
 def notify_admin_insufficient_funds(user_id, coins, ton_amount, wallet, current_balance):
