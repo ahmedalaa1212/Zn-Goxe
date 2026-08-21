@@ -42,25 +42,14 @@
         return;
       }
 
-      const buttonContainer = document.getElementById("ton-connect-button");
-      if (!buttonContainer) return;
-
-      buttonContainer.innerHTML = "";
-
       if (!window.globalTonConnectUI) {
         window.globalTonConnectUI = new TonConnectClass({
-          manifestUrl: window.location.origin + '/tonconnect-manifest.json',
-          buttonRootId: 'ton-connect-button'
+          manifestUrl: window.location.origin + '/tonconnect-manifest.json'
         });
-      } else {
-        try {
-          window.globalTonConnectUI.setUIOptions({ buttonRootId: 'ton-connect-button' });
-        } catch (e) {}
       }
 
       tonConnectUI = window.globalTonConnectUI;
 
-      // فحص حالة المحفظة الحالية فور التهيئة
       if (tonConnectUI.wallet) {
         updateWalletUI(tonConnectUI.wallet);
       } else {
@@ -76,12 +65,26 @@
     }
   }
 
-  // تحديث عناصر الواجهة حسب حالة اتصال المحفظة وإخفاء الزر المشوه
+  // فتح نافذة ربط المحفظة المباشرة
+  async function connectWallet() {
+    if (!tonConnectUI) {
+      initTonConnect();
+    }
+    try {
+      if (tonConnectUI) {
+        await tonConnectUI.openModal();
+      }
+    } catch (e) {
+      console.error("خطأ في فتح نافذة الربط:", e);
+    }
+  }
+
+  // تحديث عناصر الواجهة حسب حالة اتصال المحفظة
   function updateWalletUI(wallet) {
     const statusBadge = document.getElementById("wallet-connect-status");
     const walletBox = document.getElementById("connected-wallet-box");
     const addressDisplay = document.getElementById("wallet-address-display");
-    const tonConnectBtn = document.getElementById("ton-connect-button");
+    const tonConnectBtnContainer = document.getElementById("ton-connect-button");
 
     if (wallet && wallet.account) {
       currentWalletAddress = wallet.account.address;
@@ -90,11 +93,9 @@
         statusBadge.style.color = "#4ade80";
       }
       
-      // إخفاء زر UQD الافتراضي المزعج فور الاتصال
-      if (tonConnectBtn) tonConnectBtn.style.display = "none";
-      
-      // إظهار مربع المحفظة المخصص
+      if (tonConnectBtnContainer) tonConnectBtnContainer.style.display = "none";
       if (walletBox) walletBox.style.display = "flex";
+      
       if (addressDisplay) {
         const shortAddr = currentWalletAddress.substring(0, 6) + "..." + currentWalletAddress.substring(currentWalletAddress.length - 4);
         addressDisplay.innerText = shortAddr;
@@ -105,8 +106,33 @@
         statusBadge.innerText = "غير متصل";
         statusBadge.style.color = "#ef4444";
       }
-      if (tonConnectBtn) tonConnectBtn.style.display = "block";
+      
       if (walletBox) walletBox.style.display = "none";
+      
+      // إعادة بناء زر الاتصال المباشر لضمان عمله دائماً بعد إغلاق الربط
+      if (tonConnectBtnContainer) {
+        tonConnectBtnContainer.style.display = "block";
+        tonConnectBtnContainer.innerHTML = `
+          <button onclick="window.withdrawModule.connectWallet()" style="
+            width: 100%;
+            background: linear-gradient(135deg, #0088cc, #005588);
+            color: #ffffff;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 15px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0, 136, 204, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+          ">
+            💎 ربط محفظة TON
+          </button>
+        `;
+      }
     }
     calculateWithdraw();
   }
@@ -119,6 +145,8 @@
       } catch (e) {
         console.error("خطأ أثناء قطع الاتصال:", e);
       }
+    } else {
+      updateWalletUI(null);
     }
   }
 
@@ -223,8 +251,9 @@
     if (!withdrawConfig || !tonPriceUSD || coinsInputVal <= 0) {
       resetCalculations();
       if (btn) btn.disabled = true;
-      if (levelBadge) {
-        levelBadge.innerText = "المستوى: --";
+      if (levelBadge && withdrawConfig && withdrawConfig.levels) {
+        const currentLvl = withdrawConfig.levels[activeLevelIndex] || withdrawConfig.levels[0];
+        levelBadge.innerText = `المستوى ${currentLvl.level}`;
         levelBadge.style.color = "#38bdf8";
       }
       return;
@@ -341,6 +370,7 @@
       });
       initWithdrawPage(userId);
     },
+    connectWallet: connectWallet,
     setPreset: setPreset,
     calculateWithdraw: calculateWithdraw,
     disconnectWallet: disconnectWallet,
@@ -352,6 +382,7 @@
     withdrawModule.init();
   };
 
+  window.connectWallet = connectWallet;
   window.setPreset = setPreset;
   window.calculateWithdraw = calculateWithdraw;
   window.disconnectWallet = disconnectWallet;
