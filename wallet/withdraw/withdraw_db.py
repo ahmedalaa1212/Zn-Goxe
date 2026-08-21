@@ -161,7 +161,7 @@ def get_user_full_details(user_id):
         return None
 
 def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_address):
-    """خصم الرصيد وتسجيل المعاملة في قاعدة البيانات"""
+    """خصم الرصيد وتسجيل المعاملة بـ TON في قاعدة البيانات"""
     db = safe_get_db()
     if not db:
         return False, "تعذر الاتصال بقاعدة البيانات.", None
@@ -202,23 +202,29 @@ def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_ad
             })
 
             tx_ref = db.collection('processed_txs').document()
-            status = "completed" if level_info.get('type') == "auto" else "pending"
+            
+            # تبدأ المعاملة التلقائية بـ processing ولا تصبح completed إلا بعد إرسال البلوكشين بنجاح
+            initial_status = "processing" if level_info.get('type') == "auto" else "pending"
             
             txn.set(tx_ref, {
                 'user_id': str(user_id),
                 'coins': coins_amount,
                 'ton_amount': ton_amount,
-                'usdt_amount': ton_amount,
+                'amount_ton': ton_amount,
+                'currency': 'TON',
+                'asset': 'TON',
                 'wallet': wallet_address,
-                'status': status,
+                'status': initial_status,
                 'level': level_info.get('level', 1),
                 'withdraw_type': level_info.get('type', 'manual'),
                 'type': "withdraw",
+                'title': "سحب TON",
+                'description': f"سحب {ton_amount:.4f} TON",
                 'processed_at': firestore.SERVER_TIMESTAMP,
                 'created_at': firestore.SERVER_TIMESTAMP
             })
 
-            return True, "تم طلب السحب بنجاح وتسجيل المعاملة!", tx_ref.id
+            return True, "تم تسجيل الطلب وبدء المعالجة!", tx_ref.id
 
         return execute_in_transaction(transaction, user_ref)
     except Exception as e:
