@@ -5,9 +5,9 @@ from firebase_admin import firestore
 from core.ton_price import get_ton_price_usd
 from wallet.withdraw.withdraw_db import db, get_withdraw_config, has_withdrawn_today, process_withdraw_db, get_user_full_details
 
-withdraw_api = Blueprint('withdraw_api', __name__)
+withdraw_bp = Blueprint('withdraw_bp', __name__)
 
-@withdraw_api.route('/api/withdraw/config', methods=['GET'])
+@withdraw_bp.route('/config', methods=['GET'])
 def get_config():
     user_id = request.args.get('user_id')
     config = get_withdraw_config()
@@ -37,7 +37,7 @@ def get_config():
         "withdraw_count": withdraw_count
     })
 
-@withdraw_api.route('/api/withdraw/request', methods=['POST'])
+@withdraw_bp.route('/request', methods=['POST'])
 def handle_withdraw():
     data = request.json or {}
     user_id = str(data.get('user_id'))
@@ -92,7 +92,7 @@ def handle_withdraw():
 
     return jsonify({"success": True, "message": msg})
 
-@withdraw_api.route('/api/withdraw/admin-approve', methods=['POST'])
+@withdraw_bp.route('/admin-approve', methods=['POST'])
 def handle_admin_decision():
     """معالجة قرارات الموافقة أو الرفض الصادرة من بوت الأدمن"""
     data = request.json or {}
