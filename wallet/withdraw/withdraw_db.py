@@ -20,11 +20,11 @@ def auto_create_withdraw_config():
         doc_ref = db.collection('settings').document('withdraw_config')
         doc = doc_ref.get()
         if not doc.exists:
-            # المستويات والأرقام الافتراضية مطابقة لطلبك 100%
+            # التهيئة الافتراضية بنظام FaucetPay والعملات الـ 4 والمستويات الـ 6
             default_config = {
                 "rate_coins_per_usd": 100000,
                 "fee_percent": 3,
-                "network_fee_gram": 0,
+                "supported_currencies": ["DOGE", "TRX", "PEPE", "LTC"],
                 "levels": [
                     {"level": 1, "type": "auto", "min": 10, "max": 100},
                     {"level": 2, "type": "auto", "min": 500, "max": 1500},
@@ -35,13 +35,13 @@ def auto_create_withdraw_config():
                 ]
             }
             doc_ref.set(default_config)
-            print("✅ [FIREBASE] تم إنشاء مستند settings/withdraw_config بنجاح في القائمة!")
+            print("✅ [FIREBASE] تم إنشاء مستند settings/withdraw_config بالخرائط الجديدة بنجاح!")
     except Exception as e:
         print(f"⚠️ [FIREBASE ERROR] تعذر إنشاء مستند withdraw_config: {e}")
 
 try:
     auto_create_withdraw_config()
-except Exception as e:
+except Exception:
     pass
 
 def get_user_doc(user_id):
@@ -75,7 +75,7 @@ def get_withdraw_config():
     default_config = {
         "rate_coins_per_usd": 100000,
         "fee_percent": 3,
-        "network_fee_gram": 0,
+        "supported_currencies": ["DOGE", "TRX", "PEPE", "LTC"],
         "levels": [
             {"level": 1, "type": "auto", "min": 10, "max": 100},
             {"level": 2, "type": "auto", "min": 500, "max": 1500},
@@ -104,7 +104,7 @@ def get_withdraw_config():
             return default_config
 
         return data
-    except Exception as e:
+    except Exception:
         return default_config
 
 def has_withdrawn_today(user_id):
@@ -139,6 +139,7 @@ def get_user_full_details(user_id):
             real_balance = 0.0
 
         withdraw_count = int(data.get('withdraw_count', 0) or 0)
+        current_level = min(withdraw_count + 1, 6)
 
         return {
             "user_id": str(user_id),
@@ -149,13 +150,14 @@ def get_user_full_details(user_id):
             "balance": real_balance,
             "total_earned": data.get('total_earned', 0),
             "withdraw_count": withdraw_count,
+            "current_level": current_level,
             "last_withdraw_date": data.get('last_withdraw_date', 'لم يسحب من قبل'),
             "is_banned": data.get('is_banned', False)
         }
     except Exception:
         return None
 
-def process_withdraw_db(user_id, coins_amount, gram_amount, level_info, wallet_address):
+def process_withdraw_db(user_id, coins_amount, currency, wallet_address, crypto_net_amount, level_info):
     db = safe_get_db()
     if not db:
         return False, "تعذر الاتصال بقاعدة البيانات.", None
@@ -164,6 +166,11 @@ def process_withdraw_db(user_id, coins_amount, gram_amount, level_info, wallet_a
         user_ref, user_data = get_user_doc(user_id)
         if not user_ref or not user_data:
             return False, "المستخدم غير موجود", None
+
+        # التحقق من الشرط اليومي
+        today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        if user_data.get('last_withdraw_date') == today_utc:
+            return False, "يسمح بعملية سحب واحدة فقط يومياً. حاول بعد 00:00 UTC.", None
 
         transaction = db.transaction()
         
@@ -186,38 +193,40 @@ def process_withdraw_db(user_id, coins_amount, gram_amount, level_info, wallet_a
             if current_bal < coins_amount:
                 return False, "رصيدك الحالي غير كافٍ.", None
 
-            today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-            
+            # خصم الرصيد وتحديث تاريخ وعدد السحوبات
             txn.update(ref, {
                 'balance': firestore.Increment(-coins_amount),
                 'last_withdraw_date': today_utc,
-                'wallet_address': wallet_address,
+                'last_wallet_address': wallet_address,
                 'withdraw_count': firestore.Increment(1)
             })
 
             tx_ref = db.collection('processed_txs').document()
             
             initial_status = "processing" if level_info.get('type') == "auto" else "pending"
+            usd_value = coins_amount / 100000.0
             
             txn.set(tx_ref, {
                 'user_id': str(user_id),
                 'coins': coins_amount,
-                'gram_amount': gram_amount,
-                'amount_gram': gram_amount,
-                'currency': 'GRAM',
-                'asset': 'GRAM',
+                'usd_value': usd_value,
+                'currency': currency.upper(),
+                'asset': currency.upper(),
+                'crypto_amount': crypto_net_amount,
+                'fee_percent': 3,
                 'wallet': wallet_address,
                 'status': initial_status,
                 'level': level_info.get('level', 1),
                 'withdraw_type': level_info.get('type', 'manual'),
                 'type': "withdraw",
-                'title': "سحب GRAM",
-                'description': f"سحب {gram_amount:.4f} GRAM",
+                'provider': "FaucetPay",
+                'title': f"سحب {currency.upper()}",
+                'description': f"سحب {crypto_net_amount} {currency.upper()} مقابل {coins_amount:,} ZN",
                 'processed_at': firestore.SERVER_TIMESTAMP,
                 'created_at': firestore.SERVER_TIMESTAMP
             })
 
-            return True, "تم تسجيل الطلب وبدء المعالجة!", tx_ref.id
+            return True, "تم تسجيل الطلب وبدء المعالجة بنجاح!", tx_ref.id
 
         return execute_in_transaction(transaction, user_ref)
     except Exception as e:
