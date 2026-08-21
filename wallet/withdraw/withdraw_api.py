@@ -7,11 +7,34 @@ from wallet.withdraw.withdraw_db import db, get_withdraw_config, has_withdrawn_t
 
 withdraw_bp = Blueprint('withdraw_bp', __name__)
 
+# الإعدادات الافتراضية لمنع الأخطاء وضمان إنشاء المستند تلقائياً في Firebase
+DEFAULT_WITHDRAW_CONFIG = {
+    "fee_percent": 3,
+    "rate_coins_per_usd": 100000,
+    "levels": [
+        {"level": 1, "min": 10000, "max": 50000, "type": "auto"},
+        {"level": 2, "min": 50000, "max": 100000, "type": "auto"},
+        {"level": 3, "min": 100000, "max": 250000, "type": "manual"},
+        {"level": 4, "min": 250000, "max": 500000, "type": "manual"},
+        {"level": 5, "min": 500000, "max": 1000000, "type": "manual"},
+        {"level": 6, "min": 1000000, "max": 999999999, "type": "manual"}
+    ]
+}
+
 @withdraw_bp.route('/config', methods=['GET'])
 def get_config():
-    user_id = request.args.get('user_id')
+    user_id = request.args.get('user_id') or "5102387551"
     config = get_withdraw_config()
     
+    # الإنشاء التلقائي للمستند في Firebase إذا لم يكن موجوداً
+    if not config or not isinstance(config, dict) or 'levels' not in config:
+        config = DEFAULT_WITHDRAW_CONFIG
+        try:
+            db.collection('settings').document('withdraw_config').set(config, merge=True)
+            print(" تم إنشاء مستند settings/withdraw_config تلقائياً في Firebase")
+        except Exception as e:
+            print(f"خطأ أثناء كتابة مستند settings/withdraw_config: {e}")
+
     try:
         ton_price = get_ton_price_usd() or 5.50
     except Exception:
@@ -50,13 +73,13 @@ def handle_withdraw():
     if has_withdrawn_today(user_id):
         return jsonify({"success": False, "message": "مسموح بسحب واحد فقط يومياً."})
 
-    config = get_withdraw_config()
+    config = get_withdraw_config() or DEFAULT_WITHDRAW_CONFIG
     user_details = get_user_full_details(user_id)
     if not user_details:
         return jsonify({"success": False, "message": "المستخدم غير موجود."})
 
     withdraw_count = int(user_details.get('withdraw_count', 0))
-    levels = config.get('levels', [])
+    levels = config.get('levels', DEFAULT_WITHDRAW_CONFIG['levels'])
     
     level_index = min(withdraw_count, len(levels) - 1)
     matched_level = levels[level_index]
@@ -65,8 +88,11 @@ def handle_withdraw():
         return jsonify({"success": False, "message": f"المبلغ المدخل خارج حدود السحبة الحالية ({matched_level['min']:,} - {matched_level['max']:,} ZN)."})
 
     ton_price = get_ton_price_usd() or 5.50
-    fee_coins = coins * (config['fee_percent'] / 100)
-    net_ton = ((coins - fee_coins) / config['rate_coins_per_usd']) / ton_price
+    fee_percent = config.get('fee_percent', 3)
+    rate_coins_per_usd = config.get('rate_coins_per_usd', 100000)
+
+    fee_coins = coins * (fee_percent / 100)
+    net_ton = ((coins - fee_coins) / rate_coins_per_usd) / ton_price
 
     success, msg, tx_id = process_withdraw_db(
         user_id=user_id,
