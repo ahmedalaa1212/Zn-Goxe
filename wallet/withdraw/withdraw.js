@@ -2,6 +2,7 @@ let tonPriceUSD = 0;
 let withdrawConfig = null;
 let currentWalletAddress = null;
 let tonConnectUI = null;
+let userBalance = 0;
 
 document.addEventListener("DOMContentLoaded", function() {
   const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "5102387551";
@@ -11,12 +12,21 @@ document.addEventListener("DOMContentLoaded", function() {
   const coinsInput = document.getElementById("coins-input");
   if (coinsInput) {
     coinsInput.addEventListener("input", calculateWithdraw);
+    coinsInput.addEventListener("keyup", calculateWithdraw);
+    coinsInput.addEventListener("change", calculateWithdraw);
   }
 });
 
 function initTonConnect() {
   try {
-    tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
+    const TonConnectClass = window.TON_CONNECT_UI?.TonConnectUI || window.TonConnectSDK?.TonConnectUI;
+    if (!TonConnectClass) {
+      console.warn("جاري الانتظار لتحميل TonConnect SDK...");
+      setTimeout(initTonConnect, 500);
+      return;
+    }
+
+    tonConnectUI = new TonConnectClass({
       manifestUrl: window.location.origin + '/tonconnect-manifest.json',
       buttonRootId: 'ton-connect-button'
     });
@@ -59,7 +69,8 @@ async function initWithdrawPage(userId) {
 
     if (data.success) {
       withdrawConfig = data.config;
-      tonPriceUSD = data.ton_price || 5.50;
+      tonPriceUSD = parseFloat(data.ton_price) || 5.50;
+      userBalance = parseFloat(data.user_balance) || 0;
       calculateWithdraw();
     }
   } catch (err) {
@@ -67,14 +78,44 @@ async function initWithdrawPage(userId) {
   }
 }
 
+function setMaxCoins() {
+  const coinsInput = document.getElementById("coins-input");
+  if (!coinsInput) return;
+
+  if (userBalance <= 0) {
+    alert("رصيدك الحالي 0 ZN");
+    coinsInput.value = "";
+    resetCalculations();
+    return;
+  }
+
+  coinsInput.value = userBalance;
+  calculateWithdraw();
+}
+
 function calculateWithdraw() {
-  const coinsInputVal = parseFloat(document.getElementById("coins-input").value) || 0;
+  const coinsInput = document.getElementById("coins-input");
+  const coinsInputVal = parseFloat(coinsInput.value) || 0;
   const btn = document.getElementById("confirm-withdraw-btn");
   const levelBadge = document.getElementById("level-indicator");
 
   if (!withdrawConfig || !tonPriceUSD || coinsInputVal <= 0) {
     resetCalculations();
-    btn.disabled = true;
+    if (btn) btn.disabled = true;
+    if (levelBadge) {
+      levelBadge.innerText = "المستوى: --";
+      levelBadge.style.color = "#38bdf8";
+    }
+    return;
+  }
+
+  if (coinsInputVal > userBalance) {
+    if (levelBadge) {
+      levelBadge.innerText = "الرصيد غير كافٍ ❌";
+      levelBadge.style.color = "#ef4444";
+    }
+    resetCalculations();
+    if (btn) btn.disabled = true;
     return;
   }
 
@@ -83,11 +124,11 @@ function calculateWithdraw() {
 
   if (!matchedLevel) {
     if (levelBadge) {
-      levelBadge.innerText = "خارج حدود المستويات";
+      levelBadge.innerText = "خارج حدود المستويات ❌";
       levelBadge.style.color = "#ef4444";
     }
     resetCalculations();
-    btn.disabled = true;
+    if (btn) btn.disabled = true;
     return;
   }
 
@@ -96,6 +137,7 @@ function calculateWithdraw() {
     levelBadge.style.color = "#38bdf8";
   }
 
+  // معادلة التحويل: 100,000 عملة = 1 دولار
   const usdRate = withdrawConfig.rate_coins_per_usd || 100000;
   const usdValue = coinsInputVal / usdRate;
   const rawTon = usdValue / tonPriceUSD;
@@ -110,13 +152,19 @@ function calculateWithdraw() {
   document.getElementById("fee-amount").innerText = `${feeCoins.toLocaleString()} ZN`;
   document.getElementById("net-ton").innerText = `${netTon.toFixed(4)} TON`;
 
-  btn.disabled = !currentWalletAddress || coinsInputVal <= 0;
+  if (btn) {
+    btn.disabled = !currentWalletAddress || coinsInputVal <= 0;
+  }
 }
 
 function resetCalculations() {
-  document.getElementById("ton-output").value = "0.0000 TON";
-  document.getElementById("fee-amount").innerText = "0 ZN";
-  document.getElementById("net-ton").innerText = "0.0000 TON";
+  const tonOutput = document.getElementById("ton-output");
+  const feeAmount = document.getElementById("fee-amount");
+  const netTon = document.getElementById("net-ton");
+
+  if (tonOutput) tonOutput.value = "0.0000 TON";
+  if (feeAmount) feeAmount.innerText = "0 ZN";
+  if (netTon) netTon.innerText = "0.0000 TON";
 }
 
 async function submitWithdrawal() {
@@ -126,6 +174,11 @@ async function submitWithdrawal() {
 
   if (!currentWalletAddress) {
     alert("يرجى ربط محفظة TON أولاً قبل تأكيد السحب!");
+    return;
+  }
+
+  if (coins > userBalance) {
+    alert("رصيدك الحالي غير كافٍ لتمام هذه العملية!");
     return;
   }
 
