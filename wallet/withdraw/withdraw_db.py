@@ -20,10 +20,10 @@ def auto_create_withdraw_config():
         doc_ref = db.collection('settings').document('withdraw_config')
         doc = doc_ref.get()
         if not doc.exists:
+            # التهيئة الافتراضية بنظام FaucetPay والعملات الـ 4 والمستويات الـ 9
             default_config = {
                 "rate_coins_per_usd": 100000,
                 "fee_percent": 3,
-                "faucetpay_spread_markup": 1.06,
                 "supported_currencies": ["DOGE", "TRX", "PEPE", "LTC"],
                 "levels": [
                     {"level": 1, "type": "auto", "min": 10, "max": 100},
@@ -38,7 +38,7 @@ def auto_create_withdraw_config():
                 ]
             }
             doc_ref.set(default_config)
-            print("✅ [FIREBASE] تم إنشاء مستند settings/withdraw_config بنجاح!")
+            print("✅ [FIREBASE] تم إنشاء مستند settings/withdraw_config بالخرائط الجديدة بنجاح!")
     except Exception as e:
         print(f"⚠️ [FIREBASE ERROR] تعذر إنشاء مستند withdraw_config: {e}")
 
@@ -78,7 +78,6 @@ def get_withdraw_config():
     default_config = {
         "rate_coins_per_usd": 100000,
         "fee_percent": 3,
-        "faucetpay_spread_markup": 1.06,
         "supported_currencies": ["DOGE", "TRX", "PEPE", "LTC"],
         "levels": [
             {"level": 1, "type": "auto", "min": 10, "max": 100},
@@ -146,6 +145,7 @@ def get_user_full_details(user_id):
             real_balance = 0.0
 
         withdraw_count = int(data.get('withdraw_count', 0) or 0)
+        # تعديل السقف ليتناسب مع الـ 9 مستويات
         current_level = min(withdraw_count + 1, 9)
 
         return {
@@ -174,6 +174,7 @@ def process_withdraw_db(user_id, coins_amount, currency, wallet_address, crypto_
         if not user_ref or not user_data:
             return False, "المستخدم غير موجود", None
 
+        # التحقق من الشرط اليومي
         today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         if user_data.get('last_withdraw_date') == today_utc:
             return False, "يسمح بعملية سحب واحدة فقط يومياً. حاول بعد 00:00 UTC.", None
@@ -199,6 +200,7 @@ def process_withdraw_db(user_id, coins_amount, currency, wallet_address, crypto_
             if current_bal < coins_amount:
                 return False, "رصيدك الحالي غير كافٍ.", None
 
+            # خصم الرصيد وتحديث تاريخ وعدد السحوبات
             txn.update(ref, {
                 'balance': firestore.Increment(-coins_amount),
                 'last_withdraw_date': today_utc,
