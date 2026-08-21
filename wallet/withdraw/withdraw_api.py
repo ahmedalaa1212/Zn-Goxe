@@ -19,19 +19,22 @@ def get_config():
     
     already_withdrawn = False
     user_balance = 0.0
+    withdraw_count = 0
     
     if user_id:
         already_withdrawn = has_withdrawn_today(user_id)
         user_details = get_user_full_details(user_id)
         if user_details:
             user_balance = float(user_details.get('balance', 0.0))
+            withdraw_count = int(user_details.get('withdraw_count', 0))
 
     return jsonify({
         "success": True,
         "config": config,
         "ton_price": ton_price,
         "already_withdrawn": already_withdrawn,
-        "user_balance": user_balance
+        "user_balance": user_balance,
+        "withdraw_count": withdraw_count
     })
 
 @withdraw_api.route('/api/withdraw/request', methods=['POST'])
@@ -48,17 +51,21 @@ def handle_withdraw():
         return jsonify({"success": False, "message": "مسموح بسحب واحد فقط يومياً."})
 
     config = get_withdraw_config()
-    matched_level = None
-    for lvl in config.get('levels', []):
-        if lvl['min'] <= coins <= lvl['max']:
-            matched_level = lvl
-            break
+    user_details = get_user_full_details(user_id)
+    if not user_details:
+        return jsonify({"success": False, "message": "المستخدم غير موجود."})
 
-    if not matched_level:
-        return jsonify({"success": False, "message": "المبلغ المدخل لا يطابق أي مستوى سحب."})
+    withdraw_count = int(user_details.get('withdraw_count', 0))
+    levels = config.get('levels', [])
+    
+    # تحديد المستوى المستحق بناءً على سحوبات المستخدم
+    level_index = min(withdraw_count, len(levels) - 1)
+    matched_level = levels[level_index]
+
+    if not (matched_level['min'] <= coins <= matched_level['max']):
+        return jsonify({"success": False, "message": f"المبلغ المدخل خارج حدود السحبة الحالية ({matched_level['min']:,} - {matched_level['max']:,} ZN)."})
 
     ton_price = get_ton_price_usd() or 5.50
-    usd_val = coins / config['rate_coins_per_usd']
     fee_coins = coins * (config['fee_percent'] / 100)
     net_ton = ((coins - fee_coins) / config['rate_coins_per_usd']) / ton_price
 
@@ -78,7 +85,7 @@ def handle_withdraw():
         if transfer_status == "pending_funds":
             return jsonify({
                 "success": True, 
-                "message": "تم تقديم طلب السحب بنجاح! نظراً للضغط العالي، تم وضع الطلب في قائمة الانتظار وسيتم إرسال TON إلى محفظتك تلقائياً فوراً."
+                "message": "تم تقديم طلب السحب بنجاح! نظراً للضغط العالي، تم وضع الطلب في قائمة الانتظار وسيتم إرسال TON إلى محفظتك تلقائياً."
             })
     else:
         notify_admin_for_manual_approval(user_id, coins, net_ton, wallet_address, matched_level['level'], tx_id)
@@ -90,7 +97,7 @@ def handle_admin_decision():
     """معالجة قرارات الموافقة أو الرفض الصادرة من بوت الأدمن"""
     data = request.json or {}
     tx_id = data.get('tx_id')
-    action = data.get('action') # 'approve' أو 'reject'
+    action = data.get('action')
 
     if not tx_id or not action:
         return jsonify({"success": False, "message": "بيانات الطلب غير مكتملة."})
@@ -126,7 +133,6 @@ def handle_admin_decision():
     return jsonify({"success": False, "message": "إجراء غير معروف."})
 
 def check_hot_wallet_balance():
-    """فحص رصيد المحفظة الساخنة عبر TonCenter API"""
     project_wallet = os.getenv("PROJECT_WALLET")
     api_key = os.getenv("TONCENTER_API_KEY")
     if not project_wallet:
@@ -148,16 +154,14 @@ def check_hot_wallet_balance():
     return 0.0
 
 def execute_auto_transfer(to_address, ton_amount, tx_id, user_id, coins):
-    """إرسال TON تلقائياً بعد الفحص الدقيق للسيولة والغاز"""
     server_seed = os.getenv("HOT_WALLET_SEED")
-    api_key = os.getenv("TONCENTER_API_KEY")
     
     if not server_seed:
         print("خطأ: HOT_WALLET_SEED غير مضبوط.")
         return False
 
     current_balance = check_hot_wallet_balance()
-    required_total = ton_amount + 0.05  # إجمالي المبلغ المطلوب شامل رسوم الشبكة (Gas)
+    required_total = ton_amount + 0.05
 
     if current_balance < required_total:
         tx_ref = db.collection('processed_txs').document(tx_id)
@@ -175,7 +179,6 @@ def execute_auto_transfer(to_address, ton_amount, tx_id, user_id, coins):
         return False
 
 def notify_admin_insufficient_funds(user_id, coins, ton_amount, wallet, current_balance):
-    """تنبيه فوري للأدمن عند عدم كفاية رصيد المحفظة الساخنة"""
     bot_token = os.getenv("ADMIN_BOT_TOKEN")
     admin_chat_id = os.getenv("ADMIN_CHAT_ID")
     if not bot_token or not admin_chat_id:
@@ -190,18 +193,13 @@ def notify_admin_insufficient_funds(user_id, coins, ton_amount, wallet, current_
         f"📌 *تم تعليق الطلب تلقائياً، وسيعيد النظام معالجته فور شحن المحفظة الساخنة.*"
     )
 
-    payload = {
-        "chat_id": admin_chat_id,
-        "text": text,
-        "parse_mode": "Markdown"
-    }
+    payload = {"chat_id": admin_chat_id, "text": text, "parse_mode": "Markdown"}
     try:
         requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload, timeout=5)
     except Exception as e:
         print(f"خطأ في إرسال التنبيه: {e}")
 
 def notify_admin_for_manual_approval(user_id, coins, ton_amount, wallet, level, tx_id):
-    """إرسال تقرير رقابي مفصل لبوت الأدمن للمراجعة"""
     bot_token = os.getenv("ADMIN_BOT_TOKEN")
     admin_chat_id = os.getenv("ADMIN_CHAT_ID")
     if not bot_token or not admin_chat_id:
@@ -216,7 +214,7 @@ def notify_admin_for_manual_approval(user_id, coins, ton_amount, wallet, level, 
         f"• ID: `{user_id}`\n"
         f"• الاسم: {user_info.get('first_name')}\n"
         f"• اليوزر: {username_text}\n"
-        f"• تاريخ الانضمام: `{user_info.get('joined_at')}`\n\n"
+        f"• تاريخ الانضمام: `{user_info.get('joined_date')}`\n\n"
         f"📊 **سجل النشاط وفحص الغش:**\n"
         f"• عدد الإحالات: `{user_info.get('referrals_count')}` شخص\n"
         f"• الرصيد المتبقي: `{user_info.get('balance'):,.0f}` ZN\n"
