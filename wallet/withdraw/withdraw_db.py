@@ -20,6 +20,7 @@ def auto_create_withdraw_config():
         doc_ref = db.collection('settings').document('withdraw_config')
         doc = doc_ref.get()
         if not doc.exists:
+            # المستويات والأرقام الافتراضية مطابقة لطلبك 100%
             default_config = {
                 "rate_coins_per_usd": 100000,
                 "fee_percent": 3,
@@ -47,6 +48,7 @@ def get_user_doc(user_id):
     db = safe_get_db()
     if not db:
         return None, None
+    
     str_user_id = str(user_id).strip()
     
     doc_ref = db.collection('users').document(str_user_id)
@@ -83,6 +85,7 @@ def get_withdraw_config():
             {"level": 6, "type": "manual", "min": 1000000, "max": 999999999}
         ]
     }
+    
     db = safe_get_db()
     if not db:
         return default_config
@@ -90,15 +93,18 @@ def get_withdraw_config():
     try:
         doc_ref = db.collection('settings').document('withdraw_config')
         doc = doc_ref.get()
+        
         if not doc.exists:
             doc_ref.set(default_config)
             return default_config
+        
         data = doc.to_dict() or {}
         if 'levels' not in data or not isinstance(data.get('levels'), list):
             doc_ref.set(default_config)
             return default_config
+
         return data
-    except Exception:
+    except Exception as e:
         return default_config
 
 def has_withdrawn_today(user_id):
@@ -116,6 +122,7 @@ def get_user_full_details(user_id):
         _, data = get_user_doc(user_id)
         if not data:
             return None
+        
         created_at = data.get('created_at')
         if hasattr(created_at, 'strftime'):
             joined_date = created_at.strftime('%Y-%m-%d %H:%M UTC')
@@ -125,10 +132,12 @@ def get_user_full_details(user_id):
         raw_bal = data.get('balance')
         if raw_bal is None:
             raw_bal = data.get('zn_balance', data.get('balance_zn', data.get('coins', 0.0)))
+            
         try:
             real_balance = float(raw_bal)
         except (ValueError, TypeError):
             real_balance = 0.0
+
         withdraw_count = int(data.get('withdraw_count', 0) or 0)
 
         return {
@@ -168,6 +177,7 @@ def process_withdraw_db(user_id, coins_amount, gram_amount, level_info, wallet_a
             raw_bal = u_data.get('balance')
             if raw_bal is None:
                 raw_bal = u_data.get('zn_balance', u_data.get('balance_zn', u_data.get('coins', 0.0)))
+                
             try:
                 current_bal = float(raw_bal)
             except (ValueError, TypeError):
@@ -186,6 +196,7 @@ def process_withdraw_db(user_id, coins_amount, gram_amount, level_info, wallet_a
             })
 
             tx_ref = db.collection('processed_txs').document()
+            
             initial_status = "processing" if level_info.get('type') == "auto" else "pending"
             
             txn.set(tx_ref, {
@@ -205,6 +216,7 @@ def process_withdraw_db(user_id, coins_amount, gram_amount, level_info, wallet_a
                 'processed_at': firestore.SERVER_TIMESTAMP,
                 'created_at': firestore.SERVER_TIMESTAMP
             })
+
             return True, "تم تسجيل الطلب وبدء المعالجة!", tx_ref.id
 
         return execute_in_transaction(transaction, user_ref)
