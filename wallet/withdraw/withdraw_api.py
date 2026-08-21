@@ -51,7 +51,7 @@ def validate_wallet_address(address, currency):
     return True, ""
 
 
-# دالة جلب الأسعار اللحظية للعملات الأربع مقابل USD مع كاش ومصادر بديلة
+# دالة جلب الأسعار اللحظية للعملات
 def get_live_crypto_prices():
     now = time.time()
     if PRICE_CACHE["data"] and (now - PRICE_CACHE["last_updated"] < 60):
@@ -64,7 +64,6 @@ def get_live_crypto_prices():
         "LTC": 75.0
     }
 
-    # المصدر الأول: CoinGecko API
     try:
         url = "https://api.coingecko.com/api/v3/simple/price?ids=dogecoin,tron,pepe,litecoin&vs_currencies=usd"
         res = requests.get(url, timeout=5)
@@ -82,7 +81,6 @@ def get_live_crypto_prices():
     except Exception as e:
         print(f"⚠️ خطأ جلب الأسعار من CoinGecko: {e}")
 
-    # المصدر الثاني كبديل: CryptoCompare API
     try:
         url = "https://min-api.cryptocompare.com/data/pricemulti?fsyms=DOGE,TRX,PEPE,LTC&tsyms=USD"
         res = requests.get(url, timeout=5)
@@ -110,8 +108,6 @@ def send_faucetpay_payment(to_address_or_email, amount, currency, tx_id):
         return False, "مفتاح FAUCETPAY_API_KEY غير متوفر ببيئة التشغيل."
 
     url = "https://faucetpay.io/api/v1/send"
-    
-    # تحسين تنسيق المبلغ حسب نوع العملة
     formatted_amount = f"{amount:.8f}" if currency.upper() in ["DOGE", "TRX", "LTC"] else f"{amount:.2f}"
 
     payload = {
@@ -166,7 +162,10 @@ DEFAULT_WITHDRAW_CONFIG = {
         {"level": 3, "min": 10000, "max": 50000, "type": "auto"},
         {"level": 4, "min": 100000, "max": 200000, "type": "manual"},
         {"level": 5, "min": 400000, "max": 800000, "type": "manual"},
-        {"level": 6, "min": 1000000, "max": 999999999, "type": "manual"}
+        {"level": 6, "min": 1000000, "max": 2000000, "type": "manual"},
+        {"level": 7, "min": 3000000, "max": 5000000, "type": "manual"},
+        {"level": 8, "min": 6000000, "max": 10000000, "type": "manual"},
+        {"level": 9, "min": 15000000, "max": 999999999, "type": "manual"}
     ]
 }
 
@@ -251,7 +250,6 @@ def handle_withdraw():
     if not user_id or not wallet_address or coins <= 0:
         return jsonify({"success": False, "message": "بيانات الطلب غير مكتملة."}), 400
 
-    # فحص صحة عنوان المحفظة أو ايميل الفوست باي أولاً
     is_valid_addr, addr_err_msg = validate_wallet_address(wallet_address, currency)
     if not is_valid_addr:
         return jsonify({"success": False, "message": addr_err_msg}), 400
@@ -277,7 +275,6 @@ def handle_withdraw():
     if not (matched_level['min'] <= coins <= matched_level['max']):
         return jsonify({"success": False, "message": f"المبلغ المدخل خارج حدود السحبة الحالية للمستوى {matched_level['level']} ({matched_level['min']:,} - {matched_level['max']:,} ZN)."}), 400
 
-    # محرك تحويل الأسعار والرسوم
     prices = get_live_crypto_prices()
     selected_price = prices.get(currency, 1.0)
     rate_coins_per_usd = config.get('rate_coins_per_usd', 100000)
@@ -288,11 +285,11 @@ def handle_withdraw():
     net_usd = net_coins / rate_coins_per_usd
     net_crypto = net_usd / selected_price
 
-    # تسجيل السحب بالداتابيز
+    # تم إصلاح خطأ المتغير هنا ليطابق قاعدة البيانات (crypto_net_amount بدلاً من crypto_amount)
     success, msg, tx_id = process_withdraw_db(
         user_id=user_id,
         coins_amount=coins,
-        crypto_amount=net_crypto,
+        crypto_net_amount=net_crypto,
         currency=currency,
         level_info=matched_level,
         wallet_address=wallet_address
@@ -301,7 +298,6 @@ def handle_withdraw():
     if not success:
         return jsonify({"success": False, "message": msg}), 400
 
-    # التنفيذ حسب المستوى (آلي أم يدوي)
     if matched_level['type'] == 'auto':
         transfer_success, transfer_msg = send_faucetpay_payment(
             to_address_or_email=wallet_address,
@@ -326,8 +322,15 @@ def handle_withdraw():
                     'error_log': transfer_msg,
                     'updated_at': firestore.SERVER_TIMESTAMP
                 })
-            notify_admin_auto_failed(user_id, coins, net_crypto, currency, wallet_address, tx_id, transfer_msg)
-            return jsonify({"success": True, "message": "تم تسجيل الطلب ووضعه قيد المعالجة المباشرة."}), 200
+            
+            # فحص إذا كان الخطأ بسبب عدم وجود رصيد كافي في محفظة الفوست باي الخاصة بك
+            error_lower = transfer_msg.lower()
+            if "fund" in error_lower or "balance" in error_lower or "sufficient" in error_lower:
+                notify_admin_empty_faucetpay(user_id, coins, net_crypto, currency, tx_id)
+                return jsonify({"success": True, "message": "طلبك قيد الانتظار حالياً، جاري معالجة الطلب وسيتم التحويل فور توفر سيولة في المحفظة."}), 200
+            else:
+                notify_admin_auto_failed(user_id, coins, net_crypto, currency, wallet_address, tx_id, transfer_msg)
+                return jsonify({"success": True, "message": "تم تسجيل الطلب ووضعه قيد الانتظار لمعالجته يدوياً."}), 200
     else:
         notify_admin_for_manual_approval(user_id, coins, net_crypto, currency, wallet_address, matched_level['level'], tx_id)
 
@@ -435,6 +438,28 @@ def notify_group_auto_success(user_id, coins, crypto_amount, currency, wallet, t
         "✅ <b>تم التحويل الآلي بنجاح عبر FaucetPay!</b>"
     )
     _send_telegram_msg(text)
+
+def notify_admin_empty_faucetpay(user_id, coins, crypto_amount, currency, tx_id):
+    formatted_coins = f"{coins:,.0f}" if coins == int(coins) else f"{coins:,}"
+    formatted_crypto = f"{crypto_amount:.6f}"
+    
+    text = (
+        "<b>⚠️ تنبيه هام: رصيد الفوست باي غير كافي!</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"طلب سحب تلقائي معلق بسبب نفاد رصيد عملة <b>{currency}</b> في حساب الفوست باي الخاص بك.\n\n"
+        f"<b>👤 المستخدم:</b> <code>{user_id}</code>\n"
+        f"<b>💰 المبلغ:</b> <code>{formatted_coins} ZN</code>\n"
+        f"<b>💎 المطلوب تحويله:</b> <code>{formatted_crypto} {currency}</code>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "📌 <b>يرجى شحن حساب FaucetPay الخاص بك، ثم اضغط على (موافقة) أدناه لتنفيذ الطلب المعلق.</b>"
+    )
+    reply_markup = {
+        "inline_keyboard": [[
+            {"text": "موافقة وإرسال الآن 🟢", "callback_data": f"approve_tx_{tx_id}"},
+            {"text": "رفض وإلغاء 🔴", "callback_data": f"reject_tx_{tx_id}"}
+        ]]
+    }
+    _send_telegram_msg(text, reply_markup=reply_markup)
 
 def notify_admin_auto_failed(user_id, coins, crypto_amount, currency, wallet, tx_id, error_msg):
     formatted_coins = f"{coins:,.0f}" if coins == int(coins) else f"{coins:,}"
