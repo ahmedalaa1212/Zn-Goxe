@@ -40,8 +40,6 @@
   .btn-submit-withdraw:active { transform: scale(0.98); }
   .btn-submit-withdraw:disabled { background: #334155; color: #64748b; cursor: not-allowed; opacity: 0.6; }
   .level-badge { font-size: 11px; padding: 3px 10px; border-radius: 8px; background: #1e293b; color: #38bdf8; font-weight: 600; }
-  .rate-spinner { display: inline-block; animation: spin 1s linear infinite; }
-  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 </style>
 
 <div class="withdraw-wrapper">
@@ -53,16 +51,16 @@
     </div>
 
     <div class="currency-grid">
-      <div class="currency-btn selected" onclick="selectCurrency('DOGE')" id="coin-DOGE">
+      <div class="currency-btn selected" onclick="withdrawModule.selectCurrency('DOGE')" id="coin-DOGE">
         DOGE
       </div>
-      <div class="currency-btn" onclick="selectCurrency('TRX')" id="coin-TRX">
+      <div class="currency-btn" onclick="withdrawModule.selectCurrency('TRX')" id="coin-TRX">
         TRX
       </div>
-      <div class="currency-btn" onclick="selectCurrency('PEPE')" id="coin-PEPE">
+      <div class="currency-btn" onclick="withdrawModule.selectCurrency('PEPE')" id="coin-PEPE">
         PEPE
       </div>
-      <div class="currency-btn" onclick="selectCurrency('LTC')" id="coin-LTC">
+      <div class="currency-btn" onclick="withdrawModule.selectCurrency('LTC')" id="coin-LTC">
         LTC
       </div>
     </div>
@@ -71,7 +69,7 @@
       <div class="w-label">
         <span>عنوان محفظة الاستلام (<span id="selected-coin-label">DOGE</span>):</span>
       </div>
-      <input type="text" id="wallet-address-input" class="w-input" placeholder="أدخل عنوان المحفظة الخاص بك" oninput="validateForm()" />
+      <input type="text" id="wallet-address-input" class="w-input" placeholder="أدخل عنوان المحفظة الخاص بك" oninput="withdrawModule.calculateWithdraw()" />
     </div>
   </div>
 
@@ -87,12 +85,12 @@
         <span>عدد العملات المحدد للسحب (ZN):</span>
         <span id="user-balance-display" class="user-bal-tag">رصيدك: -- ZN</span>
       </div>
-      <input type="number" id="coins-input" class="w-input" oninput="calculateWithdraw()" placeholder="أدخل أو اختر الكمية" value="" />
+      <input type="number" id="coins-input" class="w-input" oninput="withdrawModule.calculateWithdraw()" placeholder="أدخل أو اختر الكمية" value="" />
       
       <div class="preset-buttons-grid">
-        <button type="button" class="btn-preset" onclick="setPreset('min')">حد أدنى</button>
-        <button type="button" class="btn-preset" onclick="setPreset('half')">1/2 الكمية</button>
-        <button type="button" class="btn-preset" onclick="setPreset('max')">حد أقصى</button>
+        <button type="button" class="btn-preset" onclick="withdrawModule.setPreset('min')">حد أدنى</button>
+        <button type="button" class="btn-preset" onclick="withdrawModule.setPreset('half')">1/2 الكمية</button>
+        <button type="button" class="btn-preset" onclick="withdrawModule.setPreset('max')">حد أقصى</button>
       </div>
     </div>
 
@@ -121,10 +119,10 @@
     </div>
 
     <div class="notice-box notice-info">
-      ℹ️ يتم تنفيذ السحب عبر نظام FaucetPay المباشر بمعدل سحبة واحدة يومياً (00:00 UTC).
+      ℹ️ يتم السحب من 1 دقيقة إلى 48 ساعة ورسوم السحب 3% فقط.
     </div>
 
-    <button id="confirm-withdraw-btn" class="btn-submit-withdraw" disabled onclick="submitWithdrawal()">
+    <button id="confirm-withdraw-btn" class="btn-submit-withdraw" disabled onclick="withdrawModule.submitWithdrawal()">
       تأكيد السحب
     </button>
   </div>
@@ -140,180 +138,3 @@
     </div>
   </div>
 </div>
-
-<script>
-  let selectedCoin = 'DOGE';
-  let userBalance = 0;
-  let userLevel = 1;
-  let currentLevelConfig = null;
-  let coinPricesInUsd = { DOGE: 0.10, TRX: 0.12, PEPE: 0.000008, LTC: 70.0 };
-  let withdrawConfig = null;
-
-  async function initWithdrawPage() {
-    await fetchLivePrices();
-    await loadWithdrawConfig();
-  }
-
-  async function fetchLivePrices() {
-    try {
-      const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=dogecoin,tron,pepe,litecoin&vs_currencies=usd');
-      const data = await res.json();
-      if (data) {
-        if (data.dogecoin?.usd) coinPricesInUsd.DOGE = data.dogecoin.usd;
-        if (data.tron?.usd) coinPricesInUsd.TRX = data.tron.usd;
-        if (data.pepe?.usd) coinPricesInUsd.PEPE = data.pepe.usd;
-        if (data.litecoin?.usd) coinPricesInUsd.LTC = data.litecoin.usd;
-      }
-    } catch (e) {
-      console.log('استخدام الأسعار الاحتياطية عند تعذر الجلب اللحظي');
-    }
-    updatePriceDisplay();
-  }
-
-  function selectCurrency(coin) {
-    selectedCoin = coin;
-    document.querySelectorAll('.currency-btn').forEach(btn => btn.classList.remove('selected'));
-    document.getElementById(`coin-${coin}`).classList.add('selected');
-    document.getElementById('selected-coin-label').innerText = coin;
-    updatePriceDisplay();
-    calculateWithdraw();
-  }
-
-  function updatePriceDisplay() {
-    const price = coinPricesInUsd[selectedCoin] || 1;
-    document.getElementById('coin-price-display').innerText = `$${price} USD`;
-  }
-
-  async function loadWithdrawConfig() {
-    try {
-      const res = await fetch('/api/withdraw/config');
-      const data = await res.json();
-      if (data.success) {
-        withdrawConfig = data.config;
-        userBalance = data.user.balance || 0;
-        userLevel = data.user.current_level || 1;
-        
-        document.getElementById('user-balance-display').innerText = `رصيدك: ${userBalance.toLocaleString()} ZN`;
-        document.getElementById('level-indicator').innerText = `المستوى: ${userLevel}`;
-        document.getElementById('current-user-level-text').innerText = `المستوى الحالي: ${userLevel}`;
-
-        currentLevelConfig = withdrawConfig.levels.find(l => l.level === userLevel) || withdrawConfig.levels[0];
-        renderLevelsList(withdrawConfig.levels);
-      }
-    } catch (e) {
-      console.error('خطأ جلب الإعدادات:', e);
-    }
-  }
-
-  function renderLevelsList(levels) {
-    const container = document.getElementById('levels-list-container');
-    container.innerHTML = '';
-    levels.forEach(lvl => {
-      const isActive = lvl.level === userLevel;
-      const typeText = lvl.type === 'auto' ? 'فوري آلي' : 'موافقة أدمن';
-      const usdMin = (lvl.min / 100000).toFixed(4);
-      const usdMax = lvl.max > 10000000 ? 'مفتوح' : `$${(lvl.max / 100000).toFixed(2)}`;
-      
-      const item = document.createElement('div');
-      item.className = `level-item ${isActive ? 'active-level' : ''}`;
-      item.innerHTML = `
-        <div>
-          <span>المستوى ${lvl.level}: ${lvl.min.toLocaleString()} - ${lvl.max > 10000000 ? 'مفتوح' : lvl.max.toLocaleString()} ZN</span>
-          <br><small style="color:#94a3b8;">($${usdMin} - ${usdMax})</small>
-        </div>
-        <span class="level-item-tag">${typeText}</span>
-      `;
-      container.appendChild(item);
-    });
-  }
-
-  function setPreset(type) {
-    if (!currentLevelConfig) return;
-    const input = document.getElementById('coins-input');
-    const minVal = currentLevelConfig.min;
-    const maxVal = Math.min(currentLevelConfig.max, userBalance);
-
-    if (type === 'min') {
-      input.value = minVal;
-    } else if (type === 'half') {
-      input.value = Math.floor(maxVal / 2);
-    } else if (type === 'max') {
-      input.value = maxVal;
-    }
-    calculateWithdraw();
-  }
-
-  function calculateWithdraw() {
-    const coins = parseFloat(document.getElementById('coins-input').value) || 0;
-    const usdValue = coins / 100000;
-    document.getElementById('usd-output').value = `$${usdValue.toFixed(4)} USD`;
-
-    const feeZn = coins * 0.03;
-    document.getElementById('fee-amount').innerText = `${Math.round(feeZn).toLocaleString()} ZN`;
-
-    const netCoins = coins - feeZn;
-    const netUsd = netCoins / 100000;
-    
-    const coinPrice = coinPricesInUsd[selectedCoin] || 1;
-    const cryptoAmount = netUsd / coinPrice;
-
-    const decimals = selectedCoin === 'PEPE' ? 2 : 8;
-    document.getElementById('net-crypto').innerText = `${cryptoAmount.toFixed(decimals)} ${selectedCoin}`;
-
-    validateForm();
-  }
-
-  function validateForm() {
-    const coins = parseFloat(document.getElementById('coins-input').value) || 0;
-    const address = document.getElementById('wallet-address-input').value.trim();
-    const btn = document.getElementById('confirm-withdraw-btn');
-
-    if (!currentLevelConfig) {
-      btn.disabled = true;
-      return;
-    }
-
-    const isValidAmount = coins >= currentLevelConfig.min && coins <= currentLevelConfig.max && coins <= userBalance;
-    const isValidAddress = address.length >= 8;
-
-    btn.disabled = !(isValidAmount && isValidAddress);
-  }
-
-  async function submitWithdrawal() {
-    const coins = parseFloat(document.getElementById('coins-input').value);
-    const address = document.getElementById('wallet-address-input').value.trim();
-    const btn = document.getElementById('confirm-withdraw-btn');
-
-    btn.disabled = true;
-    btn.innerText = 'جاري تنفيذ الطلب...';
-
-    try {
-      const res = await fetch('/api/withdraw/request', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          coins_amount: coins,
-          currency: selectedCoin,
-          wallet_address: address,
-          coin_price_usd: coinPricesInUsd[selectedCoin]
-        })
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        alert(data.message || 'تم إرسال طلب السحب بنجاح!');
-        location.reload();
-      } else {
-        alert('فشل السحب: ' + data.message);
-        btn.disabled = false;
-        btn.innerText = 'تأكيد السحب';
-      }
-    } catch (e) {
-      alert('حدث خطأ بالاتصال بالسيرفر.');
-      btn.disabled = false;
-      btn.innerText = 'تأكيد السحب';
-    }
-  }
-
-  window.addEventListener('DOMContentLoaded', initWithdrawPage);
-</script>
