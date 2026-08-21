@@ -1,3 +1,4 @@
+
 (function () {
   let cryptoPrices = { DOGE: 0.10, TRX: 0.12, PEPE: 0.000008, LTC: 70.0 };
   let selectedCurrency = "DOGE";
@@ -23,6 +24,62 @@
       window.Telegram?.WebApp?.initDataUnsafe?.user?.id ||
       "5102387551"
     );
+  }
+
+  // دالة التحقق اللحظي من صحة عنوان المحفظة أو الايميل في الواجهة
+  function validateWalletAddress(address, currency) {
+    if (!address || typeof address !== 'string') {
+      return { valid: false, message: "يرجى إدخال عنوان المحفظة أو البريد الإلكتروني." };
+    }
+    const addr = address.trim();
+    if (addr.length === 0) {
+      return { valid: false, message: "يرجى إدخال عنوان المحفظة أو البريد الإلكتروني." };
+    }
+
+    // 1. فحص البريد الإلكتروني (مقبول دائماً لـ FaucetPay)
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (emailRegex.test(addr)) {
+      return { valid: true, message: "" };
+    }
+
+    const curr = (currency || selectedCurrency || "DOGE").toUpperCase();
+
+    // 2. فحص صياغة العناوين بالشبكات
+    if (curr === "DOGE") {
+      if (/^D[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr)) {
+        return { valid: true, message: "" };
+      }
+      return {
+        valid: false,
+        message: "عنوان DOGE غير صحيح! يجب أن يبدأ بحرف D ويتكون من 34 خانة، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
+      };
+    } else if (curr === "TRX") {
+      if (/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr)) {
+        return { valid: true, message: "" };
+      }
+      return {
+        valid: false,
+        message: "عنوان TRX غير صحيح! يجب أن يبدأ بحرف T ويتكون من 34 خانة، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
+      };
+    } else if (curr === "LTC") {
+      if (/^(L|M)[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr) || /^ltc1[a-z0-9]{38,58}$/i.test(addr)) {
+        return { valid: true, message: "" };
+      }
+      return {
+        valid: false,
+        message: "عنوان LTC غير صحيح! يجب أن يبدأ بـ L أو M أو ltc1، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
+      };
+    } else if (curr === "PEPE") {
+      if (/^0x[a-fA-F0-9]{40}$/.test(addr)) {
+        return { valid: true, message: "" };
+      }
+      return {
+        valid: false,
+        message: "عنوان PEPE غير صحيح! يجب أن يبدأ بـ 0x (42 خانة)، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
+      };
+    }
+
+    return { valid: true, message: "" };
   }
 
   async function fetchLivePrices() {
@@ -89,19 +146,17 @@
         }
         
         userBalance = parseFloat(data.user_balance ?? data.user?.balance) || 0;
-        userLevel = parseInt(data.user_level ?? data.user?.current_level) || 1;
-        withdrawCount = parseInt(data.withdraw_count) || (userLevel - 1);
+        withdrawCount = parseInt(data.withdraw_count) || 0;
+
+        // حساب مستوى المستخدم الفعلي بناءً على عدد السحوبات
+        if (withdrawConfig && withdrawConfig.levels) {
+          userLevel = Math.min(withdrawCount + 1, withdrawConfig.levels.length);
+          activeLevelIndex = Math.min(withdrawCount, withdrawConfig.levels.length - 1);
+        }
 
         const userBalDisplay = document.getElementById("user-balance-display");
         if (userBalDisplay) {
           userBalDisplay.innerText = `رصيدك: ${userBalance.toLocaleString()} ZN`;
-        }
-
-        if (withdrawConfig && withdrawConfig.levels) {
-          activeLevelIndex = withdrawConfig.levels.findIndex(l => l.level === userLevel);
-          if (activeLevelIndex === -1) {
-            activeLevelIndex = Math.min(withdrawCount, withdrawConfig.levels.length - 1);
-          }
         }
 
         const levelBadge = document.getElementById("level-indicator");
@@ -251,9 +306,9 @@
     if (btn) {
       const isMinOk = currentLvl ? coinsInputVal >= currentLvl.min : true;
       const isMaxOk = currentLvl ? coinsInputVal <= currentLvl.max : true;
-      const isValidAddress = walletAddress.length >= 5;
+      const addrCheck = validateWalletAddress(walletAddress, selectedCurrency);
       
-      btn.disabled = !(isMinOk && isMaxOk && isValidAddress && userBalance >= coinsInputVal);
+      btn.disabled = !(isMinOk && isMaxOk && addrCheck.valid && userBalance >= coinsInputVal);
     }
   }
 
@@ -280,12 +335,19 @@
       return;
     }
 
+    // فحص صحة العنوان قبل إرسال الطلب
+    const addressValidation = validateWalletAddress(walletAddress, selectedCurrency);
+    if (!addressValidation.valid) {
+      alert(addressValidation.message);
+      return;
+    }
+
     if (coins <= 0) {
       alert("يرجى إدخال مبلغ سحب صحيح!");
       return;
     }
 
-    if (coins > userBalance) {
+    if (userBalance > 0 && coins > userBalance) {
       alert("رصيدك الحالي غير كافٍ لإتمام هذه العملية!");
       return;
     }
@@ -302,17 +364,21 @@
         body: JSON.stringify({
           user_id: userId,
           coins: coins,
+          coins_amount: coins,
           currency: selectedCurrency,
           wallet_address: walletAddress,
           coin_price_usd: cryptoPrices[selectedCurrency]
         })
       });
 
-      if (!res.ok) {
+      // إذا كانت القناة القديمة مسجلة كـ fallback
+      if (res.status === 404) {
         res = await fetch('/api/withdraw/request', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            user_id: userId,
+            coins: coins,
             coins_amount: coins,
             currency: selectedCurrency,
             wallet_address: walletAddress,
@@ -320,10 +386,19 @@
           })
         });
       }
-      
-      const data = await res.json();
-      alert(data.message || (data.success ? "تم طلب السحب بنجاح!" : "فشلت العملية"));
-      if (data.success) {
+
+      // قراءة نص الرسالة القادمة من السيرفر مباشرة
+      const data = await res.json().catch(() => null);
+
+      if (data && data.message) {
+        alert(data.message);
+      } else if (res.ok) {
+        alert("تم طلب السحب بنجاح!");
+      } else {
+        alert("حدث خطأ أثناء معالجة الطلب.");
+      }
+
+      if (data && data.success) {
         if (typeof window.loadWalletData === 'function') {
           window.loadWalletData();
         } else {
@@ -331,11 +406,12 @@
         }
       }
     } catch (err) {
+      console.error(err);
       alert("حدث خطأ أثناء الاتصال بالخادم.");
     } finally {
       if (btn) {
         btn.innerText = "تأكيد السحب";
-        btn.disabled = false;
+        calculateWithdraw();
       }
     }
   }
@@ -348,7 +424,8 @@
     selectCurrency: selectCurrency,
     setPreset: setPreset,
     calculateWithdraw: calculateWithdraw,
-    submitWithdrawal: submitWithdrawal
+    submitWithdrawal: submitWithdrawal,
+    validateWalletAddress: validateWalletAddress
   };
 
   window.withdrawModule = withdrawModule;
