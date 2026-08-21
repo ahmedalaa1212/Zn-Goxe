@@ -16,7 +16,6 @@ def initialize_firebase():
                 try:
                     creds_dict = json.loads(firebase_creds_json)
                 except Exception:
-                    # معالجة الـ Escape Characters في البيئات السحابية مثل Railway
                     cleaned_json = firebase_creds_json.replace("\\n", "\n")
                     creds_dict = json.loads(cleaned_json)
 
@@ -56,7 +55,7 @@ except Exception as e:
     print(f"⚠️ تنبيه أثناء التهيئة التلقائية لـ Firebase: {e}")
 
 
-# ==================== Core User Operations (ضمان إنشاء وقراءة المستخدم) ====================
+# ==================== Core User Operations ====================
 
 def get_user(telegram_id):
     """جلب بيانات المستخدم مباشرة من Firestore"""
@@ -134,7 +133,6 @@ def update_user(telegram_id, updates_dict):
 
 
 # ==================== Sub-Modules Re-exports ====================
-# ربط كافة موديولات الـ Database الفرعية من المجلدات الـ 11 وتتبع الأخطاء
 
 # 1. Admin Chat Module
 try:
@@ -198,7 +196,7 @@ try:
 except Exception as e:
     print(f"⚠️ خطأ في تحميل users_db: {e}")
 
-# 11. Wallet Module (يشمل الموديولات الفرعية: deposit_db, history_db, withdraw_db)
+# 11. Wallet Module
 try:
     from wallet.wallet_db import *
     from wallet.deposit.deposit_db import *
