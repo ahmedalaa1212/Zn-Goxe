@@ -7,6 +7,13 @@
   let withdrawCount = 0;
   let activeLevelIndex = 0;
 
+  function parseInputValue(val) {
+    if (val === null || val === undefined) return 0;
+    const cleanStr = val.toString().replace(/,/g, '').trim();
+    const num = parseFloat(cleanStr);
+    return isNaN(num) ? 0 : num;
+  }
+
   function getUserId() {
     const urlParams = new URLSearchParams(window.location.search);
     return (
@@ -16,6 +23,16 @@
       window.Telegram?.WebApp?.initDataUnsafe?.user?.id ||
       "5102387551"
     );
+  }
+
+  function bindInputEvents() {
+    const coinsInput = document.getElementById("coins-input");
+    if (coinsInput && !coinsInput.dataset.bound) {
+      coinsInput.dataset.bound = "true";
+      coinsInput.addEventListener("input", calculateWithdraw);
+      coinsInput.addEventListener("keyup", calculateWithdraw);
+      coinsInput.addEventListener("change", calculateWithdraw);
+    }
   }
 
   function loadTonConnectSDK(callback) {
@@ -145,6 +162,7 @@
 
   async function initWithdrawPage(userId) {
     const currentUid = userId || getUserId();
+    bindInputEvents();
     try {
       const response = await fetch(`/api/wallet/withdraw/config?user_id=${currentUid}`);
       if (!response.ok) {
@@ -198,7 +216,7 @@
       const maxText = lvl.max >= 999999999 ? "مفتوح" : lvl.max.toLocaleString() + " ZN";
 
       html += `
-        <div class="level-item ${isActive ? 'active-level' : ''}" style="display:flex; justify-content:space-between; padding:10px; margin-bottom:6px; background:${isActive ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.03)'}; border-radius:8px; border:${isActive ? '1px solid #38bdf8' : 'none'};">
+        <div class="level-item ${isActive ? 'active-level' : ''}" style="display:flex; justify-space-between; padding:10px; margin-bottom:6px; background:${isActive ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.03)'}; border-radius:8px; border:${isActive ? '1px solid #38bdf8' : 'none'};">
           <div>
             <span>المستوى ${lvl.level}: </span>
             <strong>${lvl.min.toLocaleString()} - ${maxText}</strong>
@@ -240,7 +258,7 @@
 
   function calculateWithdraw() {
     const coinsInput = document.getElementById("coins-input");
-    const coinsInputVal = parseFloat(coinsInput?.value) || 0;
+    const coinsInputVal = parseInputValue(coinsInput?.value);
     const btn = document.getElementById("confirm-withdraw-btn");
     const levelBadge = document.getElementById("level-indicator");
 
@@ -308,12 +326,17 @@
 
   async function submitWithdrawal() {
     const coinsInput = document.getElementById("coins-input");
-    const coins = parseFloat(coinsInput ? coinsInput.value : 0);
+    const coins = parseInputValue(coinsInput?.value);
     const userId = getUserId();
     const btn = document.getElementById("confirm-withdraw-btn");
 
     if (!currentWalletAddress) {
       alert("يرجى ربط محفظة TON أولاً قبل تأكيد السحب!");
+      return;
+    }
+
+    if (coins <= 0) {
+      alert("يرجى إدخال مبلغ سحب صحيح!");
       return;
     }
 
