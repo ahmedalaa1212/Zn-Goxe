@@ -6,13 +6,38 @@ let userBalance = 0;
 let withdrawCount = 0;
 let activeLevelIndex = 0;
 
-document.addEventListener("DOMContentLoaded", function() {
+function startWithdrawApp() {
   const urlParams = new URLSearchParams(window.location.search);
   const userId = urlParams.get('user_id') || window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "5102387551";
-  
-  initTonConnect();
+
+  // تحميل مكتبة TonConnect ديناميكياً إذا لم تكن موجودة بالصفحة
+  loadTonConnectSDK(() => {
+    initTonConnect();
+  });
+
+  // جلب إعدادات ورصيد المستخدم
   initWithdrawPage(userId);
-});
+}
+
+// التشغيل الفوري واللحظي
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", startWithdrawApp);
+} else {
+  startWithdrawApp();
+}
+
+function loadTonConnectSDK(callback) {
+  if (window.TON_CONNECT_UI || window.TonConnectSDK) {
+    if (callback) callback();
+    return;
+  }
+  
+  const script = document.createElement('script');
+  script.src = "https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js";
+  script.onload = () => { if (callback) callback(); };
+  script.onerror = () => { console.error("فشل تحميل TonConnect SDK"); };
+  document.head.appendChild(script);
+}
 
 function initTonConnect() {
   try {
@@ -21,6 +46,9 @@ function initTonConnect() {
       setTimeout(initTonConnect, 300);
       return;
     }
+
+    const buttonContainer = document.getElementById("ton-connect-button");
+    if (!buttonContainer) return;
 
     if (!tonConnectUI) {
       tonConnectUI = new TonConnectClass({
@@ -63,6 +91,10 @@ function initTonConnect() {
 async function initWithdrawPage(userId) {
   try {
     const response = await fetch(`/api/wallet/withdraw/config?user_id=${userId}`);
+    if (!response.ok) {
+      console.error("فشل الاتصال بـ API السحب:", response.status);
+      return;
+    }
     const data = await response.json();
 
     if (data.success) {
@@ -71,15 +103,13 @@ async function initWithdrawPage(userId) {
       userBalance = parseFloat(data.user_balance) || 0;
       withdrawCount = parseInt(data.withdraw_count) || 0;
 
-      // تحديد رقم المستوى بناءً على عدد السحوبات السابقة (من 0 إلى 5+)
       activeLevelIndex = Math.min(withdrawCount, (withdrawConfig.levels || []).length - 1);
 
       renderLevelsGuide();
-      // الوضع الافتراضي عند الفتح: اختيار الحد الأقصى للمستوى الحالي
       setPreset('max');
     }
   } catch (err) {
-    console.error("خطأ في جلب إعدادات السحب:", err);
+    console.error("خطأ جلب إعدادات السحب:", err);
   }
 }
 
@@ -89,7 +119,7 @@ function renderLevelsGuide() {
   if (!container || !withdrawConfig || !withdrawConfig.levels) return;
 
   if (userLevelText) {
-    userLevelText.innerText = `السحبة رقم (${withdrawCount + 1})`;
+    userLevelText.innerText = `السحبة القادمة رقم (${withdrawCount + 1})`;
   }
 
   let html = "";
@@ -134,7 +164,6 @@ function setPreset(type) {
     targetAmount = maxVal;
   }
 
-  // إذا كان الرصيد أقل من الحد الأدنى للمستوى
   if (userBalance < minVal && type !== 'min') {
     targetAmount = minVal;
   }
@@ -179,7 +208,6 @@ function calculateWithdraw() {
     levelBadge.style.color = "#38bdf8";
   }
 
-  // معادلة التحويل الثابتة: 100,000 عملة = 1 دولار
   const usdRate = withdrawConfig.rate_coins_per_usd || 100000;
   const usdValue = coinsInputVal / usdRate;
   const rawTon = usdValue / tonPriceUSD;
