@@ -5,10 +5,10 @@ from firebase_admin import firestore
 db = firestore.client()
 
 def get_withdraw_config():
-    """قراءة الخطة المعتمدة لمستويات السحب الستة"""
-    doc = db.collection('settings').document('withdraw_config').get()
+    """قراءة الخطة المعتمدة لمستويات السحب من Firebase"""
+    doc_ref = db.collection('settings').document('withdraw_config')
+    doc = doc_ref.get()
     
-    # تحيين أو إنشاء التهيئة الرسمية المعتمدة
     default_config = {
         "rate_coins_per_usd": 100000,
         "fee_percent": 3,
@@ -23,13 +23,18 @@ def get_withdraw_config():
     }
     
     if not doc.exists:
-        db.collection('settings').document('withdraw_config').set(default_config)
+        doc_ref.set(default_config)
         return default_config
     
-    return doc.to_dict()
+    data = doc.to_dict() or {}
+    if 'levels' not in data or not isinstance(data.get('levels'), list):
+        doc_ref.set(default_config)
+        return default_config
+
+    return data
 
 def has_withdrawn_today(user_id):
-    """فحص الحد اليومي بناءً على UTC 00:00"""
+    """فحص الحد اليومي للسحب بناءً على UTC 00:00"""
     today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     user_doc = db.collection('users').document(str(user_id)).get()
     if user_doc.exists:
@@ -37,14 +42,14 @@ def has_withdrawn_today(user_id):
     return False
 
 def get_user_full_details(user_id):
-    """جلب تفاصيل المستخدم بفحص جميع مسميات خانة الرصيد المحتملة"""
+    """جلب تفاصيل المستخدم وفحص كافة خانات الرصيد المتاحة"""
     user_ref = db.collection('users').document(str(user_id))
     user_doc = user_ref.get()
     
     if not user_doc.exists:
         return None
     
-    data = user_doc.to_dict()
+    data = user_doc.to_dict() or {}
     created_at = data.get('created_at')
     
     if hasattr(created_at, 'strftime'):
@@ -52,11 +57,14 @@ def get_user_full_details(user_id):
     else:
         joined_date = str(created_at or 'غير محدد')
 
-    # فحص جميع المفاتيح المحتملة للرصيد لضمان عدم ظهور قيمة صفرية خاطئة
-    real_balance = float(data.get('balance', data.get('balance_zn', data.get('coins', 0.0))))
+    raw_bal = data.get('balance')
+    if raw_bal is None:
+        raw_bal = data.get('balance_zn', data.get('coins', 0.0))
+        
+    real_balance = float(raw_bal)
 
     return {
-        "user_id": user_id,
+        "user_id": str(user_id),
         "first_name": data.get('first_name', 'غير محدد'),
         "username": data.get('username', 'لا يوجد'),
         "joined_date": joined_date,
@@ -79,15 +87,18 @@ def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_ad
         if not snapshot.exists:
             return False, "المستخدم غير موجود", None
         
-        user_data = snapshot.to_dict()
-        current_bal = float(user_data.get('balance', user_data.get('balance_zn', user_data.get('coins', 0.0))))
+        user_data = snapshot.to_dict() or {}
+        raw_bal = user_data.get('balance')
+        if raw_bal is None:
+            raw_bal = user_data.get('balance_zn', user_data.get('coins', 0.0))
+            
+        current_bal = float(raw_bal)
         
         if current_bal < coins_amount:
             return False, "رصيدك الحالي غير كافٍ.", None
 
         today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         
-        # 1. خصم الرصيد وزيادة عدد السحوبات وتحديث المحفظة
         txn.update(ref, {
             'balance': firestore.Increment(-coins_amount),
             'last_withdraw_date': today_utc,
@@ -95,7 +106,6 @@ def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_ad
             'withdraw_count': firestore.Increment(1)
         })
 
-        # 2. تسجيل المعاملة
         tx_ref = db.collection('processed_txs').document()
         status = "completed" if level_info['type'] == "auto" else "pending"
         
