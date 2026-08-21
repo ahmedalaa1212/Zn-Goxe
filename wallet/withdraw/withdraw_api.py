@@ -187,7 +187,7 @@ withdraw_bp = Blueprint('withdraw_bp', __name__)
 
 DEFAULT_WITHDRAW_CONFIG = {
     "fee_percent": 3,
-    "faucetpay_spread_markup": 1.0,  # اعتمادات السعر الطبيعية 100% بدون زيادة إضافية
+    "faucetpay_spread_markup": 1.06,  # إضافة 6% هامش أمان لحماية الرصيد وتفادي فرق السعر
     "rate_coins_per_usd": 100000,
     "supported_currencies": ["DOGE", "TRX", "PEPE", "LTC"],
     "levels": [
@@ -228,6 +228,10 @@ def fetch_or_create_withdraw_config():
         if doc.exists:
             data = doc.to_dict()
             if data and 'levels' in data and isinstance(data.get('levels'), list):
+                # إذا كانت القيمة القديمة 1.0 أو غير موجودة، يتم تحديثها إلى 1.06 تلقائياً
+                if 'faucetpay_spread_markup' not in data or data.get('faucetpay_spread_markup') == 1.0:
+                    data['faucetpay_spread_markup'] = 1.06
+                    doc_ref.set({'faucetpay_spread_markup': 1.06}, merge=True)
                 return data
         doc_ref.set(DEFAULT_WITHDRAW_CONFIG, merge=True)
         return DEFAULT_WITHDRAW_CONFIG
@@ -246,7 +250,7 @@ def get_config():
     config = fetch_or_create_withdraw_config()
     raw_prices = get_live_crypto_prices()
     
-    spread_markup = float(config.get('faucetpay_spread_markup', 1.0))
+    spread_markup = float(config.get('faucetpay_spread_markup', 1.06))
     protected_crypto_prices = {k: clean_round(v * spread_markup, 8) for k, v in raw_prices.items()}
     clean_raw_prices = {k: clean_round(v, 8) for k, v in raw_prices.items()}
     
@@ -317,7 +321,7 @@ def handle_withdraw():
     raw_prices = get_live_crypto_prices()
     selected_price = raw_prices.get(currency, 1.0)
     
-    spread_markup = float(config.get('faucetpay_spread_markup', 1.0))
+    spread_markup = float(config.get('faucetpay_spread_markup', 1.06))
     protected_price = clean_round(selected_price * spread_markup, 8)
 
     rate_coins_per_usd = config.get('rate_coins_per_usd', 100000)
