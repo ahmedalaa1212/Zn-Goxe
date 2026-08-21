@@ -1,3 +1,4 @@
+
 import os
 import re
 import time
@@ -61,7 +62,7 @@ def get_live_crypto_prices():
     fallback_prices = {
         "DOGE": 0.11,
         "TRX": 0.16,
-        "PEPE": 0.00000381,
+        "PEPE": 0.00000386,
         "LTC": 68.0
     }
 
@@ -176,7 +177,7 @@ withdraw_bp = Blueprint('withdraw_bp', __name__)
 
 DEFAULT_WITHDRAW_CONFIG = {
     "fee_percent": 3,
-    "faucetpay_spread_markup": 1.05,  # معامل حماية الفوست باي (5% هامش أمان)
+    "faucetpay_spread_markup": 1.05,  # معامل حماية الفوست باي (5% هامش أمان تغطية التبادلات)
     "rate_coins_per_usd": 100000,
     "supported_currencies": ["DOGE", "TRX", "PEPE", "LTC"],
     "levels": [
@@ -235,7 +236,7 @@ def get_config():
     config = fetch_or_create_withdraw_config()
     raw_prices = get_live_crypto_prices()
     
-    # تطبيق معامل الحماية على الأسعار لتطابق الواجهة الحسابات البرمجية
+    # حساب أسعار العملات المحمية بهامش الفوست باي
     spread_markup = float(config.get('faucetpay_spread_markup', 1.05))
     protected_crypto_prices = {k: v * spread_markup for k, v in raw_prices.items()}
     
@@ -257,6 +258,7 @@ def get_config():
         "success": True,
         "config": config,
         "crypto_prices": protected_crypto_prices,
+        "raw_crypto_prices": raw_prices,
         "already_withdrawn": already_withdrawn,
         "user_balance": user_balance,
         "withdraw_count": withdraw_count
@@ -305,7 +307,7 @@ def handle_withdraw():
     raw_prices = get_live_crypto_prices()
     selected_price = raw_prices.get(currency, 1.0)
     
-    # تطبيق معامل هامش الأمان لحمايتك من فارق أسعار FaucetPay
+    # تطبيق معامل هامش الأمان لحمايتك ومطابقة تقييم FaucetPay
     spread_markup = float(config.get('faucetpay_spread_markup', 1.05))
     protected_price = selected_price * spread_markup
 
