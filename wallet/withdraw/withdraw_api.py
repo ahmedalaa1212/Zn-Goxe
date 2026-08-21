@@ -3,7 +3,24 @@ import requests
 from flask import Blueprint, request, jsonify
 from firebase_admin import firestore
 from core.ton_price import get_ton_price_usd
-from wallet.withdraw.withdraw_db import get_db, has_withdrawn_today, process_withdraw_db, get_user_full_details
+
+# استيراد دالتي الاتصال للحماية من أي خطأ في استدعاء اسم الدالة
+try:
+    from wallet.withdraw.withdraw_db import (
+        get_db,
+        safe_get_db,
+        has_withdrawn_today,
+        process_withdraw_db,
+        get_user_full_details
+    )
+except ImportError:
+    from wallet.withdraw.withdraw_db import (
+        has_withdrawn_today,
+        process_withdraw_db,
+        get_user_full_details
+    )
+    from database import get_db
+    safe_get_db = get_db
 
 withdraw_bp = Blueprint('withdraw_bp', __name__)
 
@@ -20,9 +37,27 @@ DEFAULT_WITHDRAW_CONFIG = {
     ]
 }
 
+def _get_firestore_client():
+    """الحصول على كائن Firestore بأمان"""
+    try:
+        if 'safe_get_db' in globals() and callable(safe_get_db):
+            client = safe_get_db()
+            if client:
+                return client
+    except Exception:
+        pass
+    
+    try:
+        if 'get_db' in globals() and callable(get_db):
+            return get_db()
+    except Exception:
+        pass
+    
+    return None
+
 def fetch_or_create_withdraw_config():
-    """فحص مستند settings/withdraw_config وإنشاؤه إن لم يوجد"""
-    db = get_db()
+    """فحص مستند settings/withdraw_config وإنشاؤه إن لم يوجد في Firebase"""
+    db = _get_firestore_client()
     if not db:
         return DEFAULT_WITHDRAW_CONFIG
         
@@ -31,14 +66,21 @@ def fetch_or_create_withdraw_config():
         doc = doc_ref.get()
         if doc.exists:
             data = doc.to_dict()
-            if data and 'levels' in data:
+            if data and 'levels' in data and isinstance(data.get('levels'), list):
                 return data
         
         doc_ref.set(DEFAULT_WITHDRAW_CONFIG, merge=True)
+        print("✅ [FIREBASE] تم إنشاء مستند settings/withdraw_config بنجاح!")
         return DEFAULT_WITHDRAW_CONFIG
     except Exception as e:
-        print(f"خطأ وصول Firebase للمستند: {e}")
+        print(f"⚠️ خطأ وصول Firebase لمستند withdraw_config: {e}")
         return DEFAULT_WITHDRAW_CONFIG
+
+# إنشاء المستند فورياً عند استيراد الملف
+try:
+    fetch_or_create_withdraw_config()
+except Exception as e:
+    print(f"⚠️ تنبيه إنشاء إعدادات السحب عند بدء تشغيل التطبيق: {e}")
 
 @withdraw_bp.route('/config', methods=['GET'])
 def get_config():
@@ -137,7 +179,7 @@ def handle_admin_decision():
     if not tx_id or not action:
         return jsonify({"success": False, "message": "بيانات الطلب غير مكتملة."})
 
-    db = get_db()
+    db = _get_firestore_client()
     if not db:
         return jsonify({"success": False, "message": "خطأ في الاتصال بقاعدة البيانات."})
 
@@ -196,7 +238,7 @@ def check_hot_wallet_balance():
 
 def execute_auto_transfer(to_address, ton_amount, tx_id, user_id, coins):
     server_seed = os.getenv("HOT_WALLET_SEED")
-    db = get_db()
+    db = _get_firestore_client()
     
     if not server_seed:
         print("خطأ: HOT_WALLET_SEED غير مضبوط.")
