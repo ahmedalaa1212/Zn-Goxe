@@ -51,7 +51,7 @@ def get_user_full_details(user_id):
         "user_id": user_id,
         "first_name": data.get('first_name', 'غير محدد'),
         "username": data.get('username', 'لا يوجد'),
-        "joined_at": joined_date,
+        "joined_date": joined_date,
         "referrals_count": data.get('referrals_count', 0),
         "balance": data.get('balance', 0),
         "total_earned": data.get('total_earned', 0),
