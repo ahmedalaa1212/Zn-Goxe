@@ -3,23 +3,21 @@
   .w-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 18px; padding: 18px; margin-bottom: 16px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3); }
   .w-title { font-size: 15px; font-weight: 700; margin-bottom: 14px; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
   
-  #ton-connect-button { display: flex; justify-content: center; align-items: center; min-height: 50px; margin-top: 8px; width: 100%; }
-  #ton-connect-button * { max-width: 100%; }
+  .currency-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+  .currency-btn { background: #1e293b; border: 2px solid transparent; border-radius: 12px; padding: 10px 4px; text-align: center; cursor: pointer; transition: all 0.2s; color: #94a3b8; font-weight: bold; font-size: 13px; }
+  .currency-btn.selected { border-color: #38bdf8; background: rgba(56, 189, 248, 0.15); color: #ffffff; }
+  .currency-btn img { width: 24px; height: 24px; display: block; margin: 0 auto 4px auto; }
 
-  .wallet-status { background: #1e293b; border-radius: 10px; padding: 10px 12px; margin-top: 10px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
-  .wallet-address-text { font-family: monospace; color: #4ade80; direction: ltr; font-weight: bold; }
-  .btn-disconnect { background: #ef4444; border: none; color: #ffffff; padding: 5px 12px; border-radius: 8px; font-size: 11px; font-weight: bold; cursor: pointer; transition: background 0.2s; }
-  .btn-disconnect:hover { background: #dc2626; }
-  
   .w-input-group { margin-bottom: 14px; }
   .w-label { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #94a3b8; margin-bottom: 6px; font-weight: 600; }
   .user-bal-tag { color: #fbbf24; font-weight: bold; font-size: 12px; }
   
-  .w-input { width: 100%; background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; color: #38bdf8; font-size: 16px; font-weight: bold; box-sizing: border-box; outline: none; }
-  .w-input[readonly] { background: #090d16; cursor: not-allowed; }
+  .w-input { width: 100%; background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; color: #38bdf8; font-size: 15px; font-weight: bold; box-sizing: border-box; outline: none; transition: border-color 0.2s; }
+  .w-input:focus { border-color: #38bdf8; }
+  .w-input[readonly] { background: #090d16; cursor: not-allowed; color: #94a3b8; }
   
   .preset-buttons-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 8px; }
-  .btn-preset { background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid #38bdf8; color: #38bdf8; padding: 10px 6px; border-radius: 10px; font-size: 12px; font-weight: bold; cursor: pointer; transition: all 0.2s; text-align: center; }
+  .btn-preset { background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid #38bdf8; color: #38bdf8; padding: 8px 6px; border-radius: 10px; font-size: 12px; font-weight: bold; cursor: pointer; transition: all 0.2s; text-align: center; }
   .btn-preset:active { transform: scale(0.95); background: #38bdf8; color: #020617; }
 
   .fee-details { background: #020617; border: 1px solid #1e293b; border-radius: 12px; padding: 12px; margin-bottom: 14px; font-size: 13px; }
@@ -42,29 +40,45 @@
   .btn-submit-withdraw:active { transform: scale(0.98); }
   .btn-submit-withdraw:disabled { background: #334155; color: #64748b; cursor: not-allowed; opacity: 0.6; }
   .level-badge { font-size: 11px; padding: 3px 10px; border-radius: 8px; background: #1e293b; color: #38bdf8; font-weight: 600; }
+  .rate-spinner { display: inline-block; animation: spin 1s linear infinite; }
+  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 </style>
 
 <div class="withdraw-wrapper">
-  <!-- 1. ربط المحفظة (GRAM Web3) -->
+  <!-- 1. اختيار العملة وعنوان المحفظة -->
   <div class="w-card">
     <div class="w-title">
-      <span>💎 ربط محفظة استلام GRAM</span>
-      <span id="wallet-connect-status" class="level-badge" style="color:#ef4444;">غير متصل</span>
+      <span>🪙 اختر عملة السحب</span>
+      <span id="rate-status" class="level-badge" style="color:#4ade80;">أسعار لحظية ⚡</span>
     </div>
-    <div id="ton-connect-button"></div>
-    <div id="connected-wallet-box" class="wallet-status" style="display: none;">
-      <div>
-        <span style="color: #94a3b8;">المحفظة النشطة: </span>
-        <span id="wallet-address-display" class="wallet-address-text">--</span>
+
+    <div class="currency-grid">
+      <div class="currency-btn selected" onclick="selectCurrency('DOGE')" id="coin-DOGE">
+        DOGE
       </div>
-      <button id="disconnect-wallet-btn" type="button" class="btn-disconnect" onclick="disconnectWallet()">قطع الاتصال</button>
+      <div class="currency-btn" onclick="selectCurrency('TRX')" id="coin-TRX">
+        TRX
+      </div>
+      <div class="currency-btn" onclick="selectCurrency('PEPE')" id="coin-PEPE">
+        PEPE
+      </div>
+      <div class="currency-btn" onclick="selectCurrency('LTC')" id="coin-LTC">
+        LTC
+      </div>
+    </div>
+
+    <div class="w-input-group">
+      <div class="w-label">
+        <span>عنوان محفظة الاستلام (<span id="selected-coin-label">DOGE</span>):</span>
+      </div>
+      <input type="text" id="wallet-address-input" class="w-input" placeholder="أدخل عنوان المحفظة الخاص بك" oninput="validateForm()" />
     </div>
   </div>
 
   <!-- 2. نموذج طلب السحب -->
   <div class="w-card">
     <div class="w-title">
-      <span>طلب سحب الأرباح بـ GRAM</span>
+      <span>طلب سحب الأرباح</span>
       <span id="level-indicator" class="level-badge">المستوى: --</span>
     </div>
 
@@ -83,18 +97,22 @@
     </div>
 
     <div class="w-input-group">
-      <label class="w-label">القيمة الإجمالية المقابلة بـ GRAM (قبل الرسوم):</label>
-      <input type="text" id="gram-output" class="w-input" readonly value="0.0000 GRAM" />
+      <label class="w-label">القيمة التقديرية بالـ USD (100,000 ZN = $1.00):</label>
+      <input type="text" id="usd-output" class="w-input" readonly value="$0.0000 USD" />
     </div>
 
     <div class="fee-details">
       <div class="fee-row">
-        <span>رسوم الخدمة (3%):</span>
+        <span>رسوم التحويل والخدمة (3%):</span>
         <span id="fee-amount" class="fee-val">0 ZN</span>
       </div>
       <div class="fee-row">
+        <span>سعر العملة اللحظي:</span>
+        <span id="coin-price-display" class="fee-val">جاري الجلب...</span>
+      </div>
+      <div class="fee-row">
         <span>الصافي النهائي المستلم بمحفظتك:</span>
-        <span id="net-gram" class="net-val">0.0000 GRAM</span>
+        <span id="net-crypto" class="net-val">0.00000000 DOGE</span>
       </div>
     </div>
 
@@ -103,7 +121,7 @@
     </div>
 
     <div class="notice-box notice-info">
-      ℹ️ العملة المعتمدة للسحب هي GRAM. يتم خصم رسوم الخدمة (3%) فقط من رصيدك.
+      ℹ️ يتم تنفيذ السحب عبر نظام FaucetPay المباشر بمعدل سحبة واحدة يومياً (00:00 UTC).
     </div>
 
     <button id="confirm-withdraw-btn" class="btn-submit-withdraw" disabled onclick="submitWithdrawal()">
@@ -114,7 +132,7 @@
   <!-- 3. دليل مستويات السحب -->
   <div class="w-card">
     <div class="levels-guide-title">
-      <span>📂 دليل مستويات السحب</span>
+      <span>📂 دليل مستويات السحب اليومية</span>
       <span id="current-user-level-text" style="color:#38bdf8;">المستوى: --</span>
     </div>
     <div id="levels-list-container" class="levels-guide-box">
@@ -122,3 +140,180 @@
     </div>
   </div>
 </div>
+
+<script>
+  let selectedCoin = 'DOGE';
+  let userBalance = 0;
+  let userLevel = 1;
+  let currentLevelConfig = null;
+  let coinPricesInUsd = { DOGE: 0.10, TRX: 0.12, PEPE: 0.000008, LTC: 70.0 };
+  let withdrawConfig = null;
+
+  async function initWithdrawPage() {
+    await fetchLivePrices();
+    await loadWithdrawConfig();
+  }
+
+  async function fetchLivePrices() {
+    try {
+      const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=dogecoin,tron,pepe,litecoin&vs_currencies=usd');
+      const data = await res.json();
+      if (data) {
+        if (data.dogecoin?.usd) coinPricesInUsd.DOGE = data.dogecoin.usd;
+        if (data.tron?.usd) coinPricesInUsd.TRX = data.tron.usd;
+        if (data.pepe?.usd) coinPricesInUsd.PEPE = data.pepe.usd;
+        if (data.litecoin?.usd) coinPricesInUsd.LTC = data.litecoin.usd;
+      }
+    } catch (e) {
+      console.log('استخدام الأسعار الاحتياطية عند تعذر الجلب اللحظي');
+    }
+    updatePriceDisplay();
+  }
+
+  function selectCurrency(coin) {
+    selectedCoin = coin;
+    document.querySelectorAll('.currency-btn').forEach(btn => btn.classList.remove('selected'));
+    document.getElementById(`coin-${coin}`).classList.add('selected');
+    document.getElementById('selected-coin-label').innerText = coin;
+    updatePriceDisplay();
+    calculateWithdraw();
+  }
+
+  function updatePriceDisplay() {
+    const price = coinPricesInUsd[selectedCoin] || 1;
+    document.getElementById('coin-price-display').innerText = `$${price} USD`;
+  }
+
+  async function loadWithdrawConfig() {
+    try {
+      const res = await fetch('/api/withdraw/config');
+      const data = await res.json();
+      if (data.success) {
+        withdrawConfig = data.config;
+        userBalance = data.user.balance || 0;
+        userLevel = data.user.current_level || 1;
+        
+        document.getElementById('user-balance-display').innerText = `رصيدك: ${userBalance.toLocaleString()} ZN`;
+        document.getElementById('level-indicator').innerText = `المستوى: ${userLevel}`;
+        document.getElementById('current-user-level-text').innerText = `المستوى الحالي: ${userLevel}`;
+
+        currentLevelConfig = withdrawConfig.levels.find(l => l.level === userLevel) || withdrawConfig.levels[0];
+        renderLevelsList(withdrawConfig.levels);
+      }
+    } catch (e) {
+      console.error('خطأ جلب الإعدادات:', e);
+    }
+  }
+
+  function renderLevelsList(levels) {
+    const container = document.getElementById('levels-list-container');
+    container.innerHTML = '';
+    levels.forEach(lvl => {
+      const isActive = lvl.level === userLevel;
+      const typeText = lvl.type === 'auto' ? 'فوري آلي' : 'موافقة أدمن';
+      const usdMin = (lvl.min / 100000).toFixed(4);
+      const usdMax = lvl.max > 10000000 ? 'مفتوح' : `$${(lvl.max / 100000).toFixed(2)}`;
+      
+      const item = document.createElement('div');
+      item.className = `level-item ${isActive ? 'active-level' : ''}`;
+      item.innerHTML = `
+        <div>
+          <span>المستوى ${lvl.level}: ${lvl.min.toLocaleString()} - ${lvl.max > 10000000 ? 'مفتوح' : lvl.max.toLocaleString()} ZN</span>
+          <br><small style="color:#94a3b8;">($${usdMin} - ${usdMax})</small>
+        </div>
+        <span class="level-item-tag">${typeText}</span>
+      `;
+      container.appendChild(item);
+    });
+  }
+
+  function setPreset(type) {
+    if (!currentLevelConfig) return;
+    const input = document.getElementById('coins-input');
+    const minVal = currentLevelConfig.min;
+    const maxVal = Math.min(currentLevelConfig.max, userBalance);
+
+    if (type === 'min') {
+      input.value = minVal;
+    } else if (type === 'half') {
+      input.value = Math.floor(maxVal / 2);
+    } else if (type === 'max') {
+      input.value = maxVal;
+    }
+    calculateWithdraw();
+  }
+
+  function calculateWithdraw() {
+    const coins = parseFloat(document.getElementById('coins-input').value) || 0;
+    const usdValue = coins / 100000;
+    document.getElementById('usd-output').value = `$${usdValue.toFixed(4)} USD`;
+
+    const feeZn = coins * 0.03;
+    document.getElementById('fee-amount').innerText = `${Math.round(feeZn).toLocaleString()} ZN`;
+
+    const netCoins = coins - feeZn;
+    const netUsd = netCoins / 100000;
+    
+    const coinPrice = coinPricesInUsd[selectedCoin] || 1;
+    const cryptoAmount = netUsd / coinPrice;
+
+    const decimals = selectedCoin === 'PEPE' ? 2 : 8;
+    document.getElementById('net-crypto').innerText = `${cryptoAmount.toFixed(decimals)} ${selectedCoin}`;
+
+    validateForm();
+  }
+
+  function validateForm() {
+    const coins = parseFloat(document.getElementById('coins-input').value) || 0;
+    const address = document.getElementById('wallet-address-input').value.trim();
+    const btn = document.getElementById('confirm-withdraw-btn');
+
+    if (!currentLevelConfig) {
+      btn.disabled = true;
+      return;
+    }
+
+    const isValidAmount = coins >= currentLevelConfig.min && coins <= currentLevelConfig.max && coins <= userBalance;
+    const isValidAddress = address.length >= 8;
+
+    btn.disabled = !(isValidAmount && isValidAddress);
+  }
+
+  async function submitWithdrawal() {
+    const coins = parseFloat(document.getElementById('coins-input').value);
+    const address = document.getElementById('wallet-address-input').value.trim();
+    const btn = document.getElementById('confirm-withdraw-btn');
+
+    btn.disabled = true;
+    btn.innerText = 'جاري تنفيذ الطلب...';
+
+    try {
+      const res = await fetch('/api/withdraw/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          coins_amount: coins,
+          currency: selectedCoin,
+          wallet_address: address,
+          coin_price_usd: coinPricesInUsd[selectedCoin]
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message || 'تم إرسال طلب السحب بنجاح!');
+        location.reload();
+      } else {
+        alert('فشل السحب: ' + data.message);
+        btn.disabled = false;
+        btn.innerText = 'تأكيد السحب';
+      }
+    } catch (e) {
+      alert('حدث خطأ بالاتصال بالسيرفر.');
+      btn.disabled = false;
+      btn.innerText = 'تأكيد السحب';
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', initWithdrawPage);
+</script>
