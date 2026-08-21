@@ -47,7 +47,7 @@ function initTonConnect() {
     const buttonContainer = document.getElementById("ton-connect-button");
     if (!buttonContainer) return;
 
-    // تنظيف الحاوية لمنع تكرار زر المحفظة في التطبيق
+    // تنظيف القائمة لمنع تكرار زر الاتصال المشوه
     buttonContainer.innerHTML = "";
 
     if (!window.globalTonConnectUI) {
@@ -133,23 +133,22 @@ function renderLevelsGuide() {
   if (!container || !withdrawConfig || !withdrawConfig.levels) return;
 
   if (userLevelText) {
-    userLevelText.innerText = `السحبة القادمة رقم (${withdrawCount + 1})`;
+    userLevelText.innerText = `المستوى ${activeLevelIndex + 1}`;
   }
 
   let html = "";
   withdrawConfig.levels.forEach((lvl, idx) => {
     const isActive = idx === activeLevelIndex;
-    const isAuto = lvl.type === 'auto';
     const maxText = lvl.max >= 999999999 ? "مفتوح" : lvl.max.toLocaleString() + " ZN";
 
     html += `
       <div class="level-item ${isActive ? 'active-level' : ''}">
         <div>
-          <span>السحبة ${lvl.level}: </span>
+          <span>المستوى ${lvl.level}: </span>
           <strong>${lvl.min.toLocaleString()} - ${maxText}</strong>
         </div>
-        <span class="level-item-tag ${isAuto ? 'tag-auto' : 'tag-manual'}">
-          ${isAuto ? 'فوري ⚡' : 'يدوي 🛡️'} ${isActive ? ' (مستواك الحالي)' : ''}
+        <span class="level-item-tag ${isActive ? 'tag-auto' : ''}">
+          ${isActive ? 'مستواك الحالي ✅' : 'المستوى ' + lvl.level}
         </span>
       </div>
     `;
@@ -169,7 +168,6 @@ function setPreset(type) {
   const minVal = currentLvl.min;
   const levelMax = currentLvl.max >= 999999999 ? userBalance : currentLvl.max;
   
-  // الحد الأقصى المتاح للادخال هو الأصغر بين رصيد المستخدم وحد المستوى الحالي
   const maxVal = Math.min(userBalance, levelMax);
 
   if (type === 'min') {
@@ -213,7 +211,7 @@ function calculateWithdraw() {
   }
 
   if (levelBadge && currentLvl) {
-    levelBadge.innerText = `السحبة ${currentLvl.level} (${currentLvl.type === 'auto' ? 'فوري ⚡' : 'يدوي 🛡️'})`;
+    levelBadge.innerText = `المستوى ${currentLvl.level}`;
     levelBadge.style.color = "#38bdf8";
   }
 
