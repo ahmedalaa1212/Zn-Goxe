@@ -3,7 +3,6 @@
   .w-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 18px; padding: 18px; margin-bottom: 16px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3); }
   .w-title { font-size: 15px; font-weight: 700; margin-bottom: 14px; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
   
-  /* تنسيق حقل زر الاتصال لمنع تكرار الواجهات */
   #ton-connect-button { display: flex; justify-content: center; align-items: center; min-height: 50px; margin-top: 8px; width: 100%; }
   #ton-connect-button * { max-width: 100%; }
 
@@ -29,13 +28,11 @@
   .fee-val { font-weight: bold; color: #fbbf24; }
   .net-val { font-weight: bold; color: #4ade80; font-size: 14px; }
 
-  /* دليل المستويات */
   .levels-guide-box { background: #020617; border: 1px solid #1e293b; border-radius: 14px; padding: 12px; margin-bottom: 4px; font-size: 12px; }
   .levels-guide-title { font-weight: bold; color: #fbbf24; margin-bottom: 8px; display: flex; justify-content: space-between; }
   .level-item { display: flex; justify-content: space-between; padding: 8px; border-radius: 8px; margin-bottom: 6px; background: #0f172a; border: 1px solid transparent; }
   .level-item.active-level { border-color: #38bdf8; background: rgba(56, 189, 248, 0.15); font-weight: bold; }
   .level-item-tag { font-size: 10px; padding: 2px 6px; border-radius: 6px; font-weight: bold; background: #1e293b; color: #94a3b8; }
-  .tag-auto { background: rgba(16, 185, 129, 0.2); color: #34d399; }
 
   .notice-box { padding: 12px; border-radius: 12px; font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
   .notice-warning { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #fca5a5; }
@@ -48,10 +45,10 @@
 </style>
 
 <div class="withdraw-wrapper">
-  <!-- 1. ربط المحفظة (TON Web3) -->
+  <!-- 1. ربط المحفظة (GRAM Web3) -->
   <div class="w-card">
     <div class="w-title">
-      <span>💎 ربط محفظة TON (Web3)</span>
+      <span>💎 ربط محفظة استلام GRAM</span>
       <span id="wallet-connect-status" class="level-badge" style="color:#ef4444;">غير متصل</span>
     </div>
     <div id="ton-connect-button"></div>
@@ -67,7 +64,7 @@
   <!-- 2. نموذج طلب السحب -->
   <div class="w-card">
     <div class="w-title">
-      <span>طلب سحب الأرباح بـ TON</span>
+      <span>طلب سحب الأرباح بـ GRAM</span>
       <span id="level-indicator" class="level-badge">المستوى: --</span>
     </div>
 
@@ -86,18 +83,22 @@
     </div>
 
     <div class="w-input-group">
-      <label class="w-label">القيمة المقابلة بـ TON:</label>
-      <input type="text" id="ton-output" class="w-input" readonly value="0.0000 TON" />
+      <label class="w-label">القيمة الإجمالية المقابلة بـ GRAM:</label>
+      <input type="text" id="gram-output" class="w-input" readonly value="0.0000 GRAM" />
     </div>
 
     <div class="fee-details">
       <div class="fee-row">
-        <span>رسوم التحويل (3%):</span>
+        <span>رسوم الخدمة (3%):</span>
         <span id="fee-amount" class="fee-val">0 ZN</span>
       </div>
       <div class="fee-row">
-        <span>الصافي الذي سيصل محفظتك:</span>
-        <span id="net-ton" class="net-val">0.0000 TON</span>
+        <span>رسوم الشبكة المخصومة تلقائياً:</span>
+        <span class="fee-val" style="color:#38bdf8;">~0.0015 GRAM</span>
+      </div>
+      <div class="fee-row">
+        <span>الصافي النهائي المستلم بمحفظتك:</span>
+        <span id="net-gram" class="net-val">0.0000 GRAM</span>
       </div>
     </div>
 
@@ -106,7 +107,7 @@
     </div>
 
     <div class="notice-box notice-info">
-      ℹ️ سعر التحويل: كل 100,000 ZN = 1 USD، ويتم تحويل الصافي لعملة TON بسعر السوق المباشر. يتم خصم 3% رسوم تحويل.
+      ℹ️ العملة المعتمدة للسحب هي GRAM فقط. يتم خصم رسوم الخدمة ورسوم الشبكة التلقائية (~0.0015 GRAM) مباشرة من القيمة المرسلة.
     </div>
 
     <button id="confirm-withdraw-btn" class="btn-submit-withdraw" disabled onclick="submitWithdrawal()">
