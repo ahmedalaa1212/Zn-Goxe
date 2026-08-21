@@ -17,13 +17,15 @@ try:
         safe_get_db,
         has_withdrawn_today,
         process_withdraw_db,
-        get_user_full_details
+        get_user_full_details,
+        get_user_doc
     )
 except ImportError:
     from wallet.withdraw.withdraw_db import (
         has_withdrawn_today,
         process_withdraw_db,
-        get_user_full_details
+        get_user_full_details,
+        get_user_doc
     )
     from database import get_db
     safe_get_db = get_db
@@ -213,7 +215,9 @@ def handle_admin_decision():
     if tx_data.get('status') not in ['pending', 'pending_funds', 'processing']:
         return jsonify({"success": False, "message": "تم اتخاذ قرار في هذه المعاملة سابقاً."}), 400
 
-    user_ref = db.collection('users').document(str(tx_data['user_id']))
+    user_ref, _ = get_user_doc(tx_data['user_id'])
+    if not user_ref:
+        user_ref = db.collection('users').document(str(tx_data['user_id']))
 
     if action == 'approve':
         status = execute_auto_transfer(tx_data['wallet'], tx_data['ton_amount'], tx_id, tx_data['user_id'], tx_data['coins'])
@@ -381,9 +385,10 @@ def execute_auto_transfer(to_address, ton_amount, tx_id, user_id, coins):
 
 def notify_admin_insufficient_funds(user_id, coins, ton_amount, wallet, current_balance):
     """إرسال تنبيه في المجموعة بتنسيق HTML مرتب عند عدم كفاية الرصيد"""
-    bot_token = os.getenv("ADMIN_BOT_TOKEN")
+    bot_token = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
     admin_chat_id = os.getenv("ADMIN_CHAT_ID")
     if not bot_token or not admin_chat_id:
+        print("⚠️ تعذر إرسال الإشعار: ADMIN_BOT_TOKEN أو ADMIN_CHAT_ID غير مضبوط.")
         return
 
     formatted_coins = f"{coins:,.0f}" if coins == int(coins) else f"{coins:,}"
@@ -415,9 +420,10 @@ def notify_admin_insufficient_funds(user_id, coins, ton_amount, wallet, current_
 
 def notify_admin_for_manual_approval(user_id, coins, ton_amount, wallet, level, tx_id):
     """إرسال طلب موافقة يدوية بتنسيق HTML مرتب ومفصل مع أزرار الإجراء"""
-    bot_token = os.getenv("ADMIN_BOT_TOKEN")
+    bot_token = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
     admin_chat_id = os.getenv("ADMIN_CHAT_ID")
     if not bot_token or not admin_chat_id:
+        print("⚠️ تعذر إرسال إشعار السحب اليدوي: ADMIN_BOT_TOKEN أو ADMIN_CHAT_ID غير مضبوط.")
         return
 
     user_info = get_user_full_details(user_id) or {}
