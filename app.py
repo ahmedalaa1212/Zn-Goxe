@@ -119,7 +119,7 @@ def serve_static_files(filename):
 
 @app.route('/api/user/info', methods=['GET', 'POST'])
 def get_user_info_main():
-    """جلب بيانات حساب المستخدم والتحقق من الحظر وتهيئة الحسابات الجديدة"""
+    """جلب بيانات حساب المستخدم والتحقق من الحظر وتهيئة الحسابات الجديدة تلقائياً"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     
@@ -133,7 +133,7 @@ def get_user_info_main():
         
     try:
         # فحص حظر الحساب
-        if hasattr(database, 'is_user_banned') and database.is_user_banned(telegram_id):
+        if database.is_user_banned(telegram_id):
             return jsonify({
                 "success": False, 
                 "error": "حسابك معطل حالياً بسبب مخالفة الشروط",
@@ -142,14 +142,12 @@ def get_user_info_main():
 
         user_data = database.get_user(telegram_id)
         
-        # تهيئة حساب جديد إن لم يكن موجوداً
-        if not user_data:
+        # إن لم يكن مستند المستخدم موجوداً في Firestore يتم إنشاؤه فوراً
+        if not user_data or not isinstance(user_data, dict) or len(user_data) == 0:
             first_name = user_info.get('first_name', 'لاعب') if isinstance(user_info, dict) else 'لاعب'
             ref_id = user_info.get('start_param') if isinstance(user_info, dict) else None
             
-            if hasattr(database, 'init_user'):
-                database.init_user(telegram_id, ref_id=ref_id, first_name=first_name)
-            user_data = database.get_user(telegram_id) or {}
+            user_data = database.init_user(telegram_id, ref_id=ref_id, first_name=first_name)
             
         balance = float(user_data.get('balance', 0.0))
         usd_balance = float(user_data.get('usd_balance', 0.0))
@@ -160,7 +158,7 @@ def get_user_info_main():
             "player": user_data,
             "balance": balance,
             "usd_balance": usd_balance,
-            "uid": telegram_id
+            "uid": str(telegram_id)
         }), 200
 
     except Exception as e:
