@@ -18,14 +18,20 @@ def get_config():
         ton_price = 5.50
     
     already_withdrawn = False
+    user_balance = 0.0
+    
     if user_id:
         already_withdrawn = has_withdrawn_today(user_id)
+        user_details = get_user_full_details(user_id)
+        if user_details:
+            user_balance = float(user_details.get('balance', 0.0))
 
     return jsonify({
         "success": True,
         "config": config,
         "ton_price": ton_price,
-        "already_withdrawn": already_withdrawn
+        "already_withdrawn": already_withdrawn,
+        "user_balance": user_balance
     })
 
 @withdraw_api.route('/api/withdraw/request', methods=['POST'])
@@ -150,22 +156,17 @@ def execute_auto_transfer(to_address, ton_amount, tx_id, user_id, coins):
         print("خطأ: HOT_WALLET_SEED غير مضبوط.")
         return False
 
-    # 1. فحص رصيد المحفظة الساخنة التلقائي
     current_balance = check_hot_wallet_balance()
     required_total = ton_amount + 0.05  # إجمالي المبلغ المطلوب شامل رسوم الشبكة (Gas)
 
     if current_balance < required_total:
-        # تحويل حالة المعاملة إلى معلقة لحين شحن المحفظة
         tx_ref = db.collection('processed_txs').document(tx_id)
         tx_ref.update({'status': 'pending_funds', 'updated_at': firestore.SERVER_TIMESTAMP})
         
-        # إشعار المدير بنقص الرصيد
         notify_admin_insufficient_funds(user_id, coins, ton_amount, to_address, current_balance)
         return "pending_funds"
 
-    # 2. تنفيذ التحويل الفعلي عبر TON API
     try:
-        # سيتم تنفيذ المعاملة المشفرة بواسطة الـ Seed Phrase على شبكة TON
         tx_ref = db.collection('processed_txs').document(tx_id)
         tx_ref.update({'status': 'completed', 'updated_at': firestore.SERVER_TIMESTAMP})
         return True
