@@ -76,11 +76,12 @@
     }
   }
 
-  // تحديث عناصر الواجهة حسب حالة اتصال المحفظة
+  // تحديث عناصر الواجهة حسب حالة اتصال المحفظة وإخفاء الزر المشوه
   function updateWalletUI(wallet) {
     const statusBadge = document.getElementById("wallet-connect-status");
     const walletBox = document.getElementById("connected-wallet-box");
     const addressDisplay = document.getElementById("wallet-address-display");
+    const tonConnectBtn = document.getElementById("ton-connect-button");
 
     if (wallet && wallet.account) {
       currentWalletAddress = wallet.account.address;
@@ -88,6 +89,11 @@
         statusBadge.innerText = "متصل ✅";
         statusBadge.style.color = "#4ade80";
       }
+      
+      // إخفاء زر UQD الافتراضي المزعج فور الاتصال
+      if (tonConnectBtn) tonConnectBtn.style.display = "none";
+      
+      // إظهار مربع المحفظة المخصص
       if (walletBox) walletBox.style.display = "flex";
       if (addressDisplay) {
         const shortAddr = currentWalletAddress.substring(0, 6) + "..." + currentWalletAddress.substring(currentWalletAddress.length - 4);
@@ -99,6 +105,7 @@
         statusBadge.innerText = "غير متصل";
         statusBadge.style.color = "#ef4444";
       }
+      if (tonConnectBtn) tonConnectBtn.style.display = "block";
       if (walletBox) walletBox.style.display = "none";
     }
     calculateWithdraw();
