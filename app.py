@@ -55,10 +55,9 @@ blueprints_config = [
     ('support', 'support_bp', '/api/support'),
     ('admin_chat', 'admin_chat_bp', '/api/admin-chat'),
     
-    # 💳 موديولات المحفظة (الرئيسية والفرعية)
+    # 💳 موديولات المحفظة (تم إلغاء التسجيل المزدوج لـ withdraw_bp لمنع التعارض)
     ('wallet', 'wallet_bp', '/api/wallet'),
     ('wallet.deposit.deposit_api', 'deposit_bp', '/api/wallet/deposit'),
-    ('wallet.withdraw.withdraw_api', 'withdraw_bp', '/api/wallet/withdraw'),
     ('wallet.history.history_api', 'history_bp', '/api/wallet/history'),
     ('wallet.exchange.exchange_api', 'exchange_bp', '/api/wallet/exchange'),
     
