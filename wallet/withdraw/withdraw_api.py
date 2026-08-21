@@ -58,7 +58,6 @@ def handle_withdraw():
     withdraw_count = int(user_details.get('withdraw_count', 0))
     levels = config.get('levels', [])
     
-    # تحديد المستوى المستحق بناءً على سحوبات المستخدم
     level_index = min(withdraw_count, len(levels) - 1)
     matched_level = levels[level_index]
 
@@ -94,7 +93,6 @@ def handle_withdraw():
 
 @withdraw_bp.route('/admin-approve', methods=['POST'])
 def handle_admin_decision():
-    """معالجة قرارات الموافقة أو الرفض الصادرة من بوت الأدمن"""
     data = request.json or {}
     tx_id = data.get('tx_id')
     action = data.get('action')
