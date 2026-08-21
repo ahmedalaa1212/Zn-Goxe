@@ -51,22 +51,41 @@ def validate_wallet_address(address, currency):
     return True, ""
 
 
-# دالة جلب الأسعار اللحظية للعملات
+# دالة جلب الأسعار اللحظية للعملات مع دعم Binance أولاً لدقة PEPE
 def get_live_crypto_prices():
     now = time.time()
     if PRICE_CACHE["data"] and (now - PRICE_CACHE["last_updated"] < 60):
         return PRICE_CACHE["data"]
 
+    # أسعار احتياطية محدثة بدقة
     fallback_prices = {
-        "DOGE": 0.12,
-        "TRX": 0.15,
-        "PEPE": 0.00001,
-        "LTC": 75.0
+        "DOGE": 0.11,
+        "TRX": 0.16,
+        "PEPE": 0.00000381,
+        "LTC": 68.0
     }
 
+    # 1. محاولة الجلب المباشر من منصة Binance (الأسرع والأدق للـ PEPE)
+    try:
+        symbols = {"DOGE": "DOGEUSDT", "TRX": "TRXUSDT", "PEPE": "PEPEUSDT", "LTC": "LTCUSDT"}
+        binance_prices = {}
+        for coin, symbol in symbols.items():
+            res = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}", timeout=3)
+            if res.status_code == 200:
+                val = float(res.json().get("price", 0))
+                if val > 0:
+                    binance_prices[coin] = val
+        if len(binance_prices) == 4:
+            PRICE_CACHE["data"] = binance_prices
+            PRICE_CACHE["last_updated"] = now
+            return binance_prices
+    except Exception as e:
+        print(f"⚠️ خطأ جلب الأسعار من Binance: {e}")
+
+    # 2. CoinGecko API (المصدر الثاني)
     try:
         url = "https://api.coingecko.com/api/v3/simple/price?ids=dogecoin,tron,pepe,litecoin&vs_currencies=usd"
-        res = requests.get(url, timeout=5)
+        res = requests.get(url, timeout=4)
         if res.status_code == 200:
             data = res.json()
             prices = {
@@ -81,9 +100,10 @@ def get_live_crypto_prices():
     except Exception as e:
         print(f"⚠️ خطأ جلب الأسعار من CoinGecko: {e}")
 
+    # 3. CryptoCompare API (المصدر الثالث)
     try:
         url = "https://min-api.cryptocompare.com/data/pricemulti?fsyms=DOGE,TRX,PEPE,LTC&tsyms=USD"
-        res = requests.get(url, timeout=5)
+        res = requests.get(url, timeout=4)
         if res.status_code == 200:
             data = res.json()
             prices = {
