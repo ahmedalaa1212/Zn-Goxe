@@ -40,6 +40,7 @@
       if (callback) callback();
       return;
     }
+
     const script = document.createElement('script');
     script.src = "https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js";
     script.onload = () => { if (callback) callback(); };
@@ -54,29 +55,38 @@
         setTimeout(initTonConnect, 300);
         return;
       }
+
       if (!window.globalTonConnectUI) {
         window.globalTonConnectUI = new TonConnectClass({
           manifestUrl: window.location.origin + '/tonconnect-manifest.json'
         });
       }
+
       tonConnectUI = window.globalTonConnectUI;
+
       if (tonConnectUI.wallet) {
         updateWalletUI(tonConnectUI.wallet);
       } else {
         updateWalletUI(null);
       }
+
       tonConnectUI.onStatusChange(wallet => {
         updateWalletUI(wallet);
       });
+
     } catch (e) {
       console.error("خطأ تهيئة TonConnect:", e);
     }
   }
 
   async function connectWallet() {
-    if (!tonConnectUI) initTonConnect();
+    if (!tonConnectUI) {
+      initTonConnect();
+    }
     try {
-      if (tonConnectUI) await tonConnectUI.openModal();
+      if (tonConnectUI) {
+        await tonConnectUI.openModal();
+      }
     } catch (e) {
       console.error("خطأ في فتح نافذة الربط:", e);
     }
@@ -94,8 +104,10 @@
         statusBadge.innerText = "متصل ✅";
         statusBadge.style.color = "#4ade80";
       }
+      
       if (tonConnectBtnContainer) tonConnectBtnContainer.style.display = "none";
       if (walletBox) walletBox.style.display = "flex";
+      
       if (addressDisplay) {
         const shortAddr = currentWalletAddress.substring(0, 6) + "..." + currentWalletAddress.substring(currentWalletAddress.length - 4);
         addressDisplay.innerText = shortAddr;
@@ -106,7 +118,9 @@
         statusBadge.innerText = "غير متصل";
         statusBadge.style.color = "#ef4444";
       }
+      
       if (walletBox) walletBox.style.display = "none";
+      
       if (tonConnectBtnContainer) {
         tonConnectBtnContainer.style.display = "block";
         tonConnectBtnContainer.innerHTML = `
@@ -136,7 +150,11 @@
 
   async function disconnectWallet() {
     if (tonConnectUI && tonConnectUI.connected) {
-      try { await tonConnectUI.disconnect(); } catch (e) { console.error("خطأ أثناء قطع الاتصال:", e); }
+      try {
+        await tonConnectUI.disconnect();
+      } catch (e) {
+        console.error("خطأ أثناء قطع الاتصال:", e);
+      }
     } else {
       updateWalletUI(null);
     }
@@ -147,7 +165,10 @@
     bindInputEvents();
     try {
       const response = await fetch(`/api/wallet/withdraw/config?user_id=${currentUid}`);
-      if (!response.ok) return;
+      if (!response.ok) {
+        console.error("فشل الاتصال بـ API السحب:", response.status);
+        return;
+      }
       const data = await response.json();
 
       if (data.success) {
@@ -157,11 +178,8 @@
         withdrawCount = parseInt(data.withdraw_count) || 0;
 
         const userBalDisplay = document.getElementById("user-balance-display");
-        if (userBalDisplay) userBalDisplay.innerText = `رصيدك: ${userBalance.toLocaleString()} ZN`;
-
-        const feePercentDisplay = document.getElementById("fee-percent-display");
-        if (feePercentDisplay && withdrawConfig.fee_percent) {
-            feePercentDisplay.innerText = withdrawConfig.fee_percent;
+        if (userBalDisplay) {
+          userBalDisplay.innerText = `رصيدك: ${userBalance.toLocaleString()} ZN`;
         }
 
         if (withdrawConfig && withdrawConfig.levels) {
@@ -186,13 +204,17 @@
     const userLevelText = document.getElementById("current-user-level-text");
     if (!withdrawConfig || !withdrawConfig.levels) return;
 
-    if (userLevelText) userLevelText.innerText = `المستوى: ${activeLevelIndex + 1}`;
+    if (userLevelText) {
+      userLevelText.innerText = `المستوى: ${activeLevelIndex + 1}`;
+    }
+
     if (!container) return;
 
     let html = "";
     withdrawConfig.levels.forEach((lvl, idx) => {
       const isActive = idx === activeLevelIndex;
       const maxText = lvl.max >= 999999999 ? "مفتوح" : lvl.max.toLocaleString() + " ZN";
+
       html += `
         <div class="level-item ${isActive ? 'active-level' : ''}" style="display:flex; justify-content:space-between; padding:10px; margin-bottom:6px; background:${isActive ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.03)'}; border-radius:8px; border:${isActive ? '1px solid #38bdf8' : 'none'};">
           <div>
@@ -205,11 +227,13 @@
         </div>
       `;
     });
+
     container.innerHTML = html;
   }
 
   function setPreset(type) {
     if (!withdrawConfig || !withdrawConfig.levels || withdrawConfig.levels.length === 0) return;
+
     const currentLvl = withdrawConfig.levels[activeLevelIndex] || withdrawConfig.levels[0];
     const coinsInput = document.getElementById("coins-input");
     if (!coinsInput) return;
@@ -217,6 +241,7 @@
     let targetAmount = 0;
     const minVal = currentLvl.min;
     const levelMax = currentLvl.max >= 999999999 ? userBalance : currentLvl.max;
+    
     const maxVal = Math.min(userBalance, levelMax);
 
     if (type === 'min') {
@@ -265,18 +290,19 @@
       levelBadge.style.color = "#38bdf8";
     }
 
-    // الاعتماد على القيم من الفايربيس (100000 = 1 دولار)
+    // الاعتماد على السعر الثابت للدولار مقابل ZN
     const usdRate = withdrawConfig.rate_coins_per_usd || 100000;
     const usdValue = coinsInputVal / usdRate;
     const grossGram = usdValue / gramPriceUSD;
 
+    // حساب الرسوم 3% فقط
     const feePercent = withdrawConfig.fee_percent || 3;
     const feeCoins = coinsInputVal * (feePercent / 100);
     const netCoins = coinsInputVal - feeCoins;
     const netUsd = netCoins / usdRate;
     
-    // الصافي بدون خصم أي رسوم شبكة من المستخدم
-    const finalNetGram = Math.max(0, netUsd / gramPriceUSD);
+    // الصافي الحقيقي للـ GRAM المستلم
+    const finalNetGram = netUsd / gramPriceUSD;
 
     const gramOutput = document.getElementById("gram-output");
     const feeAmount = document.getElementById("fee-amount");
@@ -286,7 +312,9 @@
     if (feeAmount) feeAmount.innerText = `${feeCoins.toLocaleString()} ZN`;
     if (netGramElem) netGramElem.innerText = `${finalNetGram.toFixed(4)} GRAM`;
 
-    if (btn) btn.disabled = !currentWalletAddress || coinsInputVal <= 0 || userBalance < coinsInputVal;
+    if (btn) {
+      btn.disabled = !currentWalletAddress || coinsInputVal <= 0 || userBalance < coinsInputVal;
+    }
   }
 
   function resetCalculations() {
@@ -305,42 +333,76 @@
     const userId = getUserId();
     const btn = document.getElementById("confirm-withdraw-btn");
 
-    if (!currentWalletAddress) { alert("يرجى ربط محفظة GRAM أولاً قبل تأكيد السحب!"); return; }
-    if (coins <= 0) { alert("يرجى إدخال مبلغ سحب صحيح!"); return; }
-    if (coins > userBalance) { alert("رصيدك الحالي غير كافٍ لإتمام هذه العملية!"); return; }
+    if (!currentWalletAddress) {
+      alert("يرجى ربط محفظة GRAM أولاً قبل تأكيد السحب!");
+      return;
+    }
 
-    if (btn) { btn.disabled = true; btn.innerText = "جاري معالجة الطلب..."; }
+    if (coins <= 0) {
+      alert("يرجى إدخال مبلغ سحب صحيح!");
+      return;
+    }
+
+    if (coins > userBalance) {
+      alert("رصيدك الحالي غير كافٍ لإتمام هذه العملية!");
+      return;
+    }
+
+    if (btn) {
+      btn.disabled = true;
+      btn.innerText = "جاري معالجة الطلب...";
+    }
 
     try {
       const res = await fetch('/api/wallet/withdraw/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, coins: coins, wallet_address: currentWalletAddress })
+        body: JSON.stringify({
+          user_id: userId,
+          coins: coins,
+          wallet_address: currentWalletAddress
+        })
       });
+      
       const data = await res.json();
       alert(data.message || (data.success ? "تم طلب السحب بنجاح!" : "فشلت العملية"));
       if (data.success) {
-        if (typeof window.loadWalletData === 'function') window.loadWalletData();
-        else location.reload();
+        if (typeof window.loadWalletData === 'function') {
+          window.loadWalletData();
+        } else {
+          location.reload();
+        }
       }
     } catch (err) {
       alert("حدث خطأ أثناء الاتصال بالخادم.");
     } finally {
-      if (btn) { btn.innerText = "تأكيد السحب"; btn.disabled = false; }
+      if (btn) {
+        btn.innerText = "تأكيد السحب";
+        btn.disabled = false;
+      }
     }
   }
 
   const withdrawModule = {
     init: function () {
       const userId = getUserId();
-      loadTonConnectSDK(() => { initTonConnect(); });
+      loadTonConnectSDK(() => {
+        initTonConnect();
+      });
       initWithdrawPage(userId);
     },
-    connectWallet, setPreset, calculateWithdraw, disconnectWallet, submitWithdrawal
+    connectWallet: connectWallet,
+    setPreset: setPreset,
+    calculateWithdraw: calculateWithdraw,
+    disconnectWallet: disconnectWallet,
+    submitWithdrawal: submitWithdrawal
   };
 
   window.withdrawModule = withdrawModule;
-  window.init_withdraw_module = function () { withdrawModule.init(); };
+  window.init_withdraw_module = function () {
+    withdrawModule.init();
+  };
+
   window.connectWallet = connectWallet;
   window.setPreset = setPreset;
   window.calculateWithdraw = calculateWithdraw;
