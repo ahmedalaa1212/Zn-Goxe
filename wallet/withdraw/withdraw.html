@@ -6,7 +6,7 @@
   .w-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 18px; padding: 18px; margin-bottom: 16px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3); }
   .w-title { font-size: 15px; font-weight: 700; margin-bottom: 14px; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
   
-  /* إظهار وتنسيق زر TonConnect */
+  /* تنسيق حقل زر الاتصال لمنع تكرار الواجهات */
   #ton-connect-button { display: flex; justify-content: center; align-items: center; min-height: 50px; margin-top: 8px; width: 100%; }
   #ton-connect-button * { max-width: 100%; }
 
@@ -35,9 +35,8 @@
   .levels-guide-title { font-weight: bold; color: #fbbf24; margin-bottom: 8px; display: flex; justify-content: space-between; }
   .level-item { display: flex; justify-content: space-between; padding: 8px; border-radius: 8px; margin-bottom: 6px; background: #0f172a; border: 1px solid transparent; }
   .level-item.active-level { border-color: #38bdf8; background: rgba(56, 189, 248, 0.15); font-weight: bold; }
-  .level-item-tag { font-size: 10px; padding: 2px 6px; border-radius: 6px; font-weight: bold; }
+  .level-item-tag { font-size: 10px; padding: 2px 6px; border-radius: 6px; font-weight: bold; background: #1e293b; color: #94a3b8; }
   .tag-auto { background: rgba(16, 185, 129, 0.2); color: #34d399; }
-  .tag-manual { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
 
   .notice-box { padding: 12px; border-radius: 12px; font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
   .notice-warning { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #fca5a5; }
@@ -105,7 +104,7 @@
     </div>
 
     <div class="notice-box notice-info">
-      ℹ️ السحبات من 1 إلى 3 فورية تلقائياً، والسحبات من 4 إلى 6 تخضع لمراجعة الإدارة (1 - 48 ساعة).
+      ℹ️ يتم خصم رسوم تحويل بقيمة 3% من إجمالي الطلب. يتم تنفيذ وتأكيد عملية السحب خلال فترة من 1 دقيقة إلى 48 ساعة كحد أقصى.
     </div>
 
     <button id="confirm-withdraw-btn" class="btn-submit-withdraw" disabled onclick="submitWithdrawal()">
@@ -117,7 +116,7 @@
   <div class="w-card">
     <div class="levels-guide-title">
       <span>📂 دليل مستويات السحب</span>
-      <span id="current-user-level-text" style="color:#38bdf8;">السحبة القادمة: --</span>
+      <span id="current-user-level-text" style="color:#38bdf8;">المستوى: --</span>
     </div>
     <div id="levels-list-container" class="levels-guide-box">
       <!-- يتم تحميل المستويات ديناميكياً -->
