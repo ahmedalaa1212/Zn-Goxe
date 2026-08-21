@@ -1,4 +1,4 @@
-<!-- تحميل TonConnect UI SDK الرسمي -->
+<!-- تحميل TonConnect UI SDK -->
 <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
 
 <style>
@@ -6,8 +6,8 @@
   .w-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 18px; padding: 18px; margin-bottom: 16px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3); }
   .w-title { font-size: 15px; font-weight: 700; margin-bottom: 14px; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
   
-  /* إصلاح إظهار زر TonConnect */
-  #ton-connect-button { display: flex; justify-content: center; align-items: center; min-height: 48px; margin-top: 8px; width: 100%; }
+  /* إظهار وتنسيق زر TonConnect */
+  #ton-connect-button { display: flex; justify-content: center; align-items: center; min-height: 50px; margin-top: 8px; width: 100%; }
   #ton-connect-button * { max-width: 100%; }
 
   .wallet-status { background: #1e293b; border-radius: 10px; padding: 10px 12px; margin-top: 10px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
@@ -16,15 +16,12 @@
   .w-input-group { margin-bottom: 14px; }
   .w-label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 6px; font-weight: 600; }
   
-  /* خانة قراءة فقط */
   .w-input { width: 100%; background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; color: #38bdf8; font-size: 16px; font-weight: bold; box-sizing: border-box; outline: none; }
   .w-input[readonly] { background: #090d16; cursor: not-allowed; }
   
-  /* أزرار تحديد الكمية التلقائية */
   .preset-buttons-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 8px; }
   .btn-preset { background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid #38bdf8; color: #38bdf8; padding: 10px 6px; border-radius: 10px; font-size: 12px; font-weight: bold; cursor: pointer; transition: all 0.2s; text-align: center; }
   .btn-preset:active { transform: scale(0.95); background: #38bdf8; color: #020617; }
-  .btn-preset.active { background: #0284c7; color: #fff; border-color: #38bdf8; }
 
   .fee-details { background: #020617; border: 1px solid #1e293b; border-radius: 12px; padding: 12px; margin-bottom: 14px; font-size: 13px; }
   .fee-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
@@ -32,10 +29,10 @@
   .fee-val { font-weight: bold; color: #fbbf24; }
   .net-val { font-weight: bold; color: #4ade80; font-size: 14px; }
 
-  /* مجلد دليل المستويات */
-  .levels-guide-box { background: #020617; border: 1px solid #1e293b; border-radius: 14px; padding: 12px; margin-bottom: 14px; font-size: 12px; }
+  /* دليل المستويات */
+  .levels-guide-box { background: #020617; border: 1px solid #1e293b; border-radius: 14px; padding: 12px; margin-bottom: 4px; font-size: 12px; }
   .levels-guide-title { font-weight: bold; color: #fbbf24; margin-bottom: 8px; display: flex; justify-content: space-between; }
-  .level-item { display: flex; justify-content: space-between; padding: 6px 8px; border-radius: 8px; margin-bottom: 4px; background: #0f172a; border: 1px solid transparent; }
+  .level-item { display: flex; justify-content: space-between; padding: 8px; border-radius: 8px; margin-bottom: 6px; background: #0f172a; border: 1px solid transparent; }
   .level-item.active-level { border-color: #38bdf8; background: rgba(56, 189, 248, 0.15); font-weight: bold; }
   .level-item-tag { font-size: 10px; padding: 2px 6px; border-radius: 6px; font-weight: bold; }
   .tag-auto { background: rgba(16, 185, 129, 0.2); color: #34d399; }
@@ -65,18 +62,7 @@
     </div>
   </div>
 
-  <!-- 2. مجلد دليل مستويات السحب -->
-  <div class="w-card">
-    <div class="levels-guide-title">
-      <span>📂 دليل مستويات السحب</span>
-      <span id="current-user-level-text" style="color:#38bdf8;">السحبة القادمة: --</span>
-    </div>
-    <div id="levels-list-container" class="levels-guide-box">
-      <!-- يتم تحميل المستويات ديناميكياً -->
-    </div>
-  </div>
-
-  <!-- 3. نموذج السحب -->
+  <!-- 2. نموذج طلب السحب -->
   <div class="w-card">
     <div class="w-title">
       <span>طلب سحب الأرباح</span>
@@ -87,7 +73,6 @@
       <label class="w-label">عدد العملات المحدد للسحب (ZN):</label>
       <input type="text" id="coins-input" class="w-input" readonly placeholder="اختر الكمية بالأسفل" value="" />
       
-      <!-- أزرار التحديد التلقائي -->
       <div class="preset-buttons-grid">
         <button type="button" class="btn-preset" onclick="setPreset('min')">حد أدنى</button>
         <button type="button" class="btn-preset" onclick="setPreset('half')">1/2 الكمية</button>
@@ -122,5 +107,16 @@
     <button id="confirm-withdraw-btn" class="btn-submit-withdraw" disabled onclick="submitWithdrawal()">
       تأكيد السحب
     </button>
+  </div>
+
+  <!-- 3. دليل مستويات السحب (في الأسفل) -->
+  <div class="w-card">
+    <div class="levels-guide-title">
+      <span>📂 دليل مستويات السحب</span>
+      <span id="current-user-level-text" style="color:#38bdf8;">السحبة القادمة: --</span>
+    </div>
+    <div id="levels-list-container" class="levels-guide-box">
+      <!-- يتم تحميل المستويات ديناميكياً -->
+    </div>
   </div>
 </div>
