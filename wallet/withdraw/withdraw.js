@@ -1,8 +1,9 @@
 (function () {
-  let cryptoPrices = { DOGE: 0.12, TRX: 0.15, PEPE: 0.00001, LTC: 75.0 };
+  let cryptoPrices = { DOGE: 0.10, TRX: 0.12, PEPE: 0.000008, LTC: 70.0 };
   let selectedCurrency = "DOGE";
   let withdrawConfig = null;
   let userBalance = 0;
+  let userLevel = 1;
   let withdrawCount = 0;
   let activeLevelIndex = 0;
 
@@ -24,6 +25,30 @@
     );
   }
 
+  async function fetchLivePrices() {
+    try {
+      const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=dogecoin,tron,pepe,litecoin&vs_currencies=usd');
+      const data = await res.json();
+      if (data) {
+        if (data.dogecoin?.usd) cryptoPrices.DOGE = data.dogecoin.usd;
+        if (data.tron?.usd) cryptoPrices.TRX = data.tron.usd;
+        if (data.pepe?.usd) cryptoPrices.PEPE = data.pepe.usd;
+        if (data.litecoin?.usd) cryptoPrices.LTC = data.litecoin.usd;
+      }
+    } catch (e) {
+      console.log('استخدام الأسعار الاحتياطية عند تعذر الجلب اللحظي');
+    }
+    updatePriceDisplay();
+  }
+
+  function updatePriceDisplay() {
+    const priceDisplay = document.getElementById('coin-price-display');
+    if (priceDisplay) {
+      const price = cryptoPrices[selectedCurrency] || 1;
+      priceDisplay.innerText = `$${price} USD`;
+    }
+  }
+
   function bindInputEvents() {
     const coinsInput = document.getElementById("coins-input");
     if (coinsInput && !coinsInput.dataset.bound) {
@@ -31,15 +56,6 @@
       coinsInput.addEventListener("input", calculateWithdraw);
       coinsInput.addEventListener("keyup", calculateWithdraw);
       coinsInput.addEventListener("change", calculateWithdraw);
-    }
-
-    const currencySelect = document.getElementById("currency-select");
-    if (currencySelect && !currencySelect.dataset.bound) {
-      currencySelect.dataset.bound = "true";
-      currencySelect.addEventListener("change", (e) => {
-        selectedCurrency = e.target.value.toUpperCase();
-        calculateWithdraw();
-      });
     }
 
     const walletInput = document.getElementById("wallet-address-input");
@@ -52,21 +68,29 @@
   async function initWithdrawPage(userId) {
     const currentUid = userId || getUserId();
     bindInputEvents();
+    await fetchLivePrices();
+
     try {
-      const response = await fetch(`/api/wallet/withdraw/config?user_id=${currentUid}`);
+      let response = await fetch(`/api/wallet/withdraw/config?user_id=${currentUid}`);
+      if (!response.ok) {
+        response = await fetch(`/api/withdraw/config?user_id=${currentUid}`);
+      }
       if (!response.ok) {
         console.error("فشل الاتصال بـ API السحب:", response.status);
         return;
       }
       const data = await response.json();
 
-      if (data.success) {
-        withdrawConfig = data.config;
+      if (data.success || data.config) {
+        withdrawConfig = data.config || data;
         if (data.crypto_prices) {
-          cryptoPrices = data.crypto_prices;
+          cryptoPrices = { ...cryptoPrices, ...data.crypto_prices };
+          updatePriceDisplay();
         }
-        userBalance = parseFloat(data.user_balance) || 0;
-        withdrawCount = parseInt(data.withdraw_count) || 0;
+        
+        userBalance = parseFloat(data.user_balance ?? data.user?.balance) || 0;
+        userLevel = parseInt(data.user_level ?? data.user?.current_level) || 1;
+        withdrawCount = parseInt(data.withdraw_count) || (userLevel - 1);
 
         const userBalDisplay = document.getElementById("user-balance-display");
         if (userBalDisplay) {
@@ -74,16 +98,19 @@
         }
 
         if (withdrawConfig && withdrawConfig.levels) {
-          activeLevelIndex = Math.min(withdrawCount, withdrawConfig.levels.length - 1);
+          activeLevelIndex = withdrawConfig.levels.findIndex(l => l.level === userLevel);
+          if (activeLevelIndex === -1) {
+            activeLevelIndex = Math.min(withdrawCount, withdrawConfig.levels.length - 1);
+          }
         }
 
         const levelBadge = document.getElementById("level-indicator");
-        if (levelBadge && withdrawConfig && withdrawConfig.levels) {
-          levelBadge.innerText = `المستوى ${activeLevelIndex + 1}`;
+        if (levelBadge) {
+          levelBadge.innerText = `المستوى ${userLevel}`;
         }
 
         renderLevelsGuide();
-        setPreset('max');
+        calculateWithdraw();
       }
     } catch (err) {
       console.error("خطأ جلب إعدادات السحب:", err);
@@ -96,24 +123,27 @@
     if (!withdrawConfig || !withdrawConfig.levels) return;
 
     if (userLevelText) {
-      userLevelText.innerText = `المستوى: ${activeLevelIndex + 1}`;
+      userLevelText.innerText = `المستوى: ${userLevel}`;
     }
 
     if (!container) return;
 
     let html = "";
     withdrawConfig.levels.forEach((lvl, idx) => {
-      const isActive = idx === activeLevelIndex;
+      const isActive = lvl.level === userLevel || idx === activeLevelIndex;
+      const typeText = lvl.type === 'auto' ? 'فوري آلي' : 'موافقة أدمن';
+      const usdMin = (lvl.min / 100000).toFixed(4);
+      const usdMax = lvl.max >= 999999999 ? "مفتوح" : `$${(lvl.max / 100000).toFixed(2)}`;
       const maxText = lvl.max >= 999999999 ? "مفتوح" : lvl.max.toLocaleString() + " ZN";
 
       html += `
-        <div class="level-item ${isActive ? 'active-level' : ''}" style="display:flex; justify-content:space-between; padding:10px; margin-bottom:6px; background:${isActive ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.03)'}; border-radius:8px; border:${isActive ? '1px solid #38bdf8' : 'none'};">
+        <div class="level-item ${isActive ? 'active-level' : ''}">
           <div>
-            <span>المستوى ${lvl.level}: </span>
-            <strong>${lvl.min.toLocaleString()} - ${maxText}</strong>
+            <span>المستوى ${lvl.level}: ${lvl.min.toLocaleString()} - ${maxText}</span>
+            <br><small style="color:#94a3b8;">($${usdMin} - ${usdMax})</small>
           </div>
           <span class="level-item-tag" style="color:${isActive ? '#38bdf8' : '#888'};">
-            ${isActive ? 'مستواك الحالي ✅' : 'المستوى ' + lvl.level}
+            ${isActive ? 'مستواك الحالي ✅' : typeText}
           </span>
         </div>
       `;
@@ -124,8 +154,15 @@
 
   function selectCurrency(curr) {
     selectedCurrency = curr.toUpperCase();
-    const currencySelect = document.getElementById("currency-select");
-    if (currencySelect) currencySelect.value = selectedCurrency;
+    
+    document.querySelectorAll('.currency-btn').forEach(btn => btn.classList.remove('selected'));
+    const selectedBtn = document.getElementById(`coin-${selectedCurrency}`);
+    if (selectedBtn) selectedBtn.classList.add('selected');
+
+    const label = document.getElementById('selected-coin-label');
+    if (label) label.innerText = selectedCurrency;
+
+    updatePriceDisplay();
     calculateWithdraw();
   }
 
@@ -144,7 +181,7 @@
     if (type === 'min') {
       targetAmount = minVal;
     } else if (type === 'half') {
-      targetAmount = Math.floor((minVal + maxVal) / 2);
+      targetAmount = Math.floor(maxVal / 2);
     } else if (type === 'max') {
       targetAmount = maxVal > 0 ? maxVal : minVal;
     }
@@ -162,19 +199,17 @@
     const levelBadge = document.getElementById("level-indicator");
 
     const priceUSD = cryptoPrices[selectedCurrency] || 1.0;
+    const currentLvl = withdrawConfig?.levels ? (withdrawConfig.levels[activeLevelIndex] || withdrawConfig.levels[0]) : null;
 
     if (!withdrawConfig || coinsInputVal <= 0) {
       resetCalculations();
       if (btn) btn.disabled = true;
-      if (levelBadge && withdrawConfig && withdrawConfig.levels) {
-        const currentLvl = withdrawConfig.levels[activeLevelIndex] || withdrawConfig.levels[0];
-        levelBadge.innerText = `المستوى ${currentLvl.level}`;
+      if (levelBadge) {
+        levelBadge.innerText = `المستوى ${userLevel}`;
         levelBadge.style.color = "#38bdf8";
       }
       return;
     }
-
-    const currentLvl = withdrawConfig.levels[activeLevelIndex] || withdrawConfig.levels[0];
 
     if (userBalance < coinsInputVal) {
       if (levelBadge) {
@@ -186,15 +221,14 @@
       return;
     }
 
-    if (levelBadge && currentLvl) {
-      levelBadge.innerText = `المستوى ${currentLvl.level}`;
+    if (levelBadge) {
+      levelBadge.innerText = `المستوى ${userLevel}`;
       levelBadge.style.color = "#38bdf8";
     }
 
     // معادلة تحويل ZN إلى USD (100,000 ZN = $1.00 USD)
     const usdRate = withdrawConfig.rate_coins_per_usd || 100000;
     const grossUsdValue = coinsInputVal / usdRate;
-    const grossCrypto = grossUsdValue / priceUSD;
 
     // خصم الرسوم (3%)
     const feePercent = withdrawConfig.fee_percent || 3;
@@ -204,28 +238,33 @@
     
     // الصافي النهائي للعملة المشفرة المستلمة
     const finalNetCrypto = netUsd / priceUSD;
+    const decimals = selectedCurrency === 'PEPE' ? 2 : 8;
 
-    const cryptoOutput = document.getElementById("crypto-output");
+    const usdOutput = document.getElementById("usd-output");
     const feeAmount = document.getElementById("fee-amount");
     const netCryptoElem = document.getElementById("net-crypto");
 
-    if (cryptoOutput) cryptoOutput.value = `${grossCrypto.toFixed(6)} ${selectedCurrency}`;
-    if (feeAmount) feeAmount.innerText = `${feeCoins.toLocaleString()} ZN (3%)`;
-    if (netCryptoElem) netCryptoElem.innerText = `${finalNetCrypto.toFixed(6)} ${selectedCurrency}`;
+    if (usdOutput) usdOutput.value = `$${grossUsdValue.toFixed(4)} USD`;
+    if (feeAmount) feeAmount.innerText = `${Math.round(feeCoins).toLocaleString()} ZN (${feePercent}%)`;
+    if (netCryptoElem) netCryptoElem.innerText = `${finalNetCrypto.toFixed(decimals)} ${selectedCurrency}`;
 
     if (btn) {
-      btn.disabled = !walletAddress || coinsInputVal <= 0 || userBalance < coinsInputVal;
+      const isMinOk = currentLvl ? coinsInputVal >= currentLvl.min : true;
+      const isMaxOk = currentLvl ? coinsInputVal <= currentLvl.max : true;
+      const isValidAddress = walletAddress.length >= 5;
+      
+      btn.disabled = !(isMinOk && isMaxOk && isValidAddress && userBalance >= coinsInputVal);
     }
   }
 
   function resetCalculations() {
-    const cryptoOutput = document.getElementById("crypto-output");
+    const usdOutput = document.getElementById("usd-output");
     const feeAmount = document.getElementById("fee-amount");
     const netCryptoElem = document.getElementById("net-crypto");
 
-    if (cryptoOutput) cryptoOutput.value = `0.000000 ${selectedCurrency}`;
+    if (usdOutput) usdOutput.value = "$0.0000 USD";
     if (feeAmount) feeAmount.innerText = "0 ZN";
-    if (netCryptoElem) netCryptoElem.innerText = `0.000000 ${selectedCurrency}`;
+    if (netCryptoElem) netCryptoElem.innerText = `0.00000000 ${selectedCurrency}`;
   }
 
   async function submitWithdrawal() {
@@ -237,7 +276,7 @@
     const btn = document.getElementById("confirm-withdraw-btn");
 
     if (!walletAddress) {
-      alert("يرجى إدخال عنوان أو بريد FaucetPay الإلكتروني أولاً!");
+      alert("يرجى إدخال عنوان المحفظة أو البريد الإلكتروني أولاً!");
       return;
     }
 
@@ -257,16 +296,30 @@
     }
 
     try {
-      const res = await fetch('/api/wallet/withdraw/request', {
+      let res = await fetch('/api/wallet/withdraw/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: userId,
           coins: coins,
           currency: selectedCurrency,
-          wallet_address: walletAddress
+          wallet_address: walletAddress,
+          coin_price_usd: cryptoPrices[selectedCurrency]
         })
       });
+
+      if (!res.ok) {
+        res = await fetch('/api/withdraw/request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            coins_amount: coins,
+            currency: selectedCurrency,
+            wallet_address: walletAddress,
+            coin_price_usd: cryptoPrices[selectedCurrency]
+          })
+        });
+      }
       
       const data = await res.json();
       alert(data.message || (data.success ? "تم طلب السحب بنجاح!" : "فشلت العملية"));
