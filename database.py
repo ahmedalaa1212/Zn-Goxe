@@ -56,6 +56,83 @@ except Exception as e:
     print(f"⚠️ تنبيه أثناء التهيئة التلقائية لـ Firebase: {e}")
 
 
+# ==================== Core User Operations (ضمان إنشاء وقراءة المستخدم) ====================
+
+def get_user(telegram_id):
+    """جلب بيانات المستخدم مباشرة من Firestore"""
+    if not telegram_id:
+        return None
+    try:
+        firestore_db = get_db()
+        doc_ref = firestore_db.collection('users').document(str(telegram_id).strip())
+        doc = doc_ref.get()
+        if doc.exists:
+            return doc.to_dict()
+        return None
+    except Exception as e:
+        print(f"❌ خطأ قراءة بيانات المستخدم {telegram_id}: {e}")
+        return None
+
+
+def init_user(telegram_id, ref_id=None, first_name="لاعب"):
+    """إنشاء مستند المستخدم قسرياً في Firestore إن لم يكن موجوداً"""
+    if not telegram_id:
+        return {}
+    try:
+        firestore_db = get_db()
+        user_id_str = str(telegram_id).strip()
+        doc_ref = firestore_db.collection('users').document(user_id_str)
+        doc = doc_ref.get()
+
+        if not doc.exists:
+            new_user_data = {
+                'user_id': user_id_str,
+                'telegram_id': user_id_str,
+                'first_name': str(first_name or 'لاعب'),
+                'balance': 0.0,
+                'usd_balance': 0.0,
+                'ref_by': str(ref_id).strip() if ref_id else None,
+                'referrals_count': 0,
+                'created_at': firestore.SERVER_TIMESTAMP,
+                'last_withdraw_date': None,
+                'withdraw_count': 0,
+                'is_banned': False,
+                'farm_level': 1,
+                'storage_level': 1,
+                'last_harvest': firestore.SERVER_TIMESTAMP
+            }
+            doc_ref.set(new_user_data, merge=True)
+            print(f"✅ تم إنشاء مستند جديد للمستخدم {user_id_str} بنجاح في Firebase!")
+            doc = doc_ref.get()
+
+        return doc.to_dict() if doc.exists else {}
+    except Exception as e:
+        print(f"❌ خطأ أثناء إنشاء/تهيئة حساب المستخدم {telegram_id}: {e}")
+        return {}
+
+
+def is_user_banned(telegram_id):
+    """التحقق من حالة حظر المستخدم"""
+    user_data = get_user(telegram_id)
+    if user_data:
+        return user_data.get('is_banned', False)
+    return False
+
+
+def update_user(telegram_id, updates_dict):
+    """تحديث بيانات مستند المستخدم"""
+    if not telegram_id or not isinstance(updates_dict, dict):
+        return False
+    try:
+        firestore_db = get_db()
+        doc_ref = firestore_db.collection('users').document(str(telegram_id).strip())
+        doc_ref.update(updates_dict)
+        return True
+    except Exception as e:
+        print(f"❌ خطأ تحديث مستند المستخدم {telegram_id}: {e}")
+        return False
+
+
 # ==================== Sub-Modules Re-exports ====================
 # ربط كافة موديولات الـ Database الفرعية من المجلدات الـ 11 وتتبع الأخطاء
 
@@ -80,7 +157,6 @@ except Exception as e:
 # 4. Games Module
 try:
     from games.games_db import *
-    # تشغيل تهيئة جداول/قواعد بيانات كافة الألعاب عند الإقلاع
     if 'init_all_games_db' in locals():
         init_all_games_db()
 except Exception as e:
