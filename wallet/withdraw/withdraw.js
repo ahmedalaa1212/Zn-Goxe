@@ -1,8 +1,7 @@
 (function () {
-  let gramPriceUSD = 0;
+  let cryptoPrices = { DOGE: 0.12, TRX: 0.15, PEPE: 0.00001, LTC: 75.0 };
+  let selectedCurrency = "DOGE";
   let withdrawConfig = null;
-  let currentWalletAddress = null;
-  let tonConnectUI = null;
   let userBalance = 0;
   let withdrawCount = 0;
   let activeLevelIndex = 0;
@@ -33,130 +32,20 @@
       coinsInput.addEventListener("keyup", calculateWithdraw);
       coinsInput.addEventListener("change", calculateWithdraw);
     }
-  }
 
-  function loadTonConnectSDK(callback) {
-    if (window.TON_CONNECT_UI || window.TonConnectSDK) {
-      if (callback) callback();
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.src = "https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js";
-    script.onload = () => { if (callback) callback(); };
-    script.onerror = () => { console.error("فشل تحميل TonConnect SDK"); };
-    document.head.appendChild(script);
-  }
-
-  function initTonConnect() {
-    try {
-      const TonConnectClass = window.TON_CONNECT_UI?.TonConnectUI || window.TonConnectSDK?.TonConnectUI;
-      if (!TonConnectClass) {
-        setTimeout(initTonConnect, 300);
-        return;
-      }
-
-      if (!window.globalTonConnectUI) {
-        window.globalTonConnectUI = new TonConnectClass({
-          manifestUrl: window.location.origin + '/tonconnect-manifest.json'
-        });
-      }
-
-      tonConnectUI = window.globalTonConnectUI;
-
-      if (tonConnectUI.wallet) {
-        updateWalletUI(tonConnectUI.wallet);
-      } else {
-        updateWalletUI(null);
-      }
-
-      tonConnectUI.onStatusChange(wallet => {
-        updateWalletUI(wallet);
+    const currencySelect = document.getElementById("currency-select");
+    if (currencySelect && !currencySelect.dataset.bound) {
+      currencySelect.dataset.bound = "true";
+      currencySelect.addEventListener("change", (e) => {
+        selectedCurrency = e.target.value.toUpperCase();
+        calculateWithdraw();
       });
-
-    } catch (e) {
-      console.error("خطأ تهيئة TonConnect:", e);
     }
-  }
 
-  async function connectWallet() {
-    if (!tonConnectUI) {
-      initTonConnect();
-    }
-    try {
-      if (tonConnectUI) {
-        await tonConnectUI.openModal();
-      }
-    } catch (e) {
-      console.error("خطأ في فتح نافذة الربط:", e);
-    }
-  }
-
-  function updateWalletUI(wallet) {
-    const statusBadge = document.getElementById("wallet-connect-status");
-    const walletBox = document.getElementById("connected-wallet-box");
-    const addressDisplay = document.getElementById("wallet-address-display");
-    const tonConnectBtnContainer = document.getElementById("ton-connect-button");
-
-    if (wallet && wallet.account) {
-      currentWalletAddress = wallet.account.address;
-      if (statusBadge) {
-        statusBadge.innerText = "متصل ✅";
-        statusBadge.style.color = "#4ade80";
-      }
-      
-      if (tonConnectBtnContainer) tonConnectBtnContainer.style.display = "none";
-      if (walletBox) walletBox.style.display = "flex";
-      
-      if (addressDisplay) {
-        const shortAddr = currentWalletAddress.substring(0, 6) + "..." + currentWalletAddress.substring(currentWalletAddress.length - 4);
-        addressDisplay.innerText = shortAddr;
-      }
-    } else {
-      currentWalletAddress = null;
-      if (statusBadge) {
-        statusBadge.innerText = "غير متصل";
-        statusBadge.style.color = "#ef4444";
-      }
-      
-      if (walletBox) walletBox.style.display = "none";
-      
-      if (tonConnectBtnContainer) {
-        tonConnectBtnContainer.style.display = "block";
-        tonConnectBtnContainer.innerHTML = `
-          <button onclick="window.withdrawModule.connectWallet()" style="
-            width: 100%;
-            background: linear-gradient(135deg, #0088cc, #005588);
-            color: #ffffff;
-            border: none;
-            padding: 12px 20px;
-            border-radius: 12px;
-            font-weight: bold;
-            font-size: 15px;
-            cursor: pointer;
-            box-shadow: 0 4px 12px rgba(0, 136, 204, 0.3);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-          ">
-            💎 ربط محفظة GRAM
-          </button>
-        `;
-      }
-    }
-    calculateWithdraw();
-  }
-
-  async function disconnectWallet() {
-    if (tonConnectUI && tonConnectUI.connected) {
-      try {
-        await tonConnectUI.disconnect();
-      } catch (e) {
-        console.error("خطأ أثناء قطع الاتصال:", e);
-      }
-    } else {
-      updateWalletUI(null);
+    const walletInput = document.getElementById("wallet-address-input");
+    if (walletInput && !walletInput.dataset.bound) {
+      walletInput.dataset.bound = "true";
+      walletInput.addEventListener("input", calculateWithdraw);
     }
   }
 
@@ -173,7 +62,9 @@
 
       if (data.success) {
         withdrawConfig = data.config;
-        gramPriceUSD = parseFloat(data.gram_price) || 0.01;
+        if (data.crypto_prices) {
+          cryptoPrices = data.crypto_prices;
+        }
         userBalance = parseFloat(data.user_balance) || 0;
         withdrawCount = parseInt(data.withdraw_count) || 0;
 
@@ -231,6 +122,13 @@
     container.innerHTML = html;
   }
 
+  function selectCurrency(curr) {
+    selectedCurrency = curr.toUpperCase();
+    const currencySelect = document.getElementById("currency-select");
+    if (currencySelect) currencySelect.value = selectedCurrency;
+    calculateWithdraw();
+  }
+
   function setPreset(type) {
     if (!withdrawConfig || !withdrawConfig.levels || withdrawConfig.levels.length === 0) return;
 
@@ -241,7 +139,6 @@
     let targetAmount = 0;
     const minVal = currentLvl.min;
     const levelMax = currentLvl.max >= 999999999 ? userBalance : currentLvl.max;
-    
     const maxVal = Math.min(userBalance, levelMax);
 
     if (type === 'min') {
@@ -258,11 +155,15 @@
 
   function calculateWithdraw() {
     const coinsInput = document.getElementById("coins-input");
+    const walletInput = document.getElementById("wallet-address-input");
     const coinsInputVal = parseInputValue(coinsInput?.value);
+    const walletAddress = walletInput?.value?.trim() || "";
     const btn = document.getElementById("confirm-withdraw-btn");
     const levelBadge = document.getElementById("level-indicator");
 
-    if (!withdrawConfig || !gramPriceUSD || coinsInputVal <= 0) {
+    const priceUSD = cryptoPrices[selectedCurrency] || 1.0;
+
+    if (!withdrawConfig || coinsInputVal <= 0) {
       resetCalculations();
       if (btn) btn.disabled = true;
       if (levelBadge && withdrawConfig && withdrawConfig.levels) {
@@ -290,51 +191,53 @@
       levelBadge.style.color = "#38bdf8";
     }
 
-    // الاعتماد على السعر الثابت للدولار مقابل ZN
+    // معادلة تحويل ZN إلى USD (100,000 ZN = $1.00 USD)
     const usdRate = withdrawConfig.rate_coins_per_usd || 100000;
-    const usdValue = coinsInputVal / usdRate;
-    const grossGram = usdValue / gramPriceUSD;
+    const grossUsdValue = coinsInputVal / usdRate;
+    const grossCrypto = grossUsdValue / priceUSD;
 
-    // حساب الرسوم 3% فقط
+    // خصم الرسوم (3%)
     const feePercent = withdrawConfig.fee_percent || 3;
     const feeCoins = coinsInputVal * (feePercent / 100);
     const netCoins = coinsInputVal - feeCoins;
     const netUsd = netCoins / usdRate;
     
-    // الصافي الحقيقي للـ GRAM المستلم
-    const finalNetGram = netUsd / gramPriceUSD;
+    // الصافي النهائي للعملة المشفرة المستلمة
+    const finalNetCrypto = netUsd / priceUSD;
 
-    const gramOutput = document.getElementById("gram-output");
+    const cryptoOutput = document.getElementById("crypto-output");
     const feeAmount = document.getElementById("fee-amount");
-    const netGramElem = document.getElementById("net-gram");
+    const netCryptoElem = document.getElementById("net-crypto");
 
-    if (gramOutput) gramOutput.value = grossGram.toFixed(4) + " GRAM";
-    if (feeAmount) feeAmount.innerText = `${feeCoins.toLocaleString()} ZN`;
-    if (netGramElem) netGramElem.innerText = `${finalNetGram.toFixed(4)} GRAM`;
+    if (cryptoOutput) cryptoOutput.value = `${grossCrypto.toFixed(6)} ${selectedCurrency}`;
+    if (feeAmount) feeAmount.innerText = `${feeCoins.toLocaleString()} ZN (3%)`;
+    if (netCryptoElem) netCryptoElem.innerText = `${finalNetCrypto.toFixed(6)} ${selectedCurrency}`;
 
     if (btn) {
-      btn.disabled = !currentWalletAddress || coinsInputVal <= 0 || userBalance < coinsInputVal;
+      btn.disabled = !walletAddress || coinsInputVal <= 0 || userBalance < coinsInputVal;
     }
   }
 
   function resetCalculations() {
-    const gramOutput = document.getElementById("gram-output");
+    const cryptoOutput = document.getElementById("crypto-output");
     const feeAmount = document.getElementById("fee-amount");
-    const netGramElem = document.getElementById("net-gram");
+    const netCryptoElem = document.getElementById("net-crypto");
 
-    if (gramOutput) gramOutput.value = "0.0000 GRAM";
+    if (cryptoOutput) cryptoOutput.value = `0.000000 ${selectedCurrency}`;
     if (feeAmount) feeAmount.innerText = "0 ZN";
-    if (netGramElem) netGramElem.innerText = "0.0000 GRAM";
+    if (netCryptoElem) netCryptoElem.innerText = `0.000000 ${selectedCurrency}`;
   }
 
   async function submitWithdrawal() {
     const coinsInput = document.getElementById("coins-input");
+    const walletInput = document.getElementById("wallet-address-input");
     const coins = parseInputValue(coinsInput?.value);
+    const walletAddress = walletInput?.value?.trim();
     const userId = getUserId();
     const btn = document.getElementById("confirm-withdraw-btn");
 
-    if (!currentWalletAddress) {
-      alert("يرجى ربط محفظة GRAM أولاً قبل تأكيد السحب!");
+    if (!walletAddress) {
+      alert("يرجى إدخال عنوان أو بريد FaucetPay الإلكتروني أولاً!");
       return;
     }
 
@@ -360,7 +263,8 @@
         body: JSON.stringify({
           user_id: userId,
           coins: coins,
-          wallet_address: currentWalletAddress
+          currency: selectedCurrency,
+          wallet_address: walletAddress
         })
       });
       
@@ -386,15 +290,11 @@
   const withdrawModule = {
     init: function () {
       const userId = getUserId();
-      loadTonConnectSDK(() => {
-        initTonConnect();
-      });
       initWithdrawPage(userId);
     },
-    connectWallet: connectWallet,
+    selectCurrency: selectCurrency,
     setPreset: setPreset,
     calculateWithdraw: calculateWithdraw,
-    disconnectWallet: disconnectWallet,
     submitWithdrawal: submitWithdrawal
   };
 
@@ -403,10 +303,9 @@
     withdrawModule.init();
   };
 
-  window.connectWallet = connectWallet;
+  window.selectCurrency = selectCurrency;
   window.setPreset = setPreset;
   window.calculateWithdraw = calculateWithdraw;
-  window.disconnectWallet = disconnectWallet;
   window.submitWithdrawal = submitWithdrawal;
 
   if (document.readyState === "loading") {
