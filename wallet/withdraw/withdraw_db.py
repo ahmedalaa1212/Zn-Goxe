@@ -2,37 +2,77 @@ from datetime import datetime, timezone
 import firebase_admin
 from firebase_admin import firestore
 
-def get_db():
-    """جلب الاتصال الموحد المجهز بملف database.py"""
+def safe_get_db():
+    """جلب كائن Firestore بأمان دون إحداث Crash"""
     try:
-        from database import get_db as main_get_db
-        return main_get_db()
-    except Exception:
         if firebase_admin._apps:
             return firestore.client()
+    except Exception as e:
+        print(f"⚠️ خطأ الاتصال بـ Firestore في withdraw_db: {e}")
     return None
 
+def auto_create_withdraw_config():
+    """إنشاء مستند settings/withdraw_config قسرياً فور تشغيل الملف"""
+    db = safe_get_db()
+    if not db:
+        return
+    try:
+        doc_ref = db.collection('settings').document('withdraw_config')
+        doc = doc_ref.get()
+        if not doc.exists:
+            default_config = {
+                "rate_coins_per_usd": 100000,
+                "fee_percent": 3,
+                "levels": [
+                    {"level": 1, "type": "auto", "min": 10000, "max": 50000},
+                    {"level": 2, "type": "auto", "min": 50000, "max": 100000},
+                    {"level": 3, "type": "manual", "min": 100000, "max": 250000},
+                    {"level": 4, "type": "manual", "min": 250000, "max": 500000},
+                    {"level": 5, "type": "manual", "min": 500000, "max": 1000000},
+                    {"level": 6, "type": "manual", "min": 1000000, "max": 999999999}
+                ]
+            }
+            doc_ref.set(default_config)
+            print("✅ [FIREBASE] تم إنشاء مستند settings/withdraw_config بنجاح في القائمة!")
+    except Exception as e:
+        print(f"⚠️ [FIREBASE ERROR] تعذر إنشاء مستند withdraw_config: {e}")
+
+# تنفيذ الإنشاء التلقائي فور تحميل الموديول
+auto_create_withdraw_config()
+
 def get_user_doc(user_id):
-    """دالة لجلب مستند المستخدم بسلاسة"""
-    db = get_db()
+    """جلب مستند المستخدم بالبحث برقم المستند أو بحقل tg_id/telegram_id/user_id"""
+    db = safe_get_db()
     if not db:
         return None, None
     
     str_user_id = str(user_id).strip()
+    
+    # 1. البحث باسم المستند المباشر
     doc_ref = db.collection('users').document(str_user_id)
     doc = doc_ref.get()
-    
     if doc.exists:
         return doc_ref, doc.to_dict()
     
-    query = db.collection('users').where('telegram_id', '==', str_user_id).limit(1).get()
-    if query:
-        return query[0].reference, query[0].to_dict()
+    # 2. البحث بحقل user_id
+    q1 = db.collection('users').where('user_id', '==', str_user_id).limit(1).get()
+    if q1:
+        return q1[0].reference, q1[0].to_dict()
+
+    # 3. البحث بحقل telegram_id (كـ string و int)
+    q2 = db.collection('users').where('telegram_id', '==', str_user_id).limit(1).get()
+    if q2:
+        return q2[0].reference, q2[0].to_dict()
         
+    if str_user_id.isdigit():
+        q3 = db.collection('users').where('telegram_id', '==', int(str_user_id)).limit(1).get()
+        if q3:
+            return q3[0].reference, q3[0].to_dict()
+
     return None, None
 
 def get_withdraw_config():
-    """قراءة وإجبار إنشاء مستند withdraw_config داخل مجلد settings بنفس شكل الصورة"""
+    """قراءة خطة السحب من Firebase مع توفير خطة احتياطية"""
     default_config = {
         "rate_coins_per_usd": 100000,
         "fee_percent": 3,
@@ -46,7 +86,7 @@ def get_withdraw_config():
         ]
     }
     
-    db = get_db()
+    db = safe_get_db()
     if not db:
         return default_config
 
@@ -56,12 +96,11 @@ def get_withdraw_config():
         
         if not doc.exists:
             doc_ref.set(default_config)
-            print("✅ تم إنشاء مستند settings/withdraw_config بنجاح في Firebase!")
             return default_config
         
         data = doc.to_dict() or {}
-        if 'levels' not in data:
-            doc_ref.set(default_config, merge=True)
+        if 'levels' not in data or not isinstance(data.get('levels'), list):
+            doc_ref.set(default_config)
             return default_config
 
         return data
@@ -82,7 +121,7 @@ def has_withdrawn_today(user_id):
         return False
 
 def get_user_full_details(user_id):
-    """جلب تفاصيل المستخدم للواجهة وحساب السحب"""
+    """جلب تفاصيل المستخدم كاملة للواجهة"""
     try:
         _, data = get_user_doc(user_id)
         if not data:
@@ -103,6 +142,8 @@ def get_user_full_details(user_id):
         except (ValueError, TypeError):
             real_balance = 0.0
 
+        withdraw_count = int(data.get('withdraw_count', 0) or 0)
+
         return {
             "user_id": str(user_id),
             "first_name": data.get('first_name', 'غير محدد'),
@@ -111,7 +152,7 @@ def get_user_full_details(user_id):
             "referrals_count": data.get('referrals_count', 0),
             "balance": real_balance,
             "total_earned": data.get('total_earned', 0),
-            "withdraw_count": int(data.get('withdraw_count', 0) or 0),
+            "withdraw_count": withdraw_count,
             "last_withdraw_date": data.get('last_withdraw_date', 'لم يسحب من قبل'),
             "is_banned": data.get('is_banned', False)
         }
@@ -120,8 +161,8 @@ def get_user_full_details(user_id):
         return None
 
 def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_address):
-    """خصم الرصيد وتسجيل السحب فوراً في processed_txs"""
-    db = get_db()
+    """خصم الرصيد وتسجيل المعاملة في قاعدة البيانات"""
+    db = safe_get_db()
     if not db:
         return False, "تعذر الاتصال بقاعدة البيانات.", None
 
@@ -141,7 +182,7 @@ def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_ad
             u_data = snapshot.to_dict() or {}
             raw_bal = u_data.get('balance')
             if raw_bal is None:
-                raw_bal = u_data.get('zn_balance', u_data.get('balance_zn', 0.0))
+                raw_bal = u_data.get('zn_balance', u_data.get('balance_zn', u_data.get('coins', 0.0)))
                 
             try:
                 current_bal = float(raw_bal)
