@@ -2,10 +2,43 @@ from datetime import datetime, timezone
 import firebase_admin
 from firebase_admin import firestore
 
-db = firestore.client()
+def get_db():
+    """جلب اتصال Firestore بشكل آمن عند الطلب لمنع إنهيار التطبيق عند البدء"""
+    try:
+        if firebase_admin._apps:
+            return firestore.client()
+    except Exception as e:
+        print(f"⚠️ خطأ الاتصال بـ Firestore في withdraw_db: {e}")
+    return None
+
+def get_user_doc(user_id):
+    """دالة مساعدة لجلب مستند المستخدم سواء كان المعرف هو اسم المستند أو داخل tg_id"""
+    db = get_db()
+    if not db:
+        return None, None
+    
+    str_user_id = str(user_id)
+    doc_ref = db.collection('users').document(str_user_id)
+    doc = doc_ref.get()
+    
+    if doc.exists:
+        return doc_ref, doc.to_dict()
+    
+    # البحث بشرط tg_id كـ string
+    query = db.collection('users').where('tg_id', '==', str_user_id).limit(1).get()
+    if query:
+        return query[0].reference, query[0].to_dict()
+        
+    # البحث بشرط tg_id كـ int
+    if str_user_id.isdigit():
+        query_num = db.collection('users').where('tg_id', '==', int(str_user_id)).limit(1).get()
+        if query_num:
+            return query_num[0].reference, query_num[0].to_dict()
+            
+    return None, None
 
 def get_withdraw_config():
-    """قراءة الخطة المعتمدة لمستويات السحب من Firebase وإنشائها تلقائياً إذا لم توجد مع دعم الاستجابة الاحتياطية"""
+    """قراءة الخطة المعتمدة لمستويات السحب من Firebase وإنشائها تلقائياً إذا لم توجد"""
     default_config = {
         "rate_coins_per_usd": 100000,
         "fee_percent": 3,
@@ -19,6 +52,10 @@ def get_withdraw_config():
         ]
     }
     
+    db = get_db()
+    if not db:
+        return default_config
+
     try:
         doc_ref = db.collection('settings').document('withdraw_config')
         doc = doc_ref.get()
@@ -41,9 +78,9 @@ def has_withdrawn_today(user_id):
     """فحص الحد اليومي للسحب بناءً على UTC 00:00"""
     try:
         today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-        user_doc = db.collection('users').document(str(user_id)).get()
-        if user_doc.exists:
-            return user_doc.to_dict().get('last_withdraw_date') == today_utc
+        _, user_data = get_user_doc(user_id)
+        if user_data:
+            return user_data.get('last_withdraw_date') == today_utc
         return False
     except Exception as e:
         print(f"⚠️ Exception in has_withdrawn_today for {user_id}: {e}")
@@ -52,15 +89,11 @@ def has_withdrawn_today(user_id):
 def get_user_full_details(user_id):
     """جلب تفاصيل المستخدم وفحص كافة خانات الرصيد المتاحة بمرونة"""
     try:
-        user_ref = db.collection('users').document(str(user_id))
-        user_doc = user_ref.get()
-        
-        if not user_doc.exists:
+        _, data = get_user_doc(user_id)
+        if not data:
             return None
         
-        data = user_doc.to_dict() or {}
         created_at = data.get('created_at')
-        
         if hasattr(created_at, 'strftime'):
             joined_date = created_at.strftime('%Y-%m-%d %H:%M UTC')
         else:
@@ -68,7 +101,7 @@ def get_user_full_details(user_id):
 
         raw_bal = data.get('balance')
         if raw_bal is None:
-            raw_bal = data.get('balance_zn', data.get('coins', 0.0))
+            raw_bal = data.get('zn_balance', data.get('balance_zn', data.get('coins', 0.0)))
             
         try:
             real_balance = float(raw_bal)
@@ -94,10 +127,17 @@ def get_user_full_details(user_id):
         return None
 
 def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_address):
-    """خصم الرصيد وتسجيل السحب فوراً في processed_txs ليظهر في قسيمة السجلات"""
+    """خصم الرصيد وتسجيل السحب فوراً في processed_txs"""
+    db = get_db()
+    if not db:
+        return False, "تعذر الاتصال بقاعدة البيانات.", None
+
     try:
+        user_ref, user_data = get_user_doc(user_id)
+        if not user_ref or not user_data:
+            return False, "المستخدم غير موجود", None
+
         transaction = db.transaction()
-        user_ref = db.collection('users').document(str(user_id))
         
         @firestore.transactional
         def execute_in_transaction(txn, ref):
@@ -105,10 +145,10 @@ def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_ad
             if not snapshot.exists:
                 return False, "المستخدم غير موجود", None
             
-            user_data = snapshot.to_dict() or {}
-            raw_bal = user_data.get('balance')
+            u_data = snapshot.to_dict() or {}
+            raw_bal = u_data.get('balance')
             if raw_bal is None:
-                raw_bal = user_data.get('balance_zn', user_data.get('coins', 0.0))
+                raw_bal = u_data.get('zn_balance', u_data.get('balance_zn', u_data.get('coins', 0.0)))
                 
             try:
                 current_bal = float(raw_bal)
@@ -120,7 +160,6 @@ def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_ad
 
             today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
             
-            # تحديث بيانات المستخدم
             txn.update(ref, {
                 'balance': firestore.Increment(-coins_amount),
                 'last_withdraw_date': today_utc,
@@ -131,7 +170,6 @@ def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_ad
             tx_ref = db.collection('processed_txs').document()
             status = "completed" if level_info.get('type') == "auto" else "pending"
             
-            # التسجيل في processed_txs مع ضبط type="withdraw" لضمان ظهوره في قسم السجلات بالواجهة
             txn.set(tx_ref, {
                 'user_id': str(user_id),
                 'coins': coins_amount,
@@ -146,8 +184,7 @@ def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_ad
                 'created_at': firestore.SERVER_TIMESTAMP
             })
 
-            msg = "تم طلب السحب بنجاح وتسجيل المعاملة!"
-            return True, msg, tx_ref.id
+            return True, "تم طلب السحب بنجاح وتسجيل المعاملة!", tx_ref.id
 
         return execute_in_transaction(transaction, user_ref)
     except Exception as e:
