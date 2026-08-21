@@ -11,6 +11,9 @@ def safe_get_db():
         print(f"⚠️ خطأ الاتصال بـ Firestore في withdraw_db: {e}")
     return None
 
+# تصدير اسم get_db لتوافق الاستيراد المباشر من الموديولات الأخرى
+get_db = safe_get_db
+
 def auto_create_withdraw_config():
     """إنشاء مستند settings/withdraw_config قسرياً فور تشغيل الملف"""
     db = safe_get_db()
@@ -37,8 +40,11 @@ def auto_create_withdraw_config():
     except Exception as e:
         print(f"⚠️ [FIREBASE ERROR] تعذر إنشاء مستند withdraw_config: {e}")
 
-# تنفيذ الإنشاء التلقائي فور تحميل الموديول
-auto_create_withdraw_config()
+# تنفيذ الإنشاء التلقائي فور تحميل الموديول مع حماية من الأخطاء
+try:
+    auto_create_withdraw_config()
+except Exception as e:
+    print(f"⚠️ تنبيه تشغيل auto_create_withdraw_config: {e}")
 
 def get_user_doc(user_id):
     """جلب مستند المستخدم بالبحث برقم المستند أو بحقل tg_id/telegram_id/user_id"""
