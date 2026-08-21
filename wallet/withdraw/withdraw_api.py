@@ -3,7 +3,7 @@ import requests
 from flask import Blueprint, request, jsonify
 from firebase_admin import firestore
 from core.ton_price import get_ton_price_usd
-from wallet.withdraw.withdraw_db import db, has_withdrawn_today, process_withdraw_db, get_user_full_details
+from wallet.withdraw.withdraw_db import get_db, has_withdrawn_today, process_withdraw_db, get_user_full_details
 
 withdraw_bp = Blueprint('withdraw_bp', __name__)
 
@@ -21,7 +21,11 @@ DEFAULT_WITHDRAW_CONFIG = {
 }
 
 def fetch_or_create_withdraw_config():
-    """فحص ومستند settings/withdraw_config وإنشاؤه إن لم يوجد"""
+    """فحص مستند settings/withdraw_config وإنشاؤه إن لم يوجد"""
+    db = get_db()
+    if not db:
+        return DEFAULT_WITHDRAW_CONFIG
+        
     try:
         doc_ref = db.collection('settings').document('withdraw_config')
         doc = doc_ref.get()
@@ -30,7 +34,6 @@ def fetch_or_create_withdraw_config():
             if data and 'levels' in data:
                 return data
         
-        # إنشاء المستند فوراً في حالة عدم وجوده
         doc_ref.set(DEFAULT_WITHDRAW_CONFIG, merge=True)
         return DEFAULT_WITHDRAW_CONFIG
     except Exception as e:
@@ -41,7 +44,6 @@ def fetch_or_create_withdraw_config():
 def get_config():
     user_id = request.args.get('user_id') or "5102387551"
     
-    # جلب أو إنشاء الإعدادات فوراً في Firebase
     config = fetch_or_create_withdraw_config()
 
     try:
@@ -135,6 +137,10 @@ def handle_admin_decision():
     if not tx_id or not action:
         return jsonify({"success": False, "message": "بيانات الطلب غير مكتملة."})
 
+    db = get_db()
+    if not db:
+        return jsonify({"success": False, "message": "خطأ في الاتصال بقاعدة البيانات."})
+
     tx_ref = db.collection('processed_txs').document(tx_id)
     tx_doc = tx_ref.get()
 
@@ -190,6 +196,7 @@ def check_hot_wallet_balance():
 
 def execute_auto_transfer(to_address, ton_amount, tx_id, user_id, coins):
     server_seed = os.getenv("HOT_WALLET_SEED")
+    db = get_db()
     
     if not server_seed:
         print("خطأ: HOT_WALLET_SEED غير مضبوط.")
@@ -199,15 +206,17 @@ def execute_auto_transfer(to_address, ton_amount, tx_id, user_id, coins):
     required_total = ton_amount + 0.05
 
     if current_balance < required_total:
-        tx_ref = db.collection('processed_txs').document(tx_id)
-        tx_ref.update({'status': 'pending_funds', 'updated_at': firestore.SERVER_TIMESTAMP})
+        if db:
+            tx_ref = db.collection('processed_txs').document(tx_id)
+            tx_ref.update({'status': 'pending_funds', 'updated_at': firestore.SERVER_TIMESTAMP})
         
         notify_admin_insufficient_funds(user_id, coins, ton_amount, to_address, current_balance)
         return "pending_funds"
 
     try:
-        tx_ref = db.collection('processed_txs').document(tx_id)
-        tx_ref.update({'status': 'completed', 'updated_at': firestore.SERVER_TIMESTAMP})
+        if db:
+            tx_ref = db.collection('processed_txs').document(tx_id)
+            tx_ref.update({'status': 'completed', 'updated_at': firestore.SERVER_TIMESTAMP})
         return True
     except Exception as e:
         print(f"خطأ تنفيذ عملية السحب: {e}")
