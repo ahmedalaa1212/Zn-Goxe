@@ -10,16 +10,13 @@ function startWithdrawApp() {
   const urlParams = new URLSearchParams(window.location.search);
   const userId = urlParams.get('user_id') || window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "5102387551";
 
-  // تحميل مكتبة TonConnect ديناميكياً إذا لم تكن موجودة بالصفحة
   loadTonConnectSDK(() => {
     initTonConnect();
   });
 
-  // جلب إعدادات ورصيد المستخدم
   initWithdrawPage(userId);
 }
 
-// التشغيل الفوري واللحظي
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", startWithdrawApp);
 } else {
@@ -50,39 +47,49 @@ function initTonConnect() {
     const buttonContainer = document.getElementById("ton-connect-button");
     if (!buttonContainer) return;
 
-    if (!tonConnectUI) {
-      tonConnectUI = new TonConnectClass({
+    // تنظيف الحاوية لمنع تكرار زر المحفظة في التطبيق
+    buttonContainer.innerHTML = "";
+
+    if (!window.globalTonConnectUI) {
+      window.globalTonConnectUI = new TonConnectClass({
         manifestUrl: window.location.origin + '/tonconnect-manifest.json',
         buttonRootId: 'ton-connect-button'
       });
-
-      tonConnectUI.onStatusChange(wallet => {
-        const statusBadge = document.getElementById("wallet-connect-status");
-        const walletBox = document.getElementById("connected-wallet-box");
-        const addressDisplay = document.getElementById("wallet-address-display");
-
-        if (wallet) {
-          currentWalletAddress = wallet.account.address;
-          if (statusBadge) {
-            statusBadge.innerText = "متصل ✅";
-            statusBadge.style.color = "#4ade80";
-          }
-          if (walletBox) walletBox.style.display = "flex";
-          if (addressDisplay) {
-            const shortAddr = currentWalletAddress.substring(0, 6) + "..." + currentWalletAddress.substring(currentWalletAddress.length - 4);
-            addressDisplay.innerText = shortAddr;
-          }
-        } else {
-          currentWalletAddress = null;
-          if (statusBadge) {
-            statusBadge.innerText = "غير متصل";
-            statusBadge.style.color = "#ef4444";
-          }
-          if (walletBox) walletBox.style.display = "none";
-        }
-        calculateWithdraw();
-      });
+    } else {
+      try {
+        window.globalTonConnectUI.setUIOptions({ buttonRootId: 'ton-connect-button' });
+      } catch (e) {}
     }
+
+    tonConnectUI = window.globalTonConnectUI;
+
+    tonConnectUI.onStatusChange(wallet => {
+      const statusBadge = document.getElementById("wallet-connect-status");
+      const walletBox = document.getElementById("connected-wallet-box");
+      const addressDisplay = document.getElementById("wallet-address-display");
+
+      if (wallet) {
+        currentWalletAddress = wallet.account.address;
+        if (statusBadge) {
+          statusBadge.innerText = "متصل ✅";
+          statusBadge.style.color = "#4ade80";
+        }
+        if (walletBox) walletBox.style.display = "flex";
+        if (addressDisplay) {
+          const shortAddr = currentWalletAddress.substring(0, 6) + "..." + currentWalletAddress.substring(currentWalletAddress.length - 4);
+          addressDisplay.innerText = shortAddr;
+        }
+      } else {
+        currentWalletAddress = null;
+        if (statusBadge) {
+          statusBadge.innerText = "غير متصل";
+          statusBadge.style.color = "#ef4444";
+        }
+        if (walletBox) walletBox.style.display = "none";
+      }
+      calculateWithdraw();
+    });
+
   } catch (e) {
     console.error("خطأ تهيئة TonConnect:", e);
   }
@@ -103,7 +110,14 @@ async function initWithdrawPage(userId) {
       userBalance = parseFloat(data.user_balance) || 0;
       withdrawCount = parseInt(data.withdraw_count) || 0;
 
-      activeLevelIndex = Math.min(withdrawCount, (withdrawConfig.levels || []).length - 1);
+      const userBalDisplay = document.getElementById("user-balance-display");
+      if (userBalDisplay) {
+        userBalDisplay.innerText = `رصيدك: ${userBalance.toLocaleString()} ZN`;
+      }
+
+      if (withdrawConfig && withdrawConfig.levels) {
+        activeLevelIndex = Math.min(withdrawCount, withdrawConfig.levels.length - 1);
+      }
 
       renderLevelsGuide();
       setPreset('max');
@@ -145,33 +159,28 @@ function renderLevelsGuide() {
 }
 
 function setPreset(type) {
-  if (!withdrawConfig || !withdrawConfig.levels) return;
+  if (!withdrawConfig || !withdrawConfig.levels || withdrawConfig.levels.length === 0) return;
 
-  const currentLvl = withdrawConfig.levels[activeLevelIndex];
-  if (!currentLvl) return;
-
+  const currentLvl = withdrawConfig.levels[activeLevelIndex] || withdrawConfig.levels[0];
   const coinsInput = document.getElementById("coins-input");
-  let targetAmount = 0;
+  if (!coinsInput) return;
 
+  let targetAmount = 0;
   const minVal = currentLvl.min;
-  const maxVal = currentLvl.max >= 999999999 ? userBalance : currentLvl.max;
+  const levelMax = currentLvl.max >= 999999999 ? userBalance : currentLvl.max;
+  
+  // الحد الأقصى المتاح للادخال هو الأصغر بين رصيد المستخدم وحد المستوى الحالي
+  const maxVal = Math.min(userBalance, levelMax);
 
   if (type === 'min') {
     targetAmount = minVal;
   } else if (type === 'half') {
     targetAmount = Math.floor((minVal + maxVal) / 2);
   } else if (type === 'max') {
-    targetAmount = maxVal;
+    targetAmount = maxVal > 0 ? maxVal : minVal;
   }
 
-  if (userBalance < minVal && type !== 'min') {
-    targetAmount = minVal;
-  }
-
-  if (coinsInput) {
-    coinsInput.value = targetAmount;
-  }
-
+  coinsInput.value = targetAmount;
   calculateWithdraw();
 }
 
@@ -191,7 +200,7 @@ function calculateWithdraw() {
     return;
   }
 
-  const currentLvl = withdrawConfig.levels[activeLevelIndex];
+  const currentLvl = withdrawConfig.levels[activeLevelIndex] || withdrawConfig.levels[0];
 
   if (userBalance < coinsInputVal) {
     if (levelBadge) {
