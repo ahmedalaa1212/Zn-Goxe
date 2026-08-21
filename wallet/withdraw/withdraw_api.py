@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import requests
 from flask import Blueprint, request, jsonify
@@ -9,6 +10,46 @@ PRICE_CACHE = {
     "data": {},
     "last_updated": 0
 }
+
+# دالة التحقق من صحة عنوان المحفظة أو البريد الإلكتروني حسب العملة
+def validate_wallet_address(address, currency):
+    if not address or not isinstance(address, str):
+        return False, "يرجى إدخال عنوان المحفظة أو البريد الإلكتروني الخاص بـ FaucetPay."
+    
+    addr = address.strip()
+    if not addr:
+        return False, "يرجى إدخال عنوان المحفظة أو البريد الإلكتروني الخاص بـ FaucetPay."
+
+    # 1. التحقق مما إذا كان العنوان بريد إلكتروني (مقبول لجميع عملات FaucetPay)
+    email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if re.match(email_regex, addr):
+        return True, ""
+
+    curr = currency.upper()
+
+    # 2. التحقق من صيغة عناوين الشبكات للعملات المدعومة
+    if curr == "DOGE":
+        if re.match(r'^D[1-9A-HJ-NP-Za-km-z]{33}$', addr):
+            return True, ""
+        return False, "عنوان DOGE غير صحيح! يجب أن يبدأ بحرف D ويتكون من 34 خانة، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
+
+    elif curr == "TRX":
+        if re.match(r'^T[1-9A-HJ-NP-Za-km-z]{33}$', addr):
+            return True, ""
+        return False, "عنوان TRX غير صحيح! يجب أن يبدأ بحرف T ويتكون من 34 خانة، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
+
+    elif curr == "LTC":
+        if re.match(r'^(L|M)[1-9A-HJ-NP-Za-km-z]{33}$', addr) or re.match(r'^ltc1[a-z0-9]{38,58}$', addr, re.IGNORECASE):
+            return True, ""
+        return False, "عنوان LTC غير صحيح! يجب أن يبدأ بـ L أو M أو ltc1، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
+
+    elif curr == "PEPE":
+        if re.match(r'^0x[a-fA-F0-9]{40}$', addr):
+            return True, ""
+        return False, "عنوان PEPE غير صحيح! يجب أن يكون عنوان EVM يبدأ بـ 0x (42 خانة)، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
+
+    return True, ""
+
 
 # دالة جلب الأسعار اللحظية للعملات الأربع مقابل USD مع كاش ومصادر بديلة
 def get_live_crypto_prices():
@@ -199,7 +240,7 @@ def get_config():
 def handle_withdraw():
     data = request.json or {}
     user_id = str(data.get('user_id', '')).strip()
-    coins = float(data.get('coins', 0))
+    coins = float(data.get('coins', data.get('coins_amount', 0)))
     currency = str(data.get('currency', 'DOGE')).upper()
     wallet_address = str(data.get('wallet_address', '')).strip()
 
@@ -209,6 +250,11 @@ def handle_withdraw():
 
     if not user_id or not wallet_address or coins <= 0:
         return jsonify({"success": False, "message": "بيانات الطلب غير مكتملة."}), 400
+
+    # فحص صحة عنوان المحفظة أو ايميل الفوست باي أولاً
+    is_valid_addr, addr_err_msg = validate_wallet_address(wallet_address, currency)
+    if not is_valid_addr:
+        return jsonify({"success": False, "message": addr_err_msg}), 400
 
     if has_withdrawn_today(user_id):
         return jsonify({"success": False, "message": "مسموح بسحب واحد فقط يومياً (UTC)."}), 400
@@ -229,7 +275,7 @@ def handle_withdraw():
     matched_level = levels[level_index]
 
     if not (matched_level['min'] <= coins <= matched_level['max']):
-        return jsonify({"success": False, "message": f"المبلغ المدخل خارج حدود السحبة الحالية ({matched_level['min']:,} - {matched_level['max']:,} ZN)."}), 400
+        return jsonify({"success": False, "message": f"المبلغ المدخل خارج حدود السحبة الحالية للمستوى {matched_level['level']} ({matched_level['min']:,} - {matched_level['max']:,} ZN)."}), 400
 
     # محرك تحويل الأسعار والرسوم
     prices = get_live_crypto_prices()
