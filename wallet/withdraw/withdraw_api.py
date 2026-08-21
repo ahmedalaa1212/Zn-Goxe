@@ -3,11 +3,40 @@ import requests
 from flask import Blueprint, request, jsonify
 from firebase_admin import firestore
 
-try:
-    from core.gram_price import get_gram_price_usd
-except ImportError:
-    def get_gram_price_usd():
-        return 0.01
+# دالة قوية لجلب السعر الحقيقي لعملة TON (Gram) مع مصادر بديلة للحماية
+def get_real_gram_price():
+    # المصدر الأول: CoinGecko
+    try:
+        res = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd", timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            if 'the-open-network' in data and 'usd' in data['the-open-network']:
+                return float(data['the-open-network']['usd'])
+    except Exception:
+        pass
+    
+    # المصدر الثاني كبديل: TonAPI
+    try:
+        res = requests.get("https://tonapi.io/v2/rates?tokens=ton&currencies=usd", timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            if 'rates' in data and 'TON' in data['rates'] and 'prices' in data['rates']['TON']:
+                return float(data['rates']['TON']['prices']['USD'])
+    except Exception:
+        pass
+
+    # المصدر الثالث كبديل: Binance API
+    try:
+        res = requests.get("https://api.binance.com/api/v3/ticker/price?symbol=TONUSDT", timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            if 'price' in data:
+                return float(data['price'])
+    except Exception:
+        pass
+    
+    # السعر الافتراضي للحماية كحل أخير (حسب آخر سعر موجود بالصورة)
+    return 1.46
 
 try:
     from wallet.withdraw.withdraw_db import (
@@ -30,13 +59,12 @@ except ImportError:
 
 withdraw_bp = Blueprint('withdraw_bp', __name__)
 
-# هذا الرقم هو للاحتياط داخل المحفظة الساخنة فقط لدفع الـ Gas، ولن يخصم من المستخدم
-HOT_WALLET_GAS_FEE = 0.0015 
+NETWORK_FEE_GRAM = 0.0015  # رسوم الشبكة تستخدم فقط لحساب الرصيد الكافي في المحفظة الساخنة ولا تخصم من المستخدم
 
-# إعدادات السحب المطلوبة (سيتم إنشاؤها إن لم تكن موجودة)
+# الإعدادات الافتراضية كما طلبتها بالضبط
 DEFAULT_WITHDRAW_CONFIG = {
     "fee_percent": 3,
-    "network_fee_gram": 0, # تم تصفيرها للمستخدم
+    "network_fee_gram": 0, # لا تخصم من المستخدم
     "rate_coins_per_usd": 100000,
     "levels": [
         {"level": 1, "min": 10, "max": 100, "type": "auto"},
@@ -82,18 +110,14 @@ def fetch_or_create_withdraw_config():
 
 try:
     fetch_or_create_withdraw_config()
-except Exception as e:
+except Exception:
     pass
 
 @withdraw_bp.route('/config', methods=['GET'])
 def get_config():
     user_id = request.args.get('user_id') or "5102387551"
     config = fetch_or_create_withdraw_config()
-
-    try:
-        gram_price = get_gram_price_usd() or 0.01
-    except Exception:
-        gram_price = 0.01
+    gram_price = get_real_gram_price()
     
     already_withdrawn = False
     user_balance = 0.0
@@ -151,15 +175,15 @@ def handle_withdraw():
     if not (matched_level['min'] <= coins <= matched_level['max']):
         return jsonify({"success": False, "message": f"المبلغ المدخل خارج حدود السحبة الحالية ({matched_level['min']:,} - {matched_level['max']:,} ZN)."}), 400
 
-    gram_price = get_gram_price_usd() or 0.01
+    gram_price = get_real_gram_price()
     rate_coins_per_usd = config.get('rate_coins_per_usd', 100000)
     fee_percent = config.get('fee_percent', 3)
     
-    # الحسبة بدون أي خصم شبكة للمستخدم
+    # حساب الصافي بـ GRAM بدون خصم رسوم الشبكة من المستخدم
     fee_coins = coins * (fee_percent / 100)
     net_coins = coins - fee_coins
     net_usd = net_coins / rate_coins_per_usd
-    net_gram = max(0.0, net_usd / gram_price)
+    net_gram = net_usd / gram_price
 
     success, msg, tx_id = process_withdraw_db(
         user_id=user_id,
@@ -244,9 +268,13 @@ def check_hot_wallet_balance():
     api_key = os.getenv("TONCENTER_API_KEY")
     if not hot_wallet:
         return 0.0
+
     try:
         url = f"https://toncenter.com/api/v2/getAddressInformation?address={hot_wallet}"
-        headers = {"X-API-Key": api_key} if api_key else {}
+        headers = {}
+        if api_key:
+            headers["X-API-Key"] = api_key
+        
         res = requests.get(url, headers=headers, timeout=5)
         data = res.json()
         if data.get("ok"):
@@ -265,6 +293,7 @@ def send_gram_onchain(server_seed, to_address, gram_amount, comment="ZN Goxe GRA
         from tonsdk.contract.wallet import WalletVersionEnum, WalletContract
         from tonsdk.utils import bytes_to_b64str, Address
     except ImportError:
+        print("❌ موديول tonsdk غير مثبت.")
         return False, "موديول tonsdk غير متاح في السيرفر."
 
     api_key = os.getenv("TONCENTER_API_KEY")
@@ -276,8 +305,10 @@ def send_gram_onchain(server_seed, to_address, gram_amount, comment="ZN Goxe GRA
             return False, "مفتاح البذور HOT_WALLET_SEED غير صحيح."
 
         _mnemonics, _pub_k, _priv_k, wallet = WalletContract.create(
-            version=WalletVersionEnum.v4r2, mnemonics=mnemonics
+            version=WalletVersionEnum.v4r2,
+            mnemonics=mnemonics
         )
+        
         wallet_addr_str = wallet.address.to_string(True, True, True)
 
         seqno_url = "https://toncenter.com/api/v2/runGetMethod"
@@ -296,7 +327,10 @@ def send_gram_onchain(server_seed, to_address, gram_amount, comment="ZN Goxe GRA
         target_addr = Address(to_address).to_string(True, True, False)
 
         transfer_query = wallet.create_transfer_message(
-            to_addr=target_addr, amount=nano_amount, seqno=seqno, payload=comment
+            to_addr=target_addr,
+            amount=nano_amount,
+            seqno=seqno,
+            payload=comment
         )
 
         boc_bytes = transfer_query['message'].to_boc(False)
@@ -310,7 +344,9 @@ def send_gram_onchain(server_seed, to_address, gram_amount, comment="ZN Goxe GRA
             tx_hash = send_data.get("result", {}).get("@type", "success")
             return True, "تم الإرسال على شبكة GRAM بنجاح."
         else:
-            return False, send_data.get("error", "فشل إرسال BOC")
+            err = send_data.get("error", "فشل إرسال BOC")
+            return False, err
+
     except Exception as e:
         return False, str(e)
 
@@ -325,13 +361,14 @@ def execute_auto_transfer(to_address, gram_amount, tx_id, user_id, coins):
         return False
 
     current_balance = check_hot_wallet_balance()
-    # هنا نتأكد ان المحفظة فيها قيمة السحب + الرسوم المطلوبة لعملية التحويل الشبكية (Gas)
-    required_total = gram_amount + HOT_WALLET_GAS_FEE
+    # المحفظة الساخنة هي التي تتحمل وتدفع رسوم الشبكة أثناء التحويل الفعلي (وليس المستخدم)
+    required_total = gram_amount + NETWORK_FEE_GRAM
 
     if current_balance < required_total:
         if db:
             tx_ref = db.collection('processed_txs').document(tx_id)
             tx_ref.update({'status': 'pending_funds', 'updated_at': firestore.SERVER_TIMESTAMP})
+        
         notify_admin_insufficient_funds(user_id, coins, gram_amount, to_address, current_balance)
         return "pending_funds"
 
@@ -339,21 +376,25 @@ def execute_auto_transfer(to_address, gram_amount, tx_id, user_id, coins):
         server_seed=server_seed,
         to_address=to_address,
         gram_amount=gram_amount,
-        comment=f"ZN Goxe GRAM Withdraw #{tx_id[-6:]}"
+        comment=f"ZN Goxe GRAM Withdrawal #{tx_id[-6:]}"
     )
 
     if success_onchain:
         if db:
             tx_ref = db.collection('processed_txs').document(tx_id)
             tx_ref.update({
-                'status': 'completed', 'tx_note': msg_onchain, 'updated_at': firestore.SERVER_TIMESTAMP
+                'status': 'completed',
+                'tx_note': msg_onchain,
+                'updated_at': firestore.SERVER_TIMESTAMP
             })
         return True
     else:
         if db:
             tx_ref = db.collection('processed_txs').document(tx_id)
             tx_ref.update({
-                'status': 'pending_retry', 'error_log': msg_onchain, 'updated_at': firestore.SERVER_TIMESTAMP
+                'status': 'pending_retry',
+                'error_log': msg_onchain,
+                'updated_at': firestore.SERVER_TIMESTAMP
             })
         return False
 
@@ -361,41 +402,57 @@ def process_pending_funds_withdrawals():
     db = _get_firestore_client()
     if not db:
         return
+
     try:
         pending_txs = db.collection('processed_txs').where('status', '==', 'pending_funds').get()
         if not pending_txs:
             return
+
         current_balance = check_hot_wallet_balance()
+
         for tx_doc in pending_txs:
             tx_data = tx_doc.to_dict()
             tx_id = tx_doc.id
             gram_amount = tx_data.get('gram_amount', tx_data.get('amount_gram', 0.0))
-            required = gram_amount + HOT_WALLET_GAS_FEE
+            required = gram_amount + NETWORK_FEE_GRAM
 
             if current_balance >= required:
                 status = execute_auto_transfer(
-                    to_address=tx_data['wallet'], gram_amount=gram_amount, tx_id=tx_id,
-                    user_id=tx_data['user_id'], coins=tx_data['coins']
+                    to_address=tx_data['wallet'],
+                    gram_amount=gram_amount,
+                    tx_id=tx_id,
+                    user_id=tx_data['user_id'],
+                    coins=tx_data['coins']
                 )
                 if status is True:
                     notify_group_pending_paid_after_recharge(
-                        user_id=tx_data['user_id'], coins=tx_data['coins'],
-                        gram_amount=gram_amount, wallet=tx_data['wallet'], tx_id=tx_id
+                        user_id=tx_data['user_id'],
+                        coins=tx_data['coins'],
+                        gram_amount=gram_amount,
+                        wallet=tx_data['wallet'],
+                        tx_id=tx_id
                     )
                     current_balance -= required
     except Exception as e:
         print(f"⚠️ خطأ أثناء معالجة الطلبات المعلقة: {e}")
+
+# ==================== نظام الإشعارات والرسائل ====================
 
 def _send_telegram_msg(text, reply_markup=None):
     bot_token = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
     admin_chat_id = os.getenv("ADMIN_CHAT_ID")
     if not bot_token or not admin_chat_id:
         return
+
     payload = {
-        "chat_id": admin_chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True
+        "chat_id": admin_chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
     }
     if reply_markup:
         payload["reply_markup"] = reply_markup
+
     try:
         requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload, timeout=5)
     except Exception:
@@ -405,6 +462,7 @@ def notify_group_auto_success(user_id, coins, gram_amount, wallet, tx_id):
     formatted_coins = f"{coins:,.0f}" if coins == int(coins) else f"{coins:,}"
     formatted_gram = f"{gram_amount:.4f}"
     short_wallet = f"{wallet[:6]}...{wallet[-4:]}" if len(wallet) > 10 else wallet
+
     text = (
         "<b>🎉 تم تنفيذ عملية سحب بنجاح (تلقائي)</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
@@ -414,7 +472,8 @@ def notify_group_auto_success(user_id, coins, gram_amount, wallet, tx_id):
         f"<b>📥 المحفظة:</b> <code>{short_wallet}</code>\n"
         f"<b>🆔 رقم المعاملة:</b> <code>#{tx_id[-8:]}</code>\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        "✅ <b>تم التحويل الشبكي بنجاح ووصلت التوكنات للمحفظة!</b>"
+        "✅ <b>تم التحويل الشبكي بنجاح ووصلت التوكنات للمحفظة!</b>\n"
+        "<i>(تم تحمل رسوم التحويل الشبكية من قبل الإدارة)</i>"
     )
     _send_telegram_msg(text)
 
@@ -422,15 +481,17 @@ def notify_admin_insufficient_funds(user_id, coins, gram_amount, wallet, current
     formatted_coins = f"{coins:,.0f}" if coins == int(coins) else f"{coins:,}"
     formatted_gram = f"{gram_amount:.4f}"
     formatted_bal = f"{current_balance:.4f}"
+
     text = (
         "<b>⚠️ تنبيه: عدم كفاية رصيد المحفظة الساخنة (GRAM)!</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
         f"<b>👤 المستخدم:</b> <code>{user_id}</code>\n"
         f"<b>💎 المبلغ المطلوب:</b> <code>{formatted_coins} ZN</code> (<code>{formatted_gram} GRAM</code>)\n"
         f"<b>💰 المتوفر بالمحفظة حالياً:</b> <code>{formatted_bal} GRAM</code>\n\n"
-        f"<b>📥 المحفظة المستهدفة:</b>\n<code>{wallet}</code>\n"
+        f"<b>📥 المحفظة المستهدفة:</b>\n"
+        f"<code>{wallet}</code>\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        "📌 <b>تم تعليق الطلب تلقائياً (قيد المراجعة). فور شحن رصيد المحفظة سيتولى النظام إرسال الدفعة.</b>"
+        "📌 <b>تم تعليق الطلب تلقائياً (قيد المراجعة). فور شحن رصيد المحفظة بالـ GRAM سيتولى النظام إرسال الدفعة فوراً وإشعاركم.</b>"
     )
     _send_telegram_msg(text)
 
@@ -438,6 +499,7 @@ def notify_group_pending_paid_after_recharge(user_id, coins, gram_amount, wallet
     formatted_coins = f"{coins:,.0f}" if coins == int(coins) else f"{coins:,}"
     formatted_gram = f"{gram_amount:.4f}"
     short_wallet = f"{wallet[:6]}...{wallet[-4:]}" if len(wallet) > 10 else wallet
+
     text = (
         "<b>✨ تم دفع طلب سحب معلق بنجاح بعد شحن الرصيد!</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
@@ -447,7 +509,7 @@ def notify_group_pending_paid_after_recharge(user_id, coins, gram_amount, wallet
         f"<b>📥 المحفظة:</b> <code>{short_wallet}</code>\n"
         f"<b>🆔 المعاملة:</b> <code>#{tx_id[-8:]}</code>\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        "✅ <b>كان هذا الطلب قيد المراجعة، وحالياً تم تسديده بنجاح.</b>"
+        "✅ <b>كان هذا الطلب قيد المراجعة بسبب الشحن، وحالياً تم تسديده بالكامل بنجاح.</b>"
     )
     _send_telegram_msg(text)
 
@@ -476,7 +538,7 @@ def notify_admin_for_manual_approval(user_id, coins, gram_amount, wallet, level,
         f"• <b>الاسم:</b> {first_name}\n"
         f"• <b>اليوزر:</b> {username_text}\n"
         f"• <b>تاريخ الانضمام:</b> <code>{joined_date}</code>\n\n"
-        "<b>📊 سجل النشاط:</b>\n"
+        "<b>📊 سجل النشاط وفحص الغش:</b>\n"
         f"• <b>عدد الإحالات:</b> <code>{referrals_count}</code> شخص\n"
         f"• <b>الرصيد المتبقي:</b> <code>{formatted_user_bal} ZN</code>\n"
         f"• <b>إجمالي الأرباح:</b> <code>{formatted_total_earned} ZN</code>\n"
@@ -501,9 +563,10 @@ def notify_manual_decision(user_id, coins, gram_amount, wallet, action, tx_id):
     formatted_coins = f"{coins:,.0f}" if coins == int(coins) else f"{coins:,}"
     formatted_gram = f"{gram_amount:.4f}"
     short_wallet = f"{wallet[:6]}...{wallet[-4:]}" if len(wallet) > 10 else wallet
+
     if action == "approve":
         text = (
-            "<b>🟢 إشعار حالة سحب يدوي: تم القبول</b>\n"
+            "<b>🟢 إشعار حالة سحب يدوي: تم القبول بالموافقة</b>\n"
             "━━━━━━━━━━━━━━━━━━\n"
             f"<b>👤 المستخدم:</b> <code>{user_id}</code>\n"
             f"<b>💰 المبلغ:</b> <code>{formatted_coins} ZN</code>\n"
@@ -511,7 +574,7 @@ def notify_manual_decision(user_id, coins, gram_amount, wallet, action, tx_id):
             f"<b>📥 المحفظة:</b> <code>{short_wallet}</code>\n"
             f"<b>🆔 المعاملة:</b> <code>#{tx_id[-8:]}</code>\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "✅ <b>تمت الموافقة وتم تنفيذ التحويل إلى المحفظة بنجاح!</b>"
+            "✅ <b>تمت الموافقة على طلب السحب اليدوي وتم تنفيذ التحويل إلى المحفظة بنجاح!</b>"
         )
     else:
         text = (
@@ -521,6 +584,6 @@ def notify_manual_decision(user_id, coins, gram_amount, wallet, action, tx_id):
             f"<b>💰 المبلغ المرفوض:</b> <code>{formatted_coins} ZN</code>\n"
             f"<b>🆔 المعاملة:</b> <code>#{tx_id[-8:]}</code>\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "❌ <b>تم رفض طلب السحب من قبل الأدمن وتمت إعادة العملات لرصيد المستخدم.</b>"
+            "❌ <b>تم رفض طلب السحب اليدوي من قبل الأدمن وتمت إعادة العملات كاملة لرصيد المستخدم.</b>"
         )
     _send_telegram_msg(text)
