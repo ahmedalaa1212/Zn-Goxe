@@ -226,13 +226,14 @@ def handle_admin_decision():
     return jsonify({"success": False, "message": "إجراء غير معروف."}), 400
 
 def check_hot_wallet_balance():
-    project_wallet = os.getenv("PROJECT_WALLET")
+    """فحص رصيد محفظة السحب الساخنة HOT_WALLET_ADDRESS"""
+    hot_wallet = os.getenv("HOT_WALLET_ADDRESS") or os.getenv("PROJECT_WALLET")
     api_key = os.getenv("TONCENTER_API_KEY")
-    if not project_wallet:
+    if not hot_wallet:
         return 0.0
 
     try:
-        url = f"https://toncenter.com/api/v2/getAddressInformation?address={project_wallet}"
+        url = f"https://toncenter.com/api/v2/getAddressInformation?address={hot_wallet}"
         headers = {}
         if api_key:
             headers["X-API-Key"] = api_key
