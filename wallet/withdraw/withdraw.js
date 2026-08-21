@@ -7,7 +7,6 @@
   let withdrawCount = 0;
   let activeLevelIndex = 0;
 
-  // جلب معرف المستخدم الموحد من النظام
   function getUserId() {
     const urlParams = new URLSearchParams(window.location.search);
     return (
@@ -19,7 +18,6 @@
     );
   }
 
-  // تحميل مكتبة TonConnect ديناميكياً
   function loadTonConnectSDK(callback) {
     if (window.TON_CONNECT_UI || window.TonConnectSDK) {
       if (callback) callback();
@@ -33,7 +31,6 @@
     document.head.appendChild(script);
   }
 
-  // تهيئة زر ومحفظة TonConnect
   function initTonConnect() {
     try {
       const TonConnectClass = window.TON_CONNECT_UI?.TonConnectUI || window.TonConnectSDK?.TonConnectUI;
@@ -65,7 +62,6 @@
     }
   }
 
-  // فتح نافذة ربط المحفظة المباشرة
   async function connectWallet() {
     if (!tonConnectUI) {
       initTonConnect();
@@ -79,7 +75,6 @@
     }
   }
 
-  // تحديث عناصر الواجهة حسب حالة اتصال المحفظة
   function updateWalletUI(wallet) {
     const statusBadge = document.getElementById("wallet-connect-status");
     const walletBox = document.getElementById("connected-wallet-box");
@@ -109,7 +104,6 @@
       
       if (walletBox) walletBox.style.display = "none";
       
-      // إعادة بناء زر الاتصال المباشر لضمان عمله دائماً بعد إغلاق الربط
       if (tonConnectBtnContainer) {
         tonConnectBtnContainer.style.display = "block";
         tonConnectBtnContainer.innerHTML = `
@@ -137,7 +131,6 @@
     calculateWithdraw();
   }
 
-  // قطع اتصال المحفظة
   async function disconnectWallet() {
     if (tonConnectUI && tonConnectUI.connected) {
       try {
@@ -150,7 +143,6 @@
     }
   }
 
-  // جلب بيانات الإعدادات والرصيد والمستويات
   async function initWithdrawPage(userId) {
     const currentUid = userId || getUserId();
     try {
@@ -176,6 +168,11 @@
           activeLevelIndex = Math.min(withdrawCount, withdrawConfig.levels.length - 1);
         }
 
+        const levelBadge = document.getElementById("level-indicator");
+        if (levelBadge && withdrawConfig && withdrawConfig.levels) {
+          levelBadge.innerText = `المستوى ${activeLevelIndex + 1}`;
+        }
+
         renderLevelsGuide();
         setPreset('max');
       }
@@ -184,15 +181,16 @@
     }
   }
 
-  // رسم جدول مستويات السحب المتدرجة
   function renderLevelsGuide() {
     const container = document.getElementById("levels-list-container");
     const userLevelText = document.getElementById("current-user-level-text");
-    if (!container || !withdrawConfig || !withdrawConfig.levels) return;
+    if (!withdrawConfig || !withdrawConfig.levels) return;
 
     if (userLevelText) {
-      userLevelText.innerText = `المستوى ${activeLevelIndex + 1}`;
+      userLevelText.innerText = `المستوى: ${activeLevelIndex + 1}`;
     }
+
+    if (!container) return;
 
     let html = "";
     withdrawConfig.levels.forEach((lvl, idx) => {
@@ -200,12 +198,12 @@
       const maxText = lvl.max >= 999999999 ? "مفتوح" : lvl.max.toLocaleString() + " ZN";
 
       html += `
-        <div class="level-item ${isActive ? 'active-level' : ''}">
+        <div class="level-item ${isActive ? 'active-level' : ''}" style="display:flex; justify-content:space-between; padding:10px; margin-bottom:6px; background:${isActive ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.03)'}; border-radius:8px; border:${isActive ? '1px solid #38bdf8' : 'none'};">
           <div>
             <span>المستوى ${lvl.level}: </span>
             <strong>${lvl.min.toLocaleString()} - ${maxText}</strong>
           </div>
-          <span class="level-item-tag ${isActive ? 'tag-auto' : ''}">
+          <span class="level-item-tag" style="color:${isActive ? '#38bdf8' : '#888'};">
             ${isActive ? 'مستواك الحالي ✅' : 'المستوى ' + lvl.level}
           </span>
         </div>
@@ -215,7 +213,6 @@
     container.innerHTML = html;
   }
 
-  // تحديد القيم السريعة (حد أدنى / نصف / حد أقصى)
   function setPreset(type) {
     if (!withdrawConfig || !withdrawConfig.levels || withdrawConfig.levels.length === 0) return;
 
@@ -241,7 +238,6 @@
     calculateWithdraw();
   }
 
-  // حساب المبالغ والرسوم والصافي
   function calculateWithdraw() {
     const coinsInput = document.getElementById("coins-input");
     const coinsInputVal = parseFloat(coinsInput?.value) || 0;
@@ -309,7 +305,6 @@
     if (netTon) netTon.innerText = "0.0000 TON";
   }
 
-  // إرسال طلب السحب للخادم
   async function submitWithdrawal() {
     const coinsInput = document.getElementById("coins-input");
     const coins = parseFloat(coinsInput ? coinsInput.value : 0);
@@ -361,7 +356,6 @@
     }
   }
 
-  // تصدير الكائن والدوال للعمل داخل SPA وفي النافذة العامة
   const withdrawModule = {
     init: function () {
       const userId = getUserId();
@@ -388,7 +382,6 @@
   window.disconnectWallet = disconnectWallet;
   window.submitWithdrawal = submitWithdrawal;
 
-  // التشغيل التلقائي عند التحميل المباشر للملف
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => withdrawModule.init());
   } else {
