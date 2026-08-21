@@ -176,6 +176,7 @@ withdraw_bp = Blueprint('withdraw_bp', __name__)
 
 DEFAULT_WITHDRAW_CONFIG = {
     "fee_percent": 3,
+    "faucetpay_spread_markup": 1.05,  # معامل حماية الفوست باي (5% هامش أمان)
     "rate_coins_per_usd": 100000,
     "supported_currencies": ["DOGE", "TRX", "PEPE", "LTC"],
     "levels": [
@@ -232,7 +233,11 @@ except Exception:
 def get_config():
     user_id = request.args.get('user_id') or "5102387551"
     config = fetch_or_create_withdraw_config()
-    crypto_prices = get_live_crypto_prices()
+    raw_prices = get_live_crypto_prices()
+    
+    # تطبيق معامل الحماية على الأسعار لتطابق الواجهة الحسابات البرمجية
+    spread_markup = float(config.get('faucetpay_spread_markup', 1.05))
+    protected_crypto_prices = {k: v * spread_markup for k, v in raw_prices.items()}
     
     already_withdrawn = False
     user_balance = 0.0
@@ -251,7 +256,7 @@ def get_config():
     return jsonify({
         "success": True,
         "config": config,
-        "crypto_prices": crypto_prices,
+        "crypto_prices": protected_crypto_prices,
         "already_withdrawn": already_withdrawn,
         "user_balance": user_balance,
         "withdraw_count": withdraw_count
@@ -297,15 +302,20 @@ def handle_withdraw():
     if not (matched_level['min'] <= coins <= matched_level['max']):
         return jsonify({"success": False, "message": f"المبلغ المدخل خارج حدود السحبة الحالية للمستوى {matched_level['level']} ({matched_level['min']:,} - {matched_level['max']:,} ZN)."}), 400
 
-    prices = get_live_crypto_prices()
-    selected_price = prices.get(currency, 1.0)
+    raw_prices = get_live_crypto_prices()
+    selected_price = raw_prices.get(currency, 1.0)
+    
+    # تطبيق معامل هامش الأمان لحمايتك من فارق أسعار FaucetPay
+    spread_markup = float(config.get('faucetpay_spread_markup', 1.05))
+    protected_price = selected_price * spread_markup
+
     rate_coins_per_usd = config.get('rate_coins_per_usd', 100000)
     fee_percent = config.get('fee_percent', 3)
     
     fee_coins = coins * (fee_percent / 100)
     net_coins = coins - fee_coins
     net_usd = net_coins / rate_coins_per_usd
-    net_crypto = net_usd / selected_price
+    net_crypto = net_usd / protected_price
 
     success, msg, tx_id = process_withdraw_db(
         user_id=user_id,
