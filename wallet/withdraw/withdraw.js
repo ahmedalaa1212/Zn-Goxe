@@ -1,5 +1,5 @@
 (function () {
-  let gramPriceUSD = 0;
+  let gramPriceUSD = 1.46;
   let withdrawConfig = null;
   let currentWalletAddress = null;
   let tonConnectUI = null;
@@ -173,7 +173,7 @@
 
       if (data.success) {
         withdrawConfig = data.config;
-        gramPriceUSD = parseFloat(data.gram_price) || 0.01;
+        gramPriceUSD = parseFloat(data.gram_price) || 1.46;
         userBalance = parseFloat(data.user_balance) || 0;
         withdrawCount = parseInt(data.withdraw_count) || 0;
 
@@ -214,12 +214,13 @@
     withdrawConfig.levels.forEach((lvl, idx) => {
       const isActive = idx === activeLevelIndex;
       const maxText = lvl.max >= 999999999 ? "مفتوح" : lvl.max.toLocaleString() + " ZN";
+      const typeText = lvl.type === 'auto' ? 'تلقائي' : 'يدوي';
 
       html += `
         <div class="level-item ${isActive ? 'active-level' : ''}" style="display:flex; justify-content:space-between; padding:10px; margin-bottom:6px; background:${isActive ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.03)'}; border-radius:8px; border:${isActive ? '1px solid #38bdf8' : 'none'};">
           <div>
-            <span>المستوى ${lvl.level}: </span>
-            <strong>${lvl.min.toLocaleString()} - ${maxText}</strong>
+            <span>المستوى ${lvl.level} (${typeText}): </span>
+            <strong>${lvl.min.toLocaleString()} - ${maxText} ZN</strong>
           </div>
           <span class="level-item-tag" style="color:${isActive ? '#38bdf8' : '#888'};">
             ${isActive ? 'مستواك الحالي ✅' : 'المستوى ' + lvl.level}
@@ -290,6 +291,7 @@
       levelBadge.style.color = "#38bdf8";
     }
 
+    // معادلة الحساب الأساسية: 100,000 ZN = $1.00 USD
     const usdRate = withdrawConfig.rate_coins_per_usd || 100000;
     const usdValue = coinsInputVal / usdRate;
     const grossGram = usdValue / gramPriceUSD;
@@ -300,7 +302,6 @@
     const netUsd = netCoins / usdRate;
     const netGramCalculated = netUsd / gramPriceUSD;
     
-    // خصم رسم الشبكة التلقائي (~0.0015 GRAM)
     const netFeeGram = withdrawConfig.network_fee_gram || 0.0015;
     const finalNetGram = Math.max(0, netGramCalculated - netFeeGram);
 
