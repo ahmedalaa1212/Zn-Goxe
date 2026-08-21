@@ -1,4 +1,3 @@
-
 import os
 import re
 import time
@@ -11,6 +10,17 @@ PRICE_CACHE = {
     "data": {},
     "last_updated": 0
 }
+
+# دالة لتنسيق الأرقام العشرية بشكل نظيف وبدون أصفار أو كسور غريبة
+def clean_round(value, decimals=8):
+    if not isinstance(value, (int, float)):
+        return value
+    return round(float(value), decimals)
+
+def format_crypto_display(amount):
+    """تنسيق عرض العملة في الرسائل والإشعارات بدون أصفار زائدة"""
+    formatted = f"{amount:,.8f}".rstrip('0').rstrip('.')
+    return formatted if formatted else "0"
 
 # دالة التحقق من صحة عنوان المحفظة أو البريد الإلكتروني حسب العملة
 def validate_wallet_address(address, currency):
@@ -52,7 +62,7 @@ def validate_wallet_address(address, currency):
     return True, ""
 
 
-# دالة جلب الأسعار اللحظية للعملات مع دعم Binance أولاً لدقة PEPE
+# دالة جلب الأسعار اللحظية للعملات مع دعم Binance أولاً مع تقريب الأرقام العشرية
 def get_live_crypto_prices():
     now = time.time()
     if PRICE_CACHE["data"] and (now - PRICE_CACHE["last_updated"] < 60):
@@ -75,7 +85,7 @@ def get_live_crypto_prices():
             if res.status_code == 200:
                 val = float(res.json().get("price", 0))
                 if val > 0:
-                    binance_prices[coin] = val
+                    binance_prices[coin] = clean_round(val, 8)
         if len(binance_prices) == 4:
             PRICE_CACHE["data"] = binance_prices
             PRICE_CACHE["last_updated"] = now
@@ -90,10 +100,10 @@ def get_live_crypto_prices():
         if res.status_code == 200:
             data = res.json()
             prices = {
-                "DOGE": float(data.get("dogecoin", {}).get("usd", fallback_prices["DOGE"])),
-                "TRX": float(data.get("tron", {}).get("usd", fallback_prices["TRX"])),
-                "PEPE": float(data.get("pepe", {}).get("usd", fallback_prices["PEPE"])),
-                "LTC": float(data.get("litecoin", {}).get("usd", fallback_prices["LTC"]))
+                "DOGE": clean_round(data.get("dogecoin", {}).get("usd", fallback_prices["DOGE"]), 8),
+                "TRX": clean_round(data.get("tron", {}).get("usd", fallback_prices["TRX"]), 8),
+                "PEPE": clean_round(data.get("pepe", {}).get("usd", fallback_prices["PEPE"]), 8),
+                "LTC": clean_round(data.get("litecoin", {}).get("usd", fallback_prices["LTC"]), 8)
             }
             PRICE_CACHE["data"] = prices
             PRICE_CACHE["last_updated"] = now
@@ -108,10 +118,10 @@ def get_live_crypto_prices():
         if res.status_code == 200:
             data = res.json()
             prices = {
-                "DOGE": float(data.get("DOGE", {}).get("USD", fallback_prices["DOGE"])),
-                "TRX": float(data.get("TRX", {}).get("USD", fallback_prices["TRX"])),
-                "PEPE": float(data.get("PEPE", {}).get("USD", fallback_prices["PEPE"])),
-                "LTC": float(data.get("LTC", {}).get("USD", fallback_prices["LTC"]))
+                "DOGE": clean_round(data.get("DOGE", {}).get("USD", fallback_prices["DOGE"]), 8),
+                "TRX": clean_round(data.get("TRX", {}).get("USD", fallback_prices["TRX"]), 8),
+                "PEPE": clean_round(data.get("PEPE", {}).get("USD", fallback_prices["PEPE"]), 8),
+                "LTC": clean_round(data.get("LTC", {}).get("USD", fallback_prices["LTC"]), 8)
             }
             PRICE_CACHE["data"] = prices
             PRICE_CACHE["last_updated"] = now
@@ -177,7 +187,7 @@ withdraw_bp = Blueprint('withdraw_bp', __name__)
 
 DEFAULT_WITHDRAW_CONFIG = {
     "fee_percent": 3,
-    "faucetpay_spread_markup": 1.05,  # معامل حماية الفوست باي (5% هامش أمان تغطية التبادلات)
+    "faucetpay_spread_markup": 1.0,  # اعتمادات السعر الطبيعية 100% بدون زيادة إضافية
     "rate_coins_per_usd": 100000,
     "supported_currencies": ["DOGE", "TRX", "PEPE", "LTC"],
     "levels": [
@@ -236,9 +246,9 @@ def get_config():
     config = fetch_or_create_withdraw_config()
     raw_prices = get_live_crypto_prices()
     
-    # حساب أسعار العملات المحمية بهامش الفوست باي
-    spread_markup = float(config.get('faucetpay_spread_markup', 1.05))
-    protected_crypto_prices = {k: v * spread_markup for k, v in raw_prices.items()}
+    spread_markup = float(config.get('faucetpay_spread_markup', 1.0))
+    protected_crypto_prices = {k: clean_round(v * spread_markup, 8) for k, v in raw_prices.items()}
+    clean_raw_prices = {k: clean_round(v, 8) for k, v in raw_prices.items()}
     
     already_withdrawn = False
     user_balance = 0.0
@@ -258,7 +268,7 @@ def get_config():
         "success": True,
         "config": config,
         "crypto_prices": protected_crypto_prices,
-        "raw_crypto_prices": raw_prices,
+        "raw_crypto_prices": clean_raw_prices,
         "already_withdrawn": already_withdrawn,
         "user_balance": user_balance,
         "withdraw_count": withdraw_count
@@ -307,9 +317,8 @@ def handle_withdraw():
     raw_prices = get_live_crypto_prices()
     selected_price = raw_prices.get(currency, 1.0)
     
-    # تطبيق معامل هامش الأمان لحمايتك ومطابقة تقييم FaucetPay
-    spread_markup = float(config.get('faucetpay_spread_markup', 1.05))
-    protected_price = selected_price * spread_markup
+    spread_markup = float(config.get('faucetpay_spread_markup', 1.0))
+    protected_price = clean_round(selected_price * spread_markup, 8)
 
     rate_coins_per_usd = config.get('rate_coins_per_usd', 100000)
     fee_percent = config.get('fee_percent', 3)
@@ -317,7 +326,7 @@ def handle_withdraw():
     fee_coins = coins * (fee_percent / 100)
     net_coins = coins - fee_coins
     net_usd = net_coins / rate_coins_per_usd
-    net_crypto = net_usd / protected_price
+    net_crypto = clean_round(net_usd / protected_price, 8)
 
     success, msg, tx_id = process_withdraw_db(
         user_id=user_id,
@@ -347,7 +356,7 @@ def handle_withdraw():
                     'updated_at': firestore.SERVER_TIMESTAMP
                 })
             notify_group_auto_success(user_id, coins, net_crypto, currency, wallet_address, tx_id)
-            return jsonify({"success": True, "message": f"تم تحويل {net_crypto:.6f} {currency} بنجاح إلى حسابك في FaucetPay!"}), 200
+            return jsonify({"success": True, "message": f"تم تحويل {format_crypto_display(net_crypto)} {currency} بنجاح إلى حسابك في FaucetPay!"}), 200
         else:
             if db:
                 db.collection('processed_txs').document(tx_id).update({
@@ -392,7 +401,7 @@ def execute_admin_decision(tx_id, action):
     if not user_ref:
         user_ref = db.collection('users').document(str(tx_data['user_id']))
 
-    crypto_amount = tx_data.get('crypto_net_amount', tx_data.get('crypto_amount', tx_data.get('amount_crypto', 0.0)))
+    crypto_amount = clean_round(tx_data.get('crypto_net_amount', tx_data.get('crypto_amount', tx_data.get('amount_crypto', 0.0))), 8)
     currency = tx_data.get('currency', 'DOGE')
 
     if action == 'approve':
@@ -528,7 +537,7 @@ def _send_telegram_msg(text, reply_markup=None):
 
 def notify_group_auto_success(user_id, coins, crypto_amount, currency, wallet, tx_id):
     formatted_coins = f"{coins:,.0f}" if coins == int(coins) else f"{coins:,}"
-    formatted_crypto = f"{crypto_amount:.6f}"
+    formatted_crypto = format_crypto_display(crypto_amount)
     short_wallet = f"{wallet[:6]}...{wallet[-4:]}" if len(wallet) > 10 else wallet
 
     text = (
@@ -546,7 +555,7 @@ def notify_group_auto_success(user_id, coins, crypto_amount, currency, wallet, t
 
 def notify_admin_empty_faucetpay(user_id, coins, crypto_amount, currency, tx_id):
     formatted_coins = f"{coins:,.0f}" if coins == int(coins) else f"{coins:,}"
-    formatted_crypto = f"{crypto_amount:.6f}"
+    formatted_crypto = format_crypto_display(crypto_amount)
     
     text = (
         "<b>⚠️ تنبيه هام: رصيد الفوست باي غير كافي!</b>\n"
@@ -568,7 +577,7 @@ def notify_admin_empty_faucetpay(user_id, coins, crypto_amount, currency, tx_id)
 
 def notify_admin_auto_failed(user_id, coins, crypto_amount, currency, wallet, tx_id, error_msg):
     formatted_coins = f"{coins:,.0f}" if coins == int(coins) else f"{coins:,}"
-    formatted_crypto = f"{crypto_amount:.6f}"
+    formatted_crypto = format_crypto_display(crypto_amount)
     short_wallet = f"{wallet[:6]}...{wallet[-4:]}" if len(wallet) > 10 else wallet
 
     text = (
@@ -603,7 +612,7 @@ def notify_admin_for_manual_approval(user_id, coins, crypto_amount, currency, wa
     last_withdraw_date = user_info.get('last_withdraw_date', 'لا يوجد')
 
     formatted_coins = f"{coins:,.0f}" if coins == int(coins) else f"{coins:,}"
-    formatted_crypto = f"{crypto_amount:.6f}"
+    formatted_crypto = format_crypto_display(crypto_amount)
     formatted_user_bal = f"{user_bal:,.0f}" if user_bal == int(user_bal) else f"{user_bal:,}"
     formatted_total_earned = f"{total_earned:,.0f}" if total_earned == int(total_earned) else f"{total_earned:,}"
 
@@ -638,7 +647,7 @@ def notify_admin_for_manual_approval(user_id, coins, crypto_amount, currency, wa
 
 def notify_manual_decision(user_id, coins, crypto_amount, currency, wallet, action, tx_id):
     formatted_coins = f"{coins:,.0f}" if coins == int(coins) else f"{coins:,}"
-    formatted_crypto = f"{crypto_amount:.6f}"
+    formatted_crypto = format_crypto_display(crypto_amount)
     short_wallet = f"{wallet[:6]}...{wallet[-4:]}" if len(wallet) > 10 else wallet
 
     if action == "approve":
