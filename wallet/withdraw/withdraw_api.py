@@ -3,11 +3,10 @@ import requests
 from flask import Blueprint, request, jsonify
 from firebase_admin import firestore
 from core.ton_price import get_ton_price_usd
-from wallet.withdraw.withdraw_db import db, get_withdraw_config, has_withdrawn_today, process_withdraw_db, get_user_full_details
+from wallet.withdraw.withdraw_db import db, has_withdrawn_today, process_withdraw_db, get_user_full_details
 
 withdraw_bp = Blueprint('withdraw_bp', __name__)
 
-# الإعدادات الافتراضية لمنع الأخطاء وضمان إنشاء المستند تلقائياً في Firebase
 DEFAULT_WITHDRAW_CONFIG = {
     "fee_percent": 3,
     "rate_coins_per_usd": 100000,
@@ -21,19 +20,29 @@ DEFAULT_WITHDRAW_CONFIG = {
     ]
 }
 
+def fetch_or_create_withdraw_config():
+    """فحص ومستند settings/withdraw_config وإنشاؤه إن لم يوجد"""
+    try:
+        doc_ref = db.collection('settings').document('withdraw_config')
+        doc = doc_ref.get()
+        if doc.exists:
+            data = doc.to_dict()
+            if data and 'levels' in data:
+                return data
+        
+        # إنشاء المستند فوراً في حالة عدم وجوده
+        doc_ref.set(DEFAULT_WITHDRAW_CONFIG, merge=True)
+        return DEFAULT_WITHDRAW_CONFIG
+    except Exception as e:
+        print(f"خطأ وصول Firebase للمستند: {e}")
+        return DEFAULT_WITHDRAW_CONFIG
+
 @withdraw_bp.route('/config', methods=['GET'])
 def get_config():
     user_id = request.args.get('user_id') or "5102387551"
-    config = get_withdraw_config()
     
-    # الإنشاء التلقائي للمستند في Firebase إذا لم يكن موجوداً
-    if not config or not isinstance(config, dict) or 'levels' not in config:
-        config = DEFAULT_WITHDRAW_CONFIG
-        try:
-            db.collection('settings').document('withdraw_config').set(config, merge=True)
-            print(" تم إنشاء مستند settings/withdraw_config تلقائياً في Firebase")
-        except Exception as e:
-            print(f"خطأ أثناء كتابة مستند settings/withdraw_config: {e}")
+    # جلب أو إنشاء الإعدادات فوراً في Firebase
+    config = fetch_or_create_withdraw_config()
 
     try:
         ton_price = get_ton_price_usd() or 5.50
@@ -44,12 +53,15 @@ def get_config():
     user_balance = 0.0
     withdraw_count = 0
     
-    if user_id:
-        already_withdrawn = has_withdrawn_today(user_id)
-        user_details = get_user_full_details(user_id)
-        if user_details:
-            user_balance = float(user_details.get('balance', 0.0))
-            withdraw_count = int(user_details.get('withdraw_count', 0))
+    try:
+        if user_id:
+            already_withdrawn = has_withdrawn_today(user_id)
+            user_details = get_user_full_details(user_id)
+            if user_details:
+                user_balance = float(user_details.get('balance', 0.0))
+                withdraw_count = int(user_details.get('withdraw_count', 0))
+    except Exception as e:
+        print(f"خطأ جلب بيانات المستخدم: {e}")
 
     return jsonify({
         "success": True,
@@ -58,7 +70,7 @@ def get_config():
         "already_withdrawn": already_withdrawn,
         "user_balance": user_balance,
         "withdraw_count": withdraw_count
-    })
+    }), 200
 
 @withdraw_bp.route('/request', methods=['POST'])
 def handle_withdraw():
@@ -73,7 +85,7 @@ def handle_withdraw():
     if has_withdrawn_today(user_id):
         return jsonify({"success": False, "message": "مسموح بسحب واحد فقط يومياً."})
 
-    config = get_withdraw_config() or DEFAULT_WITHDRAW_CONFIG
+    config = fetch_or_create_withdraw_config()
     user_details = get_user_full_details(user_id)
     if not user_details:
         return jsonify({"success": False, "message": "المستخدم غير موجود."})
@@ -88,11 +100,8 @@ def handle_withdraw():
         return jsonify({"success": False, "message": f"المبلغ المدخل خارج حدود السحبة الحالية ({matched_level['min']:,} - {matched_level['max']:,} ZN)."})
 
     ton_price = get_ton_price_usd() or 5.50
-    fee_percent = config.get('fee_percent', 3)
-    rate_coins_per_usd = config.get('rate_coins_per_usd', 100000)
-
-    fee_coins = coins * (fee_percent / 100)
-    net_ton = ((coins - fee_coins) / rate_coins_per_usd) / ton_price
+    fee_coins = coins * (config.get('fee_percent', 3) / 100)
+    net_ton = ((coins - fee_coins) / config.get('rate_coins_per_usd', 100000)) / ton_price
 
     success, msg, tx_id = process_withdraw_db(
         user_id=user_id,
