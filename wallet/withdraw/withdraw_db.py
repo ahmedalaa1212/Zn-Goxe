@@ -19,34 +19,34 @@ def auto_create_withdraw_config():
     try:
         doc_ref = db.collection('settings').document('withdraw_config')
         doc = doc_ref.get()
-        default_config = {
-            "rate_coins_per_usd": 100000,
-            "fee_percent": 3,
-            "network_fee_gram": 0.0015,
-            "levels": [
-                {"level": 1, "type": "auto", "min": 10, "max": 100},
-                {"level": 2, "type": "auto", "min": 500, "max": 1500},
-                {"level": 3, "type": "auto", "min": 10000, "max": 50000},
-                {"level": 4, "type": "manual", "min": 100000, "max": 200000},
-                {"level": 5, "type": "manual", "min": 400000, "max": 800000},
-                {"level": 6, "type": "manual", "min": 1000000, "max": 999999999}
-            ]
-        }
-        doc_ref.set(default_config, merge=True)
-        print("✅ [FIREBASE] تم تحديث مستند settings/withdraw_config بنجاح!")
+        if not doc.exists:
+            default_config = {
+                "rate_coins_per_usd": 100000,
+                "fee_percent": 3,
+                "network_fee_gram": 0,
+                "levels": [
+                    {"level": 1, "type": "auto", "min": 10, "max": 100},
+                    {"level": 2, "type": "auto", "min": 500, "max": 1500},
+                    {"level": 3, "type": "auto", "min": 10000, "max": 50000},
+                    {"level": 4, "type": "manual", "min": 100000, "max": 200000},
+                    {"level": 5, "type": "manual", "min": 400000, "max": 800000},
+                    {"level": 6, "type": "manual", "min": 1000000, "max": 999999999}
+                ]
+            }
+            doc_ref.set(default_config)
+            print("✅ [FIREBASE] تم إنشاء مستند settings/withdraw_config بنجاح في القائمة!")
     except Exception as e:
         print(f"⚠️ [FIREBASE ERROR] تعذر إنشاء مستند withdraw_config: {e}")
 
 try:
     auto_create_withdraw_config()
 except Exception as e:
-    print(f"⚠️ تنبيه تشغيل auto_create_withdraw_config: {e}")
+    pass
 
 def get_user_doc(user_id):
     db = safe_get_db()
     if not db:
         return None, None
-    
     str_user_id = str(user_id).strip()
     
     doc_ref = db.collection('users').document(str_user_id)
@@ -73,7 +73,7 @@ def get_withdraw_config():
     default_config = {
         "rate_coins_per_usd": 100000,
         "fee_percent": 3,
-        "network_fee_gram": 0.0015,
+        "network_fee_gram": 0,
         "levels": [
             {"level": 1, "type": "auto", "min": 10, "max": 100},
             {"level": 2, "type": "auto", "min": 500, "max": 1500},
@@ -83,7 +83,6 @@ def get_withdraw_config():
             {"level": 6, "type": "manual", "min": 1000000, "max": 999999999}
         ]
     }
-    
     db = safe_get_db()
     if not db:
         return default_config
@@ -91,17 +90,15 @@ def get_withdraw_config():
     try:
         doc_ref = db.collection('settings').document('withdraw_config')
         doc = doc_ref.get()
-        
         if not doc.exists:
             doc_ref.set(default_config)
             return default_config
-        
         data = doc.to_dict() or {}
-        data['levels'] = default_config['levels']
-        data['rate_coins_per_usd'] = 100000
+        if 'levels' not in data or not isinstance(data.get('levels'), list):
+            doc_ref.set(default_config)
+            return default_config
         return data
-    except Exception as e:
-        print(f"⚠️ Exception in get_withdraw_config: {e}")
+    except Exception:
         return default_config
 
 def has_withdrawn_today(user_id):
@@ -111,8 +108,7 @@ def has_withdrawn_today(user_id):
         if user_data:
             return user_data.get('last_withdraw_date') == today_utc
         return False
-    except Exception as e:
-        print(f"⚠️ Exception in has_withdrawn_today for {user_id}: {e}")
+    except Exception:
         return False
 
 def get_user_full_details(user_id):
@@ -120,7 +116,6 @@ def get_user_full_details(user_id):
         _, data = get_user_doc(user_id)
         if not data:
             return None
-        
         created_at = data.get('created_at')
         if hasattr(created_at, 'strftime'):
             joined_date = created_at.strftime('%Y-%m-%d %H:%M UTC')
@@ -130,12 +125,10 @@ def get_user_full_details(user_id):
         raw_bal = data.get('balance')
         if raw_bal is None:
             raw_bal = data.get('zn_balance', data.get('balance_zn', data.get('coins', 0.0)))
-            
         try:
             real_balance = float(raw_bal)
         except (ValueError, TypeError):
             real_balance = 0.0
-
         withdraw_count = int(data.get('withdraw_count', 0) or 0)
 
         return {
@@ -150,8 +143,7 @@ def get_user_full_details(user_id):
             "last_withdraw_date": data.get('last_withdraw_date', 'لم يسحب من قبل'),
             "is_banned": data.get('is_banned', False)
         }
-    except Exception as e:
-        print(f"❌ Error getting user full details for {user_id}: {e}")
+    except Exception:
         return None
 
 def process_withdraw_db(user_id, coins_amount, gram_amount, level_info, wallet_address):
@@ -176,7 +168,6 @@ def process_withdraw_db(user_id, coins_amount, gram_amount, level_info, wallet_a
             raw_bal = u_data.get('balance')
             if raw_bal is None:
                 raw_bal = u_data.get('zn_balance', u_data.get('balance_zn', u_data.get('coins', 0.0)))
-                
             try:
                 current_bal = float(raw_bal)
             except (ValueError, TypeError):
@@ -195,7 +186,6 @@ def process_withdraw_db(user_id, coins_amount, gram_amount, level_info, wallet_a
             })
 
             tx_ref = db.collection('processed_txs').document()
-            
             initial_status = "processing" if level_info.get('type') == "auto" else "pending"
             
             txn.set(tx_ref, {
@@ -215,10 +205,8 @@ def process_withdraw_db(user_id, coins_amount, gram_amount, level_info, wallet_a
                 'processed_at': firestore.SERVER_TIMESTAMP,
                 'created_at': firestore.SERVER_TIMESTAMP
             })
-
             return True, "تم تسجيل الطلب وبدء المعالجة!", tx_ref.id
 
         return execute_in_transaction(transaction, user_ref)
     except Exception as e:
-        print(f"❌ Error in process_withdraw_db for {user_id}: {e}")
         return False, f"حدث خطأ أثناء تنفيذ عملية السحب: {str(e)}", None
