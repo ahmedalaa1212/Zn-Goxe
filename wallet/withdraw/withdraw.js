@@ -62,7 +62,7 @@ function initTonConnect() {
 
 async function initWithdrawPage(userId) {
   try {
-    const response = await fetch(`/api/withdraw/config?user_id=${userId}`);
+    const response = await fetch(`/api/wallet/withdraw/config?user_id=${userId}`);
     const data = await response.json();
 
     if (data.success) {
@@ -229,7 +229,7 @@ async function submitWithdrawal() {
   btn.innerText = "جاري معالجة الطلب...";
 
   try {
-    const res = await fetch('/api/withdraw/request', {
+    const res = await fetch('/api/wallet/withdraw/request', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
