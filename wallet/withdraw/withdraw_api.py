@@ -2,7 +2,7 @@ import os
 import re
 import time
 import requests
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, url_for
 from firebase_admin import firestore
 
 # كاش أسعار العملات لمدة 60 ثانية لتقليل الضغط على الـ API
@@ -11,19 +11,19 @@ PRICE_CACHE = {
     "last_updated": 0
 }
 
+# دالة لتنسيق الأرقام العشرية بشكل نظيف وبدون أصفار أو كسور غريبة
 def clean_round(value, decimals=8):
-    """تنسيق الأرقام العشرية بشكل نظيف وبدون أصفار زائدة"""
     if not isinstance(value, (int, float)):
         return value
     return round(float(value), decimals)
 
 def format_crypto_display(amount):
-    """تنسيق عرض العملة في الرسائل والإشعارات"""
+    """تنسيق عرض العملة في الرسائل والإشعارات بدون أصفار زائدة"""
     formatted = f"{amount:,.8f}".rstrip('0').rstrip('.')
     return formatted if formatted else "0"
 
+# دالة التحقق من صحة عنوان المحفظة أو البريد الإلكتروني حسب العملة
 def validate_wallet_address(address, currency):
-    """التحقق من صحة عنوان المحفظة أو البريد الإلكتروني"""
     if not address or not isinstance(address, str):
         return False, "يرجى إدخال عنوان المحفظة أو البريد الإلكتروني الخاص بـ FaucetPay."
     
@@ -31,13 +31,14 @@ def validate_wallet_address(address, currency):
     if not addr:
         return False, "يرجى إدخال عنوان المحفظة أو البريد الإلكتروني الخاص بـ FaucetPay."
 
-    # البريد الإلكتروني مقبول لجميع عملات FaucetPay
+    # 1. التحقق مما إذا كان العنوان بريد إلكتروني (مقبول لجميع عملات FaucetPay)
     email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     if re.match(email_regex, addr):
         return True, ""
 
     curr = currency.upper()
 
+    # 2. التحقق من صيغة عناوين الشبكات للعملات المدعومة
     if curr == "DOGE":
         if re.match(r'^D[1-9A-HJ-NP-Za-km-z]{33}$', addr):
             return True, ""
@@ -61,8 +62,8 @@ def validate_wallet_address(address, currency):
     return True, ""
 
 
+# دالة جلب الأسعار اللحظية للعملات مع دعم Binance أولاً مع تقريب الأرقام العشرية
 def get_live_crypto_prices():
-    """جلب الأسعار اللحظية للعملات"""
     now = time.time()
     if PRICE_CACHE["data"] and (now - PRICE_CACHE["last_updated"] < 60):
         return PRICE_CACHE["data"]
@@ -107,11 +108,28 @@ def get_live_crypto_prices():
     except Exception as e:
         print(f"⚠️ خطأ جلب الأسعار من CoinGecko: {e}")
 
+    try:
+        url = "https://min-api.cryptocompare.com/data/pricemulti?fsyms=DOGE,TRX,PEPE,LTC&tsyms=USD"
+        res = requests.get(url, timeout=4)
+        if res.status_code == 200:
+            data = res.json()
+            prices = {
+                "DOGE": clean_round(data.get("DOGE", {}).get("USD", fallback_prices["DOGE"]), 8),
+                "TRX": clean_round(data.get("TRX", {}).get("USD", fallback_prices["TRX"]), 8),
+                "PEPE": clean_round(data.get("PEPE", {}).get("USD", fallback_prices["PEPE"]), 8),
+                "LTC": clean_round(data.get("LTC", {}).get("USD", fallback_prices["LTC"]), 8)
+            }
+            PRICE_CACHE["data"] = prices
+            PRICE_CACHE["last_updated"] = now
+            return prices
+    except Exception as e:
+        print(f"⚠️ خطأ جلب الأسعار من CryptoCompare: {e}")
+
     return PRICE_CACHE["data"] if PRICE_CACHE["data"] else fallback_prices
 
 
+# دالة التحويل الآلي عبر FaucetPay API (بالساتوشي)
 def send_faucetpay_payment(to_address_or_email, amount, currency, tx_id):
-    """التحويل الآلي عبر API الخاص بـ FaucetPay"""
     api_key = os.getenv("FAUCETPAY_API_KEY")
     if not api_key:
         return False, "مفتاح FAUCETPAY_API_KEY غير متوفر ببيئة التشغيل."
@@ -132,7 +150,7 @@ def send_faucetpay_payment(to_address_or_email, amount, currency, tx_id):
         data = res.json()
         if data.get("status") == 200:
             payout_id = data.get("payout_id", tx_id)
-            return True, f"تم التحويل بنجاح عبر FaucetPay (معرف الدفعة: #{payout_id})"
+            return True, f"تم التحويل الآلي بنجاح عبر FaucetPay (معرف الدفعة: #{payout_id})"
         else:
             err_msg = data.get("message", "خطأ غير معروف في FaucetPay")
             return False, f"خطأ FaucetPay: {err_msg}"
@@ -213,6 +231,11 @@ def fetch_or_create_withdraw_config():
     except Exception as e:
         print(f"⚠️ خطأ وصول Firebase لمستند withdraw_config: {e}")
         return DEFAULT_WITHDRAW_CONFIG
+
+try:
+    fetch_or_create_withdraw_config()
+except Exception:
+    pass
 
 @withdraw_bp.route('/config', methods=['GET'])
 def get_config():
@@ -353,7 +376,7 @@ def handle_withdraw():
 
 
 def execute_admin_decision(tx_id, action):
-    """منطق دالة المعالجة المشترك لقرارات الأدمن"""
+    """منطق دالة المعالجة المشترك لقرارات الأدمن مع استخراج مرن للبيانات"""
     if not tx_id or not action:
         return False, "بيانات الطلب غير مكتملة."
 
@@ -370,9 +393,10 @@ def execute_admin_decision(tx_id, action):
     tx_data = tx_doc.to_dict() or {}
     status = tx_data.get('status')
 
-    if status in ['completed', 'rejected']:
+    if status not in ['pending', 'processing', 'pending_retry']:
         return False, "تم اتخاذ قرار في هذه المعاملة سابقاً."
 
+    # استخراج كافة القيم بأمان لتجنب أخطاء المفاتيح KeyError
     user_id = str(tx_data.get('user_id') or tx_data.get('userId') or '').strip()
     coins = float(tx_data.get('coins') or tx_data.get('coins_amount') or tx_data.get('amount') or 0.0)
     wallet = str(tx_data.get('wallet') or tx_data.get('wallet_address') or tx_data.get('address') or '').strip()
@@ -386,6 +410,7 @@ def execute_admin_decision(tx_id, action):
     if not user_id:
         return False, "بيانات المستخدم مفقودة في المستند."
 
+    # الحصول على مرجع مستند المستخدم بشكل آمن بدون فرض التفكيك الأحادي/الثنائي
     user_ref = None
     try:
         res = get_user_doc(user_id)
@@ -400,6 +425,7 @@ def execute_admin_decision(tx_id, action):
         user_ref = db.collection('users').document(user_id)
 
     if action == 'approve':
+        # تعيين الحالة فوراً لمنع التنفيذ المكرر عند ضغط الزر عدة مرات
         tx_ref.update({'status': 'processing', 'updated_at': firestore.SERVER_TIMESTAMP})
 
         transfer_success, transfer_msg = send_faucetpay_payment(
@@ -415,14 +441,14 @@ def execute_admin_decision(tx_id, action):
                 'updated_at': firestore.SERVER_TIMESTAMP
             })
             notify_manual_decision(user_id, coins, crypto_amount, currency, wallet, "approve", str(tx_id))
-            return True, "تمت الموافقة والتحويل الآلي بنجاح عبر FaucetPay!"
+            return True, "تمت الموافقة والتحويل الآلي بنجاح عبر FaucetPay."
         else:
             tx_ref.update({
                 'status': 'pending_retry',
                 'error_log': transfer_msg,
                 'updated_at': firestore.SERVER_TIMESTAMP
             })
-            return False, f"فشل التحويل: {transfer_msg}"
+            return False, f"فشل التحويل الشبكي: {transfer_msg}"
 
     elif action == 'reject':
         tx_ref.update({'status': 'rejected', 'updated_at': firestore.SERVER_TIMESTAMP})
@@ -435,26 +461,16 @@ def execute_admin_decision(tx_id, action):
             print(f"⚠️ خطأ إعادة الرصيد للمستخدم: {e}")
 
         notify_manual_decision(user_id, coins, crypto_amount, currency, wallet, "reject", str(tx_id))
-        return True, "تم رفض الطلب وإعادة العملات لرصيد المستخدم."
+        return True, "تم الرفض وإعادة العملات لرصيد المستخدم."
 
     return False, "إجراء غير معروف."
-
-
-@withdraw_bp.route('/admin-approve', methods=['POST'])
-def handle_admin_decision():
-    data = request.json or {}
-    tx_id = data.get('tx_id')
-    action = data.get('action')
-    success, msg = execute_admin_decision(tx_id, action)
-    status_code = 200 if success else 400
-    return jsonify({"success": success, "message": msg}), status_code
 
 
 # ==================== استقبال ضغطات أزرار التليجرام (Webhook Handler) ====================
 
 @withdraw_bp.route('/telegram-webhook', methods=['GET', 'POST'])
 def telegram_webhook():
-    """معالج Webhook التليجرام لاستقبال الضغط على أزرار Inline"""
+    """مسار استقبال الأزرار التفاعلية من التليجرام مباشرة مع رد سريع وحماية من التأخير"""
     if request.method == 'GET':
         return jsonify({"status": "ok", "message": "Telegram Webhook Endpoint active"}), 200
 
@@ -463,58 +479,36 @@ def telegram_webhook():
     if "callback_query" in update:
         cb = update["callback_query"]
         cb_id = cb.get("id")
-        cb_data = str(cb.get("data", ""))
+        cb_data = cb.get("data", "")
         msg = cb.get("message", {})
         chat_id = msg.get("chat", {}).get("id")
         message_id = msg.get("message_id")
         orig_text = msg.get("text", "")
 
+        # الرد المباشر فوراً لإيقاف مؤشر التحميل في تطبيق التليجرام
+        _answer_telegram_callback(cb_id, "جاري معالجة الطلب...")
+
         tx_id = None
         action = None
 
         if cb_data.startswith("approve_tx_"):
-            tx_id = cb_data.replace("approve_tx_", "").strip()
+            tx_id = cb_data.replace("approve_tx_", "")
             action = "approve"
         elif cb_data.startswith("reject_tx_"):
-            tx_id = cb_data.replace("reject_tx_", "").strip()
+            tx_id = cb_data.replace("reject_tx_", "")
             action = "reject"
 
         if tx_id and action:
             success, result_msg = execute_admin_decision(tx_id, action)
-            # استدعاء الإجابة مرة واحدة فقط لمنع خطأ QUERY_ID_INVALID
             _answer_telegram_callback(cb_id, result_msg)
 
             if success:
-                status_icon = "🟢" if action == "approve" else "🔴"
-                action_text = "تمت الموافقة والتحويل بنجاح!" if action == "approve" else "تم رفض الطلب وإعادة الرصيد."
-                decision_badge = f"\n\n<b>القرار النهائي:</b> {status_icon} {action_text}"
+                decision_badge = "\n\n✅ <b>تمت الموافقة والتحويل بنجاح!</b>" if action == "approve" else "\n\n❌ <b>تم رفض الطلب وإعادة الرصيد.</b>"
                 _edit_telegram_message(chat_id, message_id, orig_text + decision_badge)
         else:
             _answer_telegram_callback(cb_id, "إجراء غير معروف.")
 
     return jsonify({"status": "ok"}), 200
-
-
-@withdraw_bp.route('/set-telegram-webhook', methods=['GET', 'POST'])
-def set_telegram_webhook():
-    """مسار مساعد لتسجيل رابط الـ Webhook مع التليجرام بضغطة واحدة"""
-    bot_token = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
-    webhook_url = request.args.get('url') or (request.json.get('url') if request.is_json else None)
-
-    if not bot_token:
-        return jsonify({"success": False, "message": "توكن البوت مفقود في المتغيرات"}), 400
-    
-    if not webhook_url:
-        # بناء الرابط التلقائي من الطلب
-        host_url = request.host_url.rstrip('/')
-        webhook_url = f"{host_url}/api/wallet/withdraw/telegram-webhook"
-
-    url = f"https://api.telegram.org/bot{bot_token}/setWebhook"
-    try:
-        res = requests.post(url, json={"url": webhook_url}, timeout=10)
-        return jsonify(res.json()), res.status_code
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
 
 
 def _answer_telegram_callback(callback_query_id, text):
@@ -538,6 +532,7 @@ def _edit_telegram_message(chat_id, message_id, text, reply_markup=None):
         return
     url = f"https://api.telegram.org/bot{bot_token}/editMessageText"
     
+    # إزالة الأزرار التفاعلية افتراضياً بعد الاعتماد
     markup = reply_markup if reply_markup is not None else {"inline_keyboard": []}
 
     payload = {
@@ -550,6 +545,7 @@ def _edit_telegram_message(chat_id, message_id, text, reply_markup=None):
     try:
         res = requests.post(url, json=payload, timeout=5)
         if res.status_code != 200:
+            # محاولة احتياطية بدون HTML لتفادي توقف الرسالة إن اشتملت على رموز خاصة
             clean_text = text.replace("<b>", "").replace("</b>", "").replace("<code>", "").replace("</code>", "")
             payload_fallback = {
                 "chat_id": chat_id,
@@ -562,7 +558,7 @@ def _edit_telegram_message(chat_id, message_id, text, reply_markup=None):
         print(f"❌ خطأ تعديل رسالة تليجرام: {e}")
 
 
-# ==================== نظام الإشعارات والتنبيهات ====================
+# ==================== نظام الإشعارات والرسائل للتليجرام ====================
 
 def _send_telegram_msg(text, reply_markup=None):
     bot_token = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
@@ -725,3 +721,34 @@ def notify_manual_decision(user_id, coins, crypto_amount, currency, wallet, acti
             "❌ <b>تم رفض طلب السحب اليدوي وتمت إعادة العملات كاملة لرصيد المستخدم.</b>"
         )
     _send_telegram_msg(text)
+
+
+# ==================== دالة تفعيل الأزرار السحرية ====================
+@withdraw_bp.route('/set-webhook', methods=['GET'])
+def setup_telegram_webhook():
+    """مسار سحري لربط أزرار التليجرام بالسيرفر بضغطة واحدة"""
+    bot_token = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+    if not bot_token:
+        return jsonify({"success": False, "message": "لم يتم العثور على توكن البوت في المتغيرات (ADMIN_BOT_TOKEN)."}), 400
+
+    try:
+        # استخراج الرابط الكامل للمسار
+        webhook_path = url_for('withdraw_bp.telegram_webhook')
+        full_webhook_url = request.url_root.rstrip('/') + webhook_path
+        
+        # تليجرام يتطلب HTTPS إجبارياً
+        if full_webhook_url.startswith("http://") and "localhost" not in full_webhook_url and "127.0.0.1" not in full_webhook_url:
+            full_webhook_url = full_webhook_url.replace("http://", "https://")
+
+        url = f"https://api.telegram.org/bot{bot_token}/setWebhook?url={full_webhook_url}"
+        res = requests.get(url, timeout=5)
+        
+        return jsonify({
+            "success": True, 
+            "message": "تم ربط التليجرام بنجاح! الأزرار ستعمل الآن.",
+            "webhook_url": full_webhook_url,
+            "telegram_response": res.json()
+        }), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
