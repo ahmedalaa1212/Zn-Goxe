@@ -45,7 +45,6 @@
 </style>
 
 <div class="withdraw-wrapper">
-  <!-- 1. ربط المحفظة (GRAM Web3) -->
   <div class="w-card">
     <div class="w-title">
       <span>💎 ربط محفظة استلام GRAM</span>
@@ -61,7 +60,6 @@
     </div>
   </div>
 
-  <!-- 2. نموذج طلب السحب -->
   <div class="w-card">
     <div class="w-title">
       <span>طلب سحب الأرباح بـ GRAM</span>
@@ -89,12 +87,8 @@
 
     <div class="fee-details">
       <div class="fee-row">
-        <span>رسوم الخدمة (3%):</span>
+        <span>رسوم الخدمة (<span id="fee-percent-display">3</span>%):</span>
         <span id="fee-amount" class="fee-val">0 ZN</span>
-      </div>
-      <div class="fee-row">
-        <span>رسوم الشبكة المخصومة تلقائياً:</span>
-        <span class="fee-val" style="color:#38bdf8;">~0.0015 GRAM</span>
       </div>
       <div class="fee-row">
         <span>الصافي النهائي المستلم بمحفظتك:</span>
@@ -107,7 +101,7 @@
     </div>
 
     <div class="notice-box notice-info">
-      ℹ️ العملة المعتمدة للسحب هي GRAM فقط. يتم خصم رسوم الخدمة ورسوم الشبكة التلقائية (~0.0015 GRAM) مباشرة من القيمة المرسلة.
+      ℹ️ العملة المعتمدة للسحب هي GRAM. يتم خصم رسوم الخدمة فقط من الكمية المطلوبة، وتصلك القيمة الصافية كاملة على محفظتك.
     </div>
 
     <button id="confirm-withdraw-btn" class="btn-submit-withdraw" disabled onclick="submitWithdrawal()">
@@ -115,14 +109,12 @@
     </button>
   </div>
 
-  <!-- 3. دليل مستويات السحب -->
   <div class="w-card">
     <div class="levels-guide-title">
       <span>📂 دليل مستويات السحب</span>
       <span id="current-user-level-text" style="color:#38bdf8;">المستوى: --</span>
     </div>
     <div id="levels-list-container" class="levels-guide-box">
-      <!-- يتم تحميل المستويات ديناميكياً -->
     </div>
   </div>
 </div>
