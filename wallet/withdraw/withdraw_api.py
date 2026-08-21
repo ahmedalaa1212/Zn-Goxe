@@ -275,58 +275,88 @@ def execute_auto_transfer(to_address, ton_amount, tx_id, user_id, coins):
         return False
 
 def notify_admin_insufficient_funds(user_id, coins, ton_amount, wallet, current_balance):
+    """إرسال تنبيه في المجموعة بتنسيق HTML مرتب عند عدم كفاية الرصيد"""
     bot_token = os.getenv("ADMIN_BOT_TOKEN")
     admin_chat_id = os.getenv("ADMIN_CHAT_ID")
     if not bot_token or not admin_chat_id:
         return
 
+    formatted_coins = f"{coins:,.0f}" if coins == int(coins) else f"{coins:,}"
+    formatted_ton = f"{ton_amount:.4f}"
+    formatted_bal = f"{current_balance:.4f}"
+
     text = (
-        f"⚠️ **تنبيه: عدم كفاية رصيد المحفظة الساخنة!**\n\n"
-        f"👤 **المستخدم:** `{user_id}`\n"
-        f"💎 **المبلغ المطلوب:** `{ton_amount:.4f}` TON ({coins:,.0f} ZN)\n"
-        f"💰 **المتوفر بالمحفظة حالياً:** `{current_balance:.4f}` TON\n"
-        f"📬 **المحفظة المستهدفة:** `{wallet}`\n\n"
-        f"📌 *تم تعليق الطلب تلقائياً، وسيعيد النظام معالجته فور شحن المحفظة الساخنة.*"
+        "<b>⚠️ تنبيه: عدم كفاية رصيد المحفظة الساخنة!</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"<b>👤 المستخدم:</b> <code>{user_id}</code>\n"
+        f"<b>💎 المبلغ المطلوب:</b> <code>{formatted_coins} ZN</code> (<code>{formatted_ton} TON</code>)\n"
+        f"<b>💰 المتوفر بالمحفظة حالياً:</b> <code>{formatted_bal} TON</code>\n\n"
+        f"<b>📥 المحفظة المستهدفة:</b>\n"
+        f"<code>{wallet}</code>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "📌 <b>تم تعليق الطلب تلقائياً، وسيعيد النظام معالجته فور شحن المحفظة الساخنة.</b>"
     )
 
-    payload = {"chat_id": admin_chat_id, "text": text, "parse_mode": "Markdown"}
+    payload = {
+        "chat_id": admin_chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    }
     try:
         requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload, timeout=5)
     except Exception as e:
         print(f"خطأ في إرسال التنبيه: {e}")
 
 def notify_admin_for_manual_approval(user_id, coins, ton_amount, wallet, level, tx_id):
+    """إرسال طلب موافقة يدوية بتنسيق HTML مرتب ومفصل مع أزرار الإجراء"""
     bot_token = os.getenv("ADMIN_BOT_TOKEN")
     admin_chat_id = os.getenv("ADMIN_CHAT_ID")
     if not bot_token or not admin_chat_id:
         return
 
     user_info = get_user_full_details(user_id) or {}
-    username_text = f"@{user_info.get('username')}" if user_info.get('username') != 'لا يوجد' else 'بدون معرف'
+    first_name = user_info.get('first_name', 'غير معروف')
+    username = user_info.get('username')
+    username_text = f"@{username}" if username and username != 'لا يوجد' else 'بدون معرف'
+    joined_date = user_info.get('joined_date', 'غير معروف')
+    referrals_count = user_info.get('referrals_count', 0)
+    user_bal = float(user_info.get('balance', 0))
+    total_earned = float(user_info.get('total_earned', 0))
+    withdraw_count = user_info.get('withdraw_count', 0)
+    last_withdraw_date = user_info.get('last_withdraw_date', 'لا يوجد')
+
+    formatted_coins = f"{coins:,.0f}" if coins == int(coins) else f"{coins:,}"
+    formatted_ton = f"{ton_amount:.4f}"
+    formatted_user_bal = f"{user_bal:,.0f}" if user_bal == int(user_bal) else f"{user_bal:,}"
+    formatted_total_earned = f"{total_earned:,.0f}" if total_earned == int(total_earned) else f"{total_earned:,}"
 
     text = (
-        f"🚨 **طلب سحب جديد (مستوى {level})**\n\n"
-        f"👤 **بيانات الحساب:**\n"
-        f"• ID: `{user_id}`\n"
-        f"• الاسم: {user_info.get('first_name')}\n"
-        f"• اليوزر: {username_text}\n"
-        f"• تاريخ الانضمام: `{user_info.get('joined_date')}`\n\n"
-        f"📊 **سجل النشاط وفحص الغش:**\n"
-        f"• عدد الإحالات: `{user_info.get('referrals_count')}` شخص\n"
-        f"• الرصيد المتبقي: `{user_info.get('balance'):,.0f}` ZN\n"
-        f"• إجمالي الأرباح: `{user_info.get('total_earned'):,.0f}` ZN\n"
-        f"• عدد السحوبات الناجحة: `{user_info.get('withdraw_count')}` مرة\n"
-        f"• آخر سحب: `{user_info.get('last_withdraw_date')}`\n\n"
-        f"💎 **تفاصيل طلب السحب:**\n"
-        f"• المبلغ المطلوب: `{coins:,.0f}` ZN\n"
-        f"• المستحق للتحويل: `{ton_amount:.4f}` TON\n"
-        f"• المحفظة: `{wallet}`"
+        f"🚨 <b>طلب سحب جديد (مستوى {level})</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "<b>👤 بيانات الحساب:</b>\n"
+        f"• <b>ID:</b> <code>{user_id}</code>\n"
+        f"• <b>الاسم:</b> {first_name}\n"
+        f"• <b>اليوزر:</b> {username_text}\n"
+        f"• <b>تاريخ الانضمام:</b> <code>{joined_date}</code>\n\n"
+        "<b>📊 سجل النشاط وفحص الغش:</b>\n"
+        f"• <b>عدد الإحالات:</b> <code>{referrals_count}</code> شخص\n"
+        f"• <b>الرصيد المتبقي:</b> <code>{formatted_user_bal} ZN</code>\n"
+        f"• <b>إجمالي الأرباح:</b> <code>{formatted_total_earned} ZN</code>\n"
+        f"• <b>عدد السحوبات الناجحة:</b> <code>{withdraw_count}</code> مرة\n"
+        f"• <b>آخر سحب:</b> <code>{last_withdraw_date}</code>\n\n"
+        "<b>💎 تفاصيل طلب السحب:</b>\n"
+        f"• <b>المبلغ المطلوب:</b> <code>{formatted_coins} ZN</code>\n"
+        f"• <b>المستحق للتحويل:</b> <code>{formatted_ton} TON</code>\n"
+        f"• <b>المحفظة المستهدفة:</b>\n<code>{wallet}</code>\n"
+        "━━━━━━━━━━━━━━━━━━"
     )
 
     payload = {
         "chat_id": admin_chat_id,
         "text": text,
-        "parse_mode": "Markdown",
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
         "reply_markup": {
             "inline_keyboard": [[
                 {"text": "موافقة 🟢", "callback_data": f"approve_tx_{tx_id}"},
