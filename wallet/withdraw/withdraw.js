@@ -1,5 +1,5 @@
 (function () {
-  let tonPriceUSD = 0;
+  let gramPriceUSD = 0;
   let withdrawConfig = null;
   let currentWalletAddress = null;
   let tonConnectUI = null;
@@ -140,7 +140,7 @@
             justify-content: center;
             gap: 8px;
           ">
-            💎 ربط محفظة TON
+            💎 ربط محفظة GRAM
           </button>
         `;
       }
@@ -173,7 +173,7 @@
 
       if (data.success) {
         withdrawConfig = data.config;
-        tonPriceUSD = parseFloat(data.ton_price) || 5.50;
+        gramPriceUSD = parseFloat(data.gram_price) || 0.01;
         userBalance = parseFloat(data.user_balance) || 0;
         withdrawCount = parseInt(data.withdraw_count) || 0;
 
@@ -216,7 +216,7 @@
       const maxText = lvl.max >= 999999999 ? "مفتوح" : lvl.max.toLocaleString() + " ZN";
 
       html += `
-        <div class="level-item ${isActive ? 'active-level' : ''}" style="display:flex; justify-space-between; padding:10px; margin-bottom:6px; background:${isActive ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.03)'}; border-radius:8px; border:${isActive ? '1px solid #38bdf8' : 'none'};">
+        <div class="level-item ${isActive ? 'active-level' : ''}" style="display:flex; justify-content:space-between; padding:10px; margin-bottom:6px; background:${isActive ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255, 255, 255, 0.03)'}; border-radius:8px; border:${isActive ? '1px solid #38bdf8' : 'none'};">
           <div>
             <span>المستوى ${lvl.level}: </span>
             <strong>${lvl.min.toLocaleString()} - ${maxText}</strong>
@@ -262,7 +262,7 @@
     const btn = document.getElementById("confirm-withdraw-btn");
     const levelBadge = document.getElementById("level-indicator");
 
-    if (!withdrawConfig || !tonPriceUSD || coinsInputVal <= 0) {
+    if (!withdrawConfig || !gramPriceUSD || coinsInputVal <= 0) {
       resetCalculations();
       if (btn) btn.disabled = true;
       if (levelBadge && withdrawConfig && withdrawConfig.levels) {
@@ -290,24 +290,27 @@
       levelBadge.style.color = "#38bdf8";
     }
 
-    // معادلة تحويل 100,000 ZN = 1 USD
     const usdRate = withdrawConfig.rate_coins_per_usd || 100000;
     const usdValue = coinsInputVal / usdRate;
-    const rawTon = usdValue / tonPriceUSD;
+    const grossGram = usdValue / gramPriceUSD;
 
     const feePercent = withdrawConfig.fee_percent || 3;
     const feeCoins = coinsInputVal * (feePercent / 100);
     const netCoins = coinsInputVal - feeCoins;
     const netUsd = netCoins / usdRate;
-    const netTon = netUsd / tonPriceUSD;
+    const netGramCalculated = netUsd / gramPriceUSD;
+    
+    // خصم رسم الشبكة التلقائي (~0.0015 GRAM)
+    const netFeeGram = withdrawConfig.network_fee_gram || 0.0015;
+    const finalNetGram = Math.max(0, netGramCalculated - netFeeGram);
 
-    const tonOutput = document.getElementById("ton-output");
+    const gramOutput = document.getElementById("gram-output");
     const feeAmount = document.getElementById("fee-amount");
-    const netTonElem = document.getElementById("net-ton");
+    const netGramElem = document.getElementById("net-gram");
 
-    if (tonOutput) tonOutput.value = rawTon.toFixed(4) + " TON";
+    if (gramOutput) gramOutput.value = grossGram.toFixed(4) + " GRAM";
     if (feeAmount) feeAmount.innerText = `${feeCoins.toLocaleString()} ZN`;
-    if (netTonElem) netTonElem.innerText = `${netTon.toFixed(4)} TON`;
+    if (netGramElem) netGramElem.innerText = `${finalNetGram.toFixed(4)} GRAM`;
 
     if (btn) {
       btn.disabled = !currentWalletAddress || coinsInputVal <= 0 || userBalance < coinsInputVal;
@@ -315,13 +318,13 @@
   }
 
   function resetCalculations() {
-    const tonOutput = document.getElementById("ton-output");
+    const gramOutput = document.getElementById("gram-output");
     const feeAmount = document.getElementById("fee-amount");
-    const netTon = document.getElementById("net-ton");
+    const netGramElem = document.getElementById("net-gram");
 
-    if (tonOutput) tonOutput.value = "0.0000 TON";
+    if (gramOutput) gramOutput.value = "0.0000 GRAM";
     if (feeAmount) feeAmount.innerText = "0 ZN";
-    if (netTon) netTon.innerText = "0.0000 TON";
+    if (netGramElem) netGramElem.innerText = "0.0000 GRAM";
   }
 
   async function submitWithdrawal() {
@@ -331,7 +334,7 @@
     const btn = document.getElementById("confirm-withdraw-btn");
 
     if (!currentWalletAddress) {
-      alert("يرجى ربط محفظة TON أولاً قبل تأكيد السحب!");
+      alert("يرجى ربط محفظة GRAM أولاً قبل تأكيد السحب!");
       return;
     }
 
