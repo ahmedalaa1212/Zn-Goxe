@@ -272,6 +272,7 @@
       levelBadge.style.color = "#38bdf8";
     }
 
+    // معادلة تحويل 100,000 ZN = 1 USD
     const usdRate = withdrawConfig.rate_coins_per_usd || 100000;
     const usdValue = coinsInputVal / usdRate;
     const rawTon = usdValue / tonPriceUSD;
