@@ -1,4 +1,3 @@
-
 (function () {
   let cryptoPrices = { DOGE: 0.10, TRX: 0.12, PEPE: 0.000008, LTC: 70.0 };
   let selectedCurrency = "DOGE";
@@ -26,7 +25,6 @@
     );
   }
 
-  // دالة التحقق اللحظي من صحة عنوان المحفظة أو الايميل في الواجهة
   function validateWalletAddress(address, currency) {
     if (!address || typeof address !== 'string') {
       return { valid: false, message: "يرجى إدخال عنوان المحفظة أو البريد الإلكتروني." };
@@ -36,7 +34,6 @@
       return { valid: false, message: "يرجى إدخال عنوان المحفظة أو البريد الإلكتروني." };
     }
 
-    // 1. فحص البريد الإلكتروني (مقبول دائماً لـ FaucetPay)
     const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     if (emailRegex.test(addr)) {
       return { valid: true, message: "" };
@@ -44,7 +41,6 @@
 
     const curr = (currency || selectedCurrency || "DOGE").toUpperCase();
 
-    // 2. فحص صياغة العناوين بالشبكات
     if (curr === "DOGE") {
       if (/^D[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr)) {
         return { valid: true, message: "" };
@@ -148,7 +144,6 @@
         userBalance = parseFloat(data.user_balance ?? data.user?.balance) || 0;
         withdrawCount = parseInt(data.withdraw_count) || 0;
 
-        // حساب مستوى المستخدم الفعلي بناءً على عدد السحوبات
         if (withdrawConfig && withdrawConfig.levels) {
           userLevel = Math.min(withdrawCount + 1, withdrawConfig.levels.length);
           activeLevelIndex = Math.min(withdrawCount, withdrawConfig.levels.length - 1);
@@ -281,17 +276,14 @@
       levelBadge.style.color = "#38bdf8";
     }
 
-    // معادلة تحويل ZN إلى USD (100,000 ZN = $1.00 USD)
     const usdRate = withdrawConfig.rate_coins_per_usd || 100000;
     const grossUsdValue = coinsInputVal / usdRate;
 
-    // خصم الرسوم (3%)
     const feePercent = withdrawConfig.fee_percent || 3;
     const feeCoins = coinsInputVal * (feePercent / 100);
     const netCoins = coinsInputVal - feeCoins;
     const netUsd = netCoins / usdRate;
     
-    // الصافي النهائي للعملة المشفرة المستلمة
     const finalNetCrypto = netUsd / priceUSD;
     const decimals = selectedCurrency === 'PEPE' ? 2 : 8;
 
@@ -335,7 +327,6 @@
       return;
     }
 
-    // فحص صحة العنوان قبل إرسال الطلب
     const addressValidation = validateWalletAddress(walletAddress, selectedCurrency);
     if (!addressValidation.valid) {
       alert(addressValidation.message);
@@ -371,7 +362,6 @@
         })
       });
 
-      // إذا كانت القناة القديمة مسجلة كـ fallback
       if (res.status === 404) {
         res = await fetch('/api/withdraw/request', {
           method: 'POST',
@@ -387,7 +377,6 @@
         });
       }
 
-      // قراءة نص الرسالة القادمة من السيرفر مباشرة
       const data = await res.json().catch(() => null);
 
       if (data && data.message) {
