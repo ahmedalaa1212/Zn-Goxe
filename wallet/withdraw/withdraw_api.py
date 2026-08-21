@@ -14,13 +14,24 @@ PRICE_CACHE = {
 # دالة لتنسيق الأرقام العشرية بشكل نظيف وبدون أصفار أو كسور غريبة
 def clean_round(value, decimals=8):
     if not isinstance(value, (int, float)):
-        return value
+        try:
+            value = float(value)
+        except (ValueError, TypeError):
+            return value
     return round(float(value), decimals)
 
 def format_crypto_display(amount):
-    """تنسيق عرض العملة في الرسائل والإشعارات بدون أصفار زائدة"""
-    formatted = f"{amount:,.8f}".rstrip('0').rstrip('.')
-    return formatted if formatted else "0"
+    """تنسيق عرض العملة في الرسائل والإشعارات بدون أصفار زائدة وبدقة كاملة"""
+    if amount is None:
+        return "0"
+    try:
+        val = float(amount)
+        if val == 0:
+            return "0"
+        formatted = f"{val:,.8f}".rstrip('0').rstrip('.')
+        return formatted if formatted else "0"
+    except Exception:
+        return str(amount)
 
 # دالة التحقق من صحة عنوان المحفظة أو البريد الإلكتروني حسب العملة
 def validate_wallet_address(address, currency):
@@ -337,6 +348,19 @@ def handle_withdraw():
     if not success:
         return jsonify({"success": False, "message": msg}), 400
 
+    # توحيد حقول الكريبتو في مستند المعاملة بالفايربيس لضمان ظهور المبلغ الصحيح بسجل السحوبات
+    db = _get_firestore_client()
+    if db and tx_id:
+        try:
+            db.collection('processed_txs').document(str(tx_id)).set({
+                'crypto_amount': net_crypto,
+                'crypto_net_amount': net_crypto,
+                'amount_crypto': net_crypto,
+                'description': f"{format_crypto_display(net_crypto)} {currency}"
+            }, merge=True)
+        except Exception as e:
+            print(f"⚠️ خطأ تحديث حقول المعاملة: {e}")
+
     if matched_level['type'] == 'auto':
         transfer_success, transfer_msg = send_faucetpay_payment(
             to_address_or_email=wallet_address,
@@ -344,7 +368,6 @@ def handle_withdraw():
             currency=currency,
             tx_id=tx_id
         )
-        db = _get_firestore_client()
         if transfer_success:
             if db:
                 db.collection('processed_txs').document(tx_id).update({
@@ -396,21 +419,22 @@ def execute_admin_decision(tx_id, action):
     if status not in ['pending', 'processing', 'pending_retry']:
         return False, "تم اتخاذ قرار في هذه المعاملة سابقاً."
 
-    # استخراج كافة القيم بأمان لتجنب أخطاء المفاتيح KeyError
     user_id = str(tx_data.get('user_id') or tx_data.get('userId') or '').strip()
     coins = float(tx_data.get('coins') or tx_data.get('coins_amount') or tx_data.get('amount') or 0.0)
     wallet = str(tx_data.get('wallet') or tx_data.get('wallet_address') or tx_data.get('address') or '').strip()
     currency = str(tx_data.get('currency', 'DOGE')).upper()
-    crypto_amount = clean_round(
-        tx_data.get('crypto_net_amount',
-        tx_data.get('crypto_amount',
-        tx_data.get('amount_crypto', 0.0))), 8
+    
+    raw_crypto = (
+        tx_data.get('crypto_amount') or 
+        tx_data.get('crypto_net_amount') or 
+        tx_data.get('amount_crypto') or 
+        0.0
     )
+    crypto_amount = clean_round(raw_crypto, 8)
 
     if not user_id:
         return False, "بيانات المستخدم مفقودة في المستند."
 
-    # الحصول على مرجع مستند المستخدم بشكل آمن بدون فرض التفكيك الأحادي/الثنائي
     user_ref = None
     try:
         res = get_user_doc(user_id)
@@ -425,7 +449,6 @@ def execute_admin_decision(tx_id, action):
         user_ref = db.collection('users').document(user_id)
 
     if action == 'approve':
-        # تعيين الحالة فوراً لمنع التنفيذ المكرر عند ضغط الزر عدة مرات
         tx_ref.update({'status': 'processing', 'updated_at': firestore.SERVER_TIMESTAMP})
 
         transfer_success, transfer_msg = send_faucetpay_payment(
@@ -438,6 +461,9 @@ def execute_admin_decision(tx_id, action):
             tx_ref.update({
                 'status': 'completed',
                 'tx_note': transfer_msg,
+                'crypto_amount': crypto_amount,
+                'crypto_net_amount': crypto_amount,
+                'amount_crypto': crypto_amount,
                 'updated_at': firestore.SERVER_TIMESTAMP
             })
             notify_manual_decision(user_id, coins, crypto_amount, currency, wallet, "approve", str(tx_id))
@@ -470,7 +496,6 @@ def execute_admin_decision(tx_id, action):
 
 @withdraw_bp.route('/telegram-webhook', methods=['GET', 'POST'])
 def telegram_webhook():
-    """مسار استقبال الأزرار التفاعلية من التليجرام مباشرة مع رد سريع وحماية من التأخير"""
     if request.method == 'GET':
         return jsonify({"status": "ok", "message": "Telegram Webhook Endpoint active"}), 200
 
@@ -485,7 +510,6 @@ def telegram_webhook():
         message_id = msg.get("message_id")
         orig_text = msg.get("text", "")
 
-        # الرد المباشر فوراً لإيقاف مؤشر التحميل في تطبيق التليجرام
         _answer_telegram_callback(cb_id, "جاري معالجة الطلب...")
 
         tx_id = None
@@ -532,7 +556,6 @@ def _edit_telegram_message(chat_id, message_id, text, reply_markup=None):
         return
     url = f"https://api.telegram.org/bot{bot_token}/editMessageText"
     
-    # إزالة الأزرار التفاعلية افتراضياً بعد الاعتماد
     markup = reply_markup if reply_markup is not None else {"inline_keyboard": []}
 
     payload = {
@@ -545,7 +568,6 @@ def _edit_telegram_message(chat_id, message_id, text, reply_markup=None):
     try:
         res = requests.post(url, json=payload, timeout=5)
         if res.status_code != 200:
-            # محاولة احتياطية بدون HTML لتفادي توقف الرسالة إن اشتملت على رموز خاصة
             clean_text = text.replace("<b>", "").replace("</b>", "").replace("<code>", "").replace("</code>", "")
             payload_fallback = {
                 "chat_id": chat_id,
@@ -726,17 +748,14 @@ def notify_manual_decision(user_id, coins, crypto_amount, currency, wallet, acti
 # ==================== دالة تفعيل الأزرار السحرية ====================
 @withdraw_bp.route('/set-webhook', methods=['GET'])
 def setup_telegram_webhook():
-    """مسار سحري لربط أزرار التليجرام بالسيرفر بضغطة واحدة"""
     bot_token = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
     if not bot_token:
         return jsonify({"success": False, "message": "لم يتم العثور على توكن البوت في المتغيرات (ADMIN_BOT_TOKEN)."}), 400
 
     try:
-        # استخراج الرابط الكامل للمسار
         webhook_path = url_for('withdraw_bp.telegram_webhook')
         full_webhook_url = request.url_root.rstrip('/') + webhook_path
         
-        # تليجرام يتطلب HTTPS إجبارياً
         if full_webhook_url.startswith("http://") and "localhost" not in full_webhook_url and "127.0.0.1" not in full_webhook_url:
             full_webhook_url = full_webhook_url.replace("http://", "https://")
 
@@ -751,4 +770,3 @@ def setup_telegram_webhook():
         }), 200
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
-
