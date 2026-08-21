@@ -84,12 +84,12 @@ def handle_withdraw():
         if transfer_status == "pending_funds":
             return jsonify({
                 "success": True, 
-                "message": "تم تقديم طلب السحب بنجاح! نظراً للضغط العالي، تم وضع الطلب في قائمة الانتظار وسيتم إرسال TON إلى محفظتك تلقائياً."
+                "message": "تم تقديم طلب السحب بنجاح! تم وضع الطلب في قائمة الانتظار وسيتم إرسال TON إلى محفظتك تلقائياً."
             })
     else:
         notify_admin_for_manual_approval(user_id, coins, net_ton, wallet_address, matched_level['level'], tx_id)
 
-    return jsonify({"success": True, "message": msg})
+    return jsonify({"success": True, "message": "تم إرسال طلب السحب بنجاح وتسجيل العملية في السجلات."})
 
 @withdraw_bp.route('/admin-approve', methods=['POST'])
 def handle_admin_decision():
@@ -116,7 +116,6 @@ def handle_admin_decision():
         status = execute_auto_transfer(tx_data['wallet'], tx_data['ton_amount'], tx_id, tx_data['user_id'], tx_data['coins'])
         if status is True:
             tx_ref.update({'status': 'completed', 'updated_at': firestore.SERVER_TIMESTAMP})
-            user_ref.update({'withdraw_count': firestore.Increment(1)})
             return jsonify({"success": True, "message": "تمت الموافقة والتحويل بنجاح."})
         elif status == "pending_funds":
             return jsonify({"success": False, "message": "تم تعليق المعاملة بسبب عدم كفاية رصيد المحفظة الساخنة."})
@@ -124,7 +123,10 @@ def handle_admin_decision():
             return jsonify({"success": False, "message": "فشل تنفيذ عملية التحويل الشبكي."})
 
     elif action == 'reject':
-        user_ref.update({'balance': firestore.Increment(tx_data['coins'])})
+        user_ref.update({
+            'balance': firestore.Increment(tx_data['coins']),
+            'withdraw_count': firestore.Increment(-1)
+        })
         tx_ref.update({'status': 'rejected', 'updated_at': firestore.SERVER_TIMESTAMP})
         return jsonify({"success": True, "message": "تم الرفض وإعادة العملات لرصيد المستخدم."})
 
@@ -207,7 +209,7 @@ def notify_admin_for_manual_approval(user_id, coins, ton_amount, wallet, level, 
     username_text = f"@{user_info.get('username')}" if user_info.get('username') != 'لا يوجد' else 'بدون معرف'
 
     text = (
-        f"🚨 **طلب سحب يدوي جديد (مستوى {level})**\n\n"
+        f"🚨 **طلب سحب جديد (مستوى {level})**\n\n"
         f"👤 **بيانات الحساب:**\n"
         f"• ID: `{user_id}`\n"
         f"• الاسم: {user_info.get('first_name')}\n"
