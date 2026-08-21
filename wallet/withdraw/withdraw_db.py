@@ -20,7 +20,7 @@ def auto_create_withdraw_config():
         doc_ref = db.collection('settings').document('withdraw_config')
         doc = doc_ref.get()
         if not doc.exists:
-            # التهيئة الافتراضية بنظام FaucetPay والعملات الـ 4 والمستويات الـ 6
+            # التهيئة الافتراضية بنظام FaucetPay والعملات الـ 4 والمستويات الـ 9
             default_config = {
                 "rate_coins_per_usd": 100000,
                 "fee_percent": 3,
@@ -31,7 +31,10 @@ def auto_create_withdraw_config():
                     {"level": 3, "type": "auto", "min": 10000, "max": 50000},
                     {"level": 4, "type": "manual", "min": 100000, "max": 200000},
                     {"level": 5, "type": "manual", "min": 400000, "max": 800000},
-                    {"level": 6, "type": "manual", "min": 1000000, "max": 999999999}
+                    {"level": 6, "type": "manual", "min": 1000000, "max": 2000000},
+                    {"level": 7, "type": "manual", "min": 3000000, "max": 5000000},
+                    {"level": 8, "type": "manual", "min": 6000000, "max": 10000000},
+                    {"level": 9, "type": "manual", "min": 15000000, "max": 999999999}
                 ]
             }
             doc_ref.set(default_config)
@@ -82,7 +85,10 @@ def get_withdraw_config():
             {"level": 3, "type": "auto", "min": 10000, "max": 50000},
             {"level": 4, "type": "manual", "min": 100000, "max": 200000},
             {"level": 5, "type": "manual", "min": 400000, "max": 800000},
-            {"level": 6, "type": "manual", "min": 1000000, "max": 999999999}
+            {"level": 6, "type": "manual", "min": 1000000, "max": 2000000},
+            {"level": 7, "type": "manual", "min": 3000000, "max": 5000000},
+            {"level": 8, "type": "manual", "min": 6000000, "max": 10000000},
+            {"level": 9, "type": "manual", "min": 15000000, "max": 999999999}
         ]
     }
     
@@ -139,7 +145,8 @@ def get_user_full_details(user_id):
             real_balance = 0.0
 
         withdraw_count = int(data.get('withdraw_count', 0) or 0)
-        current_level = min(withdraw_count + 1, 6)
+        # تعديل السقف ليتناسب مع الـ 9 مستويات
+        current_level = min(withdraw_count + 1, 9)
 
         return {
             "user_id": str(user_id),
@@ -221,7 +228,7 @@ def process_withdraw_db(user_id, coins_amount, currency, wallet_address, crypto_
                 'type': "withdraw",
                 'provider': "FaucetPay",
                 'title': f"سحب {currency.upper()}",
-                'description': f"سحب {crypto_net_amount} {currency.upper()} مقابل {coins_amount:,} ZN",
+                'description': f"سحب {crypto_net_amount:.6f} {currency.upper()} مقابل {coins_amount:,} ZN",
                 'processed_at': firestore.SERVER_TIMESTAMP,
                 'created_at': firestore.SERVER_TIMESTAMP
             })
