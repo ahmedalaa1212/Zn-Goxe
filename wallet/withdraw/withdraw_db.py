@@ -5,7 +5,7 @@ from firebase_admin import firestore
 db = firestore.client()
 
 def get_withdraw_config():
-    """قراءة الخطة المعتمدة لمستويات السحب من Firebase"""
+    """قراءة الخطة المعتمدة لمستويات السحب من Firebase وإنشائها تلقائياً إذا لم توجد"""
     doc_ref = db.collection('settings').document('withdraw_config')
     doc = doc_ref.get()
     
@@ -77,7 +77,7 @@ def get_user_full_details(user_id):
     }
 
 def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_address):
-    """خصم الرصيد وتحديث المعاملة بآلية Transaction موثوقة"""
+    """خصم الرصيد وتسجيل السحب فوراً في processed_txs ليظهر في قسيمة السجلات"""
     transaction = db.transaction()
     user_ref = db.collection('users').document(str(user_id))
     
@@ -109,18 +109,22 @@ def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_ad
         tx_ref = db.collection('processed_txs').document()
         status = "completed" if level_info['type'] == "auto" else "pending"
         
+        # التسجيل في processed_txs مع ضبط type="withdraw" لضمان ظهوره في قسم السجلات بالواجهة
         txn.set(tx_ref, {
             'user_id': str(user_id),
             'coins': coins_amount,
             'ton_amount': ton_amount,
+            'usdt_amount': ton_amount,
             'wallet': wallet_address,
             'status': status,
             'level': level_info['level'],
-            'type': level_info['type'],
+            'withdraw_type': level_info['type'],
+            'type': "withdraw",
+            'processed_at': firestore.SERVER_TIMESTAMP,
             'created_at': firestore.SERVER_TIMESTAMP
         })
 
-        msg = "تم السحب بنجاح وتحويل المبلغ لمحفظتك!" if level_info['type'] == 'auto' else "تم إرسال الطلب للأدمن للمراجعة والموافقة."
+        msg = "تم طلب السحب بنجاح وتسجيل المعاملة!"
         return True, msg, tx_ref.id
 
     return execute_in_transaction(transaction, user_ref)
