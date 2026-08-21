@@ -3,51 +3,45 @@ import firebase_admin
 from firebase_admin import firestore
 
 def get_db():
-    """جلب اتصال Firestore بشكل آمن عند الطلب لمنع إنهيار التطبيق عند البدء"""
+    """جلب الاتصال الموحد المجهز بملف database.py"""
     try:
+        from database import get_db as main_get_db
+        return main_get_db()
+    except Exception:
         if firebase_admin._apps:
             return firestore.client()
-    except Exception as e:
-        print(f"⚠️ خطأ الاتصال بـ Firestore في withdraw_db: {e}")
     return None
 
 def get_user_doc(user_id):
-    """دالة مساعدة لجلب مستند المستخدم سواء كان المعرف هو اسم المستند أو داخل tg_id"""
+    """دالة لجلب مستند المستخدم بسلاسة"""
     db = get_db()
     if not db:
         return None, None
     
-    str_user_id = str(user_id)
+    str_user_id = str(user_id).strip()
     doc_ref = db.collection('users').document(str_user_id)
     doc = doc_ref.get()
     
     if doc.exists:
         return doc_ref, doc.to_dict()
     
-    # البحث بشرط tg_id كـ string
-    query = db.collection('users').where('tg_id', '==', str_user_id).limit(1).get()
+    query = db.collection('users').where('telegram_id', '==', str_user_id).limit(1).get()
     if query:
         return query[0].reference, query[0].to_dict()
         
-    # البحث بشرط tg_id كـ int
-    if str_user_id.isdigit():
-        query_num = db.collection('users').where('tg_id', '==', int(str_user_id)).limit(1).get()
-        if query_num:
-            return query_num[0].reference, query_num[0].to_dict()
-            
     return None, None
 
 def get_withdraw_config():
-    """قراءة الخطة المعتمدة لمستويات السحب من Firebase وإنشائها تلقائياً إذا لم توجد"""
+    """قراءة وإجبار إنشاء مستند withdraw_config داخل مجلد settings بنفس شكل الصورة"""
     default_config = {
         "rate_coins_per_usd": 100000,
         "fee_percent": 3,
         "levels": [
-            {"level": 1, "type": "auto", "min": 10, "max": 100},
-            {"level": 2, "type": "auto", "min": 500, "max": 1500},
-            {"level": 3, "type": "auto", "min": 10000, "max": 50000},
-            {"level": 4, "type": "manual", "min": 100000, "max": 200000},
-            {"level": 5, "type": "manual", "min": 400000, "max": 800000},
+            {"level": 1, "type": "auto", "min": 10000, "max": 50000},
+            {"level": 2, "type": "auto", "min": 50000, "max": 100000},
+            {"level": 3, "type": "manual", "min": 100000, "max": 250000},
+            {"level": 4, "type": "manual", "min": 250000, "max": 500000},
+            {"level": 5, "type": "manual", "min": 500000, "max": 1000000},
             {"level": 6, "type": "manual", "min": 1000000, "max": 999999999}
         ]
     }
@@ -62,11 +56,12 @@ def get_withdraw_config():
         
         if not doc.exists:
             doc_ref.set(default_config)
+            print("✅ تم إنشاء مستند settings/withdraw_config بنجاح في Firebase!")
             return default_config
         
         data = doc.to_dict() or {}
-        if 'levels' not in data or not isinstance(data.get('levels'), list):
-            doc_ref.set(default_config)
+        if 'levels' not in data:
+            doc_ref.set(default_config, merge=True)
             return default_config
 
         return data
@@ -87,7 +82,7 @@ def has_withdrawn_today(user_id):
         return False
 
 def get_user_full_details(user_id):
-    """جلب تفاصيل المستخدم وفحص كافة خانات الرصيد المتاحة بمرونة"""
+    """جلب تفاصيل المستخدم للواجهة وحساب السحب"""
     try:
         _, data = get_user_doc(user_id)
         if not data:
@@ -108,8 +103,6 @@ def get_user_full_details(user_id):
         except (ValueError, TypeError):
             real_balance = 0.0
 
-        withdraw_count = int(data.get('withdraw_count', 0) or 0)
-
         return {
             "user_id": str(user_id),
             "first_name": data.get('first_name', 'غير محدد'),
@@ -118,7 +111,7 @@ def get_user_full_details(user_id):
             "referrals_count": data.get('referrals_count', 0),
             "balance": real_balance,
             "total_earned": data.get('total_earned', 0),
-            "withdraw_count": withdraw_count,
+            "withdraw_count": int(data.get('withdraw_count', 0) or 0),
             "last_withdraw_date": data.get('last_withdraw_date', 'لم يسحب من قبل'),
             "is_banned": data.get('is_banned', False)
         }
@@ -148,7 +141,7 @@ def process_withdraw_db(user_id, coins_amount, ton_amount, level_info, wallet_ad
             u_data = snapshot.to_dict() or {}
             raw_bal = u_data.get('balance')
             if raw_bal is None:
-                raw_bal = u_data.get('zn_balance', u_data.get('balance_zn', u_data.get('coins', 0.0)))
+                raw_bal = u_data.get('zn_balance', u_data.get('balance_zn', 0.0))
                 
             try:
                 current_bal = float(raw_bal)
