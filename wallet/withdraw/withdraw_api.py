@@ -2,7 +2,13 @@ import os
 import requests
 from flask import Blueprint, request, jsonify
 from firebase_admin import firestore
-from core.ton_price import get_ton_price_usd
+
+# استدعاء سعر TON بحماية في حال عدم وجود الموديول
+try:
+    from core.ton_price import get_ton_price_usd
+except ImportError:
+    def get_ton_price_usd():
+        return 5.50
 
 # استيراد دالتي الاتصال للحماية من أي خطأ في استدعاء اسم الدالة
 try:
@@ -119,20 +125,24 @@ def get_config():
 @withdraw_bp.route('/request', methods=['POST'])
 def handle_withdraw():
     data = request.json or {}
-    user_id = str(data.get('user_id'))
+    user_id = str(data.get('user_id', '')).strip()
     coins = float(data.get('coins', 0))
     wallet_address = data.get('wallet_address')
 
     if not user_id or not wallet_address or coins <= 0:
-        return jsonify({"success": False, "message": "بيانات الطلب غير مكتملة."})
+        return jsonify({"success": False, "message": "بيانات الطلب غير مكتملة."}), 400
 
     if has_withdrawn_today(user_id):
-        return jsonify({"success": False, "message": "مسموح بسحب واحد فقط يومياً."})
+        return jsonify({"success": False, "message": "مسموح بسحب واحد فقط يومياً."}), 400
 
     config = fetch_or_create_withdraw_config()
     user_details = get_user_full_details(user_id)
     if not user_details:
-        return jsonify({"success": False, "message": "المستخدم غير موجود."})
+        return jsonify({"success": False, "message": "المستخدم غير موجود."}), 404
+
+    user_balance = float(user_details.get('balance', 0.0))
+    if coins > user_balance:
+        return jsonify({"success": False, "message": "رصيدك الحالي غير كافٍ لإتمام السحب."}), 400
 
     withdraw_count = int(user_details.get('withdraw_count', 0))
     levels = config.get('levels', DEFAULT_WITHDRAW_CONFIG['levels'])
@@ -141,7 +151,7 @@ def handle_withdraw():
     matched_level = levels[level_index]
 
     if not (matched_level['min'] <= coins <= matched_level['max']):
-        return jsonify({"success": False, "message": f"المبلغ المدخل خارج حدود السحبة الحالية ({matched_level['min']:,} - {matched_level['max']:,} ZN)."})
+        return jsonify({"success": False, "message": f"المبلغ المدخل خارج حدود السحبة الحالية ({matched_level['min']:,} - {matched_level['max']:,} ZN)."}), 400
 
     ton_price = get_ton_price_usd() or 5.50
     fee_coins = coins * (config.get('fee_percent', 3) / 100)
@@ -156,7 +166,7 @@ def handle_withdraw():
     )
 
     if not success:
-        return jsonify({"success": False, "message": msg})
+        return jsonify({"success": False, "message": msg}), 400
 
     if matched_level['type'] == 'auto':
         transfer_status = execute_auto_transfer(wallet_address, net_ton, tx_id, user_id, coins)
@@ -164,11 +174,11 @@ def handle_withdraw():
             return jsonify({
                 "success": True, 
                 "message": "تم تقديم طلب السحب بنجاح! تم وضع الطلب في قائمة الانتظار وسيتم إرسال TON إلى محفظتك تلقائياً."
-            })
+            }), 200
     else:
         notify_admin_for_manual_approval(user_id, coins, net_ton, wallet_address, matched_level['level'], tx_id)
 
-    return jsonify({"success": True, "message": "تم إرسال طلب السحب بنجاح وتسجيل العملية في السجلات."})
+    return jsonify({"success": True, "message": "تم إرسال طلب السحب بنجاح وتسجيل العملية في السجلات."}), 200
 
 @withdraw_bp.route('/admin-approve', methods=['POST'])
 def handle_admin_decision():
@@ -177,21 +187,21 @@ def handle_admin_decision():
     action = data.get('action')
 
     if not tx_id or not action:
-        return jsonify({"success": False, "message": "بيانات الطلب غير مكتملة."})
+        return jsonify({"success": False, "message": "بيانات الطلب غير مكتملة."}), 400
 
     db = _get_firestore_client()
     if not db:
-        return jsonify({"success": False, "message": "خطأ في الاتصال بقاعدة البيانات."})
+        return jsonify({"success": False, "message": "خطأ في الاتصال بقاعدة البيانات."}), 500
 
     tx_ref = db.collection('processed_txs').document(tx_id)
     tx_doc = tx_ref.get()
 
     if not tx_doc.exists:
-        return jsonify({"success": False, "message": "المعاملة غير موجودة."})
+        return jsonify({"success": False, "message": "المعاملة غير موجودة."}), 404
 
     tx_data = tx_doc.to_dict()
     if tx_data.get('status') not in ['pending', 'pending_funds']:
-        return jsonify({"success": False, "message": "تم اتخاذ قرار في هذه المعاملة سابقاً."})
+        return jsonify({"success": False, "message": "تم اتخاذ قرار في هذه المعاملة سابقاً."}), 400
 
     user_ref = db.collection('users').document(str(tx_data['user_id']))
 
@@ -199,11 +209,11 @@ def handle_admin_decision():
         status = execute_auto_transfer(tx_data['wallet'], tx_data['ton_amount'], tx_id, tx_data['user_id'], tx_data['coins'])
         if status is True:
             tx_ref.update({'status': 'completed', 'updated_at': firestore.SERVER_TIMESTAMP})
-            return jsonify({"success": True, "message": "تمت الموافقة والتحويل بنجاح."})
+            return jsonify({"success": True, "message": "تمت الموافقة والتحويل بنجاح."}), 200
         elif status == "pending_funds":
-            return jsonify({"success": False, "message": "تم تعليق المعاملة بسبب عدم كفاية رصيد المحفظة الساخنة."})
+            return jsonify({"success": False, "message": "تم تعليق المعاملة بسبب عدم كفاية رصيد المحفظة الساخنة."}), 400
         else:
-            return jsonify({"success": False, "message": "فشل تنفيذ عملية التحويل الشبكي."})
+            return jsonify({"success": False, "message": "فشل تنفيذ عملية التحويل الشبكي."}), 500
 
     elif action == 'reject':
         user_ref.update({
@@ -211,9 +221,9 @@ def handle_admin_decision():
             'withdraw_count': firestore.Increment(-1)
         })
         tx_ref.update({'status': 'rejected', 'updated_at': firestore.SERVER_TIMESTAMP})
-        return jsonify({"success": True, "message": "تم الرفض وإعادة العملات لرصيد المستخدم."})
+        return jsonify({"success": True, "message": "تم الرفض وإعادة العملات لرصيد المستخدم."}), 200
 
-    return jsonify({"success": False, "message": "إجراء غير معروف."})
+    return jsonify({"success": False, "message": "إجراء غير معروف."}), 400
 
 def check_hot_wallet_balance():
     project_wallet = os.getenv("PROJECT_WALLET")
