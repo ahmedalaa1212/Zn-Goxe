@@ -3,7 +3,6 @@ import firebase_admin
 from firebase_admin import firestore
 
 def safe_get_db():
-    """جلب كائن Firestore بأمان دون إحداث Crash"""
     try:
         if firebase_admin._apps:
             return firestore.client()
@@ -11,62 +10,54 @@ def safe_get_db():
         print(f"⚠️ خطأ الاتصال بـ Firestore في withdraw_db: {e}")
     return None
 
-# تصدير اسم get_db لتوافق الاستيراد المباشر من الموديولات الأخرى
 get_db = safe_get_db
 
 def auto_create_withdraw_config():
-    """إنشاء مستند settings/withdraw_config قسرياً فور تشغيل الملف"""
     db = safe_get_db()
     if not db:
         return
     try:
         doc_ref = db.collection('settings').document('withdraw_config')
         doc = doc_ref.get()
-        if not doc.exists:
-            default_config = {
-                "rate_coins_per_usd": 100000,
-                "fee_percent": 3,
-                "network_fee_gram": 0.0015,
-                "levels": [
-                    {"level": 1, "type": "auto", "min": 10000, "max": 50000},
-                    {"level": 2, "type": "auto", "min": 50000, "max": 100000},
-                    {"level": 3, "type": "manual", "min": 100000, "max": 250000},
-                    {"level": 4, "type": "manual", "min": 250000, "max": 500000},
-                    {"level": 5, "type": "manual", "min": 500000, "max": 1000000},
-                    {"level": 6, "type": "manual", "min": 1000000, "max": 999999999}
-                ]
-            }
-            doc_ref.set(default_config)
-            print("✅ [FIREBASE] تم إنشاء مستند settings/withdraw_config بنجاح في القائمة!")
+        default_config = {
+            "rate_coins_per_usd": 100000,
+            "fee_percent": 3,
+            "network_fee_gram": 0.0015,
+            "levels": [
+                {"level": 1, "type": "auto", "min": 10, "max": 100},
+                {"level": 2, "type": "auto", "min": 500, "max": 1500},
+                {"level": 3, "type": "auto", "min": 10000, "max": 50000},
+                {"level": 4, "type": "manual", "min": 100000, "max": 200000},
+                {"level": 5, "type": "manual", "min": 400000, "max": 800000},
+                {"level": 6, "type": "manual", "min": 1000000, "max": 999999999}
+            ]
+        }
+        doc_ref.set(default_config, merge=True)
+        print("✅ [FIREBASE] تم تحديث مستند settings/withdraw_config بنجاح!")
     except Exception as e:
         print(f"⚠️ [FIREBASE ERROR] تعذر إنشاء مستند withdraw_config: {e}")
 
-# تنفيذ الإنشاء التلقائي فور تحميل الموديول مع حماية من الأخطاء
 try:
     auto_create_withdraw_config()
 except Exception as e:
     print(f"⚠️ تنبيه تشغيل auto_create_withdraw_config: {e}")
 
 def get_user_doc(user_id):
-    """جلب مستند المستخدم بالبحث برقم المستند أو بحقل tg_id/telegram_id/user_id"""
     db = safe_get_db()
     if not db:
         return None, None
     
     str_user_id = str(user_id).strip()
     
-    # 1. البحث باسم المستند المباشر
     doc_ref = db.collection('users').document(str_user_id)
     doc = doc_ref.get()
     if doc.exists:
         return doc_ref, doc.to_dict()
     
-    # 2. البحث بحقل user_id
     q1 = db.collection('users').where('user_id', '==', str_user_id).limit(1).get()
     if q1:
         return q1[0].reference, q1[0].to_dict()
 
-    # 3. البحث بحقل telegram_id (كـ string و int)
     q2 = db.collection('users').where('telegram_id', '==', str_user_id).limit(1).get()
     if q2:
         return q2[0].reference, q2[0].to_dict()
@@ -79,17 +70,16 @@ def get_user_doc(user_id):
     return None, None
 
 def get_withdraw_config():
-    """قراءة خطة السحب من Firebase مع توفير خطة احتياطية"""
     default_config = {
         "rate_coins_per_usd": 100000,
         "fee_percent": 3,
         "network_fee_gram": 0.0015,
         "levels": [
-            {"level": 1, "type": "auto", "min": 10000, "max": 50000},
-            {"level": 2, "type": "auto", "min": 50000, "max": 100000},
-            {"level": 3, "type": "manual", "min": 100000, "max": 250000},
-            {"level": 4, "type": "manual", "min": 250000, "max": 500000},
-            {"level": 5, "type": "manual", "min": 500000, "max": 1000000},
+            {"level": 1, "type": "auto", "min": 10, "max": 100},
+            {"level": 2, "type": "auto", "min": 500, "max": 1500},
+            {"level": 3, "type": "auto", "min": 10000, "max": 50000},
+            {"level": 4, "type": "manual", "min": 100000, "max": 200000},
+            {"level": 5, "type": "manual", "min": 400000, "max": 800000},
             {"level": 6, "type": "manual", "min": 1000000, "max": 999999999}
         ]
     }
@@ -107,17 +97,14 @@ def get_withdraw_config():
             return default_config
         
         data = doc.to_dict() or {}
-        if 'levels' not in data or not isinstance(data.get('levels'), list):
-            doc_ref.set(default_config)
-            return default_config
-
+        data['levels'] = default_config['levels']
+        data['rate_coins_per_usd'] = 100000
         return data
     except Exception as e:
         print(f"⚠️ Exception in get_withdraw_config: {e}")
         return default_config
 
 def has_withdrawn_today(user_id):
-    """فحص الحد اليومي للسحب بناءً على UTC 00:00"""
     try:
         today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         _, user_data = get_user_doc(user_id)
@@ -129,7 +116,6 @@ def has_withdrawn_today(user_id):
         return False
 
 def get_user_full_details(user_id):
-    """جلب تفاصيل المستخدم كاملة للواجهة"""
     try:
         _, data = get_user_doc(user_id)
         if not data:
@@ -169,7 +155,6 @@ def get_user_full_details(user_id):
         return None
 
 def process_withdraw_db(user_id, coins_amount, gram_amount, level_info, wallet_address):
-    """خصم الرصيد وتسجيل المعاملة بـ GRAM في قاعدة البيانات"""
     db = safe_get_db()
     if not db:
         return False, "تعذر الاتصال بقاعدة البيانات.", None
