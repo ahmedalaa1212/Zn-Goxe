@@ -7,6 +7,7 @@
   let withdrawCount = 0;
   let activeLevelIndex = 0;
   let keyboardDebounceTimer = null;
+  let userWallets = {}; // حفظ المحافظ المسترجعة من الفايربيس
 
   function parseInputValue(val) {
     if (val === null || val === undefined) return 0;
@@ -192,7 +193,6 @@
     if (window._keyboardListenersInitialized) return;
     window._keyboardListenersInitialized = true;
 
-    // تهيئة التنسيقات مسبقاً
     toggleKeyboardClass(false);
 
     document.addEventListener('focusin', (e) => {
@@ -227,7 +227,6 @@
       });
     }
   }
-  // -------------------------------------------------------------
 
   function bindInputEvents() {
     const coinsInput = document.getElementById("coins-input");
@@ -238,6 +237,37 @@
       coinsInput.addEventListener("change", calculateWithdraw);
     }
     setupKeyboardListeners();
+  }
+
+  // --- تحديث واجهة المحفظة حسب العملة المحددة ---
+  function updateWalletDisplay() {
+    const hiddenInput = document.getElementById("wallet-address-input");
+    const displayDiv = document.getElementById("wallet-address-display");
+    const connectBtn = document.getElementById("btn-connect-wallet");
+
+    const savedAddr = userWallets[selectedCurrency] || "";
+
+    if (hiddenInput) hiddenInput.value = savedAddr;
+
+    if (savedAddr && savedAddr.length > 0) {
+      if (displayDiv) {
+        displayDiv.innerText = savedAddr;
+        displayDiv.style.display = "block";
+      }
+      if (connectBtn) {
+        connectBtn.innerHTML = "✏️ تعديل المحفظة";
+      }
+    } else {
+      if (displayDiv) {
+        displayDiv.innerText = "";
+        displayDiv.style.display = "none";
+      }
+      if (connectBtn) {
+        connectBtn.innerHTML = "🔗 ربط المحفظة";
+      }
+    }
+
+    calculateWithdraw();
   }
 
   async function initWithdrawPage(userId) {
@@ -265,6 +295,11 @@
 
         userBalance = parseFloat(data.user_balance ?? data.user?.balance) || 0;
         withdrawCount = parseInt(data.withdraw_count) || 0;
+        userWallets = data.wallets || {};
+
+        if (!userWallets[selectedCurrency] && data.last_wallet_address) {
+          userWallets[selectedCurrency] = data.last_wallet_address;
+        }
 
         if (withdrawConfig && withdrawConfig.levels) {
           userLevel = Math.min(withdrawCount + 1, withdrawConfig.levels.length);
@@ -282,7 +317,7 @@
         }
 
         renderLevelsGuide();
-        calculateWithdraw();
+        updateWalletDisplay();
       }
     } catch (err) {
       console.error("خطأ جلب إعدادات السحب:", err);
@@ -335,7 +370,7 @@
     if (label) label.innerText = selectedCurrency;
 
     updatePriceDisplay();
-    calculateWithdraw();
+    updateWalletDisplay();
   }
 
   function setPreset(type) {
@@ -362,17 +397,15 @@
     calculateWithdraw();
   }
 
-  // --- دوال النافذة المنبثقة (Modal) لإدخال المحفظة ---
   function openWalletModal() {
     const modal = document.getElementById("wallet-modal");
     const modalInput = document.getElementById("modal-wallet-input");
     const modalLabel = document.getElementById("modal-coin-label");
-    const hiddenInput = document.getElementById("wallet-address-input");
 
     if (modalLabel) modalLabel.innerText = selectedCurrency;
 
-    if (modalInput && hiddenInput) {
-      modalInput.value = hiddenInput.value;
+    if (modalInput) {
+      modalInput.value = userWallets[selectedCurrency] || "";
     }
 
     if (modal) {
@@ -399,39 +432,65 @@
     }
   }
 
-  function saveWalletAddress() {
+  async function saveWalletAddress() {
     const modalInput = document.getElementById("modal-wallet-input");
-    const hiddenInput = document.getElementById("wallet-address-input");
-    const displayDiv = document.getElementById("wallet-address-display");
-    const connectBtn = document.getElementById("btn-connect-wallet");
+    const saveBtn = document.querySelector("#wallet-modal .btn-save");
+    const val = modalInput ? modalInput.value.trim() : "";
+    const userId = getUserId();
 
-    if (modalInput && hiddenInput) {
-      const val = modalInput.value.trim();
-      hiddenInput.value = val;
-
-      if (val.length > 0) {
-        if (displayDiv) {
-          displayDiv.innerText = val;
-          displayDiv.style.display = "block";
-        }
-        if (connectBtn) {
-          connectBtn.innerHTML = "✏️ تعديل المحفظة";
-        }
-      } else {
-        if (displayDiv) {
-          displayDiv.innerText = "";
-          displayDiv.style.display = "none";
-        }
-        if (connectBtn) {
-          connectBtn.innerHTML = "🔗 ربط المحفظة";
-        }
-      }
+    const addressValidation = validateWalletAddress(val, selectedCurrency);
+    if (!addressValidation.valid) {
+      alert(addressValidation.message);
+      return;
     }
 
-    closeWalletModal();
-    calculateWithdraw();
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.innerText = "جاري الحفظ...";
+    }
+
+    try {
+      let res = await fetch('/api/wallet/withdraw/save-wallet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          currency: selectedCurrency,
+          wallet_address: val
+        })
+      });
+
+      if (res.status === 404) {
+        res = await fetch('/api/withdraw/save-wallet', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: userId,
+            currency: selectedCurrency,
+            wallet_address: val
+          })
+        });
+      }
+
+      const data = await res.json().catch(() => null);
+
+      if (res.ok && data?.success) {
+        userWallets[selectedCurrency] = val;
+        updateWalletDisplay();
+        closeWalletModal();
+      } else {
+        alert(data?.message || "حدث خطأ أثناء حفظ العنوان في قاعدة البيانات.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("تعذر الاتصال بالخادم لحفظ العنوان.");
+    } finally {
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerText = "حفظ";
+      }
+    }
   }
-  // --------------------------------------------------
 
   function calculateWithdraw() {
     const coinsInput = document.getElementById("coins-input");
