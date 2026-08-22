@@ -102,14 +102,14 @@
     }
   }
 
+  // --- الحل الجذري لمشكلة الرعشة الخاصة بالكيبورد وإخفاء القوائم ---
   function setupKeyboardListeners() {
     if (window._keyboardListenersInitialized) return;
     window._keyboardListenersInitialized = true;
 
-    let keyboardTimer = null;
+    let isKeyboardVisible = false;
 
     function hideMenus() {
-      if (keyboardTimer) clearTimeout(keyboardTimer);
       document.body.classList.add('keyboard-active');
       document.documentElement.classList.add('keyboard-active');
       try {
@@ -118,54 +118,63 @@
           window.parent.document.documentElement?.classList.add('keyboard-active');
         }
       } catch (e) {}
-      window.dispatchEvent(new CustomEvent('keyboardchange', { detail: { open: true } }));
     }
 
     function showMenus() {
-      if (keyboardTimer) clearTimeout(keyboardTimer);
-      keyboardTimer = setTimeout(() => {
-        document.body.classList.remove('keyboard-active');
-        document.documentElement.classList.remove('keyboard-active');
-        try {
-          if (window.parent && window.parent !== window && window.parent.document) {
-            window.parent.document.body?.classList.remove('keyboard-active');
-            window.parent.document.documentElement?.classList.remove('keyboard-active');
-          }
-        } catch (e) {}
-        window.dispatchEvent(new CustomEvent('keyboardchange', { detail: { open: false } }));
-      }, 150);
+      document.body.classList.remove('keyboard-active');
+      document.documentElement.classList.remove('keyboard-active');
+      try {
+        if (window.parent && window.parent !== window && window.parent.document) {
+          window.parent.document.body?.classList.remove('keyboard-active');
+          window.parent.document.documentElement?.classList.remove('keyboard-active');
+        }
+      } catch (e) {}
     }
 
+    // المراقبة الدقيقة لارتفاع الشاشة لمنع التضارب أثناء الحركة (Animation)
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', () => {
+        const heightDiff = window.innerHeight - window.visualViewport.height;
+        
+        // إذا كان الفرق أكبر من 100، الكيبورد بالتأكيد مفتوح
+        if (heightDiff > 100) {
+          isKeyboardVisible = true;
+          hideMenus();
+        } 
+        // إذا كان الفرق أقل من 50، الكيبورد مقفول تماماً وتم انتهاء حركة الأنيميشن
+        else if (heightDiff < 50) {
+          if (isKeyboardVisible) {
+            isKeyboardVisible = false;
+            showMenus();
+            // نأمر بإغلاق التركيز (blur) هنا فقط عشان ما يسببش الرعشة أثناء الفتح
+            if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+              document.activeElement.blur();
+            }
+          }
+        }
+      });
+    }
+
+    // إخفاء القوائم فوراً عند الضغط على الحقل كسرعة استجابة إضافية
     document.addEventListener('focusin', (e) => {
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
-        // لا يتم إخفاء القوائم إذا كان الحقل للقراءة فقط
         if (!e.target.readOnly) {
+          isKeyboardVisible = true;
           hideMenus();
         }
       }
     });
 
-    document.addEventListener('focusout', () => {
-      showMenus();
-    });
-
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', () => {
-        const heightDiff = window.innerHeight - window.visualViewport.height;
-        if (heightDiff > 150) {
-          // الكيبورد مفتوح
-          hideMenus();
-        } else {
-          // الكيبورد مقفول
-          showMenus();
-          // إجبار الحقل على فقدان التركيز (blur) بمجرد نزول الكيبورد لحل مشكلة اختفاء القوائم
-          if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
-            document.activeElement.blur();
-          }
-        }
+    // تم إزالة مستمع focusout لتجنب الرعشة؛ وتم تفويض الإظهار إلى visualViewport أعلاه
+    if (!window.visualViewport) {
+      // فقط للمتصفحات القديمة جداً
+      document.addEventListener('focusout', () => {
+        isKeyboardVisible = false;
+        setTimeout(showMenus, 150);
       });
     }
   }
+  // -------------------------------------------------------------
 
   function bindInputEvents() {
     const coinsInput = document.getElementById("coins-input");
