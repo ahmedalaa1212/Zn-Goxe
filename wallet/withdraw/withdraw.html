@@ -112,7 +112,8 @@
         <span>عدد العملات المحدد للسحب (ZN):</span>
         <span id="user-balance-display" class="user-bal-tag">رصيدك: -- ZN</span>
       </div>
-      <input type="number" id="coins-input" class="w-input" oninput="withdrawModule.calculateWithdraw()" placeholder="أدخل أو اختر الكمية" value="" />
+      <!-- تم إضافة readonly هنا لمنع الكتابة اليدوية -->
+      <input type="number" id="coins-input" class="w-input" placeholder="استخدم الأزرار بالأسفل لتحديد الكمية" value="" readonly />
       
       <div class="preset-buttons-grid">
         <button type="button" class="btn-preset" onclick="withdrawModule.setPreset('min')">حد أدنى</button>
