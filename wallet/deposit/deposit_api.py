@@ -15,13 +15,13 @@ deposit_bp = Blueprint('deposit', __name__)
 
 # ذاكرة مؤقتة لتخزين سعر العملة لمنع الحظر وتقليل طلبات الشبكة
 _ton_price_cache = {
-    'price': 5.00,  # قيمة احتياطية بدائية
+    'price': 1.4500,  # قيمة احتياطية محدثة
     'timestamp': 0
 }
 
 def get_live_ton_price():
     """
-    جلب سعر عملة TON الحقيقي واللحظي بالدولار من مصادر متعددة موثوقة مع حماية من الحظر.
+    جلب سعر عملة TON الحقيقي واللحظي بالدولار من مصادر متعددة موثوقة مع حماية كاملة من الحظر.
     """
     global _ton_price_cache
     now = time.time()
@@ -36,12 +36,12 @@ def get_live_ton_price():
         ("https://tonapi.io/v2/rates?tokens=ton&currencies=usd", lambda d: float(d['rates']['TON']['prices']['USD'])),
         # 2. منصة Binance
         ("https://api.binance.com/api/v3/ticker/price?symbol=TONUSDT", lambda d: float(d['price'])),
-        # 3. CoinGecko
-        ("https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd", lambda d: float(d['the-open-network']['usd'])),
+        # 3. منصة OKX
+        ("https://www.okx.com/api/v5/market/ticker?instId=TON-USDT", lambda d: float(d['data'][0]['last'])),
         # 4. CoinCap
         ("https://api.coincap.io/v2/assets/the-open-network", lambda d: float(d['data']['priceUsd'])),
-        # 5. منصة OKX
-        ("https://www.okx.com/api/v5/market/ticker?instId=TON-USDT", lambda d: float(d['data'][0]['last']))
+        # 5. CoinGecko
+        ("https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd", lambda d: float(d['the-open-network']['usd']))
     ]
 
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
