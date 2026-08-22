@@ -131,22 +131,18 @@
       } catch (e) {}
     }
 
-    // المراقبة الدقيقة لارتفاع الشاشة لمنع التضارب أثناء الحركة (Animation)
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', () => {
         const heightDiff = window.innerHeight - window.visualViewport.height;
         
-        // إذا كان الفرق أكبر من 100، الكيبورد بالتأكيد مفتوح
         if (heightDiff > 100) {
           isKeyboardVisible = true;
           hideMenus();
         } 
-        // إذا كان الفرق أقل من 50، الكيبورد مقفول تماماً وتم انتهاء حركة الأنيميشن
         else if (heightDiff < 50) {
           if (isKeyboardVisible) {
             isKeyboardVisible = false;
             showMenus();
-            // نأمر بإغلاق التركيز (blur) هنا فقط عشان ما يسببش الرعشة أثناء الفتح
             if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
               document.activeElement.blur();
             }
@@ -155,7 +151,6 @@
       });
     }
 
-    // إخفاء القوائم فوراً عند الضغط على الحقل كسرعة استجابة إضافية
     document.addEventListener('focusin', (e) => {
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
         if (!e.target.readOnly) {
@@ -165,9 +160,7 @@
       }
     });
 
-    // تم إزالة مستمع focusout لتجنب الرعشة؛ وتم تفويض الإظهار إلى visualViewport أعلاه
     if (!window.visualViewport) {
-      // فقط للمتصفحات القديمة جداً
       document.addEventListener('focusout', () => {
         isKeyboardVisible = false;
         setTimeout(showMenus, 150);
@@ -184,13 +177,7 @@
       coinsInput.addEventListener("keyup", calculateWithdraw);
       coinsInput.addEventListener("change", calculateWithdraw);
     }
-
-    const walletInput = document.getElementById("wallet-address-input");
-    if (walletInput && !walletInput.dataset.bound) {
-      walletInput.dataset.bound = "true";
-      walletInput.addEventListener("input", calculateWithdraw);
-    }
-
+    // تمت إزالة مستمع المحفظة من هنا لأنه أصبح يعتمد على زر الحفظ في النافذة المنبثقة
     setupKeyboardListeners();
   }
 
@@ -316,9 +303,71 @@
     calculateWithdraw();
   }
 
+  // --- دوال النافذة المنبثقة (Modal) لإدخال المحفظة ---
+  function openWalletModal() {
+    const modal = document.getElementById("wallet-modal");
+    const modalInput = document.getElementById("modal-wallet-input");
+    const modalLabel = document.getElementById("modal-coin-label");
+    const hiddenInput = document.getElementById("wallet-address-input");
+
+    if (modalLabel) modalLabel.innerText = selectedCurrency;
+    
+    // وضع العنوان المخزن مسبقاً (إن وجد) لتسهيل التعديل
+    if (modalInput && hiddenInput) {
+      modalInput.value = hiddenInput.value; 
+    }
+    
+    if (modal) {
+      modal.classList.add("active");
+      // وضع التركيز تلقائياً على حقل الإدخال
+      setTimeout(() => { if(modalInput) modalInput.focus(); }, 100);
+    }
+  }
+
+  function closeWalletModal() {
+    const modal = document.getElementById("wallet-modal");
+    if (modal) {
+      modal.classList.remove("active");
+    }
+  }
+
+  function saveWalletAddress() {
+    const modalInput = document.getElementById("modal-wallet-input");
+    const hiddenInput = document.getElementById("wallet-address-input");
+    const displayDiv = document.getElementById("wallet-address-display");
+    const connectBtn = document.getElementById("btn-connect-wallet");
+
+    if (modalInput && hiddenInput) {
+      const val = modalInput.value.trim();
+      hiddenInput.value = val; // تحديث الحقل المخفي
+
+      if (val.length > 0) {
+        if (displayDiv) {
+          displayDiv.innerText = val;
+          displayDiv.style.display = "block"; // إظهار العنوان المكتوب
+        }
+        if (connectBtn) {
+          connectBtn.innerHTML = "✏️ تعديل المحفظة"; // تغيير نص الزر
+        }
+      } else {
+        if (displayDiv) {
+          displayDiv.innerText = "";
+          displayDiv.style.display = "none";
+        }
+        if (connectBtn) {
+          connectBtn.innerHTML = "🔗 ربط المحفظة";
+        }
+      }
+    }
+
+    closeWalletModal();
+    calculateWithdraw(); // إعادة حساب وتفعيل زر السحب
+  }
+  // --------------------------------------------------
+
   function calculateWithdraw() {
     const coinsInput = document.getElementById("coins-input");
-    const walletInput = document.getElementById("wallet-address-input");
+    const walletInput = document.getElementById("wallet-address-input"); // يقرأ الآن من الحقل المخفي
     const coinsInputVal = parseInputValue(coinsInput?.value);
     const walletAddress = walletInput?.value?.trim() || "";
     const btn = document.getElementById("confirm-withdraw-btn");
@@ -399,7 +448,7 @@
     const btn = document.getElementById("confirm-withdraw-btn");
 
     if (!walletAddress) {
-      alert("يرجى إدخال عنوان المحفظة أو البريد الإلكتروني أولاً!");
+      alert("يرجى ربط عنوان المحفظة أو البريد الإلكتروني أولاً!");
       return;
     }
 
@@ -492,7 +541,10 @@
     calculateWithdraw: calculateWithdraw,
     submitWithdrawal: submitWithdrawal,
     validateWalletAddress: validateWalletAddress,
-    setupKeyboardListeners: setupKeyboardListeners
+    setupKeyboardListeners: setupKeyboardListeners,
+    openWalletModal: openWalletModal,
+    closeWalletModal: closeWalletModal,
+    saveWalletAddress: saveWalletAddress
   };
 
   window.withdrawModule = withdrawModule;
