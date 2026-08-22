@@ -25,7 +25,6 @@
     );
   }
 
-  // دالة التحقق اللحظي من صحة عنوان المحفظة أو الايميل في الواجهة
   function validateWalletAddress(address, currency) {
     if (!address || typeof address !== 'string') {
       return { valid: false, message: "يرجى إدخال عنوان المحفظة أو البريد الإلكتروني." };
@@ -35,7 +34,6 @@
       return { valid: false, message: "يرجى إدخال عنوان المحفظة أو البريد الإلكتروني." };
     }
 
-    // 1. فحص البريد الإلكتروني (مقبول دائماً لـ FaucetPay)
     const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     if (emailRegex.test(addr)) {
       return { valid: true, message: "" };
@@ -43,7 +41,6 @@
 
     const curr = (currency || selectedCurrency || "DOGE").toUpperCase();
 
-    // 2. فحص صياغة العناوين بالشبكات
     if (curr === "DOGE") {
       if (/^D[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr)) {
         return { valid: true, message: "" };
@@ -105,17 +102,11 @@
     }
   }
 
-  // إدارة إخفاء القوائم عند فتح الكيبورد وإظهارها بنعومة عند إغلاقه
   function setupKeyboardListeners() {
     if (window._keyboardListenersInitialized) return;
     window._keyboardListenersInitialized = true;
 
     let keyboardTimer = null;
-
-    function isInputFocused() {
-      const active = document.activeElement;
-      return active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && active.type !== 'button' && active.type !== 'submit';
-    }
 
     function hideMenus() {
       if (keyboardTimer) clearTimeout(keyboardTimer);
@@ -133,24 +124,24 @@
     function showMenus() {
       if (keyboardTimer) clearTimeout(keyboardTimer);
       keyboardTimer = setTimeout(() => {
-        if (!isInputFocused()) {
-          document.body.classList.remove('keyboard-active');
-          document.documentElement.classList.remove('keyboard-active');
-          try {
-            if (window.parent && window.parent !== window && window.parent.document) {
-              window.parent.document.body?.classList.remove('keyboard-active');
-              window.parent.document.documentElement?.classList.remove('keyboard-active');
-            }
-          } catch (e) {}
-          window.dispatchEvent(new CustomEvent('keyboardchange', { detail: { open: false } }));
-        }
+        document.body.classList.remove('keyboard-active');
+        document.documentElement.classList.remove('keyboard-active');
+        try {
+          if (window.parent && window.parent !== window && window.parent.document) {
+            window.parent.document.body?.classList.remove('keyboard-active');
+            window.parent.document.documentElement?.classList.remove('keyboard-active');
+          }
+        } catch (e) {}
+        window.dispatchEvent(new CustomEvent('keyboardchange', { detail: { open: false } }));
       }, 150);
     }
 
-    // الاعتماد على event delegation لمسك كافة الحقول حتى لو أضيفت ديناميكياً
     document.addEventListener('focusin', (e) => {
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
-        hideMenus();
+        // لا يتم إخفاء القوائم إذا كان الحقل للقراءة فقط
+        if (!e.target.readOnly) {
+          hideMenus();
+        }
       }
     });
 
@@ -158,17 +149,18 @@
       showMenus();
     });
 
-    // متابعة تغير أبعاد الشاشة دون عمل blur إجباري
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', () => {
         const heightDiff = window.innerHeight - window.visualViewport.height;
         if (heightDiff > 150) {
-          if (isInputFocused()) {
-            hideMenus();
-          }
+          // الكيبورد مفتوح
+          hideMenus();
         } else {
-          if (!isInputFocused()) {
-            showMenus();
+          // الكيبورد مقفول
+          showMenus();
+          // إجبار الحقل على فقدان التركيز (blur) بمجرد نزول الكيبورد لحل مشكلة اختفاء القوائم
+          if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+            document.activeElement.blur();
           }
         }
       });
@@ -219,7 +211,6 @@
         userBalance = parseFloat(data.user_balance ?? data.user?.balance) || 0;
         withdrawCount = parseInt(data.withdraw_count) || 0;
 
-        // حساب مستوى المستخدم الفعلي بناءً على عدد السحوبات
         if (withdrawConfig && withdrawConfig.levels) {
           userLevel = Math.min(withdrawCount + 1, withdrawConfig.levels.length);
           activeLevelIndex = Math.min(withdrawCount, withdrawConfig.levels.length - 1);
@@ -352,17 +343,14 @@
       levelBadge.style.color = "#38bdf8";
     }
 
-    // معادلة تحويل ZN إلى USD (100,000 ZN = $1.00 USD)
     const usdRate = withdrawConfig.rate_coins_per_usd || 100000;
     const grossUsdValue = coinsInputVal / usdRate;
 
-    // خصم الرسوم (3%)
     const feePercent = withdrawConfig.fee_percent || 3;
     const feeCoins = coinsInputVal * (feePercent / 100);
     const netCoins = coinsInputVal - feeCoins;
     const netUsd = netCoins / usdRate;
     
-    // الصافي النهائي للعملة المشفرة المستلمة
     const finalNetCrypto = netUsd / priceUSD;
     const decimals = selectedCurrency === 'PEPE' ? 2 : 8;
 
@@ -406,7 +394,6 @@
       return;
     }
 
-    // فحص صحة العنوان قبل إرسال الطلب
     const addressValidation = validateWalletAddress(walletAddress, selectedCurrency);
     if (!addressValidation.valid) {
       alert(addressValidation.message);
