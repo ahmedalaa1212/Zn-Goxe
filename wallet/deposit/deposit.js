@@ -151,10 +151,10 @@ window.depositModule = (function () {
                     tonPriceUsd = parseFloat(data.ton_price);
                     effectiveTonPrice = parseFloat(data.effective_ton_price || (tonPriceUsd / 1.06));
                     
-                    // تحديث السعر اللحظي على الشاشة بـ 4 أرقام عشرية
+                    // تحديث السعر المعروض على الشاشة بالسعر المحسوب مع الـ 6% حماية بـ 4 أرقام عشرية
                     const priceElem = document.getElementById('ton-live-price');
                     if (priceElem) {
-                        priceElem.innerText = `$${tonPriceUsd.toFixed(4)}`;
+                        priceElem.innerText = `$${effectiveTonPrice.toFixed(4)}`;
                     }
 
                     if (data.packages && data.packages.length > 0) {
