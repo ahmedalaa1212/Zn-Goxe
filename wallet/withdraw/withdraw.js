@@ -105,7 +105,7 @@
     }
   }
 
-  // إدارة إخفاء القوائم عند فتح الكيبورد في الهاتف
+  // إدارة إخفاء القوائم عند فتح الكيبورد وإظهارها فوراً عند إغلاقه
   function setupKeyboardListeners() {
     const inputs = document.querySelectorAll('input, textarea');
 
@@ -139,11 +139,11 @@
         input.addEventListener('focus', hideMenus);
         input.addEventListener('blur', () => {
           setTimeout(() => {
-            const active = document.activeElement;
-            if (!active || (active.tagName !== 'INPUT' && active.tagName !== 'TEXTAREA')) {
+            const isKeyboardVisible = window.visualViewport ? (window.innerHeight - window.visualViewport.height > 150) : false;
+            if (!isKeyboardVisible) {
               showMenus();
             }
-          }, 150);
+          }, 100);
         });
       }
     });
@@ -155,10 +155,11 @@
         if (isKeyboardVisible) {
           hideMenus();
         } else {
-          const active = document.activeElement;
-          if (!active || (active.tagName !== 'INPUT' && active.tagName !== 'TEXTAREA')) {
-            showMenus();
+          // بمجرد انخفاض/إغلاق الكيبورد، قم بإلغاء التحديد (blur) فوراً عن الخانة وإظهار القوائم
+          if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+            document.activeElement.blur();
           }
+          showMenus();
         }
       });
     }
