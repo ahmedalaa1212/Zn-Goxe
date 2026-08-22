@@ -105,11 +105,20 @@
     }
   }
 
-  // إدارة إخفاء القوائم عند فتح الكيبورد وإظهارها فوراً عند إغلاقه
+  // إدارة إخفاء القوائم عند فتح الكيبورد وإظهارها بنعومة عند إغلاقه
   function setupKeyboardListeners() {
-    const inputs = document.querySelectorAll('input, textarea');
+    if (window._keyboardListenersInitialized) return;
+    window._keyboardListenersInitialized = true;
+
+    let keyboardTimer = null;
+
+    function isInputFocused() {
+      const active = document.activeElement;
+      return active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && active.type !== 'button' && active.type !== 'submit';
+    }
 
     function hideMenus() {
+      if (keyboardTimer) clearTimeout(keyboardTimer);
       document.body.classList.add('keyboard-active');
       document.documentElement.classList.add('keyboard-active');
       try {
@@ -122,44 +131,45 @@
     }
 
     function showMenus() {
-      document.body.classList.remove('keyboard-active');
-      document.documentElement.classList.remove('keyboard-active');
-      try {
-        if (window.parent && window.parent !== window && window.parent.document) {
-          window.parent.document.body?.classList.remove('keyboard-active');
-          window.parent.document.documentElement?.classList.remove('keyboard-active');
+      if (keyboardTimer) clearTimeout(keyboardTimer);
+      keyboardTimer = setTimeout(() => {
+        if (!isInputFocused()) {
+          document.body.classList.remove('keyboard-active');
+          document.documentElement.classList.remove('keyboard-active');
+          try {
+            if (window.parent && window.parent !== window && window.parent.document) {
+              window.parent.document.body?.classList.remove('keyboard-active');
+              window.parent.document.documentElement?.classList.remove('keyboard-active');
+            }
+          } catch (e) {}
+          window.dispatchEvent(new CustomEvent('keyboardchange', { detail: { open: false } }));
         }
-      } catch (e) {}
-      window.dispatchEvent(new CustomEvent('keyboardchange', { detail: { open: false } }));
+      }, 150);
     }
 
-    inputs.forEach(input => {
-      if (!input.dataset.keyboardBound) {
-        input.dataset.keyboardBound = "true";
-        input.addEventListener('focus', hideMenus);
-        input.addEventListener('blur', () => {
-          setTimeout(() => {
-            const isKeyboardVisible = window.visualViewport ? (window.innerHeight - window.visualViewport.height > 150) : false;
-            if (!isKeyboardVisible) {
-              showMenus();
-            }
-          }, 100);
-        });
+    // الاعتماد على event delegation لمسك كافة الحقول حتى لو أضيفت ديناميكياً
+    document.addEventListener('focusin', (e) => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+        hideMenus();
       }
     });
 
-    if (window.visualViewport && !window._keyboardViewportBound) {
-      window._keyboardViewportBound = true;
+    document.addEventListener('focusout', () => {
+      showMenus();
+    });
+
+    // متابعة تغير أبعاد الشاشة دون عمل blur إجباري
+    if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', () => {
-        const isKeyboardVisible = window.innerHeight - window.visualViewport.height > 150;
-        if (isKeyboardVisible) {
-          hideMenus();
-        } else {
-          // بمجرد انخفاض/إغلاق الكيبورد، قم بإلغاء التحديد (blur) فوراً عن الخانة وإظهار القوائم
-          if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
-            document.activeElement.blur();
+        const heightDiff = window.innerHeight - window.visualViewport.height;
+        if (heightDiff > 150) {
+          if (isInputFocused()) {
+            hideMenus();
           }
-          showMenus();
+        } else {
+          if (!isInputFocused()) {
+            showMenus();
+          }
         }
       });
     }
@@ -432,7 +442,6 @@
         })
       });
 
-      // إذا كانت القناة القديمة مسجلة كـ fallback
       if (res.status === 404) {
         res = await fetch('/api/withdraw/request', {
           method: 'POST',
@@ -448,7 +457,6 @@
         });
       }
 
-      // قراءة نص الرسالة القادمة من السيرفر مباشرة
       const data = await res.json().catch(() => null);
 
       if (data && data.message) {
