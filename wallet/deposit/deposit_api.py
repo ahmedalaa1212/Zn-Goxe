@@ -13,35 +13,38 @@ from .deposit_db import (
 
 deposit_bp = Blueprint('deposit', __name__)
 
-# ذاكرة مؤقتة لتخزين سعر العملة لمنع الحظر وتقليل طلبات الشبكة
+# نسبة هامش الأمان للإيداع (6% لصالح التطبيق للحماية من تقلبات السعر)
+DEPOSIT_SAFETY_MARGIN = 0.06
+
+# ذاكرة مؤقتة لتخزين سعر العملة لمنع الحظر وتقليل طلبات الشبكة (30 ثانية)
 _ton_price_cache = {
-    'price': 1.4500,  # قيمة احتياطية محدثة
+    'price': 1.4500,  # قيمة احتياطية مبدئية
     'timestamp': 0
 }
 
 def get_live_ton_price():
     """
-    جلب سعر عملة TON الحقيقي واللحظي بالدولار من مصادر متعددة موثوقة مع حماية كاملة من الحظر.
+    جلب سعر عملة TON الحقيقي واللحظي بالدولار من 5 مصادر موثوقة مع كاش 30 ثانية لحماية IP السيرفر.
     """
     global _ton_price_cache
     now = time.time()
     
-    # إرجاع السعر المخزن إذا لم تتجاوز المدة 60 ثانية لتجنب تجاوز حد الطلبات (Rate Limit)
-    if now - _ton_price_cache['timestamp'] < 60 and _ton_price_cache['price'] > 0:
+    # تحديث كل 30 ثانية ليكون لحظياً دون الوصول للحد الأقصى للطلبات (Rate Limit)
+    if now - _ton_price_cache['timestamp'] < 30 and _ton_price_cache['price'] > 0:
         return _ton_price_cache['price']
 
-    # قائمة المصادر الموثوقة بالترتيب
+    # مصادر السعر الموثوقة بالترتيب
     sources = [
         # 1. TonAPI الرسمية
         ("https://tonapi.io/v2/rates?tokens=ton&currencies=usd", lambda d: float(d['rates']['TON']['prices']['USD'])),
         # 2. منصة Binance
         ("https://api.binance.com/api/v3/ticker/price?symbol=TONUSDT", lambda d: float(d['price'])),
-        # 3. منصة OKX
-        ("https://www.okx.com/api/v5/market/ticker?instId=TON-USDT", lambda d: float(d['data'][0]['last'])),
+        # 3. CoinGecko
+        ("https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd", lambda d: float(d['the-open-network']['usd'])),
         # 4. CoinCap
         ("https://api.coincap.io/v2/assets/the-open-network", lambda d: float(d['data']['priceUsd'])),
-        # 5. CoinGecko
-        ("https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd", lambda d: float(d['the-open-network']['usd']))
+        # 5. منصة OKX
+        ("https://www.okx.com/api/v5/market/ticker?instId=TON-USDT", lambda d: float(d['data'][0]['last']))
     ]
 
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
@@ -58,7 +61,7 @@ def get_live_ton_price():
                         _ton_price_cache['timestamp'] = now
                         return _ton_price_cache['price']
         except Exception:
-            continue  # في حال فشل أو حظر أحد المصادر ينتقل تلقائياً للمصدر التالي
+            continue  # في حال حظر أو تعطل أحد المصادر ينتقل فوراً للمصدر التالي
 
     return _ton_price_cache['price']
 
@@ -71,13 +74,18 @@ def get_packages():
     try:
         packages = get_active_deposit_packages()
         official_wallet = get_official_ton_wallet()
-        live_ton_price = get_live_ton_price()
         
+        real_ton_price = get_live_ton_price()
+        # حساب السعر المحسوب للإيداع بتطبيق هامش الأمان 6%
+        effective_ton_price = round(real_ton_price * (1.0 - DEPOSIT_SAFETY_MARGIN), 4)
+
         response = make_response(jsonify({
             'success': True,
             'packages': packages,
             'official_wallet': official_wallet,
-            'ton_price': live_ton_price
+            'ton_price': real_ton_price,             # السعر الحقيقي للعرض (مثال: 1.4490)
+            'effective_ton_price': effective_ton_price, # السعر المطبق للحساب مع نسبة الأمان
+            'safety_margin_percent': 6
         }))
         
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
@@ -102,13 +110,9 @@ def prepare_ton_pay():
         data = request.get_json(silent=True) or request.form or {}
         package_id = data.get('package_id')
         
-        live_price = get_live_ton_price()
-        try:
-            ton_price = float(data.get('ton_price', 0))
-            if ton_price <= 0:
-                ton_price = live_price
-        except (ValueError, TypeError):
-            ton_price = live_price
+        real_price = get_live_ton_price()
+        # تطبيق هامش الأمان 6% لضمان أمان صاحب التطبيق
+        effective_price = round(real_price * (1.0 - DEPOSIT_SAFETY_MARGIN), 4)
 
         user_id = request.headers.get('X-Telegram-User-Id') or data.get('user_id') or 0
         try:
@@ -126,7 +130,8 @@ def prepare_ton_pay():
             except (ValueError, TypeError):
                 usdt_amount = 0.5
 
-        ton_amount = round(usdt_amount / ton_price, 4)
+        # حساب كمية الـ TON المطلوبة بناءً على سعر الأمان
+        ton_amount = round(usdt_amount / effective_price, 4)
         nano_ton = int(round(ton_amount * 1e9))
 
         wallet_address = get_official_ton_wallet()
@@ -140,7 +145,8 @@ def prepare_ton_pay():
             'package_id': package_id,
             'usdt_amount': usdt_amount,
             'ton_amount': ton_amount,
-            'ton_price': ton_price,
+            'ton_price': real_price,
+            'effective_price': effective_price,
             'nano_ton': nano_ton,
             'memo': payload_memo,
             'payload_memo': payload_memo,
