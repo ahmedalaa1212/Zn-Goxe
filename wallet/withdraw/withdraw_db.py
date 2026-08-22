@@ -20,7 +20,6 @@ def auto_create_withdraw_config():
         doc_ref = db.collection('settings').document('withdraw_config')
         doc = doc_ref.get()
         if not doc.exists:
-            # التهيئة الافتراضية بنظام FaucetPay والعملات الـ 4 والمستويات الـ 9
             default_config = {
                 "rate_coins_per_usd": 100000,
                 "fee_percent": 3,
@@ -145,8 +144,10 @@ def get_user_full_details(user_id):
             real_balance = 0.0
 
         withdraw_count = int(data.get('withdraw_count', 0) or 0)
-        # تعديل السقف ليتناسب مع الـ 9 مستويات
         current_level = min(withdraw_count + 1, 9)
+
+        raw_wallets = data.get('wallets')
+        wallets = raw_wallets if isinstance(raw_wallets, dict) else {}
 
         return {
             "user_id": str(user_id),
@@ -159,10 +160,34 @@ def get_user_full_details(user_id):
             "withdraw_count": withdraw_count,
             "current_level": current_level,
             "last_withdraw_date": data.get('last_withdraw_date', 'لم يسحب من قبل'),
-            "is_banned": data.get('is_banned', False)
+            "is_banned": data.get('is_banned', False),
+            "wallets": wallets,
+            "last_wallet_address": data.get('last_wallet_address', '')
         }
     except Exception:
         return None
+
+def save_user_wallet(user_id, currency, wallet_address):
+    db = safe_get_db()
+    if not db:
+        return False, "تعذر الاتصال بقاعدة البيانات."
+
+    try:
+        user_ref, _ = get_user_doc(user_id)
+        if not user_ref:
+            return False, "المستخدم غير موجود في قاعدة البيانات."
+
+        curr_key = currency.upper()
+        user_ref.set({
+            'wallets': {
+                curr_key: wallet_address
+            },
+            'last_wallet_address': wallet_address
+        }, merge=True)
+        return True, "تم حفظ المحفظة بنجاح."
+    except Exception as e:
+        print(f"⚠️ خطأ حفظ المحفظة في Firestore: {e}")
+        return False, f"خطأ أثناء الحفظ: {str(e)}"
 
 def process_withdraw_db(user_id, coins_amount, currency, wallet_address, crypto_net_amount, level_info):
     db = safe_get_db()
@@ -174,7 +199,6 @@ def process_withdraw_db(user_id, coins_amount, currency, wallet_address, crypto_
         if not user_ref or not user_data:
             return False, "المستخدم غير موجود", None
 
-        # التحقق من الشرط اليومي
         today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         if user_data.get('last_withdraw_date') == today_utc:
             return False, "يسمح بعملية سحب واحدة فقط يومياً. حاول بعد 00:00 UTC.", None
@@ -200,11 +224,13 @@ def process_withdraw_db(user_id, coins_amount, currency, wallet_address, crypto_
             if current_bal < coins_amount:
                 return False, "رصيدك الحالي غير كافٍ.", None
 
-            # خصم الرصيد وتحديث تاريخ وعدد السحوبات
+            curr_key = currency.upper()
+
             txn.update(ref, {
                 'balance': firestore.Increment(-coins_amount),
                 'last_withdraw_date': today_utc,
                 'last_wallet_address': wallet_address,
+                f'wallets.{curr_key}': wallet_address,
                 'withdraw_count': firestore.Increment(1)
             })
 
