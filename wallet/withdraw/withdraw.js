@@ -105,6 +105,65 @@
     }
   }
 
+  // إدارة إخفاء القوائم عند فتح الكيبورد في الهاتف
+  function setupKeyboardListeners() {
+    const inputs = document.querySelectorAll('input, textarea');
+
+    function hideMenus() {
+      document.body.classList.add('keyboard-active');
+      document.documentElement.classList.add('keyboard-active');
+      try {
+        if (window.parent && window.parent !== window && window.parent.document) {
+          window.parent.document.body?.classList.add('keyboard-active');
+          window.parent.document.documentElement?.classList.add('keyboard-active');
+        }
+      } catch (e) {}
+      window.dispatchEvent(new CustomEvent('keyboardchange', { detail: { open: true } }));
+    }
+
+    function showMenus() {
+      document.body.classList.remove('keyboard-active');
+      document.documentElement.classList.remove('keyboard-active');
+      try {
+        if (window.parent && window.parent !== window && window.parent.document) {
+          window.parent.document.body?.classList.remove('keyboard-active');
+          window.parent.document.documentElement?.classList.remove('keyboard-active');
+        }
+      } catch (e) {}
+      window.dispatchEvent(new CustomEvent('keyboardchange', { detail: { open: false } }));
+    }
+
+    inputs.forEach(input => {
+      if (!input.dataset.keyboardBound) {
+        input.dataset.keyboardBound = "true";
+        input.addEventListener('focus', hideMenus);
+        input.addEventListener('blur', () => {
+          setTimeout(() => {
+            const active = document.activeElement;
+            if (!active || (active.tagName !== 'INPUT' && active.tagName !== 'TEXTAREA')) {
+              showMenus();
+            }
+          }, 150);
+        });
+      }
+    });
+
+    if (window.visualViewport && !window._keyboardViewportBound) {
+      window._keyboardViewportBound = true;
+      window.visualViewport.addEventListener('resize', () => {
+        const isKeyboardVisible = window.innerHeight - window.visualViewport.height > 150;
+        if (isKeyboardVisible) {
+          hideMenus();
+        } else {
+          const active = document.activeElement;
+          if (!active || (active.tagName !== 'INPUT' && active.tagName !== 'TEXTAREA')) {
+            showMenus();
+          }
+        }
+      });
+    }
+  }
+
   function bindInputEvents() {
     const coinsInput = document.getElementById("coins-input");
     if (coinsInput && !coinsInput.dataset.bound) {
@@ -119,6 +178,8 @@
       walletInput.dataset.bound = "true";
       walletInput.addEventListener("input", calculateWithdraw);
     }
+
+    setupKeyboardListeners();
   }
 
   async function initWithdrawPage(userId) {
@@ -419,12 +480,14 @@
     init: function () {
       const userId = getUserId();
       initWithdrawPage(userId);
+      setupKeyboardListeners();
     },
     selectCurrency: selectCurrency,
     setPreset: setPreset,
     calculateWithdraw: calculateWithdraw,
     submitWithdrawal: submitWithdrawal,
-    validateWalletAddress: validateWalletAddress
+    validateWalletAddress: validateWalletAddress,
+    setupKeyboardListeners: setupKeyboardListeners
   };
 
   window.withdrawModule = withdrawModule;
