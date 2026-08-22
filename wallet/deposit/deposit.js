@@ -1,11 +1,12 @@
 window.depositModule = (function () {
-    let realTonPriceUsd = 0.0;
-    let effectiveTonPriceUsd = 0.0;
+    let tonPriceUsd = 1.4500;
+    let effectiveTonPrice = 1.3679; // السعر المحسوب للباقات شامل حد الأمان 6%
     let currentPackages = [];
     let tcInstance = null;
     let lastSelectedPackageId = null;
     let scriptLoadingPromise = null;
     let isInitializing = false;
+    let priceRefreshTimer = null;
 
     function textToTonCommentBoc(text) {
         if (!text) return undefined;
@@ -138,46 +139,42 @@ window.depositModule = (function () {
         return tcInstance;
     }
 
-    function updatePriceUI(price) {
-        const priceElem = document.getElementById('ton-live-price');
-        if (priceElem && price > 0) {
-            // العرض بـ 4 أرقام عشرية مخصصة
-            priceElem.innerText = `~$${parseFloat(price).toFixed(4)}`;
-        }
-    }
-
-    async function loadPackages() {
-        const grid = document.getElementById('deposit-packages-grid');
-        if (grid && currentPackages.length === 0) {
-            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #38bdf8; padding: 30px; font-weight: bold;">⏳ جاري جلب باقات الشحن وسعر العملة...</div>`;
-        }
-
+    async function fetchTonLivePrice() {
         try {
             const res = await fetch(`/api/wallet/deposit/packages?_t=${Date.now()}`, {
                 cache: 'no-store',
                 headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
             });
-            
-            const data = await res.json();
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success && data.ton_price) {
+                    tonPriceUsd = parseFloat(data.ton_price);
+                    effectiveTonPrice = parseFloat(data.effective_ton_price || (tonPriceUsd / 1.06));
+                    
+                    // تحديث السعر اللحظي على الشاشة بـ 4 أرقام عشرية
+                    const priceElem = document.getElementById('ton-live-price');
+                    if (priceElem) {
+                        priceElem.innerText = `$${tonPriceUsd.toFixed(4)}`;
+                    }
 
-            if (res.ok && data.success) {
-                currentPackages = data.packages || [];
-                
-                if (data.ton_price) {
-                    realTonPriceUsd = parseFloat(data.ton_price);
-                    effectiveTonPriceUsd = parseFloat(data.effective_ton_price || (realTonPriceUsd * 0.94));
-                    updatePriceUI(realTonPriceUsd);
+                    if (data.packages && data.packages.length > 0) {
+                        currentPackages = data.packages;
+                        renderPackages(currentPackages);
+                    }
                 }
-                
-                renderPackages(currentPackages);
-            } else {
-                const errText = data.error || "فشل جلب باقات الشحن";
-                if (grid) grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 20px; font-weight: bold; background: rgba(239, 68, 68, 0.1); border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">⚠️ ${errText}</div>`;
             }
-        } catch (err) {
-            console.error("❌ تعذر جلب الباقات وسعر العملة:", err);
-            if (grid) grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 20px; font-weight: bold; background: rgba(239, 68, 68, 0.1); border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">⚠️ حدث خطأ في الاتصال بالخادم</div>`;
+        } catch (e) {
+            console.warn("⚠️ تعذر جلب سعر TON اللحظي من الخادم:", e);
         }
+    }
+
+    async function loadPackages() {
+        const grid = document.getElementById('deposit-packages-grid');
+        if (grid && (!currentPackages || currentPackages.length === 0)) {
+            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #38bdf8; padding: 30px; font-weight: bold;">⏳ جاري جلب باقات الشحن وسعر العملة...</div>`;
+        }
+
+        await fetchTonLivePrice();
     }
 
     function renderPackages(packages) {
@@ -189,11 +186,12 @@ window.depositModule = (function () {
             return;
         }
 
-        const calcRate = effectiveTonPriceUsd > 0 ? effectiveTonPriceUsd : (realTonPriceUsd > 0 ? realTonPriceUsd * 0.94 : 1.3621);
+        const effPrice = effectiveTonPrice > 0 ? effectiveTonPrice : (tonPriceUsd / 1.06);
 
         grid.innerHTML = packages.map(pkg => {
             const usdtVal = parseFloat(pkg.usdt_amount || 0);
-            const tonEst = (usdtVal / calcRate).toFixed(3);
+            // حساب سعر الباقة بالتون بـ 4 أرقام عشرية مع إدراج حد الأمان 6%
+            const tonEst = (usdtVal / effPrice).toFixed(4);
             const titleName = `باقة $${usdtVal} USDT`;
 
             return `
@@ -251,6 +249,7 @@ window.depositModule = (function () {
                 headers: headers,
                 body: JSON.stringify({
                     package_id: pkg.id,
+                    ton_price: tonPriceUsd,
                     initData: initData,
                     user_id: userId
                 })
@@ -360,6 +359,12 @@ window.depositModule = (function () {
         loadPackages().finally(() => {
             isInitializing = false;
         });
+
+        // مؤقت تحديث السعر اللحظي كل 15 ثانية تلقائياً
+        if (priceRefreshTimer) clearInterval(priceRefreshTimer);
+        priceRefreshTimer = setInterval(() => {
+            fetchTonLivePrice();
+        }, 15000);
     }
 
     return {
