@@ -1,9 +1,9 @@
 window.walletModule = (function () {
     let currentTab = 'deposit';
     let isListening = false;
-    let isInitialized = false;
+    let isWalletRendered = false; // قفل لمنع إعادة بناء الواجهة إذا كانت مفتوحة بالفعل
     let lastFetchTime = 0;
-    const viewCache = {}; // تخزين القوائم للتحميل اللحظي والحد من التكرار
+    const viewCache = {}; // تخزين القوائم للتحميل اللحظي بدون ريفرش
 
     function formatSmartBalance(val) {
         if (typeof val === 'string') {
@@ -70,9 +70,9 @@ window.walletModule = (function () {
     async function fetchWalletBalances(force = false) {
         updateBalancesUI();
 
-        // منع التكرار المفرط للطلبات عند الضغط المتكرر (حد أدنى 15 ثانية بين الطلبات للشبكة)
         const now = Date.now();
-        if (!force && lastFetchTime && (now - lastFetchTime < 15000)) {
+        // منع التكرار المفرط لطلبات الشبكة عند الضغط المتكرر
+        if (!force && lastFetchTime && (now - lastFetchTime < 30000)) {
             return;
         }
         lastFetchTime = now;
@@ -148,14 +148,13 @@ window.walletModule = (function () {
     async function switchTab(tabName, force = false) {
         const container = document.getElementById('wallet-subview-container');
 
-        // منع إعادة التحميل والـ Refresh إذا كانت التبويبة المطلوبة معروضة بالفعل ومحملة
+        // إذا كانت التبويبة المطلوبة معروضة ومحملة بالكامل، تجاهل الضغط نهائياً
         if (!force && currentTab === tabName && container && container.children.length > 0 && container.getAttribute('data-active-tab') === tabName) {
             return;
         }
 
         currentTab = tabName;
 
-        // تحديث تنسيق الأزرار
         ['deposit', 'history', 'withdraw'].forEach(t => {
             const btn = document.getElementById(`tab-btn-${t}`);
             if (btn) {
@@ -178,7 +177,7 @@ window.walletModule = (function () {
 
         updateBalancesUI();
 
-        // استخدام التخزين المؤقت لمنع الـ Refresh والإحضار المكرر
+        // استخدام الـ Cache لمنع الـ Fetch والريفرش
         if (viewCache[tabName]) {
             container.innerHTML = viewCache[tabName];
             await ensureSubModuleScriptLoaded(tabName);
@@ -222,21 +221,17 @@ window.walletModule = (function () {
         updateBalancesUI();
 
         const container = document.getElementById('wallet-subview-container');
-        const isAlreadyLoaded = container && container.children.length > 0;
+        const isSubContentPresent = container && container.children.length > 0;
 
-        // إذا تم التهيئة مسبقاً والصفحة معروضة، لا تقم بأي ريفرش أو إعادة بناء
-        if (isInitialized && isAlreadyLoaded && !force) {
-            fetchWalletBalances(false);
+        // تجاهل تام للتحميل إذا كانت صفحة المحفظة مبنية ومفتوحة بالفعل
+        if (!force && isWalletRendered && isSubContentPresent) {
+            updateBalancesUI();
             return;
         }
 
-        isInitialized = true;
+        isWalletRendered = true;
         fetchWalletBalances(force);
         switchTab(currentTab || 'deposit', force);
-    }
-
-    function resetInitState() {
-        isInitialized = false;
     }
 
     return {
@@ -244,18 +239,6 @@ window.walletModule = (function () {
         switchTab,
         fetchWalletBalances,
         updateBalancesUI,
-        formatSmartBalance,
-        resetInitState
+        formatSmartBalance
     };
 })();
-
-if (document.getElementById('wallet-subview-container') && !window.walletModule._autoStarted) {
-    window.walletModule._autoStarted = true;
-    window.walletModule.init();
-}
-document.addEventListener('DOMContentLoaded', () => {
-    if (document.getElementById('wallet-subview-container') && !window.walletModule._autoStarted) {
-        window.walletModule._autoStarted = true;
-        window.walletModule.init();
-    }
-});
