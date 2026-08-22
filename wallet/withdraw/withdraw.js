@@ -7,7 +7,7 @@
   let withdrawCount = 0;
   let activeLevelIndex = 0;
   let keyboardDebounceTimer = null;
-  let userWallets = {}; // حفظ المحافظ المسترجعة من الفايربيس
+  let userWallets = {}; // حفظ المحافظ لكل عملة بشكل مستقل
 
   function parseInputValue(val) {
     if (val === null || val === undefined) return 0;
@@ -239,12 +239,13 @@
     setupKeyboardListeners();
   }
 
-  // --- تحديث واجهة المحفظة حسب العملة المحددة ---
+  // --- تحديث واجهة المحفظة بشكل محدد بدقة للعملة المحددة دون الخلط ---
   function updateWalletDisplay() {
     const hiddenInput = document.getElementById("wallet-address-input");
     const displayDiv = document.getElementById("wallet-address-display");
     const connectBtn = document.getElementById("btn-connect-wallet");
 
+    // جلب المحفظة المخصصة لهذه العملة فقط
     const savedAddr = userWallets[selectedCurrency] || "";
 
     if (hiddenInput) hiddenInput.value = savedAddr;
@@ -297,30 +298,29 @@
         withdrawCount = parseInt(data.withdraw_count) || 0;
         userWallets = data.wallets || {};
 
-        if (!userWallets[selectedCurrency] && data.last_wallet_address) {
-          userWallets[selectedCurrency] = data.last_wallet_address;
-        }
-
         if (withdrawConfig && withdrawConfig.levels) {
           userLevel = Math.min(withdrawCount + 1, withdrawConfig.levels.length);
           activeLevelIndex = Math.min(withdrawCount, withdrawConfig.levels.length - 1);
         }
 
-        const userBalDisplay = document.getElementById("user-balance-display");
-        if (userBalDisplay) {
-          userBalDisplay.innerText = `رصيدك: ${userBalance.toLocaleString()} ZN`;
-        }
-
-        const levelBadge = document.getElementById("level-indicator");
-        if (levelBadge) {
-          levelBadge.innerText = `المستوى ${userLevel}`;
-        }
-
+        updateUIBalance();
         renderLevelsGuide();
         updateWalletDisplay();
       }
     } catch (err) {
       console.error("خطأ جلب إعدادات السحب:", err);
+    }
+  }
+
+  function updateUIBalance() {
+    const userBalDisplay = document.getElementById("user-balance-display");
+    if (userBalDisplay) {
+      userBalDisplay.innerText = `رصيدك: ${userBalance.toLocaleString()} ZN`;
+    }
+
+    const levelBadge = document.getElementById("level-indicator");
+    if (levelBadge) {
+      levelBadge.innerText = `المستوى ${userLevel}`;
     }
   }
 
@@ -566,7 +566,9 @@
     if (netCryptoElem) netCryptoElem.innerText = `0.00000000 ${selectedCurrency}`;
   }
 
-  async function submitWithdrawal() {
+  async function submitWithdrawal(event) {
+    if (event) event.preventDefault();
+
     const coinsInput = document.getElementById("coins-input");
     const walletInput = document.getElementById("wallet-address-input");
     const coins = parseInputValue(coinsInput?.value);
@@ -631,20 +633,26 @@
 
       const data = await res.json().catch(() => null);
 
-      if (data && data.message) {
-        alert(data.message);
-      } else if (res.ok) {
-        alert("تم طلب السحب بنجاح!");
-      } else {
-        alert("حدث خطأ أثناء معالجة الطلب.");
-      }
-
       if (data && data.success) {
+        alert(data.message || "تم إرسال طلب السحب بنجاح!");
+
+        // تحديث الرصيد ديناميكياً ولحظياً في الواجهة دون عمل Reload
+        if (typeof data.new_balance === 'number') {
+          userBalance = data.new_balance;
+        } else {
+          userBalance = Math.max(0, userBalance - coins);
+        }
+        withdrawCount += 1;
+
+        if (coinsInput) coinsInput.value = "";
+        updateUIBalance();
+        resetCalculations();
+
         if (typeof window.loadWalletData === 'function') {
           window.loadWalletData();
-        } else {
-          location.reload();
         }
+      } else {
+        alert(data?.message || "حدث خطأ أثناء معالجة الطلب.");
       }
     } catch (err) {
       console.error(err);
