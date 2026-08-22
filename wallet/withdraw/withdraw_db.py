@@ -178,30 +178,39 @@ def save_user_wallet(user_id, currency, wallet_address):
             return False, "المستخدم غير موجود في قاعدة البيانات."
 
         curr_key = currency.upper()
-        user_ref.set({
-            'wallets': {
-                curr_key: wallet_address
-            },
+        # استخدام صيغة التحديث المتداخل لمنع مسح باقي المحافظ داخل خريطة wallets
+        user_ref.update({
+            f'wallets.{curr_key}': wallet_address,
             'last_wallet_address': wallet_address
-        }, merge=True)
+        })
         return True, "تم حفظ المحفظة بنجاح."
     except Exception as e:
-        print(f"⚠️ خطأ حفظ المحفظة في Firestore: {e}")
-        return False, f"خطأ أثناء الحفظ: {str(e)}"
+        # fallback في حال كان المستند جديداً تماماً
+        try:
+            user_ref.set({
+                'wallets': {
+                    curr_key: wallet_address
+                },
+                'last_wallet_address': wallet_address
+            }, merge=True)
+            return True, "تم حفظ المحفظة بنجاح."
+        except Exception as set_err:
+            print(f"⚠️ خطأ حفظ المحفظة في Firestore: {set_err}")
+            return False, f"خطأ أثناء الحفظ: {str(set_err)}"
 
 def process_withdraw_db(user_id, coins_amount, currency, wallet_address, crypto_net_amount, level_info):
     db = safe_get_db()
     if not db:
-        return False, "تعذر الاتصال بقاعدة البيانات.", None
+        return False, "تعذر الاتصال بقاعدة البيانات.", None, 0
 
     try:
         user_ref, user_data = get_user_doc(user_id)
         if not user_ref or not user_data:
-            return False, "المستخدم غير موجود", None
+            return False, "المستخدم غير موجود", None, 0
 
         today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         if user_data.get('last_withdraw_date') == today_utc:
-            return False, "يسمح بعملية سحب واحدة فقط يومياً. حاول بعد 00:00 UTC.", None
+            return False, "يسمح بعملية سحب واحدة فقط يومياً. حاول بعد 00:00 UTC.", None, 0
 
         transaction = db.transaction()
         
@@ -209,7 +218,7 @@ def process_withdraw_db(user_id, coins_amount, currency, wallet_address, crypto_
         def execute_in_transaction(txn, ref):
             snapshot = ref.get(transaction=txn)
             if not snapshot.exists:
-                return False, "المستخدم غير موجود", None
+                return False, "المستخدم غير موجود", None, 0
             
             u_data = snapshot.to_dict() or {}
             raw_bal = u_data.get('balance')
@@ -222,9 +231,10 @@ def process_withdraw_db(user_id, coins_amount, currency, wallet_address, crypto_
                 current_bal = 0.0
             
             if current_bal < coins_amount:
-                return False, "رصيدك الحالي غير كافٍ.", None
+                return False, "رصيدك الحالي غير كافٍ.", None, current_bal
 
             curr_key = currency.upper()
+            new_bal = current_bal - coins_amount
 
             txn.update(ref, {
                 'balance': firestore.Increment(-coins_amount),
@@ -259,8 +269,8 @@ def process_withdraw_db(user_id, coins_amount, currency, wallet_address, crypto_
                 'created_at': firestore.SERVER_TIMESTAMP
             })
 
-            return True, "تم تسجيل الطلب وبدء المعالجة بنجاح!", tx_ref.id
+            return True, "تم تسجيل الطلب وبدء المعالجة بنجاح!", tx_ref.id, new_bal
 
         return execute_in_transaction(transaction, user_ref)
     except Exception as e:
-        return False, f"حدث خطأ أثناء تنفيذ عملية السحب: {str(e)}", None
+        return False, f"حدث خطأ أثناء تنفيذ عملية السحب: {str(e)}", None, 0
