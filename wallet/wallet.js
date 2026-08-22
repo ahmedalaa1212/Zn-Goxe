@@ -1,7 +1,9 @@
 window.walletModule = (function () {
     let currentTab = 'deposit';
     let isListening = false;
-    const viewCache = {}; // تخزين القوائم للتحميل اللحظي
+    let isInitialized = false;
+    let lastFetchTime = 0;
+    const viewCache = {}; // تخزين القوائم للتحميل اللحظي والحد من التكرار
 
     function formatSmartBalance(val) {
         if (typeof val === 'string') {
@@ -10,7 +12,6 @@ window.walletModule = (function () {
         const num = parseFloat(val || 0);
         if (isNaN(num)) return "0.00";
 
-        // تنسيق الأرقام الكبيرة بشكل منظم باستخدام الفواصل
         if (num >= 1000) {
             return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
         }
@@ -20,7 +21,6 @@ window.walletModule = (function () {
         return num.toFixed(2);
     }
 
-    // جلب قيم الرصيد المتاحة في الذاكرة الحية للجافاسكربت
     function getGlobalBalance(keys) {
         const sources = [
             window.userState,
@@ -67,8 +67,15 @@ window.walletModule = (function () {
         });
     }
 
-    async function fetchWalletBalances() {
+    async function fetchWalletBalances(force = false) {
         updateBalancesUI();
+
+        // منع التكرار المفرط للطلبات عند الضغط المتكرر (حد أدنى 15 ثانية بين الطلبات للشبكة)
+        const now = Date.now();
+        if (!force && lastFetchTime && (now - lastFetchTime < 15000)) {
+            return;
+        }
+        lastFetchTime = now;
 
         try {
             const tg = window.Telegram?.WebApp;
@@ -96,14 +103,10 @@ window.walletModule = (function () {
 
                 if (!window.userState) window.userState = {};
 
-                if (newZn > 0 || !window.userState.balance) {
-                    window.userState.balance = newZn;
-                    window.userState.zn_balance = newZn;
-                }
-                if (newUsdt > 0 || !window.userState.usd_balance) {
-                    window.userState.usd_balance = newUsdt;
-                    window.userState.usdt_balance = newUsdt;
-                }
+                window.userState.balance = newZn;
+                window.userState.zn_balance = newZn;
+                window.userState.usd_balance = newUsdt;
+                window.userState.usdt_balance = newUsdt;
 
                 if (window.PlayerData) {
                     window.PlayerData.balance = window.userState.balance;
@@ -120,7 +123,6 @@ window.walletModule = (function () {
         }
     }
 
-    // جلب ملف السكربت JS الخاص بالقائمة الفرعية ديناميكياً
     async function ensureSubModuleScriptLoaded(tabName) {
         const moduleName = `${tabName}Module`;
         if (window[moduleName]) return;
@@ -143,10 +145,17 @@ window.walletModule = (function () {
         });
     }
 
-    // التنقل الثابت بين القوائم
     async function switchTab(tabName, force = false) {
+        const container = document.getElementById('wallet-subview-container');
+
+        // منع إعادة التحميل والـ Refresh إذا كانت التبويبة المطلوبة معروضة بالفعل ومحملة
+        if (!force && currentTab === tabName && container && container.children.length > 0 && container.getAttribute('data-active-tab') === tabName) {
+            return;
+        }
+
         currentTab = tabName;
 
+        // تحديث تنسيق الأزرار
         ['deposit', 'history', 'withdraw'].forEach(t => {
             const btn = document.getElementById(`tab-btn-${t}`);
             if (btn) {
@@ -164,11 +173,12 @@ window.walletModule = (function () {
             }
         });
 
-        const container = document.getElementById('wallet-subview-container');
         if (!container) return;
+        container.setAttribute('data-active-tab', tabName);
 
         updateBalancesUI();
 
+        // استخدام التخزين المؤقت لمنع الـ Refresh والإحضار المكرر
         if (viewCache[tabName]) {
             container.innerHTML = viewCache[tabName];
             await ensureSubModuleScriptLoaded(tabName);
@@ -207,11 +217,26 @@ window.walletModule = (function () {
         }
     }
 
-    function init() {
+    function init(force = false) {
         attachRealtimeListeners();
         updateBalancesUI();
-        fetchWalletBalances();
-        switchTab(currentTab || 'deposit');
+
+        const container = document.getElementById('wallet-subview-container');
+        const isAlreadyLoaded = container && container.children.length > 0;
+
+        // إذا تم التهيئة مسبقاً والصفحة معروضة، لا تقم بأي ريفرش أو إعادة بناء
+        if (isInitialized && isAlreadyLoaded && !force) {
+            fetchWalletBalances(false);
+            return;
+        }
+
+        isInitialized = true;
+        fetchWalletBalances(force);
+        switchTab(currentTab || 'deposit', force);
+    }
+
+    function resetInitState() {
+        isInitialized = false;
     }
 
     return {
@@ -219,15 +244,18 @@ window.walletModule = (function () {
         switchTab,
         fetchWalletBalances,
         updateBalancesUI,
-        formatSmartBalance
+        formatSmartBalance,
+        resetInitState
     };
 })();
 
-if (document.getElementById('wallet-subview-container')) {
+if (document.getElementById('wallet-subview-container') && !window.walletModule._autoStarted) {
+    window.walletModule._autoStarted = true;
     window.walletModule.init();
 }
 document.addEventListener('DOMContentLoaded', () => {
-    if (document.getElementById('wallet-subview-container')) {
+    if (document.getElementById('wallet-subview-container') && !window.walletModule._autoStarted) {
+        window.walletModule._autoStarted = true;
         window.walletModule.init();
     }
 });
