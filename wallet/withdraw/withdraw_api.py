@@ -5,13 +5,11 @@ import requests
 from flask import Blueprint, request, jsonify, url_for
 from firebase_admin import firestore
 
-# كاش أسعار العملات لمدة 60 ثانية لتقليل الضغط على الـ API
 PRICE_CACHE = {
     "data": {},
     "last_updated": 0
 }
 
-# دالة لتنسيق الأرقام العشرية بشكل نظيف وبدون أصفار أو كسور غريبة
 def clean_round(value, decimals=8):
     if not isinstance(value, (int, float)):
         try:
@@ -21,7 +19,6 @@ def clean_round(value, decimals=8):
     return round(float(value), decimals)
 
 def format_crypto_display(amount):
-    """تنسيق عرض العملة في الرسائل والإشعارات بدون أصفار زائدة وبدقة كاملة"""
     if amount is None:
         return "0"
     try:
@@ -33,7 +30,6 @@ def format_crypto_display(amount):
     except Exception:
         return str(amount)
 
-# دالة التحقق من صحة عنوان المحفظة أو البريد الإلكتروني حسب العملة
 def validate_wallet_address(address, currency):
     if not address or not isinstance(address, str):
         return False, "يرجى إدخال عنوان المحفظة أو البريد الإلكتروني الخاص بـ FaucetPay."
@@ -42,14 +38,12 @@ def validate_wallet_address(address, currency):
     if not addr:
         return False, "يرجى إدخال عنوان المحفظة أو البريد الإلكتروني الخاص بـ FaucetPay."
 
-    # 1. التحقق مما إذا كان العنوان بريد إلكتروني (مقبول لجميع عملات FaucetPay)
     email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     if re.match(email_regex, addr):
         return True, ""
 
     curr = currency.upper()
 
-    # 2. التحقق من صيغة عناوين الشبكات للعملات المدعومة
     if curr == "DOGE":
         if re.match(r'^D[1-9A-HJ-NP-Za-km-z]{33}$', addr):
             return True, ""
@@ -72,8 +66,6 @@ def validate_wallet_address(address, currency):
 
     return True, ""
 
-
-# دالة جلب الأسعار اللحظية للعملات مع دعم Binance أولاً مع تقريب الأرقام العشرية
 def get_live_crypto_prices():
     now = time.time()
     if PRICE_CACHE["data"] and (now - PRICE_CACHE["last_updated"] < 60):
@@ -119,27 +111,8 @@ def get_live_crypto_prices():
     except Exception as e:
         print(f"⚠️ خطأ جلب الأسعار من CoinGecko: {e}")
 
-    try:
-        url = "https://min-api.cryptocompare.com/data/pricemulti?fsyms=DOGE,TRX,PEPE,LTC&tsyms=USD"
-        res = requests.get(url, timeout=4)
-        if res.status_code == 200:
-            data = res.json()
-            prices = {
-                "DOGE": clean_round(data.get("DOGE", {}).get("USD", fallback_prices["DOGE"]), 8),
-                "TRX": clean_round(data.get("TRX", {}).get("USD", fallback_prices["TRX"]), 8),
-                "PEPE": clean_round(data.get("PEPE", {}).get("USD", fallback_prices["PEPE"]), 8),
-                "LTC": clean_round(data.get("LTC", {}).get("USD", fallback_prices["LTC"]), 8)
-            }
-            PRICE_CACHE["data"] = prices
-            PRICE_CACHE["last_updated"] = now
-            return prices
-    except Exception as e:
-        print(f"⚠️ خطأ جلب الأسعار من CryptoCompare: {e}")
-
     return PRICE_CACHE["data"] if PRICE_CACHE["data"] else fallback_prices
 
-
-# دالة التحويل الآلي عبر FaucetPay API (بالساتوشي)
 def send_faucetpay_payment(to_address_or_email, amount, currency, tx_id):
     api_key = os.getenv("FAUCETPAY_API_KEY")
     if not api_key:
@@ -168,7 +141,6 @@ def send_faucetpay_payment(to_address_or_email, amount, currency, tx_id):
     except Exception as e:
         return False, f"خطأ الاتصال بـ FaucetPay: {str(e)}"
 
-
 try:
     from wallet.withdraw.withdraw_db import (
         get_db,
@@ -176,14 +148,16 @@ try:
         has_withdrawn_today,
         process_withdraw_db,
         get_user_full_details,
-        get_user_doc
+        get_user_doc,
+        save_user_wallet
     )
 except ImportError:
     from wallet.withdraw.withdraw_db import (
         has_withdrawn_today,
         process_withdraw_db,
         get_user_full_details,
-        get_user_doc
+        get_user_doc,
+        save_user_wallet
     )
     from database import get_db
     safe_get_db = get_db
@@ -261,6 +235,8 @@ def get_config():
     already_withdrawn = False
     user_balance = 0.0
     withdraw_count = 0
+    user_wallets = {}
+    last_wallet_address = ""
     
     try:
         if user_id:
@@ -269,6 +245,8 @@ def get_config():
             if user_details:
                 user_balance = float(user_details.get('balance', 0.0))
                 withdraw_count = int(user_details.get('withdraw_count', 0))
+                user_wallets = user_details.get('wallets', {})
+                last_wallet_address = user_details.get('last_wallet_address', '')
     except Exception as e:
         print(f"خطأ جلب بيانات المستخدم: {e}")
 
@@ -279,8 +257,34 @@ def get_config():
         "raw_crypto_prices": clean_raw_prices,
         "already_withdrawn": already_withdrawn,
         "user_balance": user_balance,
-        "withdraw_count": withdraw_count
+        "withdraw_count": withdraw_count,
+        "wallets": user_wallets,
+        "last_wallet_address": last_wallet_address
     }), 200
+
+@withdraw_bp.route('/save-wallet', methods=['POST'])
+def handle_save_wallet():
+    data = request.json or {}
+    user_id = str(data.get('user_id', '')).strip()
+    currency = str(data.get('currency', 'DOGE')).upper()
+    wallet_address = str(data.get('wallet_address', '')).strip()
+
+    supported_currencies = DEFAULT_WITHDRAW_CONFIG.get('supported_currencies', ["DOGE", "TRX", "PEPE", "LTC"])
+    if currency not in supported_currencies:
+        return jsonify({"success": False, "message": "العملة المختارة غير مدعومة."}), 400
+
+    if not user_id or not wallet_address:
+        return jsonify({"success": False, "message": "بيانات غير مكتملة."}), 400
+
+    is_valid_addr, addr_err_msg = validate_wallet_address(wallet_address, currency)
+    if not is_valid_addr:
+        return jsonify({"success": False, "message": addr_err_msg}), 400
+
+    success, msg = save_user_wallet(user_id, currency, wallet_address)
+    if success:
+        return jsonify({"success": True, "message": "تم حفظ المحفظة بنجاح!"}), 200
+    else:
+        return jsonify({"success": False, "message": msg}), 500
 
 @withdraw_bp.route('/request', methods=['POST'])
 def handle_withdraw():
@@ -348,7 +352,6 @@ def handle_withdraw():
     if not success:
         return jsonify({"success": False, "message": msg}), 400
 
-    # توحيد حقول الكريبتو في مستند المعاملة بالفايربيس لضمان ظهور المبلغ الصحيح بسجل السحوبات
     db = _get_firestore_client()
     if db and tx_id:
         try:
@@ -397,9 +400,7 @@ def handle_withdraw():
 
     return jsonify({"success": True, "message": "تم إرسال طلب السحب بنجاح للمراجعة والاعتماد."}), 200
 
-
 def execute_admin_decision(tx_id, action):
-    """منطق دالة المعالجة المشترك لقرارات الأدمن مع استخراج مرن للبيانات"""
     if not tx_id or not action:
         return False, "بيانات الطلب غير مكتملة."
 
@@ -491,9 +492,6 @@ def execute_admin_decision(tx_id, action):
 
     return False, "إجراء غير معروف."
 
-
-# ==================== استقبال ضغطات أزرار التليجرام (Webhook Handler) ====================
-
 @withdraw_bp.route('/telegram-webhook', methods=['GET', 'POST'])
 def telegram_webhook():
     if request.method == 'GET':
@@ -534,7 +532,6 @@ def telegram_webhook():
 
     return jsonify({"status": "ok"}), 200
 
-
 def _answer_telegram_callback(callback_query_id, text):
     bot_token = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
     if not bot_token or not callback_query_id:
@@ -548,7 +545,6 @@ def _answer_telegram_callback(callback_query_id, text):
         }, timeout=5)
     except Exception as e:
         print(f"❌ خطأ إجابة callback تليجرام: {e}")
-
 
 def _edit_telegram_message(chat_id, message_id, text, reply_markup=None):
     bot_token = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
@@ -578,9 +574,6 @@ def _edit_telegram_message(chat_id, message_id, text, reply_markup=None):
             requests.post(url, json=payload_fallback, timeout=5)
     except Exception as e:
         print(f"❌ خطأ تعديل رسالة تليجرام: {e}")
-
-
-# ==================== نظام الإشعارات والرسائل للتليجرام ====================
 
 def _send_telegram_msg(text, reply_markup=None):
     bot_token = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
@@ -744,8 +737,6 @@ def notify_manual_decision(user_id, coins, crypto_amount, currency, wallet, acti
         )
     _send_telegram_msg(text)
 
-
-# ==================== دالة تفعيل الأزرار السحرية ====================
 @withdraw_bp.route('/set-webhook', methods=['GET'])
 def setup_telegram_webhook():
     bot_token = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
