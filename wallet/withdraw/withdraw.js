@@ -104,7 +104,6 @@
     }
   }
 
-  // --- إدارة الكيبورد بدون تكرار أو رعشة ---
   function injectKeyboardStyles(doc) {
     try {
       if (!doc || doc.getElementById('keyboard-hide-nav-style')) return;
@@ -239,13 +238,11 @@
     setupKeyboardListeners();
   }
 
-  // --- تحديث واجهة المحفظة بشكل محدد بدقة للعملة المحددة دون الخلط ---
   function updateWalletDisplay() {
     const hiddenInput = document.getElementById("wallet-address-input");
     const displayDiv = document.getElementById("wallet-address-display");
     const connectBtn = document.getElementById("btn-connect-wallet");
 
-    // جلب المحفظة المخصصة لهذه العملة فقط
     const savedAddr = userWallets[selectedCurrency] || "";
 
     if (hiddenInput) hiddenInput.value = savedAddr;
@@ -324,6 +321,7 @@
     }
   }
 
+  // --- عرض دليل المستويات دون كشف نوع السحب (آلي / يدوي) ---
   function renderLevelsGuide() {
     const container = document.getElementById("levels-list-container");
     const userLevelText = document.getElementById("current-user-level-text");
@@ -338,20 +336,27 @@
     let html = "";
     withdrawConfig.levels.forEach((lvl, idx) => {
       const isActive = lvl.level === userLevel || idx === activeLevelIndex;
-      const typeText = lvl.type === 'auto' ? 'فوري آلي' : 'موافقة أدمن';
       const usdMin = (lvl.min / 100000).toFixed(4);
-      const usdMax = lvl.max >= 999999999 ? "مفتوح" : `$${(lvl.max / 100000).toFixed(2)}`;
-      const maxText = lvl.max >= 999999999 ? "مفتوح" : lvl.max.toLocaleString() + " ZN";
+      const usdMax = (lvl.max / 100000).toFixed(4);
+
+      let znText = "";
+      let usdText = "";
+
+      if (lvl.min === lvl.max) {
+        znText = `${lvl.min.toLocaleString()} ZN - ${lvl.max.toLocaleString()} ZN`;
+        usdText = `$${usdMin} - $${usdMax}`;
+      } else {
+        znText = `من ${lvl.min.toLocaleString()} ZN إلى ${lvl.max.toLocaleString()} ZN`;
+        usdText = `$${usdMin} - $${usdMax}`;
+      }
 
       html += `
         <div class="level-item ${isActive ? 'active-level' : ''}">
           <div>
-            <span>المستوى ${lvl.level}: ${lvl.min.toLocaleString()} - ${maxText}</span>
-            <br><small style="color:#94a3b8;">($${usdMin} - ${usdMax})</small>
+            <span>المستوى ${lvl.level}: ${znText}</span>
+            <br><small style="color:#94a3b8;">(${usdText})</small>
           </div>
-          <span class="level-item-tag" style="color:${isActive ? '#38bdf8' : '#888'};">
-            ${isActive ? 'مستواك الحالي ✅' : typeText}
-          </span>
+          ${isActive ? '<span class="level-item-tag" style="color:#38bdf8;">مستواك الحالي ✅</span>' : ''}
         </div>
       `;
     });
@@ -388,7 +393,7 @@
     if (type === 'min') {
       targetAmount = minVal;
     } else if (type === 'half') {
-      targetAmount = Math.floor(maxVal / 2);
+      targetAmount = Math.floor((minVal + maxVal) / 2);
     } else if (type === 'max') {
       targetAmount = maxVal > 0 ? maxVal : minVal;
     }
@@ -636,7 +641,6 @@
       if (data && data.success) {
         alert(data.message || "تم إرسال طلب السحب بنجاح!");
 
-        // تحديث الرصيد ديناميكياً ولحظياً في الواجهة دون عمل Reload
         if (typeof data.new_balance === 'number') {
           userBalance = data.new_balance;
         } else {
