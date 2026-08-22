@@ -1,5 +1,6 @@
 window.depositModule = (function () {
-    let tonPriceUsd = 0.0;
+    let realTonPriceUsd = 0.0;
+    let effectiveTonPriceUsd = 0.0;
     let currentPackages = [];
     let tcInstance = null;
     let lastSelectedPackageId = null;
@@ -54,6 +55,7 @@ window.depositModule = (function () {
 
             const finalBoc = new Uint8Array(bocWithoutCrc.length + 4);
             finalBoc.set(bocWithoutCrc, 0);
+            finalBoc[bocWithoutCrc.length] = crc & 0xFF;
             finalBoc[bocWithoutCrc.length + 1] = (crc >> 8) & 0xFF;
             finalBoc[bocWithoutCrc.length + 2] = (crc >> 16) & 0xFF;
             finalBoc[bocWithoutCrc.length + 3] = (crc >> 24) & 0xFF;
@@ -136,39 +138,18 @@ window.depositModule = (function () {
         return tcInstance;
     }
 
-    function updateLivePriceUI(price) {
+    function updatePriceUI(price) {
         const priceElem = document.getElementById('ton-live-price');
         if (priceElem && price > 0) {
-            // تنسيق السعر بـ 4 أرقام عشرية كما هو مطلوب تماماً (0.0000)
-            priceElem.innerText = `$${parseFloat(price).toFixed(4)}`;
-        }
-    }
-
-    async function fetchTonLivePrice() {
-        try {
-            const res = await fetch(`/api/wallet/deposit/packages?_t=${Date.now()}`, {
-                cache: 'no-store',
-                headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
-            });
-            if (res.ok) {
-                const data = await res.json();
-                if (data.success && data.ton_price) {
-                    tonPriceUsd = parseFloat(data.ton_price);
-                    updateLivePriceUI(tonPriceUsd);
-                    if (currentPackages.length > 0) {
-                        renderPackages(currentPackages);
-                    }
-                }
-            }
-        } catch (e) {
-            console.warn("⚠️ تعذر تحديث سعر TON اللحظي عبر السيرفر:", e);
+            // العرض بـ 4 أرقام عشرية مخصصة
+            priceElem.innerText = `~$${parseFloat(price).toFixed(4)}`;
         }
     }
 
     async function loadPackages() {
         const grid = document.getElementById('deposit-packages-grid');
-        if (grid) {
-            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #38bdf8; padding: 30px; font-weight: bold;">⏳ جاري جلب باقات الشحن...</div>`;
+        if (grid && currentPackages.length === 0) {
+            grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #38bdf8; padding: 30px; font-weight: bold;">⏳ جاري جلب باقات الشحن وسعر العملة...</div>`;
         }
 
         try {
@@ -180,18 +161,21 @@ window.depositModule = (function () {
             const data = await res.json();
 
             if (res.ok && data.success) {
-                if (data.ton_price && parseFloat(data.ton_price) > 0) {
-                    tonPriceUsd = parseFloat(data.ton_price);
-                    updateLivePriceUI(tonPriceUsd);
-                }
                 currentPackages = data.packages || [];
+                
+                if (data.ton_price) {
+                    realTonPriceUsd = parseFloat(data.ton_price);
+                    effectiveTonPriceUsd = parseFloat(data.effective_ton_price || (realTonPriceUsd * 0.94));
+                    updatePriceUI(realTonPriceUsd);
+                }
+                
                 renderPackages(currentPackages);
             } else {
-                const errText = data.error || "فشل جلب باقات الشحن من الفايربيس";
+                const errText = data.error || "فشل جلب باقات الشحن";
                 if (grid) grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 20px; font-weight: bold; background: rgba(239, 68, 68, 0.1); border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">⚠️ ${errText}</div>`;
             }
         } catch (err) {
-            console.error("❌ تعذر جلب باقات الفايربيس:", err);
+            console.error("❌ تعذر جلب الباقات وسعر العملة:", err);
             if (grid) grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #ef4444; padding: 20px; font-weight: bold; background: rgba(239, 68, 68, 0.1); border-radius: 12px; border: 1px solid rgba(239, 68, 68, 0.3);">⚠️ حدث خطأ في الاتصال بالخادم</div>`;
         }
     }
@@ -205,9 +189,11 @@ window.depositModule = (function () {
             return;
         }
 
+        const calcRate = effectiveTonPriceUsd > 0 ? effectiveTonPriceUsd : (realTonPriceUsd > 0 ? realTonPriceUsd * 0.94 : 1.3621);
+
         grid.innerHTML = packages.map(pkg => {
             const usdtVal = parseFloat(pkg.usdt_amount || 0);
-            const tonEst = tonPriceUsd > 0 ? (usdtVal / tonPriceUsd).toFixed(4) : "0.0000";
+            const tonEst = (usdtVal / calcRate).toFixed(3);
             const titleName = `باقة $${usdtVal} USDT`;
 
             return `
@@ -265,7 +251,6 @@ window.depositModule = (function () {
                 headers: headers,
                 body: JSON.stringify({
                     package_id: pkg.id,
-                    ton_price: tonPriceUsd,
                     initData: initData,
                     user_id: userId
                 })
