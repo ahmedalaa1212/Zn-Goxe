@@ -170,15 +170,15 @@ DEFAULT_WITHDRAW_CONFIG = {
     "rate_coins_per_usd": 100000,
     "supported_currencies": ["DOGE", "TRX", "PEPE", "LTC"],
     "levels": [
-        {"level": 1, "min": 10, "max": 100, "type": "auto"},
-        {"level": 2, "min": 500, "max": 1500, "type": "auto"},
-        {"level": 3, "min": 10000, "max": 50000, "type": "auto"},
-        {"level": 4, "min": 100000, "max": 200000, "type": "manual"},
-        {"level": 5, "min": 400000, "max": 800000, "type": "manual"},
-        {"level": 6, "min": 1000000, "max": 2000000, "type": "manual"},
-        {"level": 7, "min": 3000000, "max": 5000000, "type": "manual"},
-        {"level": 8, "min": 6000000, "max": 10000000, "type": "manual"},
-        {"level": 9, "min": 15000000, "max": 999999999, "type": "manual"}
+        {"level": 1, "min": 10, "max": 10, "type": "auto"},
+        {"level": 2, "min": 50, "max": 200, "type": "auto"},
+        {"level": 3, "min": 500, "max": 2000, "type": "auto"},
+        {"level": 4, "min": 5000, "max": 20000, "type": "auto"},
+        {"level": 5, "min": 50000, "max": 100000, "type": "manual"},
+        {"level": 6, "min": 150000, "max": 300000, "type": "manual"},
+        {"level": 7, "min": 400000, "max": 600000, "type": "manual"},
+        {"level": 8, "min": 700000, "max": 900000, "type": "manual"},
+        {"level": 9, "min": 1000000, "max": 1500000, "type": "manual"}
     ]
 }
 
@@ -205,12 +205,13 @@ def fetch_or_create_withdraw_config():
         doc_ref = db.collection('settings').document('withdraw_config')
         doc = doc_ref.get()
         if doc.exists:
-            data = doc.to_dict()
-            if data and 'levels' in data and isinstance(data.get('levels'), list):
-                if 'faucetpay_spread_markup' not in data or data.get('faucetpay_spread_markup') == 1.0:
-                    data['faucetpay_spread_markup'] = 1.06
-                    doc_ref.set({'faucetpay_spread_markup': 1.06}, merge=True)
-                return data
+            data = doc.to_dict() or {}
+            data['levels'] = DEFAULT_WITHDRAW_CONFIG['levels']
+            data['rate_coins_per_usd'] = DEFAULT_WITHDRAW_CONFIG['rate_coins_per_usd']
+            if 'faucetpay_spread_markup' not in data or data.get('faucetpay_spread_markup') == 1.0:
+                data['faucetpay_spread_markup'] = 1.06
+            doc_ref.set(data, merge=True)
+            return data
         doc_ref.set(DEFAULT_WITHDRAW_CONFIG, merge=True)
         return DEFAULT_WITHDRAW_CONFIG
     except Exception as e:
@@ -484,7 +485,7 @@ def execute_admin_decision(tx_id, action):
                 'updated_at': firestore.SERVER_TIMESTAMP
             })
             notify_manual_decision(user_id, coins, crypto_amount, currency, wallet, "approve", str(tx_id))
-            return True, "تمت الموافقة والتحويل الآلي بنجاح عبر FaucetPay."
+            return True, "تمت الموافقة والتحويل بنجاح عبر FaucetPay."
         else:
             tx_ref.update({
                 'status': 'pending_retry',
