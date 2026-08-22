@@ -1,5 +1,5 @@
 window.depositModule = (function () {
-    let tonPriceUsd = 1.30;
+    let tonPriceUsd = 0.0;
     let currentPackages = [];
     let tcInstance = null;
     let lastSelectedPackageId = null;
@@ -54,7 +54,6 @@ window.depositModule = (function () {
 
             const finalBoc = new Uint8Array(bocWithoutCrc.length + 4);
             finalBoc.set(bocWithoutCrc, 0);
-            finalBoc[bocWithoutCrc.length] = crc & 0xFF;
             finalBoc[bocWithoutCrc.length + 1] = (crc >> 8) & 0xFF;
             finalBoc[bocWithoutCrc.length + 2] = (crc >> 16) & 0xFF;
             finalBoc[bocWithoutCrc.length + 3] = (crc >> 24) & 0xFF;
@@ -137,22 +136,32 @@ window.depositModule = (function () {
         return tcInstance;
     }
 
+    function updateLivePriceUI(price) {
+        const priceElem = document.getElementById('ton-live-price');
+        if (priceElem && price > 0) {
+            // تنسيق السعر بـ 4 أرقام عشرية كما هو مطلوب تماماً (0.0000)
+            priceElem.innerText = `$${parseFloat(price).toFixed(4)}`;
+        }
+    }
+
     async function fetchTonLivePrice() {
         try {
-            const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd', { cache: 'no-store' });
+            const res = await fetch(`/api/wallet/deposit/packages?_t=${Date.now()}`, {
+                cache: 'no-store',
+                headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
+            });
             if (res.ok) {
                 const data = await res.json();
-                if (data['the-open-network']?.usd) {
-                    tonPriceUsd = parseFloat(data['the-open-network'].usd);
-                    const priceElem = document.getElementById('ton-live-price');
-                    if (priceElem) priceElem.innerText = `$${tonPriceUsd.toFixed(2)}`;
+                if (data.success && data.ton_price) {
+                    tonPriceUsd = parseFloat(data.ton_price);
+                    updateLivePriceUI(tonPriceUsd);
                     if (currentPackages.length > 0) {
                         renderPackages(currentPackages);
                     }
                 }
             }
         } catch (e) {
-            console.warn("⚠️ استخدام السعر المرجعي لـ TON:", e);
+            console.warn("⚠️ تعذر تحديث سعر TON اللحظي عبر السيرفر:", e);
         }
     }
 
@@ -171,6 +180,10 @@ window.depositModule = (function () {
             const data = await res.json();
 
             if (res.ok && data.success) {
+                if (data.ton_price && parseFloat(data.ton_price) > 0) {
+                    tonPriceUsd = parseFloat(data.ton_price);
+                    updateLivePriceUI(tonPriceUsd);
+                }
                 currentPackages = data.packages || [];
                 renderPackages(currentPackages);
             } else {
@@ -194,7 +207,7 @@ window.depositModule = (function () {
 
         grid.innerHTML = packages.map(pkg => {
             const usdtVal = parseFloat(pkg.usdt_amount || 0);
-            const tonEst = (usdtVal / tonPriceUsd).toFixed(3);
+            const tonEst = tonPriceUsd > 0 ? (usdtVal / tonPriceUsd).toFixed(4) : "0.0000";
             const titleName = `باقة $${usdtVal} USDT`;
 
             return `
@@ -359,7 +372,6 @@ window.depositModule = (function () {
         isInitializing = true;
 
         initTonConnect();
-        fetchTonLivePrice();
         loadPackages().finally(() => {
             isInitializing = false;
         });
