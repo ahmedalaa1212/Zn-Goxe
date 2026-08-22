@@ -19,25 +19,27 @@ def auto_create_withdraw_config():
     try:
         doc_ref = db.collection('settings').document('withdraw_config')
         doc = doc_ref.get()
+        default_config = {
+            "rate_coins_per_usd": 100000,
+            "fee_percent": 3,
+            "supported_currencies": ["DOGE", "TRX", "PEPE", "LTC"],
+            "levels": [
+                {"level": 1, "type": "auto", "min": 10, "max": 10},
+                {"level": 2, "type": "auto", "min": 50, "max": 200},
+                {"level": 3, "type": "auto", "min": 500, "max": 2000},
+                {"level": 4, "type": "auto", "min": 5000, "max": 20000},
+                {"level": 5, "type": "manual", "min": 50000, "max": 100000},
+                {"level": 6, "type": "manual", "min": 150000, "max": 300000},
+                {"level": 7, "type": "manual", "min": 400000, "max": 600000},
+                {"level": 8, "type": "manual", "min": 700000, "max": 900000},
+                {"level": 9, "type": "manual", "min": 1000000, "max": 1500000}
+            ]
+        }
         if not doc.exists:
-            default_config = {
-                "rate_coins_per_usd": 100000,
-                "fee_percent": 3,
-                "supported_currencies": ["DOGE", "TRX", "PEPE", "LTC"],
-                "levels": [
-                    {"level": 1, "type": "auto", "min": 10, "max": 100},
-                    {"level": 2, "type": "auto", "min": 500, "max": 1500},
-                    {"level": 3, "type": "auto", "min": 10000, "max": 50000},
-                    {"level": 4, "type": "manual", "min": 100000, "max": 200000},
-                    {"level": 5, "type": "manual", "min": 400000, "max": 800000},
-                    {"level": 6, "type": "manual", "min": 1000000, "max": 2000000},
-                    {"level": 7, "type": "manual", "min": 3000000, "max": 5000000},
-                    {"level": 8, "type": "manual", "min": 6000000, "max": 10000000},
-                    {"level": 9, "type": "manual", "min": 15000000, "max": 999999999}
-                ]
-            }
             doc_ref.set(default_config)
             print("✅ [FIREBASE] تم إنشاء مستند settings/withdraw_config بالخرائط الجديدة بنجاح!")
+        else:
+            doc_ref.set({"levels": default_config["levels"], "rate_coins_per_usd": 100000}, merge=True)
     except Exception as e:
         print(f"⚠️ [FIREBASE ERROR] تعذر إنشاء مستند withdraw_config: {e}")
 
@@ -79,15 +81,15 @@ def get_withdraw_config():
         "fee_percent": 3,
         "supported_currencies": ["DOGE", "TRX", "PEPE", "LTC"],
         "levels": [
-            {"level": 1, "type": "auto", "min": 10, "max": 100},
-            {"level": 2, "type": "auto", "min": 500, "max": 1500},
-            {"level": 3, "type": "auto", "min": 10000, "max": 50000},
-            {"level": 4, "type": "manual", "min": 100000, "max": 200000},
-            {"level": 5, "type": "manual", "min": 400000, "max": 800000},
-            {"level": 6, "type": "manual", "min": 1000000, "max": 2000000},
-            {"level": 7, "type": "manual", "min": 3000000, "max": 5000000},
-            {"level": 8, "type": "manual", "min": 6000000, "max": 10000000},
-            {"level": 9, "type": "manual", "min": 15000000, "max": 999999999}
+            {"level": 1, "type": "auto", "min": 10, "max": 10},
+            {"level": 2, "type": "auto", "min": 50, "max": 200},
+            {"level": 3, "type": "auto", "min": 500, "max": 2000},
+            {"level": 4, "type": "auto", "min": 5000, "max": 20000},
+            {"level": 5, "type": "manual", "min": 50000, "max": 100000},
+            {"level": 6, "type": "manual", "min": 150000, "max": 300000},
+            {"level": 7, "type": "manual", "min": 400000, "max": 600000},
+            {"level": 8, "type": "manual", "min": 700000, "max": 900000},
+            {"level": 9, "type": "manual", "min": 1000000, "max": 1500000}
         ]
     }
     
@@ -104,10 +106,7 @@ def get_withdraw_config():
             return default_config
         
         data = doc.to_dict() or {}
-        if 'levels' not in data or not isinstance(data.get('levels'), list):
-            doc_ref.set(default_config)
-            return default_config
-
+        data['levels'] = default_config['levels']
         return data
     except Exception:
         return default_config
@@ -178,14 +177,12 @@ def save_user_wallet(user_id, currency, wallet_address):
             return False, "المستخدم غير موجود في قاعدة البيانات."
 
         curr_key = currency.upper()
-        # استخدام صيغة التحديث المتداخل لمنع مسح باقي المحافظ داخل خريطة wallets
         user_ref.update({
             f'wallets.{curr_key}': wallet_address,
             'last_wallet_address': wallet_address
         })
         return True, "تم حفظ المحفظة بنجاح."
     except Exception as e:
-        # fallback في حال كان المستند جديداً تماماً
         try:
             user_ref.set({
                 'wallets': {
