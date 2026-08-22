@@ -6,6 +6,7 @@
   let userLevel = 1;
   let withdrawCount = 0;
   let activeLevelIndex = 0;
+  let keyboardDebounceTimer = null;
 
   function parseInputValue(val) {
     if (val === null || val === undefined) return 0;
@@ -102,68 +103,127 @@
     }
   }
 
-  // --- الحل الجذري لمشكلة الرعشة الخاصة بالكيبورد وإخفاء القوائم ---
+  // --- إدارة الكيبورد بدون تكرار أو رعشة ---
+  function injectKeyboardStyles(doc) {
+    try {
+      if (!doc || doc.getElementById('keyboard-hide-nav-style')) return;
+      const style = doc.createElement('style');
+      style.id = 'keyboard-hide-nav-style';
+      style.innerHTML = `
+        body.keyboard-active .bottom-nav,
+        body.keyboard-active .nav-bar,
+        body.keyboard-active .navbar,
+        body.keyboard-active .footer-menu,
+        body.keyboard-active .main-menu,
+        body.keyboard-active .navigation-bar,
+        body.keyboard-active #bottom-nav,
+        body.keyboard-active #bottom-navigation,
+        body.keyboard-active #main-nav,
+        body.keyboard-active footer,
+        body.keyboard-active [class*="bottom-nav"],
+        body.keyboard-active [class*="footer"],
+        body.keyboard-active [class*="navigation"],
+        body.keyboard-active [id*="bottom-nav"],
+        body.keyboard-active [id*="footer"] {
+          display: none !important;
+          visibility: hidden !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+        }
+      `;
+      doc.head?.appendChild(style);
+    } catch (e) {}
+  }
+
+  function toggleKeyboardClass(active) {
+    const targetDocs = [document];
+    try {
+      if (window.parent && window.parent !== window && window.parent.document) {
+        targetDocs.push(window.parent.document);
+      }
+      if (window.top && window.top !== window && window.top.document) {
+        targetDocs.push(window.top.document);
+      }
+    } catch (e) {}
+
+    targetDocs.forEach(doc => {
+      try {
+        if (!doc || !doc.body) return;
+        injectKeyboardStyles(doc);
+        if (active) {
+          doc.body.classList.add('keyboard-active');
+          doc.documentElement?.classList.add('keyboard-active');
+        } else {
+          doc.body.classList.remove('keyboard-active');
+          doc.documentElement?.classList.remove('keyboard-active');
+        }
+      } catch (e) {}
+    });
+  }
+
+  function hideMenus() {
+    if (keyboardDebounceTimer) {
+      clearTimeout(keyboardDebounceTimer);
+      keyboardDebounceTimer = null;
+    }
+    toggleKeyboardClass(true);
+  }
+
+  function showMenus(immediate = false) {
+    if (keyboardDebounceTimer) {
+      clearTimeout(keyboardDebounceTimer);
+      keyboardDebounceTimer = null;
+    }
+
+    if (immediate) {
+      toggleKeyboardClass(false);
+    } else {
+      keyboardDebounceTimer = setTimeout(() => {
+        const active = document.activeElement;
+        const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && !active.readOnly;
+        if (!isInput) {
+          toggleKeyboardClass(false);
+        }
+      }, 150);
+    }
+  }
+
   function setupKeyboardListeners() {
     if (window._keyboardListenersInitialized) return;
     window._keyboardListenersInitialized = true;
 
-    let isKeyboardVisible = false;
-
-    function hideMenus() {
-      document.body.classList.add('keyboard-active');
-      document.documentElement.classList.add('keyboard-active');
-      try {
-        if (window.parent && window.parent !== window && window.parent.document) {
-          window.parent.document.body?.classList.add('keyboard-active');
-          window.parent.document.documentElement?.classList.add('keyboard-active');
-        }
-      } catch (e) {}
-    }
-
-    function showMenus() {
-      document.body.classList.remove('keyboard-active');
-      document.documentElement.classList.remove('keyboard-active');
-      try {
-        if (window.parent && window.parent !== window && window.parent.document) {
-          window.parent.document.body?.classList.remove('keyboard-active');
-          window.parent.document.documentElement?.classList.remove('keyboard-active');
-        }
-      } catch (e) {}
-    }
-
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', () => {
-        const heightDiff = window.innerHeight - window.visualViewport.height;
-        
-        if (heightDiff > 100) {
-          isKeyboardVisible = true;
-          hideMenus();
-        } 
-        else if (heightDiff < 50) {
-          if (isKeyboardVisible) {
-            isKeyboardVisible = false;
-            showMenus();
-            if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
-              document.activeElement.blur();
-            }
-          }
-        }
-      });
-    }
+    // تهيئة التنسيقات مسبقاً
+    toggleKeyboardClass(false);
 
     document.addEventListener('focusin', (e) => {
-      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
-        if (!e.target.readOnly) {
-          isKeyboardVisible = true;
-          hideMenus();
-        }
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') && !e.target.readOnly) {
+        hideMenus();
       }
-    });
+    }, true);
 
-    if (!window.visualViewport) {
-      document.addEventListener('focusout', () => {
-        isKeyboardVisible = false;
-        setTimeout(showMenus, 150);
+    document.addEventListener('focusout', (e) => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+        showMenus(false);
+      }
+    }, true);
+
+    if (window.visualViewport) {
+      let vpResizeTimer = null;
+      const initialHeight = window.visualViewport.height;
+
+      window.visualViewport.addEventListener('resize', () => {
+        if (vpResizeTimer) clearTimeout(vpResizeTimer);
+        vpResizeTimer = setTimeout(() => {
+          const currentHeight = window.visualViewport.height;
+          const active = document.activeElement;
+          const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && !active.readOnly;
+
+          if (initialHeight - currentHeight > 120 && isInput) {
+            hideMenus();
+          } else if (currentHeight >= initialHeight - 50 && !isInput) {
+            showMenus(true);
+          }
+        }, 100);
       });
     }
   }
@@ -177,7 +237,6 @@
       coinsInput.addEventListener("keyup", calculateWithdraw);
       coinsInput.addEventListener("change", calculateWithdraw);
     }
-    // تمت إزالة مستمع المحفظة من هنا لأنه أصبح يعتمد على زر الحفظ في النافذة المنبثقة
     setupKeyboardListeners();
   }
 
@@ -203,7 +262,7 @@
           cryptoPrices = { ...cryptoPrices, ...data.crypto_prices };
           updatePriceDisplay();
         }
-        
+
         userBalance = parseFloat(data.user_balance ?? data.user?.balance) || 0;
         withdrawCount = parseInt(data.withdraw_count) || 0;
 
@@ -267,7 +326,7 @@
 
   function selectCurrency(curr) {
     selectedCurrency = curr.toUpperCase();
-    
+
     document.querySelectorAll('.currency-btn').forEach(btn => btn.classList.remove('selected'));
     const selectedBtn = document.getElementById(`coin-${selectedCurrency}`);
     if (selectedBtn) selectedBtn.classList.add('selected');
@@ -311,20 +370,29 @@
     const hiddenInput = document.getElementById("wallet-address-input");
 
     if (modalLabel) modalLabel.innerText = selectedCurrency;
-    
-    // وضع العنوان المخزن مسبقاً (إن وجد) لتسهيل التعديل
+
     if (modalInput && hiddenInput) {
-      modalInput.value = hiddenInput.value; 
+      modalInput.value = hiddenInput.value;
     }
-    
+
     if (modal) {
       modal.classList.add("active");
-      // وضع التركيز تلقائياً على حقل الإدخال
-      setTimeout(() => { if(modalInput) modalInput.focus(); }, 100);
+      setTimeout(() => {
+        if (modalInput) {
+          modalInput.focus();
+          hideMenus();
+        }
+      }, 100);
     }
   }
 
   function closeWalletModal() {
+    if (document.activeElement && typeof document.activeElement.blur === 'function') {
+      document.activeElement.blur();
+    }
+    
+    showMenus(true);
+
     const modal = document.getElementById("wallet-modal");
     if (modal) {
       modal.classList.remove("active");
@@ -339,15 +407,15 @@
 
     if (modalInput && hiddenInput) {
       const val = modalInput.value.trim();
-      hiddenInput.value = val; // تحديث الحقل المخفي
+      hiddenInput.value = val;
 
       if (val.length > 0) {
         if (displayDiv) {
           displayDiv.innerText = val;
-          displayDiv.style.display = "block"; // إظهار العنوان المكتوب
+          displayDiv.style.display = "block";
         }
         if (connectBtn) {
-          connectBtn.innerHTML = "✏️ تعديل المحفظة"; // تغيير نص الزر
+          connectBtn.innerHTML = "✏️ تعديل المحفظة";
         }
       } else {
         if (displayDiv) {
@@ -361,13 +429,13 @@
     }
 
     closeWalletModal();
-    calculateWithdraw(); // إعادة حساب وتفعيل زر السحب
+    calculateWithdraw();
   }
   // --------------------------------------------------
 
   function calculateWithdraw() {
     const coinsInput = document.getElementById("coins-input");
-    const walletInput = document.getElementById("wallet-address-input"); // يقرأ الآن من الحقل المخفي
+    const walletInput = document.getElementById("wallet-address-input");
     const coinsInputVal = parseInputValue(coinsInput?.value);
     const walletAddress = walletInput?.value?.trim() || "";
     const btn = document.getElementById("confirm-withdraw-btn");
@@ -408,7 +476,7 @@
     const feeCoins = coinsInputVal * (feePercent / 100);
     const netCoins = coinsInputVal - feeCoins;
     const netUsd = netCoins / usdRate;
-    
+
     const finalNetCrypto = netUsd / priceUSD;
     const decimals = selectedCurrency === 'PEPE' ? 2 : 8;
 
@@ -424,7 +492,7 @@
       const isMinOk = currentLvl ? coinsInputVal >= currentLvl.min : true;
       const isMaxOk = currentLvl ? coinsInputVal <= currentLvl.max : true;
       const addrCheck = validateWalletAddress(walletAddress, selectedCurrency);
-      
+
       btn.disabled = !(isMinOk && isMaxOk && addrCheck.valid && userBalance >= coinsInputVal);
     }
   }
