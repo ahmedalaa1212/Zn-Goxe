@@ -340,7 +340,7 @@ def handle_withdraw():
     net_usd = net_coins / rate_coins_per_usd
     net_crypto = clean_round(net_usd / protected_price, 8)
 
-    success, msg, tx_id = process_withdraw_db(
+    success, msg, tx_id, new_balance = process_withdraw_db(
         user_id=user_id,
         coins_amount=coins,
         crypto_net_amount=net_crypto,
@@ -379,7 +379,11 @@ def handle_withdraw():
                     'updated_at': firestore.SERVER_TIMESTAMP
                 })
             notify_group_auto_success(user_id, coins, net_crypto, currency, wallet_address, tx_id)
-            return jsonify({"success": True, "message": f"تم تحويل {format_crypto_display(net_crypto)} {currency} بنجاح إلى حسابك في FaucetPay!"}), 200
+            return jsonify({
+                "success": True, 
+                "message": f"تم تحويل {format_crypto_display(net_crypto)} {currency} بنجاح إلى حسابك في FaucetPay!",
+                "new_balance": new_balance
+            }), 200
         else:
             if db:
                 db.collection('processed_txs').document(tx_id).update({
@@ -391,14 +395,26 @@ def handle_withdraw():
             error_lower = transfer_msg.lower()
             if "fund" in error_lower or "balance" in error_lower or "sufficient" in error_lower:
                 notify_admin_empty_faucetpay(user_id, coins, net_crypto, currency, tx_id)
-                return jsonify({"success": True, "message": "طلبك قيد الانتظار حالياً، جاري معالجة الطلب وسيتم التحويل فور توفر سيولة في المحفظة."}), 200
+                return jsonify({
+                    "success": True, 
+                    "message": "طلبك قيد الانتظار حالياً، جاري معالجة الطلب وسيتم التحويل فور توفر سيولة في المحفظة.",
+                    "new_balance": new_balance
+                }), 200
             else:
                 notify_admin_auto_failed(user_id, coins, net_crypto, currency, wallet_address, tx_id, transfer_msg)
-                return jsonify({"success": True, "message": "تم تسجيل الطلب ووضعه قيد الانتظار لمعالجته يدوياً."}), 200
+                return jsonify({
+                    "success": True, 
+                    "message": "تم تسجيل الطلب ووضعه قيد الانتظار لمعالجته يدوياً.",
+                    "new_balance": new_balance
+                }), 200
     else:
         notify_admin_for_manual_approval(user_id, coins, net_crypto, currency, wallet_address, matched_level['level'], tx_id)
 
-    return jsonify({"success": True, "message": "تم إرسال طلب السحب بنجاح للمراجعة والاعتماد."}), 200
+    return jsonify({
+        "success": True, 
+        "message": "تم إرسال طلب السحب بنجاح للمراجعة والاعتماد.",
+        "new_balance": new_balance
+    }), 200
 
 def execute_admin_decision(tx_id, action):
     if not tx_id or not action:
