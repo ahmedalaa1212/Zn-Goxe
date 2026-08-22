@@ -361,13 +361,18 @@ window.initFirebaseRealtimeSync = function(userId) {
 };
 
 // ==========================================
-// 6. دالة إدارة عداد التجميع
+// 6. دالة إدارة عداد التجميع المحصنة
 // ==========================================
 let claimCooldownTimer = null;
 
 window.updateClaimButtonState = function() {
     const claimButtons = document.querySelectorAll('#claim-btn, .claim-btn, [data-action="claim"]');
     if (!claimButtons.length) return;
+
+    if (claimCooldownTimer) {
+        clearInterval(claimCooldownTimer);
+        claimCooldownTimer = null;
+    }
 
     const COOLDOWN_SECONDS = 15;
     const lastClaimStr = window.userState.last_claim_time;
@@ -388,14 +393,12 @@ window.updateClaimButtonState = function() {
                 renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready");
             }
         });
-        if (claimCooldownTimer) { clearInterval(claimCooldownTimer); claimCooldownTimer = null; }
         return;
     }
 
     const lastClaimMs = new Date(lastClaimStr).getTime();
     if (isNaN(lastClaimMs)) {
         claimButtons.forEach(btn => renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready"));
-        if (claimCooldownTimer) { clearInterval(claimCooldownTimer); claimCooldownTimer = null; }
         return;
     }
 
@@ -404,7 +407,6 @@ window.updateClaimButtonState = function() {
     const remainingSeconds = COOLDOWN_SECONDS - secondsPassed;
 
     if (remainingSeconds <= 0) {
-        if (claimCooldownTimer) { clearInterval(claimCooldownTimer); claimCooldownTimer = null; }
         claimButtons.forEach(btn => {
             if (isFarmTab && unclaimed <= 0) {
                 renderButton(btn, true, `المخزن فارغ ⏳`, "claim-action-btn btn-disabled");
@@ -415,30 +417,28 @@ window.updateClaimButtonState = function() {
         return;
     }
 
-    if (!claimCooldownTimer) {
-        claimCooldownTimer = setInterval(() => {
-            const nowMs = Date.now() + (window.serverTimeOffset || 0);
-            const passed = Math.floor((nowMs - lastClaimMs) / 1000);
-            const rem = COOLDOWN_SECONDS - passed;
+    claimCooldownTimer = setInterval(() => {
+        const nowMs = Date.now() + (window.serverTimeOffset || 0);
+        const passed = Math.floor((nowMs - lastClaimMs) / 1000);
+        const rem = COOLDOWN_SECONDS - passed;
 
-            if (rem > 0) {
-                claimButtons.forEach(btn => {
-                    renderButton(btn, true, `انتظر ${window.formatTime(rem)} ⏳`, "claim-action-btn btn-disabled");
-                });
-            } else {
-                clearInterval(claimCooldownTimer);
-                claimCooldownTimer = null;
-                const latestUnclaimed = parseFloat(window.userState?.unclaimed || 0);
-                claimButtons.forEach(btn => {
-                    if (isFarmTab && latestUnclaimed <= 0) {
-                        renderButton(btn, true, `المخزن فارغ ⏳`, "claim-action-btn btn-disabled");
-                    } else {
-                        renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready");
-                    }
-                });
-            }
-        }, 1000);
-    }
+        if (rem > 0) {
+            claimButtons.forEach(btn => {
+                renderButton(btn, true, `انتظر ${window.formatTime(rem)} ⏳`, "claim-action-btn btn-disabled");
+            });
+        } else {
+            clearInterval(claimCooldownTimer);
+            claimCooldownTimer = null;
+            const latestUnclaimed = parseFloat(window.userState?.unclaimed || 0);
+            claimButtons.forEach(btn => {
+                if (isFarmTab && latestUnclaimed <= 0) {
+                    renderButton(btn, true, `المخزن فارغ ⏳`, "claim-action-btn btn-disabled");
+                } else {
+                    renderButton(btn, false, `تجميع الرصيد 💰`, "claim-action-btn btn-ready");
+                }
+            });
+        }
+    }, 1000);
 };
 
 // ==========================================
@@ -625,7 +625,7 @@ function renderDefaultViewContent(cleanViewName, targetView) {
             </div>`;
     } else if (cleanViewName === 'wallet') {
         const cacheBuster = `?v=${Date.now()}`;
-        fetch(`/wallet/wallet.html${cacheBuster}`)
+        fetch(`./wallet/wallet.html${cacheBuster}`)
             .then(res => res.text())
             .then(html => {
                 targetView.innerHTML = html;
@@ -644,7 +644,9 @@ function renderDefaultViewContent(cleanViewName, targetView) {
 
 async function loadModuleScript(jsPath) {
     return new Promise((resolve) => {
-        if (document.querySelector(`script[src="${jsPath}"]`)) {
+        const cleanJsPath = jsPath.split('?')[0];
+        const existing = Array.from(document.querySelectorAll('script')).find(s => s.src && s.src.includes(cleanJsPath));
+        if (existing) {
             resolve(true);
             return;
         }
@@ -699,11 +701,11 @@ window.switchView = async function(viewName) {
     targetView.style.width = '100%';
     targetView.style.minHeight = '100vh';
 
-    // تحميل سكريبت المحفظة وسكريبت الإيداع تلقائياً لضمان الربط
+    // تحميل سكريبت المحفظة وسكريبت الإيداع عند الدخول لتبويب المحفظة
     if (cleanViewName === 'wallet') {
         const cb = `?v=${Date.now()}`;
-        await loadModuleScript(`/wallet/wallet.js${cb}`);
-        await loadModuleScript(`/wallet/deposit/deposit.js${cb}`);
+        await loadModuleScript(`./wallet/wallet.js${cb}`);
+        await loadModuleScript(`./wallet/deposit/deposit.js${cb}`);
     }
 
     // 4. جلب المحتوى من المجلد المخصص لكل تبويب
