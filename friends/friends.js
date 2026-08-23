@@ -213,7 +213,8 @@
                 user_id: userId
             });
             
-            if (response.ok && data.success && data.player) {
+            // تم تصحيح الشرط بعدم الاعتماد على response.ok غير المعرف
+            if (data && data.success && data.player) {
                 window.PlayerData = { ...window.PlayerData, ...data.player };
                 if (data.friends_config) {
                     window.FriendsConfig = data.friends_config;
@@ -377,7 +378,7 @@
                 user_id: userId
             });
             
-            if (response.ok && data.success) {
+            if (data && data.success) {
                 const formattedNet = formatNumber(data.net_amount);
                 const feePercent = window.FriendsConfig?.claim_fee_percent || 1.5;
                 showToast(`🎉 تم السحب بنجاح!\nأُضيف ${formattedNet} ZN إلى رصيدك (بعد خصم ${feePercent}% رسوم).`);
@@ -410,7 +411,7 @@
                 reqFriends
             });
 
-            if (response.ok && data.success) {
+            if (data && data.success) {
                 showToast(`🎊 مبروك! استلمت مكافأة ${formatNumber(reward)} ZN.`);
                 
                 if (!window.PlayerData) window.PlayerData = {};
@@ -445,7 +446,7 @@
                 user_id: userId
             });
 
-            if (response.ok && data.success) {
+            if (data && data.success) {
                 if (!data.friends || data.friends.length === 0) {
                     container.innerHTML = '<div class="empty-state">لم تقم بدعوة أي أصدقاء حتى الآن.</div>';
                     return;
