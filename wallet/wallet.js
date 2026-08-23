@@ -1,3 +1,8 @@
+// wallet/wallet.js
+// =================================================================
+// 👛 ZN Goxe - Wallet Module (Standardized 4 Decimals UI)
+// =================================================================
+
 window.walletModule = (function () {
     let currentTab = 'deposit';
     let isListening = false;
@@ -5,20 +10,15 @@ window.walletModule = (function () {
     let lastFetchTime = 0;
     const viewCache = {}; // تخزين القوائم للتحميل اللحظي بدون ريفرش
 
+    // 🎯 توحيد عرض الأرقام العشرية للمحفظة على 4 أرقام عشرية حصراً مثل باقي القوائم
     function formatSmartBalance(val) {
         if (typeof val === 'string') {
             val = val.replace(/[^0-9.-]/g, '');
         }
         const num = parseFloat(val || 0);
-        if (isNaN(num)) return "0.00";
+        if (isNaN(num)) return "0.0000";
 
-        if (num >= 1000) {
-            return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-        }
-        if (num > 0 && num < 100) {
-            return num.toFixed(4);
-        }
-        return num.toFixed(2);
+        return num.toFixed(4);
     }
 
     function getGlobalBalance(keys) {
@@ -56,6 +56,18 @@ window.walletModule = (function () {
 
         if (znElem && znElem.innerText !== newZnText) znElem.innerText = newZnText;
         if (usdtElem && usdtElem.innerText !== newUsdtText) usdtElem.innerText = newUsdtText;
+
+        // تحديث جميع عناصِر الرصيد العلوية في المحفظة وباقي الشاشات لتتوافق مع 4 أرقام عشرية
+        const elBalances = document.querySelectorAll('.zn-balance-display, #top-balance-wallet, #top-balance, #header-zn-balance, .user-balance');
+        elBalances.forEach(el => {
+            if (el.id !== 'zn-balance-display') {
+                if (el.innerText.includes('ZN')) {
+                    el.innerText = `${newZnText} ZN`;
+                } else {
+                    el.innerText = newZnText;
+                }
+            }
+        });
     }
 
     function attachRealtimeListeners() {
