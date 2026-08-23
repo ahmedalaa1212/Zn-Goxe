@@ -51,10 +51,20 @@
         return parseFloat(val.toFixed(2)).toString();
     }
 
-    // 🎯 فرض 4 أرقام عشرية حصراً للرصيد العلوي وسعر TON المباشر
+    // 🎯 فرض 4 أرقام عشرية حصراً للرصيد العلوي (نص عادي)
     function formatTopBalance(num) {
         let val = floatVal(num);
         return val.toFixed(4);
+    }
+
+    // 🎯 تنسيق الأرقام العشرية بشكل أنيق وعالي التباين مطابق لقائمة الأصدقاء
+    function formatTopBalanceHTML(num) {
+        let val = floatVal(num);
+        let fixedStr = val.toFixed(4);
+        let parts = fixedStr.split('.');
+        let intPart = parts[0];
+        let decPart = parts[1] || '0000';
+        return `${intPart}<span style="font-size: 0.85em; opacity: 0.92; margin: 0 1px;">.${decPart}</span>`;
     }
 
     function initTonConnect() {
@@ -133,7 +143,7 @@
         const tonPriceElem = document.getElementById('ton-live-rate-text');
         const livePrice = floatVal(data.ton_price_usd, window.tonPrice, window.userState?.ton_price, 5.0);
         if (tonPriceElem && livePrice) {
-            tonPriceElem.innerText = `$${formatTopBalance(livePrice)}`; // 🎯 4 أرقام عشرية لسعر TON المباشر
+            tonPriceElem.innerHTML = `$${formatTopBalanceHTML(livePrice)}`; // 🎯 4 أرقام عشرية أنيقة لسعر TON المباشر
         }
 
         const packages = data.packages || data.usdt_packages || (data.settings && data.settings.usdt_packages);
@@ -431,26 +441,26 @@
         let totalBal = floatVal(pData.balance);
         let totalUsd = floatVal(pData.usd_balance, pData.balance_usd, pData.usd, pData.usdt);
 
-        // 🎯 عرض الرصيد العلوي بـ 4 أرقام عشرية
+        // 🎯 عرض الرصيد العلوي بـ 4 أرقام عشرية بشكل أنيق ومطابق لقائمة الأصدقاء
         const balElem = document.getElementById('shop-balance-text');
         if (balElem) {
-            balElem.innerText = `${formatTopBalance(totalBal)} ZN`;
+            balElem.innerHTML = `${formatTopBalanceHTML(totalBal)} ZN`;
         }
 
         const elBalances = document.querySelectorAll('.zn-balance-display, #top-balance-shop, #top-balance, #header-zn-balance, .user-balance');
         elBalances.forEach(el => {
             if (el.id !== 'shop-balance-text') {
-                if (el.innerText.includes('ZN')) {
-                    el.innerText = `${formatTopBalance(totalBal)} ZN`;
+                if (el.textContent.includes('ZN') || el.innerHTML.includes('ZN')) {
+                    el.innerHTML = `${formatTopBalanceHTML(totalBal)} ZN`;
                 } else {
-                    el.innerText = formatTopBalance(totalBal);
+                    el.innerHTML = formatTopBalanceHTML(totalBal);
                 }
             }
         });
 
         const usdElem = document.getElementById('shop-usd-text');
         if (usdElem) {
-            usdElem.innerText = `$${formatTopBalance(totalUsd)}`;
+            usdElem.innerHTML = `$${formatTopBalanceHTML(totalUsd)}`;
         }
         
         const rateElem = document.getElementById('shop-rate-text');
