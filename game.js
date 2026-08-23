@@ -442,7 +442,7 @@ window.updateClaimButtonState = function() {
 };
 
 // ==========================================
-// 7. العداد البصري التدريجي
+// 7. العداد البصري التدريجي وتنسيق الأرقام العشرية
 // ==========================================
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0.00';
@@ -454,8 +454,11 @@ window.formatBalance = function(val) {
     });
 };
 
+// دالة التنسيق المحدثة: تُصغّر وتُخفّف الكسر العشري بصرياً لتجنب التداخل مع الرقم الصحيح
 window.formatNumberHTML = function(val) {
-    if (val === undefined || val === null || isNaN(val)) return '0.00';
+    if (val === undefined || val === null || isNaN(val)) {
+        return `0<span style="font-size:0.8em; opacity:0.75; font-weight:normal;">.00</span>`;
+    }
     let num = parseFloat(val);
     let suffix = '';
     if (Math.abs(num) >= 1e9) { num /= 1e9; suffix = 'B'; }
@@ -465,6 +468,11 @@ window.formatNumberHTML = function(val) {
         minimumFractionDigits: 2, 
         maximumFractionDigits: 6 
     });
+
+    const parts = formattedStr.split('.');
+    if (parts.length > 1) {
+        return `${parts[0]}<span style="font-size:0.8em; opacity:0.75; font-weight:normal;">.${parts[1]}</span>${suffix}`;
+    }
     return `${formattedStr}${suffix}`;
 };
 
@@ -514,7 +522,7 @@ function applyBalanceToUI(val) {
         if (el.tagName === 'INPUT') {
             el.value = rawFormatted;
         } else if (el.id === 'top-balance-tasks') {
-            el.innerText = `ZN ${rawFormatted}`;
+            el.innerHTML = `ZN ${formatted}`;
         } else {
             if (el.classList.contains('plain-text')) {
                 el.innerText = `${rawFormatted} ZN`;
@@ -532,16 +540,19 @@ window.updateUI = function() {
     const currentMaxCap = parseFloat(window.userState.max_cap ?? 100);
     document.querySelectorAll('#storage-max, .max-storage-val, [data-bind="max_cap"], #farm-storage-max').forEach(el => {
         if (el.tagName === 'INPUT') {
-            el.value = currentMaxCap.toFixed(2);
+            el.value = window.formatBalance(currentMaxCap);
         } else {
-            el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">${window.formatBalance(currentMaxCap)}</span>`;
+            el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">${window.formatNumberHTML(currentMaxCap)}</span>`;
         }
     });
 
     const adBal = parseFloat(window.userState.ad_balance || 0);
-    const formattedAd = window.formatBalance(adBal);
+    const formattedAd = window.formatNumberHTML(adBal);
+    const rawAd = window.formatBalance(adBal);
     document.querySelectorAll('#ad-balance-display, .ad-balance-val, [data-bind="ad_balance"]').forEach(el => {
-        if (el.id === 'ad-balance-display') {
+        if (el.tagName === 'INPUT') {
+            el.value = rawAd;
+        } else if (el.id === 'ad-balance-display') {
             el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">AdZN ${formattedAd}</span>`;
         } else {
             el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">${formattedAd}</span>`;
@@ -549,10 +560,15 @@ window.updateUI = function() {
     });
 
     const usdBal = parseFloat(window.userState.usd_balance || 0);
-    const formattedUsd = window.formatBalance(usdBal);
+    const formattedUsd = window.formatNumberHTML(usdBal);
+    const rawUsd = window.formatBalance(usdBal);
     document.querySelectorAll('.usd-balance-val, [data-bind="usd_balance"]').forEach(el => {
         if (el.id === 'shop-usd-text') return;
-        el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">$${formattedUsd}</span>`;
+        if (el.tagName === 'INPUT') {
+            el.value = rawUsd;
+        } else {
+            el.innerHTML = `<span dir="ltr" style="white-space:nowrap;">$${formattedUsd}</span>`;
+        }
     });
 
     if (visualBalance === null && window.userState?.balance !== undefined) {
