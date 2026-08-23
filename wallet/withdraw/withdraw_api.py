@@ -10,6 +10,11 @@ PRICE_CACHE = {
     "last_updated": 0
 }
 
+CONFIG_CACHE = {
+    "data": None,
+    "last_updated": 0
+}
+
 def clean_round(value, decimals=8):
     if not isinstance(value, (int, float)):
         try:
@@ -68,7 +73,7 @@ def validate_wallet_address(address, currency):
 
 def get_live_crypto_prices():
     now = time.time()
-    # استخدام ذاكرة التخزين المؤقت لمدة 60 ثانية لتجنب الضغط على الشبكة
+    # ذاكرة مؤقتة للأسعار لمدة 60 ثانية لتخفيف الضغط وحفظ موارد الخادم
     if PRICE_CACHE["data"] and (now - PRICE_CACHE["last_updated"] < 60):
         return PRICE_CACHE["data"]
 
@@ -219,6 +224,11 @@ def _get_firestore_client():
     return None
 
 def fetch_or_create_withdraw_config():
+    now = time.time()
+    # التخزين المؤقت للإعدادات لتقليل قراءات الفايربيس للحد الأدنى وتكلفة الاستضافة
+    if CONFIG_CACHE["data"] and (now - CONFIG_CACHE["last_updated"] < 300):
+        return CONFIG_CACHE["data"]
+
     db = _get_firestore_client()
     if not db:
         return DEFAULT_WITHDRAW_CONFIG
@@ -231,9 +241,13 @@ def fetch_or_create_withdraw_config():
             data['rate_coins_per_usd'] = DEFAULT_WITHDRAW_CONFIG['rate_coins_per_usd']
             if 'faucetpay_spread_markup' not in data or data.get('faucetpay_spread_markup') == 1.0:
                 data['faucetpay_spread_markup'] = 1.06
-            doc_ref.set(data, merge=True)
+            CONFIG_CACHE["data"] = data
+            CONFIG_CACHE["last_updated"] = now
             return data
+        
         doc_ref.set(DEFAULT_WITHDRAW_CONFIG, merge=True)
+        CONFIG_CACHE["data"] = DEFAULT_WITHDRAW_CONFIG
+        CONFIG_CACHE["last_updated"] = now
         return DEFAULT_WITHDRAW_CONFIG
     except Exception as e:
         print(f"⚠️ خطأ وصول Firebase لمستند withdraw_config: {e}")
@@ -257,7 +271,7 @@ def get_config():
     already_withdrawn = False
     user_balance = 0.0
     withdraw_count = 0
-    user_wallets = {}
+    raw_wallets = {}
     
     try:
         if user_id:
@@ -266,9 +280,18 @@ def get_config():
             if user_details:
                 user_balance = float(user_details.get('balance', 0.0))
                 withdraw_count = int(user_details.get('withdraw_count', 0))
-                user_wallets = user_details.get('wallets', {})
+                raw_wallets = user_details.get('wallets', {})
     except Exception as e:
         print(f"خطأ جلب بيانات المستخدم: {e}")
+
+    # فلترة المحافظ لضمان إرسال المحافظ الصحيحة فقط لكل عملة وتصفية العناوين الخاطئة الموروثة
+    clean_user_wallets = {}
+    if isinstance(raw_wallets, dict):
+        for curr, addr in raw_wallets.items():
+            if addr and isinstance(addr, str):
+                is_valid, _ = validate_wallet_address(addr, curr)
+                if is_valid:
+                    clean_user_wallets[curr] = addr.strip()
 
     return jsonify({
         "success": True,
@@ -279,7 +302,7 @@ def get_config():
         "user_balance": user_balance,
         "zn_balance": user_balance,
         "withdraw_count": withdraw_count,
-        "wallets": user_wallets,
+        "wallets": clean_user_wallets,
         "last_wallet_address": ""
     }), 200
 
