@@ -45,6 +45,7 @@
         return data;
     }
 
+
     let lastFetchTimestamp = 0;
     const FETCH_COOLDOWN_MS = 3000;
     let isTaskClaiming = false;
@@ -63,8 +64,8 @@
         return "";
     }
 
-    // دالة نصية عادية للأغراض التي لا تدعم HTML
-    function formatNumber(num, maxDecimals = 4) {
+    // دالة تنسيق الأرقام المحدثة لترجيع خانتين عشريتين على الأقل وحتى 6 خانات بدون حذف الكسر
+    function formatNumber(num, maxDecimals = 6) {
         const val = parseFloat(num) || 0;
         if (isNaN(val) || val === 0) return "0.00";
         
@@ -75,24 +76,6 @@
         if (decimalPart.length === 1) decimalPart += '0';
         
         return `${integerPart}.${decimalPart}`;
-    }
-
-    // دالة جديدة لتصغير وتخفيف تباين الأرقام العشرية عبر HTML
-    function formatNumberHTML(num, maxDecimals = 4) {
-        const val = parseFloat(num) || 0;
-        if (isNaN(val) || val === 0) return '0<span style="font-size:0.75em; opacity:0.7;">.00</span>';
-        
-        let str = val.toFixed(maxDecimals).replace(/\.?0+$/, '');
-        let parts = str.split('.');
-        let integerPart = parseFloat(parts[0]).toLocaleString('en-US');
-        let decimalPart = parts[1];
-        
-        if (!decimalPart) {
-            return integerPart;
-        }
-        if (decimalPart.length === 1) decimalPart += '0';
-        
-        return `${integerPart}<span style="font-size:0.75em; opacity:0.7;">.${decimalPart}</span>`;
     }
 
     function getStoredBalance() {
@@ -230,6 +213,7 @@
                 user_id: userId
             });
             
+            // تم تصحيح الشرط بعدم الاعتماد على response.ok غير المعرف
             if (data && data.success && data.player) {
                 window.PlayerData = { ...window.PlayerData, ...data.player };
                 if (data.friends_config) {
@@ -261,10 +245,10 @@
 
         const elBalances = document.querySelectorAll('.zn-balance-display, #top-balance-friends, #farm-balance, #top-balance, #header-zn-balance, .user-balance');
         elBalances.forEach(el => {
-            if (el.id === 'farm-balance' || el.innerText.includes('ZN') || el.innerHTML.includes('ZN')) {
-                el.innerHTML = `${formatNumberHTML(balance)} ZN`;
+            if (el.id === 'farm-balance' || el.innerText.includes('ZN')) {
+                el.innerText = `${formatNumber(balance)} ZN`;
             } else {
-                el.innerHTML = formatNumberHTML(balance);
+                el.innerText = formatNumber(balance);
             }
         });
 
@@ -273,8 +257,8 @@
         const elInvited = document.getElementById('invited-friends-count');
         const btnClaim = document.getElementById('btn-claim-ref');
 
-        if (elPending) elPending.innerHTML = formatNumberHTML(pending);
-        if (elTotal) elTotal.innerHTML = formatNumberHTML(totalEarnings);
+        if (elPending) elPending.innerText = formatNumber(pending);
+        if (elTotal) elTotal.innerText = formatNumber(totalEarnings);
         if (elInvited) elInvited.innerText = totalInvited.toLocaleString();
 
         if (btnClaim) {
@@ -337,7 +321,7 @@
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <div>
                             <h4 style="margin:0; color:#fff; font-size:13px;">دعوة ${reqFriends} أصدقاء (${minUpgrades}+ ترقيات)</h4>
-                            <p style="margin:4px 0 0 0; color:#f39c12; font-size:11px; font-weight:bold;">مكافأة: ${formatNumberHTML(reward)} ZN</p>
+                            <p style="margin:4px 0 0 0; color:#f39c12; font-size:11px; font-weight:bold;">مكافأة: ${formatNumber(reward)} ZN</p>
                         </div>
                         <div>${btnHtml}</div>
                     </div>
@@ -476,7 +460,7 @@
                         : `<span style="color: #f39c12; font-size:11px;">ينقصه ${minUpgrades - cnt} ترقية (${cnt}/${minUpgrades}) ⏳</span>`;
                     
                     const genVal = parseFloat(f.generated || f.earned_from_him || 0);
-                    const formattedGen = formatNumberHTML(genVal);
+                    const formattedGen = formatNumber(genVal);
 
                     html += `
                         <li style="display:flex; justify-content:space-between; align-items:center; background:#121215; padding:10px 12px; border-radius:10px; margin-bottom:8px; border:1px solid #26262b;">
@@ -488,8 +472,8 @@
                                 </div>
                             </div>
                             <div style="text-align: left;">
-                                <span style="display:inline-block; color:#2ecc71; font-weight:bold; font-size:13px;">+${formattedGen} ZN</span>
-                                <span style="display:block; font-size:10px; color:#888;">المجمع منه</span>
+                                <span style="display:block; color:#2ecc71; font-weight:bold; font-size:13px;">+${formattedGen} ZN</span>
+                                <span style="font-size:10px; color:#888;">المجمع منه</span>
                             </div>
                         </li>
                     `;
@@ -536,3 +520,4 @@
         initFriendsPage();
     }
 })();
+
