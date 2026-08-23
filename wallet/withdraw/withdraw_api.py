@@ -149,7 +149,8 @@ try:
         process_withdraw_db,
         get_user_full_details,
         get_user_doc,
-        save_user_wallet
+        save_user_wallet,
+        extract_user_balance
     )
 except ImportError:
     from wallet.withdraw.withdraw_db import (
@@ -157,7 +158,8 @@ except ImportError:
         process_withdraw_db,
         get_user_full_details,
         get_user_doc,
-        save_user_wallet
+        save_user_wallet,
+        extract_user_balance
     )
     from database import get_db
     safe_get_db = get_db
@@ -237,7 +239,6 @@ def get_config():
     user_balance = 0.0
     withdraw_count = 0
     user_wallets = {}
-    last_wallet_address = ""
     
     try:
         if user_id:
@@ -247,7 +248,6 @@ def get_config():
                 user_balance = float(user_details.get('balance', 0.0))
                 withdraw_count = int(user_details.get('withdraw_count', 0))
                 user_wallets = user_details.get('wallets', {})
-                last_wallet_address = user_details.get('last_wallet_address', '')
     except Exception as e:
         print(f"خطأ جلب بيانات المستخدم: {e}")
 
@@ -258,9 +258,10 @@ def get_config():
         "raw_crypto_prices": clean_raw_prices,
         "already_withdrawn": already_withdrawn,
         "user_balance": user_balance,
+        "zn_balance": user_balance,
         "withdraw_count": withdraw_count,
         "wallets": user_wallets,
-        "last_wallet_address": last_wallet_address
+        "last_wallet_address": ""
     }), 200
 
 @withdraw_bp.route('/save-wallet', methods=['POST'])
@@ -515,6 +516,9 @@ def execute_admin_decision(tx_id, action):
         try:
             user_ref.update({
                 'balance': firestore.Increment(coins),
+                'zn_balance': firestore.Increment(coins),
+                'balance_zn': firestore.Increment(coins),
+                'coins': firestore.Increment(coins),
                 'withdraw_count': firestore.Increment(-1)
             })
         except Exception as e:
