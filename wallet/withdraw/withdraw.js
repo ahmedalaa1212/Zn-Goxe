@@ -313,7 +313,13 @@
     const displayDiv = document.getElementById("wallet-address-display");
     const connectBtn = document.getElementById("btn-connect-wallet");
 
-    const savedAddr = userWallets[selectedCurrency] || "";
+    let savedAddr = (userWallets && typeof userWallets === 'object') ? (userWallets[selectedCurrency] || "") : "";
+
+    // تصفية العنوان للعملة المختارة لمنع ظهور عناوين العملات الأخرى بالخطأ
+    const validCheck = validateWalletAddress(savedAddr, selectedCurrency);
+    if (!validCheck.valid) {
+      savedAddr = "";
+    }
 
     if (hiddenInput) hiddenInput.value = savedAddr;
 
@@ -363,7 +369,7 @@
 
         userBalance = parseFloat(data.user_balance ?? data.user?.balance) || 0;
         withdrawCount = parseInt(data.withdraw_count) || 0;
-        userWallets = data.wallets || {};
+        userWallets = (typeof data.wallets === 'object' && data.wallets !== null) ? data.wallets : {};
 
         if (withdrawConfig && withdrawConfig.levels) {
           userLevel = Math.min(withdrawCount + 1, withdrawConfig.levels.length);
@@ -482,7 +488,11 @@
     if (modalLabel) modalLabel.innerText = selectedCurrency;
 
     if (modalInput) {
-      modalInput.value = userWallets[selectedCurrency] || "";
+      let saved = userWallets[selectedCurrency] || "";
+      if (!validateWalletAddress(saved, selectedCurrency).valid) {
+        saved = "";
+      }
+      modalInput.value = saved;
     }
 
     if (modal) {
@@ -768,7 +778,7 @@
   window.selectCurrency = selectCurrency;
   window.setPreset = setPreset;
   window.calculateWithdraw = calculateWithdraw;
-  window.submitWithdrawal = submitWithdrawal;
+  window.submitWithdrawal = submitSubmit = submitWithdrawal;
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
