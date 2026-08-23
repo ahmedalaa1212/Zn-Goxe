@@ -24,6 +24,28 @@ def format_crypto_display(amount):
     except Exception:
         return str(amount)
 
+def extract_user_balance(data):
+    if not isinstance(data, dict):
+        return 0.0
+    
+    balance_keys = ['balance', 'zn_balance', 'balance_zn', 'coins', 'user_balance', 'zn_coins']
+    found_values = []
+    
+    for key in balance_keys:
+        val = data.get(key)
+        if val is not None:
+            try:
+                f_val = float(val)
+                found_values.append(f_val)
+            except (ValueError, TypeError):
+                pass
+                
+    if not found_values:
+        return 0.0
+        
+    max_bal = max(found_values)
+    return max_bal if max_bal > 0 else found_values[0]
+
 def auto_create_withdraw_config():
     db = safe_get_db()
     if not db:
@@ -145,14 +167,7 @@ def get_user_full_details(user_id):
         else:
             joined_date = str(created_at or 'غير محدد')
 
-        raw_bal = data.get('balance')
-        if raw_bal is None:
-            raw_bal = data.get('zn_balance', data.get('balance_zn', data.get('coins', 0.0)))
-            
-        try:
-            real_balance = float(raw_bal)
-        except (ValueError, TypeError):
-            real_balance = 0.0
+        real_balance = extract_user_balance(data)
 
         withdraw_count = int(data.get('withdraw_count', 0) or 0)
         current_level = min(withdraw_count + 1, 9)
@@ -167,13 +182,15 @@ def get_user_full_details(user_id):
             "joined_date": joined_date,
             "referrals_count": data.get('referrals_count', 0),
             "balance": real_balance,
+            "zn_balance": real_balance,
+            "coins": real_balance,
             "total_earned": data.get('total_earned', 0),
             "withdraw_count": withdraw_count,
             "current_level": current_level,
             "last_withdraw_date": data.get('last_withdraw_date', 'لم يسحب من قبل'),
             "is_banned": data.get('is_banned', False),
             "wallets": wallets,
-            "last_wallet_address": data.get('last_wallet_address', '')
+            "last_wallet_address": ""
         }
     except Exception:
         return None
@@ -230,23 +247,19 @@ def process_withdraw_db(user_id, coins_amount, currency, wallet_address, crypto_
                 return False, "المستخدم غير موجود", None, 0
             
             u_data = snapshot.to_dict() or {}
-            raw_bal = u_data.get('balance')
-            if raw_bal is None:
-                raw_bal = u_data.get('zn_balance', u_data.get('balance_zn', u_data.get('coins', 0.0)))
-                
-            try:
-                current_bal = float(raw_bal)
-            except (ValueError, TypeError):
-                current_bal = 0.0
+            current_bal = extract_user_balance(u_data)
             
             if current_bal < coins_amount:
                 return False, "رصيدك الحالي غير كافٍ.", None, current_bal
 
             curr_key = str(currency).upper()
-            new_bal = current_bal - coins_amount
+            new_bal = max(0.0, current_bal - coins_amount)
 
             txn.update(ref, {
-                'balance': firestore.Increment(-coins_amount),
+                'balance': new_bal,
+                'zn_balance': new_bal,
+                'balance_zn': new_bal,
+                'coins': new_bal,
                 'last_withdraw_date': today_utc,
                 'last_wallet_address': wallet_address,
                 f'wallets.{curr_key}': wallet_address,
