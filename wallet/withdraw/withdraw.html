@@ -83,20 +83,26 @@
     pointer-events: none !important;
   }
 
-  /* ✅ التعديل الجديد: إخفاء أزرار ربط محافظ تليجرام (TON) العائمة إجبارياً */
-  #ton-connect, 
-  .tc-root, 
-  [id^="ton-connect"], 
+  /* إخفاء أزرار وعناصر ربط محفظة تلجرام / TON Connect العائمة نهائياً */
+  #ton-connect-button,
+  .ton-connect-button,
+  tc-root,
   [class*="ton-connect"],
-  div[style*="z-index: 1000"] button {
+  [id*="ton-connect"],
+  div[class*="tc-"],
+  button[class*="go-tonconnect"],
+  .go-tonconnect-btn,
+  [data-tc-button],
+  .tc-dropdown-button {
     display: none !important;
     visibility: hidden !important;
     opacity: 0 !important;
     pointer-events: none !important;
+    position: absolute !important;
+    top: -9999px !important;
+    left: -9999px !important;
     width: 0 !important;
     height: 0 !important;
-    position: absolute !important;
-    z-index: -9999 !important;
   }
 </style>
 
