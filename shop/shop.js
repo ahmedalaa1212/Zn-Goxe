@@ -1,6 +1,6 @@
 // shop/shop.js
 // =================================================================
-// 🛒 ZN Goxe - Shop Module (Clean Numbers UI + 4 Decimals for Top Balance & TON Only)
+// 🛒 ZN Goxe - Shop Module (Clean Numbers UI + Smooth Decimal Contrast)
 // =================================================================
 
 (function initShop() {
@@ -57,14 +57,14 @@
         return val.toFixed(4);
     }
 
-    // 🎯 تنسيق الأرقام العشرية بشكل أنيق وعالي التباين مطابق لقائمة الأصدقاء
+    // 🎯 تنسيق الأرقام العشرية بتباين هادئ ومتناسق مطابق لقائمة الأصدقاء
     function formatTopBalanceHTML(num) {
         let val = floatVal(num);
         let fixedStr = val.toFixed(4);
         let parts = fixedStr.split('.');
         let intPart = parts[0];
         let decPart = parts[1] || '0000';
-        return `${intPart}<span style="font-size: 0.85em; opacity: 0.92; margin: 0 1px;">.${decPart}</span>`;
+        return `${intPart}<span style="font-size: 0.82em; opacity: 0.85; font-weight: normal; margin: 0 0.5px;">.${decPart}</span>`;
     }
 
     function initTonConnect() {
@@ -143,7 +143,7 @@
         const tonPriceElem = document.getElementById('ton-live-rate-text');
         const livePrice = floatVal(data.ton_price_usd, window.tonPrice, window.userState?.ton_price, 5.0);
         if (tonPriceElem && livePrice) {
-            tonPriceElem.innerHTML = `$${formatTopBalanceHTML(livePrice)}`; // 🎯 4 أرقام عشرية أنيقة لسعر TON المباشر
+            tonPriceElem.innerHTML = `$${formatTopBalanceHTML(livePrice)}`;
         }
 
         const packages = data.packages || data.usdt_packages || (data.settings && data.settings.usdt_packages);
@@ -441,7 +441,7 @@
         let totalBal = floatVal(pData.balance);
         let totalUsd = floatVal(pData.usd_balance, pData.balance_usd, pData.usd, pData.usdt);
 
-        // 🎯 عرض الرصيد العلوي بـ 4 أرقام عشرية بشكل أنيق ومطابق لقائمة الأصدقاء
+        // 🎯 عرض الرصيد العلوي بتباين أنيق ومطابق لقائمة الأصدقاء
         const balElem = document.getElementById('shop-balance-text');
         if (balElem) {
             balElem.innerHTML = `${formatTopBalanceHTML(totalBal)} ZN`;
