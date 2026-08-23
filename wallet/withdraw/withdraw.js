@@ -104,6 +104,64 @@
     }
   }
 
+  /* حقن تنسيقات الإخفاء الشاملة لأزرار محفظة تلجرام و TON Connect */
+  function injectTonConnectHideStyles(doc) {
+    try {
+      if (!doc || doc.getElementById('hide-ton-connect-style')) return;
+      const style = doc.createElement('style');
+      style.id = 'hide-ton-connect-style';
+      style.innerHTML = `
+        #ton-connect-button,
+        .ton-connect-button,
+        tc-root,
+        [class*="ton-connect"],
+        [id*="ton-connect"],
+        div[class*="tc-"],
+        button[class*="go-tonconnect"],
+        .go-tonconnect-btn,
+        [data-tc-button],
+        .tc-dropdown-button {
+          display: none !important;
+          visibility: hidden !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+          position: absolute !important;
+          top: -9999px !important;
+          left: -9999px !important;
+          width: 0 !important;
+          height: 0 !important;
+        }
+      `;
+      doc.head?.appendChild(style);
+    } catch (e) {}
+  }
+
+  /* البحث المستمر والديناميكي لإخفاء أي زر ربط محفظة ينشئه تلجرام أو TON Connect */
+  function hideTelegramWalletButtons() {
+    const targetDocs = [document];
+    try {
+      if (window.parent && window.parent !== window && window.parent.document) {
+        targetDocs.push(window.parent.document);
+      }
+      if (window.top && window.top !== window && window.top.document) {
+        targetDocs.push(window.top.document);
+      }
+    } catch (e) {}
+
+    targetDocs.forEach(doc => {
+      injectTonConnectHideStyles(doc);
+      try {
+        const elements = doc.querySelectorAll('#ton-connect-button, .ton-connect-button, tc-root, [class*="ton-connect"], [id*="ton-connect"], div[class*="tc-"], button[class*="go-tonconnect"], .go-tonconnect-btn, [data-tc-button]');
+        elements.forEach(el => {
+          el.style.setProperty('display', 'none', 'important');
+          el.style.setProperty('visibility', 'hidden', 'important');
+          el.style.setProperty('opacity', '0', 'important');
+          el.style.setProperty('pointer-events', 'none', 'important');
+        });
+      } catch (e) {}
+    });
+  }
+
   function injectKeyboardStyles(doc) {
     try {
       if (!doc || doc.getElementById('keyboard-hide-nav-style')) return;
@@ -150,6 +208,7 @@
       try {
         if (!doc || !doc.body) return;
         injectKeyboardStyles(doc);
+        injectTonConnectHideStyles(doc);
         if (active) {
           doc.body.classList.add('keyboard-active');
           doc.documentElement?.classList.add('keyboard-active');
@@ -271,6 +330,7 @@
   async function initWithdrawPage(userId) {
     const currentUid = userId || getUserId();
     bindInputEvents();
+    hideTelegramWalletButtons();
     await fetchLivePrices();
 
     try {
@@ -306,6 +366,8 @@
       }
     } catch (err) {
       console.error("خطأ جلب إعدادات السحب:", err);
+    } finally {
+      hideTelegramWalletButtons();
     }
   }
 
@@ -674,6 +736,7 @@
       const userId = getUserId();
       initWithdrawPage(userId);
       setupKeyboardListeners();
+      hideTelegramWalletButtons();
     },
     selectCurrency: selectCurrency,
     setPreset: setPreset,
@@ -681,6 +744,7 @@
     submitWithdrawal: submitWithdrawal,
     validateWalletAddress: validateWalletAddress,
     setupKeyboardListeners: setupKeyboardListeners,
+    hideTelegramWalletButtons: hideTelegramWalletButtons,
     openWalletModal: openWalletModal,
     closeWalletModal: closeWalletModal,
     saveWalletAddress: saveWalletAddress
@@ -697,8 +761,12 @@
   window.submitWithdrawal = submitWithdrawal;
 
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => withdrawModule.init());
+    document.addEventListener("DOMContentLoaded", () => {
+      withdrawModule.init();
+      hideTelegramWalletButtons();
+    });
   } else {
     withdrawModule.init();
+    hideTelegramWalletButtons();
   }
 })();
