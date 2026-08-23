@@ -12,6 +12,18 @@ def safe_get_db():
 
 get_db = safe_get_db
 
+def format_crypto_display(amount):
+    if amount is None:
+        return "0"
+    try:
+        val = float(amount)
+        if val == 0:
+            return "0"
+        formatted = f"{val:,.8f}".rstrip('0').rstrip('.')
+        return formatted if formatted else "0"
+    except Exception:
+        return str(amount)
+
 def auto_create_withdraw_config():
     db = safe_get_db()
     if not db:
@@ -230,7 +242,7 @@ def process_withdraw_db(user_id, coins_amount, currency, wallet_address, crypto_
             if current_bal < coins_amount:
                 return False, "رصيدك الحالي غير كافٍ.", None, current_bal
 
-            curr_key = currency.upper()
+            curr_key = str(currency).upper()
             new_bal = current_bal - coins_amount
 
             txn.update(ref, {
@@ -245,25 +257,41 @@ def process_withdraw_db(user_id, coins_amount, currency, wallet_address, crypto_
             
             initial_status = "processing" if level_info.get('type') == "auto" else "pending"
             usd_value = coins_amount / 100000.0
-            
+            formatted_crypto_str = format_crypto_display(crypto_net_amount)
+
             txn.set(tx_ref, {
                 'user_id': str(user_id),
                 'coins': coins_amount,
+                'coins_amount': coins_amount,
                 'usd_value': usd_value,
-                'currency': currency.upper(),
-                'asset': currency.upper(),
+                'currency': curr_key,
+                'asset': curr_key,
+                'coin': curr_key,
+                'symbol': curr_key,
+                'amount': crypto_net_amount,
                 'crypto_amount': crypto_net_amount,
+                'crypto_net_amount': crypto_net_amount,
+                'amount_crypto': crypto_net_amount,
+                'net_amount': crypto_net_amount,
+                'final_amount': crypto_net_amount,
+                'payout_amount': crypto_net_amount,
                 'fee_percent': 3,
                 'wallet': wallet_address,
+                'wallet_address': wallet_address,
+                'address': wallet_address,
                 'status': initial_status,
                 'level': level_info.get('level', 1),
                 'withdraw_type': level_info.get('type', 'manual'),
                 'type': "withdraw",
                 'provider': "FaucetPay",
-                'title': f"سحب {currency.upper()}",
-                'description': f"سحب {crypto_net_amount:.6f} {currency.upper()} مقابل {coins_amount:,} ZN",
+                'title': f"سحب {curr_key}",
+                'details': f"سحب {curr_key}",
+                'details_text': f"سحب {curr_key}",
+                'note': f"سحب {curr_key}",
+                'description': f"{formatted_crypto_str} {curr_key}",
                 'processed_at': firestore.SERVER_TIMESTAMP,
-                'created_at': firestore.SERVER_TIMESTAMP
+                'created_at': firestore.SERVER_TIMESTAMP,
+                'updated_at': firestore.SERVER_TIMESTAMP
             })
 
             return True, "تم تسجيل الطلب وبدء المعالجة بنجاح!", tx_ref.id, new_bal
