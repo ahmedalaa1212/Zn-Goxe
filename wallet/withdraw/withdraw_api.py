@@ -344,10 +344,10 @@ def handle_withdraw():
     success, msg, tx_id, new_balance = process_withdraw_db(
         user_id=user_id,
         coins_amount=coins,
-        crypto_net_amount=net_crypto,
         currency=currency,
-        level_info=matched_level,
-        wallet_address=wallet_address
+        wallet_address=wallet_address,
+        crypto_net_amount=net_crypto,
+        level_info=matched_level
     )
 
     if not success:
@@ -357,9 +357,22 @@ def handle_withdraw():
     if db and tx_id:
         try:
             db.collection('processed_txs').document(str(tx_id)).set({
+                'amount': net_crypto,
                 'crypto_amount': net_crypto,
                 'crypto_net_amount': net_crypto,
                 'amount_crypto': net_crypto,
+                'net_amount': net_crypto,
+                'final_amount': net_crypto,
+                'coins': coins,
+                'coins_amount': coins,
+                'currency': currency,
+                'asset': currency,
+                'coin': currency,
+                'symbol': currency,
+                'title': f"سحب {currency}",
+                'details': f"سحب {currency}",
+                'details_text': f"سحب {currency}",
+                'note': f"سحب {currency}",
                 'description': f"{format_crypto_display(net_crypto)} {currency}"
             }, merge=True)
         except Exception as e:
@@ -443,6 +456,7 @@ def execute_admin_decision(tx_id, action):
     currency = str(tx_data.get('currency', 'DOGE')).upper()
     
     raw_crypto = (
+        tx_data.get('amount') or 
         tx_data.get('crypto_amount') or 
         tx_data.get('crypto_net_amount') or 
         tx_data.get('amount_crypto') or 
@@ -479,9 +493,11 @@ def execute_admin_decision(tx_id, action):
             tx_ref.update({
                 'status': 'completed',
                 'tx_note': transfer_msg,
+                'amount': crypto_amount,
                 'crypto_amount': crypto_amount,
                 'crypto_net_amount': crypto_amount,
                 'amount_crypto': crypto_amount,
+                'net_amount': crypto_amount,
                 'updated_at': firestore.SERVER_TIMESTAMP
             })
             notify_manual_decision(user_id, coins, crypto_amount, currency, wallet, "approve", str(tx_id))
