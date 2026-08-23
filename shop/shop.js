@@ -31,7 +31,7 @@
         return 0;
     }
 
-    // 🎯 تنظيف الأرقام وإزالة الأصفار العشرية الزائدة (مثال: 2.5 بدلاً من 2.5000)
+    // 🎯 تنظيف الأرقام وإزالة الأصفار العشرية الزائدة للميزات والعروض
     function cleanNum(num) {
         let val = floatVal(num);
         return parseFloat(val.toFixed(4)).toString();
@@ -42,7 +42,7 @@
         return cleanNum(num);
     }
 
-    // 🎯 تنسيق أرقام ZN والسعات الكبيرة (K, M, B) بشكل طبيعي وبدون أصفار عشرية زائدة
+    // 🎯 تنسيق أرقام ZN والسعات الكبيرة (K, M, B) بشكل طبيعي
     function formatNumberAbbreviated(num) {
         let val = floatVal(num);
         if (val >= 1000000000) return parseFloat((val / 1000000000).toFixed(2)) + 'B';
@@ -431,7 +431,7 @@
         let totalBal = floatVal(pData.balance);
         let totalUsd = floatVal(pData.usd_balance, pData.balance_usd, pData.usd, pData.usdt);
 
-        // 🎯 عرض الرصيد العلوي فقط بـ 4 أرقام عشرية
+        // 🎯 عرض الرصيد العلوي بـ 4 أرقام عشرية
         const balElem = document.getElementById('shop-balance-text');
         if (balElem) {
             balElem.innerText = `${formatTopBalance(totalBal)} ZN`;
