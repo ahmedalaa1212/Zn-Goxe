@@ -16,6 +16,14 @@
     return isNaN(num) ? 0 : num;
   }
 
+  // تنسيق قيم الدولار لإزالة الأصفار العشرية الزائدة
+  function formatUSD(num) {
+    if (num === null || num === undefined || isNaN(num)) return "0";
+    const val = parseFloat(num);
+    if (val === 0) return "0";
+    return parseFloat(val.toFixed(4)).toString();
+  }
+
   function getUserId() {
     const urlParams = new URLSearchParams(window.location.search);
     return (
@@ -82,13 +90,15 @@
 
   async function fetchLivePrices() {
     try {
-      const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=dogecoin,tron,pepe,litecoin&vs_currencies=usd');
-      const data = await res.json();
-      if (data) {
-        if (data.dogecoin?.usd) cryptoPrices.DOGE = data.dogecoin.usd;
-        if (data.tron?.usd) cryptoPrices.TRX = data.tron.usd;
-        if (data.pepe?.usd) cryptoPrices.PEPE = data.pepe.usd;
-        if (data.litecoin?.usd) cryptoPrices.LTC = data.litecoin.usd;
+      let res = await fetch(`/api/wallet/withdraw/config?user_id=${getUserId()}`);
+      if (!res.ok) {
+        res = await fetch(`/api/withdraw/config?user_id=${getUserId()}`);
+      }
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.crypto_prices) {
+          cryptoPrices = { ...cryptoPrices, ...data.crypto_prices };
+        }
       }
     } catch (e) {
       console.log('استخدام الأسعار الاحتياطية عند تعذر الجلب اللحظي');
@@ -100,7 +110,8 @@
     const priceDisplay = document.getElementById('coin-price-display');
     if (priceDisplay) {
       const price = cryptoPrices[selectedCurrency] || 1;
-      priceDisplay.innerText = `$${price} USD`;
+      const priceStr = price < 0.001 ? price.toFixed(8) : parseFloat(price.toFixed(4)).toString();
+      priceDisplay.innerText = `$${priceStr} USD`;
     }
   }
 
@@ -331,7 +342,6 @@
     const currentUid = userId || getUserId();
     bindInputEvents();
     hideTelegramWalletButtons();
-    await fetchLivePrices();
 
     try {
       let response = await fetch(`/api/wallet/withdraw/config?user_id=${currentUid}`);
@@ -383,7 +393,7 @@
     }
   }
 
-  // --- عرض دليل المستويات دون كشف نوع السحب (آلي / يدوي) ---
+  // --- عرض دليل المستويات دون كشف نوع السحب (آلي / يدوي) وبدون أصفار عشرية زائفة ---
   function renderLevelsGuide() {
     const container = document.getElementById("levels-list-container");
     const userLevelText = document.getElementById("current-user-level-text");
@@ -398,15 +408,15 @@
     let html = "";
     withdrawConfig.levels.forEach((lvl, idx) => {
       const isActive = lvl.level === userLevel || idx === activeLevelIndex;
-      const usdMin = (lvl.min / 100000).toFixed(4);
-      const usdMax = (lvl.max / 100000).toFixed(4);
+      const usdMin = formatUSD(lvl.min / 100000);
+      const usdMax = formatUSD(lvl.max / 100000);
 
       let znText = "";
       let usdText = "";
 
       if (lvl.min === lvl.max) {
-        znText = `${lvl.min.toLocaleString()} ZN - ${lvl.max.toLocaleString()} ZN`;
-        usdText = `$${usdMin} - $${usdMax}`;
+        znText = `${lvl.min.toLocaleString()} ZN`;
+        usdText = `$${usdMin}`;
       } else {
         znText = `من ${lvl.min.toLocaleString()} ZN إلى ${lvl.max.toLocaleString()} ZN`;
         usdText = `$${usdMin} - $${usdMax}`;
@@ -416,7 +426,7 @@
         <div class="level-item ${isActive ? 'active-level' : ''}">
           <div>
             <span>المستوى ${lvl.level}: ${znText}</span>
-            <br><small style="color:#94a3b8;">(${usdText})</small>
+            <br><small style="color:#94a3b8; direction: ltr; display: inline-block;">(${usdText})</small>
           </div>
           ${isActive ? '<span class="level-item-tag" style="color:#38bdf8;">مستواك الحالي ✅</span>' : ''}
         </div>
@@ -610,7 +620,7 @@
     const feeAmount = document.getElementById("fee-amount");
     const netCryptoElem = document.getElementById("net-crypto");
 
-    if (usdOutput) usdOutput.value = `$${grossUsdValue.toFixed(4)} USD`;
+    if (usdOutput) usdOutput.value = `$${formatUSD(grossUsdValue)} USD`;
     if (feeAmount) feeAmount.innerText = `${Math.round(feeCoins).toLocaleString()} ZN (${feePercent}%)`;
     if (netCryptoElem) netCryptoElem.innerText = `${finalNetCrypto.toFixed(decimals)} ${selectedCurrency}`;
 
@@ -628,7 +638,7 @@
     const feeAmount = document.getElementById("fee-amount");
     const netCryptoElem = document.getElementById("net-crypto");
 
-    if (usdOutput) usdOutput.value = "$0.0000 USD";
+    if (usdOutput) usdOutput.value = "$0 USD";
     if (feeAmount) feeAmount.innerText = "0 ZN";
     if (netCryptoElem) netCryptoElem.innerText = `0.00000000 ${selectedCurrency}`;
   }
