@@ -68,6 +68,7 @@ def validate_wallet_address(address, currency):
 
 def get_live_crypto_prices():
     now = time.time()
+    # استخدام ذاكرة التخزين المؤقت لمدة 60 ثانية لتجنب الضغط على الشبكة
     if PRICE_CACHE["data"] and (now - PRICE_CACHE["last_updated"] < 60):
         return PRICE_CACHE["data"]
 
@@ -78,11 +79,12 @@ def get_live_crypto_prices():
         "LTC": 68.0
     }
 
+    # 1. المصدر الأول: Binance API
     try:
         symbols = {"DOGE": "DOGEUSDT", "TRX": "TRXUSDT", "PEPE": "PEPEUSDT", "LTC": "LTCUSDT"}
         binance_prices = {}
         for coin, symbol in symbols.items():
-            res = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}", timeout=3)
+            res = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}", timeout=2)
             if res.status_code == 200:
                 val = float(res.json().get("price", 0))
                 if val > 0:
@@ -94,9 +96,26 @@ def get_live_crypto_prices():
     except Exception as e:
         print(f"⚠️ خطأ جلب الأسعار من Binance: {e}")
 
+    # 2. المصدر الثاني: CryptoCompare API
+    try:
+        res = requests.get("https://min-api.cryptocompare.com/data/pricemulti?fsyms=DOGE,TRX,PEPE,LTC&tsyms=USD", timeout=3)
+        if res.status_code == 200:
+            data = res.json()
+            cc_prices = {}
+            for coin in ["DOGE", "TRX", "PEPE", "LTC"]:
+                if coin in data and "USD" in data[coin]:
+                    cc_prices[coin] = clean_round(data[coin]["USD"], 8)
+            if len(cc_prices) == 4:
+                PRICE_CACHE["data"] = cc_prices
+                PRICE_CACHE["last_updated"] = now
+                return cc_prices
+    except Exception as e:
+        print(f"⚠️ خطأ جلب الأسعار من CryptoCompare: {e}")
+
+    # 3. المصدر الثالث: CoinGecko API
     try:
         url = "https://api.coingecko.com/api/v3/simple/price?ids=dogecoin,tron,pepe,litecoin&vs_currencies=usd"
-        res = requests.get(url, timeout=4)
+        res = requests.get(url, timeout=3)
         if res.status_code == 200:
             data = res.json()
             prices = {
