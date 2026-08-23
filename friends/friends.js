@@ -78,18 +78,32 @@
         return `${integerPart}.${decimalPart}`;
     }
 
-    // 🎯 دالة تنسيق الأرقام بـ HTML (فصل الكسر العشري وتقليل الحجم والتباين)
+    // 🎯 دالة تنسيق الأرقام بـ HTML (فصل الكسر العشري، منع النزول لسطر جديد، وتقليص الحجم للأرقام الكبيرة)
     function formatNumberHTML(num, maxDecimals = 6) {
         const val = parseFloat(num) || 0;
-        if (isNaN(val) || val === 0) return `0<span style="font-size: 0.75em; opacity: 0.7;">.00</span>`;
-        
-        let str = val.toFixed(maxDecimals).replace(/\.?0+$/, '');
-        let parts = str.split('.');
-        let integerPart = parseFloat(parts[0]).toLocaleString('en-US');
-        let decimalPart = parts[1] || '00';
-        if (decimalPart.length === 1) decimalPart += '0';
-        
-        return `${integerPart}<span style="font-size: 0.75em; opacity: 0.7;">.${decimalPart}</span>`;
+        let integerPart = "0";
+        let decimalPart = "00";
+
+        if (!isNaN(val) && val !== 0) {
+            let str = val.toFixed(maxDecimals).replace(/\.?0+$/, '');
+            let parts = str.split('.');
+            integerPart = parseFloat(parts[0]).toLocaleString('en-US');
+            decimalPart = parts[1] || '00';
+            if (decimalPart.length === 1) decimalPart += '0';
+        }
+
+        // حساب إجمالي الطول لتقليل حجم الخط تلقائياً للمبالغ الكبيرة حتى لا تخرج عن الكارت
+        const totalLen = integerPart.length + decimalPart.length;
+        let fontSizeStyle = "";
+        if (totalLen > 14) {
+            fontSizeStyle = "font-size: 0.65em;";
+        } else if (totalLen > 11) {
+            fontSizeStyle = "font-size: 0.75em;";
+        } else if (totalLen > 8) {
+            fontSizeStyle = "font-size: 0.85em;";
+        }
+
+        return `<span style="white-space: nowrap; display: inline-flex; align-items: baseline; justify-content: center; vertical-align: baseline; max-width: 100%; ${fontSizeStyle}">${integerPart}<span style="font-size: 0.75em; opacity: 0.7; margin-right: 1px;">.${decimalPart}</span></span>`;
     }
 
     // 🎯 دالة تنسيق الأرقام الصحيحة فقط (بدون أي أرقام عشرية) لمكافآت الإنجازات
@@ -265,6 +279,7 @@
         // 🎯 تحديث خانات الرصيد بـ innerHTML واستخدام التنسيق العشري الناعم
         const elBalances = document.querySelectorAll('.zn-balance-display, #top-balance-friends, #farm-balance, #top-balance, #header-zn-balance, .user-balance');
         elBalances.forEach(el => {
+            el.style.whiteSpace = 'nowrap';
             if (el.id === 'farm-balance' || el.innerText.includes('ZN') || el.innerHTML.includes('ZN')) {
                 el.innerHTML = `${formatNumberHTML(balance)} ZN`;
             } else {
@@ -277,8 +292,16 @@
         const elInvited = document.getElementById('invited-friends-count');
         const btnClaim = document.getElementById('btn-claim-ref');
 
-        if (elPending) elPending.innerHTML = formatNumberHTML(pending);
-        if (elTotal) elTotal.innerHTML = formatNumberHTML(totalEarnings);
+        if (elPending) {
+            elPending.style.whiteSpace = 'nowrap';
+            elPending.style.display = 'inline-block';
+            elPending.innerHTML = formatNumberHTML(pending);
+        }
+        if (elTotal) {
+            elTotal.style.whiteSpace = 'nowrap';
+            elTotal.style.display = 'inline-block';
+            elTotal.innerHTML = formatNumberHTML(totalEarnings);
+        }
         if (elInvited) elInvited.innerText = totalInvited.toLocaleString();
 
         if (btnClaim) {
