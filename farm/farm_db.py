@@ -58,6 +58,37 @@ DEFAULT_GAME_SETTINGS = {
 }
 
 
+def create_default_user_data_dict(user_id_str, game_settings, now_dt):
+    """إنشاء الهيكل الافتراضي لبيانات المستخدم بالتوقيت العالمي UTC"""
+    mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
+    base_free_rate = float(mining_cfg.get("base_free_rate", 0.05))
+    base_cap = get_base_storage_capacity(0, game_settings)
+    now_iso = now_dt.isoformat()
+    
+    return {
+        "tg_id": str(user_id_str),
+        "telegram_id": str(user_id_str),
+        "balance": 0.0000,
+        "usd_balance": 0.00,
+        "hourly_rate": base_free_rate,
+        "daily_boost_rate": 0.00,
+        "unclaimed": 0.0000,
+        "storage_level": 0,
+        "extra_storage": 0.00,
+        "max_cap": base_cap,
+        "daily_day": 1,
+        "daily_streak": 1,
+        "last_claim_time": now_iso,
+        "last_daily_claim_date": None,
+        "last_boost_date": None,
+        "ads_watched": 0,
+        "upgrades": {},
+        "upgrades_count": 0,
+        "welcome_seen": False,
+        "is_new_user": True
+    }
+
+
 def get_game_settings(force_refresh=False):
     """جلب أو إنشاء إعدادات المزرعة تلقائياً في Firebase إن لم تكن موجودة"""
     global _SETTINGS_CACHE
@@ -135,19 +166,25 @@ def calculate_user_max_cap(user_data, settings=None):
 
 
 def calculate_accrued_mined(user_data, now_dt, max_cap):
-    """حساب الكمية المعدنة الحالية داخل المخزن بدقة 4 خانات عشرية"""
+    """حساب الكمية المعدنة الحالية داخل المخزن بدقة 4 خانات عشرية بالتوقيت العالمي UTC"""
     last_claim_str = user_data.get("last_claim_time")
     hourly_rate = float(user_data.get("hourly_rate", 0.05))
     if not last_claim_str or hourly_rate <= 0:
         return 0.0
     try:
-        last_claim = datetime.fromisoformat(str(last_claim_str).replace('Z', '+00:00'))
-        if last_claim.tzinfo is None:
-            last_claim = last_claim.replace(tzinfo=timezone.utc)
+        if isinstance(last_claim_str, (int, float)):
+            last_claim = datetime.fromtimestamp(last_claim_str, tz=timezone.utc)
+        else:
+            last_claim_s = str(last_claim_str).replace('Z', '+00:00')
+            last_claim = datetime.fromisoformat(last_claim_s)
+            if last_claim.tzinfo is None:
+                last_claim = last_claim.replace(tzinfo=timezone.utc)
+
         seconds_passed = max(0.0, (now_dt - last_claim).total_seconds())
         mined = (hourly_rate / 3600.0) * seconds_passed
         return round(min(mined, max_cap), 4)
-    except Exception:
+    except Exception as e:
+        print(f"⚠️ Error parsing last_claim_time: {e}")
         return 0.0
 
 
@@ -160,7 +197,7 @@ def dismiss_welcome_db(user_id_str):
 
 
 def get_or_create_user_farm_data(user_id_str):
-    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة بأقل استهلاك للقراءة والكتابة"""
+    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة بأقل استهلاك للقراءة والكتابة مع دعم التوقيت العالمي UTC"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     user_doc = user_ref.get()
@@ -170,29 +207,7 @@ def get_or_create_user_farm_data(user_id_str):
     base_free_rate = float(mining_cfg.get("base_free_rate", 0.05))
 
     if not user_doc.exists:
-        base_cap = get_base_storage_capacity(0, game_settings)
-        user_data = {
-            "tg_id": user_id_str,
-            "telegram_id": user_id_str,
-            "balance": 0.0000,
-            "usd_balance": 0.00,
-            "hourly_rate": base_free_rate,
-            "daily_boost_rate": 0.00,
-            "unclaimed": 0.0000,
-            "storage_level": 0,
-            "extra_storage": 0.00,
-            "max_cap": base_cap,
-            "daily_day": 1,
-            "daily_streak": 1,
-            "last_claim_time": now.isoformat(),
-            "last_daily_claim_date": None,
-            "last_boost_date": None,
-            "ads_watched": 0,
-            "upgrades": {},
-            "upgrades_count": 0,
-            "welcome_seen": False,
-            "is_new_user": True
-        }
+        user_data = create_default_user_data_dict(user_id_str, game_settings, now)
         user_ref.set(user_data)
     else:
         user_data = user_doc.to_dict() or {}
@@ -210,6 +225,9 @@ def get_or_create_user_farm_data(user_id_str):
         if "ads_watched" not in user_data: auto_fix["ads_watched"] = 0
         if "storage_level" not in user_data: auto_fix["storage_level"] = 0
         if "upgrades" not in user_data: auto_fix["upgrades"] = {}
+        if "last_claim_time" not in user_data or not user_data.get("last_claim_time"):
+            auto_fix["last_claim_time"] = now.isoformat()
+            
         if "upgrades_count" not in user_data:
             upgrades_dict = user_data.get("upgrades", {})
             auto_fix["upgrades_count"] = sum(int(v) for v in upgrades_dict.values() if isinstance(v, (int, float))) if isinstance(upgrades_dict, dict) else 0
@@ -252,7 +270,7 @@ def get_or_create_user_farm_data(user_id_str):
 
 
 def claim_mined_tokens_db(user_id_str):
-    """تجميع الرصيد المعدن بأمان"""
+    """تجميع الرصيد المعدن بأمان مع إنشاء الحساب التلقائي إن كان محذوفاً"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -262,16 +280,19 @@ def claim_mined_tokens_db(user_id_str):
     @firestore.transactional
     def run_claim_transaction(transaction, ref):
         snapshot = ref.get(transaction=transaction)
-        if not snapshot.exists:
-            return {"success": False, "error": "المستخدم غير موجود"}
-
-        user_data = snapshot.to_dict() or {}
         now = datetime.now(timezone.utc)
+
+        if not snapshot.exists:
+            user_data = create_default_user_data_dict(user_id_str, game_settings, now)
+            transaction.set(ref, user_data)
+        else:
+            user_data = snapshot.to_dict() or {}
 
         last_claim_str = user_data.get("last_claim_time")
         if last_claim_str:
             try:
-                last_claim = datetime.fromisoformat(str(last_claim_str).replace('Z', '+00:00'))
+                last_claim_s = str(last_claim_str).replace('Z', '+00:00')
+                last_claim = datetime.fromisoformat(last_claim_s)
                 if last_claim.tzinfo is None:
                     last_claim = last_claim.replace(tzinfo=timezone.utc)
                 seconds_passed = (now - last_claim).total_seconds()
@@ -336,7 +357,7 @@ def claim_mined_tokens_db(user_id_str):
 
 
 def buy_upgrade_db(user_id_str, level):
-    """شراء ترقية سرعة التعدين"""
+    """شراء ترقية سرعة التعدين مع إنشاء الحساب تلقائياً إن كان محذوفاً"""
     level_str = str(level)
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
@@ -354,10 +375,14 @@ def buy_upgrade_db(user_id_str, level):
     @firestore.transactional
     def run_upgrade_transaction(transaction, ref):
         snapshot = ref.get(transaction=transaction)
-        if not snapshot.exists:
-            return {"success": False, "error": "المستخدم غير موجود"}
+        now = datetime.now(timezone.utc)
 
-        user_data = snapshot.to_dict() or {}
+        if not snapshot.exists:
+            user_data = create_default_user_data_dict(user_id_str, game_settings, now)
+            transaction.set(ref, user_data)
+        else:
+            user_data = snapshot.to_dict() or {}
+
         current_balance = float(user_data.get("balance", 0.0))
         current_usd_balance = float(user_data.get("usd_balance", 0.0))
 
@@ -384,7 +409,6 @@ def buy_upgrade_db(user_id_str, level):
             if prev_count == 0:
                 return {"success": False, "error": "يجب شراء المستوى السابق أولاً"}
 
-        now = datetime.now(timezone.utc)
         now_iso = now.isoformat()
 
         max_cap = calculate_user_max_cap(user_data, game_settings)
@@ -449,7 +473,7 @@ def buy_upgrade_db(user_id_str, level):
 
 
 def buy_storage_db(user_id_str):
-    """شراء ترقية سعة التخزين للمستوى التالي"""
+    """شراء ترقية سعة التخزين للمستوى التالي مع إعادة التهيئة للتوقيت العالمي إن لزم الأمر"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -459,10 +483,14 @@ def buy_storage_db(user_id_str):
     @firestore.transactional
     def run_storage_transaction(transaction, ref):
         snapshot = ref.get(transaction=transaction)
-        if not snapshot.exists:
-            return {"success": False, "error": "المستخدم غير موجود"}
+        now = datetime.now(timezone.utc)
 
-        user_data = snapshot.to_dict() or {}
+        if not snapshot.exists:
+            user_data = create_default_user_data_dict(user_id_str, game_settings, now)
+            transaction.set(ref, user_data)
+        else:
+            user_data = snapshot.to_dict() or {}
+
         current_level = int(user_data.get("storage_level", 0))
         next_level = current_level + 1
 
@@ -488,7 +516,6 @@ def buy_storage_db(user_id_str):
         if cost_usd > 0 and current_usd_balance < cost_usd:
             return {"success": False, "error": f"رصيد الدولار غير كافٍ! يتطلب ${cost_usd:.2f} USD"}
 
-        now = datetime.now(timezone.utc)
         now_iso = now.isoformat()
 
         old_max_cap = calculate_user_max_cap(user_data, game_settings)
@@ -533,7 +560,7 @@ def buy_storage_db(user_id_str):
 
 
 def claim_daily_reward_db(user_id_str):
-    """استلام المكافأة اليومية (مدرجة حتى 30 يوم)"""
+    """استلام المكافأة اليومية (مدرجة حتى 30 يوم) بالتوقيت العالمي UTC"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -542,11 +569,14 @@ def claim_daily_reward_db(user_id_str):
     @firestore.transactional
     def run_daily_claim_transaction(transaction, ref):
         snapshot = ref.get(transaction=transaction)
-        if not snapshot.exists:
-            return {"success": False, "error": "المستخدم غير موجود"}
-
-        user_data = snapshot.to_dict() or {}
         now = datetime.now(timezone.utc)
+
+        if not snapshot.exists:
+            user_data = create_default_user_data_dict(user_id_str, game_settings, now)
+            transaction.set(ref, user_data)
+        else:
+            user_data = snapshot.to_dict() or {}
+
         today_str = now.strftime('%Y-%m-%d')
         yesterday_str = (now - timedelta(days=1)).strftime('%Y-%m-%d')
 
@@ -596,7 +626,7 @@ def claim_daily_reward_db(user_id_str):
 
 
 def claim_daily_boost_db(user_id_str):
-    """تفعيل المعزز اليومي"""
+    """تفعيل المعزز اليومي بالتوقيت العالمي UTC"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -609,17 +639,20 @@ def claim_daily_boost_db(user_id_str):
     @firestore.transactional
     def run_boost_transaction(transaction, ref):
         snapshot = ref.get(transaction=transaction)
-        if not snapshot.exists:
-            return {"success": False, "error": "المستخدم غير موجود"}
-
-        user_data = snapshot.to_dict() or {}
         now = datetime.now(timezone.utc)
+
+        if not snapshot.exists:
+            user_data = create_default_user_data_dict(user_id_str, game_settings, now)
+            transaction.set(ref, user_data)
+        else:
+            user_data = snapshot.to_dict() or {}
+
         today_str = now.strftime('%Y-%m-%d')
         now_iso = now.isoformat()
 
         last_boost = user_data.get("last_boost_date")
         if last_boost == today_str:
-            return {"success": False, "error": "لقدحصلت على تعزيز اليوم بالفعل"}
+            return {"success": False, "error": "لقد حصلت على تعزيز اليوم بالفعل"}
 
         daily_boost_rate = float(user_data.get("daily_boost_rate", 0.0) or 0.0)
         current_hourly_rate = float(user_data.get("hourly_rate", 0.05) or 0.05)
