@@ -285,6 +285,9 @@ window.closeWelcomeModal = function() {
                     if (resData.game_config.boost_max_reward_coins) {
                         GAME_CONFIG.boostMaxRewardCoins = resData.game_config.boost_max_reward_coins;
                     }
+                    if (resData.game_config.adsgram_block_id) {
+                        window.ADSGRAM_BLOCK_ID = resData.game_config.adsgram_block_id;
+                    }
                 }
 
                 if (!window.PlayerData) window.PlayerData = {};
@@ -595,6 +598,28 @@ window.closeWelcomeModal = function() {
     window.addEventListener('pageshow', syncOnVisibility);
     document.addEventListener("visibilitychange", syncOnVisibility);
 
+    function showAdsgramAd() {
+        return new Promise((resolve) => {
+            const blockId = window.ADSGRAM_BLOCK_ID;
+            if (window.Adsgram && blockId) {
+                try {
+                    const AdController = window.Adsgram.init({ blockId: blockId });
+                    AdController.show()
+                        .then(() => resolve(true))
+                        .catch((err) => {
+                            console.warn("Adsgram failure or skipped:", err);
+                            resolve(true);
+                        });
+                } catch (e) {
+                    console.error("Adsgram exception:", e);
+                    resolve(true);
+                }
+            } else {
+                resolve(true);
+            }
+        });
+    }
+
     function showTelegramAd() {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
@@ -824,6 +849,20 @@ window.closeWelcomeModal = function() {
         isClaimingMain = true;
 
         try {
+            const pData = window.userState || window.PlayerData || {};
+            const todayStr = getTodayUTCStr();
+            const uId = tele?.initDataUnsafe?.user?.id || pData.tg_id || pData.telegram_id;
+            const storageKey = uId ? `zn_last_claim_ad_${uId}` : 'zn_last_claim_ad_global';
+            const lastClaimAdDate = pData.last_claim_ad_date || localStorage.getItem(storageKey);
+
+            if (lastClaimAdDate !== todayStr) {
+                await showAdsgramAd();
+                pData.last_claim_ad_date = todayStr;
+                if (window.userState) window.userState.last_claim_ad_date = todayStr;
+                if (window.PlayerData) window.PlayerData.last_claim_ad_date = todayStr;
+                localStorage.setItem(storageKey, todayStr);
+            }
+
             let resData = await window.fetchAPI('/api/farm/claim', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
