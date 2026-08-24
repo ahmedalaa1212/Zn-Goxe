@@ -10,7 +10,7 @@ window.walletModule = (function () {
     let lastFetchTime = 0;
     const viewCache = {}; // تخزين القوائم للتحميل اللحظي بدون ريفرش
 
-    // 🎯 توحيد عرض الأرقام العشرية للمحفظة على 4 أرقام عشرية حصراً مثل باقي القوائم
+    // 🎯 توحيد عرض الأرقام العشرية كـ نص عادي
     function formatSmartBalance(val) {
         if (typeof val === 'string') {
             val = val.replace(/[^0-9.-]/g, '');
@@ -19,6 +19,13 @@ window.walletModule = (function () {
         if (isNaN(num)) return "0.0000";
 
         return num.toFixed(4);
+    }
+
+    // 🎯 نسق جديد لتصغير وتمييز الأرقام العشرية عن الرقم الصحيح في الواجهة
+    function formatSmartBalanceHTML(val) {
+        const plainStr = formatSmartBalance(val);
+        const parts = plainStr.split('.');
+        return `${parts[0]}<span style="font-size: 0.72em; opacity: 0.8; font-weight: normal;">.${parts[1]}</span>`;
     }
 
     function getGlobalBalance(keys) {
@@ -51,20 +58,20 @@ window.walletModule = (function () {
         const znVal = getGlobalBalance(['balance', 'zn_balance', 'user_balance', 'coins']) ?? 0;
         const usdtVal = getGlobalBalance(['usd_balance', 'usdt_balance', 'dollars', 'usd']) ?? 0;
 
-        const newZnText = formatSmartBalance(znVal);
-        const newUsdtText = formatSmartBalance(usdtVal);
+        const newZnHTML = formatSmartBalanceHTML(znVal);
+        const newUsdtHTML = formatSmartBalanceHTML(usdtVal);
 
-        if (znElem && znElem.innerText !== newZnText) znElem.innerText = newZnText;
-        if (usdtElem && usdtElem.innerText !== newUsdtText) usdtElem.innerText = newUsdtText;
+        if (znElem && znElem.innerHTML !== newZnHTML) znElem.innerHTML = newZnHTML;
+        if (usdtElem && usdtElem.innerHTML !== newUsdtHTML) usdtElem.innerHTML = newUsdtHTML;
 
-        // تحديث جميع عناصِر الرصيد العلوية في المحفظة وباقي الشاشات لتتوافق مع 4 أرقام عشرية
+        // تحديث جميع عناصِر الرصيد العلوية في المحفظة وباقي الشاشات بالتنسيق المصغر للأرقام العشرية
         const elBalances = document.querySelectorAll('.zn-balance-display, #top-balance-wallet, #top-balance, #header-zn-balance, .user-balance');
         elBalances.forEach(el => {
             if (el.id !== 'zn-balance-display') {
-                if (el.innerText.includes('ZN')) {
-                    el.innerText = `${newZnText} ZN`;
+                if (el.textContent.includes('ZN')) {
+                    el.innerHTML = `${newZnHTML} ZN`;
                 } else {
-                    el.innerText = newZnText;
+                    el.innerHTML = newZnHTML;
                 }
             }
         });
@@ -251,6 +258,7 @@ window.walletModule = (function () {
         switchTab,
         fetchWalletBalances,
         updateBalancesUI,
-        formatSmartBalance
+        formatSmartBalance,
+        formatSmartBalanceHTML
     };
 })();
