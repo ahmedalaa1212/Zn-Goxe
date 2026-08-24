@@ -17,12 +17,12 @@ tasks_bp = Blueprint('tasks', __name__)
 def get_min_reward_for_platform(platform: str) -> float:
     """
     تحديد الحد الأدنى للمكافأة حسب نوع المنصة:
-    - زيارة موقع وفحص آمن: 100 AdZ
-    - يوتيوب، تيليجرام، انستغرام، منصة X: 50 AdZ
+    - زيارة موقع وفحص آمن: 30 AdZ
+    - يوتيوب، تيليجرام، انستغرام، منصة X: 25 AdZ
     """
     if str(platform).strip() == 'موقع':
-        return 100.0
-    return 50.0
+        return 30.0
+    return 25.0
 
 # 🚫 قائمة الكلمات المحظورة للمواقع والإعلانات المخالفة لحماية البوت من الحظر
 FORBIDDEN_KEYWORDS = [
