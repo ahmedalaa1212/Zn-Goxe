@@ -200,6 +200,24 @@
         });
     }
 
+    // 🔄 دالة معالجة واستبدال أي كلمة AdZN في عناصر الواجهة إلى AdZ تلقائياً
+    function fixAdZnTextInDOM() {
+        try {
+            const walker = document.createTreeWalker(
+                document.body || document.documentElement,
+                NodeFilter.SHOW_TEXT,
+                null,
+                false
+            );
+            let node;
+            while ((node = walker.nextNode())) {
+                if (node.nodeValue && node.nodeValue.includes('AdZN')) {
+                    node.nodeValue = node.nodeValue.replace(/AdZN/g, 'AdZ');
+                }
+            }
+        } catch (e) {}
+    }
+
     function updateAdBalanceElements(numVal) {
         const formatted = numVal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
         
@@ -212,6 +230,9 @@
         if (topAdz) {
             topAdz.innerText = `${formatted} AdZ`;
         }
+
+        // تنظيف وحل مشكلة أي نصوص قديمة ثابتة تحتوي على AdZN في الـ HTML
+        fixAdZnTextInDOM();
     }
 
     window.taskStates = window.taskStates || {};
@@ -724,6 +745,9 @@
                 activeAdsContainer.innerHTML = adsHtml;
             }
         }
+
+        // تطبيق الاستبدال التلقائي لأي نصوص AdZN في الواجهة
+        fixAdZnTextInDOM();
     };
 
     // ⚡ بدء تنفيذ المهمة وفتح الرابط
@@ -915,6 +939,7 @@
         }
     });
 
-    // التهيئة التلقائية الأولى عند تحميل الصفحة
+    // التهيئة التلقائية الأولى عند تحميل الصفحة وتصحيح نصوص AdZN
+    fixAdZnTextInDOM();
     window.fetchAndRenderTasks(false);
 })();
