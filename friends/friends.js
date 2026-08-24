@@ -78,7 +78,7 @@
         return `${integerPart}.${decimalPart}`;
     }
 
-    // 🎯 دالة تنسيق الأرقام بـ HTML (فصل الكسر العشري، منع النزول لسطر جديد، وتقليص الحجم للأرقام الكبيرة)
+    // 🎯 دالة تنسيق الأرقام بـ HTML (إجبار اتجاه LTR لمنع قلب الرقم في الواجهات العربية)
     function formatNumberHTML(num, maxDecimals = 6) {
         const val = parseFloat(num) || 0;
         let integerPart = "0";
@@ -103,7 +103,7 @@
             fontSizeStyle = "font-size: 0.85em;";
         }
 
-        return `<span style="white-space: nowrap; display: inline-flex; align-items: baseline; justify-content: center; vertical-align: baseline; max-width: 100%; ${fontSizeStyle}">${integerPart}<span style="font-size: 0.75em; opacity: 0.7; margin-right: 1px;">.${decimalPart}</span></span>`;
+        return `<span dir="ltr" style="direction: ltr; unicode-bidi: isolate; white-space: nowrap; display: inline-flex; align-items: baseline; justify-content: center; vertical-align: baseline; max-width: 100%; ${fontSizeStyle}">${integerPart}<span style="font-size: 0.75em; opacity: 0.7; margin-left: 1px;">.${decimalPart}</span></span>`;
     }
 
     // 🎯 دالة تنسيق الأرقام الصحيحة فقط (بدون أي أرقام عشرية) لمكافآت الإنجازات
@@ -359,7 +359,7 @@
                 btnHtml = `<button disabled style="background:#18181c; color:#555; border:1px solid #2a2a2e; padding:6px 10px; border-radius:6px; font-size:11px;">🔒 باقي ${remaining}</button>`;
             }
 
-            // 🎯 هنا تم التعديل لعرض المكافأة كـ رقم صحيح تماماً (بدون عشري)
+            // 🎯 عرض المكافأة كـ رقم صحيح تماماً (بدون عشري)
             html += `
                 <li style="background:#121215; border:1px solid #26262b; border-radius:12px; padding:12px; margin-bottom:10px; list-style:none; direction:rtl;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
