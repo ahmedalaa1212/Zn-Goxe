@@ -90,6 +90,11 @@ window.closeWelcomeModal = function() {
     const FETCH_THROTTLE_MS = 3000;
     let lastCheckedDate = "";
 
+    function getStorageAdKey() {
+        const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id || window.PlayerData?.telegram_id;
+        return userId ? `zn_last_claim_ad_${userId}` : 'zn_last_claim_ad_global';
+    }
+
     function getCacheKey() {
         const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id;
         return userId ? `zn_farm_cache_${userId}` : 'zn_farm_cache_global';
@@ -161,7 +166,6 @@ window.closeWelcomeModal = function() {
         }
     }
 
-    // دالة تنسيق رصيد ZN المحدثة: تعرض حتى 6 خانات عشرية بدقة دون حذف الكسر
     function formatZnBalance(val) {
         const num = parseFloat(val || 0);
         if (isNaN(num) || num === 0) return "0.00";
@@ -172,7 +176,6 @@ window.closeWelcomeModal = function() {
         return str;
     }
 
-    // دالة جديدة مخصصة لتنسيق سعة التخزين المؤقت بـ 3 أرقام عشرية فقط
     function formatStorageBalance(val) {
         const num = parseFloat(val || 0);
         if (isNaN(num) || num === 0) return "0.000";
@@ -299,9 +302,18 @@ window.closeWelcomeModal = function() {
                 if (!window.userState) window.userState = {};
 
                 if (resData.player) {
+                    const adKey = getStorageAdKey();
+                    const localAdDate = window.userState?.last_claim_ad_date || localStorage.getItem(adKey);
+
                     Object.assign(window.PlayerData, resData.player);
                     Object.assign(window.userState, resData.player);
-                    saveCachedData(resData.player);
+
+                    if (!resData.player.last_claim_ad_date && localAdDate) {
+                        window.userState.last_claim_ad_date = localAdDate;
+                        window.PlayerData.last_claim_ad_date = localAdDate;
+                    }
+
+                    saveCachedData(window.userState);
                     setStoredBalance(resData.player.balance, resData.player.usd_balance);
 
                     const isNew = resData.player.is_new_user === true || resData.player.welcome_seen === false;
@@ -536,7 +548,6 @@ window.closeWelcomeModal = function() {
             let pct = maxC > 0 ? (unclaim / maxC) * 100 : 0;
             pct = Math.max(0, Math.min(pct, 100)); 
             progressEl.style.width = `${pct}%`;
-            // استخدام formatStorageBalance لتقييد العرض بـ 3 أرقام عشرية فقط
             storageTextEl.innerText = `${formatStorageBalance(unclaim)} / ${maxC.toLocaleString('en-US', {maximumFractionDigits: 2})}`;
         }
 
@@ -856,16 +867,18 @@ window.closeWelcomeModal = function() {
         try {
             const pData = window.userState || window.PlayerData || {};
             const todayStr = getTodayUTCStr();
-            const uId = tele?.initDataUnsafe?.user?.id || pData.tg_id || pData.telegram_id;
-            const storageKey = uId ? `zn_last_claim_ad_${uId}` : 'zn_last_claim_ad_global';
-            const lastClaimAdDate = pData.last_claim_ad_date || localStorage.getItem(storageKey);
+            const adKey = getStorageAdKey();
+            const lastClaimAdDate = pData.last_claim_ad_date || localStorage.getItem(adKey);
 
+            // يظهر الإعلان فقط إذا لم يُشاهد اليوم (أول ضغطة تجميع في اليوم)
             if (lastClaimAdDate !== todayStr) {
-                await showAdsgramAd();
-                pData.last_claim_ad_date = todayStr;
-                if (window.userState) window.userState.last_claim_ad_date = todayStr;
-                if (window.PlayerData) window.PlayerData.last_claim_ad_date = todayStr;
-                localStorage.setItem(storageKey, todayStr);
+                const adWatched = await showAdsgramAd();
+                if (adWatched) {
+                    pData.last_claim_ad_date = todayStr;
+                    if (window.userState) window.userState.last_claim_ad_date = todayStr;
+                    if (window.PlayerData) window.PlayerData.last_claim_ad_date = todayStr;
+                    localStorage.setItem(adKey, todayStr);
+                }
             }
 
             let resData = await window.fetchAPI('/api/farm/claim', 'POST', {});
@@ -880,6 +893,13 @@ window.closeWelcomeModal = function() {
                     window.userState.last_claim_time = resData.last_claim_time;
                     window.PlayerData.last_claim_time = resData.last_claim_time;
                 }
+
+                // حفظ تاريخ الإعلان دائماً لحمايته من المسح
+                const savedAdDate = resData.last_claim_ad_date || todayStr;
+                window.userState.last_claim_ad_date = savedAdDate;
+                window.PlayerData.last_claim_ad_date = savedAdDate;
+                localStorage.setItem(adKey, savedAdDate);
+
                 window.userState.unclaimed = 0.0;
                 window.PlayerData.unclaimed = 0.0;
 
