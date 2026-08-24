@@ -200,7 +200,7 @@
         });
     }
 
-    // 🔄 دالة معالجة واستبدال أي كلمة AdZN في عناصر الواجهة إلى AdZ تلقائياً
+    // 🔄 دالة معالجة واستبدال أي كلمة AdZN أو AdZn في عناصر الواجهة إلى AdZ تلقائياً وبدقة عالية
     function fixAdZnTextInDOM() {
         try {
             const walker = document.createTreeWalker(
@@ -211,8 +211,8 @@
             );
             let node;
             while ((node = walker.nextNode())) {
-                if (node.nodeValue && node.nodeValue.includes('AdZN')) {
-                    node.nodeValue = node.nodeValue.replace(/AdZN/g, 'AdZ');
+                if (node.nodeValue && /AdZN|AdZn/i.test(node.nodeValue)) {
+                    node.nodeValue = node.nodeValue.replace(/AdZN/gi, 'AdZ');
                 }
             }
         } catch (e) {}
@@ -231,7 +231,7 @@
             topAdz.innerText = `${formatted} AdZ`;
         }
 
-        // تنظيف وحل مشكلة أي نصوص قديمة ثابتة تحتوي على AdZN في الـ HTML
+        // تنظيف وحل مشكلة أي نصوص قديمة تحتوي على AdZN في الـ HTML أو العناصر الديناميكية
         fixAdZnTextInDOM();
     }
 
@@ -398,6 +398,9 @@
             isConvertingBalance = false;
         }
     };
+    
+    // Alias للدالة لتوافق أي مسميات سابقة
+    window.convertZnToAdZ = window.convertZnToAdZn;
 
     // ⚡ تقديم ونشر الحملة الإعلانية والتحقق من الحد الأدنى المقبول
     window.submitAdCampaign = async function(event) {
