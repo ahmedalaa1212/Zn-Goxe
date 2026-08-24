@@ -4,6 +4,45 @@
         window.Telegram.WebApp.ready();
     }
 
+    // 🛡️ مراقب حارس فوري لحظر أي كلمة AdZN أو AdZn تحاول أي ملفات خارجية كتابتها بالصفحة
+    function startAdZnEnforcer() {
+        const replaceAdZnText = (node) => {
+            if (node.nodeType === Node.TEXT_NODE && node.nodeValue && /AdZN|AdZn/i.test(node.nodeValue)) {
+                node.nodeValue = node.nodeValue.replace(/AdZN|AdZn/gi, 'AdZ');
+            } else if (node.nodeType === Node.ELEMENT_NODE && node.childNodes) {
+                node.childNodes.forEach(replaceAdZnText);
+            }
+        };
+
+        if (document.body) {
+            replaceAdZnText(document.body);
+        }
+
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach(replaceAdZnText);
+                if (mutation.type === 'characterData') {
+                    replaceAdZnText(mutation.target);
+                }
+            });
+        });
+
+        if (document.body) {
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                characterData: true
+            });
+        }
+    }
+
+    // تشغيل الحارس اللحظي فوراً
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', startAdZnEnforcer);
+    } else {
+        startAdZnEnforcer();
+    }
+
     // 🛡️ دالة الحماية للتأكد من وجود دالة fetchAPI للاتصال بالخادم دائماً
     if (typeof window.fetchAPI !== 'function') {
         window.fetchAPI = async function(url, method = 'GET', data = null) {
@@ -200,24 +239,6 @@
         });
     }
 
-    // 🔄 دالة معالجة واستبدال أي كلمة AdZN أو AdZn في عناصر الواجهة إلى AdZ تلقائياً وبدقة عالية
-    function fixAdZnTextInDOM() {
-        try {
-            const walker = document.createTreeWalker(
-                document.body || document.documentElement,
-                NodeFilter.SHOW_TEXT,
-                null,
-                false
-            );
-            let node;
-            while ((node = walker.nextNode())) {
-                if (node.nodeValue && /AdZN|AdZn/i.test(node.nodeValue)) {
-                    node.nodeValue = node.nodeValue.replace(/AdZN/gi, 'AdZ');
-                }
-            }
-        } catch (e) {}
-    }
-
     function updateAdBalanceElements(numVal) {
         const formatted = numVal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
         
@@ -230,9 +251,6 @@
         if (topAdz) {
             topAdz.innerText = `${formatted} AdZ`;
         }
-
-        // تنظيف وحل مشكلة أي نصوص قديمة تحتوي على AdZN في الـ HTML أو العناصر الديناميكية
-        fixAdZnTextInDOM();
     }
 
     window.taskStates = window.taskStates || {};
@@ -353,7 +371,7 @@
     };
 
     // ⚡ شحن محفظة الإعلانات AdZ
-    window.convertZnToAdZn = async function() {
+    window.convertZnToAdZ = async function() {
         if (isConvertingBalance) return;
 
         const inputVal = prompt('أدخل مبلغ ZN المراد تحويله إلى رصيد الإعلانات (AdZ):\n(ملاحظة: تخصم عمولة تحويل 10%)');
@@ -399,8 +417,8 @@
         }
     };
     
-    // Alias للدالة لتوافق أي مسميات سابقة
-    window.convertZnToAdZ = window.convertZnToAdZn;
+    // توافق مع أي استدعاءات قديمة
+    window.convertZnToAdZn = window.convertZnToAdZ;
 
     // ⚡ تقديم ونشر الحملة الإعلانية والتحقق من الحد الأدنى المقبول
     window.submitAdCampaign = async function(event) {
@@ -748,9 +766,6 @@
                 activeAdsContainer.innerHTML = adsHtml;
             }
         }
-
-        // تطبيق الاستبدال التلقائي لأي نصوص AdZN في الواجهة
-        fixAdZnTextInDOM();
     };
 
     // ⚡ بدء تنفيذ المهمة وفتح الرابط
@@ -942,7 +957,5 @@
         }
     });
 
-    // التهيئة التلقائية الأولى عند تحميل الصفحة وتصحيح نصوص AdZN
-    fixAdZnTextInDOM();
     window.fetchAndRenderTasks(false);
 })();
