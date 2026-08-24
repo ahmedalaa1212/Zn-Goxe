@@ -4,10 +4,10 @@ from firebase_admin import firestore
 import database
 
 def get_min_reward_for_platform(platform: str) -> float:
-    """تحديد الحد الأدنى لتكلفة الضغطة حسب المنصة"""
+    """تحديد الحد الأدنى لتكلفة الضغطة حسب المنصة (30 AdZ للموقع / 25 AdZ للباقي)"""
     if str(platform).strip() == 'موقع':
-        return 100.0
-    return 50.0
+        return 30.0
+    return 25.0
 
 def get_active_campaigns(tg_id):
     """جلب قائمة المهمات النشطة والتوافق مع المجمّع الرئيسي"""
