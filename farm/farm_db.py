@@ -272,7 +272,7 @@ def get_or_create_user_farm_data(user_id_str):
 
 
 def claim_mined_tokens_db(user_id_str):
-    """تجميع الرصيد المعدن بأمان وتحديث تاريخ مشاهدة إعلان التجميع تلقائياً في Firebase"""
+    """تجميع الرصيد المعدن بأمان وتحديث تاريخ مشاهدة إعلان التجميع اليومي"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -283,6 +283,7 @@ def claim_mined_tokens_db(user_id_str):
     def run_claim_transaction(transaction, ref):
         snapshot = ref.get(transaction=transaction)
         now = datetime.now(timezone.utc)
+        today_utc_str = now.strftime('%Y-%m-%d')
 
         if not snapshot.exists:
             user_data = create_default_user_data_dict(user_id_str, game_settings, now)
@@ -313,12 +314,11 @@ def claim_mined_tokens_db(user_id_str):
         current_usd_balance = float(user_data.get("usd_balance", 0.0))
         new_balance = round(current_balance + mined_amount, 4)
         now_iso = now.isoformat()
-        today_str = now.strftime('%Y-%m-%d')
 
         transaction.update(ref, {
             "balance": new_balance,
             "last_claim_time": now_iso,
-            "last_claim_ad_date": today_str
+            "last_claim_ad_date": today_utc_str
         })
 
         referrer_id = user_data.get("referrer_id") or user_data.get("referred_by") or user_data.get("invited_by")
@@ -330,7 +330,7 @@ def claim_mined_tokens_db(user_id_str):
             "new_balance": new_balance,
             "new_usd_balance": current_usd_balance,
             "last_claim_time": now_iso,
-            "last_claim_ad_date": today_str,
+            "last_claim_ad_date": today_utc_str,
             "unclaimed": 0.0,
             "server_time": now_iso,
             "claimed_amount": mined_amount,
