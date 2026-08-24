@@ -1,6 +1,8 @@
 import time
 import random
 import hashlib
+import json
+import urllib.request
 from datetime import datetime, timezone, timedelta
 from flask import Blueprint, jsonify, request
 from google.cloud import firestore
@@ -12,6 +14,7 @@ from core.ton_price import get_live_ton_price
 shop_bp = Blueprint('shop', __name__)
 
 PROJECT_TON_WALLET = "UQCkqSqgiw80Qz7ljESrhHppPAZU-lcTrmxyELN1Y-syVGtc"
+TON_SAFETY_MARGIN = 1.06  # هامش حماية 6% لمنع الخسائر من تقلبات سعر TON
 
 # ==================== Server-Side RAM Caching Systems ====================
 _SHOP_CONFIG_CACHE = {"data": None, "timestamp": 0}
@@ -43,12 +46,81 @@ def _normalize_config_dict(raw_data, fallback_default=None):
         return {str(k): v for k, v in raw_data.items()}
     return fallback_default
 
+def fetch_multi_source_ton_price():
+    """جلب سعر TON لحظياً من منصات متعددة لتفادي الحظر تماماً"""
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+
+    # 1. Binance API
+    try:
+        req = urllib.request.Request("https://api.binance.com/api/v3/ticker/price?symbol=TONUSDT", headers=headers)
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            price = float(data.get('price', 0))
+            if price > 0:
+                return price
+    except Exception:
+        pass
+
+    # 2. OKX API
+    try:
+        req = urllib.request.Request("https://www.okx.com/api/v5/market/ticker?instId=TON-USDT", headers=headers)
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            price = float(data['data'][0]['last'])
+            if price > 0:
+                return price
+    except Exception:
+        pass
+
+    # 3. Bybit API
+    try:
+        req = urllib.request.Request("https://api.bybit.com/v5/market/tickers?category=spot&symbol=TONUSDT", headers=headers)
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            price = float(data['result']['list'][0]['lastPrice'])
+            if price > 0:
+                return price
+    except Exception:
+        pass
+
+    # 4. Gate.io API
+    try:
+        req = urllib.request.Request("https://api.gateio.ws/api/v4/spot/tickers?currency_pair=TON_USDT", headers=headers)
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            price = float(data[0]['last'])
+            if price > 0:
+                return price
+    except Exception:
+        pass
+
+    # 5. CoinGecko API
+    try:
+        req = urllib.request.Request("https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd", headers=headers)
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            price = float(data['the-open-network']['usd'])
+            if price > 0:
+                return price
+    except Exception:
+        pass
+
+    # 6. دالة المشروع الأساسية كاحتياطي أخيرة
+    try:
+        price = get_live_ton_price()
+        if price and float(price) > 0:
+            return float(price)
+    except Exception:
+        pass
+
+    return 0.0
+
 def get_cached_ton_price():
     now = time.time()
     if _TON_PRICE_CACHE["price"] > 0 and (now - _TON_PRICE_CACHE["timestamp"] < CACHE_TTL_TON):
         return _TON_PRICE_CACHE["price"]
 
-    price = get_live_ton_price()
+    price = fetch_multi_source_ton_price()
     if price <= 0:
         price = _TON_PRICE_CACHE["price"] if _TON_PRICE_CACHE["price"] > 0 else 5.50
 
@@ -135,7 +207,11 @@ def get_config():
             if not isinstance(pkg_info, dict):
                 continue
             usd_val = float(pkg_info.get('usdt', pkg_info.get('cost_usd', 0.0)))
-            ton_needed = round(usd_val / ton_price_usd, 4) if ton_price_usd > 0 else round(usd_val / 5.5, 4)
+            
+            # احتساب المباشر بالدولار شاملاً هامش الحماية 6%
+            base_ton = (usd_val / ton_price_usd) if ton_price_usd > 0 else (usd_val / 5.5)
+            ton_needed = round(base_ton * TON_SAFETY_MARGIN, 4)
+
             packages_with_ton[str(pkg_id)] = {
                 "usdt": usd_val,
                 "rate_add": float(pkg_info.get('rate_add', 0)),
@@ -181,7 +257,10 @@ def prepare_ton_pay():
         ton_price = get_cached_ton_price()
 
         usd_val = float(pkg_info.get('usdt', 0.0))
-        ton_amount = round(usd_val / ton_price, 4) if ton_price > 0 else round(usd_val / 5.5, 4)
+        
+        # احتساب القيمة مع هامش حماية 6%
+        base_ton = (usd_val / ton_price) if ton_price > 0 else (usd_val / 5.5)
+        ton_amount = round(base_ton * TON_SAFETY_MARGIN, 4)
         nano_ton = int(ton_amount * 1000000000)
 
         memo_payload = f"BUY_{pkg_id}_USER_{user_id}_{int(time.time())}_{random.randint(100,999)}"
