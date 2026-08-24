@@ -196,7 +196,10 @@ def get_game_config():
 def get_config():
     try:
         settings = get_game_config()
-        ton_price_usd = get_cached_ton_price()
+        raw_ton_price = get_cached_ton_price()
+
+        # حساب سعر TON المعدل بعد تخصيم هامش الحماية (ليطابق العرض في المحفظة)
+        effective_ton_price = round(raw_ton_price / TON_SAFETY_MARGIN, 4) if raw_ton_price > 0 else round(5.50 / TON_SAFETY_MARGIN, 4)
 
         usdt_pkgs = _normalize_config_dict(settings.get('usdt_packages'), DEFAULT_USDT_PACKAGES)
         packages_with_ton = {}
@@ -208,9 +211,8 @@ def get_config():
                 continue
             usd_val = float(pkg_info.get('usdt', pkg_info.get('cost_usd', 0.0)))
             
-            # احتساب المباشر بالدولار شاملاً هامش الحماية 6%
-            base_ton = (usd_val / ton_price_usd) if ton_price_usd > 0 else (usd_val / 5.5)
-            ton_needed = round(base_ton * TON_SAFETY_MARGIN, 4)
+            # احتساب كمية TON المطلوبة بناءً على السعر المعدل
+            ton_needed = round(usd_val / effective_ton_price, 4) if effective_ton_price > 0 else round(usd_val / 5.1887, 4)
 
             packages_with_ton[str(pkg_id)] = {
                 "usdt": usd_val,
@@ -224,7 +226,7 @@ def get_config():
         return jsonify({
             "success": True,
             "settings": settings,
-            "ton_price_usd": round(ton_price_usd, 2),
+            "ton_price_usd": effective_ton_price,
             "packages": packages_with_ton
         }), 200
     except Exception as e:
@@ -233,7 +235,7 @@ def get_config():
             "success": False,
             "error": str(e),
             "settings": get_game_config(),
-            "ton_price_usd": 5.50,
+            "ton_price_usd": round(5.50 / TON_SAFETY_MARGIN, 4),
             "packages": DEFAULT_USDT_PACKAGES
         }), 200
 
