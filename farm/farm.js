@@ -37,6 +37,11 @@ window.closeWelcomeModal = function() {
     const tele = window.Telegram?.WebApp;
     const START_PARAM = tele?.initDataUnsafe?.start_param || "";
 
+    // تعيين معرف Adsgram الافتراضي (44396) في حال عدم ورود قيمة أخرى من السيرفر
+    if (!window.ADSGRAM_BLOCK_ID) {
+        window.ADSGRAM_BLOCK_ID = "44396";
+    }
+
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 15,
         dailyBoostReward: 0.15,
@@ -600,7 +605,7 @@ window.closeWelcomeModal = function() {
 
     function showAdsgramAd() {
         return new Promise((resolve) => {
-            const blockId = window.ADSGRAM_BLOCK_ID;
+            const blockId = window.ADSGRAM_BLOCK_ID || "44396";
             if (window.Adsgram && blockId) {
                 try {
                     const AdController = window.Adsgram.init({ blockId: blockId });
