@@ -81,6 +81,7 @@ def create_default_user_data_dict(user_id_str, game_settings, now_dt):
         "last_claim_time": now_iso,
         "last_daily_claim_date": None,
         "last_boost_date": None,
+        "last_claim_ad_date": None,
         "ads_watched": 0,
         "upgrades": {},
         "upgrades_count": 0,
@@ -225,6 +226,7 @@ def get_or_create_user_farm_data(user_id_str):
         if "ads_watched" not in user_data: auto_fix["ads_watched"] = 0
         if "storage_level" not in user_data: auto_fix["storage_level"] = 0
         if "upgrades" not in user_data: auto_fix["upgrades"] = {}
+        if "last_claim_ad_date" not in user_data: auto_fix["last_claim_ad_date"] = None
         if "last_claim_time" not in user_data or not user_data.get("last_claim_time"):
             auto_fix["last_claim_time"] = now.isoformat()
             
@@ -270,7 +272,7 @@ def get_or_create_user_farm_data(user_id_str):
 
 
 def claim_mined_tokens_db(user_id_str):
-    """تجميع الرصيد المعدن بأمان مع إنشاء الحساب التلقائي إن كان محذوفاً"""
+    """تجميع الرصيد المعدن بأمان وتحديث تاريخ مشاهدة إعلان التجميع تلقائياً في Firebase"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -311,10 +313,12 @@ def claim_mined_tokens_db(user_id_str):
         current_usd_balance = float(user_data.get("usd_balance", 0.0))
         new_balance = round(current_balance + mined_amount, 4)
         now_iso = now.isoformat()
+        today_str = now.strftime('%Y-%m-%d')
 
         transaction.update(ref, {
             "balance": new_balance,
-            "last_claim_time": now_iso
+            "last_claim_time": now_iso,
+            "last_claim_ad_date": today_str
         })
 
         referrer_id = user_data.get("referrer_id") or user_data.get("referred_by") or user_data.get("invited_by")
@@ -326,6 +330,7 @@ def claim_mined_tokens_db(user_id_str):
             "new_balance": new_balance,
             "new_usd_balance": current_usd_balance,
             "last_claim_time": now_iso,
+            "last_claim_ad_date": today_str,
             "unclaimed": 0.0,
             "server_time": now_iso,
             "claimed_amount": mined_amount,
