@@ -1,3 +1,4 @@
+import os
 import traceback
 from flask import Blueprint, request, jsonify
 from core.security import get_authenticated_user
@@ -14,6 +15,8 @@ from farm.farm_db import (
 )
 
 farm_bp = Blueprint('farm', __name__)
+
+ADSGRAM_BLOCK_ID = os.environ.get("ADSGRAM_BLOCK_ID", "")
 
 def to_bool(val):
     """تحويل قيم البوليان بمرونة وسلاسة لمنع أخطاء النصوص والنصوص الفارغة"""
@@ -78,7 +81,8 @@ def get_player_data():
                 "daily_boost_reward": daily_boost_reward,
                 "max_daily_boost_rate": max_daily_boost_rate,
                 "boost_max_reward_coins": boost_max_reward_coins,
-                "max_upgrades_per_level": max_upgrades_per_level
+                "max_upgrades_per_level": max_upgrades_per_level,
+                "adsgram_block_id": os.environ.get("ADSGRAM_BLOCK_ID", "")
             }
         }), 200
     except Exception as e:
