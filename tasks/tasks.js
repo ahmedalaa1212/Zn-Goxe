@@ -45,12 +45,12 @@
         };
     }
 
-    // 🔒 الحدود الأدنى الجديدة للحملات الإعلانية حسب نوع المنصة
+    // 🔒 الحدود الأدنى الجديدة للحملات الإعلانية حسب نوع المنصة (30 للموقع / 25 للباقي)
     function getMinRewardForPlatform(platform) {
         if (platform === 'موقع') {
-            return 100; // 100 AdZ لزيارة الموقع والفحص الأمني
+            return 30; // 30 AdZ لزيارة الموقع والفحص الأمني
         }
-        return 50; // 50 AdZ لباقي المنصات (يوتيوب، تيليجرام، انستغرام، X)
+        return 25; // 25 AdZ لباقي المنصات (يوتيوب، تيليجرام، انستغرام، X)
     }
 
     let cachedTasksData = null;
@@ -277,7 +277,7 @@
         window.fetchAndRenderTasks(forceRefresh);
     };
 
-    // ⚡ فتح النافذة المنبثقة لإنشاء الحملة وإخفاء القائمة السفلية
+    // ⚡ فتح النافذة المنبثقة لإنشاء الحملة وإخفاء القائمة السفلية مع تحديث التلميح ديناميكياً
     window.openAdModal = function(type) {
         currentAdType = type || 'يوتيوب';
         const modal = document.getElementById('ad-modal');
@@ -378,7 +378,7 @@
         }
     };
 
-    // ⚡ تقديم ونشر الحملة الإعلانية
+    // ⚡ تقديم ونشر الحملة الإعلانية والتحقق من الحد الأدنى المقبول
     window.submitAdCampaign = async function(event) {
         if (event) event.preventDefault();
         if (isSubmittingCampaign) return;
