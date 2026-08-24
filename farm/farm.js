@@ -624,14 +624,17 @@ window.closeWelcomeModal = function() {
                         .then(() => resolve(true))
                         .catch((err) => {
                             console.warn("Adsgram failure or skipped:", err);
-                            resolve(true);
+                            showToast("⚠️ يجب مشاهدة الإعلان حتى النهاية لتجميع الرصيد!");
+                            resolve(false);
                         });
                 } catch (e) {
                     console.error("Adsgram exception:", e);
-                    resolve(true);
+                    showToast("❌ تعذر عرض الإعلان. حاول مرة أخرى.");
+                    resolve(false);
                 }
             } else {
-                resolve(true);
+                showToast("⚠️ الإعلانات غير متوفرة حالياً، يرجى إعادة المحاولة لاحقاً.");
+                resolve(false);
             }
         });
     }
@@ -873,11 +876,9 @@ window.closeWelcomeModal = function() {
             // يظهر الإعلان فقط إذا لم يُشاهد اليوم (أول ضغطة تجميع في اليوم)
             if (lastClaimAdDate !== todayStr) {
                 const adWatched = await showAdsgramAd();
-                if (adWatched) {
-                    pData.last_claim_ad_date = todayStr;
-                    if (window.userState) window.userState.last_claim_ad_date = todayStr;
-                    if (window.PlayerData) window.PlayerData.last_claim_ad_date = todayStr;
-                    localStorage.setItem(adKey, todayStr);
+                if (!adWatched) {
+                    isClaimingMain = false;
+                    return;
                 }
             }
 
