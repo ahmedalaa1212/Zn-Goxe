@@ -591,6 +591,25 @@
 
         </div>
 
+        <!-- 🎁 خانة كروت وهدايا الأكواد -->
+        <div class="stats-card" style="border: 1px solid rgba(243, 156, 18, 0.3); background: linear-gradient(145deg, rgba(243, 156, 18, 0.08), var(--card-bg)); margin-bottom:20px;">
+            <h4 style="margin:0 0 8px 0; color:var(--primary); font-size:14px; display:flex; align-items:center; gap:8px;">
+                <span>🎁 تفعيل كود الهدية (Promo Code)</span>
+            </h4>
+            <p style="margin:0 0 12px 0; color:var(--text-muted); font-size:12px; line-height:1.4;">
+                إذا كان لديك كود مكافأة خاص، أدخله هنا للحصول على النقاط والعملات فوراً:
+            </p>
+            <div style="display:flex; gap:8px;">
+                <input type="text" id="promo-code-input" placeholder="أدخل الكود هنا..." 
+                       style="flex:1; background:#0a0b0e; border:1px solid var(--border-color); color:#fff; padding:12px 14px; border-radius:12px; font-size:13px; text-transform:uppercase; outline:none;" 
+                       maxlength="30" autocomplete="off">
+                <button onclick="redeemPromoCode()" id="redeem-code-btn" 
+                        style="background:linear-gradient(135deg, var(--primary), #e67e22); border:none; color:#000; padding:12px 18px; border-radius:12px; font-weight:bold; font-size:13px; cursor:pointer; flex-shrink:0; transition:transform 0.2s;">
+                    تفعيل ✨
+                </button>
+            </div>
+        </div>
+
         <div style="display:flex; gap:10px;">
             <button onclick="showPrivacyModal()" style="width:100%; padding:14px; background:var(--card-bg); border:1px solid var(--border-color); color:var(--text-muted); border-radius:12px; font-weight:bold; font-size:13px; cursor:pointer; transition:background 0.2s;">
                 ⚖️ شروط وسياسة الاستخدام
@@ -671,6 +690,6 @@
         <a href="../friends/friends.html"><i>👥</i><span>الأصدقاء</span></a>
     </nav>
 
-    <script src="settings.js?v=13.5"></script>
+    <script src="settings.js?v=13.6"></script>
 </body>
 </html>
