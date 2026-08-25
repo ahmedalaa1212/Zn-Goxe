@@ -2,7 +2,7 @@
 import traceback
 from flask import Blueprint, jsonify, request
 from core.security import get_authenticated_user
-from settings.settings_db import get_user_settings_stats, get_top_mining_leaderboard
+from settings.settings_db import get_user_settings_stats, get_top_mining_leaderboard, redeem_promo_code
 
 settings_bp = Blueprint('settings', __name__)
 
@@ -48,5 +48,30 @@ def get_mining_leaderboard():
 
     except Exception as e:
         print(f"Error in get_mining_leaderboard: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "message": "Internal server error"}), 500
+
+
+@settings_bp.route('/redeem-code', methods=['POST'])
+@settings_bp.route('/redeem_code', methods=['POST'])
+def handle_redeem_code():
+    """مسار تفعيل أكواد الهدايا والمكافآت"""
+    try:
+        success, uid, user_info, error_res = get_authenticated_user(request, is_post=True)
+        if not success:
+            return error_res
+
+        data = request.get_json(silent=True) or {}
+        code = str(data.get('code', '')).strip()
+
+        if not code:
+            return jsonify({"success": False, "message": "يرجى كتابة الكود أولاً."}), 400
+
+        result = redeem_promo_code(str(uid), code)
+        status_code = 200 if result.get('success') else 400
+        return jsonify(result), status_code
+
+    except Exception as e:
+        print(f"Error in handle_redeem_code: {e}")
         traceback.print_exc()
         return jsonify({"success": False, "message": "Internal server error"}), 500
