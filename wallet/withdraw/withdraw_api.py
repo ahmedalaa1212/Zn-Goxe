@@ -73,7 +73,6 @@ def validate_wallet_address(address, currency):
 
 def get_live_crypto_prices():
     now = time.time()
-    # ذاكرة مؤقتة للأسعار لمدة 60 ثانية لتخفيف الضغط وحفظ موارد الخادم
     if PRICE_CACHE["data"] and (now - PRICE_CACHE["last_updated"] < 60):
         return PRICE_CACHE["data"]
 
@@ -84,7 +83,6 @@ def get_live_crypto_prices():
         "LTC": 68.0
     }
 
-    # 1. المصدر الأول: Binance API
     try:
         symbols = {"DOGE": "DOGEUSDT", "TRX": "TRXUSDT", "PEPE": "PEPEUSDT", "LTC": "LTCUSDT"}
         binance_prices = {}
@@ -101,7 +99,6 @@ def get_live_crypto_prices():
     except Exception as e:
         print(f"⚠️ خطأ جلب الأسعار من Binance: {e}")
 
-    # 2. المصدر الثاني: CryptoCompare API
     try:
         res = requests.get("https://min-api.cryptocompare.com/data/pricemulti?fsyms=DOGE,TRX,PEPE,LTC&tsyms=USD", timeout=3)
         if res.status_code == 200:
@@ -117,7 +114,6 @@ def get_live_crypto_prices():
     except Exception as e:
         print(f"⚠️ خطأ جلب الأسعار من CryptoCompare: {e}")
 
-    # 3. المصدر الثالث: CoinGecko API
     try:
         url = "https://api.coingecko.com/api/v3/simple/price?ids=dogecoin,tron,pepe,litecoin&vs_currencies=usd"
         res = requests.get(url, timeout=3)
@@ -225,7 +221,6 @@ def _get_firestore_client():
 
 def fetch_or_create_withdraw_config():
     now = time.time()
-    # التخزين المؤقت للإعدادات لتقليل قراءات الفايربيس للحد الأدنى وتكلفة الاستضافة
     if CONFIG_CACHE["data"] and (now - CONFIG_CACHE["last_updated"] < 300):
         return CONFIG_CACHE["data"]
 
@@ -284,7 +279,6 @@ def get_config():
     except Exception as e:
         print(f"خطأ جلب بيانات المستخدم: {e}")
 
-    # فلترة المحافظ لضمان إرسال المحافظ الصحيحة فقط لكل عملة وتصفية العناوين الخاطئة الموروثة
     clean_user_wallets = {}
     if isinstance(raw_wallets, dict):
         for curr, addr in raw_wallets.items():
@@ -436,6 +430,7 @@ def handle_withdraw():
                     'updated_at': firestore.SERVER_TIMESTAMP
                 })
             notify_group_auto_success(user_id, coins, net_crypto, currency, wallet_address, tx_id)
+            send_proof_to_channel(user_id, coins, net_crypto, currency, wallet_address, tx_id)
             return jsonify({
                 "success": True, 
                 "message": f"تم تحويل {format_crypto_display(net_crypto)} {currency} بنجاح إلى حسابك في FaucetPay!",
@@ -544,6 +539,7 @@ def execute_admin_decision(tx_id, action):
                 'updated_at': firestore.SERVER_TIMESTAMP
             })
             notify_manual_decision(user_id, coins, crypto_amount, currency, wallet, "approve", str(tx_id))
+            send_proof_to_channel(user_id, coins, crypto_amount, currency, wallet, str(tx_id))
             return True, "تمت الموافقة والتحويل بنجاح عبر FaucetPay."
         else:
             tx_ref.update({
@@ -676,6 +672,48 @@ def _send_telegram_msg(text, reply_markup=None):
             print(f"❌ التليجرام أعاد خطأ عند إرسال الإشعار: {res.text}")
     except Exception as e:
         print(f"❌ خطأ أثناء الاتصال بالتليجرام: {e}")
+
+def send_proof_to_channel(user_id, coins, crypto_amount, currency, wallet, tx_id):
+    bot_token = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+    channel_id = os.getenv("PROOFS_CHANNEL") or os.getenv("PROOFS_CHANNEL_ID") or "@zngoxe_Proofs"
+    
+    if not bot_token:
+        print("❌ لم يتم إرسال إثبات السحب للقناة: bot_token مفقود.")
+        return
+
+    formatted_coins = f"{coins:,.0f}" if coins == int(coins) else f"{coins:,}"
+    formatted_crypto = format_crypto_display(crypto_amount)
+    
+    user_str = str(user_id)
+    masked_user = user_str[:3] + "****" + user_str[-2:] if len(user_str) > 5 else user_str
+    short_wallet = f"{wallet[:6]}...{wallet[-4:]}" if len(wallet) > 10 else wallet
+
+    text = (
+        "<b>🎉 إثبات سحب جديد من تطبيق ZN Goxe!</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"<b>👤 المستخدم:</b> <code>{masked_user}</code>\n"
+        f"<b>💰 المبلغ المسحوب:</b> <code>{formatted_coins} ZN</code>\n"
+        f"<b>💎 الصافي المستلم:</b> <code>{formatted_crypto} {currency}</code>\n"
+        f"<b>📥 المحفظة / FaucetPay:</b> <code>{short_wallet}</code>\n"
+        f"<b>🆔 رقم المعاملة:</b> <code>#{str(tx_id)[-8:]}</code>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "✅ <b>تم التحويل بنجاح عبر FaucetPay!</b>\n"
+        "📢 <b>قناة إثباتات السحب:</b> @zngoxe_Proofs"
+    )
+
+    payload = {
+        "chat_id": channel_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    }
+
+    try:
+        res = requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json=payload, timeout=5)
+        if res.status_code != 200:
+            print(f"❌ خطأ إرسال إثبات السحب للقناة: {res.text}")
+    except Exception as e:
+        print(f"❌ خطأ الاتصال بالتليجرام لإرسال الإثبات: {e}")
 
 def notify_group_auto_success(user_id, coins, crypto_amount, currency, wallet, tx_id):
     formatted_coins = f"{coins:,.0f}" if coins == int(coins) else f"{coins:,}"
