@@ -55,6 +55,7 @@
         }
 
         updateStatsFromLocalData();
+        fetchLeaderboard();
 
         try {
             let data;
@@ -82,6 +83,70 @@
             console.warn("Settings stats info:", error);
         }
     }
+
+    // ==========================================
+    // 🏆 نظام المتصدرين في التعدين
+    // ==========================================
+    async function fetchLeaderboard() {
+        const listEl = document.getElementById('leaderboard-list');
+        if (!listEl) return;
+
+        try {
+            let data;
+            if (typeof window.fetchAPI === 'function') {
+                data = await window.fetchAPI('/api/settings/leaderboard');
+            } else {
+                const initData = window.Telegram?.WebApp?.initData || "";
+                const res = await fetch('/api/settings/leaderboard', {
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${initData}`,
+                        'X-Telegram-Init-Data': initData
+                    }
+                });
+                data = await res.json();
+            }
+
+            if (data && data.success && Array.isArray(data.leaderboard)) {
+                if (data.leaderboard.length === 0) {
+                    listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:12px; padding:10px;">لا يوجد متصدرين حالياً.</div>';
+                    return;
+                }
+
+                let html = '';
+                data.leaderboard.forEach((item, index) => {
+                    const rank = index + 1;
+                    let rankBadge = `${rank}#`;
+                    let rankClass = '';
+                    if (rank === 1) { rankBadge = '🥇'; rankClass = 'leader-rank-1'; }
+                    else if (rank === 2) { rankBadge = '🥈'; rankClass = 'leader-rank-2'; }
+                    else if (rank === 3) { rankBadge = '🥉'; rankClass = 'leader-rank-3'; }
+
+                    const name = escapeHTML(item.first_name || item.username || `لاعب #${String(item.uid || '').slice(-4)}`);
+                    const score = (parseFloat(item.mining_points || 0) || 0).toLocaleString('ar-EG');
+
+                    html += `
+                        <div class="leader-item">
+                            <span class="leader-rank ${rankClass}">${rankBadge}</span>
+                            <div class="leader-info">
+                                <div style="font-weight:600; color:#fff; font-size:13px;">${name}</div>
+                            </div>
+                            <span class="leader-score">⛏️ ${score}</span>
+                        </div>
+                    `;
+                });
+                listEl.innerHTML = html;
+            } else {
+                listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:12px; padding:10px;">تعذر تحميل قائمة المتصدرين.</div>';
+            }
+        } catch (error) {
+            console.warn("Leaderboard error:", error);
+            if (listEl) {
+                listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:12px; padding:10px;">خطأ في الاتصال بالشبكة.</div>';
+            }
+        }
+    }
+    window.fetchLeaderboard = fetchLeaderboard;
 
     // ==========================================
     // 🎧 نظام الدعم الفني المباشر
