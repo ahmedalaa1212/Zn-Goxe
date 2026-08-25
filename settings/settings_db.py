@@ -1,5 +1,6 @@
 # settings/settings_db.py
 import logging
+from google.cloud import firestore
 import database
 
 logger = logging.getLogger(__name__)
@@ -122,3 +123,77 @@ def get_top_mining_leaderboard(limit: int = 10) -> list:
     except Exception as e:
         logger.error(f"Error fetching mining leaderboard: {e}")
         return default_leaderboard
+
+
+def redeem_promo_code(uid: str, code_input: str) -> dict:
+    """
+    تفعيل كود الهدايا والمكافآت مع حماية كاملة ضد التكرار والتلاعب وسباق الاستعلامات (Race Conditions)
+    """
+    if not uid or not code_input:
+        return {"success": False, "message": "⚠️ البيانات المدخلة غير مكتملة."}
+
+    clean_code = str(code_input).strip().upper()
+    if not clean_code or len(clean_code) > 30:
+        return {"success": False, "message": "⚠️ صيغة الكود غير صالحة."}
+
+    db = get_db()
+    if not db:
+        logger.error("Database connection failed in redeem_promo_code")
+        return {"success": False, "message": "❌ خطأ في الاتصال بقاعدة البيانات."}
+
+    code_ref = db.collection('promo_codes').document(clean_code)
+    user_ref = db.collection('users').document(str(uid))
+
+    @firestore.transactional
+    def _execute_redeem(transaction, code_ref_doc, user_ref_doc):
+        code_doc = code_ref_doc.get(transaction=transaction)
+        if not code_doc.exists:
+            return {"success": False, "message": "❌ هذا الكود غير صحيح أو غير موجود!"}
+
+        code_data = code_doc.to_dict() or {}
+        coins = float(code_data.get('coins', 0))
+        max_uses = int(code_data.get('max_uses', 1))
+        used_count = int(code_data.get('used_count', 0))
+        used_by = code_data.get('used_by', [])
+
+        if not isinstance(used_by, list):
+            used_by = []
+
+        if coins <= 0:
+            return {"success": False, "message": "⚠️ هذا الكود لا يحتوي على مكافأة صالحة."}
+
+        if used_count >= max_uses:
+            return {"success": False, "message": "⚠️ للأسف، اكتمل الحد الأقصى لاستخدام هذا الكود!"}
+
+        if str(uid) in [str(u) for u in used_by]:
+            return {"success": False, "message": "⚠️ لقد قمت باستخدام هذا الكود من قبل!"}
+
+        user_doc = user_ref_doc.get(transaction=transaction)
+        if not user_doc.exists:
+            return {"success": False, "message": "❌ لم يتم العثور على حساب المستخدم."}
+
+        # 1. تحديث بيانات الكود برفع عدد الاستخدامات وإضافة ID المستخدم القائم بالتفعيل
+        transaction.update(code_ref_doc, {
+            'used_count': firestore.Increment(1),
+            'used_by': firestore.ArrayUnion([str(uid)])
+        })
+
+        # 2. زيادة رصيد المستخدم بأمان
+        transaction.update(user_ref_doc, {
+            'balance': firestore.Increment(coins),
+            'zn_balance': firestore.Increment(coins),
+            'total_earned': firestore.Increment(coins)
+        })
+
+        return {
+            "success": True,
+            "message": f"🎉 مبروك! تم إضافة {coins:,.0f} ZN إلى رصيدك بنجاح.",
+            "coins": coins
+        }
+
+    transaction = db.transaction()
+    try:
+        return _execute_redeem(transaction, code_ref, user_ref)
+    except Exception as e:
+        logger.error(f"Error executing redeem_promo_code transaction for user {uid}, code {clean_code}: {e}")
+        return {"success": False, "message": "❌ حدث خطأ أثناء معالجة الكود، يرجى المحاولة لاحقاً."}
