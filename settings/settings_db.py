@@ -68,3 +68,57 @@ def get_user_settings_stats(uid: str) -> dict:
     except Exception as e:
         logger.error(f"Error fetching settings stats for user {uid}: {e}")
         return default_stats
+
+
+def get_top_mining_leaderboard(limit: int = 10) -> list:
+    """
+    جلب أفضل 10 مستخدمين حصدوا أكبر قدر من نقاط التعدين فقط بصورة آمنة.
+    """
+    default_leaderboard = []
+    try:
+        db = get_db()
+        if not db:
+            logger.error("Database connection failed in get_top_mining_leaderboard")
+            return default_leaderboard
+
+        users_ref = db.collection('users')
+        docs = []
+
+        # محاولة جلب المستخدمين بالترتيب حسب نقاط التعدين مع حماية الاستعلام
+        try:
+            docs = users_ref.order_by('mining_points', direction='DESCENDING').limit(limit).get()
+        except Exception:
+            try:
+                docs = users_ref.order_by('balance', direction='DESCENDING').limit(limit).get()
+            except Exception:
+                docs = users_ref.limit(50).get()
+
+        leaderboard = []
+        for doc in docs:
+            data = doc.to_dict() or {}
+            
+            # جلب نقاط التعدين فقط
+            mining_pts = data.get('mining_points', data.get('total_mined', data.get('balance', 0)))
+            try:
+                mining_pts = float(mining_pts)
+            except (ValueError, TypeError):
+                mining_pts = 0.0
+
+            first_name = data.get('first_name', '')
+            last_name = data.get('last_name', '')
+            full_name = f"{first_name} {last_name}".strip() or data.get('username', f"لاعب #{str(doc.id)[-4:]}")
+
+            leaderboard.append({
+                "uid": str(doc.id),
+                "first_name": full_name,
+                "username": data.get('username', ''),
+                "mining_points": round(mining_pts, 2)
+            })
+
+        # إعادة الفرز في الذاكرة للضمان تنازلياً وإرجاع أول N متصدرين
+        leaderboard.sort(key=lambda x: x['mining_points'], reverse=True)
+        return leaderboard[:limit]
+
+    except Exception as e:
+        logger.error(f"Error fetching mining leaderboard: {e}")
+        return default_leaderboard
