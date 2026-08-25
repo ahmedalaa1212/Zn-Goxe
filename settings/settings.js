@@ -85,6 +85,64 @@
     }
 
     // ==========================================
+    // 🎁 نظام تفعيل أكواد الهدايا (Promo Codes)
+    // ==========================================
+    async function redeemPromoCode() {
+        const inputEl = document.getElementById('promo-code-input');
+        const btnEl = document.getElementById('redeem-code-btn');
+        if (!inputEl) return;
+
+        const code = inputEl.value.trim().toUpperCase();
+        if (!code) {
+            showToast("⚠️ يرجى إدخال الكود أولاً!");
+            return;
+        }
+
+        if (btnEl) {
+            btnEl.disabled = true;
+            btnEl.innerText = "جاري التفعيل... ⏳";
+            btnEl.style.opacity = '0.7';
+        }
+
+        try {
+            let data;
+            if (typeof window.fetchAPI === 'function') {
+                data = await window.fetchAPI('/api/settings/redeem-code', 'POST', { code: code });
+            } else {
+                const initData = window.Telegram?.WebApp?.initData || "";
+                const res = await fetch('/api/settings/redeem-code', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${initData}`,
+                        'X-Telegram-Init-Data': initData
+                    },
+                    body: JSON.stringify({ code: code })
+                });
+                data = await res.json();
+            }
+
+            if (data && data.success) {
+                showToast(data.message || "🎉 تم تفعيل الكود بنجاح!");
+                inputEl.value = '';
+                fetchAndRenderData();
+            } else {
+                showToast(data?.message || "❌ فشل تفعيل الكود!");
+            }
+        } catch (error) {
+            console.error("Redeem code error:", error);
+            showToast("❌ حدث خطأ أثناء الاتصال بالسيرفر!");
+        } finally {
+            if (btnEl) {
+                btnEl.disabled = false;
+                btnEl.innerText = "تفعيل ✨";
+                btnEl.style.opacity = '1';
+            }
+        }
+    }
+    window.redeemPromoCode = redeemPromoCode;
+
+    // ==========================================
     // 🏆 نظام المتصدرين في التعدين
     // ==========================================
     async function fetchLeaderboard() {
