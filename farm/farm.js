@@ -37,7 +37,6 @@ window.closeWelcomeModal = function() {
     const tele = window.Telegram?.WebApp;
     const START_PARAM = tele?.initDataUnsafe?.start_param || "";
 
-    // تعيين معرف Adsgram الافتراضي (44396) في حال عدم ورود قيمة أخرى من السيرفر
     if (!window.ADSGRAM_BLOCK_ID) {
         window.ADSGRAM_BLOCK_ID = "44396";
     }
@@ -303,23 +302,31 @@ window.closeWelcomeModal = function() {
 
                 if (resData.player) {
                     const adKey = getStorageAdKey();
-                    const localAdDate = window.userState?.last_claim_ad_date || localStorage.getItem(adKey);
+                    const isNewUser = resData.player.is_new_user === true || resData.player.welcome_seen === false;
+
+                    // تنظيف بيانات التخزين المحلي في حال إعادة إنشاء المستخدم
+                    if (isNewUser) {
+                        localStorage.removeItem(adKey);
+                        localStorage.removeItem(getCacheKey());
+                    }
 
                     Object.assign(window.PlayerData, resData.player);
                     Object.assign(window.userState, resData.player);
 
-                    if (!resData.player.last_claim_ad_date && localAdDate) {
-                        window.userState.last_claim_ad_date = localAdDate;
-                        window.PlayerData.last_claim_ad_date = localAdDate;
+                    if (resData.player.last_claim_ad_date) {
+                        localStorage.setItem(adKey, resData.player.last_claim_ad_date);
+                    } else if (isNewUser) {
+                        window.userState.last_claim_ad_date = null;
+                        window.PlayerData.last_claim_ad_date = null;
+                        localStorage.removeItem(adKey);
                     }
 
                     saveCachedData(window.userState);
                     setStoredBalance(resData.player.balance, resData.player.usd_balance);
 
-                    const isNew = resData.player.is_new_user === true || resData.player.welcome_seen === false;
                     const welcomeModal = document.getElementById('welcome-modal');
                     if (welcomeModal) {
-                        if (isNew) {
+                        if (isNewUser) {
                             welcomeModal.style.display = 'flex';
                             welcomeModal.classList.add('show', 'active');
                         } else {
@@ -873,7 +880,6 @@ window.closeWelcomeModal = function() {
             const adKey = getStorageAdKey();
             const lastClaimAdDate = pData.last_claim_ad_date || localStorage.getItem(adKey);
 
-            // يظهر الإعلان فقط إذا لم يُشاهد اليوم (أول ضغطة تجميع في اليوم)
             if (lastClaimAdDate !== todayStr) {
                 const adWatched = await showAdsgramAd();
                 if (!adWatched) {
@@ -895,7 +901,6 @@ window.closeWelcomeModal = function() {
                     window.PlayerData.last_claim_time = resData.last_claim_time;
                 }
 
-                // حفظ تاريخ الإعلان دائماً لحمايته من المسح
                 const savedAdDate = resData.last_claim_ad_date || todayStr;
                 window.userState.last_claim_ad_date = savedAdDate;
                 window.PlayerData.last_claim_ad_date = savedAdDate;
