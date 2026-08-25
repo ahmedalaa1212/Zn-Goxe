@@ -221,7 +221,8 @@ def _get_firestore_client():
 
 def fetch_or_create_withdraw_config():
     now = time.time()
-    if CONFIG_CACHE["data"] and (now - CONFIG_CACHE["last_updated"] < 300):
+    # تقليل التخزين المؤقت لـ 5 ثواني لضمان قراءة التعديلات فوراً من الفايربيس
+    if CONFIG_CACHE["data"] and (now - CONFIG_CACHE["last_updated"] < 5):
         return CONFIG_CACHE["data"]
 
     db = _get_firestore_client()
@@ -232,10 +233,32 @@ def fetch_or_create_withdraw_config():
         doc = doc_ref.get()
         if doc.exists:
             data = doc.to_dict() or {}
-            data['levels'] = DEFAULT_WITHDRAW_CONFIG['levels']
-            data['rate_coins_per_usd'] = DEFAULT_WITHDRAW_CONFIG['rate_coins_per_usd']
+            
+            # 1. جلب سعر الصرف من الفايربيس
+            if 'rate_coins_per_usd' not in data:
+                data['rate_coins_per_usd'] = DEFAULT_WITHDRAW_CONFIG['rate_coins_per_usd']
+
             if 'faucetpay_spread_markup' not in data or data.get('faucetpay_spread_markup') == 1.0:
                 data['faucetpay_spread_markup'] = 1.06
+
+            # 2. جلب المستويات وقراءتها سواء كانت قائمة Array أو عناصر فردية (Map) في Firestore
+            if 'levels' in data and isinstance(data['levels'], list) and len(data['levels']) > 0:
+                pass
+            else:
+                extracted_levels = []
+                for k, v in data.items():
+                    if isinstance(v, dict) and ('min' in v or 'max' in v):
+                        map_level = dict(v)
+                        if 'level' not in map_level and str(k).isdigit():
+                            map_level['level'] = int(k)
+                        extracted_levels.append(map_level)
+                
+                if extracted_levels:
+                    extracted_levels.sort(key=lambda x: x.get('level', x.get('min', 0)))
+                    data['levels'] = extracted_levels
+                else:
+                    data['levels'] = DEFAULT_WITHDRAW_CONFIG['levels']
+
             CONFIG_CACHE["data"] = data
             CONFIG_CACHE["last_updated"] = now
             return data
