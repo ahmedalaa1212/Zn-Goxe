@@ -109,6 +109,44 @@
             padding: 8px 0;
         }
 
+        /* تنسيقات متصدري التعدين */
+        .leader-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 9px 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            font-size: 0.85rem;
+            transition: background 0.2s;
+        }
+
+        .leader-rank {
+            width: 28px;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        .leader-rank-1 { color: #f1c40f; font-size: 1.1rem; }
+        .leader-rank-2 { color: #bdc3c7; font-size: 1.05rem; }
+        .leader-rank-3 { color: #e67e22; font-size: 1.0rem; }
+
+        .leader-info {
+            flex: 1;
+            margin: 0 10px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .leader-score {
+            font-weight: bold;
+            color: var(--primary);
+            font-family: monospace;
+            font-size: 13px;
+        }
+
         .links-group {
             display: flex;
             flex-direction: column;
@@ -138,7 +176,6 @@
             background: #1f222a;
         }
 
-        /* تنسيق خاص للأيقونات التعبيرية داخل الأزرار */
         .btn-icon-box {
             width: 38px;
             height: 38px;
@@ -150,7 +187,6 @@
             flex-shrink: 0;
         }
 
-        /* زر الدعم الفني المميز في الأعلى */
         .support-top-btn {
             border-right: 4px solid var(--primary) !important;
             border: 1px solid rgba(243, 156, 18, 0.35);
@@ -188,7 +224,6 @@
             100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(46, 204, 113, 0); }
         }
 
-        /* 🎧 مودال الدعم الفني المنبثق */
         .support-overlay {
             display: none;
             position: fixed;
@@ -358,7 +393,6 @@
             border-radius: 12px;
         }
 
-        /* 💡 خيارات سريعة للاستفسار */
         .quick-chips-wrapper {
             display: flex;
             gap: 8px;
@@ -473,10 +507,21 @@
             </div>
         </div>
 
+        <!-- 🏆 أفضل 10 مجمعين نقاط (التعدين فقط) -->
+        <div class="stats-card">
+            <h4 style="margin:0 0 12px 0; color:var(--primary); font-size:14px; border-bottom:1px solid var(--border-color); padding-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+                <span>🏆 أفضل 10 مجمعين نقاط (التعدين فقط)</span>
+                <button onclick="fetchLeaderboard()" style="background:none; border:none; color:var(--primary); cursor:pointer; font-size:12px; font-weight:bold;">🔄 تحديث</button>
+            </h4>
+            <div id="leaderboard-list" style="display:flex; flex-direction:column; gap:8px;">
+                <div style="text-align:center; color:var(--text-muted); font-size:12px; padding:10px;">جاري تحميل القائمة... ⏳</div>
+            </div>
+        </div>
+
         <!-- الأزرار الرئيسية ووسائل التواصل الاجتماعي -->
         <div class="links-group">
             
-            <!-- 🎧 1. خدمة العملاء والدعم الفني المباشر (في أعلى القائمة) -->
+            <!-- 🎧 1. خدمة العملاء والدعم الفني المباشر -->
             <div onclick="openSupportModal()" class="action-link-btn support-top-btn" style="cursor:pointer;">
                 <span style="display:flex; align-items:center; gap:12px;">
                     <span class="btn-icon-box" style="background: rgba(243, 156, 18, 0.2); color: var(--primary); border: 1px solid var(--primary);">🎧</span>
@@ -499,7 +544,16 @@
                 <span style="color:var(--text-muted); font-size:12px;">❮</span>
             </a>
 
-            <!-- ▶️ 3. قناة اليوتيوب الرسمية -->
+            <!-- 💳 3. قناة إثباتات السحب الرسمية -->
+            <a href="https://t.me/zngoxe_payouts" target="_blank" class="action-link-btn" style="border-right:4px solid var(--accent-green);">
+                <span style="display:flex; align-items:center; gap:12px;">
+                    <span class="btn-icon-box" style="background: rgba(46, 204, 113, 0.15); color: var(--accent-green);">💳</span>
+                    <span>قناة إثباتات السحب الرسمية</span>
+                </span>
+                <span style="color:var(--text-muted); font-size:12px;">❮</span>
+            </a>
+
+            <!-- ▶️ 4. قناة اليوتيوب الرسمية -->
             <a href="https://www.youtube.com/@ZNgoxe" target="_blank" class="action-link-btn" style="border-right:4px solid var(--youtube-red);">
                 <span style="display:flex; align-items:center; gap:12px;">
                     <span class="btn-icon-box" style="background: rgba(255, 0, 0, 0.15); color: var(--youtube-red);">▶️</span>
@@ -508,7 +562,7 @@
                 <span style="color:var(--text-muted); font-size:12px;">❮</span>
             </a>
 
-            <!-- 𝕏 4. حساب منصة X الرسمي -->
+            <!-- 𝕏 5. حساب منصة X الرسمي -->
             <a href="https://x.com/ZnGoxe" target="_blank" class="action-link-btn" style="border-right:4px solid var(--x-white);">
                 <span style="display:flex; align-items:center; gap:12px;">
                     <span class="btn-icon-box" style="background: rgba(255, 255, 255, 0.15); color: #fff; font-weight:bold; font-family:sans-serif;">𝕏</span>
@@ -517,7 +571,7 @@
                 <span style="color:var(--text-muted); font-size:12px;">❮</span>
             </a>
 
-            <!-- 📸 5. حساب إنستغرام الرسمي -->
+            <!-- 📸 6. حساب إنستغرام الرسمي -->
             <a href="https://www.instagram.com/zngoxe?igsh=dHN6bG5yMmZsNmln" target="_blank" class="action-link-btn" style="border-right:4px solid var(--instagram-pink);">
                 <span style="display:flex; align-items:center; gap:12px;">
                     <span class="btn-icon-box" style="background: rgba(225, 48, 108, 0.15); color: var(--instagram-pink);">📸</span>
@@ -526,7 +580,7 @@
                 <span style="color:var(--text-muted); font-size:12px;">❮</span>
             </a>
 
-            <!-- 📘 6. صفحة الفيسبوك الرسمية -->
+            <!-- 📘 7. صفحة الفيسبوك الرسمية -->
             <a href="https://www.facebook.com/share/1G6Yczd8du/" target="_blank" class="action-link-btn" style="border-right:4px solid var(--facebook-blue);">
                 <span style="display:flex; align-items:center; gap:12px;">
                     <span class="btn-icon-box" style="background: rgba(24, 119, 242, 0.15); color: var(--facebook-blue);">📘</span>
@@ -548,7 +602,6 @@
     <div id="support-modal" class="support-overlay">
         <div class="support-dialog">
             
-            <!-- الهيدر -->
             <div class="support-header">
                 <div class="support-header-title">
                     <div class="support-avatar-icon">🎧</div>
@@ -568,19 +621,16 @@
                 </button>
             </div>
 
-            <!-- جسم الشات -->
             <div id="support-chat-box" class="support-body">
                 <div class="msg-system">جاري الاتصال بخادم الدعم... ⏳</div>
             </div>
 
-            <!-- خيارات سريعة للإرسال بنقرة واحدة -->
             <div class="quick-chips-wrapper">
                 <button class="chip-btn" onclick="sendQuickQuery('مرحباً، لدي استفسار حول رصيد التعدين')">⛏️ استفسار عن التعدين</button>
                 <button class="chip-btn" onclick="sendQuickQuery('لدي مشكلة في إكمال إحدى المهام')">📋 مشكلة المهام</button>
                 <button class="chip-btn" onclick="sendQuickQuery('أواجه تأخير في عمليات الشراء أو السحب')">💳 الشراء والسحب</button>
             </div>
 
-            <!-- إدخال الرسالة -->
             <div id="support-input-section" class="support-footer">
                 <input type="text" id="support-msg-input" class="support-input" placeholder="اكتب استفسارك هنا..." autocomplete="off" maxlength="1000">
                 <button id="support-send-btn" class="support-send-btn" onclick="sendSupportMessage()">➤</button>
