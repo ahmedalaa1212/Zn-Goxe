@@ -7,19 +7,19 @@ from admin_app import app, database
 
 BOT_TOKEN = os.environ.get("ADMIN_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
 
-BASE_URL = os.environ.get("WEB_URL", "https://admin-zn-production.up.railway.app/").strip().rstrip('/')
+BASE_URL = os.environ.get("WEB_URL", "https://admin-zn-production.up.railway.app").strip().rstrip('/')
 ADMIN_WEBAPP_URL = BASE_URL if BASE_URL.endswith('/admin') else f"{BASE_URL}/admin"
 
-ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551")
+ADMIN_ID = str(os.environ.get("ADMIN_ID", "5102387551")).strip()
 
 bot = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
 
 def is_user_authorized(user_id):
-    """فحص حي ومباشر لصلاحيات دخول بوت الأدمن"""
+    """فحص فوري ودقيق لصلاحيات البوت"""
     if not user_id:
         return False
     user_id_str = str(user_id).strip()
-    if user_id_str == str(ADMIN_ID).strip():
+    if user_id_str == ADMIN_ID:
         return True
     try:
         if hasattr(database, 'db') and database.db:
@@ -47,9 +47,9 @@ if bot:
 
         bot.send_message(
             message.chat.id,
-            "👑 **أهلاً بك يا مدير!**\n\nتم التحقق من صلاحياتك بنجاح، اضغط لفتح لوحة التحكم:",
+            "👑 <b>أهلاً بك يا مدير!</b>\n\nتم التحقق من صلاحياتك بنجاح، اضغط على الزر بالأسفل لفتح لوحة التحكم الإدارية:",
             reply_markup=markup,
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
 
     @bot.message_handler(func=lambda message: True)
@@ -77,11 +77,22 @@ if bot:
             bot.answer_callback_query(call.id, "⛔ عذراً، البوت مخصص للإدارة فقط.", show_alert=True)
             return
 
+# قفل أحادي لمنع تكرار الـ Polling في خوادم Gunicorn متعددة العمال
+_polling_started = False
+_polling_lock = threading.Lock()
+
 def start_bot_polling():
+    global _polling_started
+    with _polling_lock:
+        if _polling_started:
+            return
+        _polling_started = True
+
     if bot:
-        print("🤖 بوت أزرار الأدمن قيد التشغيل عبر Background Thread...")
+        print("🤖 بوت أزرار الأدمن قيد التشغيل وآمن تماماً...")
         try:
-            bot.infinity_polling(skip_pending=True)
+            bot.remove_webhook(drop_pending_updates=True)
+            bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)
         except Exception as e:
             print(f"⚠️ Error in bot polling: {e}")
 
