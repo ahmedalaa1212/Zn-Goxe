@@ -1,6 +1,8 @@
 import os
 import sys
 import time
+import threading
+from flask import Flask, jsonify
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
@@ -11,7 +13,19 @@ if BASE_DIR not in sys.path:
 
 import database
 
-# جلب توكين البوت ومعرف الأدمن والروابط
+# ==========================================
+# 1. إعداد خادم Web خفيف لإبقاء Railway نشطاً (Online)
+# ==========================================
+app = Flask(__name__)
+
+@app.route('/')
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "online", "bot": "Pot admin ZN Goxe"}), 200
+
+# ==========================================
+# 2. جلب متغيرات البيئة وإعداد البوت
+# ==========================================
 BOT_TOKEN = os.environ.get("ADMIN_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
 ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551").strip()
 
@@ -119,11 +133,23 @@ def handle_all_messages(message):
     except Exception as e:
         print(f"❌ Error handling message: {e}")
 
-if __name__ == "__main__":
+def run_bot_worker():
+    """تشغيل الاستماع لرسائل تلجرام في خلفية النظام"""
     print("🚀 [Bot Worker] جارٍ تشغيل بوت الأدمن المستقل وبدء الاستماع لـ Telegram...")
-    try:
-        bot.remove_webhook(drop_pending_updates=True)
-        time.sleep(1)
-        bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)
-    except Exception as e:
-        print(f"❌ Fatal Error running Telegram Bot: {e}")
+    while True:
+        try:
+            bot.remove_webhook(drop_pending_updates=True)
+            time.sleep(1)
+            bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)
+        except Exception as e:
+            print(f"❌ Error in Telegram Bot Polling: {e}")
+            time.sleep(5)
+
+if __name__ == "__main__":
+    # 1. تشغيل البوت في Thread مستقل
+    bot_thread = threading.Thread(target=run_bot_worker, daemon=True)
+    bot_thread.start()
+
+    # 2. تشغيل خادم Flask لمنع السيرفر من الانتهاء (Completed) على Railway
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
