@@ -304,7 +304,6 @@ window.closeWelcomeModal = function() {
                     const adKey = getStorageAdKey();
                     const isNewUser = resData.player.is_new_user === true || resData.player.welcome_seen === false;
 
-                    // تنظيف بيانات التخزين المحلي في حال إعادة إنشاء المستخدم
                     if (isNewUser) {
                         localStorage.removeItem(adKey);
                         localStorage.removeItem(getCacheKey());
@@ -621,6 +620,7 @@ window.closeWelcomeModal = function() {
     window.addEventListener('pageshow', syncOnVisibility);
     document.addEventListener("visibilitychange", syncOnVisibility);
 
+    // دالة عرض إعلانات Adsgram بالتخطي الآلي في حالة الخطأ
     function showAdsgramAd() {
         return new Promise((resolve) => {
             const blockId = window.ADSGRAM_BLOCK_ID || "44396";
@@ -630,22 +630,20 @@ window.closeWelcomeModal = function() {
                     AdController.show()
                         .then(() => resolve(true))
                         .catch((err) => {
-                            console.warn("Adsgram failure or skipped:", err);
-                            showToast("⚠️ يجب مشاهدة الإعلان حتى النهاية لتجميع الرصيد!");
-                            resolve(false);
+                            console.warn("Adsgram error or not active, bypassing ad check:", err);
+                            resolve(true); // السماح للتجميع بالاستمرار عند وجود خطأ في الإعلان
                         });
                 } catch (e) {
                     console.error("Adsgram exception:", e);
-                    showToast("❌ تعذر عرض الإعلان. حاول مرة أخرى.");
-                    resolve(false);
+                    resolve(true);
                 }
             } else {
-                showToast("⚠️ الإعلانات غير متوفرة حالياً، يرجى إعادة المحاولة لاحقاً.");
-                resolve(false);
+                resolve(true);
             }
         });
     }
 
+    // دالة عرض إعلانات التليجرام الأخرى بالتخطي الآلي في حالة الخطأ
     function showTelegramAd() {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
@@ -653,18 +651,15 @@ window.closeWelcomeModal = function() {
                     window.show_11322720()
                         .then(() => resolve(true))
                         .catch((err) => {
-                            console.warn("فشل أو تم إغلاق الإعلان:", err);
-                            showToast("⚠️ يجب مشاهدة الإعلان حتى النهاية للحصول على المكافأة!");
-                            resolve(false);
+                            console.warn("Telegram ad error, bypassing:", err);
+                            resolve(true);
                         });
                 } catch (e) {
-                    console.error("استثناء في الإعلانات:", e);
-                    showToast("❌ تعذر عرض الإعلان. حاول مرة أخرى.");
-                    resolve(false);
+                    console.error("Telegram ad exception:", e);
+                    resolve(true);
                 }
             } else {
-                showToast("⚠️ الإعلانات غير متوفرة حالياً، يرجى إعادة المحاولة لاحقاً.");
-                resolve(false);
+                resolve(true);
             }
         });
     }
