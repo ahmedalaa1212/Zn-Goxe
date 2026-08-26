@@ -34,10 +34,12 @@ def get_settings_stats():
 def get_mining_leaderboard():
     """مسار جلب قائمة أفضل 10 متصدرين في التعدين"""
     try:
+        # محاولة التوثق بشكل مرن - لضمان إرجاع القائمة دائماً للمستخدمين بدون حظر
         is_post = (request.method == 'POST')
-        success, uid, user_info, error_res = get_authenticated_user(request, is_post=is_post)
-        if not success:
-            return error_res
+        try:
+            success, uid, user_info, error_res = get_authenticated_user(request, is_post=is_post)
+        except Exception:
+            pass
 
         leaderboard = get_top_mining_leaderboard(limit=10)
 
