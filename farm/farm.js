@@ -129,6 +129,17 @@ window.closeWelcomeModal = function() {
         return false;
     }
 
+    function clearStaleLocalCache() {
+        try {
+            const adKey = getStorageAdKey();
+            const cacheKey = getCacheKey();
+            localStorage.removeItem(adKey);
+            localStorage.removeItem(cacheKey);
+        } catch (e) {
+            console.error("خطأ مسح الـ Cache المحلي:", e);
+        }
+    }
+
     function showToast(message) {
         if (tele && tele.showAlert) tele.showAlert(message);
         else alert(message);
@@ -304,17 +315,19 @@ window.closeWelcomeModal = function() {
                     const adKey = getStorageAdKey();
                     const isNewUser = resData.player.is_new_user === true || resData.player.welcome_seen === false;
 
+                    // إذا كان الحساب قد أُعيد إنشاؤه أو مستخدم جديد، امسح الكاش المحلي القديم فوراً
                     if (isNewUser) {
-                        localStorage.removeItem(adKey);
-                        localStorage.removeItem(getCacheKey());
+                        clearStaleLocalCache();
                     }
 
                     Object.assign(window.PlayerData, resData.player);
                     Object.assign(window.userState, resData.player);
 
+                    // المزامنة الصارمة لتاريخ مشاهدة الإعلانات مع Firebase
                     if (resData.player.last_claim_ad_date) {
                         localStorage.setItem(adKey, resData.player.last_claim_ad_date);
-                    } else if (isNewUser) {
+                    } else {
+                        // في حال تم حذف الحساب من الفيربيس، سيأتي الحقل null ومباشرة يتيح المشاهدة مجدداً
                         window.userState.last_claim_ad_date = null;
                         window.PlayerData.last_claim_ad_date = null;
                         localStorage.removeItem(adKey);
@@ -621,7 +634,6 @@ window.closeWelcomeModal = function() {
     window.addEventListener('pageshow', syncOnVisibility);
     document.addEventListener("visibilitychange", syncOnVisibility);
 
-    // دالة عرض إعلانات Adsgram بالتخطي الآلي في حالة الخطأ
     function showAdsgramAd() {
         return new Promise((resolve) => {
             const blockId = window.ADSGRAM_BLOCK_ID || "44396";
@@ -644,7 +656,6 @@ window.closeWelcomeModal = function() {
         });
     }
 
-    // دالة عرض إعلانات التليجرام مع تحويل تلقائي للبديل عند الخطأ
     function showTelegramAd() {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
@@ -837,18 +848,15 @@ window.closeWelcomeModal = function() {
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
 
-                // دمج بيانات اللاعب المباشرة إن كانت موجودة في الاستجابة
                 if (resData.player) {
                     Object.assign(window.PlayerData, resData.player);
                     Object.assign(window.userState, resData.player);
                 }
 
-                // تحديث الرصيد بشكل مرن
                 const newBal = resData.new_balance ?? resData.balance ?? resData.player?.balance;
                 const newUsdBal = resData.new_usd_balance ?? resData.usd_balance ?? resData.player?.usd_balance;
                 setStoredBalance(newBal, newUsdBal);
 
-                // فحص وتحديث السرعة بمختلف تسميات الـ Backend
                 const newHourlyRate = resData.new_rate ?? resData.new_hourly_rate ?? resData.hourly_rate ?? resData.rate ?? resData.player?.hourly_rate;
                 if (newHourlyRate !== undefined && newHourlyRate !== null) {
                     const rateVal = parseFloat(newHourlyRate);
@@ -856,7 +864,6 @@ window.closeWelcomeModal = function() {
                     window.PlayerData.hourly_rate = rateVal;
                 }
 
-                // فحص وتحديث معدل التزويد اليومي
                 const newBoostRate = resData.daily_boost_rate ?? resData.boost_rate ?? resData.player?.daily_boost_rate;
                 if (newBoostRate !== undefined && newBoostRate !== null) {
                     const boostVal = parseFloat(newBoostRate);
@@ -877,7 +884,6 @@ window.closeWelcomeModal = function() {
                 window.userState.last_boost_date = boostDate;
                 window.PlayerData.last_boost_date = boostDate;
 
-                // رسائل التنبيه للمستخدم حسب نوع التعزيز
                 if (resData.type === 'balance' || resData.reward_coins) {
                     showToast(`💰 تهانينا! تمت إضافة ${resData.reward_coins || GAME_CONFIG.boostMaxRewardCoins} عملة ZN إلى رصيدك مباشرة!`);
                 } else {
@@ -906,7 +912,9 @@ window.closeWelcomeModal = function() {
             const pData = window.userState || window.PlayerData || {};
             const todayStr = getTodayUTCStr();
             const adKey = getStorageAdKey();
-            const lastClaimAdDate = pData.last_claim_ad_date || localStorage.getItem(adKey);
+
+            // المعتمد الأول هو Firebase؛ إذا كانت القيمة null فتحظر القيمة المخزنة قدامياً في localstorage من الحظر
+            const lastClaimAdDate = pData.last_claim_ad_date || null;
 
             if (lastClaimAdDate !== todayStr) {
                 const adWatched = await showAdsgramAd();
