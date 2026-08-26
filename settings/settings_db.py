@@ -141,8 +141,8 @@ def get_top_mining_leaderboard(limit: int = 10) -> list:
                 "uid": str(doc.id),
                 "first_name": full_name,
                 "username": username,
-                "mining_points": round(mined_pts, 2),
-                "mined_points": round(mined_pts, 2)
+                "mining_points": round(mined_pts, 4),
+                "mined_points": round(mined_pts, 4)
             })
 
         # فرز القائمة ترتيباً تنازلياً وإرجاع أول N متصدرين
