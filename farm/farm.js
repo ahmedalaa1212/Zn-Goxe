@@ -116,10 +116,8 @@ window.closeWelcomeModal = function() {
             if (cached) {
                 const parsed = JSON.parse(cached);
                 if (parsed && typeof parsed === 'object') {
-                    if (!window.userState) window.userState = {};
-                    if (!window.PlayerData) window.PlayerData = {};
-                    Object.assign(window.userState, parsed);
-                    Object.assign(window.PlayerData, parsed);
+                    window.userState = parsed;
+                    window.PlayerData = parsed;
                     return true;
                 }
             }
@@ -131,10 +129,14 @@ window.closeWelcomeModal = function() {
 
     function clearStaleLocalCache() {
         try {
-            const adKey = getStorageAdKey();
-            const cacheKey = getCacheKey();
-            localStorage.removeItem(adKey);
-            localStorage.removeItem(cacheKey);
+            const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id;
+            if (userId) {
+                localStorage.removeItem(`zn_farm_cache_${userId}`);
+                localStorage.removeItem(`zn_last_claim_ad_${userId}`);
+                localStorage.removeItem(`zn_welcome_seen_${userId}`);
+            }
+            localStorage.removeItem('zn_farm_cache_global');
+            localStorage.removeItem('zn_last_claim_ad_global');
         } catch (e) {
             console.error("خطأ مسح الـ Cache المحلي:", e);
         }
@@ -308,26 +310,25 @@ window.closeWelcomeModal = function() {
                     }
                 }
 
-                if (!window.PlayerData) window.PlayerData = {};
-                if (!window.userState) window.userState = {};
-
                 if (resData.player) {
                     const adKey = getStorageAdKey();
                     const isNewUser = resData.player.is_new_user === true || resData.player.welcome_seen === false;
 
-                    // إذا كان الحساب قد أُعيد إنشاؤه أو مستخدم جديد، امسح الكاش المحلي القديم فوراً
+                    // في حال كان المستخدم محذوفاً أو حديثاً، تفريغ الذاكرة المؤقتة بالكامل
                     if (isNewUser) {
                         clearStaleLocalCache();
                     }
 
+                    // إعادة تعيين كائنات البيانات من الصفر لتجنب بقاء الحقول القديمة
+                    window.userState = {};
+                    window.PlayerData = {};
+
                     Object.assign(window.PlayerData, resData.player);
                     Object.assign(window.userState, resData.player);
 
-                    // المزامنة الصارمة لتاريخ مشاهدة الإعلانات مع Firebase
                     if (resData.player.last_claim_ad_date) {
                         localStorage.setItem(adKey, resData.player.last_claim_ad_date);
                     } else {
-                        // في حال تم حذف الحساب من الفيربيس، سيأتي الحقل null ومباشرة يتيح المشاهدة مجدداً
                         window.userState.last_claim_ad_date = null;
                         window.PlayerData.last_claim_ad_date = null;
                         localStorage.removeItem(adKey);
@@ -845,8 +846,8 @@ window.closeWelcomeModal = function() {
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
 
-                if (!window.userState) window.userState = {};
-                if (!window.PlayerData) window.PlayerData = {};
+                window.userState = {};
+                window.PlayerData = {};
 
                 if (resData.player) {
                     Object.assign(window.PlayerData, resData.player);
@@ -913,7 +914,6 @@ window.closeWelcomeModal = function() {
             const todayStr = getTodayUTCStr();
             const adKey = getStorageAdKey();
 
-            // المعتمد الأول هو Firebase؛ إذا كانت القيمة null فتحظر القيمة المخزنة قدامياً في localstorage من الحظر
             const lastClaimAdDate = pData.last_claim_ad_date || null;
 
             if (lastClaimAdDate !== todayStr) {
