@@ -11,6 +11,7 @@ from farm.farm_db import (
     claim_daily_reward_db,
     claim_daily_boost_db,
     dismiss_welcome_db,
+    get_mining_leaderboard_db,
     parse_daily_rewards,
     DEFAULT_GAME_SETTINGS
 )
@@ -216,3 +217,22 @@ def claim_daily_boost():
         print(f"Error daily boost: {e}")
         traceback.print_exc()
         return jsonify({"success": False, "error": "حدث خطأ أثناء تفعيل التعزيز"}), 500
+
+
+@farm_bp.route('/leaderboard', methods=['GET', 'POST'])
+@farm_bp.route('/farm/leaderboard', methods=['GET', 'POST'])
+@farm_bp.route('/api/farm/leaderboard', methods=['GET', 'POST'])
+def get_leaderboard():
+    """جلب قائمة أفضل 10 متصدرين للتعدين"""
+    is_post = (request.method == 'POST')
+    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
+    if not success: 
+        return error_res
+        
+    try:
+        leaderboard = get_mining_leaderboard_db(limit=10)
+        return jsonify({"success": True, "leaderboard": leaderboard}), 200
+    except Exception as e:
+        print(f"Error getting leaderboard: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": "خطأ في جلب قائمة المتصدرين"}), 500
