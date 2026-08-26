@@ -1,5 +1,7 @@
 import os
 import sys
+import time
+import threading
 
 # ضمان إضافة المسار الرئيسي للمشروع لمنع أخطاء الاستيراد (ImportError)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -25,7 +27,6 @@ def is_admin_authorized(telegram_id):
     if not telegram_id:
         return False
     
-    # 👑 الأدمن الأساسي له صلاحية مطلقة دائمة
     if str(telegram_id).strip() == str(ADMIN_ID):
         return True
         
@@ -39,21 +40,18 @@ def is_admin_authorized(telegram_id):
 # تسجيل المسارات (Blueprints)
 # ==========================================
 
-# 1. Farm Blueprint
 try:
     from farm.farm_api import farm_bp
     app.register_blueprint(farm_bp, url_prefix='/api/farm')
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module farm: {e}")
 
-# 2. Settings Blueprint
 try:
     from settings.settings_api import settings_bp
     app.register_blueprint(settings_bp, url_prefix='/api/settings')
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module settings: {e}")
 
-# 3. Friends Blueprint
 try:
     try:
         from friends.friends_api import friends_bp
@@ -63,42 +61,36 @@ try:
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module friends: {e}")
 
-# 4. Games Blueprint
 try:
     from games.games_api import games_bp
     app.register_blueprint(games_bp, url_prefix='/api/games')
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module games: {e}")
 
-# 5. Tasks Blueprint
 try:
     from tasks.tasks_api import tasks_bp
     app.register_blueprint(tasks_bp, url_prefix='/api/tasks')
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module tasks: {e}")
 
-# 6. Shop Blueprint
 try:
     from shop.shop_api import shop_bp
     app.register_blueprint(shop_bp, url_prefix='/api/shop')
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module shop: {e}")
 
-# 7. Wallet Blueprint
 try:
     from wallet.wallet_api import wallet_bp
     app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module wallet: {e}")
 
-# 8. Support Blueprint
 try:
     from support.support_api import support_bp
     app.register_blueprint(support_bp, url_prefix='/api/support')
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module support: {e}")
 
-# 9. Admin Chat Blueprint
 try:
     try:
         from admin_chat.admin_chat_api import admin_chat_bp
@@ -108,14 +100,12 @@ try:
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module admin_chat: {e}")
 
-
 # ==========================================
-# مسارات إدارة لعبة شبكة ZN Go (Admin API Endpoints)
+# مسارات إدارة اللعبة والداشبورد
 # ==========================================
 
 @app.route('/api/verify_admin', methods=['POST'])
 def verify_admin_access():
-    """التحقق المباشر من هويّة الإدارة أو المشرفين"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -126,11 +116,9 @@ def verify_admin_access():
         
     return jsonify({"success": False, "error": "عذراً، البوت مخصص للإدارة فقط!"}), 403
 
-
 @app.route('/api/admin/zn-go-settings', methods=['GET', 'POST'])
 @app.route('/api/admin/settings/grid_36', methods=['GET', 'POST'])
 def admin_zn_go_settings():
-    """مسارات جلب وتحديث إعدادات لعبة شبكة ZN Go في Firestore"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success:
@@ -195,10 +183,8 @@ def admin_zn_go_settings():
             print(f"❌ Error updating ZN Go settings: {e}")
             return jsonify({"success": False, "error": f"حدث خطأ أثناء التحديث: {str(e)}"}), 500
 
-
 @app.route('/api/admin/settings/big_arena', methods=['GET', 'POST'])
 def admin_big_arena_settings():
-    """مسارات إدارة لعبة الساحة الكبرى"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success:
@@ -234,10 +220,8 @@ def admin_big_arena_settings():
             return jsonify({"success": True, "message": "تم حفظ إعدادات الساحة الكبرى بنجاح!"}), 200
         return jsonify({"success": False, "error": "حدث خطأ أثناء حفظ بيانات الساحة"}), 500
 
-
 @app.route('/api/admin/dashboard-stats', methods=['GET'])
 def admin_dashboard_stats():
-    """جلب إحصائيات الداشبورد العامة"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
     if not success:
         return error_res
@@ -248,11 +232,9 @@ def admin_dashboard_stats():
     res = database.get_admin_dashboard_stats()
     return jsonify(res), 200
 
-
 @app.route('/api/moderators', methods=['GET', 'POST'])
 @app.route('/api/moderators/<mod_id>', methods=['DELETE'])
 def admin_moderators_manager(mod_id=None):
-    """إدارة قائمة المشرفين والصلاحيات"""
     is_post = (request.method in ['POST', 'DELETE'])
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success:
@@ -281,7 +263,6 @@ def admin_moderators_manager(mod_id=None):
         return jsonify({"success": False, "error": "حدث خطأ أثناء إضافة المشرف"}), 500
 
     elif request.method == 'DELETE':
-        # حماية الأدمن الأساسي من الحذف
         if str(mod_id).strip() == str(ADMIN_ID):
             return jsonify({"success": False, "error": "لا يمكن حذف الأدمن الرئيسي للنظام!"}), 400
 
@@ -291,10 +272,8 @@ def admin_moderators_manager(mod_id=None):
             return jsonify({"success": True, "message": "تم حذف المشرف بنجاح"}), 200
         return jsonify({"success": False, "error": "حدث خطأ أثناء حذف المشرف"}), 500
 
-
 @app.route('/api/admin-logs', methods=['GET'])
 def admin_logs_handler():
-    """جلب سجل النشاطات الإدارية"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
     if not success:
         return error_res
@@ -305,46 +284,19 @@ def admin_logs_handler():
     logs = database.get_admin_logs(limit=50)
     return jsonify({"success": True, "logs": logs}), 200
 
-
 # ==========================================
-# مسارات للتكيف المباشر مع استدعاءات الجافاسكريبت
-# ==========================================
-
-@app.route('/api/game/start', methods=['POST'])
-@app.route('/api/game/step', methods=['POST'])
-@app.route('/api/game/cashout', methods=['POST'])
-def proxy_legacy_game_routes():
-    """توجيه استدعاءات الفرونت إند الكلاسيكية تلقائياً إلى blueprint الألعاب"""
-    try:
-        from games.games_api import start_boxes_game, pick_box, end_boxes_game
-        path = request.path
-        if path.endswith('/start'):
-            return start_boxes_game()
-        elif path.endswith('/step'):
-            return pick_box()
-        elif path.endswith('/cashout'):
-            return end_boxes_game()
-        return jsonify({"success": False, "message": "مسار غير معروف"}), 404
-    except Exception as e:
-        print(f"❌ Error in legacy game proxy: {e}")
-        return jsonify({"success": False, "message": "موديول الألعاب غير متاح حالياً"}), 503
-
-# ==========================================
-# المسارات المباشرة والخدمية
+# المسارات الخدمية وتوجيه الصفحات
 # ==========================================
 
 @app.route('/tonconnect-manifest.json')
 def serve_tonconnect_manifest():
-    """تقديم ملف البيانات الخاص بمحفظة TON Connect"""
     try:
         return send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
     except Exception as e:
-        print(f"❌ Manifest Error: {e}")
         return jsonify({"error": "Manifest file not found"}), 404
 
 @app.route('/api/user/info', methods=['GET', 'POST'])
 def get_user_info_main():
-    """جلب وتأكيد بيانات المستخدم والتحقق المباشر من حالة الحظر"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success:
@@ -352,32 +304,21 @@ def get_user_info_main():
         
     try:
         if database.is_user_banned(telegram_id):
-            return jsonify({
-                "success": False, 
-                "error": "حسابك معطل حالياً بسبب مخالفة الشروط",
-                "banned": True
-            }), 403
+            return jsonify({"success": False, "error": "حسابك معطل حالياً", "banned": True}), 403
 
         user_data = database.get_user(telegram_id)
         if not user_data:
             first_name = user_info.get('first_name', 'لاعب') if isinstance(user_info, dict) else 'لاعب'
             ref_id = user_info.get('start_param') if isinstance(user_info, dict) else None
-            
             database.init_user(telegram_id, ref_id=ref_id, first_name=first_name)
             user_data = database.get_user(telegram_id)
             
         return jsonify({"success": True, "user": user_data}), 200
     except Exception as e:
-        print(f"❌ Error fetching user info for {telegram_id}: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب بيانات الحساب"}), 500
-
-# ==========================================
-# الأمان والتحكم بالهيدرز والملفات الثابتة
-# ==========================================
 
 @app.after_request
 def add_security_headers(response):
-    """منع التخزين المؤقت (Cache) لمسارات الـ API"""
     if request.path.startswith('/api/'):
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
         response.headers['Pragma'] = 'no-cache'
@@ -386,51 +327,31 @@ def add_security_headers(response):
 
 @app.errorhandler(500)
 def handle_500_error(e):
-    return jsonify({"status": "error", "success": False, "error": "حدث خطأ داخلي في السيرفر", "message": "خطأ في الاتصال بالخادم."}), 500
+    return jsonify({"status": "error", "success": False, "error": "حدث خطأ داخلي في السيرفر"}), 500
 
 @app.errorhandler(404)
 def handle_404_error(e):
     if request.path.startswith('/api/'):
-        return jsonify({"status": "error", "success": False, "error": "المسار غير موجود", "message": "خطأ في الاتصال بالخادم."}), 404
-    
+        return jsonify({"status": "error", "success": False, "error": "المسار غير موجود"}), 404
     return send_from_directory('.', 'admin.html')
-
-# ==========================================
-# توجيه صفحات الواجهة (Webpages Routing)
-# ==========================================
 
 @app.route('/')
 @app.route('/admin')
 @app.route('/admin.html')
 def serve_admin():
-    """تقديم واجهة لوحة التحكم الإدارية دائماً"""
     return send_from_directory('.', 'admin.html')
 
 @app.route('/<path:path>')
 def serve_static(path):
-    """تقديم الملفات الثابتة مع حظر كامل للملفات الحساسة"""
     path_clean = path.strip('/').lower()
-    
     if path_clean in ['', 'admin', 'admin.html', 'index', 'index.html']:
         return send_from_directory('.', 'admin.html')
         
-    if path_clean == 'tonconnect-manifest.json':
-        return send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
-    
-    allowed_extensions = (
-        '.html', '.css', '.js', '.json', 
-        '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico',
-        '.woff', '.woff2', '.ttf', '.otf'
-    )
-    
+    allowed_extensions = ('.html', '.css', '.js', '.json', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.woff', '.woff2', '.ttf', '.otf')
     if not any(path_clean.endswith(ext) for ext in allowed_extensions):
         return jsonify({"error": "Access Denied"}), 403
         
-    forbidden_files = (
-        'firebase-adminsdk.json', 'config.json', 'credentials.json',
-        'package.json', 'package-lock.json', 'requirements.txt'
-    )
-    
+    forbidden_files = ('firebase-adminsdk.json', 'config.json', 'credentials.json', 'package.json', 'package-lock.json', 'requirements.txt')
     if any(f in path_clean for f in forbidden_files):
         return jsonify({"error": "Access Denied"}), 403
         
@@ -438,6 +359,83 @@ def serve_static(path):
         return send_from_directory('.', path)
     except Exception:
         return send_from_directory('.', 'admin.html')
+
+# ==========================================
+# 🤖 تشغيل البوت تلقائياً في الخلفية مع الخادم
+# ==========================================
+bot_instance = None
+
+def start_telegram_bot():
+    global bot_instance
+    try:
+        import telebot
+        from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+
+        BOT_TOKEN = os.environ.get("ADMIN_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
+        if not BOT_TOKEN:
+            print("⚠️ لم يتم العثور على ADMIN_BOT_TOKEN في متغيرات البيئة!")
+            return
+
+        ADMIN_WEBAPP_URL = WEB_URL if WEB_URL.endswith('/admin') else f"{WEB_URL}/admin"
+        bot = telebot.TeleBot(BOT_TOKEN)
+        bot_instance = bot
+
+        @bot.message_handler(commands=['start'])
+        def send_welcome(message):
+            try:
+                user_id = str(message.from_user.id).strip()
+                print(f"👑 [/start] Received from ID: {user_id}")
+                
+                if not is_admin_authorized(user_id):
+                    bot.reply_to(message, "⛔ عذراً، هذا البوت مخصص للإدارة والمشرفين المصرح لهم فقط.")
+                    return
+
+                markup = InlineKeyboardMarkup()
+                webapp = WebAppInfo(url=ADMIN_WEBAPP_URL)
+                btn = InlineKeyboardButton(text="💻 فتح لوحة التحكم", web_app=webapp)
+                markup.add(btn)
+
+                bot.send_message(
+                    message.chat.id,
+                    "👑 <b>أهلاً بك يا مدير!</b>\n\nتم التحقق من صلاحياتك بنجاح، اضغط الزر أدناه لفتح لوحة التحكم:",
+                    reply_markup=markup,
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                print(f"❌ Error handling /start: {e}")
+
+        @bot.message_handler(func=lambda message: True)
+        def handle_all_messages(message):
+            try:
+                user_id = str(message.from_user.id).strip()
+                if not is_admin_authorized(user_id):
+                    bot.reply_to(message, "⛔ عذراً، البوت مخصص للإدارة فقط.")
+                    return
+
+                markup = InlineKeyboardMarkup()
+                webapp = WebAppInfo(url=ADMIN_WEBAPP_URL)
+                btn = InlineKeyboardButton(text="💻 فتح لوحة التحكم", web_app=webapp)
+                markup.add(btn)
+
+                bot.reply_to(
+                    message, 
+                    "ℹ️ يرجى استخدام زر 'فتح لوحة التحكم' للإدارة:",
+                    reply_markup=markup,
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                print(f"❌ Error handling message: {e}")
+
+        print("🤖 بدء تشغيل خيط البوت وتصفية التحديثات القديمة...")
+        bot.remove_webhook(drop_pending_updates=True)
+        time.sleep(1)
+        bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)
+    except Exception as e:
+        print(f"⚠️ Bot Execution Error: {e}")
+
+# بدء تشغيل خيط البوت عند إقلاع السيرفر
+bot_thread = threading.Thread(target=start_telegram_bot, daemon=True)
+bot_thread.start()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
