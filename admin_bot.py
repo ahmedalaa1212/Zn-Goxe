@@ -44,7 +44,7 @@ def is_user_authorized(user_id):
         return False
     user_id_str = str(user_id).strip()
     
-    # 👑 1. الأدمن الرئيسي له سلطة مطلقة
+    # 👑 1. الأدمن الرئيسي له سلطة مطلقة مباشرة دون التعطل بقواعد البيانات
     if user_id_str == str(ADMIN_ID):
         return True
         
@@ -136,20 +136,24 @@ def handle_all_messages(message):
 def run_bot_worker():
     """تشغيل الاستماع لرسائل تلجرام في خلفية النظام"""
     print("🚀 [Bot Worker] جارٍ تشغيل بوت الأدمن المستقل وبدء الاستماع لـ Telegram...")
+    try:
+        bot.remove_webhook(drop_pending_updates=True)
+    except Exception as e:
+        print(f"⚠️ Warning removing webhook: {e}")
+        
     while True:
         try:
-            bot.remove_webhook(drop_pending_updates=True)
-            time.sleep(1)
             bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)
         except Exception as e:
             print(f"❌ Error in Telegram Bot Polling: {e}")
-            time.sleep(5)
+            time.sleep(3)
+
+# ==========================================
+# 3. تشغيل البوت تلقائياً عند تحميل السيرفر بأي طريقة
+# ==========================================
+bot_thread = threading.Thread(target=run_bot_worker, daemon=True)
+bot_thread.start()
 
 if __name__ == "__main__":
-    # 1. تشغيل البوت في Thread مستقل
-    bot_thread = threading.Thread(target=run_bot_worker, daemon=True)
-    bot_thread.start()
-
-    # 2. تشغيل خادم Flask لمنع السيرفر من الانتهاء (Completed) على Railway
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
