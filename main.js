@@ -63,7 +63,13 @@ function showAccessDenied(message) {
     const adminPanel = document.getElementById("adminPanel");
 
     if (screen) {
-        screen.innerHTML = `<h2 style="color: #ef4444; padding: 20px; text-align: center; font-family: sans-serif;">${message}</h2>`;
+        screen.innerHTML = `
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; background:#0d1117; color:#ef4444; font-family:sans-serif; text-align:center; padding:20px; direction:rtl;">
+                <h1 style="font-size:56px; margin-bottom:10px;">⛔</h1>
+                <h2 style="font-size:22px; color:#ef4444; margin-bottom:12px; font-weight:bold;">تم رفض الوصول!</h2>
+                <p style="color:#94a3b8; font-size:14px; max-width:380px; line-height:1.6;">${message}</p>
+            </div>
+        `;
         screen.style.display = "flex";
     }
     if (adminPanel) {
