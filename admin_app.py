@@ -1,7 +1,5 @@
 import os
 import sys
-import time
-import threading
 
 # ضمان إضافة المسار الرئيسي للمشروع لمنع أخطاء الاستيراد (ImportError)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -359,83 +357,6 @@ def serve_static(path):
         return send_from_directory('.', path)
     except Exception:
         return send_from_directory('.', 'admin.html')
-
-# ==========================================
-# 🤖 تشغيل البوت تلقائياً في الخلفية مع الخادم
-# ==========================================
-bot_instance = None
-
-def start_telegram_bot():
-    global bot_instance
-    try:
-        import telebot
-        from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-
-        BOT_TOKEN = os.environ.get("ADMIN_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
-        if not BOT_TOKEN:
-            print("⚠️ لم يتم العثور على ADMIN_BOT_TOKEN في متغيرات البيئة!")
-            return
-
-        ADMIN_WEBAPP_URL = WEB_URL if WEB_URL.endswith('/admin') else f"{WEB_URL}/admin"
-        bot = telebot.TeleBot(BOT_TOKEN)
-        bot_instance = bot
-
-        @bot.message_handler(commands=['start'])
-        def send_welcome(message):
-            try:
-                user_id = str(message.from_user.id).strip()
-                print(f"👑 [/start] Received from ID: {user_id}")
-                
-                if not is_admin_authorized(user_id):
-                    bot.reply_to(message, "⛔ عذراً، هذا البوت مخصص للإدارة والمشرفين المصرح لهم فقط.")
-                    return
-
-                markup = InlineKeyboardMarkup()
-                webapp = WebAppInfo(url=ADMIN_WEBAPP_URL)
-                btn = InlineKeyboardButton(text="💻 فتح لوحة التحكم", web_app=webapp)
-                markup.add(btn)
-
-                bot.send_message(
-                    message.chat.id,
-                    "👑 <b>أهلاً بك يا مدير!</b>\n\nتم التحقق من صلاحياتك بنجاح، اضغط الزر أدناه لفتح لوحة التحكم:",
-                    reply_markup=markup,
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                print(f"❌ Error handling /start: {e}")
-
-        @bot.message_handler(func=lambda message: True)
-        def handle_all_messages(message):
-            try:
-                user_id = str(message.from_user.id).strip()
-                if not is_admin_authorized(user_id):
-                    bot.reply_to(message, "⛔ عذراً، البوت مخصص للإدارة فقط.")
-                    return
-
-                markup = InlineKeyboardMarkup()
-                webapp = WebAppInfo(url=ADMIN_WEBAPP_URL)
-                btn = InlineKeyboardButton(text="💻 فتح لوحة التحكم", web_app=webapp)
-                markup.add(btn)
-
-                bot.reply_to(
-                    message, 
-                    "ℹ️ يرجى استخدام زر 'فتح لوحة التحكم' للإدارة:",
-                    reply_markup=markup,
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                print(f"❌ Error handling message: {e}")
-
-        print("🤖 بدء تشغيل خيط البوت وتصفية التحديثات القديمة...")
-        bot.remove_webhook(drop_pending_updates=True)
-        time.sleep(1)
-        bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)
-    except Exception as e:
-        print(f"⚠️ Bot Execution Error: {e}")
-
-# بدء تشغيل خيط البوت عند إقلاع السيرفر
-bot_thread = threading.Thread(target=start_telegram_bot, daemon=True)
-bot_thread.start()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
