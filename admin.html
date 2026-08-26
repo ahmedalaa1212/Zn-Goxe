@@ -66,55 +66,5 @@
     </div>
 
     <script src="main.js"></script>
-    
-    <!-- كود القفل الفوري والمباشر للحسابات المحذوفة -->
-    <script>
-        document.addEventListener('DOMContentLoaded', async () => {
-            const tg = window.Telegram?.WebApp;
-            if (tg) {
-                tg.ready();
-                tg.expand();
-            }
-
-            const initData = tg?.initData || '';
-            const accessDeniedEl = document.getElementById('accessDenied');
-            const adminPanelEl = document.getElementById('adminPanel');
-
-            try {
-                const response = await fetch('/api/verify_admin', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Telegram-Init-Data': initData
-                    },
-                    body: JSON.stringify({ initData: initData })
-                });
-
-                const data = await response.json();
-
-                if (response.ok && data.success) {
-                    if (accessDeniedEl) accessDeniedEl.style.display = 'none';
-                    if (adminPanelEl) adminPanelEl.style.display = 'block';
-                } else {
-                    // حظر قاطع لمن اتسحبت منه الصلاحيات
-                    document.body.innerHTML = `
-                        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; background:#0d1117; color:#ef4444; font-family:sans-serif; text-align:center; padding:20px; direction:rtl;">
-                            <h1 style="font-size:56px; margin-bottom:10px;">⛔</h1>
-                            <h2 style="font-size:22px; color:#ef4444; margin-bottom:12px; font-weight:bold;">تم رفض الوصول!</h2>
-                            <p style="color:#94a3b8; font-size:14px; max-width:380px; line-height:1.6;">عذراً، هذا الحساب غير مصرح له بدخول لوحة التحكم الإدارية. إذا كنت مشرفاً سابقاً فقد تم سحب صلاحياتك من قاعدة البيانات.</p>
-                        </div>
-                    `;
-                }
-            } catch (err) {
-                document.body.innerHTML = `
-                    <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; background:#0d1117; color:#ef4444; font-family:sans-serif; text-align:center; padding:20px; direction:rtl;">
-                        <h1 style="font-size:56px; margin-bottom:10px;">⚠️</h1>
-                        <h2 style="font-size:20px; color:#ef4444; margin-bottom:10px;">خطأ في التحقق الأمني</h2>
-                        <p style="color:#94a3b8; font-size:14px;">فشل الاتصال بالسيرفر للتحقق من هوية المشرف.</p>
-                    </div>
-                `;
-            }
-        });
-    </script>
 </body>
 </html>
