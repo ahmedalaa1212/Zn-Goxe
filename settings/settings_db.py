@@ -74,7 +74,7 @@ def get_user_settings_stats(uid: str) -> dict:
 def get_top_mining_leaderboard(limit: int = 10) -> list:
     """
     جلب أفضل 10 مستخدمين حصدوا أكبر قدر من نقاط التعدين فقط بصورة آمنة ومضمونة.
-    تستعلم حسب mined_points / mining_points مع دعم التراجع التلقائي لمنع إرجاع قائمة فارغة.
+    تستعلم حسب mined_points / total_mined / mining_points حصراً بدون الاعتماد على balance.
     """
     default_leaderboard = []
     try:
@@ -86,8 +86,8 @@ def get_top_mining_leaderboard(limit: int = 10) -> list:
         users_ref = db.collection('users')
         docs = []
 
-        # 1. محاولة الجلب حسب حقول نقاط التعدين المحتملة بترتيب تنازلي
-        order_fields = ['mined_points', 'mining_points', 'total_mined', 'mined_total', 'farm_mined', 'balance']
+        # 1. الاستعلام المباشر عن حقول التعدين فقط بترتيب تنازلي (تمت إزالة balance نهائياً)
+        order_fields = ['mined_points', 'total_mined', 'mining_points', 'mined_total', 'farm_mined']
         
         for field in order_fields:
             try:
@@ -98,7 +98,7 @@ def get_top_mining_leaderboard(limit: int = 10) -> list:
             except Exception as q_err:
                 logger.warning(f"Firestore order_by('{field}') query failed or unindexed: {q_err}")
 
-        # 2. إذا فشلت الاستعلامات المفهرسة، جلب قائمة مستخدمين بديلة ومسحها
+        # 2. خطة التراجع في حال عدم وجود الفهرس (Index)
         if not docs:
             try:
                 docs = list(users_ref.limit(100).get())
@@ -109,9 +109,9 @@ def get_top_mining_leaderboard(limit: int = 10) -> list:
         for doc in docs:
             data = doc.to_dict() or {}
             
-            # جلب نقاط التعدين مع فحص جميع الأسماء الممكنة للحقل (mined_points, mining_points, total_mined, إلخ)
+            # جلب نقاط التعدين المباشرة فقط (بدون قراءة balance)
             raw_mined = None
-            for key in ['mined_points', 'mining_points', 'total_mined', 'mined_total', 'farm_mined', 'balance']:
+            for key in ['mined_points', 'total_mined', 'mining_points', 'mined_total', 'farm_mined']:
                 if key in data and data[key] is not None:
                     raw_mined = data[key]
                     break
@@ -145,7 +145,7 @@ def get_top_mining_leaderboard(limit: int = 10) -> list:
                 "mined_points": round(mined_pts, 2)
             })
 
-        # إعادة الفرز في الذاكرة للضمان تنازلياً وإرجاع أول N متصدرين
+        # فرز القائمة ترتيباً تنازلياً وإرجاع أول N متصدرين
         leaderboard.sort(key=lambda x: x['mined_points'], reverse=True)
         return leaderboard[:limit]
 
@@ -207,7 +207,7 @@ def redeem_promo_code(uid: str, code_input: str) -> dict:
             'used_by': firestore.ArrayUnion([str(uid)])
         })
 
-        # 2. زيادة رصيد المستخدم بأمان
+        # 2. زيادة رصيد المستخدم بأمان (لا يؤثر على mined_points)
         transaction.update(user_ref_doc, {
             'balance': firestore.Increment(coins),
             'zn_balance': firestore.Increment(coins),
