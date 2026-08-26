@@ -442,6 +442,7 @@ window.closeWelcomeModal = function() {
 
         const boostBtn = document.getElementById('boost-btn');
         if (boostBtn) {
+            boostBtn.onclick = window.handleDailyBoost;
             const todayStr = getTodayUTCStr();
             const lastBoost = pData.last_boost_date;
             const currentDailyBoostRate = parseFloat(pData.daily_boost_rate || 0);
@@ -631,7 +632,7 @@ window.closeWelcomeModal = function() {
                         .then(() => resolve(true))
                         .catch((err) => {
                             console.warn("Adsgram error or not active, bypassing ad check:", err);
-                            resolve(true); // السماح للتجميع بالاستمرار عند وجود خطأ في الإعلان
+                            resolve(true); 
                         });
                 } catch (e) {
                     console.error("Adsgram exception:", e);
@@ -643,7 +644,7 @@ window.closeWelcomeModal = function() {
         });
     }
 
-    // دالة عرض إعلانات التليجرام الأخرى بالتخطي الآلي في حالة الخطأ
+    // دالة عرض إعلانات التليجرام مع تحويل تلقائي للبديل عند الخطأ
     function showTelegramAd() {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
@@ -651,13 +652,23 @@ window.closeWelcomeModal = function() {
                     window.show_11322720()
                         .then(() => resolve(true))
                         .catch((err) => {
-                            console.warn("Telegram ad error, bypassing:", err);
-                            resolve(true);
+                            console.warn("Telegram ad error, trying Adsgram fallback:", err);
+                            if (window.Adsgram && window.ADSGRAM_BLOCK_ID) {
+                                showAdsgramAd().then(resolve);
+                            } else {
+                                resolve(true);
+                            }
                         });
                 } catch (e) {
                     console.error("Telegram ad exception:", e);
-                    resolve(true);
+                    if (window.Adsgram && window.ADSGRAM_BLOCK_ID) {
+                        showAdsgramAd().then(resolve);
+                    } else {
+                        resolve(true);
+                    }
                 }
+            } else if (window.Adsgram && window.ADSGRAM_BLOCK_ID) {
+                showAdsgramAd().then(resolve);
             } else {
                 resolve(true);
             }
@@ -672,7 +683,7 @@ window.closeWelcomeModal = function() {
             let resData = await window.fetchAPI('/api/farm/upgrade_storage', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
-                setStoredBalance(resData.new_balance, resData.new_usd_balance);
+                setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
                 
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
@@ -730,14 +741,15 @@ window.closeWelcomeModal = function() {
             let resData = await window.fetchAPI('/api/farm/upgrade', 'POST', { level: level });
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
-                setStoredBalance(resData.new_balance, resData.new_usd_balance);
+                setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
                 
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
 
-                if (resData.new_hourly_rate !== undefined) {
-                    window.userState.hourly_rate = resData.new_hourly_rate;
-                    window.PlayerData.hourly_rate = resData.new_hourly_rate;
+                const newHourly = resData.new_hourly_rate ?? resData.hourly_rate ?? resData.rate;
+                if (newHourly !== undefined && newHourly !== null) {
+                    window.userState.hourly_rate = parseFloat(newHourly);
+                    window.PlayerData.hourly_rate = parseFloat(newHourly);
                 }
                 if (resData.upgrades) {
                     window.userState.upgrades = resData.upgrades;
@@ -780,7 +792,7 @@ window.closeWelcomeModal = function() {
             let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
-                setStoredBalance(resData.new_balance, resData.new_usd_balance);
+                setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
                 
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
@@ -821,37 +833,58 @@ window.closeWelcomeModal = function() {
             let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
-                setStoredBalance(resData.new_balance, resData.new_usd_balance);
 
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
 
-                if (resData.type === 'speed') {
-                    if (resData.new_rate !== undefined) {
-                        window.userState.hourly_rate = resData.new_rate;
-                        window.PlayerData.hourly_rate = resData.new_rate;
-                    }
-                    if (resData.daily_boost_rate !== undefined) {
-                        window.userState.daily_boost_rate = resData.daily_boost_rate;
-                        window.PlayerData.daily_boost_rate = resData.daily_boost_rate;
-                    }
-                    if (resData.last_claim_time) {
-                        window.userState.last_claim_time = resData.last_claim_time;
-                        window.PlayerData.last_claim_time = resData.last_claim_time;
-                    }
-                    if (resData.unclaimed !== undefined) {
-                        window.userState.unclaimed = resData.unclaimed;
-                        window.PlayerData.unclaimed = resData.unclaimed;
-                    }
-                    showToast(`⚡ تم زيادة سرعة التعدين بمقدار +${resData.boost_amount || GAME_CONFIG.dailyBoostReward}/h وحفظ المحصول المعدن!`);
-                } else if (resData.type === 'balance') {
-                    showToast(`💰 تهانينا! تمت إضافة ${resData.reward_coins || GAME_CONFIG.boostMaxRewardCoins} عملة ZN إلى رصيدك مباشرة!`);
+                // دمج بيانات اللاعب المباشرة إن كانت موجودة في الاستجابة
+                if (resData.player) {
+                    Object.assign(window.PlayerData, resData.player);
+                    Object.assign(window.userState, resData.player);
                 }
 
-                if (resData.last_boost_date) {
-                    window.userState.last_boost_date = resData.last_boost_date;
-                    window.PlayerData.last_boost_date = resData.last_boost_date;
+                // تحديث الرصيد بشكل مرن
+                const newBal = resData.new_balance ?? resData.balance ?? resData.player?.balance;
+                const newUsdBal = resData.new_usd_balance ?? resData.usd_balance ?? resData.player?.usd_balance;
+                setStoredBalance(newBal, newUsdBal);
+
+                // فحص وتحديث السرعة بمختلف تسميات الـ Backend
+                const newHourlyRate = resData.new_rate ?? resData.new_hourly_rate ?? resData.hourly_rate ?? resData.rate ?? resData.player?.hourly_rate;
+                if (newHourlyRate !== undefined && newHourlyRate !== null) {
+                    const rateVal = parseFloat(newHourlyRate);
+                    window.userState.hourly_rate = rateVal;
+                    window.PlayerData.hourly_rate = rateVal;
                 }
+
+                // فحص وتحديث معدل التزويد اليومي
+                const newBoostRate = resData.daily_boost_rate ?? resData.boost_rate ?? resData.player?.daily_boost_rate;
+                if (newBoostRate !== undefined && newBoostRate !== null) {
+                    const boostVal = parseFloat(newBoostRate);
+                    window.userState.daily_boost_rate = boostVal;
+                    window.PlayerData.daily_boost_rate = boostVal;
+                }
+
+                if (resData.last_claim_time) {
+                    window.userState.last_claim_time = resData.last_claim_time;
+                    window.PlayerData.last_claim_time = resData.last_claim_time;
+                }
+                if (resData.unclaimed !== undefined) {
+                    window.userState.unclaimed = resData.unclaimed;
+                    window.PlayerData.unclaimed = resData.unclaimed;
+                }
+
+                const boostDate = resData.last_boost_date ?? resData.boost_date ?? resData.player?.last_boost_date ?? getTodayUTCStr();
+                window.userState.last_boost_date = boostDate;
+                window.PlayerData.last_boost_date = boostDate;
+
+                // رسائل التنبيه للمستخدم حسب نوع التعزيز
+                if (resData.type === 'balance' || resData.reward_coins) {
+                    showToast(`💰 تهانينا! تمت إضافة ${resData.reward_coins || GAME_CONFIG.boostMaxRewardCoins} عملة ZN إلى رصيدك مباشرة!`);
+                } else {
+                    const amountStr = resData.boost_amount || GAME_CONFIG.dailyBoostReward;
+                    showToast(`⚡ تم زيادة سرعة التعدين بمقدار +${amountStr}/h وحفظ المحصول المعدن!`);
+                }
+
                 saveCachedData(window.userState);
                 window.updateFarmUI();
             } else {
@@ -886,7 +919,7 @@ window.closeWelcomeModal = function() {
             let resData = await window.fetchAPI('/api/farm/claim', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
-                setStoredBalance(resData.new_balance, resData.new_usd_balance);
+                setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
                 
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
