@@ -1,7 +1,6 @@
 import os
 import sys
 
-# ضمان إضافة المسار الرئيسي للمشروع لمنع أخطاء الاستيراد (ImportError)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
@@ -14,43 +13,47 @@ from core.security import get_authenticated_user
 
 app = Flask(__name__)
 
-# إعداد CORS للوصول إلى كافة مسارات API
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 WEB_URL = os.environ.get('WEB_URL', 'https://admin-zn-production.up.railway.app').strip().rstrip('/')
-ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551")
+ADMIN_ID = str(os.environ.get("ADMIN_ID", "5102387551")).strip()
 
 def is_admin_authorized(telegram_id):
-    """فحص موحد وهجين: يتحقق من الأيدي الرئيسي للأدمن أو من قائمة المشرفين في الفايربيس"""
+    """تحقق حاسم وصارم من صلاحية الأدمن الرئيسي أو المشرفين"""
     if not telegram_id:
-        return False
-    if str(telegram_id) == str(ADMIN_ID):
-        return True
+        return False, None
+    
+    tg_id_str = str(telegram_id).strip()
+    
+    # 1. الأدمن الأساسي (صاحب المشروع)
+    if tg_id_str == ADMIN_ID:
+        return True, "super_admin"
+        
+    # 2. المشرفون المضافون في قاعدة البيانات
     try:
-        return database.is_admin_or_mod(telegram_id)
+        if database.is_admin_or_mod(tg_id_str):
+            return True, "moderator"
     except Exception as e:
         print(f"⚠️ Error checking admin status: {e}")
-        return False
+        
+    return False, None
 
 # ==========================================
-# تسجيل المسارات (Blueprints) مع حماية ضد أخطاء الاستيراد
+# تسجيل المسارات (Blueprints)
 # ==========================================
 
-# 1. Farm Blueprint
 try:
     from farm.farm_api import farm_bp
     app.register_blueprint(farm_bp, url_prefix='/api/farm')
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module farm: {e}")
 
-# 2. Settings Blueprint
 try:
     from settings.settings_api import settings_bp
     app.register_blueprint(settings_bp, url_prefix='/api/settings')
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module settings: {e}")
 
-# 3. Friends Blueprint
 try:
     try:
         from friends.friends_api import friends_bp
@@ -60,42 +63,36 @@ try:
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module friends: {e}")
 
-# 4. Games Blueprint
 try:
     from games.games_api import games_bp
     app.register_blueprint(games_bp, url_prefix='/api/games')
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module games: {e}")
 
-# 5. Tasks Blueprint
 try:
     from tasks.tasks_api import tasks_bp
     app.register_blueprint(tasks_bp, url_prefix='/api/tasks')
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module tasks: {e}")
 
-# 6. Shop Blueprint
 try:
     from shop.shop_api import shop_bp
     app.register_blueprint(shop_bp, url_prefix='/api/shop')
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module shop: {e}")
 
-# 7. Wallet Blueprint
 try:
     from wallet.wallet_api import wallet_bp
     app.register_blueprint(wallet_bp, url_prefix='/api/wallet')
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module wallet: {e}")
 
-# 8. Support Blueprint
 try:
     from support.support_api import support_bp
     app.register_blueprint(support_bp, url_prefix='/api/support')
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module support: {e}")
 
-# 9. Admin Chat Blueprint
 try:
     try:
         from admin_chat.admin_chat_api import admin_chat_bp
@@ -107,31 +104,39 @@ except Exception as e:
 
 
 # ==========================================
-# مسارات إدارة لعبة شبكة ZN Go (Admin API Endpoints)
+# مسارات إدارة اللعبة (Admin API Endpoints)
 # ==========================================
 
 @app.route('/api/verify_admin', methods=['POST'])
 def verify_admin_access():
-    """التحقق المباشر من هويّة الإدارة أو المشرفين"""
+    """التحقق المباشر من هويّة الأدمن أو المشرف مع إرجاع الرتبة"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
 
-    if is_admin_authorized(telegram_id):
-        return jsonify({"success": True, "message": "تم التحقق بنجاح"}), 200
-    return jsonify({"success": False, "error": "عذراً، البوت مخصص للإدارة فقط!"}), 403
+    authorized, role = is_admin_authorized(telegram_id)
+    if authorized:
+        role_title = "المدير العام (Super Admin)" if role == "super_admin" else "مشرف"
+        return jsonify({
+            "success": True, 
+            "message": "تم التحقق بنجاح",
+            "role": role_title,
+            "is_super_admin": (role == "super_admin")
+        }), 200
+        
+    return jsonify({"success": False, "error": "عذراً، البوت مخصص للإدارة والمشرفين المصرح لهم فقط!"}), 403
 
 
 @app.route('/api/admin/zn-go-settings', methods=['GET', 'POST'])
 @app.route('/api/admin/settings/grid_36', methods=['GET', 'POST'])
 def admin_zn_go_settings():
-    """مسارات جلب وتحديث إعدادات لعبة شبكة ZN Go في Firestore"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success:
         return error_res
 
-    if not is_admin_authorized(telegram_id):
+    authorized, _ = is_admin_authorized(telegram_id)
+    if not authorized:
         return jsonify({"success": False, "error": "غير مصرح لك للوصول للإدارة"}), 403
 
     if request.method == 'GET':
@@ -193,13 +198,13 @@ def admin_zn_go_settings():
 
 @app.route('/api/admin/settings/big_arena', methods=['GET', 'POST'])
 def admin_big_arena_settings():
-    """مسارات إدارة لعبة الساحة الكبرى"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success:
         return error_res
 
-    if not is_admin_authorized(telegram_id):
+    authorized, _ = is_admin_authorized(telegram_id)
+    if not authorized:
         return jsonify({"success": False, "error": "غير مصرح لك للوصول للإدارة"}), 403
 
     if request.method == 'GET':
@@ -232,12 +237,12 @@ def admin_big_arena_settings():
 
 @app.route('/api/admin/dashboard-stats', methods=['GET'])
 def admin_dashboard_stats():
-    """جلب إحصائيات الداشبورد العامة"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
     if not success:
         return error_res
 
-    if not is_admin_authorized(telegram_id):
+    authorized, _ = is_admin_authorized(telegram_id)
+    if not authorized:
         return jsonify({"success": False, "error": "غير مصرح لك للوصول للإدارة"}), 403
 
     res = database.get_admin_dashboard_stats()
@@ -247,25 +252,30 @@ def admin_dashboard_stats():
 @app.route('/api/moderators', methods=['GET', 'POST'])
 @app.route('/api/moderators/<mod_id>', methods=['DELETE'])
 def admin_moderators_manager(mod_id=None):
-    """إدارة قائمة المشرفين والصلاحيات"""
+    """إدارة قائمة المشرفين (خاصة بالأدمن الأساسي فقط)"""
     is_post = (request.method in ['POST', 'DELETE'])
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success:
         return error_res
 
-    if not is_admin_authorized(telegram_id):
+    authorized, role = is_admin_authorized(telegram_id)
+    if not authorized:
         return jsonify({"success": False, "error": "غير مصرح لك للوصول للإدارة"}), 403
 
     if request.method == 'GET':
         mods = database.get_moderators()
-        return jsonify({"success": True, "moderators": mods}), 200
+        return jsonify({"success": True, "moderators": mods, "is_super_admin": (role == "super_admin")}), 200
 
     elif request.method == 'POST':
+        # ترقية المشرفين محصورة في المدير الأساسي فقط
+        if role != "super_admin":
+            return jsonify({"success": False, "error": "عذراً، إضافة المشرفين وترقيتهم حصرية للمدير العام فقط!"}), 403
+
         data = request.get_json() or {}
         m_id = data.get("id")
         m_name = data.get("name")
         perms = data.get("permissions", {})
-        added_by = data.get("addedBy", "المدير العام")
+        added_by = user_info.get("first_name", "المدير العام") if isinstance(user_info, dict) else "المدير العام"
 
         if not m_id or not m_name:
             return jsonify({"success": False, "error": "بيانات المشرف ناقصة"}), 400
@@ -276,7 +286,10 @@ def admin_moderators_manager(mod_id=None):
         return jsonify({"success": False, "error": "حدث خطأ أثناء إضافة المشرف"}), 500
 
     elif request.method == 'DELETE':
-        deleted_by = request.args.get("deletedBy", "المدير العام")
+        if role != "super_admin":
+            return jsonify({"success": False, "error": "عذراً، حذف المشرفين حصري للمدير العام فقط!"}), 403
+
+        deleted_by = user_info.get("first_name", "المدير العام") if isinstance(user_info, dict) else "المدير العام"
         ok = database.delete_moderator(mod_id, deleted_by)
         if ok:
             return jsonify({"success": True, "message": "تم حذف المشرف بنجاح"}), 200
@@ -285,27 +298,22 @@ def admin_moderators_manager(mod_id=None):
 
 @app.route('/api/admin-logs', methods=['GET'])
 def admin_logs_handler():
-    """جلب سجل النشاطات الإدارية"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
     if not success:
         return error_res
 
-    if not is_admin_authorized(telegram_id):
+    authorized, _ = is_admin_authorized(telegram_id)
+    if not authorized:
         return jsonify({"success": False, "error": "غير مصرح لك للوصول للإدارة"}), 403
 
     logs = database.get_admin_logs(limit=50)
     return jsonify({"success": True, "logs": logs}), 200
 
 
-# ==========================================
-# مسارات للتكيف المباشر مع استدعاءات الجافاسكريبت
-# ==========================================
-
 @app.route('/api/game/start', methods=['POST'])
 @app.route('/api/game/step', methods=['POST'])
 @app.route('/api/game/cashout', methods=['POST'])
 def proxy_legacy_game_routes():
-    """توجيه استدعاءات الفرونت إند الكلاسيكية تلقائياً إلى blueprint الألعاب"""
     try:
         from games.games_api import start_boxes_game, pick_box, end_boxes_game
         path = request.path
@@ -320,13 +328,9 @@ def proxy_legacy_game_routes():
         print(f"❌ Error in legacy game proxy: {e}")
         return jsonify({"success": False, "message": "موديول الألعاب غير متاح حالياً"}), 503
 
-# ==========================================
-# المسارات المباشرة والخدمية
-# ==========================================
 
 @app.route('/tonconnect-manifest.json')
 def serve_tonconnect_manifest():
-    """تقديم ملف البيانات الخاص بمحفظة TON Connect"""
     try:
         return send_from_directory('.', 'tonconnect-manifest.json', mimetype='application/json')
     except Exception as e:
@@ -335,7 +339,6 @@ def serve_tonconnect_manifest():
 
 @app.route('/api/user/info', methods=['GET', 'POST'])
 def get_user_info_main():
-    """جلب وتأكيد بيانات المستخدم والتحقق المباشر من حالة الحظر"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success:
@@ -362,13 +365,9 @@ def get_user_info_main():
         print(f"❌ Error fetching user info for {telegram_id}: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب بيانات الحساب"}), 500
 
-# ==========================================
-# الأمان والتحكم بالهيدرز والملفات الثابتة
-# ==========================================
 
 @app.after_request
 def add_security_headers(response):
-    """منع التخزين المؤقت (Cache) لمسارات الـ API"""
     if request.path.startswith('/api/'):
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
         response.headers['Pragma'] = 'no-cache'
@@ -386,20 +385,14 @@ def handle_404_error(e):
     
     return send_from_directory('.', 'admin.html')
 
-# ==========================================
-# توجيه صفحات الواجهة (Webpages Routing)
-# ==========================================
-
 @app.route('/')
 @app.route('/admin')
 @app.route('/admin.html')
 def serve_admin():
-    """تقديم واجهة لوحة التحكم الإدارية دائماً"""
     return send_from_directory('.', 'admin.html')
 
 @app.route('/<path:path>')
 def serve_static(path):
-    """تقديم الملفات الثابتة مع حظر كامل للملفات الحساسة"""
     path_clean = path.strip('/').lower()
     
     if path_clean in ['', 'admin', 'admin.html', 'index', 'index.html']:
@@ -431,5 +424,5 @@ def serve_static(path):
         return send_from_directory('.', 'admin.html')
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
