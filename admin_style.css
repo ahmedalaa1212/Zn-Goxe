@@ -1,132 +1,349 @@
-// ==========================================
-// 🛡️ نظام الحماية المتقدم للوحة التحكم
-// ==========================================
-const tg = window.Telegram?.WebApp;
-
-function getInitData() {
-    return tg?.initData || window.Telegram?.WebApp?.initData || "";
+/* =========================================
+   إعدادات عامة ومتغيرات الألوان
+========================================= */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
 }
 
-document.addEventListener("DOMContentLoaded", async () => {
-    if (tg) {
-        tg.ready();
-        tg.expand();
-    }
-
-    const initData = getInitData();
-
-    if (!initData) {
-        showAccessDenied("⛔ تنبيه أمني: لا يمكنك فتح هذه اللوحة من المتصفح مباشرة! يجب فتحها من داخل بوت الأدمن.");
-        return;
-    }
-
-    try {
-        const response = await fetch('/api/verify_admin', {
-            method: 'POST',
-            headers: {
-                'X-Telegram-Init-Data': initData,
-                'Authorization': `Bearer ${initData}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ initData: initData })
-        });
-
-        const data = await response.json();
-
-        if (response.ok && data.success) {
-            const accessDeniedEl = document.getElementById("accessDenied");
-            const adminPanelEl = document.getElementById("adminPanel");
-
-            if (accessDeniedEl) accessDeniedEl.style.display = "none";
-            if (adminPanelEl) adminPanelEl.style.display = "flex";
-
-            const user = tg?.initDataUnsafe?.user;
-            const welcomeTitle = document.getElementById("welcomeTitle");
-            if (welcomeTitle && user) {
-                welcomeTitle.innerText = `مرحباً بك يا ${user.first_name || ''} 👋 (${data.role || 'مدير'})`;
-            }
-        } else {
-            showAccessDenied(`⛔ وصول محظور: ${data.error || data.message || "ليس لديك صلاحية لوحة التحكم"}`);
-        }
-    } catch (error) {
-        console.error("خطأ أثناء التحقق من هويّة المدير:", error);
-        showAccessDenied("❌ خطأ في الاتصال بالسيرفر، تعذر التحقق من الهوية.");
-    }
-});
-
-function showAccessDenied(message) {
-    const screen = document.getElementById("accessDenied");
-    const adminPanel = document.getElementById("adminPanel");
-
-    if (screen) {
-        screen.innerHTML = `
-            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; color:#ef4444; font-family:sans-serif; text-align:center; padding:20px; direction:rtl;">
-                <h1 style="font-size:56px; margin-bottom:10px;">⛔</h1>
-                <h2 style="font-size:22px; color:#ef4444; margin-bottom:12px; font-weight:bold;">تم رفض الوصول!</h2>
-                <p style="color:#94a3b8; font-size:14px; max-width:380px; line-height:1.6;">${message}</p>
-            </div>
-        `;
-        screen.style.display = "flex";
-    }
-    if (adminPanel) {
-        adminPanel.style.display = "none";
-    }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background-color: #0f1117;
+    color: #e2e8f0;
+    direction: rtl;
+    overflow-x: hidden;
 }
 
-// ==========================================
-// 🔄 دالة تحميل الأقسام
-// ==========================================
-async function loadSection(sectionName, btnElement) {
-    if (btnElement) {
-        document.querySelectorAll('.sidebar button').forEach(btn => btn.classList.remove('active'));
-        btnElement.classList.add('active');
-    }
-
-    const contentArea = document.getElementById("contentArea");
-    if (!contentArea) return;
-
-    contentArea.innerHTML = `
-        <div class="content-card animate-fade-in" style="text-align: center; padding: 40px;">
-            <h3 style="color: #f59e0b;">⏳ جاري تحميل قسم (${sectionName})...</h3>
-        </div>
-    `;
-
-    try {
-        const response = await fetch(`/${sectionName}/${sectionName}.html`);
-        if (!response.ok) throw new Error("تعذر جلب الواجهة");
-        
-        const htmlContent = await response.text();
-        contentArea.innerHTML = htmlContent;
-
-        loadSectionScript(sectionName);
-    } catch (error) {
-        contentArea.innerHTML = `
-            <div class="content-card animate-fade-in" style="text-align: center; border-color: #ef4444;">
-                <h3 style="color: #ef4444;">❌ قسم تحت الإنشاء أو غير موجود</h3>
-                <p style="color: #94a3b8; font-size: 13px; margin-top: 8px;">تأكد من وجود المجلد (${sectionName}) وبداخله الملفات المطلوبة.</p>
-            </div>
-        `;
-    }
+/* =========================================
+   شاشة الحماية
+========================================= */
+.security-screen {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background-color: #0f1117;
+    color: #ef4444;
+    text-align: center;
+    padding: 20px;
+    font-weight: bold;
 }
 
-function loadSectionScript(sectionName) {
-    const scriptId = `script_${sectionName}`;
-    const oldScript = document.getElementById(scriptId);
-    if (oldScript) oldScript.remove();
-
-    const script = document.createElement("script");
-    script.id = scriptId;
-    script.src = `/${sectionName}/${sectionName}.js?v=${new Date().getTime()}`;
-    
-    script.onload = () => {
-        if (sectionName === 'super_admin' && typeof window.initSuperAdmin === 'function') {
-            window.initSuperAdmin();
-        }
-    };
-
-    document.body.appendChild(script);
+/* =========================================
+   الحاوية الرئيسية
+========================================= */
+.dashboard-container {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    width: 100vw;
 }
 
-function loadSuperAdminSection(btnElement) {
-    loadSection('super_admin', btnElement);
+/* =========================================
+   القائمة السفلية (Bottom Nav)
+========================================= */
+.sidebar {
+    width: 100%;
+    height: 70px;
+    background-color: #161922;
+    border-top: 1px solid #232733;
+    display: flex;
+    flex-direction: row;
+    padding: 6px 8px;
+    gap: 6px;
+    overflow-x: auto;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    z-index: 1000;
+    align-items: center;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.sidebar .logo {
+    display: none;
+}
+
+.sidebar button {
+    background-color: #1f2330;
+    color: #94a3b8;
+    border: 1px solid #2d3345;
+    padding: 6px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 80px;
+    flex: 0 0 auto;
+    height: 100%;
+}
+
+.sidebar button .icon {
+    font-size: 18px;
+}
+
+.sidebar button:active {
+    transform: scale(0.95);
+}
+
+.sidebar button.active {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: #000000;
+    border-color: #fbbf24;
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25);
+    font-weight: 700;
+}
+
+/* =========================================
+   مساحة العرض الرئيسية
+========================================= */
+.main-content {
+    flex: 1;
+    padding: 14px;
+    padding-bottom: 85px;
+    background-color: #0f1117;
+    overflow-y: auto;
+}
+
+.content-card {
+    background-color: #161922;
+    border: 1px solid #232733;
+    border-radius: 16px;
+    padding: 16px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    margin-bottom: 16px;
+}
+
+/* =========================================
+   عناصر البحث والأزرار في قسم بيانات المستخدمين
+========================================= */
+.search-box-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.search-input {
+    width: 100%;
+    padding: 12px 16px;
+    background-color: #0f1117;
+    border: 1px solid #2d3345;
+    border-radius: 10px;
+    color: #ffffff;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.search-input:focus {
+    border-color: #f59e0b;
+}
+
+.btn-refresh {
+    width: 100%;
+    padding: 12px;
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: #000;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.btn-refresh:active {
+    transform: scale(0.98);
+}
+
+/* =========================================
+   جدول المستخدمين المطور للموبايل
+========================================= */
+.table-responsive {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.users-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+    font-size: 13px;
+    text-align: center;
+}
+
+.users-table th {
+    background-color: #1f2330;
+    color: #f59e0b;
+    padding: 10px;
+    border-bottom: 1px solid #2d3345;
+    white-space: nowrap;
+}
+
+.users-table td {
+    padding: 12px 8px;
+    border-bottom: 1px solid #232733;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.badge-balance {
+    background-color: #1f2d24;
+    color: #10b981;
+    border: 1px solid #059669;
+    padding: 4px 8px;
+    border-radius: 8px;
+    font-weight: bold;
+    font-size: 12px;
+}
+
+/* أزرار الإجراءات (إضافة / خصم / حظر) */
+.action-buttons {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+}
+
+.btn-action {
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: none;
+    font-size: 11px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: transform 0.1s ease;
+}
+
+.btn-action:active {
+    transform: scale(0.92);
+}
+
+.btn-add {
+    background-color: #10b981;
+    color: #fff;
+}
+
+.btn-deduct {
+    background-color: #ef4444;
+    color: #fff;
+}
+
+.btn-ban {
+    background-color: #6b7280;
+    color: #fff;
+}
+
+.btn-unban {
+    background-color: #3b82f6;
+    color: #fff;
+}
+
+/* =========================================
+   النافذة المنبثقة (Modal) لتعديل الرصيد
+========================================= */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.75);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+    padding: 20px;
+}
+
+.modal-content {
+    background-color: #161922;
+    border: 1px solid #232733;
+    border-radius: 16px;
+    padding: 20px;
+    width: 100%;
+    max-width: 360px;
+    text-align: center;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.modal-title {
+    font-size: 16px;
+    font-weight: bold;
+    color: #f59e0b;
+    margin-bottom: 8px;
+}
+
+.modal-subtitle {
+    font-size: 12px;
+    color: #94a3b8;
+    margin-bottom: 16px;
+}
+
+.modal-input {
+    width: 100%;
+    padding: 12px;
+    background-color: #0f1117;
+    border: 1px solid #2d3345;
+    border-radius: 10px;
+    color: #fff;
+    font-size: 15px;
+    text-align: center;
+    margin-bottom: 16px;
+    outline: none;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.btn-modal-submit {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.btn-modal-cancel {
+    flex: 1;
+    padding: 10px;
+    background-color: #2d3345;
+    color: #94a3b8;
+    border: none;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+/* حركات الدخول */
+.animate-fade-in {
+    animation: fadeIn 0.3s ease-in-out forwards;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+::-webkit-scrollbar {
+    width: 3px;
+    height: 3px;
+}
+::-webkit-scrollbar-thumb {
+    background: #2d3345;
+    border-radius: 10px;
 }
