@@ -71,6 +71,7 @@ def create_default_user_data_dict(user_id_str, game_settings, now_dt):
         "balance": 0.0000,
         "usd_balance": 0.00,
         "total_mined": 0.0000,
+        "mined_points": 0.0000,
         "hourly_rate": base_free_rate,
         "daily_boost_rate": 0.00,
         "unclaimed": 0.0000,
@@ -221,8 +222,10 @@ def get_or_create_user_farm_data(user_id_str):
             auto_fix["is_new_user"] = not has_progress
 
         if "usd_balance" not in user_data: auto_fix["usd_balance"] = 0.00
+        if "mined_points" not in user_data:
+            auto_fix["mined_points"] = float(user_data.get("mined_points", user_data.get("total_mined", 0.0)))
         if "total_mined" not in user_data:
-            auto_fix["total_mined"] = float(user_data.get("balance", 0.0))
+            auto_fix["total_mined"] = float(user_data.get("mined_points", 0.0))
         if "hourly_rate" not in user_data or float(user_data.get("hourly_rate", 0)) == 0.0:
             auto_fix["hourly_rate"] = base_free_rate
         if "daily_boost_rate" not in user_data: auto_fix["daily_boost_rate"] = 0.00
@@ -249,7 +252,8 @@ def get_or_create_user_farm_data(user_id_str):
     user_data["max_cap"] = expected_max_cap
     user_data["balance"] = round(float(user_data.get("balance", 0.0)), 4)
     user_data["usd_balance"] = round(float(user_data.get("usd_balance", 0.0)), 6)
-    user_data["total_mined"] = round(float(user_data.get("total_mined", user_data.get("balance", 0.0))), 4)
+    user_data["mined_points"] = round(float(user_data.get("mined_points", user_data.get("total_mined", 0.0))), 4)
+    user_data["total_mined"] = user_data["mined_points"]
     user_data["unclaimed"] = calculate_accrued_mined(user_data, now, expected_max_cap)
     
     # تحديد صارم لخاصية welcome_seen و is_new_user
@@ -316,15 +320,16 @@ def claim_mined_tokens_db(user_id_str):
 
         current_balance = float(user_data.get("balance", 0.0))
         current_usd_balance = float(user_data.get("usd_balance", 0.0))
-        current_total_mined = float(user_data.get("total_mined", current_balance))
+        current_mined_points = float(user_data.get("mined_points", user_data.get("total_mined", 0.0)))
 
         new_balance = round(current_balance + mined_amount, 4)
-        new_total_mined = round(current_total_mined + mined_amount, 4)
+        new_mined_points = round(current_mined_points + mined_amount, 4)
         now_iso = now.isoformat()
 
         transaction.update(ref, {
             "balance": new_balance,
-            "total_mined": new_total_mined,
+            "mined_points": new_mined_points,
+            "total_mined": new_mined_points,
             "last_claim_time": now_iso,
             "last_claim_ad_date": today_utc_str
         })
@@ -337,7 +342,8 @@ def claim_mined_tokens_db(user_id_str):
             "success": True,
             "new_balance": new_balance,
             "new_usd_balance": current_usd_balance,
-            "total_mined": new_total_mined,
+            "total_mined": new_mined_points,
+            "mined_points": new_mined_points,
             "last_claim_time": now_iso,
             "last_claim_ad_date": today_utc_str,
             "unclaimed": 0.0,
@@ -735,50 +741,59 @@ def claim_daily_boost_db(user_id_str):
 
 
 def get_mining_leaderboard_db(limit=10):
-    """جلب قائمة المتصدرين لأفضل 10 معدنين مرتبين تنازلياً حسب النقاط المجمعة"""
+    """جلب قائمة المتصدرين لأفضل 10 معدنين مرتبين تنازلياً حسب نقاط التعدين الفعلي فقط"""
     db = get_db()
     users_ref = db.collection('users')
     
-    try:
-        query = users_ref.order_by('total_mined', direction=firestore.Query.DESCENDING).limit(limit)
-        docs = query.stream()
-        leaderboard = []
-        rank = 1
-        for doc in docs:
-            data = doc.to_dict() or {}
-            name = data.get("first_name") or data.get("name") or data.get("username") or f"المستخدم {str(doc.id)[:4]}"
-            total_m = float(data.get("total_mined", data.get("balance", 0.0)))
-            leaderboard.append({
-                "rank": rank,
-                "tg_id": str(doc.id),
-                "name": name,
-                "total_mined": round(total_m, 4),
-                "balance": round(float(data.get("balance", 0.0)), 4),
-                "hourly_rate": round(float(data.get("hourly_rate", 0.05)), 2)
-            })
-            rank += 1
-        return leaderboard
-    except Exception as e:
-        print(f"⚠️ Warning total_mined query fallback to balance: {e}")
+    order_fields = ['mined_points', 'total_mined', 'mining_points']
+    docs = []
+
+    for field in order_fields:
         try:
-            query = users_ref.order_by('balance', direction=firestore.Query.DESCENDING).limit(limit)
-            docs = query.stream()
-            leaderboard = []
-            rank = 1
-            for doc in docs:
-                data = doc.to_dict() or {}
-                name = data.get("first_name") or data.get("name") or data.get("username") or f"المستخدم {str(doc.id)[:4]}"
-                bal = float(data.get("balance", 0.0))
-                leaderboard.append({
-                    "rank": rank,
-                    "tg_id": str(doc.id),
-                    "name": name,
-                    "total_mined": round(float(data.get("total_mined", bal)), 4),
-                    "balance": round(bal, 4),
-                    "hourly_rate": round(float(data.get("hourly_rate", 0.05)), 2)
-                })
-                rank += 1
-            return leaderboard
+            query = users_ref.order_by(field, direction=firestore.Query.DESCENDING).limit(limit)
+            docs = list(query.stream())
+            if docs:
+                break
+        except Exception as e:
+            print(f"⚠️ Warning {field} query failed: {e}")
+
+    if not docs:
+        try:
+            docs = list(users_ref.limit(100).stream())
         except Exception as inner_e:
-            print(f"❌ Error getting leaderboard: {inner_e}")
+            print(f"❌ Error getting leaderboard docs: {inner_e}")
             return []
+
+    leaderboard = []
+    for doc in docs:
+        data = doc.to_dict() or {}
+        name = data.get("first_name") or data.get("name") or data.get("username") or f"المستخدم {str(doc.id)[:4]}"
+        
+        # قراءة نقاط التعدين فقط دون الاستعانة بالرصيد العادي balance
+        mined_val = data.get("mined_points")
+        if mined_val is None:
+            mined_val = data.get("total_mined", 0.0)
+
+        try:
+            total_m = float(mined_val)
+        except (ValueError, TypeError):
+            total_m = 0.0
+
+        leaderboard.append({
+            "tg_id": str(doc.id),
+            "name": name,
+            "total_mined": round(total_m, 4),
+            "mined_points": round(total_m, 4),
+            "balance": round(float(data.get("balance", 0.0)), 4),
+            "hourly_rate": round(float(data.get("hourly_rate", 0.05)), 2)
+        })
+
+    leaderboard.sort(key=lambda x: x['mined_points'], reverse=True)
+    
+    # إضافة الترتيب
+    final_lb = []
+    for rank, item in enumerate(leaderboard[:limit], start=1):
+        item["rank"] = rank
+        final_lb.append(item)
+
+    return final_lb
