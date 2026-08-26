@@ -1,5 +1,8 @@
 import os
 import sys
+import time
+import threading
+import requests
 
 # ضمان إضافة المسار الرئيسي للمشروع لمنع أخطاء الاستيراد (ImportError)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -12,27 +15,139 @@ from flask_cors import CORS
 import database
 from core.security import get_authenticated_user
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='.', static_url_path='')
 
 # إعداد CORS للوصول إلى كافة مسارات API
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 WEB_URL = os.environ.get('WEB_URL', 'https://admin-zn-production.up.railway.app').strip().rstrip('/')
 ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551").strip()
+BOT_TOKEN = os.environ.get("ADMIN_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
 
 def is_admin_authorized(telegram_id):
     """فحص موحد: الأدمن الرئيسي له السلطة المطلقة دائماً"""
     if not telegram_id:
         return False
     
-    if str(telegram_id).strip() == str(ADMIN_ID):
+    user_id_str = str(telegram_id).strip()
+    if user_id_str == str(ADMIN_ID):
         return True
         
     try:
-        return database.is_admin_or_mod(str(telegram_id).strip())
+        return database.is_admin_or_mod(user_id_str)
     except Exception as e:
         print(f"⚠️ Error checking admin status: {e}")
         return False
+
+# ==========================================
+# 🤖 تشغيل بوت الأدمن في الخلفية داخل نفس التطبيق
+# ==========================================
+if BOT_TOKEN:
+    import telebot
+    from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+
+    bot = telebot.TeleBot(BOT_TOKEN)
+
+    @bot.message_handler(commands=['start'])
+    def send_welcome(message):
+        try:
+            user_id = message.from_user.id
+            first_name = message.from_user.first_name or "المستخدم"
+            user_id_str = str(user_id).strip()
+            
+            print(f"🔍 [Admin Bot Check] Received /start from User ID: {user_id_str}")
+            
+            if not is_admin_authorized(user_id_str):
+                unauthorized_msg = (
+                    f"⛔ <b>تنبيه أمني مشدد | Access Denied</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"⚠️ <b>عذراً {first_name}، محاولة دخول غير مصرح بها!</b>\n\n"
+                    f"🆔 المعرف الخاص بك: <code>{user_id_str}</code>\n"
+                    f"🔒 هذا البوت مخصص حصرياً للمالك والمشرفين المعتمدين في منصة <b>ZN Goxe</b>.\n\n"
+                    f"<i>تم تسجيل محاولة الوصول في سجلات الأمان.</i>"
+                )
+                bot.reply_to(message, unauthorized_msg, parse_mode="HTML")
+                return
+
+            role_label = "👑 <b>المدير العام للنظام (Owner)</b>" if user_id_str == str(ADMIN_ID) else "🛡️ <b>مشرف معتمد (Administrator)</b>"
+            
+            welcome_text = (
+                f"⚡ <b>مرحباً بك في لوحة القيادة العليا | ZN Goxe</b> 🔥\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"أهلاً بك يا <b>{first_name}</b> 👋\n"
+                f"الرتبة: {role_label}\n"
+                f"حالة الاتصال: 🟢 <b>نشط ومؤمن بالكامل</b>\n\n"
+                f"✨ <b>تم التحقق من صلاحياتك الأمنية بنجاح!</b>\n"
+                f"يمكنك الآن التحكم بجميع إعدادات الألعاب، العمولات، الأرباح والمشرفين عبر فتح لوحة التحكم المرفقة."
+            )
+
+            ADMIN_WEBAPP_URL = WEB_URL if WEB_URL.endswith('/admin') else f"{WEB_URL}/admin"
+
+            markup = InlineKeyboardMarkup()
+            webapp = WebAppInfo(url=ADMIN_WEBAPP_URL)
+            btn = InlineKeyboardButton(text="💻 فتح لوحة التحكم الرئيسية ⚡", web_app=webapp)
+            markup.add(btn)
+
+            bot.send_message(
+                message.chat.id,
+                welcome_text,
+                reply_markup=markup,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            print(f"❌ Error replying to /start: {e}")
+
+    @bot.message_handler(func=lambda message: True)
+    def handle_all_messages(message):
+        try:
+            user_id = message.from_user.id
+            user_id_str = str(user_id).strip()
+
+            if not is_admin_authorized(user_id_str):
+                bot.reply_to(
+                    message, 
+                    "⛔ <b>وصول مرفوض:</b> لا تملك صلاحية لاستخدام أوامر هذا البوت.",
+                    parse_mode="HTML"
+                )
+                return
+            
+            ADMIN_WEBAPP_URL = WEB_URL if WEB_URL.endswith('/admin') else f"{WEB_URL}/admin"
+
+            markup = InlineKeyboardMarkup()
+            webapp = WebAppInfo(url=ADMIN_WEBAPP_URL)
+            btn = InlineKeyboardButton(text="💻 فتح لوحة التحكم ⚡", web_app=webapp)
+            markup.add(btn)
+
+            bot.reply_to(
+                message, 
+                "ℹ️ <b>يرجى الضغط على الزر أدناه للوصول المباشر إلى لوحة الإدارة:</b>",
+                reply_markup=markup,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            print(f"❌ Error handling message: {e}")
+
+    def force_delete_webhook():
+        try:
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true"
+            res = requests.get(url, timeout=10)
+            print(f"🔄 Webhook cleanup response: {res.json()}")
+        except Exception as e:
+            print(f"⚠️ Error resetting webhook: {e}")
+
+    def run_bot_worker():
+        print("🚀 [Bot Worker] جارٍ إزالة الـ Webhook القديم وبدء الاستماع...")
+        force_delete_webhook()
+        time.sleep(1)
+        while True:
+            try:
+                bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)
+            except Exception as e:
+                print(f"❌ Error in Telegram Bot Polling: {e}")
+                time.sleep(3)
+
+    bot_thread = threading.Thread(target=run_bot_worker, daemon=True)
+    bot_thread.start()
 
 # ==========================================
 # تسجيل المسارات (Blueprints)
@@ -102,6 +217,10 @@ except Exception as e:
 # مسارات إدارة اللعبة والداشبورد
 # ==========================================
 
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "online", "bot": "Pot admin ZN Goxe"}), 200
+
 @app.route('/api/verify_admin', methods=['POST'])
 def verify_admin_access():
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
@@ -109,10 +228,10 @@ def verify_admin_access():
         return error_res
 
     if is_admin_authorized(telegram_id):
-        role = "المدير العام (Owner)" if str(telegram_id).strip() == str(ADMIN_ID) else "مشرف"
+        role = "المدير العام (Owner)" if str(telegram_id).strip() == str(ADMIN_ID) else "مشرف معتمد"
         return jsonify({"success": True, "message": "تم التحقق بنجاح", "role": role}), 200
         
-    return jsonify({"success": False, "error": "عذراً، البوت مخصص للإدارة فقط!"}), 403
+    return jsonify({"success": False, "error": "عذراً، البوت مخصص للإدارة والمشرفين فقط!"}), 403
 
 @app.route('/api/admin/zn-go-settings', methods=['GET', 'POST'])
 @app.route('/api/admin/settings/grid_36', methods=['GET', 'POST'])
@@ -246,6 +365,10 @@ def admin_moderators_manager(mod_id=None):
         return jsonify({"success": True, "moderators": mods}), 200
 
     elif request.method == 'POST':
+        # التعديل وإضافة المشرفين متاح للمالك الرئيسي حصراً
+        if str(telegram_id).strip() != str(ADMIN_ID):
+            return jsonify({"success": False, "error": "عذراً، إضافة المشرفين مخصصة للمالك الرئيسي فقط!"}), 403
+
         data = request.get_json() or {}
         m_id = data.get("id")
         m_name = data.get("name")
@@ -261,6 +384,9 @@ def admin_moderators_manager(mod_id=None):
         return jsonify({"success": False, "error": "حدث خطأ أثناء إضافة المشرف"}), 500
 
     elif request.method == 'DELETE':
+        if str(telegram_id).strip() != str(ADMIN_ID):
+            return jsonify({"success": False, "error": "عذراً، حذف المشرفين مخصص للمالك الرئيسي فقط!"}), 403
+
         if str(mod_id).strip() == str(ADMIN_ID):
             return jsonify({"success": False, "error": "لا يمكن حذف الأدمن الرئيسي للنظام!"}), 400
 
