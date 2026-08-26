@@ -8,16 +8,20 @@ import logging
 
 from flask import jsonify
 
-# إعداد الـ Logger الخاص بالنظام الأمنية
 logger = logging.getLogger("security")
 
-
-def _webapp_bot_token():
-    return os.environ.get("WEBAPP_BOT_TOKEN", "").strip() or os.environ.get("BOT_TOKEN", "").strip()
+def get_possible_bot_tokens():
+    """جلب جميع التوكينات المحتملة لتجربة التوثيق بحسب البوت المستخدم"""
+    tokens = []
+    for env_key in ["ADMIN_BOT_TOKEN", "WEBAPP_BOT_TOKEN", "BOT_TOKEN"]:
+        val = os.environ.get(env_key, "").strip()
+        if val and val not in tokens:
+            tokens.append(val)
+    return tokens
 
 
 def validate_telegram_data(init_data: str):
-    """Validate Telegram Web App initData and return the Telegram user dict."""
+    """التحقق المشدد من بيانات initData مع تجربة التوكينات المتاحة"""
     if not init_data or not isinstance(init_data, str):
         logger.warning("[Security] init_data فارغ أو ليس نصاً")
         return None
@@ -26,9 +30,9 @@ def validate_telegram_data(init_data: str):
     if init_data.startswith("Bearer "):
         init_data = init_data[7:].strip()
 
-    bot_token = _webapp_bot_token()
-    if not bot_token:
-        logger.error("[Security] لم يتم العثور على WEBAPP_BOT_TOKEN أو BOT_TOKEN")
+    bot_tokens = get_possible_bot_tokens()
+    if not bot_tokens:
+        logger.error("[Security] لم يتم العثور على أي BOT_TOKEN في متغيرات البيئة")
         return None
 
     try:
@@ -49,60 +53,50 @@ def validate_telegram_data(init_data: str):
             f"{key}={value}" for key, value in sorted(parsed_data.items())
         )
 
-        secret_key = hmac.new(
-            b"WebAppData",
-            bot_token.encode("utf-8"),
-            hashlib.sha256,
-        ).digest()
+        valid_user_dict = None
 
-        calculated_hash = hmac.new(
-            secret_key,
-            data_check_string.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
+        # تجربة التحقق مقابل توكينات البوتات المتاحة
+        for bot_token in bot_tokens:
+            secret_key = hmac.new(
+                b"WebAppData",
+                bot_token.encode("utf-8"),
+                hashlib.sha256,
+            ).digest()
 
-        # Constant-time comparison لمنع Timing Attacks
-        if not hmac.compare_digest(calculated_hash, received_hash):
-            logger.error("[Security] فشل التحقق من Hash")
-            return None
+            calculated_hash = hmac.new(
+                secret_key,
+                data_check_string.encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
 
-        auth_date = parsed_data.get("auth_date")
-        if not auth_date:
-            logger.error("[Security] auth_date غير موجود")
-            return None
+            if hmac.compare_digest(calculated_hash, received_hash):
+                auth_date = parsed_data.get("auth_date")
+                if not auth_date:
+                    continue
 
-        try:
-            auth_timestamp = int(auth_date)
-        except (TypeError, ValueError):
-            logger.error("[Security] auth_date غير صالح")
-            return None
+                try:
+                    auth_timestamp = int(auth_date)
+                except (TypeError, ValueError):
+                    continue
 
-        now = int(time.time())
-        max_age = int(os.environ.get("TELEGRAM_INITDATA_MAX_AGE", "86400"))
+                now = int(time.time())
+                max_age = int(os.environ.get("TELEGRAM_INITDATA_MAX_AGE", "86400"))
 
-        if auth_timestamp > now + 60:
-            logger.error("[Security] auth_date في المستقبل")
-            return None
+                if auth_timestamp > now + 60 or (max_age > 0 and now - auth_timestamp > max_age):
+                    continue
 
-        if max_age > 0 and now - auth_timestamp > max_age:
-            logger.error("[Security] initData منتهي الصلاحية")
-            return None
+                user_str = parsed_data.get("user", "{}")
+                try:
+                    user_dict = json.loads(user_str)
+                    if isinstance(user_dict, dict) and user_dict.get("id"):
+                        if parsed_data.get("start_param") is not None:
+                            user_dict["start_param"] = parsed_data["start_param"]
+                        valid_user_dict = user_dict
+                        break
+                except Exception:
+                    continue
 
-        user_str = parsed_data.get("user", "{}")
-        try:
-            user_dict = json.loads(user_str)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            logger.error("[Security] JSON بيانات المستخدم غير صالح")
-            return None
-
-        if not isinstance(user_dict, dict) or not user_dict.get("id"):
-            logger.error("[Security] بيانات المستخدم غير صالحة")
-            return None
-
-        if parsed_data.get("start_param") is not None:
-            user_dict["start_param"] = parsed_data["start_param"]
-
-        return user_dict
+        return valid_user_dict
 
     except Exception as exc:
         logger.exception(f"[Security] validate_telegram_data exception: {exc}")
@@ -110,10 +104,7 @@ def validate_telegram_data(init_data: str):
 
 
 def check_banned_safely(telegram_id: str) -> tuple[bool, bool]:
-    """
-    Check the ban state safely.
-    Returns: (is_banned: bool, check_successful: bool)
-    """
+    """فحص حالة الحظر بأمان"""
     try:
         try:
             from database import is_user_banned
@@ -123,7 +114,6 @@ def check_banned_safely(telegram_id: str) -> tuple[bool, bool]:
                 from users.users_db import is_user_banned
                 return bool(is_user_banned(str(telegram_id))), True
             except (ImportError, AttributeError):
-                # إذا لم تكن دالة الحظر متوفرة بعد، يتم التجاوز بأمان بدون تعطيل الطلب
                 return False, True
     except Exception as exc:
         logger.error(f"[Security] Error checking ban status for {telegram_id}: {exc}")
@@ -131,14 +121,7 @@ def check_banned_safely(telegram_id: str) -> tuple[bool, bool]:
 
 
 def get_authenticated_user(request, is_post=None):
-    """
-    Authenticate only from Telegram initData or safe Header fallback.
-    Supported locations (Ordered by Security Best Practices):
-      1. JSON Body: {"initData": "..."}
-      2. X-Telegram-Init-Data header
-      3. Authorization: Bearer <initData>
-      4. Fallback Header: X-Telegram-User-Id
-    """
+    """مصادقة المستخدم من initData أو الهيدرز المعتمدة"""
     try:
         init_data = None
 
@@ -158,7 +141,6 @@ def get_authenticated_user(request, is_post=None):
         if isinstance(user_info, dict) and user_info.get("id"):
             telegram_id = str(user_info["id"]).strip()
 
-        # خيار الاحتياط الآمن عبر الهيدر المباشر إذا لم تتوفر initData كاملة
         if not telegram_id:
             telegram_id = request.headers.get("X-Telegram-User-Id")
             if telegram_id:
@@ -166,7 +148,7 @@ def get_authenticated_user(request, is_post=None):
                 user_info = {"id": telegram_id, "first_name": "User"}
 
         if not telegram_id:
-            logger.warning("[Security Auth Failed] تعذر استخراج telegram_id من initData أو Header")
+            logger.warning("[Security Auth Failed] تعذر استخراج telegram_id")
             return (
                 False,
                 None,
@@ -185,7 +167,6 @@ def get_authenticated_user(request, is_post=None):
         is_banned, check_success = check_banned_safely(telegram_id)
         
         if not check_success:
-            logger.error(f"❌ [Security Error] متعذر التحقق من حالة حظر المستخدم {telegram_id}")
             return (
                 False,
                 None,
@@ -202,7 +183,6 @@ def get_authenticated_user(request, is_post=None):
             )
 
         if is_banned:
-            logger.warning(f"🚫 [Security Banned] المستخدم {telegram_id} محظور")
             return (
                 False,
                 telegram_id,
