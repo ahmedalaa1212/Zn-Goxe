@@ -149,6 +149,8 @@
         const listEl = document.getElementById('leaderboard-list');
         if (!listEl) return;
 
+        listEl.innerHTML = '<div style="text-align:center; color:var(--text-muted); font-size:12px; padding:10px;">جاري تحميل المتصدرين... ⏳</div>';
+
         try {
             let data;
             if (typeof window.fetchAPI === 'function') {
@@ -181,7 +183,12 @@
                     else if (rank === 3) { rankBadge = '🥉'; rankClass = 'leader-rank-3'; }
 
                     const name = escapeHTML(item.first_name || item.username || `لاعب #${String(item.uid || '').slice(-4)}`);
-                    const score = (parseFloat(item.mining_points || 0) || 0).toLocaleString('ar-EG');
+                    const rawScore = (item.mined_points !== undefined && item.mined_points !== null) 
+                        ? item.mined_points 
+                        : (item.mining_points !== undefined && item.mining_points !== null)
+                        ? item.mining_points
+                        : item.total_mined || 0;
+                    const score = (parseFloat(rawScore) || 0).toLocaleString('ar-EG');
 
                     html += `
                         <div class="leader-item">
