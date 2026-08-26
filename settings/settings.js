@@ -188,7 +188,16 @@
                         : (item.mining_points !== undefined && item.mining_points !== null)
                         ? item.mining_points
                         : item.total_mined || 0;
-                    const score = (parseFloat(rawScore) || 0).toLocaleString('ar-EG');
+                    
+                    const numScore = parseFloat(rawScore) || 0;
+                    const strScore = numScore.toFixed(4).replace(/\.?0+$/, ''); 
+                    const scoreParts = strScore.split('.');
+                    const mainInt = parseInt(scoreParts[0], 10).toLocaleString('en-US');
+
+                    let scoreHTML = mainInt;
+                    if (scoreParts.length > 1 && scoreParts[1]) {
+                        scoreHTML += `<span style="font-size:0.8em; opacity:0.65; font-weight:normal;">.${scoreParts[1]}</span>`;
+                    }
 
                     html += `
                         <div class="leader-item">
@@ -196,7 +205,7 @@
                             <div class="leader-info">
                                 <div style="font-weight:600; color:#fff; font-size:13px;">${name}</div>
                             </div>
-                            <span class="leader-score">⛏️ ${score}</span>
+                            <span class="leader-score">⛏️ ${scoreHTML}</span>
                         </div>
                     `;
                 });
