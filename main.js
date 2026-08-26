@@ -18,7 +18,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // 1. فحص وجود بيانات التليجرام
     if (!initData) {
-        showAccessDenied("⛔ تنبيه أمني: لا يمكنك فتح هذه اللوحة من المتصفح مباشرة! يجب فتحها من داخل بوت الأدمن.");
+        showAccessDenied("⛔ تنبيه أمني: لا يمكنك فتح هذه اللوحة من المتصفح مباشرة! يجب فتحها حصرياً من داخل بوت الأدمن.");
         return;
     }
 
