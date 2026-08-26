@@ -1,7 +1,5 @@
 import os
 import sys
-import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 
@@ -21,56 +19,6 @@ app = Flask(__name__, static_folder=BASE_DIR, static_url_path='')
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app').strip().rstrip('/')
-BOT_TOKEN = os.environ.get('BOT_TOKEN', '')
-
-# تهيئة بوت تليجرام
-bot = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
-
-# ==========================================
-# 🤖 معالج أوامر تليجرام (Telegram Webhook Handler)
-# ==========================================
-if bot:
-    @bot.message_handler(commands=['start'])
-    def send_welcome(message):
-        first_name = message.from_user.first_name or "لاعب"
-        welcome_text = (
-            f"⚡ **أهلاً بك يا {first_name} في عالم ZN Goxe الرقمي!** ⚡\n\n"
-            f"استعد لخوض تجربة تفاعلية فريدة تجمع بين التسلية، التحدي، وجمع المكافآت! 🏆\n\n"
-            f"🎮 اضغط على الزر أدناه لبدء اللعب:"
-        )
-        
-        markup = InlineKeyboardMarkup()
-        webapp_button = InlineKeyboardButton(
-            text="🎮 انطلق للعب واجمع النقاط 🚀", 
-            web_app=WebAppInfo(url=WEB_URL)
-        )
-        markup.add(webapp_button)
-        
-        bot.reply_to(message, welcome_text, reply_markup=markup, parse_mode="Markdown")
-
-@app.route('/api/webhook', methods=['POST'])
-def telegram_webhook():
-    """استقبال رسائل وأوامر تليجرام بشكل مباشر وآمن"""
-    if not bot:
-        return jsonify({"success": False, "error": "BOT_TOKEN not configured"}), 500
-        
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return '', 200
-    return jsonify({"error": "Invalid request"}), 400
-
-@app.route('/api/set-webhook', methods=['GET'])
-def set_webhook_route():
-    """مسار لتفعيل الـ Webhook بنقرة واحدة من المتصفح"""
-    if not bot:
-        return "❌ BOT_TOKEN غير معرف في متغيرات البيئة على Railway!", 400
-    webhook_url = f"{WEB_URL}/api/webhook"
-    success = bot.set_webhook(url=webhook_url)
-    if success:
-        return f"✅ تم تفعيل Webhook بنجاح على المسار: {webhook_url}", 200
-    return "❌ فشل تفعيل الـ Webhook", 500
 
 # ==========================================
 # 🔌 دالة استدعاء الموديولات الموحدة والآمنة
