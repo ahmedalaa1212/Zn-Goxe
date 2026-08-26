@@ -73,7 +73,8 @@ def get_user_settings_stats(uid: str) -> dict:
 
 def get_top_mining_leaderboard(limit: int = 10) -> list:
     """
-    جلب أفضل 10 مستخدمين حصدوا أكبر قدر من نقاط التعدين فقط بصورة آمنة.
+    جلب أفضل 10 مستخدمين حصدوا أكبر قدر من نقاط التعدين فقط بصورة آمنة ومضمونة.
+    تستعلم حسب mined_points / mining_points مع دعم التراجع التلقائي لمنع إرجاع قائمة فارغة.
     """
     default_leaderboard = []
     try:
@@ -85,39 +86,67 @@ def get_top_mining_leaderboard(limit: int = 10) -> list:
         users_ref = db.collection('users')
         docs = []
 
-        # محاولة جلب المستخدمين بالترتيب حسب نقاط التعدين مع حماية الاستعلام
-        try:
-            docs = users_ref.order_by('mining_points', direction='DESCENDING').limit(limit).get()
-        except Exception:
+        # 1. محاولة الجلب حسب حقول نقاط التعدين المحتملة بترتيب تنازلي
+        order_fields = ['mined_points', 'mining_points', 'total_mined', 'mined_total', 'farm_mined', 'balance']
+        
+        for field in order_fields:
             try:
-                docs = users_ref.order_by('balance', direction='DESCENDING').limit(limit).get()
-            except Exception:
-                docs = users_ref.limit(50).get()
+                query_docs = list(users_ref.order_by(field, direction=firestore.Query.DESCENDING).limit(limit * 2).get())
+                if query_docs:
+                    docs = query_docs
+                    break
+            except Exception as q_err:
+                logger.warning(f"Firestore order_by('{field}') query failed or unindexed: {q_err}")
+
+        # 2. إذا فشلت الاستعلامات المفهرسة، جلب قائمة مستخدمين بديلة ومسحها
+        if not docs:
+            try:
+                docs = list(users_ref.limit(100).get())
+            except Exception as fetch_err:
+                logger.error(f"Failed to fetch users fallback limit(100): {fetch_err}")
 
         leaderboard = []
         for doc in docs:
             data = doc.to_dict() or {}
             
-            # جلب نقاط التعدين فقط
-            mining_pts = data.get('mining_points', data.get('total_mined', data.get('balance', 0)))
-            try:
-                mining_pts = float(mining_pts)
-            except (ValueError, TypeError):
-                mining_pts = 0.0
+            # جلب نقاط التعدين مع فحص جميع الأسماء الممكنة للحقل (mined_points, mining_points, total_mined, إلخ)
+            raw_mined = None
+            for key in ['mined_points', 'mining_points', 'total_mined', 'mined_total', 'farm_mined', 'balance']:
+                if key in data and data[key] is not None:
+                    raw_mined = data[key]
+                    break
 
-            first_name = data.get('first_name', '')
-            last_name = data.get('last_name', '')
-            full_name = f"{first_name} {last_name}".strip() or data.get('username', f"لاعب #{str(doc.id)[-4:]}")
+            if raw_mined is None:
+                raw_mined = 0.0
+
+            try:
+                mined_pts = float(raw_mined)
+            except (ValueError, TypeError):
+                mined_pts = 0.0
+
+            first_name = str(data.get('first_name', '')).strip()
+            last_name = str(data.get('last_name', '')).strip()
+            username = str(data.get('username', '')).strip()
+
+            if first_name and last_name:
+                full_name = f"{first_name} {last_name}"
+            elif first_name:
+                full_name = first_name
+            elif username:
+                full_name = username
+            else:
+                full_name = f"لاعب #{str(doc.id)[-4:]}"
 
             leaderboard.append({
                 "uid": str(doc.id),
                 "first_name": full_name,
-                "username": data.get('username', ''),
-                "mining_points": round(mining_pts, 2)
+                "username": username,
+                "mining_points": round(mined_pts, 2),
+                "mined_points": round(mined_pts, 2)
             })
 
         # إعادة الفرز في الذاكرة للضمان تنازلياً وإرجاع أول N متصدرين
-        leaderboard.sort(key=lambda x: x['mining_points'], reverse=True)
+        leaderboard.sort(key=lambda x: x['mined_points'], reverse=True)
         return leaderboard[:limit]
 
     except Exception as e:
