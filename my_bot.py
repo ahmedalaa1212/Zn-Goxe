@@ -33,7 +33,6 @@ except Exception as e:
 @bot.message_handler(commands=['start'])
 def start_command(message):
     try:
-        # رسالة في الكونسول عشان تتأكد إن البوت استقبل الأمر وميهنجش في صمت
         print(f"✅ تم استلام أمر /start من المستخدم: {message.from_user.id}")
         
         tg_id = str(message.from_user.id)
@@ -61,7 +60,7 @@ def start_command(message):
                 )
                 return
             
-            # إنشاء أو تحديث المستخدم في قاعدة البيانات بأسماء الحقول الصريحة
+            # إنشاء أو تحديث المستخدم في قاعدة البيانات
             is_new = database.init_user(tg_id, ref_id=ref_id, first_name=raw_first_name)
             
             # إرسال إشعار للداعي
@@ -95,7 +94,7 @@ def start_command(message):
         markup.row(btn_game)
         markup.row(btn_channel, btn_help)
         
-        # رسالة الترحيب المشوقة والأنيقة
+        # رسالة الترحيب
         welcome_message = (
             f"⚡ <b>أهلاً بك يا {first_name} في عالم ZN Goxe الرقمي!</b> ⚡\n\n"
             f"استعد لخوض تجربة تفاعلية فريدة تجمع بين التسلية، التحدي، وجمع المكافآت! 🏆\n\n"
@@ -113,8 +112,7 @@ def start_command(message):
 
     except Exception as e:
         print(f"❌ خطأ حرج في معالج start: {e}")
-        traceback.print_exc() # طباعة الخطأ بالكامل في الكونسول لتسهيل حله
-        # إرسال رد طوارئ للمستخدم حتى لا يظل البوت صامتاً
+        traceback.print_exc()
         try:
             bot.send_message(
                 message.chat.id,
@@ -129,7 +127,6 @@ def start_command(message):
 @bot.callback_query_handler(func=lambda call: call.data == "how_to_play")
 def how_to_play_callback(call):
     try:
-        # إعطاء استجابة فورية لتليجرام لإلغاء مؤشر التحميل على الزر
         bot.answer_callback_query(call.id)
         
         help_text = (
@@ -172,11 +169,12 @@ def default_message_handler(message):
 # 5. تشغيل البوت والحماية من السقوط
 # ==========================================
 if __name__ == '__main__':
+    # 🎯 الخطوة الحاسمة: مسح أي Webhook قديم وتصفية الرسائل المعلقة لإجبار التليجرام على الاستجابة
     try:
-        bot.remove_webhook()
-    except Exception:
-        pass
+        bot.remove_webhook(drop_pending_updates=True)
+        print("✅ تم حذف Webhook القديم وتنظيف الأوامر المعلقة بنجاح.")
+    except Exception as e:
+        print(f"⚠️ تنبيه أثناء إزالة الـ Webhook: {e}")
         
-    print("🤖 ZN Goxe Bot is online and running safely...")
-    # إضافة skip_pending=True لتجاهل الأوامر المتراكمة اللي بتخلي البوت يعلق
+    print("🤖 ZN Goxe Bot is online and running safely via Long Polling...")
     bot.infinity_polling(timeout=20, long_polling_timeout=10, skip_pending=True)
