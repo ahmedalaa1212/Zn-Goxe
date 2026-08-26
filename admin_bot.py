@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import threading
+import requests
 from flask import Flask, jsonify
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -44,7 +45,7 @@ def is_user_authorized(user_id):
         return False
     user_id_str = str(user_id).strip()
     
-    # 👑 1. الأدمن الرئيسي له سلطة مطلقة مباشرة دون التعطل بقواعد البيانات
+    # 👑 1. الأدمن الرئيسي له سلطة مطلقة مباشرة
     if user_id_str == str(ADMIN_ID):
         return True
         
@@ -133,13 +134,20 @@ def handle_all_messages(message):
     except Exception as e:
         print(f"❌ Error handling message: {e}")
 
+def force_delete_webhook():
+    """حذف أي Webhook معلق فوراً عبر HTTP المباشر"""
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true"
+        res = requests.get(url, timeout=10)
+        print(f"🔄 Webhook cleanup response: {res.json()}")
+    except Exception as e:
+        print(f"⚠️ Error resetting webhook: {e}")
+
 def run_bot_worker():
     """تشغيل الاستماع لرسائل تلجرام في خلفية النظام"""
-    print("🚀 [Bot Worker] جارٍ تشغيل بوت الأدمن المستقل وبدء الاستماع لـ Telegram...")
-    try:
-        bot.remove_webhook(drop_pending_updates=True)
-    except Exception as e:
-        print(f"⚠️ Warning removing webhook: {e}")
+    print("🚀 [Bot Worker] جارٍ إزالة الـ Webhook القديم وبدء الاستماع...")
+    force_delete_webhook()
+    time.sleep(1)
         
     while True:
         try:
@@ -149,7 +157,7 @@ def run_bot_worker():
             time.sleep(3)
 
 # ==========================================
-# 3. تشغيل البوت تلقائياً عند تحميل السيرفر بأي طريقة
+# 3. تشغيل البوت تلقائياً عند تحميل السيرفر
 # ==========================================
 bot_thread = threading.Thread(target=run_bot_worker, daemon=True)
 bot_thread.start()
