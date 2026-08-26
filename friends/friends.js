@@ -45,10 +45,10 @@
         return data;
     }
 
-
     let lastFetchTimestamp = 0;
     const FETCH_COOLDOWN_MS = 3000;
     let isTaskClaiming = false;
+    let isClaimingRefEarnings = false;
 
     window.FriendsConfig = {
         min_upgrades_for_task: 3,
@@ -64,7 +64,55 @@
         return "";
     }
 
-    // دالة تنسيق الأرقام النصية (تستخدم للرسائل المنبثقة Toasts فقط لمنع ظهور HTML كـ النص)
+    function getCacheKey() {
+        const userId = getUserId();
+        return userId ? `zn_friends_cache_${userId}` : 'zn_friends_cache_global';
+    }
+
+    function saveCachedData(data) {
+        try {
+            if (!data) return;
+            localStorage.setItem(getCacheKey(), JSON.stringify(data));
+        } catch (e) {
+            console.error("خطأ حفظ كاش الأصدقاء:", e);
+        }
+    }
+
+    function loadCachedData() {
+        try {
+            const cached = localStorage.getItem(getCacheKey());
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (parsed && typeof parsed === 'object') {
+                    window.PlayerData = { ...window.PlayerData, ...parsed };
+                    return true;
+                }
+            }
+        } catch (e) {
+            console.error("خطأ قراءة كاش الأصدقاء:", e);
+        }
+        return false;
+    }
+
+    function cloneCurrentState() {
+        try {
+            return {
+                PlayerData: JSON.parse(JSON.stringify(window.PlayerData || {})),
+                balance: getStoredBalance()
+            };
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function restoreState(backup) {
+        if (!backup) return;
+        if (backup.PlayerData) window.PlayerData = backup.PlayerData;
+        if (backup.balance !== undefined) setStoredBalance(backup.balance);
+        saveCachedData(window.PlayerData);
+    }
+
+    // دالة تنسيق الأرقام النصية (تستخدم للرسائل المنبثقة Toasts فقط)
     function formatNumber(num, maxDecimals = 6) {
         const val = parseFloat(num) || 0;
         if (isNaN(val) || val === 0) return "0.00";
@@ -78,7 +126,7 @@
         return `${integerPart}.${decimalPart}`;
     }
 
-    // 🎯 دالة تنسيق الأرقام بـ HTML (إجبار اتجاه LTR لمنع قلب الرقم في الواجهات العربية)
+    // 🎯 دالة تنسيق الأرقام بـ HTML (إجبار اتجاه LTR لمنع قلب الرقم)
     function formatNumberHTML(num, maxDecimals = 6) {
         const val = parseFloat(num) || 0;
         let integerPart = "0";
@@ -92,7 +140,6 @@
             if (decimalPart.length === 1) decimalPart += '0';
         }
 
-        // حساب إجمالي الطول لتقليل حجم الخط تلقائياً للمبالغ الكبيرة حتى لا تخرج عن الكارت
         const totalLen = integerPart.length + decimalPart.length;
         let fontSizeStyle = "";
         if (totalLen > 14) {
@@ -106,7 +153,7 @@
         return `<span dir="ltr" style="direction: ltr; unicode-bidi: isolate; white-space: nowrap; display: inline-flex; align-items: baseline; justify-content: center; vertical-align: baseline; max-width: 100%; ${fontSizeStyle}">${integerPart}<span style="font-size: 0.75em; opacity: 0.7; margin-left: 1px;">.${decimalPart}</span></span>`;
     }
 
-    // 🎯 دالة تنسيق الأرقام الصحيحة فقط (بدون أي أرقام عشرية) لمكافآت الإنجازات
+    // 🎯 دالة تنسيق الأرقام الصحيحة فقط لمكافآت الإنجازات
     function formatInteger(num) {
         const val = Math.floor(parseFloat(num) || 0);
         return val.toLocaleString('en-US');
@@ -216,6 +263,7 @@
             }
         }
 
+        loadCachedData();
         const cachedBal = getStoredBalance();
         window.PlayerData = { balance: cachedBal, pending_ref_earnings: 0, total_ref_earnings: 0, invited_friends_count: 0, ...window.PlayerData };
         
@@ -255,6 +303,7 @@
                 if (data.player.balance !== undefined && data.player.balance !== null) {
                     setStoredBalance(data.player.balance);
                 }
+                saveCachedData(window.PlayerData);
             }
         } catch (error) {
             console.error("فشل في جلب بيانات الأصدقاء:", error);
@@ -276,7 +325,6 @@
         let totalInvited = parseInt(pData.invited_friends_count || 0);
         let eligibleForTasks = parseInt(pData.eligible_task_friends_count || 0);
 
-        // 🎯 تحديث خانات الرصيد بـ innerHTML واستخدام التنسيق العشري الناعم
         const elBalances = document.querySelectorAll('.zn-balance-display, #top-balance-friends, #farm-balance, #top-balance, #header-zn-balance, .user-balance');
         elBalances.forEach(el => {
             el.style.whiteSpace = 'nowrap';
@@ -305,7 +353,12 @@
         if (elInvited) elInvited.innerText = totalInvited.toLocaleString();
 
         if (btnClaim) {
-            if (pending <= 0) {
+            if (isClaimingRefEarnings) {
+                btnClaim.disabled = true;
+                btnClaim.style.background = "#222226";
+                btnClaim.style.color = "#888888";
+                btnClaim.innerText = "⏳ جاري السحب...";
+            } else if (pending <= 0) {
                 btnClaim.disabled = true;
                 btnClaim.style.background = "#222226";
                 btnClaim.style.color = "#666666";
@@ -339,13 +392,15 @@
         }
 
         let html = '';
+        const claimedList = (claimedTasks || []).map(String);
+
         taskKeys.forEach(key => {
             const task = rawTasks[key];
             const taskId = parseInt(key) || key;
             const reqFriends = parseInt(task.reqFriends) || 1;
             const reward = parseFloat(task.reward) || 0;
 
-            const isClaimed = claimedTasks.includes(taskId) || claimedTasks.includes(key) || claimedTasks.includes(String(taskId));
+            const isClaimed = claimedList.includes(String(taskId)) || claimedList.includes(String(key));
             const isReady = eligibleFriendsCount >= reqFriends;
             let progressPercent = Math.min((eligibleFriendsCount / reqFriends) * 100, 100);
 
@@ -353,13 +408,12 @@
             if (isClaimed) {
                 btnHtml = `<button disabled style="background:#222226; color:#777; border:none; padding:6px 10px; border-radius:6px; font-size:11px;">✅ مستلمة</button>`;
             } else if (isReady) {
-                btnHtml = `<button onclick="window.claimRefTask('${key}', ${reward}, ${reqFriends})" style="background:#2ecc71; color:#000; border:none; padding:6px 10px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:bold;">🎁 استلام</button>`;
+                btnHtml = `<button onclick="window.claimRefTask('${key}', ${reward}, ${reqFriends})" ${isTaskClaiming ? 'disabled' : ''} style="background:#2ecc71; color:#000; border:none; padding:6px 10px; border-radius:6px; font-size:11px; cursor:pointer; font-weight:bold;">${isTaskClaiming ? '⏳...' : '🎁 استلام'}</button>`;
             } else {
                 let remaining = reqFriends - eligibleFriendsCount;
                 btnHtml = `<button disabled style="background:#18181c; color:#555; border:1px solid #2a2a2e; padding:6px 10px; border-radius:6px; font-size:11px;">🔒 باقي ${remaining}</button>`;
             }
 
-            // 🎯 عرض المكافأة كـ رقم صحيح تماماً (بدون عشري)
             html += `
                 <li style="background:#121215; border:1px solid #26262b; border-radius:12px; padding:12px; margin-bottom:10px; list-style:none; direction:rtl;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -410,34 +464,57 @@
     };
 
     window.claimRefEarnings = async function() {
-        const userId = getUserId();
-        const btn = document.getElementById('btn-claim-ref');
-        if (btn) {
-            btn.disabled = true;
-            btn.innerText = "⏳ جاري السحب...";
+        if (isClaimingRefEarnings) return;
+
+        const pData = window.PlayerData || {};
+        const pending = parseFloat(pData.pending_ref_earnings || 0);
+
+        if (pending <= 0) {
+            showToast("لا توجد أرباح للسحب حالياً");
+            return;
         }
 
+        isClaimingRefEarnings = true;
+        const backup = cloneCurrentState();
+
+        // 🚀 Optimistic UI Update (سحب لحظي)
+        const feePercent = parseFloat(window.FriendsConfig?.claim_fee_percent || 1.5);
+        const estimatedNet = pending * (1 - (feePercent / 100));
+        const currentBal = getStoredBalance();
+
+        setStoredBalance(currentBal + estimatedNet);
+        window.PlayerData.pending_ref_earnings = 0;
+        window.PlayerData.total_ref_earnings = parseFloat(window.PlayerData.total_ref_earnings || 0) + estimatedNet;
+        saveCachedData(window.PlayerData);
+        window.updateFriendsUI();
+
+        const userId = getUserId();
         try {
             let data = await secureRequest('/api/friends/claim_ref_earnings', 'POST', {
                 user_id: userId
             });
             
             if (data && data.success) {
-                const formattedNet = formatNumber(data.net_amount);
-                const feePercent = window.FriendsConfig?.claim_fee_percent || 1.5;
+                const formattedNet = formatNumber(data.net_amount || estimatedNet);
                 showToast(`🎉 تم السحب بنجاح!\nأُضيف ${formattedNet} ZN إلى رصيدك (بعد خصم ${feePercent}% رسوم).`);
                 
-                if (!window.PlayerData) window.PlayerData = {};
-                window.PlayerData.pending_ref_earnings = 0;
-
-                setStoredBalance(data.new_balance);
+                if (data.new_balance !== undefined) {
+                    setStoredBalance(data.new_balance);
+                }
+                saveCachedData(window.PlayerData);
                 window.updateFriendsUI();
             } else {
-                showToast(data.error || "فشل السحب من السيرفر");
+                restoreState(backup);
                 window.updateFriendsUI();
+                showToast(data?.error || "فشل السحب من السيرفر");
             }
         } catch (e) {
+            console.error("خطأ سحب الأرباح:", e);
+            restoreState(backup);
+            window.updateFriendsUI();
             showToast("حدث خطأ أثناء الاتصال بالسيرفر.");
+        } finally {
+            isClaimingRefEarnings = false;
             window.updateFriendsUI();
         }
     };
@@ -446,6 +523,23 @@
         if (isTaskClaiming) return;
         isTaskClaiming = true;
         
+        const backup = cloneCurrentState();
+        const currentBal = getStoredBalance();
+        const numReward = parseFloat(reward) || 0;
+
+        // 🚀 Optimistic UI Update (استلام المكافأة لحظياً)
+        if (!window.PlayerData) window.PlayerData = {};
+        if (!window.PlayerData.claimed_ref_tasks) window.PlayerData.claimed_ref_tasks = [];
+        
+        const taskStr = String(taskId);
+        if (!window.PlayerData.claimed_ref_tasks.map(String).includes(taskStr)) {
+            window.PlayerData.claimed_ref_tasks.push(taskId);
+        }
+
+        setStoredBalance(currentBal + numReward);
+        saveCachedData(window.PlayerData);
+        window.updateFriendsUI();
+
         const userId = getUserId();
         try {
             let data = await secureRequest('/api/friends/claim_ref_task', 'POST', {
@@ -458,23 +552,27 @@
             if (data && data.success) {
                 showToast(`🎊 مبروك! استلمت مكافأة ${formatInteger(reward)} ZN.`);
                 
-                if (!window.PlayerData) window.PlayerData = {};
                 if (data.claimed_ref_tasks) {
                     window.PlayerData.claimed_ref_tasks = data.claimed_ref_tasks;
-                } else {
-                    if (!window.PlayerData.claimed_ref_tasks) window.PlayerData.claimed_ref_tasks = [];
-                    window.PlayerData.claimed_ref_tasks.push(taskId);
                 }
-
-                setStoredBalance(data.new_balance);
+                if (data.new_balance !== undefined) {
+                    setStoredBalance(data.new_balance);
+                }
+                saveCachedData(window.PlayerData);
                 window.updateFriendsUI();
             } else {
-                showToast(data.error || "خطأ في استلام المكافأة");
+                restoreState(backup);
+                window.updateFriendsUI();
+                showToast(data?.error || "خطأ في استلام المكافأة");
             }
         } catch (e) {
+            console.error("خطأ استلام المهمة:", e);
+            restoreState(backup);
+            window.updateFriendsUI();
             showToast("خطأ في الاتصال بالخادم.");
         } finally {
             isTaskClaiming = false;
+            window.updateFriendsUI();
         }
     };
 
@@ -504,7 +602,6 @@
                         : `<span style="color: #f39c12; font-size:11px;">ينقصه ${minUpgrades - cnt} ترقية (${cnt}/${minUpgrades}) ⏳</span>`;
                     
                     const genVal = parseFloat(f.generated || f.earned_from_him || 0);
-                    // 🎯 تنسيق المبلغ المجمع من الصديق بتنسيق الكسر العشري الهادئ
                     const formattedGen = formatNumberHTML(genVal);
 
                     html += `
@@ -525,11 +622,13 @@
                 });
                 html += '</ul>';
                 container.innerHTML = html;
-            } else {
+            } else if (!container.innerHTML || container.innerHTML.trim() === '') {
                 container.innerHTML = '<div class="empty-state">فشل في تحميل قائمة الأصدقاء.</div>';
             }
         } catch (e) {
-            container.innerHTML = '<div class="empty-state">خطأ في الاتصال بالخادم.</div>';
+            if (!container.innerHTML || container.innerHTML.trim() === '') {
+                container.innerHTML = '<div class="empty-state">خطأ في الاتصال بالخادم.</div>';
+            }
         }
     }
 
@@ -544,6 +643,7 @@
     }, 1000);
 
     window.addEventListener('pageshow', () => {
+        loadCachedData();
         const stored = getStoredBalance();
         if (window.PlayerData) window.PlayerData.balance = stored;
         window.updateFriendsUI();
@@ -552,6 +652,7 @@
 
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") {
+            loadCachedData();
             const stored = getStoredBalance();
             if (window.PlayerData) window.PlayerData.balance = stored;
             window.updateFriendsUI();
