@@ -685,6 +685,7 @@
         }
     }
 
+    // 🔧 إعداد مستمعات الأحداث وتسهيل فتح الكيبورد بدون تعليق
     function setupEventListeners() {
         const msgInput = document.getElementById('support-msg-input');
         if (msgInput) {
@@ -694,6 +695,27 @@
                     sendSupportMessage();
                 }
             });
+
+            // 🎯 حل سلس لفتح الكيبورد والتمركز التلقائي
+            msgInput.addEventListener('focus', function () {
+                setTimeout(() => {
+                    msgInput.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    const chatBox = document.getElementById('support-chat-box');
+                    if (chatBox) chatBox.scrollTop = chatBox.scrollHeight;
+                }, 300);
+            });
+        }
+
+        // الاستجابة لتغير حجم شاشة التليجرام عند ظهور وإخفاء الكيبورد
+        if (window.Telegram?.WebApp) {
+            try {
+                window.Telegram.WebApp.onEvent('viewportChanged', () => {
+                    const chatBox = document.getElementById('support-chat-box');
+                    if (chatBox) {
+                        chatBox.scrollTop = chatBox.scrollHeight;
+                    }
+                });
+            } catch (e) {}
         }
     }
 
