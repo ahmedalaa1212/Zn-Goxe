@@ -22,7 +22,7 @@ app = Flask(__name__)
 @app.route('/')
 @app.route('/health')
 def health_check():
-    return jsonify({"status": "online", "bot": "Pot admin ZN Goxe"}), 200
+    return jsonify({"status": "online", "bot": "Bot admin ZN Goxe"}), 200
 
 # ==========================================
 # 2. جلب متغيرات البيئة وإعداد البوت
@@ -57,6 +57,56 @@ def is_user_authorized(user_id):
         print(f"⚠️ Error checking moderator status: {e}")
     return False
 
+# ==========================================
+# 3. معالجة الأزرار التفاعلية (Approval / Rejection)
+# ==========================================
+@bot.callback_query_handler(func=lambda call: call.data and (call.data.startswith('approve_tx_') or call.data.startswith('reject_tx_')))
+def handle_withdraw_decisions(call):
+    try:
+        user_id = call.from_user.id
+        if not is_user_authorized(user_id):
+            bot.answer_callback_query(call.id, "⛔ ليس لديك صلاحية لاتخاذ هذا القرار!", show_alert=True)
+            return
+
+        cb_data = call.data
+        if cb_data.startswith("approve_tx_"):
+            tx_id = cb_data.replace("approve_tx_", "")
+            action = "approve"
+        else:
+            tx_id = cb_data.replace("reject_tx_", "")
+            action = "reject"
+
+        bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب...", show_alert=False)
+
+        # استدعاء دالة تنفيذ القرار من ملف withdraw_api
+        try:
+            from wallet.withdraw.withdraw_api import execute_admin_decision
+            success, result_msg = execute_admin_decision(tx_id, action)
+            
+            bot.answer_callback_query(call.id, result_msg, show_alert=True)
+            
+            if success:
+                orig_text = call.message.text or call.message.caption or ""
+                decision_badge = "\n\n✅ <b>تمت الموافقة والتحويل بنجاح!</b>" if action == "approve" else "\n\n❌ <b>تم رفض الطلب وإعادة الرصيد للمستخدم.</b>"
+                
+                bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text=orig_text + decision_badge,
+                    parse_mode="HTML",
+                    reply_markup=None
+                )
+        except Exception as exec_err:
+            print(f"❌ خطأ عند تنفيذ قرار الأدمن: {exec_err}")
+            bot.answer_callback_query(call.id, f"⚠️ حدث خطأ أثناء المعالجة: {str(exec_err)}", show_alert=True)
+
+    except Exception as e:
+        print(f"❌ خطأ في معالج الأزرار التفاعلية: {e}")
+        try:
+            bot.answer_callback_query(call.id, "حدث خطأ غير متوقع.", show_alert=True)
+        except Exception:
+            pass
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     try:
@@ -66,7 +116,6 @@ def send_welcome(message):
         
         print(f"🔍 [Admin Bot Check] Received /start from User ID: {user_id_str}")
         
-        # 🚫 حظر الوصول غير المصرح به مع رسالة تنبيه حازمة
         if not is_user_authorized(user_id):
             unauthorized_msg = (
                 f"⛔ <b>تنبيه أمني مشدد | Access Denied</b>\n"
@@ -79,7 +128,6 @@ def send_welcome(message):
             bot.reply_to(message, unauthorized_msg, parse_mode="HTML")
             return
 
-        # 👑 رسالة ترحيبية أسطورية للمشرفين والمالك
         role_label = "👑 <b>المدير العام للنظام (Owner)</b>" if user_id_str == str(ADMIN_ID) else "🛡️ <b>مشرف معتمد (Administrator)</b>"
         
         welcome_text = (
@@ -157,7 +205,7 @@ def run_bot_worker():
             time.sleep(3)
 
 # ==========================================
-# 3. تشغيل البوت تلقائياً عند تحميل السيرفر
+# 4. تشغيل البوت تلقائياً عند تحميل السيرفر
 # ==========================================
 bot_thread = threading.Thread(target=run_bot_worker, daemon=True)
 bot_thread.start()
