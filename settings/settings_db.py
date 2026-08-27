@@ -164,13 +164,13 @@ def get_top_mining_leaderboard(limit: int = 10) -> list:
 
 def redeem_promo_code(uid: str, code_input: str) -> dict:
     """
-    تفعيل كود الهدايا والمكافآت مع حماية كاملة ضد التكرار والتلاعب وسباق الاستعلامات
+    تفعيل كود الهدايا والمكافآت مع حماية كاملة ضد التكرار والتلاعب ودعم التوافقية
     """
     if not uid or not code_input:
         return {"success": False, "message": "⚠️ البيانات المدخلة غير مكتملة."}
 
-    clean_code = str(code_input).strip().upper()
-    if not clean_code or len(clean_code) > 30:
+    raw_code = str(code_input).strip()
+    if not raw_code or len(raw_code) > 30:
         return {"success": False, "message": "⚠️ صيغة الكود غير صالحة."}
 
     db = get_db()
@@ -178,7 +178,21 @@ def redeem_promo_code(uid: str, code_input: str) -> dict:
         logger.error("Database connection failed in redeem_promo_code")
         return {"success": False, "message": "❌ خطأ في الاتصال بقاعدة البيانات."}
 
-    code_ref = db.collection('promo_codes').document(clean_code)
+    # البحث الشامل عن المستند بالتكبير والتصغير لمنع أخطاء حالة الأحرف
+    code_ref = db.collection('promo_codes').document(raw_code.upper())
+    code_doc_check = code_ref.get()
+
+    if not code_doc_check.exists:
+        code_ref_alt = db.collection('promo_codes').document(raw_code)
+        if code_ref_alt.get().exists:
+            code_ref = code_ref_alt
+        else:
+            code_ref_lower = db.collection('promo_codes').document(raw_code.lower())
+            if code_ref_lower.get().exists:
+                code_ref = code_ref_lower
+            else:
+                return {"success": False, "message": "❌ هذا الكود غير صحيح أو غير موجود!"}
+
     user_ref = db.collection('users').document(str(uid))
 
     @firestore.transactional
@@ -188,8 +202,15 @@ def redeem_promo_code(uid: str, code_input: str) -> dict:
             return {"success": False, "message": "❌ هذا الكود غير صحيح أو غير موجود!"}
 
         code_data = code_doc.to_dict() or {}
-        coins = float(code_data.get('coins', 0))
-        max_uses = int(code_data.get('max_uses', 1))
+        
+        # دعم جميع أسماء الحقول الممكنة لقيمة الكود
+        raw_coins = code_data.get('coins') or code_data.get('reward_coins') or code_data.get('amount') or code_data.get('points') or 0
+        try:
+            coins = float(raw_coins)
+        except (ValueError, TypeError):
+            coins = 0.0
+
+        max_uses = int(code_data.get('max_uses', code_data.get('limit', 1)))
         used_count = int(code_data.get('used_count', 0))
         used_by = code_data.get('used_by', [])
 
@@ -202,23 +223,32 @@ def redeem_promo_code(uid: str, code_input: str) -> dict:
         if used_count >= max_uses:
             return {"success": False, "message": "⚠️ للأسف، اكتمل الحد الأقصى لاستخدام هذا الكود!"}
 
-        if str(uid) in [str(u) for u in used_by]:
+        # فحص المعرفات سواء كـ string أو int
+        used_by_strs = [str(u).strip() for u in used_by]
+        if str(uid).strip() in used_by_strs:
             return {"success": False, "message": "⚠️ لقد قمت باستخدام هذا الكود من قبل!"}
 
         user_doc = user_ref_doc.get(transaction=transaction)
-        if not user_doc.exists:
-            return {"success": False, "message": "❌ لم يتم العثور على حساب المستخدم."}
 
+        # تحديث بيانات الكود
         transaction.update(code_ref_doc, {
             'used_count': firestore.Increment(1),
             'used_by': firestore.ArrayUnion([str(uid)])
         })
 
-        transaction.update(user_ref_doc, {
-            'balance': firestore.Increment(coins),
-            'zn_balance': firestore.Increment(coins),
-            'total_earned': firestore.Increment(coins)
-        })
+        # تحديث رصيد المستخدم بشكل آمن
+        if user_doc.exists:
+            transaction.update(user_ref_doc, {
+                'balance': firestore.Increment(coins),
+                'zn_balance': firestore.Increment(coins),
+                'total_earned': firestore.Increment(coins)
+            })
+        else:
+            transaction.set(user_ref_doc, {
+                'balance': coins,
+                'zn_balance': coins,
+                'total_earned': coins
+            }, merge=True)
 
         return {
             "success": True,
@@ -230,5 +260,5 @@ def redeem_promo_code(uid: str, code_input: str) -> dict:
     try:
         return _execute_redeem(transaction, code_ref, user_ref)
     except Exception as e:
-        logger.error(f"Error executing redeem_promo_code transaction for user {uid}, code {clean_code}: {e}")
+        logger.error(f"Error executing redeem_promo_code transaction for user {uid}, code {raw_code}: {e}")
         return {"success": False, "message": "❌ حدث خطأ أثناء معالجة الكود، يرجى المحاولة لاحقاً."}
