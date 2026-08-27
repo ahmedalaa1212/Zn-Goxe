@@ -786,15 +786,16 @@
         }
     };
 
-    // ⚡ بدء تنفيذ المهمة وفتح الرابط
+    // ⚡ بدء تنفيذ المهمة وفتح الرابط في المتصفح الخارجي للجهاز بأمان تام (منع الحظر في Adsterra)
     window.startTask = function(taskId, encodedLink, reward) {
         const link = decodeURIComponent(encodedLink || '');
         window.taskStates[taskId] = 'running';
         window.accumulatedOutsideTime[taskId] = 0;
         window.lastGoOutside[taskId] = Date.now();
 
+        // فتح رابط الإعلان في المتصفح الخارجي للجهاز (Chrome / Safari) لمنع الـ Instant View أو الحظر
         if (window.Telegram?.WebApp?.openLink) { 
-            window.Telegram.WebApp.openLink(link); 
+            window.Telegram.WebApp.openLink(link, { try_instant_view: false }); 
         } else { 
             window.open(link, '_blank'); 
         }
