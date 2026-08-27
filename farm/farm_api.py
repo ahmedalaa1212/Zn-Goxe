@@ -18,7 +18,6 @@ from farm.farm_db import (
 
 farm_bp = Blueprint('farm', __name__)
 
-ADSGRAM_BLOCK_ID = os.environ.get("ADSGRAM_BLOCK_ID", "")
 
 def to_bool(val):
     """تحويل قيم البوليان بمرونة وسلاسة لمنع أخطاء النصوص والنصوص الفارغة"""
@@ -30,11 +29,12 @@ def to_bool(val):
         return val != 0
     return False
 
+
 @farm_bp.route('/player_data', methods=['GET', 'POST'])
 @farm_bp.route('/farm/player_data', methods=['GET', 'POST'])
 @farm_bp.route('/api/farm/player_data', methods=['GET', 'POST'])
 def get_player_data():
-    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية بالكامل بدون تقريب عشري"""
+    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية مع التمرير المباشر لـ ADSGRAM_BLOCK_ID من Railway"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success: 
@@ -61,15 +61,16 @@ def get_player_data():
             }
         
         storage_configs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
-        
         mining_cfg = game_settings.get("mining_config", {})
         
-        # الاحتفاظ بالكسور كما هي دون تقريب إلى مرتبتين
         daily_boost_reward = float(mining_cfg.get("daily_boost_reward", 0.15))
         max_daily_boost_rate = float(mining_cfg.get("max_daily_boost_rate", 4.5))
         boost_max_reward_coins = float(mining_cfg.get("boost_max_reward_coins", 35.0))
         cooldown_seconds = int(mining_cfg.get("claim_cooldown_seconds", 15))
         max_upgrades_per_level = int(mining_cfg.get("max_upgrades_per_level", 15))
+
+        # جلب المعرف مباشرة من متغيّرات بيئة Railway
+        adsgram_block_id = os.environ.get("ADSGRAM_BLOCK_ID", "")
 
         return jsonify({
             "success": True, 
@@ -84,7 +85,7 @@ def get_player_data():
                 "max_daily_boost_rate": max_daily_boost_rate,
                 "boost_max_reward_coins": boost_max_reward_coins,
                 "max_upgrades_per_level": max_upgrades_per_level,
-                "adsgram_block_id": os.environ.get("ADSGRAM_BLOCK_ID", "")
+                "adsgram_block_id": adsgram_block_id
             }
         }), 200
     except Exception as e:
