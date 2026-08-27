@@ -4,6 +4,12 @@
         window.Telegram.WebApp.ready();
     }
 
+    // 🧹 مسح أي كاش قديم مخزن سابقاً على جهاز المستخدم فور التشغيل
+    try {
+        sessionStorage.removeItem('tasks_cache_data');
+        sessionStorage.removeItem('tasks_cache_time');
+    } catch (e) {}
+
     // 🛡️ مراقب حارس فوري لحظر أي كلمة AdZN أو AdZn تحاول أي ملفات خارجية كتابتها بالصفحة
     function startAdZnEnforcer() {
         const replaceAdZnText = (node) => {
@@ -84,7 +90,7 @@
         };
     }
 
-    // ⚙️ كائن الإعدادات الديناميكية المكتمل والشامل للإعدادات من Firebase (مستند settings -> حقل task)
+    // ⚙️ كائن الإعدادات الديناميكية (إلغاء فترة الكاش لجلب البيانات فوراً)
     let dynamicConfig = {
         min_reward_website: 15.0,
         min_reward_default: 10.0,
@@ -95,14 +101,13 @@
         wait_seconds: 15,
         conversion_fee_percent: 10.0,
         review_seconds: 3,
-        cache_ttl_seconds: 300
+        cache_ttl_seconds: 0
     };
 
     // 🔄 تحديث كائن الإعدادات الديناميكية مع استخراج كائن task من الفايربيس بأمان
     function updateConfig(configObj) {
         if (!configObj) return;
 
-        // استخراج كائن task في حال وصوله بشكل مصنف داخل config.task أو config.settings.task
         const cfg = configObj.task || configObj.settings?.task || configObj;
 
         if (cfg.min_reward_website !== undefined) dynamicConfig.min_reward_website = Number(cfg.min_reward_website) || 15;
@@ -114,7 +119,7 @@
         if (cfg.wait_seconds !== undefined) dynamicConfig.wait_seconds = Number(cfg.wait_seconds) || 15;
         if (cfg.conversion_fee_percent !== undefined) dynamicConfig.conversion_fee_percent = Number(cfg.conversion_fee_percent) || 10;
         if (cfg.review_seconds !== undefined) dynamicConfig.review_seconds = Number(cfg.review_seconds) || 3;
-        if (cfg.cache_ttl_seconds !== undefined) dynamicConfig.cache_ttl_seconds = Number(cfg.cache_ttl_seconds) || 300;
+        dynamicConfig.cache_ttl_seconds = 0;
 
         updateDynamicUIElements();
     }
@@ -140,7 +145,6 @@
         setElText('wait-seconds-display', `${dynamicConfig.wait_seconds}`);
         setElText('review-seconds-display', `${dynamicConfig.review_seconds}`);
 
-        // 🎯 تحديث الكروت الترويجية الرئيسية مباشرة واستبدال أي نص يحتوي على "-- AdZ" بالحد الأدنى الصحيح
         const platformMinMap = {
             'يوتيوب': dynamicConfig.min_reward_youtube,
             'youtube': dynamicConfig.min_reward_youtube,
@@ -159,13 +163,13 @@
             const onclickAttr = card.getAttribute('onclick') || '';
             for (const [platformKey, minVal] of Object.entries(platformMinMap)) {
                 if (onclickAttr.includes(`'${platformKey}'`) || onclickAttr.includes(`"${platformKey}"`)) {
-                    card.innerHTML = card.innerHTML.replace(/الحد الأدنى:\s*--\s*AdZ|--\s*AdZ|AdZ\s*--/gi, `الحد الأدنى: ${minVal} AdZ`);
+                    card.innerHTML = card.innerHTML.replace(/الحد الأدنى:\s*\d*\.?\d*\s*AdZ|الحد الأدنى:\s*--\s*AdZ|--\s*AdZ|AdZ\s*--/gi, `الحد الأدنى: ${minVal} AdZ`);
                 }
             }
         });
     }
 
-    // 🔒 الحصول على الحد الأدنى لمنصة معينة بناءً على الإعدادات الديناميكية
+    // 🔒 الحصول على الحد الأدنى لمنصة معينة
     function getMinRewardForPlatform(platform) {
         switch (platform) {
             case 'موقع':
@@ -183,11 +187,6 @@
         }
     }
 
-    let cachedTasksData = null;
-    let lastTasksFetchTime = 0;
-    const TASKS_CACHE_TTL = 30000;
-
-    // 🎨 حقن تنسيقات تلقائية لحل مشكلة ارتفاع القائمة فوق الكيبورد وتنسيق طبقات النوافذ
     if (!document.getElementById('task-modal-fix-style')) {
         const style = document.createElement('style');
         style.id = 'task-modal-fix-style';
@@ -231,27 +230,6 @@
                 el.style.removeProperty('display');
             });
         });
-    }
-
-    try {
-        const storedCache = sessionStorage.getItem('tasks_cache_data');
-        const storedTime = sessionStorage.getItem('tasks_cache_time');
-        if (storedCache && storedTime) {
-            cachedTasksData = JSON.parse(storedCache);
-            lastTasksFetchTime = parseInt(storedTime, 10) || 0;
-            if (cachedTasksData.config) {
-                updateConfig(cachedTasksData.config);
-            }
-        }
-    } catch (e) {}
-
-    function saveTasksToSessionCache(data) {
-        cachedTasksData = data;
-        lastTasksFetchTime = Date.now();
-        try {
-            sessionStorage.setItem('tasks_cache_data', JSON.stringify(data));
-            sessionStorage.setItem('tasks_cache_time', lastTasksFetchTime.toString());
-        } catch (e) {}
     }
 
     function getUserBalance() {
@@ -388,7 +366,6 @@
         return window.GameState?.userId || window.PlayerData?.userId || window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || "";
     }
 
-    // ⚡ التبديل بين تبويب مركز الأرباح وحملات الترويج
     window.switchTasksTab = function(tab) {
         const earnSection = document.getElementById('section-earn');
         const promoteSection = document.getElementById('section-promote');
@@ -401,15 +378,14 @@
         if (btnEarn) btnEarn.classList.toggle('active', tab === 'earn');
         if (btnPromote) btnPromote.classList.toggle('active', tab === 'promote');
         
-        window.fetchAndRenderTasks(false); 
+        window.fetchAndRenderTasks(true); 
     };
 
-    window.updateTasksUI = function(forceRefresh = false) {
+    window.updateTasksUI = function(forceRefresh = true) {
         if (typeof window.updateGlobalUI === 'function') window.updateGlobalUI();
-        window.fetchAndRenderTasks(forceRefresh);
+        window.fetchAndRenderTasks(true);
     };
 
-    // ⚡ فتح النافذة المنبثقة لإنشاء الحملة مع تحديث الحدود من الفايربيس
     window.openAdModal = function(type) {
         currentAdType = type || 'يوتيوب';
         const modal = document.getElementById('ad-modal');
@@ -463,7 +439,6 @@
         }
     };
 
-    // ⚡ شحن محفظة الإعلانات AdZ مع إظهار نسبة الخصم الديناميكية
     window.convertZnToAdZ = async function() {
         if (isConvertingBalance) return;
 
@@ -513,7 +488,6 @@
 
     window.convertZnToAdZn = window.convertZnToAdZ;
 
-    // ⚡ تقديم ونشر الحملة الإعلانية والتحقق من الحد الأدنى المقبول بحسب نوع المنصة
     window.submitAdCampaign = async function(event) {
         if (event) event.preventDefault();
         if (isSubmittingCampaign) return;
@@ -651,65 +625,55 @@
         window.fetchAndRenderTasks(true);
     };
 
-    // ⚡ جلب قائمة الحملات والمهام المتاحة وقراءة الإعدادات الديناميكية
-    window.fetchAndRenderTasks = async function(forceRefresh = false) {
+    // ⚡ جلب مباشر وبدون كاش من الفايربيس (إضافة timestamp للرابط)
+    window.fetchAndRenderTasks = async function(forceRefresh = true) {
         const container = document.getElementById('tasks-list-container');
         const activeAdsContainer = document.getElementById('active-ads-container');
         let myId = String(getTgId()).trim();
         
         const initData = window.Telegram?.WebApp?.initData || "";
         let realTasks = [];
-        const now = Date.now();
 
-        const cacheTtlMs = (Number(dynamicConfig.cache_ttl_seconds) * 1000) || TASKS_CACHE_TTL;
+        try {
+            const campaignHeaders = {
+                Accept: "application/json"
+            };
 
-        if (!forceRefresh && cachedTasksData && (now - lastTasksFetchTime < cacheTtlMs)) {
-            realTasks = cachedTasksData.campaigns || [];
-            if (cachedTasksData.config) {
-                updateConfig(cachedTasksData.config);
+            if (initData) {
+                campaignHeaders["X-Telegram-Init-Data"] = initData;
+                campaignHeaders["Authorization"] = `Bearer ${initData}`;
             }
-            if (cachedTasksData.ad_balance !== undefined) syncUserAdBalance(cachedTasksData.ad_balance);
-            if (cachedTasksData.balance !== undefined) syncUserBalance(cachedTasksData.balance);
-        } else {
-            try {
-                const campaignHeaders = {
-                    Accept: "application/json"
-                };
 
-                if (initData) {
-                    campaignHeaders["X-Telegram-Init-Data"] = initData;
-                    campaignHeaders["Authorization"] = `Bearer ${initData}`;
-                }
+            // إضافة ?_t=${Date.now()} لمنع المتصفح والسيرفر من إرجاع رد قديم مخزن
+            let response = await fetch(`/api/tasks/get_campaigns?_t=${Date.now()}`, {
+                method: 'GET',
+                headers: campaignHeaders,
+                cache: 'no-store',
+                credentials: 'same-origin'
+            });
 
-                let response = await fetch('/api/tasks/get_campaigns', {
-                    method: 'GET',
-                    headers: campaignHeaders,
-                    cache: 'no-store',
-                    credentials: 'same-origin'
-                });
-                if (response.ok) {
-                    let data = await response.json();
-                    if (data.success) { 
-                        if (data.config) {
-                            updateConfig(data.config);
-                        }
-                        saveTasksToSessionCache(data);
-                        realTasks = data.campaigns || []; 
-                        
-                        if (data.user_id) {
-                            myId = String(data.user_id).trim();
-                            if (window.GameState) window.GameState.userId = myId;
-                            if (window.PlayerData) window.PlayerData.userId = myId;
-                        }
-
-                        if (data.ad_balance !== undefined) syncUserAdBalance(data.ad_balance);
-                        if (data.balance !== undefined) syncUserBalance(data.balance);
+            if (response.ok) {
+                let data = await response.json();
+                if (data.success) { 
+                    if (data.config) {
+                        updateConfig(data.config);
                     }
+                    realTasks = data.campaigns || []; 
+                    
+                    if (data.user_id) {
+                        myId = String(data.user_id).trim();
+                        if (window.GameState) window.GameState.userId = myId;
+                        if (window.PlayerData) window.PlayerData.userId = myId;
+                    }
+
+                    if (data.ad_balance !== undefined) syncUserAdBalance(data.ad_balance);
+                    if (data.balance !== undefined) syncUserBalance(data.balance);
                 }
-            } catch (e) { console.warn("خطأ جلب المهام", e); }
+            }
+        } catch (e) { 
+            console.warn("خطأ جلب المهام", e); 
         }
 
-        // إجبار إضافي لتحديث واجهة الكروت بعد اكتمال جلب البيانات
         updateDynamicUIElements();
 
         if (container) {
@@ -875,7 +839,6 @@
         }
     };
 
-    // ⚡ بدء تنفيذ المهمة وفتح الرابط بمهلة انتظار ديناميكية
     window.startTask = function(taskId, encodedLink, reward) {
         const link = decodeURIComponent(encodedLink || '');
         window.taskStates[taskId] = 'running';
@@ -931,7 +894,6 @@
         }, 1000);
     };
 
-    // ⚡ التحقق من تنفيذ المهمة واستلام المكافأة
     window.verifyTask = async function(taskId, reward) {
         if (isVerifyingTask) return;
         isVerifyingTask = true;
@@ -968,13 +930,6 @@
                     btn.style.boxShadow = 'none';
                 }
 
-                if (cachedTasksData && cachedTasksData.campaigns) {
-                    const item = cachedTasksData.campaigns.find(c => String(c.id) === String(taskId));
-                    if (item) item.is_completed = true;
-                    cachedTasksData.balance = res.new_balance;
-                    saveTasksToSessionCache(cachedTasksData);
-                }
-
                 alert(`🎉 مبروك! تم التحقق بنجاح وإضافة ${reward} ZN إلى رصيدك!`);
             } else {
                 alert(res.error || 'فشل التحقق من تنفيذ المهمة.');
@@ -995,7 +950,6 @@
         }
     };
 
-    // ⚡ إلغاء الحملة الإعلانية واسترداد المتبقي
     window.cancelServerCampaign = async function(taskId) {
         if (isCancelingCampaign) return;
 
@@ -1047,7 +1001,6 @@
         }
     };
 
-    // ⚡ المتابعة الدقيقة للتواجد خارج الشاشة وحساب زمني مرن بناءً على wait_seconds
     document.addEventListener('visibilitychange', () => {
         const isHidden = document.visibilityState === 'hidden';
         const now = Date.now();
@@ -1066,14 +1019,13 @@
         }
     });
 
-    // تنفيذ التحديث الفوري عند تحميل الشاشة
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
             updateDynamicUIElements();
-            window.fetchAndRenderTasks(false);
+            window.fetchAndRenderTasks(true);
         });
     } else {
         updateDynamicUIElements();
-        window.fetchAndRenderTasks(false);
+        window.fetchAndRenderTasks(true);
     }
 })();
