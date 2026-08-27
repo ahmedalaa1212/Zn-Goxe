@@ -46,7 +46,7 @@
   .modal-overlay.active { display: flex; }
   .modal-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 18px; padding: 22px; width: 100%; max-width: 380px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); }
   .modal-title { color: #38bdf8; margin-top: 0; margin-bottom: 12px; font-size: 17px; font-weight: bold; text-align: center; }
-  .modal-subtitle { font-size: 13px; color: #94a3b8; margin-bottom: 16px; text-align: center; }
+  .modal-subtitle { font-size: 13px; color: #94a3b8; margin-bottom: 16px; text-align: center; line-height: 1.5; }
   .modal-buttons { display: flex; gap: 12px; margin-top: 20px; }
   .btn-save { flex: 1; background: #10b981; color: #fff; border: none; padding: 14px; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; }
   .btn-save:active { transform: scale(0.95); }
@@ -110,7 +110,7 @@
   <!-- 1. اختيار العملة وعنوان المحفظة -->
   <div class="w-card">
     <div class="w-title">
-      <span>🪙 اختر عملة السحب</span>
+      <span>🪙 اختر عملة السحب (FaucetPay)</span>
       <span id="rate-status" class="level-badge" style="color:#4ade80;">أسعار لحظية ⚡</span>
     </div>
 
@@ -189,7 +189,7 @@
     </div>
 
     <div class="notice-box notice-info">
-      ℹ️ يتم السحب من 1 دقيقة إلى 48 ساعة ورسوم السحب 3% فقط.
+      ℹ️ <strong>ملاحظة هامة:</strong> النظام يدعم سحوبات منصة <strong>FaucetPay فقط</strong>. يُقبل عنوان المحفظة المربوط بـ FaucetPay أو إيميل الحساب فقط.
     </div>
 
     <button type="button" id="confirm-withdraw-btn" class="btn-submit-withdraw" disabled onclick="withdrawModule.submitWithdrawal(event)">
@@ -211,9 +211,11 @@
   <!-- 4. النافذة المنبثقة (Modal) لإدخال المحفظة -->
   <div id="wallet-modal" class="modal-overlay">
     <div class="modal-card">
-      <div class="modal-title">🔗 ربط المحفظة</div>
-      <div class="modal-subtitle">سيتم السحب على شبكة: <strong id="modal-coin-label" style="color: #fbbf24;">DOGE</strong></div>
-      <input type="text" id="modal-wallet-input" class="w-input" placeholder="أدخل عنوان المحفظة أو البريد الإلكتروني" />
+      <div class="modal-title">🔗 ربط محفظة FaucetPay</div>
+      <div class="modal-subtitle">
+        أدخل عنوان عملة <strong id="modal-coin-label" style="color: #fbbf24;">DOGE</strong> المربوط بحسابك في <strong>FaucetPay</strong> (أو البريد الإلكتروني للحساب):
+      </div>
+      <input type="text" id="modal-wallet-input" class="w-input" placeholder="أدخل عنوان FaucetPay الخاص بـ DOGE" />
       <div class="modal-buttons">
         <button type="button" class="btn-save" onclick="withdrawModule.saveWalletAddress()">حفظ</button>
         <button type="button" class="btn-cancel" onclick="withdrawModule.closeWalletModal()">إلغاء</button>
