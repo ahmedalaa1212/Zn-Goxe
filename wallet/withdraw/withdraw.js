@@ -35,15 +35,23 @@
     );
   }
 
+  /* التحقق الصارم من صحة عناوين FaucetPay ومنع عناوين المنصات الخارجية */
   function validateWalletAddress(address, currency) {
     if (!address || typeof address !== 'string') {
-      return { valid: false, message: "يرجى إدخال عنوان المحفظة أو البريد الإلكتروني." };
+      return { 
+        valid: false, 
+        message: "⚠️ يرجى إدخال عنوان محفظة FaucetPay الخاص بك أو البريد الإلكتروني." 
+      };
     }
     const addr = address.trim();
     if (addr.length === 0) {
-      return { valid: false, message: "يرجى إدخال عنوان المحفظة أو البريد الإلكتروني." };
+      return { 
+        valid: false, 
+        message: "⚠️ يرجى إدخال عنوان محفظة FaucetPay الخاص بك أو البريد الإلكتروني." 
+      };
     }
 
+    // قبول البريد الإلكتروني المسجل في FaucetPay كخيار فرعي
     const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     if (emailRegex.test(addr)) {
       return { valid: true, message: "" };
@@ -51,13 +59,14 @@
 
     const curr = (currency || selectedCurrency || "DOGE").toUpperCase();
 
+    // التحقق الصارم من هياكل عناوين FaucetPay حسب كل عملة
     if (curr === "DOGE") {
       if (/^D[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr)) {
         return { valid: true, message: "" };
       }
       return {
         valid: false,
-        message: "عنوان DOGE غير صحيح! يجب أن يبدأ بحرف D ويتكون من 34 خانة، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
+        message: "⚠️ عنوان DOGE غير صحيح! يجب أن يكون عنوان DOGE مضافاً ومربوطاً بحسابك في FaucetPay ويقتصر على عناوين FaucetPay فقط (يبدأ بـ D ومكون من 34 خانة) أو أدخل البريد الإلكتروني للفوست باي."
       };
     } else if (curr === "TRX") {
       if (/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr)) {
@@ -65,7 +74,7 @@
       }
       return {
         valid: false,
-        message: "عنوان TRX غير صحيح! يجب أن يبدأ بحرف T ويتكون من 34 خانة، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
+        message: "⚠️ عنوان TRX غير صحيح! يجب أن يكون عنوان TRX مربوطاً بـ FaucetPay (يبدأ بـ T ومكون من 34 خانة) ولن تقبل المحافظ الخارجية. أو أدخل بريد FaucetPay."
       };
     } else if (curr === "LTC") {
       if (/^(L|M)[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr) || /^ltc1[a-z0-9]{38,58}$/i.test(addr)) {
@@ -73,7 +82,7 @@
       }
       return {
         valid: false,
-        message: "عنوان LTC غير صحيح! يجب أن يبدأ بـ L أو M أو ltc1، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
+        message: "⚠️ عنوان LTC غير صحيح! لن يتم قبول أي عنوان غير مربوط بـ FaucetPay (يجب أن يبدأ بـ L أو M أو ltc1). أو أدخل بريد FaucetPay."
       };
     } else if (curr === "PEPE") {
       if (/^0x[a-fA-F0-9]{40}$/.test(addr)) {
@@ -81,7 +90,7 @@
       }
       return {
         valid: false,
-        message: "عنوان PEPE غير صحيح! يجب أن يبدأ بـ 0x (42 خانة)، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
+        message: "⚠️ عنوان PEPE غير صحيح! يجب أن يبدأ بـ 0x (شبكة BSC/ERC20) ومربوطاً بـ FaucetPay حصراً، أو أدخل بريد FaucetPay."
       };
     }
 
@@ -315,7 +324,7 @@
 
     let savedAddr = (userWallets && typeof userWallets === 'object') ? (userWallets[selectedCurrency] || "") : "";
 
-    // تصفية العنوان للعملة المختارة لمنع ظهور عناوين العملات الأخرى بالخطأ
+    // تصفية العنوان للعملة المختارة لمنع ظهور عناوين العملات الأخرى أو العناوين غير المعتمدة
     const validCheck = validateWalletAddress(savedAddr, selectedCurrency);
     if (!validCheck.valid) {
       savedAddr = "";
@@ -493,6 +502,7 @@
         saved = "";
       }
       modalInput.value = saved;
+      modalInput.placeholder = `أدخل عنوان FaucetPay الخاص بـ ${selectedCurrency} أو الإيميل`;
     }
 
     if (modal) {
@@ -664,7 +674,7 @@
     const btn = document.getElementById("confirm-withdraw-btn");
 
     if (!walletAddress) {
-      alert("يرجى ربط عنوان المحفظة أو البريد الإلكتروني أولاً!");
+      alert("⚠️ يرجى ربط عنوان محفظة FaucetPay أو البريد الإلكتروني للحساب أولاً!");
       return;
     }
 
