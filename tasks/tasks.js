@@ -8,6 +8,7 @@
     try {
         sessionStorage.removeItem('tasks_cache_data');
         sessionStorage.removeItem('tasks_cache_time');
+        sessionStorage.clear();
     } catch (e) {}
 
     // 🛡️ مراقب حارس فوري لحظر أي كلمة AdZN أو AdZn وتحويلها إلى AdZ
@@ -48,7 +49,7 @@
         startAdZnEnforcer();
     }
 
-    // 🛡️ دالة الحماية للتأكد من وجود دالة fetchAPI للاتصال بالخادم دائماً
+    // 🛡️ دالة الحماية للتأكد من وجود دالة fetchAPI للاتصال بالخادم بدون كاش
     if (typeof window.fetchAPI !== 'function') {
         window.fetchAPI = async function(url, method = 'GET', data = null) {
             const initData = window.Telegram?.WebApp?.initData || "";
@@ -60,6 +61,8 @@
                 headers["X-Telegram-Init-Data"] = initData;
                 headers["Authorization"] = `Bearer ${initData}`;
             }
+
+            const cacheBustUrl = url.includes('?') ? `${url}&_t=${Date.now()}` : `${url}?_t=${Date.now()}`;
 
             const options = {
                 method: method,
@@ -73,7 +76,7 @@
                 options.body = JSON.stringify(data);
             }
 
-            const response = await fetch(url, options);
+            const response = await fetch(cacheBustUrl, options);
             let result = {};
             try {
                 result = await response.json();
@@ -89,7 +92,7 @@
         };
     }
 
-    // ⚙️ كائن الإعدادات الديناميكية
+    // ⚙️ كائن الإعدادات الديناميكية الافتراضي
     let dynamicConfig = {
         min_reward_website: 15.0,
         min_reward_default: 10.0,
@@ -103,7 +106,7 @@
         cache_ttl_seconds: 0
     };
 
-    // 🔄 تحديث كائن الإعدادات الديناميكية بأمان من الفايربيس
+    // 🔄 تحديث كائن الإعدادات الديناميكية فوراً من بيانات السيرفر
     function updateConfig(configObj) {
         if (!configObj) return;
 
@@ -624,7 +627,7 @@
         window.fetchAndRenderTasks(true);
     };
 
-    // ⚡ جلب مباشر وبدون كاش من الفايربيس (إضافة timestamp للرابط)
+    // ⚡ جلب مباشر وحي وبدون كاش إطلاقاً من الفايربيس والسيرفر
     window.fetchAndRenderTasks = async function(forceRefresh = true) {
         const container = document.getElementById('tasks-list-container');
         const activeAdsContainer = document.getElementById('active-ads-container');
