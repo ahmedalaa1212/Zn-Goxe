@@ -33,8 +33,8 @@ DEFAULT_TASKS_CONFIG = {
 
 def get_tasks_config_from_db():
     """
-    جلب إعدادات المهام والحدود الأدنى والعمولات من كولكشن app_settings 
-    تحديداً من مستند settings وحقل الخريطة (Map) باسم task مع تفعيل الكاش في الذاكرة.
+    جلب إعدادات المهام من كولكشن app_settings ومستند settings داخل حقل task.
+    في حال عدم وجود الحقل أو المستند في الفايربيس، يتم إنشاؤه وكتابته تلقائياً فوراً.
     """
     global _TASKS_CONFIG_CACHE, _TASKS_CONFIG_CACHE_TIME
     now = time.time()
@@ -50,30 +50,50 @@ def get_tasks_config_from_db():
     try:
         doc_ref = firestore_db.collection('app_settings').document('settings')
         doc = doc_ref.get()
+        
+        should_update_db = False
+        task_map = {}
+
         if doc.exists:
             doc_data = doc.to_dict() or {}
-            task_map = doc_data.get('task', {}) or {}
-            
-            # الدمج مع القيم الافتراضية للتحقق الآمن من الأنواع
-            _TASKS_CONFIG_CACHE = {
-                "min_reward_website": float(task_map.get('min_reward_website', DEFAULT_TASKS_CONFIG["min_reward_website"])),
-                "min_reward_default": float(task_map.get('min_reward_default', DEFAULT_TASKS_CONFIG["min_reward_default"])),
-                "min_reward_youtube": float(task_map.get('min_reward_youtube', DEFAULT_TASKS_CONFIG["min_reward_youtube"])),
-                "min_reward_telegram": float(task_map.get('min_reward_telegram', DEFAULT_TASKS_CONFIG["min_reward_telegram"])),
-                "min_reward_instagram": float(task_map.get('min_reward_instagram', DEFAULT_TASKS_CONFIG["min_reward_instagram"])),
-                "min_reward_x": float(task_map.get('min_reward_x', DEFAULT_TASKS_CONFIG["min_reward_x"])),
-                "wait_seconds": int(task_map.get('wait_seconds', DEFAULT_TASKS_CONFIG["wait_seconds"])),
-                "conversion_fee_percent": float(task_map.get('conversion_fee_percent', DEFAULT_TASKS_CONFIG["conversion_fee_percent"])),
-                "review_seconds": int(task_map.get('review_seconds', DEFAULT_TASKS_CONFIG["review_seconds"])),
-                "cache_ttl_seconds": int(task_map.get('cache_ttl_seconds', DEFAULT_TASKS_CONFIG["cache_ttl_seconds"]))
-            }
+            if 'task' not in doc_data or not isinstance(doc_data.get('task'), dict):
+                # حقل task غير موجود بالكامل داخل settings
+                task_map = DEFAULT_TASKS_CONFIG.copy()
+                should_update_db = True
+            else:
+                task_map = doc_data.get('task', {})
+                # التحقق من وجود جميع المفاتيح وتعبئة أي مفتاح مفقود
+                for key, default_val in DEFAULT_TASKS_CONFIG.items():
+                    if key not in task_map:
+                        task_map[key] = default_val
+                        should_update_db = True
         else:
-            _TASKS_CONFIG_CACHE = DEFAULT_TASKS_CONFIG.copy()
+            # المستند settings غير موجود إطلاقاً
+            task_map = DEFAULT_TASKS_CONFIG.copy()
+            should_update_db = True
+
+        # إنشاء أو تحديث حقل task في الفايربيس تلقائياً في حال كان مفقوداً
+        if should_update_db:
+            doc_ref.set({'task': task_map}, merge=True)
+
+        # تحويل البيانات واستخراج القيم بأمان
+        _TASKS_CONFIG_CACHE = {
+            "min_reward_website": float(task_map.get('min_reward_website', DEFAULT_TASKS_CONFIG["min_reward_website"])),
+            "min_reward_default": float(task_map.get('min_reward_default', DEFAULT_TASKS_CONFIG["min_reward_default"])),
+            "min_reward_youtube": float(task_map.get('min_reward_youtube', DEFAULT_TASKS_CONFIG["min_reward_youtube"])),
+            "min_reward_telegram": float(task_map.get('min_reward_telegram', DEFAULT_TASKS_CONFIG["min_reward_telegram"])),
+            "min_reward_instagram": float(task_map.get('min_reward_instagram', DEFAULT_TASKS_CONFIG["min_reward_instagram"])),
+            "min_reward_x": float(task_map.get('min_reward_x', DEFAULT_TASKS_CONFIG["min_reward_x"])),
+            "wait_seconds": int(task_map.get('wait_seconds', DEFAULT_TASKS_CONFIG["wait_seconds"])),
+            "conversion_fee_percent": float(task_map.get('conversion_fee_percent', DEFAULT_TASKS_CONFIG["conversion_fee_percent"])),
+            "review_seconds": int(task_map.get('review_seconds', DEFAULT_TASKS_CONFIG["review_seconds"])),
+            "cache_ttl_seconds": int(task_map.get('cache_ttl_seconds', DEFAULT_TASKS_CONFIG["cache_ttl_seconds"]))
+        }
 
         _TASKS_CONFIG_CACHE_TIME = now
         return _TASKS_CONFIG_CACHE
     except Exception as e:
-        print(f"[CONFIG ERROR] Error fetching settings/task from Firestore: {e}")
+        print(f"[CONFIG ERROR] Error fetching/creating settings/task in Firestore: {e}")
         if _TASKS_CONFIG_CACHE is not None:
             return _TASKS_CONFIG_CACHE
         return DEFAULT_TASKS_CONFIG.copy()
@@ -238,7 +258,7 @@ def get_campaigns():
         c_copy['is_completed'] = is_task_completed_by_user(c, user_completed_data)
         result_campaigns.append(c_copy)
 
-    # جلب الإعدادات الديناميكية كاملة لتوصيلها للفرونت إند
+    # جلب أو إنشاء الإعدادات الديناميكية من الفايربيس فوراً
     config = get_tasks_config_from_db()
 
     return jsonify({
