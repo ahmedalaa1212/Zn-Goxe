@@ -17,7 +17,7 @@ def to_bool(val):
 _SETTINGS_CACHE = {"data": None, "timestamp": 0}
 CACHE_TTL_SECONDS = 15
 
-# ==================== الإعدادات الافتراضية الاقتصادية الجديدة ====================
+# ==================== الإعدادات الافتراضية الاقتصادية ====================
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
         5, 10, 15, 20, 25, 30, 40, 45, 50, 60,
@@ -59,7 +59,7 @@ DEFAULT_GAME_SETTINGS = {
 
 
 def create_default_user_data_dict(user_id_str, game_settings, now_dt):
-    """إنشاء الهيكل الافتراضي لبيانات المستخدم بالتوقيت العالمي UTC"""
+    """إنشاء الهيكل الافتراضي لبيانات المستخدم بالتوقيت العالمي UTC وضبط last_claim_ad_date بـ None للحسابات الجديدة/المحذوفة"""
     mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
     base_free_rate = float(mining_cfg.get("base_free_rate", 0.05))
     base_cap = get_base_storage_capacity(0, game_settings)
@@ -83,7 +83,7 @@ def create_default_user_data_dict(user_id_str, game_settings, now_dt):
         "last_claim_time": now_iso,
         "last_daily_claim_date": None,
         "last_boost_date": None,
-        "last_claim_ad_date": None,
+        "last_claim_ad_date": None,  # تعيين تلقائي لـ None لإجبار إظهار الإعلان في أول ضغطة
         "ads_watched": 0,
         "upgrades": {},
         "upgrades_count": 0,
@@ -119,7 +119,7 @@ def get_game_settings(force_refresh=False):
 
 
 def parse_daily_rewards(rewards_data):
-    """تحليل قائمة المكافآت اليومية (30 يوم) بأمان"""
+    """تحليل قائمة المكافآت اليومية بأمان"""
     if isinstance(rewards_data, list) and len(rewards_data) > 0:
         return [int(x) for x in rewards_data]
     if isinstance(rewards_data, dict):
@@ -200,7 +200,7 @@ def dismiss_welcome_db(user_id_str):
 
 
 def get_or_create_user_farm_data(user_id_str):
-    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة بأقل استهلاك للقراءة والكتابة مع دعم التوقيت العالمي UTC"""
+    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة مع ضمان استرجاع last_claim_ad_date"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     user_doc = user_ref.get()
@@ -256,7 +256,6 @@ def get_or_create_user_farm_data(user_id_str):
     user_data["total_mined"] = user_data["mined_points"]
     user_data["unclaimed"] = calculate_accrued_mined(user_data, now, expected_max_cap)
     
-    # تحديد صارم لخاصية welcome_seen و is_new_user
     is_welcome_seen = to_bool(user_data.get("welcome_seen", False))
     user_data["welcome_seen"] = is_welcome_seen
     user_data["is_new_user"] = not is_welcome_seen
@@ -280,7 +279,7 @@ def get_or_create_user_farm_data(user_id_str):
 
 
 def claim_mined_tokens_db(user_id_str):
-    """تجميع الرصيد المعدن وتحديث إجمالي النقاط المجمعة من التعدين لكل مستخدم"""
+    """تجميع الرصيد المعدن وتحديث تاريخ الإعلان last_claim_ad_date بصيغة YYYY-MM-DD UTC آمنة داخل معاملة Firestore"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -326,6 +325,7 @@ def claim_mined_tokens_db(user_id_str):
         new_mined_points = round(current_mined_points + mined_amount, 4)
         now_iso = now.isoformat()
 
+        # تحديث التاريخ بالتوقيت العالمي وحفظ المعاملة لضمان عدم ثغرات التكرار
         transaction.update(ref, {
             "balance": new_balance,
             "mined_points": new_mined_points,
@@ -493,7 +493,7 @@ def buy_upgrade_db(user_id_str, level):
 
 
 def buy_storage_db(user_id_str):
-    """شراء ترقية سعة التخزين للمستوى التالي مع إعادة التهيئة للتوقيت العالمي إن لزم الأمر"""
+    """شراء ترقية سعة التخزين للمستوى التالي"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -769,7 +769,6 @@ def get_mining_leaderboard_db(limit=10):
         data = doc.to_dict() or {}
         name = data.get("first_name") or data.get("name") or data.get("username") or f"المستخدم {str(doc.id)[:4]}"
         
-        # قراءة نقاط التعدين فقط دون الاستعانة بالرصيد العادي balance
         mined_val = data.get("mined_points")
         if mined_val is None:
             mined_val = data.get("total_mined", 0.0)
@@ -790,7 +789,6 @@ def get_mining_leaderboard_db(limit=10):
 
     leaderboard.sort(key=lambda x: x['mined_points'], reverse=True)
     
-    # إضافة الترتيب
     final_lb = []
     for rank, item in enumerate(leaderboard[:limit], start=1):
         item["rank"] = rank
