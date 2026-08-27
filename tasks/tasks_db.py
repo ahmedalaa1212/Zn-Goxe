@@ -23,7 +23,7 @@ DEFAULT_TASK_CONFIG = {
 def get_tasks_config():
     """
     جلب الإعدادات من كولكشن app_settings -> مستند settings -> حقل task (Map).
-    في حال عدم وجود المستند أو الحقل، يتم إنشاؤه تلقائياً في الفايربيس بالقيم الافتراضية.
+    يقوم بإنشاء الكولكشن والمستند والحقل تلقائياً في الفايربيس فوراً إذا لم تكن موجودة.
     """
     global _CONFIG_CACHE, _CONFIG_CACHE_TIME
     now = datetime.now(timezone.utc).timestamp()
@@ -40,15 +40,15 @@ def get_tasks_config():
         if doc.exists:
             data = doc.to_dict() or {}
             task_map = data.get("task")
-            if task_map and isinstance(task_map, dict):
+            if isinstance(task_map, dict) and task_map:
                 config = {**DEFAULT_TASK_CONFIG, **task_map}
             else:
-                # المستند موجود ولكن حقل task غير موجود -> إنشاؤه تلقائياً
+                # المستند موجود ولكن حقل task غير موجود -> إنشاؤه وكتابته فوراً
                 doc_ref.set({"task": DEFAULT_TASK_CONFIG}, merge=True)
                 config = DEFAULT_TASK_CONFIG.copy()
         else:
-            # المستند غير موجود نهائياً -> إنشاؤه تلقائياً بالكامل
-            doc_ref.set({"task": DEFAULT_TASK_CONFIG})
+            # المستند والكولكشن غير موجودين نهائياً -> إنشاؤهما في القاعدة فوراً
+            doc_ref.set({"task": DEFAULT_TASK_CONFIG}, merge=True)
             config = DEFAULT_TASK_CONFIG.copy()
 
         _CONFIG_CACHE = config
@@ -113,8 +113,11 @@ def is_task_completed_by_user(task_id: str, platform: str, user_completed_map: d
 # ==================== العمليات والاستعلامات ====================
 
 def get_active_campaigns(tg_id):
-    """جلب قائمة المهمات النشطة مراعياً شرط التجديد اليومي بـ UTC لمهام المواقع"""
+    """جلب قائمة المهمات النشطة مراعياً شرط التجديد اليومي بـ UTC وإجبار إنشاء مستند الإعدادات"""
     try:
+        # استدعاء دالة الإعدادات هنا يضمن إنشاء الكولكشن والمستند فوراً في الفايربيس عند فتح المهام
+        _ = get_tasks_config()
+
         db = database.get_db()
         tg_id_str = str(tg_id).strip()
         
