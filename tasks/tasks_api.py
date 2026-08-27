@@ -16,58 +16,93 @@ tasks_bp = Blueprint('tasks', __name__)
 # ==================== الإعدادات والكاش الديناميكي ====================
 _TASKS_CONFIG_CACHE = None
 _TASKS_CONFIG_CACHE_TIME = 0
-TASKS_CONFIG_CACHE_TTL = 300  # كاش إعدادات المهام لمدة 5 دقائق لتوفير قراءات Firestore
+DEFAULT_CACHE_TTL = 300  # كاش افتراضي إعدادات المهام لمدة 5 دقائق
 
 DEFAULT_TASKS_CONFIG = {
-    "min_rewards": {
-        "موقع": 15.0,
-        "default": 10.0
-    }
+    "min_reward_website": 15.0,
+    "min_reward_default": 10.0,
+    "min_reward_youtube": 10.0,
+    "min_reward_telegram": 10.0,
+    "min_reward_instagram": 10.0,
+    "min_reward_x": 10.0,
+    "wait_seconds": 15,
+    "conversion_fee_percent": 10.0,
+    "review_seconds": 3,
+    "cache_ttl_seconds": 300
 }
 
 def get_tasks_config_from_db():
     """
-    جلب إعدادات المهام والحدود الأدنى من مستند tasks_config في كولكشن app_settings مع تفعيل الكاش في الذاكرة.
+    جلب إعدادات المهام والحدود الأدنى والعمولات من كولكشن app_settings 
+    تحديداً من مستند settings وحقل الخريطة (Map) باسم task مع تفعيل الكاش في الذاكرة.
     """
     global _TASKS_CONFIG_CACHE, _TASKS_CONFIG_CACHE_TIME
     now = time.time()
-    if _TASKS_CONFIG_CACHE is not None and (now - _TASKS_CONFIG_CACHE_TIME) < TASKS_CONFIG_CACHE_TTL:
+    
+    # تحديد مدة الكاش ديناميكياً إذا كانت متوفرة سلفاً
+    cache_ttl = DEFAULT_CACHE_TTL
+    if _TASKS_CONFIG_CACHE and isinstance(_TASKS_CONFIG_CACHE, dict):
+        cache_ttl = float(_TASKS_CONFIG_CACHE.get('cache_ttl_seconds', DEFAULT_CACHE_TTL))
+
+    if _TASKS_CONFIG_CACHE is not None and (now - _TASKS_CONFIG_CACHE_TIME) < cache_ttl:
         return _TASKS_CONFIG_CACHE
 
     try:
-        doc_ref = firestore_db.collection('app_settings').document('tasks_config')
+        doc_ref = firestore_db.collection('app_settings').document('settings')
         doc = doc_ref.get()
         if doc.exists:
-            cfg = doc.to_dict() or {}
-            min_rewards = cfg.get('min_rewards', {})
+            doc_data = doc.to_dict() or {}
+            task_map = doc_data.get('task', {}) or {}
+            
+            # الدمج مع القيم الافتراضية للتحقق الآمن من الأنواع
             _TASKS_CONFIG_CACHE = {
-                "min_rewards": {
-                    "موقع": float(min_rewards.get('موقع', 15.0)),
-                    "default": float(min_rewards.get('default', 10.0))
-                }
+                "min_reward_website": float(task_map.get('min_reward_website', DEFAULT_TASKS_CONFIG["min_reward_website"])),
+                "min_reward_default": float(task_map.get('min_reward_default', DEFAULT_TASKS_CONFIG["min_reward_default"])),
+                "min_reward_youtube": float(task_map.get('min_reward_youtube', DEFAULT_TASKS_CONFIG["min_reward_youtube"])),
+                "min_reward_telegram": float(task_map.get('min_reward_telegram', DEFAULT_TASKS_CONFIG["min_reward_telegram"])),
+                "min_reward_instagram": float(task_map.get('min_reward_instagram', DEFAULT_TASKS_CONFIG["min_reward_instagram"])),
+                "min_reward_x": float(task_map.get('min_reward_x', DEFAULT_TASKS_CONFIG["min_reward_x"])),
+                "wait_seconds": int(task_map.get('wait_seconds', DEFAULT_TASKS_CONFIG["wait_seconds"])),
+                "conversion_fee_percent": float(task_map.get('conversion_fee_percent', DEFAULT_TASKS_CONFIG["conversion_fee_percent"])),
+                "review_seconds": int(task_map.get('review_seconds', DEFAULT_TASKS_CONFIG["review_seconds"])),
+                "cache_ttl_seconds": int(task_map.get('cache_ttl_seconds', DEFAULT_TASKS_CONFIG["cache_ttl_seconds"]))
             }
         else:
-            _TASKS_CONFIG_CACHE = DEFAULT_TASKS_CONFIG
+            _TASKS_CONFIG_CACHE = DEFAULT_TASKS_CONFIG.copy()
+
         _TASKS_CONFIG_CACHE_TIME = now
         return _TASKS_CONFIG_CACHE
     except Exception as e:
-        print(f"[CONFIG ERROR] Error fetching tasks_config from Firestore: {e}")
+        print(f"[CONFIG ERROR] Error fetching settings/task from Firestore: {e}")
         if _TASKS_CONFIG_CACHE is not None:
             return _TASKS_CONFIG_CACHE
-        return DEFAULT_TASKS_CONFIG
+        return DEFAULT_TASKS_CONFIG.copy()
 
 def get_min_reward_for_platform(platform: str) -> float:
     """
-    تحديد الحد الأدنى للمكافأة حسب نوع المنصة بناءً على الإعدادات الديناميكية:
-    - زيارة موقع وفحص آمن: 15 AdZ (افتراضي)
-    - باقي المنصات (يوتيوب، تيليجرام، انستغرام، منصة X): 10 AdZ (افتراضي)
+    تحديد الحد الأدنى للمكافأة حسب نوع المنصة بناءً على الإعدادات الديناميكية من حقل task:
+    - موقع: min_reward_website
+    - يوتيوب: min_reward_youtube
+    - تيليجرام: min_reward_telegram
+    - انستغرام: min_reward_instagram
+    - منصة X: min_reward_x
+    - أخرى / افتراضي: min_reward_default
     """
     config = get_tasks_config_from_db()
-    min_rewards = config.get('min_rewards', {})
-    platform_clean = str(platform).strip()
-    if platform_clean in min_rewards:
-        return float(min_rewards[platform_clean])
-    return float(min_rewards.get('default', 10.0))
+    platform_clean = str(platform).strip().lower()
+
+    if platform_clean in ['موقع', 'website']:
+        return float(config.get('min_reward_website', 15.0))
+    elif platform_clean in ['يوتيوب', 'youtube']:
+        return float(config.get('min_reward_youtube', 10.0))
+    elif platform_clean in ['تيليجرام', 'telegram']:
+        return float(config.get('min_reward_telegram', 10.0))
+    elif platform_clean in ['انستغرام', 'instagram']:
+        return float(config.get('min_reward_instagram', 10.0))
+    elif platform_clean in ['x', 'twitter', 'منصة x']:
+        return float(config.get('min_reward_x', 10.0))
+    else:
+        return float(config.get('min_reward_default', 10.0))
 
 # 🚫 قائمة الكلمات المحظورة للمواقع والإعلانات المخالفة لحماية البوت من الحظر
 FORBIDDEN_KEYWORDS = [
@@ -114,43 +149,46 @@ def invalidate_campaigns_cache():
 def is_task_completed_by_user(task, user_completed_data):
     """
     التحقق الآمن من إكمال المستخدم للمهمة،
-    مع دعم إعادة فتح مهام زيارة المواقع يومياً.
+    مع دعم إعادة فتح مهام زيارة المواقع يومياً بمجرد دخول يوم جديد بالتوقيت العالمي UTC (00:00 UTC).
     """
     task_id = str(task.get('id', '')).strip()
-    platform = str(task.get('platform', '')).strip()
+    platform = str(task.get('platform', '')).strip().lower()
+    is_website_task = platform in ['موقع', 'website']
     
     if not user_completed_data or not task_id:
         return False
 
-    today_str = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
+    today_utc_str = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
 
+    # التعامل مع هيكل القائمة (مُدخلات قديمة)
     if isinstance(user_completed_data, list):
         if task_id not in user_completed_data:
             return False
-        if platform == 'موقع':
-            return False
+        if is_website_task:
+            return False  # إعادة الفتح اليومي
         return True
 
+    # التعامل مع الهيكل الموصى به (Map/Dict)
     if isinstance(user_completed_data, dict):
         if task_id not in user_completed_data:
             return False
 
         record = user_completed_data[task_id]
         
-        if platform == 'موقع':
+        if is_website_task:
             if isinstance(record, str):
-                return record == today_str
+                return record == today_utc_str
             elif isinstance(record, dict):
                 task_date = record.get('date')
                 if task_date:
-                    return task_date == today_str
+                    return str(task_date) == today_utc_str
                 ts = record.get('timestamp')
                 if ts:
-                    task_dt = datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).strftime('%Y-%m-%d')
-                    return task_dt == today_str
+                    task_dt = datetime.datetime.fromtimestamp(float(ts), datetime.timezone.utc).strftime('%Y-%m-%d')
+                    return task_dt == today_utc_str
             elif isinstance(record, (int, float)):
-                task_dt = datetime.datetime.fromtimestamp(record, datetime.timezone.utc).strftime('%Y-%m-%d')
-                return task_dt == today_str
+                task_dt = datetime.datetime.fromtimestamp(float(record), datetime.timezone.utc).strftime('%Y-%m-%d')
+                return task_dt == today_utc_str
             return False
         else:
             return True
@@ -200,7 +238,7 @@ def get_campaigns():
         c_copy['is_completed'] = is_task_completed_by_user(c, user_completed_data)
         result_campaigns.append(c_copy)
 
-    # جلب الإعدادات الديناميكية وتوصيلها للفرونت إند
+    # جلب الإعدادات الديناميكية كاملة لتوصيلها للفرونت إند
     config = get_tasks_config_from_db()
 
     return jsonify({
@@ -215,7 +253,7 @@ def get_campaigns():
 
 @tasks_bp.route('/create_campaign', methods=['POST'])
 def create_campaign():
-    """إنشاء حملة إعلانية جديدة وتخصيص الميزانية لها بناءً على الحدود الأدنى الديناميكية"""
+    """إنشاء حملة إعلانية جديدة وتخصيص الميزانية لها بناءً على الحدود الأدنى الديناميكية للمنصات"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -256,6 +294,7 @@ def create_campaign():
     except (ValueError, TypeError):
         return jsonify({"success": False, "error": "قيم الكلفة والأعضاء غير صحيحة"}), 400
 
+    # جلب الحد الأدنى للمكافأة حسب المنصة ديناميكياً من الفايربيس
     min_reward = get_min_reward_for_platform(platform)
     min_val_str = f"{int(min_reward)}" if min_reward.is_integer() else f"{min_reward}"
 
@@ -331,7 +370,7 @@ def create_campaign():
 
 @tasks_bp.route('/complete_task', methods=['POST'])
 def complete_task():
-    """تأكيد إكمال المهمة إضافة المكافأة إلى رصيد المستخدم بشكل آمن"""
+    """تأكيد إكمال المهمة إضافة المكافأة إلى رصيد المستخدم بشكل آمن وتسجيل تاريخ UTC"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -368,7 +407,8 @@ def complete_task():
         user_completed_map = completed_snapshot.to_dict() if completed_snapshot.exists else {}
 
         if is_task_completed_by_user(target_campaign, user_completed_map):
-            if target_campaign.get('platform') == 'موقع':
+            platform_clean = str(target_campaign.get('platform', '')).strip().lower()
+            if platform_clean in ['موقع', 'website']:
                 raise ValueError("لقد قمت بزيارة هذا الموقع اليوم، يمكنك زيارته غداً مجدداً!")
             else:
                 raise ValueError("لقد قمت بإكمال هذه المهمة مسبقاً")
@@ -487,7 +527,7 @@ def cancel_campaign():
 @tasks_bp.route('/convert_adzn', methods=['POST'])
 @tasks_bp.route('/convert_balance', methods=['POST'])
 def convert_adzn():
-    """تحويل الرصيد العادي (ZN) إلى رصيد إعلانات (ad_balance) مع خصم عمولة 10%"""
+    """تحويل الرصيد العادي (ZN) إلى رصيد إعلانات (ad_balance) مع خصم عمولة ديناميكية محددة بالفايربيس"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -501,6 +541,10 @@ def convert_adzn():
 
     if amount <= 0:
         return jsonify({"success": False, "error": "المبلغ يجب أن يكون أكبر من صفر"}), 400
+
+    # جلب نسبة العمولة الديناميكية من الفايربيس (افتراضي 10%)
+    config = get_tasks_config_from_db()
+    fee_percent = float(config.get('conversion_fee_percent', 10.0))
 
     @firestore.transactional
     def run_convert_transaction(transaction):
@@ -517,7 +561,7 @@ def convert_adzn():
         if current_balance < amount:
             raise ValueError("رصيد ZN الحالي غير كافٍ لهذا التحويل")
 
-        fee = amount * 0.10
+        fee = amount * (fee_percent / 100.0)
         received = amount - fee
 
         new_balance = current_balance - amount
@@ -528,16 +572,17 @@ def convert_adzn():
             'ad_balance': new_ad_balance
         })
 
-        return received, fee, new_balance, new_ad_balance
+        return received, fee, fee_percent, new_balance, new_ad_balance
 
     try:
         transaction = firestore_db.transaction()
-        received, fee, new_balance, new_ad_balance = run_convert_transaction(transaction)
+        received, fee, fee_percent, new_balance, new_ad_balance = run_convert_transaction(transaction)
 
         return jsonify({
             "success": True,
             "received": received,
             "fee": fee,
+            "fee_percent": fee_percent,
             "new_balance": new_balance,
             "new_ad_balance": new_ad_balance,
             "message": "تم تحويل الرصيد بنجاح"
