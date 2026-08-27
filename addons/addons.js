@@ -1,5 +1,14 @@
 // ==================== قسم الإضافات - Addons Module ====================
 
+function getAddonsAuthHeaders() {
+    const initData = window.Telegram?.WebApp?.initData || "";
+    return {
+        'Content-Type': 'application/json',
+        'X-Telegram-Init-Data': initData,
+        'Authorization': `Bearer ${initData}`
+    };
+}
+
 async function loadAddonsSection(btnElement) {
     if (btnElement) {
         document.querySelectorAll('.sidebar button').forEach(b => b.classList.remove('active'));
@@ -9,13 +18,11 @@ async function loadAddonsSection(btnElement) {
     const contentArea = document.getElementById('contentArea');
     
     try {
-        // تحميل واجهة HTML الخاصة بقسم الإضافات ديناميكياً
         const response = await fetch('addons/addons.html');
         if (!response.ok) throw new Error("تعذر تحميل ملف addons.html");
         const htmlContent = await response.text();
         contentArea.innerHTML = htmlContent;
 
-        // جلب وقراءة الأكواد الحالية
         await fetchAndRenderPromoCodes();
     } catch (err) {
         console.error("خطأ تحميل قسم الإضافات:", err);
@@ -38,11 +45,11 @@ async function submitCreatePromoCode() {
     try {
         const res = await fetch('/api/admin/promo/create', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAddonsAuthHeaders(),
             body: JSON.stringify({ code, coins, duration_val, duration_type, max_uses })
         });
         const data = await res.json();
-        alert(data.message);
+        alert(data.message || data.error);
         if (data.success) {
             document.getElementById('promo_code_input').value = '';
             document.getElementById('promo_coins_input').value = '';
@@ -60,7 +67,10 @@ async function fetchAndRenderPromoCodes() {
     if (!tbody) return;
 
     try {
-        const res = await fetch('/api/admin/promo/list');
+        const res = await fetch('/api/admin/promo/list', {
+            method: 'GET',
+            headers: getAddonsAuthHeaders()
+        });
         const data = await res.json();
         
         if (!data.success || !data.codes || data.codes.length === 0) {
@@ -93,11 +103,11 @@ async function togglePromoStatus(code, targetStatus) {
     try {
         const res = await fetch('/api/admin/promo/toggle', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAddonsAuthHeaders(),
             body: JSON.stringify({ code, is_active: targetStatus })
         });
         const data = await res.json();
-        alert(data.message);
+        alert(data.message || data.error);
         await fetchAndRenderPromoCodes();
     } catch (err) {
         alert("❌ خطأ في الاتصال!");
@@ -109,11 +119,11 @@ async function deletePromoCode(code) {
     try {
         const res = await fetch('/api/admin/promo/delete', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAddonsAuthHeaders(),
             body: JSON.stringify({ code })
         });
         const data = await res.json();
-        alert(data.message);
+        alert(data.message || data.error);
         await fetchAndRenderPromoCodes();
     } catch (err) {
         alert("❌ خطأ في الاتصال!");
