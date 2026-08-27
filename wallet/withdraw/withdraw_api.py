@@ -37,7 +37,7 @@ def format_crypto_display(amount):
 
 def validate_wallet_address(address, currency):
     """
-    التحقق من صحة المحفظة مع التأكيد على شرط FaucetPay
+    التحقق الصارم من صحة المحفظة مع التأكيد على قبول FaucetPay حصراً
     """
     if not address or not isinstance(address, str):
         return False, "⚠️ تنبيه: يجب إدخال البريد الإلكتروني أو عنوان المحفظة المسجل والمربوط بحسابك في FaucetPay حصراً."
