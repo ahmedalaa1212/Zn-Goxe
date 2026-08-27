@@ -1,4 +1,4 @@
-// ==================== قسم الإضافات - أكواد المكافآت ====================
+// ==================== قسم الإضافات - Addons Module ====================
 
 async function loadAddonsSection(btnElement) {
     if (btnElement) {
@@ -7,54 +7,20 @@ async function loadAddonsSection(btnElement) {
     }
 
     const contentArea = document.getElementById('contentArea');
-    contentArea.innerHTML = `
-        <div class="content-card animate-fade-in">
-            <h3 style="color: #f59e0b; margin-bottom: 12px;">🎁 إنشاء كود مكافأة جديد (Promo Code)</h3>
-            
-            <div class="search-box-container">
-                <input type="text" id="promo_code_input" class="search-input" placeholder="اسم الكود (مثال: BONUS2026)">
-                <input type="number" id="promo_coins_input" class="search-input" placeholder="عدد العملات المكافأة لكل شخص">
-                
-                <div style="display: flex; gap: 8px;">
-                    <input type="number" id="promo_duration_val" class="search-input" placeholder="المدة (مثال: 5)" style="flex: 2;">
-                    <select id="promo_duration_type" class="search-input" style="flex: 1; background-color: #1f2330;">
-                        <option value="minutes">دقائق</option>
-                        <option value="hours" selected>ساعات</option>
-                        <option value="days">أيام</option>
-                    </select>
-                </div>
+    
+    try {
+        // تحميل واجهة HTML الخاصة بقسم الإضافات ديناميكياً
+        const response = await fetch('addons/addons.html');
+        if (!response.ok) throw new Error("تعذر تحميل ملف addons.html");
+        const htmlContent = await response.text();
+        contentArea.innerHTML = htmlContent;
 
-                <input type="number" id="promo_max_uses" class="search-input" placeholder="أقصى عدد مستخدمين (0 تعني غير محدود)">
-                
-                <button class="btn-refresh" onclick="submitCreatePromoCode()">✨ إنشاء الكود الآن</button>
-            </div>
-        </div>
-
-        <div class="content-card animate-fade-in">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <h3 style="color: #f59e0b;">📋 الأكواد النشطة والسابقة</h3>
-                <button class="btn-action btn-add" onclick="fetchAndRenderPromoCodes()">تحديث 🔄</button>
-            </div>
-            <div class="table-responsive">
-                <table class="users-table">
-                    <thead>
-                        <tr>
-                            <th>الكود</th>
-                            <th>العملات</th>
-                            <th>الاستخدامات</th>
-                            <th>الحالة</th>
-                            <th>إجراءات</th>
-                        </tr>
-                    </thead>
-                    <tbody id="promo_codes_table_body">
-                        <tr><td colspan="5">جاري التحميل...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    `;
-
-    await fetchAndRenderPromoCodes();
+        // جلب وقراءة الأكواد الحالية
+        await fetchAndRenderPromoCodes();
+    } catch (err) {
+        console.error("خطأ تحميل قسم الإضافات:", err);
+        contentArea.innerHTML = `<div class="content-card"><p style="color:#ef4444;">❌ حدث خطأ أثناء تحميل واجهة الإضافات.</p></div>`;
+    }
 }
 
 async function submitCreatePromoCode() {
