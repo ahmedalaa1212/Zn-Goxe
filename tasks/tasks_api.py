@@ -13,16 +13,61 @@ from firebase_admin import firestore
 # إنشاء الـ Blueprint الخاص بمسارات المهام والحملات الإعلانية
 tasks_bp = Blueprint('tasks', __name__)
 
-# ==================== الإعدادات والثوابت والحماية ====================
+# ==================== الإعدادات والكاش الديناميكي ====================
+_TASKS_CONFIG_CACHE = None
+_TASKS_CONFIG_CACHE_TIME = 0
+TASKS_CONFIG_CACHE_TTL = 300  # كاش إعدادات المهام لمدة 5 دقائق لتوفير قراءات Firestore
+
+DEFAULT_TASKS_CONFIG = {
+    "min_rewards": {
+        "موقع": 15.0,
+        "default": 10.0
+    }
+}
+
+def get_tasks_config_from_db():
+    """
+    جلب إعدادات المهام والحدود الأدنى من مستند tasks_config في كولكشن app_settings مع تفعيل الكاش في الذاكرة.
+    """
+    global _TASKS_CONFIG_CACHE, _TASKS_CONFIG_CACHE_TIME
+    now = time.time()
+    if _TASKS_CONFIG_CACHE is not None and (now - _TASKS_CONFIG_CACHE_TIME) < TASKS_CONFIG_CACHE_TTL:
+        return _TASKS_CONFIG_CACHE
+
+    try:
+        doc_ref = firestore_db.collection('app_settings').document('tasks_config')
+        doc = doc_ref.get()
+        if doc.exists:
+            cfg = doc.to_dict() or {}
+            min_rewards = cfg.get('min_rewards', {})
+            _TASKS_CONFIG_CACHE = {
+                "min_rewards": {
+                    "موقع": float(min_rewards.get('موقع', 15.0)),
+                    "default": float(min_rewards.get('default', 10.0))
+                }
+            }
+        else:
+            _TASKS_CONFIG_CACHE = DEFAULT_TASKS_CONFIG
+        _TASKS_CONFIG_CACHE_TIME = now
+        return _TASKS_CONFIG_CACHE
+    except Exception as e:
+        print(f"[CONFIG ERROR] Error fetching tasks_config from Firestore: {e}")
+        if _TASKS_CONFIG_CACHE is not None:
+            return _TASKS_CONFIG_CACHE
+        return DEFAULT_TASKS_CONFIG
+
 def get_min_reward_for_platform(platform: str) -> float:
     """
-    تحديد الحد الأدنى للمكافأة حسب نوع المنصة:
-    - زيارة موقع وفحص آمن: 30 AdZ
-    - يوتيوب، تيليجرام، انستغرام، منصة X: 25 AdZ
+    تحديد الحد الأدنى للمكافأة حسب نوع المنصة بناءً على الإعدادات الديناميكية:
+    - زيارة موقع وفحص آمن: 15 AdZ (افتراضي)
+    - باقي المنصات (يوتيوب، تيليجرام، انستغرام، منصة X): 10 AdZ (افتراضي)
     """
-    if str(platform).strip() == 'موقع':
-        return 30.0
-    return 25.0
+    config = get_tasks_config_from_db()
+    min_rewards = config.get('min_rewards', {})
+    platform_clean = str(platform).strip()
+    if platform_clean in min_rewards:
+        return float(min_rewards[platform_clean])
+    return float(min_rewards.get('default', 10.0))
 
 # 🚫 قائمة الكلمات المحظورة للمواقع والإعلانات المخالفة لحماية البوت من الحظر
 FORBIDDEN_KEYWORDS = [
@@ -116,7 +161,7 @@ def is_task_completed_by_user(task, user_completed_data):
 
 @tasks_bp.route('/get_campaigns', methods=['GET'])
 def get_campaigns():
-    """جلب قائمة الحملات المتاحة للمستخدم مع تحديث حالة الإكمال والرصيد"""
+    """جلب قائمة الحملات المتاحة للمستخدم مع تحديث حالة الإكمال والرصيد والإعدادات الديناميكية"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
     if not success:
         return error_res
@@ -155,18 +200,22 @@ def get_campaigns():
         c_copy['is_completed'] = is_task_completed_by_user(c, user_completed_data)
         result_campaigns.append(c_copy)
 
+    # جلب الإعدادات الديناميكية وتوصيلها للفرونت إند
+    config = get_tasks_config_from_db()
+
     return jsonify({
         "success": True,
         "user_id": telegram_id_str,
         "ad_balance": ad_balance,
         "balance": balance,
-        "campaigns": result_campaigns
+        "campaigns": result_campaigns,
+        "config": config
     }), 200
 
 
 @tasks_bp.route('/create_campaign', methods=['POST'])
 def create_campaign():
-    """إنشاء حملة إعلانية جديدة وتخصيص الميزانية لها"""
+    """إنشاء حملة إعلانية جديدة وتخصيص الميزانية لها بناءً على الحدود الأدنى الديناميكية"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success:
         return error_res
@@ -208,11 +257,12 @@ def create_campaign():
         return jsonify({"success": False, "error": "قيم الكلفة والأعضاء غير صحيحة"}), 400
 
     min_reward = get_min_reward_for_platform(platform)
+    min_val_str = f"{int(min_reward)}" if min_reward.is_integer() else f"{min_reward}"
 
     if reward < min_reward:
         return jsonify({
             "success": False,
-            "error": f"عذراً، الحد الأدنى لتكلفة المهمة الواحدة لمنصة ({platform}) هو {int(min_reward)} عملة AdZ."
+            "error": f"عذراً، الحد الأدنى لتكلفة المهمة الواحدة لمنصة ({platform}) هو {min_val_str} عملة AdZ."
         }), 400
 
     total_cost = reward * users_needed
@@ -220,7 +270,7 @@ def create_campaign():
     if total_cost < min_reward:
         return jsonify({
             "success": False,
-            "error": f"عذراً، الحد الأدنى لتكلفة إنشاء أي حملة إعلانية هو {int(min_reward)} عملة AdZ."
+            "error": f"عذراً، الحد الأدنى لتكلفة إنشاء أي حملة إعلانية هو {min_val_str} عملة AdZ."
         }), 400
 
     @firestore.transactional
