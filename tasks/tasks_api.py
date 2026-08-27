@@ -13,11 +13,7 @@ from firebase_admin import firestore
 # إنشاء الـ Blueprint الخاص بمسارات المهام والحملات الإعلانية
 tasks_bp = Blueprint('tasks', __name__)
 
-# ==================== الإعدادات والكاش الديناميكي ====================
-_TASKS_CONFIG_CACHE = None
-_TASKS_CONFIG_CACHE_TIME = 0
-DEFAULT_CACHE_TTL = 300  # كاش افتراضي إعدادات المهام لمدة 5 دقائق
-
+# ==================== الإعدادات الافتراضية ====================
 DEFAULT_TASKS_CONFIG = {
     "min_reward_website": 15.0,
     "min_reward_default": 10.0,
@@ -28,25 +24,14 @@ DEFAULT_TASKS_CONFIG = {
     "wait_seconds": 15,
     "conversion_fee_percent": 10.0,
     "review_seconds": 3,
-    "cache_ttl_seconds": 300
+    "cache_ttl_seconds": 0
 }
 
-def get_tasks_config_from_db():
+def get_tasks_config_from_db() -> dict:
     """
-    جلب إعدادات المهام من كولكشن app_settings ومستند settings داخل حقل task.
+    جلب إعدادات المهام مباشرة من كولكشن app_settings ومستند settings داخل حقل task.
     في حال عدم وجود الحقل أو المستند في الفايربيس، يتم إنشاؤه وكتابته تلقائياً فوراً.
     """
-    global _TASKS_CONFIG_CACHE, _TASKS_CONFIG_CACHE_TIME
-    now = time.time()
-    
-    # تحديد مدة الكاش ديناميكياً إذا كانت متوفرة سلفاً
-    cache_ttl = DEFAULT_CACHE_TTL
-    if _TASKS_CONFIG_CACHE and isinstance(_TASKS_CONFIG_CACHE, dict):
-        cache_ttl = float(_TASKS_CONFIG_CACHE.get('cache_ttl_seconds', DEFAULT_CACHE_TTL))
-
-    if _TASKS_CONFIG_CACHE is not None and (now - _TASKS_CONFIG_CACHE_TIME) < cache_ttl:
-        return _TASKS_CONFIG_CACHE
-
     try:
         doc_ref = firestore_db.collection('app_settings').document('settings')
         doc = doc_ref.get()
@@ -76,8 +61,7 @@ def get_tasks_config_from_db():
         if should_update_db:
             doc_ref.set({'task': task_map}, merge=True)
 
-        # تحويل البيانات واستخراج القيم بأمان
-        _TASKS_CONFIG_CACHE = {
+        return {
             "min_reward_website": float(task_map.get('min_reward_website', DEFAULT_TASKS_CONFIG["min_reward_website"])),
             "min_reward_default": float(task_map.get('min_reward_default', DEFAULT_TASKS_CONFIG["min_reward_default"])),
             "min_reward_youtube": float(task_map.get('min_reward_youtube', DEFAULT_TASKS_CONFIG["min_reward_youtube"])),
@@ -89,24 +73,13 @@ def get_tasks_config_from_db():
             "review_seconds": int(task_map.get('review_seconds', DEFAULT_TASKS_CONFIG["review_seconds"])),
             "cache_ttl_seconds": int(task_map.get('cache_ttl_seconds', DEFAULT_TASKS_CONFIG["cache_ttl_seconds"]))
         }
-
-        _TASKS_CONFIG_CACHE_TIME = now
-        return _TASKS_CONFIG_CACHE
     except Exception as e:
         print(f"[CONFIG ERROR] Error fetching/creating settings/task in Firestore: {e}")
-        if _TASKS_CONFIG_CACHE is not None:
-            return _TASKS_CONFIG_CACHE
         return DEFAULT_TASKS_CONFIG.copy()
 
 def get_min_reward_for_platform(platform: str) -> float:
     """
-    تحديد الحد الأدنى للمكافأة حسب نوع المنصة بناءً على الإعدادات الديناميكية من حقل task:
-    - موقع: min_reward_website
-    - يوتيوب: min_reward_youtube
-    - تيليجرام: min_reward_telegram
-    - انستغرام: min_reward_instagram
-    - منصة X: min_reward_x
-    - أخرى / افتراضي: min_reward_default
+    تحديد الحد الأدنى للمكافأة حسب نوع المنصة بناءً على الإعدادات الديناميكية المحدثة لحظياً من الفايربيس
     """
     config = get_tasks_config_from_db()
     platform_clean = str(platform).strip().lower()
@@ -130,21 +103,12 @@ FORBIDDEN_KEYWORDS = [
     'sex', 'إباحي', 'جنس', 'قمار', 'hack', 'scam', 'phishing', 'exploit', 'malware'
 ]
 
-# ==================== In-Memory Cache for Campaigns ====================
-_CAMPAIGNS_CACHE = None
-_CAMPAIGNS_CACHE_TIME = 0
-CAMPAIGNS_CACHE_TTL = 300  # كاش قائمة الحملات لمدة 5 دقائق لتوفير قراءات Firestore
+# ==================== Direct Campaign Data Fetching ====================
 
-def get_cached_raw_campaigns():
+def get_cached_raw_campaigns() -> list:
     """
-    جلب كافة الحملات الإعلانية من الذاكرة المؤقتة لـ RAM السيرفر.
-    يمنع قراءة الفايربيس في كل طلب عشوائي إلا مرة واحدة كل 5 دقائق.
+    جلب كافة الحملات الإعلانية مباشرة وبشكل حي من Firestore بدون كاش.
     """
-    global _CAMPAIGNS_CACHE, _CAMPAIGNS_CACHE_TIME
-    now = time.time()
-    if _CAMPAIGNS_CACHE is not None and (now - _CAMPAIGNS_CACHE_TIME) < CAMPAIGNS_CACHE_TTL:
-        return _CAMPAIGNS_CACHE
-
     try:
         campaigns = []
         docs = firestore_db.collection('campaigns').stream()
@@ -152,21 +116,18 @@ def get_cached_raw_campaigns():
             c_data = doc.to_dict() or {}
             c_data['id'] = doc.id
             campaigns.append(c_data)
-        _CAMPAIGNS_CACHE = campaigns
-        _CAMPAIGNS_CACHE_TIME = now
         return campaigns
     except Exception as e:
-        print(f"[CACHE ERROR] Error fetching campaigns from Firestore: {e}")
-        return _CAMPAIGNS_CACHE or []
+        print(f"[CAMPAIGNS ERROR] Error fetching campaigns from Firestore: {e}")
+        return []
 
 def invalidate_campaigns_cache():
-    """تفريغ الكاش لإجبار السيرفر على جلب التحديثات الجديدة فوراً عند إنشاء أو تجميد/إلغاء مهمة"""
-    global _CAMPAIGNS_CACHE, _CAMPAIGNS_CACHE_TIME
-    _CAMPAIGNS_CACHE = None
-    _CAMPAIGNS_CACHE_TIME = 0
+    """دالة للتوافق مع استدعاءات النظام الأخرى - التخزين المؤقت ملغى نهائياً"""
+    pass
+
 # ========================================================================
 
-def is_task_completed_by_user(task, user_completed_data):
+def is_task_completed_by_user(task: dict, user_completed_data: dict) -> bool:
     """
     التحقق الآمن من إكمال المستخدم للمهمة،
     مع دعم إعادة فتح مهام زيارة المواقع يومياً بمجرد دخول يوم جديد بالتوقيت العالمي UTC (00:00 UTC).
@@ -219,7 +180,7 @@ def is_task_completed_by_user(task, user_completed_data):
 
 @tasks_bp.route('/get_campaigns', methods=['GET'])
 def get_campaigns():
-    """جلب قائمة الحملات المتاحة للمستخدم مع تحديث حالة الإكمال والرصيد والإعدادات الديناميكية"""
+    """جلب قائمة الحملات المتاحة للمستخدم مع تحديث حالة الإكمال والرصيد والإعدادات الديناميكية لحظياً"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
     if not success:
         return error_res
@@ -258,7 +219,7 @@ def get_campaigns():
         c_copy['is_completed'] = is_task_completed_by_user(c, user_completed_data)
         result_campaigns.append(c_copy)
 
-    # جلب أو إنشاء الإعدادات الديناميكية من الفايربيس فوراً
+    # جلب أو إنشاء الإعدادات الديناميكية من الفايربيس فوراً بدون كاش
     config = get_tasks_config_from_db()
 
     return jsonify({
@@ -562,7 +523,7 @@ def convert_adzn():
     if amount <= 0:
         return jsonify({"success": False, "error": "المبلغ يجب أن يكون أكبر من صفر"}), 400
 
-    # جلب نسبة العمولة الديناميكية من الفايربيس (افتراضي 10%)
+    # جلب نسبة العمولة الديناميكية من الفايربيس لحظياً
     config = get_tasks_config_from_db()
     fee_percent = float(config.get('conversion_fee_percent', 10.0))
 
