@@ -97,6 +97,48 @@
     }
 
     // ==========================================
+    // 🎁 نظام الشاشة المنبثقة للهدية
+    // ==========================================
+    function showRewardModal(msg, coins) {
+        const modal = document.getElementById('promo-reward-modal');
+        const msgEl = document.getElementById('promo-reward-msg');
+        const amountEl = document.getElementById('promo-reward-amount');
+        const amountBox = document.getElementById('promo-reward-amount-box');
+
+        if (!modal) return;
+
+        if (msgEl) {
+            msgEl.innerText = msg || "تم تفعيل كود الهدية بنجاح ورصد المكافأة في حسابك!";
+        }
+
+        if (coins !== undefined && coins !== null && !isNaN(parseFloat(coins)) && parseFloat(coins) > 0) {
+            const numCoins = parseFloat(coins);
+            if (amountEl) amountEl.innerText = `+${numCoins.toLocaleString('en-US')}`;
+            if (amountBox) amountBox.style.display = 'flex';
+        } else {
+            // محاولة استخراج الرقم تلقائياً من نص الرسالة إذا وجد
+            if (msg) {
+                const match = msg.match(/([\d,]+)/);
+                if (match && match[1]) {
+                    if (amountEl) amountEl.innerText = `+${match[1]}`;
+                    if (amountBox) amountBox.style.display = 'flex';
+                } else {
+                    if (amountBox) amountBox.style.display = 'none';
+                }
+            } else {
+                if (amountBox) amountBox.style.display = 'none';
+            }
+        }
+
+        modal.style.display = 'flex';
+    }
+
+    window.closeRewardModal = function() {
+        const modal = document.getElementById('promo-reward-modal');
+        if (modal) modal.style.display = 'none';
+    };
+
+    // ==========================================
     // 🎁 نظام تفعيل أكواد الهدايا (Promo Codes)
     // ==========================================
     async function redeemPromoCode() {
@@ -142,8 +184,9 @@
             }
 
             if (data && data.success) {
-                showToast(data.message || "🎉 تم تفعيل الكود بنجاح!");
                 inputEl.value = '';
+                // 🚀 عرض الشاشة المنبثقة الاحترافية للمكافأة
+                showRewardModal(data.message, data.coins);
                 fetchAndRenderData();
             } else if (data && data.message) {
                 showToast(data.message);
