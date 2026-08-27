@@ -3,9 +3,7 @@ from datetime import datetime, timezone
 from firebase_admin import firestore
 import database
 
-# ==================== الإعدادات والكاش الديناميكي ====================
-_CONFIG_CACHE = None
-_CONFIG_CACHE_TIME = 0
+# ==================== الإعدادات الافتراضية ====================
 
 DEFAULT_TASK_CONFIG = {
     "min_reward_website": 15.0,
@@ -17,52 +15,32 @@ DEFAULT_TASK_CONFIG = {
     "wait_seconds": 15,
     "conversion_fee_percent": 10.0,
     "review_seconds": 3,
-    "cache_ttl_seconds": 300
+    "cache_ttl_seconds": 0
 }
 
 def get_tasks_config():
     """
-    جلب الإعدادات وإنشاء حقل task تلقائياً داخل مستند settings فوراً.
-    تتم الكتابة في كولكشن app_settings وكولكشن settings لضمان إيجاده والظهور الفوري.
+    جلب الإعدادات مباشرة من الفايربيس عند كل طلب (بدون كاش سيرفر).
+    إنشاء مستند task_settings تلقائياً داخل مجموعة settings إذا لم يكن موجوداً.
     """
-    global _CONFIG_CACHE, _CONFIG_CACHE_TIME
-    now = datetime.now(timezone.utc).timestamp()
-    
-    ttl = _CONFIG_CACHE.get("cache_ttl_seconds", 300) if isinstance(_CONFIG_CACHE, dict) else 300
-    if _CONFIG_CACHE and (now - _CONFIG_CACHE_TIME) < ttl:
-        return _CONFIG_CACHE
-
     try:
         db = database.get_db()
-        config = DEFAULT_TASK_CONFIG.copy()
+        # توحيد المسار ليكون داخل settings/task_settings مثل باقي إعدادات المشروع
+        doc_ref = db.collection("settings").document("task_settings")
+        doc = doc_ref.get()
 
-        # 1. كولكشن app_settings -> مستند settings -> حقل task
-        app_settings_ref = db.collection("app_settings").document("settings")
-        app_doc = app_settings_ref.get()
-
-        if app_doc.exists:
-            data = app_doc.to_dict() or {}
-            task_map = data.get("task")
-            if isinstance(task_map, dict) and task_map:
-                config = {**DEFAULT_TASK_CONFIG, **task_map}
-            else:
-                app_settings_ref.set({"task": DEFAULT_TASK_CONFIG}, merge=True)
+        if doc.exists:
+            data = doc.to_dict() or {}
+            # دمج القيم الموجودة مع الافتراضية لضمان عدم فقدان أي متغير
+            return {**DEFAULT_TASK_CONFIG, **data}
         else:
-            app_settings_ref.set({"task": DEFAULT_TASK_CONFIG}, merge=True)
+            # 💥 إنشاء المستند فوراً في الفايربيس في حال مسحه أو عدم وجوده
+            doc_ref.set(DEFAULT_TASK_CONFIG)
+            print("✨ تم إنشاء مستند task_settings تلقائياً في الفايربيس!")
+            return DEFAULT_TASK_CONFIG.copy()
 
-        # 2. كولكشن settings -> مستند settings -> حقل task (لضمان الظهور في الكولكشن الظاهر بصورتك)
-        settings_ref = db.collection("settings").document("settings")
-        settings_doc = settings_ref.get()
-        if not settings_doc.exists or not (settings_doc.to_dict() or {}).get("task"):
-            settings_ref.set({"task": DEFAULT_TASK_CONFIG}, merge=True)
-
-        _CONFIG_CACHE = config
-        _CONFIG_CACHE_TIME = now
-        return config
     except Exception as e:
         print(f"❌ Error fetching/creating task settings in Firebase: {e}")
-        if _CONFIG_CACHE is not None:
-            return _CONFIG_CACHE
         return DEFAULT_TASK_CONFIG.copy()
 
 def get_min_reward_for_platform(platform: str) -> float:
@@ -94,7 +72,7 @@ def is_task_completed_by_user(task_id: str, platform: str, user_completed_map: d
     is_website = (p in ['موقع', 'website'])
 
     if not is_website:
-        return True  # باقي المنصات تنفذ مرة واحدة فقط
+        return True
 
     today_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     record = user_completed_map[task_id]
@@ -118,10 +96,10 @@ def is_task_completed_by_user(task_id: str, platform: str, user_completed_map: d
 # ==================== العمليات والاستعلامات ====================
 
 def get_active_campaigns(tg_id):
-    """جلب قائمة المهمات النشطة مراعياً شرط التجديد اليومي بـ UTC وإجبار إنشاء مستند الإعدادات"""
+    """جلب قائمة المهمات النشطة وإجبار قراءة/إنشاء الإعدادات فوراً من الفايربيس"""
     try:
-        # استدعاء دالة الإعدادات فوراً ينشئ حقل task ومستند settings بالفايربيس فور فتح الصفحة
-        _ = get_tasks_config()
+        # جلب الإعدادات المباشرة (والتي تنشئ المستند تلقائياً إذا كان مفقوداً)
+        config = get_tasks_config()
 
         db = database.get_db()
         tg_id_str = str(tg_id).strip()
@@ -164,10 +142,11 @@ def get_active_campaigns(tg_id):
             campaigns,
             float(user_data.get("balance", 0.0) or 0.0),
             float(user_data.get("ad_balance", 0.0) or 0.0),
+            config
         )
     except Exception as e:
         print(f"❌ Error fetching active campaigns: {e}")
-        return [], 0.0, 0.0
+        return [], 0.0, 0.0, DEFAULT_TASK_CONFIG.copy()
 
 
 def complete_user_task(tg_id, task_id):
