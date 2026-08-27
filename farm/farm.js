@@ -78,7 +78,7 @@ window.closeWelcomeModal = function() {
     let isBoosting = false; 
     let isFetching = false;
     let isClaimingMain = false; 
-    let isUpgrading = false;
+    let upgradingLevel = null; // تحديد رقم المستوى الجاري ترقيته بدقة
     let isUpgradingStorage = false;
 
     let lastFetchTime = 0;
@@ -157,8 +157,15 @@ window.closeWelcomeModal = function() {
     }
 
     function showToast(message) {
-        if (tele && tele.showAlert) tele.showAlert(message);
-        else alert(message);
+        try {
+            if (tele && typeof tele.showAlert === 'function') {
+                tele.showAlert(message);
+            } else {
+                alert(message);
+            }
+        } catch (e) {
+            alert(message);
+        }
     }
 
     function getAdjustedNowMs() {
@@ -310,7 +317,7 @@ window.closeWelcomeModal = function() {
             };
 
             const timerId = setTimeout(() => {
-                console.warn("انتهت مهلة 5 ثوانٍ للإعلان، يتخطى للتجميع الفوري.");
+                console.warn("انتهت مهلة الإعلان، يتخطى للتجميع الفوري.");
                 completeAdCheck();
             }, timeoutMs);
 
@@ -428,13 +435,12 @@ window.closeWelcomeModal = function() {
                         }
                     }
                 }
-                
-                window.updateFarmUI();
             }
         } catch (e) { 
             console.error("خطأ مزامنة المزرعة:", e); 
         } finally { 
             isFetching = false; 
+            window.updateFarmUI();
         }
     };
 
@@ -487,6 +493,8 @@ window.closeWelcomeModal = function() {
         if (fieldsContainer) {
             const currentUpgrades = pData.upgrades || {};
             let fieldsHTML = '';
+            const isAnyUpgrading = (upgradingLevel !== null);
+
             for (let i = 1; i <= 9; i++) {
                 let count = parseInt(currentUpgrades[`lvl${i}`] || 0);
                 let prevCount = parseInt(currentUpgrades[`lvl${i-1}`] || 0);
@@ -500,7 +508,8 @@ window.closeWelcomeModal = function() {
                 let costStrZn = formatCompactCost(costZn);
                 let costStrUsd = costUsd > 0 ? `+$${costUsd.toFixed(2)}` : '';
                 let canAfford = (bal >= costZn) && (usdBal >= costUsd);
-                
+                let isThisCardUpgrading = (upgradingLevel === i);
+
                 if (isMax) {
                     fieldsHTML += `
                     <div class="mining-card">
@@ -513,14 +522,14 @@ window.closeWelcomeModal = function() {
                     <div class="mining-card" onclick="window.handleUpgrade(${i})">
                         <div class="mining-card-icon">🏛️</div>
                         <div class="mining-card-title">مستوى ${i} (x${count})</div>
-                        <button class="mining-card-btn" ${!canAfford || isUpgrading ? 'disabled' : ''}>${isUpgrading ? 'جاري...' : `ترقية (${costStrZn}${costStrUsd})`}</button>
+                        <button class="mining-card-btn" ${!canAfford || isAnyUpgrading ? 'disabled' : ''}>${isThisCardUpgrading ? 'جاري...' : `ترقية (${costStrZn}${costStrUsd})`}</button>
                     </div>`;
                 } else if (isUnlocked) {
                     fieldsHTML += `
                     <div class="mining-card" onclick="window.handleUpgrade(${i})">
                         <div class="mining-card-icon">🏛️</div>
                         <div class="mining-card-title">مستوى ${i}</div>
-                        <button class="mining-card-btn" ${!canAfford || isUpgrading ? 'disabled' : ''}>${isUpgrading ? 'جاري...' : `شراء (${costStrZn}${costStrUsd})`}</button>
+                        <button class="mining-card-btn" ${!canAfford || isAnyUpgrading ? 'disabled' : ''}>${isThisCardUpgrading ? 'جاري...' : `شراء (${costStrZn}${costStrUsd})`}</button>
                     </div>`;
                 } else {
                     fieldsHTML += `
@@ -775,24 +784,22 @@ window.closeWelcomeModal = function() {
                 }
                 saveCachedData(window.userState);
                 showToast(`📦 تم ترقية سعة المخزن بنجاح إلى Level ${resData.storage_level}!`);
-                window.updateFarmUI();
             } else {
                 restoreState(stateBackup);
-                window.updateFarmUI();
                 showToast(resData?.error || "❌ تعذر ترقية المخزن");
             }
         } catch (e) {
             console.error("خطأ ترقية المخزن:", e);
             restoreState(stateBackup);
-            window.updateFarmUI();
             showToast("❌ حدث خطأ أثناء ترقية المخزن");
         } finally {
             isUpgradingStorage = false;
+            window.updateFarmUI();
         }
     };
 
     window.handleUpgrade = async function(level) {
-        if (isUpgrading) return;
+        if (upgradingLevel !== null) return;
 
         const lvlCfg = GAME_CONFIG.upgradeCosts[level] || {};
         const costZn = lvlCfg.cost_zn ?? lvlCfg.base_cost ?? lvlCfg.price ?? 0;
@@ -808,7 +815,7 @@ window.closeWelcomeModal = function() {
             return;
         }
 
-        isUpgrading = true;
+        upgradingLevel = level;
         const stateBackup = cloneCurrentState();
 
         setStoredBalance(Math.max(0, currentBal - costZn), Math.max(0, currentUsdBal - costUsd));
@@ -853,19 +860,17 @@ window.closeWelcomeModal = function() {
 
                 saveCachedData(window.userState);
                 showToast(`🏛️ تم ترقية المستوى ${level} بنجاح!`);
-                window.updateFarmUI();
             } else {
                 restoreState(stateBackup);
-                window.updateFarmUI();
                 showToast(resData?.error || "❌ تعذر إتمام الترقية");
             }
         } catch (e) {
             console.error("خطأ الترقية:", e);
             restoreState(stateBackup);
-            window.updateFarmUI();
             showToast("❌ حدث خطأ أثناء عملية الشراء");
         } finally {
-            isUpgrading = false;
+            upgradingLevel = null;
+            window.updateFarmUI();
         }
     };
 
@@ -878,6 +883,7 @@ window.closeWelcomeModal = function() {
             const adWatched = await showTelegramAd();
             if (!adWatched) {
                 isClaimingDaily = false;
+                window.updateFarmUI();
                 return;
             }
 
@@ -899,17 +905,16 @@ window.closeWelcomeModal = function() {
                 }
                 saveCachedData(window.userState);
                 showToast(`🎉 تم استلام مكافأة اليوم ${resData.daily_day} بنجاح!`);
-                window.updateFarmUI();
             } else {
                 showToast(resData?.error || "❌ تعذر استلام المكافأة");
             }
         } catch (e) {
             console.error("خطأ استلام المكافأة اليومية:", e);
             restoreState(stateBackup);
-            window.updateFarmUI();
             showToast("❌ حدث خطأ أثناء استلام المكافأة اليومية");
         } finally {
             isClaimingDaily = false;
+            window.updateFarmUI();
         }
     };
 
@@ -922,6 +927,7 @@ window.closeWelcomeModal = function() {
             const adWatched = await showTelegramAd();
             if (!adWatched) {
                 isBoosting = false;
+                window.updateFarmUI();
                 return;
             }
 
@@ -976,17 +982,16 @@ window.closeWelcomeModal = function() {
                 }
 
                 saveCachedData(window.userState);
-                window.updateFarmUI();
             } else {
                 showToast(resData?.error || "❌ تعذر تفعيل التعزيز");
             }
         } catch (e) {
             console.error("خطأ التعزيز اليومي:", e);
             restoreState(stateBackup);
-            window.updateFarmUI();
             showToast("❌ حدث خطأ أثناء تفعيل التعزيز");
         } finally {
             isBoosting = false;
+            window.updateFarmUI();
         }
     };
 
@@ -999,7 +1004,6 @@ window.closeWelcomeModal = function() {
 
         const lastClaimAdDate = pData.last_claim_ad_date || localStorage.getItem(adKey) || null;
 
-        // إذا كانت الضغطة الأولى في اليوم بتوقيت UTC، يتم تشغيل نظام الإعلان بمؤقت الـ 5 ثوانٍ
         if (lastClaimAdDate !== todayStr) {
             await showAdsgramAdWithTimeout(5000);
         }
@@ -1040,19 +1044,18 @@ window.closeWelcomeModal = function() {
 
                 saveCachedData(window.userState);
                 showToast(`💰 تم تجميع ${formatZnBalance(resData.claimed_amount)} عملة بنجاح!`);
-                window.updateFarmUI();
             } else {
                 restoreState(stateBackup);
-                window.updateFarmUI();
                 showToast(resData?.error || "❌ تعذر تجميع الرصيد");
             }
         } catch (e) {
             console.error("خطأ التجميع الرئيسي:", e);
             restoreState(stateBackup);
-            window.updateFarmUI();
             showToast("❌ حدث خطأ أثناء التجميع");
         } finally {
             isClaimingMain = false;
+            toggleAdLoadingOverlay(false);
+            window.updateFarmUI();
         }
     };
 
