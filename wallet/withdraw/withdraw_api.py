@@ -36,13 +36,17 @@ def format_crypto_display(amount):
         return str(amount)
 
 def validate_wallet_address(address, currency):
+    """
+    التحقق من صحة المحفظة مع التأكيد على شرط FaucetPay
+    """
     if not address or not isinstance(address, str):
-        return False, "يرجى إدخال عنوان المحفظة أو البريد الإلكتروني الخاص بـ FaucetPay."
+        return False, "⚠️ تنبيه: يجب إدخال البريد الإلكتروني أو عنوان المحفظة المسجل والمربوط بحسابك في FaucetPay حصراً."
     
     addr = address.strip()
     if not addr:
-        return False, "يرجى إدخال عنوان المحفظة أو البريد الإلكتروني الخاص بـ FaucetPay."
+        return False, "⚠️ تنبيه: يرجى إدخال البريد الإلكتروني أو عنوان المحفظة الخاص بـ FaucetPay."
 
+    # قبول البريد الإلكتروني المسجل في FaucetPay
     email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     if re.match(email_regex, addr):
         return True, ""
@@ -52,22 +56,22 @@ def validate_wallet_address(address, currency):
     if curr == "DOGE":
         if re.match(r'^D[1-9A-HJ-NP-Za-km-z]{33}$', addr):
             return True, ""
-        return False, "عنوان DOGE غير صحيح! يجب أن يبدأ بحرف D ويتكون من 34 خانة، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
+        return False, "❌ عنوان DOGE غير صحيح! يجب أن يبدأ بحرف D ويتكون من 34 خانة ومربوط بـ FaucetPay، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
 
     elif curr == "TRX":
         if re.match(r'^T[1-9A-HJ-NP-Za-km-z]{33}$', addr):
             return True, ""
-        return False, "عنوان TRX غير صحيح! يجب أن يبدأ بحرف T ويتكون من 34 خانة، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
+        return False, "❌ عنوان TRX غير صحيح! يجب أن يبدأ بحرف T ويتكون من 34 خانة ومربوط بـ FaucetPay، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
 
     elif curr == "LTC":
         if re.match(r'^(L|M)[1-9A-HJ-NP-Za-km-z]{33}$', addr) or re.match(r'^ltc1[a-z0-9]{38,58}$', addr, re.IGNORECASE):
             return True, ""
-        return False, "عنوان LTC غير صحيح! يجب أن يبدأ بـ L أو M أو ltc1، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
+        return False, "❌ عنوان LTC غير صحيح! يجب أن يبدأ بـ L أو M أو ltc1 ومربوط بـ FaucetPay، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
 
     elif curr == "PEPE":
         if re.match(r'^0x[a-fA-F0-9]{40}$', addr):
             return True, ""
-        return False, "عنوان PEPE غير صحيح! يجب أن يكون عنوان EVM يبدأ بـ 0x (42 خانة)، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
+        return False, "❌ عنوان PEPE غير صحيح! يجب أن يكون عنوان EVM يبدأ بـ 0x (42 خانة) ومربوط بـ FaucetPay، أو أدخل البريد الإلكتروني لحسابك في FaucetPay."
 
     return True, ""
 
@@ -221,7 +225,6 @@ def _get_firestore_client():
 
 def fetch_or_create_withdraw_config():
     now = time.time()
-    # تقليل التخزين المؤقت لـ 5 ثواني لضمان قراءة التعديلات فوراً من الفايربيس
     if CONFIG_CACHE["data"] and (now - CONFIG_CACHE["last_updated"] < 5):
         return CONFIG_CACHE["data"]
 
@@ -234,14 +237,12 @@ def fetch_or_create_withdraw_config():
         if doc.exists:
             data = doc.to_dict() or {}
             
-            # 1. جلب سعر الصرف من الفايربيس
             if 'rate_coins_per_usd' not in data:
                 data['rate_coins_per_usd'] = DEFAULT_WITHDRAW_CONFIG['rate_coins_per_usd']
 
             if 'faucetpay_spread_markup' not in data or data.get('faucetpay_spread_markup') == 1.0:
                 data['faucetpay_spread_markup'] = 1.06
 
-            # 2. جلب المستويات وقراءتها سواء كانت قائمة Array أو عناصر فردية (Map) في Firestore
             if 'levels' in data and isinstance(data['levels'], list) and len(data['levels']) > 0:
                 pass
             else:
@@ -575,18 +576,20 @@ def execute_admin_decision(tx_id, action):
     elif action == 'reject':
         tx_ref.update({'status': 'rejected', 'updated_at': firestore.SERVER_TIMESTAMP})
         try:
+            # إعادة الرصيد وتصفير تاريخ السحب اليومي وتحديث عداد السحب
             user_ref.update({
                 'balance': firestore.Increment(coins),
                 'zn_balance': firestore.Increment(coins),
                 'balance_zn': firestore.Increment(coins),
                 'coins': firestore.Increment(coins),
-                'withdraw_count': firestore.Increment(-1)
+                'withdraw_count': firestore.Increment(-1),
+                'last_withdraw_date': ""  # تصفير تاريخ السحب ليتمكن المستخدم من إعادة المحاولة اليوم
             })
         except Exception as e:
             print(f"⚠️ خطأ إعادة الرصيد للمستخدم: {e}")
 
         notify_manual_decision(user_id, coins, crypto_amount, currency, wallet, "reject", str(tx_id))
-        return True, "تم الرفض وإعادة العملات لرصيد المستخدم."
+        return True, "تم الرفض وإعادة العملات لرصيد المستخدم وتم تصفير القيد اليومي للمستخدم لإعادة المحاولة."
 
     return False, "إجراء غير معروف."
 
@@ -773,7 +776,7 @@ def notify_admin_empty_faucetpay(user_id, coins, crypto_amount, currency, tx_id)
     reply_markup = {
         "inline_keyboard": [[
             {"text": "موافقة وإرسال الآن 🟢", "callback_data": f"approve_tx_{tx_id}"},
-            {"text": "رفض وإلغاء 🔴", "callback_data": f"reject_tx_{tx_id}"}
+            {"text": "رفض وإعادة الرصيد 🔴", "callback_data": f"reject_tx_{tx_id}"}
         ]]
     }
     _send_telegram_msg(text, reply_markup=reply_markup)
@@ -873,7 +876,7 @@ def notify_manual_decision(user_id, coins, crypto_amount, currency, wallet, acti
             f"<b>💰 المبلغ المرفوض:</b> <code>{formatted_coins} ZN</code>\n"
             f"<b>🆔 المعاملة:</b> <code>#{str(tx_id)[-8:]}</code>\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "❌ <b>تم رفض طلب السحب اليدوي وتمت إعادة العملات كاملة لرصيد المستخدم.</b>"
+            "❌ <b>تم رفض طلب السحب اليدوي وتمت إعادة العملات كاملة لرصيد المستخدم وإلغاء حظر السحب اليومي.</b>"
         )
     _send_telegram_msg(text)
 
