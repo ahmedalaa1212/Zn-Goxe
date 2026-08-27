@@ -8,10 +8,10 @@ def _get_db():
     return get_db()
 
 
-# ==================== Promo Code Logic ====================
+# ==================== Promo Code Core Database Operations ====================
 
 def create_promo_code(code_name, reward_coins, duration_value, duration_type, max_uses=0):
-    """إنشاء كود مكافأة جديد"""
+    """إنشاء كود مكافأة جديد بحساب صلاحيته الزمنية"""
     try:
         db = _get_db()
         code_id = str(code_name).strip().upper()
@@ -51,7 +51,7 @@ def create_promo_code(code_name, reward_coins, duration_value, duration_type, ma
 
 
 def redeem_promo_code(telegram_id, code_name):
-    """تفعيل واستبدال الكود من قِبل المستخدم"""
+    """تفعيل واستبدال كود المكافأة للمستخدم"""
     try:
         db = _get_db()
         user_id_str = str(telegram_id).strip()
@@ -113,7 +113,7 @@ def redeem_promo_code(telegram_id, code_name):
 
 
 def get_all_promo_codes():
-    """جلب جميع الكروت والرموز المتاحة"""
+    """جلب قائمة بكل أكواد المكافآت"""
     try:
         db = _get_db()
         docs = db.collection('promo_codes').stream()
@@ -130,7 +130,7 @@ def get_all_promo_codes():
 
 
 def delete_promo_code(code_name):
-    """حذف الكود من قاعدة البيانات"""
+    """حذف كود مكافأة من داتا بيز الأدمن"""
     try:
         db = _get_db()
         code_id = str(code_name).strip().upper()
@@ -141,7 +141,7 @@ def delete_promo_code(code_name):
 
 
 def toggle_promo_code_status(code_name, is_active):
-    """تفعيل/تعطيل الكود"""
+    """تفعيل أو تعطيل كود المكافأة"""
     try:
         db = _get_db()
         code_id = str(code_name).strip().upper()
