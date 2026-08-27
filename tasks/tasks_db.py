@@ -4,10 +4,10 @@ from firebase_admin import firestore
 import database
 
 def get_min_reward_for_platform(platform: str) -> float:
-    """تحديد الحد الأدنى لتكلفة الضغطة حسب المنصة (30 AdZ للموقع / 25 AdZ للباقي)"""
+    """تحديد الحد الأدنى لتكلفة الضغطة حسب المنصة (15 AdZ للموقع / 10 AdZ للباقي)"""
     if str(platform).strip() == 'موقع':
-        return 30.0
-    return 25.0
+        return 15.0
+    return 10.0
 
 def get_active_campaigns(tg_id):
     """جلب قائمة المهمات النشطة والتوافق مع المجمّع الرئيسي"""
@@ -123,9 +123,13 @@ def create_ad_campaign(tg_id, platform, description, url, reward, users_needed):
         total_cost = reward * users_needed
 
         min_reward = get_min_reward_for_platform(platform)
+        min_val_str = f"{int(min_reward)}" if min_reward.is_integer() else f"{min_reward}"
 
-        if reward < min_reward or total_cost < min_reward:
-            return False, f"الحد الأدنى لتكلفة المهمة لهذه المنصة هو {int(min_reward)} AdZ", 0.0
+        if reward < min_reward:
+            return False, f"عذراً، الحد الأدنى لتكلفة المهمة الواحدة لمنصة ({platform}) هو {min_val_str} عملة AdZ.", 0.0
+
+        if total_cost < min_reward:
+            return False, f"عذراً، الحد الأدنى لتكلفة إنشاء أي حملة إعلانية هو {min_val_str} عملة AdZ.", 0.0
 
         user_ref = db.collection("users").document(tg_id_str)
         user_doc = user_ref.get()
@@ -134,7 +138,7 @@ def create_ad_campaign(tg_id, platform, description, url, reward, users_needed):
 
         current_ad_bal = float((user_doc.to_dict() or {}).get("ad_balance", 0.0) or 0.0)
         if current_ad_bal < total_cost:
-            return False, "رصيد الإعلانات غير كافٍ!", current_ad_bal
+            return False, f"رصيد الإعلانات غير كافٍ! المطلوب: {total_cost} AdZ", current_ad_bal
 
         new_ad_bal = round(current_ad_bal - total_cost, 2)
         user_ref.update({"ad_balance": new_ad_bal})
