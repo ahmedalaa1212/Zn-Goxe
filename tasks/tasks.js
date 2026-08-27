@@ -84,12 +84,18 @@
         };
     }
 
-    // 🔒 الحدود الأدنى الجديدة للحملات الإعلانية حسب نوع المنصة (30 للموقع / 25 للباقي)
+    // ⚙️ إعدادات الإعلانات والحدود الأدنى الديناميكية (افتراضياً 15 للموقع و10 لباقي المنصات)
+    let dynamicConfig = {
+        min_reward_website: 15,
+        min_reward_default: 10
+    };
+
+    // 🔒 الحصول على الحد الأدنى لمنصة معينة بناءً على الإعدادات الديناميكية
     function getMinRewardForPlatform(platform) {
         if (platform === 'موقع') {
-            return 30; // 30 AdZ لزيارة الموقع والفحص الأمني
+            return Number(dynamicConfig.min_reward_website) || 15;
         }
-        return 25; // 25 AdZ لباقي المنصات (يوتيوب، تيليجرام، انستغرام، X)
+        return Number(dynamicConfig.min_reward_default) || 10;
     }
 
     let cachedTasksData = null;
@@ -149,6 +155,10 @@
         if (storedCache && storedTime) {
             cachedTasksData = JSON.parse(storedCache);
             lastTasksFetchTime = parseInt(storedTime, 10) || 0;
+            if (cachedTasksData.config) {
+                dynamicConfig.min_reward_website = Number(cachedTasksData.config.min_reward_website) || 15;
+                dynamicConfig.min_reward_default = Number(cachedTasksData.config.min_reward_default) || 10;
+            }
         }
     } catch (e) {}
 
@@ -420,7 +430,7 @@
     // توافق مع أي استدعاءات قديمة
     window.convertZnToAdZn = window.convertZnToAdZ;
 
-    // ⚡ تقديم ونشر الحملة الإعلانية والتحقق من الحد الأدنى المقبول
+    // ⚡ تقديم ونشر الحملة الإعلانية والتحقق من الحد الأدنى المقبول (15 للموقع و 10 للباقي)
     window.submitAdCampaign = async function(event) {
         if (event) event.preventDefault();
         if (isSubmittingCampaign) return;
@@ -557,7 +567,7 @@
         window.fetchAndRenderTasks(true);
     };
 
-    // ⚡ جلب قائمة الحملات والمهام المتاحة
+    // ⚡ جلب قائمة الحملات والمهام المتاحة وقراءة الإعدادات الديناميكية
     window.fetchAndRenderTasks = async function(forceRefresh = false) {
         const container = document.getElementById('tasks-list-container');
         const activeAdsContainer = document.getElementById('active-ads-container');
@@ -569,6 +579,10 @@
 
         if (!forceRefresh && cachedTasksData && (now - lastTasksFetchTime < TASKS_CACHE_TTL)) {
             realTasks = cachedTasksData.campaigns || [];
+            if (cachedTasksData.config) {
+                dynamicConfig.min_reward_website = Number(cachedTasksData.config.min_reward_website) || 15;
+                dynamicConfig.min_reward_default = Number(cachedTasksData.config.min_reward_default) || 10;
+            }
             if (cachedTasksData.ad_balance !== undefined) syncUserAdBalance(cachedTasksData.ad_balance);
             if (cachedTasksData.balance !== undefined) syncUserBalance(cachedTasksData.balance);
         } else {
@@ -591,6 +605,10 @@
                 if (response.ok) {
                     let data = await response.json();
                     if (data.success) { 
+                        if (data.config) {
+                            dynamicConfig.min_reward_website = Number(data.config.min_reward_website) || 15;
+                            dynamicConfig.min_reward_default = Number(data.config.min_reward_default) || 10;
+                        }
                         saveTasksToSessionCache(data);
                         realTasks = data.campaigns || []; 
                         
