@@ -22,8 +22,8 @@ DEFAULT_TASK_CONFIG = {
 
 def get_tasks_config():
     """
-    جلب الإعدادات من كولكشن app_settings -> مستند settings -> حقل task (Map).
-    يقوم بإنشاء الكولكشن والمستند والحقل تلقائياً في الفايربيس فوراً إذا لم تكن موجودة.
+    جلب الإعدادات وإنشاء حقل task تلقائياً داخل مستند settings فوراً.
+    تتم الكتابة في كولكشن app_settings وكولكشن settings لضمان إيجاده والظهور الفوري.
     """
     global _CONFIG_CACHE, _CONFIG_CACHE_TIME
     now = datetime.now(timezone.utc).timestamp()
@@ -34,28 +34,33 @@ def get_tasks_config():
 
     try:
         db = database.get_db()
-        doc_ref = db.collection("app_settings").document("settings")
-        doc = doc_ref.get()
+        config = DEFAULT_TASK_CONFIG.copy()
 
-        if doc.exists:
-            data = doc.to_dict() or {}
+        # 1. كولكشن app_settings -> مستند settings -> حقل task
+        app_settings_ref = db.collection("app_settings").document("settings")
+        app_doc = app_settings_ref.get()
+
+        if app_doc.exists:
+            data = app_doc.to_dict() or {}
             task_map = data.get("task")
             if isinstance(task_map, dict) and task_map:
                 config = {**DEFAULT_TASK_CONFIG, **task_map}
             else:
-                # المستند موجود ولكن حقل task غير موجود -> إنشاؤه وكتابته فوراً
-                doc_ref.set({"task": DEFAULT_TASK_CONFIG}, merge=True)
-                config = DEFAULT_TASK_CONFIG.copy()
+                app_settings_ref.set({"task": DEFAULT_TASK_CONFIG}, merge=True)
         else:
-            # المستند والكولكشن غير موجودين نهائياً -> إنشاؤهما في القاعدة فوراً
-            doc_ref.set({"task": DEFAULT_TASK_CONFIG}, merge=True)
-            config = DEFAULT_TASK_CONFIG.copy()
+            app_settings_ref.set({"task": DEFAULT_TASK_CONFIG}, merge=True)
+
+        # 2. كولكشن settings -> مستند settings -> حقل task (لضمان الظهور في الكولكشن الظاهر بصورتك)
+        settings_ref = db.collection("settings").document("settings")
+        settings_doc = settings_ref.get()
+        if not settings_doc.exists or not (settings_doc.to_dict() or {}).get("task"):
+            settings_ref.set({"task": DEFAULT_TASK_CONFIG}, merge=True)
 
         _CONFIG_CACHE = config
         _CONFIG_CACHE_TIME = now
         return config
     except Exception as e:
-        print(f"❌ Error fetching/creating app_settings/settings: {e}")
+        print(f"❌ Error fetching/creating task settings in Firebase: {e}")
         if _CONFIG_CACHE is not None:
             return _CONFIG_CACHE
         return DEFAULT_TASK_CONFIG.copy()
@@ -115,7 +120,7 @@ def is_task_completed_by_user(task_id: str, platform: str, user_completed_map: d
 def get_active_campaigns(tg_id):
     """جلب قائمة المهمات النشطة مراعياً شرط التجديد اليومي بـ UTC وإجبار إنشاء مستند الإعدادات"""
     try:
-        # استدعاء دالة الإعدادات هنا يضمن إنشاء الكولكشن والمستند فوراً في الفايربيس عند فتح المهام
+        # استدعاء دالة الإعدادات فوراً ينشئ حقل task ومستند settings بالفايربيس فور فتح الصفحة
         _ = get_tasks_config()
 
         db = database.get_db()
