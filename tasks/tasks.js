@@ -10,7 +10,7 @@
         sessionStorage.removeItem('tasks_cache_time');
     } catch (e) {}
 
-    // 🛡️ مراقب حارس فوري لحظر أي كلمة AdZN أو AdZn تحاول أي ملفات خارجية كتابتها بالصفحة
+    // 🛡️ مراقب حارس فوري لحظر أي كلمة AdZN أو AdZn وتحويلها إلى AdZ
     function startAdZnEnforcer() {
         const replaceAdZnText = (node) => {
             if (node.nodeType === Node.TEXT_NODE && node.nodeValue && /AdZN|AdZn/i.test(node.nodeValue)) {
@@ -42,7 +42,6 @@
         }
     }
 
-    // تشغيل الحارس اللحظي فوراً
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', startAdZnEnforcer);
     } else {
@@ -90,7 +89,7 @@
         };
     }
 
-    // ⚙️ كائن الإعدادات الديناميكية (إلغاء فترة الكاش لجلب البيانات فوراً)
+    // ⚙️ كائن الإعدادات الديناميكية
     let dynamicConfig = {
         min_reward_website: 15.0,
         min_reward_default: 10.0,
@@ -104,7 +103,7 @@
         cache_ttl_seconds: 0
     };
 
-    // 🔄 تحديث كائن الإعدادات الديناميكية مع استخراج كائن task من الفايربيس بأمان
+    // 🔄 تحديث كائن الإعدادات الديناميكية بأمان من الفايربيس
     function updateConfig(configObj) {
         if (!configObj) return;
 
@@ -124,7 +123,7 @@
         updateDynamicUIElements();
     }
 
-    // 🎨 تحديث جميع عناصر الواجهة والكروت بالأرقام الحقيقية من الفايربيس
+    // 🎨 تحديث جميع عناصر الواجهة بأرقام الفايربيس اللحظية
     function updateDynamicUIElements() {
         const setElText = (id, text) => {
             const el = document.getElementById(id);
@@ -169,7 +168,7 @@
         });
     }
 
-    // 🔒 الحصول على الحد الأدنى لمنصة معينة
+    // 🔒 استخراج الحد الأدنى حسب المنصة
     function getMinRewardForPlatform(platform) {
         switch (platform) {
             case 'موقع':
@@ -644,7 +643,6 @@
                 campaignHeaders["Authorization"] = `Bearer ${initData}`;
             }
 
-            // إضافة ?_t=${Date.now()} لمنع المتصفح والسيرفر من إرجاع رد قديم مخزن
             let response = await fetch(`/api/tasks/get_campaigns?_t=${Date.now()}`, {
                 method: 'GET',
                 headers: campaignHeaders,
