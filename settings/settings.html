@@ -466,6 +466,143 @@
         .support-send-btn:active {
             transform: scale(0.9);
         }
+
+        /* 🎁 نافذة المكافأة المنبثقة الاحترافية */
+        .reward-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            z-index: 100000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .reward-card {
+            background: linear-gradient(145deg, #1d1f27, #12131a);
+            border: 2px solid var(--primary);
+            border-radius: 28px;
+            padding: 30px 22px;
+            width: 100%;
+            max-width: 350px;
+            text-align: center;
+            position: relative;
+            box-shadow: 0 15px 45px rgba(243, 156, 18, 0.35), 0 0 60px rgba(0, 0, 0, 0.9);
+            animation: popUpScale 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            overflow: hidden;
+        }
+
+        @keyframes popUpScale {
+            0% { transform: scale(0.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .reward-glow {
+            position: absolute;
+            top: -60px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 220px;
+            height: 220px;
+            background: radial-gradient(circle, var(--primary-glow) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .reward-icon-wrapper {
+            width: 90px;
+            height: 90px;
+            background: linear-gradient(135deg, rgba(243, 156, 18, 0.25), rgba(230, 126, 34, 0.35));
+            border: 2px solid var(--primary);
+            border-radius: 50%;
+            margin: 0 auto 16px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            box-shadow: 0 0 25px var(--primary-glow);
+            animation: bounceIcon 2s infinite ease-in-out;
+            position: relative;
+            z-index: 1;
+        }
+
+        @keyframes bounceIcon {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-8px) scale(1.05); }
+        }
+
+        .reward-title {
+            color: #fff;
+            font-size: 22px;
+            font-weight: 800;
+            margin: 0 0 8px 0;
+            position: relative;
+            z-index: 1;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+
+        .reward-subtext {
+            color: var(--text-muted);
+            font-size: 13px;
+            margin: 0 0 18px 0;
+            line-height: 1.5;
+            position: relative;
+            z-index: 1;
+        }
+
+        .reward-amount-box {
+            background: rgba(243, 156, 18, 0.12);
+            border: 1px dashed var(--primary);
+            border-radius: 16px;
+            padding: 14px 18px;
+            margin-bottom: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .reward-amount-val {
+            color: var(--primary);
+            font-size: 26px;
+            font-weight: 900;
+            font-family: monospace;
+            text-shadow: 0 0 12px var(--primary-glow);
+        }
+
+        .reward-currency {
+            color: #fff;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .reward-claim-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, var(--primary), #e67e22);
+            border: none;
+            border-radius: 16px;
+            color: #000;
+            font-weight: 800;
+            font-size: 15px;
+            cursor: pointer;
+            box-shadow: 0 6px 20px var(--primary-glow);
+            transition: transform 0.2s;
+            position: relative;
+            z-index: 1;
+        }
+
+        .reward-claim-btn:active {
+            transform: scale(0.96);
+        }
     </style>
 </head>
 <body>
@@ -655,6 +792,27 @@
                 <button id="support-send-btn" class="support-send-btn" onclick="sendSupportMessage()">➤</button>
             </div>
 
+        </div>
+    </div>
+
+    <!-- 🎁 المودال المنبثق الاحترافي عند تفعيل كود الهدية -->
+    <div id="promo-reward-modal" class="reward-overlay">
+        <div class="reward-card">
+            <div class="reward-glow"></div>
+            <div class="reward-icon-wrapper">
+                <span>🎁</span>
+            </div>
+            <h3 class="reward-title">تهانينا! 🎉</h3>
+            <p class="reward-subtext" id="promo-reward-msg">تم تفعيل كود الهدية بنجاح وإضافة المكافأة إلى رصيدك!</p>
+            
+            <div class="reward-amount-box" id="promo-reward-amount-box">
+                <span class="reward-amount-val" id="promo-reward-amount">+0</span>
+                <span class="reward-currency">ZN</span>
+            </div>
+
+            <button class="reward-claim-btn" onclick="closeRewardModal()">
+                رائع، شكراً لك! 🚀
+            </button>
         </div>
     </div>
 
