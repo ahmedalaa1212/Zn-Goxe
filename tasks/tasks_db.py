@@ -16,34 +16,18 @@ DEFAULT_TASKS_CONFIG = {
     "wait_seconds": 15,
     "conversion_fee_percent": 10.0,
     "review_seconds": 3,
-    "cache_ttl_seconds": 300
+    "cache_ttl_seconds": 0
 }
-
-# كاش ديناميكي على مستوى السيرفر لقاعدة البيانات
-_TASKS_CONFIG_CACHE = None
-_TASKS_CONFIG_CACHE_TIME = 0
-_CAMPAIGNS_CACHE = None
-_CAMPAIGNS_CACHE_TIME = 0
 
 
 # ==================== 1. إدارة الإعدادات ====================
 
 def get_tasks_config() -> dict:
     """
-    جلب وجدول الإعدادات الديناميكية والحد الأدنى للمكافآت لكل منصة.
+    جلب وجدول الإعدادات الديناميكية والحد الأدنى للمكافآت لكل منصة مباشرة من Firestore بدون أي كاش.
     يتم استعلام كولكشن app_settings ومستند settings داخل حقل task.
     في حال عدم وجود المستند أو الحقل، يتم إنشاؤه تلقائياً في الفايربيس بقيم افتراضية.
     """
-    global _TASKS_CONFIG_CACHE, _TASKS_CONFIG_CACHE_TIME
-    now = time.time()
-
-    cache_ttl = DEFAULT_TASKS_CONFIG["cache_ttl_seconds"]
-    if _TASKS_CONFIG_CACHE and isinstance(_TASKS_CONFIG_CACHE, dict):
-        cache_ttl = float(_TASKS_CONFIG_CACHE.get('cache_ttl_seconds', cache_ttl))
-
-    if _TASKS_CONFIG_CACHE is not None and (now - _TASKS_CONFIG_CACHE_TIME) < cache_ttl:
-        return _TASKS_CONFIG_CACHE
-
     try:
         doc_ref = firestore_db.collection('app_settings').document('settings')
         doc = doc_ref.get()
@@ -69,7 +53,7 @@ def get_tasks_config() -> dict:
         if should_update_db:
             doc_ref.set({'task': task_map}, merge=True)
 
-        _TASKS_CONFIG_CACHE = {
+        config = {
             "min_reward_website": float(task_map.get('min_reward_website', DEFAULT_TASKS_CONFIG["min_reward_website"])),
             "min_reward_default": float(task_map.get('min_reward_default', DEFAULT_TASKS_CONFIG["min_reward_default"])),
             "min_reward_youtube": float(task_map.get('min_reward_youtube', DEFAULT_TASKS_CONFIG["min_reward_youtube"])),
@@ -81,19 +65,15 @@ def get_tasks_config() -> dict:
             "review_seconds": int(task_map.get('review_seconds', DEFAULT_TASKS_CONFIG["review_seconds"])),
             "cache_ttl_seconds": int(task_map.get('cache_ttl_seconds', DEFAULT_TASKS_CONFIG["cache_ttl_seconds"]))
         }
-
-        _TASKS_CONFIG_CACHE_TIME = now
-        return _TASKS_CONFIG_CACHE
+        return config
 
     except Exception as e:
         print(f"[TASKS DB ERROR] Error fetching task settings from Firestore: {e}")
-        if _TASKS_CONFIG_CACHE is not None:
-            return _TASKS_CONFIG_CACHE
         return DEFAULT_TASKS_CONFIG.copy()
 
 
 def get_min_reward_for_platform(platform: str, config: dict = None) -> float:
-    """تحديد الحد الأدنى لتكلفة المهمة الواحدة بناءً على المنصة والإعدادات الديناميكية"""
+    """تحديد الحد الأدنى لتكلفة المهمة الواحدة بناءً على المنصة والإعدادات الديناميكية المحدثة لحظياً"""
     if config is None:
         config = get_tasks_config()
 
@@ -168,20 +148,12 @@ def is_task_completed_by_user(task: dict, user_completed_data: dict) -> bool:
 # ==================== 3. جلب الحملات النشطة ====================
 
 def invalidate_campaigns_cache():
-    """تفريغ كاش الحملات لإجبار السيرفر على إعادة القراءة من Firestore عند إنشاء أو إلغاء مهمة"""
-    global _CAMPAIGNS_CACHE, _CAMPAIGNS_CACHE_TIME
-    _CAMPAIGNS_CACHE = None
-    _CAMPAIGNS_CACHE_TIME = 0
+    """دالة للتوافق مع استدعاءات النظام الأخرى - التخزين المؤقت ملغى نهائياً"""
+    pass
 
 
-def get_cached_raw_campaigns(cache_ttl: int = 300) -> list:
-    """جلب كافة الحملات الإعلانية من Firestore مع تفعيل كاش RAM لتخفيف الضغط"""
-    global _CAMPAIGNS_CACHE, _CAMPAIGNS_CACHE_TIME
-    now = time.time()
-
-    if _CAMPAIGNS_CACHE is not None and (now - _CAMPAIGNS_CACHE_TIME) < cache_ttl:
-        return _CAMPAIGNS_CACHE
-
+def get_cached_raw_campaigns(cache_ttl: int = 0) -> list:
+    """جلب كافة الحملات الإعلانية مباشرة وبشكل حي من Firestore بدون أي كاش"""
     try:
         campaigns = []
         docs = firestore_db.collection('campaigns').stream()
@@ -189,17 +161,15 @@ def get_cached_raw_campaigns(cache_ttl: int = 300) -> list:
             c_data = doc.to_dict() or {}
             c_data['id'] = doc.id
             campaigns.append(c_data)
-        _CAMPAIGNS_CACHE = campaigns
-        _CAMPAIGNS_CACHE_TIME = now
         return campaigns
     except Exception as e:
         print(f"[TASKS DB ERROR] Error reading campaigns from Firestore: {e}")
-        return _CAMPAIGNS_CACHE or []
+        return []
 
 
 def get_active_campaigns(telegram_id_str: str) -> list:
     """
-    جلب وتصفية قائمة الحملات الإعلانية النشطة والمتاحة للمستخدم،
+    جلب وتصفية قائمة الحملات الإعلانية النشطة والمتاحة للمستخدم لحظياً،
     مع التحقق من حالة الإكمال واستبعاد الحملات المنتهية (إلا إن كان المستخدم هو المنشئ).
     """
     telegram_id_str = str(telegram_id_str).strip()
@@ -412,7 +382,7 @@ def cancel_ad_campaign(telegram_id_str: str, campaign_id: str) -> tuple:
 
 def convert_balance_to_ad_balance(telegram_id_str: str, amount: float) -> tuple:
     """
-    تحويل الرصيد الأساسي (ZN) إلى رصيد الإعلانات (AdZ) بعد خصم العمولة الديناميكية.
+    تحويل الرصيد الأساسي (ZN) إلى رصيد الإعلانات (AdZ) بعد خصم العمولة الديناميكية اللحظية.
     """
     telegram_id_str = str(telegram_id_str).strip()
 
