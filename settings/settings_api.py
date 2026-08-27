@@ -14,7 +14,6 @@ def get_settings_stats():
         if not success:
             return error_res
 
-        # جلب البيانات باستخدام الدالة من settings_db.py
         stats = get_user_settings_stats(str(uid))
 
         return jsonify({
@@ -34,7 +33,6 @@ def get_settings_stats():
 def get_mining_leaderboard():
     """مسار جلب قائمة أفضل 10 متصدرين في التعدين"""
     try:
-        # محاولة التوثق بشكل مرن - لضمان إرجاع القائمة دائماً للمستخدمين بدون حظر
         is_post = (request.method == 'POST')
         try:
             success, uid, user_info, error_res = get_authenticated_user(request, is_post=is_post)
