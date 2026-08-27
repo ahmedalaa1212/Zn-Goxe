@@ -84,7 +84,7 @@
         };
     }
 
-    // ⚙️ كائن الإعدادات الديناميكية المكتمل والشامل للإعدادات من Firebase
+    // ⚙️ كائن الإعدادات الديناميكية المكتمل والشامل للإعدادات من Firebase (مستند settings -> حقل task)
     let dynamicConfig = {
         min_reward_website: 15.0,
         min_reward_default: 10.0,
@@ -171,7 +171,7 @@
 
     let cachedTasksData = null;
     let lastTasksFetchTime = 0;
-    const TASKS_CACHE_TTL = 30000; // كاش العرض المحلي الافتراضي 30 ثانية
+    const TASKS_CACHE_TTL = 30000;
 
     // 🎨 حقن تنسيقات تلقائية لحل مشكلة ارتفاع القائمة فوق الكيبورد وتنسيق طبقات النوافذ
     if (!document.getElementById('task-modal-fix-style')) {
@@ -199,7 +199,6 @@
         document.head.appendChild(style);
     }
 
-    // 🛠️ دوال التحكم بإخفاء وإظهار القائمة السفلية عند إدخال البيانات
     function hideBottomNav() {
         document.body.classList.add('modal-open-fix');
         const selectors = ['.bottom-nav', '#bottom-nav', '.nav-bar', '.bottom-menu', 'footer', 'nav', '.footer-nav'];
@@ -396,7 +395,7 @@
         window.fetchAndRenderTasks(forceRefresh);
     };
 
-    // ⚡ فتح النافذة المنبثقة لإنشاء الحملة وإخفاء القائمة السفلية مع تحديث التلميح ديناميكياً
+    // ⚡ فتح النافذة المنبثقة لإنشاء الحملة مع تحديث الحدود من الفايربيس
     window.openAdModal = function(type) {
         currentAdType = type || 'يوتيوب';
         const modal = document.getElementById('ad-modal');
@@ -497,11 +496,10 @@
             isConvertingBalance = false;
         }
     };
-    
-    // توافق مع أي استدعاءات قديمة
+
     window.convertZnToAdZn = window.convertZnToAdZ;
 
-    // ⚡ تقديم ونشر الحملة الإعلانية والتحقق من الحد الأدنى المقبول بمرونة بحسب نوع المنصة
+    // ⚡ تقديم ونشر الحملة الإعلانية والتحقق من الحد الأدنى المقبول بحسب نوع المنصة
     window.submitAdCampaign = async function(event) {
         if (event) event.preventDefault();
         if (isSubmittingCampaign) return;
@@ -565,7 +563,6 @@
         const timerEl = document.getElementById('review-countdown-timer');
         if (reviewModal) reviewModal.style.display = 'flex';
 
-        // استخدام ثواني الفحص الأمنية القادمة من الفايربيس (review_seconds)
         let reviewSec = Number(dynamicConfig.review_seconds) || 3;
         let timeLeft = reviewSec;
         if (timerEl) timerEl.innerText = timeLeft;
@@ -861,7 +858,7 @@
         }
     };
 
-    // ⚡ بدء تنفيذ المهمة وفتح الرابط في المتصفح الخارجي للجهاز بأمان تام بمهلة انتظار ديناميكية
+    // ⚡ بدء تنفيذ المهمة وفتح الرابط بمهلة انتظار ديناميكية
     window.startTask = function(taskId, encodedLink, reward) {
         const link = decodeURIComponent(encodedLink || '');
         window.taskStates[taskId] = 'running';
@@ -870,7 +867,6 @@
 
         const waitSec = Number(dynamicConfig.wait_seconds) || 15;
 
-        // فتح رابط الإعلان في المتصفح الخارجي للجهاز (Chrome / Safari) لمنع الـ Instant View أو الحظر
         if (window.Telegram?.WebApp?.openLink) { 
             window.Telegram.WebApp.openLink(link, { try_instant_view: false }); 
         } else { 
