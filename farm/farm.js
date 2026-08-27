@@ -37,10 +37,6 @@ window.closeWelcomeModal = function() {
     const tele = window.Telegram?.WebApp;
     const START_PARAM = tele?.initDataUnsafe?.start_param || "";
 
-    if (!window.ADSGRAM_BLOCK_ID) {
-        window.ADSGRAM_BLOCK_ID = "44396";
-    }
-
     const GAME_CONFIG = {
         maxUpgradesPerLevel: 15,
         dailyBoostReward: 0.15,
@@ -283,6 +279,74 @@ window.closeWelcomeModal = function() {
         if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
         if (num >= 1000 && num % 1000 === 0) return (num / 1000) + 'K';
         return num.toString();
+    }
+
+    function toggleAdLoadingOverlay(show) {
+        const overlay = document.getElementById('ad-loading-overlay');
+        if (overlay) {
+            overlay.style.display = show ? 'flex' : 'none';
+        }
+    }
+
+    function showAdsgramAdWithTimeout(timeoutMs = 5000) {
+        return new Promise((resolve) => {
+            const blockId = window.ADSGRAM_BLOCK_ID;
+            
+            if (!window.Adsgram || !blockId) {
+                resolve(true);
+                return;
+            }
+
+            toggleAdLoadingOverlay(true);
+
+            let isHandled = false;
+            const completeAdCheck = () => {
+                if (!isHandled) {
+                    isHandled = true;
+                    clearTimeout(timerId);
+                    toggleAdLoadingOverlay(false);
+                    resolve(true);
+                }
+            };
+
+            const timerId = setTimeout(() => {
+                console.warn("انتهت مهلة 5 ثوانٍ للإعلان، يتخطى للتجميع الفوري.");
+                completeAdCheck();
+            }, timeoutMs);
+
+            try {
+                const AdController = window.Adsgram.init({ blockId: blockId });
+                AdController.show()
+                    .then(() => completeAdCheck())
+                    .catch((err) => {
+                        console.warn("خطأ في تشغيل الإعلان أو تم إغلاقه/حظره:", err);
+                        completeAdCheck();
+                    });
+            } catch (e) {
+                console.error("استثناء أثناء تجهيز Adsgram:", e);
+                completeAdCheck();
+            }
+        });
+    }
+
+    function showTelegramAd() {
+        return new Promise((resolve) => {
+            if (typeof window.show_11322720 === 'function') {
+                try {
+                    window.show_11322720()
+                        .then(() => resolve(true))
+                        .catch((err) => {
+                            console.warn("خطأ إعلان التليجرام، تحويل لـ Adsgram:", err);
+                            showAdsgramAdWithTimeout(5000).then(resolve);
+                        });
+                } catch (e) {
+                    console.error("استثناء إعلان التليجرام:", e);
+                    showAdsgramAdWithTimeout(5000).then(resolve);
+                }
+            } else {
+                showAdsgramAdWithTimeout(5000).then(resolve);
+            }
+        });
     }
 
     window.fetchPlayerDataFromServer = async function(force = false) {
@@ -655,58 +719,6 @@ window.closeWelcomeModal = function() {
     window.addEventListener('pageshow', syncOnVisibility);
     document.addEventListener("visibilitychange", syncOnVisibility);
 
-    function showAdsgramAd() {
-        return new Promise((resolve) => {
-            const blockId = window.ADSGRAM_BLOCK_ID || "44396";
-            if (window.Adsgram && blockId) {
-                try {
-                    const AdController = window.Adsgram.init({ blockId: blockId });
-                    AdController.show()
-                        .then(() => resolve(true))
-                        .catch((err) => {
-                            console.warn("Adsgram error or not active, bypassing ad check:", err);
-                            resolve(true); 
-                        });
-                } catch (e) {
-                    console.error("Adsgram exception:", e);
-                    resolve(true);
-                }
-            } else {
-                resolve(true);
-            }
-        });
-    }
-
-    function showTelegramAd() {
-        return new Promise((resolve) => {
-            if (typeof window.show_11322720 === 'function') {
-                try {
-                    window.show_11322720()
-                        .then(() => resolve(true))
-                        .catch((err) => {
-                            console.warn("Telegram ad error, trying Adsgram fallback:", err);
-                            if (window.Adsgram && window.ADSGRAM_BLOCK_ID) {
-                                showAdsgramAd().then(resolve);
-                            } else {
-                                resolve(true);
-                            }
-                        });
-                } catch (e) {
-                    console.error("Telegram ad exception:", e);
-                    if (window.Adsgram && window.ADSGRAM_BLOCK_ID) {
-                        showAdsgramAd().then(resolve);
-                    } else {
-                        resolve(true);
-                    }
-                }
-            } else if (window.Adsgram && window.ADSGRAM_BLOCK_ID) {
-                showAdsgramAd().then(resolve);
-            } else {
-                resolve(true);
-            }
-        });
-    }
-
     window.handleStorageUpgrade = async function() {
         if (isUpgradingStorage) return;
 
@@ -730,7 +742,6 @@ window.closeWelcomeModal = function() {
         isUpgradingStorage = true;
         const stateBackup = cloneCurrentState();
 
-        // التحديث اللحظي للواجهة (Optimistic UI)
         setStoredBalance(Math.max(0, bal - costZn), Math.max(0, usdBal - costUsd));
         window.userState.storage_level = nextLvl;
         window.PlayerData.storage_level = nextLvl;
@@ -800,7 +811,6 @@ window.closeWelcomeModal = function() {
         isUpgrading = true;
         const stateBackup = cloneCurrentState();
 
-        // التحديث اللحظي للواجهة (Optimistic UI)
         setStoredBalance(Math.max(0, currentBal - costZn), Math.max(0, currentUsdBal - costUsd));
 
         if (!window.userState.upgrades) window.userState.upgrades = {};
@@ -987,19 +997,16 @@ window.closeWelcomeModal = function() {
         const todayStr = getTodayUTCStr();
         const adKey = getStorageAdKey();
 
-        const lastClaimAdDate = pData.last_claim_ad_date || null;
+        const lastClaimAdDate = pData.last_claim_ad_date || localStorage.getItem(adKey) || null;
 
+        // إذا كانت الضغطة الأولى في اليوم بتوقيت UTC، يتم تشغيل نظام الإعلان بمؤقت الـ 5 ثوانٍ
         if (lastClaimAdDate !== todayStr) {
-            const adWatched = await showAdsgramAd();
-            if (!adWatched) {
-                return;
-            }
+            await showAdsgramAdWithTimeout(5000);
         }
 
         isClaimingMain = true;
         const stateBackup = cloneCurrentState();
 
-        // التحديث اللحظي للجمع (Optimistic Claim)
         const currentUnclaimed = parseFloat(pData.unclaimed || 0);
         if (currentUnclaimed > 0) {
             const currentBal = getStoredBalance();
