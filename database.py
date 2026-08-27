@@ -135,6 +135,12 @@ def update_user(telegram_id, updates_dict):
 
 # ==================== Sub-Modules Re-exports ====================
 
+# 0. Admin Database Module (الخاص بأكواد المكافآت وإدارات الأدمن)
+try:
+    from admin_database import *
+except Exception as e:
+    print(f"⚠️ خطأ في تحميل admin_database: {e}")
+
 # 1. Admin Chat Module
 try:
     from admin_chat.admin_chat_db import *
