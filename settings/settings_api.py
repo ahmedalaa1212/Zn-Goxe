@@ -65,11 +65,11 @@ def handle_redeem_code():
         code = str(data.get('code', '')).strip()
 
         if not code:
-            return jsonify({"success": False, "message": "يرجى كتابة الكود أولاً."}), 400
+            return jsonify({"success": False, "message": "يرجى كتابة الكود أولاً."}), 200
 
         result = redeem_promo_code(str(uid), code)
-        status_code = 200 if result.get('success') else 400
-        return jsonify(result), status_code
+        # إرجاع HTTP 200 دائماً ليقرأ الفرونت إند الرسالة بوضوح وبدون رفض للـ Promise
+        return jsonify(result), 200
 
     except Exception as e:
         print(f"Error in handle_redeem_code: {e}")
