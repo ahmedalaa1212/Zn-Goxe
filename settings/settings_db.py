@@ -11,6 +11,15 @@ def get_db():
         return database.initialize_firebase()
     return database.db
 
+def mask_telegram_id(uid_str: str) -> str:
+    """تخفيض الـ ID للمحافظة على الخصوصية (أول 4 أرقام + ***** + باقي الأرقام)"""
+    s = str(uid_str).strip()
+    if len(s) > 6:
+        return f"{s[:4]}*****{s[8:]}"
+    elif len(s) > 2:
+        return f"{s[:2]}*****"
+    return "*****"
+
 def get_user_settings_stats(uid: str) -> dict:
     """
     جلب إحصائيات مستويات المزرعة والمخازن والرصيد للمستخدم بصورة محسنة وآمنة.
@@ -73,8 +82,7 @@ def get_user_settings_stats(uid: str) -> dict:
 
 def get_top_mining_leaderboard(limit: int = 10) -> list:
     """
-    جلب أفضل 10 مستخدمين حصدوا أكبر قدر من نقاط التعدين فقط بصورة آمنة ومضمونة.
-    تستعلم حسب mined_points / total_mined / mining_points حصراً بدون الاعتماد على balance.
+    جلب أفضل 10 مستخدمين حصدوا أكبر قدر من نقاط التعدين مع تزييف الـ ID وحماية بياناتهم.
     """
     default_leaderboard = []
     try:
@@ -86,7 +94,7 @@ def get_top_mining_leaderboard(limit: int = 10) -> list:
         users_ref = db.collection('users')
         docs = []
 
-        # 1. الاستعلام المباشر عن حقول التعدين فقط بترتيب تنازلي (تمت إزالة balance نهائياً)
+        # الاستعلام المباشر عن حقول التعدين بترتيب تنازلي
         order_fields = ['mined_points', 'total_mined', 'mining_points', 'mined_total', 'farm_mined']
         
         for field in order_fields:
@@ -98,7 +106,6 @@ def get_top_mining_leaderboard(limit: int = 10) -> list:
             except Exception as q_err:
                 logger.warning(f"Firestore order_by('{field}') query failed or unindexed: {q_err}")
 
-        # 2. خطة التراجع في حال عدم وجود الفهرس (Index)
         if not docs:
             try:
                 docs = list(users_ref.limit(100).get())
@@ -109,7 +116,6 @@ def get_top_mining_leaderboard(limit: int = 10) -> list:
         for doc in docs:
             data = doc.to_dict() or {}
             
-            # جلب نقاط التعدين المباشرة فقط (بدون قراءة balance)
             raw_mined = None
             for key in ['mined_points', 'total_mined', 'mining_points', 'mined_total', 'farm_mined']:
                 if key in data and data[key] is not None:
@@ -137,15 +143,17 @@ def get_top_mining_leaderboard(limit: int = 10) -> list:
             else:
                 full_name = f"لاعب #{str(doc.id)[-4:]}"
 
+            raw_uid = str(doc.id)
+
             leaderboard.append({
-                "uid": str(doc.id),
+                "uid": raw_uid,
+                "masked_id": mask_telegram_id(raw_uid),
                 "first_name": full_name,
                 "username": username,
                 "mining_points": round(mined_pts, 4),
                 "mined_points": round(mined_pts, 4)
             })
 
-        # فرز القائمة ترتيباً تنازلياً وإرجاع أول N متصدرين
         leaderboard.sort(key=lambda x: x['mined_points'], reverse=True)
         return leaderboard[:limit]
 
@@ -156,7 +164,7 @@ def get_top_mining_leaderboard(limit: int = 10) -> list:
 
 def redeem_promo_code(uid: str, code_input: str) -> dict:
     """
-    تفعيل كود الهدايا والمكافآت مع حماية كاملة ضد التكرار والتلاعب وسباق الاستعلامات (Race Conditions)
+    تفعيل كود الهدايا والمكافآت مع حماية كاملة ضد التكرار والتلاعب وسباق الاستعلامات
     """
     if not uid or not code_input:
         return {"success": False, "message": "⚠️ البيانات المدخلة غير مكتملة."}
@@ -201,13 +209,11 @@ def redeem_promo_code(uid: str, code_input: str) -> dict:
         if not user_doc.exists:
             return {"success": False, "message": "❌ لم يتم العثور على حساب المستخدم."}
 
-        # 1. تحديث بيانات الكود برفع عدد الاستخدامات وإضافة ID المستخدم القائم بالتفعيل
         transaction.update(code_ref_doc, {
             'used_count': firestore.Increment(1),
             'used_by': firestore.ArrayUnion([str(uid)])
         })
 
-        # 2. زيادة رصيد المستخدم بأمان (لا يؤثر على mined_points)
         transaction.update(user_ref_doc, {
             'balance': firestore.Increment(coins),
             'zn_balance': firestore.Increment(coins),
