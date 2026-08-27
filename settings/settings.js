@@ -21,6 +21,18 @@
         return window.userState?.first_name || "اللاعب المحترف";
     }
 
+    // 🎯 دالة إخفاء أرقام الـ ID للحفاظ على الخصوصية (أول 4 أرقام + ***** + باقي الأرقام)
+    function maskTelegramId(uid) {
+        if (!uid) return "*****";
+        const str = String(uid).trim();
+        if (str.length > 6) {
+            return str.slice(0, 4) + "*****" + str.slice(8); // يظهر أول 4 أرقام ثم ***** وباقي الأرقام
+        } else if (str.length > 2) {
+            return str.slice(0, 2) + "*****";
+        }
+        return "*****";
+    }
+
     function updateStatsFromLocalData() {
         const state = window.userState || window.PlayerData || window.GameState;
         if (state) {
@@ -182,7 +194,10 @@
                     else if (rank === 2) { rankBadge = '🥈'; rankClass = 'leader-rank-2'; }
                     else if (rank === 3) { rankBadge = '🥉'; rankClass = 'leader-rank-3'; }
 
-                    const name = escapeHTML(item.first_name || item.username || `لاعب #${String(item.uid || '').slice(-4)}`);
+                    const rawUid = item.uid || item.telegram_id || item.tg_id || '';
+                    const maskedId = item.masked_id || maskTelegramId(rawUid);
+                    const name = escapeHTML(item.first_name || item.username || `لاعب #${String(rawUid).slice(-4)}`);
+
                     const rawScore = (item.mined_points !== undefined && item.mined_points !== null) 
                         ? item.mined_points 
                         : (item.mining_points !== undefined && item.mining_points !== null)
@@ -199,13 +214,17 @@
                         scoreHTML += `<span style="font-size:0.8em; opacity:0.65; font-weight:normal;">.${scoreParts[1]}</span>`;
                     }
 
+                    // 🎯 الـ ID المفوه على اليمين بجانب المركز، الاسم في الوسط، والنقاط على اليسار
                     html += `
-                        <div class="leader-item">
-                            <span class="leader-rank ${rankClass}">${rankBadge}</span>
-                            <div class="leader-info">
-                                <div style="font-weight:600; color:#fff; font-size:13px;">${name}</div>
+                        <div class="leader-item" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                            <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+                                <span class="leader-rank ${rankClass}">${rankBadge}</span>
+                                <span style="font-size:11px; color:#aaa; font-family:monospace; direction:ltr; unicode-bidi:isolate;">ID: ${escapeHTML(maskedId)}</span>
                             </div>
-                            <span class="leader-score">⛏️ ${scoreHTML}</span>
+                            <div style="flex:1; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 6px;">
+                                <span style="font-weight:600; color:#fff; font-size:13px;">${name}</span>
+                            </div>
+                            <span class="leader-score" style="flex-shrink:0;">⛏️ ${scoreHTML}</span>
                         </div>
                     `;
                 });
