@@ -154,6 +154,12 @@ if BOT_TOKEN:
 # ==========================================
 
 try:
+    from addons.addons_api import addons_bp
+    app.register_blueprint(addons_bp)
+except Exception as e:
+    print(f"⚠️ لم يتم تحميل module addons: {e}")
+
+try:
     from farm.farm_api import farm_bp
     app.register_blueprint(farm_bp, url_prefix='/api/farm')
 except Exception as e:
@@ -365,7 +371,6 @@ def admin_moderators_manager(mod_id=None):
         return jsonify({"success": True, "moderators": mods}), 200
 
     elif request.method == 'POST':
-        # التعديل وإضافة المشرفين متاح للمالك الرئيسي حصراً
         if str(telegram_id).strip() != str(ADMIN_ID):
             return jsonify({"success": False, "error": "عذراً، إضافة المشرفين مخصصة للمالك الرئيسي فقط!"}), 403
 
