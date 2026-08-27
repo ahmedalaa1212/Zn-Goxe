@@ -1,6 +1,15 @@
 // settings/settings.js
 (function initSettingsSystem() {
-    
+    // تهيئة بيئة Telegram WebApp إذا كانت متوفرة
+    if (window.Telegram?.WebApp) {
+        try {
+            window.Telegram.WebApp.ready();
+            window.Telegram.WebApp.expand();
+        } catch (e) {
+            console.warn("Telegram WebApp initialization error:", e);
+        }
+    }
+
     function getTgUser() {
         if (window.Telegram?.WebApp?.initDataUnsafe?.user) {
             return window.Telegram.WebApp.initDataUnsafe.user;
@@ -21,16 +30,30 @@
         return window.userState?.first_name || "اللاعب المحترف";
     }
 
-    // 🎯 دالة إخفاء أرقام الـ ID للحفاظ على الخصوصية (أول 4 أرقام + ***** + باقي الأرقام)
+    // 🎯 دالة إخفاء أرقام الـ ID للحفاظ على الخصوصية (أول 3 أرقام + ***** + آخر 3 أرقام)
     function maskTelegramId(uid) {
         if (!uid) return "*****";
         const str = String(uid).trim();
         if (str.length > 6) {
-            return str.slice(0, 4) + "*****" + str.slice(8);
-        } else if (str.length > 2) {
-            return str.slice(0, 2) + "*****";
+            return str.slice(0, 3) + "*****" + str.slice(-3);
+        } else if (str.length > 3) {
+            return str.slice(0, 2) + "*****" + str.slice(-1);
         }
         return "*****";
+    }
+
+    function escapeHTML(str) {
+        if (str === null || str === undefined) return '';
+        return String(str).replace(/[&<>"'/]/g, function(m) {
+            return {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;',
+                '/': '&#x2F;'
+            }[m];
+        });
     }
 
     function updateStatsFromLocalData() {
@@ -42,10 +65,13 @@
             let totalUpgradesCount = 0;
             if (state.upgrades && typeof state.upgrades === 'object') {
                 for (let i = 1; i <= 9; i++) {
-                    totalUpgradesCount += parseInt(state.upgrades[`lvl${i}`] || 0) || 0;
+                    totalUpgradesCount += parseInt(state.upgrades[`lvl${i}`] || 0, 10) || 0;
                 }
+            } else if (typeof state.farm_levels_count === 'number') {
+                totalUpgradesCount = state.farm_levels_count;
             }
-            let storageLevelsCount = parseInt(state.storage_level || 0) || 0;
+
+            let storageLevelsCount = parseInt(state.storage_level || state.storage_levels_count || 0, 10) || 0;
 
             if (totalMiningEl) totalMiningEl.innerText = `${totalUpgradesCount} مستويات`;
             if (totalStorageEl) totalStorageEl.innerText = `${storageLevelsCount} مستويات`;
@@ -63,7 +89,7 @@
 
         const user = getTgUser();
         if (user && user.photo_url && avatarEl) {
-            avatarEl.innerHTML = `<img src="${escapeHTML(user.photo_url)}" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">`;
+            avatarEl.innerHTML = `<img src="${escapeHTML(user.photo_url)}" style="width:100%; height:100%; object-fit:cover; border-radius:50%;" alt="Avatar">`;
         }
 
         updateStatsFromLocalData();
@@ -116,7 +142,6 @@
             if (amountEl) amountEl.innerText = `+${numCoins.toLocaleString('en-US')}`;
             if (amountBox) amountBox.style.display = 'flex';
         } else {
-            // محاولة استخراج الرقم تلقائياً من نص الرسالة إذا وجد
             if (msg) {
                 const match = msg.match(/([\d,]+)/);
                 if (match && match[1]) {
@@ -185,7 +210,6 @@
 
             if (data && data.success) {
                 inputEl.value = '';
-                // 🚀 عرض الشاشة المنبثقة الاحترافية للمكافأة
                 showRewardModal(data.message, data.coins);
                 fetchAndRenderData();
             } else if (data && data.message) {
@@ -304,12 +328,6 @@
     let isSendingMessage = false;
     let localMessagesList = [];
 
-    const chatBox = document.getElementById('support-chat-box');
-    const msgInput = document.getElementById('support-msg-input');
-    const sendBtn = document.getElementById('support-send-btn');
-    const inputSection = document.getElementById('support-input-section');
-    const ticketDisplay = document.getElementById('ticket-id-display');
-
     function getWelcomeNoticeText(tId) {
         return `مرحباً بك في مركز الدعم الفني! 🎧\nكودك المرجعي للمحادثة: ${tId}\n\n⚠️ تنبيه هام لجميع المستخدمين:\nيرجى التكرم بالالتزام بآداب الحوار والتعامل اللائق مع فريق الدعم. المحادثات مخصصة فقط للاستفسارات الفنية والمشكلات. أي إساءة لفظية أو تجاوز قد يعرض حسابك للحظر النهائي والمنع من الخدمة فوراً.\n\nتفضل بكتابة استفسارك وسيقوم الفريق بالرد عليك في أقرب وقت.`;
     }
@@ -345,6 +363,8 @@
 
     window.openSupportModal = function() {
         const modal = document.getElementById('support-modal');
+        const ticketDisplay = document.getElementById('ticket-id-display');
+
         if (modal) {
             modal.style.display = 'flex';
             document.body.style.overflow = 'hidden';
@@ -393,6 +413,8 @@
     window.fetchTicketData = async function() {
         if (isFetchingTicket) return;
         isFetchingTicket = true;
+
+        const ticketDisplay = document.getElementById('ticket-id-display');
 
         try {
             let data;
@@ -449,6 +471,7 @@
 
     function renderMessages(messages, forceRender = false) {
         messages = messages || [];
+        const chatBox = document.getElementById('support-chat-box');
         if (!chatBox) return;
 
         const lastMsg = messages[messages.length - 1];
@@ -502,27 +525,17 @@
         chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: 'smooth' });
     }
 
-    function escapeHTML(str) {
-        if (!str) return '';
-        return String(str).replace(/[&<>"'/]/g, function(m) {
-            return {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#039;',
-                '/': '&#x2F;'
-            }[m];
-        });
-    }
-
     window.sendQuickQuery = function(text) {
+        const msgInput = document.getElementById('support-msg-input');
         if (!msgInput) return;
         msgInput.value = text;
         sendSupportMessage();
     };
 
     window.startNewTicket = async function() {
+        const chatBox = document.getElementById('support-chat-box');
+        const ticketDisplay = document.getElementById('ticket-id-display');
+
         if (chatBox) chatBox.innerHTML = '<div class="msg-system">جاري تفعيل محادثة جديدة... ⏳</div>';
         
         const newLocalId = generateLocalTicketId();
@@ -570,6 +583,9 @@
     };
 
     window.sendSupportMessage = async function() {
+        const msgInput = document.getElementById('support-msg-input');
+        const sendBtn = document.getElementById('support-send-btn');
+
         if (!msgInput || isSendingMessage) return;
         const text = msgInput.value.trim();
         if (!text || isSupportClosed) return;
@@ -626,6 +642,10 @@
     };
 
     function disableSupportInput(reason) {
+        const msgInput = document.getElementById('support-msg-input');
+        const sendBtn = document.getElementById('support-send-btn');
+        const inputSection = document.getElementById('support-input-section');
+
         if (msgInput) {
             msgInput.disabled = true;
             msgInput.placeholder = reason;
@@ -636,6 +656,10 @@
     }
 
     function enableSupportInput() {
+        const msgInput = document.getElementById('support-msg-input');
+        const sendBtn = document.getElementById('support-send-btn');
+        const inputSection = document.getElementById('support-input-section');
+
         if (msgInput) {
             msgInput.disabled = false;
             msgInput.placeholder = "اكتب استفسارك هنا...";
@@ -661,13 +685,16 @@
         }
     }
 
-    if (msgInput) {
-        msgInput.addEventListener('keypress', function (e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                sendSupportMessage();
-            }
-        });
+    function setupEventListeners() {
+        const msgInput = document.getElementById('support-msg-input');
+        if (msgInput) {
+            msgInput.addEventListener('keypress', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    sendSupportMessage();
+                }
+            });
+        }
     }
 
     window.copyPlayerId = function() {
@@ -733,9 +760,14 @@
         }
     });
 
-    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    function initPage() {
+        setupEventListeners();
         fetchAndRenderData();
+    }
+
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        initPage();
     } else {
-        document.addEventListener('DOMContentLoaded', fetchAndRenderData);
+        document.addEventListener('DOMContentLoaded', initPage);
     }
 })();
