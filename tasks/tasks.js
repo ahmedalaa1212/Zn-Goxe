@@ -98,57 +98,71 @@
         cache_ttl_seconds: 300
     };
 
-    // 🔄 تحديث كائن الإعدادات الديناميكية وتحديث الواجهة فوراً
+    // 🔄 تحديث كائن الإعدادات الديناميكية مع استخراج كائن task من الفايربيس بأمان
     function updateConfig(configObj) {
         if (!configObj) return;
-        if (configObj.min_reward_website !== undefined) dynamicConfig.min_reward_website = Number(configObj.min_reward_website) || 15;
-        if (configObj.min_reward_default !== undefined) dynamicConfig.min_reward_default = Number(configObj.min_reward_default) || 10;
-        if (configObj.min_reward_youtube !== undefined) dynamicConfig.min_reward_youtube = Number(configObj.min_reward_youtube) || 10;
-        if (configObj.min_reward_telegram !== undefined) dynamicConfig.min_reward_telegram = Number(configObj.min_reward_telegram) || 10;
-        if (configObj.min_reward_instagram !== undefined) dynamicConfig.min_reward_instagram = Number(configObj.min_reward_instagram) || 10;
-        if (configObj.min_reward_x !== undefined) dynamicConfig.min_reward_x = Number(configObj.min_reward_x) || 10;
-        if (configObj.wait_seconds !== undefined) dynamicConfig.wait_seconds = Number(configObj.wait_seconds) || 15;
-        if (configObj.conversion_fee_percent !== undefined) dynamicConfig.conversion_fee_percent = Number(configObj.conversion_fee_percent) || 10;
-        if (configObj.review_seconds !== undefined) dynamicConfig.review_seconds = Number(configObj.review_seconds) || 3;
-        if (configObj.cache_ttl_seconds !== undefined) dynamicConfig.cache_ttl_seconds = Number(configObj.cache_ttl_seconds) || 300;
+
+        // استخراج كائن task في حال وصوله بشكل مصنف داخل config.task أو config.settings.task
+        const cfg = configObj.task || configObj.settings?.task || configObj;
+
+        if (cfg.min_reward_website !== undefined) dynamicConfig.min_reward_website = Number(cfg.min_reward_website) || 15;
+        if (cfg.min_reward_default !== undefined) dynamicConfig.min_reward_default = Number(cfg.min_reward_default) || 10;
+        if (cfg.min_reward_youtube !== undefined) dynamicConfig.min_reward_youtube = Number(cfg.min_reward_youtube) || 10;
+        if (cfg.min_reward_telegram !== undefined) dynamicConfig.min_reward_telegram = Number(cfg.min_reward_telegram) || 10;
+        if (cfg.min_reward_instagram !== undefined) dynamicConfig.min_reward_instagram = Number(cfg.min_reward_instagram) || 10;
+        if (cfg.min_reward_x !== undefined) dynamicConfig.min_reward_x = Number(cfg.min_reward_x) || 10;
+        if (cfg.wait_seconds !== undefined) dynamicConfig.wait_seconds = Number(cfg.wait_seconds) || 15;
+        if (cfg.conversion_fee_percent !== undefined) dynamicConfig.conversion_fee_percent = Number(cfg.conversion_fee_percent) || 10;
+        if (cfg.review_seconds !== undefined) dynamicConfig.review_seconds = Number(cfg.review_seconds) || 3;
+        if (cfg.cache_ttl_seconds !== undefined) dynamicConfig.cache_ttl_seconds = Number(cfg.cache_ttl_seconds) || 300;
 
         updateDynamicUIElements();
     }
 
-    // 🎨 تحديث عناصر الواجهة بالمعرفات الديناميكية (IDs) فور ورود البيانات من Firebase
+    // 🎨 تحديث جميع عناصر الواجهة والكروت بالأرقام الحقيقية من الفايربيس
     function updateDynamicUIElements() {
-        const feeBadge = document.getElementById('conversion-fee-badge');
-        if (feeBadge) feeBadge.innerText = `${dynamicConfig.conversion_fee_percent}%`;
+        const setElText = (id, text) => {
+            const el = document.getElementById(id);
+            if (el) el.innerText = text;
+        };
 
-        const feeDisplay = document.getElementById('conversion-fee-display');
-        if (feeDisplay) feeDisplay.innerText = `${dynamicConfig.conversion_fee_percent}%`;
+        setElText('conversion-fee-badge', `${dynamicConfig.conversion_fee_percent}%`);
+        setElText('conversion-fee-display', `${dynamicConfig.conversion_fee_percent}%`);
+        setElText('conversion-fee-note', `خصم ${dynamicConfig.conversion_fee_percent}%`);
 
-        const feeNote = document.getElementById('conversion-fee-note');
-        if (feeNote) feeNote.innerText = `خصم ${dynamicConfig.conversion_fee_percent}%`;
+        setElText('min-reward-website', `${dynamicConfig.min_reward_website} AdZ`);
+        setElText('min-reward-youtube', `${dynamicConfig.min_reward_youtube} AdZ`);
+        setElText('min-reward-telegram', `${dynamicConfig.min_reward_telegram} AdZ`);
+        setElText('min-reward-instagram', `${dynamicConfig.min_reward_instagram} AdZ`);
+        setElText('min-reward-x', `${dynamicConfig.min_reward_x} AdZ`);
+        setElText('min-reward-default', `${dynamicConfig.min_reward_default} AdZ`);
 
-        const websiteMin = document.getElementById('min-reward-website');
-        if (websiteMin) websiteMin.innerText = `${dynamicConfig.min_reward_website} AdZ`;
+        setElText('wait-seconds-display', `${dynamicConfig.wait_seconds}`);
+        setElText('review-seconds-display', `${dynamicConfig.review_seconds}`);
 
-        const youtubeMin = document.getElementById('min-reward-youtube');
-        if (youtubeMin) youtubeMin.innerText = `${dynamicConfig.min_reward_youtube} AdZ`;
+        // 🎯 تحديث الكروت الترويجية الرئيسية مباشرة واستبدال أي نص يحتوي على "-- AdZ" بالحد الأدنى الصحيح
+        const platformMinMap = {
+            'يوتيوب': dynamicConfig.min_reward_youtube,
+            'youtube': dynamicConfig.min_reward_youtube,
+            'تيليجرام': dynamicConfig.min_reward_telegram,
+            'telegram': dynamicConfig.min_reward_telegram,
+            'انستغرام': dynamicConfig.min_reward_instagram,
+            'instagram': dynamicConfig.min_reward_instagram,
+            'موقع': dynamicConfig.min_reward_website,
+            'website': dynamicConfig.min_reward_website,
+            'X': dynamicConfig.min_reward_x,
+            'x': dynamicConfig.min_reward_x
+        };
 
-        const telegramMin = document.getElementById('min-reward-telegram');
-        if (telegramMin) telegramMin.innerText = `${dynamicConfig.min_reward_telegram} AdZ`;
-
-        const instagramMin = document.getElementById('min-reward-instagram');
-        if (instagramMin) instagramMin.innerText = `${dynamicConfig.min_reward_instagram} AdZ`;
-
-        const xMin = document.getElementById('min-reward-x');
-        if (xMin) xMin.innerText = `${dynamicConfig.min_reward_x} AdZ`;
-
-        const defaultMin = document.getElementById('min-reward-default');
-        if (defaultMin) defaultMin.innerText = `${dynamicConfig.min_reward_default} AdZ`;
-
-        const waitSecEl = document.getElementById('wait-seconds-display');
-        if (waitSecEl) waitSecEl.innerText = `${dynamicConfig.wait_seconds}`;
-
-        const reviewSecEl = document.getElementById('review-seconds-display');
-        if (reviewSecEl) reviewSecEl.innerText = `${dynamicConfig.review_seconds}`;
+        const promoteCards = document.querySelectorAll('#section-promote [onclick*="openAdModal"], .ad-card, .category-card');
+        promoteCards.forEach(card => {
+            const onclickAttr = card.getAttribute('onclick') || '';
+            for (const [platformKey, minVal] of Object.entries(platformMinMap)) {
+                if (onclickAttr.includes(`'${platformKey}'`) || onclickAttr.includes(`"${platformKey}"`)) {
+                    card.innerHTML = card.innerHTML.replace(/الحد الأدنى:\s*--\s*AdZ|--\s*AdZ|AdZ\s*--/gi, `الحد الأدنى: ${minVal} AdZ`);
+                }
+            }
+        });
     }
 
     // 🔒 الحصول على الحد الأدنى لمنصة معينة بناءً على الإعدادات الديناميكية
@@ -695,6 +709,9 @@
             } catch (e) { console.warn("خطأ جلب المهام", e); }
         }
 
+        // إجبار إضافي لتحديث واجهة الكروت بعد اكتمال جلب البيانات
+        updateDynamicUIElements();
+
         if (container) {
             let allTasks = [];
             realTasks.forEach(task => {
@@ -1049,5 +1066,14 @@
         }
     });
 
-    window.fetchAndRenderTasks(false);
+    // تنفيذ التحديث الفوري عند تحميل الشاشة
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            updateDynamicUIElements();
+            window.fetchAndRenderTasks(false);
+        });
+    } else {
+        updateDynamicUIElements();
+        window.fetchAndRenderTasks(false);
+    }
 })();
