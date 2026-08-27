@@ -84,23 +84,94 @@
         };
     }
 
-    // ⚙️ إعدادات الإعلانات والحدود الأدنى الديناميكية (افتراضياً 15 للموقع و10 لباقي المنصات)
+    // ⚙️ كائن الإعدادات الديناميكية المكتمل والشامل للإعدادات من Firebase
     let dynamicConfig = {
-        min_reward_website: 15,
-        min_reward_default: 10
+        min_reward_website: 15.0,
+        min_reward_default: 10.0,
+        min_reward_youtube: 10.0,
+        min_reward_telegram: 10.0,
+        min_reward_instagram: 10.0,
+        min_reward_x: 10.0,
+        wait_seconds: 15,
+        conversion_fee_percent: 10.0,
+        review_seconds: 3,
+        cache_ttl_seconds: 300
     };
+
+    // 🔄 تحديث كائن الإعدادات الديناميكية وتحديث الواجهة فوراً
+    function updateConfig(configObj) {
+        if (!configObj) return;
+        if (configObj.min_reward_website !== undefined) dynamicConfig.min_reward_website = Number(configObj.min_reward_website) || 15;
+        if (configObj.min_reward_default !== undefined) dynamicConfig.min_reward_default = Number(configObj.min_reward_default) || 10;
+        if (configObj.min_reward_youtube !== undefined) dynamicConfig.min_reward_youtube = Number(configObj.min_reward_youtube) || 10;
+        if (configObj.min_reward_telegram !== undefined) dynamicConfig.min_reward_telegram = Number(configObj.min_reward_telegram) || 10;
+        if (configObj.min_reward_instagram !== undefined) dynamicConfig.min_reward_instagram = Number(configObj.min_reward_instagram) || 10;
+        if (configObj.min_reward_x !== undefined) dynamicConfig.min_reward_x = Number(configObj.min_reward_x) || 10;
+        if (configObj.wait_seconds !== undefined) dynamicConfig.wait_seconds = Number(configObj.wait_seconds) || 15;
+        if (configObj.conversion_fee_percent !== undefined) dynamicConfig.conversion_fee_percent = Number(configObj.conversion_fee_percent) || 10;
+        if (configObj.review_seconds !== undefined) dynamicConfig.review_seconds = Number(configObj.review_seconds) || 3;
+        if (configObj.cache_ttl_seconds !== undefined) dynamicConfig.cache_ttl_seconds = Number(configObj.cache_ttl_seconds) || 300;
+
+        updateDynamicUIElements();
+    }
+
+    // 🎨 تحديث عناصر الواجهة بالمعرفات الديناميكية (IDs) فور ورود البيانات من Firebase
+    function updateDynamicUIElements() {
+        const feeBadge = document.getElementById('conversion-fee-badge');
+        if (feeBadge) feeBadge.innerText = `${dynamicConfig.conversion_fee_percent}%`;
+
+        const feeDisplay = document.getElementById('conversion-fee-display');
+        if (feeDisplay) feeDisplay.innerText = `${dynamicConfig.conversion_fee_percent}%`;
+
+        const feeNote = document.getElementById('conversion-fee-note');
+        if (feeNote) feeNote.innerText = `خصم ${dynamicConfig.conversion_fee_percent}%`;
+
+        const websiteMin = document.getElementById('min-reward-website');
+        if (websiteMin) websiteMin.innerText = `${dynamicConfig.min_reward_website} AdZ`;
+
+        const youtubeMin = document.getElementById('min-reward-youtube');
+        if (youtubeMin) youtubeMin.innerText = `${dynamicConfig.min_reward_youtube} AdZ`;
+
+        const telegramMin = document.getElementById('min-reward-telegram');
+        if (telegramMin) telegramMin.innerText = `${dynamicConfig.min_reward_telegram} AdZ`;
+
+        const instagramMin = document.getElementById('min-reward-instagram');
+        if (instagramMin) instagramMin.innerText = `${dynamicConfig.min_reward_instagram} AdZ`;
+
+        const xMin = document.getElementById('min-reward-x');
+        if (xMin) xMin.innerText = `${dynamicConfig.min_reward_x} AdZ`;
+
+        const defaultMin = document.getElementById('min-reward-default');
+        if (defaultMin) defaultMin.innerText = `${dynamicConfig.min_reward_default} AdZ`;
+
+        const waitSecEl = document.getElementById('wait-seconds-display');
+        if (waitSecEl) waitSecEl.innerText = `${dynamicConfig.wait_seconds}`;
+
+        const reviewSecEl = document.getElementById('review-seconds-display');
+        if (reviewSecEl) reviewSecEl.innerText = `${dynamicConfig.review_seconds}`;
+    }
 
     // 🔒 الحصول على الحد الأدنى لمنصة معينة بناءً على الإعدادات الديناميكية
     function getMinRewardForPlatform(platform) {
-        if (platform === 'موقع') {
-            return Number(dynamicConfig.min_reward_website) || 15;
+        switch (platform) {
+            case 'موقع':
+                return Number(dynamicConfig.min_reward_website) || 15;
+            case 'يوتيوب':
+                return Number(dynamicConfig.min_reward_youtube) || 10;
+            case 'تيليجرام':
+                return Number(dynamicConfig.min_reward_telegram) || 10;
+            case 'انستغرام':
+                return Number(dynamicConfig.min_reward_instagram) || 10;
+            case 'X':
+                return Number(dynamicConfig.min_reward_x) || 10;
+            default:
+                return Number(dynamicConfig.min_reward_default) || 10;
         }
-        return Number(dynamicConfig.min_reward_default) || 10;
     }
 
     let cachedTasksData = null;
     let lastTasksFetchTime = 0;
-    const TASKS_CACHE_TTL = 30000; // كاش العرض المحلي لمدة 30 ثانية
+    const TASKS_CACHE_TTL = 30000; // كاش العرض المحلي الافتراضي 30 ثانية
 
     // 🎨 حقن تنسيقات تلقائية لحل مشكلة ارتفاع القائمة فوق الكيبورد وتنسيق طبقات النوافذ
     if (!document.getElementById('task-modal-fix-style')) {
@@ -156,8 +227,7 @@
             cachedTasksData = JSON.parse(storedCache);
             lastTasksFetchTime = parseInt(storedTime, 10) || 0;
             if (cachedTasksData.config) {
-                dynamicConfig.min_reward_website = Number(cachedTasksData.config.min_reward_website) || 15;
-                dynamicConfig.min_reward_default = Number(cachedTasksData.config.min_reward_default) || 10;
+                updateConfig(cachedTasksData.config);
             }
         }
     } catch (e) {}
@@ -380,11 +450,12 @@
         }
     };
 
-    // ⚡ شحن محفظة الإعلانات AdZ
+    // ⚡ شحن محفظة الإعلانات AdZ مع إظهار نسبة الخصم الديناميكية
     window.convertZnToAdZ = async function() {
         if (isConvertingBalance) return;
 
-        const inputVal = prompt('أدخل مبلغ ZN المراد تحويله إلى رصيد الإعلانات (AdZ):\n(ملاحظة: تخصم عمولة تحويل 10%)');
+        const feePercent = Number(dynamicConfig.conversion_fee_percent) || 10;
+        const inputVal = prompt(`أدخل مبلغ ZN المراد تحويله إلى رصيد الإعلانات (AdZ):\n(ملاحظة: تخصم عمولة تحويل ${feePercent}%)`);
         if (!inputVal) return;
 
         const amount = parseFloat(inputVal);
@@ -430,7 +501,7 @@
     // توافق مع أي استدعاءات قديمة
     window.convertZnToAdZn = window.convertZnToAdZ;
 
-    // ⚡ تقديم ونشر الحملة الإعلانية والتحقق من الحد الأدنى المقبول (15 للموقع و 10 للباقي)
+    // ⚡ تقديم ونشر الحملة الإعلانية والتحقق من الحد الأدنى المقبول بمرونة بحسب نوع المنصة
     window.submitAdCampaign = async function(event) {
         if (event) event.preventDefault();
         if (isSubmittingCampaign) return;
@@ -494,7 +565,9 @@
         const timerEl = document.getElementById('review-countdown-timer');
         if (reviewModal) reviewModal.style.display = 'flex';
 
-        let timeLeft = 3;
+        // استخدام ثواني الفحص الأمنية القادمة من الفايربيس (review_seconds)
+        let reviewSec = Number(dynamicConfig.review_seconds) || 3;
+        let timeLeft = reviewSec;
         if (timerEl) timerEl.innerText = timeLeft;
 
         const countdownInterval = setInterval(() => {
@@ -519,7 +592,7 @@
                 initData
             });
 
-            await new Promise(r => setTimeout(r, 3200));
+            await new Promise(r => setTimeout(r, (reviewSec + 0.2) * 1000));
 
             if (reviewModal) reviewModal.style.display = 'none';
 
@@ -577,11 +650,12 @@
         let realTasks = [];
         const now = Date.now();
 
-        if (!forceRefresh && cachedTasksData && (now - lastTasksFetchTime < TASKS_CACHE_TTL)) {
+        const cacheTtlMs = (Number(dynamicConfig.cache_ttl_seconds) * 1000) || TASKS_CACHE_TTL;
+
+        if (!forceRefresh && cachedTasksData && (now - lastTasksFetchTime < cacheTtlMs)) {
             realTasks = cachedTasksData.campaigns || [];
             if (cachedTasksData.config) {
-                dynamicConfig.min_reward_website = Number(cachedTasksData.config.min_reward_website) || 15;
-                dynamicConfig.min_reward_default = Number(cachedTasksData.config.min_reward_default) || 10;
+                updateConfig(cachedTasksData.config);
             }
             if (cachedTasksData.ad_balance !== undefined) syncUserAdBalance(cachedTasksData.ad_balance);
             if (cachedTasksData.balance !== undefined) syncUserBalance(cachedTasksData.balance);
@@ -606,8 +680,7 @@
                     let data = await response.json();
                     if (data.success) { 
                         if (data.config) {
-                            dynamicConfig.min_reward_website = Number(data.config.min_reward_website) || 15;
-                            dynamicConfig.min_reward_default = Number(data.config.min_reward_default) || 10;
+                            updateConfig(data.config);
                         }
                         saveTasksToSessionCache(data);
                         realTasks = data.campaigns || []; 
@@ -665,6 +738,8 @@
                     const isCompleted = task.is_completed;
                     let actionHtml = '';
 
+                    const waitSec = Number(dynamicConfig.wait_seconds) || 15;
+
                     if (isMyAd) {
                         actionHtml = `<button type="button" disabled style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.25); padding: 8px 14px; border-radius: 8px; font-size: 11px; font-weight: bold; cursor: not-allowed;">إعلانك الخاص 📢</button>`;
                     } else if (isCompleted) {
@@ -679,9 +754,9 @@
                             if (document.visibilityState === 'hidden') {
                                 currentTotalOutside += (Date.now() - (window.lastGoOutside[task.id] || Date.now())) / 1000;
                             }
-                            let remaining = Math.max(1, 15 - Math.floor(currentTotalOutside));
+                            let remaining = Math.max(1, waitSec - Math.floor(currentTotalOutside));
                             
-                            if (remaining <= 1 && currentTotalOutside >= 15) {
+                            if (remaining <= 1 && currentTotalOutside >= waitSec) {
                                 window.taskStates[task.id] = 'ready';
                                 actionHtml = `<button type="button" id="btn-task-${task.id}" onclick="window.verifyTask('${task.id}', ${task.reward})" style="background: #ffcc00; color: #000; border: none; padding: 8px 18px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 800; box-shadow: 0 0 10px rgba(255, 204, 0, 0.3);">تحقق ✅</button>`;
                             } else if (document.visibilityState === 'visible') {
@@ -786,12 +861,14 @@
         }
     };
 
-    // ⚡ بدء تنفيذ المهمة وفتح الرابط في المتصفح الخارجي للجهاز بأمان تام (منع الحظر في Adsterra)
+    // ⚡ بدء تنفيذ المهمة وفتح الرابط في المتصفح الخارجي للجهاز بأمان تام بمهلة انتظار ديناميكية
     window.startTask = function(taskId, encodedLink, reward) {
         const link = decodeURIComponent(encodedLink || '');
         window.taskStates[taskId] = 'running';
         window.accumulatedOutsideTime[taskId] = 0;
         window.lastGoOutside[taskId] = Date.now();
+
+        const waitSec = Number(dynamicConfig.wait_seconds) || 15;
 
         // فتح رابط الإعلان في المتصفح الخارجي للجهاز (Chrome / Safari) لمنع الـ Instant View أو الحظر
         if (window.Telegram?.WebApp?.openLink) { 
@@ -803,7 +880,7 @@
         const btn = document.getElementById(`btn-task-${taskId}`);
         if (btn) {
             btn.disabled = true;
-            btn.innerText = 'عُد للمهمة.. 15ث⏳';
+            btn.innerText = `عُد للمهمة.. ${waitSec}ث⏳`;
             btn.style.background = 'rgba(239,68,68,0.15)';
             btn.style.color = '#ef4444';
             btn.style.border = '1px solid rgba(239,68,68,0.3)';
@@ -816,10 +893,10 @@
             if (document.visibilityState === 'hidden') {
                 currentTotalOutside += (Date.now() - (window.lastGoOutside[taskId] || Date.now())) / 1000;
             }
-            let remaining = Math.max(0, 15 - Math.floor(currentTotalOutside));
+            let remaining = Math.max(0, waitSec - Math.floor(currentTotalOutside));
 
             const taskBtn = document.getElementById(`btn-task-${taskId}`);
-            if (remaining <= 0 || currentTotalOutside >= 15) {
+            if (remaining <= 0 || currentTotalOutside >= waitSec) {
                 clearInterval(window.taskIntervals[taskId]);
                 window.taskStates[taskId] = 'ready';
                 if (taskBtn) {
@@ -957,7 +1034,7 @@
         }
     };
 
-    // ⚡ المتابعة الدقيقة للتواجد خارج الشاشة وحساب الـ 15 ثانية
+    // ⚡ المتابعة الدقيقة للتواجد خارج الشاشة وحساب زمني مرن بناءً على wait_seconds
     document.addEventListener('visibilitychange', () => {
         const isHidden = document.visibilityState === 'hidden';
         const now = Date.now();
