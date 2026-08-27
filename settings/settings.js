@@ -26,7 +26,7 @@
         if (!uid) return "*****";
         const str = String(uid).trim();
         if (str.length > 6) {
-            return str.slice(0, 4) + "*****" + str.slice(8); // يظهر أول 4 أرقام ثم ***** وباقي الأرقام
+            return str.slice(0, 4) + "*****" + str.slice(8);
         } else if (str.length > 2) {
             return str.slice(0, 2) + "*****";
         }
@@ -117,11 +117,18 @@
         }
 
         try {
-            let data;
+            let data = null;
+            const initData = window.Telegram?.WebApp?.initData || "";
+
             if (typeof window.fetchAPI === 'function') {
-                data = await window.fetchAPI('/api/settings/redeem-code', 'POST', { code: code });
-            } else {
-                const initData = window.Telegram?.WebApp?.initData || "";
+                try {
+                    data = await window.fetchAPI('/api/settings/redeem-code', 'POST', { code: code });
+                } catch (e) {
+                    console.warn("fetchAPI failed, falling back to fetch:", e);
+                }
+            }
+
+            if (!data) {
                 const res = await fetch('/api/settings/redeem-code', {
                     method: 'POST',
                     headers: { 
@@ -138,8 +145,10 @@
                 showToast(data.message || "🎉 تم تفعيل الكود بنجاح!");
                 inputEl.value = '';
                 fetchAndRenderData();
+            } else if (data && data.message) {
+                showToast(data.message);
             } else {
-                showToast(data?.message || "❌ فشل تفعيل الكود!");
+                showToast("❌ فشل تفعيل الكود!");
             }
         } catch (error) {
             console.error("Redeem code error:", error);
@@ -214,7 +223,6 @@
                         scoreHTML += `<span style="font-size:0.8em; opacity:0.65; font-weight:normal;">.${scoreParts[1]}</span>`;
                     }
 
-                    // 🎯 الـ ID المفوه على اليمين بجانب المركز، الاسم في الوسط، والنقاط على اليسار
                     html += `
                         <div class="leader-item" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
                             <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
