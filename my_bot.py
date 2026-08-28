@@ -10,7 +10,7 @@ import database
 # ==========================================
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app').strip().rstrip('/')
-PROOFS_CHANNEL_URL = os.environ.get('PROOFS_CHANNEL_URL', 'https://t.me/zngoxeproofs').strip()
+PROOFS_CHANNEL_URL = os.environ.get('PROOFS_CHANNEL_URL', 'https://t.me/zngoxe_Proofs').strip()
 OFFICIAL_CHANNEL_URL = os.environ.get('OFFICIAL_CHANNEL_URL', 'https://t.me/zngoxe').strip()
 
 # التأكد من وجود https:// لضمان عمل WebApp بدون مشاكل
@@ -135,14 +135,31 @@ def how_to_play_callback(call):
         bot.answer_callback_query(call.id)
         
         help_text = (
-            "📖 <b>دليل البدء السريع - ZN Goxe:</b>\n\n"
-            "1️⃣ اضغط على زر <b>(انطلق للعب)</b> لفتح التطبيق.\n"
-            "2️⃣ قم بتفعيل <b>المزرعة</b> وترقية المكونات لزيادة سرعة الإنتاج.\n"
-            "3️⃣ انجز <b>المهام اليومية</b> للحصول على مكافآت فورية.\n"
-            "4️⃣ شارك رابطك مع أصدقائك لتحصل على <b>10%</b> بونص إضافي دائماً!\n\n"
-            "💡 <i>كلما زاد نشاطك داخل التطبيق، زادت رتبتك وجوائزك!</i>"
+            "📖 <b>دليل الشرح الشامل - منصة وتطبيق ZN Goxe:</b>\n\n"
+            "مرحباً بك! إليك كافة التفاصيل حول آلية العمل، التجميع، والسحب المباشر داخل المنصة:\n\n"
+            "⚡ <b>1️⃣ نظام التعدين التلقائي والمخزن:</b>\n"
+            "• عند بدء اللعب يبدأ نظام التعدين الآلي بتجميع عملات ZN في <b>سعة التخزين المؤقت</b>.\n"
+            "• اضغط على زر <b>(تجميع الرصيد)</b> لنقل النقاط إلى رصيدك الأساسي.\n"
+            "• يمكنك ترقية <b>مستويات التعدين وسعة المخزن</b> لزيادة معدل الإنتاج وتوسيع سعة التجميع لتستمر في العمل لأوقات أطول تلقائياً.\n\n"
+            "🎁 <b>2️⃣ المكافآت اليومية والمهام:</b>\n"
+            "• احرص على تسجيل الدخول اليومي واستلام <b>المكافأة اليومية (30 يوم)</b> المتصاعدة.\n"
+            "• تصفح قسم <b>المهام والزيارات</b> لإكمال المهام البسيطة وإدخال أكواد الهدايا (Promo Codes).\n\n"
+            "🎮 <b>3️⃣ الألعاب التفاعلية والتحديات:</b>\n"
+            "• يتضمن التطبيق ألعاباً مثل <b>Fogo Sweep</b> و <b>برج النيون Goxe</b> للمنافسة ومضاعفة رصيدك بناءً على المهارة والتحدي.\n\n"
+            "🤝 <b>4️⃣ نظام دعوة الأصدقاء (الفريق):</b>\n"
+            "• احصل على <b>10% مشاركة أرباح</b> من كافة الأنشطة التعدينية لأصدقائك المنضمين عبر رابطك.\n"
+            "• فتح جوائز وإنجازات خاصة عند الوصول إلى مستويات دعوة متقدمة.\n\n"
+            "💳 <b>5️⃣ عمليات السحب وإثباتات الدفع:</b>\n"
+            "• يدعم التطبيق السحب السريع والمباشر عبر منصات السحب المعتمدة مثل <b>FaucetPay</b> والعملات المدعومة (DOGE, TRX, PEPE, LTC) بالإضافة لشبكة TON.\n"
+            "• يمكنك الاطلاع على كافة عمليات التحويل والمصداقية الحية من خلال <b>قناة الإثباتات الرسمية</b>.\n\n"
+            "⚠️ <b>تنبيه عام:</b> يُمنع استخدام الحسابات المتعددة أو أدوات التلاعب للحفاظ على سلامة الحساب والتمتع بكافة الميزات دون انقطاع."
         )
-        bot.send_message(call.message.chat.id, help_text, parse_mode="HTML")
+        
+        markup = InlineKeyboardMarkup()
+        btn_proofs = InlineKeyboardButton("💳 قناة إثباتات السحب الحية", url=PROOFS_CHANNEL_URL)
+        markup.row(btn_proofs)
+        
+        bot.send_message(call.message.chat.id, help_text, reply_markup=markup, parse_mode="HTML")
     except Exception as e:
         print(f"❌ خطأ في callback: {e}")
         traceback.print_exc()
