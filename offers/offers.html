@@ -1,1 +1,99 @@
+<style>
+    .offers-container {
+        padding: 16px;
+        color: #ffffff;
+        direction: rtl;
+        max-width: 600px;
+        margin: 0 auto;
+        padding-bottom: 90px;
+    }
+    .offers-header {
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    .offers-header h2 {
+        font-size: 22px;
+        color: #0088cc;
+        margin-bottom: 6px;
+    }
+    .offers-header p {
+        font-size: 13px;
+        color: #a2b2c8;
+    }
+    .offer-card {
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 16px;
+        margin-bottom: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        backdrop-filter: blur(10px);
+    }
+    .offer-info {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex: 1;
+    }
+    .offer-icon {
+        font-size: 28px;
+        background: rgba(0, 136, 204, 0.15);
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px;
+    }
+    .offer-details h4 {
+        margin: 0 0 4px 0;
+        font-size: 15px;
+    }
+    .offer-details p {
+        margin: 0;
+        font-size: 12px;
+        color: #a2b2c8;
+    }
+    .offer-reward {
+        font-weight: bold;
+        color: #00e676;
+        font-size: 13px;
+        margin-top: 4px;
+    }
+    .offer-btn {
+        background: linear-gradient(135deg, #0088cc, #005588);
+        color: #ffffff;
+        border: none;
+        padding: 10px 16px;
+        border-radius: 10px;
+        font-weight: bold;
+        cursor: pointer;
+        font-size: 13px;
+        white-space: nowrap;
+        transition: transform 0.1s, opacity 0.2s;
+    }
+    .offer-btn:active {
+        transform: scale(0.96);
+    }
+    .offer-btn.completed {
+        background: rgba(255, 255, 255, 0.15);
+        color: #888888;
+        cursor: not-allowed;
+    }
+</style>
+
+<div class="offers-container">
+    <div class="offers-header">
+        <h2>🔥 العروض والمهام الممتازة</h2>
+        <p>أكمل العروض واحصل على مكافآت فورية تضاف لرصيدك مباشرة</p>
+    </div>
+
+    <div id="offers-list">
+        <div style="text-align: center; padding: 30px; color: #aaa;">جاري تحميل العروض...</div>
+    </div>
+</div>
 
