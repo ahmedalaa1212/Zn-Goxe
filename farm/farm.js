@@ -78,12 +78,23 @@ window.closeWelcomeModal = function() {
     let isBoosting = false; 
     let isFetching = false;
     let isClaimingMain = false; 
-    let upgradingLevel = null; // تحديد رقم المستوى الجاري ترقيته بدقة
+    let upgradingLevel = null;
     let isUpgradingStorage = false;
 
     let lastFetchTime = 0;
     const FETCH_THROTTLE_MS = 3000;
     let lastCheckedDate = "";
+
+    function parseServerDateMs(dateStr) {
+        if (!dateStr) return getAdjustedNowMs();
+        if (typeof dateStr === 'number') return dateStr;
+        let s = String(dateStr).trim().replace(' ', 'T');
+        if (!s.endsWith('Z') && !s.includes('+') && !s.includes('-')) {
+            s += 'Z';
+        }
+        const ms = new Date(s).getTime();
+        return isNaN(ms) ? getAdjustedNowMs() : ms;
+    }
 
     function getStorageAdKey() {
         const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id || window.PlayerData?.telegram_id;
@@ -175,7 +186,7 @@ window.closeWelcomeModal = function() {
     function syncServerTime(serverTimeStr) {
         if (!serverTimeStr) return;
         try {
-            const serverMs = new Date(serverTimeStr).getTime();
+            const serverMs = parseServerDateMs(serverTimeStr);
             if (!isNaN(serverMs)) {
                 window.serverTimeOffset = serverMs - Date.now();
             }
@@ -298,14 +309,11 @@ window.closeWelcomeModal = function() {
     function showAdsgramAdWithTimeout(timeoutMs = 5000) {
         return new Promise((resolve) => {
             const blockId = window.ADSGRAM_BLOCK_ID;
-            
             if (!window.Adsgram || !blockId) {
                 resolve(true);
                 return;
             }
-
             toggleAdLoadingOverlay(true);
-
             let isHandled = false;
             const completeAdCheck = () => {
                 if (!isHandled) {
@@ -315,9 +323,7 @@ window.closeWelcomeModal = function() {
                     resolve(true);
                 }
             };
-
             const timerId = setTimeout(() => {
-                console.warn("انتهت مهلة الإعلان، يتخطى للتجميع الفوري.");
                 completeAdCheck();
             }, timeoutMs);
 
@@ -325,12 +331,8 @@ window.closeWelcomeModal = function() {
                 const AdController = window.Adsgram.init({ blockId: blockId });
                 AdController.show()
                     .then(() => completeAdCheck())
-                    .catch((err) => {
-                        console.warn("خطأ في تشغيل الإعلان أو تم إغلاقه/حظره:", err);
-                        completeAdCheck();
-                    });
+                    .catch(() => completeAdCheck());
             } catch (e) {
-                console.error("استثناء أثناء تجهيز Adsgram:", e);
                 completeAdCheck();
             }
         });
@@ -342,18 +344,44 @@ window.closeWelcomeModal = function() {
                 try {
                     window.show_11322720()
                         .then(() => resolve(true))
-                        .catch((err) => {
-                            console.warn("خطأ إعلان التليجرام، تحويل لـ Adsgram:", err);
-                            showAdsgramAdWithTimeout(5000).then(resolve);
-                        });
+                        .catch(() => showAdsgramAdWithTimeout(5000).then(resolve));
                 } catch (e) {
-                    console.error("استثناء إعلان التليجرام:", e);
                     showAdsgramAdWithTimeout(5000).then(resolve);
                 }
             } else {
                 showAdsgramAdWithTimeout(5000).then(resolve);
             }
         });
+    }
+
+    function accrueCurrentMining() {
+        const pData = window.userState || window.PlayerData;
+        if (!pData) return;
+
+        let maxC = parseFloat(pData.max_cap ?? 30.0);
+        let hRate = parseFloat(pData.hourly_rate ?? 0.05);
+        let lastClaimStr = pData.last_claim_time;
+        let lastClaimTimeMs = lastClaimStr ? parseServerDateMs(lastClaimStr) : getAdjustedNowMs();
+        let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimTimeMs) / 1000);
+        
+        let baseUnclaimed = parseFloat(pData.base_unclaimed || 0);
+        let accumulated = baseUnclaimed + (hRate / 3600.0) * secondsPassed;
+        if (accumulated >= maxC) accumulated = maxC;
+
+        pData.base_unclaimed = accumulated;
+        pData.unclaimed = accumulated;
+        pData.last_claim_time = new Date(getAdjustedNowMs()).toISOString();
+
+        if (window.userState) {
+            window.userState.base_unclaimed = accumulated;
+            window.userState.unclaimed = accumulated;
+            window.userState.last_claim_time = pData.last_claim_time;
+        }
+        if (window.PlayerData) {
+            window.PlayerData.base_unclaimed = accumulated;
+            window.PlayerData.unclaimed = accumulated;
+            window.PlayerData.last_claim_time = pData.last_claim_time;
+        }
     }
 
     window.fetchPlayerDataFromServer = async function(force = false) {
@@ -412,6 +440,9 @@ window.closeWelcomeModal = function() {
 
                     Object.assign(window.PlayerData, resData.player);
                     Object.assign(window.userState, resData.player);
+
+                    window.userState.base_unclaimed = parseFloat(resData.player.unclaimed || 0);
+                    window.PlayerData.base_unclaimed = parseFloat(resData.player.unclaimed || 0);
 
                     if (resData.player.last_claim_ad_date) {
                         localStorage.setItem(adKey, resData.player.last_claim_ad_date);
@@ -647,13 +678,16 @@ window.closeWelcomeModal = function() {
         let hRate = parseFloat(pData.hourly_rate ?? 0.05);
         
         let lastClaimStr = pData.last_claim_time;
-        let lastClaimTimeMs = lastClaimStr ? new Date(lastClaimStr).getTime() : getAdjustedNowMs();
+        let lastClaimTimeMs = lastClaimStr ? parseServerDateMs(lastClaimStr) : getAdjustedNowMs();
         
         let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimTimeMs) / 1000);
-        let unclaim = (hRate / 3600.0) * secondsPassed;
+        let baseUnclaimed = parseFloat(pData.base_unclaimed || 0);
+        let unclaim = baseUnclaimed + (hRate / 3600.0) * secondsPassed;
 
         if (unclaim >= maxC) unclaim = maxC;
         pData.unclaimed = unclaim;
+        if (window.userState) window.userState.unclaimed = unclaim;
+        if (window.PlayerData) window.PlayerData.unclaimed = unclaim;
 
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
@@ -751,12 +785,14 @@ window.closeWelcomeModal = function() {
         isUpgradingStorage = true;
         const stateBackup = cloneCurrentState();
 
+        accrueCurrentMining();
+
         setStoredBalance(Math.max(0, bal - costZn), Math.max(0, usdBal - costUsd));
         window.userState.storage_level = nextLvl;
         window.PlayerData.storage_level = nextLvl;
         if (nextCfg.capacity !== undefined) {
-            window.userState.max_cap = nextCfg.capacity;
-            window.PlayerData.max_cap = nextCfg.capacity;
+            window.userState.max_cap = parseFloat(nextCfg.capacity);
+            window.PlayerData.max_cap = parseFloat(nextCfg.capacity);
         }
         window.updateFarmUI();
 
@@ -771,16 +807,18 @@ window.closeWelcomeModal = function() {
                     window.PlayerData.storage_level = resData.storage_level;
                 }
                 if (resData.max_cap !== undefined) {
-                    window.userState.max_cap = resData.max_cap;
-                    window.PlayerData.max_cap = resData.max_cap;
+                    window.userState.max_cap = parseFloat(resData.max_cap);
+                    window.PlayerData.max_cap = parseFloat(resData.max_cap);
                 }
                 if (resData.last_claim_time) {
                     window.userState.last_claim_time = resData.last_claim_time;
                     window.PlayerData.last_claim_time = resData.last_claim_time;
                 }
                 if (resData.unclaimed !== undefined) {
-                    window.userState.unclaimed = resData.unclaimed;
-                    window.PlayerData.unclaimed = resData.unclaimed;
+                    window.userState.unclaimed = parseFloat(resData.unclaimed);
+                    window.PlayerData.unclaimed = parseFloat(resData.unclaimed);
+                    window.userState.base_unclaimed = parseFloat(resData.unclaimed);
+                    window.PlayerData.base_unclaimed = parseFloat(resData.unclaimed);
                 }
                 saveCachedData(window.userState);
                 showToast(`📦 تم ترقية سعة المخزن بنجاح إلى Level ${resData.storage_level}!`);
@@ -818,6 +856,8 @@ window.closeWelcomeModal = function() {
         upgradingLevel = level;
         const stateBackup = cloneCurrentState();
 
+        accrueCurrentMining();
+
         setStoredBalance(Math.max(0, currentBal - costZn), Math.max(0, currentUsdBal - costUsd));
 
         if (!window.userState.upgrades) window.userState.upgrades = {};
@@ -854,8 +894,10 @@ window.closeWelcomeModal = function() {
                     window.PlayerData.last_claim_time = resData.last_claim_time;
                 }
                 if (resData.unclaimed !== undefined) {
-                    window.userState.unclaimed = resData.unclaimed;
-                    window.PlayerData.unclaimed = resData.unclaimed;
+                    window.userState.unclaimed = parseFloat(resData.unclaimed);
+                    window.PlayerData.unclaimed = parseFloat(resData.unclaimed);
+                    window.userState.base_unclaimed = parseFloat(resData.unclaimed);
+                    window.PlayerData.base_unclaimed = parseFloat(resData.unclaimed);
                 }
 
                 saveCachedData(window.userState);
@@ -966,8 +1008,10 @@ window.closeWelcomeModal = function() {
                     window.PlayerData.last_claim_time = resData.last_claim_time;
                 }
                 if (resData.unclaimed !== undefined) {
-                    window.userState.unclaimed = resData.unclaimed;
-                    window.PlayerData.unclaimed = resData.unclaimed;
+                    window.userState.unclaimed = parseFloat(resData.unclaimed);
+                    window.PlayerData.unclaimed = parseFloat(resData.unclaimed);
+                    window.userState.base_unclaimed = parseFloat(resData.unclaimed);
+                    window.PlayerData.base_unclaimed = parseFloat(resData.unclaimed);
                 }
 
                 const boostDate = resData.last_boost_date ?? resData.boost_date ?? resData.player?.last_boost_date ?? getTodayUTCStr();
@@ -1017,6 +1061,8 @@ window.closeWelcomeModal = function() {
             setStoredBalance(currentBal + currentUnclaimed, getStoredUsdBalance());
             window.userState.unclaimed = 0.0;
             window.PlayerData.unclaimed = 0.0;
+            window.userState.base_unclaimed = 0.0;
+            window.PlayerData.base_unclaimed = 0.0;
             window.updateFarmUI();
         }
 
@@ -1041,6 +1087,8 @@ window.closeWelcomeModal = function() {
 
                 window.userState.unclaimed = 0.0;
                 window.PlayerData.unclaimed = 0.0;
+                window.userState.base_unclaimed = 0.0;
+                window.PlayerData.base_unclaimed = 0.0;
 
                 saveCachedData(window.userState);
                 showToast(`💰 تم تجميع ${formatZnBalance(resData.claimed_amount)} عملة بنجاح!`);
