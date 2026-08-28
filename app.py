@@ -61,9 +61,13 @@ blueprints_config = [
     ('wallet.history.history_api', 'history_bp', '/api/wallet/history'),
     ('wallet.exchange.exchange_api', 'exchange_bp', '/api/wallet/exchange'),
     
-    # ⚡ موديولات الألعاب (الرئيسية والفرعية)
+    # ⚡ موديولات الألعاب
     ('games', 'games_bp', '/api/games'),
     ('games.card_api', 'card_bp', '/api/games/card'),
+    
+    # 🏆 أرباح العروض والمترتبات المستقبلية
+    ('offers', 'offers_bp', '/api/offers'),
+    ('leaderboard', 'leaderboard_bp', '/api/leaderboard'),
 ]
 
 # تنفيذ التسجيل التلقائي للموديولات
