@@ -306,33 +306,27 @@ window.closeWelcomeModal = function() {
         }
     }
 
-    // دالة عرض إعلانات Monetag المحدثة بدلاً من Adsgram
+    // --- Monetag Ad Function Integration ---
     function showMonetagAd() {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
                 toggleAdLoadingOverlay(true);
-                try {
-                    window.show_11322720()
-                        .then(() => {
-                            toggleAdLoadingOverlay(false);
-                            resolve(true);
-                        })
-                        .catch((e) => {
-                            console.error("خطأ أثناء عرض إعلان Monetag:", e);
-                            toggleAdLoadingOverlay(false);
-                            resolve(true); // السماح للمستخدم بالمتابعة في حالة خطأ شبكة أو الإعلان
-                        });
-                } catch (e) {
-                    console.error("خطأ استدعاء Monetag:", e);
+                window.show_11322720().then(() => {
                     toggleAdLoadingOverlay(false);
-                    resolve(true);
-                }
+                    resolve(true); // Ad watched successfully
+                }).catch((e) => {
+                    console.error("Monetag Ad Error:", e);
+                    toggleAdLoadingOverlay(false);
+                    // Resolving true even on error so user is not blocked if ad fails to load
+                    resolve(true); 
+                });
             } else {
-                console.warn("دالة إعلان Monetag (show_11322720) غير متوفرة");
-                resolve(true);
+                console.warn("Monetag script not found.");
+                resolve(true); // Fallback
             }
         });
     }
+    // ----------------------------------------
 
     function accrueCurrentMining() {
         const pData = window.userState || window.PlayerData;
@@ -402,6 +396,7 @@ window.closeWelcomeModal = function() {
                     if (resData.game_config.boost_max_reward_coins) {
                         GAME_CONFIG.boostMaxRewardCoins = resData.game_config.boost_max_reward_coins;
                     }
+                    // Removed Adsgram config loading
                 }
 
                 if (resData.player) {
@@ -899,6 +894,7 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
+            // تمت إزالة الإعلانات من هنا كما طلبت، وسيتم التجميع مباشرة
             let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
@@ -936,6 +932,7 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
+            // تمت إزالة الإعلانات من هنا كما طلبت، وسيتم التفعيل مباشرة
             let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
@@ -1011,9 +1008,9 @@ window.closeWelcomeModal = function() {
 
         const lastClaimAdDate = pData.last_claim_ad_date || localStorage.getItem(adKey) || null;
 
-        // عرض إعلان Monetag إذا لم يقم المستخدم بمشاهدة الإعلان اليوم
+        // استدعاء إعلان Monetag هنا فقط بدلاً من Adsgram
         if (lastClaimAdDate !== todayStr) {
-            await showMonetagAd();
+            await showMonetagAd(); 
         }
 
         isClaimingMain = true;
