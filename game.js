@@ -135,7 +135,7 @@ window.addEventListener('beforeunload', () => {
 });
 
 // ==========================================
-// 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة
+// 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة (مع ربط المسار المباشر)
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
@@ -237,7 +237,7 @@ window.fetchTonPrice = async function() {
             }
         }
     } catch (err) {
-        console.warn("⚠️ لم يتم جلب سعر TON من CoinGecko، تم استخدام السعر المحلي المسجل:", window.currentTonPriceUSD);
+        console.warn("⚠️ لم يتم جلب سعر TON، تم استخدام السعر المحلي:", window.currentTonPriceUSD);
     } finally {
         window.updateTonPriceUI();
     }
@@ -521,14 +521,14 @@ function applyBalanceToUI(val) {
     const formatted = window.formatNumberHTML(val);
     const rawFormatted = window.formatBalance(val);
     
-    const selectors = '[data-bind="balance"], .user-balance, #farm-balance, #user-balance, #main-balance, #balance, .sync-balance, #top-balance-tasks, #top-balance-offers, .user-balance-val, [data-bind="user_balance"]';
+    const selectors = '[data-bind="balance"], .user-balance, #farm-balance, #user-balance, #main-balance, #balance, .sync-balance, #top-balance-tasks, .user-balance-val, [data-bind="user_balance"]';
     
     document.querySelectorAll(selectors).forEach(el => {
         if (el.id === 'shop-balance-text' || el.id === 'top-balance-games') return;
 
         if (el.tagName === 'INPUT') {
             el.value = rawFormatted;
-        } else if (el.id === 'top-balance-tasks' || el.id === 'top-balance-offers') {
+        } else if (el.id === 'top-balance-tasks') {
             el.innerHTML = `ZN ${formatted}`;
         } else {
             if (el.classList.contains('plain-text')) {
@@ -660,6 +660,15 @@ function renderDefaultViewContent(cleanViewName, targetView) {
                 }
             })
             .catch(err => console.error("فشل جلب واجهة المحفظة:", err));
+    } else if (cleanViewName === 'offers') {
+        const cacheBuster = `?v=${Date.now()}`;
+        fetch(`./offers/offers.html${cacheBuster}`)
+            .then(res => res.text())
+            .then(html => {
+                targetView.innerHTML = html;
+                if (typeof window.onOffersTabOpen === 'function') window.onOffersTabOpen();
+            })
+            .catch(err => console.error("فشل جلب قائمة ارباح العروض:", err));
     } else if (cleanViewName === 'leaderboard') {
         targetView.innerHTML = `
             <div style="padding: 20px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto; padding-bottom: 90px;">
@@ -715,23 +724,6 @@ async function loadModuleScript(jsPath) {
     });
 }
 
-async function loadModuleCSS(cssPath) {
-    return new Promise((resolve) => {
-        const cleanCssPath = cssPath.split('?')[0];
-        const existing = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).find(l => l.href && l.href.includes(cleanCssPath));
-        if (existing) {
-            resolve(true);
-            return;
-        }
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = cssPath;
-        link.onload = () => resolve(true);
-        link.onerror = () => resolve(false);
-        document.head.appendChild(link);
-    });
-}
-
 window.switchView = async function(viewName) {
     if (!viewName) return;
 
@@ -773,11 +765,17 @@ window.switchView = async function(viewName) {
     targetView.style.width = '100%';
     targetView.style.minHeight = '100vh';
 
-    // تحميل سكريبت المحفظة وسكريبت الإيداع عند الدخول لتبويب المحفظة
+    // تحميل سكريبت المحفظة والإيداع
     if (cleanViewName === 'wallet') {
         const cb = `?v=${Date.now()}`;
         await loadModuleScript(`./wallet/wallet.js${cb}`);
         await loadModuleScript(`./wallet/deposit/deposit.js${cb}`);
+    }
+
+    // تحميل سكريبت ارباح العروض
+    if (cleanViewName === 'offers') {
+        const cb = `?v=${Date.now()}`;
+        await loadModuleScript(`./offers/offers.js${cb}`);
     }
 
     // 4. جلب المحتوى من المجلد المخصص لكل تبويب
@@ -793,9 +791,6 @@ window.switchView = async function(viewName) {
                 let loadedSuccessfully = false;
 
                 try {
-                    // تحميل ملف الاستايل CSS المخصص إن وجد
-                    await loadModuleCSS(`./${cleanViewName}/${cleanViewName}.css${cacheBuster}`);
-
                     const pathsToTry = [
                         `./${cleanViewName}/${cleanViewName}.html${cacheBuster}`,
                         `/${cleanViewName}/${cleanViewName}.html${cacheBuster}`,
@@ -827,11 +822,6 @@ window.switchView = async function(viewName) {
                             document.body.appendChild(newScript);
                         });
 
-                        // إذا كان موديول offers نقوم بتحميل جسر الربط أولاً ثم الموديول
-                        if (cleanViewName === 'offers') {
-                            await loadModuleScript(`./offers/offers_bridge.js${cacheBuster}`);
-                        }
-
                         const jsPathsToTry = [
                             `./${cleanViewName}/${cleanViewName}.js${cacheBuster}`,
                             `/${cleanViewName}/${cleanViewName}.js${cacheBuster}`
@@ -862,7 +852,7 @@ window.switchView = async function(viewName) {
         }
     }
 
-    // 5. تشغيل دالة التهيئة المخصصة للتبويب فورياً مع تغطية كافة الاحتمالات
+    // 5. تشغيل دالة التهيئة المخصصة للتبويب
     try {
         if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
             window.onFarmTabOpen();
