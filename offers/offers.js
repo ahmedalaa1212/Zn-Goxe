@@ -19,26 +19,37 @@ window.loadOffersList = async function() {
     }
 };
 
+// دالة مسبقة لضمان تنسيق الأرقام بدون توقف الكود
+function safeFormatBalance(val) {
+    if (typeof window.formatBalance === 'function') {
+        return window.formatBalance(val || 0);
+    }
+    return parseFloat(val || 0).toLocaleString();
+}
+
 window.renderOffers = function(offers) {
     const container = document.getElementById('offers-list');
     if (!container) return;
 
-    if (offers.length === 0) {
+    if (!offers || offers.length === 0) {
         container.innerHTML = `<div style="text-align: center; padding: 30px; color: #888;">لا توجد عروض متاحة حالياً.</div>`;
         return;
     }
 
     let html = '';
     offers.forEach(offer => {
-        const isCompleted = offer.completed;
-        let rewardText = `+${window.formatBalance(offer.reward_amount)} ZN`;
+        const isCompleted = Boolean(offer.completed);
+        const amount = offer.reward_amount || 0;
+        const secAmount = offer.secondary_reward_amount || 0;
+        
+        let rewardText = `+${safeFormatBalance(amount)} ZN`;
         
         if (offer.reward_type === 'usd_balance') {
-            rewardText = `+$${window.formatBalance(offer.reward_amount)}`;
+            rewardText = `+$${safeFormatBalance(amount)}`;
         } else if (offer.reward_type === 'ad_balance') {
-            rewardText = `+${window.formatBalance(offer.reward_amount)} AdZN`;
+            rewardText = `+${safeFormatBalance(amount)} AdZN`;
         } else if (offer.reward_type === 'hybrid') {
-            rewardText = `+${window.formatBalance(offer.reward_amount)} ZN +${window.formatBalance(offer.secondary_reward_amount)} AdZN`;
+            rewardText = `+${safeFormatBalance(amount)} ZN +${safeFormatBalance(secAmount)} AdZN`;
         }
 
         html += `
@@ -46,8 +57,8 @@ window.renderOffers = function(offers) {
                 <div class="offer-info">
                     <div class="offer-icon">${offer.icon || '🎁'}</div>
                     <div class="offer-details">
-                        <h4>${offer.title}</h4>
-                        <p>${offer.description}</p>
+                        <h4>${offer.title || 'عرض بدون عنوان'}</h4>
+                        <p>${offer.description || ''}</p>
                         <div class="offer-reward">${rewardText}</div>
                     </div>
                 </div>
@@ -83,7 +94,7 @@ window.claimOfferReward = async function(offerId) {
         const res = await window.fetchAPI('/api/offers/claim', 'POST', { offer_id: offerId });
         if (res && res.success) {
             alert(res.message || 'تم استلام المكافأة بنجاح!');
-            if (res.player) {
+            if (res.player && window.userState) {
                 Object.assign(window.userState, res.player);
             }
             await window.loadOffersList();
@@ -98,4 +109,3 @@ window.claimOfferReward = async function(offerId) {
 if (document.getElementById('view-offers')?.classList.contains('active')) {
     window.onOffersTabOpen();
 }
-
