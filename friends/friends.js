@@ -112,7 +112,6 @@
         saveCachedData(window.PlayerData);
     }
 
-    // دالة تنسيق الأرقام النصية (تستخدم للرسائل المنبثقة Toasts فقط)
     function formatNumber(num, maxDecimals = 6) {
         const val = parseFloat(num) || 0;
         if (isNaN(val) || val === 0) return "0.00";
@@ -126,7 +125,6 @@
         return `${integerPart}.${decimalPart}`;
     }
 
-    // 🎯 دالة تنسيق الأرقام بـ HTML (إجبار اتجاه LTR لمنع قلب الرقم)
     function formatNumberHTML(num, maxDecimals = 6) {
         const val = parseFloat(num) || 0;
         let integerPart = "0";
@@ -153,7 +151,6 @@
         return `<span dir="ltr" style="direction: ltr; unicode-bidi: isolate; white-space: nowrap; display: inline-flex; align-items: baseline; justify-content: center; vertical-align: baseline; max-width: 100%; ${fontSizeStyle}">${integerPart}<span style="font-size: 0.75em; opacity: 0.7; margin-left: 1px;">.${decimalPart}</span></span>`;
     }
 
-    // 🎯 دالة تنسيق الأرقام الصحيحة فقط لمكافآت الإنجازات
     function formatInteger(num) {
         const val = Math.floor(parseFloat(num) || 0);
         return val.toLocaleString('en-US');
@@ -477,7 +474,6 @@
         isClaimingRefEarnings = true;
         const backup = cloneCurrentState();
 
-        // 🚀 Optimistic UI Update (سحب لحظي)
         const feePercent = parseFloat(window.FriendsConfig?.claim_fee_percent || 1.5);
         const estimatedNet = pending * (1 - (feePercent / 100));
         const currentBal = getStoredBalance();
@@ -527,7 +523,6 @@
         const currentBal = getStoredBalance();
         const numReward = parseFloat(reward) || 0;
 
-        // 🚀 Optimistic UI Update (استلام المكافأة لحظياً)
         if (!window.PlayerData) window.PlayerData = {};
         if (!window.PlayerData.claimed_ref_tasks) window.PlayerData.claimed_ref_tasks = [];
         
