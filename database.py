@@ -75,7 +75,7 @@ def get_user(telegram_id):
 
 
 def init_user(telegram_id, ref_id=None, first_name="لاعب"):
-    """إنشاء مستند المستخدم قسرياً في Firestore إن لم يكن موجوداً"""
+    """إنشاء مستند المستخدم قسرياً في Firestore إن لم يكن موجوداً ومعالجة نظام الإحالات"""
     if not telegram_id:
         return {}
     try:
@@ -85,13 +85,15 @@ def init_user(telegram_id, ref_id=None, first_name="لاعب"):
         doc = doc_ref.get()
 
         if not doc.exists:
+            clean_ref = str(ref_id).strip() if ref_id and str(ref_id).strip() != user_id_str else None
+            
             new_user_data = {
                 'user_id': user_id_str,
                 'telegram_id': user_id_str,
                 'first_name': str(first_name or 'لاعب'),
                 'balance': 0.0,
                 'usd_balance': 0.0,
-                'ref_by': str(ref_id).strip() if ref_id else None,
+                'ref_by': clean_ref,
                 'referrals_count': 0,
                 'created_at': firestore.SERVER_TIMESTAMP,
                 'last_withdraw_date': None,
@@ -103,6 +105,18 @@ def init_user(telegram_id, ref_id=None, first_name="لاعب"):
             }
             doc_ref.set(new_user_data, merge=True)
             print(f"✅ تم إنشاء مستند جديد للمستخدم {user_id_str} بنجاح في Firebase!")
+            
+            # زيادة عداد الإحالات للمُحيل إن وجد
+            if clean_ref:
+                try:
+                    ref_doc_ref = firestore_db.collection('users').document(clean_ref)
+                    if ref_doc_ref.get().exists:
+                        ref_doc_ref.update({
+                            'referrals_count': firestore.Increment(1)
+                        })
+                except Exception as ref_err:
+                    print(f"⚠️ خطأ تحديث عداد الإحالة للمُحيل {clean_ref}: {ref_err}")
+
             doc = doc_ref.get()
 
         return doc.to_dict() if doc.exists else {}
@@ -135,7 +149,7 @@ def update_user(telegram_id, updates_dict):
 
 # ==================== Sub-Modules Re-exports ====================
 
-# 0. Admin Database Module (الخاص بأكواد المكافآت وإدارات الأدمن)
+# 0. Admin Database Module (أكواد المكافآت والإدارة العامة)
 try:
     from admin_database import *
 except Exception as e:
@@ -203,11 +217,28 @@ try:
 except Exception as e:
     print(f"⚠️ خطأ في تحميل users_db: {e}")
 
-# 11. Wallet Module (يشمل الموديولات الفرعية: deposit_db, history_db, withdraw_db)
+# 11. Wallet Module (يشمل المحفظة والأنشطة الفرعية)
 try:
     from wallet.wallet_db import *
     from wallet.deposit.deposit_db import *
     from wallet.history.history_db import *
     from wallet.withdraw.withdraw_db import *
+    from wallet.exchange.exchange_db import *
 except Exception as e:
     print(f"⚠️ خطأ في تحميل wallet_db وموديولاتها الفرعية: {e}")
+
+# 12. Offers, Leaderboard & Ads Modules
+try:
+    from offers.offers_db import *
+except Exception:
+    pass
+
+try:
+    from leaderboard.leaderboard_db import *
+except Exception:
+    pass
+
+try:
+    from ads.ads_db import *
+except Exception:
+    pass
