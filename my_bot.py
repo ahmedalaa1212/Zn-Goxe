@@ -10,6 +10,8 @@ import database
 # ==========================================
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app').strip().rstrip('/')
+PROOFS_CHANNEL_URL = os.environ.get('PROOFS_CHANNEL_URL', 'https://t.me/zngoxeproofs').strip()
+OFFICIAL_CHANNEL_URL = os.environ.get('OFFICIAL_CHANNEL_URL', 'https://t.me/zngoxe').strip()
 
 # التأكد من وجود https:// لضمان عمل WebApp بدون مشاكل
 if not WEB_URL.startswith('http'):
@@ -88,11 +90,14 @@ def start_command(message):
         # بناء لوحة الأزرار
         markup = InlineKeyboardMarkup()
         btn_game = InlineKeyboardButton("🎮 انطلق للعب واجمع النقاط 🚀", web_app=WebAppInfo(url=web_app_url))
-        btn_channel = InlineKeyboardButton("📢 القناة الرسمية والتحديثات", url="https://t.me/zngoxe")
+        btn_channel = InlineKeyboardButton("📢 القناة الرسمية", url=OFFICIAL_CHANNEL_URL)
+        btn_proofs = InlineKeyboardButton("💳 قناة الإثباتات", url=PROOFS_CHANNEL_URL)
         btn_help = InlineKeyboardButton("❓ كيف تلعب؟", callback_data="how_to_play")
         
+        # ترتيب الأزرار بشبكة متناسقة
         markup.row(btn_game)
-        markup.row(btn_channel, btn_help)
+        markup.row(btn_channel, btn_proofs)
+        markup.row(btn_help)
         
         # رسالة الترحيب
         welcome_message = (
