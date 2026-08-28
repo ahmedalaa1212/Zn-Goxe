@@ -8,6 +8,8 @@ if (tg) {
     if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
 }
 
+// رابط السيرفر الأساسي لمنع أخطاء المسارات النسبية
+window.API_BASE_URL = window.API_BASE_URL || 'https://zn-goxe-production.up.railway.app';
 window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 1.32;
 window.serverTimeOffset = 0;
 
@@ -133,7 +135,7 @@ window.addEventListener('beforeunload', () => {
 });
 
 // ==========================================
-// 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة
+// 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة (مع ربط المسار المباشر)
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
@@ -146,13 +148,20 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         headers['Authorization'] = `Bearer ${tg.initData}`;
     }
 
+    // بناء الرابط المكتمل
+    let targetUrl = endpoint;
+    if (endpoint.startsWith('/')) {
+        const baseUrl = (window.API_BASE_URL || '').replace(/\/$/, '');
+        targetUrl = baseUrl + endpoint;
+    }
+
     try {
         const fetchOptions = { method, headers };
         if (method !== 'GET' && method !== 'HEAD' && bodyData) {
             fetchOptions.body = JSON.stringify(bodyData);
         }
 
-        const res = await fetch(endpoint, fetchOptions);
+        const res = await fetch(targetUrl, fetchOptions);
         const data = await res.json();
         
         if (!res.ok) {
@@ -209,7 +218,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 
         return data;
     } catch (err) {
-        console.error(`API Error [${endpoint}]:`, err);
+        console.error(`API Error [${targetUrl}]:`, err);
         throw err;
     }
 };
@@ -623,7 +632,7 @@ window.saveWalletAddress = async function() {
 };
 
 // ==========================================
-// 9. التنقل الديناميكي المحصن
+// 9. التنقل الديناميكي المحصن واحتواء الهياكل المطلوبة
 // ==========================================
 const loadedModules = new Set();
 const pendingLoads = new Map();
@@ -655,19 +664,46 @@ function renderDefaultViewContent(cleanViewName, targetView) {
     } else if (cleanViewName === 'offers') {
         targetView.innerHTML = `
             <div style="padding: 20px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto;">
-                <h2 style="margin-bottom: 20px; color: #ffb703;"><i class="fas fa-gift"></i> قسم أرباح العروض</h2>
-                <div style="background: rgba(255, 255, 255, 0.08); padding: 20px; border-radius: 14px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
-                    <i class="fas fa-gift" style="font-size: 48px; color: #ffb703; margin-bottom: 15px;"></i>
-                    <p style="font-size: 15px;">يتم التجهيز حالياً، انتظروا العروض اليومية الجديدة!</p>
+                <h2 style="margin-bottom: 10px; color: #ffb703;"><i class="fas fa-gift"></i> العروض والمهام الممتازة 🔥</h2>
+                <p style="color: #a0a0a0; font-size: 13px; margin-bottom: 20px;">أكمل العروض واحصل على مكافآت فورية تضاف لرصيدك مباشرة</p>
+                <div id="offers-list" style="display: flex; flex-direction: column; gap: 12px;">
+                    <div style="text-align: center; padding: 20px; color: #888;">جاري تحميل العروض...</div>
                 </div>
             </div>`;
     } else if (cleanViewName === 'leaderboard') {
         targetView.innerHTML = `
-            <div style="padding: 20px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto;">
-                <h2 style="margin-bottom: 20px; color: #ffb703;"><i class="fas fa-trophy"></i> قائمة المتصدرين</h2>
-                <div style="background: rgba(255, 255, 255, 0.08); padding: 20px; border-radius: 14px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
-                    <i class="fas fa-trophy" style="font-size: 48px; color: #ffb703; margin-bottom: 15px;"></i>
-                    <p style="font-size: 15px;">جاري تحديث ترتيب أفضل اللاعبين لهذا الأسبوع...</p>
+            <div style="padding: 20px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto; padding-bottom: 90px;">
+                <h2 style="margin-bottom: 5px; color: #ffb703;"><i class="fas fa-trophy"></i> لوحة الصدارة</h2>
+                <p style="color: #a0a0a0; font-size: 13px; margin-bottom: 20px;">أعلى كبار المطورين والمستثمرين في اللعبة</p>
+
+                <!-- منصة التتويج المراكز 3 الأوائل -->
+                <div style="display: flex; justify-content: center; align-items: flex-end; gap: 10px; margin-bottom: 25px;">
+                    <div style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 12px 8px; flex: 1; text-align: center;">
+                        <span style="font-size: 24px;">🥈</span>
+                        <div id="pod2-name" style="font-size: 12px; font-weight: bold; margin: 4px 0; color: #ddd;">---</div>
+                        <div id="pod2-score" style="font-size: 11px; color: #2ec4b6; font-weight: bold;">0 ZN</div>
+                    </div>
+                    <div style="background: rgba(255, 215, 0, 0.1); border: 1px solid #ffd700; border-radius: 12px; padding: 16px 8px; flex: 1.1; text-align: center; transform: translateY(-10px);">
+                        <span style="font-size: 30px;">👑</span>
+                        <div id="pod1-name" style="font-size: 13px; font-weight: bold; margin: 4px 0; color: #fff;">---</div>
+                        <div id="pod1-score" style="font-size: 12px; color: #2ec4b6; font-weight: bold;">0 ZN</div>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 12px 8px; flex: 1; text-align: center;">
+                        <span style="font-size: 24px;">🥉</span>
+                        <div id="pod3-name" style="font-size: 12px; font-weight: bold; margin: 4px 0; color: #ddd;">---</div>
+                        <div id="pod3-score" style="font-size: 11px; color: #2ec4b6; font-weight: bold;">0 ZN</div>
+                    </div>
+                </div>
+
+                <!-- حاوية القائمة -->
+                <div id="lb-list-container" style="display: flex; flex-direction: column; gap: 8px; text-align: right;">
+                    <div style="text-align: center; padding: 20px; color: #888;">جاري تحميل الترتيب...</div>
+                </div>
+
+                <!-- شريط المستخدم السفلي -->
+                <div style="position: fixed; bottom: 65px; left: 50%; transform: translateX(-50%); width: calc(100% - 30px); max-width: 470px; background: #0088cc; color: white; padding: 12px 20px; border-radius: 14px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.4); z-index: 100;">
+                    <span style="font-weight: bold; font-size: 14px;">ترتيبك الحالي: <span id="my-rank-val">#--</span></span>
+                    <span style="font-weight: bold; font-size: 14px;">رصيدك: <span id="my-rank-balance">0.00 ZN</span></span>
                 </div>
             </div>`;
     }
@@ -813,7 +849,7 @@ window.switchView = async function(viewName) {
         }
     }
 
-    // 5. تشغيل دالة التهيئة المخصصة للتبويب فورياً
+    // 5. تشغيل دالة التهيئة المخصصة للتبويب فورياً مع تغطية كافة الاحتمالات
     try {
         if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
             window.onFarmTabOpen();
@@ -825,11 +861,13 @@ window.switchView = async function(viewName) {
             if (typeof window.initFriendsView === 'function') window.initFriendsView();
             else if (typeof window.onFriendsTabOpen === 'function') window.onFriendsTabOpen();
         } else if (cleanViewName === 'offers') {
-            if (typeof window.initOffersView === 'function') window.initOffersView();
-            else if (typeof window.onOffersTabOpen === 'function') window.onOffersTabOpen();
+            if (typeof window.onOffersTabOpen === 'function') await window.onOffersTabOpen();
+            else if (typeof window.initOffersView === 'function') await window.initOffersView();
+            else if (typeof window.loadOffersList === 'function') await window.loadOffersList();
         } else if (cleanViewName === 'leaderboard') {
-            if (typeof window.initLeaderboardView === 'function') window.initLeaderboardView();
-            else if (typeof window.onLeaderboardTabOpen === 'function') window.onLeaderboardTabOpen();
+            if (typeof window.onLeaderboardTabOpen === 'function') await window.onLeaderboardTabOpen();
+            else if (typeof window.initLeaderboardView === 'function') await window.initLeaderboardView();
+            else if (typeof window.loadLeaderboardData === 'function') await window.loadLeaderboardData();
         } else if (cleanViewName === 'wallet') {
             if (window.walletModule && typeof window.walletModule.init === 'function') {
                 window.walletModule.init();
