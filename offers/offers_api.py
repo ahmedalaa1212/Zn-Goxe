@@ -5,39 +5,49 @@ from database import is_user_banned
 offers_bp = Blueprint('offers_bp', __name__)
 
 def extract_telegram_id(req):
-    return req.headers.get('X-Telegram-User-Id')
+    return req.headers.get('X-Telegram-User-Id') or req.headers.get('X-Telegram-Id')
 
-@offers_bp.route('/api/offers/list', methods=['GET'])
+@offers_bp.route('/list', methods=['GET', 'OPTIONS'])
 def list_offers():
-    tg_id = extract_telegram_id(request)
+    if request.method == 'OPTIONS':
+        return jsonify({"success": True}), 200
+
+    tg_id = extract_telegram_id(request) or request.args.get('tg_id')
     if not tg_id:
         return jsonify({"success": False, "error": "المستخدم غير محدد"}), 400
 
     if is_user_banned(tg_id):
         return jsonify({"success": False, "error": "حسابك محظور."}), 403
 
-    offers = get_all_offers()
-    completed_ids = get_user_completed_offers(tg_id)
+    try:
+        offers = get_all_offers()
+        completed_ids = get_user_completed_offers(tg_id)
 
-    for offer in offers:
-        offer['completed'] = offer['id'] in completed_ids
+        for offer in offers:
+            offer['completed'] = offer['id'] in completed_ids
 
-    return jsonify({
-        "success": True,
-        "offers": offers,
-        "completed_ids": completed_ids
-    }), 200
+        return jsonify({
+            "success": True,
+            "offers": offers,
+            "completed_ids": completed_ids
+        }), 200
+    except Exception as e:
+        print(f"❌ خطأ جلب العروض: {e}")
+        return jsonify({"success": False, "error": f"حدث خطأ في السيرفر: {str(e)}"}), 500
 
-@offers_bp.route('/api/offers/claim', methods=['POST'])
+@offers_bp.route('/claim', methods=['POST', 'OPTIONS'])
 def claim_offer():
-    tg_id = extract_telegram_id(request)
+    if request.method == 'OPTIONS':
+        return jsonify({"success": True}), 200
+
+    tg_id = extract_telegram_id(request) or request.args.get('tg_id')
     if not tg_id:
         return jsonify({"success": False, "error": "المستخدم غير محدد"}), 400
 
     if is_user_banned(tg_id):
         return jsonify({"success": False, "error": "حسابك محظور."}), 403
 
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     offer_id = data.get('offer_id')
 
     if not offer_id:
@@ -46,4 +56,3 @@ def claim_offer():
     result = claim_offer_reward(tg_id, offer_id)
     status_code = 200 if result.get('success') else 400
     return jsonify(result), status_code
-
