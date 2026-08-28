@@ -306,50 +306,30 @@ window.closeWelcomeModal = function() {
         }
     }
 
-    function showAdsgramAdWithTimeout(timeoutMs = 5000) {
+    // دالة عرض إعلانات Monetag المحدثة بدلاً من Adsgram
+    function showMonetagAd() {
         return new Promise((resolve) => {
-            const blockId = window.ADSGRAM_BLOCK_ID;
-            if (!window.Adsgram || !blockId) {
-                resolve(true);
-                return;
-            }
-            toggleAdLoadingOverlay(true);
-            let isHandled = false;
-            const completeAdCheck = () => {
-                if (!isHandled) {
-                    isHandled = true;
-                    clearTimeout(timerId);
+            if (typeof window.show_11322720 === 'function') {
+                toggleAdLoadingOverlay(true);
+                try {
+                    window.show_11322720()
+                        .then(() => {
+                            toggleAdLoadingOverlay(false);
+                            resolve(true);
+                        })
+                        .catch((e) => {
+                            console.error("خطأ أثناء عرض إعلان Monetag:", e);
+                            toggleAdLoadingOverlay(false);
+                            resolve(true); // السماح للمستخدم بالمتابعة في حالة خطأ شبكة أو الإعلان
+                        });
+                } catch (e) {
+                    console.error("خطأ استدعاء Monetag:", e);
                     toggleAdLoadingOverlay(false);
                     resolve(true);
                 }
-            };
-            const timerId = setTimeout(() => {
-                completeAdCheck();
-            }, timeoutMs);
-
-            try {
-                const AdController = window.Adsgram.init({ blockId: blockId });
-                AdController.show()
-                    .then(() => completeAdCheck())
-                    .catch(() => completeAdCheck());
-            } catch (e) {
-                completeAdCheck();
-            }
-        });
-    }
-
-    function showTelegramAd() {
-        return new Promise((resolve) => {
-            if (typeof window.show_11322720 === 'function') {
-                try {
-                    window.show_11322720()
-                        .then(() => resolve(true))
-                        .catch(() => showAdsgramAdWithTimeout(5000).then(resolve));
-                } catch (e) {
-                    showAdsgramAdWithTimeout(5000).then(resolve);
-                }
             } else {
-                showAdsgramAdWithTimeout(5000).then(resolve);
+                console.warn("دالة إعلان Monetag (show_11322720) غير متوفرة");
+                resolve(true);
             }
         });
     }
@@ -421,9 +401,6 @@ window.closeWelcomeModal = function() {
                     }
                     if (resData.game_config.boost_max_reward_coins) {
                         GAME_CONFIG.boostMaxRewardCoins = resData.game_config.boost_max_reward_coins;
-                    }
-                    if (resData.game_config.adsgram_block_id) {
-                        window.ADSGRAM_BLOCK_ID = resData.game_config.adsgram_block_id;
                     }
                 }
 
@@ -922,13 +899,6 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
-            const adWatched = await showTelegramAd();
-            if (!adWatched) {
-                isClaimingDaily = false;
-                window.updateFarmUI();
-                return;
-            }
-
             let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
@@ -966,13 +936,6 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
-            const adWatched = await showTelegramAd();
-            if (!adWatched) {
-                isBoosting = false;
-                window.updateFarmUI();
-                return;
-            }
-
             let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
@@ -1048,8 +1011,9 @@ window.closeWelcomeModal = function() {
 
         const lastClaimAdDate = pData.last_claim_ad_date || localStorage.getItem(adKey) || null;
 
+        // عرض إعلان Monetag إذا لم يقم المستخدم بمشاهدة الإعلان اليوم
         if (lastClaimAdDate !== todayStr) {
-            await showAdsgramAdWithTimeout(5000);
+            await showMonetagAd();
         }
 
         isClaimingMain = true;
