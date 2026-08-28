@@ -77,8 +77,46 @@ body {
     to { opacity: 1; transform: translateY(0); }
 }
 
+/* تصميم الواجهات المعلقة (Placeholder Container) */
+.placeholder-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    text-align: center;
+    padding: 20px;
+    background: rgba(30, 41, 59, 0.5);
+    border: 1px dashed rgba(245, 158, 11, 0.3);
+    border-radius: 16px;
+    margin-top: 20px;
+}
+
+.placeholder-icon {
+    font-size: 48px;
+    color: #f59e0b;
+    margin-bottom: 15px;
+    animation: float 3s infinite ease-in-out;
+}
+
+.placeholder-container h3 {
+    font-size: 20px;
+    color: #ffffff;
+    margin-bottom: 8px;
+}
+
+.placeholder-container p {
+    font-size: 13px;
+    color: #94a3b8;
+}
+
+@keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+}
+
 /* ==========================================
-   شريط التنقل السفلي وأزرار القوائم (Bottom Navigation Bar)
+   شريط التنقل السفلي المطور (9 عناصر)
    ========================================== */
 .bottom-nav {
     position: fixed;
@@ -96,9 +134,8 @@ body {
     align-items: center;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     z-index: 9999;
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
-    padding-left: 2px;
-    padding-right: 2px;
+    padding-left: 1px;
+    padding-right: 1px;
     transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, visibility 0.2s;
 }
 
@@ -121,14 +158,14 @@ body {
 }
 
 .nav-item i {
-    font-size: 14px;
+    font-size: 12px;
     margin-bottom: 2px;
     transition: transform 0.2s ease, color 0.2s ease;
     display: block;
 }
 
 .nav-item span {
-    font-size: 8.5px;
+    font-size: 7.5px;
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
@@ -136,7 +173,7 @@ body {
     width: 100%;
     text-align: center;
     display: block;
-    padding: 0 1px;
+    padding: 0 0.5px;
 }
 
 .nav-item.active {
@@ -155,7 +192,7 @@ body {
     top: 0;
     left: 50%;
     transform: translateX(-50%);
-    width: 16px;
+    width: 12px;
     height: 3px;
     background: #f59e0b;
     border-radius: 0 0 4px 4px;
@@ -168,16 +205,16 @@ body {
 
 /* زر المزرعة المركزي المميز */
 .nav-item.nav-center-btn {
-    flex: 0 0 50px;
-    height: 50px;
+    flex: 0 0 44px;
+    height: 44px;
     position: relative;
-    top: -10px;
+    top: -8px;
     border-radius: 50%;
     background: linear-gradient(145deg, #1e293b, #0f172a);
     border: 2px solid #f59e0b;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6), 0 0 10px rgba(245, 158, 11, 0.3);
     padding: 0;
-    margin: 0 2px;
+    margin: 0 1px;
 }
 
 .nav-item.nav-center-btn::before {
@@ -195,13 +232,13 @@ body {
 }
 
 .nav-item.nav-center-btn i {
-    font-size: 15px;
+    font-size: 13px;
     margin-bottom: 1px;
     color: #f59e0b;
 }
 
 .nav-item.nav-center-btn span {
-    font-size: 8px;
+    font-size: 7px;
     font-weight: 700;
     color: #ffffff;
 }
