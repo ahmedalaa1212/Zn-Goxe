@@ -1,15 +1,75 @@
-<div class="offers-container">
-    <!-- كارت الرصيد العلوي مثل شبكة الألعاب -->
-    <div class="offers-top-card">
-        <div class="balance-title">الرصيد الحالي</div>
-        <div class="balance-value">
-            <img src="./assets/coin.png" class="coin-icon" alt="ZN" onerror="this.src='https://cdn-icons-png.flaticon.com/512/217/217853.png';">
-            <span id="top-balance-offers" data-bind="balance">0.00 ZN</span>
+<!-- حاوية ارباح العروض بنفس تصميم شبكة الألعاب -->
+<div class="offers-container" style="padding: 16px; color: #ffffff; direction: rtl; max-width: 500px; margin: 0 auto; padding-bottom: 90px;">
+    
+    <!-- كارت الرصيد العلوي -->
+    <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 18px; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="background: #eaaa08; width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px;">🏛️</div>
+            <div>
+                <span style="color: #a0a0a0; font-size: 12px; display: block;">الرصيد الحالي</span>
+                <span class="user-balance-val" style="font-size: 18px; font-weight: bold; color: #ffffff;">267,180.57 ZN</span>
+            </div>
         </div>
     </div>
 
-    <!-- شبكة الخيارات الـ 8 المطابقة لشبكة الألعاب -->
-    <div class="offers-grid" id="offers-grid-container">
-        <!-- يتم توليد الـ 8 بطاقات تلقائياً بواسطة offers.js -->
+    <!-- شبكة العروض الثمانية (Grid 2 Columns) -->
+    <div class="offers-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
+        
+        <!-- العرض 1 -->
+        <div class="offer-card" data-offer-id="1" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 20px 12px; text-align: center; position: relative; cursor: pointer; transition: transform 0.2s;">
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 215, 0, 0.15); color: #ffd700; border: 1px solid rgba(255, 215, 0, 0.4); font-size: 10px; padding: 2px 8px; border-radius: 10px;">ترند✨</span>
+            <div style="font-size: 40px; margin-bottom: 8px;">🔥</div>
+            <div style="font-weight: bold; font-size: 14px; color: #ffffff;">عرض Goxe</div>
+        </div>
+
+        <!-- العرض 2 -->
+        <div class="offer-card" data-offer-id="2" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 20px 12px; text-align: center; position: relative; cursor: pointer; transition: transform 0.2s;">
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 69, 0, 0.15); color: #ff4500; border: 1px solid rgba(255, 69, 0, 0.4); font-size: 10px; padding: 2px 8px; border-radius: 10px;">حار🔥</span>
+            <div style="font-size: 40px; margin-bottom: 8px;">🎯</div>
+            <div style="font-weight: bold; font-size: 14px; color: #ffffff;">عرض fogo</div>
+        </div>
+
+        <!-- العرض 3 -->
+        <div class="offer-card" data-offer-id="3" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 20px 12px; text-align: center; position: relative; cursor: pointer; transition: transform 0.2s;">
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; border: 1px solid rgba(255, 255, 255, 0.2); font-size: 10px; padding: 2px 8px; border-radius: 10px;">قريباً</span>
+            <div style="font-size: 40px; margin-bottom: 8px;">🎯</div>
+            <div style="font-weight: bold; font-size: 14px; color: #ffffff;">عرض hitob</div>
+        </div>
+
+        <!-- العرض 4 -->
+        <div class="offer-card" data-offer-id="4" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 20px 12px; text-align: center; position: relative; cursor: pointer; transition: transform 0.2s;">
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; border: 1px solid rgba(255, 255, 255, 0.2); font-size: 10px; padding: 2px 8px; border-radius: 10px;">قريباً</span>
+            <div style="font-size: 40px; margin-bottom: 8px;">⚡</div>
+            <div style="font-weight: bold; font-size: 14px; color: #ffffff;">عرض wex</div>
+        </div>
+
+        <!-- العرض 5 -->
+        <div class="offer-card" data-offer-id="5" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 20px 12px; text-align: center; position: relative; cursor: pointer; transition: transform 0.2s;">
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; border: 1px solid rgba(255, 255, 255, 0.2); font-size: 10px; padding: 2px 8px; border-radius: 10px;">قريباً</span>
+            <div style="font-size: 40px; margin-bottom: 8px;">🛡️</div>
+            <div style="font-weight: bold; font-size: 14px; color: #ffffff;">عرض vover</div>
+        </div>
+
+        <!-- العرض 6 -->
+        <div class="offer-card" data-offer-id="6" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 20px 12px; text-align: center; position: relative; cursor: pointer; transition: transform 0.2s;">
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; border: 1px solid rgba(255, 255, 255, 0.2); font-size: 10px; padding: 2px 8px; border-radius: 10px;">قريباً</span>
+            <div style="font-size: 40px; margin-bottom: 8px;">⚛️</div>
+            <div style="font-weight: bold; font-size: 14px; color: #ffffff;">عرض znzn</div>
+        </div>
+
+        <!-- العرض 7 -->
+        <div class="offer-card" data-offer-id="7" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 20px 12px; text-align: center; position: relative; cursor: pointer; transition: transform 0.2s;">
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; border: 1px solid rgba(255, 255, 255, 0.2); font-size: 10px; padding: 2px 8px; border-radius: 10px;">قريباً</span>
+            <div style="font-size: 40px; margin-bottom: 8px;">💎</div>
+            <div style="font-weight: bold; font-size: 14px; color: #ffffff;">عرض Blxe</div>
+        </div>
+
+        <!-- العرض 8 -->
+        <div class="offer-card" data-offer-id="8" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 20px 12px; text-align: center; position: relative; cursor: pointer; transition: transform 0.2s;">
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; border: 1px solid rgba(255, 255, 255, 0.2); font-size: 10px; padding: 2px 8px; border-radius: 10px;">قريباً</span>
+            <div style="font-size: 40px; margin-bottom: 8px;">🎁</div>
+            <div style="font-weight: bold; font-size: 14px; color: #ffffff;">عرض Extra</div>
+        </div>
+
     </div>
 </div>
