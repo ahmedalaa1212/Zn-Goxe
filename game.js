@@ -454,7 +454,6 @@ window.formatBalance = function(val) {
     });
 };
 
-// دالة التنسيق المحدثة: تُصغّر وتُخفّف الكسر العشري بصرياً لتجنب التداخل مع الرقم الصحيح
 window.formatNumberHTML = function(val) {
     if (val === undefined || val === null || isNaN(val)) {
         return `0<span style="font-size:0.8em; opacity:0.75; font-weight:normal;">.00</span>`;
@@ -652,9 +651,25 @@ function renderDefaultViewContent(cleanViewName, targetView) {
                     window.depositModule.init();
                 }
             })
-            .catch(err => {
-                console.error("فشل جلب واجهة المحفظة:", err);
-            });
+            .catch(err => console.error("فشل جلب واجهة المحفظة:", err));
+    } else if (cleanViewName === 'offers') {
+        targetView.innerHTML = `
+            <div style="padding: 20px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto;">
+                <h2 style="margin-bottom: 20px; color: #ffb703;"><i class="fas fa-gift"></i> قسم أرباح العروض</h2>
+                <div style="background: rgba(255, 255, 255, 0.08); padding: 20px; border-radius: 14px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+                    <i class="fas fa-gift" style="font-size: 48px; color: #ffb703; margin-bottom: 15px;"></i>
+                    <p style="font-size: 15px;">يتم التجهيز حالياً، انتظروا العروض اليومية الجديدة!</p>
+                </div>
+            </div>`;
+    } else if (cleanViewName === 'leaderboard') {
+        targetView.innerHTML = `
+            <div style="padding: 20px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto;">
+                <h2 style="margin-bottom: 20px; color: #ffb703;"><i class="fas fa-trophy"></i> قائمة المتصدرين</h2>
+                <div style="background: rgba(255, 255, 255, 0.08); padding: 20px; border-radius: 14px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+                    <i class="fas fa-trophy" style="font-size: 48px; color: #ffb703; margin-bottom: 15px;"></i>
+                    <p style="font-size: 15px;">جاري تحديث ترتيب أفضل اللاعبين لهذا الأسبوع...</p>
+                </div>
+            </div>`;
     }
 }
 
@@ -725,7 +740,8 @@ window.switchView = async function(viewName) {
     }
 
     // 4. جلب المحتوى من المجلد المخصص لكل تبويب
-    const hasRealContent = targetView.innerText.trim().length > 10 || targetView.querySelector('button, input, h1, h2, h3, h4');
+    const hasPlaceholder = targetView.querySelector('.placeholder-container');
+    const hasRealContent = !hasPlaceholder && (targetView.innerText.trim().length > 10 || targetView.querySelector('button, input, h1, h2, h3, h4'));
 
     if (!loadedModules.has(cleanViewName) && !hasRealContent) {
         if (pendingLoads.has(cleanViewName)) {
@@ -808,6 +824,12 @@ window.switchView = async function(viewName) {
         } else if (cleanViewName === 'friends') {
             if (typeof window.initFriendsView === 'function') window.initFriendsView();
             else if (typeof window.onFriendsTabOpen === 'function') window.onFriendsTabOpen();
+        } else if (cleanViewName === 'offers') {
+            if (typeof window.initOffersView === 'function') window.initOffersView();
+            else if (typeof window.onOffersTabOpen === 'function') window.onOffersTabOpen();
+        } else if (cleanViewName === 'leaderboard') {
+            if (typeof window.initLeaderboardView === 'function') window.initLeaderboardView();
+            else if (typeof window.onLeaderboardTabOpen === 'function') window.onLeaderboardTabOpen();
         } else if (cleanViewName === 'wallet') {
             if (window.walletModule && typeof window.walletModule.init === 'function') {
                 window.walletModule.init();
