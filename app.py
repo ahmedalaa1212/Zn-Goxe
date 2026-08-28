@@ -16,7 +16,7 @@ app = Flask(__name__, static_folder=BASE_DIR, static_url_path='')
 # ==========================================
 # 🛡️ إعدادات CORS والأمان العامة
 # ==========================================
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app').strip().rstrip('/')
 
@@ -53,6 +53,9 @@ blueprints_config = [
     ('shop', 'shop_bp', '/api/shop'),
     ('support', 'support_bp', '/api/support'),
     ('admin_chat', 'admin_chat_bp', '/api/admin-chat'),
+    ('users', 'users_bp', '/api/users'),
+    ('super_admin', 'super_admin_bp', '/api/super-admin'),
+    ('ads', 'ads_bp', '/api/ads'),
     
     # 💳 موديولات المحفظة
     ('wallet', 'wallet_bp', '/api/wallet'),
@@ -65,7 +68,7 @@ blueprints_config = [
     ('games', 'games_bp', '/api/games'),
     ('games.card_api', 'card_bp', '/api/games/card'),
     
-    # 🏆 أرباح العروض والمترتبات المستقبلية
+    # 🏆 أرباح العروض والمتصدرين
     ('offers', 'offers_bp', '/api/offers'),
     ('leaderboard', 'leaderboard_bp', '/api/leaderboard'),
 ]
@@ -83,6 +86,12 @@ for mod_path, bp_name, prefix in blueprints_config:
 # ==========================================
 # 🌐 مسارات الخدمة والمستخدم الأساسية
 # ==========================================
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """مسار اختبار الجاهزية للسيرفر (Railway Health Check)"""
+    return jsonify({"status": "ok", "message": "Server is running smoothly"}), 200
+
 
 @app.route('/')
 def serve_index():
@@ -120,15 +129,18 @@ def serve_static_files(filename):
     return jsonify({"success": False, "error": f"File {filename} not found"}), 404
 
 
-@app.route('/api/user/info', methods=['GET', 'POST'])
+@app.route('/api/user/info', methods=['GET', 'POST', 'OPTIONS'])
 def get_user_info_main():
     """جلب بيانات حساب المستخدم والتحقق من الحظر وتهيئة الحسابات الجديدة تلقائياً"""
+    if request.method == 'OPTIONS':
+        return jsonify({"success": True}), 200
+
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     
     if not success:
         req_json = request.get_json(silent=True) if request.is_json else {}
-        tg_id_param = request.args.get('tg_id') or req_json.get('tg_id')
+        tg_id_param = request.args.get('tg_id') or (req_json.get('tg_id') if isinstance(req_json, dict) else None)
         if tg_id_param:
             telegram_id = str(tg_id_param).strip()
         else:
@@ -169,7 +181,7 @@ def get_user_info_main():
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب بيانات الحساب"}), 500
 
 # ==========================================
-# 🔒 الأمان وحماية الملفات
+# 🔒 الأمان وحماية الملفات ومعالجة CORS
 # ==========================================
 
 @app.after_request
@@ -177,6 +189,9 @@ def add_security_headers(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE'
     return response
 
 if __name__ == '__main__':
