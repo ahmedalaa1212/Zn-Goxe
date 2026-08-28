@@ -135,7 +135,7 @@ window.addEventListener('beforeunload', () => {
 });
 
 // ==========================================
-// 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة (مع ربط المسار المباشر)
+// 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
@@ -148,7 +148,6 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         headers['Authorization'] = `Bearer ${tg.initData}`;
     }
 
-    // بناء الرابط المكتمل
     let targetUrl = endpoint;
     if (endpoint.startsWith('/')) {
         const baseUrl = (window.API_BASE_URL || '').replace(/\/$/, '');
@@ -522,14 +521,14 @@ function applyBalanceToUI(val) {
     const formatted = window.formatNumberHTML(val);
     const rawFormatted = window.formatBalance(val);
     
-    const selectors = '[data-bind="balance"], .user-balance, #farm-balance, #user-balance, #main-balance, #balance, .sync-balance, #top-balance-tasks, .user-balance-val, [data-bind="user_balance"]';
+    const selectors = '[data-bind="balance"], .user-balance, #farm-balance, #user-balance, #main-balance, #balance, .sync-balance, #top-balance-tasks, #top-balance-offers, .user-balance-val, [data-bind="user_balance"]';
     
     document.querySelectorAll(selectors).forEach(el => {
         if (el.id === 'shop-balance-text' || el.id === 'top-balance-games') return;
 
         if (el.tagName === 'INPUT') {
             el.value = rawFormatted;
-        } else if (el.id === 'top-balance-tasks') {
+        } else if (el.id === 'top-balance-tasks' || el.id === 'top-balance-offers') {
             el.innerHTML = `ZN ${formatted}`;
         } else {
             if (el.classList.contains('plain-text')) {
@@ -661,22 +660,12 @@ function renderDefaultViewContent(cleanViewName, targetView) {
                 }
             })
             .catch(err => console.error("فشل جلب واجهة المحفظة:", err));
-    } else if (cleanViewName === 'offers') {
-        targetView.innerHTML = `
-            <div style="padding: 20px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto;">
-                <h2 style="margin-bottom: 10px; color: #ffb703;"><i class="fas fa-gift"></i> العروض والمهام الممتازة 🔥</h2>
-                <p style="color: #a0a0a0; font-size: 13px; margin-bottom: 20px;">أكمل العروض واحصل على مكافآت فورية تضاف لرصيدك مباشرة</p>
-                <div id="offers-list" style="display: flex; flex-direction: column; gap: 12px;">
-                    <div style="text-align: center; padding: 20px; color: #888;">جاري تحميل العروض...</div>
-                </div>
-            </div>`;
     } else if (cleanViewName === 'leaderboard') {
         targetView.innerHTML = `
             <div style="padding: 20px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto; padding-bottom: 90px;">
                 <h2 style="margin-bottom: 5px; color: #ffb703;"><i class="fas fa-trophy"></i> لوحة الصدارة</h2>
                 <p style="color: #a0a0a0; font-size: 13px; margin-bottom: 20px;">أعلى كبار المطورين والمستثمرين في اللعبة</p>
 
-                <!-- منصة التتويج المراكز 3 الأوائل -->
                 <div style="display: flex; justify-content: center; align-items: flex-end; gap: 10px; margin-bottom: 25px;">
                     <div style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 12px 8px; flex: 1; text-align: center;">
                         <span style="font-size: 24px;">🥈</span>
@@ -695,12 +684,10 @@ function renderDefaultViewContent(cleanViewName, targetView) {
                     </div>
                 </div>
 
-                <!-- حاوية القائمة -->
                 <div id="lb-list-container" style="display: flex; flex-direction: column; gap: 8px; text-align: right;">
                     <div style="text-align: center; padding: 20px; color: #888;">جاري تحميل الترتيب...</div>
                 </div>
 
-                <!-- شريط المستخدم السفلي -->
                 <div style="position: fixed; bottom: 65px; left: 50%; transform: translateX(-50%); width: calc(100% - 30px); max-width: 470px; background: #0088cc; color: white; padding: 12px 20px; border-radius: 14px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.4); z-index: 100;">
                     <span style="font-weight: bold; font-size: 14px;">ترتيبك الحالي: <span id="my-rank-val">#--</span></span>
                     <span style="font-weight: bold; font-size: 14px;">رصيدك: <span id="my-rank-balance">0.00 ZN</span></span>
@@ -728,6 +715,23 @@ async function loadModuleScript(jsPath) {
     });
 }
 
+async function loadModuleCSS(cssPath) {
+    return new Promise((resolve) => {
+        const cleanCssPath = cssPath.split('?')[0];
+        const existing = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).find(l => l.href && l.href.includes(cleanCssPath));
+        if (existing) {
+            resolve(true);
+            return;
+        }
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = cssPath;
+        link.onload = () => resolve(true);
+        link.onerror = () => resolve(false);
+        document.head.appendChild(link);
+    });
+}
+
 window.switchView = async function(viewName) {
     if (!viewName) return;
 
@@ -736,6 +740,7 @@ window.switchView = async function(viewName) {
     if (cleanViewName === 'game') cleanViewName = 'games';
     if (cleanViewName === 'task') cleanViewName = 'tasks';
     if (cleanViewName === 'user' || cleanViewName === 'friends' || cleanViewName === 'friend') cleanViewName = 'friends';
+    if (cleanViewName === 'offer') cleanViewName = 'offers';
 
     // 1. إخفاء شاشة التحميل فوراً
     hideLoadingScreen();
@@ -788,6 +793,9 @@ window.switchView = async function(viewName) {
                 let loadedSuccessfully = false;
 
                 try {
+                    // تحميل ملف الاستايل CSS المخصص إن وجد
+                    await loadModuleCSS(`./${cleanViewName}/${cleanViewName}.css${cacheBuster}`);
+
                     const pathsToTry = [
                         `./${cleanViewName}/${cleanViewName}.html${cacheBuster}`,
                         `/${cleanViewName}/${cleanViewName}.html${cacheBuster}`,
@@ -818,6 +826,11 @@ window.switchView = async function(viewName) {
                             else newScript.textContent = s.textContent;
                             document.body.appendChild(newScript);
                         });
+
+                        // إذا كان موديول offers نقوم بتحميل جسر الربط أولاً ثم الموديول
+                        if (cleanViewName === 'offers') {
+                            await loadModuleScript(`./offers/offers_bridge.js${cacheBuster}`);
+                        }
 
                         const jsPathsToTry = [
                             `./${cleanViewName}/${cleanViewName}.js${cacheBuster}`,
