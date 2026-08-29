@@ -1,4 +1,6 @@
 window.offersModule = (function() {
+
+    // تحديث عرض الرصيد الفعلي فقط
     function updateRealBalanceDisplay() {
         const realBal = parseFloat(window.userState?.balance || 0);
         const balEl = document.getElementById('offers-real-balance');
@@ -7,83 +9,94 @@ window.offersModule = (function() {
         }
     }
 
-    async function initOffersView() {
-        updateRealBalanceDisplay();
-    }
+    // فتح المجلد الفرعي الخاص بكل قائمة من الـ 8
+    async function openSubModule(moduleKey) {
+        const modal = document.getElementById('sub-module-modal');
+        const titleEl = document.getElementById('sub-module-title');
+        const contentEl = document.getElementById('sub-module-content');
 
-    async function openCategory(categoryKey) {
-        const modal = document.getElementById('offer-modal');
-        const titleEl = document.getElementById('modal-offer-title');
-        const tasksEl = document.getElementById('modal-offer-tasks');
+        if (!modal || !titleEl || !contentEl) return;
 
-        if (!modal || !titleEl || !tasksEl) return;
-
-        const categoryNames = {
-            'offer_goxe': 'عرض Goxe',
-            'offer_fogo': 'عرض fuego',
-            'offer_hitob': 'عرض hitob',
-            'offer_wex': 'عرض wex',
-            'offer_vover': 'عرض vover',
-            'offer_znzn': 'عرض znzn',
-            'offer_blxe': 'عرض Blxe',
-            'offer_extra': 'عرض Extra'
+        const moduleTitles = {
+            'goxe': 'عرض Goxe',
+            'fogo': 'عرض fuego',
+            'hitob': 'عرض hitob',
+            'wex': 'عرض wex',
+            'vover': 'عرض vover',
+            'znzn': 'عرض znzn',
+            'blxe': 'عرض Blxe',
+            'extra': 'عرض Extra'
         };
 
-        titleEl.innerText = categoryNames[categoryKey] || 'عرض خاص';
-        tasksEl.innerHTML = `<p style="color: #aaa; text-align: center; font-size: 13px;">جاري تحميل المهام المتاحة...</p>`;
+        titleEl.innerText = moduleTitles[moduleKey] || 'القائمة الفرعية';
+        contentEl.innerHTML = `<div style="text-align: center; padding: 20px; color: #aaa;">جاري الاتصال بـ ${moduleTitles[moduleKey]}...</div>`;
         modal.style.display = 'flex';
 
         try {
-            const res = await window.fetchAPI(`/api/offers/tasks?category=${categoryKey}`);
-            if (res && res.success && res.tasks && res.tasks.length > 0) {
-                tasksEl.innerHTML = res.tasks.map(task => `
-                    <div style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <div style="font-weight: bold; font-size: 13px; color: #fff;">${task.title}</div>
-                            <div style="font-size: 11px; color: #2ec4b6;">+${task.reward} ZN (رصيد فعلي)</div>
+            // طلب بيانات أو واجهة المجلد الفرعي من الـ API
+            const res = await window.fetchAPI(`/api/offers/${moduleKey}/data`);
+            
+            if (res && res.success) {
+                // إذا كان للمجلد الفرعي واجهة أو مهام خاصة يتم عرضها هنا
+                if (res.html) {
+                    contentEl.innerHTML = res.html;
+                } else if (res.items && res.items.length > 0) {
+                    contentEl.innerHTML = res.items.map(item => `
+                        <div style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="font-weight: bold; font-size: 13px; color: #fff;">${item.title}</div>
+                                <div style="font-size: 11px; color: #2ec4b6;">+${item.reward} ZN (رصيد فعلي)</div>
+                            </div>
+                            <button onclick="window.offersModule.claimSubTask('${moduleKey}', '${item.id}')" style="background: #2ec4b6; color: #000; border: none; padding: 6px 14px; border-radius: 8px; font-weight: bold; font-size: 12px; cursor: pointer;">
+                                تنفيذ
+                            </button>
                         </div>
-                        <button onclick="window.offersModule.claimOfferTask('${task.id}')" style="background: #2ec4b6; color: #000; border: none; padding: 6px 14px; border-radius: 8px; font-weight: bold; font-size: 12px; cursor: pointer;">
-                            استلام
-                        </button>
-                    </div>
-                `).join('');
+                    `).join('');
+                } else {
+                    contentEl.innerHTML = `<p style="color: #aaa; text-align: center; font-size: 13px;">لا توجد مهام متاحة في هذه القائمة حالياً.</p>`;
+                }
             } else {
-                tasksEl.innerHTML = `<p style="color: #aaa; text-align: center; font-size: 13px;">لا توجد مهام متاحة في هذا العرض حالياً.</p>`;
+                contentEl.innerHTML = `<p style="color: #ff4d4d; text-align: center; font-size: 13px;">${res.error || 'فشل تحميل القائمة'}</p>`;
             }
         } catch (err) {
-            tasksEl.innerHTML = `<p style="color: #ff4d4d; text-align: center; font-size: 13px;">حدث خطأ أثناء تحميل المهام.</p>`;
+            contentEl.innerHTML = `<p style="color: #ff4d4d; text-align: center; font-size: 13px;">حدث خطأ أثناء تحميل القائمة الفرعية.</p>`;
         }
     }
 
-    async function claimOfferTask(taskId) {
+    // إغلاق نافذة القائمة الفرعية
+    function closeSubModule() {
+        const modal = document.getElementById('sub-module-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    // تنفيذ مهمة داخل مجلد فرعي
+    async function claimSubTask(moduleKey, taskId) {
         try {
-            const res = await window.fetchAPI('/api/offers/claim', 'POST', { task_id: taskId });
+            const res = await window.fetchAPI(`/api/offers/${moduleKey}/claim`, 'POST', { task_id: taskId });
             if (res && res.success) {
                 if (res.new_balance !== undefined) {
                     window.userState.balance = parseFloat(res.new_balance);
                 }
                 updateRealBalanceDisplay();
-                alert(`🎉 مبروك! تم إضافة ${res.reward || 0} ZN إلى رصيدك الفعلي.`);
-                closeOfferModal();
+                alert(`🎉 تم إضافة ${res.reward || 0} ZN إلى رصيدك الفعلي.`);
+                closeSubModule();
             } else {
-                alert(res.error || 'عذراً، فشل استلام العرض.');
+                alert(res.error || 'فشل استلام المكافأة.');
             }
         } catch (err) {
-            alert(err.message || 'حدث خطأ غير متوقع.');
+            alert(err.message || 'حدث خطأ أثناء التنفيذ.');
         }
     }
 
-    window.closeOfferModal = function() {
-        const modal = document.getElementById('offer-modal');
-        if (modal) modal.style.display = 'none';
-    };
-
-    window.openOfferCategory = openCategory;
+    function init() {
+        updateRealBalanceDisplay();
+    }
 
     return {
-        init: initOffersView,
-        openCategory: openCategory,
-        claimOfferTask: claimOfferTask
+        init: init,
+        openSubModule: openSubModule,
+        closeSubModule: closeSubModule,
+        claimSubTask: claimSubTask
     };
 })();
 
