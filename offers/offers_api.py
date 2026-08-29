@@ -1,58 +1,34 @@
 from flask import Blueprint, request, jsonify
-from offers.offers_db import get_all_offers, get_user_completed_offers, claim_offer_reward
-from database import is_user_banned
+import db
 
-offers_bp = Blueprint('offers_bp', __name__)
+offers_bp = Blueprint('offers', __name__)
 
-def extract_telegram_id(req):
-    return req.headers.get('X-Telegram-User-Id') or req.headers.get('X-Telegram-Id')
+@offers_bp.route('/api/offers/tasks', methods=['GET'])
+def get_offer_tasks():
+    user_id = request.headers.get('X-Telegram-User-Id')
+    category = request.args.get('category', 'offer_goxe')
+    
+    if not user_id:
+        return jsonify({'success': False, 'error': 'المستخدم غير معرف'}), 401
+        
+    tasks = db.get_active_offer_tasks(category, user_id)
+    return jsonify({'success': True, 'tasks': tasks})
 
-@offers_bp.route('/list', methods=['GET', 'OPTIONS'])
-def list_offers():
-    if request.method == 'OPTIONS':
-        return jsonify({"success": True}), 200
+@offers_bp.route('/api/offers/claim', methods=['POST'])
+def claim_offer_task():
+    user_id = request.headers.get('X-Telegram-User-Id')
+    data = request.get_json() or {}
+    task_id = data.get('task_id')
 
-    tg_id = extract_telegram_id(request) or request.args.get('tg_id')
-    if not tg_id:
-        return jsonify({"success": False, "error": "المستخدم غير محدد"}), 400
+    if not user_id or not task_id:
+        return jsonify({'success': False, 'error': 'بيانات الطلب غير مكتملة'}), 400
 
-    if is_user_banned(tg_id):
-        return jsonify({"success": False, "error": "حسابك محظور."}), 403
-
-    try:
-        offers = get_all_offers()
-        completed_ids = get_user_completed_offers(tg_id)
-
-        for offer in offers:
-            offer['completed'] = offer['id'] in completed_ids
-
+    result = db.process_offer_reward(user_id, task_id)
+    if result.get('success'):
         return jsonify({
-            "success": True,
-            "offers": offers,
-            "completed_ids": completed_ids
-        }), 200
-    except Exception as e:
-        print(f"❌ خطأ جلب العروض: {e}")
-        return jsonify({"success": False, "error": f"حدث خطأ في السيرفر: {str(e)}"}), 500
-
-@offers_bp.route('/claim', methods=['POST', 'OPTIONS'])
-def claim_offer():
-    if request.method == 'OPTIONS':
-        return jsonify({"success": True}), 200
-
-    tg_id = extract_telegram_id(request) or request.args.get('tg_id')
-    if not tg_id:
-        return jsonify({"success": False, "error": "المستخدم غير محدد"}), 400
-
-    if is_user_banned(tg_id):
-        return jsonify({"success": False, "error": "حسابك محظور."}), 403
-
-    data = request.get_json(silent=True) or {}
-    offer_id = data.get('offer_id')
-
-    if not offer_id:
-        return jsonify({"success": False, "error": "معرف العرض مفقود"}), 400
-
-    result = claim_offer_reward(tg_id, offer_id)
-    status_code = 200 if result.get('success') else 400
-    return jsonify(result), status_code
+            'success': True,
+            'reward': result.get('reward'),
+            'new_balance': result.get('new_balance')
+        })
+    else:
+        return jsonify({'success': False, 'error': result.get('error', 'فشل معالجة العرض')}), 400
