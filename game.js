@@ -148,6 +148,7 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         headers['Authorization'] = `Bearer ${tg.initData}`;
     }
 
+    // بناء الرابط المكتمل
     let targetUrl = endpoint;
     if (endpoint.startsWith('/')) {
         const baseUrl = (window.API_BASE_URL || '').replace(/\/$/, '');
@@ -237,7 +238,7 @@ window.fetchTonPrice = async function() {
             }
         }
     } catch (err) {
-        console.warn("⚠️ لم يتم جلب سعر TON، تم استخدام السعر المحلي:", window.currentTonPriceUSD);
+        console.warn("⚠️ لم يتم جلب سعر TON من CoinGecko، تم استخدام السعر المحلي المسجل:", window.currentTonPriceUSD);
     } finally {
         window.updateTonPriceUI();
     }
@@ -585,7 +586,7 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 8. تهيئة واجهة المحفظة والإعدادات
+// 8. تهيئة واجهة المحفظة والإعدادات ودالة معالجة العروض
 // ==========================================
 window.initWalletView = function() {
     if (window.walletModule && typeof window.walletModule.init === 'function') {
@@ -630,6 +631,16 @@ window.saveWalletAddress = async function() {
     }
 };
 
+// دالة توجيه اختيار العروض الـ 8 للمجلدات الداخلية
+window.openOfferCategory = function(offerId) {
+    if (window.offersModule && typeof window.offersModule.openCategory === 'function') {
+        window.offersModule.openCategory(offerId);
+    } else {
+        console.log(`فتح المجلد الخاص بالعرض: ${offerId}`);
+        window.dispatchEvent(new CustomEvent('openOfferCategory', { detail: { offerId } }));
+    }
+};
+
 // ==========================================
 // 9. التنقل الديناميكي المحصن واحتواء الهياكل المطلوبة
 // ==========================================
@@ -661,20 +672,94 @@ function renderDefaultViewContent(cleanViewName, targetView) {
             })
             .catch(err => console.error("فشل جلب واجهة المحفظة:", err));
     } else if (cleanViewName === 'offers') {
-        const cacheBuster = `?v=${Date.now()}`;
-        fetch(`./offers/offers.html${cacheBuster}`)
-            .then(res => res.text())
-            .then(html => {
-                targetView.innerHTML = html;
-                if (typeof window.onOffersTabOpen === 'function') window.onOffersTabOpen();
-            })
-            .catch(err => console.error("فشل جلب قائمة ارباح العروض:", err));
+        // قائمة ارباح العروض المصممة بنفس نمط خيارات الالعاب (8 خيارات شبكية)
+        targetView.innerHTML = `
+            <div style="padding: 15px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto; padding-bottom: 90px;">
+                <!-- شريط الرصيد العلوي -->
+                <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 12px 16px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 22px;">💰</span>
+                        <div style="text-align: right;">
+                            <div style="font-size: 11px; color: #a0a0a0;">الرصيد الحالي</div>
+                            <div class="user-balance-val" style="font-weight: bold; font-size: 16px; color: #fff;">0.00 ZN</div>
+                        </div>
+                    </div>
+                    <div style="background: rgba(255, 183, 3, 0.15); color: #ffb703; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: bold;">
+                        أرباح العروض 🔥
+                    </div>
+                </div>
+
+                <h2 style="margin-bottom: 5px; color: #ffb703; font-size: 20px;"><i class="fas fa-gift"></i> قائمة أرباح العروض</h2>
+                <p style="color: #a0a0a0; font-size: 12px; margin-bottom: 20px;">اختر من العروض المتاحة أدناه للبدء في كسب مكافآت ZN المباشرة</p>
+
+                <!-- شبكة الـ 8 خيارات المطابقة لشاشة الألعاب -->
+                <div id="offers-grid-container" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; text-align: center;">
+                    
+                    <!-- 1. عرض Goxe -->
+                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_goxe')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+                        <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 183, 3, 0.2); color: #ffb703; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">ترند✨</span>
+                        <div style="font-size: 38px; margin: 10px 0 6px 0; color: #2ec4b6;"><i class="fas fa-cubes"></i></div>
+                        <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض Goxe</div>
+                    </div>
+
+                    <!-- 2. عرض fogo -->
+                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_fogo')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+                        <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 77, 77, 0.2); color: #ff4d4d; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">حار🔥</span>
+                        <div style="font-size: 38px; margin: 10px 0 6px 0; color: #ff4d4d;"><i class="fas fa-fire"></i></div>
+                        <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض fogo</div>
+                    </div>
+
+                    <!-- 3. عرض hitob -->
+                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_hitob')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+                        <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
+                        <div style="font-size: 38px; margin: 10px 0 6px 0; color: #e63946;"><i class="fas fa-bullseye"></i></div>
+                        <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض hitob</div>
+                    </div>
+
+                    <!-- 4. عرض wex -->
+                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_wex')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+                        <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
+                        <div style="font-size: 38px; margin: 10px 0 6px 0; color: #00b4d8;"><i class="fas fa-bolt"></i></div>
+                        <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض wex</div>
+                    </div>
+
+                    <!-- 5. عرض vover -->
+                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_vover')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+                        <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
+                        <div style="font-size: 38px; margin: 10px 0 6px 0; color: #9d4edd;"><i class="fas fa-shield-alt"></i></div>
+                        <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض vover</div>
+                    </div>
+
+                    <!-- 6. عرض znzn -->
+                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_znzn')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+                        <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
+                        <div style="font-size: 38px; margin: 10px 0 6px 0; color: #2ec4b6;"><i class="fas fa-atom"></i></div>
+                        <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض znzn</div>
+                    </div>
+
+                    <!-- 7. عرض Blxe -->
+                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_blxe')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+                        <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
+                        <div style="font-size: 38px; margin: 10px 0 6px 0; color: #ffb703;"><i class="fas fa-gem"></i></div>
+                        <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض Blxe</div>
+                    </div>
+
+                    <!-- 8. عرض Extra -->
+                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_extra')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+                        <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
+                        <div style="font-size: 38px; margin: 10px 0 6px 0; color: #70e000;"><i class="fas fa-rocket"></i></div>
+                        <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض Extra</div>
+                    </div>
+
+                </div>
+            </div>`;
     } else if (cleanViewName === 'leaderboard') {
         targetView.innerHTML = `
             <div style="padding: 20px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto; padding-bottom: 90px;">
                 <h2 style="margin-bottom: 5px; color: #ffb703;"><i class="fas fa-trophy"></i> لوحة الصدارة</h2>
                 <p style="color: #a0a0a0; font-size: 13px; margin-bottom: 20px;">أعلى كبار المطورين والمستثمرين في اللعبة</p>
 
+                <!-- منصة التتويج المراكز 3 الأوائل -->
                 <div style="display: flex; justify-content: center; align-items: flex-end; gap: 10px; margin-bottom: 25px;">
                     <div style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 12px 8px; flex: 1; text-align: center;">
                         <span style="font-size: 24px;">🥈</span>
@@ -693,10 +778,12 @@ function renderDefaultViewContent(cleanViewName, targetView) {
                     </div>
                 </div>
 
+                <!-- حاوية القائمة -->
                 <div id="lb-list-container" style="display: flex; flex-direction: column; gap: 8px; text-align: right;">
                     <div style="text-align: center; padding: 20px; color: #888;">جاري تحميل الترتيب...</div>
                 </div>
 
+                <!-- شريط المستخدم السفلي -->
                 <div style="position: fixed; bottom: 65px; left: 50%; transform: translateX(-50%); width: calc(100% - 30px); max-width: 470px; background: #0088cc; color: white; padding: 12px 20px; border-radius: 14px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.4); z-index: 100;">
                     <span style="font-weight: bold; font-size: 14px;">ترتيبك الحالي: <span id="my-rank-val">#--</span></span>
                     <span style="font-weight: bold; font-size: 14px;">رصيدك: <span id="my-rank-balance">0.00 ZN</span></span>
@@ -732,7 +819,7 @@ window.switchView = async function(viewName) {
     if (cleanViewName === 'game') cleanViewName = 'games';
     if (cleanViewName === 'task') cleanViewName = 'tasks';
     if (cleanViewName === 'user' || cleanViewName === 'friends' || cleanViewName === 'friend') cleanViewName = 'friends';
-    if (cleanViewName === 'offer') cleanViewName = 'offers';
+    if (cleanViewName === 'offer' || cleanViewName === 'أرباح العروض' || cleanViewName === 'ارباح العروض') cleanViewName = 'offers';
 
     // 1. إخفاء شاشة التحميل فوراً
     hideLoadingScreen();
@@ -765,17 +852,11 @@ window.switchView = async function(viewName) {
     targetView.style.width = '100%';
     targetView.style.minHeight = '100vh';
 
-    // تحميل سكريبت المحفظة والإيداع
+    // تحميل سكريبت المحفظة وسكريبت الإيداع عند الدخول لتبويب المحفظة
     if (cleanViewName === 'wallet') {
         const cb = `?v=${Date.now()}`;
         await loadModuleScript(`./wallet/wallet.js${cb}`);
         await loadModuleScript(`./wallet/deposit/deposit.js${cb}`);
-    }
-
-    // تحميل سكريبت ارباح العروض
-    if (cleanViewName === 'offers') {
-        const cb = `?v=${Date.now()}`;
-        await loadModuleScript(`./offers/offers.js${cb}`);
     }
 
     // 4. جلب المحتوى من المجلد المخصص لكل تبويب
@@ -852,7 +933,7 @@ window.switchView = async function(viewName) {
         }
     }
 
-    // 5. تشغيل دالة التهيئة المخصصة للتبويب
+    // 5. تشغيل دالة التهيئة المخصصة للتبويب فورياً مع تغطية كافة الاحتمالات
     try {
         if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
             window.onFarmTabOpen();
