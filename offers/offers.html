@@ -1,6 +1,6 @@
 <div class="offers-container" style="padding: 15px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto; padding-bottom: 90px;">
     
-    <!-- شريط الرصيد الفعلي فقط (ZN) -->
+    <!-- شريط الرصيد الفعلي (ZN) -->
     <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
         <div style="display: flex; align-items: center; gap: 10px;">
             <span style="font-size: 24px;">💎</span>
@@ -14,78 +14,76 @@
         </div>
     </div>
 
-    <h2 style="margin-bottom: 6px; color: #ffb703; font-size: 22px;"><i class="fas fa-hand-holding-usd"></i> قائمة أرباح العروض</h2>
-    <p style="color: #a0a0a0; font-size: 12px; margin-bottom: 22px;">اختر من القوائم التالية للبدء في كسب رصيد ZN أصل مباشر</p>
+    <h2 style="margin-bottom: 6px; color: #ffb703; font-size: 22px;">قائمة أرباح العروض</h2>
+    <p style="color: #a0a0a0; font-size: 12px; margin-bottom: 22px;">اختر من القوائم الثمانية التالية للبدء في كسب رصيد ZN أصل مباشر</p>
 
-    <!-- شبكة البطاقات الـ 8 المربوطة بالأقسام/المجلدات الفرعية -->
+    <!-- شبكة البطاقات الـ 8 المربوطة بالمجلدات الفرعية -->
     <div id="offers-grid-container" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; text-align: center;">
-        
-        <!-- 1. مجلد Goxe (مثلاً: حل الكباتشا) -->
-        <div class="offer-card-item" onclick="window.offersModule.openSubModule('goxe')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px 10px; position: relative; cursor: pointer;">
-            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 183, 3, 0.2); color: #ffb703; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">ترند✨</span>
-            <div style="font-size: 32px; margin: 8px 0 6px 0; color: #2ec4b6;"><i class="fas fa-robot"></i></div>
-            <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض Goxe</div>
+
+        <!-- مهام العروض -->
+        <div class="offer-card-item" onclick="window.offersModule.openSubModule('offers_tasks')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 183, 3, 0.18); color: #ffb703; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">مميز</span>
+            <div style="font-size: 34px; margin: 8px 0 6px 0;">📋</div>
+            <div style="font-weight: bold; font-size: 14px; color: #fff;">مهام العروض</div>
         </div>
 
-        <!-- 2. مجلد Fuego (مثلاً: حوائط العروض Offerwalls) -->
-        <div class="offer-card-item" onclick="window.offersModule.openSubModule('fogo')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px 10px; position: relative; cursor: pointer;">
-            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 77, 77, 0.2); color: #ff4d4d; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">حار🔥</span>
-            <div style="font-size: 32px; margin: 8px 0 6px 0; color: #ff4d4d;"><i class="fas fa-layer-group"></i></div>
-            <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض fuego</div>
+        <!-- مهام بسيطة -->
+        <div class="offer-card-item" onclick="window.offersModule.openSubModule('simple_tasks')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 183, 3, 0.18); color: #ffb703; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">سهل</span>
+            <div style="font-size: 34px; margin: 8px 0 6px 0;">⚡</div>
+            <div style="font-weight: bold; font-size: 14px; color: #fff;">مهام بسيطة</div>
         </div>
 
-        <!-- 3. مجلد Hitob (مثلاً: مشاهدة الإعلانات والروابط) -->
-        <div class="offer-card-item" onclick="window.offersModule.openSubModule('hitob')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px 10px; position: relative; cursor: pointer;">
-            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">نشط</span>
-            <div style="font-size: 32px; margin: 8px 0 6px 0; color: #e63946;"><i class="fas fa-ad"></i></div>
-            <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض hitob</div>
+        <!-- مهام الحائط -->
+        <div class="offer-card-item" onclick="window.offersModule.openSubModule('wall_tasks')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 183, 3, 0.18); color: #ffb703; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">حار🔥</span>
+            <div style="font-size: 34px; margin: 8px 0 6px 0;">🧱</div>
+            <div style="font-weight: bold; font-size: 14px; color: #fff;">مهام الحائط</div>
         </div>
 
-        <!-- 4. مجلد Wex (مثلاً: اختصار الروابط) -->
-        <div class="offer-card-item" onclick="window.offersModule.openSubModule('wex')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px 10px; position: relative; cursor: pointer;">
-            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">متاح</span>
-            <div style="font-size: 32px; margin: 8px 0 6px 0; color: #00b4d8;"><i class="fas fa-link"></i></div>
-            <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض wex</div>
+        <!-- مهام فوري -->
+        <div class="offer-card-item" onclick="window.offersModule.openSubModule('instant_tasks')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 183, 3, 0.18); color: #ffb703; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">سريع</span>
+            <div style="font-size: 34px; margin: 8px 0 6px 0;">🚀</div>
+            <div style="font-weight: bold; font-size: 14px; color: #fff;">مهام فوري</div>
         </div>
 
-        <!-- 5. مجلد Vover (مثلاً: الاستبيانات والآراء) -->
-        <div class="offer-card-item" onclick="window.offersModule.openSubModule('vover')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px 10px; position: relative; cursor: pointer;">
-            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">متاح</span>
-            <div style="font-size: 32px; margin: 8px 0 6px 0; color: #9d4edd;"><i class="fas fa-poll-h"></i></div>
-            <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض vover</div>
+        <!-- مهام الألعاب -->
+        <div class="offer-card-item" onclick="window.offersModule.openSubModule('games_tasks')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 183, 3, 0.18); color: #ffb703; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">ممتع</span>
+            <div style="font-size: 34px; margin: 8px 0 6px 0;">🎮</div>
+            <div style="font-weight: bold; font-size: 14px; color: #fff;">مهام الألعاب</div>
         </div>
 
-        <!-- 6. مجلد Znzn (مثلاً: التثبيت والتطبيقات) -->
-        <div class="offer-card-item" onclick="window.offersModule.openSubModule('znzn')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px 10px; position: relative; cursor: pointer;">
-            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">متاح</span>
-            <div style="font-size: 32px; margin: 8px 0 6px 0; color: #2ec4b6;"><i class="fas fa-download"></i></div>
-            <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض znzn</div>
+        <!-- مهام اسطوانة -->
+        <div class="offer-card-item" onclick="window.offersModule.openSubModule('disk_tasks')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 183, 3, 0.18); color: #ffb703; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">ترند✨</span>
+            <div style="font-size: 34px; margin: 8px 0 6px 0;">💿</div>
+            <div style="font-weight: bold; font-size: 14px; color: #fff;">مهام اسطوانة</div>
         </div>
 
-        <!-- 7. مجلد Blxe (مثلاً: المهام الخاصة) -->
-        <div class="offer-card-item" onclick="window.offersModule.openSubModule('blxe')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px 10px; position: relative; cursor: pointer;">
-            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">مميز</span>
-            <div style="font-size: 32px; margin: 8px 0 6px 0; color: #ffb703;"><i class="fas fa-tasks"></i></div>
-            <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض Blxe</div>
+        <!-- مهام الفولترا -->
+        <div class="offer-card-item" onclick="window.offersModule.openSubModule('voltra_tasks')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 183, 3, 0.18); color: #ffb703; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">جديد</span>
+            <div style="font-size: 34px; margin: 8px 0 6px 0;">⚡</div>
+            <div style="font-weight: bold; font-size: 14px; color: #fff;">مهام الفولترا</div>
         </div>
 
-        <!-- 8. مجلد Extra (مجلد إضافي) -->
-        <div class="offer-card-item" onclick="window.offersModule.openSubModule('extra')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px 10px; position: relative; cursor: pointer;">
-            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">إضافي</span>
-            <div style="font-size: 32px; margin: 8px 0 6px 0; color: #70e000;"><i class="fas fa-gift"></i></div>
-            <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض Extra</div>
+        <!-- مهام zngoxe -->
+        <div class="offer-card-item" onclick="window.offersModule.openSubModule('zngoxe_tasks')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 18px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+            <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 183, 3, 0.18); color: #ffb703; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">حصري</span>
+            <div style="font-size: 34px; margin: 8px 0 6px 0;">💎</div>
+            <div style="font-weight: bold; font-size: 14px; color: #fff;">مهام zngoxe</div>
         </div>
 
     </div>
 
-    <!-- حاوية عرض المجلدات الفرعية (Sub-module View Container) -->
+    <!-- نافذة عرض المجلد الفرعي (Sub-module Modal) -->
     <div id="sub-module-modal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 1000; align-items: center; justify-content: center; padding: 15px; backdrop-filter: blur(6px);">
         <div style="background: #1c232d; border: 1px solid rgba(255,255,255,0.15); border-radius: 20px; width: 100%; max-width: 450px; max-height: 85vh; padding: 20px; position: relative; text-align: right; overflow-y: auto;">
             <button onclick="window.offersModule.closeSubModule()" style="position: absolute; top: 12px; left: 12px; background: rgba(255,255,255,0.1); border: none; color: #fff; width: 30px; height: 30px; border-radius: 50%; cursor: pointer;">✕</button>
-            <h3 id="sub-module-title" style="color: #ffb703; margin-top: 0; font-size: 18px;">تفاصيل القائمة</h3>
-            
-            <div id="sub-module-content" style="margin: 15px 0;">
-                <p style="color: #aaa; text-align: center; font-size: 13px;">جاري فتح القائمة...</p>
+            <div id="sub-module-content" style="margin-top: 10px;">
+                <!-- سيتم تحميل واجهة المجلد الفرعي هنا -->
             </div>
         </div>
     </div>
