@@ -1,34 +1,28 @@
 from flask import Blueprint, request, jsonify
 import offers.offers_db as offers_db
 
+# Import sub-module blueprints
+from offers.offers_tasks.offers_tasks_api import offers_tasks_bp
+from offers.simple_tasks.simple_tasks_api import simple_tasks_bp
+from offers.wall_tasks.wall_tasks_api import wall_tasks_bp
+from offers.instant_tasks.instant_tasks_api import instant_tasks_bp
+from offers.games_tasks.games_tasks_api import games_tasks_bp
+from offers.disk_tasks.disk_tasks_api import disk_tasks_bp
+from offers.voltra_tasks.voltra_tasks_api import voltra_tasks_bp
+from offers.zngoxe_tasks.zngoxe_tasks_api import zngoxe_tasks_bp
+
 offers_bp = Blueprint('offers', __name__)
 
-@offers_bp.route('/api/offers/<module_key>/data', methods=['GET'])
-def get_sub_module_data(module_key):
-    """توجيه الطلب للبيانات الخاصة بكل مجلد فرعي من الـ 8"""
+# Register sub-module blueprints
+sub_blueprints = [
+    offers_tasks_bp, simple_tasks_bp, wall_tasks_bp, instant_tasks_bp,
+    games_tasks_bp, disk_tasks_bp, voltra_tasks_bp, zngoxe_tasks_bp
+]
+
+for bp in sub_blueprints:
+    offers_bp.register_blueprint(bp)
+
+@offers_bp.route('/api/offers/status', methods=['GET'])
+def get_offers_hub_status():
     user_id = request.headers.get('X-Telegram-User-Id')
-    if not user_id:
-        return jsonify({'success': False, 'error': 'المستخدم غير معرف'}), 401
-        
-    data = offers_db.get_sub_module_content(module_key, user_id)
-    return jsonify({'success': True, 'items': data.get('items', []), 'html': data.get('html', None)})
-
-@offers_bp.route('/api/offers/<module_key>/claim', methods=['POST'])
-def claim_sub_module_reward(module_key):
-    """معالجة الأرباح الخاصة بأي قائمة فرعية وتسجيلها بالرصيد الفعلي"""
-    user_id = request.headers.get('X-Telegram-User-Id')
-    data = request.get_json() or {}
-    task_id = data.get('task_id')
-
-    if not user_id or not task_id:
-        return jsonify({'success': False, 'error': 'بيانات ناقصة'}), 400
-
-    result = offers_db.process_sub_module_payout(module_key, user_id, task_id)
-    if result.get('success'):
-        return jsonify({
-            'success': True,
-            'reward': result.get('reward'),
-            'new_balance': result.get('new_balance')
-        })
-    else:
-        return jsonify({'success': False, 'error': result.get('error', 'فشل معالجة الطلب')}), 400
+    return jsonify({'success': True, 'status': 'Offers Hub Active', 'modules_count': 8})
