@@ -79,7 +79,7 @@ window.closeWelcomeModal = function() {
     let isBoosting = false; 
     let isFetching = false;
     let isClaimingMain = false; 
-    let isCheckingAd = false; 
+    let isCheckingAd = false;
     let upgradingLevel = null;
     let isUpgradingStorage = false;
 
@@ -96,11 +96,6 @@ window.closeWelcomeModal = function() {
         }
         const ms = new Date(s).getTime();
         return isNaN(ms) ? getAdjustedNowMs() : ms;
-    }
-
-    function getStorageAdKey() {
-        const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id || window.PlayerData?.telegram_id;
-        return userId ? `zn_last_claim_ad_${userId}` : 'zn_last_claim_ad_global';
     }
 
     function getCacheKey() {
@@ -141,11 +136,9 @@ window.closeWelcomeModal = function() {
             const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id;
             if (userId) {
                 localStorage.removeItem(`zn_farm_cache_${userId}`);
-                localStorage.removeItem(`zn_last_claim_ad_${userId}`);
                 localStorage.removeItem(`zn_welcome_seen_${userId}`);
             }
             localStorage.removeItem('zn_farm_cache_global');
-            localStorage.removeItem('zn_last_claim_ad_global');
         } catch (e) {
             console.error("خطأ مسح الـ Cache المحلي:", e);
         }
@@ -449,7 +442,6 @@ window.closeWelcomeModal = function() {
                 }
 
                 if (resData.player) {
-                    const adKey = getStorageAdKey();
                     const isNewUser = resData.player.is_new_user === true || resData.player.welcome_seen === false;
 
                     if (isNewUser) {
@@ -465,12 +457,10 @@ window.closeWelcomeModal = function() {
                     window.userState.base_unclaimed = parseFloat(resData.player.unclaimed || 0);
                     window.PlayerData.base_unclaimed = parseFloat(resData.player.unclaimed || 0);
 
-                    if (resData.player.last_claim_ad_date) {
-                        localStorage.setItem(adKey, resData.player.last_claim_ad_date);
-                    } else {
+                    // الاعتماد كلياً على بيانات السيرفر بدون تدخل الـ Local Storage للإعلانات
+                    if (resData.player.last_claim_ad_date === undefined) {
                         window.userState.last_claim_ad_date = null;
                         window.PlayerData.last_claim_ad_date = null;
-                        localStorage.removeItem(adKey);
                     }
 
                     saveCachedData(window.userState);
@@ -1058,15 +1048,15 @@ window.closeWelcomeModal = function() {
         if (isClaimingMain || isCheckingAd) return;
 
         const pData = window.userState || window.PlayerData || {};
-        const todayStr = getTodayUTCStr();
-        const adKey = getStorageAdKey();
+        const todayStr = getTodayUTCStr(); 
 
-        let lastAdDate = pData.last_claim_ad_date || localStorage.getItem(adKey);
+        // الاعتماد حصرياً على بيانات السيرفر بدلاً من التخزين المحلي لتجنب الثغرات
+        let lastAdDate = pData.last_claim_ad_date; 
         let needsAdToday = (lastAdDate !== todayStr);
 
         if (needsAdToday) {
             isCheckingAd = true; 
-            await showAdsgramAd();
+            await showAdsgramAd(); 
             isCheckingAd = false;
         }
 
@@ -1077,18 +1067,10 @@ window.closeWelcomeModal = function() {
         if (currentUnclaimed > 0) {
             const currentBal = getStoredBalance();
             setStoredBalance(currentBal + currentUnclaimed, getStoredUsdBalance());
-            
-            // الربط الفوري للوقت لمنع العداد من إعادة تعبئة الرصيد الوهمي في أجزاء الثانية
-            const nowIso = new Date(getAdjustedNowMs()).toISOString();
-            
             window.userState.unclaimed = 0.0;
             window.PlayerData.unclaimed = 0.0;
             window.userState.base_unclaimed = 0.0;
             window.PlayerData.base_unclaimed = 0.0;
-            
-            window.userState.last_claim_time = nowIso;
-            window.PlayerData.last_claim_time = nowIso;
-            
             window.updateFarmUI();
         }
 
@@ -1106,10 +1088,12 @@ window.closeWelcomeModal = function() {
                     window.PlayerData.last_claim_time = resData.last_claim_time;
                 }
 
-                const savedAdDate = resData.last_claim_ad_date || todayStr;
-                window.userState.last_claim_ad_date = savedAdDate;
-                window.PlayerData.last_claim_ad_date = savedAdDate;
-                localStorage.setItem(adKey, savedAdDate);
+                // تحديث بيانات المشاهدة في نفس الجلسة إذا كان إعلاناً جديداً اليوم
+                if (needsAdToday) {
+                    const savedAdDate = resData.last_claim_ad_date || todayStr;
+                    window.userState.last_claim_ad_date = savedAdDate;
+                    window.PlayerData.last_claim_ad_date = savedAdDate;
+                }
 
                 window.userState.unclaimed = 0.0;
                 window.PlayerData.unclaimed = 0.0;
