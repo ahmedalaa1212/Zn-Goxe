@@ -308,12 +308,12 @@ window.closeWelcomeModal = function() {
         }
     }
 
-    // دالة ضمان تحميل مكتبة Adsgram SDK تلقائياً
+    // إصلاح رابط تحميل Adsgram الصحيح
     async function ensureAdsgramLoaded() {
         if (window.Adsgram) return true;
         return new Promise((resolve) => {
             const script = document.createElement('script');
-            script.src = 'https://adsgram.ai/js/adsgram-ad.js';
+            script.src = 'https://sad.adsgram.ai/js/sad.min.js';
             script.async = true;
             script.onload = () => resolve(true);
             script.onerror = () => resolve(false);
@@ -324,21 +324,21 @@ window.closeWelcomeModal = function() {
     async function showAdsgramAd() {
         toggleAdLoadingOverlay(true);
         
-        await ensureAdsgramLoaded();
+        const isLoaded = await ensureAdsgramLoaded();
 
         const blockId = window.ADSGRAM_BLOCK_ID || GAME_CONFIG.adsgramBlockId || "";
 
-        if (!window.Adsgram) {
+        if (!window.Adsgram || !isLoaded) {
             console.error("Adsgram SDK لم يتم تحميلة.");
             toggleAdLoadingOverlay(false);
-            showToast("⚠️ لم يتم تحميل مكتبة Adsgram. يرجى التأكد من الاتصال بالإنترنت.");
+            showToast("⚠️ لم يتم تحميل مكتبة الإعلانات. يرجى التأكد من اتصال الإنترنت وحظر الإعلانات.");
             return false;
         }
 
         if (!blockId || blockId.trim() === "") {
             console.error("Adsgram Block ID missing!");
             toggleAdLoadingOverlay(false);
-            showToast("⚠️ كود الإعلان ADSGRAM_BLOCK_ID غير موجود في Railway أو السيرفر.");
+            showToast("⚠️ كود الإعلان ADSGRAM_BLOCK_ID غير مضبوط.");
             return false;
         }
 
@@ -356,8 +356,8 @@ window.closeWelcomeModal = function() {
 
             const timeoutTimer = setTimeout(() => {
                 console.log("Adsgram timeout reached.");
-                finish(true);
-            }, 8000);
+                finish(false); // عند انتهاء الوقت يرجع false وليس true
+            }, 10000);
 
             try {
                 const AdController = window.Adsgram.init({ blockId: blockId.trim() });
@@ -366,11 +366,11 @@ window.closeWelcomeModal = function() {
                     finish(true);
                 }).catch((err) => {
                     console.error("خطأ أو تخطي إعلان Adsgram:", err);
-                    finish(true);
+                    finish(false); // إرجاع false عند الفشل أو التخطي
                 });
             } catch (e) {
                 console.error("استثناء تنفيذ Adsgram:", e);
-                finish(true);
+                finish(false);
             }
         });
     }
@@ -751,7 +751,7 @@ window.closeWelcomeModal = function() {
             const remainingCooldown = Math.max(0, Math.ceil(MIN_CLAIM_INTERVAL - secondsPassed));
 
             if (isCheckingAd) {
-                claimBtn.innerText = "جاري فحص الإعلان... ⏳";
+                claimBtn.innerText = "جاري فتح الإعلان... ⏳";
                 claimBtn.className = "claim-action-btn btn-disabled";
                 claimBtn.disabled = true;
             } else if (isClaimingMain) {
@@ -1089,7 +1089,6 @@ window.closeWelcomeModal = function() {
         let lastAdDate = pData.last_claim_ad_date || null;
         let adsWatched = parseInt(pData.ads_watched || 0, 10);
 
-        // تعديل جوهري: إذا كانت الإعلانات المشاهدة 0 أو التاريخ لا يساوي تاريخ اليوم، يُجبر على إظهار الإعلان
         let needsAdToday = (!lastAdDate) || (lastAdDate !== todayStr) || (adsWatched === 0);
 
         if (needsAdToday) {
@@ -1099,9 +1098,16 @@ window.closeWelcomeModal = function() {
                 const adShown = await showAdsgramAd(); 
                 if (!adShown) {
                     console.warn("لم يتم إكمال الإعلان بالكامل.");
+                    showToast("⚠️ يلزم مشاهدة الإعلان كاملاً لتجميع الرصيد!");
+                    isCheckingAd = false;
+                    window.updateFarmUI();
+                    return; // إيقاف العملية إذا لم يشاهد الإعلان
                 }
             } catch(e) {
                 console.error("Ad Check Error:", e);
+                isCheckingAd = false;
+                window.updateFarmUI();
+                return; // إيقاف العملية عند وجود خطأ
             }
             isCheckingAd = false;
         }
