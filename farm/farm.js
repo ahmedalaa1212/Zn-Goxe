@@ -265,7 +265,6 @@ window.closeWelcomeModal = function() {
         saveCachedData(window.userState);
     }
 
-    // استخراج تاريخ اليوم بدقة بتوقيت UTC العالمي الموحد
     function getTodayUTCStr() {
         const adjustedNow = new Date(getAdjustedNowMs());
         return adjustedNow.toISOString().split('T')[0];
@@ -309,7 +308,40 @@ window.closeWelcomeModal = function() {
         }
     }
 
-    function showAdsgramAd() {
+    // دالة ضمان تحميل مكتبة Adsgram SDK تلقائياً
+    async function ensureAdsgramLoaded() {
+        if (window.Adsgram) return true;
+        return new Promise((resolve) => {
+            const script = document.createElement('script');
+            script.src = 'https://adsgram.ai/js/adsgram-ad.js';
+            script.async = true;
+            script.onload = () => resolve(true);
+            script.onerror = () => resolve(false);
+            document.head.appendChild(script);
+        });
+    }
+
+    async function showAdsgramAd() {
+        toggleAdLoadingOverlay(true);
+        
+        await ensureAdsgramLoaded();
+
+        const blockId = window.ADSGRAM_BLOCK_ID || GAME_CONFIG.adsgramBlockId || "";
+
+        if (!window.Adsgram) {
+            console.error("Adsgram SDK لم يتم تحميلة.");
+            toggleAdLoadingOverlay(false);
+            showToast("⚠️ لم يتم تحميل مكتبة Adsgram. يرجى التأكد من الاتصال بالإنترنت.");
+            return false;
+        }
+
+        if (!blockId || blockId.trim() === "") {
+            console.error("Adsgram Block ID missing!");
+            toggleAdLoadingOverlay(false);
+            showToast("⚠️ كود الإعلان ADSGRAM_BLOCK_ID غير موجود في Railway أو السيرفر.");
+            return false;
+        }
+
         return new Promise((resolve) => {
             let resolved = false;
 
@@ -322,30 +354,22 @@ window.closeWelcomeModal = function() {
                 }
             };
 
-            toggleAdLoadingOverlay(true);
-
             const timeoutTimer = setTimeout(() => {
-                console.log("Adsgram timeout reached (5s limit). Continuing naturally.");
+                console.log("Adsgram timeout reached.");
                 finish(true);
-            }, 5000);
+            }, 8000);
 
-            const blockId = window.ADSGRAM_BLOCK_ID || GAME_CONFIG.adsgramBlockId || "";
-
-            if (window.Adsgram && blockId) {
-                try {
-                    const AdController = window.Adsgram.init({ blockId: blockId });
-                    AdController.show().then(() => {
-                        finish(true);
-                    }).catch((err) => {
-                        console.error("Adsgram Error/Skipped:", err);
-                        finish(true);
-                    });
-                } catch (e) {
-                    console.error("Adsgram Execution Exception:", e);
+            try {
+                const AdController = window.Adsgram.init({ blockId: blockId.trim() });
+                AdController.show().then(() => {
+                    console.log("تمت مشاهدة إعلان Adsgram بنجاح!");
                     finish(true);
-                }
-            } else {
-                console.warn("Adsgram controller not found or blockId missing.");
+                }).catch((err) => {
+                    console.error("خطأ أو تخطي إعلان Adsgram:", err);
+                    finish(true);
+                });
+            } catch (e) {
+                console.error("استثناء تنفيذ Adsgram:", e);
                 finish(true);
             }
         });
@@ -466,7 +490,6 @@ window.closeWelcomeModal = function() {
                     window.userState.base_unclaimed = parseFloat(resData.player.unclaimed || 0);
                     window.PlayerData.base_unclaimed = parseFloat(resData.player.unclaimed || 0);
 
-                    // تزامن صارم: إذا كان الحساب جديداً أو محذوفاً (لا يملك تاريخ إعلان)، يُفرغ الـ Cache فوراً
                     if (resData.player.last_claim_ad_date) {
                         localStorage.setItem(adKey, resData.player.last_claim_ad_date);
                     } else {
@@ -1063,18 +1086,20 @@ window.closeWelcomeModal = function() {
         const todayStr = getTodayUTCStr(); 
         const adKey = getStorageAdKey();
 
-        // الإصلاح المباشر: الاعتماد الحصري والصارم على بيانات السيرفر
-        // إذا كان الحساب جديداً أو محذوفاً ولم تتواجد القيمة، يُفترض مباشرة أن الإعلان مطلوب (needsAdToday = true)
         let lastAdDate = pData.last_claim_ad_date || null;
+        let adsWatched = parseInt(pData.ads_watched || 0, 10);
 
-        let needsAdToday = (lastAdDate !== todayStr);
+        // تعديل جوهري: إذا كانت الإعلانات المشاهدة 0 أو التاريخ لا يساوي تاريخ اليوم، يُجبر على إظهار الإعلان
+        let needsAdToday = (!lastAdDate) || (lastAdDate !== todayStr) || (adsWatched === 0);
 
-        // إظهار الإعلان إذا كان تاريخ آخر إعلان لا يساوي تاريخ اليوم بالتوقيت العالمي UTC
         if (needsAdToday) {
             isCheckingAd = true; 
             window.updateFarmUI();
             try {
-                await showAdsgramAd(); 
+                const adShown = await showAdsgramAd(); 
+                if (!adShown) {
+                    console.warn("لم يتم إكمال الإعلان بالكامل.");
+                }
             } catch(e) {
                 console.error("Ad Check Error:", e);
             }
@@ -1109,7 +1134,11 @@ window.closeWelcomeModal = function() {
                     window.PlayerData.last_claim_time = resData.last_claim_time;
                 }
 
-                // الحفظ الصارم لتاريخ المشاهدة
+                if (resData.ads_watched !== undefined) {
+                    window.userState.ads_watched = resData.ads_watched;
+                    window.PlayerData.ads_watched = resData.ads_watched;
+                }
+
                 const savedAdDate = resData.last_claim_ad_date || todayStr;
                 window.userState.last_claim_ad_date = savedAdDate;
                 window.PlayerData.last_claim_ad_date = savedAdDate;
