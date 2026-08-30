@@ -24,8 +24,81 @@
     <meta property="og:image" content="https://zn-goxe-production.up.railway.app/banner.jpg" />
   
     <link rel="stylesheet" href="style.css?v=3.4">
+
+    <style>
+        /* تنسيق شاشة التنبيه للمتصفح الخارجي */
+        #telegram-only-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #0f172a;
+            color: #ffffff;
+            text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+
+        .tg-card {
+            background: #1e293b;
+            padding: 30px 20px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            max-width: 400px;
+            width: 100%;
+            border: 1px solid #334155;
+        }
+
+        .tg-icon {
+            font-size: 60px;
+            color: #0088cc;
+            margin-bottom: 20px;
+        }
+
+        .tg-title {
+            font-size: 22px;
+            font-weight: bold;
+            margin-bottom: 12px;
+            color: #f8fafc;
+        }
+
+        .tg-desc {
+            font-size: 14px;
+            color: #94a3b8;
+            line-height: 1.6;
+            margin-bottom: 25px;
+        }
+
+        .tg-btn {
+            display: inline-block;
+            background-color: #0088cc;
+            color: #ffffff;
+            padding: 12px 25px;
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 15px;
+            transition: background 0.3s ease;
+        }
+
+        .tg-btn:hover {
+            background-color: #0077b5;
+        }
+    </style>
 </head>
 <body>
+
+    <!-- شاشة التنبيه (تظهر فقط عند الفتح خارج التليجرام) -->
+    <div id="telegram-only-screen" style="display: none;">
+        <div class="tg-card">
+            <i class="fab fa-telegram tg-icon"></i>
+            <div class="tg-title">التطبيق يعمل داخل التليجرام فقط</div>
+            <div class="tg-desc">عذراً، لا يمكن تشغيل لعبة ZN Goxe عبر المتصفحات العادية. يرجى فتح اللعبة عبر البوت الرسمي في تطبيق Telegram.</div>
+            <a href="https://t.me/YourBotUsername" id="tg-bot-link" class="tg-btn">الذهاب للبوت في التليجرام</a>
+        </div>
+    </div>
 
     <div id="global-toast-container"></div>
 
@@ -46,7 +119,7 @@
         <div id="view-friends" class="game-view"></div>
     </div>
 
-    <!-- شريط التنقل السفلي المكون من 9 قوائم مرتبة من اليسار إلى اليمين -->
+    <!-- شريط التنقل السفلي -->
     <nav class="bottom-nav" id="main-nav" style="display: none;">
         <button class="nav-item" id="nav-settings" data-view="settings">
             <i class="fas fa-cog"></i>
@@ -68,7 +141,6 @@
             <span>المتجر</span>
         </button>
 
-        <!-- زر المزرعة المركزي -->
         <button class="nav-item nav-center-btn active" id="nav-farm" data-view="farm">
             <div class="farm-btn-inner">
                 <i class="fas fa-screwdriver-wrench"></i>
@@ -98,6 +170,27 @@
     </nav>
 
     <script>
+        // التحقق من فتح التطبيق داخل التليجرام
+        (function checkTelegramEnvironment() {
+            const tg = window.Telegram?.WebApp;
+            // يكون initData محتملاً فقط إذا فتح التطبيق من داخل التليجرام فعلياً
+            const isInsideTelegram = Boolean(tg && tg.initData && tg.initData.trim() !== "");
+
+            if (!isInsideTelegram) {
+                // إخفاء الواجهات الرئيسية وإظهار شاشة التنبيه
+                document.getElementById('loading-screen').style.display = 'none';
+                document.getElementById('app').style.display = 'none';
+                document.getElementById('main-nav').style.display = 'none';
+                document.getElementById('telegram-only-screen').style.display = 'flex';
+                
+                // إيقاف تحميل باقي السكريبتات الخاصة باللعبة
+                window.stop();
+            } else {
+                tg.ready();
+                tg.expand();
+            }
+        })();
+
         (function initKeyboardDetection() {
             const viewport = window.visualViewport;
             let isKeyboardOpen = false;
