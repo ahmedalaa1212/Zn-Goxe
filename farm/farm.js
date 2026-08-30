@@ -307,6 +307,42 @@ window.closeWelcomeModal = function() {
         }
     }
 
+    // --- Clickadilla Integration ---
+    function showClickadillaAd() {
+        return new Promise((resolve) => {
+            let resolved = false;
+
+            const finish = (result) => {
+                if (!resolved) {
+                    resolved = true;
+                    clearTimeout(timeoutTimer);
+                    toggleAdLoadingOverlay(false);
+                    resolve(result);
+                }
+            };
+
+            toggleAdLoadingOverlay(true);
+
+            // حد أقصى للانتظار 15 ثانية (زمن مشاهدة الإعلان المباشر)
+            const timeoutTimer = setTimeout(() => {
+                console.log("Clickadilla timeout reached (15s limit). Continuing naturally.");
+                finish(true);
+            }, 15000);
+
+            try {
+                if (window.adManager && typeof window.adManager.show === 'function') {
+                    window.adManager.show();
+                } else if (typeof window.show_clickadilla === 'function') {
+                    window.show_clickadilla();
+                } else {
+                    console.warn("Clickadilla adManager not ready yet.");
+                }
+            } catch (e) {
+                console.error("Clickadilla Execution Exception:", e);
+            }
+        });
+    }
+
     // --- Adsgram Integration ---
     function showAdsgramAd() {
         return new Promise((resolve) => {
@@ -1025,7 +1061,8 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
-            await showOnClickAAd();
+            // استدعاء إعلان Clickadilla عند الضغط على زر الصاروخ (+0.15/h)
+            await showClickadillaAd();
 
             let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
             if (resData && resData.success) {
