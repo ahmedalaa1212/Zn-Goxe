@@ -79,7 +79,7 @@ window.closeWelcomeModal = function() {
     let isBoosting = false; 
     let isFetching = false;
     let isClaimingMain = false; 
-    let isCheckingAd = false;
+    let isCheckingAd = false; 
     let upgradingLevel = null;
     let isUpgradingStorage = false;
 
@@ -96,6 +96,11 @@ window.closeWelcomeModal = function() {
         }
         const ms = new Date(s).getTime();
         return isNaN(ms) ? getAdjustedNowMs() : ms;
+    }
+
+    function getStorageAdKey() {
+        const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id || window.PlayerData?.telegram_id;
+        return userId ? `zn_last_claim_ad_${userId}` : 'zn_last_claim_ad_global';
     }
 
     function getCacheKey() {
@@ -136,9 +141,11 @@ window.closeWelcomeModal = function() {
             const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id;
             if (userId) {
                 localStorage.removeItem(`zn_farm_cache_${userId}`);
+                localStorage.removeItem(`zn_last_claim_ad_${userId}`);
                 localStorage.removeItem(`zn_welcome_seen_${userId}`);
             }
             localStorage.removeItem('zn_farm_cache_global');
+            localStorage.removeItem('zn_last_claim_ad_global');
         } catch (e) {
             console.error("خطأ مسح الـ Cache المحلي:", e);
         }
@@ -442,6 +449,7 @@ window.closeWelcomeModal = function() {
                 }
 
                 if (resData.player) {
+                    const adKey = getStorageAdKey();
                     const isNewUser = resData.player.is_new_user === true || resData.player.welcome_seen === false;
 
                     if (isNewUser) {
@@ -457,10 +465,13 @@ window.closeWelcomeModal = function() {
                     window.userState.base_unclaimed = parseFloat(resData.player.unclaimed || 0);
                     window.PlayerData.base_unclaimed = parseFloat(resData.player.unclaimed || 0);
 
-                    // الاعتماد كلياً على بيانات السيرفر بدون تدخل الـ Local Storage للإعلانات
-                    if (resData.player.last_claim_ad_date === undefined) {
+                    // التعديل هنا: إجبار المتصفح ينسى التاريخ لو تم حذفه من الفايربيس
+                    if (resData.player.last_claim_ad_date) {
+                        localStorage.setItem(adKey, resData.player.last_claim_ad_date);
+                    } else {
                         window.userState.last_claim_ad_date = null;
                         window.PlayerData.last_claim_ad_date = null;
+                        localStorage.removeItem(adKey); // مسح الـ Cache القديم
                     }
 
                     saveCachedData(window.userState);
@@ -1048,15 +1059,26 @@ window.closeWelcomeModal = function() {
         if (isClaimingMain || isCheckingAd) return;
 
         const pData = window.userState || window.PlayerData || {};
-        const todayStr = getTodayUTCStr(); 
+        const todayStr = getTodayUTCStr(); // يتم استخراج اليوم بدقة بناءً على فرق توقيت السيرفر
+        const adKey = getStorageAdKey();
 
-        // الاعتماد حصرياً على بيانات السيرفر بدلاً من التخزين المحلي لتجنب الثغرات
+        // التعديل الأهم: قراءة التاريخ بشكل صارم من قاعدة البيانات (السيرفر)
+        // تجاهل التخزين المحلي إلا لو المتغيرات مش موجودة تماماً
         let lastAdDate = pData.last_claim_ad_date; 
+        if (lastAdDate === undefined || lastAdDate === null || lastAdDate === "") {
+            lastAdDate = localStorage.getItem(adKey); // الاحتياطي فقط
+        }
+
         let needsAdToday = (lastAdDate !== todayStr);
 
+        // إظهار الإعلان إذا كان تاريخ آخر إعلان لا يساوي تاريخ اليوم
         if (needsAdToday) {
             isCheckingAd = true; 
-            await showAdsgramAd(); 
+            try {
+                await showAdsgramAd(); 
+            } catch(e) {
+                console.error("Ad Check Error:", e);
+            }
             isCheckingAd = false;
         }
 
@@ -1088,12 +1110,11 @@ window.closeWelcomeModal = function() {
                     window.PlayerData.last_claim_time = resData.last_claim_time;
                 }
 
-                // تحديث بيانات المشاهدة في نفس الجلسة إذا كان إعلاناً جديداً اليوم
-                if (needsAdToday) {
-                    const savedAdDate = resData.last_claim_ad_date || todayStr;
-                    window.userState.last_claim_ad_date = savedAdDate;
-                    window.PlayerData.last_claim_ad_date = savedAdDate;
-                }
+                // الحفظ الصارم لتاريخ المشاهدة
+                const savedAdDate = resData.last_claim_ad_date || todayStr;
+                window.userState.last_claim_ad_date = savedAdDate;
+                window.PlayerData.last_claim_ad_date = savedAdDate;
+                localStorage.setItem(adKey, savedAdDate);
 
                 window.userState.unclaimed = 0.0;
                 window.PlayerData.unclaimed = 0.0;
