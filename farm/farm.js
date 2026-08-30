@@ -307,7 +307,7 @@ window.closeWelcomeModal = function() {
         }
     }
 
-    // --- Adsgram Integration with 5s Timeout Safeguard ---
+    // --- Adsgram Integration ---
     function showAdsgramAd() {
         return new Promise((resolve) => {
             let resolved = false;
@@ -394,7 +394,7 @@ window.closeWelcomeModal = function() {
         });
     }
 
-    // --- Monetag Ad Function Integration ---
+    // --- Monetag Ad Integration ---
     function showMonetagAd() {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
@@ -986,7 +986,6 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
-            // استخدام Adsgram للمكافأة اليومية فقط
             await showAdsgramAd();
 
             let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST', {});
@@ -1026,7 +1025,6 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
-            // عرض إعلان OnClickA عند تفعيل تعزيز سرعة التعدين +0.15/h
             await showOnClickAAd();
 
             let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
