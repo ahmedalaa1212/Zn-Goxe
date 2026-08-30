@@ -324,11 +324,10 @@ window.closeWelcomeModal = function() {
             toggleAdLoadingOverlay(true);
 
             const timeoutTimer = setTimeout(() => {
-                console.log("Adsgram timeout reached (5s limit). Continuing naturally.");
+                console.log("Adsgram timeout reached. Continuing naturally.");
                 finish(true);
-            }, 5000);
+            }, 8000);
 
-            // جلب كود الإعلان المجلوب ديناميكياً من السيرفر (Railway: ADSGRAM_BLOCK_ID)
             const blockId = window.ADSGRAM_BLOCK_ID || GAME_CONFIG.adsgramBlockId || "";
 
             if (window.Adsgram && blockId) {
@@ -344,8 +343,6 @@ window.closeWelcomeModal = function() {
                     console.error("Adsgram Execution Exception:", e);
                     finish(true);
                 }
-            } else if (typeof window.show_11322720 === 'function') {
-                window.show_11322720().then(() => finish(true)).catch(() => finish(true));
             } else {
                 console.warn("Adsgram controller not found or blockId missing.");
                 finish(true);
@@ -419,7 +416,6 @@ window.closeWelcomeModal = function() {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 if (resData.cooldown_seconds) MIN_CLAIM_INTERVAL = resData.cooldown_seconds;
 
-                // تحديث Adsgram Block ID المجلوب من Railway عبر السيرفر
                 if (resData.adsgram_block_id) {
                     GAME_CONFIG.adsgramBlockId = resData.adsgram_block_id;
                     window.ADSGRAM_BLOCK_ID = resData.adsgram_block_id;
@@ -949,7 +945,6 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
-            // تشغيل إعلان Monetag فقط في التسجيل اليومي
             await showMonetagAd();
 
             let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST', {});
@@ -990,7 +985,6 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
-            // تشغيل إعلان Monetag فقط في زر التعزيز (+0.15/ساعة)
             await showMonetagAd();
 
             let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
@@ -1059,35 +1053,29 @@ window.closeWelcomeModal = function() {
         }
     };
 
-    // --- 3. تجميع العملات المعدنة الرئيسي (زر تجميع الرصيد) -> إعلانات Adsgram فقط (يجلب Block ID ديناميكياً من Railway) ---
+    // --- 3. تجميع العملات المعدنة الرئيسي (زر تجميع الرصيد) -> إعلانات Adsgram فقط ---
     window.handleMainClaim = async function() {
         if (isClaimingMain) return;
 
         const pData = window.userState || window.PlayerData || {};
-        const todayStr = getTodayUTCStr();
-        const adKey = getStorageAdKey();
-
-        // تشغيل إعلان Adsgram فقط عند تجميع العملات التي بتتعدن
-        await showAdsgramAd();
+        const currentUnclaimed = parseFloat(pData.unclaimed || 0);
+        if (currentUnclaimed <= 0) return;
 
         isClaimingMain = true;
+        window.updateFarmUI();
+
         const stateBackup = cloneCurrentState();
 
-        const currentUnclaimed = parseFloat(pData.unclaimed || 0);
-        if (currentUnclaimed > 0) {
-            const currentBal = getStoredBalance();
-            setStoredBalance(currentBal + currentUnclaimed, getStoredUsdBalance());
-            window.userState.unclaimed = 0.0;
-            window.PlayerData.unclaimed = 0.0;
-            window.userState.base_unclaimed = 0.0;
-            window.PlayerData.base_unclaimed = 0.0;
-            window.updateFarmUI();
-        }
-
         try {
+            // 1. عرض إعلان Adsgram أولاً والانتظار حتى انتهائه/إغلاقه بالكامل
+            await showAdsgramAd();
+
+            // 2. إرسال طلب التجميع للسيرفر فقط بعد إنهاء الإعلان
             let resData = await window.fetchAPI('/api/farm/claim', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
+                
+                // 3. تحديث الرصيد وإلغاء الكمية غير المجمعة
                 setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
                 
                 if (!window.userState) window.userState = {};
@@ -1098,6 +1086,8 @@ window.closeWelcomeModal = function() {
                     window.PlayerData.last_claim_time = resData.last_claim_time;
                 }
 
+                const todayStr = getTodayUTCStr();
+                const adKey = getStorageAdKey();
                 const savedAdDate = resData.last_claim_ad_date || todayStr;
                 window.userState.last_claim_ad_date = savedAdDate;
                 window.PlayerData.last_claim_ad_date = savedAdDate;
@@ -1109,6 +1099,8 @@ window.closeWelcomeModal = function() {
                 window.PlayerData.base_unclaimed = 0.0;
 
                 saveCachedData(window.userState);
+
+                // 4. إظهار النافذة المنبثقة بعد تأكيد السيرفر وإغلاق الإعلان تماماً
                 showToast(`💰 تم تجميع ${formatZnBalance(resData.claimed_amount)} عملة بنجاح!`);
             } else {
                 restoreState(stateBackup);
