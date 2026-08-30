@@ -265,6 +265,7 @@ window.closeWelcomeModal = function() {
         saveCachedData(window.userState);
     }
 
+    // استخراج تاريخ اليوم بدقة بتوقيت UTC العالمي الموحد
     function getTodayUTCStr() {
         const adjustedNow = new Date(getAdjustedNowMs());
         return adjustedNow.toISOString().split('T')[0];
@@ -450,7 +451,7 @@ window.closeWelcomeModal = function() {
 
                 if (resData.player) {
                     const adKey = getStorageAdKey();
-                    const isNewUser = resData.player.is_new_user === true || resData.player.welcome_seen === false;
+                    const isNewUser = resData.player.is_new_user === true || resData.player.welcome_seen === false || !resData.player.last_claim_ad_date;
 
                     if (isNewUser) {
                         clearStaleLocalCache();
@@ -465,13 +466,13 @@ window.closeWelcomeModal = function() {
                     window.userState.base_unclaimed = parseFloat(resData.player.unclaimed || 0);
                     window.PlayerData.base_unclaimed = parseFloat(resData.player.unclaimed || 0);
 
-                    // التعديل هنا: إجبار المتصفح ينسى التاريخ لو تم حذفه من الفايربيس
+                    // تزامن صارم: إذا كان الحساب جديداً أو محذوفاً (لا يملك تاريخ إعلان)، يُفرغ الـ Cache فوراً
                     if (resData.player.last_claim_ad_date) {
                         localStorage.setItem(adKey, resData.player.last_claim_ad_date);
                     } else {
                         window.userState.last_claim_ad_date = null;
                         window.PlayerData.last_claim_ad_date = null;
-                        localStorage.removeItem(adKey); // مسح الـ Cache القديم
+                        localStorage.removeItem(adKey);
                     }
 
                     saveCachedData(window.userState);
@@ -1059,21 +1060,19 @@ window.closeWelcomeModal = function() {
         if (isClaimingMain || isCheckingAd) return;
 
         const pData = window.userState || window.PlayerData || {};
-        const todayStr = getTodayUTCStr(); // يتم استخراج اليوم بدقة بناءً على فرق توقيت السيرفر
+        const todayStr = getTodayUTCStr(); 
         const adKey = getStorageAdKey();
 
-        // التعديل الأهم: قراءة التاريخ بشكل صارم من قاعدة البيانات (السيرفر)
-        // تجاهل التخزين المحلي إلا لو المتغيرات مش موجودة تماماً
-        let lastAdDate = pData.last_claim_ad_date; 
-        if (lastAdDate === undefined || lastAdDate === null || lastAdDate === "") {
-            lastAdDate = localStorage.getItem(adKey); // الاحتياطي فقط
-        }
+        // الإصلاح المباشر: الاعتماد الحصري والصارم على بيانات السيرفر
+        // إذا كان الحساب جديداً أو محذوفاً ولم تتواجد القيمة، يُفترض مباشرة أن الإعلان مطلوب (needsAdToday = true)
+        let lastAdDate = pData.last_claim_ad_date || null;
 
         let needsAdToday = (lastAdDate !== todayStr);
 
-        // إظهار الإعلان إذا كان تاريخ آخر إعلان لا يساوي تاريخ اليوم
+        // إظهار الإعلان إذا كان تاريخ آخر إعلان لا يساوي تاريخ اليوم بالتوقيت العالمي UTC
         if (needsAdToday) {
             isCheckingAd = true; 
+            window.updateFarmUI();
             try {
                 await showAdsgramAd(); 
             } catch(e) {
