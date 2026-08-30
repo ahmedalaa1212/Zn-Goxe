@@ -38,6 +38,7 @@ window.closeWelcomeModal = function() {
     const START_PARAM = tele?.initDataUnsafe?.start_param || "";
 
     const GAME_CONFIG = {
+        adsgramBlockId: "",
         maxUpgradesPerLevel: 15,
         dailyBoostReward: 0.15,
         maxDailyBoostRate: 4.5,
@@ -306,6 +307,52 @@ window.closeWelcomeModal = function() {
         }
     }
 
+    // --- Adsgram Integration with 5s Timeout Safeguard ---
+    function showAdsgramAd() {
+        return new Promise((resolve) => {
+            let resolved = false;
+
+            const finish = (result) => {
+                if (!resolved) {
+                    resolved = true;
+                    clearTimeout(timeoutTimer);
+                    toggleAdLoadingOverlay(false);
+                    resolve(result);
+                }
+            };
+
+            toggleAdLoadingOverlay(true);
+
+            // مهلة زمنية 5 ثوانٍ لضمان استمرار اللعبة دون التعليق في حالة عدم فتح الإعلان
+            const timeoutTimer = setTimeout(() => {
+                console.log("Adsgram timeout reached (5s limit). Continuing naturally.");
+                finish(true);
+            }, 5000);
+
+            const blockId = window.ADSGRAM_BLOCK_ID || GAME_CONFIG.adsgramBlockId || "";
+
+            if (window.Adsgram && blockId) {
+                try {
+                    const AdController = window.Adsgram.init({ blockId: blockId });
+                    AdController.show().then(() => {
+                        finish(true);
+                    }).catch((err) => {
+                        console.error("Adsgram Error/Skipped:", err);
+                        finish(true); // تجاوز الخطأ وإعطاء المكافأة
+                    });
+                } catch (e) {
+                    console.error("Adsgram Execution Exception:", e);
+                    finish(true);
+                }
+            } else if (typeof window.show_11322720 === 'function') {
+                window.show_11322720().then(() => finish(true)).catch(() => finish(true));
+            } else {
+                console.warn("Adsgram controller not found or blockId missing.");
+                finish(true);
+            }
+        });
+    }
+
     // --- Monetag Ad Function Integration ---
     function showMonetagAd() {
         return new Promise((resolve) => {
@@ -313,20 +360,18 @@ window.closeWelcomeModal = function() {
                 toggleAdLoadingOverlay(true);
                 window.show_11322720().then(() => {
                     toggleAdLoadingOverlay(false);
-                    resolve(true); // Ad watched successfully
+                    resolve(true);
                 }).catch((e) => {
                     console.error("Monetag Ad Error:", e);
                     toggleAdLoadingOverlay(false);
-                    // Resolving true even on error so user is not blocked if ad fails to load
                     resolve(true); 
                 });
             } else {
                 console.warn("Monetag script not found.");
-                resolve(true); // Fallback
+                resolve(true);
             }
         });
     }
-    // ----------------------------------------
 
     function accrueCurrentMining() {
         const pData = window.userState || window.PlayerData;
@@ -375,6 +420,9 @@ window.closeWelcomeModal = function() {
                 if (resData.cooldown_seconds) MIN_CLAIM_INTERVAL = resData.cooldown_seconds;
 
                 if (resData.game_config) {
+                    if (resData.game_config.adsgram_block_id) {
+                        GAME_CONFIG.adsgramBlockId = resData.game_config.adsgram_block_id;
+                    }
                     if (resData.game_config.daily_rewards && Array.isArray(resData.game_config.daily_rewards)) {
                         GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
                     }
@@ -396,7 +444,10 @@ window.closeWelcomeModal = function() {
                     if (resData.game_config.boost_max_reward_coins) {
                         GAME_CONFIG.boostMaxRewardCoins = resData.game_config.boost_max_reward_coins;
                     }
-                    // Removed Adsgram config loading
+                }
+
+                if (resData.adsgram_block_id) {
+                    GAME_CONFIG.adsgramBlockId = resData.adsgram_block_id;
                 }
 
                 if (resData.player) {
@@ -894,7 +945,9 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
-            // تمت إزالة الإعلانات من هنا كما طلبت، وسيتم التجميع مباشرة
+            // عرض إعلان Adsgram مع المهلة الزمنية قبل أخذ المكافأة
+            await showAdsgramAd();
+
             let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
@@ -932,7 +985,9 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
-            // تمت إزالة الإعلانات من هنا كما طلبت، وسيتم التفعيل مباشرة
+            // عرض إعلان Adsgram عند تفعيل سرعة التعدين +0.15/h
+            await showAdsgramAd();
+
             let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
@@ -1008,7 +1063,6 @@ window.closeWelcomeModal = function() {
 
         const lastClaimAdDate = pData.last_claim_ad_date || localStorage.getItem(adKey) || null;
 
-        // استدعاء إعلان Monetag هنا فقط بدلاً من Adsgram
         if (lastClaimAdDate !== todayStr) {
             await showMonetagAd(); 
         }
