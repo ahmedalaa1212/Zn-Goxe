@@ -307,43 +307,7 @@ window.closeWelcomeModal = function() {
         }
     }
 
-    // --- Clickadilla Integration ---
-    function showClickadillaAd() {
-        return new Promise((resolve) => {
-            let resolved = false;
-
-            const finish = (result) => {
-                if (!resolved) {
-                    resolved = true;
-                    clearTimeout(timeoutTimer);
-                    toggleAdLoadingOverlay(false);
-                    resolve(result);
-                }
-            };
-
-            toggleAdLoadingOverlay(true);
-
-            // حد أقصى للانتظار 15 ثانية (زمن مشاهدة الإعلان المباشر)
-            const timeoutTimer = setTimeout(() => {
-                console.log("Clickadilla timeout reached (15s limit). Continuing naturally.");
-                finish(true);
-            }, 15000);
-
-            try {
-                if (window.adManager && typeof window.adManager.show === 'function') {
-                    window.adManager.show();
-                } else if (typeof window.show_clickadilla === 'function') {
-                    window.show_clickadilla();
-                } else {
-                    console.warn("Clickadilla adManager not ready yet.");
-                }
-            } catch (e) {
-                console.error("Clickadilla Execution Exception:", e);
-            }
-        });
-    }
-
-    // --- Adsgram Integration ---
+    // --- Adsgram Integration (المكافأة اليومية) ---
     function showAdsgramAd() {
         return new Promise((resolve) => {
             let resolved = false;
@@ -388,8 +352,8 @@ window.closeWelcomeModal = function() {
         });
     }
 
-    // --- OnClickA Integration with Spot ID 6137796 ---
-    function showOnClickAAd() {
+    // --- Clickadilla Integration (خاص بزر الصاروخ +0.15/ساعة) ---
+    function showClickadillaAd() {
         return new Promise((resolve) => {
             let resolved = false;
 
@@ -404,33 +368,25 @@ window.closeWelcomeModal = function() {
 
             toggleAdLoadingOverlay(true);
 
+            // الانتظار الإجباري لمدة 15 ثانية لضمان إتمام الفيديو قبل إرجاع Promise بالموافقة
             const timeoutTimer = setTimeout(() => {
-                console.log("OnClickA timeout reached (7s limit). Continuing naturally.");
+                console.log("Clickadilla Ad 15s display completed.");
                 finish(true);
-            }, 7000);
+            }, 15000);
 
-            if (typeof window.initCdTma === 'function') {
-                window.initCdTma({ id: '6137796' })
-                    .then(show => {
-                        show()
-                            .then(() => finish(true))
-                            .catch((err) => {
-                                console.error("OnClickA Error/Closed:", err);
-                                finish(true);
-                            });
-                    })
-                    .catch((err) => {
-                        console.error("OnClickA Init Exception:", err);
-                        finish(true);
-                    });
-            } else {
-                console.warn("OnClickA SDK not found.");
-                finish(true);
+            try {
+                if (window.adManager && typeof window.adManager.show === 'function') {
+                    window.adManager.show();
+                } else if (typeof window.adManager === 'function') {
+                    window.adManager();
+                }
+            } catch (e) {
+                console.error("Clickadilla Trigger Error:", e);
             }
         });
     }
 
-    // --- Monetag Ad Integration ---
+    // --- Monetag Ad Integration (خاص بزر تجميع التعدين الرئيسي) ---
     function showMonetagAd() {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
@@ -1055,13 +1011,14 @@ window.closeWelcomeModal = function() {
         }
     };
 
+    // --- معالجة زر تعزيز التعدين زر الصاروخ (+0.15/ساعة) ---
     window.handleDailyBoost = async function() {
         if (isBoosting) return;
         isBoosting = true;
         const stateBackup = cloneCurrentState();
 
         try {
-            // استدعاء إعلان Clickadilla عند الضغط على زر الصاروخ (+0.15/h)
+            // تشغيل إعلان Clickadilla والانتظار 15 ثانية حتى يكتمل قبل إرسال الطلب للسيرفر
             await showClickadillaAd();
 
             let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
