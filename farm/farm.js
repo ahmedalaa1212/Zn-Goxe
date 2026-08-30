@@ -79,7 +79,7 @@ window.closeWelcomeModal = function() {
     let isBoosting = false; 
     let isFetching = false;
     let isClaimingMain = false; 
-    let isCheckingAd = false; // حالة جديدة لمنع تعارض زر التجميع أثناء فحص الإعلان
+    let isCheckingAd = false; 
     let upgradingLevel = null;
     let isUpgradingStorage = false;
 
@@ -308,7 +308,6 @@ window.closeWelcomeModal = function() {
         }
     }
 
-    // --- Adsgram Integration (مستقل تماماً لعمليات تجميع التعدين فقط) ---
     function showAdsgramAd() {
         return new Promise((resolve) => {
             let resolved = false;
@@ -324,7 +323,6 @@ window.closeWelcomeModal = function() {
 
             toggleAdLoadingOverlay(true);
 
-            // حد أقصى 5 ثواني لانتظار أو فحص الإعلان
             const timeoutTimer = setTimeout(() => {
                 console.log("Adsgram timeout reached (5s limit). Continuing naturally.");
                 finish(true);
@@ -346,14 +344,12 @@ window.closeWelcomeModal = function() {
                     finish(true);
                 }
             } else {
-                // تمت إزالة Fallback الخاص بـ Monetag نهائياً من هنا
                 console.warn("Adsgram controller not found or blockId missing.");
                 finish(true);
             }
         });
     }
 
-    // --- Monetag Integration (خاص بالتسجيل اليومي وزر تعزيز التعدين 0.15/ساعة فقط) ---
     function showMonetagAd() {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
@@ -729,7 +725,6 @@ window.closeWelcomeModal = function() {
             claimBtn.onclick = window.handleMainClaim;
             const remainingCooldown = Math.max(0, Math.ceil(MIN_CLAIM_INTERVAL - secondsPassed));
 
-            // أولوية عرض الرسالة على الزر لمنع تداخل النصوص أثناء الفحص
             if (isCheckingAd) {
                 claimBtn.innerText = "جاري فحص الإعلان... ⏳";
                 claimBtn.className = "claim-action-btn btn-disabled";
@@ -1059,41 +1054,45 @@ window.closeWelcomeModal = function() {
         }
     };
 
-    // --- 3. تجميع العملات المعدنة الرئيسي (فحص ظهور إعلان مرة واحدة يومياً) ---
     window.handleMainClaim = async function() {
         if (isClaimingMain || isCheckingAd) return;
 
         const pData = window.userState || window.PlayerData || {};
-        const todayStr = getTodayUTCStr(); // توقيت موثق من السيرفر (Firebase)
+        const todayStr = getTodayUTCStr();
         const adKey = getStorageAdKey();
 
-        // 1. التحقق هل شاهد الإعلان اليوم أم لا
         let lastAdDate = pData.last_claim_ad_date || localStorage.getItem(adKey);
         let needsAdToday = (lastAdDate !== todayStr);
 
         if (needsAdToday) {
-            isCheckingAd = true; // نمنع تداخل النص العادي مع جاري فحص الإعلان
-            await showAdsgramAd(); // الكود سيتوقف هنا حتى ينتهي الإعلان أو تمر 5 ثوانٍ
+            isCheckingAd = true; 
+            await showAdsgramAd();
             isCheckingAd = false;
         }
 
         isClaimingMain = true;
         const stateBackup = cloneCurrentState();
 
-        // 2. تحديث الرصيد للمستخدم **بعد** ما فحص الإعلان خلص
         const currentUnclaimed = parseFloat(pData.unclaimed || 0);
         if (currentUnclaimed > 0) {
             const currentBal = getStoredBalance();
             setStoredBalance(currentBal + currentUnclaimed, getStoredUsdBalance());
+            
+            // الربط الفوري للوقت لمنع العداد من إعادة تعبئة الرصيد الوهمي في أجزاء الثانية
+            const nowIso = new Date(getAdjustedNowMs()).toISOString();
+            
             window.userState.unclaimed = 0.0;
             window.PlayerData.unclaimed = 0.0;
             window.userState.base_unclaimed = 0.0;
             window.PlayerData.base_unclaimed = 0.0;
+            
+            window.userState.last_claim_time = nowIso;
+            window.PlayerData.last_claim_time = nowIso;
+            
             window.updateFarmUI();
         }
 
         try {
-            // 3. التجميع من السيرفر
             let resData = await window.fetchAPI('/api/farm/claim', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
@@ -1107,7 +1106,6 @@ window.closeWelcomeModal = function() {
                     window.PlayerData.last_claim_time = resData.last_claim_time;
                 }
 
-                // تسجيل أن المستخدم أتم مشاهدة الإعلان اليوم (يعتمد على السيرفر لتجنب التلاعب)
                 const savedAdDate = resData.last_claim_ad_date || todayStr;
                 window.userState.last_claim_ad_date = savedAdDate;
                 window.PlayerData.last_claim_ad_date = savedAdDate;
@@ -1120,7 +1118,6 @@ window.closeWelcomeModal = function() {
 
                 saveCachedData(window.userState);
                 
-                // رسالة النجاح تظهر هنا فقط كخطوة أخيرة
                 showToast(`💰 تم تجميع ${formatZnBalance(resData.claimed_amount)} عملة بنجاح!`);
             } else {
                 restoreState(stateBackup);
