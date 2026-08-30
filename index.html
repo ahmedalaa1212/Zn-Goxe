@@ -26,77 +26,78 @@
     <link rel="stylesheet" href="style.css?v=3.4">
 
     <style>
-        /* تنسيق شاشة التنبيه للمتصفح الخارجي */
+        /* تنسيق شاشة التنبيه للعمل فقط داخل التليجرام */
         #telegram-only-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100vh;
+            background: #0f172a;
+            color: #ffffff;
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
-            min-height: 100vh;
-            background-color: #0f172a;
-            color: #ffffff;
             text-align: center;
+            z-index: 999999;
             padding: 20px;
             box-sizing: border-box;
             font-family: system-ui, -apple-system, sans-serif;
         }
-
-        .tg-card {
+        .tg-only-card {
+            max-width: 360px;
             background: #1e293b;
             padding: 30px 20px;
             border-radius: 20px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-            max-width: 400px;
-            width: 100%;
             border: 1px solid #334155;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.4);
         }
-
-        .tg-icon {
+        .tg-only-card i.fa-telegram-plane {
             font-size: 60px;
             color: #0088cc;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
-
-        .tg-title {
-            font-size: 22px;
-            font-weight: bold;
-            margin-bottom: 12px;
+        .tg-only-card h2 {
+            font-size: 20px;
+            margin-bottom: 10px;
             color: #f8fafc;
         }
-
-        .tg-desc {
+        .tg-only-card p {
             font-size: 14px;
             color: #94a3b8;
             line-height: 1.6;
-            margin-bottom: 25px;
+            margin-bottom: 22px;
         }
-
-        .tg-btn {
-            display: inline-block;
-            background-color: #0088cc;
+        .tg-open-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            background: #0088cc;
             color: #ffffff;
-            padding: 12px 25px;
+            padding: 12px 24px;
             border-radius: 12px;
             text-decoration: none;
             font-weight: bold;
             font-size: 15px;
-            transition: background 0.3s ease;
+            transition: background 0.2s;
         }
-
-        .tg-btn:hover {
-            background-color: #0077b5;
+        .tg-open-btn:hover {
+            background: #0077b5;
         }
     </style>
 </head>
 <body>
 
-    <!-- شاشة التنبيه (تظهر فقط عند الفتح خارج التليجرام) -->
+    <!-- شاشة التنبيه للمتصفح الخارجي -->
     <div id="telegram-only-screen" style="display: none;">
-        <div class="tg-card">
-            <i class="fab fa-telegram tg-icon"></i>
-            <div class="tg-title">التطبيق يعمل داخل التليجرام فقط</div>
-            <div class="tg-desc">عذراً، لا يمكن تشغيل لعبة ZN Goxe عبر المتصفحات العادية. يرجى فتح اللعبة عبر البوت الرسمي في تطبيق Telegram.</div>
-            <a href="https://t.me/YourBotUsername" id="tg-bot-link" class="tg-btn">الذهاب للبوت في التليجرام</a>
+        <div class="tg-only-card">
+            <i class="fab fa-telegram-plane"></i>
+            <h2>التطبيق يعمل داخل Telegram فقط</h2>
+            <p>للاستمتاع بالتطبيق وجمع العملات والتعدين المباشر، يرجى فتح اللعبة من خلال البوت الرسمي داخل تطبيق تليجرام.</p>
+            <a href="https://t.me/" id="tg-bot-link" target="_blank" class="tg-open-btn">
+                <i class="fab fa-telegram"></i> فتح في تليجرام
+            </a>
         </div>
     </div>
 
@@ -119,7 +120,7 @@
         <div id="view-friends" class="game-view"></div>
     </div>
 
-    <!-- شريط التنقل السفلي -->
+    <!-- شريط التنقل السفلي المكون من 9 قوائم مرتبة من اليسار إلى اليمين -->
     <nav class="bottom-nav" id="main-nav" style="display: none;">
         <button class="nav-item" id="nav-settings" data-view="settings">
             <i class="fas fa-cog"></i>
@@ -141,6 +142,7 @@
             <span>المتجر</span>
         </button>
 
+        <!-- زر المزرعة المركزي -->
         <button class="nav-item nav-center-btn active" id="nav-farm" data-view="farm">
             <div class="farm-btn-inner">
                 <i class="fas fa-screwdriver-wrench"></i>
@@ -169,27 +171,32 @@
         </button>
     </nav>
 
+    <!-- سكريبت التحقق من بيئة التليجرام -->
     <script>
-        // التحقق من فتح التطبيق داخل التليجرام
-        (function checkTelegramEnvironment() {
+        document.addEventListener("DOMContentLoaded", function() {
             const tg = window.Telegram?.WebApp;
-            // يكون initData محتملاً فقط إذا فتح التطبيق من داخل التليجرام فعلياً
-            const isInsideTelegram = Boolean(tg && tg.initData && tg.initData.trim() !== "");
 
-            if (!isInsideTelegram) {
-                // إخفاء الواجهات الرئيسية وإظهار شاشة التنبيه
-                document.getElementById('loading-screen').style.display = 'none';
-                document.getElementById('app').style.display = 'none';
-                document.getElementById('main-nav').style.display = 'none';
-                document.getElementById('telegram-only-screen').style.display = 'flex';
-                
-                // إيقاف تحميل باقي السكريبتات الخاصة باللعبة
-                window.stop();
-            } else {
-                tg.ready();
-                tg.expand();
+            // التحقق من وجود بيانات التليجرام أو فتح المنصة داخل TMA
+            const isTelegram = tg && (
+                (tg.initData && tg.initData.length > 0) || 
+                (tg.platform && tg.platform !== "unknown")
+            );
+
+            if (!isTelegram) {
+                // إخفاء التحميل واللعبة وشريط التنقل
+                const loadingScreen = document.getElementById('loading-screen');
+                const app = document.getElementById('app');
+                const mainNav = document.getElementById('main-nav');
+
+                if (loadingScreen) loadingScreen.style.display = 'none';
+                if (app) app.style.display = 'none';
+                if (mainNav) mainNav.style.display = 'none';
+
+                // إظهار واجهة التنبيه فقط
+                const tgOnlyScreen = document.getElementById('telegram-only-screen');
+                if (tgOnlyScreen) tgOnlyScreen.style.display = 'flex';
             }
-        })();
+        });
 
         (function initKeyboardDetection() {
             const viewport = window.visualViewport;
