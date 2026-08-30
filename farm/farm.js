@@ -38,7 +38,7 @@ window.closeWelcomeModal = function() {
     const START_PARAM = tele?.initDataUnsafe?.start_param || "";
 
     const GAME_CONFIG = {
-        adsgramBlockId: "",
+        adsgramBlockId: window.ADSGRAM_BLOCK_ID || "",
         maxUpgradesPerLevel: 15,
         dailyBoostReward: 0.15,
         maxDailyBoostRate: 4.5,
@@ -307,7 +307,7 @@ window.closeWelcomeModal = function() {
         }
     }
 
-    // --- Adsgram Integration (المكافأة اليومية) ---
+    // --- Adsgram Integration (خاص بتجميع العملات المعدنة فقط) ---
     function showAdsgramAd() {
         return new Promise((resolve) => {
             let resolved = false;
@@ -328,6 +328,7 @@ window.closeWelcomeModal = function() {
                 finish(true);
             }, 5000);
 
+            // جلب كود الإعلان المجلوب ديناميكياً من السيرفر (Railway: ADSGRAM_BLOCK_ID)
             const blockId = window.ADSGRAM_BLOCK_ID || GAME_CONFIG.adsgramBlockId || "";
 
             if (window.Adsgram && blockId) {
@@ -352,41 +353,7 @@ window.closeWelcomeModal = function() {
         });
     }
 
-    // --- Clickadilla Integration (خاص بزر الصاروخ +0.15/ساعة) ---
-    function showClickadillaAd() {
-        return new Promise((resolve) => {
-            let resolved = false;
-
-            const finish = (result) => {
-                if (!resolved) {
-                    resolved = true;
-                    clearTimeout(timeoutTimer);
-                    toggleAdLoadingOverlay(false);
-                    resolve(result);
-                }
-            };
-
-            toggleAdLoadingOverlay(true);
-
-            // الانتظار الإجباري لمدة 15 ثانية لضمان إتمام الفيديو قبل إرجاع Promise بالموافقة
-            const timeoutTimer = setTimeout(() => {
-                console.log("Clickadilla Ad 15s display completed.");
-                finish(true);
-            }, 15000);
-
-            try {
-                if (window.adManager && typeof window.adManager.show === 'function') {
-                    window.adManager.show();
-                } else if (typeof window.adManager === 'function') {
-                    window.adManager();
-                }
-            } catch (e) {
-                console.error("Clickadilla Trigger Error:", e);
-            }
-        });
-    }
-
-    // --- Monetag Ad Integration (خاص بزر تجميع التعدين الرئيسي) ---
+    // --- Monetag Integration (خاص بالتسجيل اليومي وزر تعزيز التعدين 0.15/ساعة) ---
     function showMonetagAd() {
         return new Promise((resolve) => {
             if (typeof window.show_11322720 === 'function') {
@@ -452,9 +419,16 @@ window.closeWelcomeModal = function() {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 if (resData.cooldown_seconds) MIN_CLAIM_INTERVAL = resData.cooldown_seconds;
 
+                // تحديث Adsgram Block ID المجلوب من Railway عبر السيرفر
+                if (resData.adsgram_block_id) {
+                    GAME_CONFIG.adsgramBlockId = resData.adsgram_block_id;
+                    window.ADSGRAM_BLOCK_ID = resData.adsgram_block_id;
+                }
+
                 if (resData.game_config) {
                     if (resData.game_config.adsgram_block_id) {
                         GAME_CONFIG.adsgramBlockId = resData.game_config.adsgram_block_id;
+                        window.ADSGRAM_BLOCK_ID = resData.game_config.adsgram_block_id;
                     }
                     if (resData.game_config.daily_rewards && Array.isArray(resData.game_config.daily_rewards)) {
                         GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
@@ -477,10 +451,6 @@ window.closeWelcomeModal = function() {
                     if (resData.game_config.boost_max_reward_coins) {
                         GAME_CONFIG.boostMaxRewardCoins = resData.game_config.boost_max_reward_coins;
                     }
-                }
-
-                if (resData.adsgram_block_id) {
-                    GAME_CONFIG.adsgramBlockId = resData.adsgram_block_id;
                 }
 
                 if (resData.player) {
@@ -972,13 +942,15 @@ window.closeWelcomeModal = function() {
         }
     };
 
+    // --- 1. المكافآت اليومية (30 يوم) -> إعلانات Monetag فقط ---
     window.handleDailyClaim = async function(dayNum) {
         if (isClaimingDaily) return;
         isClaimingDaily = true;
         const stateBackup = cloneCurrentState();
 
         try {
-            await showAdsgramAd();
+            // تشغيل إعلان Monetag فقط في التسجيل اليومي
+            await showMonetagAd();
 
             let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST', {});
             if (resData && resData.success) {
@@ -1011,15 +983,15 @@ window.closeWelcomeModal = function() {
         }
     };
 
-    // --- معالجة زر تعزيز التعدين زر الصاروخ (+0.15/ساعة) ---
+    // --- 2. مكافأة تعزيز التعدين زر الصاروخ (+0.15/ساعة) -> إعلانات Monetag فقط ---
     window.handleDailyBoost = async function() {
         if (isBoosting) return;
         isBoosting = true;
         const stateBackup = cloneCurrentState();
 
         try {
-            // تشغيل إعلان Clickadilla والانتظار 15 ثانية حتى يكتمل قبل إرسال الطلب للسيرفر
-            await showClickadillaAd();
+            // تشغيل إعلان Monetag فقط في زر التعزيز (+0.15/ساعة)
+            await showMonetagAd();
 
             let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
             if (resData && resData.success) {
@@ -1087,6 +1059,7 @@ window.closeWelcomeModal = function() {
         }
     };
 
+    // --- 3. تجميع العملات المعدنة الرئيسي (زر تجميع الرصيد) -> إعلانات Adsgram فقط (يجلب Block ID ديناميكياً من Railway) ---
     window.handleMainClaim = async function() {
         if (isClaimingMain) return;
 
@@ -1094,11 +1067,8 @@ window.closeWelcomeModal = function() {
         const todayStr = getTodayUTCStr();
         const adKey = getStorageAdKey();
 
-        const lastClaimAdDate = pData.last_claim_ad_date || localStorage.getItem(adKey) || null;
-
-        if (lastClaimAdDate !== todayStr) {
-            await showMonetagAd(); 
-        }
+        // تشغيل إعلان Adsgram فقط عند تجميع العملات التي بتتعدن
+        await showAdsgramAd();
 
         isClaimingMain = true;
         const stateBackup = cloneCurrentState();
