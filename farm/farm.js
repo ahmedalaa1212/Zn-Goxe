@@ -308,7 +308,6 @@ window.closeWelcomeModal = function() {
         }
     }
 
-    // إصلاح رابط تحميل Adsgram الصحيح
     async function ensureAdsgramLoaded() {
         if (window.Adsgram) return true;
         return new Promise((resolve) => {
@@ -325,20 +324,17 @@ window.closeWelcomeModal = function() {
         toggleAdLoadingOverlay(true);
         
         const isLoaded = await ensureAdsgramLoaded();
-
         const blockId = window.ADSGRAM_BLOCK_ID || GAME_CONFIG.adsgramBlockId || "";
 
         if (!window.Adsgram || !isLoaded) {
             console.error("Adsgram SDK لم يتم تحميلة.");
             toggleAdLoadingOverlay(false);
-            showToast("⚠️ لم يتم تحميل مكتبة الإعلانات. يرجى التأكد من اتصال الإنترنت وحظر الإعلانات.");
             return false;
         }
 
         if (!blockId || blockId.trim() === "") {
             console.error("Adsgram Block ID missing!");
             toggleAdLoadingOverlay(false);
-            showToast("⚠️ كود الإعلان ADSGRAM_BLOCK_ID غير مضبوط.");
             return false;
         }
 
@@ -356,7 +352,7 @@ window.closeWelcomeModal = function() {
 
             const timeoutTimer = setTimeout(() => {
                 console.log("Adsgram timeout reached.");
-                finish(false); // عند انتهاء الوقت يرجع false وليس true
+                finish(false);
             }, 10000);
 
             try {
@@ -366,7 +362,7 @@ window.closeWelcomeModal = function() {
                     finish(true);
                 }).catch((err) => {
                     console.error("خطأ أو تخطي إعلان Adsgram:", err);
-                    finish(false); // إرجاع false عند الفشل أو التخطي
+                    finish(false);
                 });
             } catch (e) {
                 console.error("استثناء تنفيذ Adsgram:", e);
@@ -751,7 +747,7 @@ window.closeWelcomeModal = function() {
             const remainingCooldown = Math.max(0, Math.ceil(MIN_CLAIM_INTERVAL - secondsPassed));
 
             if (isCheckingAd) {
-                claimBtn.innerText = "جاري فتح الإعلان... ⏳";
+                claimBtn.innerText = "جاري فحص الإعلان... ⏳";
                 claimBtn.className = "claim-action-btn btn-disabled";
                 claimBtn.disabled = true;
             } else if (isClaimingMain) {
@@ -1090,24 +1086,19 @@ window.closeWelcomeModal = function() {
         let adsWatched = parseInt(pData.ads_watched || 0, 10);
 
         let needsAdToday = (!lastAdDate) || (lastAdDate !== todayStr) || (adsWatched === 0);
+        let adShown = false;
 
         if (needsAdToday) {
             isCheckingAd = true; 
             window.updateFarmUI();
             try {
-                const adShown = await showAdsgramAd(); 
+                adShown = await showAdsgramAd(); 
                 if (!adShown) {
-                    console.warn("لم يتم إكمال الإعلان بالكامل.");
-                    showToast("⚠️ يلزم مشاهدة الإعلان كاملاً لتجميع الرصيد!");
-                    isCheckingAd = false;
-                    window.updateFarmUI();
-                    return; // إيقاف العملية إذا لم يشاهد الإعلان
+                    console.warn("لم يتم عرض الإعلان بنجاح، سيتم السماح بالتجميع مع إعادة محاولة الإعلان المرة القادمة.");
                 }
             } catch(e) {
                 console.error("Ad Check Error:", e);
-                isCheckingAd = false;
-                window.updateFarmUI();
-                return; // إيقاف العملية عند وجود خطأ
+                adShown = false;
             }
             isCheckingAd = false;
         }
@@ -1145,10 +1136,13 @@ window.closeWelcomeModal = function() {
                     window.PlayerData.ads_watched = resData.ads_watched;
                 }
 
-                const savedAdDate = resData.last_claim_ad_date || todayStr;
-                window.userState.last_claim_ad_date = savedAdDate;
-                window.PlayerData.last_claim_ad_date = savedAdDate;
-                localStorage.setItem(adKey, savedAdDate);
+                // حفظ تاريخ مشاهدة الإعلان فقط إذا اكتملت المشاهدة بنجاح
+                if (adShown) {
+                    const savedAdDate = resData.last_claim_ad_date || todayStr;
+                    window.userState.last_claim_ad_date = savedAdDate;
+                    window.PlayerData.last_claim_ad_date = savedAdDate;
+                    localStorage.setItem(adKey, savedAdDate);
+                }
 
                 window.userState.unclaimed = 0.0;
                 window.PlayerData.unclaimed = 0.0;
