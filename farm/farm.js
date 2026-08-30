@@ -323,7 +323,6 @@ window.closeWelcomeModal = function() {
 
             toggleAdLoadingOverlay(true);
 
-            // مهلة زمنية 5 ثوانٍ لضمان استمرار اللعبة دون التعليق في حالة عدم فتح الإعلان
             const timeoutTimer = setTimeout(() => {
                 console.log("Adsgram timeout reached (5s limit). Continuing naturally.");
                 finish(true);
@@ -338,7 +337,7 @@ window.closeWelcomeModal = function() {
                         finish(true);
                     }).catch((err) => {
                         console.error("Adsgram Error/Skipped:", err);
-                        finish(true); // تجاوز الخطأ وإعطاء المكافأة
+                        finish(true);
                     });
                 } catch (e) {
                     console.error("Adsgram Execution Exception:", e);
@@ -348,6 +347,48 @@ window.closeWelcomeModal = function() {
                 window.show_11322720().then(() => finish(true)).catch(() => finish(true));
             } else {
                 console.warn("Adsgram controller not found or blockId missing.");
+                finish(true);
+            }
+        });
+    }
+
+    // --- OnClickA Integration with Spot ID 6137796 ---
+    function showOnClickAAd() {
+        return new Promise((resolve) => {
+            let resolved = false;
+
+            const finish = (result) => {
+                if (!resolved) {
+                    resolved = true;
+                    clearTimeout(timeoutTimer);
+                    toggleAdLoadingOverlay(false);
+                    resolve(result);
+                }
+            };
+
+            toggleAdLoadingOverlay(true);
+
+            const timeoutTimer = setTimeout(() => {
+                console.log("OnClickA timeout reached (7s limit). Continuing naturally.");
+                finish(true);
+            }, 7000);
+
+            if (typeof window.initCdTma === 'function') {
+                window.initCdTma({ id: '6137796' })
+                    .then(show => {
+                        show()
+                            .then(() => finish(true))
+                            .catch((err) => {
+                                console.error("OnClickA Error/Closed:", err);
+                                finish(true);
+                            });
+                    })
+                    .catch((err) => {
+                        console.error("OnClickA Init Exception:", err);
+                        finish(true);
+                    });
+            } else {
+                console.warn("OnClickA SDK not found.");
                 finish(true);
             }
         });
@@ -945,7 +986,7 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
-            // عرض إعلان Adsgram مع المهلة الزمنية قبل أخذ المكافأة
+            // استخدام Adsgram للمكافأة اليومية فقط
             await showAdsgramAd();
 
             let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST', {});
@@ -985,8 +1026,8 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
-            // عرض إعلان Adsgram عند تفعيل سرعة التعدين +0.15/h
-            await showAdsgramAd();
+            // عرض إعلان OnClickA عند تفعيل تعزيز سرعة التعدين +0.15/h
+            await showOnClickAAd();
 
             let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
             if (resData && resData.success) {
