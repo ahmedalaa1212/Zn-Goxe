@@ -714,17 +714,30 @@ def send_proof_to_channel(user_id, coins, crypto_amount, currency, wallet, tx_id
     masked_user = user_str[:3] + "****" + user_str[-2:] if len(user_str) > 5 else user_str
     short_wallet = f"{wallet[:6]}...{wallet[-4:]}" if len(wallet) > 10 else wallet
 
+    curr = str(currency).upper()
+
+    # إنشاء رابط تحقق من البلوكشين / الفوست باي للمراجعين
+    if curr == "TRX":
+        verify_url = f"https://tronscan.org/#/address/{wallet}"
+    elif curr == "DOGE":
+        verify_url = f"https://blockchair.com/dogecoin/address/{wallet}"
+    elif curr == "LTC":
+        verify_url = f"https://blockchair.com/litecoin/address/{wallet}"
+    else:
+        verify_url = "https://faucetpay.io"
+
     text = (
         "<b>🎉 إثبات سحب جديد من تطبيق ZN Goxe!</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
         f"<b>👤 المستخدم:</b> <code>{masked_user}</code>\n"
         f"<b>💰 المبلغ المسحوب:</b> <code>{formatted_coins} ZN</code>\n"
-        f"<b>💎 الصافي المستلم:</b> <code>{formatted_crypto} {currency}</code>\n"
+        f"<b>💎 الصافي المستلم:</b> <code>{formatted_crypto} {curr}</code>\n"
         f"<b>📥 المحفظة / FaucetPay:</b> <code>{short_wallet}</code>\n"
-        f"<b>🆔 رقم المعاملة:</b> <code>#{str(tx_id)[-8:]}</code>\n"
+        f"<b>🆔 رقم المعاملة:</b> <code>{tx_id}</code>\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        "✅ <b>تم التحويل بنجاح عبر FaucetPay!</b>\n"
-        "📢 <b>قناة إثباتات السحب:</b> @zngoxe_Proofs"
+        "✅ <b>تم التحويل الفوري بنجاح عبر FaucetPay API</b>\n"
+        f"🔗 <a href='{verify_url}'>اضغط هنا للتحقق من عنوان المحفظة 🔍</a>\n\n"
+        "📢 <b>قناة إثباتات السحب الرسمية:</b> @zngoxe_Proofs"
     )
 
     payload = {
