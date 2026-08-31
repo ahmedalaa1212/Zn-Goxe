@@ -715,22 +715,9 @@ def send_proof_to_channel(user_id, coins, crypto_amount, currency, wallet, tx_id
     short_wallet = f"{wallet[:6]}...{wallet[-4:]}" if len(wallet) > 10 else wallet
 
     curr = str(currency).upper()
-    addr_clean = wallet.strip()
 
-    # تحديد رابط توثيق البلوكشين المباشر بحسب نوع العنوان والعملة
-    if addr_clean.startswith("0x") or curr == "PEPE":
-        if addr_clean.startswith("0x"):
-            verify_url = f"https://bscscan.com/address/{addr_clean}"
-        else:
-            verify_url = "https://faucetpay.io"
-    elif curr == "TRX" or addr_clean.startswith("T"):
-        verify_url = f"https://tronscan.org/#/address/{addr_clean}"
-    elif curr == "DOGE" or addr_clean.startswith("D"):
-        verify_url = f"https://blockchair.com/dogecoin/address/{addr_clean}"
-    elif curr == "LTC" or addr_clean.startswith("L") or addr_clean.startswith("M") or addr_clean.lower().startswith("ltc1"):
-        verify_url = f"https://blockchair.com/litecoin/address/{addr_clean}"
-    else:
-        verify_url = "https://faucetpay.io"
+    # رابط توثيق المعاملات الرسمي في حساب الفوست باي
+    verify_url = "https://faucetpay.io/page/user-admin/history"
 
     text = (
         "<b>🎉 إثبات سحب جديد من تطبيق ZN Goxe!</b>\n"
@@ -739,10 +726,10 @@ def send_proof_to_channel(user_id, coins, crypto_amount, currency, wallet, tx_id
         f"<b>💰 المبلغ المسحوب:</b> <code>{formatted_coins} ZN</code>\n"
         f"<b>💎 الصافي المستلم:</b> <code>{formatted_crypto} {curr}</code>\n"
         f"<b>📥 المحفظة / FaucetPay:</b> <code>{short_wallet}</code>\n"
-        f"<b>🆔 رقم المعاملة:</b> <code>{tx_id}</code>\n"
+        f"<b>🆔 رقم المعاملة:</b> <code>#{tx_id}</code>\n"
         "━━━━━━━━━━━━━━━━━━\n"
         "✅ <b>تم التحويل الفوري بنجاح عبر FaucetPay API</b>\n"
-        f"🔗 <a href='{verify_url}'>اضغط هنا للتحقق من عنوان المحفظة 🔍</a>\n\n"
+        f"🔗 <a href='{verify_url}'>اضغط هنا للتحقق من وصول الرصيد في حسابك بـ FaucetPay 🔍</a>\n\n"
         "📢 <b>قناة إثباتات السحب الرسمية:</b> @zngoxe_Proofs"
     )
 
