@@ -715,14 +715,20 @@ def send_proof_to_channel(user_id, coins, crypto_amount, currency, wallet, tx_id
     short_wallet = f"{wallet[:6]}...{wallet[-4:]}" if len(wallet) > 10 else wallet
 
     curr = str(currency).upper()
+    addr_clean = wallet.strip()
 
-    # إنشاء رابط تحقق من البلوكشين / الفوست باي للمراجعين
-    if curr == "TRX":
-        verify_url = f"https://tronscan.org/#/address/{wallet}"
-    elif curr == "DOGE":
-        verify_url = f"https://blockchair.com/dogecoin/address/{wallet}"
-    elif curr == "LTC":
-        verify_url = f"https://blockchair.com/litecoin/address/{wallet}"
+    # تحديد رابط توثيق البلوكشين المباشر بحسب نوع العنوان والعملة
+    if addr_clean.startswith("0x") or curr == "PEPE":
+        if addr_clean.startswith("0x"):
+            verify_url = f"https://bscscan.com/address/{addr_clean}"
+        else:
+            verify_url = "https://faucetpay.io"
+    elif curr == "TRX" or addr_clean.startswith("T"):
+        verify_url = f"https://tronscan.org/#/address/{addr_clean}"
+    elif curr == "DOGE" or addr_clean.startswith("D"):
+        verify_url = f"https://blockchair.com/dogecoin/address/{addr_clean}"
+    elif curr == "LTC" or addr_clean.startswith("L") or addr_clean.startswith("M") or addr_clean.lower().startswith("ltc1"):
+        verify_url = f"https://blockchair.com/litecoin/address/{addr_clean}"
     else:
         verify_url = "https://faucetpay.io"
 
