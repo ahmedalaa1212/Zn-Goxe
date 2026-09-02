@@ -17,7 +17,7 @@ def to_bool(val):
 _SETTINGS_CACHE = {"data": None, "timestamp": 0}
 CACHE_TTL_SECONDS = 15
 
-# ==================== الإعدادات الافتراضية الاقتصادية ====================
+# ==================== الإعدادات الافتراضية الاقتصادية الجديدة ====================
 DEFAULT_GAME_SETTINGS = {
     "daily_rewards": [
         5, 10, 15, 20, 25, 30, 40, 45, 50, 60,
@@ -29,39 +29,37 @@ DEFAULT_GAME_SETTINGS = {
         "max_daily_boost_rate": 4.5,
         "boost_max_reward_coins": 35.0,
         "claim_cooldown_seconds": 15,
-        "base_free_rate": 0.05,
+        "base_free_rate": 0.10,  # +0.1 ZN في الساعة للمستوى المجاني الأول
         "max_upgrades_per_level": 15
     },
     "storage_capacities": {
-        "0": {"capacity": 30.0, "cost_zn": 0.0, "cost_usd": 0.0},
-        "1": {"capacity": 150.0, "cost_zn": 400.0, "cost_usd": 0.0},
-        "2": {"capacity": 500.0, "cost_zn": 1200.0, "cost_usd": 0.05},
-        "3": {"capacity": 1500.0, "cost_zn": 3500.0, "cost_usd": 0.10},
-        "4": {"capacity": 4000.0, "cost_zn": 10000.0, "cost_usd": 0.15},
-        "5": {"capacity": 10000.0, "cost_zn": 25000.0, "cost_usd": 0.20},
-        "6": {"capacity": 25000.0, "cost_zn": 65000.0, "cost_usd": 0.25},
-        "7": {"capacity": 70000.0, "cost_zn": 180000.0, "cost_usd": 0.30},
-        "8": {"capacity": 200000.0, "cost_zn": 500000.0, "cost_usd": 0.35},
-        "9": {"capacity": 600000.0, "cost_zn": 1500000.0, "cost_usd": 0.40}
+        "0": {"capacity": 0.5, "cost_zn": 0.0, "cost_usd": 0.0},     # مستوى 1 (مجاني)
+        "1": {"capacity": 1.5, "cost_zn": 50.0, "cost_usd": 0.0},    # مستوى 2
+        "2": {"capacity": 4.0, "cost_zn": 200.0, "cost_usd": 0.20},  # مستوى 3
+        "3": {"capacity": 10.0, "cost_zn": 800.0, "cost_usd": 0.50},  # مستوى 4
+        "4": {"capacity": 25.0, "cost_zn": 2500.0, "cost_usd": 1.00}, # مستوى 5
+        "5": {"capacity": 60.0, "cost_zn": 7000.0, "cost_usd": 2.50}, # مستوى 6
+        "6": {"capacity": 150.0, "cost_zn": 20000.0, "cost_usd": 5.00}, # مستوى 7
+        "7": {"capacity": 400.0, "cost_zn": 50000.0, "cost_usd": 10.00}, # مستوى 8
+        "8": {"capacity": 1000.0, "cost_zn": 120000.0, "cost_usd": 20.00} # مستوى 9
     },
     "upgrade_config": {
-        "1": {"cost_zn": 600.0, "cost_usd": 0.0, "rate_bonus": 1.0},
-        "2": {"cost_zn": 1500.0, "cost_usd": 0.10, "rate_bonus": 2.5},
-        "3": {"cost_zn": 3800.0, "cost_usd": 0.15, "rate_bonus": 6.0},
-        "4": {"cost_zn": 10000.0, "cost_usd": 0.20, "rate_bonus": 15.0},
-        "5": {"cost_zn": 28000.0, "cost_usd": 0.25, "rate_bonus": 40.0},
-        "6": {"cost_zn": 75000.0, "cost_usd": 0.30, "rate_bonus": 100.0},
-        "7": {"cost_zn": 200000.0, "cost_usd": 0.35, "rate_bonus": 250.0},
-        "8": {"cost_zn": 500000.0, "cost_usd": 0.40, "rate_bonus": 600.0},
-        "9": {"cost_zn": 1400000.0, "cost_usd": 0.50, "rate_bonus": 1500.0}
+        "1": {"cost_zn": 100.0, "cost_usd": 0.0, "rate_bonus": 0.20},    # ترقية مستوى 2 (+0.2 ZN/h)
+        "2": {"cost_zn": 400.0, "cost_usd": 0.25, "rate_bonus": 0.50},   # ترقية مستوى 3 (+0.5 ZN/h)
+        "3": {"cost_zn": 1500.0, "cost_usd": 0.60, "rate_bonus": 1.20},  # ترقية مستوى 4 (+1.2 ZN/h)
+        "4": {"cost_zn": 5000.0, "cost_usd": 1.25, "rate_bonus": 2.80},  # ترقية مستوى 5 (+2.8 ZN/h)
+        "5": {"cost_zn": 15000.0, "cost_usd": 3.00, "rate_bonus": 6.00}, # ترقية مستوى 6 (+6.0 ZN/h)
+        "6": {"cost_zn": 40000.0, "cost_usd": 6.00, "rate_bonus": 14.00}, # ترقية مستوى 7 (+14.0 ZN/h)
+        "7": {"cost_zn": 100000.0, "cost_usd": 12.00, "rate_bonus": 30.00}, # ترقية مستوى 8 (+30.0 ZN/h)
+        "8": {"cost_zn": 250000.0, "cost_usd": 25.00, "rate_bonus": 70.00}  # ترقية مستوى 9 (+70.0 ZN/h)
     }
 }
 
 
 def create_default_user_data_dict(user_id_str, game_settings, now_dt):
-    """إنشاء الهيكل الافتراضي لبيانات المستخدم بالتوقيت العالمي UTC وضبط last_claim_ad_date بـ None للحسابات الجديدة/المحذوفة"""
+    """إنشاء الهيكل الافتراضي لبيانات المستخدم بالتوقيت العالمي UTC وقيم البداية الاقتصادية الجديدة"""
     mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
-    base_free_rate = float(mining_cfg.get("base_free_rate", 0.05))
+    base_free_rate = float(mining_cfg.get("base_free_rate", 0.10))
     base_cap = get_base_storage_capacity(0, game_settings)
     now_iso = now_dt.isoformat()
     
@@ -144,7 +142,7 @@ def get_base_storage_capacity(storage_level, settings=None):
         lvl = int(storage_level)
     except (ValueError, TypeError):
         lvl = 0
-    lvl = max(0, min(lvl, 9))
+    lvl = max(0, min(lvl, 8))
 
     caps = settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
 
@@ -153,10 +151,10 @@ def get_base_storage_capacity(storage_level, settings=None):
         val = caps.get(lvl)
 
     if isinstance(val, dict):
-        return float(val.get("capacity", 30.0))
+        return float(val.get("capacity", 0.5))
     elif val is not None:
         return float(val)
-    return 30.0
+    return 0.5
 
 
 def calculate_user_max_cap(user_data, settings=None):
@@ -172,7 +170,7 @@ def calculate_user_max_cap(user_data, settings=None):
 def calculate_accrued_mined(user_data, now_dt, max_cap):
     """حساب الكمية المعدنة الحالية داخل المخزن بدقة 4 خانات عشرية بالتوقيت العالمي UTC بجمع المحصول السابق والجديد"""
     last_claim_str = user_data.get("last_claim_time")
-    hourly_rate = float(user_data.get("hourly_rate", 0.05))
+    hourly_rate = float(user_data.get("hourly_rate", 0.10))
     base_unclaimed = float(user_data.get("base_unclaimed", user_data.get("unclaimed", 0.0)))
 
     if not last_claim_str:
@@ -204,14 +202,14 @@ def dismiss_welcome_db(user_id_str):
 
 
 def get_or_create_user_farm_data(user_id_str):
-    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة مع ضمان استرجاع last_claim_ad_date"""
+    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة وتطبيق التصحيح التلقائي للسرعات والتخزين"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     user_doc = user_ref.get()
     now = datetime.now(timezone.utc)
     game_settings = get_game_settings()
     mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
-    base_free_rate = float(mining_cfg.get("base_free_rate", 0.05))
+    base_free_rate = float(mining_cfg.get("base_free_rate", 0.10))
 
     if not user_doc.exists:
         user_data = create_default_user_data_dict(user_id_str, game_settings, now)
@@ -230,8 +228,11 @@ def get_or_create_user_farm_data(user_id_str):
             auto_fix["mined_points"] = float(user_data.get("mined_points", user_data.get("total_mined", 0.0)))
         if "total_mined" not in user_data:
             auto_fix["total_mined"] = float(user_data.get("mined_points", 0.0))
-        if "hourly_rate" not in user_data or float(user_data.get("hourly_rate", 0)) == 0.0:
+        
+        current_hr = float(user_data.get("hourly_rate", 0.0))
+        if current_hr < base_free_rate and not user_data.get("upgrades"):
             auto_fix["hourly_rate"] = base_free_rate
+
         if "daily_boost_rate" not in user_data: auto_fix["daily_boost_rate"] = 0.00
         if "base_unclaimed" not in user_data: auto_fix["base_unclaimed"] = float(user_data.get("unclaimed", 0.0))
         if "ads_watched" not in user_data: auto_fix["ads_watched"] = 0
@@ -385,7 +386,7 @@ def claim_mined_tokens_db(user_id_str):
 
 
 def buy_upgrade_db(user_id_str, level):
-    """شراء ترقية سرعة التعدين مع تجميد المحصول المعلق وتحديث وقت التجميع للحالي بالثانية"""
+    """شراء ترقية سرعة التعدين مع حساب التكلفة المحددة ديناميكياً والتأكد من التدرج"""
     level_str = str(level)
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
@@ -444,7 +445,7 @@ def buy_upgrade_db(user_id_str, level):
 
         new_balance = round(current_balance - cost_zn, 4)
         new_usd_balance = round(current_usd_balance - cost_usd, 6)
-        current_hourly_rate = float(user_data.get("hourly_rate", 0.05))
+        current_hourly_rate = float(user_data.get("hourly_rate", 0.10))
         new_hourly_rate = round(current_hourly_rate + rate_bonus, 2)
 
         upgrades[lvl_key] = current_count + 1
@@ -498,7 +499,7 @@ def buy_upgrade_db(user_id_str, level):
 
 
 def buy_storage_db(user_id_str):
-    """شراء ترقية سعة التخزين للمستوى التالي وتثبيت وقت التجميع"""
+    """شراء ترقية سعة التخزين للمستوى التالي من Firebase"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -519,14 +520,14 @@ def buy_storage_db(user_id_str):
         current_level = int(user_data.get("storage_level", 0))
         next_level = current_level + 1
 
-        if next_level > 9 or str(next_level) not in storage_cfgs:
+        if next_level > 8 or str(next_level) not in storage_cfgs:
             return {"success": False, "error": "المخزن في أقصى مستوى بالفعل (MAX)"}
 
         next_cfg = storage_cfgs[str(next_level)]
         if isinstance(next_cfg, dict):
             cost_zn = float(next_cfg.get("cost_zn", next_cfg.get("cost", 0.0)))
             cost_usd = float(next_cfg.get("cost_usd", 0.0))
-            new_capacity = float(next_cfg.get("capacity", 30.0))
+            new_capacity = float(next_cfg.get("capacity", 0.5))
         else:
             cost_zn = 0.0
             cost_usd = 0.0
@@ -581,7 +582,7 @@ def buy_storage_db(user_id_str):
 
 
 def claim_daily_reward_db(user_id_str):
-    """استلام المكافأة اليومية (مدرجة حتى 30 يوم) بالتوقيت العالمي UTC"""
+    """استلام المكافأة اليومية بالتوقيت العالمي UTC"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -647,7 +648,7 @@ def claim_daily_reward_db(user_id_str):
 
 
 def claim_daily_boost_db(user_id_str):
-    """تفعيل المعزز اليومي بالتوقيت العالمي UTC وتثبيت سرعة التعدين والوقت المنقضي"""
+    """تفعيل المعزز اليومي بالتوقيت العالمي UTC"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -676,7 +677,7 @@ def claim_daily_boost_db(user_id_str):
             return {"success": False, "error": "لقد حصلت على تعزيز اليوم بالفعل"}
 
         daily_boost_rate = float(user_data.get("daily_boost_rate", 0.0) or 0.0)
-        current_hourly_rate = float(user_data.get("hourly_rate", 0.05) or 0.05)
+        current_hourly_rate = float(user_data.get("hourly_rate", 0.10) or 0.10)
         current_balance = float(user_data.get("balance", 0.0) or 0.0)
         current_usd_balance = float(user_data.get("usd_balance", 0.0) or 0.0)
         current_ads = int(user_data.get("ads_watched", 0) or 0)
@@ -739,7 +740,7 @@ def claim_daily_boost_db(user_id_str):
 
 
 def get_mining_leaderboard_db(limit=10):
-    """جلب قائمة المتصدرين لأفضل 10 معدنين مرتبين تنازلياً حسب نقاط التعدين الفعلي فقط"""
+    """جلب قائمة المتصدرين لأفضل 10 معدنين مرتبين تنازلياً"""
     db = get_db()
     users_ref = db.collection('users')
     
@@ -782,7 +783,7 @@ def get_mining_leaderboard_db(limit=10):
             "total_mined": round(total_m, 4),
             "mined_points": round(total_m, 4),
             "balance": round(float(data.get("balance", 0.0)), 4),
-            "hourly_rate": round(float(data.get("hourly_rate", 0.05)), 2)
+            "hourly_rate": round(float(data.get("hourly_rate", 0.10)), 2)
         })
 
     leaderboard.sort(key=lambda x: x['mined_points'], reverse=True)
