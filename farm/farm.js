@@ -40,11 +40,9 @@ window.closeWelcomeModal = function() {
     const GAME_CONFIG = {
         adsgramBlockId: window.ADSGRAM_BLOCK_ID || "",
         maxUpgradesPerLevel: 15,
-        dailyBoostReward: 0.1, // معدل زيادة السرعة الجديد (+0.1 / ساعة)
-        boostCooldownSeconds: 3 * 3600, // بيتجدد كل 3 ساعات
-        boostActiveSeconds: 2 * 3600,  // بيشتغل ساعتين فقط
-        maxDailyBoostRate: 4.5,
-        boostMaxRewardCoins: 35.0,
+        dailyBoostReward: 0.10, // زيادة السرعة بمقدار 0.1 ZN/ساعة
+        boostDurationMs: 2 * 60 * 60 * 1000, // تعمل لمدة 2 ساعة
+        boostCooldownMs: 3 * 60 * 60 * 1000, // تتجدد كل 3 ساعات
         upgradeCosts: {
             1: { cost_zn: 0, cost_usd: 0.0, rate: 0.1 },
             2: { cost_zn: 100, cost_usd: 0.0, rate: 0.2 },
@@ -67,14 +65,14 @@ window.closeWelcomeModal = function() {
             "7": { capacity: 400.0, cost_zn: 50000, cost_usd: 10.00 },
             "8": { capacity: 1000.0, cost_zn: 120000, cost_usd: 20.00 }
         },
-        // قائمة المكافآت اليومية المحدثة لحماية السيولة (30 يوم)
+        // سريّة المكافآت اليومية الـ 30 المصممة لحماية السيولة
         dailyRewards: [
-            0.2, 0.4, 0.6, 0.8, 1.0,   // الأيام 1 إلى 5
-            1.2, 1.5, 1.8, 2.0, 2.5,   // الأيام 6 إلى 10
-            3.0, 3.5, 4.0, 4.5, 5.0,   // الأيام 11 إلى 15
-            6.0, 7.0, 8.0, 9.0, 10.0,  // الأيام 16 إلى 20
-            12.0, 14.0, 16.0, 18.0, 20.0, // الأيام 21 إلى 25
-            22.0, 25.0, 30.0, 35.0, 40.0  // الأيام 26 إلى 30
+            0.2, 0.4, 0.6, 0.8, 1.0,     // الأيام 1 إلى 5
+            1.2, 1.5, 1.8, 2.0, 2.5,     // الأيام 6 إلى 10
+            3.0, 3.5, 4.0, 4.5, 5.0,     // الأيام 11 إلى 15
+            6.0, 7.0, 8.0, 9.0, 10.0,    // الأيام 16 إلى 20
+            12.0, 14.0, 16.0, 18.0, 20.0,  // الأيام 21 إلى 25
+            22.0, 25.0, 30.0, 35.0, 40.0   // الأيام 26 إلى 30
         ]
     };
 
@@ -217,20 +215,28 @@ window.closeWelcomeModal = function() {
         }
     }
 
+    // تنسيق دقيق لـ ZN يظهر حتى 6 أرقام عشرية عند توفرها دون أصفار زائدة
     function formatZnBalance(val) {
         const num = parseFloat(val || 0);
         if (isNaN(num) || num === 0) return "0.00";
         
-        let str = num.toFixed(6).replace(/\.?0+$/, '');
-        if (!str.includes('.')) return str + '.00';
-        if (str.split('.')[1].length === 1) return str + '0';
-        return str;
+        let fixed = num.toFixed(6);
+        let parts = fixed.split('.');
+        let decimals = parts[1].replace(/0+$/, '');
+        if (decimals.length < 2) decimals = (decimals + '00').slice(0, 2);
+        return `${parts[0]}.${decimals}`;
     }
 
+    // تنسيق دقيق للمحصول الجاري تعدينه في المخزن يظهر التغيرات السريعة
     function formatStorageBalance(val) {
         const num = parseFloat(val || 0);
-        if (isNaN(num) || num === 0) return "0.000";
-        return num.toFixed(3);
+        if (isNaN(num) || num === 0) return "0.000000";
+        
+        let fixed = num.toFixed(6);
+        let parts = fixed.split('.');
+        let decimals = parts[1].replace(/0+$/, '');
+        if (decimals.length < 3) decimals = (decimals + '000').slice(0, 3);
+        return `${parts[0]}.${decimals}`;
     }
 
     function getStoredBalance() {
@@ -288,6 +294,14 @@ window.closeWelcomeModal = function() {
         return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     }
 
+    function formatTimeDifference(ms) {
+        let totalSec = Math.floor(Math.max(0, ms) / 1000);
+        let h = Math.floor(totalSec / 3600);
+        let m = Math.floor((totalSec % 3600) / 60);
+        let s = totalSec % 60;
+        return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+
     function formatCompactCost(num) {
         if (num >= 1000000) {
             let formatted = (num / 1000000).toFixed(1);
@@ -303,7 +317,7 @@ window.closeWelcomeModal = function() {
     function formatCompactNumber(num) {
         if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
         if (num >= 1000 && num % 1000 === 0) return (num / 1000) + 'K';
-        return num.toString();
+        return (Math.round(num * 100) / 100).toString();
     }
 
     function toggleAdLoadingOverlay(show) {
@@ -395,20 +409,14 @@ window.closeWelcomeModal = function() {
         });
     }
 
-    function getCurrentEffectiveHourlyRate() {
-        const pData = window.userState || window.PlayerData || {};
-        let baseRate = parseFloat(pData.hourly_rate ?? 0.1);
-        
-        // فحص هل التعزيز نشط (خلال الساعتين الأولى من وقت التفعيل)
-        const lastBoostStr = pData.last_boost_time || pData.last_boost_date;
-        if (lastBoostStr) {
-            const lastBoostMs = parseServerDateMs(lastBoostStr);
-            const elapsedSec = Math.max(0, (getAdjustedNowMs() - lastBoostMs) / 1000);
-            if (elapsedSec < GAME_CONFIG.boostActiveSeconds) {
-                baseRate += parseFloat(GAME_CONFIG.dailyBoostReward || 0.1);
-            }
+    function getActiveBoostRate(pData) {
+        if (!pData || !pData.last_boost_time) return 0;
+        let lastBoostMs = parseServerDateMs(pData.last_boost_time);
+        let elapsed = getAdjustedNowMs() - lastBoostMs;
+        if (elapsed >= 0 && elapsed < GAME_CONFIG.boostDurationMs) {
+            return GAME_CONFIG.dailyBoostReward; // +0.1 ZN/h
         }
-        return baseRate;
+        return 0;
     }
 
     function accrueCurrentMining() {
@@ -416,7 +424,10 @@ window.closeWelcomeModal = function() {
         if (!pData) return;
 
         let maxC = parseFloat(pData.max_cap ?? 0.5);
-        let hRate = getCurrentEffectiveHourlyRate();
+        let baseRate = parseFloat(pData.hourly_rate ?? 0.1);
+        let boostRate = getActiveBoostRate(pData);
+        let hRate = baseRate + boostRate;
+
         let lastClaimStr = pData.last_claim_time;
         let lastClaimTimeMs = lastClaimStr ? parseServerDateMs(lastClaimStr) : getAdjustedNowMs();
         let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimTimeMs) / 1000);
@@ -482,12 +493,6 @@ window.closeWelcomeModal = function() {
                     if (resData.game_config.daily_boost_reward) {
                         GAME_CONFIG.dailyBoostReward = resData.game_config.daily_boost_reward;
                     }
-                    if (resData.game_config.max_daily_boost_rate) {
-                        GAME_CONFIG.maxDailyBoostRate = resData.game_config.max_daily_boost_rate;
-                    }
-                    if (resData.game_config.boost_max_reward_coins) {
-                        GAME_CONFIG.boostMaxRewardCoins = resData.game_config.boost_max_reward_coins;
-                    }
                 }
 
                 if (resData.player) {
@@ -538,63 +543,13 @@ window.closeWelcomeModal = function() {
         }
     };
 
-    function updateBoostButtonUI() {
-        const boostBtn = document.getElementById('boost-btn');
-        if (!boostBtn) return;
-
-        boostBtn.onclick = window.handleDailyBoost;
-        const pData = window.userState || window.PlayerData || {};
-        const lastBoostStr = pData.last_boost_time || pData.last_boost_date;
-
-        if (lastBoostStr) {
-            const lastBoostMs = parseServerDateMs(lastBoostStr);
-            const elapsedSec = Math.max(0, (getAdjustedNowMs() - lastBoostMs) / 1000);
-            
-            if (elapsedSec < GAME_CONFIG.boostCooldownSeconds) {
-                if (elapsedSec < GAME_CONFIG.boostActiveSeconds) {
-                    // الوقت النشط (ساعتين)
-                    let activeLeft = Math.ceil(GAME_CONFIG.boostActiveSeconds - elapsedSec);
-                    let h = Math.floor(activeLeft / 3600);
-                    let m = Math.floor((activeLeft % 3600) / 60);
-                    let s = activeLeft % 60;
-                    let timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-
-                    boostBtn.className = "boost-btn btn-active";
-                    boostBtn.disabled = true;
-                    boostBtn.innerHTML = `<span style="font-size: 12px;">⚡</span><span style="font-size: 8px; color: #10b981; font-weight: bold;">نشط (${timeStr})</span>`;
-                } else {
-                    // فترة الانتظار حتى اكتمال 3 ساعات
-                    let cooldownLeft = Math.ceil(GAME_CONFIG.boostCooldownSeconds - elapsedSec);
-                    let h = Math.floor(cooldownLeft / 3600);
-                    let m = Math.floor((cooldownLeft % 3600) / 60);
-                    let s = cooldownLeft % 60;
-                    let timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-
-                    boostBtn.className = "boost-btn btn-disabled";
-                    boostBtn.disabled = true;
-                    boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 8px;">${timeStr}</span>`;
-                }
-                return;
-            }
-        }
-
-        // جاهز للتفعيل
-        if (!isBoosting) {
-            boostBtn.className = "boost-btn";
-            boostBtn.disabled = false;
-            boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">+0.1/h</span>`; 
-        } else {
-            boostBtn.className = "boost-btn btn-disabled";
-            boostBtn.disabled = true;
-            boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 10px;">تفعيل...</span>`;
-        }
-    }
-
     window.updateFarmUI = function() {
         const pData = window.userState || window.PlayerData || {};
         let bal = getStoredBalance();
         let usdBal = getStoredUsdBalance();
-        let hRate = getCurrentEffectiveHourlyRate();
+        let baseRate = parseFloat(pData.hourly_rate ?? 0.1);
+        let boostRate = getActiveBoostRate(pData);
+        let totalRate = baseRate + boostRate;
 
         const balEl = document.getElementById('farm-balance');
         if (balEl) balEl.innerText = `${formatZnBalance(bal)} ZN`;
@@ -604,8 +559,9 @@ window.closeWelcomeModal = function() {
 
         const rateEl = document.getElementById('farm-rate');
         if (rateEl) {
-            let formattedRate = (hRate % 1 === 0) ? hRate.toString() : Number(hRate.toFixed(4)).toString();
-            rateEl.innerHTML = `<span dir="ltr">${formattedRate} /h</span> ⚡`;
+            let formattedRate = (totalRate % 1 === 0) ? totalRate.toString() : Number(totalRate.toFixed(4)).toString();
+            let boostIndicator = boostRate > 0 ? ` <span style="color:#10b981; font-size:11px;">(+0.1🚀)</span>` : '';
+            rateEl.innerHTML = `<span dir="ltr">${formattedRate} /h</span>⚡${boostIndicator}`;
         }
 
         const stgLvl = parseInt(pData.storage_level ?? 0, 10);
@@ -689,9 +645,58 @@ window.closeWelcomeModal = function() {
             fieldsContainer.innerHTML = fieldsHTML;
         }
 
-        updateBoostButtonUI();
+        updateBoostButtonUI(pData);
         renderDailyRewards(); 
     };
+
+    function updateBoostButtonUI(pData) {
+        const boostBtn = document.getElementById('boost-btn');
+        if (!boostBtn) return;
+
+        boostBtn.onclick = window.handleDailyBoost;
+        const lastBoostTimeStr = pData.last_boost_time;
+
+        if (!lastBoostTimeStr) {
+            if (!isBoosting) {
+                boostBtn.className = "boost-btn";
+                boostBtn.disabled = false;
+                boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">+0.1/h</span>`;
+            } else {
+                boostBtn.className = "boost-btn btn-disabled";
+                boostBtn.disabled = true;
+                boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 10px;">تفعيل...</span>`;
+            }
+            return;
+        }
+
+        let lastBoostMs = parseServerDateMs(lastBoostTimeStr);
+        let elapsed = getAdjustedNowMs() - lastBoostMs;
+
+        if (elapsed < GAME_CONFIG.boostDurationMs) {
+            // أثناء فترة العمل (الساعتان)
+            let remainingActive = GAME_CONFIG.boostDurationMs - elapsed;
+            boostBtn.className = "boost-btn active-boost";
+            boostBtn.disabled = true;
+            boostBtn.innerHTML = `<span style="font-size: 12px;">⚡</span><span style="font-size: 9px; color:#10b981;">نشط ${formatTimeDifference(remainingActive)}</span>`;
+        } else if (elapsed < GAME_CONFIG.boostCooldownMs) {
+            // أثناء أوقات الانتظار لتجديد السرعة (الساعة المتبقية)
+            let remainingCooldown = GAME_CONFIG.boostCooldownMs - elapsed;
+            boostBtn.className = "boost-btn btn-disabled";
+            boostBtn.disabled = true;
+            boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 8px;">${formatTimeDifference(remainingCooldown)}</span>`;
+        } else {
+            // جاهز للتفعيل مجدداً بعد 3 ساعات
+            if (!isBoosting) {
+                boostBtn.className = "boost-btn";
+                boostBtn.disabled = false;
+                boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">+0.1/h</span>`;
+            } else {
+                boostBtn.className = "boost-btn btn-disabled";
+                boostBtn.disabled = true;
+                boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 10px;">تفعيل...</span>`;
+            }
+        }
+    }
 
     window.onFarmTabOpen = async function() {
         if (typeof window.fetchPlayerDataFromServer === 'function') {
@@ -704,7 +709,6 @@ window.closeWelcomeModal = function() {
     function getRewardForDayIndex(index) {
         const rewards = GAME_CONFIG.dailyRewards;
         if (!rewards || !Array.isArray(rewards)) return 0.2;
-        if (index >= rewards.length) return 40.0; // الوصول لليوم 30 وما فوق يستلم 40 ZN
         return rewards[index] ?? 40.0;
     }
 
@@ -725,7 +729,7 @@ window.closeWelcomeModal = function() {
         for (let i = 0; i < 30; i++) {
             let dayNum = i + 1;
             let rawReward = getRewardForDayIndex(i);
-            let displayReward = formatCompactNumber(rawReward);
+            let displayReward = formatCompactNumber(rawReward) + ' ZN';
 
             if (claimedToday) {
                 if (dayNum <= currentDailyDay) {
@@ -767,7 +771,9 @@ window.closeWelcomeModal = function() {
         lastCheckedDate = todayStr;
 
         let maxC = parseFloat(pData.max_cap ?? 0.5);
-        let hRate = getCurrentEffectiveHourlyRate();
+        let baseRate = parseFloat(pData.hourly_rate ?? 0.1);
+        let boostRate = getActiveBoostRate(pData);
+        let hRate = baseRate + boostRate;
         
         let lastClaimStr = pData.last_claim_time;
         let lastClaimTimeMs = lastClaimStr ? parseServerDateMs(lastClaimStr) : getAdjustedNowMs();
@@ -819,7 +825,7 @@ window.closeWelcomeModal = function() {
             }
         }
 
-        updateBoostButtonUI();
+        updateBoostButtonUI(pData);
 
         const dailyTimerEl = document.getElementById('daily-timer');
         const lastDailyClaim = pData.last_daily_claim_date;
@@ -998,6 +1004,7 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
+            // عرض إعلان Monetag عند استلام المكافأة اليومية
             await showMonetagAd();
 
             let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST', {});
@@ -1037,14 +1044,12 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
+            // عرض إعلان Monetag عند تفعيل زيادة سرعة التعدين
             await showMonetagAd();
 
             let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
-
-                window.userState = {};
-                window.PlayerData = {};
 
                 if (resData.player) {
                     Object.assign(window.PlayerData, resData.player);
@@ -1055,18 +1060,30 @@ window.closeWelcomeModal = function() {
                 const newUsdBal = resData.new_usd_balance ?? resData.usd_balance ?? resData.player?.usd_balance;
                 setStoredBalance(newBal, newUsdBal);
 
-                if (resData.last_boost_time) {
-                    window.userState.last_boost_time = resData.last_boost_time;
-                    window.PlayerData.last_boost_time = resData.last_boost_time;
+                if (resData.last_boost_time || resData.player?.last_boost_time) {
+                    const bTime = resData.last_boost_time || resData.player?.last_boost_time;
+                    window.userState.last_boost_time = bTime;
+                    window.PlayerData.last_boost_time = bTime;
                 }
 
-                showToast(`⚡ تم تفعيل تعزيز السرعة (+0.1/ساعة) لمدة ساعتين بنجاح!`);
+                if (resData.last_claim_time) {
+                    window.userState.last_claim_time = resData.last_claim_time;
+                    window.PlayerData.last_claim_time = resData.last_claim_time;
+                }
+                if (resData.unclaimed !== undefined) {
+                    window.userState.unclaimed = parseFloat(resData.unclaimed);
+                    window.PlayerData.unclaimed = parseFloat(resData.unclaimed);
+                    window.userState.base_unclaimed = parseFloat(resData.unclaimed);
+                    window.PlayerData.base_unclaimed = parseFloat(resData.unclaimed);
+                }
+
+                showToast(`⚡ تم تفعيل تعزيز السرعة (+0.1 ZN/ساعة) لمدة ساعتين بنجاح!`);
                 saveCachedData(window.userState);
             } else {
                 showToast(resData?.error || "❌ تعذر تفعيل التعزيز");
             }
         } catch (e) {
-            console.error("خطأ التعزيز:", e);
+            console.error("خطأ التعزيز اليومي:", e);
             restoreState(stateBackup);
             showToast("❌ حدث خطأ أثناء تفعيل التعزيز");
         } finally {
