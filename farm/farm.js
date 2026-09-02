@@ -44,27 +44,26 @@ window.closeWelcomeModal = function() {
         maxDailyBoostRate: 4.5,
         boostMaxRewardCoins: 35.0,
         upgradeCosts: {
-            1: { cost_zn: 600, cost_usd: 0.0, rate: 1.0 },
-            2: { cost_zn: 1500, cost_usd: 0.10, rate: 2.5 },
-            3: { cost_zn: 3800, cost_usd: 0.15, rate: 6.0 },
-            4: { cost_zn: 10000, cost_usd: 0.20, rate: 15.0 },
-            5: { cost_zn: 28000, cost_usd: 0.25, rate: 40.0 },
-            6: { cost_zn: 75000, cost_usd: 0.30, rate: 100.0 },
-            7: { cost_zn: 200000, cost_usd: 0.35, rate: 250.0 },
-            8: { cost_zn: 500000, cost_usd: 0.40, rate: 600.0 },
-            9: { cost_zn: 1400000, cost_usd: 0.50, rate: 1500.0 }
+            1: { cost_zn: 0, cost_usd: 0.0, rate: 0.1 },
+            2: { cost_zn: 100, cost_usd: 0.0, rate: 0.2 },
+            3: { cost_zn: 400, cost_usd: 0.25, rate: 0.5 },
+            4: { cost_zn: 1500, cost_usd: 0.60, rate: 1.2 },
+            5: { cost_zn: 5000, cost_usd: 1.25, rate: 2.8 },
+            6: { cost_zn: 15000, cost_usd: 3.00, rate: 6.0 },
+            7: { cost_zn: 40000, cost_usd: 6.00, rate: 14.0 },
+            8: { cost_zn: 100000, cost_usd: 12.00, rate: 30.0 },
+            9: { cost_zn: 250000, cost_usd: 25.00, rate: 70.0 }
         },
         storageConfig: {
-            "0": { capacity: 30.0, cost_zn: 0, cost_usd: 0.0 },
-            "1": { capacity: 150.0, cost_zn: 400, cost_usd: 0.0 },
-            "2": { capacity: 500.0, cost_zn: 1200, cost_usd: 0.05 },
-            "3": { capacity: 1500.0, cost_zn: 3500, cost_usd: 0.10 },
-            "4": { capacity: 4000.0, cost_zn: 10000, cost_usd: 0.15 },
-            "5": { capacity: 10000.0, cost_zn: 25000, cost_usd: 0.20 },
-            "6": { capacity: 25000.0, cost_zn: 65000, cost_usd: 0.25 },
-            "7": { capacity: 70000.0, cost_zn: 180000, cost_usd: 0.30 },
-            "8": { capacity: 200000.0, cost_zn: 500000, cost_usd: 0.35 },
-            "9": { capacity: 600000.0, cost_zn: 1500000, cost_usd: 0.40 }
+            "0": { capacity: 0.5, cost_zn: 0, cost_usd: 0.0 },
+            "1": { capacity: 1.5, cost_zn: 50, cost_usd: 0.0 },
+            "2": { capacity: 4.0, cost_zn: 200, cost_usd: 0.20 },
+            "3": { capacity: 10.0, cost_zn: 800, cost_usd: 0.50 },
+            "4": { capacity: 25.0, cost_zn: 2500, cost_usd: 1.00 },
+            "5": { capacity: 60.0, cost_zn: 7000, cost_usd: 2.50 },
+            "6": { capacity: 150.0, cost_zn: 20000, cost_usd: 5.00 },
+            "7": { capacity: 400.0, cost_zn: 50000, cost_usd: 10.00 },
+            "8": { capacity: 1000.0, cost_zn: 120000, cost_usd: 20.00 }
         },
         dailyRewards: [
             5, 10, 15, 20, 25, 30, 40, 45, 50, 60,
@@ -394,8 +393,8 @@ window.closeWelcomeModal = function() {
         const pData = window.userState || window.PlayerData;
         if (!pData) return;
 
-        let maxC = parseFloat(pData.max_cap ?? 30.0);
-        let hRate = parseFloat(pData.hourly_rate ?? 0.05);
+        let maxC = parseFloat(pData.max_cap ?? 0.5);
+        let hRate = parseFloat(pData.hourly_rate ?? 0.1);
         let lastClaimStr = pData.last_claim_time;
         let lastClaimTimeMs = lastClaimStr ? parseServerDateMs(lastClaimStr) : getAdjustedNowMs();
         let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimTimeMs) / 1000);
@@ -521,7 +520,7 @@ window.closeWelcomeModal = function() {
         const pData = window.userState || window.PlayerData || {};
         let bal = getStoredBalance();
         let usdBal = getStoredUsdBalance();
-        let hRate = parseFloat(pData.hourly_rate ?? 0.05);
+        let hRate = parseFloat(pData.hourly_rate ?? 0.1);
 
         const balEl = document.getElementById('farm-balance');
         if (balEl) balEl.innerText = `${formatZnBalance(bal)} ZN`;
@@ -537,14 +536,14 @@ window.closeWelcomeModal = function() {
 
         const stgLvl = parseInt(pData.storage_level ?? 0, 10);
         const stgLvlEl = document.getElementById('storage-level-num');
-        if (stgLvlEl) stgLvlEl.innerText = stgLvl;
+        if (stgLvlEl) stgLvlEl.innerText = stgLvl + 1;
 
         const upgradeStgBtn = document.getElementById('upgrade-storage-btn');
         if (upgradeStgBtn) {
             upgradeStgBtn.onclick = window.handleStorageUpgrade;
             const nextLvl = stgLvl + 1;
             const nextCfg = GAME_CONFIG.storageConfig[nextLvl.toString()];
-            if (stgLvl >= 9 || !nextCfg) {
+            if (stgLvl >= 8 || !nextCfg) {
                 upgradeStgBtn.innerText = "المخزن في المستوى الأقصى (MAX) 🏆";
                 upgradeStgBtn.disabled = true;
                 upgradeStgBtn.className = "storage-upgrade-btn btn-disabled";
@@ -556,7 +555,7 @@ window.closeWelcomeModal = function() {
                 const costStrUsd = costUsd > 0 ? ` + $${costUsd.toFixed(2)}` : '';
                 
                 const canAfford = (bal >= costZn) && (usdBal >= costUsd);
-                upgradeStgBtn.innerText = isUpgradingStorage ? "جاري الترقية... ⏳" : `ترقية المخزن Lvl ${nextLvl} (${costStrZn} ZN${costStrUsd}) 📦`;
+                upgradeStgBtn.innerText = isUpgradingStorage ? "جاري الترقية... ⏳" : `ترقية المخزن Lvl ${nextLvl + 1} (${costStrZn} ZN${costStrUsd}) 📦`;
                 upgradeStgBtn.disabled = !canAfford || isUpgradingStorage;
                 upgradeStgBtn.className = (canAfford && !isUpgradingStorage) ? "storage-upgrade-btn btn-ready-yellow" : "storage-upgrade-btn btn-disabled";
             }
@@ -716,8 +715,8 @@ window.closeWelcomeModal = function() {
         }
         lastCheckedDate = todayStr;
 
-        let maxC = parseFloat(pData.max_cap ?? 30.0);
-        let hRate = parseFloat(pData.hourly_rate ?? 0.05);
+        let maxC = parseFloat(pData.max_cap ?? 0.5);
+        let hRate = parseFloat(pData.hourly_rate ?? 0.1);
         
         let lastClaimStr = pData.last_claim_time;
         let lastClaimTimeMs = lastClaimStr ? parseServerDateMs(lastClaimStr) : getAdjustedNowMs();
@@ -816,7 +815,7 @@ window.closeWelcomeModal = function() {
         const nextLvl = stgLvl + 1;
         const nextCfg = GAME_CONFIG.storageConfig[nextLvl.toString()];
 
-        if (stgLvl >= 9 || !nextCfg) return;
+        if (stgLvl >= 8 || !nextCfg) return;
 
         const costZn = typeof nextCfg === 'object' ? (nextCfg.cost_zn ?? nextCfg.cost ?? 0) : 0;
         const costUsd = typeof nextCfg === 'object' ? (nextCfg.cost_usd ?? 0) : 0;
@@ -867,7 +866,7 @@ window.closeWelcomeModal = function() {
                     window.PlayerData.base_unclaimed = parseFloat(resData.unclaimed);
                 }
                 saveCachedData(window.userState);
-                showToast(`📦 تم ترقية سعة المخزن بنجاح إلى Level ${resData.storage_level}!`);
+                showToast(`📦 تم ترقية سعة المخزن بنجاح إلى Level ${parseInt(resData.storage_level || nextLvl) + 1}!`);
             } else {
                 restoreState(stateBackup);
                 showToast(resData?.error || "❌ تعذر ترقية المخزن");
@@ -914,7 +913,7 @@ window.closeWelcomeModal = function() {
 
         const addRate = parseFloat(lvlCfg.rate || 0);
         if (addRate > 0) {
-            const currentHourly = parseFloat(window.userState.hourly_rate || 0.05);
+            const currentHourly = parseFloat(window.userState.hourly_rate || 0.1);
             window.userState.hourly_rate = currentHourly + addRate;
             window.PlayerData.hourly_rate = currentHourly + addRate;
         }
@@ -1136,7 +1135,6 @@ window.closeWelcomeModal = function() {
                     window.PlayerData.ads_watched = resData.ads_watched;
                 }
 
-                // حفظ تاريخ مشاهدة الإعلان فقط إذا اكتملت المشاهدة بنجاح
                 if (adShown) {
                     const savedAdDate = resData.last_claim_ad_date || todayStr;
                     window.userState.last_claim_ad_date = savedAdDate;
