@@ -22,7 +22,7 @@ body {
 #app {
     min-height: 100vh;
     padding: 12px;
-    padding-bottom: calc(85px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px));
 }
 
 /* ==========================================
@@ -60,7 +60,7 @@ body {
 }
 
 /* ==========================================
-   إدارة ظهور واجهات الأقسام المكتفية بذاتها
+   إدارة ظهور واجهات الأقسام
    ========================================== */
 .game-view {
     display: none;
@@ -116,7 +116,7 @@ body {
 }
 
 /* ==========================================
-   شريط التنقل السفلي المطور (9 عناصر)
+   شريط التنقل السفلي المطور (7 عناصر)
    ========================================== */
 .bottom-nav {
     position: fixed;
@@ -124,18 +124,18 @@ body {
     left: 0;
     right: 0;
     width: 100%;
-    height: calc(62px + env(safe-area-inset-bottom, 0px));
+    height: calc(66px + env(safe-area-inset-bottom, 0px));
     padding-bottom: env(safe-area-inset-bottom, 0px);
     background: rgba(15, 23, 42, 0.96);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     display: flex;
-    justify-content: space-between;
+    justify-content: space-around;
     align-items: center;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     z-index: 9999;
-    padding-left: 1px;
-    padding-right: 1px;
+    padding-left: 4px;
+    padding-right: 4px;
     transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, visibility 0.2s;
 }
 
@@ -150,7 +150,7 @@ body {
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    padding: 2px 0;
+    padding: 4px 0;
     transition: all 0.2s ease;
     position: relative;
     height: 100%;
@@ -158,14 +158,14 @@ body {
 }
 
 .nav-item i {
-    font-size: 12px;
-    margin-bottom: 2px;
+    font-size: 16px;
+    margin-bottom: 3px;
     transition: transform 0.2s ease, color 0.2s ease;
     display: block;
 }
 
 .nav-item span {
-    font-size: 7.5px;
+    font-size: 9.5px;
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
@@ -173,7 +173,7 @@ body {
     width: 100%;
     text-align: center;
     display: block;
-    padding: 0 0.5px;
+    padding: 0 1px;
 }
 
 .nav-item.active {
@@ -181,9 +181,9 @@ body {
 }
 
 .nav-item.active i {
-    transform: translateY(-1px) scale(1.1);
+    transform: translateY(-2px) scale(1.15);
     color: #f59e0b;
-    filter: drop-shadow(0 2px 4px rgba(245, 158, 11, 0.5));
+    filter: drop-shadow(0 2px 6px rgba(245, 158, 11, 0.6));
 }
 
 .nav-item.active::before {
@@ -192,11 +192,11 @@ body {
     top: 0;
     left: 50%;
     transform: translateX(-50%);
-    width: 12px;
+    width: 16px;
     height: 3px;
     background: #f59e0b;
     border-radius: 0 0 4px 4px;
-    box-shadow: 0 2px 6px #f59e0b;
+    box-shadow: 0 2px 8px #f59e0b;
 }
 
 .nav-item:active {
@@ -205,16 +205,16 @@ body {
 
 /* زر المزرعة المركزي المميز */
 .nav-item.nav-center-btn {
-    flex: 0 0 44px;
-    height: 44px;
+    flex: 0 0 50px;
+    height: 50px;
     position: relative;
-    top: -8px;
+    top: -10px;
     border-radius: 50%;
     background: linear-gradient(145deg, #1e293b, #0f172a);
     border: 2px solid #f59e0b;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6), 0 0 10px rgba(245, 158, 11, 0.3);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6), 0 0 12px rgba(245, 158, 11, 0.35);
     padding: 0;
-    margin: 0 1px;
+    margin: 0 4px;
 }
 
 .nav-item.nav-center-btn::before {
@@ -232,20 +232,20 @@ body {
 }
 
 .nav-item.nav-center-btn i {
-    font-size: 13px;
+    font-size: 15px;
     margin-bottom: 1px;
     color: #f59e0b;
 }
 
 .nav-item.nav-center-btn span {
-    font-size: 7px;
+    font-size: 8px;
     font-weight: 700;
     color: #ffffff;
 }
 
 .nav-item.nav-center-btn.active {
     border-color: #ffd700;
-    box-shadow: 0 6px 18px rgba(245, 158, 11, 0.6), 0 0 12px rgba(255, 215, 0, 0.5);
+    box-shadow: 0 6px 20px rgba(245, 158, 11, 0.7), 0 0 15px rgba(255, 215, 0, 0.6);
     background: radial-gradient(circle, #253346, #0f172a);
 }
 
@@ -254,7 +254,7 @@ body {
     color: #ffd700;
 }
 
-/* إخفاء القائمة السفلى عند فتح الكيبورد */
+/* إخفاء القائمة السفلى عند فتح لوحة المفاتيح */
 body.keyboard-open .bottom-nav,
 .bottom-nav.hide-keyboard {
     transform: translateY(100%);
