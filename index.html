@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Zn Goxe - Crypto Mining</title>
 
-    <!-- Adsgram SDK (حل مشكلة عدم تحميل مكتبة Adsgram) -->
+    <!-- Adsgram SDK -->
     <script src="https://adsgram.ai/js/adsgram-ad.js"></script>
 
     <!-- Clickadilla Script -->
@@ -26,7 +26,7 @@
     <meta property="og:description" content="انضم الآن وابدأ في جمع العملات والتعدين المباشر عبر التليجرام!" />
     <meta property="og:image" content="https://zn-goxe-production.up.railway.app/banner.jpg" />
   
-    <link rel="stylesheet" href="style.css?v=3.4">
+    <link rel="stylesheet" href="style.css?v=4.0">
 
     <style>
         /* تنسيق شاشة التنبيه للعمل فقط داخل التليجرام */
@@ -112,55 +112,21 @@
     </div>
 
     <div id="app" style="display: none;">
-        <div id="view-settings" class="game-view"></div>
-        <div id="view-games" class="game-view"></div>
-        <div id="view-offers" class="game-view"></div>
-        <div id="view-shop" class="game-view"></div>
-        <div id="view-farm" class="game-view active"></div>
-        <div id="view-tasks" class="game-view"></div>
-        <div id="view-wallet" class="game-view"></div>
-        <div id="view-leaderboard" class="game-view"></div>
         <div id="view-friends" class="game-view"></div>
+        <div id="view-leaderboard" class="game-view"></div>
+        <div id="view-wallet" class="game-view"></div>
+        <div id="view-farm" class="game-view active"></div>
+        <div id="view-shop" class="game-view"></div>
+        <div id="view-tasks" class="game-view"></div>
+        <div id="view-settings" class="game-view"></div>
     </div>
 
-    <!-- شريط التنقل السفلي المكون من 9 قوائم مرتبة من اليسار إلى اليمين -->
+    <!-- شريط التنقل السفلي المكون من 7 قوائم مرتبة ومضبوطة -->
     <nav class="bottom-nav" id="main-nav" style="display: none;">
-        <button class="nav-item" id="nav-settings" data-view="settings">
-            <i class="fas fa-cog"></i>
-            <span>الإعدادات</span>
-        </button>
-
-        <button class="nav-item" id="nav-games" data-view="games">
-            <i class="fas fa-gamepad"></i>
-            <span>الألعاب</span>
-        </button>
-
-        <button class="nav-item" id="nav-offers" data-view="offers">
-            <i class="fas fa-gift"></i>
-            <span>أرباح العروض</span>
-        </button>
-
-        <button class="nav-item" id="nav-shop" data-view="shop">
-            <i class="fas fa-store"></i>
-            <span>المتجر</span>
-        </button>
-
-        <!-- زر المزرعة المركزي -->
-        <button class="nav-item nav-center-btn active" id="nav-farm" data-view="farm">
-            <div class="farm-btn-inner">
-                <i class="fas fa-screwdriver-wrench"></i>
-                <span>المزرعة</span>
-            </div>
-        </button>
-
-        <button class="nav-item" id="nav-tasks" data-view="tasks">
-            <i class="fas fa-list-check"></i>
-            <span>المهام</span>
-        </button>
-
-        <button class="nav-item" id="nav-wallet" data-view="wallet">
-            <i class="fas fa-wallet"></i>
-            <span>المحفظة</span>
+        <!-- جهة اليمين -->
+        <button class="nav-item" id="nav-friends" data-view="friends">
+            <i class="fas fa-users"></i>
+            <span>الأصدقاء</span>
         </button>
 
         <button class="nav-item" id="nav-leaderboard" data-view="leaderboard">
@@ -168,9 +134,33 @@
             <span>المتصدرين</span>
         </button>
 
-        <button class="nav-item" id="nav-friends" data-view="friends">
-            <i class="fas fa-users"></i>
-            <span>الأصدقاء</span>
+        <button class="nav-item" id="nav-wallet" data-view="wallet">
+            <i class="fas fa-wallet"></i>
+            <span>المحفظة</span>
+        </button>
+
+        <!-- زر المزرعة المركزي المميز -->
+        <button class="nav-item nav-center-btn active" id="nav-farm" data-view="farm">
+            <div class="farm-btn-inner">
+                <i class="fas fa-screwdriver-wrench"></i>
+                <span>المزرعة</span>
+            </div>
+        </button>
+
+        <!-- جهة اليسار -->
+        <button class="nav-item" id="nav-shop" data-view="shop">
+            <i class="fas fa-store"></i>
+            <span>المتجر</span>
+        </button>
+
+        <button class="nav-item" id="nav-tasks" data-view="tasks">
+            <i class="fas fa-list-check"></i>
+            <span>المهام</span>
+        </button>
+
+        <button class="nav-item" id="nav-settings" data-view="settings">
+            <i class="fas fa-cog"></i>
+            <span>الإعدادات</span>
         </button>
     </nav>
 
@@ -179,14 +169,12 @@
         document.addEventListener("DOMContentLoaded", function() {
             const tg = window.Telegram?.WebApp;
 
-            // التحقق من وجود بيانات التليجرام أو فتح المنصة داخل TMA
             const isTelegram = tg && (
                 (tg.initData && tg.initData.length > 0) || 
                 (tg.platform && tg.platform !== "unknown")
             );
 
             if (!isTelegram) {
-                // إخفاء التحميل واللعبة وشريط التنقل
                 const loadingScreen = document.getElementById('loading-screen');
                 const app = document.getElementById('app');
                 const mainNav = document.getElementById('main-nav');
@@ -195,7 +183,6 @@
                 if (app) app.style.display = 'none';
                 if (mainNav) mainNav.style.display = 'none';
 
-                // إظهار واجهة التنبيه فقط
                 const tgOnlyScreen = document.getElementById('telegram-only-screen');
                 if (tgOnlyScreen) tgOnlyScreen.style.display = 'flex';
             }
@@ -226,6 +213,6 @@
 
     <!-- استدعاء سكريبت المحفظة وسكريبت اللعبة الرئيسي -->
     <script src="wallet/wallet.js"></script>
-    <script src="game.js?v=3.5"></script>
+    <script src="game.js?v=4.0"></script>
 </body>
 </html>
