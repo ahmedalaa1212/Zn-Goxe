@@ -34,7 +34,7 @@ def to_bool(val):
 @farm_bp.route('/farm/player_data', methods=['GET', 'POST'])
 @farm_bp.route('/api/farm/player_data', methods=['GET', 'POST'])
 def get_player_data():
-    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية مع التمرير المباشر لـ ADSGRAM_BLOCK_ID من Railway"""
+    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية من Firebase بدون قيم صلبة"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success: 
@@ -44,7 +44,6 @@ def get_player_data():
     try:
         user_data, game_settings, now = get_or_create_user_farm_data(user_id_str)
         
-        # تأكيد صريح ودقيق لحالة النافذة الترحيبية
         welcome_seen = to_bool(user_data.get("welcome_seen", False))
         user_data["welcome_seen"] = welcome_seen
         user_data["is_new_user"] = not welcome_seen
@@ -69,7 +68,6 @@ def get_player_data():
         cooldown_seconds = int(mining_cfg.get("claim_cooldown_seconds", 15))
         max_upgrades_per_level = int(mining_cfg.get("max_upgrades_per_level", 15))
 
-        # جلب المعرف مباشرة من متغيّرات بيئة Railway
         adsgram_block_id = os.environ.get("ADSGRAM_BLOCK_ID", "")
 
         return jsonify({
