@@ -76,56 +76,107 @@
         box-sizing: border-box;
     }
 
+    /* حاوية باقات العروض المميزة مع التمرير الأفقي الناعم */
     .usdt-container {
         display: flex; 
-        gap: 10px; 
+        gap: 12px; 
         overflow-x: auto; 
-        padding-bottom: 10px;
+        padding: 6px 4px 14px 4px;
         margin-bottom: 20px; 
         scrollbar-width: none;
         -webkit-overflow-scrolling: touch;
     }
     .usdt-container::-webkit-scrollbar { display: none; }
 
+    /* كارت الباقات المعدل ليستوعب المزايا بمرونة */
     .usdt-card {
-        min-width: 150px; 
-        flex: 0 0 150px; 
-        border-radius: 14px; 
+        min-width: 200px; 
+        flex: 0 0 200px; 
+        background: var(--card-bg);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px; 
         padding: 12px;
         text-align: center; 
         display: flex; 
         flex-direction: column; 
         justify-content: space-between;
         box-sizing: border-box;
-        box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+        position: relative;
+        transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
+    /* تمييز الباقة المفعلة */
+    .usdt-card.active-vip {
+        border: 1.5px solid var(--gold) !important;
+        box-shadow: 0 0 16px rgba(255, 204, 0, 0.25) !important;
+    }
+
+    /* شارة الباقة المفعلة */
+    .vip-active-badge {
+        position: absolute;
+        top: -9px;
+        right: 12px;
+        background: linear-gradient(135deg, #ffcc00, #f39c12);
+        color: #000;
+        font-size: 10px;
+        font-weight: 900;
+        padding: 2px 8px;
+        border-radius: 10px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    }
+
+    /* قائمة المزايا مع تمرير عمودي ناعم إذا زادت المزايا */
     .usdt-perks {
         font-size: 11px; 
         color: #e6edf3; 
         margin: 8px 0; 
-        line-height: 1.5;
+        line-height: 1.55;
         text-align: right; 
-        background: rgba(0,0,0,0.35); 
-        padding: 6px 8px; 
-        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.4); 
+        padding: 8px 10px; 
+        border-radius: 10px;
         font-weight: 600;
+        max-height: 135px;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+        direction: rtl;
+    }
+
+    .usdt-perks::-webkit-scrollbar {
+        width: 3px;
+    }
+    .usdt-perks::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 3px;
+    }
+
+    .usdt-perks-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin-bottom: 4px;
+        white-space: nowrap;
+    }
+    .usdt-perks-item:last-child {
+        margin-bottom: 0;
     }
 
     .btn-ton-pay {
         width: 100%; 
         border: none; 
-        padding: 9px 6px;
-        border-radius: 8px; 
+        padding: 10px 6px;
+        border-radius: 10px; 
         font-weight: 800; 
         cursor: pointer; 
-        margin-top: 5px;
+        margin-top: 6px;
         display: flex; 
         align-items: center; 
         justify-content: center; 
         gap: 4px;
         font-size: 12px;
-        transition: transform 0.1s, opacity 0.2s;
+        transition: transform 0.1s, opacity 0.2s, background 0.2s;
     }
     .btn-ton-pay:active { transform: scale(0.97); opacity: 0.85; }
 
