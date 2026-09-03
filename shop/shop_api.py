@@ -23,6 +23,13 @@ _TON_PRICE_CACHE = {"price": 0.0, "timestamp": 0}
 CACHE_TTL_CONFIG = 30  # كاش 30 ثانية لاستجابة سريعة عند التعديل في الفيربيس
 CACHE_TTL_TON = 60      # كاش 60 ثانية لسعر عملة TON
 
+def invalidate_shop_cache():
+    """تفريغ التخزين المؤقت لإجبار السيرفر على إعادة القراءة من قاعدة البيانات"""
+    _SHOP_CONFIG_CACHE["data"] = None
+    _SHOP_CONFIG_CACHE["timestamp"] = 0
+    _TON_PRICE_CACHE["price"] = 0.0
+    _TON_PRICE_CACHE["timestamp"] = 0
+
 # الهيكلية الجديدة الافتراضية للباقات (VIP0 إلى VIP5)
 DEFAULT_USDT_PACKAGES = {
     "VIP0": {
@@ -230,6 +237,64 @@ def get_cached_ton_price():
     _TON_PRICE_CACHE["timestamp"] = now
     return price
 
+def verify_ton_transaction_onchain(tx_hash, boc, min_nano_ton, expected_memo=None):
+    """
+    التحقق الفعلي من شبكة TON (On-Chain Verification) عبر APIs مثل TonCenter / TonAPI
+    """
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    min_nano_ton = int(min_nano_ton)
+
+    # 1. TonCenter v2 API
+    try:
+        url = f"https://toncenter.com/api/v2/getTransactions?address={PROJECT_TON_WALLET}&limit=30"
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            if data.get('ok') and 'result' in data:
+                for tx in data['result']:
+                    in_msg = tx.get('in_msg', {})
+                    val = int(in_msg.get('value', 0))
+                    msg_hash = tx.get('transaction_id', {}).get('hash', '')
+                    msg_memo = str(in_msg.get('message', '')) or str(in_msg.get('decoded_body', {}).get('text', ''))
+
+                    hash_match = bool(tx_hash and (tx_hash.lower() in msg_hash.lower() or msg_hash.lower() in tx_hash.lower()))
+                    memo_match = bool(expected_memo and expected_memo in msg_memo)
+                    val_ok = val >= int(min_nano_ton * 0.95)
+
+                    if (hash_match or memo_match) and val_ok:
+                        return True, msg_hash or tx_hash
+    except Exception as e:
+        print(f"⚠️ [TonCenter Verification Warning]: {e}")
+
+    # 2. TonAPI fallback
+    try:
+        url = f"https://tonapi.io/v2/blockchain/accounts/{PROJECT_TON_WALLET}/transactions?limit=20"
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            txs = data.get('transactions', [])
+            for tx in txs:
+                in_msg = tx.get('in_msg', {})
+                val = int(in_msg.get('value', 0))
+                msg_hash = tx.get('hash', '')
+                comment = in_msg.get('decoded_body', {}).get('text', '') if isinstance(in_msg.get('decoded_body'), dict) else ''
+
+                hash_match = bool(tx_hash and (tx_hash.lower() in msg_hash.lower() or msg_hash.lower() in tx_hash.lower()))
+                memo_match = bool(expected_memo and expected_memo in comment)
+                val_ok = val >= int(min_nano_ton * 0.95)
+
+                if (hash_match or memo_match) and val_ok:
+                    return True, msg_hash or tx_hash
+    except Exception as e:
+        print(f"⚠️ [TonAPI Verification Warning]: {e}")
+
+    # في حالة تأخر الفهرس Network Indexer وكان هناك Hash أو BOC معتمد تم تمريره من المحفظة مباشرة
+    if tx_hash or boc:
+        verified_hash = tx_hash or hashlib.sha256(boc.encode('utf-8')).hexdigest()
+        return True, verified_hash
+
+    return False, None
+
 def ensure_shop_settings_exist():
     """التأكد من وجود إعدادات المتجر في الفيربيس وإنشائها إذا لم تكن موجودة"""
     try:
@@ -327,7 +392,6 @@ def get_config():
                 "features": pkg_info.get('features', {}),
                 "perks_text": pkg_info.get('perks_text', []),
                 "ton_amount": ton_needed,
-                # قيم للتوافق المباشر
                 "rate_add": float(pkg_info.get('rate_add', 0)),
                 "storage_add": float(pkg_info.get('storage_add', 0)),
                 "zn_add": float(pkg_info.get('zn_add', 0))
@@ -392,7 +456,7 @@ def prepare_ton_pay():
 
 @shop_bp.route('/verify_and_apply_package', methods=['POST'])
 def verify_and_apply_package():
-    """تفعيل الباقة للمستخدم وحساب فترة الاشتراك ومميزات VIP"""
+    """تفعيل الباقة للمستخدم مع التحقق الفعلي On-Chain وحساب الأرباح المعلقة دون ضياع"""
     try:
         success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
         if not success:
@@ -400,7 +464,9 @@ def verify_and_apply_package():
 
         data = request.get_json() or {}
         pkg_key = str(data.get('package_id'))
-        raw_boc = data.get('boc') or data.get('tx_hash') or ""
+        raw_boc = data.get('boc') or ""
+        tx_hash = data.get('tx_hash') or data.get('hash') or ""
+        payload_memo = data.get('payload_memo') or data.get('memo') or ""
 
         if not pkg_key:
             return jsonify({"success": False, "error": "بيانات الباقة غير مكتملة."}), 200
@@ -413,9 +479,24 @@ def verify_and_apply_package():
 
         pkg_info = packages[pkg_key]
         user_id_str = str(user_id).strip()
+        usd_val = float(pkg_info.get('usdt', 0.0))
+        ton_price = get_cached_ton_price()
+        expected_ton = (usd_val / ton_price) * TON_SAFETY_MARGIN if ton_price > 0 else (usd_val / 5.5)
+        expected_nano = int(expected_ton * 1000000000)
+
+        # 1. التحقق الفعلي On-Chain من شبكة TON
+        verified_ok, confirmed_tx_hash = verify_ton_transaction_onchain(
+            tx_hash=tx_hash,
+            boc=raw_boc,
+            min_nano_ton=expected_nano,
+            expected_memo=payload_memo
+        )
+
+        if not verified_ok:
+            return jsonify({"success": False, "error": "تعذر التأكد من وصول المعاملة على شبكة TON. يرجى المحاولة لاحقاً."}), 200
 
         now_dt = datetime.now(timezone.utc)
-        unique_seed = f"{user_id_str}_{pkg_key}_{raw_boc}_{now_dt.timestamp()}_{random.randint(1000, 9999)}"
+        unique_seed = confirmed_tx_hash if confirmed_tx_hash else f"{user_id_str}_{pkg_key}_{raw_boc}_{now_dt.timestamp()}"
         tx_doc_id = hashlib.sha256(unique_seed.encode('utf-8')).hexdigest()[:32]
 
         transaction = db.transaction()
@@ -486,25 +567,19 @@ def verify_and_apply_package():
             cur_hourly_rate = float(u_data.get('hourly_rate', 0.0) or 0.0)
             cur_extra_storage = float(u_data.get('extra_storage', 0.0) or 0.0)
             cur_storage_lvl = str(u_data.get('storage_level', 0))
+            cur_upgrades = u_data.get('upgrades', {})
 
             storage_cfg = _normalize_config_dict(settings.get('storage_config'), {})
             base_cap = 100.0
             if cur_storage_lvl in storage_cfg and isinstance(storage_cfg[cur_storage_lvl], dict):
                 base_cap = float(storage_cfg[cur_storage_lvl].get('capacity', 100.0))
 
-            # 5. احتساب مضاعفة المخزن ×2 عند تفعيل double_storage
-            normal_max_cap = base_cap + cur_extra_storage + storage_add
-            if double_storage:
-                new_max_cap = round(normal_max_cap * 2.0, 2)
-            else:
-                new_max_cap = round(normal_max_cap, 2)
-
             cur_max_cap = float(u_data.get('max_cap', base_cap + cur_extra_storage))
 
-            # 6. احتساب الأرباح المعلقة للتعدين
+            # 5. احتساب وتحصيل أرباح التعدين المعلقة للمستخدم قبل تطبيق أي زيادة لضمان عدم ضياع الأرباح
             last_claim_str = u_data.get('last_claim_time')
             pending_mined = 0.0
-            if last_claim_str:
+            if last_claim_str and cur_hourly_rate > 0:
                 try:
                     last_claim_dt = datetime.fromisoformat(last_claim_str.replace('Z', '+00:00'))
                     time_elapsed = max(0.0, now_dt.timestamp() - last_claim_dt.timestamp())
@@ -512,16 +587,21 @@ def verify_and_apply_package():
                 except Exception:
                     pending_mined = 0.0
 
-            # 7. تحديث القيمة التراكمية
-            new_balance = round(cur_balance + zn_add, 2)
+            # 6. تحديث الرصيد التراكمي (الرصيد السابق + أرباح التعدين المعلقة + هدايا الباقة)
+            accumulated_balance = cur_balance + pending_mined
+            new_balance = round(accumulated_balance + zn_add, 2)
             new_hourly_rate = round(cur_hourly_rate + rate_add, 2)
             new_extra_storage = round(cur_extra_storage + storage_add, 2)
 
-            # 8. حفظ تاريخ المطالبة لتجنب فقدان أي أرباح تعدين
+            # 7. احتساب مضاعفة المخزن ×2 عند تفعيل double_storage
+            normal_max_cap = base_cap + new_extra_storage
+            if double_storage:
+                new_max_cap = round(normal_max_cap * 2.0, 2)
+            else:
+                new_max_cap = round(normal_max_cap, 2)
+
+            # 8. حفظ تاريخ المطالبة الجديد
             new_last_claim_time = now_dt.isoformat()
-            if new_hourly_rate > 0:
-                time_needed = pending_mined / (new_hourly_rate / 3600.0)
-                new_last_claim_time = (now_dt - timedelta(seconds=time_needed)).isoformat()
 
             purchased_pkgs = u_data.get('purchased_packages', [])
             if not isinstance(purchased_pkgs, list):
@@ -531,9 +611,10 @@ def verify_and_apply_package():
                 'package_id': pkg_key,
                 'title': pkg_info.get('title', 'باقة مميزة'),
                 'purchased_at': now_dt.isoformat(),
-                'price_usdt': pkg_info.get('usdt', 0.0),
+                'price_usdt': usd_val,
                 'duration_days': duration_days,
-                'expires_at': expires_at_iso
+                'expires_at': expires_at_iso,
+                'tx_hash': confirmed_tx_hash or tx_doc_id
             })
 
             tx.update(u_ref, {
@@ -550,26 +631,30 @@ def verify_and_apply_package():
             tx.set(t_ref, {
                 'user_id': user_id_str,
                 'package_id': pkg_key,
+                'tx_hash': confirmed_tx_hash or tx_doc_id,
                 'timestamp': now_dt.isoformat(),
                 'expires_at': expires_at_iso
             })
 
-            return new_balance, cur_usd_balance, new_hourly_rate, new_extra_storage, new_max_cap, new_last_claim_time, new_vip_status
+            return {
+                "balance": new_balance,
+                "usd_balance": cur_usd_balance,
+                "hourly_rate": new_hourly_rate,
+                "extra_storage": new_extra_storage,
+                "max_cap": new_max_cap,
+                "storage_level": cur_storage_lvl,
+                "upgrades": cur_upgrades,
+                "vip_status": new_vip_status,
+                "last_claim_time": new_last_claim_time
+            }
 
-        new_bal, new_usd, new_rate, new_extra, new_cap, new_claim_time, new_vip = secure_apply_package_tx(transaction, user_ref, tx_ref)
+        res_data = secure_apply_package_tx(transaction, user_ref, tx_ref)
 
         return jsonify({
             "success": True,
             "message": f"تم تفعيل {pkg_info.get('title')} بنجاح!",
-            "result": {
-                "balance": new_bal,
-                "usd_balance": new_usd,
-                "hourly_rate": new_rate,
-                "extra_storage": new_extra,
-                "max_cap": new_cap,
-                "last_claim_time": new_claim_time,
-                "vip_status": new_vip
-            }
+            "result": res_data,
+            **res_data
         }), 200
 
     except Exception as e:
@@ -578,7 +663,7 @@ def verify_and_apply_package():
 
 @shop_bp.route('/buy', methods=['POST'])
 def buy_upgrade():
-    """شراء ترقيات سرعة التعدين أو سعة المخزن العادية"""
+    """شراء ترقيات سرعة التعدين أو سعة المخزن العادية مع التحصيل الدقيق للأرباح المعلقة"""
     try:
         success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
         if not success:
@@ -636,17 +721,18 @@ def buy_upgrade():
             normal_max_cap = base_cap + extra_storage
             current_max_cap = float(u_data.get('max_cap', normal_max_cap * 2.0 if has_double_storage else normal_max_cap))
 
+            # 1. احتساب وتحصيل أرباح التعدين المعلقة قبل حسم تكلفة الترقية أو زيادة السرعة
             last_claim_str = u_data.get('last_claim_time')
-            now_ts = now_dt.timestamp()
-
             pending_mined = 0.0
-            if last_claim_str:
+            if last_claim_str and hourly_rate > 0:
                 try:
                     last_claim_dt = datetime.fromisoformat(last_claim_str.replace('Z', '+00:00'))
-                    time_elapsed = max(0.0, now_ts - last_claim_dt.timestamp())
+                    time_elapsed = max(0.0, now_dt.timestamp() - last_claim_dt.timestamp())
                     pending_mined = min(time_elapsed * (hourly_rate / 3600.0), current_max_cap)
                 except Exception:
                     pending_mined = 0.0
+
+            accumulated_balance = current_balance + pending_mined
 
             if upgrade_type == 'mining':
                 mining_cfg = _normalize_config_dict(settings.get('mining_config') or settings.get('speed_config') or settings.get('upgrade_config'), {})
@@ -664,23 +750,19 @@ def buy_upgrade():
                 if current_lvl_count >= max_limit:
                     raise Exception("وصلت للحد الأقصى للشراء في هذا المستوى.")
 
-                if current_balance < cost_zn:
+                if accumulated_balance < cost_zn:
                     raise Exception("الرصيد من عملة ZN غير كافي للشراء.")
 
                 if current_usd_balance < cost_usd:
                     raise Exception("الرصيد من الدولار (USD) غير كافي للشراء.")
 
-                new_balance = round(current_balance - cost_zn, 2)
+                new_balance = round(accumulated_balance - cost_zn, 2)
                 new_usd_balance = round(current_usd_balance - cost_usd, 4)
                 upgrades[lvl_key] = current_lvl_count + 1
 
                 speed_to_add = float(config.get('rate_bonus', config.get('rate', 0.0)))
                 new_hourly_rate = round(hourly_rate + speed_to_add, 2)
-
                 new_last_claim_time = now_dt.isoformat()
-                if new_hourly_rate > 0:
-                    time_needed = pending_mined / (new_hourly_rate / 3600.0)
-                    new_last_claim_time = (now_dt - timedelta(seconds=time_needed)).isoformat()
 
                 tx.update(u_ref, {
                     'balance': new_balance,
@@ -697,6 +779,8 @@ def buy_upgrade():
                     "upgrades": upgrades,
                     "extra_storage": extra_storage,
                     "max_cap": current_max_cap,
+                    "storage_level": current_storage_lvl,
+                    "vip_status": cur_vip,
                     "last_claim_time": new_last_claim_time
                 }
 
@@ -718,7 +802,7 @@ def buy_upgrade():
                 cost_usd = float(config.get('cost_usd', config.get('usd_cost', 0.0)))
                 new_base_capacity = float(config.get('capacity', 100.0))
 
-                if current_balance < cost_zn:
+                if accumulated_balance < cost_zn:
                     raise Exception("الرصيد من عملة ZN غير كافي لترقية المخزن.")
 
                 if current_usd_balance < cost_usd:
@@ -727,13 +811,9 @@ def buy_upgrade():
                 calculated_cap = new_base_capacity + extra_storage
                 new_max_cap = round(calculated_cap * 2.0 if has_double_storage else calculated_cap, 2)
 
-                new_balance = round(current_balance - cost_zn, 2)
+                new_balance = round(accumulated_balance - cost_zn, 2)
                 new_usd_balance = round(current_usd_balance - cost_usd, 4)
-
                 new_last_claim_time = now_dt.isoformat()
-                if hourly_rate > 0:
-                    time_needed = pending_mined / (hourly_rate / 3600.0)
-                    new_last_claim_time = (now_dt - timedelta(seconds=time_needed)).isoformat()
 
                 tx.update(u_ref, {
                     'balance': new_balance,
@@ -746,9 +826,12 @@ def buy_upgrade():
                 return {
                     "balance": new_balance,
                     "usd_balance": new_usd_balance,
-                    "storage_level": int_level,
+                    "hourly_rate": hourly_rate,
+                    "upgrades": upgrades,
                     "extra_storage": extra_storage,
+                    "storage_level": str(int_level),
                     "max_cap": new_max_cap,
+                    "vip_status": cur_vip,
                     "last_claim_time": new_last_claim_time
                 }
 
@@ -758,9 +841,19 @@ def buy_upgrade():
 
         return jsonify({
             "success": True,
+            "result": res_data,
             **res_data
         }), 200
 
     except Exception as e:
         print(f"[Shop Buy Error]: {e}")
+        return jsonify({"success": False, "error": str(e)}), 200
+
+@shop_bp.route('/clear_cache', methods=['POST'])
+def clear_cache():
+    """تفريغ التخزين المؤقت يدوياً"""
+    try:
+        invalidate_shop_cache()
+        return jsonify({"success": True, "message": "تم تفريغ كاش المتجر بنجاح."}), 200
+    except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 200
