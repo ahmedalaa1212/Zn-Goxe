@@ -62,7 +62,7 @@ def get_player_data():
         storage_configs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
         mining_cfg = game_settings.get("mining_config", {})
         
-        daily_boost_reward = float(mining_cfg.get("daily_boost_reward", 0.15))
+        daily_boost_reward = float(mining_cfg.get("daily_boost_reward", 0.10))
         max_daily_boost_rate = float(mining_cfg.get("max_daily_boost_rate", 4.5))
         boost_max_reward_coins = float(mining_cfg.get("boost_max_reward_coins", 35.0))
         cooldown_seconds = int(mining_cfg.get("claim_cooldown_seconds", 15))
@@ -83,6 +83,8 @@ def get_player_data():
                 "max_daily_boost_rate": max_daily_boost_rate,
                 "boost_max_reward_coins": boost_max_reward_coins,
                 "max_upgrades_per_level": max_upgrades_per_level,
+                "boost_cooldown_seconds": 10800, # 3 ساعات فترة انتظار المعزز
+                "boost_duration_seconds": 7200,   # 2 ساعة مدة التفعيل
                 "adsgram_block_id": adsgram_block_id
             }
         }), 200
@@ -202,7 +204,7 @@ def claim_daily():
 @farm_bp.route('/farm/daily_boost', methods=['POST'])
 @farm_bp.route('/api/farm/daily_boost', methods=['POST'])
 def claim_daily_boost():
-    """تفعيل التعزيز اليومي للسرعة أو استلام مكافأة العملات"""
+    """تفعيل التعزيز اليومي للسرعة لمدة ساعتين مع فترة انتظار 3 ساعات وتسجيل last_boost_time"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
