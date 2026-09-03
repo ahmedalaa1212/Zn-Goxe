@@ -51,8 +51,7 @@ window.closeWelcomeModal = function() {
             5: { cost_zn: 5000, cost_usd: 1.25, rate: 2.8 },
             6: { cost_zn: 15000, cost_usd: 3.00, rate: 6.0 },
             7: { cost_zn: 40000, cost_usd: 6.00, rate: 14.0 },
-            8: { cost_zn: 100000, cost_usd: 12.00, rate: 30.0 },
-            9: { cost_zn: 250000, cost_usd: 25.00, rate: 70.0 }
+            8: { cost_zn: 100000, cost_usd: 12.00, rate: 30.0 }
         },
         storageConfig: {
             "0": { capacity: 0.5, cost_zn: 0, cost_usd: 0.0 },
@@ -597,7 +596,7 @@ window.closeWelcomeModal = function() {
             let fieldsHTML = '';
             const isAnyUpgrading = (upgradingLevel !== null);
 
-            for (let i = 1; i <= 9; i++) {
+            for (let i = 1; i <= 8; i++) {
                 let count = parseInt(currentUpgrades[`lvl${i}`] || 0);
                 let prevCount = parseInt(currentUpgrades[`lvl${i-1}`] || 0);
                 let isUnlocked = (i === 1) || (prevCount > 0);
