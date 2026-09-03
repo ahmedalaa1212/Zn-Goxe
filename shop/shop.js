@@ -1,6 +1,6 @@
 // shop/shop.js
 // =================================================================
-// 🛒 ZN Goxe - Shop Module (Clean Numbers UI + Smooth Decimal Contrast)
+// 🛒 ZN Goxe - Shop Module (Clean Numbers UI + VIP Dynamic Packages)
 // =================================================================
 
 (function initShop() {
@@ -39,7 +39,9 @@
 
     // 🎯 تنسيق أسعار الدولار للباقات والعروض بشكل نظيف
     function formatUSD(num) {
-        return cleanNum(num);
+        let val = floatVal(num);
+        if (Number.isInteger(val)) return val.toString();
+        return parseFloat(val.toFixed(2)).toString();
     }
 
     // 🎯 تنسيق أرقام ZN والسعات الكبيرة (K, M, B) بشكل طبيعي
@@ -65,6 +67,34 @@
         let intPart = parts[0];
         let decPart = parts[1] || '0000';
         return `${intPart}<span style="font-size: 0.82em; opacity: 0.85; font-weight: normal; margin: 0 0.5px;">.${decPart}</span>`;
+    }
+
+    // 🎯 حساب المدة المتبقية للباقات وتنسيقها بالعربية
+    function formatRemainingTime(expiresAtStr) {
+        if (!expiresAtStr) return null;
+        try {
+            const expTime = new Date(expiresAtStr).getTime();
+            const now = Date.now();
+            const diffMs = expTime - now;
+
+            if (diffMs <= 0) return null;
+
+            const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+            const diffDays = Math.floor(diffHours / 24);
+
+            if (diffDays >= 1) {
+                const remHours = diffHours % 24;
+                return remHours > 0 ? `${diffDays} يوم و ${remHours} س` : `${diffDays} يوم`;
+            } else if (diffHours >= 1) {
+                const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+                return `${diffHours} ساعة و ${diffMins} د`;
+            } else {
+                const diffMins = Math.floor(diffMs / (1000 * 60));
+                return `${Math.max(1, diffMins)} دقيقة`;
+            }
+        } catch (e) {
+            return null;
+        }
     }
 
     function initTonConnect() {
@@ -155,6 +185,9 @@
         window.updateShopUI();
     }
 
+    // =================================================================
+    // 🏷️ عرض باقات VIP الديناميكية
+    // =================================================================
     function renderDynamicPackages(packages) {
         let container = document.getElementById('usdt-packages-container');
         if (!container) return;
@@ -165,7 +198,7 @@
         }
 
         const entries = Array.isArray(packages) 
-            ? packages.map((p, idx) => [`pkg_${idx+1}`, p]) 
+            ? packages.map((p, idx) => [`VIP${idx}`, p]) 
             : Object.entries(packages);
 
         if (entries.length === 0) {
@@ -179,10 +212,17 @@
             { bg: 'linear-gradient(135deg, #1c1c1c, #212830)', border: '#c0c0c0', btn: '#c0c0c0', icon: '🥈', textColor: '#000000' },
             { bg: 'linear-gradient(135deg, #1c1c1c, #332b00)', border: '#ffd700', btn: '#ffd700', icon: '🥇', textColor: '#000000' },
             { bg: 'linear-gradient(135deg, #1c1c1c, #1f2937)', border: '#3b82f6', btn: '#3b82f6', icon: '💎', textColor: '#ffffff' },
+            { bg: 'linear-gradient(135deg, #1c1c1c, #2d1a38)', border: '#a855f7', btn: '#a855f7', icon: '👑', textColor: '#ffffff' },
             { bg: 'linear-gradient(135deg, #1c1c1c, #3a1c1c)', border: '#ff4444', btn: '#ff4444', icon: '🐋', textColor: '#ffffff' }
         ];
 
         const liveTonPrice = floatVal(window.tonPrice, window.userState?.ton_price, 5.0);
+
+        // جلب حالة الاشتراك الحالية للمستخدم
+        const activeVipStatus = window.userState?.vip_status || window.userState?.vip || null;
+        const activePkgId = activeVipStatus?.package_id || null;
+        const activeExpiresAt = activeVipStatus?.expires_at || null;
+        const remainingTimeText = formatRemainingTime(activeExpiresAt);
 
         let index = 0;
         for (const [pkgId, pkg] of entries) {
@@ -196,24 +236,41 @@
                 tonAmount = usdtPrice / liveTonPrice;
             }
 
-            let rateAddFormatted = cleanNum(pkg.rate_add);
-            let storageAddFormatted = cleanNum(pkg.storage_add);
-            let znAddFormatted = formatNumberAbbreviated(floatVal(pkg.zn_add));
+            // التأكد مما إذا كانت هذه الباقة مفعلة حالياً ومتبقي بها وقت
+            const isActive = (activePkgId === pkgId) && (remainingTimeText !== null);
+
+            // طباعة مميزات الباقة سطر بسطر بناءً على perks_text القادمة من السيرفر
+            let perksHtml = '';
+            if (Array.isArray(pkg.perks_text) && pkg.perks_text.length > 0) {
+                perksHtml = pkg.perks_text.map(perk => `<div class="usdt-perks-item">${perk}</div>`).join('');
+            } else {
+                let rateAddFormatted = cleanNum(pkg.rate_add);
+                let storageAddFormatted = cleanNum(pkg.storage_add);
+                let znAddFormatted = formatNumberAbbreviated(floatVal(pkg.zn_add));
+                perksHtml = `
+                    <div class="usdt-perks-item">⚡ +${rateAddFormatted} ZN/h</div>
+                    <div class="usdt-perks-item">📦 +${storageAddFormatted} مخزن</div>
+                    <div class="usdt-perks-item">🪙 +${znAddFormatted} ZN</div>
+                `;
+            }
+
+            const activeClass = isActive ? 'active-vip' : '';
+            const activeBadgeHtml = isActive ? `<div class="vip-active-badge">نشطة (متبقي ${remainingTimeText})</div>` : '';
+            const btnLabel = isActive ? 'تجديد الاشتراك ⚡' : 'شراء تلقائي ⚡';
 
             html += `
-                <div class="usdt-card" style="background: ${theme.bg}; border: 1px solid ${theme.border};">
+                <div class="usdt-card ${activeClass}" style="background: ${theme.bg}; border: 1px solid ${isActive ? '#ffcc00' : theme.border};">
+                    ${activeBadgeHtml}
                     <div>
                         <div style="font-size: 26px;">${theme.icon}</div>
-                        <div style="color: #ffffff; font-weight: bold; font-size: 13px;">${pkg.title || 'باقة مميزة'}</div>
+                        <div style="color: #ffffff; font-weight: bold; font-size: 13px;">${pkg.title || `باقة ${pkgId}`}</div>
                         <div style="color: ${theme.border}; font-weight: 800; font-size: 17px; margin: 4px 0;">$${formatUSD(usdtPrice)}</div>
                         <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${cleanNum(tonAmount)} TON</div>
                     </div>
                     <div class="usdt-perks">
-                        ⚡ +${rateAddFormatted} ZN/h<br>
-                        📦 +${storageAddFormatted} مخزن<br>
-                        🪙 +${znAddFormatted} ZN
+                        ${perksHtml}
                     </div>
-                    <button class="btn-ton-pay" style="background: ${theme.btn}; color: ${btnTextColor};" onclick="buyPackageWithTon('${pkgId}')">شراء تلقائي</button>
+                    <button class="btn-ton-pay" style="background: ${theme.btn}; color: ${btnTextColor};" onclick="buyPackageWithTon('${pkgId}')">${btnLabel}</button>
                 </div>
             `;
             index++;
@@ -320,6 +377,7 @@
                 if (res.extra_storage !== undefined) window.userState.extra_storage = res.extra_storage;
                 if (res.max_cap !== undefined) window.userState.max_cap = res.max_cap;
                 if (res.last_claim_time !== undefined) window.userState.last_claim_time = res.last_claim_time;
+                if (res.vip_status !== undefined) window.userState.vip_status = res.vip_status;
 
                 window.updateShopUI();
                 window.dispatchEvent(new CustomEvent('userStateUpdated'));
