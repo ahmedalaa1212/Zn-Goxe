@@ -6,6 +6,9 @@
 from firebase_admin import firestore
 from datetime import datetime, timezone, timedelta
 import database
+import logging
+
+logger = logging.getLogger(__name__)
 
 # قائمة الباقات الافتراضية للربط المرن والسريع (VIP0 -> VIP5)
 DEFAULT_USDT_PACKAGES = {
@@ -148,7 +151,7 @@ def get_shop_catalog():
             "packages": pkgs_normalized
         }
     except Exception as e:
-        print(f"❌ Error in get_shop_catalog: {e}")
+        logger.error(f"❌ Error in get_shop_catalog: {e}")
         try:
             settings = database.get_game_settings() or {}
             mining_cfg = settings.get("mining_config", {})
@@ -174,8 +177,107 @@ def get_shop_catalog():
             }
 
 
+def get_shop_settings():
+    """جلب إعدادات المتجر الكاملة شاملة عنوان المحفظة والباقات وسعر TON اللحظي"""
+    try:
+        db = database.db
+        shop_doc = db.collection('settings').document('shop_settings').get()
+        shop_settings = shop_doc.to_dict() if shop_doc.exists else {}
+
+        catalog = get_shop_catalog()
+
+        return {
+            "ton_wallet": shop_settings.get("ton_wallet") or shop_settings.get("wallet_address", ""),
+            "usdt_packages": catalog.get("usdt_packages", DEFAULT_USDT_PACKAGES.copy()),
+            "mining_config": catalog.get("mining_config", {}),
+            "storage_config": catalog.get("storage_config", {}),
+            "ton_usdt_rate": float(shop_settings.get("ton_usdt_rate", 5.5))
+        }
+    except Exception as e:
+        logger.error(f"❌ Error in get_shop_settings: {e}")
+        catalog = get_shop_catalog()
+        return {
+            "ton_wallet": "",
+            "usdt_packages": catalog.get("usdt_packages", DEFAULT_USDT_PACKAGES.copy()),
+            "mining_config": catalog.get("mining_config", {}),
+            "storage_config": catalog.get("storage_config", {}),
+            "ton_usdt_rate": 5.5
+        }
+
+
+def get_user_vip_status(user_id):
+    """التحقق من حالة اشتراك VIP للمستخدم وتاريخ انتهائه ودقة الميزات المفعّلة تلقائياً"""
+    try:
+        if not user_id:
+            return {"is_active": False, "package_id": None, "remaining_seconds": 0}
+
+        db = database.db
+        u_snap = db.collection('users').document(str(user_id)).get()
+        if not u_snap.exists:
+            return {"is_active": False, "package_id": None, "remaining_seconds": 0}
+
+        user_data = u_snap.to_dict() or {}
+        vip_status = user_data.get("vip_status", {})
+        if not isinstance(vip_status, dict) or not vip_status:
+            return {"is_active": False, "package_id": None, "remaining_seconds": 0}
+
+        expires_at_str = vip_status.get("expires_at")
+        if not expires_at_str:
+            return {"is_active": False, "package_id": None, "remaining_seconds": 0}
+
+        now_dt = datetime.now(timezone.utc)
+        expires_dt = datetime.fromisoformat(str(expires_at_str).replace('Z', '+00:00'))
+
+        remaining_seconds = max(0, int((expires_dt - now_dt).total_seconds()))
+        is_active = remaining_seconds > 0
+
+        return {
+            "is_active": is_active,
+            "package_id": vip_status.get("package_id"),
+            "expires_at": expires_at_str,
+            "remaining_seconds": remaining_seconds,
+            "auto_bot": bool(vip_status.get("auto_bot", False)) if is_active else False,
+            "double_storage": bool(vip_status.get("double_storage", False)) if is_active else False,
+            "referral_rate": float(vip_status.get("referral_rate", 0.0)) if is_active else 0.0,
+            "ref_min_upgrades": int(vip_status.get("ref_min_upgrades", 0)) if is_active else 0,
+            "ref_withdraw_fee": float(vip_status.get("ref_withdraw_fee", 0.0)) if is_active else 0.0
+        }
+    except Exception as e:
+        logger.error(f"❌ Error in get_user_vip_status: {e}")
+        return {"is_active": False, "package_id": None, "remaining_seconds": 0}
+
+
+def log_purchase_transaction(tg_id, tx_type, item_id, cost_zn=0.0, cost_usd=0.0, tx_hash=None, details=None):
+    """تسجيل المعاملة المالية في سجل المشتريات المعتمد للتدقيق المالي ومنع التكرار"""
+    try:
+        db = database.db
+        log_data = {
+            "tg_id": str(tg_id),
+            "type": str(tx_type),
+            "item_id": str(item_id),
+            "cost_zn": float(cost_zn),
+            "cost_usd": float(cost_usd),
+            "tx_hash": tx_hash or "",
+            "details": details or {},
+            "timestamp": firestore.SERVER_TIMESTAMP
+        }
+        
+        # 1. التسجيل في مجموعة المشتريات المعالجة العامة
+        if tx_hash:
+            db.collection('processed_txs').document(str(tx_hash)).set(log_data, merge=True)
+        else:
+            db.collection('processed_txs').add(log_data)
+            
+        # 2. إضافة إلى سجل مشتريات المستخدم الخاص
+        db.collection('users').document(str(tg_id)).collection('purchase_history').add(log_data)
+        return True
+    except Exception as e:
+        logger.error(f"⚠️ Failed to log purchase transaction: {e}")
+        return False
+
+
 def buy_mining_upgrade(tg_id, upgrade_level):
-    """شراء ترقية كرت تعدين مع التحقق المعاملاتي الآمن (Transaction) من الرصيدين (ZN + USD)"""
+    """شراء ترقية كرت تعدين مع التحقق المعاملاتي الآمن (Transaction) من الرصيدين (ZN + USD) وتسجيل العملية"""
     try:
         if not tg_id or upgrade_level is None:
             return False, "بيانات الترقية غير صالحة", {}
@@ -261,10 +363,11 @@ def buy_mining_upgrade(tg_id, upgrade_level):
             return updated_fields
 
         updated_data = _buy_tx(transaction, user_ref)
+        log_purchase_transaction(tg_id, "mining_upgrade", lvl_str, cost_zn, cost_usd)
         return True, f"تم شراء الترقية مستوى {lvl_str} بنجاح!", updated_data
 
     except Exception as e:
-        print(f"❌ Error buying mining upgrade: {e}")
+        logger.error(f"❌ Error buying mining upgrade: {e}")
         return False, str(e), {}
 
 
@@ -357,17 +460,28 @@ def upgrade_storage_capacity(tg_id):
             }
 
             tx.update(u_ref, updated_fields)
-            return updated_fields, next_lvl_str, new_max_cap
+            return updated_fields, next_lvl_str, new_max_cap, cost_zn, cost_usd
 
-        updated_data, next_lvl, new_cap = _storage_tx(transaction, user_ref)
+        updated_data, next_lvl, new_cap, cost_zn, cost_usd = _storage_tx(transaction, user_ref)
+        log_purchase_transaction(tg_id, "storage_upgrade", next_lvl, cost_zn, cost_usd)
         return True, f"تم ترقية المخزن إلى المستوى {next_lvl} (سعة: {new_cap:g}) بنجاح!", updated_data
 
     except Exception as e:
-        print(f"❌ Error upgrading storage: {e}")
+        logger.error(f"❌ Error upgrading storage: {e}")
         return False, str(e), {}
 
 
-def verify_and_apply_package(tg_id, package_id, boc=None):
+def process_upgrade_purchase(tg_id, upgrade_type, upgrade_id):
+    """دالة عامة موحدة لمعالجة شراء الترقيات (تعدين أو مخزن) بأسلوب آمن ومعاملاتي"""
+    if str(upgrade_type).lower() in ["mining", "card"]:
+        return buy_mining_upgrade(tg_id, upgrade_id)
+    elif str(upgrade_type).lower() in ["storage", "capacity"]:
+        return upgrade_storage_capacity(tg_id)
+    else:
+        return False, "نوع الترقية غير معروف", {}
+
+
+def verify_and_apply_package(tg_id, package_id, boc=None, tx_hash=None):
     """معالجة وتفعيل باقات الدفع المباشر (VIP0 -> VIP5) عبر المحفظة وتطبيقها مع مراعاة تمديد فترة الاشتراك ومضاعفة السعة"""
     try:
         if not tg_id or not package_id:
@@ -382,7 +496,6 @@ def verify_and_apply_package(tg_id, package_id, boc=None):
 
         pkg_info = pkgs[pkg_key]
         
-        # قراءة تفاصيل الباقة الجديدة
         duration_days = int(pkg_info.get("duration_days", 30))
         features = pkg_info.get("features", {}) if isinstance(pkg_info.get("features"), dict) else {}
         
@@ -392,11 +505,13 @@ def verify_and_apply_package(tg_id, package_id, boc=None):
         ref_min_upgrades = int(features.get("ref_min_upgrades", 0))
         ref_withdraw_fee = float(features.get("ref_withdraw_fee", 0.0))
 
-        # قيم الإضافة القديمة (للتوافق الخلفي إن وجدت)
         zn_add = float(pkg_info.get("zn_add", 0.0))
         rate_add = float(pkg_info.get("rate_add", 0.0))
         storage_add = float(pkg_info.get("storage_add", 0.0))
         usd_add = float(pkg_info.get("usd_add", 0.0))
+        pkg_price_usd = float(pkg_info.get("usdt", 0.0))
+
+        tx_identifier = str(boc or tx_hash or "")
 
         db = database.db
         user_ref = db.collection('users').document(str(tg_id))
@@ -411,14 +526,15 @@ def verify_and_apply_package(tg_id, package_id, boc=None):
             user_data = u_snap.to_dict() or {}
 
             # منع تكرار نفس المعاملة المعالجة سابقاً
-            if boc:
-                tx_ref = db.collection('shop_purchases').document(str(boc))
+            if tx_identifier:
+                tx_ref = db.collection('processed_txs').document(tx_identifier)
                 tx_snap = tx.get(tx_ref)
                 if tx_snap.exists:
                     raise Exception("تمت معالجة هذه العملية سابقاً!")
                 tx.set(tx_ref, {
                     "tg_id": str(tg_id),
                     "package_id": pkg_key,
+                    "tx_hash": tx_identifier,
                     "timestamp": firestore.SERVER_TIMESTAMP
                 })
 
@@ -472,14 +588,14 @@ def verify_and_apply_package(tg_id, package_id, boc=None):
             elif not double_storage and was_double_active:
                 new_max_cap = max(100.0, current_max_cap / 2.0)
 
-            # إضافة الزيادة القديمة في السعة والسرعة إن وجدت
+            # إضافة الزيادات الإضافية إن وجدت
             new_balance = round(current_balance + zn_add, 4)
             new_usd = round(current_usd + usd_add, 4)
             new_rate = round(current_rate + rate_add, 4)
             new_extra_storage = round(current_extra_storage + storage_add, 4)
             new_max_cap = round(new_max_cap + storage_add, 4)
 
-            # تحديث وقت أخر المطالبة لتجنب ضياع التعدين المعلق
+            # تحديث وقت أخر المطالبة للحفاظ على الأرباح المعلقة
             if new_rate > 0:
                 time_needed = pending_mined / (new_rate / 3600.0)
                 new_last_claim = (now_dt - timedelta(seconds=time_needed)).isoformat()
@@ -512,8 +628,31 @@ def verify_and_apply_package(tg_id, package_id, boc=None):
             return updated_fields
 
         updated_data = _pkg_tx(transaction, user_ref)
+        log_purchase_transaction(tg_id, "vip_package", pkg_key, 0.0, pkg_price_usd, tx_identifier)
         return True, "تم تفعيل الباقة بنجاح!", updated_data
 
     except Exception as e:
-        print(f"❌ Error applying package: {e}")
+        logger.error(f"❌ Error applying package: {e}")
         return False, str(e), {}
+
+
+def get_user_purchase_history(tg_id, limit=20):
+    """جلب سجل المشتريات المكتملة للمستخدم"""
+    try:
+        if not tg_id:
+            return []
+
+        db = database.db
+        docs = db.collection('users').document(str(tg_id)).collection('purchase_history')\
+            .order_by('timestamp', direction=firestore.Query.DESCENDING).limit(limit).get()
+
+        history = []
+        for doc in docs:
+            item = doc.to_dict()
+            item["id"] = doc.id
+            history.append(item)
+
+        return history
+    except Exception as e:
+        logger.error(f"❌ Error fetching user purchase history: {e}")
+        return []
