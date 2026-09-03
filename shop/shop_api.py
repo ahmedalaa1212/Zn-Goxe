@@ -20,18 +20,119 @@ TON_SAFETY_MARGIN = 1.06  # هامش حماية 6% لمنع الخسائر من 
 _SHOP_CONFIG_CACHE = {"data": None, "timestamp": 0}
 _TON_PRICE_CACHE = {"price": 0.0, "timestamp": 0}
 
-CACHE_TTL_CONFIG = 30  # كاش 30 ثانية لاستجابة سريعة جداً عند التعديل
-CACHE_TTL_TON = 60      # 60 ثانية لكاش سعر عملة TON
+CACHE_TTL_CONFIG = 30  # كاش 30 ثانية لاستجابة سريعة عند التعديل في الفيربيس
+CACHE_TTL_TON = 60      # كاش 60 ثانية لسعر عملة TON
 
+# الهيكلية الجديدة الافتراضية للباقات (VIP0 إلى VIP5)
 DEFAULT_USDT_PACKAGES = {
-    "pkg_1": {"usdt": 1.0, "rate_add": 18.0, "storage_add": 250.0, "zn_add": 5000.0, "title": "الباقة البرونزية"},
-    "pkg_2": {"usdt": 3.0, "rate_add": 58.0, "storage_add": 750.0, "zn_add": 15000.0, "title": "الباقة الفضية"},
-    "pkg_3": {"usdt": 5.0, "rate_add": 105.0, "storage_add": 1250.0, "zn_add": 25000.0, "title": "الباقة الذهبية"},
-    "pkg_4": {"usdt": 8.0, "rate_add": 182.0, "storage_add": 2000.0, "zn_add": 40000.0, "title": "الباقة الماسية"},
-    "pkg_5": {"usdt": 15.0, "rate_add": 375.0, "storage_add": 3750.0, "zn_add": 75000.0, "title": "باقة الحيتان"}
+    "VIP0": {
+        "title": "باقة VIP0 (2 يوم)",
+        "usdt": 2.0,
+        "duration_days": 2,
+        "features": {
+            "auto_bot": True,
+            "double_storage": True,
+            "referral_rate": 0.12,
+            "ref_min_upgrades": 1,
+            "ref_withdraw_fee": 0.0
+        },
+        "perks_text": [
+            "🤖 بوت تجميع تلقائي",
+            "📦 زيادة سعة المخزن الضعف ×2",
+            "💎 رفع أرباح الإحالة إلى 12%",
+            "🎯 شرط الإحالة: ترقية واحدة فقط",
+            "⚡ إعفاء كامل من رسوم السحب (0%)"
+        ]
+    },
+    "VIP1": {
+        "title": "باقة VIP1 (7 أيام)",
+        "usdt": 2.5,
+        "duration_days": 7,
+        "features": {
+            "auto_bot": True,
+            "double_storage": True,
+            "referral_rate": 0.0,
+            "ref_min_upgrades": 0,
+            "ref_withdraw_fee": 0.0
+        },
+        "perks_text": [
+            "🤖 بوت تجميع تلقائي",
+            "📦 زيادة سعة المخزن الضعف ×2"
+        ]
+    },
+    "VIP2": {
+        "title": "باقة VIP2 (7 أيام)",
+        "usdt": 2.0,
+        "duration_days": 7,
+        "features": {
+            "auto_bot": False,
+            "double_storage": False,
+            "referral_rate": 0.12,
+            "ref_min_upgrades": 1,
+            "ref_withdraw_fee": 0.0
+        },
+        "perks_text": [
+            "💎 رفع أرباح الإحالة إلى 12%",
+            "🎯 شرط الإحالة: ترقية واحدة فقط",
+            "⚡ إعفاء كامل من رسوم السحب (0%)"
+        ]
+    },
+    "VIP3": {
+        "title": "باقة VIP3 (30 يوم)",
+        "usdt": 5.5,
+        "duration_days": 30,
+        "features": {
+            "auto_bot": True,
+            "double_storage": True,
+            "referral_rate": 0.0,
+            "ref_min_upgrades": 0,
+            "ref_withdraw_fee": 0.0
+        },
+        "perks_text": [
+            "🤖 بوت تجميع تلقائي",
+            "📦 زيادة سعة المخزن الضعف ×2"
+        ]
+    },
+    "VIP4": {
+        "title": "باقة VIP4 (30 يوم)",
+        "usdt": 6.0,
+        "duration_days": 30,
+        "features": {
+            "auto_bot": False,
+            "double_storage": False,
+            "referral_rate": 0.12,
+            "ref_min_upgrades": 1,
+            "ref_withdraw_fee": 0.0
+        },
+        "perks_text": [
+            "💎 رفع أرباح الإحالة إلى 12%",
+            "🎯 شرط الإحالة: ترقية واحدة فقط",
+            "⚡ إعفاء كامل من رسوم السحب (0%)"
+        ]
+    },
+    "VIP5": {
+        "title": "باقة VIP5 (30 يوم)",
+        "usdt": 9.99,
+        "duration_days": 30,
+        "features": {
+            "auto_bot": True,
+            "double_storage": True,
+            "referral_rate": 0.12,
+            "ref_min_upgrades": 1,
+            "ref_withdraw_fee": 0.0
+        },
+        "perks_text": [
+            "🤖 بوت تجميع تلقائي",
+            "📦 زيادة سعة المخزن الضعف ×2",
+            "💎 رفع أرباح الإحالة إلى 12%",
+            "🎯 شرط الإحالة: ترقية واحدة فقط",
+            "⚡ إعفاء كامل من رسوم السحب (0%)"
+        ]
+    }
 }
 
 def _normalize_config_dict(raw_data, fallback_default=None):
+    """دالة تحويل القواميس لضمان تناسق المفاتيح"""
     if fallback_default is None:
         fallback_default = {}
     if raw_data is None:
@@ -47,7 +148,7 @@ def _normalize_config_dict(raw_data, fallback_default=None):
     return fallback_default
 
 def fetch_multi_source_ton_price():
-    """جلب سعر TON لحظياً من منصات متعددة لتفادي الحظر تماماً"""
+    """جلب سعر TON من عدة منصات عالمية لضمان الدقة والسرعة"""
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 
     # 1. Binance API
@@ -116,6 +217,7 @@ def fetch_multi_source_ton_price():
     return 0.0
 
 def get_cached_ton_price():
+    """استرجاع سعر TON مع نظام التخزين المؤقت"""
     now = time.time()
     if _TON_PRICE_CACHE["price"] > 0 and (now - _TON_PRICE_CACHE["timestamp"] < CACHE_TTL_TON):
         return _TON_PRICE_CACHE["price"]
@@ -129,6 +231,7 @@ def get_cached_ton_price():
     return price
 
 def ensure_shop_settings_exist():
+    """التأكد من وجود إعدادات المتجر في الفيربيس وإنشائها إذا لم تكن موجودة"""
     try:
         shop_ref = db.collection('settings').document('shop_settings')
         doc = shop_ref.get()
@@ -141,7 +244,7 @@ def ensure_shop_settings_exist():
         
         doc_data = doc.to_dict() or {}
         pkgs = doc_data.get('usdt_packages')
-        if pkgs is None:
+        if not pkgs or not isinstance(pkgs, dict):
             return DEFAULT_USDT_PACKAGES
         return pkgs
     except Exception as e:
@@ -149,6 +252,7 @@ def ensure_shop_settings_exist():
         return DEFAULT_USDT_PACKAGES
 
 def get_game_config():
+    """جلب إعدادات اللعبة والمتجر مع الذاكرة المؤقتة (RAM Cache)"""
     now = time.time()
     if _SHOP_CONFIG_CACHE["data"] and (now - _SHOP_CONFIG_CACHE["timestamp"] < CACHE_TTL_CONFIG):
         return _SHOP_CONFIG_CACHE["data"]
@@ -194,16 +298,18 @@ def get_game_config():
 
 @shop_bp.route('/get_config', methods=['GET'])
 def get_config():
+    """مسار جلب باقات العرض والأسعار بالدولار والـ TON اللحظي"""
     try:
         settings = get_game_config()
         raw_ton_price = get_cached_ton_price()
 
-        # حساب سعر TON المعدل بعد تخصيم هامش الحماية (ليطابق العرض في المحفظة)
+        # احتساب سعر TON المعدل بعد هامش الأمان
         effective_ton_price = round(raw_ton_price / TON_SAFETY_MARGIN, 4) if raw_ton_price > 0 else round(5.50 / TON_SAFETY_MARGIN, 4)
 
         usdt_pkgs = _normalize_config_dict(settings.get('usdt_packages'), DEFAULT_USDT_PACKAGES)
         packages_with_ton = {}
 
+        # ترتيب الباقات حسب السعر
         sorted_pkgs = sorted(usdt_pkgs.items(), key=lambda x: float(x[1].get('usdt', 0) if isinstance(x[1], dict) else 0))
 
         for pkg_id, pkg_info in sorted_pkgs:
@@ -211,16 +317,20 @@ def get_config():
                 continue
             usd_val = float(pkg_info.get('usdt', pkg_info.get('cost_usd', 0.0)))
             
-            # احتساب كمية TON المطلوبة بناءً على السعر المعدل
+            # كمية TON المطلوبة للباقة
             ton_needed = round(usd_val / effective_ton_price, 4) if effective_ton_price > 0 else round(usd_val / 5.1887, 4)
 
             packages_with_ton[str(pkg_id)] = {
+                "title": str(pkg_info.get('title', 'باقة مميزة')),
                 "usdt": usd_val,
+                "duration_days": int(pkg_info.get('duration_days', 0)),
+                "features": pkg_info.get('features', {}),
+                "perks_text": pkg_info.get('perks_text', []),
+                "ton_amount": ton_needed,
+                # قيم للتوافق المباشر
                 "rate_add": float(pkg_info.get('rate_add', 0)),
                 "storage_add": float(pkg_info.get('storage_add', 0)),
-                "zn_add": float(pkg_info.get('zn_add', 0)),
-                "title": str(pkg_info.get('title', 'باقة مميزة')),
-                "ton_amount": ton_needed
+                "zn_add": float(pkg_info.get('zn_add', 0))
             }
 
         return jsonify({
@@ -241,6 +351,7 @@ def get_config():
 
 @shop_bp.route('/prepare_ton_pay', methods=['POST'])
 def prepare_ton_pay():
+    """تجهيز أمر الدفع لشبكة TON"""
     try:
         success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
         if not success:
@@ -260,7 +371,6 @@ def prepare_ton_pay():
 
         usd_val = float(pkg_info.get('usdt', 0.0))
         
-        # احتساب القيمة مع هامش حماية 6%
         base_ton = (usd_val / ton_price) if ton_price > 0 else (usd_val / 5.5)
         ton_amount = round(base_ton * TON_SAFETY_MARGIN, 4)
         nano_ton = int(ton_amount * 1000000000)
@@ -282,6 +392,7 @@ def prepare_ton_pay():
 
 @shop_bp.route('/verify_and_apply_package', methods=['POST'])
 def verify_and_apply_package():
+    """تفعيل الباقة للمستخدم وحساب فترة الاشتراك ومميزات VIP"""
     try:
         success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
         if not success:
@@ -303,7 +414,6 @@ def verify_and_apply_package():
         pkg_info = packages[pkg_key]
         user_id_str = str(user_id).strip()
 
-        # توليد معرّف فريد يضمن إمكانية الشراء المتكرر بلا نهاية
         now_dt = datetime.now(timezone.utc)
         unique_seed = f"{user_id_str}_{pkg_key}_{raw_boc}_{now_dt.timestamp()}_{random.randint(1000, 9999)}"
         tx_doc_id = hashlib.sha256(unique_seed.encode('utf-8')).hexdigest()[:32]
@@ -325,12 +435,52 @@ def verify_and_apply_package():
             u_snap = u_snaps[0]
             u_data = u_snap.to_dict() or {}
 
-            # 1. القيم المضافة من الباقة
+            # 1. الميزات والتفاصيل القادمة من الباقة الجديدة
+            duration_days = int(pkg_info.get('duration_days', 0))
+            features = pkg_info.get('features', {})
+            if not isinstance(features, dict):
+                features = {}
+
+            auto_bot = bool(features.get('auto_bot', False))
+            double_storage = bool(features.get('double_storage', False))
+            referral_rate = float(features.get('referral_rate', 0.0))
+            ref_min_upgrades = int(features.get('ref_min_upgrades', 0))
+            ref_withdraw_fee = float(features.get('ref_withdraw_fee', 0.0))
+
+            # 2. حساب تاريخ الانتهاء (تمديد الاشتراك الفعال تلقائياً في حال كان مفعلاً)
+            cur_vip_status = u_data.get('vip_status', {})
+            if not isinstance(cur_vip_status, dict):
+                cur_vip_status = {}
+
+            cur_expires_str = cur_vip_status.get('expires_at')
+            base_dt = now_dt
+            if cur_expires_str:
+                try:
+                    cur_expires_dt = datetime.fromisoformat(cur_expires_str.replace('Z', '+00:00'))
+                    if cur_expires_dt > now_dt:
+                        base_dt = cur_expires_dt
+                except Exception:
+                    base_dt = now_dt
+
+            expires_at_dt = base_dt + timedelta(days=duration_days)
+            expires_at_iso = expires_at_dt.isoformat()
+
+            new_vip_status = {
+                'package_id': pkg_key,
+                'expires_at': expires_at_iso,
+                'auto_bot': auto_bot,
+                'double_storage': double_storage,
+                'referral_rate': referral_rate,
+                'ref_min_upgrades': ref_min_upgrades,
+                'ref_withdraw_fee': ref_withdraw_fee
+            }
+
+            # 3. القيم القادمة للتوافق القديم
             zn_add = float(pkg_info.get('zn_add', 0.0))
             rate_add = float(pkg_info.get('rate_add', 0.0))
             storage_add = float(pkg_info.get('storage_add', 0.0))
 
-            # 2. البيانات الحالية للمستخدم
+            # 4. البيانات الحالية للمستخدم
             cur_balance = float(u_data.get('balance', 0.0) or 0.0)
             cur_usd_balance = float(u_data.get('usd_balance', u_data.get('balance_usd', 0.0)) or 0.0)
             cur_hourly_rate = float(u_data.get('hourly_rate', 0.0) or 0.0)
@@ -342,9 +492,16 @@ def verify_and_apply_package():
             if cur_storage_lvl in storage_cfg and isinstance(storage_cfg[cur_storage_lvl], dict):
                 base_cap = float(storage_cfg[cur_storage_lvl].get('capacity', 100.0))
 
+            # 5. احتساب مضاعفة المخزن ×2 عند تفعيل double_storage
+            normal_max_cap = base_cap + cur_extra_storage + storage_add
+            if double_storage:
+                new_max_cap = round(normal_max_cap * 2.0, 2)
+            else:
+                new_max_cap = round(normal_max_cap, 2)
+
             cur_max_cap = float(u_data.get('max_cap', base_cap + cur_extra_storage))
 
-            # 3. احتساب الأرباح المعلقة
+            # 6. احتساب الأرباح المعلقة للتعدين
             last_claim_str = u_data.get('last_claim_time')
             pending_mined = 0.0
             if last_claim_str:
@@ -355,13 +512,12 @@ def verify_and_apply_package():
                 except Exception:
                     pending_mined = 0.0
 
-            # 4. إضافة القيم التراكمية للباقة
+            # 7. تحديث القيمة التراكمية
             new_balance = round(cur_balance + zn_add, 2)
             new_hourly_rate = round(cur_hourly_rate + rate_add, 2)
             new_extra_storage = round(cur_extra_storage + storage_add, 2)
-            new_max_cap = round(base_cap + new_extra_storage, 2)
 
-            # 5. تعريف المتغير new_last_claim_time المضمون لتفادي NameError
+            # 8. حفظ تاريخ المطالبة لتجنب فقدان أي أرباح تعدين
             new_last_claim_time = now_dt.isoformat()
             if new_hourly_rate > 0:
                 time_needed = pending_mined / (new_hourly_rate / 3600.0)
@@ -375,7 +531,9 @@ def verify_and_apply_package():
                 'package_id': pkg_key,
                 'title': pkg_info.get('title', 'باقة مميزة'),
                 'purchased_at': now_dt.isoformat(),
-                'price_usdt': pkg_info.get('usdt', 0.0)
+                'price_usdt': pkg_info.get('usdt', 0.0),
+                'duration_days': duration_days,
+                'expires_at': expires_at_iso
             })
 
             tx.update(u_ref, {
@@ -385,29 +543,32 @@ def verify_and_apply_package():
                 'extra_storage': new_extra_storage,
                 'max_cap': new_max_cap,
                 'last_claim_time': new_last_claim_time,
-                'purchased_packages': purchased_pkgs
+                'purchased_packages': purchased_pkgs,
+                'vip_status': new_vip_status
             })
 
             tx.set(t_ref, {
                 'user_id': user_id_str,
                 'package_id': pkg_key,
-                'timestamp': now_dt.isoformat()
+                'timestamp': now_dt.isoformat(),
+                'expires_at': expires_at_iso
             })
 
-            return new_balance, cur_usd_balance, new_hourly_rate, new_extra_storage, new_max_cap, new_last_claim_time
+            return new_balance, cur_usd_balance, new_hourly_rate, new_extra_storage, new_max_cap, new_last_claim_time, new_vip_status
 
-        new_bal, new_usd, new_rate, new_extra, new_cap, new_claim_time = secure_apply_package_tx(transaction, user_ref, tx_ref)
+        new_bal, new_usd, new_rate, new_extra, new_cap, new_claim_time, new_vip = secure_apply_package_tx(transaction, user_ref, tx_ref)
 
         return jsonify({
             "success": True,
-            "message": f"تم تفعيل باقة {pkg_info.get('title')} بنجاح!",
+            "message": f"تم تفعيل {pkg_info.get('title')} بنجاح!",
             "result": {
                 "balance": new_bal,
                 "usd_balance": new_usd,
                 "hourly_rate": new_rate,
                 "extra_storage": new_extra,
                 "max_cap": new_cap,
-                "last_claim_time": new_claim_time
+                "last_claim_time": new_claim_time,
+                "vip_status": new_vip
             }
         }), 200
 
@@ -417,6 +578,7 @@ def verify_and_apply_package():
 
 @shop_bp.route('/buy', methods=['POST'])
 def buy_upgrade():
+    """شراء ترقيات سرعة التعدين أو سعة المخزن العادية"""
     try:
         success, user_id, user_info, error_res = get_authenticated_user(request, is_post=True)
         if not success:
@@ -458,10 +620,23 @@ def buy_upgrade():
             if current_storage_lvl in storage_cfg and isinstance(storage_cfg[current_storage_lvl], dict):
                 base_cap = float(storage_cfg[current_storage_lvl].get('capacity', 100.0))
 
-            current_max_cap = float(u_data.get('max_cap', base_cap + extra_storage))
+            cur_vip = u_data.get('vip_status', {})
+            has_double_storage = False
+            now_dt = datetime.now(timezone.utc)
+            if isinstance(cur_vip, dict) and cur_vip.get('double_storage'):
+                cur_exp = cur_vip.get('expires_at')
+                if cur_exp:
+                    try:
+                        exp_dt = datetime.fromisoformat(cur_exp.replace('Z', '+00:00'))
+                        if exp_dt > now_dt:
+                            has_double_storage = True
+                    except Exception:
+                        pass
+
+            normal_max_cap = base_cap + extra_storage
+            current_max_cap = float(u_data.get('max_cap', normal_max_cap * 2.0 if has_double_storage else normal_max_cap))
 
             last_claim_str = u_data.get('last_claim_time')
-            now_dt = datetime.now(timezone.utc)
             now_ts = now_dt.timestamp()
 
             pending_mined = 0.0
@@ -549,7 +724,9 @@ def buy_upgrade():
                 if current_usd_balance < cost_usd:
                     raise Exception("الرصيد من الدولار (USD) غير كافي لترقية المخزن.")
 
-                new_max_cap = round(new_base_capacity + extra_storage, 2)
+                calculated_cap = new_base_capacity + extra_storage
+                new_max_cap = round(calculated_cap * 2.0 if has_double_storage else calculated_cap, 2)
+
                 new_balance = round(current_balance - cost_zn, 2)
                 new_usd_balance = round(current_usd_balance - cost_usd, 4)
 
