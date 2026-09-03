@@ -19,13 +19,14 @@ CACHE_TTL_SECONDS = 15
 
 # ==================== الإعدادات الافتراضية الاقتصادية الجديدة ====================
 DEFAULT_GAME_SETTINGS = {
+    # مصفوفة الـ 30 يوم الجديدة تبدأ بـ 0.2 ZN في اليوم الأول وتنتهي بـ 40 ZN في اليوم الـ 30
     "daily_rewards": [
-        5, 10, 15, 20, 25, 30, 40, 45, 50, 60,
-        65, 70, 75, 90, 100, 110, 120, 130, 140, 160,
-        180, 200, 220, 240, 270, 300, 330, 360, 400, 450
+        0.20, 0.30, 0.40, 0.50, 0.60, 0.80, 1.00, 1.20, 1.50, 2.00,
+        2.50, 3.00, 3.50, 4.00, 5.00, 6.00, 7.00, 8.00, 10.0, 12.0,
+        14.0, 16.0, 18.0, 20.0, 24.0, 28.0, 32.0, 35.0, 38.0, 40.0
     ],
     "mining_config": {
-        "daily_boost_reward": 0.15,
+        "daily_boost_reward": 0.10, # +0.1 ZN/ساعة عند التفعيل
         "max_daily_boost_rate": 4.5,
         "boost_max_reward_coins": 35.0,
         "claim_cooldown_seconds": 15,
@@ -57,7 +58,7 @@ DEFAULT_GAME_SETTINGS = {
 
 
 def create_default_user_data_dict(user_id_str, game_settings, now_dt):
-    """إنشاء الهيكل الافتراضي لبيانات المستخدم بالتوقيت العالمي UTC وقيم البداية الاقتصادية الجديدة"""
+    """إنشاء الهيكل الافتراضي لبيانات المستخدم بالتوقيت العالمي UTC وقيم بدقة عالية (DECIMAL/REAL 8)"""
     mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
     base_free_rate = float(mining_cfg.get("base_free_rate", 0.10))
     base_cap = get_base_storage_capacity(0, game_settings)
@@ -66,14 +67,14 @@ def create_default_user_data_dict(user_id_str, game_settings, now_dt):
     return {
         "tg_id": str(user_id_str),
         "telegram_id": str(user_id_str),
-        "balance": 0.0000,
-        "usd_balance": 0.00,
-        "total_mined": 0.0000,
-        "mined_points": 0.0000,
+        "balance": 0.00000000,
+        "usd_balance": 0.00000000,
+        "total_mined": 0.00000000,
+        "mined_points": 0.00000000,
         "hourly_rate": base_free_rate,
         "daily_boost_rate": 0.00,
-        "base_unclaimed": 0.0000,
-        "unclaimed": 0.0000,
+        "base_unclaimed": 0.00000000,
+        "unclaimed": 0.00000000,
         "storage_level": 0,
         "extra_storage": 0.00,
         "max_cap": base_cap,
@@ -82,6 +83,7 @@ def create_default_user_data_dict(user_id_str, game_settings, now_dt):
         "last_claim_time": now_iso,
         "last_daily_claim_date": None,
         "last_boost_date": None,
+        "last_boost_time": None, # تم تسجيل زمن آخر تفعيل لمعزز السرعة
         "last_claim_ad_date": None,
         "ads_watched": 0,
         "upgrades": {},
@@ -118,9 +120,9 @@ def get_game_settings(force_refresh=False):
 
 
 def parse_daily_rewards(rewards_data):
-    """تحليل قائمة المكافآت اليومية بأمان"""
+    """تحليل قائمة المكافآت اليومية بأمان لدعم قيم الفلوت"""
     if isinstance(rewards_data, list) and len(rewards_data) > 0:
-        return [int(x) for x in rewards_data]
+        return [float(x) for x in rewards_data]
     if isinstance(rewards_data, dict):
         res = []
         for i in range(1, 31):
@@ -129,9 +131,9 @@ def parse_daily_rewards(rewards_data):
                 val = rewards_data.get(str(i))
             if val is None:
                 val = DEFAULT_GAME_SETTINGS["daily_rewards"][i-1]
-            res.append(int(val))
+            res.append(float(val))
         return res
-    return DEFAULT_GAME_SETTINGS["daily_rewards"]
+    return [float(x) for x in DEFAULT_GAME_SETTINGS["daily_rewards"]]
 
 
 def get_base_storage_capacity(storage_level, settings=None):
@@ -164,17 +166,17 @@ def calculate_user_max_cap(user_data, settings=None):
     stg_lvl = user_data.get("storage_level", 0)
     base_cap = get_base_storage_capacity(stg_lvl, settings)
     extra_cap = float(user_data.get("extra_storage", 0.0))
-    return round(base_cap + extra_cap, 2)
+    return round(base_cap + extra_cap, 4)
 
 
 def calculate_accrued_mined(user_data, now_dt, max_cap):
-    """حساب الكمية المعدنة الحالية داخل المخزن بدقة 4 خانات عشرية بالتوقيت العالمي UTC بجمع المحصول السابق والجديد"""
+    """حساب الكمية المعدنة الحالية بدقة 8 خانات عشرية بالتوقيت العالمي UTC شاملاً السرعة الإضافية للمعزز (2 ساعة)"""
     last_claim_str = user_data.get("last_claim_time")
     hourly_rate = float(user_data.get("hourly_rate", 0.10))
     base_unclaimed = float(user_data.get("base_unclaimed", user_data.get("unclaimed", 0.0)))
 
     if not last_claim_str:
-        return round(min(base_unclaimed, max_cap), 4)
+        return round(min(base_unclaimed, max_cap), 8)
 
     try:
         if isinstance(last_claim_str, (int, float)):
@@ -186,11 +188,36 @@ def calculate_accrued_mined(user_data, now_dt, max_cap):
                 last_claim = last_claim.replace(tzinfo=timezone.utc)
 
         seconds_passed = max(0.0, (now_dt - last_claim).total_seconds())
-        mined = base_unclaimed + (hourly_rate / 3600.0) * seconds_passed
-        return round(min(mined, max_cap), 4)
+
+        # حساب سرعة المعزز الإضافية (+0.1 ZN/ساعة) إذا كان المعزز مفعلاً خلال فترة التعدين (تأثير لمدة ساعتين)
+        boost_bonus = 0.0
+        last_boost_str = user_data.get("last_boost_time")
+        if last_boost_str:
+            try:
+                if isinstance(last_boost_str, (int, float)):
+                    boost_start = datetime.fromtimestamp(last_boost_str, tz=timezone.utc)
+                else:
+                    lb_s = str(last_boost_str).replace('Z', '+00:00')
+                    boost_start = datetime.fromisoformat(lb_s)
+                    if boost_start.tzinfo is None:
+                        boost_start = boost_start.replace(tzinfo=timezone.utc)
+
+                boost_end = boost_start + timedelta(hours=2) # مدة تأثير المعزز 2 ساعة
+                
+                overlap_start = max(last_claim, boost_start)
+                overlap_end = min(now_dt, boost_end)
+
+                if overlap_end > overlap_start:
+                    boosted_seconds = (overlap_end - overlap_start).total_seconds()
+                    boost_bonus = (0.10 / 3600.0) * boosted_seconds
+            except Exception as be:
+                print(f"⚠️ Error parsing last_boost_time in calculation: {be}")
+
+        mined = base_unclaimed + (hourly_rate / 3600.0) * seconds_passed + boost_bonus
+        return round(min(mined, max_cap), 8)
     except Exception as e:
         print(f"⚠️ Error parsing last_claim_time: {e}")
-        return round(min(base_unclaimed, max_cap), 4)
+        return round(min(base_unclaimed, max_cap), 8)
 
 
 def dismiss_welcome_db(user_id_str):
@@ -202,7 +229,7 @@ def dismiss_welcome_db(user_id_str):
 
 
 def get_or_create_user_farm_data(user_id_str):
-    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة وتطبيق التصحيح التلقائي للسرعات والتخزين"""
+    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة وتطبيق التصحيح التلقائي"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     user_doc = user_ref.get()
@@ -219,7 +246,7 @@ def get_or_create_user_farm_data(user_id_str):
         auto_fix = {}
         
         if "welcome_seen" not in user_data:
-            has_progress = bool(user_data.get("upgrades") or user_data.get("last_daily_claim_date") or user_data.get("last_boost_date"))
+            has_progress = bool(user_data.get("upgrades") or user_data.get("last_daily_claim_date") or user_data.get("last_boost_time"))
             auto_fix["welcome_seen"] = has_progress
             auto_fix["is_new_user"] = not has_progress
 
@@ -234,6 +261,7 @@ def get_or_create_user_farm_data(user_id_str):
             auto_fix["hourly_rate"] = base_free_rate
 
         if "daily_boost_rate" not in user_data: auto_fix["daily_boost_rate"] = 0.00
+        if "last_boost_time" not in user_data: auto_fix["last_boost_time"] = None
         if "base_unclaimed" not in user_data: auto_fix["base_unclaimed"] = float(user_data.get("unclaimed", 0.0))
         if "ads_watched" not in user_data: auto_fix["ads_watched"] = 0
         if "storage_level" not in user_data: auto_fix["storage_level"] = 0
@@ -256,11 +284,11 @@ def get_or_create_user_farm_data(user_id_str):
 
     expected_max_cap = calculate_user_max_cap(user_data, game_settings)
     user_data["max_cap"] = expected_max_cap
-    user_data["balance"] = round(float(user_data.get("balance", 0.0)), 4)
-    user_data["usd_balance"] = round(float(user_data.get("usd_balance", 0.0)), 6)
-    user_data["mined_points"] = round(float(user_data.get("mined_points", user_data.get("total_mined", 0.0))), 4)
+    user_data["balance"] = round(float(user_data.get("balance", 0.0)), 8)
+    user_data["usd_balance"] = round(float(user_data.get("usd_balance", 0.0)), 8)
+    user_data["mined_points"] = round(float(user_data.get("mined_points", user_data.get("total_mined", 0.0))), 8)
     user_data["total_mined"] = user_data["mined_points"]
-    user_data["base_unclaimed"] = float(user_data.get("base_unclaimed", 0.0))
+    user_data["base_unclaimed"] = round(float(user_data.get("base_unclaimed", 0.0)), 8)
     user_data["unclaimed"] = calculate_accrued_mined(user_data, now, expected_max_cap)
     
     is_welcome_seen = to_bool(user_data.get("welcome_seen", False))
@@ -286,7 +314,7 @@ def get_or_create_user_farm_data(user_id_str):
 
 
 def claim_mined_tokens_db(user_id_str):
-    """تجميع الرصيد المعدن وتحديث تاريخ الإعلان last_claim_ad_date وتصفير المحصول المعلق"""
+    """تجميع الرصيد المعدن وتحديث تاريخ الإعلان وتصفير المحصول المعلق"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -328,8 +356,8 @@ def claim_mined_tokens_db(user_id_str):
         current_usd_balance = float(user_data.get("usd_balance", 0.0))
         current_mined_points = float(user_data.get("mined_points", user_data.get("total_mined", 0.0)))
 
-        new_balance = round(current_balance + mined_amount, 4)
-        new_mined_points = round(current_mined_points + mined_amount, 4)
+        new_balance = round(current_balance + mined_amount, 8)
+        new_mined_points = round(current_mined_points + mined_amount, 8)
         now_iso = now.isoformat()
 
         transaction.update(ref, {
@@ -349,7 +377,7 @@ def claim_mined_tokens_db(user_id_str):
         return {
             "success": True,
             "new_balance": new_balance,
-            "new_usd_balance": current_usd_balance,
+            "new_usd_balance": round(current_usd_balance, 8),
             "total_mined": new_mined_points,
             "mined_points": new_mined_points,
             "last_claim_time": now_iso,
@@ -443,10 +471,10 @@ def buy_upgrade_db(user_id_str, level):
         max_cap = calculate_user_max_cap(user_data, game_settings)
         mined_amount = calculate_accrued_mined(user_data, now, max_cap)
 
-        new_balance = round(current_balance - cost_zn, 4)
-        new_usd_balance = round(current_usd_balance - cost_usd, 6)
+        new_balance = round(current_balance - cost_zn, 8)
+        new_usd_balance = round(current_usd_balance - cost_usd, 8)
         current_hourly_rate = float(user_data.get("hourly_rate", 0.10))
-        new_hourly_rate = round(current_hourly_rate + rate_bonus, 2)
+        new_hourly_rate = round(current_hourly_rate + rate_bonus, 4)
 
         upgrades[lvl_key] = current_count + 1
         total_upgrades_count = sum(int(v) for v in upgrades.values() if isinstance(v, (int, float)))
@@ -548,9 +576,9 @@ def buy_storage_db(user_id_str):
         mined_amount = calculate_accrued_mined(user_data, now, old_max_cap)
 
         extra_cap = float(user_data.get("extra_storage", 0.0))
-        new_max_cap = round(new_capacity + extra_cap, 2)
-        new_balance = round(current_balance - cost_zn, 4)
-        new_usd_balance = round(current_usd_balance - cost_usd, 6)
+        new_max_cap = round(new_capacity + extra_cap, 4)
+        new_balance = round(current_balance - cost_zn, 8)
+        new_usd_balance = round(current_usd_balance - cost_usd, 8)
 
         transaction.update(ref, {
             "balance": new_balance,
@@ -582,7 +610,7 @@ def buy_storage_db(user_id_str):
 
 
 def claim_daily_reward_db(user_id_str):
-    """استلام المكافأة اليومية بالتوقيت العالمي UTC"""
+    """استلام المكافأة اليومية (تصفير العداد لليوم 1 بـ 0.2 ZN في حال الانقطاع 24+ ساعة، وحفظ اليوم 30 بـ 40 ZN للزيارات المستمرة)"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
@@ -609,6 +637,8 @@ def claim_daily_reward_db(user_id_str):
 
         raw_daily_day = int(user_data.get("daily_day") or user_data.get("daily_streak") or 1)
 
+        # إذا كانت المطالبة السابقة بالأمس، يزيد اليوم حتى 30 ويستقر عندها (40 ZN)
+        # إذا انقطع المستخدم لأكثر من 24+ ساعة (أكثر من يوم)، ينقضي التتابع ويعود لليوم 1 (0.2 ZN)
         if last_daily_claim == yesterday_str:
             effective_daily_day = min(raw_daily_day + 1, 30) if raw_daily_day < 30 else 30
         else:
@@ -619,7 +649,7 @@ def claim_daily_reward_db(user_id_str):
 
         current_balance = float(user_data.get("balance", 0.0))
         current_usd_balance = float(user_data.get("usd_balance", 0.0))
-        new_balance = round(current_balance + reward_amount, 4)
+        new_balance = round(current_balance + reward_amount, 8)
         new_ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
         transaction.update(ref, {
@@ -633,8 +663,10 @@ def claim_daily_reward_db(user_id_str):
         return {
             "success": True,
             "new_balance": new_balance,
-            "new_usd_balance": current_usd_balance,
+            "new_usd_balance": round(current_usd_balance, 8),
+            "reward_amount": reward_amount,
             "daily_day": effective_daily_day,
+            "daily_streak": effective_daily_day,
             "last_daily_claim_date": today_str,
             "ads_watched": new_ads_watched,
             "server_time": now.isoformat()
@@ -648,15 +680,10 @@ def claim_daily_reward_db(user_id_str):
 
 
 def claim_daily_boost_db(user_id_str):
-    """تفعيل المعزز اليومي بالتوقيت العالمي UTC"""
+    """تفعيل المعزز اليومي وتسجيل last_boost_time للسرعة الإضافية (+0.1 ZN/ساعة لمدة ساعتين) مع فترة انتظار 3 ساعات"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     game_settings = get_game_settings()
-    mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
-
-    daily_boost_reward = round(float(mining_cfg.get("daily_boost_reward", 0.15)), 2)
-    max_daily_boost_rate = round(float(mining_cfg.get("max_daily_boost_rate", 4.5)), 2)
-    boost_max_reward_coins = round(float(mining_cfg.get("boost_max_reward_coins", 35.0)), 2)
 
     @firestore.transactional
     def run_boost_transaction(transaction, ref):
@@ -669,68 +696,68 @@ def claim_daily_boost_db(user_id_str):
         else:
             user_data = snapshot.to_dict() or {}
 
-        today_str = now.strftime('%Y-%m-%d')
         now_iso = now.isoformat()
+        today_str = now.strftime('%Y-%m-%d')
+        last_boost_str = user_data.get("last_boost_time")
 
-        last_boost = user_data.get("last_boost_date")
-        if last_boost == today_str:
-            return {"success": False, "error": "لقد حصلت على تعزيز اليوم بالفعل"}
+        # التحقق من فترة الانتظار (3 ساعات = 10,800 ثانية من وقت التفعيل)
+        if last_boost_str:
+            try:
+                if isinstance(last_boost_str, (int, float)):
+                    last_boost = datetime.fromtimestamp(last_boost_str, tz=timezone.utc)
+                else:
+                    lb_s = str(last_boost_str).replace('Z', '+00:00')
+                    last_boost = datetime.fromisoformat(lb_s)
+                    if last_boost.tzinfo is None:
+                        last_boost = last_boost.replace(tzinfo=timezone.utc)
 
-        daily_boost_rate = float(user_data.get("daily_boost_rate", 0.0) or 0.0)
-        current_hourly_rate = float(user_data.get("hourly_rate", 0.10) or 0.10)
-        current_balance = float(user_data.get("balance", 0.0) or 0.0)
-        current_usd_balance = float(user_data.get("usd_balance", 0.0) or 0.0)
-        current_ads = int(user_data.get("ads_watched", 0) or 0)
-        new_ads = current_ads + 1
+                elapsed_seconds = (now - last_boost).total_seconds()
+                cooldown_seconds = 3 * 3600  # 3 ساعات فترة انتظار
+                if elapsed_seconds < cooldown_seconds:
+                    remaining_seconds = int(cooldown_seconds - elapsed_seconds)
+                    rem_hours = remaining_seconds // 3600
+                    rem_mins = (remaining_seconds % 3600) // 60
+                    time_str = f"{rem_hours} ساعة و {rem_mins} دقيقة" if rem_hours > 0 else f"{rem_mins} دقيقة"
+                    return {
+                        "success": False,
+                        "error": f"الرجاء الانتظار {time_str} قبل تفعيل المعزز مجدداً",
+                        "remaining_seconds": remaining_seconds
+                    }
+            except Exception as e:
+                print(f"⚠️ Error parsing last_boost_time: {e}")
 
         max_cap = calculate_user_max_cap(user_data, game_settings)
         mined_amount = calculate_accrued_mined(user_data, now, max_cap)
 
-        if round(daily_boost_rate, 2) < max_daily_boost_rate:
-            new_daily_boost_rate = round(daily_boost_rate + daily_boost_reward, 2)
-            new_hourly_rate = round(current_hourly_rate + daily_boost_reward, 2)
+        current_balance = round(float(user_data.get("balance", 0.0)), 8)
+        current_usd_balance = round(float(user_data.get("usd_balance", 0.0)), 8)
+        current_ads = int(user_data.get("ads_watched", 0) or 0)
+        new_ads = current_ads + 1
 
-            transaction.update(ref, {
-                "daily_boost_rate": new_daily_boost_rate,
-                "hourly_rate": new_hourly_rate,
-                "last_boost_date": today_str,
-                "ads_watched": new_ads,
-                "last_claim_time": now_iso,
-                "base_unclaimed": mined_amount,
-                "unclaimed": mined_amount
-            })
+        transaction.update(ref, {
+            "last_boost_time": now_iso,
+            "last_boost_date": today_str,
+            "ads_watched": new_ads,
+            "last_claim_time": now_iso,
+            "base_unclaimed": mined_amount,
+            "unclaimed": mined_amount
+        })
 
-            return {
-                "success": True,
-                "type": "speed",
-                "boost_amount": daily_boost_reward,
-                "new_rate": new_hourly_rate,
-                "daily_boost_rate": new_daily_boost_rate,
-                "last_boost_date": today_str,
-                "last_claim_time": now_iso,
-                "base_unclaimed": mined_amount,
-                "unclaimed": mined_amount,
-                "new_balance": round(current_balance, 4),
-                "new_usd_balance": current_usd_balance,
-                "server_time": now_iso
-            }
-        else:
-            new_balance = round(current_balance + boost_max_reward_coins, 4)
-            transaction.update(ref, {
-                "balance": new_balance,
-                "last_boost_date": today_str,
-                "ads_watched": new_ads
-            })
-
-            return {
-                "success": True,
-                "type": "balance",
-                "reward_coins": boost_max_reward_coins,
-                "new_balance": new_balance,
-                "new_usd_balance": current_usd_balance,
-                "last_boost_date": today_str,
-                "server_time": now_iso
-            }
+        return {
+            "success": True,
+            "type": "speed",
+            "boost_rate_bonus": 0.10,
+            "boost_duration_hours": 2,
+            "cooldown_hours": 3,
+            "last_boost_time": now_iso,
+            "last_boost_date": today_str,
+            "last_claim_time": now_iso,
+            "base_unclaimed": mined_amount,
+            "unclaimed": mined_amount,
+            "new_balance": current_balance,
+            "new_usd_balance": current_usd_balance,
+            "server_time": now_iso
+        }
 
     try:
         transaction = db.transaction()
@@ -780,10 +807,10 @@ def get_mining_leaderboard_db(limit=10):
         leaderboard.append({
             "tg_id": str(doc.id),
             "name": name,
-            "total_mined": round(total_m, 4),
-            "mined_points": round(total_m, 4),
-            "balance": round(float(data.get("balance", 0.0)), 4),
-            "hourly_rate": round(float(data.get("hourly_rate", 0.10)), 2)
+            "total_mined": round(total_m, 8),
+            "mined_points": round(total_m, 8),
+            "balance": round(float(data.get("balance", 0.0)), 8),
+            "hourly_rate": round(float(data.get("hourly_rate", 0.10)), 4)
         })
 
     leaderboard.sort(key=lambda x: x['mined_points'], reverse=True)
