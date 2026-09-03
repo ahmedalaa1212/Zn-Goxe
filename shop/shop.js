@@ -12,14 +12,26 @@
     let cachedPackagesData = null;
     let lastConfigFetchTime = 0;
     const CONFIG_CACHE_TTL = 30000;
+    let vipTimerInterval = null;
 
+    // 🎯 نظام اهتزازات اللمس (Haptic Feedback) للموبايل وتليجرام
     function triggerHaptic(type = 'impact', style = 'medium') {
         if (window.Telegram?.WebApp?.HapticFeedback) {
-            if (type === 'impact') window.Telegram.WebApp.HapticFeedback.impactOccurred(style);
-            else if (type === 'notification') window.Telegram.WebApp.HapticFeedback.notificationOccurred(style);
+            try {
+                if (type === 'impact') {
+                    window.Telegram.WebApp.HapticFeedback.impactOccurred(style);
+                } else if (type === 'notification') {
+                    window.Telegram.WebApp.HapticFeedback.notificationOccurred(style);
+                } else if (type === 'selection') {
+                    window.Telegram.WebApp.HapticFeedback.selectionChanged();
+                }
+            } catch (e) {
+                console.warn("Haptic Feedback Error:", e);
+            }
         }
     }
 
+    // 🎯 تحويل وتصفية القيم الرقمية بصفة آمنة
     function floatVal(...args) {
         for (let val of args) {
             if (val !== undefined && val !== null && val !== '') {
@@ -59,7 +71,7 @@
         return val.toFixed(4);
     }
 
-    // 🎯 تنسيق الأرقام العشرية بتباين هادئ ومتناسق مطابق لقائمة الأصدقاء
+    // 🎯 تنسيق الأرقام العشرية بتباين هادئ ومتناسق مطابق لقائمة الأصدقاء والمزرعة
     function formatTopBalanceHTML(num) {
         let val = floatVal(num);
         let fixedStr = val.toFixed(4);
@@ -69,7 +81,20 @@
         return `${intPart}<span style="font-size: 0.82em; opacity: 0.85; font-weight: normal; margin: 0 0.5px;">.${decPart}</span>`;
     }
 
-    // 🎯 حساب المدة المتبقية للباقات وتنسيقها بالعربية
+    // 🎯 دالة المهل الزمنية (Timeout Wrapper) لتفادي التعليق أثناء المعاملات
+    function withTimeout(promise, ms, timeoutMsg = "⚠️ انتهت المهلة الزمنية للعملية.") {
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                reject(new Error(timeoutMsg));
+            }, ms);
+            promise.then(
+                (res) => { clearTimeout(timer); resolve(res); },
+                (err) => { clearTimeout(timer); reject(err); }
+            );
+        });
+    }
+
+    // 🎯 حساب المدة المتبقية للباقات وتنسيقها بالعربية بدقة
     function formatRemainingTime(expiresAtStr) {
         if (!expiresAtStr) return null;
         try {
@@ -79,24 +104,49 @@
 
             if (diffMs <= 0) return null;
 
-            const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+            const diffSecs = Math.floor(diffMs / 1000);
+            const diffMins = Math.floor(diffSecs / 60);
+            const diffHours = Math.floor(diffMins / 60);
             const diffDays = Math.floor(diffHours / 24);
 
             if (diffDays >= 1) {
                 const remHours = diffHours % 24;
                 return remHours > 0 ? `${diffDays} يوم و ${remHours} س` : `${diffDays} يوم`;
             } else if (diffHours >= 1) {
-                const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-                return `${diffHours} ساعة و ${diffMins} د`;
+                const remMins = diffMins % 60;
+                return remMins > 0 ? `${diffHours} ساعة و ${remMins} د` : `${diffHours} ساعة`;
+            } else if (diffMins >= 1) {
+                const remSecs = diffSecs % 60;
+                return `${diffMins} د و ${remSecs} ث`;
             } else {
-                const diffMins = Math.floor(diffMs / (1000 * 60));
-                return `${Math.max(1, diffMins)} دقيقة`;
+                return `${Math.max(1, diffSecs)} ثانية`;
             }
         } catch (e) {
             return null;
         }
     }
 
+    // 🎯 تحديث تلقائي حقيقي ومباشر لعداد وقت اشتراك VIP المتبقي (Live Timer)
+    function startVipLiveTimer() {
+        if (vipTimerInterval) clearInterval(vipTimerInterval);
+        vipTimerInterval = setInterval(() => {
+            const activeVipStatus = window.userState?.vip_status || window.userState?.vip || null;
+            if (activeVipStatus && activeVipStatus.expires_at) {
+                const badgeElems = document.querySelectorAll('.vip-active-badge');
+                const remText = formatRemainingTime(activeVipStatus.expires_at);
+                if (remText) {
+                    badgeElems.forEach(el => {
+                        el.innerText = `نشطة (متبقي ${remText})`;
+                    });
+                } else {
+                    // في حال انتهاء الوقت أثناء تواجد المستخدم في الصفحة
+                    if (window.updateShopUI) window.updateShopUI();
+                }
+            }
+        }, 1000);
+    }
+
+    // 🎯 تهيئة TonConnect UI
     function initTonConnect() {
         if (tonConnectUI) return tonConnectUI;
         try {
@@ -136,7 +186,7 @@
     }
 
     // =================================================================
-    // 📦 تحميل إعدادات المتجر
+    // 📦 تحميل إعدادات المتجر والتخزين المؤقت (Cache Management)
     // =================================================================
     async function loadShopConfig(forceFetch = false) {
         const now = Date.now();
@@ -150,7 +200,7 @@
         }
 
         try {
-            const res = await fetch('/api/shop/get_config');
+            const res = await withTimeout(fetch('/api/shop/get_config'), 15000, "تأخرت استجابة سيرفر إعدادات المتجر.");
             const data = await res.json();
             if (data && data.success) {
                 shopDynamicSettings = data.settings || data.farm_settings || data;
@@ -198,7 +248,7 @@
         }
 
         const entries = Array.isArray(packages) 
-            ? packages.map((p, idx) => [`VIP${idx}`, p]) 
+            ? packages.map((p, idx) => [`VIP${idx + 1}`, p]) 
             : Object.entries(packages);
 
         if (entries.length === 0) {
@@ -255,11 +305,11 @@
             }
 
             const activeClass = isActive ? 'active-vip' : '';
-            const activeBadgeHtml = isActive ? `<div class="vip-active-badge">نشطة (متبقي ${remainingTimeText})</div>` : '';
+            const activeBadgeHtml = isActive ? `<div class="vip-active-badge" style="background: rgba(255, 204, 0, 0.2); color: #ffcc00; font-size: 11px; padding: 4px 8px; border-radius: 8px; font-weight: bold; margin-bottom: 6px; border: 1px solid #ffcc00;">نشطة (متبقي ${remainingTimeText})</div>` : '';
             const btnLabel = isActive ? 'تجديد الاشتراك ⚡' : 'شراء تلقائي ⚡';
 
             html += `
-                <div class="usdt-card ${activeClass}" style="background: ${theme.bg}; border: 1px solid ${isActive ? '#ffcc00' : theme.border};">
+                <div class="usdt-card ${activeClass}" style="background: ${theme.bg}; border: 1px solid ${isActive ? '#ffcc00' : theme.border}; padding: 14px; border-radius: 16px; margin-bottom: 12px;">
                     ${activeBadgeHtml}
                     <div>
                         <div style="font-size: 26px;">${theme.icon}</div>
@@ -267,26 +317,28 @@
                         <div style="color: ${theme.border}; font-weight: 800; font-size: 17px; margin: 4px 0;">$${formatUSD(usdtPrice)}</div>
                         <div style="color: #0088cc; font-size: 11px; font-weight: bold; margin-bottom: 8px;">~${cleanNum(tonAmount)} TON</div>
                     </div>
-                    <div class="usdt-perks">
+                    <div class="usdt-perks" style="margin: 10px 0;">
                         ${perksHtml}
                     </div>
-                    <button class="btn-ton-pay" style="background: ${theme.btn}; color: ${btnTextColor};" onclick="buyPackageWithTon('${pkgId}')">${btnLabel}</button>
+                    <button class="btn-ton-pay" style="width: 100%; padding: 10px; background: ${theme.btn}; color: ${btnTextColor}; border: none; border-radius: 10px; font-weight: bold; font-size: 12px; cursor: pointer;" onclick="buyPackageWithTon('${pkgId}')">${btnLabel}</button>
                 </div>
             `;
             index++;
         }
 
         container.innerHTML = html;
+        startVipLiveTimer();
     }
 
     // =================================================================
-    // 💎 شراء الباقات بـ TON
+    // 💎 شراء الباقات بـ TON مع معالجة حافة المهل المحددة والخطأ
     // =================================================================
     window.buyPackageWithTon = async function(packageId) {
         if (isBuying) return;
 
         const initData = window.Telegram?.WebApp?.initData;
         if (!initData) {
+            triggerHaptic('notification', 'error');
             alert("⚠️ يجب فتح التطبيق من داخل تليجرام.");
             return;
         }
@@ -295,13 +347,15 @@
         
         const tcInstance = await ensureTonConnectReady();
         if (!tcInstance) {
+            triggerHaptic('notification', 'error');
             alert("⚠️ جاري إعداد الاتصال بالمحفظة، يرجى المحاولة بعد ثوانٍ.");
             return;
         }
 
         try {
             if (!tcInstance.connected) {
-                await tcInstance.openModal();
+                // وضع مهلة 60 ثانية لعملية ربط المحفظة
+                await withTimeout(tcInstance.openModal(), 60000, "تأخرت عملية فتح المحفظة.");
 
                 let attempts = 0;
                 while (!tcInstance.connected && attempts < 40) {
@@ -310,6 +364,7 @@
                 }
 
                 if (!tcInstance.connected) {
+                    triggerHaptic('notification', 'error');
                     alert("⚠️ يجب ربط المحفظة أولاً لإتمام عملية الشراء.");
                     return;
                 }
@@ -317,7 +372,7 @@
 
             isBuying = true;
 
-            const prepRes = await fetch('/api/shop/prepare_ton_pay', {
+            const prepRes = await withTimeout(fetch('/api/shop/prepare_ton_pay', {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
@@ -327,10 +382,11 @@
                     package_id: packageId,
                     initData: initData 
                 })
-            });
+            }), 20000, "تأخر السيرفر في تجهيز بيانات الدفع.");
 
             const prepData = await prepRes.json();
             if (!prepData.success) {
+                triggerHaptic('notification', 'error');
                 alert("خطأ: " + (prepData.error || prepData.message));
                 isBuying = false;
                 return;
@@ -347,11 +403,16 @@
                 }]
             };
 
-            const result = await tcInstance.sendTransaction(transaction);
+            // وضع مهلة زمنية 120 ثانية لإكمال المعاملة داخل تطبيق المحفظة
+            const result = await withTimeout(
+                tcInstance.sendTransaction(transaction),
+                120000,
+                "⚠️ استغرقت المعاملة وقتاً طويلاً أو تم إغلاق المحفظة دون تأكيد."
+            );
             
             let safeBoc = (result && result.boc) ? result.boc : ("TX_" + Date.now() + "_" + Math.floor(Math.random() * 100000));
 
-            const verifyRes = await fetch('/api/shop/verify_and_apply_package', {
+            const verifyRes = await withTimeout(fetch('/api/shop/verify_and_apply_package', {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
@@ -362,7 +423,7 @@
                     boc: safeBoc,
                     initData: initData
                 })
-            });
+            }), 25000, "تأخر تأكيد العملية من الشبكة والسيرفر.");
 
             const verifyData = await verifyRes.json();
             if (verifyData.success && (verifyData.result || verifyData.data || verifyData.balance !== undefined)) {
@@ -382,20 +443,26 @@
                 window.updateShopUI();
                 window.dispatchEvent(new CustomEvent('userStateUpdated'));
             } else {
-                alert("⚠️ " + (verifyData.error || verifyData.message));
+                triggerHaptic('notification', 'error');
+                alert("⚠️ " + (verifyData.error || verifyData.message || "لم نتمكن من التحقق من الدفع."));
             }
 
         } catch (e) {
             console.error("Payment Flow Error:", e);
             triggerHaptic('notification', 'error');
-            alert("❌ تم إلغاء المعاملة أو حدث خطأ أثناء الاتصال بالمحفظة.");
+            const errMsg = e?.message || "";
+            if (errMsg.includes("UserRejects") || errMsg.includes("User declined") || errMsg.includes("declined")) {
+                alert("❌ تم إلغاء المعاملة من قبل المستخدم.");
+            } else {
+                alert(errMsg || "❌ تم إلغاء المعاملة أو حدث خطأ أثناء الاتصال بالمحفظة.");
+            }
         } finally {
             isBuying = false;
         }
     };
 
     // =================================================================
-    // 🎨 نافذة التأكيد (Modal UI)
+    // 🎨 نافذة التأكيد المخصصة السلسة (Modal UI)
     // =================================================================
     const injectModalUI = () => {
         if (!document.getElementById('shop-modal-styles')) {
@@ -460,10 +527,10 @@
     injectModalUI();
 
     // =================================================================
-    // 🔄 التبديل بين التبويبات
+    // 🔄 التبديل بين تبويبات المتجر
     // =================================================================
     window.switchShopTab = function(tab) {
-        triggerHaptic('impact', 'light');
+        triggerHaptic('selection');
         const miningSec = document.getElementById('shop-mining-section');
         const storageSec = document.getElementById('shop-storage-section');
         const btnMining = document.getElementById('tab-mining');
@@ -485,7 +552,7 @@
     };
 
     // =================================================================
-    // 🔄 تحديث واجهة المتجر (Render UI)
+    // 🔄 تحديث واجهة المتجر وقفل/فتح الأزرار تلقائياً
     // =================================================================
     window.updateShopUI = function() {
         if (cachedPackagesData) {
@@ -636,6 +703,9 @@
         storageSec.innerHTML = storageHtml || '<div style="color:#888; text-align:center; grid-column:span 2; padding:20px;">جاري جلب مستويات التخزين...</div>';
     };
 
+    // =================================================================
+    // 🛒 طلب شراء ترقية السرعة أو التخزين
+    // =================================================================
     window.requestShopPurchase = function(type, level, priceZn, priceUsd) {
         const curBal = floatVal(window.userState?.balance);
         const curUsd = floatVal(window.userState?.usd_balance, window.userState?.balance_usd, window.userState?.usd, window.userState?.usdt);
@@ -692,6 +762,9 @@
         if (overlay) overlay.classList.add('shop-modal-active');
     };
 
+    // =================================================================
+    // ⚡ تنفيذ الشراء المباشر للترقيات الداخلية
+    // =================================================================
     async function executeActualPurchase(type, level) {
         const initData = window.Telegram?.WebApp?.initData; 
         if (!initData) return alert("⚠️ يجب فتح اللعبة من داخل تليجرام.");
@@ -702,7 +775,7 @@
         let apiType = (type === 'speed') ? 'mining' : 'storage';
 
         try {
-            let response = await fetch('/api/shop/buy', {
+            let response = await withTimeout(fetch('/api/shop/buy', {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
@@ -715,7 +788,7 @@
                     upgrade_level: level,
                     initData: initData 
                 })
-            });
+            }), 15000, "تأخرت الاستجابة من سيرفر الشراء.");
 
             let resData = await response.json();
 
@@ -736,16 +809,21 @@
                 window.updateShopUI();
                 window.dispatchEvent(new CustomEvent('userStateUpdated'));
             } else {
+                triggerHaptic('notification', 'error');
                 alert("⚠️ " + (resData.error || resData.message || "حدث خطأ أثناء الشراء."));
             }
         } catch (e) {
             console.error("Shop Purchase Error:", e);
-            alert("❌ تعذر الاتصال بالسيرفر.");
+            triggerHaptic('notification', 'error');
+            alert(e?.message || "❌ تعذر الاتصال بالسيرفر.");
         } finally {
             isBuying = false; 
         }
     }
 
+    // =================================================================
+    // 🚀 بداية التشغيل واستماع الأحداث
+    // =================================================================
     function boot() {
         initTonConnect();
         loadShopConfig(false);
@@ -757,6 +835,7 @@
         boot();
     }
 
+    // الاستماع الفوري لحدث تحديث حالة المستخدم في التطبيق
     window.addEventListener('userStateUpdated', () => {
         window.updateShopUI();
     });
