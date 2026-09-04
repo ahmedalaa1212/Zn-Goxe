@@ -1,5 +1,7 @@
 import json
 import os
+import math
+import sys
 from datetime import datetime
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -57,6 +59,22 @@ except Exception as e:
     print(f"⚠️ تنبيه أثناء التهيئة التلقائية لـ Firebase: {e}")
 
 
+# ==================== Security & Input Helpers ====================
+
+def _sanitize_telegram_id(telegram_id):
+    """تطهير والتحقق من صحة معرف التليجرام لمنع ثغرات Injection وانكسار Firestore"""
+    if telegram_id is None:
+        return None
+    s_id = str(telegram_id).strip()
+    if not s_id or s_id.lower() in ("none", "null", "undefined", "false", "true"):
+        return None
+    if '/' in s_id or '..' in s_id or '\\' in s_id:
+        return None
+    if len(s_id) > 128:
+        return None
+    return s_id
+
+
 # ==================== Data Serialization Helper (حل مشكلة SERVER_TIMESTAMP و JSON 500) ====================
 
 def sanitize_firestore_data(data):
@@ -68,11 +86,11 @@ def sanitize_firestore_data(data):
         return None
     if isinstance(data, dict):
         return {k: sanitize_firestore_data(v) for k, v in data.items()}
-    elif isinstance(data, list):
+    elif isinstance(data, (list, tuple, set)):
         return [sanitize_firestore_data(v) for v in data]
     elif isinstance(data, datetime):
         return data.isoformat()
-    elif hasattr(data, 'isoformat'):  # يشمل DatetimeWithNanoseconds في Firestore
+    elif hasattr(data, 'isoformat') and callable(getattr(data, 'isoformat')):  # يشمل DatetimeWithNanoseconds في Firestore
         return data.isoformat()
     elif hasattr(data, '__dict__'):
         return str(data)
@@ -84,11 +102,11 @@ def sanitize_firestore_data(data):
 
 def get_user(telegram_id):
     """جلب بيانات المستخدم مباشرة من Firestore مع تنظيف التواريخ لتوافق JSON"""
-    if not telegram_id:
+    user_id_str = _sanitize_telegram_id(telegram_id)
+    if not user_id_str:
         return None
     try:
         firestore_db = get_db()
-        user_id_str = str(telegram_id).strip()
         doc_ref = firestore_db.collection('users').document(user_id_str)
         doc = doc_ref.get()
         if doc.exists:
@@ -104,26 +122,30 @@ def init_user(telegram_id, ref_id=None, first_name="لاعب"):
     إنشاء مستند المستخدم قسرياً في Firestore إن لم يكن موجوداً ومعالجة نظام الإحالات
     مع تحويل كافة التواريخ إلى صيغ آمنة تمنع انهيار السيرفر 500 عند إرجاع JSON.
     """
-    if not telegram_id:
+    user_id_str = _sanitize_telegram_id(telegram_id)
+    if not user_id_str:
         return {}
+
     try:
         firestore_db = get_db()
-        user_id_str = str(telegram_id).strip()
-        if not user_id_str or user_id_str in ("None", "null", ""):
-            return {}
-
         doc_ref = firestore_db.collection('users').document(user_id_str)
         doc = doc_ref.get()
 
+        clean_first_name = str(first_name or 'لاعب').strip()[:50]
+
         if not doc.exists:
-            clean_ref = str(ref_id).strip() if ref_id and str(ref_id).strip() not in (user_id_str, "None", "null", "") else None
-            
+            clean_ref = _sanitize_telegram_id(ref_id)
+            # منع الإحالة الذاتية (Self-referral protection)
+            if clean_ref == user_id_str:
+                clean_ref = None
+
             new_user_data = {
                 'user_id': user_id_str,
                 'telegram_id': user_id_str,
-                'first_name': str(first_name or 'لاعب'),
+                'first_name': clean_first_name,
                 'balance': 0.0,
                 'usd_balance': 0.0,
+                'znx_balance': 0.0,
                 'ref_by': clean_ref,
                 'referrals_count': 0,
                 'created_at': firestore.SERVER_TIMESTAMP,
@@ -166,16 +188,26 @@ def is_user_banned(telegram_id):
 
 
 def update_user(telegram_id, updates_dict):
-    """تحديث بيانات مستند المستخدم"""
-    if not telegram_id or not isinstance(updates_dict, dict):
+    """تحديث بيانات مستند المستخدم مع التحقق من الأمان وتصفية المدخلات"""
+    user_id_str = _sanitize_telegram_id(telegram_id)
+    if not user_id_str or not isinstance(updates_dict, dict):
         return False
+
+    sanitized_updates = {}
+    for k, v in updates_dict.items():
+        if isinstance(k, str) and not k.startswith('_'):
+            sanitized_updates[k] = v
+
+    if not sanitized_updates:
+        return False
+
     try:
         firestore_db = get_db()
-        doc_ref = firestore_db.collection('users').document(str(telegram_id).strip())
-        doc_ref.update(updates_dict)
+        doc_ref = firestore_db.collection('users').document(user_id_str)
+        doc_ref.update(sanitized_updates)
         return True
     except Exception as e:
-        print(f"❌ خطأ تحديث مستند المستخدم {telegram_id}: {e}")
+        print(f"❌ خطأ تحديث مستند المستخدم {user_id_str}: {e}")
         return False
 
 
@@ -184,13 +216,29 @@ def update_user(telegram_id, updates_dict):
 def atomic_update_balance(telegram_id, amount_change, is_usd=False):
     """
     تحديث رصيد المستخدم معاملاتيًا (Atomic Transaction) لمنع ثغرات Race Condition والتلاعب بالرصيد.
+    يدعم تحديث رصيد (العادي / الدولار / عملة ZNX).
     """
-    if not telegram_id:
+    user_id_str = _sanitize_telegram_id(telegram_id)
+    if not user_id_str:
         return False, "المعرف غير صالح"
 
+    try:
+        amount = float(amount_change)
+        if math.isnan(amount) or math.isinf(amount):
+            return False, "قيمة المبلغ غير صالحة"
+    except (ValueError, TypeError):
+        return False, "المبلغ يجب أن يكون رقماً صحيحاً أو عشرياً"
+
     firestore_db = get_db()
-    user_id_str = str(telegram_id).strip()
     doc_ref = firestore_db.collection('users').document(user_id_str)
+
+    # مرونة اختيار الحقل للتوافق مع العملة المطلوبة
+    if is_usd is True or str(is_usd).lower() in ('usd', 'usd_balance'):
+        field_name = 'usd_balance'
+    elif str(is_usd).lower() in ('znx', 'znx_balance'):
+        field_name = 'znx_balance'
+    else:
+        field_name = 'balance'
 
     @firestore.transactional
     def update_in_transaction(transaction, doc_ref):
@@ -199,9 +247,8 @@ def atomic_update_balance(telegram_id, amount_change, is_usd=False):
             return False, "المستخدم غير موجود"
         
         user_data = snapshot.to_dict()
-        field_name = 'usd_balance' if is_usd else 'balance'
         current_balance = float(user_data.get(field_name, 0.0))
-        new_balance = current_balance + float(amount_change)
+        new_balance = round(current_balance + amount, 6)
 
         if new_balance < 0:
             return False, "الرصيد غير كافٍ"
@@ -214,20 +261,23 @@ def atomic_update_balance(telegram_id, amount_change, is_usd=False):
         success, result = update_in_transaction(transaction, doc_ref)
         return success, result
     except Exception as e:
-        print(f"❌ خطأ في معاملة تحديث الرصيد للمستخدم {telegram_id}: {e}")
+        print(f"❌ خطأ في معاملة تحديث الرصيد للمستخدم {user_id_str}: {e}")
         return False, str(e)
 
 
-# ==================== Leaderboard System (نظام المتصدرين الموثق) ====================
+# ==================== Leaderboard Bridge & Fallback System ====================
 
-def get_leaderboard_data(limit=50, user_id=None):
+def _fallback_get_leaderboard_data(limit=50, user_id=None):
     """
-    جلب قائمة أعلى الحسابات رصيداً وحساب ترتيب المستخدم الحالي بدقة وأمان.
+    الآلية الاحتياطية الداخلية لجلب قائمة المتصدرين مباشرة من Firestore
+    في حال تعذر استدعائها من znx_wallet_db.py.
     """
     try:
         firestore_db = get_db()
         users_ref = firestore_db.collection('users')
-        query = users_ref.order_by('balance', direction=firestore.Query.DESCENDING).limit(limit)
+        safe_limit = max(1, min(int(limit or 50), 100))
+
+        query = users_ref.order_by('balance', direction=firestore.Query.DESCENDING).limit(safe_limit)
         docs = query.stream()
 
         leaderboard = []
@@ -235,7 +285,7 @@ def get_leaderboard_data(limit=50, user_id=None):
         user_rank = None
         user_in_top = False
 
-        target_user_id = str(user_id).strip() if user_id else None
+        target_user_id = _sanitize_telegram_id(user_id)
 
         for doc in docs:
             data = doc.to_dict()
@@ -243,9 +293,10 @@ def get_leaderboard_data(limit=50, user_id=None):
             user_entry = {
                 'rank': rank,
                 'user_id': u_id,
-                'first_name': data.get('first_name', 'لاعب'),
+                'first_name': str(data.get('first_name', 'لاعب')),
                 'balance': float(data.get('balance', 0.0)),
                 'usd_balance': float(data.get('usd_balance', 0.0)),
+                'znx_balance': float(data.get('znx_balance', 0.0)),
                 'farm_level': data.get('farm_level', 1)
             }
             leaderboard.append(user_entry)
@@ -256,7 +307,7 @@ def get_leaderboard_data(limit=50, user_id=None):
 
             rank += 1
 
-        # إذا لم يكن المستخدم في أول Limit لاعب، نحسب ترتيبه بدقة
+        # حساب ترتيب المستخدم الحالي إذا لم يكن ضمن أوائل القائمة
         if target_user_id and not user_in_top:
             target_doc = users_ref.document(target_user_id).get()
             if target_doc.exists:
@@ -272,13 +323,45 @@ def get_leaderboard_data(limit=50, user_id=None):
             'my_rank': user_rank or "غير مصنف"
         }
     except Exception as e:
-        print(f"❌ خطأ أثناء جلب قائمة المتصدرين: {e}")
+        print(f"❌ خطأ أثناء جلب قائمة المتصدرين (الاحتياطي): {e}")
         return {
             'success': False,
             'error': str(e),
             'leaderboard': [],
             'my_rank': "غير مصنف"
         }
+
+
+def get_leaderboard_data(limit=50, user_id=None):
+    """
+    دالة الجسر (Bridge Pattern) لربط طلبات بيانات الترتيب بموديول znx_wallet_db.py بشكل غير مباشر.
+    تضمن عدم انكسار أي موديول قديم يطلب البيانات من database.py.
+    """
+    try:
+        znx_db = sys.modules.get('znx_wallet.znx_wallet_db')
+        if not znx_db:
+            try:
+                import znx_wallet.znx_wallet_db as znx_db
+            except ImportError:
+                znx_db = None
+
+        if znx_db:
+            target_func = (
+                getattr(znx_db, 'get_leaderboard_data', None) or 
+                getattr(znx_db, 'get_znx_leaderboard_data', None) or
+                getattr(znx_db, 'get_wallet_leaderboard', None)
+            )
+            # التأكد من عدم الاستدعاء الذاتي لتجنب Recursion
+            if target_func and callable(target_func):
+                if getattr(target_func, '__module__', None) != 'database':
+                    res = target_func(limit=limit, user_id=user_id)
+                    if res and isinstance(res, dict) and res.get('success', False):
+                        return res
+    except Exception as e:
+        print(f"⚠️ تعذر استدعاء المتصدرين عبر الجسر من znx_wallet_db: {e}")
+
+    # الانتقال للحل الاحتياطي المباشر
+    return _fallback_get_leaderboard_data(limit=limit, user_id=user_id)
 
 
 # ==================== Sub-Modules Re-exports ====================
@@ -361,16 +444,17 @@ try:
 except Exception as e:
     print(f"⚠️ خطأ في تحميل wallet_db وموديولاتها الفرعية: {e}")
 
-# 12. Offers, Leaderboard & Ads Modules
+# 12. Offers, ZNX Wallet & Ads Modules
 try:
     from offers.offers_db import *
 except Exception:
     pass
 
+# **تطبيق المطلوب رقم 3**: استبدال leaderboard_db بـ znx_wallet_db
 try:
-    from leaderboard.leaderboard_db import *
-except Exception:
-    pass
+    from znx_wallet.znx_wallet_db import *
+except Exception as e:
+    print(f"⚠️ تنبيه: لم يتم تحميل znx_wallet_db بعد: {e}")
 
 try:
     from ads.ads_db import *
