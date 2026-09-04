@@ -3,99 +3,121 @@ from firebase_admin import firestore
 
 db = firestore.client()
 
-# ثوابت النظام
-MAX_GLOBAL_ZNX = 35_000_000
+# الحد الأقصى لمجمّع عملة ZNX
+MAX_GLOBAL_ZNX = 35_000_000.0
 
-# تعريف الشرائح: (الحد الأدنى للنقاط، الحد الأقصى للنقاط، معدل التحويل)
-CONVERSION_TIERS = [
-    (0, 20_000_000, 10),
-    (20_000_000, 100_000_000, 30),
-    (100_000_000, 500_000_000, 80),
-    (500_000_000, 2_000_000_000, 200),
-    (2_000_000_000, 8_000_000_000, 600),
-    (8_000_000_000, 25_000_000_000, 1600),
-    (25_000_000_000, float('inf'), 4000)
+# تعريف الشرائح السبع ونسب التحويل (نقطة ZN -> 1 عملة ZNX)
+TIERS_CONFIG = [
+    {"tier": 1, "name": "الشريحة الأولى", "min_pts": 0, "max_pts": 20_000_000, "rate": 10, "quota": 1_500_000},
+    {"tier": 2, "name": "الشريحة الثانية", "min_pts": 20_000_000, "max_pts": 100_000_000, "rate": 30, "quota": 2_000_000},
+    {"tier": 3, "name": "الشريحة الثالثة", "min_pts": 100_000_000, "max_pts": 500_000_000, "rate": 80, "quota": 2_500_000},
+    {"tier": 4, "name": "الشريحة الرابعة", "min_pts": 500_000_000, "max_pts": 2_000_000_000, "rate": 200, "quota": 4_000_000},
+    {"tier": 5, "name": "الشريحة الخامسة", "min_pts": 2_000_000_000, "max_pts": 8_000_000_000, "rate": 600, "quota": 5_500_000},
+    {"tier": 6, "name": "الشريحة السادسة", "min_pts": 8_000_000_000, "max_pts": 25_000_000_000, "rate": 1600, "quota": 8_000_000},
+    {"tier": 7, "name": "الشريحة السابعة", "min_pts": 25_000_000_000, "max_pts": float('inf'), "rate": 4000, "quota": 9_000_000}
 ]
 
-def calculate_znx_output(user_points: float, points_to_convert: float) -> float:
-    """حساب عدد عملات ZNX المستحقة بناءً على شريحة النقاط الحالية للمستخدم"""
-    for min_pts, max_pts, rate in CONVERSION_TIERS:
-        if min_pts <= user_points < max_pts:
-            return points_to_convert / rate
-    return points_to_convert / 4000
-
 def get_global_stats():
-    """جلب إجمالي العملات المحولة على مستوى البوت"""
+    """جلب أو إنشاء مستند إحصائيات المجمّع العام في Firebase"""
     doc_ref = db.collection('znx_global_stats').document('summary')
     doc = doc_ref.get()
     if doc.exists:
         return doc.to_dict()
     else:
-        initial_data = {'total_converted_znx': 0.0, 'is_pool_active': True}
-        doc_ref.set(initial_data)
-        return initial_data
+        init_data = {'total_converted_znx': 0.0, 'is_active': True}
+        doc_ref.set(init_data)
+        return init_data
 
-def get_leaderboard_data(limit=50):
-    """جلب المتصدرين بناءً على رصيد ZNX المحول"""
-    users_ref = db.collection('users').order_by('znx_balance', direction=firestore.Query.DESCENDING).limit(limit)
-    docs = users_ref.stream()
-    leaderboard = []
-    for doc in docs:
+def get_user_tier(user_points: float):
+    """تحديد الشريحة الحالية بناءً على رصيد نقاط المستخدم"""
+    for item in TIERS_CONFIG:
+        if item["min_pts"] <= user_points < item["max_pts"]:
+            return item
+    return TIERS_CONFIG[-1]
+
+def get_user_data(user_id: str):
+    """جلب بيانات حساب المستخدم بشكل آمن"""
+    doc_ref = db.collection('users').document(str(user_id))
+    doc = doc_ref.get()
+    if doc.exists:
         data = doc.to_dict()
-        leaderboard.append({
-            'user_id': doc.id,
-            'name': data.get('name', 'مستخدم'),
-            'znx_balance': round(data.get('znx_balance', 0.0), 4)
-        })
-    return leaderboard
+        return {
+            'balance': float(data.get('balance', 0.0)),           # رصيد ZN
+            'usd_balance': float(data.get('usd_balance', 0.0)),   # رصيد USD
+            'znx_balance': float(data.get('znx_balance', 0.0)),   # رصيد ZNX المتاح للسحب
+            'total_znx_earned': float(data.get('total_znx_earned', 0.0)), # إجمالي ZNX المكتسب تارخياً
+            'first_name': data.get('first_name', 'مستخدم')
+        }
+    return None
 
-def process_conversion(user_id: str, points_amount: float):
-    """تنفيذ عملية التحويل والتحقق من سقف الـ 35 مليون عملة"""
+def get_leaderboard_rankings(limit=50):
+    """قائمة المتصدرين تعتمد على إجمالي ZNX المكتسب تاريخياً ولا تنقص بالسحب"""
+    users_ref = db.collection('users').order_by('total_znx_earned', direction=firestore.Query.DESCENDING).limit(limit)
+    docs = users_ref.stream()
+    rankings = []
+    for doc in docs:
+        d = doc.to_dict()
+        rankings.append({
+            'user_id': doc.id,
+            'name': d.get('first_name', 'مستخدم'),
+            'total_znx_earned': round(d.get('total_znx_earned', 0.0), 4),
+            'znx_balance': round(d.get('znx_balance', 0.0), 4)
+        })
+    return rankings
+
+def execute_conversion(user_id: str, points_to_convert: float):
+    """تنفيذ عملية تحويل ZN إلى ZNX بأمان مع حماية المجمّع وتحديث Firebase"""
     global_ref = db.collection('znx_global_stats').document('summary')
-    user_ref = db.collection('users').document(user_id)
+    user_ref = db.collection('users').document(str(user_id))
 
     stats = get_global_stats()
-    if stats.get('total_converted_znx', 0) >= MAX_GLOBAL_ZNX:
-        return False, "تم الوصول للحد الأقصى الكلي للمجمّع (35,000,000 ZNX)، التحويل متوقف حالياً."
+    total_global_znx = stats.get('total_converted_znx', 0.0)
+
+    if total_global_znx >= MAX_GLOBAL_ZNX:
+        return False, "عذراً، تم الوصول إلى الحد الأقصى للمجمّع الكلي (35M ZNX)."
 
     user_doc = user_ref.get()
     if not user_doc.exists:
-        return False, "المستخدم غير موجود."
+        return False, "حساب المستخدم غير موجود."
 
     user_data = user_doc.to_dict()
-    user_points = user_data.get('points', 0)
+    current_zn_balance = float(user_data.get('balance', 0.0))
 
-    if user_points < points_amount or points_amount <= 0:
-        return False, "رصيد النقاط غير كافٍ."
+    if points_to_convert <= 0 or current_zn_balance < points_to_convert:
+        return False, "رصيد نقاط ZN غير كافٍ للتحويل."
 
-    # حساب الناتج
-    znx_gained = calculate_znx_output(user_points, points_amount)
+    # حساب مخرجات التحويل حسب الشريحة
+    current_tier = get_user_tier(current_zn_balance)
+    znx_received = points_to_convert / current_tier['rate']
 
-    # التحقق من عدم تجاوز السقف الكلي
-    if stats['total_converted_znx'] + znx_gained > MAX_GLOBAL_ZNX:
-        znx_gained = MAX_GLOBAL_ZNX - stats['total_converted_znx']
-        if znx_gained <= 0:
-            return False, "تجاوز السقف الإجمالي للعملة."
+    # التأكد من عدم تجاوز سقف الـ 35 مليون عملة
+    if total_global_znx + znx_received > MAX_GLOBAL_ZNX:
+        znx_received = MAX_GLOBAL_ZNX - total_global_znx
+        points_to_convert = znx_received * current_tier['rate']
+        if znx_received <= 0:
+            return False, "تم استنفاد مجمّع العملات المتاح بالكامل."
 
-    # تحديث البيانات في معاملات ذرية (Atomic Transaction)
-    new_user_points = user_points - points_amount
-    new_user_znx = user_data.get('znx_balance', 0.0) + znx_gained
-    new_global_total = stats['total_converted_znx'] + znx_gained
+    # التحديث الفعلي للبيانات
+    new_zn_balance = current_zn_balance - points_to_convert
+    new_znx_balance = float(user_data.get('znx_balance', 0.0)) + znx_received
+    new_total_znx_earned = float(user_data.get('total_znx_earned', 0.0)) + znx_received
+    new_global_total = total_global_znx + znx_received
 
     user_ref.update({
-        'points': new_user_points,
-        'znx_balance': new_user_znx
+        'balance': new_zn_balance,
+        'znx_balance': new_znx_balance,
+        'total_znx_earned': new_total_znx_earned
     })
 
     global_ref.update({
         'total_converted_znx': new_global_total,
-        'is_pool_active': new_global_total < MAX_GLOBAL_ZNX
+        'is_active': new_global_total < MAX_GLOBAL_ZNX
     })
 
     return True, {
-        'message': 'تم التحويل بنجاح!',
-        'znx_gained': round(znx_gained, 4),
-        'remaining_points': new_user_points,
-        'total_znx': round(new_user_znx, 4),
-        'global_total': round(new_global_total, 4)
+        'converted_points': points_to_convert,
+        'znx_gained': round(znx_received, 6),
+        'new_zn_balance': round(new_zn_balance, 4),
+        'new_znx_balance': round(new_znx_balance, 6),
+        'new_total_earned': round(new_total_znx_earned, 6)
     }
