@@ -90,7 +90,7 @@ def create_default_user_data_dict(user_id_str, game_settings, now_dt):
         "upgrades_count": 0,
         "welcome_seen": False,
         "is_new_user": True,
-        "bot_active": True
+        "bot_active": False  # <--- تغيير القيمة من True إلى False
     }
 
 
@@ -270,7 +270,7 @@ def get_or_create_user_farm_data(user_id_str):
         if "last_claim_ad_date" not in user_data: auto_fix["last_claim_ad_date"] = None
         if "last_claim_time" not in user_data or not user_data.get("last_claim_time"):
             auto_fix["last_claim_time"] = now.isoformat()
-        if "bot_active" not in user_data: auto_fix["bot_active"] = True
+        if "bot_active" not in user_data: auto_fix["bot_active"] = False
             
         if "upgrades_count" not in user_data:
             upgrades_dict = user_data.get("upgrades", {})
@@ -294,7 +294,7 @@ def get_or_create_user_farm_data(user_id_str):
     
     # حساب الكمية المعدنة الحالية في المخزن
     raw_unclaimed = calculate_accrued_mined(user_data, now, expected_max_cap)
-    bot_active = to_bool(user_data.get("bot_active", user_data.get("has_bot", True)))
+    bot_active = to_bool(user_data.get("bot_active", user_data.get("has_bot", False)))
     auto_claimed_amount = 0.0
 
     # منطق التجميع التلقائي بواسطة البوت عند وصول المخزن لنسبة 80% أو أكثر
