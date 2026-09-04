@@ -96,29 +96,51 @@ def get_global_stats():
         }
 
 
-def get_user_tier(user_points: float, custom_tiers=None):
+def get_current_tier(global_znx=0.0, user_points=0.0, custom_tiers=None):
+    """
+    تحديد الشريحة الحالية تلقائياً بناءً على إجمالي العملات المحولة كلياً (total_converted_znx).
+    تنتقل الشريحة تلقائياً للشريحة التالية بمجرد اكتمال حصة (Quota) الشريحة الحالية.
+    """
+    tiers = custom_tiers or TIERS_CONFIG
+
+    try:
+        g_znx = float(global_znx) if global_znx and not math.isnan(global_znx) else 0.0
+    except (ValueError, TypeError):
+        g_znx = 0.0
+
+    # حساب التراكمي للحصص (Quotas)
+    cum_quota = 0.0
+    for item in tiers:
+        try:
+            quota = float(item.get("quota", 0.0))
+            cum_quota += quota
+            if g_znx < cum_quota:
+                return item
+        except Exception:
+            continue
+
+    # احتياطي: في حال الإخفاق أو تجاوز النقاط الفردية
     try:
         pts = float(user_points) if user_points and not math.isnan(user_points) else 0.0
     except (ValueError, TypeError):
         pts = 0.0
 
-    tiers = custom_tiers or TIERS_CONFIG
-
     for item in tiers:
         try:
             min_p = float(item.get("min_pts", 0))
             raw_max = item.get("max_pts")
-            if str(raw_max).lower() in ("inf", "infinity", "none"):
-                max_p = float('inf')
-            else:
-                max_p = float(raw_max) if raw_max is not None else float('inf')
-
+            max_p = float('inf') if str(raw_max).lower() in ("inf", "infinity", "none") or raw_max is None else float(raw_max)
             if min_p <= pts < max_p:
                 return item
         except Exception:
             continue
 
-    return TIERS_CONFIG[-1]
+    return tiers[-1]
+
+
+def get_user_tier(user_points: float, custom_tiers=None, global_znx=0.0):
+    """دالة للتوافق مع أي استدعاء قديم بداخل الكود"""
+    return get_current_tier(global_znx=global_znx, user_points=user_points, custom_tiers=custom_tiers)
 
 
 def get_user_data(user_id: str):
@@ -138,6 +160,10 @@ def get_user_data(user_id: str):
 
     try:
         db = _get_db()
+        global_stats = get_global_stats()
+        total_global_znx = float(global_stats.get('total_converted_znx', 0.0))
+        all_tiers = global_stats.get('tiers_config') or TIERS_CONFIG
+
         doc_ref = db.collection('users').document(clean_uid)
         doc = doc_ref.get()
         
@@ -158,7 +184,7 @@ def get_user_data(user_id: str):
             if updates:
                 doc_ref.set(updates, merge=True)
 
-            current_tier = get_user_tier(balance)
+            current_tier = get_current_tier(global_znx=total_global_znx, user_points=balance, custom_tiers=all_tiers)
 
             return {
                 'user_id': clean_uid,
@@ -170,7 +196,7 @@ def get_user_data(user_id: str):
                 'current_tier': current_tier
             }
         else:
-            current_tier = TIERS_CONFIG[0]
+            current_tier = get_current_tier(global_znx=total_global_znx, user_points=0.0, custom_tiers=all_tiers)
             new_user = {
                 'user_id': clean_uid,
                 'balance': 0.0,
@@ -298,7 +324,9 @@ def execute_conversion(user_id: str, points_to_convert: float):
         if current_zn_balance < actual_points:
             return False, f"رصيد نقاط ZN غير كافٍ. رصيدك الحالي: {current_zn_balance:,.2f}", None
 
-        current_tier = get_user_tier(current_zn_balance, stats.get('tiers_config'))
+        active_tiers = stats.get('tiers_config') or TIERS_CONFIG
+        current_tier = get_current_tier(global_znx=total_global_znx, user_points=current_zn_balance, custom_tiers=active_tiers)
+
         znx_received = actual_points / current_tier['rate']
 
         if total_global_znx + znx_received > MAX_GLOBAL_ZNX:
@@ -323,7 +351,7 @@ def execute_conversion(user_id: str, points_to_convert: float):
             'total_converted_znx': round(new_global_total, 6),
             'max_global_znx': MAX_GLOBAL_ZNX,
             'is_active': new_global_total < MAX_GLOBAL_ZNX,
-            'tiers_config': stats.get('tiers_config') or TIERS_CONFIG
+            'tiers_config': active_tiers
         }, merge=True)
 
         result_payload = {
