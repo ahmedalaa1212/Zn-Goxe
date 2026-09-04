@@ -1,155 +1,63 @@
-<style>
-    .lb-container {
-        padding: 16px;
-        color: #ffffff;
-        direction: rtl;
-        max-width: 600px;
-        margin: 0 auto;
-        padding-bottom: 100px;
-    }
-    .lb-header {
-        text-align: center;
-        margin-bottom: 20px;
-    }
-    .lb-header h2 {
-        font-size: 22px;
-        color: #0088cc;
-        margin-bottom: 4px;
-    }
-    .podium-section {
-        display: flex;
-        justify-content: center;
-        align-items: flex-end;
-        gap: 10px;
-        margin-bottom: 24px;
-        padding-top: 10px;
-    }
-    .podium-card {
-        background: rgba(255, 255, 255, 0.07);
-        border-radius: 16px 16px 8px 8px;
-        text-align: center;
-        padding: 12px 8px;
-        flex: 1;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        position: relative;
-    }
-    .podium-card.first {
-        background: linear-gradient(180deg, rgba(255, 215, 0, 0.2), rgba(255, 215, 0, 0.05));
-        border-color: #ffd700;
-        order: 2;
-        padding-top: 20px;
-    }
-    .podium-card.second {
-        background: linear-gradient(180deg, rgba(192, 192, 192, 0.2), rgba(192, 192, 192, 0.05));
-        border-color: #c0c0c0;
-        order: 1;
-    }
-    .podium-card.third {
-        background: linear-gradient(180deg, rgba(205, 127, 50, 0.2), rgba(205, 127, 50, 0.05));
-        border-color: #cd7f32;
-        order: 3;
-    }
-    .podium-avatar {
-        font-size: 26px;
-        margin-bottom: 4px;
-    }
-    .podium-name {
-        font-size: 12px;
-        font-weight: bold;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .podium-score {
-        font-size: 11px;
-        color: #00e676;
-        margin-top: 4px;
-    }
-    .lb-list {
-        background: rgba(255, 255, 255, 0.04);
-        border-radius: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        overflow: hidden;
-    }
-    .lb-item {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px 16px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }
-    .lb-item:last-child {
-        border-bottom: none;
-    }
-    .lb-rank {
-        font-weight: bold;
-        width: 30px;
-        font-size: 14px;
-        color: #a2b2c8;
-    }
-    .lb-user {
-        flex: 1;
-        font-size: 14px;
-        font-weight: 500;
-    }
-    .lb-score {
-        font-weight: bold;
-        color: #00e676;
-        font-size: 13px;
-    }
-    .user-sticky-rank {
-        position: fixed;
-        bottom: 65px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: calc(100% - 32px);
-        max-width: 560px;
-        background: #0088cc;
-        color: #fff;
-        padding: 12px 18px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-        z-index: 100;
-    }
-</style>
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تحويل العملات والمتصدرين - ZNX</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { background-color: #0f172a; color: #fff; font-family: system-ui, sans-serif; margin: 0; padding: 15px; }
+        .card { background: #1e293b; border-radius: 12px; padding: 15px; margin-bottom: 15px; border: 1px solid #334155; }
+        .price-box { text-align: center; background: linear-gradient(135deg, #0284c7, #0d9488); border-radius: 10px; padding: 12px; }
+        .price-value { font-size: 1.8rem; font-weight: bold; color: #38bdf8; }
+        .progress-bar-bg { background: #334155; border-radius: 8px; height: 12px; overflow: hidden; margin-top: 8px; }
+        .progress-fill { background: #f59e0b; height: 100%; width: 0%; transition: width 0.5s ease; }
+        .convert-form input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: #fff; box-sizing: border-box; margin-top: 5px; }
+        .btn-submit { width: 100%; background: #22c55e; color: #fff; border: none; padding: 12px; border-radius: 8px; font-weight: bold; margin-top: 10px; cursor: pointer; }
+        .podium { display: flex; justify-content: space-around; align-items: flex-end; margin-top: 15px; }
+        .podium-card { background: #334155; border-radius: 8px; text-align: center; padding: 10px; width: 30%; }
+        .rank-1 { border: 2px solid #f59e0b; }
+        .rank-2 { border: 2px solid #94a3b8; }
+        .rank-3 { border: 2px solid #b45309; }
+        .list-item { display: flex; justify-content: space-between; padding: 10px; background: #1e293b; border-bottom: 1px solid #334155; }
+    </style>
+</head>
+<body>
 
-<div class="lb-container">
-    <div class="lb-header">
-        <h2>🏆 لوحة الصدارة</h2>
-        <p>أعلى كبار المطورين والمستثمرين في اللعبة</p>
+    <!-- سعر العملة اللحظي -->
+    <div class="card price-box">
+        <div>سعر عملة ZNX اللحظي</div>
+        <div class="price-value" id="livePrice">$0.0500</div>
+        <small id="tickerStatus">تحديث مباشر كل ثانية</small>
     </div>
 
-    <!-- منصة التتويج للمراكز الثلاثة الأولى -->
-    <div class="podium-section" id="podium-container">
-        <div class="podium-card second">
-            <div class="podium-avatar">🥈</div>
-            <div class="podium-name" id="pod2-name">---</div>
-            <div class="podium-score" id="pod2-score">0 ZN</div>
+    <!-- تقدم المجمّع الكلي -->
+    <div class="card">
+        <div style="display: flex; justify-content: space-between; font-size: 0.9rem;">
+            <span>المجمّع الكلي المحول:</span>
+            <span id="poolText">0 / 35,000,000 ZNX</span>
         </div>
-        <div class="podium-card first">
-            <div class="podium-avatar">👑</div>
-            <div class="podium-name" id="pod1-name">---</div>
-            <div class="podium-score" id="pod1-score">0 ZN</div>
-        </div>
-        <div class="podium-card third">
-            <div class="podium-avatar">🥉</div>
-            <div class="podium-name" id="pod3-name">---</div>
-            <div class="podium-score" id="pod3-score">0 ZN</div>
+        <div class="progress-bar-bg">
+            <div class="progress-fill" id="poolProgress"></div>
         </div>
     </div>
 
-    <!-- قائمة باقي المراكز -->
-    <div class="lb-list" id="lb-list-container">
-        <div style="text-align: center; padding: 20px; color: #aaa;">جاري تحميل القائمة...</div>
+    <!-- نظام تحويل العملات -->
+    <div class="card convert-form">
+        <h3><i class="fa-solid fa-right-left"></i> تحويل النقاط إلى ZNX</h3>
+        <label>أدخل عدد النقاط:</label>
+        <input type="number" id="pointsInput" placeholder="مثال: 1000000" oninput="calculatePreview()">
+        <div style="margin-top: 8px; font-size: 0.85rem; color: #cbd5e1;">
+            المستحق التقديري: <strong id="znxPreview" style="color: #38bdf8;">0 ZNX</strong>
+        </div>
+        <button class="btn-submit" onclick="submitConversion()">تأكيد التحويل الآن</button>
     </div>
-</div>
 
-<!-- شريط ترتيب المستخدم الحالي -->
-<div class="user-sticky-rank" id="user-sticky-rank">
-    <div>ترتيبك الحالي: <b id="my-rank-val">#--</b></div>
-    <div>رصيدك: <b id="my-rank-balance">0 ZN</b></div>
-</div>
+    <!-- منصة المتصدرين -->
+    <h3><i class="fa-solid fa-trophy" style="color: #f59e0b;"></i> كبار المالكين (ZNX)</h3>
+    <div class="podium" id="podiumArea"></div>
+    <div id="leaderboardList" style="margin-top: 15px;"></div>
 
+    <script src="leaderboard.js"></script>
+</body>
+</html>
