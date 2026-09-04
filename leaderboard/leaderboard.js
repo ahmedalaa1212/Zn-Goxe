@@ -1,17 +1,27 @@
-// استخراج معرف المستخدم بشكل ديناميكي من التليجرام أو الرابط
-const urlParams = new URLSearchParams(window.location.search);
-const USER_ID = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || urlParams.get('user_id') || urlParams.get('tg_id') || "5102387551";
+// استخراج هوية المستخدم بدقة من التليجرام أو الرابط
+function getUserId() {
+    if (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
+        return String(window.Telegram.WebApp.initDataUnsafe.user.id);
+    }
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get('user_id') || urlParams.get('tg_id') || "5102387551";
+}
 
+const USER_ID = getUserId();
 let userData = { balance: 0, usd_balance: 0, znx_balance: 0, total_znx_earned: 0 };
 let currentTier = null;
 let currentLivePrice = 0.0524;
 
 document.addEventListener('DOMContentLoaded', () => {
+    if (window.Telegram?.WebApp) {
+        window.Telegram.WebApp.ready();
+        window.Telegram.WebApp.expand();
+    }
     initApp();
     setInterval(tickLivePrice, 1000);
 });
 
-// دالة تنسيق الأرقام لجعل الأرقام العشرية صغيرة وبشكل أنيق
+// تنسيق الأرقام مع تكبير الأعداد الصحيحة وتصغير الكسور
 function formatCoins(val, decimals = 2) {
     const num = parseFloat(val) || 0;
     const parts = num.toFixed(decimals).split('.');
@@ -26,6 +36,8 @@ function formatCoins(val, decimals = 2) {
 async function initApp() {
     try {
         const res = await fetch(`/api/leaderboard/init?user_id=${USER_ID}`);
+        if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+        
         const data = await res.json();
         
         if (data.success) {
@@ -37,9 +49,11 @@ async function initApp() {
             updateGlobalStatsUI(data.global_total, data.max_global_znx);
             renderTiersUI(data.tiers_all);
             renderLeaderboardUI(data.leaderboard);
+        } else {
+            console.error("فشل الجلب:", data.message);
         }
     } catch (err) {
-        console.error("خطأ في الاتصال بالسيرفر:", err);
+        console.error("خطأ الاتصال بالسيرفر:", err);
     }
 }
 
