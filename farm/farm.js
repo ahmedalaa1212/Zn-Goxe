@@ -5,7 +5,7 @@ window.initFarmView = function() {
 };
 
 window.closeWelcomeModal = function() {
-    const modal = document.getElementById('welcome-modal');
+    const modal = document.getElementById('welcome-modal') || document.getElementById('auto-claim-modal');
     if (modal) {
         modal.style.display = 'none';
         modal.classList.remove('active', 'show');
@@ -64,14 +64,13 @@ window.closeWelcomeModal = function() {
             "7": { capacity: 400.0, cost_zn: 50000, cost_usd: 10.00 },
             "8": { capacity: 1000.0, cost_zn: 120000, cost_usd: 20.00 }
         },
-        // سريّة المكافآت اليومية الـ 30 المصممة لحماية السيولة
         dailyRewards: [
-            0.2, 0.4, 0.6, 0.8, 1.0,     // الأيام 1 إلى 5
-            1.2, 1.5, 1.8, 2.0, 2.5,     // الأيام 6 إلى 10
-            3.0, 3.5, 4.0, 4.5, 5.0,     // الأيام 11 إلى 15
-            6.0, 7.0, 8.0, 9.0, 10.0,    // الأيام 16 إلى 20
-            12.0, 14.0, 16.0, 18.0, 20.0,  // الأيام 21 إلى 25
-            22.0, 25.0, 30.0, 35.0, 40.0   // الأيام 26 إلى 30
+            0.2, 0.4, 0.6, 0.8, 1.0,     
+            1.2, 1.5, 1.8, 2.0, 2.5,     
+            3.0, 3.5, 4.0, 4.5, 5.0,     
+            6.0, 7.0, 8.0, 9.0, 10.0,    
+            12.0, 14.0, 16.0, 18.0, 20.0,  
+            22.0, 25.0, 30.0, 35.0, 40.0   
         ]
     };
 
@@ -214,7 +213,6 @@ window.closeWelcomeModal = function() {
         }
     }
 
-    // تنسيق دقيق لـ ZN يظهر حتى 6 أرقام عشرية عند توفرها دون أصفار زائدة
     function formatZnBalance(val) {
         const num = parseFloat(val || 0);
         if (isNaN(num) || num === 0) return "0.00";
@@ -226,7 +224,6 @@ window.closeWelcomeModal = function() {
         return `${parts[0]}.${decimals}`;
     }
 
-    // تنسيق دقيق للمحصول الجاري تعدينه في المخزن يظهر التغيرات السريعة
     function formatStorageBalance(val) {
         const num = parseFloat(val || 0);
         if (isNaN(num) || num === 0) return "0.000000";
@@ -451,6 +448,34 @@ window.closeWelcomeModal = function() {
         }
     }
 
+    // تحديث الواجهة الخاصة ببادج البوت ونافذة التجميع التلقائي القادمة من السيرفر
+    function updateBotAndAutoClaimUI(resData) {
+        if (!resData) return;
+
+        // 1. تحديث إظهار بادج البوت النشط
+        const isBotActive = resData.bot_active || resData.player?.bot_active || false;
+        const botBadge = document.getElementById('bot-active-badge') || document.getElementById('bot-status-badge');
+        if (botBadge) {
+            botBadge.style.display = isBotActive ? 'inline-flex' : 'none';
+        }
+
+        // 2. معالجة وتنبيه التجميع التلقائي قادماً من السيرفر
+        const autoCollected = parseFloat(resData.auto_claimed_amount || resData.auto_collected || 0);
+        if (autoCollected > 0) {
+            const autoModal = document.getElementById('auto-claim-modal') || document.getElementById('welcome-modal');
+            const autoAmountText = document.getElementById('auto-claimed-amount') || document.getElementById('modal-auto-amount');
+            if (autoAmountText) {
+                autoAmountText.innerText = `${formatZnBalance(autoCollected)} ZN`;
+            }
+            if (autoModal) {
+                autoModal.style.display = 'flex';
+                autoModal.classList.add('show', 'active');
+            } else {
+                showToast(`🤖 تم التجميع التلقائي للبوت: ${formatZnBalance(autoCollected)} ZN!`);
+            }
+        }
+    }
+
     window.fetchPlayerDataFromServer = async function(force = false) {
         const now = Date.now();
         if (isFetching) return; 
@@ -533,6 +558,8 @@ window.closeWelcomeModal = function() {
                         }
                     }
                 }
+
+                updateBotAndAutoClaimUI(resData);
             }
         } catch (e) { 
             console.error("خطأ مزامنة المزرعة:", e); 
@@ -672,19 +699,16 @@ window.closeWelcomeModal = function() {
         let elapsed = getAdjustedNowMs() - lastBoostMs;
 
         if (elapsed < GAME_CONFIG.boostDurationMs) {
-            // أثناء فترة العمل (الساعتان)
             let remainingActive = GAME_CONFIG.boostDurationMs - elapsed;
             boostBtn.className = "boost-btn active-boost";
             boostBtn.disabled = true;
             boostBtn.innerHTML = `<span style="font-size: 12px;">⚡</span><span style="font-size: 9px; color:#10b981;">نشط ${formatTimeDifference(remainingActive)}</span>`;
         } else if (elapsed < GAME_CONFIG.boostCooldownMs) {
-            // أثناء أوقات الانتظار لتجديد السرعة (الساعة المتبقية)
             let remainingCooldown = GAME_CONFIG.boostCooldownMs - elapsed;
             boostBtn.className = "boost-btn btn-disabled";
             boostBtn.disabled = true;
             boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 8px;">${formatTimeDifference(remainingCooldown)}</span>`;
         } else {
-            // جاهز للتفعيل مجدداً بعد 3 ساعات
             if (!isBoosting) {
                 boostBtn.className = "boost-btn";
                 boostBtn.disabled = false;
@@ -789,17 +813,25 @@ window.closeWelcomeModal = function() {
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
 
+        let pct = maxC > 0 ? (unclaim / maxC) * 100 : 0;
+        pct = Math.max(0, Math.min(pct, 100));
+
         if (progressEl && storageTextEl) {
-            let pct = maxC > 0 ? (unclaim / maxC) * 100 : 0;
-            pct = Math.max(0, Math.min(pct, 100)); 
             progressEl.style.width = `${pct}%`;
             storageTextEl.innerText = `${formatStorageBalance(unclaim)} / ${maxC.toLocaleString('en-US', {maximumFractionDigits: 2})}`;
+        }
+
+        const remainingCooldown = Math.max(0, Math.ceil(MIN_CLAIM_INTERVAL - secondsPassed));
+
+        // 🔥 التجميع التلقائي التلقائي فور إملاء المخزن بنسبة 80% أو أكثر 🔥
+        if (pct >= 80 && !isClaimingMain && !isCheckingAd && remainingCooldown <= 0 && unclaim > 0) {
+            console.log("وصل المخزن إلى 80% أو أكثر، جارٍ التجميع التلقائي...");
+            window.handleMainClaim();
         }
 
         const claimBtn = document.getElementById('claim-btn');
         if (claimBtn) {
             claimBtn.onclick = window.handleMainClaim;
-            const remainingCooldown = Math.max(0, Math.ceil(MIN_CLAIM_INTERVAL - secondsPassed));
 
             if (isCheckingAd) {
                 claimBtn.innerText = "جاري فحص الإعلان... ⏳";
@@ -1003,7 +1035,6 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
-            // عرض إعلان Monetag عند استلام المكافأة اليومية
             await showMonetagAd();
 
             let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST', {});
@@ -1043,7 +1074,6 @@ window.closeWelcomeModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
-            // عرض إعلان Monetag عند تفعيل زيادة سرعة التعدين
             await showMonetagAd();
 
             let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
