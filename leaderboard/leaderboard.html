@@ -8,17 +8,17 @@
     <style>
         :root {
             --bg-main: #0b0f19;
-            --card-bg: #151c2c;
-            --border-color: #232e47;
-            --accent-green: #10b981;
+            --card-bg: #131926;
+            --border-color: #1e293b;
+            --accent-green: #059669;
             --accent-blue: #0284c7;
-            --accent-gold: #f59e0b;
-            --text-muted: #94a3b8;
+            --accent-gold: #d97706;
+            --text-muted: #64748b;
         }
 
         body {
             background-color: var(--bg-main);
-            color: #ffffff;
+            color: #e2e8f0;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             margin: 0;
             padding: 12px;
@@ -26,25 +26,32 @@
             -webkit-user-select: none;
         }
 
+        /* تنسيق الأرقام العشرية لتظهر بصغائر متناسقة */
+        .dec {
+            font-size: 0.72em;
+            opacity: 0.8;
+            font-weight: normal;
+        }
+
         .top-balance-bar {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
             gap: 8px;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
         }
 
         .balance-box {
             background: var(--card-bg);
             border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 10px 6px;
+            border-radius: 10px;
+            padding: 8px 4px;
             text-align: center;
         }
 
         .balance-title {
-            font-size: 0.72rem;
+            font-size: 0.7rem;
             color: var(--text-muted);
-            margin-bottom: 4px;
+            margin-bottom: 3px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -52,7 +59,7 @@
         }
 
         .balance-amount {
-            font-size: 0.95rem;
+            font-size: 0.88rem;
             font-weight: bold;
             white-space: nowrap;
             overflow: hidden;
@@ -62,15 +69,15 @@
         .global-stats-card {
             background: var(--card-bg);
             border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 12px;
-            margin-bottom: 15px;
+            border-radius: 10px;
+            padding: 10px;
+            margin-bottom: 12px;
         }
 
         .progress-bg {
-            background: #0f172a;
-            border-radius: 10px;
-            height: 10px;
+            background: #090d16;
+            border-radius: 8px;
+            height: 8px;
             width: 100%;
             overflow: hidden;
             margin-top: 6px;
@@ -84,74 +91,74 @@
         }
 
         .price-card {
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            border: 1px solid #334155;
-            border-radius: 14px;
-            padding: 14px;
+            background: #111827;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 12px;
             text-align: center;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
         }
 
         .price-badge {
-            font-size: 0.75rem;
-            color: var(--accent-green);
-            background: rgba(16, 185, 129, 0.15);
-            padding: 3px 8px;
-            border-radius: 20px;
+            font-size: 0.7rem;
+            color: #10b981;
+            background: rgba(16, 185, 129, 0.1);
+            padding: 2px 8px;
+            border-radius: 12px;
             display: inline-block;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
         }
 
         .price-value {
-            font-size: 1.8rem;
-            font-weight: 800;
+            font-size: 1.5rem;
+            font-weight: bold;
             color: #38bdf8;
         }
 
         .convert-card {
             background: var(--card-bg);
             border: 1px solid var(--border-color);
-            border-radius: 14px;
-            padding: 15px;
-            margin-bottom: 15px;
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 12px;
         }
 
         .quick-options {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
-            gap: 8px;
-            margin: 12px 0;
+            gap: 6px;
+            margin: 10px 0;
         }
 
         .opt-btn {
             background: #1e293b;
             border: 1px solid #334155;
-            color: #fff;
-            padding: 10px;
-            border-radius: 8px;
-            font-weight: bold;
-            font-size: 0.85rem;
+            color: #cbd5e1;
+            padding: 8px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.8rem;
             cursor: pointer;
         }
 
         .custom-input {
             width: 100%;
-            background: #0f172a;
+            background: #090d16;
             border: 1px solid var(--border-color);
             color: #fff;
-            padding: 12px;
-            border-radius: 10px;
+            padding: 10px;
+            border-radius: 8px;
             box-sizing: border-box;
-            font-size: 1rem;
+            font-size: 0.95rem;
             text-align: center;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
         }
 
         .preview-box {
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             color: var(--text-muted);
             text-align: center;
-            margin: 8px 0;
+            margin: 6px 0;
         }
 
         .btn-action {
@@ -159,51 +166,52 @@
             background: linear-gradient(90deg, #10b981, #059669);
             color: #fff;
             border: none;
-            padding: 12px;
-            border-radius: 10px;
+            padding: 10px;
+            border-radius: 8px;
             font-weight: bold;
-            font-size: 1rem;
+            font-size: 0.92rem;
             cursor: pointer;
         }
 
         .section-title {
-            font-size: 0.95rem;
+            font-size: 0.88rem;
             font-weight: bold;
-            margin: 15px 0 10px 0;
+            margin: 12px 0 8px 0;
             display: flex;
             align-items: center;
             gap: 6px;
+            color: #cbd5e1;
         }
 
         .tiers-list {
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            margin-bottom: 20px;
+            gap: 6px;
+            margin-bottom: 16px;
         }
 
         .tier-item {
             background: var(--card-bg);
             border: 1px solid var(--border-color);
-            border-radius: 10px;
-            padding: 10px 12px;
+            border-radius: 8px;
+            padding: 8px 10px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            font-size: 0.82rem;
+            font-size: 0.8rem;
         }
 
         .tier-item.current {
             border: 1px solid var(--accent-gold);
-            background: rgba(245, 158, 11, 0.08);
+            background: rgba(217, 119, 6, 0.06);
         }
 
         .tier-badge-active {
             background: var(--accent-gold);
-            color: #000;
-            font-size: 0.65rem;
+            color: #fff;
+            font-size: 0.6rem;
             font-weight: bold;
-            padding: 2px 6px;
+            padding: 2px 5px;
             border-radius: 4px;
         }
 
@@ -211,32 +219,32 @@
             display: flex;
             justify-content: center;
             align-items: flex-end;
-            gap: 8px;
-            margin: 15px 0;
+            gap: 6px;
+            margin: 12px 0;
         }
 
         .podium-item {
             background: var(--card-bg);
             border: 1px solid var(--border-color);
-            border-radius: 10px;
-            padding: 10px;
+            border-radius: 8px;
+            padding: 8px;
             text-align: center;
             flex: 1;
         }
 
-        .podium-1 { border-color: var(--accent-gold); height: 95px; }
-        .podium-2 { border-color: #94a3b8; height: 80px; }
-        .podium-3 { border-color: #b45309; height: 75px; }
+        .podium-1 { border-color: var(--accent-gold); height: 85px; }
+        .podium-2 { border-color: #64748b; height: 72px; }
+        .podium-3 { border-color: #b45309; height: 68px; }
 
         .leader-row {
             display: flex;
             justify-content: space-between;
-            padding: 10px 12px;
+            padding: 8px 10px;
             background: var(--card-bg);
             border: 1px solid var(--border-color);
-            border-radius: 8px;
-            margin-bottom: 6px;
-            font-size: 0.85rem;
+            border-radius: 6px;
+            margin-bottom: 5px;
+            font-size: 0.8rem;
         }
     </style>
 </head>
@@ -245,24 +253,24 @@
     <!-- الشريط الأعلى (الرصيد الثلاثي) -->
     <div class="top-balance-bar">
         <div class="balance-box">
-            <div class="balance-title"><i class="fa-solid fa-coins" style="color:#f59e0b;"></i> ZN</div>
-            <div class="balance-amount" id="znBalance" style="color:#f59e0b;">0</div>
+            <div class="balance-title"><i class="fa-solid fa-coins" style="color:#d97706;"></i> ZN</div>
+            <div class="balance-amount" id="znBalance" style="color:#d97706;">0</div>
         </div>
         <div class="balance-box">
-            <div class="balance-title"><i class="fa-solid fa-wallet" style="color:#10b981;"></i> USD</div>
-            <div class="balance-amount" id="usdBalance" style="color:#10b981;">$0.00</div>
+            <div class="balance-title"><i class="fa-solid fa-wallet" style="color:#059669;"></i> USD</div>
+            <div class="balance-amount" id="usdBalance" style="color:#059669;">$0.00</div>
         </div>
         <div class="balance-box">
-            <div class="balance-title"><i class="fa-solid fa-bolt" style="color:#38bdf8;"></i> ZNX</div>
-            <div class="balance-amount" id="znxBalance" style="color:#38bdf8;">0</div>
+            <div class="balance-title"><i class="fa-solid fa-bolt" style="color:#0284c7;"></i> ZNX</div>
+            <div class="balance-amount" id="znxBalance" style="color:#0284c7;">0</div>
         </div>
     </div>
 
-    <!-- مجمّع الإجمالي العام لجميع اللاعبين -->
+    <!-- مجمّع الإجمالي العام -->
     <div class="global-stats-card">
-        <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:var(--text-muted);">
+        <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-muted);">
             <span><i class="fa-solid fa-globe"></i> إجمالي العملات المستخرجة كلياً</span>
-            <span id="globalRatioText" style="color:#38bdf8; font-weight:bold;">0 / 35M ZNX</span>
+            <span id="globalRatioText" style="color:#0284c7; font-weight:bold;">0 / 35M ZNX</span>
         </div>
         <div class="progress-bg">
             <div class="progress-fill" id="globalProgressBar"></div>
@@ -277,7 +285,7 @@
 
     <!-- لوحة التحويل -->
     <div class="convert-card">
-        <div class="section-title" style="margin-top:0;"><i class="fa-solid fa-right-left" style="color:#10b981;"></i> تحويل العملة إلى ZNX</div>
+        <div class="section-title" style="margin-top:0;"><i class="fa-solid fa-right-left" style="color:#059669;"></i> تحويل العملة إلى ZNX</div>
         
         <div class="quick-options">
             <button class="opt-btn" onclick="selectOption('min')">حد أدنى</button>
@@ -290,18 +298,18 @@
         </div>
 
         <div class="preview-box">
-            ستحصل على: <strong id="znxPreview" style="color:#38bdf8;">0.0000 ZNX</strong>
+            ستحصل على: <strong id="znxPreview" style="color:#0284c7;">0.0000 ZNX</strong>
         </div>
 
         <button class="btn-action" onclick="submitConvert()">تأكيد التحويل الآن</button>
     </div>
 
     <!-- تفاصيل الشرائح -->
-    <div class="section-title"><i class="fa-solid fa-layer-group" style="color:#38bdf8;"></i> شرائح التحويل الحالية</div>
+    <div class="section-title"><i class="fa-solid fa-layer-group" style="color:#0284c7;"></i> شرائح التحويل الحالية</div>
     <div class="tiers-list" id="tiersContainer"></div>
 
     <!-- قائمة المتصدرين -->
-    <div class="section-title"><i class="fa-solid fa-trophy" style="color:#f59e0b;"></i> كبار كاسبي عملة ZNX</div>
+    <div class="section-title"><i class="fa-solid fa-trophy" style="color:#d97706;"></i> كبار كاسبي عملة ZNX</div>
     <div class="podium" id="podiumContainer"></div>
     <div id="rankingsContainer"></div>
 
