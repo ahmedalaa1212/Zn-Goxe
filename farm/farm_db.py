@@ -90,7 +90,7 @@ def create_default_user_data_dict(user_id_str, game_settings, now_dt):
         "upgrades_count": 0,
         "welcome_seen": False,
         "is_new_user": True,
-        "bot_active": False  # <--- تغيير القيمة من True إلى False
+        "bot_active": False
     }
 
 
@@ -229,6 +229,48 @@ def dismiss_welcome_db(user_id_str):
     return {"success": True, "welcome_seen": True, "is_new_user": False}
 
 
+def calculate_user_effective_stats(user_data, game_settings=None, now_dt=None):
+    """فحص وتحديث صلاحية اشتراك الباقة أو البوت وتحديث حالة bot_active بناءً على تاريخ الانتهاء"""
+    if now_dt is None:
+        now_dt = datetime.now(timezone.utc)
+
+    raw_bot_flag = to_bool(user_data.get("bot_active", user_data.get("has_bot", user_data.get("is_auto_bot_active", False))))
+    
+    vip_info = user_data.get("vip_status")
+    expires_at_raw = None
+
+    if isinstance(vip_info, dict):
+        expires_at_raw = vip_info.get("expires_at") or vip_info.get("vip_expires_at") or vip_info.get("bot_expires_at") or vip_info.get("expire_date")
+    
+    if not expires_at_raw:
+        expires_at_raw = user_data.get("bot_expires_at") or user_data.get("expires_at") or user_data.get("vip_expires_at") or user_data.get("vip_expire_date")
+
+    is_active = False
+    if raw_bot_flag and expires_at_raw:
+        try:
+            if isinstance(expires_at_raw, (int, float)):
+                exp_dt = datetime.fromtimestamp(expires_at_raw, tz=timezone.utc)
+            elif isinstance(expires_at_raw, datetime):
+                exp_dt = expires_at_raw
+                if exp_dt.tzinfo is None:
+                    exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+            else:
+                exp_s = str(expires_at_raw).replace('Z', '+00:00')
+                exp_dt = datetime.fromisoformat(exp_s)
+                if exp_dt.tzinfo is None:
+                    exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+
+            if exp_dt > now_dt:
+                is_active = True
+        except Exception as e:
+            print(f"⚠️ Error validating bot expiration date: {e}")
+            is_active = False
+
+    user_data["bot_active"] = is_active
+    user_data["is_auto_bot_active"] = is_active
+    return user_data
+
+
 def get_or_create_user_farm_data(user_id_str):
     """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة وتطبيق التجميع التلقائي والتصحيح"""
     db = get_db()
@@ -284,6 +326,9 @@ def get_or_create_user_farm_data(user_id_str):
             user_ref.update(auto_fix)
             user_data.update(auto_fix)
 
+    # فحص وتطبيق حالة الصلاحية الفعلية للبوت والـ VIP قبل تنفيذ التجميع
+    user_data = calculate_user_effective_stats(user_data, game_settings, now)
+
     expected_max_cap = calculate_user_max_cap(user_data, game_settings)
     user_data["max_cap"] = expected_max_cap
     user_data["balance"] = round(float(user_data.get("balance", 0.0)), 8)
@@ -294,7 +339,7 @@ def get_or_create_user_farm_data(user_id_str):
     
     # حساب الكمية المعدنة الحالية في المخزن
     raw_unclaimed = calculate_accrued_mined(user_data, now, expected_max_cap)
-    bot_active = to_bool(user_data.get("bot_active", user_data.get("has_bot", False)))
+    bot_active = user_data.get("bot_active", False)
     auto_claimed_amount = 0.0
 
     # منطق التجميع التلقائي بواسطة البوت عند وصول المخزن لنسبة 80% أو أكثر
@@ -315,7 +360,8 @@ def get_or_create_user_farm_data(user_id_str):
                 "total_mined": user_data["total_mined"],
                 "base_unclaimed": 0.0,
                 "unclaimed": 0.0,
-                "last_claim_time": user_data["last_claim_time"]
+                "last_claim_time": user_data["last_claim_time"],
+                "bot_active": True
             })
 
             # إرسال مكافأة الإحالة إن وجدت
@@ -336,6 +382,12 @@ def get_or_create_user_farm_data(user_id_str):
             print(f"⚠️ Error performing auto-claim update: {e}")
     else:
         user_data["unclaimed"] = raw_unclaimed
+        # إذا كانت حالة البوت غير مفعّلة في التحقق وكان مسجلاً True سابقاً في DB، يتم تحديث القيمة لـ False
+        if not bot_active and user_doc.exists and to_bool(user_doc.to_dict().get("bot_active", False)):
+            try:
+                user_ref.update({"bot_active": False, "is_auto_bot_active": False})
+            except Exception as e:
+                print(f"⚠️ Error updating expired bot state in DB: {e}")
 
     user_data["auto_claimed_amount"] = auto_claimed_amount
     user_data["bot_active"] = bot_active
