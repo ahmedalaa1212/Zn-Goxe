@@ -1,6 +1,6 @@
 import os
 import sys
-from flask import Flask, jsonify, send_from_directory, request
+from flask import Flask, jsonify, send_from_directory, request, redirect
 from flask_cors import CORS
 
 # 🎯 إدراج مسار المشروع الرئيسي لتجاوز حاجة الملفات إلى __init__.py
@@ -73,13 +73,15 @@ blueprints_config = [
     ('wallet.history.history_api', 'history_bp', '/api/wallet/history'),
     ('wallet.exchange.exchange_api', 'exchange_bp', '/api/wallet/exchange'),
     
+    # 💎 موديول محفظة ZNX والمتصدرين الجديد
+    ('znx_wallet', 'znx_wallet_bp', '/api/znx-wallet'),
+    
     # ⚡ موديولات الألعاب
     ('games', 'games_bp', '/api/games'),
     ('games.card_api', 'card_bp', '/api/games/card'),
     
-    # 🏆 أرباح العروض والمتصدرين
+    # 🏆 أرباح العروض
     ('offers', 'offers_bp', '/api/offers'),
-    ('leaderboard', 'leaderboard_bp', '/api/leaderboard'),
 ]
 
 # تنفيذ التسجيل التلقائي للموديولات
@@ -204,15 +206,28 @@ def serve_tonconnect_manifest():
 
 @app.route('/<path:filename>')
 def serve_static_files(filename):
-    """خدمة كافة الملفات الثابتة والأقسام الفرعية بشكل مباشر"""
-    file_path = os.path.join(BASE_DIR, filename)
-    if os.path.exists(file_path) and os.path.isfile(file_path):
-        return send_from_directory(BASE_DIR, filename)
-    elif os.path.isdir(file_path):
-        index_in_dir = os.path.join(file_path, 'index.html')
-        if os.path.exists(index_in_dir):
-            return send_from_directory(file_path, 'index.html')
-    return jsonify({"success": False, "error": f"File {filename} not found"}), 404
+    """خدمة كافة الملفات الثابتة والأقسام الفرعية بشكل آمن ومحمي من ثغرات Directory Traversal"""
+    try:
+        safe_base = os.path.abspath(BASE_DIR)
+        file_path = os.path.abspath(os.path.join(BASE_DIR, filename))
+        
+        # منع ثغرات Directory Traversal
+        if not file_path.startswith(safe_base):
+            return jsonify({"success": False, "error": "غير مسموح بالوصول لهذا المسار"}), 403
+
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            rel_path = os.path.relpath(file_path, safe_base)
+            return send_from_directory(BASE_DIR, rel_path)
+        elif os.path.isdir(file_path):
+            index_in_dir = os.path.join(file_path, 'index.html')
+            if os.path.exists(index_in_dir):
+                rel_index = os.path.relpath(index_in_dir, safe_base)
+                return send_from_directory(BASE_DIR, rel_index)
+        
+        return jsonify({"success": False, "error": f"File {filename} not found"}), 404
+    except Exception as e:
+        print(f"❌ Static File Error: {e}")
+        return jsonify({"success": False, "error": "حدث خطأ أثناء جلب الملف"}), 500
 
 
 @app.route('/api/user/info', methods=['GET', 'POST', 'OPTIONS'])
@@ -248,6 +263,7 @@ def get_user_info_main():
             
         balance = float(user_data.get('balance', 0.0))
         usd_balance = float(user_data.get('usd_balance', 0.0))
+        znx_balance = float(user_data.get('znx_balance', 0.0))
 
         return jsonify({
             "success": True, 
@@ -255,6 +271,7 @@ def get_user_info_main():
             "player": user_data,
             "balance": balance,
             "usd_balance": usd_balance,
+            "znx_balance": znx_balance,
             "uid": str(telegram_id)
         }), 200
 
@@ -263,22 +280,25 @@ def get_user_info_main():
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب بيانات الحساب"}), 500
 
 
-@app.route('/api/leaderboard', methods=['GET', 'OPTIONS'])
-def get_leaderboard_route():
-    """مسار المتصدرين الأساسي المباشر لضمان جلب أعلى اللاعبين بدون أخطاء"""
+# ==========================================
+# 🔄 التوافق الاحتياطي لمسار المتصدرين القديم
+# ==========================================
+
+@app.route('/api/leaderboard', methods=['GET', 'POST', 'OPTIONS'])
+@app.route('/api/leaderboard/<path:subpath>', methods=['GET', 'POST', 'OPTIONS'])
+def leaderboard_legacy_fallback(subpath=""):
+    """
+    تحويل تلقائي لجميع الطلبات القادمة للمسار القديم /api/leaderboard 
+    إلى المسار الجديد /api/znx-wallet لتفادي توقف النسخ القديمة وضمان العمل بدون انكسار.
+    """
     if request.method == 'OPTIONS':
         return jsonify({"success": True}), 200
 
-    tg_id = request.args.get('tg_id') or request.args.get('user_id') or request.headers.get('X-Telegram-User-Id')
-    try:
-        if hasattr(database, 'get_leaderboard_data'):
-            res = database.get_leaderboard_data(limit=50, user_id=tg_id)
-            return jsonify(res), 200
-        else:
-            return jsonify({"success": False, "leaderboard": [], "my_rank": "غير مصنف"}), 200
-    except Exception as e:
-        print(f"❌ Leaderboard route error: {e}")
-        return jsonify({"success": False, "error": str(e), "leaderboard": [], "my_rank": "غير مصنف"}), 500
+    target = f"/api/znx-wallet/{subpath}".rstrip('/') if subpath else "/api/znx-wallet/data"
+    if request.query_string:
+        target += f"?{request.query_string.decode('utf-8')}"
+
+    return redirect(target, code=307)
 
 
 # ==========================================
