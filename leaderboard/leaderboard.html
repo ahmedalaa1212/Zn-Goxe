@@ -2,61 +2,293 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>تحويل العملات والمتصدرين - ZNX</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { background-color: #0f172a; color: #fff; font-family: system-ui, sans-serif; margin: 0; padding: 15px; }
-        .card { background: #1e293b; border-radius: 12px; padding: 15px; margin-bottom: 15px; border: 1px solid #334155; }
-        .price-box { text-align: center; background: linear-gradient(135deg, #0284c7, #0d9488); border-radius: 10px; padding: 12px; }
-        .price-value { font-size: 1.8rem; font-weight: bold; color: #38bdf8; }
-        .progress-bar-bg { background: #334155; border-radius: 8px; height: 12px; overflow: hidden; margin-top: 8px; }
-        .progress-fill { background: #f59e0b; height: 100%; width: 0%; transition: width 0.5s ease; }
-        .convert-form input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: #fff; box-sizing: border-box; margin-top: 5px; }
-        .btn-submit { width: 100%; background: #22c55e; color: #fff; border: none; padding: 12px; border-radius: 8px; font-weight: bold; margin-top: 10px; cursor: pointer; }
-        .podium { display: flex; justify-content: space-around; align-items: flex-end; margin-top: 15px; }
-        .podium-card { background: #334155; border-radius: 8px; text-align: center; padding: 10px; width: 30%; }
-        .rank-1 { border: 2px solid #f59e0b; }
-        .rank-2 { border: 2px solid #94a3b8; }
-        .rank-3 { border: 2px solid #b45309; }
-        .list-item { display: flex; justify-content: space-between; padding: 10px; background: #1e293b; border-bottom: 1px solid #334155; }
+        :root {
+            --bg-main: #0b0f19;
+            --card-bg: #151c2c;
+            --border-color: #232e47;
+            --accent-green: #10b981;
+            --accent-blue: #0284c7;
+            --accent-gold: #f59e0b;
+            --text-muted: #94a3b8;
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 12px;
+            box-sizing: border-box;
+            -webkit-user-select: none;
+        }
+
+        /* 1. الشريط الأعلى للرصيد (ثلاث خانات) */
+        .top-balance-bar {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .balance-box {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 10px 6px;
+            text-align: center;
+        }
+
+        .balance-title {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+        }
+
+        .balance-amount {
+            font-size: 0.95rem;
+            font-weight: bold;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* 2. بطاقة السعر اللحظي */
+        .price-card {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            border: 1px solid #334155;
+            border-radius: 14px;
+            padding: 14px;
+            text-align: center;
+            margin-bottom: 15px;
+            position: relative;
+        }
+
+        .price-badge {
+            font-size: 0.75rem;
+            color: var(--accent-green);
+            background: rgba(16, 185, 129, 0.15);
+            padding: 3px 8px;
+            border-radius: 20px;
+            display: inline-block;
+            margin-bottom: 6px;
+        }
+
+        .price-value {
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: #38bdf8;
+            letter-spacing: 0.5px;
+        }
+
+        /* 3. بطاقة التحويل الاحترافية */
+        .convert-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .quick-options {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 8px;
+            margin: 12px 0;
+        }
+
+        .opt-btn {
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #fff;
+            padding: 10px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .opt-btn:active, .opt-btn.active {
+            background: var(--accent-blue);
+            border-color: #38bdf8;
+        }
+
+        .input-wrapper {
+            position: relative;
+            margin-bottom: 10px;
+        }
+
+        .custom-input {
+            width: 100%;
+            background: #0f172a;
+            border: 1px solid var(--border-color);
+            color: #fff;
+            padding: 12px;
+            border-radius: 10px;
+            box-sizing: border-box;
+            font-size: 1rem;
+            text-align: center;
+        }
+
+        .preview-box {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-align: center;
+            margin: 8px 0;
+        }
+
+        .btn-action {
+            width: 100%;
+            background: linear-gradient(90deg, #10b981, #059669);
+            color: #fff;
+            border: none;
+            padding: 12px;
+            border-radius: 10px;
+            font-weight: bold;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+
+        /* 4. تفاصيل الشرائح */
+        .section-title {
+            font-size: 0.95rem;
+            font-weight: bold;
+            margin: 15px 0 10px 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .tiers-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .tier-item {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 10px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.82rem;
+        }
+
+        .tier-item.current {
+            border: 1px solid var(--accent-gold);
+            background: rgba(245, 158, 11, 0.08);
+        }
+
+        .tier-badge-active {
+            background: var(--accent-gold);
+            color: #000;
+            font-size: 0.65rem;
+            font-weight: bold;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        /* 5. المتصدرين */
+        .podium {
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            gap: 8px;
+            margin: 15px 0;
+        }
+
+        .podium-item {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 10px;
+            text-align: center;
+            flex: 1;
+        }
+
+        .podium-1 { border-color: var(--accent-gold); height: 95px; }
+        .podium-2 { border-color: #94a3b8; height: 80px; }
+        .podium-3 { border-color: #b45309; height: 75px; }
+
+        .leader-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 12px;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-bottom: 6px;
+            font-size: 0.85rem;
+        }
     </style>
 </head>
 <body>
 
-    <!-- سعر العملة اللحظي -->
-    <div class="card price-box">
-        <div>سعر عملة ZNX اللحظي</div>
-        <div class="price-value" id="livePrice">$0.0500</div>
-        <small id="tickerStatus">تحديث مباشر كل ثانية</small>
+    <!-- الشريط الأعلى (الرصيد الثلاثي) -->
+    <div class="top-balance-bar">
+        <!-- اليمين: عملة ZN -->
+        <div class="balance-box">
+            <div class="balance-title"><i class="fa-solid fa-coins" style="color:#f59e0b;"></i> ZN</div>
+            <div class="balance-amount" id="znBalance" style="color:#f59e0b;">0</div>
+        </div>
+        <!-- الوسط: الدولارات -->
+        <div class="balance-box">
+            <div class="balance-title"><i class="fa-solid fa-wallet" style="color:#10b981;"></i> USD</div>
+            <div class="balance-amount" id="usdBalance" style="color:#10b981;">$0.00</div>
+        </div>
+        <!-- اليسار: عملة ZNX للسحب -->
+        <div class="balance-box">
+            <div class="balance-title"><i class="fa-solid fa-bolt" style="color:#38bdf8;"></i> ZNX</div>
+            <div class="balance-amount" id="znxBalance" style="color:#38bdf8;">0</div>
+        </div>
     </div>
 
-    <!-- تقدم المجمّع الكلي -->
-    <div class="card">
-        <div style="display: flex; justify-content: space-between; font-size: 0.9rem;">
-            <span>المجمّع الكلي المحول:</span>
-            <span id="poolText">0 / 35,000,000 ZNX</span>
-        </div>
-        <div class="progress-bar-bg">
-            <div class="progress-fill" id="poolProgress"></div>
-        </div>
+    <!-- السعر اللحظي -->
+    <div class="price-card">
+        <span class="price-badge"><i class="fa-solid fa-circle-dot"></i> سعر مباشر بالثانية</span>
+        <div class="price-value" id="livePrice">$0.0524</div>
     </div>
 
-    <!-- نظام تحويل العملات -->
-    <div class="card convert-form">
-        <h3><i class="fa-solid fa-right-left"></i> تحويل النقاط إلى ZNX</h3>
-        <label>أدخل عدد النقاط:</label>
-        <input type="number" id="pointsInput" placeholder="مثال: 1000000" oninput="calculatePreview()">
-        <div style="margin-top: 8px; font-size: 0.85rem; color: #cbd5e1;">
-            المستحق التقديري: <strong id="znxPreview" style="color: #38bdf8;">0 ZNX</strong>
+    <!-- لوحة التحويل -->
+    <div class="convert-card">
+        <div class="section-title" style="margin-top:0;"><i class="fa-solid fa-right-left" style="color:#10b981;"></i> تحويل العملة إلى ZNX</div>
+        
+        <div class="quick-options">
+            <button class="opt-btn" onclick="selectOption('min')">حد أدنى</button>
+            <button class="opt-btn" onclick="selectOption('half')">1/2 الرصيد</button>
+            <button class="opt-btn" onclick="selectOption('max')">أقصى رصيد</button>
         </div>
-        <button class="btn-submit" onclick="submitConversion()">تأكيد التحويل الآن</button>
+
+        <div class="input-wrapper">
+            <input type="number" id="convertInput" class="custom-input" placeholder="أدخل كمية نقاط ZN" oninput="onInputChange()">
+        </div>
+
+        <div class="preview-box">
+            ستحصل على: <strong id="znxPreview" style="color:#38bdf8;">0.0000 ZNX</strong>
+        </div>
+
+        <button class="btn-action" onclick="submitConvert()">تأكيد التحويل الآن</button>
     </div>
 
-    <!-- منصة المتصدرين -->
-    <h3><i class="fa-solid fa-trophy" style="color: #f59e0b;"></i> كبار المالكين (ZNX)</h3>
-    <div class="podium" id="podiumArea"></div>
-    <div id="leaderboardList" style="margin-top: 15px;"></div>
+    <!-- تفاصيل الشرائح -->
+    <div class="section-title"><i class="fa-solid fa-layer-group" style="color:#38bdf8;"></i> شرائح التحويل الحالية</div>
+    <div class="tiers-list" id="tiersContainer"></div>
+
+    <!-- قائمة المتصدرين -->
+    <div class="section-title"><i class="fa-solid fa-trophy" style="color:#f59e0b;"></i> كبار كاسبي عملة ZNX</div>
+    <div class="podium" id="podiumContainer"></div>
+    <div id="rankingsContainer"></div>
 
     <script src="leaderboard.js"></script>
 </body>
