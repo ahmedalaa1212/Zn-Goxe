@@ -3,10 +3,8 @@ from firebase_admin import firestore
 
 db = firestore.client()
 
-# الحد الأقصى لمجمّع عملة ZNX الكلي
 MAX_GLOBAL_ZNX = 35_000_000.0
 
-# تعريف الشرائح السبع ونسب التحويل
 TIERS_CONFIG = [
     {"tier": 1, "name": "الشريحة الأولى", "min_pts": 0, "max_pts": 20_000_000, "rate": 10, "quota": 1_500_000},
     {"tier": 2, "name": "الشريحة الثانية", "min_pts": 20_000_000, "max_pts": 100_000_000, "rate": 30, "quota": 2_000_000},
@@ -18,7 +16,6 @@ TIERS_CONFIG = [
 ]
 
 def get_global_stats():
-    """جلب أو إنشاء مستند إحصائيات المجمّع العام لجميع اللاعبين في Firebase"""
     doc_ref = db.collection('znx_global_stats').document('summary')
     doc = doc_ref.get()
     if doc.exists:
@@ -34,14 +31,12 @@ def get_global_stats():
         return init_data
 
 def get_user_tier(user_points: float):
-    """تحديد الشريحة الحالية بناءً على رصيد نقاط المستخدم"""
     for item in TIERS_CONFIG:
         if item["min_pts"] <= user_points < item["max_pts"]:
             return item
     return TIERS_CONFIG[-1]
 
 def get_user_data(user_id: str):
-    """جلب بيانات حساب المستخدم بشكل آمن مع معالجة الحقول غير الموجودة"""
     doc_ref = db.collection('users').document(str(user_id))
     doc = doc_ref.get()
     if doc.exists:
@@ -51,27 +46,41 @@ def get_user_data(user_id: str):
             'usd_balance': float(data.get('usd_balance') or 0.0),
             'znx_balance': float(data.get('znx_balance') or 0.0),
             'total_znx_earned': float(data.get('total_znx_earned') or 0.0),
-            'first_name': data.get('first_name', 'مستخدم')
+            'first_name': data.get('first_name') or 'لاعب'
         }
     return None
 
 def get_leaderboard_rankings(limit=50):
-    """قائمة المتصدرين تعتمد على إجمالي ZNX المكتسب تاريخياً ولا تنقص بالسحب"""
-    users_ref = db.collection('users').order_by('total_znx_earned', direction=firestore.Query.DESCENDING).limit(limit)
-    docs = users_ref.stream()
-    rankings = []
-    for doc in docs:
-        d = doc.to_dict()
-        rankings.append({
-            'user_id': doc.id,
-            'name': d.get('first_name', 'مستخدم'),
-            'total_znx_earned': round(float(d.get('total_znx_earned') or 0.0), 4),
-            'znx_balance': round(float(d.get('znx_balance') or 0.0), 4)
-        })
-    return rankings
+    try:
+        users_ref = db.collection('users').order_by('total_znx_earned', direction=firestore.Query.DESCENDING).limit(limit)
+        docs = users_ref.stream()
+        rankings = []
+        for doc in docs:
+            d = doc.to_dict()
+            rankings.append({
+                'user_id': doc.id,
+                'name': d.get('first_name') or 'لاعب',
+                'total_znx_earned': float(d.get('total_znx_earned') or 0.0),
+                'znx_balance': float(d.get('znx_balance') or 0.0)
+            })
+        return rankings
+    except Exception as e:
+        print(f"⚠️ Leaderboard query fallback: {e}")
+        # استعلام احتياطي في حالة عدم وجود الفهرس (Index)
+        docs = db.collection('users').limit(100).stream()
+        rankings = []
+        for doc in docs:
+            d = doc.to_dict()
+            rankings.append({
+                'user_id': doc.id,
+                'name': d.get('first_name') or 'لاعب',
+                'total_znx_earned': float(d.get('total_znx_earned') or 0.0),
+                'znx_balance': float(d.get('znx_balance') or 0.0)
+            })
+        rankings.sort(key=lambda x: x['total_znx_earned'], reverse=True)
+        return rankings[:limit]
 
 def execute_conversion(user_id: str, points_to_convert: float):
-    """تنفيذ عملية تحويل ZN إلى ZNX بأمان مع تحديث مستند المستخدم والمستند العام"""
     global_ref = db.collection('znx_global_stats').document('summary')
     user_ref = db.collection('users').document(str(user_id))
 
@@ -108,14 +117,12 @@ def execute_conversion(user_id: str, points_to_convert: float):
     new_total_znx_earned = float(user_data.get('total_znx_earned') or 0.0) + znx_received
     new_global_total = total_global_znx + znx_received
 
-    # تحديث مستند المستخدم في Firebase
     user_ref.update({
         'balance': new_zn_balance,
         'znx_balance': new_znx_balance,
         'total_znx_earned': new_total_znx_earned
     })
 
-    # تحديث المستند العام لإجمالي البوت
     global_ref.set({
         'total_converted_znx': new_global_total,
         'max_global_znx': MAX_GLOBAL_ZNX,
