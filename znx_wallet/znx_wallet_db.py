@@ -1,10 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 💎 ZNX Wallet Database Module
-إدارة عمليات قاعدة البيانات (Firebase Firestore) الخاصة بمحفظة ZNX:
-- جلب رصيد المستخدم والشرائح
-- معالجة عمليات التحويل المالية الذكية بطريقة ذرية (Atomic Transactions)
-- حساب وإرجاع قائمة المتصدرين مع دعم الجسر التوافقي
+إدارة عمليات قاعدة البيانات (Firebase Firestore) الخاصة بمحفظة ZNX
 """
 
 import math
@@ -13,7 +10,6 @@ from firebase_admin import firestore
 
 
 def _get_db():
-    """دالة مساعدة لجلب عميل Firestore بشكل آمن ومستقر"""
     try:
         return firestore.client()
     except Exception:
@@ -23,7 +19,6 @@ def _get_db():
 
 
 def _sanitize_id(user_id):
-    """تنظيف وتدقيق معرف المستخدم لمنع الأخطاء والثغرات"""
     if user_id is None:
         return None
     s_id = str(user_id).strip()
@@ -32,10 +27,8 @@ def _sanitize_id(user_id):
     return s_id
 
 
-# الحد الأقصى الكلي للعملات المستخرجة من مجمّع ZNX
 MAX_GLOBAL_ZNX = 35_000_000.0
 
-# إعدادات شرائح التحويل المطابقة لما تم تكوينه في قاعدة البيانات
 TIERS_CONFIG = [
     {"tier": 1, "name": "الشريحة الأولى", "min_pts": 0, "max_pts": 20_000_000, "rate": 10, "quota": 1_500_000},
     {"tier": 2, "name": "الشريحة الثانية", "min_pts": 20_000_000, "max_pts": 100_000_000, "rate": 30, "quota": 2_000_000},
@@ -48,7 +41,6 @@ TIERS_CONFIG = [
 
 
 def get_global_stats():
-    """جلب أو إنشاء إحصائيات المجمّع العام لعملة ZNX"""
     try:
         db = _get_db()
         doc_ref = db.collection('znx_global_stats').document('summary')
@@ -56,8 +48,10 @@ def get_global_stats():
         
         if doc.exists:
             data = doc.to_dict() or {}
-            data['max_global_znx'] = MAX_GLOBAL_ZNX
-            data['tiers_config'] = data.get('tiers_config') or TIERS_CONFIG
+            if 'max_global_znx' not in data:
+                data['max_global_znx'] = MAX_GLOBAL_ZNX
+            if 'tiers_config' not in data or not data['tiers_config']:
+                data['tiers_config'] = TIERS_CONFIG
             return data
         else:
             init_data = {
@@ -79,7 +73,6 @@ def get_global_stats():
 
 
 def get_user_tier(user_points: float):
-    """تحديد الشريحة الحالية للمستخدم بناءً على رصيد نقاط ZN"""
     try:
         pts = float(user_points) if user_points and not math.isnan(user_points) else 0.0
     except (ValueError, TypeError):
@@ -92,7 +85,6 @@ def get_user_tier(user_points: float):
 
 
 def get_user_data(user_id: str):
-    """جلب بيانات مستخدم محدد مع ضمان وجود حقول الرصيد الثلاثي ومعلومات الشريحة الحالية"""
     clean_uid = _sanitize_id(user_id)
     default_user = {
         'user_id': clean_uid or '',
@@ -159,7 +151,6 @@ def get_user_data(user_id: str):
 
 
 def get_leaderboard_rankings(limit=50, user_id=None):
-    """جلب أعلى اللاعبين كسباً لعملة ZNX مع تحديد ترتيب المستخدم الحالي"""
     db = _get_db()
     rankings = []
     clean_target_id = _sanitize_id(user_id)
@@ -242,14 +233,10 @@ def get_leaderboard_rankings(limit=50, user_id=None):
 
 
 def get_leaderboard_data(limit=50, user_id=None):
-    """🌉 جسر توافقي لاستدعاء بيانات الترتيب بصيغة قاموس ممتد للموديولات الأخرى"""
     return get_leaderboard_rankings(limit=limit, user_id=user_id)
 
 
 def execute_conversion(user_id: str, points_to_convert: float):
-    """
-    🔒 معالجة عملية التحويل الذكية مع الحماية التامة من الثغرات والتزامن (Atomic Transaction)
-    """
     clean_uid = _sanitize_id(user_id)
     if not clean_uid:
         return False, "معرف المستخدم غير صالح."
