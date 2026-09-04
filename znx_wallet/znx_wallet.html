@@ -290,9 +290,9 @@
 
     <!-- مجمّع الإجمالي العام -->
     <div class="global-stats-card">
-        <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-muted);">
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.75rem; color:var(--text-muted);">
             <span><i class="fa-solid fa-globe"></i> إجمالي العملات المستخرجة كلياً</span>
-            <span id="globalRatioText" style="color:#0284c7; font-weight:bold;">0 / 35M ZNX</span>
+            <span id="globalRatioText" style="color:#0284c7; font-weight:bold; direction: ltr; display: inline-block;">0 / 35M ZNX</span>
         </div>
         <div class="progress-bg">
             <div class="progress-fill" id="globalProgressBar"></div>
@@ -342,7 +342,8 @@
     <div class="podium" id="podiumContainer"></div>
     <div id="rankingsContainer"></div>
 
-    <!-- استدعاء ملف الـ JS بعد اكتمال عنصر الـ DOM -->
+    <!-- ربط السكريبت البرمجي الخاص بالصفحة -->
     <script src="znx_wallet.js"></script>
+    <script src="/static/znx_wallet.js" onerror="this.onerror=null;"></script>
 </body>
 </html>
