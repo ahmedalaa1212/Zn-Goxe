@@ -1,90 +1,115 @@
-window.onLeaderboardTabOpen = async function() {
-    await window.loadLeaderboardData();
-};
+const USER_ID = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "demo_user";
+let currentLivePrice = 0.05;
 
-window.loadLeaderboardData = async function() {
-    const listContainer = document.getElementById('lb-list-container');
-    if (!listContainer) return;
+// بدء تحديث السعر والمؤشرات فور تحميل الصفحة
+document.addEventListener('DOMContentLoaded', () => {
+    loadData();
+    setInterval(updatePriceTicker, 1000); // تحديث السعر كل ثانية
+});
 
-    try {
-        const res = await window.fetchAPI('/api/leaderboard/top', 'GET');
-        if (res && res.success && Array.isArray(res.leaderboard)) {
-            window.renderLeaderboard(res.leaderboard, res.user_rank, res.user_balance);
-        } else {
-            listContainer.innerHTML = `<div style="text-align: center; padding: 20px; color: #ff5252;">${res?.error || 'فشل جلب لوحة الصدارة'}</div>`;
-        }
-    } catch (err) {
-        console.error("خطأ جلب لوحة الصدارة:", err);
-        listContainer.innerHTML = `<div style="text-align: center; padding: 20px; color: #ff5252;">حدث خطأ في الاتصال بالسيرفر.</div>`;
-    }
-};
-
-function safeFormatBalance(val) {
-    if (typeof window.formatBalance === 'function') {
-        return window.formatBalance(val || 0);
-    }
-    return parseFloat(val || 0).toLocaleString();
+function updatePriceTicker() {
+    // محاكاة التذبذب اللحظي المباشر للسعر بالثانية
+    const fluctuation = (Math.random() - 0.49) * 0.0008;
+    currentLivePrice = Math.max(0.01, currentLivePrice + fluctuation);
+    document.getElementById('livePrice').innerText = `$${currentLivePrice.toFixed(4)}`;
 }
 
-window.renderLeaderboard = function(list, myRank, myBalance) {
-    if (!Array.isArray(list)) list = [];
+async function loadData() {
+    try {
+        const res = await fetch(`/api/leaderboard/data?user_id=${USER_ID}`);
+        const data = await res.json();
+        
+        if (data.success) {
+            currentLivePrice = data.live_price;
+            
+            // تحديث المجمّع الكلي
+            const total = data.global_total;
+            const max = data.max_limit;
+            const percentage = Math.min(100, (total / max) * 100);
+            
+            document.getElementById('poolText').innerText = `${total.toLocaleString()} / ${max.toLocaleString()} ZNX`;
+            document.getElementById('poolProgress').style.width = `${percentage}%`;
 
-    // 1. تحديث منصة التتويج Top 3
-    const top1 = list[0] || { first_name: '---', balance: 0 };
-    const top2 = list[1] || { first_name: '---', balance: 0 };
-    const top3 = list[2] || { first_name: '---', balance: 0 };
-
-    const p1Name = document.getElementById('pod1-name');
-    const p1Score = document.getElementById('pod1-score');
-    if (p1Name) p1Name.innerText = top1.first_name || '---';
-    if (p1Score) p1Score.innerText = `${safeFormatBalance(top1.balance)} ZN`;
-
-    const p2Name = document.getElementById('pod2-name');
-    const p2Score = document.getElementById('pod2-score');
-    if (p2Name) p2Name.innerText = top2.first_name || '---';
-    if (p2Score) p2Score.innerText = `${safeFormatBalance(top2.balance)} ZN`;
-
-    const p3Name = document.getElementById('pod3-name');
-    const p3Score = document.getElementById('pod3-score');
-    if (p3Name) p3Name.innerText = top3.first_name || '---';
-    if (p3Score) p3Score.innerText = `${safeFormatBalance(top3.balance)} ZN`;
-
-    // 2. تحديث القائمة للمراكز من 4 فما فوق
-    const listContainer = document.getElementById('lb-list-container');
-    if (listContainer) {
-        const restList = list.slice(3);
-        if (restList.length === 0) {
-            listContainer.innerHTML = `<div style="text-align: center; padding: 20px; color: #888;">لا يوجد لاعبين إضافيين بعد.</div>`;
-        } else {
-            let html = '';
-            const myTgId = String(window.userState?.tg_id || window.userState?.telegram_id || '');
-
-            restList.forEach(item => {
-                const itemTgId = String(item.tg_id || item.telegram_id || '');
-                const isMe = myTgId !== '' && itemTgId === myTgId;
-
-                html += `
-                    <div class="lb-item" style="${isMe ? 'background: rgba(0, 136, 204, 0.2); font-weight: bold;' : ''}">
-                        <div class="lb-rank">#${item.rank}</div>
-                        <div class="lb-user">${item.first_name || 'لاعب'} ${isMe ? ' (أنت)' : ''}</div>
-                        <div class="lb-score">${safeFormatBalance(item.balance)} ZN</div>
-                    </div>
-                `;
-            });
-            listContainer.innerHTML = html;
+            renderLeaderboard(data.leaderboard);
         }
+    } catch (err) {
+        console.error("خطأ في تحميل البيانات:", err);
+    }
+}
+
+function calculatePreview() {
+    const pts = parseFloat(document.getElementById('pointsInput').value) || 0;
+    let rate = 10;
+
+    if (pts >= 25000000000) rate = 4000;
+    else if (pts >= 8000000000) rate = 1600;
+    else if (pts >= 2000000000) rate = 600;
+    else if (pts >= 500000000) rate = 200;
+    else if (pts >= 100000000) rate = 80;
+    else if (pts >= 20000000) rate = 30;
+    else rate = 10;
+
+    const znxGained = pts / rate;
+    document.getElementById('znxPreview').innerText = `${znxGained.toFixed(4)} ZNX`;
+}
+
+async function submitConversion() {
+    const points = parseFloat(document.getElementById('pointsInput').value);
+    if (!points || points <= 0) {
+        alert("يرجى إدخال كمية نقاط صالحة");
+        return;
     }
 
-    // 3. تحديث شريط الترتيب الشفاف السفلي للمستخدم
-    const rankValEl = document.getElementById('my-rank-val');
-    const rankBalEl = document.getElementById('my-rank-balance');
+    try {
+        const res = await fetch('/api/leaderboard/convert', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: USER_ID, points: points })
+        });
+        
+        const result = await res.json();
+        if (result.success) {
+            alert(`تم التحويل بنجاح! حصلت على ${result.data.znx_gained} ZNX`);
+            document.getElementById('pointsInput').value = '';
+            calculatePreview();
+            loadData();
+        } else {
+            alert(`فشل التحويل: ${result.message}`);
+        }
+    } catch (err) {
+        alert("حدث خطأ أثناء الاتصال بالسيرفر.");
+    }
+}
+
+function renderLeaderboard(list) {
+    const podiumArea = document.getElementById('podiumArea');
+    const leaderboardList = document.getElementById('leaderboardList');
     
-    const userBalance = myBalance !== undefined ? myBalance : (window.userState?.balance || 0);
+    podiumArea.innerHTML = '';
+    leaderboardList.innerHTML = '';
 
-    if (rankValEl) rankValEl.innerText = `#${myRank || '--'}`;
-    if (rankBalEl) rankBalEl.innerText = `${safeFormatBalance(userBalance)} ZN`;
-};
+    // عرض أول 3 في المنصة
+    if (list[0]) podiumArea.innerHTML += createPodiumCard(list[0], 1, 'rank-1');
+    if (list[1]) podiumArea.innerHTML += createPodiumCard(list[1], 2, 'rank-2');
+    if (list[2]) podiumArea.innerHTML += createPodiumCard(list[2], 3, 'rank-3');
 
-if (document.getElementById('view-leaderboard')?.classList.contains('active')) {
-    window.onLeaderboardTabOpen();
+    // باقي القائمة
+    for (let i = 3; i < list.length; i++) {
+        leaderboardList.innerHTML += `
+            <div class="list-item">
+                <span>#${i + 1} ${list[i].name}</span>
+                <span style="color: #38bdf8; font-weight: bold;">${list[i].znx_balance} ZNX</span>
+            </div>
+        `;
+    }
+}
+
+function createPodiumCard(user, rank, rankClass) {
+    return `
+        <div class="podium-card ${rankClass}">
+            <div style="font-weight: bold;">#${rank}</div>
+            <div style="font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis;">${user.name}</div>
+            <div style="color: #38bdf8; font-size: 0.8rem; font-weight: bold;">${user.znx_balance} ZNX</div>
+        </div>
+    `;
 }
