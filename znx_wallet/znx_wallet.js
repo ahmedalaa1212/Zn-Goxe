@@ -89,7 +89,7 @@ function updateGlobalStatsUI(globalTotal, maxGlobal) {
     const max = maxGlobal || 35000000;
     const pct = Math.min(100, Math.max(0, (total / max) * 100));
     
-    if (ratioEl) ratioEl.innerText = `${formatCoins(total, 2).replace(/<[^>]*>?/gm, '')} / ${(max / 1000000).toFixed(0)}M ZNX`;
+    if (ratioEl) ratioEl.innerHTML = `${formatCoins(total, 2)} / ${(max / 1000000).toFixed(0)}M ZNX`;
     if (barEl) barEl.style.width = `${pct}%`;
 }
 
@@ -113,7 +113,7 @@ function selectOption(type) {
     } else if (type === 'half') {
         input.value = (bal / 2).toFixed(2);
     } else if (type === 'min') {
-        input.value = currentTier ? (currentTier.rate || 10) : 10;
+        input.value = currentTier ? currentTier.rate : 10;
     }
     onInputChange();
 }
@@ -171,7 +171,7 @@ async function submitConvert() {
 
         if (result.success) {
             const gained = result.data?.znx_gained || result.znx_gained || 0;
-            alert(`تم التحويل بنجاح!حصلت على ${gained} ZNX`);
+            alert(`تم التحويل بنجاح! حصلت على ${gained} ZNX`);
             inputEl.value = '';
             onInputChange();
             await initApp();
@@ -194,7 +194,7 @@ function renderTiersUI(tiers) {
     if (!tiers || !Array.isArray(tiers)) return;
 
     tiers.forEach(t => {
-        const isCurrent = currentTier && currentTier.tier === t.tier;
+        const isCurrent = currentTier && (currentTier.tier === t.tier || currentTier.name === t.name);
         const safeName = escapeHTML(t.name);
         
         container.innerHTML += `
