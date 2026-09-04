@@ -101,7 +101,7 @@ def get_wallet_data():
             'leaderboard': rankings,
             'my_rank': my_rank,
             'global_total': total_global_znx,
-            'max_global_znx': float(global_stats.get('max_global_znx', 35000000.0)),
+            'max_global_znx': float(global_stats.get('max_global_znx', 32500000.0)),
             'live_price': 0.0524
         }), 200
 
