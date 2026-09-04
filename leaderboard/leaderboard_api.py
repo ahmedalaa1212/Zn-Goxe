@@ -3,9 +3,9 @@ import leaderboard_db
 
 leaderboard_bp = Blueprint('leaderboard', __name__)
 
-@leaderboard_bp.route('/api/leaderboard/init', methods=['GET'])
+@leaderboard_bp.route('/init', methods=['GET'])
 def init_dashboard():
-    user_id = request.args.get('user_id', '')
+    user_id = request.args.get('user_id') or request.args.get('tg_id', '')
     if not user_id:
         return jsonify({'success': False, 'message': 'المستخدم غير معرف'}), 400
 
@@ -28,10 +28,10 @@ def init_dashboard():
         'live_price': 0.0524
     })
 
-@leaderboard_bp.route('/api/leaderboard/convert', methods=['POST'])
+@leaderboard_bp.route('/convert', methods=['POST'])
 def process_conversion():
     data = request.json or {}
-    user_id = data.get('user_id')
+    user_id = data.get('user_id') or data.get('tg_id')
     
     try:
         amount = float(data.get('amount', 0))
