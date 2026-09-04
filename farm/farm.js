@@ -5,11 +5,13 @@ window.initFarmView = function() {
 };
 
 window.closeWelcomeModal = function() {
-    const modal = document.getElementById('welcome-modal') || document.getElementById('auto-claim-modal');
-    if (modal) {
-        modal.style.display = 'none';
-        modal.classList.remove('active', 'show');
-    }
+    const modals = [document.getElementById('welcome-modal'), document.getElementById('auto-claim-modal')];
+    modals.forEach(modal => {
+        if (modal) {
+            modal.style.display = 'none';
+            modal.classList.remove('active', 'show');
+        }
+    });
 
     if (!window.userState) window.userState = {};
     if (!window.PlayerData) window.PlayerData = {};
@@ -342,13 +344,13 @@ window.closeWelcomeModal = function() {
         const blockId = window.ADSGRAM_BLOCK_ID || GAME_CONFIG.adsgramBlockId || "";
 
         if (!window.Adsgram || !isLoaded) {
-            console.error("Adsgram SDK لم يتم تحميلة.");
+            console.error("Adsgram SDK لم يتم تحميله.");
             toggleAdLoadingOverlay(false);
             return false;
         }
 
         if (!blockId || blockId.trim() === "") {
-            console.error("Adsgram Block ID missing!");
+            console.error("Adsgram Block ID مفقود!");
             toggleAdLoadingOverlay(false);
             return false;
         }
@@ -366,7 +368,7 @@ window.closeWelcomeModal = function() {
             };
 
             const timeoutTimer = setTimeout(() => {
-                console.log("Adsgram timeout reached.");
+                console.log("انتهت مهلة إعلان Adsgram.");
                 finish(false);
             }, 10000);
 
@@ -448,7 +450,6 @@ window.closeWelcomeModal = function() {
         }
     }
 
-    // تحديث الواجهة الخاصة ببادج البوت ونافذة التجميع التلقائي القادمة من السيرفر
     function updateBotAndAutoClaimUI(resData) {
         if (!resData) return;
 
@@ -459,7 +460,7 @@ window.closeWelcomeModal = function() {
             botBadge.style.display = isBotActive ? 'inline-flex' : 'none';
         }
 
-        // 2. معالجة وتنبيه التجميع التلقائي قادماً من السيرفر
+        // 2. معالجة وتنبيه التجميع التلقائي القادم من السيرفر
         const autoCollected = parseFloat(resData.auto_claimed_amount || resData.auto_collected || 0);
         if (autoCollected > 0) {
             const autoModal = document.getElementById('auto-claim-modal') || document.getElementById('welcome-modal');
@@ -823,7 +824,7 @@ window.closeWelcomeModal = function() {
 
         const remainingCooldown = Math.max(0, Math.ceil(MIN_CLAIM_INTERVAL - secondsPassed));
 
-        // 🔥 التجميع التلقائي التلقائي فور إملاء المخزن بنسبة 80% أو أكثر 🔥
+        // 🔥 التجميع التلقائي فور وصول سعة المخزن إلى 80% أو أكثر 🔥
         if (pct >= 80 && !isClaimingMain && !isCheckingAd && remainingCooldown <= 0 && unclaim > 0) {
             console.log("وصل المخزن إلى 80% أو أكثر، جارٍ التجميع التلقائي...");
             window.handleMainClaim();
