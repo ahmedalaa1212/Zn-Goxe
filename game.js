@@ -8,6 +8,18 @@ if (tg) {
     if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
 }
 
+// دالة الحماية المباشرة ضد هجمات XSS وحقن النصوص
+function escapeHTML(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+window.escapeHTML = escapeHTML;
+
 // رابط السيرفر الأساسي لمنع أخطاء المسارات النسبية
 window.API_BASE_URL = window.API_BASE_URL || 'https://zn-goxe-production.up.railway.app';
 window.currentTonPriceUSD = parseFloat(localStorage.getItem('last_ton_price')) || 1.32;
@@ -136,12 +148,12 @@ window.addEventListener('beforeunload', () => {
 });
 
 // ==========================================
-// 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة (مع معالجة الثغرات والربط المباشر)
+// 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة (مع المحافظة على الأمان والتوثيق)
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
     
-    // التأكد من استخراج tg_id وتحديثه ديناميكياً
+    // استخراج وتأمين tg_id والتوثيق
     const currentTgId = window.userState?.tg_id || tg?.initDataUnsafe?.user?.id;
     if (currentTgId) {
         if (!window.userState.tg_id) window.userState.tg_id = currentTgId;
@@ -153,14 +165,14 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         headers['Authorization'] = `Bearer ${tg.initData}`;
     }
 
-    // بناء الرابط المكتمل
+    // بناء المسار المطلق بشكل آمن
     let targetUrl = endpoint;
     if (endpoint.startsWith('/')) {
         const baseUrl = (window.API_BASE_URL || '').replace(/\/$/, '');
         targetUrl = baseUrl + endpoint;
     }
 
-    // إرفاق initData و tg_id كـ Query Parameters لضمان نجاح التوثيق حتى في طلبات GET
+    // إرفاق بيانات التوثيق في Query Parameters للحماية المضاعفة
     try {
         const urlObj = new URL(targetUrl, window.location.href);
         if (tg?.initData) {
@@ -543,7 +555,7 @@ function applyBalanceToUI(val) {
     const formatted = window.formatNumberHTML(val);
     const rawFormatted = window.formatBalance(val);
     
-    const selectors = '[data-bind="balance"], .user-balance, #farm-balance, #user-balance, #main-balance, #balance, .sync-balance, #top-balance-tasks, .user-balance-val, [data-bind="user_balance"]';
+    const selectors = '[data-bind="balance"], [data-bind="znx_balance"], .user-balance, #farm-balance, #user-balance, #main-balance, #balance, .sync-balance, #top-balance-tasks, .user-balance-val, [data-bind="user_balance"]';
     
     document.querySelectorAll(selectors).forEach(el => {
         if (el.id === 'shop-balance-text' || el.id === 'top-balance-games') return;
@@ -607,25 +619,15 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 8. تهيئة واجهة المحفظة والإعدادات ودالة معالجة العروض
+// 8. تهيئة الإعدادات ودالة معالجة العروض
 // ==========================================
-window.initWalletView = function() {
-    if (window.walletModule && typeof window.walletModule.init === 'function') {
-        window.walletModule.init();
-    }
-    if (window.depositModule && typeof window.depositModule.init === 'function') {
-        window.depositModule.init();
-    }
-};
-window.onWalletTabOpen = window.initWalletView;
-
 window.initSettingsView = function() {
     const settingsView = document.getElementById('view-settings');
     if (settingsView) {
         const nameEl = settingsView.querySelector('#settings-user-name');
         const idEl = settingsView.querySelector('#settings-user-id');
-        if (nameEl && window.userState?.first_name) nameEl.innerText = window.userState.first_name;
-        if (idEl && window.userState?.tg_id) idEl.innerText = window.userState.tg_id;
+        if (nameEl && window.userState?.first_name) nameEl.innerText = window.escapeHTML(window.userState.first_name);
+        if (idEl && window.userState?.tg_id) idEl.innerText = window.escapeHTML(window.userState.tg_id);
     }
 };
 
@@ -663,10 +665,10 @@ window.openOfferCategory = function(offerId) {
 };
 
 // ==========================================
-// 9. دالة جلب وعرض بيانات المتصدرين المباشرة من السيرفر (Leaderboard API)
+// 9. دالة جلب وعرض بيانات محفظة ZNX والمتصدرين المباشرة من السيرفر المحدث (/api/znx-wallet)
 // ==========================================
-window.loadLeaderboardData = async function() {
-    const listContainer = document.getElementById('lb-list-container');
+window.loadZnxWalletData = async function() {
+    const listContainer = document.getElementById('lb-list-container') || document.getElementById('znx-lb-list');
     const pod1Name = document.getElementById('pod1-name');
     const pod1Score = document.getElementById('pod1-score');
     const pod2Name = document.getElementById('pod2-name');
@@ -677,13 +679,14 @@ window.loadLeaderboardData = async function() {
     const myRankBalance = document.getElementById('my-rank-balance');
 
     if (listContainer) {
-        listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #888;">جاري تحميل الترتيب...</div>';
+        listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #888;">جاري تحميل بيانات محفظة ZNX والمتصدرين...</div>';
     }
 
     try {
-        const res = await window.fetchAPI('/api/leaderboard');
+        // الاتصال بموديول محفظة ZNX الجديد
+        const res = await window.fetchAPI('/api/znx-wallet');
         if (!res || (!res.success && !Array.isArray(res.leaderboard))) {
-            if (listContainer) listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #ff4d4d;">فشل جلب قائمة المتصدرين.</div>';
+            if (listContainer) listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #ff4d4d;">فشل جلب قائمة محفظة ZNX.</div>';
             return;
         }
 
@@ -691,7 +694,7 @@ window.loadLeaderboardData = async function() {
         const myRank = res.my_rank ?? res.user_rank ?? '#--';
         const myBal = res.my_balance ?? window.userState?.balance ?? 0;
 
-        // تحديث ترتيب المستخدم الشحصي
+        // تحديث ترتيب المستخدم الشخصي ورصيده
         if (myRankVal) myRankVal.innerText = (typeof myRank === 'number') ? `#${myRank}` : myRank;
         if (myRankBalance) myRankBalance.innerHTML = `${window.formatNumberHTML(myBal)} ZN`;
 
@@ -703,20 +706,20 @@ window.loadLeaderboardData = async function() {
         if (pod3Name) pod3Name.innerText = '---';
         if (pod3Score) pod3Score.innerText = '0 ZN';
 
-        // تعبئة المراكز 3 الأوائل على منصة التتويج
+        // تعبئة المراكز 3 الأوائل على منصة التتويج بأسماء محمية من XSS
         if (leaderboard.length > 0) {
             const p1 = leaderboard[0];
-            if (pod1Name) pod1Name.innerText = p1.first_name || p1.username || `لاعب ${p1.telegram_id || 1}`;
+            if (pod1Name) pod1Name.innerText = window.escapeHTML(p1.first_name || p1.username || `لاعب ${p1.telegram_id || 1}`);
             if (pod1Score) pod1Score.innerHTML = `${window.formatNumberHTML(p1.balance || 0)} ZN`;
         }
         if (leaderboard.length > 1) {
             const p2 = leaderboard[1];
-            if (pod2Name) pod2Name.innerText = p2.first_name || p2.username || `لاعب ${p2.telegram_id || 2}`;
+            if (pod2Name) pod2Name.innerText = window.escapeHTML(p2.first_name || p2.username || `لاعب ${p2.telegram_id || 2}`);
             if (pod2Score) pod2Score.innerHTML = `${window.formatNumberHTML(p2.balance || 0)} ZN`;
         }
         if (leaderboard.length > 2) {
             const p3 = leaderboard[2];
-            if (pod3Name) pod3Name.innerText = p3.first_name || p3.username || `لاعب ${p3.telegram_id || 3}`;
+            if (pod3Name) pod3Name.innerText = window.escapeHTML(p3.first_name || p3.username || `لاعب ${p3.telegram_id || 3}`);
             if (pod3Score) pod3Score.innerHTML = `${window.formatNumberHTML(p3.balance || 0)} ZN`;
         }
 
@@ -730,7 +733,7 @@ window.loadLeaderboardData = async function() {
             let html = '';
             leaderboard.forEach((item, index) => {
                 const rank = index + 1;
-                const name = item.first_name || item.username || `لاعب ${item.telegram_id || rank}`;
+                const safeName = window.escapeHTML(item.first_name || item.username || `لاعب ${item.telegram_id || rank}`);
                 const bal = parseFloat(item.balance || 0);
                 const isMe = String(item.telegram_id) === String(window.userState?.tg_id);
 
@@ -744,8 +747,8 @@ window.loadLeaderboardData = async function() {
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <span style="font-weight: bold; font-size: 14px; min-width: 28px; text-align: center; color: ${rank <= 3 ? '#ffb703' : '#a0a0a0'};">${rankBadge}</span>
                             <div style="text-align: right;">
-                                <div style="font-weight: bold; font-size: 13px; color: #fff;">${name} ${isMe ? ' <span style="font-size:10px; color:#0088cc;">(أنت)</span>' : ''}</div>
-                                <div style="font-size: 10px; color: #888;">ID: ${item.telegram_id || '---'}</div>
+                                <div style="font-weight: bold; font-size: 13px; color: #fff;">${safeName} ${isMe ? ' <span style="font-size:10px; color:#0088cc;">(أنت)</span>' : ''}</div>
+                                <div style="font-size: 10px; color: #888;">ID: ${window.escapeHTML(item.telegram_id || '---')}</div>
                             </div>
                         </div>
                         <div style="font-weight: bold; font-size: 13px; color: #2ec4b6;">
@@ -758,18 +761,21 @@ window.loadLeaderboardData = async function() {
             listContainer.innerHTML = html;
         }
     } catch (err) {
-        console.error("فشل جلب قائمة المتصدرين:", err);
+        console.error("فشل جلب بيانات محفظة ZNX والمتصدرين:", err);
         if (listContainer) {
-            listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #ff4d4d;">حدث خطأ أثناء تحميل لوحة الصدارة.</div>';
+            listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #ff4d4d;">حدث خطأ أثناء تحميل محفظة ZNX.</div>';
         }
     }
 };
 
-window.onLeaderboardTabOpen = window.loadLeaderboardData;
-window.initLeaderboardView = window.loadLeaderboardData;
+// التوافق مع الاستدعاءات القديمة لـ Leaderboard
+window.loadLeaderboardData = window.loadZnxWalletData;
+window.onLeaderboardTabOpen = window.loadZnxWalletData;
+window.initLeaderboardView = window.loadZnxWalletData;
+window.initZnxWalletView = window.loadZnxWalletData;
 
 // ==========================================
-// 10. التنقل الديناميكي المحصن واحتواء الهياكل المطلوبة
+// 10. التنقل الديناميكي المحصن واحتواء الهياكل المطلوبة (محثة لتبويب znx_wallet)
 // ==========================================
 const loadedModules = new Set();
 const pendingLoads = new Map();
@@ -780,24 +786,10 @@ function renderDefaultViewContent(cleanViewName, targetView) {
             <div style="padding: 20px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto;">
                 <h2 style="margin-bottom: 20px; color: #0088cc;"><i class="fas fa-cog"></i> الإعدادات (Settings)</h2>
                 <div style="background: rgba(255, 255, 255, 0.08); padding: 20px; border-radius: 14px; text-align: right; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
-                    <p style="margin-bottom: 12px; font-size: 15px;">👤 <b>اسم اللاعب:</b> <span id="settings-user-name">${window.userState?.first_name || 'لاعب'}</span></p>
-                    <p style="margin-bottom: 12px; font-size: 15px;">🆔 <b>معرّف تليجرام:</b> <span id="settings-user-id">${window.userState?.tg_id || 'غير معروف'}</span></p>
+                    <p style="margin-bottom: 12px; font-size: 15px;">👤 <b>اسم اللاعب:</b> <span id="settings-user-name">${window.escapeHTML(window.userState?.first_name || 'لاعب')}</span></p>
+                    <p style="margin-bottom: 12px; font-size: 15px;">🆔 <b>معرّف تليجرام:</b> <span id="settings-user-id">${window.escapeHTML(window.userState?.tg_id || 'غير معروف')}</span></p>
                 </div>
             </div>`;
-    } else if (cleanViewName === 'wallet') {
-        const cacheBuster = `?v=${Date.now()}`;
-        fetch(`./wallet/wallet.html${cacheBuster}`)
-            .then(res => res.text())
-            .then(html => {
-                targetView.innerHTML = html;
-                if (window.walletModule && typeof window.walletModule.init === 'function') {
-                    window.walletModule.init();
-                }
-                if (window.depositModule && typeof window.depositModule.init === 'function') {
-                    window.depositModule.init();
-                }
-            })
-            .catch(err => console.error("فشل جلب واجهة المحفظة:", err));
     } else if (cleanViewName === 'offers') {
         targetView.innerHTML = `
             <div style="padding: 15px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto; padding-bottom: 90px;">
@@ -818,53 +810,33 @@ function renderDefaultViewContent(cleanViewName, targetView) {
                 <p style="color: #a0a0a0; font-size: 12px; margin-bottom: 20px;">اختر من العروض المتاحة أدناه للبدء في كسب مكافآت ZN المباشرة</p>
 
                 <div id="offers-grid-container" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; text-align: center;">
-                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_goxe')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_goxe')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer;">
                         <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 183, 3, 0.2); color: #ffb703; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">ترند✨</span>
                         <div style="font-size: 38px; margin: 10px 0 6px 0; color: #2ec4b6;"><i class="fas fa-cubes"></i></div>
                         <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض Goxe</div>
                     </div>
-                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_fogo')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_fogo')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer;">
                         <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 77, 77, 0.2); color: #ff4d4d; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">حار🔥</span>
                         <div style="font-size: 38px; margin: 10px 0 6px 0; color: #ff4d4d;"><i class="fas fa-fire"></i></div>
                         <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض fogo</div>
                     </div>
-                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_hitob')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_hitob')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer;">
                         <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
                         <div style="font-size: 38px; margin: 10px 0 6px 0; color: #e63946;"><i class="fas fa-bullseye"></i></div>
                         <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض hitob</div>
                     </div>
-                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_wex')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
+                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_wex')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer;">
                         <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
                         <div style="font-size: 38px; margin: 10px 0 6px 0; color: #00b4d8;"><i class="fas fa-bolt"></i></div>
                         <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض wex</div>
                     </div>
-                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_vover')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
-                        <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
-                        <div style="font-size: 38px; margin: 10px 0 6px 0; color: #9d4edd;"><i class="fas fa-shield-alt"></i></div>
-                        <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض vover</div>
-                    </div>
-                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_znzn')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
-                        <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
-                        <div style="font-size: 38px; margin: 10px 0 6px 0; color: #2ec4b6;"><i class="fas fa-atom"></i></div>
-                        <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض znzn</div>
-                    </div>
-                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_blxe')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
-                        <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
-                        <div style="font-size: 38px; margin: 10px 0 6px 0; color: #ffb703;"><i class="fas fa-gem"></i></div>
-                        <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض Blxe</div>
-                    </div>
-                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_extra')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
-                        <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
-                        <div style="font-size: 38px; margin: 10px 0 6px 0; color: #70e000;"><i class="fas fa-rocket"></i></div>
-                        <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض Extra</div>
-                    </div>
                 </div>
             </div>`;
-    } else if (cleanViewName === 'leaderboard') {
+    } else if (cleanViewName === 'znx_wallet') {
         targetView.innerHTML = `
             <div style="padding: 20px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto; padding-bottom: 90px;">
-                <h2 style="margin-bottom: 5px; color: #ffb703;"><i class="fas fa-trophy"></i> لوحة الصدارة</h2>
-                <p style="color: #a0a0a0; font-size: 13px; margin-bottom: 20px;">أعلى كبار المطورين والمستثمرين في اللعبة</p>
+                <h2 style="margin-bottom: 5px; color: #ffb703;"><i class="fas fa-wallet"></i> محفظة ZNX ومتصدرين التطبيق</h2>
+                <p style="color: #a0a0a0; font-size: 13px; margin-bottom: 20px;">عرض الرصيد الثلاثي، تحويل العملات، وشاشة كبار المطورين والمستثمرين</p>
 
                 <!-- منصة التتويج المراكز 3 الأوائل -->
                 <div style="display: flex; justify-content: center; align-items: flex-end; gap: 10px; margin-bottom: 25px;">
@@ -887,7 +859,7 @@ function renderDefaultViewContent(cleanViewName, targetView) {
 
                 <!-- حاوية القائمة -->
                 <div id="lb-list-container" style="display: flex; flex-direction: column; gap: 8px; text-align: right;">
-                    <div style="text-align: center; padding: 20px; color: #888;">جاري تحميل الترتيب...</div>
+                    <div style="text-align: center; padding: 20px; color: #888;">جاري تحميل محفظة ZNX والتوب...</div>
                 </div>
 
                 <!-- شريط المستخدم السفلي -->
@@ -922,11 +894,16 @@ window.switchView = async function(viewName) {
     if (!viewName) return;
 
     let cleanViewName = String(viewName).toLowerCase().replace('nav-', '').replace('view-', '');
-    if (cleanViewName === 'wallets' || cleanViewName === 'tools' || cleanViewName === 'wallet') cleanViewName = 'wallet';
+    if (cleanViewName === 'wallets' || cleanViewName === 'tools') cleanViewName = 'wallet';
     if (cleanViewName === 'game') cleanViewName = 'games';
     if (cleanViewName === 'task') cleanViewName = 'tasks';
     if (cleanViewName === 'user' || cleanViewName === 'friends' || cleanViewName === 'friend') cleanViewName = 'friends';
     if (cleanViewName === 'offer' || cleanViewName === 'أرباح العروض' || cleanViewName === 'ارباح العروض') cleanViewName = 'offers';
+    
+    // توجيه المتصدرين ومحفظة ZNX إلى الموديول الجديد znx_wallet
+    if (cleanViewName === 'leaderboard' || cleanViewName === 'znx_wallet' || cleanViewName === 'znx-wallet' || cleanViewName === 'znxwallet') {
+        cleanViewName = 'znx_wallet';
+    }
 
     // 1. إخفاء شاشة التحميل فوراً
     hideLoadingScreen();
@@ -934,6 +911,7 @@ window.switchView = async function(viewName) {
     // 2. تحديث إضاءة أزرار القائمة السفلى
     document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
     const targetNav = document.getElementById(`nav-${cleanViewName}`) || 
+                      document.getElementById(`nav-leaderboard`) ||
                       document.querySelector(`[data-view="${cleanViewName}"]`) ||
                       document.querySelector(`[data-view="${viewName}"]`);
     if (targetNav) targetNav.classList.add('active');
@@ -946,6 +924,10 @@ window.switchView = async function(viewName) {
     
     let targetView = document.getElementById(`view-${cleanViewName}`);
     
+    if (!targetView && cleanViewName === 'znx_wallet') {
+        targetView = document.getElementById('view-leaderboard');
+    }
+
     if (!targetView) {
         const appContainer = document.getElementById('app') || document.body;
         targetView = document.createElement('div');
@@ -959,14 +941,7 @@ window.switchView = async function(viewName) {
     targetView.style.width = '100%';
     targetView.style.minHeight = '100vh';
 
-    // تحميل سكريبت المحفظة وسكريبت الإيداع عند الدخول لتبويب المحفظة
-    if (cleanViewName === 'wallet') {
-        const cb = `?v=${Date.now()}`;
-        await loadModuleScript(`./wallet/wallet.js${cb}`);
-        await loadModuleScript(`./wallet/deposit/deposit.js${cb}`);
-    }
-
-    // 4. جلب المحتوى من المجلد المخصص لكل تبويب
+    // 4. جلب المحتوى والسكريبت الديناميكي من مجلد znx_wallet
     const hasPlaceholder = targetView.querySelector('.placeholder-container');
     const hasRealContent = !hasPlaceholder && (targetView.innerText.trim().length > 10 || targetView.querySelector('button, input, h1, h2, h3, h4'));
 
@@ -1055,17 +1030,11 @@ window.switchView = async function(viewName) {
             if (typeof window.onOffersTabOpen === 'function') await window.onOffersTabOpen();
             else if (typeof window.initOffersView === 'function') await window.initOffersView();
             else if (typeof window.loadOffersList === 'function') await window.loadOffersList();
-        } else if (cleanViewName === 'leaderboard') {
-            if (typeof window.onLeaderboardTabOpen === 'function') await window.onLeaderboardTabOpen();
-            else if (typeof window.initLeaderboardView === 'function') await window.initLeaderboardView();
-            else if (typeof window.loadLeaderboardData === 'function') await window.loadLeaderboardData();
-        } else if (cleanViewName === 'wallet') {
-            if (window.walletModule && typeof window.walletModule.init === 'function') {
-                window.walletModule.init();
+        } else if (cleanViewName === 'znx_wallet') {
+            if (window.znxWalletModule && typeof window.znxWalletModule.init === 'function') {
+                window.znxWalletModule.init();
             }
-            if (window.depositModule && typeof window.depositModule.init === 'function') {
-                window.depositModule.init();
-            }
+            if (typeof window.loadZnxWalletData === 'function') await window.loadZnxWalletData();
         } else if (cleanViewName === 'settings') {
             if (typeof window.initSettingsView === 'function') window.initSettingsView();
         }
