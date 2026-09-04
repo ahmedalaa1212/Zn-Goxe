@@ -14,12 +14,13 @@ function escapeHTML(str) {
         .replace(/'/g, "&#039;");
 }
 
+// 🆔 جلب معرف المستخدم بطريقة ديناميكية مرنة
 function getUserId() {
     if (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
         return String(window.Telegram.WebApp.initDataUnsafe.user.id);
     }
     const urlParams = new URLSearchParams(window.location.search);
-    return urlParams.get('user_id') || urlParams.get('tg_id') || "5102387551";
+    return urlParams.get('user_id') || urlParams.get('tg_id') || urlParams.get('telegram_id') || "5102387551";
 }
 
 let USER_ID = getUserId();
@@ -28,6 +29,7 @@ let currentTier = null;
 let currentLivePrice = 0.0524;
 let livePriceInterval = null;
 
+// 🔢 تنسيق الأرقام والعملات بشكل جمالي
 function formatCoins(val, decimals = 2) {
     const num = parseFloat(val) || 0;
     const parts = num.toFixed(decimals).split('.');
@@ -39,12 +41,14 @@ function formatCoins(val, decimals = 2) {
     return `${integerPart}<small class="dec">.${decimalPart}</small>`;
 }
 
+// 🚀 تهيئة وحلب بيانات المحفظة من السيرفر
 async function initApp() {
     USER_ID = getUserId();
     const initData = window.Telegram?.WebApp?.initData || '';
 
     try {
         const res = await fetch(`/api/znx-wallet/data?user_id=${encodeURIComponent(USER_ID)}&initData=${encodeURIComponent(initData)}`, {
+            method: 'GET',
             headers: {
                 'X-Telegram-User-Id': USER_ID,
                 'X-Telegram-Init-Data': initData
@@ -60,10 +64,11 @@ async function initApp() {
             currentTier = data.current_tier || data.tier || currentTier;
             currentLivePrice = data.live_price || currentLivePrice;
 
+            // تحديث مكونات الواجهة الأمامية
             updateBalancesUI();
             updateGlobalStatsUI(data.global_total, data.max_global_znx);
             renderTiersUI(data.tiers_all || data.tiers);
-            renderLeaderboardUI(data.leaderboard);
+            renderLeaderboardUI(data.leaderboard, data.my_rank);
         } else {
             console.error("⚠️ فشل جلب بيانات ZNX Wallet:", data.message || data.error);
         }
@@ -72,6 +77,7 @@ async function initApp() {
     }
 }
 
+// 💰 تحديث عناصر أرصدة المستخدم بالصفحة
 function updateBalancesUI() {
     const znEl = document.getElementById('znBalance');
     const usdEl = document.getElementById('usdBalance');
@@ -82,6 +88,7 @@ function updateBalancesUI() {
     if (znxEl) znxEl.innerHTML = formatCoins(userData.znx_balance || 0, 4);
 }
 
+// 📊 تحديث شريط التقدم والإحصائيات الكلية للمجمّع
 function updateGlobalStatsUI(globalTotal, maxGlobal) {
     const ratioEl = document.getElementById('globalRatioText');
     const barEl = document.getElementById('globalProgressBar');
@@ -94,6 +101,7 @@ function updateGlobalStatsUI(globalTotal, maxGlobal) {
     if (barEl) barEl.style.width = `${pct}%`;
 }
 
+// 📈 محاكاة تحرك السعر المباشر
 function tickLivePrice() {
     const delta = (Math.random() - 0.48) * 0.0004;
     currentLivePrice = Math.max(0.01, currentLivePrice + delta);
@@ -103,6 +111,7 @@ function tickLivePrice() {
     }
 }
 
+// 🎛️ خيارات تحديد كمية التحويل (الكل / النصف / الحد الأدنى)
 function selectOption(type) {
     const input = document.getElementById('convertInput');
     if (!input) return;
@@ -119,6 +128,7 @@ function selectOption(type) {
     onInputChange();
 }
 
+// 🧮 حساب معاينة التحويل فور الكتابة
 function onInputChange() {
     const inputEl = document.getElementById('convertInput');
     const previewEl = document.getElementById('znxPreview');
@@ -131,6 +141,7 @@ function onInputChange() {
     previewEl.innerHTML = `${formatCoins(znxGained, 4)} ZNX`;
 }
 
+// 🔄 تنفيذ عملية التحويل مع حماية زر الإرسال
 async function submitConvert() {
     const inputEl = document.getElementById('convertInput');
     const btnEl = document.getElementById('convertSubmitBtn') || document.querySelector('.convert-card .btn-action');
@@ -148,7 +159,6 @@ async function submitConvert() {
         return;
     }
 
-    // تعطيل الزر لمنع تكرار النقر
     if (btnEl) btnEl.disabled = true;
 
     try {
@@ -188,6 +198,7 @@ async function submitConvert() {
     }
 }
 
+// 🏷️ عرض قائمة الشرائح في الواجهة
 function renderTiersUI(tiers) {
     const container = document.getElementById('tiersContainer');
     if (!container) return;
@@ -216,9 +227,15 @@ function renderTiersUI(tiers) {
     });
 }
 
-function renderLeaderboardUI(list) {
+// 🏆 عرض جدول المتصدرين والمنصة الشرفية
+function renderLeaderboardUI(list, myRank) {
     const podium = document.getElementById('podiumContainer');
     const rankings = document.getElementById('rankingsContainer');
+    const rankBadge = document.getElementById('myRankBadge');
+
+    if (rankBadge && myRank !== undefined) {
+        rankBadge.innerText = `ترتيبك: ${myRank}`;
+    }
 
     if (!podium || !rankings) return;
 
@@ -235,7 +252,7 @@ function renderLeaderboardUI(list) {
     if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
 
     for (let i = 3; i < list.length; i++) {
-        const safeName = escapeHTML(list[i].name || 'لاعب');
+        const safeName = escapeHTML(list[i].name || list[i].first_name || 'لاعب');
         rankings.innerHTML += `
             <div class="leader-row">
                 <span>#${i + 1} ${safeName}</span>
@@ -245,8 +262,9 @@ function renderLeaderboardUI(list) {
     }
 }
 
+// 🥇 إنشاء بطاقة منصة التتويج للمراكز الثلاثة الأولى
 function createPodiumCard(item, rank, pClass) {
-    const safeName = escapeHTML(item.name || 'لاعب');
+    const safeName = escapeHTML(item.name || item.first_name || 'لاعب');
     return `
         <div class="podium-item ${pClass}">
             <div style="font-size:0.72rem; color:var(--text-muted);">المركز #${rank}</div>
@@ -256,14 +274,14 @@ function createPodiumCard(item, rank, pClass) {
     `;
 }
 
-// 🌐 ربط الدوال بالنطاق العام لاستخدامها في واجهات HTML والفرونت إند Dynamic Loading
+// 🌐 ربط الدوال بالنطاق العام (Global Scope) للتفاعل مع أزرار HTML وتنقل game.js
 window.selectOption = selectOption;
 window.onInputChange = onInputChange;
 window.submitConvert = submitConvert;
 window.initZnxWallet = initApp;
 window.loadZnxWalletData = initApp;
 
-// 🚀 التشغيل التلقائي عند التحميل المباشر
+// 🚀 التشغيل المباشر عند التحميل
 function startZnxModule() {
     if (window.Telegram?.WebApp) {
         window.Telegram.WebApp.ready();
