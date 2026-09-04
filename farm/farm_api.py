@@ -72,7 +72,7 @@ def calculate_user_effective_stats(user_data, game_settings, now):
             if to_bool(vip_status.get("auto_bot", False)):
                 is_auto_bot_active = True
 
-    # 3. تطبیق مضاعفة السعة في حال تفعيل VIP
+    # 3. تطبيق مضاعفة السعة في حال تفعيل VIP
     effective_max_cap = raw_cap * 2.0 if is_double_storage_active else raw_cap
     
     user_data["max_cap"] = round(effective_max_cap, 4)
@@ -86,7 +86,7 @@ def calculate_user_effective_stats(user_data, game_settings, now):
 @farm_bp.route('/farm/player_data', methods=['GET', 'POST'])
 @farm_bp.route('/api/farm/player_data', methods=['GET', 'POST'])
 def get_player_data():
-    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية من Firebase وحساب قيم VIP"""
+    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية من Firebase وحساب قيم VIP والتجميع التلقائي"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success: 
@@ -98,6 +98,49 @@ def get_player_data():
         
         # حساب وتحديث السعة والسرعة الفعالة للمستخدم (تطبيق مضاعفة VIP)
         user_data = calculate_user_effective_stats(user_data, game_settings, now)
+
+        max_cap = float(user_data.get("max_cap", 0.5))
+        is_auto_bot_active = bool(user_data.get("is_auto_bot_active", False))
+        
+        # جلب أو احتساب كمية التجميع التلقائي للبوت عند وصول المخزن إلى 80% فأكثر (0.80 * max_cap)
+        auto_claimed_amount = float(user_data.get("auto_claimed_amount", 0.0))
+        auto_claimed = bool(user_data.get("auto_claimed", False) or auto_claimed_amount > 0)
+
+        # في حال عدم التجميع المسبق في farm_db، نقوم بفحص شرط الـ 80% هنا كطبقة حماية إضافية
+        if is_auto_bot_active and not auto_claimed:
+            last_claim_raw = user_data.get("last_claim_time")
+            mining_rate = float(user_data.get("mining_rate", user_data.get("rate", 0.0001))) # معدل التعدين لكل ثانية
+            
+            if last_claim_raw:
+                try:
+                    if isinstance(last_claim_raw, str):
+                        last_claim_dt = datetime.fromisoformat(last_claim_raw.replace('Z', '+00:00'))
+                    elif isinstance(last_claim_raw, datetime):
+                        last_claim_dt = last_claim_raw
+                    else:
+                        last_claim_dt = None
+
+                    if last_claim_dt:
+                        elapsed_seconds = max(0, (now - last_claim_dt).total_seconds())
+                        accumulated = min(elapsed_seconds * mining_rate, max_cap)
+                        
+                        # شرط التجميع التلقائي: امتلاء المخزن بنسبة 80% على الأقل
+                        if accumulated >= (0.80 * max_cap) and accumulated > 0:
+                            claim_res = claim_mined_tokens_db(user_id_str)
+                            if claim_res.get("success"):
+                                auto_claimed_amount = float(claim_res.get("claimed", accumulated))
+                                auto_claimed = True
+                                # إعادة تحديث بيانات المستخدم بعد عملية الجمع التلقائي
+                                user_data, _, _ = get_or_create_user_farm_data(user_id_str)
+                                user_data = calculate_user_effective_stats(user_data, game_settings, now)
+                except Exception as e:
+                    print(f"Auto-collect calculation error: {e}")
+
+        # تضمين متغيرات التجميع التلقائي للبوت في بيانات اللاعب للواجهة
+        user_data["auto_claimed"] = auto_claimed
+        user_data["auto_claimed_amount"] = round(auto_claimed_amount, 4)
+        user_data["is_auto_bot_active"] = is_auto_bot_active
+        user_data["auto_collect_threshold"] = 0.80
 
         welcome_seen = to_bool(user_data.get("welcome_seen", False))
         user_data["welcome_seen"] = welcome_seen
@@ -130,6 +173,10 @@ def get_player_data():
             "player": user_data, 
             "server_time": now.isoformat(),
             "cooldown_seconds": cooldown_seconds,
+            "auto_claimed": auto_claimed,
+            "auto_claimed_amount": round(auto_claimed_amount, 4),
+            "is_auto_bot_active": is_auto_bot_active,
+            "auto_collect_threshold": 0.80,
             "game_config": {
                 "daily_rewards": parsed_rewards,
                 "upgrade_costs": upgrade_costs,
