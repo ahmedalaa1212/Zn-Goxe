@@ -853,9 +853,10 @@ window.closeWelcomeModal = function() {
 
         const remainingCooldown = Math.max(0, Math.ceil(MIN_CLAIM_INTERVAL - secondsPassed));
 
-        // التجميع التلقائي فور إملاء المخزن بنسبة 80% أو أكثر
-        if (pct >= 80 && !isClaimingMain && !isCheckingAd && remainingCooldown <= 0 && unclaim > 0) {
-            console.log("وصل المخزن إلى 80% أو أكثر، جارٍ التجميع التلقائي...");
+        // التحقق صراحة من تفعيل البوت للمستخدم قبل التجميع التلقائي فور إملاء المخزن بنسبة 80% أو أكثر
+        const isBotActive = (pData.bot_active === true || pData.is_auto_bot_active === true);
+        if (pct >= 80 && isBotActive && !isClaimingMain && !isCheckingAd && remainingCooldown <= 0 && unclaim > 0) {
+            console.log("وصل المخزن إلى 80% أو أكثر للبوت المفعل، جارٍ التجميع التلقائي...");
             window.handleMainClaim();
         }
 
