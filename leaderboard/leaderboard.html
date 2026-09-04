@@ -26,7 +26,6 @@
             -webkit-user-select: none;
         }
 
-        /* 1. الشريط الأعلى للرصيد (ثلاث خانات) */
         .top-balance-bar {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr;
@@ -60,7 +59,30 @@
             text-overflow: ellipsis;
         }
 
-        /* 2. بطاقة السعر اللحظي */
+        .global-stats-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 15px;
+        }
+
+        .progress-bg {
+            background: #0f172a;
+            border-radius: 10px;
+            height: 10px;
+            width: 100%;
+            overflow: hidden;
+            margin-top: 6px;
+        }
+
+        .progress-fill {
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
+            height: 100%;
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+
         .price-card {
             background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
             border: 1px solid #334155;
@@ -68,7 +90,6 @@
             padding: 14px;
             text-align: center;
             margin-bottom: 15px;
-            position: relative;
         }
 
         .price-badge {
@@ -85,10 +106,8 @@
             font-size: 1.8rem;
             font-weight: 800;
             color: #38bdf8;
-            letter-spacing: 0.5px;
         }
 
-        /* 3. بطاقة التحويل الاحترافية */
         .convert-card {
             background: var(--card-bg);
             border: 1px solid var(--border-color);
@@ -113,17 +132,6 @@
             font-weight: bold;
             font-size: 0.85rem;
             cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .opt-btn:active, .opt-btn.active {
-            background: var(--accent-blue);
-            border-color: #38bdf8;
-        }
-
-        .input-wrapper {
-            position: relative;
-            margin-bottom: 10px;
         }
 
         .custom-input {
@@ -136,6 +144,7 @@
             box-sizing: border-box;
             font-size: 1rem;
             text-align: center;
+            margin-bottom: 10px;
         }
 
         .preview-box {
@@ -157,7 +166,6 @@
             cursor: pointer;
         }
 
-        /* 4. تفاصيل الشرائح */
         .section-title {
             font-size: 0.95rem;
             font-weight: bold;
@@ -199,7 +207,6 @@
             border-radius: 4px;
         }
 
-        /* 5. المتصدرين */
         .podium {
             display: flex;
             justify-content: center;
@@ -237,20 +244,28 @@
 
     <!-- الشريط الأعلى (الرصيد الثلاثي) -->
     <div class="top-balance-bar">
-        <!-- اليمين: عملة ZN -->
         <div class="balance-box">
             <div class="balance-title"><i class="fa-solid fa-coins" style="color:#f59e0b;"></i> ZN</div>
             <div class="balance-amount" id="znBalance" style="color:#f59e0b;">0</div>
         </div>
-        <!-- الوسط: الدولارات -->
         <div class="balance-box">
             <div class="balance-title"><i class="fa-solid fa-wallet" style="color:#10b981;"></i> USD</div>
             <div class="balance-amount" id="usdBalance" style="color:#10b981;">$0.00</div>
         </div>
-        <!-- اليسار: عملة ZNX للسحب -->
         <div class="balance-box">
             <div class="balance-title"><i class="fa-solid fa-bolt" style="color:#38bdf8;"></i> ZNX</div>
             <div class="balance-amount" id="znxBalance" style="color:#38bdf8;">0</div>
+        </div>
+    </div>
+
+    <!-- مجمّع الإجمالي العام لجميع اللاعبين -->
+    <div class="global-stats-card">
+        <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:var(--text-muted);">
+            <span><i class="fa-solid fa-globe"></i> إجمالي العملات المستخرجة كلياً</span>
+            <span id="globalRatioText" style="color:#38bdf8; font-weight:bold;">0 / 35M ZNX</span>
+        </div>
+        <div class="progress-bg">
+            <div class="progress-fill" id="globalProgressBar"></div>
         </div>
     </div>
 
