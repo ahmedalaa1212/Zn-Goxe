@@ -170,14 +170,81 @@ def calculate_user_max_cap(user_data, settings=None):
     return round(base_cap + extra_cap, 4)
 
 
-def calculate_accrued_mined(user_data, now_dt, max_cap):
-    """حساب الكمية المعدنة الحالية بدقة 8 خانات عشرية بالتوقيت العالمي UTC شاملاً السرعة الإضافية للمعزز (2 ساعة)"""
+def get_bot_expiration_dt(user_data):
+    """استخراج تاريخ ووقت انتهاء باقة البوت/VIP إن وجد بشكل دقيق"""
+    vip_info = user_data.get("vip_status")
+    expires_at_raw = None
+
+    if isinstance(vip_info, dict):
+        expires_at_raw = vip_info.get("expires_at") or vip_info.get("vip_expires_at") or vip_info.get("bot_expires_at") or vip_info.get("expire_date")
+    
+    if not expires_at_raw:
+        expires_at_raw = user_data.get("bot_expires_at") or user_data.get("expires_at") or user_data.get("vip_expires_at") or user_data.get("vip_expire_date")
+
+    if not expires_at_raw:
+        return None
+
+    try:
+        if isinstance(expires_at_raw, (int, float)):
+            return datetime.fromtimestamp(expires_at_raw, tz=timezone.utc)
+        elif isinstance(expires_at_raw, datetime):
+            exp_dt = expires_at_raw
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+            return exp_dt
+        else:
+            exp_s = str(expires_at_raw).replace('Z', '+00:00')
+            exp_dt = datetime.fromisoformat(exp_s)
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+            return exp_dt
+    except Exception as e:
+        print(f"⚠️ Error parsing bot expiration date: {e}")
+        return None
+
+
+def _calculate_interval_mined(hourly_rate, start_dt, end_dt, last_boost_str=None):
+    """حساب الكمية المعدنة الدقيقة بين نقطتين زمنيتين مع احتساب معزز السرعة المكتسب"""
+    if end_dt <= start_dt:
+        return 0.0
+    
+    seconds_passed = (end_dt - start_dt).total_seconds()
+    base_mined = (hourly_rate / 3600.0) * seconds_passed
+
+    boost_bonus = 0.0
+    if last_boost_str:
+        try:
+            if isinstance(last_boost_str, (int, float)):
+                boost_start = datetime.fromtimestamp(last_boost_str, tz=timezone.utc)
+            else:
+                lb_s = str(last_boost_str).replace('Z', '+00:00')
+                boost_start = datetime.fromisoformat(lb_s)
+                if boost_start.tzinfo is None:
+                    boost_start = boost_start.replace(tzinfo=timezone.utc)
+
+            boost_end = boost_start + timedelta(hours=2) # مدة المعزز 2 ساعة
+            
+            overlap_start = max(start_dt, boost_start)
+            overlap_end = min(end_dt, boost_end)
+
+            if overlap_end > overlap_start:
+                boosted_seconds = (overlap_end - overlap_start).total_seconds()
+                boost_bonus = (0.10 / 3600.0) * boosted_seconds
+        except Exception as be:
+            print(f"⚠️ Error parsing last_boost_time in interval calculation: {be}")
+
+    return base_mined + boost_bonus
+
+
+def calculate_accrued_mined(user_data, now_dt, max_cap, ignore_cap=False):
+    """حساب الكمية المعدنة الحالية بدقة 8 خانات عشرية بالتوقيت العالمي UTC شاملاً السرعة الإضافية للمعزز"""
     last_claim_str = user_data.get("last_claim_time")
     hourly_rate = float(user_data.get("hourly_rate", 0.10))
     base_unclaimed = float(user_data.get("base_unclaimed", user_data.get("unclaimed", 0.0)))
 
     if not last_claim_str:
-        return round(min(base_unclaimed, max_cap), 8)
+        res = base_unclaimed if ignore_cap else min(base_unclaimed, max_cap)
+        return round(res, 8)
 
     try:
         if isinstance(last_claim_str, (int, float)):
@@ -188,37 +255,14 @@ def calculate_accrued_mined(user_data, now_dt, max_cap):
             if last_claim.tzinfo is None:
                 last_claim = last_claim.replace(tzinfo=timezone.utc)
 
-        seconds_passed = max(0.0, (now_dt - last_claim).total_seconds())
-
-        # حساب سرعة المعزز الإضافية (+0.1 ZN/ساعة) إذا كان المعزز مفعلاً خلال فترة التعدين (تأثير لمدة ساعتين)
-        boost_bonus = 0.0
-        last_boost_str = user_data.get("last_boost_time")
-        if last_boost_str:
-            try:
-                if isinstance(last_boost_str, (int, float)):
-                    boost_start = datetime.fromtimestamp(last_boost_str, tz=timezone.utc)
-                else:
-                    lb_s = str(last_boost_str).replace('Z', '+00:00')
-                    boost_start = datetime.fromisoformat(lb_s)
-                    if boost_start.tzinfo is None:
-                        boost_start = boost_start.replace(tzinfo=timezone.utc)
-
-                boost_end = boost_start + timedelta(hours=2) # مدة تأثير المعزز 2 ساعة
-                
-                overlap_start = max(last_claim, boost_start)
-                overlap_end = min(now_dt, boost_end)
-
-                if overlap_end > overlap_start:
-                    boosted_seconds = (overlap_end - overlap_start).total_seconds()
-                    boost_bonus = (0.10 / 3600.0) * boosted_seconds
-            except Exception as be:
-                print(f"⚠️ Error parsing last_boost_time in calculation: {be}")
-
-        mined = base_unclaimed + (hourly_rate / 3600.0) * seconds_passed + boost_bonus
+        mined = base_unclaimed + _calculate_interval_mined(hourly_rate, last_claim, now_dt, user_data.get("last_boost_time"))
+        if ignore_cap:
+            return round(mined, 8)
         return round(min(mined, max_cap), 8)
     except Exception as e:
         print(f"⚠️ Error parsing last_claim_time: {e}")
-        return round(min(base_unclaimed, max_cap), 8)
+        res = base_unclaimed if ignore_cap else min(base_unclaimed, max_cap)
+        return round(res, 8)
 
 
 def dismiss_welcome_db(user_id_str):
@@ -230,41 +274,17 @@ def dismiss_welcome_db(user_id_str):
 
 
 def calculate_user_effective_stats(user_data, game_settings=None, now_dt=None):
-    """فحص وتحديث صلاحية اشتراك الباقة أو البوت وتحديث حالة bot_active بناءً على تاريخ الانتهاء"""
+    """فحص وتحديث صلاحية اشتراك الباقة أو البوت وتحديث حالة bot_active بناءً على تاريخ الانتهاء الحالي"""
     if now_dt is None:
         now_dt = datetime.now(timezone.utc)
 
     raw_bot_flag = to_bool(user_data.get("bot_active", user_data.get("has_bot", user_data.get("is_auto_bot_active", False))))
-    
-    vip_info = user_data.get("vip_status")
-    expires_at_raw = None
-
-    if isinstance(vip_info, dict):
-        expires_at_raw = vip_info.get("expires_at") or vip_info.get("vip_expires_at") or vip_info.get("bot_expires_at") or vip_info.get("expire_date")
-    
-    if not expires_at_raw:
-        expires_at_raw = user_data.get("bot_expires_at") or user_data.get("expires_at") or user_data.get("vip_expires_at") or user_data.get("vip_expire_date")
+    exp_dt = get_bot_expiration_dt(user_data)
 
     is_active = False
-    if raw_bot_flag and expires_at_raw:
-        try:
-            if isinstance(expires_at_raw, (int, float)):
-                exp_dt = datetime.fromtimestamp(expires_at_raw, tz=timezone.utc)
-            elif isinstance(expires_at_raw, datetime):
-                exp_dt = expires_at_raw
-                if exp_dt.tzinfo is None:
-                    exp_dt = exp_dt.replace(tzinfo=timezone.utc)
-            else:
-                exp_s = str(expires_at_raw).replace('Z', '+00:00')
-                exp_dt = datetime.fromisoformat(exp_s)
-                if exp_dt.tzinfo is None:
-                    exp_dt = exp_dt.replace(tzinfo=timezone.utc)
-
-            if exp_dt > now_dt:
-                is_active = True
-        except Exception as e:
-            print(f"⚠️ Error validating bot expiration date: {e}")
-            is_active = False
+    if raw_bot_flag:
+        if exp_dt is None or exp_dt > now_dt:
+            is_active = True
 
     user_data["bot_active"] = is_active
     user_data["is_auto_bot_active"] = is_active
@@ -272,7 +292,7 @@ def calculate_user_effective_stats(user_data, game_settings=None, now_dt=None):
 
 
 def get_or_create_user_farm_data(user_id_str):
-    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة وتطبيق التجميع التلقائي والتصحيح"""
+    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة وتطبيق الحساب التراكمي في السيرفر (Backend Offline Calculation)"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     user_doc = user_ref.get()
@@ -326,9 +346,6 @@ def get_or_create_user_farm_data(user_id_str):
             user_ref.update(auto_fix)
             user_data.update(auto_fix)
 
-    # فحص وتطبيق حالة الصلاحية الفعلية للبوت والـ VIP قبل تنفيذ التجميع
-    user_data = calculate_user_effective_stats(user_data, game_settings, now)
-
     expected_max_cap = calculate_user_max_cap(user_data, game_settings)
     user_data["max_cap"] = expected_max_cap
     user_data["balance"] = round(float(user_data.get("balance", 0.0)), 8)
@@ -336,61 +353,109 @@ def get_or_create_user_farm_data(user_id_str):
     user_data["mined_points"] = round(float(user_data.get("mined_points", user_data.get("total_mined", 0.0))), 8)
     user_data["total_mined"] = user_data["mined_points"]
     user_data["base_unclaimed"] = round(float(user_data.get("base_unclaimed", 0.0)), 8)
-    
-    # حساب الكمية المعدنة الحالية في المخزن
-    raw_unclaimed = calculate_accrued_mined(user_data, now, expected_max_cap)
-    bot_active = user_data.get("bot_active", False)
-    auto_claimed_amount = 0.0
 
-    # منطق التجميع التلقائي بواسطة البوت عند وصول المخزن لنسبة 80% أو أكثر
-    threshold = 0.8 * expected_max_cap
-    if bot_active and expected_max_cap > 0 and raw_unclaimed >= threshold and raw_unclaimed > 0:
-        auto_claimed_amount = raw_unclaimed
+    # ====================================================================
+    # منطق التجميع التراكمي في السيرفر (Backend Offline Calculation)
+    # ====================================================================
+    last_claim_str = user_data.get("last_claim_time")
+    try:
+        if isinstance(last_claim_str, (int, float)):
+            last_claim_dt = datetime.fromtimestamp(last_claim_str, tz=timezone.utc)
+        else:
+            last_claim_s = str(last_claim_str).replace('Z', '+00:00')
+            last_claim_dt = datetime.fromisoformat(last_claim_s)
+            if last_claim_dt.tzinfo is None:
+                last_claim_dt = last_claim_dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        last_claim_dt = now
+
+    raw_bot_flag = to_bool(user_data.get("bot_active", user_data.get("has_bot", user_data.get("is_auto_bot_active", False))))
+    exp_dt = get_bot_expiration_dt(user_data)
+    hourly_rate = float(user_data.get("hourly_rate", 0.10))
+    last_boost_str = user_data.get("last_boost_time")
+
+    auto_claimed_amount = 0.0
+    db_updates = {}
+
+    # إذا كان البوت مفعلاً واستمر حتى أو خلال فترة خروج المستخدم
+    if raw_bot_flag and (exp_dt is None or exp_dt > last_claim_dt):
+        # النقطة الزمنية التي ينتهي عندها التجمِيع التلقائي المستمر (إما الآن أو لحظة انتهاء الاشتراك)
+        bot_end_dt = min(now, exp_dt) if exp_dt else now
+        
+        # التجميع التراكمي بدون حد للسعة max_cap
+        bot_mined = _calculate_interval_mined(hourly_rate, last_claim_dt, bot_end_dt, last_boost_str)
+        auto_claimed_amount = round(user_data["base_unclaimed"] + bot_mined, 8)
+
+        # إضافة الرصيد المجمع أوفلاين مباشرة إلى balance و mined_points
         user_data["balance"] = round(user_data["balance"] + auto_claimed_amount, 8)
         user_data["mined_points"] = round(user_data["mined_points"] + auto_claimed_amount, 8)
         user_data["total_mined"] = user_data["mined_points"]
         user_data["base_unclaimed"] = 0.0
-        user_data["unclaimed"] = 0.0
-        user_data["last_claim_time"] = now.isoformat()
 
-        try:
-            user_ref.update({
-                "balance": user_data["balance"],
-                "mined_points": user_data["mined_points"],
-                "total_mined": user_data["total_mined"],
-                "base_unclaimed": 0.0,
-                "unclaimed": 0.0,
-                "last_claim_time": user_data["last_claim_time"],
-                "bot_active": True
-            })
+        db_updates["balance"] = user_data["balance"]
+        db_updates["mined_points"] = user_data["mined_points"]
+        db_updates["total_mined"] = user_data["total_mined"]
+        db_updates["base_unclaimed"] = 0.0
 
-            # إرسال مكافأة الإحالة إن وجدت
-            referrer_id = user_data.get("referrer_id") or user_data.get("referred_by") or user_data.get("invited_by")
-            if referrer_id and auto_claimed_amount > 0:
-                try:
-                    from friends.friends_db import add_referral_reward
-                    add_referral_reward(
-                        referrer_id=referrer_id,
-                        user_id=user_id_str,
-                        mined_amount=auto_claimed_amount,
-                        user_upgrades_count=user_data.get("upgrades_count"),
-                        user_name=user_data.get("first_name") or user_data.get("name") or user_data.get("username")
-                    )
-                except Exception as ref_e:
-                    print(f"⚠️ Error adding referral reward on auto-claim: {ref_e}")
-        except Exception as e:
-            print(f"⚠️ Error performing auto-claim update: {e}")
+        # إن كان الاشتراك لا يزال سارياً في الوقت الحالي
+        if exp_dt is None or exp_dt > now:
+            user_data["bot_active"] = True
+            user_data["is_auto_bot_active"] = True
+            user_data["unclaimed"] = 0.0
+            user_data["last_claim_time"] = now.isoformat()
+
+            db_updates["bot_active"] = True
+            db_updates["is_auto_bot_active"] = True
+            db_updates["unclaimed"] = 0.0
+            db_updates["last_claim_time"] = user_data["last_claim_time"]
+        else:
+            # انتهت الباقة في منتصف فترة خروج المستخدم (بين last_claim_dt و now)
+            # يحسب التعدين اليدوي للفترة المتبقية بعد الانتهاء ويتوقف تلقائياً عند max_cap
+            manual_mined = _calculate_interval_mined(hourly_rate, exp_dt, now, last_boost_str)
+            user_data["unclaimed"] = round(min(manual_mined, expected_max_cap), 8)
+            user_data["last_claim_time"] = exp_dt.isoformat()
+            user_data["bot_active"] = False
+            user_data["is_auto_bot_active"] = False
+
+            db_updates["unclaimed"] = user_data["unclaimed"]
+            db_updates["last_claim_time"] = user_data["last_claim_time"]
+            db_updates["bot_active"] = False
+            db_updates["is_auto_bot_active"] = False
     else:
-        user_data["unclaimed"] = raw_unclaimed
-        # إذا كانت حالة البوت غير مفعّلة في التحقق وكان مسجلاً True سابقاً في DB، يتم تحديث القيمة لـ False
-        if not bot_active and user_doc.exists and to_bool(user_doc.to_dict().get("bot_active", False)):
+        # البوت غير مفعل أو انتهت صلاحيته قبل last_claim_dt (تعدين يدوي ويتوقف عند السعة القصوى max_cap)
+        manual_mined = user_data["base_unclaimed"] + _calculate_interval_mined(hourly_rate, last_claim_dt, now, last_boost_str)
+        user_data["unclaimed"] = round(min(manual_mined, expected_max_cap), 8)
+        user_data["bot_active"] = False
+        user_data["is_auto_bot_active"] = False
+
+        if user_doc.exists and to_bool(user_doc.to_dict().get("bot_active", False)):
+            db_updates["bot_active"] = False
+            db_updates["is_auto_bot_active"] = False
+
+    # حفظ التحديثات في Firestore
+    if db_updates:
+        try:
+            user_ref.update(db_updates)
+        except Exception as e:
+            print(f"⚠️ Error updating offline farm calculations in DB: {e}")
+
+    # إضافة مكافأة الإحالة إن وجدت
+    if auto_claimed_amount > 0:
+        referrer_id = user_data.get("referrer_id") or user_data.get("referred_by") or user_data.get("invited_by")
+        if referrer_id:
             try:
-                user_ref.update({"bot_active": False, "is_auto_bot_active": False})
-            except Exception as e:
-                print(f"⚠️ Error updating expired bot state in DB: {e}")
+                from friends.friends_db import add_referral_reward
+                add_referral_reward(
+                    referrer_id=referrer_id,
+                    user_id=user_id_str,
+                    mined_amount=auto_claimed_amount,
+                    user_upgrades_count=user_data.get("upgrades_count"),
+                    user_name=user_data.get("first_name") or user_data.get("name") or user_data.get("username")
+                )
+            except Exception as ref_e:
+                print(f"⚠️ Error adding referral reward on offline auto-claim: {ref_e}")
 
     user_data["auto_claimed_amount"] = auto_claimed_amount
-    user_data["bot_active"] = bot_active
 
     is_welcome_seen = to_bool(user_data.get("welcome_seen", False))
     user_data["welcome_seen"] = is_welcome_seen
