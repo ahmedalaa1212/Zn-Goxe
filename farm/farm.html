@@ -53,7 +53,6 @@
         <div class="card-header">
             <span class="card-title">
                 📦 سعة التخزين المؤقت (مستوى <span id="storage-level-num">--</span>)
-                <span id="bot-active-badge" class="bot-badge" style="display: none;">🤖 البوت نشط</span>
             </span>
             <span id="storage-text" class="storage-badge" dir="ltr">-- / --</span>
         </div>
@@ -73,6 +72,11 @@
 
     <!-- 4. ترقيات ومستويات التعدين -->
     <div class="card-box">
+        <!-- شريط حالة بوت التجميع (فوق قائمة التعدين) -->
+        <div id="bot-active-badge" class="bot-badge" style="display: none;">
+            🤖 بوت التجميع التلقائي نشط ويعمل الآن
+        </div>
+
         <div class="card-header">
             <span class="card-title">🏛️ ترقيات ومستويات التعدين</span>
             <span class="card-subtitle">أقصى حد: 15 / مستوى</span>
@@ -319,22 +323,28 @@
     color: #8e9baf;
 }
 
+/* شريط حالة بوت التجميع المعدل ليظهر أعلى قائمة التعدين */
 .bot-badge {
     background: rgba(16, 185, 129, 0.15);
     border: 1px solid #10b981;
     color: #10b981;
-    font-size: 9.5px;
+    font-size: 11px;
     font-weight: 800;
-    padding: 2px 6px;
-    border-radius: 12px;
+    padding: 8px 12px;
+    border-radius: 10px;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 12px;
     animation: pulseBot 2s infinite ease-in-out;
 }
 
 @keyframes pulseBot {
     0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.7; transform: scale(0.96); }
+    50% { opacity: 0.8; transform: scale(0.98); }
 }
 
 .storage-badge {
