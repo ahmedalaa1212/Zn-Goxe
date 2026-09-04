@@ -452,8 +452,18 @@ window.closeWelcomeModal = function() {
     function updateBotAndAutoClaimUI(resData) {
         if (!resData) return;
 
-        // 1. تحديث إظهار شريط البوت النشط أعلى قائمة التعدين
-        const isBotActive = resData.bot_active || resData.player?.bot_active || false;
+        // 1. تحديث إظهار شريط البوت النشط أعلى قائمة التعدين وتحديث الكاش
+        const isBotActive = (resData.bot_active !== undefined) 
+            ? resData.bot_active 
+            : (resData.player?.bot_active !== undefined 
+                ? resData.player.bot_active 
+                : (resData.player?.is_auto_bot_active === true));
+
+        if (window.userState) window.userState.bot_active = isBotActive;
+        if (window.PlayerData) window.PlayerData.bot_active = isBotActive;
+        
+        saveCachedData(window.userState || window.PlayerData);
+
         const botBadge = document.getElementById('bot-active-badge') || document.getElementById('bot-status-badge');
         if (botBadge) {
             botBadge.style.display = isBotActive ? 'inline-flex' : 'none';
@@ -533,6 +543,16 @@ window.closeWelcomeModal = function() {
                     Object.assign(window.PlayerData, resData.player);
                     Object.assign(window.userState, resData.player);
 
+                    // مزامنة حالة bot_active صراحة لمنع ظهور قيم كاش قديمة
+                    const isBotActive = (resData.bot_active !== undefined)
+                        ? resData.bot_active
+                        : (resData.player.bot_active !== undefined
+                            ? resData.player.bot_active
+                            : (resData.player.is_auto_bot_active === true));
+
+                    window.PlayerData.bot_active = isBotActive;
+                    window.userState.bot_active = isBotActive;
+
                     window.userState.base_unclaimed = parseFloat(resData.player.unclaimed || 0);
                     window.PlayerData.base_unclaimed = parseFloat(resData.player.unclaimed || 0);
 
@@ -594,7 +614,7 @@ window.closeWelcomeModal = function() {
         const stgLvlEl = document.getElementById('storage-level-num');
         if (stgLvlEl) stgLvlEl.innerText = stgLvl + 1;
 
-        const isBotActive = pData.bot_active === true;
+        const isBotActive = (pData.bot_active === true || pData.is_auto_bot_active === true);
         const botBadge = document.getElementById('bot-active-badge') || document.getElementById('bot-status-badge');
         if (botBadge) {
             botBadge.style.display = isBotActive ? 'inline-flex' : 'none';
