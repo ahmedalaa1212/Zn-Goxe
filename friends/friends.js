@@ -50,7 +50,7 @@
     let isTaskClaiming = false;
     let isClaimingRefEarnings = false;
 
-    // الإعدادات الافتراضية مع تحديث شرط الترقية إلى 1 بدلاً من 3
+    // الإعدادات الافتراضية
     window.FriendsConfig = {
         min_upgrades_for_task: 1,
         commission_percent: 10,
@@ -75,7 +75,11 @@
     function saveCachedData(data) {
         try {
             if (!data) return;
-            localStorage.setItem(getCacheKey(), JSON.stringify(data));
+            const payloadToSave = {
+                PlayerData: data,
+                FriendsConfig: window.FriendsConfig
+            };
+            localStorage.setItem(getCacheKey(), JSON.stringify(payloadToSave));
         } catch (e) {
             console.error("خطأ حفظ كاش الأصدقاء:", e);
         }
@@ -87,7 +91,14 @@
             if (cached) {
                 const parsed = JSON.parse(cached);
                 if (parsed && typeof parsed === 'object') {
-                    window.PlayerData = { ...window.PlayerData, ...parsed };
+                    if (parsed.PlayerData) {
+                        window.PlayerData = { ...window.PlayerData, ...parsed.PlayerData };
+                    } else {
+                        window.PlayerData = { ...window.PlayerData, ...parsed };
+                    }
+                    if (parsed.FriendsConfig) {
+                        window.FriendsConfig = { ...window.FriendsConfig, ...parsed.FriendsConfig };
+                    }
                     return true;
                 }
             }
@@ -101,6 +112,7 @@
         try {
             return {
                 PlayerData: JSON.parse(JSON.stringify(window.PlayerData || {})),
+                FriendsConfig: JSON.parse(JSON.stringify(window.FriendsConfig || {})),
                 balance: getStoredBalance()
             };
         } catch (e) {
@@ -111,6 +123,7 @@
     function restoreState(backup) {
         if (!backup) return;
         if (backup.PlayerData) window.PlayerData = backup.PlayerData;
+        if (backup.FriendsConfig) window.FriendsConfig = backup.FriendsConfig;
         if (backup.balance !== undefined) setStoredBalance(backup.balance);
         saveCachedData(window.PlayerData);
     }
@@ -234,7 +247,7 @@
 
         const commPercent = pData.effective_commission ?? (isVip ? (cfg.vip_commission_percent || 12) : (cfg.commission_percent || 10));
         const feePercent = pData.effective_claim_fee ?? (isVip ? (cfg.vip_claim_fee_percent || 0) : (cfg.claim_fee_percent || 1.5));
-        const minUpgrades = cfg.min_upgrades_for_task || 1;
+        const minUpgrades = cfg.min_upgrades_for_task ?? 1;
 
         const elComm = document.getElementById('info-comm-percent');
         if (elComm) {
@@ -308,7 +321,7 @@
                 if (data.effective_claim_fee !== undefined) window.PlayerData.effective_claim_fee = data.effective_claim_fee;
 
                 if (data.friends_config) {
-                    window.FriendsConfig = data.friends_config;
+                    window.FriendsConfig = { ...window.FriendsConfig, ...data.friends_config };
                 }
                 if (data.player.balance !== undefined && data.player.balance !== null) {
                     setStoredBalance(data.player.balance);
@@ -390,7 +403,7 @@
         if (!listEl) return;
 
         const rawTasks = window.FriendsConfig?.ref_tasks || {};
-        const minUpgrades = window.FriendsConfig?.min_upgrades_for_task || 1;
+        const minUpgrades = window.FriendsConfig?.min_upgrades_for_task ?? 1;
 
         let taskKeys = Object.keys(rawTasks).sort((a, b) => {
             return (parseInt(rawTasks[a].reqFriends) || 0) - (parseInt(rawTasks[b].reqFriends) || 0);
@@ -595,7 +608,7 @@
         if (!container) return;
 
         const userId = getUserId();
-        const minUpgrades = window.FriendsConfig?.min_upgrades_for_task || 1;
+        const minUpgrades = window.FriendsConfig?.min_upgrades_for_task ?? 1;
 
         try {
             let data = await secureRequest('/api/friends/list', 'POST', {
@@ -611,9 +624,10 @@
                 let html = '<ul style="padding:0; margin:0;">';
                 data.friends.forEach(f => {
                     const cnt = f.upgrades_count || 0;
-                    let statusHtml = cnt >= minUpgrades 
+                    const isEligible = cnt >= minUpgrades;
+                    let statusHtml = isEligible 
                         ? `<span style="color: #2ecc71; font-size:11px;">مؤهل للمهام (${cnt}/${minUpgrades} ترقية) ✅</span>`
-                        : `<span style="color: #f39c12; font-size:11px;">ينقصه ترقية واحدة (${cnt}/${minUpgrades}) ⏳</span>`;
+                        : `<span style="color: #f39c12; font-size:11px;">ينقصه ترقية (${cnt}/${minUpgrades}) ⏳</span>`;
                     
                     const genVal = parseFloat(f.generated || f.earned_from_him || 0);
                     const formattedGen = formatNumberHTML(genVal);
