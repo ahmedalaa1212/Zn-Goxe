@@ -40,9 +40,10 @@ function formatCoins(val, decimals = 2) {
 async function initApp() {
     USER_ID = getUserId();
     const initData = window.Telegram?.WebApp?.initData || '';
+    const apiUrl = `${window.location.origin}/api/znx-wallet/data?user_id=${encodeURIComponent(USER_ID)}&initData=${encodeURIComponent(initData)}`;
 
     try {
-        const res = await fetch(`/api/znx-wallet/data?user_id=${encodeURIComponent(USER_ID)}&initData=${encodeURIComponent(initData)}`, {
+        const res = await fetch(apiUrl, {
             method: 'GET',
             headers: {
                 'X-Telegram-User-Id': USER_ID,
@@ -89,7 +90,7 @@ function updateGlobalStatsUI(globalTotal, maxGlobal) {
     const max = maxGlobal || 35000000;
     const pct = Math.min(100, Math.max(0, (total / max) * 100));
     
-    if (ratioEl) ratioEl.innerHTML = `${formatCoins(total, 2)} / ${(max / 1000000).toFixed(0)}M ZNX`;
+    if (ratioEl) ratioEl.innerHTML = `<span dir="ltr">${formatCoins(total, 0)} / ${(max / 1000000).toFixed(0)}M ZNX</span>`;
     if (barEl) barEl.style.width = `${pct}%`;
 }
 
@@ -142,7 +143,7 @@ async function submitConvert() {
         return;
     }
 
-    if (userData.balance && amount > userData.balance) {
+    if (userData.balance !== undefined && amount > userData.balance) {
         alert("رصيدك الحالي غير كافٍ لإتمام العملية");
         return;
     }
@@ -152,7 +153,7 @@ async function submitConvert() {
     try {
         const initData = window.Telegram?.WebApp?.initData || '';
 
-        const res = await fetch('/api/znx-wallet/convert', {
+        const res = await fetch(`${window.location.origin}/api/znx-wallet/convert`, {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
@@ -235,7 +236,7 @@ function renderLeaderboardUI(list, myRank) {
 
     if (list.length >= 1) podium.innerHTML += createPodiumCard(list[0], 1, 'podium-1');
     if (list.length >= 2) podium.innerHTML += createPodiumCard(list[1], 2, 'podium-2');
-    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
+    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[3 - 1], 3, 'podium-3');
 
     for (let i = 3; i < list.length; i++) {
         const safeName = escapeHTML(list[i].name || list[i].first_name || 'لاعب');
@@ -263,7 +264,6 @@ window.selectOption = selectOption;
 window.onInputChange = onInputChange;
 window.submitConvert = submitConvert;
 window.initZnxWallet = initApp;
-window.loadZnxWalletData = initApp;
 
 function startZnxModule() {
     if (window.Telegram?.WebApp) {
