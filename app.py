@@ -29,17 +29,26 @@ def safe_import_blueprint(module_path, blueprint_name):
     """
     try:
         mod = __import__(module_path, fromlist=[blueprint_name])
-        return getattr(mod, blueprint_name)
-    except Exception:
-        try:
-            mod = __import__(f"{module_path}.{module_path}_api", fromlist=[blueprint_name])
+        if hasattr(mod, blueprint_name):
             return getattr(mod, blueprint_name)
-        except Exception:
-            try:
-                mod = __import__(f"{module_path}_api", fromlist=[blueprint_name])
-                return getattr(mod, blueprint_name)
-            except Exception:
-                return None
+    except Exception:
+        pass
+        
+    try:
+        mod = __import__(f"{module_path}.{module_path}_api", fromlist=[blueprint_name])
+        if hasattr(mod, blueprint_name):
+            return getattr(mod, blueprint_name)
+    except Exception:
+        pass
+        
+    try:
+        mod = __import__(f"{module_path}_api", fromlist=[blueprint_name])
+        if hasattr(mod, blueprint_name):
+            return getattr(mod, blueprint_name)
+    except Exception:
+        pass
+        
+    return None
 
 # ==========================================
 # 🔌 قائمة تسجيل الموديولات (Blueprints)
@@ -82,6 +91,8 @@ for mod_path, bp_name, prefix in blueprints_config:
             print(f"✅ تم تسجيل الموديول: {bp_name} على المسار {prefix}")
         except Exception as e:
             print(f"⚠️ خطأ أثناء تسجيل {bp_name}: {e}")
+    else:
+        print(f"ℹ️ لم يتم العثور على الموديول: {bp_name} في المسار {mod_path}")
 
 # ==========================================
 # 🔍 دالة استخراج وتوثيق معرف تليجرام الشاملة
