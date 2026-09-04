@@ -50,10 +50,11 @@ function hideLoadingScreen() {
 window.hideLoadingScreen = hideLoadingScreen;
 
 function getSavedState() {
+    const user = tg?.initDataUnsafe?.user;
     const startParam = tg?.initDataUnsafe?.start_param || null;
     const base = {
-        tg_id: tg?.initDataUnsafe?.user?.id || null,
-        first_name: tg?.initDataUnsafe?.user?.first_name || "لاعب",
+        tg_id: user?.id || null,
+        first_name: user?.first_name || (user?.username ? `@${user.username}` : "لاعب"),
         referred_by_param: startParam,
         balance: 0.00, 
         usd_balance: 0.00, 
@@ -135,14 +136,18 @@ window.addEventListener('beforeunload', () => {
 });
 
 // ==========================================
-// 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة (مع ربط المسار المباشر)
+// 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة (مع معالجة الثغرات والربط المباشر)
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
     
-    if (window.userState?.tg_id) {
-        headers['X-Telegram-User-Id'] = String(window.userState.tg_id);
+    // التأكد من استخراج tg_id وتحديثه ديناميكياً
+    const currentTgId = window.userState?.tg_id || tg?.initDataUnsafe?.user?.id;
+    if (currentTgId) {
+        if (!window.userState.tg_id) window.userState.tg_id = currentTgId;
+        headers['X-Telegram-User-Id'] = String(currentTgId);
     }
+
     if (tg?.initData) {
         headers['X-Telegram-Init-Data'] = tg.initData;
         headers['Authorization'] = `Bearer ${tg.initData}`;
@@ -154,6 +159,18 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         const baseUrl = (window.API_BASE_URL || '').replace(/\/$/, '');
         targetUrl = baseUrl + endpoint;
     }
+
+    // إرفاق initData و tg_id كـ Query Parameters لضمان نجاح التوثيق حتى في طلبات GET
+    try {
+        const urlObj = new URL(targetUrl, window.location.href);
+        if (tg?.initData) {
+            urlObj.searchParams.set('initData', tg.initData);
+        }
+        if (currentTgId) {
+            urlObj.searchParams.set('tg_id', String(currentTgId));
+        }
+        targetUrl = urlObj.toString();
+    } catch (e) {}
 
     try {
         const fetchOptions = { method, headers };
@@ -184,6 +201,10 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         if (targetObj) {
             isFirebaseUpdating = true;
             try {
+                if (targetObj.telegram_id !== undefined && targetObj.telegram_id !== null) {
+                    window.userState.tg_id = targetObj.telegram_id;
+                }
+                if (targetObj.first_name !== undefined) window.userState.first_name = targetObj.first_name;
                 if (targetObj.balance !== undefined && targetObj.balance !== null) {
                     const b = parseFloat(targetObj.balance);
                     if (!isNaN(b)) window.userState.balance = b;
@@ -642,7 +663,113 @@ window.openOfferCategory = function(offerId) {
 };
 
 // ==========================================
-// 9. التنقل الديناميكي المحصن واحتواء الهياكل المطلوبة
+// 9. دالة جلب وعرض بيانات المتصدرين المباشرة من السيرفر (Leaderboard API)
+// ==========================================
+window.loadLeaderboardData = async function() {
+    const listContainer = document.getElementById('lb-list-container');
+    const pod1Name = document.getElementById('pod1-name');
+    const pod1Score = document.getElementById('pod1-score');
+    const pod2Name = document.getElementById('pod2-name');
+    const pod2Score = document.getElementById('pod2-score');
+    const pod3Name = document.getElementById('pod3-name');
+    const pod3Score = document.getElementById('pod3-score');
+    const myRankVal = document.getElementById('my-rank-val');
+    const myRankBalance = document.getElementById('my-rank-balance');
+
+    if (listContainer) {
+        listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #888;">جاري تحميل الترتيب...</div>';
+    }
+
+    try {
+        const res = await window.fetchAPI('/api/leaderboard');
+        if (!res || (!res.success && !Array.isArray(res.leaderboard))) {
+            if (listContainer) listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #ff4d4d;">فشل جلب قائمة المتصدرين.</div>';
+            return;
+        }
+
+        const leaderboard = res.leaderboard || res.users || res.data || [];
+        const myRank = res.my_rank ?? res.user_rank ?? '#--';
+        const myBal = res.my_balance ?? window.userState?.balance ?? 0;
+
+        // تحديث ترتيب المستخدم الشحصي
+        if (myRankVal) myRankVal.innerText = (typeof myRank === 'number') ? `#${myRank}` : myRank;
+        if (myRankBalance) myRankBalance.innerHTML = `${window.formatNumberHTML(myBal)} ZN`;
+
+        // تصفير منصة التتويج
+        if (pod1Name) pod1Name.innerText = '---';
+        if (pod1Score) pod1Score.innerText = '0 ZN';
+        if (pod2Name) pod2Name.innerText = '---';
+        if (pod2Score) pod2Score.innerText = '0 ZN';
+        if (pod3Name) pod3Name.innerText = '---';
+        if (pod3Score) pod3Score.innerText = '0 ZN';
+
+        // تعبئة المراكز 3 الأوائل على منصة التتويج
+        if (leaderboard.length > 0) {
+            const p1 = leaderboard[0];
+            if (pod1Name) pod1Name.innerText = p1.first_name || p1.username || `لاعب ${p1.telegram_id || 1}`;
+            if (pod1Score) pod1Score.innerHTML = `${window.formatNumberHTML(p1.balance || 0)} ZN`;
+        }
+        if (leaderboard.length > 1) {
+            const p2 = leaderboard[1];
+            if (pod2Name) pod2Name.innerText = p2.first_name || p2.username || `لاعب ${p2.telegram_id || 2}`;
+            if (pod2Score) pod2Score.innerHTML = `${window.formatNumberHTML(p2.balance || 0)} ZN`;
+        }
+        if (leaderboard.length > 2) {
+            const p3 = leaderboard[2];
+            if (pod3Name) pod3Name.innerText = p3.first_name || p3.username || `لاعب ${p3.telegram_id || 3}`;
+            if (pod3Score) pod3Score.innerHTML = `${window.formatNumberHTML(p3.balance || 0)} ZN`;
+        }
+
+        // بناء قائمة المتصدرين المتبقية
+        if (listContainer) {
+            if (leaderboard.length === 0) {
+                listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #888;">لا يوجد لاعبون حالياً.</div>';
+                return;
+            }
+
+            let html = '';
+            leaderboard.forEach((item, index) => {
+                const rank = index + 1;
+                const name = item.first_name || item.username || `لاعب ${item.telegram_id || rank}`;
+                const bal = parseFloat(item.balance || 0);
+                const isMe = String(item.telegram_id) === String(window.userState?.tg_id);
+
+                let rankBadge = `#${rank}`;
+                if (rank === 1) rankBadge = '🥇';
+                else if (rank === 2) rankBadge = '🥈';
+                else if (rank === 3) rankBadge = '🥉';
+
+                html += `
+                    <div style="background: ${isMe ? 'rgba(0, 136, 204, 0.2)' : 'rgba(22, 27, 34, 0.8)'}; border: 1px solid ${isMe ? '#0088cc' : 'rgba(255,255,255,0.08)'}; border-radius: 12px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span style="font-weight: bold; font-size: 14px; min-width: 28px; text-align: center; color: ${rank <= 3 ? '#ffb703' : '#a0a0a0'};">${rankBadge}</span>
+                            <div style="text-align: right;">
+                                <div style="font-weight: bold; font-size: 13px; color: #fff;">${name} ${isMe ? ' <span style="font-size:10px; color:#0088cc;">(أنت)</span>' : ''}</div>
+                                <div style="font-size: 10px; color: #888;">ID: ${item.telegram_id || '---'}</div>
+                            </div>
+                        </div>
+                        <div style="font-weight: bold; font-size: 13px; color: #2ec4b6;">
+                            ${window.formatNumberHTML(bal)} ZN
+                        </div>
+                    </div>
+                `;
+            });
+
+            listContainer.innerHTML = html;
+        }
+    } catch (err) {
+        console.error("فشل جلب قائمة المتصدرين:", err);
+        if (listContainer) {
+            listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #ff4d4d;">حدث خطأ أثناء تحميل لوحة الصدارة.</div>';
+        }
+    }
+};
+
+window.onLeaderboardTabOpen = window.loadLeaderboardData;
+window.initLeaderboardView = window.loadLeaderboardData;
+
+// ==========================================
+// 10. التنقل الديناميكي المحصن واحتواء الهياكل المطلوبة
 // ==========================================
 const loadedModules = new Set();
 const pendingLoads = new Map();
@@ -672,10 +799,8 @@ function renderDefaultViewContent(cleanViewName, targetView) {
             })
             .catch(err => console.error("فشل جلب واجهة المحفظة:", err));
     } else if (cleanViewName === 'offers') {
-        // قائمة ارباح العروض المصممة بنفس نمط خيارات الالعاب (8 خيارات شبكية)
         targetView.innerHTML = `
             <div style="padding: 15px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto; padding-bottom: 90px;">
-                <!-- شريط الرصيد العلوي -->
                 <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 12px 16px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 22px;">💰</span>
@@ -692,65 +817,47 @@ function renderDefaultViewContent(cleanViewName, targetView) {
                 <h2 style="margin-bottom: 5px; color: #ffb703; font-size: 20px;"><i class="fas fa-gift"></i> قائمة أرباح العروض</h2>
                 <p style="color: #a0a0a0; font-size: 12px; margin-bottom: 20px;">اختر من العروض المتاحة أدناه للبدء في كسب مكافآت ZN المباشرة</p>
 
-                <!-- شبكة الـ 8 خيارات المطابقة لشاشة الألعاب -->
                 <div id="offers-grid-container" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; text-align: center;">
-                    
-                    <!-- 1. عرض Goxe -->
                     <div class="offer-card-item" onclick="window.openOfferCategory('offer_goxe')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
                         <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 183, 3, 0.2); color: #ffb703; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">ترند✨</span>
                         <div style="font-size: 38px; margin: 10px 0 6px 0; color: #2ec4b6;"><i class="fas fa-cubes"></i></div>
                         <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض Goxe</div>
                     </div>
-
-                    <!-- 2. عرض fogo -->
                     <div class="offer-card-item" onclick="window.openOfferCategory('offer_fogo')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
                         <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 77, 77, 0.2); color: #ff4d4d; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">حار🔥</span>
                         <div style="font-size: 38px; margin: 10px 0 6px 0; color: #ff4d4d;"><i class="fas fa-fire"></i></div>
                         <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض fogo</div>
                     </div>
-
-                    <!-- 3. عرض hitob -->
                     <div class="offer-card-item" onclick="window.openOfferCategory('offer_hitob')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
                         <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
                         <div style="font-size: 38px; margin: 10px 0 6px 0; color: #e63946;"><i class="fas fa-bullseye"></i></div>
                         <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض hitob</div>
                     </div>
-
-                    <!-- 4. عرض wex -->
                     <div class="offer-card-item" onclick="window.openOfferCategory('offer_wex')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
                         <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
                         <div style="font-size: 38px; margin: 10px 0 6px 0; color: #00b4d8;"><i class="fas fa-bolt"></i></div>
                         <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض wex</div>
                     </div>
-
-                    <!-- 5. عرض vover -->
                     <div class="offer-card-item" onclick="window.openOfferCategory('offer_vover')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
                         <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
                         <div style="font-size: 38px; margin: 10px 0 6px 0; color: #9d4edd;"><i class="fas fa-shield-alt"></i></div>
                         <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض vover</div>
                     </div>
-
-                    <!-- 6. عرض znzn -->
                     <div class="offer-card-item" onclick="window.openOfferCategory('offer_znzn')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
                         <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
                         <div style="font-size: 38px; margin: 10px 0 6px 0; color: #2ec4b6;"><i class="fas fa-atom"></i></div>
                         <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض znzn</div>
                     </div>
-
-                    <!-- 7. عرض Blxe -->
                     <div class="offer-card-item" onclick="window.openOfferCategory('offer_blxe')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
                         <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
                         <div style="font-size: 38px; margin: 10px 0 6px 0; color: #ffb703;"><i class="fas fa-gem"></i></div>
                         <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض Blxe</div>
                     </div>
-
-                    <!-- 8. عرض Extra -->
                     <div class="offer-card-item" onclick="window.openOfferCategory('offer_extra')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer; transition: transform 0.2s;">
                         <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
                         <div style="font-size: 38px; margin: 10px 0 6px 0; color: #70e000;"><i class="fas fa-rocket"></i></div>
                         <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض Extra</div>
                     </div>
-
                 </div>
             </div>`;
     } else if (cleanViewName === 'leaderboard') {
@@ -970,12 +1077,20 @@ window.switchView = async function(viewName) {
 };
 
 // ==========================================
-// 10. التشغيل المباشر عند بدء الصفحة
+// 11. التشغيل المباشر عند بدء الصفحة
 // ==========================================
 document.addEventListener('DOMContentLoaded', async () => {
     hideLoadingScreen();
     startLocalMiningSimulator();
     window.fetchTonPrice();
+
+    // التأكد من جلب بيانات الحساب المباشرة
+    if (!window.userState.tg_id && tg?.initDataUnsafe?.user?.id) {
+        window.userState.tg_id = tg.initDataUnsafe.user.id;
+    }
+    if ((!window.userState.first_name || window.userState.first_name === "لاعب") && tg?.initDataUnsafe?.user?.first_name) {
+        window.userState.first_name = tg.initDataUnsafe.user.first_name;
+    }
 
     try {
         await window.fetchAPI('/api/user/info');
