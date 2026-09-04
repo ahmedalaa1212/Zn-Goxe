@@ -1,3 +1,7 @@
+# -*- coding: utf-8 -*-
+"""
+بيانات التطبيق الرئيسية مع ربط موديول ZNX Wallet وقاعدة البيانات
+"""
 import json
 import os
 import math
@@ -57,6 +61,43 @@ try:
     initialize_firebase()
 except Exception as e:
     print(f"⚠️ تنبيه أثناء التهيئة التلقائية لـ Firebase: {e}")
+
+
+# ==================== Safe Import of ZNX Wallet Module ====================
+# استيراد موديول ZNX Wallet DB الجديد وتوفير الدوال كـ Safe Exports
+try:
+    from znx_wallet.znx_wallet_db import (
+        get_leaderboard_data as znx_get_leaderboard_data,
+        get_user_data as znx_get_user_data,
+        execute_conversion as znx_execute_conversion,
+        get_global_stats as znx_get_global_stats
+    )
+except ImportError:
+    znx_get_leaderboard_data = None
+    znx_get_user_data = None
+    znx_execute_conversion = None
+    znx_get_global_stats = None
+
+
+def get_user_data(telegram_id):
+    """جلب بيانات محفظة المستخدم من znx_wallet_db أو Fallback من المستخدم الرئيسي"""
+    if callable(znx_get_user_data):
+        return znx_get_user_data(telegram_id)
+    return get_user(telegram_id)
+
+
+def execute_conversion(telegram_id, amount_zn):
+    """تنفيذ عملية تحويل العملات من znx_wallet_db"""
+    if callable(znx_execute_conversion):
+        return znx_execute_conversion(telegram_id, amount_zn)
+    return {"success": False, "message": "الموديول غير متصل حالياً"}
+
+
+def get_global_stats():
+    """جلب الإحصائيات العامة للمحفظة"""
+    if callable(znx_get_global_stats):
+        return znx_get_global_stats()
+    return {"total_users": 0, "total_converted": 0.0}
 
 
 # ==================== Security & Input Helpers ====================
@@ -267,6 +308,11 @@ def atomic_update_balance(telegram_id, amount_change, is_usd=False):
 
 # ==================== Leaderboard Bridge & Fallback System ====================
 
+def get_leaderboard_rankings_legacy(limit=50):
+    """🌉 جسر توافقي لأي موديول قديم يستدعي get_leaderboard_rankings_legacy"""
+    return get_leaderboard_data(limit=limit)
+
+
 def _fallback_get_leaderboard_data(limit=50, user_id=None):
     """
     الآلية الاحتياطية الداخلية لجلب قائمة المتصدرين مباشرة من Firestore
@@ -334,31 +380,16 @@ def _fallback_get_leaderboard_data(limit=50, user_id=None):
 
 def get_leaderboard_data(limit=50, user_id=None):
     """
-    دالة الجسر (Bridge Pattern) لربط طلبات بيانات الترتيب بموديول znx_wallet_db.py بشكل غير مباشر.
+    دالة الجسر (Bridge Pattern) لربط طلبات بيانات الترتيب بموديول znx_wallet_db.py بشكل مباشر.
     تضمن عدم انكسار أي موديول قديم يطلب البيانات من database.py.
     """
-    try:
-        znx_db = sys.modules.get('znx_wallet.znx_wallet_db')
-        if not znx_db:
-            try:
-                import znx_wallet.znx_wallet_db as znx_db
-            except ImportError:
-                znx_db = None
-
-        if znx_db:
-            target_func = (
-                getattr(znx_db, 'get_leaderboard_data', None) or 
-                getattr(znx_db, 'get_znx_leaderboard_data', None) or
-                getattr(znx_db, 'get_wallet_leaderboard', None)
-            )
-            # التأكد من عدم الاستدعاء الذاتي لتجنب Recursion
-            if target_func and callable(target_func):
-                if getattr(target_func, '__module__', None) != 'database':
-                    res = target_func(limit=limit, user_id=user_id)
-                    if res and isinstance(res, dict) and res.get('success', False):
-                        return res
-    except Exception as e:
-        print(f"⚠️ تعذر استدعاء المتصدرين عبر الجسر من znx_wallet_db: {e}")
+    if callable(znx_get_leaderboard_data):
+        try:
+            res = znx_get_leaderboard_data(limit=limit, user_id=user_id)
+            if res and isinstance(res, dict) and res.get('success', False):
+                return res
+        except Exception as e:
+            print(f"⚠️ تعذر استدعاء المتصدرين عبر الجسر من znx_wallet_db: {e}")
 
     # الانتقال للحل الاحتياطي المباشر
     return _fallback_get_leaderboard_data(limit=limit, user_id=user_id)
@@ -449,12 +480,6 @@ try:
     from offers.offers_db import *
 except Exception:
     pass
-
-# **تطبيق المطلوب رقم 3**: استبدال leaderboard_db بـ znx_wallet_db
-try:
-    from znx_wallet.znx_wallet_db import *
-except Exception as e:
-    print(f"⚠️ تنبيه: لم يتم تحميل znx_wallet_db بعد: {e}")
 
 try:
     from ads.ads_db import *
