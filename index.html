@@ -3,7 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Zn Goxe - Crypto Mining</title>
+    <title>Zn Goxe - Crypto Mining & ZNX Wallet</title>
+
+    <!-- Security & Referrer Policy -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
 
     <!-- Adsgram SDK -->
     <script src="https://adsgram.ai/js/adsgram-ad.js"></script>
@@ -19,14 +23,14 @@
 
     <!-- Telegram & FontAwesome -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 
     <!-- Open Graph Tags -->
     <meta property="og:title" content="ZN Goxe - اربح وتعدن مجاناً" />
     <meta property="og:description" content="انضم الآن وابدأ في جمع العملات والتعدين المباشر عبر التليجرام!" />
     <meta property="og:image" content="https://zn-goxe-production.up.railway.app/banner.jpg" />
   
-    <link rel="stylesheet" href="style.css?v=4.0">
+    <link rel="stylesheet" href="style.css?v=4.1">
 
     <style>
         /* تنسيق شاشة التنبيه للعمل فقط داخل التليجرام */
@@ -98,7 +102,7 @@
             <i class="fab fa-telegram-plane"></i>
             <h2>التطبيق يعمل داخل Telegram فقط</h2>
             <p>للاستمتاع بالتطبيق وجمع العملات والتعدين المباشر، يرجى فتح اللعبة من خلال البوت الرسمي داخل تطبيق تليجرام.</p>
-            <a href="https://t.me/zngoxe_bot/Zngoxe" id="tg-bot-link" target="_blank" class="tg-open-btn">
+            <a href="https://t.me/zngoxe_bot/Zngoxe" id="tg-bot-link" target="_blank" rel="noopener noreferrer" class="tg-open-btn">
                 <i class="fab fa-telegram"></i> فتح في تليجرام
             </a>
         </div>
@@ -113,7 +117,7 @@
 
     <div id="app" style="display: none;">
         <div id="view-friends" class="game-view"></div>
-        <div id="view-leaderboard" class="game-view"></div>
+        <div id="view-znx_wallet" class="game-view"></div>
         <div id="view-wallet" class="game-view"></div>
         <div id="view-farm" class="game-view active"></div>
         <div id="view-shop" class="game-view"></div>
@@ -129,9 +133,9 @@
             <span>الأصدقاء</span>
         </button>
 
-        <button class="nav-item" id="nav-leaderboard" data-view="leaderboard">
-            <i class="fas fa-trophy"></i>
-            <span>المتصدرين</span>
+        <button class="nav-item" id="nav-znx_wallet" data-view="znx_wallet">
+            <i class="fas fa-gem"></i>
+            <span>محفظة ZNX</span>
         </button>
 
         <button class="nav-item" id="nav-wallet" data-view="wallet">
@@ -164,10 +168,19 @@
         </button>
     </nav>
 
-    <!-- سكريبت التحقق من بيئة التليجرام -->
+    <!-- سكريبت التحقق من بيئة التليجرام والتهيئة الآمنة -->
     <script>
         document.addEventListener("DOMContentLoaded", function() {
             const tg = window.Telegram?.WebApp;
+
+            if (tg) {
+                try {
+                    tg.ready();
+                    tg.expand();
+                } catch(e) {
+                    console.warn("Telegram WebApp init warning:", e);
+                }
+            }
 
             const isTelegram = tg && (
                 (tg.initData && tg.initData.length > 0) || 
@@ -213,6 +226,6 @@
 
     <!-- استدعاء سكريبت المحفظة وسكريبت اللعبة الرئيسي -->
     <script src="wallet/wallet.js"></script>
-    <script src="game.js?v=4.0"></script>
+    <script src="game.js?v=4.1"></script>
 </body>
 </html>
