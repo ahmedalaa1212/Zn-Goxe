@@ -1,5 +1,9 @@
 from flask import Blueprint, jsonify, request
-import leaderboard_db
+
+try:
+    from leaderboard import leaderboard_db
+except ImportError:
+    import leaderboard_db
 
 leaderboard_bp = Blueprint('leaderboard', __name__)
 
