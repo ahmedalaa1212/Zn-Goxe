@@ -50,7 +50,31 @@ def get_global_stats():
             data = doc.to_dict() or {}
             if 'max_global_znx' not in data:
                 data['max_global_znx'] = MAX_GLOBAL_ZNX
-            if 'tiers_config' not in data or not data['tiers_config']:
+            
+            raw_tiers = data.get('tiers_config')
+            if isinstance(raw_tiers, list) and len(raw_tiers) > 0:
+                clean_tiers = []
+                for t in raw_tiers:
+                    if isinstance(t, dict):
+                        raw_max = t.get('max_pts')
+                        if str(raw_max).lower() in ("inf", "infinity", "none"):
+                            parsed_max = float('inf')
+                        else:
+                            try:
+                                parsed_max = float(raw_max)
+                            except Exception:
+                                parsed_max = float('inf')
+                        
+                        clean_tiers.append({
+                            'tier': int(t.get('tier', 1)),
+                            'name': str(t.get('name', '')),
+                            'min_pts': float(t.get('min_pts', 0)),
+                            'max_pts': parsed_max,
+                            'rate': float(t.get('rate', 10)),
+                            'quota': float(t.get('quota', 0))
+                        })
+                data['tiers_config'] = clean_tiers
+            else:
                 data['tiers_config'] = TIERS_CONFIG
             return data
         else:
@@ -72,15 +96,28 @@ def get_global_stats():
         }
 
 
-def get_user_tier(user_points: float):
+def get_user_tier(user_points: float, custom_tiers=None):
     try:
         pts = float(user_points) if user_points and not math.isnan(user_points) else 0.0
     except (ValueError, TypeError):
         pts = 0.0
 
-    for item in TIERS_CONFIG:
-        if item["min_pts"] <= pts < item["max_pts"]:
-            return item
+    tiers = custom_tiers or TIERS_CONFIG
+
+    for item in tiers:
+        try:
+            min_p = float(item.get("min_pts", 0))
+            raw_max = item.get("max_pts")
+            if str(raw_max).lower() in ("inf", "infinity", "none"):
+                max_p = float('inf')
+            else:
+                max_p = float(raw_max) if raw_max is not None else float('inf')
+
+            if min_p <= pts < max_p:
+                return item
+        except Exception:
+            continue
+
     return TIERS_CONFIG[-1]
 
 
@@ -158,60 +195,38 @@ def get_leaderboard_rankings(limit=50, user_id=None):
     user_in_top = False
 
     try:
-        query = db.collection('users').order_by('total_znx_earned', direction=firestore.Query.DESCENDING).limit(limit)
-        docs = list(query.stream())
-        
-        rank = 1
+        docs = list(db.collection('users').limit(150).stream())
+        raw_list = []
         for doc in docs:
             d = doc.to_dict() or {}
-            uid = str(d.get('user_id') or doc.id)
+            uid = str(d.get('user_id') or d.get('tg_id') or doc.id)
             earned = float(d.get('total_znx_earned') or 0.0)
             znx_bal = float(d.get('znx_balance') or 0.0)
+            bal = float(d.get('balance') or 0.0)
+            name = str(d.get('first_name') or d.get('name') or 'لاعب')
             
-            entry = {
-                'rank': rank,
+            raw_list.append({
                 'user_id': uid,
-                'name': d.get('first_name') or d.get('name') or 'لاعب',
-                'first_name': d.get('first_name') or d.get('name') or 'لاعب',
+                'name': name,
+                'first_name': name,
                 'total_znx_earned': earned,
                 'znx_balance': znx_bal,
-                'balance': float(d.get('balance') or 0.0)
-            }
-            rankings.append(entry)
-
-            if clean_target_id and uid == clean_target_id:
+                'balance': bal
+            })
+        
+        raw_list.sort(key=lambda x: x['total_znx_earned'], reverse=True)
+        
+        rank = 1
+        for item in raw_list[:limit]:
+            item['rank'] = rank
+            rankings.append(item)
+            if clean_target_id and str(item['user_id']) == str(clean_target_id):
                 user_rank = rank
                 user_in_top = True
-
             rank += 1
 
     except Exception as e:
-        print(f"⚠️ Ordered query failed, attempting fallback query: {e}")
-        try:
-            docs = db.collection('users').limit(100).stream()
-            raw_list = []
-            for doc in docs:
-                d = doc.to_dict() or {}
-                raw_list.append({
-                    'user_id': str(d.get('user_id') or doc.id),
-                    'name': d.get('first_name') or d.get('name') or 'لاعب',
-                    'first_name': d.get('first_name') or d.get('name') or 'لاعب',
-                    'total_znx_earned': float(d.get('total_znx_earned') or 0.0),
-                    'znx_balance': float(d.get('znx_balance') or 0.0),
-                    'balance': float(d.get('balance') or 0.0)
-                })
-            raw_list.sort(key=lambda x: x['total_znx_earned'], reverse=True)
-            
-            rank = 1
-            for item in raw_list[:limit]:
-                item['rank'] = rank
-                rankings.append(item)
-                if clean_target_id and item['user_id'] == clean_target_id:
-                    user_rank = rank
-                    user_in_top = True
-                rank += 1
-        except Exception as ex:
-            print(f"❌ Fallback leaderboard query failed: {ex}")
+        print(f"❌ Leaderboard query failed: {e}")
 
     if clean_target_id and not user_in_top:
         try:
@@ -219,8 +234,8 @@ def get_leaderboard_rankings(limit=50, user_id=None):
             if target_doc.exists:
                 t_data = target_doc.to_dict() or {}
                 t_earned = float(t_data.get('total_znx_earned') or 0.0)
-                higher_docs = db.collection('users').where('total_znx_earned', '>', t_earned).stream()
-                higher_count = sum(1 for _ in higher_docs)
+                all_docs = db.collection('users').stream()
+                higher_count = sum(1 for d in all_docs if float((d.to_dict() or {}).get('total_znx_earned') or 0) > t_earned)
                 user_rank = higher_count + 1
         except Exception as e:
             print(f"⚠️ Error calculating target user rank: {e}")
@@ -283,7 +298,7 @@ def execute_conversion(user_id: str, points_to_convert: float):
         if current_zn_balance < actual_points:
             return False, f"رصيد نقاط ZN غير كافٍ. رصيدك الحالي: {current_zn_balance:,.2f}", None
 
-        current_tier = get_user_tier(current_zn_balance)
+        current_tier = get_user_tier(current_zn_balance, stats.get('tiers_config'))
         znx_received = actual_points / current_tier['rate']
 
         if total_global_znx + znx_received > MAX_GLOBAL_ZNX:
@@ -308,7 +323,7 @@ def execute_conversion(user_id: str, points_to_convert: float):
             'total_converted_znx': round(new_global_total, 6),
             'max_global_znx': MAX_GLOBAL_ZNX,
             'is_active': new_global_total < MAX_GLOBAL_ZNX,
-            'tiers_config': TIERS_CONFIG
+            'tiers_config': stats.get('tiers_config') or TIERS_CONFIG
         }, merge=True)
 
         result_payload = {
