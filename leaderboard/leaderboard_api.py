@@ -1,34 +1,38 @@
-from flask import Blueprint, request, jsonify
-from leaderboard.leaderboard_db import get_top_leaderboard, get_user_rank_info
-from database import is_user_banned
+from flask import Blueprint, jsonify, request
+import leaderboard_db
 
-leaderboard_bp = Blueprint('leaderboard_bp', __name__)
+leaderboard_bp = Blueprint('leaderboard', __name__)
 
-def extract_telegram_id(req):
-    return req.headers.get('X-Telegram-User-Id') or req.headers.get('X-Telegram-Id')
-
-@leaderboard_bp.route('/top', methods=['GET', 'OPTIONS'])
+@leaderboard_bp.route('/api/leaderboard/data', methods=['GET'])
 def get_leaderboard():
-    if request.method == 'OPTIONS':
-        return jsonify({"success": True}), 200
+    user_id = request.args.get('user_id')
+    stats = leaderboard_db.get_global_stats()
+    leaderboard = leaderboard_db.get_leaderboard_data()
+    
+    # حساب السعر اللحظي بناءً على نسبة استهلاك المجمّع
+    base_price = 0.05
+    total_converted = stats.get('total_converted_znx', 0)
+    live_price = base_price + (total_converted / 35_000_000) * 0.45
 
-    tg_id = extract_telegram_id(request) or request.args.get('tg_id')
-    if not tg_id:
-        return jsonify({"success": False, "error": "المستخدم غير محدد"}), 400
+    return jsonify({
+        'success': True,
+        'global_total': round(total_converted, 2),
+        'max_limit': 35000000,
+        'live_price': round(live_price, 4),
+        'leaderboard': leaderboard
+    })
 
-    if is_user_banned(tg_id):
-        return jsonify({"success": False, "error": "حسابك محظور."}), 403
+@leaderboard_bp.route('/api/leaderboard/convert', methods=['POST'])
+def convert_currency():
+    data = request.json or {}
+    user_id = data.get('user_id')
+    points = data.get('points', 0)
 
-    try:
-        top_players = get_top_leaderboard(limit=50)
-        user_rank_data = get_user_rank_info(tg_id)
+    if not user_id or points <= 0:
+        return jsonify({'success': False, 'message': 'بيانات الطلب غير صالحة.'}), 400
 
-        return jsonify({
-            "success": True,
-            "leaderboard": top_players,
-            "user_rank": user_rank_data.get('rank', 999),
-            "user_balance": user_rank_data.get('user_balance', 0.0)
-        }), 200
-    except Exception as e:
-        print(f"❌ خطأ في لوحة الصدارة: {e}")
-        return jsonify({"success": False, "error": f"حدث خطأ في السيرفر: {str(e)}"}), 500
+    success, response = leaderboard_db.process_conversion(user_id, float(points))
+    if success:
+        return jsonify({'success': True, 'data': response})
+    else:
+        return jsonify({'success': False, 'message': response}), 400
