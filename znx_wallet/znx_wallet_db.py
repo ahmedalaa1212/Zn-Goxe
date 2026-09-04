@@ -30,13 +30,13 @@ def _sanitize_id(user_id):
 MAX_GLOBAL_ZNX = 32_500_000.0
 
 TIERS_CONFIG = [
-    {"tier": 1, "name": "الشريحة الأولى", "min_pts": 0, "max_pts": 1_500_000, "rate": 10, "quota": 1_500_000},
-    {"tier": 2, "name": "الشريحة الثانية", "min_pts": 1_500_000, "max_pts": 3_500_000, "rate": 30, "quota": 2_000_000},
-    {"tier": 3, "name": "الشريحة الثالثة", "min_pts": 3_500_000, "max_pts": 6_000_000, "rate": 80, "quota": 2_500_000},
-    {"tier": 4, "name": "الشريحة الرابعة", "min_pts": 6_000_000, "max_pts": 10_000_000, "rate": 200, "quota": 4_000_000},
-    {"tier": 5, "name": "الشريحة الخامسة", "min_pts": 10_000_000, "max_pts": 15_500_000, "rate": 600, "quota": 5_500_000},
-    {"tier": 6, "name": "الشريحة السادسة", "min_pts": 15_500_000, "max_pts": 23_500_000, "rate": 1600, "quota": 8_000_000},
-    {"tier": 7, "name": "الشريحة السابعة", "min_pts": 23_500_000, "max_pts": float('inf'), "rate": 4000, "quota": 9_000_000}
+    {"tier": 1, "name": "الشريحة الأولى", "min_pts": 0.0, "max_pts": 1_500_000.0, "rate": 10, "quota": 1_500_000},
+    {"tier": 2, "name": "الشريحة الثانية", "min_pts": 1_500_000.0, "max_pts": 2_000_000.0, "rate": 30, "quota": 2_000_000},
+    {"tier": 3, "name": "الشريحة الثالثة", "min_pts": 2_000_000.0, "max_pts": 2_500_000.0, "rate": 80, "quota": 2_500_000},
+    {"tier": 4, "name": "الشريحة الرابعة", "min_pts": 2_500_000.0, "max_pts": 4_000_000.0, "rate": 200, "quota": 4_000_000},
+    {"tier": 5, "name": "الشريحة الخامسة", "min_pts": 4_000_000.0, "max_pts": 5_500_000.0, "rate": 600, "quota": 5_500_000},
+    {"tier": 6, "name": "الشريحة السادسة", "min_pts": 5_500_000.0, "max_pts": 8_000_000.0, "rate": 1600, "quota": 8_000_000},
+    {"tier": 7, "name": "الشريحة السابعة", "min_pts": 8_000_000.0, "max_pts": float('inf'), "rate": 4000, "quota": 9_000_000}
 ]
 
 
@@ -98,8 +98,8 @@ def get_global_stats():
 
 def get_current_tier(global_znx=0.0, user_points=0.0, custom_tiers=None):
     """
-    تحديد الشريحة الحالية تلقائياً بناءً على إجمالي العملات المحولة كلياً (total_converted_znx).
-    تنتقل الشريحة تلقائياً للشريحة التالية بمجرد اكتمال التراكمي لحصص الشرائح.
+    تحديد الشريحة الحالية مباشرة بناءً على نطاق (min_pts و max_pts)
+    مقارنة بإجمالي العملات المحولة كلياً (total_converted_znx).
     """
     tiers = custom_tiers or TIERS_CONFIG
 
@@ -108,12 +108,13 @@ def get_current_tier(global_znx=0.0, user_points=0.0, custom_tiers=None):
     except (ValueError, TypeError):
         g_znx = 0.0
 
-    cum_quota = 0.0
     for item in tiers:
         try:
-            quota = float(item.get("quota", 0.0))
-            cum_quota += quota
-            if g_znx < cum_quota:
+            min_v = float(item.get("min_pts", 0.0))
+            raw_max = item.get("max_pts")
+            max_v = float('inf') if str(raw_max).lower() in ("inf", "infinity", "none") else float(raw_max)
+
+            if min_v <= g_znx < max_v:
                 return item
         except Exception:
             continue
