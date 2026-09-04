@@ -23,9 +23,11 @@ def get_friends_data():
 
     try:
         player_data = get_friends_data_db(str(user_id))
-        friends_config = player_data.pop("friends_config", None) or get_friends_config()
         
-        # استخراج القيم الديناميكية الخاصة بالـ VIP لنقلها للواجهة مباشرة
+        # استخراج التكوين المخصص للمستخدم (يحتوي على شرط الترقيات الخاص بالـ VIP)
+        friends_config = player_data.get("friends_config") or get_friends_config()
+        
+        # استخراج القيم الديناميكية الخاصة بالـ VIP لنقلها للواجهة بشكل موحد
         is_vip = player_data.get("is_vip", False)
         effective_commission = player_data.get("effective_commission", 10.0)
         effective_claim_fee = player_data.get("effective_claim_fee", 1.5)
