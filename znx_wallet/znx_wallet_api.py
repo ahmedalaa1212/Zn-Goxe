@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 💎 ZNX Wallet API Module (Flask Blueprint)
-مسارات الـ API الخاصة بمحفظة ZNX:
-- جلب بيانات المحفظة والمتصدرين والشرائح (/api/znx-wallet/data & /init)
-- معالجة عملية تحويل النقاط ZN إلى ZNX (/api/znx-wallet/convert)
 """
 
 import math
@@ -29,9 +26,6 @@ def _extract_user_id():
         data = request.get_json(silent=True) or {}
         if isinstance(data, dict):
             user_id = data.get('user_id') or data.get('tg_id') or data.get('telegram_id')
-
-    if not user_id:
-        user_id = request.args.get('user_id') or request.args.get('tg_id') or request.args.get('telegram_id')
 
     if not user_id:
         user_id = request.headers.get('X-Telegram-User-Id')
@@ -74,32 +68,34 @@ def get_wallet_data():
         return jsonify({'success': True}), 200
 
     try:
-        user_id = _extract_user_id()
-        if not user_id:
-            user_id = "5102387551"
+        user_id = _extract_user_id() or "5102387551"
+
+        global_stats = znx_wallet_db.get_global_stats()
+        all_tiers = global_stats.get('tiers_config') or znx_wallet_db.TIERS_CONFIG
 
         user_data = znx_wallet_db.get_user_data(str(user_id))
         current_balance = float(user_data.get('balance', 0.0))
-        current_tier = znx_wallet_db.get_user_tier(current_balance)
+        current_tier = znx_wallet_db.get_user_tier(current_balance, all_tiers)
         
         lb_res = znx_wallet_db.get_leaderboard_data(limit=50, user_id=str(user_id))
         
-        if isinstance(lb_res, dict):
-            rankings = lb_res.get('leaderboard', [])
-            my_rank = lb_res.get('my_rank', 'غير مصنف')
-        else:
-            rankings = lb_res if isinstance(lb_res, list) else []
-            my_rank = 'غير مصنف'
+        rankings = lb_res.get('leaderboard', []) if isinstance(lb_res, dict) else []
+        my_rank = lb_res.get('my_rank', 'غير مصنف') if isinstance(lb_res, dict) else 'غير مصنف'
 
-        global_stats = znx_wallet_db.get_global_stats()
-        all_tiers = global_stats.get('tiers_config') or getattr(znx_wallet_db, 'TIERS_CONFIG', [])
+        # تحويل القيم لنسخة آمنة لـ JSON
+        serializable_tiers = []
+        for t in all_tiers:
+            t_copy = dict(t)
+            if t_copy.get('max_pts') == float('inf'):
+                t_copy['max_pts'] = "inf"
+            serializable_tiers.append(t_copy)
 
         return jsonify({
             'success': True,
             'user': user_data,
             'current_tier': current_tier,
-            'tiers_all': all_tiers,
-            'tiers': all_tiers,
+            'tiers_all': serializable_tiers,
+            'tiers': serializable_tiers,
             'leaderboard': rankings,
             'my_rank': my_rank,
             'global_total': float(global_stats.get('total_converted_znx', 0.0)),
@@ -123,18 +119,10 @@ def process_conversion():
 
     try:
         data = request.get_json(silent=True) or {}
-        if not isinstance(data, dict):
-            data = {}
-
         user_id = data.get('user_id') or data.get('tg_id') or _extract_user_id()
 
         if not user_id:
-            return jsonify({
-                'success': False, 
-                'message': 'معرف المستخدم غير صالح أو غير موجود'
-            }), 400
-
-        user_id_str = str(user_id).strip()
+            return jsonify({'success': False, 'message': 'معرف المستخدم غير صالح'}), 400
 
         raw_amount = data.get('amount') if 'amount' in data else request.args.get('amount')
         if raw_amount is None:
@@ -146,12 +134,9 @@ def process_conversion():
             return jsonify({'success': False, 'message': 'صيغة كمية التحويل غير صالحة'}), 400
 
         if math.isnan(amount) or math.isinf(amount) or amount <= 0:
-            return jsonify({
-                'success': False, 
-                'message': 'كمية التحويل يجب أن تكون رقماً موجباً وصالحاً'
-            }), 400
+            return jsonify({'success': False, 'message': 'كمية التحويل يجب أن تكون رقماً موجباً'}), 400
 
-        success, result = znx_wallet_db.execute_conversion(user_id_str, amount)
+        success, result = znx_wallet_db.execute_conversion(str(user_id), amount)
 
         if success:
             return jsonify({
