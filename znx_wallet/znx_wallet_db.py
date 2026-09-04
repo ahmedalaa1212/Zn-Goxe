@@ -27,16 +27,16 @@ def _sanitize_id(user_id):
     return s_id
 
 
-MAX_GLOBAL_ZNX = 35_000_000.0
+MAX_GLOBAL_ZNX = 32_500_000.0
 
 TIERS_CONFIG = [
-    {"tier": 1, "name": "الشريحة الأولى", "min_pts": 0, "max_pts": 20_000_000, "rate": 10, "quota": 1_500_000},
-    {"tier": 2, "name": "الشريحة الثانية", "min_pts": 20_000_000, "max_pts": 100_000_000, "rate": 30, "quota": 2_000_000},
-    {"tier": 3, "name": "الشريحة الثالثة", "min_pts": 100_000_000, "max_pts": 500_000_000, "rate": 80, "quota": 2_500_000},
-    {"tier": 4, "name": "الشريحة الرابعة", "min_pts": 500_000_000, "max_pts": 2_000_000_000, "rate": 200, "quota": 4_000_000},
-    {"tier": 5, "name": "الشريحة الخامسة", "min_pts": 2_000_000_000, "max_pts": 8_000_000_000, "rate": 600, "quota": 5_500_000},
-    {"tier": 6, "name": "الشريحة السادسة", "min_pts": 8_000_000_000, "max_pts": 25_000_000_000, "rate": 1600, "quota": 8_000_000},
-    {"tier": 7, "name": "الشريحة السابعة", "min_pts": 25_000_000_000, "max_pts": float('inf'), "rate": 4000, "quota": 9_000_000}
+    {"tier": 1, "name": "الشريحة الأولى", "min_pts": 0, "max_pts": 1_500_000, "rate": 10, "quota": 1_500_000},
+    {"tier": 2, "name": "الشريحة الثانية", "min_pts": 1_500_000, "max_pts": 3_500_000, "rate": 30, "quota": 2_000_000},
+    {"tier": 3, "name": "الشريحة الثالثة", "min_pts": 3_500_000, "max_pts": 6_000_000, "rate": 80, "quota": 2_500_000},
+    {"tier": 4, "name": "الشريحة الرابعة", "min_pts": 6_000_000, "max_pts": 10_000_000, "rate": 200, "quota": 4_000_000},
+    {"tier": 5, "name": "الشريحة الخامسة", "min_pts": 10_000_000, "max_pts": 15_500_000, "rate": 600, "quota": 5_500_000},
+    {"tier": 6, "name": "الشريحة السادسة", "min_pts": 15_500_000, "max_pts": 23_500_000, "rate": 1600, "quota": 8_000_000},
+    {"tier": 7, "name": "الشريحة السابعة", "min_pts": 23_500_000, "max_pts": float('inf'), "rate": 4000, "quota": 9_000_000}
 ]
 
 
@@ -99,7 +99,7 @@ def get_global_stats():
 def get_current_tier(global_znx=0.0, user_points=0.0, custom_tiers=None):
     """
     تحديد الشريحة الحالية تلقائياً بناءً على إجمالي العملات المحولة كلياً (total_converted_znx).
-    تنتقل الشريحة تلقائياً للشريحة التالية بمجرد اكتمال حصة (Quota) الشريحة الحالية.
+    تنتقل الشريحة تلقائياً للشريحة التالية بمجرد اكتمال التراكمي لحصص الشرائح.
     """
     tiers = custom_tiers or TIERS_CONFIG
 
@@ -108,7 +108,6 @@ def get_current_tier(global_znx=0.0, user_points=0.0, custom_tiers=None):
     except (ValueError, TypeError):
         g_znx = 0.0
 
-    # حساب التراكمي للحصص (Quotas)
     cum_quota = 0.0
     for item in tiers:
         try:
@@ -119,27 +118,10 @@ def get_current_tier(global_znx=0.0, user_points=0.0, custom_tiers=None):
         except Exception:
             continue
 
-    # احتياطي: في حال الإخفاق أو تجاوز النقاط الفردية
-    try:
-        pts = float(user_points) if user_points and not math.isnan(user_points) else 0.0
-    except (ValueError, TypeError):
-        pts = 0.0
-
-    for item in tiers:
-        try:
-            min_p = float(item.get("min_pts", 0))
-            raw_max = item.get("max_pts")
-            max_p = float('inf') if str(raw_max).lower() in ("inf", "infinity", "none") or raw_max is None else float(raw_max)
-            if min_p <= pts < max_p:
-                return item
-        except Exception:
-            continue
-
     return tiers[-1]
 
 
 def get_user_tier(user_points: float, custom_tiers=None, global_znx=0.0):
-    """دالة للتوافق مع أي استدعاء قديم بداخل الكود"""
     return get_current_tier(global_znx=global_znx, user_points=user_points, custom_tiers=custom_tiers)
 
 
@@ -309,9 +291,10 @@ def execute_conversion(user_id: str, points_to_convert: float):
             }
 
         total_global_znx = float(stats.get('total_converted_znx') or 0.0)
+        max_global_znx = float(stats.get('max_global_znx') or MAX_GLOBAL_ZNX)
 
-        if total_global_znx >= MAX_GLOBAL_ZNX:
-            return False, "عذراً، تم الوصول إلى الحد الأقصى للمجمّع الكلي (35M ZNX).", None
+        if total_global_znx >= max_global_znx:
+            return False, f"عذراً، تم الوصول إلى الحد الأقصى للمجمّع الكلي ({max_global_znx / 1_000_000:.1f}M ZNX).", None
 
         user_doc = user_ref.get(transaction=trans)
         if not user_doc.exists:
@@ -329,8 +312,8 @@ def execute_conversion(user_id: str, points_to_convert: float):
 
         znx_received = actual_points / current_tier['rate']
 
-        if total_global_znx + znx_received > MAX_GLOBAL_ZNX:
-            znx_received = MAX_GLOBAL_ZNX - total_global_znx
+        if total_global_znx + znx_received > max_global_znx:
+            znx_received = max_global_znx - total_global_znx
             actual_points = znx_received * current_tier['rate']
             if znx_received <= 0:
                 return False, "تم استنفاد مجمّع العملات المتاح بالكامل.", None
@@ -349,8 +332,8 @@ def execute_conversion(user_id: str, points_to_convert: float):
 
         trans.set(global_ref, {
             'total_converted_znx': round(new_global_total, 6),
-            'max_global_znx': MAX_GLOBAL_ZNX,
-            'is_active': new_global_total < MAX_GLOBAL_ZNX,
+            'max_global_znx': max_global_znx,
+            'is_active': new_global_total < max_global_znx,
             'tiers_config': active_tiers
         }, merge=True)
 
