@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import sys
 from flask import Flask, jsonify, send_from_directory, request, redirect
@@ -284,12 +285,39 @@ def get_user_info_main():
 # 🔄 التوافق الاحتياطي لمسار المتصدرين القديم
 # ==========================================
 
+@app.route('/api/leaderboard/init', methods=['GET', 'POST', 'OPTIONS'])
+@app.route('/api/leaderboard/data', methods=['GET', 'POST', 'OPTIONS'])
+def legacy_leaderboard_data():
+    """معالجة الطلبات المباشرة لمسارات المتصدرين القديمة وضمان إرجاع البيانات دون انكسار"""
+    if request.method == 'OPTIONS':
+        return jsonify({"success": True}), 200
+    try:
+        from znx_wallet.znx_wallet_api import get_wallet_data
+        return get_wallet_data()
+    except Exception as e:
+        print(f"⚠️ Legacy leaderboard direct handler error: {e}")
+        return redirect('/api/znx-wallet/data', code=307)
+
+
+@app.route('/api/leaderboard/convert', methods=['POST', 'OPTIONS'])
+def legacy_leaderboard_convert():
+    """معالجة عمليات التحويل للمسار القديم"""
+    if request.method == 'OPTIONS':
+        return jsonify({"success": True}), 200
+    try:
+        from znx_wallet.znx_wallet_api import process_conversion
+        return process_conversion()
+    except Exception as e:
+        print(f"⚠️ Legacy conversion direct handler error: {e}")
+        return redirect('/api/znx-wallet/convert', code=307)
+
+
 @app.route('/api/leaderboard', methods=['GET', 'POST', 'OPTIONS'])
 @app.route('/api/leaderboard/<path:subpath>', methods=['GET', 'POST', 'OPTIONS'])
 def leaderboard_legacy_fallback(subpath=""):
     """
-    تحويل تلقائي لجميع الطلبات القادمة للمسار القديم /api/leaderboard 
-    إلى المسار الجديد /api/znx-wallet لتفادي توقف النسخ القديمة وضمان العمل بدون انكسار.
+    تحويل تلقائي لجميع الطلبات الفرعية المتبقية للمسار القديم /api/leaderboard 
+    إلى المسار الجديد /api/znx-wallet.
     """
     if request.method == 'OPTIONS':
         return jsonify({"success": True}), 200
