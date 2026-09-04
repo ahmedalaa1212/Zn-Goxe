@@ -417,7 +417,7 @@ window.closeWelcomeModal = function() {
 
     function accrueCurrentMining() {
         const pData = window.userState || window.PlayerData;
-        if (!pData) return;
+        if (!pData) return 0;
 
         let maxC = parseFloat(pData.max_cap ?? 0.5);
         let baseRate = parseFloat(pData.hourly_rate ?? 0.1);
@@ -432,20 +432,24 @@ window.closeWelcomeModal = function() {
         let accumulated = baseUnclaimed + (hRate / 3600.0) * secondsPassed;
         if (accumulated >= maxC) accumulated = maxC;
 
+        const nowIso = new Date(getAdjustedNowMs()).toISOString();
+
         pData.base_unclaimed = accumulated;
         pData.unclaimed = accumulated;
-        pData.last_claim_time = new Date(getAdjustedNowMs()).toISOString();
+        pData.last_claim_time = nowIso;
 
         if (window.userState) {
             window.userState.base_unclaimed = accumulated;
             window.userState.unclaimed = accumulated;
-            window.userState.last_claim_time = pData.last_claim_time;
+            window.userState.last_claim_time = nowIso;
         }
         if (window.PlayerData) {
             window.PlayerData.base_unclaimed = accumulated;
             window.PlayerData.unclaimed = accumulated;
-            window.PlayerData.last_claim_time = pData.last_claim_time;
+            window.PlayerData.last_claim_time = nowIso;
         }
+
+        return accumulated;
     }
 
     // تحديث الواجهة الخاصة ببادج البوت ونافذة التجميع التلقائي القادمة من السيرفر
@@ -924,6 +928,8 @@ window.closeWelcomeModal = function() {
         isUpgradingStorage = true;
         const stateBackup = cloneCurrentState();
 
+        // 1. حساب وتثبيت المستحق الحالي بدقة قبل الترقية
+        const accrualTimeMs = getAdjustedNowMs();
         accrueCurrentMining();
 
         setStoredBalance(Math.max(0, bal - costZn), Math.max(0, usdBal - costUsd));
@@ -949,15 +955,23 @@ window.closeWelcomeModal = function() {
                     window.userState.max_cap = parseFloat(resData.max_cap);
                     window.PlayerData.max_cap = parseFloat(resData.max_cap);
                 }
+
+                // تجنب استرجاع تاريخ قديم يسبب تضارب الفارق الزمني
                 if (resData.last_claim_time) {
-                    window.userState.last_claim_time = resData.last_claim_time;
-                    window.PlayerData.last_claim_time = resData.last_claim_time;
+                    const serverClaimMs = parseServerDateMs(resData.last_claim_time);
+                    if (serverClaimMs >= accrualTimeMs - 3000) {
+                        window.userState.last_claim_time = resData.last_claim_time;
+                        window.PlayerData.last_claim_time = resData.last_claim_time;
+                    }
                 }
                 if (resData.unclaimed !== undefined) {
-                    window.userState.unclaimed = parseFloat(resData.unclaimed);
-                    window.PlayerData.unclaimed = parseFloat(resData.unclaimed);
-                    window.userState.base_unclaimed = parseFloat(resData.unclaimed);
-                    window.PlayerData.base_unclaimed = parseFloat(resData.unclaimed);
+                    const serverClaimMs = resData.last_claim_time ? parseServerDateMs(resData.last_claim_time) : 0;
+                    if (!resData.last_claim_time || serverClaimMs >= accrualTimeMs - 3000) {
+                        window.userState.unclaimed = parseFloat(resData.unclaimed);
+                        window.PlayerData.unclaimed = parseFloat(resData.unclaimed);
+                        window.userState.base_unclaimed = parseFloat(resData.unclaimed);
+                        window.PlayerData.base_unclaimed = parseFloat(resData.unclaimed);
+                    }
                 }
                 saveCachedData(window.userState);
                 showToast(`📦 تم ترقية سعة المخزن بنجاح إلى Level ${parseInt(resData.storage_level || nextLvl) + 1}!`);
@@ -995,6 +1009,8 @@ window.closeWelcomeModal = function() {
         upgradingLevel = level;
         const stateBackup = cloneCurrentState();
 
+        // 1. حساب وتثبيت المستحق الحالي بدقة بالسرعة القديمة قبل زيادة السرعة
+        const accrualTimeMs = getAdjustedNowMs();
         accrueCurrentMining();
 
         setStoredBalance(Math.max(0, currentBal - costZn), Math.max(0, currentUsdBal - costUsd));
@@ -1028,15 +1044,23 @@ window.closeWelcomeModal = function() {
                     window.userState.upgrades = resData.upgrades;
                     window.PlayerData.upgrades = resData.upgrades;
                 }
+
+                // تجنب استرجاع تاريخ تجميع قديم من السيرفر يسبب تضارب وقت التعدين
                 if (resData.last_claim_time) {
-                    window.userState.last_claim_time = resData.last_claim_time;
-                    window.PlayerData.last_claim_time = resData.last_claim_time;
+                    const serverClaimMs = parseServerDateMs(resData.last_claim_time);
+                    if (serverClaimMs >= accrualTimeMs - 3000) {
+                        window.userState.last_claim_time = resData.last_claim_time;
+                        window.PlayerData.last_claim_time = resData.last_claim_time;
+                    }
                 }
                 if (resData.unclaimed !== undefined) {
-                    window.userState.unclaimed = parseFloat(resData.unclaimed);
-                    window.PlayerData.unclaimed = parseFloat(resData.unclaimed);
-                    window.userState.base_unclaimed = parseFloat(resData.unclaimed);
-                    window.PlayerData.base_unclaimed = parseFloat(resData.unclaimed);
+                    const serverClaimMs = resData.last_claim_time ? parseServerDateMs(resData.last_claim_time) : 0;
+                    if (!resData.last_claim_time || serverClaimMs >= accrualTimeMs - 3000) {
+                        window.userState.unclaimed = parseFloat(resData.unclaimed);
+                        window.PlayerData.unclaimed = parseFloat(resData.unclaimed);
+                        window.userState.base_unclaimed = parseFloat(resData.unclaimed);
+                        window.PlayerData.base_unclaimed = parseFloat(resData.unclaimed);
+                    }
                 }
 
                 saveCachedData(window.userState);
@@ -1099,6 +1123,9 @@ window.closeWelcomeModal = function() {
         isBoosting = true;
         const stateBackup = cloneCurrentState();
 
+        const accrualTimeMs = getAdjustedNowMs();
+        accrueCurrentMining();
+
         try {
             await showMonetagAd();
 
@@ -1107,8 +1134,23 @@ window.closeWelcomeModal = function() {
                 if (resData.server_time) syncServerTime(resData.server_time);
 
                 if (resData.player) {
+                    const localClaimTime = window.userState.last_claim_time;
+                    const localBaseUnclaimed = window.userState.base_unclaimed;
+
                     Object.assign(window.PlayerData, resData.player);
                     Object.assign(window.userState, resData.player);
+
+                    if (resData.player.last_claim_time) {
+                        const serverClaimMs = parseServerDateMs(resData.player.last_claim_time);
+                        if (serverClaimMs < accrualTimeMs - 3000) {
+                            window.userState.last_claim_time = localClaimTime;
+                            window.PlayerData.last_claim_time = localClaimTime;
+                            window.userState.base_unclaimed = localBaseUnclaimed;
+                            window.PlayerData.base_unclaimed = localBaseUnclaimed;
+                            window.userState.unclaimed = localBaseUnclaimed;
+                            window.PlayerData.unclaimed = localBaseUnclaimed;
+                        }
+                    }
                 }
 
                 const newBal = resData.new_balance ?? resData.balance ?? resData.player?.balance;
@@ -1122,19 +1164,26 @@ window.closeWelcomeModal = function() {
                 }
 
                 if (resData.last_claim_time) {
-                    window.userState.last_claim_time = resData.last_claim_time;
-                    window.PlayerData.last_claim_time = resData.last_claim_time;
+                    const serverClaimMs = parseServerDateMs(resData.last_claim_time);
+                    if (serverClaimMs >= accrualTimeMs - 3000) {
+                        window.userState.last_claim_time = resData.last_claim_time;
+                        window.PlayerData.last_claim_time = resData.last_claim_time;
+                    }
                 }
                 if (resData.unclaimed !== undefined) {
-                    window.userState.unclaimed = parseFloat(resData.unclaimed);
-                    window.PlayerData.unclaimed = parseFloat(resData.unclaimed);
-                    window.userState.base_unclaimed = parseFloat(resData.unclaimed);
-                    window.PlayerData.base_unclaimed = parseFloat(resData.unclaimed);
+                    const serverClaimMs = resData.last_claim_time ? parseServerDateMs(resData.last_claim_time) : 0;
+                    if (!resData.last_claim_time || serverClaimMs >= accrualTimeMs - 3000) {
+                        window.userState.unclaimed = parseFloat(resData.unclaimed);
+                        window.PlayerData.unclaimed = parseFloat(resData.unclaimed);
+                        window.userState.base_unclaimed = parseFloat(resData.unclaimed);
+                        window.PlayerData.base_unclaimed = parseFloat(resData.unclaimed);
+                    }
                 }
 
                 showToast(`⚡ تم تفعيل تعزيز السرعة (+0.1 ZN/ساعة) لمدة ساعتين بنجاح!`);
                 saveCachedData(window.userState);
             } else {
+                restoreState(stateBackup);
                 showToast(resData?.error || "❌ تعذر تفعيل التعزيز");
             }
         } catch (e) {
@@ -1186,6 +1235,8 @@ window.closeWelcomeModal = function() {
             window.PlayerData.unclaimed = 0.0;
             window.userState.base_unclaimed = 0.0;
             window.PlayerData.base_unclaimed = 0.0;
+            window.userState.last_claim_time = new Date(getAdjustedNowMs()).toISOString();
+            window.PlayerData.last_claim_time = new Date(getAdjustedNowMs()).toISOString();
             window.updateFarmUI();
         }
 
