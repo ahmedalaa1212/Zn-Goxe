@@ -692,7 +692,14 @@ window.loadZnxWalletData = async function() {
 
         const leaderboard = res.leaderboard || res.users || res.data || [];
         const myRank = res.my_rank ?? res.user_rank ?? '#--';
-        const myBal = res.my_balance ?? window.userState?.balance ?? 0;
+        const myBal = res.my_balance ?? res.balance ?? window.userState?.balance ?? 0;
+
+        // تحديث الرصيد الحقيقي للمستخدم مباشرة في userState
+        if (res.my_balance !== undefined && !isNaN(parseFloat(res.my_balance))) {
+            window.userState.balance = parseFloat(res.my_balance);
+        } else if (res.balance !== undefined && !isNaN(parseFloat(res.balance))) {
+            window.userState.balance = parseFloat(res.balance);
+        }
 
         // تحديث ترتيب المستخدم الشخصي ورصيده
         if (myRankVal) myRankVal.innerText = (typeof myRank === 'number') ? `#${myRank}` : myRank;
@@ -768,14 +775,17 @@ window.loadZnxWalletData = async function() {
     }
 };
 
-// التوافق مع الاستدعاءات القديمة لـ Leaderboard
+// التوافق مع جميع الاستدعاءات القديمة والجديدة لـ Leaderboard ومحفظة ZNX
 window.loadLeaderboardData = window.loadZnxWalletData;
 window.onLeaderboardTabOpen = window.loadZnxWalletData;
 window.initLeaderboardView = window.loadZnxWalletData;
 window.initZnxWalletView = window.loadZnxWalletData;
+if (typeof window.initZnxWallet !== 'function') {
+    window.initZnxWallet = window.loadZnxWalletData;
+}
 
 // ==========================================
-// 10. التنقل الديناميكي المحصن واحتواء الهياكل المطلوبة (محثة لتبويب znx_wallet)
+// 10. التنقل الديناميكي المحصن واحتواء الهياكل المطلوبة (مُحدثة لتبويب znx_wallet)
 // ==========================================
 const loadedModules = new Set();
 const pendingLoads = new Map();
@@ -1031,10 +1041,15 @@ window.switchView = async function(viewName) {
             else if (typeof window.initOffersView === 'function') await window.initOffersView();
             else if (typeof window.loadOffersList === 'function') await window.loadOffersList();
         } else if (cleanViewName === 'znx_wallet') {
-            if (window.znxWalletModule && typeof window.znxWalletModule.init === 'function') {
-                window.znxWalletModule.init();
+            if (typeof window.initZnxWallet === 'function') {
+                try { window.initZnxWallet(); } catch(e) { console.error("initZnxWallet Error:", e); }
             }
-            if (typeof window.loadZnxWalletData === 'function') await window.loadZnxWalletData();
+            if (window.znxWalletModule && typeof window.znxWalletModule.init === 'function') {
+                try { window.znxWalletModule.init(); } catch(e) { console.error("znxWalletModule Error:", e); }
+            }
+            if (typeof window.loadZnxWalletData === 'function') {
+                await window.loadZnxWalletData();
+            }
         } else if (cleanViewName === 'settings') {
             if (typeof window.initSettingsView === 'function') window.initSettingsView();
         }
