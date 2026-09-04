@@ -87,10 +87,10 @@ function updateGlobalStatsUI(globalTotal, maxGlobal) {
     const barEl = document.getElementById('globalProgressBar');
 
     const total = globalTotal || 0;
-    const max = maxGlobal || 35000000;
+    const max = maxGlobal || 32500000;
     const pct = Math.min(100, Math.max(0, (total / max) * 100));
     
-    if (ratioEl) ratioEl.innerHTML = `<span dir="ltr">${formatCoins(total, 0)} / ${(max / 1000000).toFixed(0)}M ZNX</span>`;
+    if (ratioEl) ratioEl.innerHTML = `<span dir="ltr">${formatCoins(total, 0)} / ${(max / 1000000).toFixed(1)}M ZNX</span>`;
     if (barEl) barEl.style.width = `${pct}%`;
 }
 
@@ -236,7 +236,7 @@ function renderLeaderboardUI(list, myRank) {
 
     if (list.length >= 1) podium.innerHTML += createPodiumCard(list[0], 1, 'podium-1');
     if (list.length >= 2) podium.innerHTML += createPodiumCard(list[1], 2, 'podium-2');
-    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[3 - 1], 3, 'podium-3');
+    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
 
     for (let i = 3; i < list.length; i++) {
         const safeName = escapeHTML(list[i].name || list[i].first_name || 'لاعب');
