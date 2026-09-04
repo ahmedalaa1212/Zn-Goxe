@@ -140,6 +140,7 @@ def get_player_data():
         user_data["auto_claimed"] = auto_claimed
         user_data["auto_claimed_amount"] = round(auto_claimed_amount, 4)
         user_data["is_auto_bot_active"] = is_auto_bot_active
+        user_data["bot_active"] = is_auto_bot_active  # <--- إضافة هذا السطر لمنع ظهور البوت بدون اشتراك
         user_data["auto_collect_threshold"] = 0.80
 
         welcome_seen = to_bool(user_data.get("welcome_seen", False))
