@@ -1,62 +1,68 @@
-const USER_ID = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "demo_user";
-let currentLivePrice = 0.05;
+const USER_ID = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "5102387551";
+let userData = { balance: 0, usd_balance: 0, znx_balance: 0 };
+let currentTier = null;
+let currentLivePrice = 0.0524;
 
-// بدء تحديث السعر والمؤشرات فور تحميل الصفحة
 document.addEventListener('DOMContentLoaded', () => {
-    loadData();
-    setInterval(updatePriceTicker, 1000); // تحديث السعر كل ثانية
+    initApp();
+    setInterval(tickLivePrice, 1000); // تحديث السعر بالثانية
 });
 
-function updatePriceTicker() {
-    // محاكاة التذبذب اللحظي المباشر للسعر بالثانية
-    const fluctuation = (Math.random() - 0.49) * 0.0008;
-    currentLivePrice = Math.max(0.01, currentLivePrice + fluctuation);
-    document.getElementById('livePrice').innerText = `$${currentLivePrice.toFixed(4)}`;
-}
-
-async function loadData() {
+async function initApp() {
     try {
-        const res = await fetch(`/api/leaderboard/data?user_id=${USER_ID}`);
+        const res = await fetch(`/api/leaderboard/init?user_id=${USER_ID}`);
         const data = await res.json();
         
         if (data.success) {
+            userData = data.user;
+            currentTier = data.current_tier;
             currentLivePrice = data.live_price;
-            
-            // تحديث المجمّع الكلي
-            const total = data.global_total;
-            const max = data.max_limit;
-            const percentage = Math.min(100, (total / max) * 100);
-            
-            document.getElementById('poolText').innerText = `${total.toLocaleString()} / ${max.toLocaleString()} ZNX`;
-            document.getElementById('poolProgress').style.width = `${percentage}%`;
 
-            renderLeaderboard(data.leaderboard);
+            updateBalancesUI();
+            renderTiersUI(data.tiers_all);
+            renderLeaderboardUI(data.leaderboard);
         }
     } catch (err) {
-        console.error("خطأ في تحميل البيانات:", err);
+        console.error("خطأ في الاتصال بالسيرفر:", err);
     }
 }
 
-function calculatePreview() {
-    const pts = parseFloat(document.getElementById('pointsInput').value) || 0;
-    let rate = 10;
+function updateBalancesUI() {
+    document.getElementById('znBalance').innerText = Math.floor(userData.balance).toLocaleString();
+    document.getElementById('usdBalance').innerText = `$${userData.usd_balance.toFixed(2)}`;
+    document.getElementById('znxBalance').innerText = userData.znx_balance.toFixed(4);
+}
 
-    if (pts >= 25000000000) rate = 4000;
-    else if (pts >= 8000000000) rate = 1600;
-    else if (pts >= 2000000000) rate = 600;
-    else if (pts >= 500000000) rate = 200;
-    else if (pts >= 100000000) rate = 80;
-    else if (pts >= 20000000) rate = 30;
-    else rate = 10;
+function tickLivePrice() {
+    // التذبذب اللحظي لسعر العملة بالثانية
+    const delta = (Math.random() - 0.48) * 0.0004;
+    currentLivePrice = Math.max(0.01, currentLivePrice + delta);
+    document.getElementById('livePrice').innerText = `$${currentLivePrice.toFixed(4)}`;
+}
 
-    const znxGained = pts / rate;
+function selectOption(type) {
+    const input = document.getElementById('convertInput');
+    if (type === 'max') {
+        input.value = userData.balance;
+    } else if (type === 'half') {
+        input.value = Math.floor(userData.balance / 2);
+    } else if (type === 'min') {
+        input.value = currentTier ? currentTier.rate : 10;
+    }
+    onInputChange();
+}
+
+function onInputChange() {
+    const points = parseFloat(document.getElementById('convertInput').value) || 0;
+    const rate = currentTier ? currentTier.rate : 10;
+    const znxGained = points / rate;
     document.getElementById('znxPreview').innerText = `${znxGained.toFixed(4)} ZNX`;
 }
 
-async function submitConversion() {
-    const points = parseFloat(document.getElementById('pointsInput').value);
-    if (!points || points <= 0) {
-        alert("يرجى إدخال كمية نقاط صالحة");
+async function submitConvert() {
+    const amount = parseFloat(document.getElementById('convertInput').value);
+    if (!amount || amount <= 0) {
+        alert("يرجى تحديد كمية صالحة للتحويل");
         return;
     }
 
@@ -64,52 +70,72 @@ async function submitConversion() {
         const res = await fetch('/api/leaderboard/convert', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: USER_ID, points: points })
+            body: JSON.stringify({ user_id: USER_ID, amount: amount })
         });
-        
         const result = await res.json();
+
         if (result.success) {
             alert(`تم التحويل بنجاح! حصلت على ${result.data.znx_gained} ZNX`);
-            document.getElementById('pointsInput').value = '';
-            calculatePreview();
-            loadData();
+            document.getElementById('convertInput').value = '';
+            onInputChange();
+            initApp(); // إعادة تحميل الأرصدة والمتصدرين
         } else {
             alert(`فشل التحويل: ${result.message}`);
         }
     } catch (err) {
-        alert("حدث خطأ أثناء الاتصال بالسيرفر.");
+        alert("حدث خطأ أثناء إجراء التحويل.");
     }
 }
 
-function renderLeaderboard(list) {
-    const podiumArea = document.getElementById('podiumArea');
-    const leaderboardList = document.getElementById('leaderboardList');
-    
-    podiumArea.innerHTML = '';
-    leaderboardList.innerHTML = '';
+function renderTiersUI(tiers) {
+    const container = document.getElementById('tiersContainer');
+    container.innerHTML = '';
 
-    // عرض أول 3 في المنصة
-    if (list[0]) podiumArea.innerHTML += createPodiumCard(list[0], 1, 'rank-1');
-    if (list[1]) podiumArea.innerHTML += createPodiumCard(list[1], 2, 'rank-2');
-    if (list[2]) podiumArea.innerHTML += createPodiumCard(list[2], 3, 'rank-3');
+    tiers.forEach(t => {
+        const isCurrent = currentTier && currentTier.tier === t.tier;
+        container.innerHTML += `
+            <div class="tier-item ${isCurrent ? 'current' : ''}">
+                <div>
+                    <strong>${t.name}</strong> 
+                    ${isCurrent ? '<span class="tier-badge-active">شريحتك الحالية</span>' : ''}
+                    <div style="color: var(--text-muted); font-size: 0.75rem; margin-top:2px;">
+                        سعر التحويل: 1 ZNX = ${t.rate} ZN
+                    </div>
+                </div>
+                <div style="text-align: left; color: #38bdf8; font-weight: bold;">
+                    حصة الشريحة: ${(t.quota / 1000000).toFixed(1)}M
+                </div>
+            </div>
+        `;
+    });
+}
 
-    // باقي القائمة
+function renderLeaderboardUI(list) {
+    const podium = document.getElementById('podiumContainer');
+    const rankings = document.getElementById('rankingsContainer');
+    podium.innerHTML = '';
+    rankings.innerHTML = '';
+
+    if (list.length >= 1) podium.innerHTML += createPodiumCard(list[0], 1, 'podium-1');
+    if (list.length >= 2) podium.innerHTML += createPodiumCard(list[1], 2, 'podium-2');
+    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
+
     for (let i = 3; i < list.length; i++) {
-        leaderboardList.innerHTML += `
-            <div class="list-item">
+        rankings.innerHTML += `
+            <div class="leader-row">
                 <span>#${i + 1} ${list[i].name}</span>
-                <span style="color: #38bdf8; font-weight: bold;">${list[i].znx_balance} ZNX</span>
+                <span style="color:#38bdf8; font-weight:bold;">${list[i].total_znx_earned} ZNX</span>
             </div>
         `;
     }
 }
 
-function createPodiumCard(user, rank, rankClass) {
+function createPodiumCard(item, rank, pClass) {
     return `
-        <div class="podium-card ${rankClass}">
-            <div style="font-weight: bold;">#${rank}</div>
-            <div style="font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis;">${user.name}</div>
-            <div style="color: #38bdf8; font-size: 0.8rem; font-weight: bold;">${user.znx_balance} ZNX</div>
+        <div class="podium-item ${pClass}">
+            <div style="font-size:0.75rem; color:var(--text-muted);"> المركز #${rank}</div>
+            <div style="font-weight:bold; font-size:0.85rem; margin:3px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.name}</div>
+            <div style="color:#38bdf8; font-weight:bold; font-size:0.8rem;">${item.total_znx_earned} ZNX</div>
         </div>
     `;
 }
