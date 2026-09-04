@@ -30,50 +30,70 @@ def to_bool(val):
     return False
 
 
+def get_expiration_dt(raw_val):
+    """استخراج كائن datetime بالتوقيت العالمي UTC من مختلف صيغ التواريخ بصورة آمنة"""
+    if not raw_val:
+        return None
+    try:
+        if isinstance(raw_val, (int, float)):
+            return datetime.fromtimestamp(raw_val, tz=timezone.utc)
+        if isinstance(raw_val, datetime):
+            if raw_val.tzinfo is None:
+                return raw_val.replace(tzinfo=timezone.utc)
+            return raw_val
+        s = str(raw_val).replace('Z', '+00:00')
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception as e:
+        print(f"⚠️ Error parsing expiration date in API: {e}")
+        return None
+
+
 def calculate_user_effective_stats(user_data, game_settings, now):
     """
     احتساب السعة الكلية والخصائص الفعالة للمستخدم ديناميكياً
-    مع حساب تفعيل مضاعفة السعة لـ VIP والبوت التلقائي وإلغاء التفعيل فور انتهاء الصلاحية
+    مع حساب تفعيل مضاعفة السعة لـ VIP والبوت التلقائي والتحقق الدقيق من تاريخ الانتهاء
     """
     storage_configs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS.get("storage_capacities", {})
     storage_lvl = str(user_data.get("storage_level", 0))
     
     # 1. جلب السعة الأساسية للمستوى الحالي
     lvl_info = storage_configs.get(storage_lvl, {})
-    base_cap = float(lvl_info.get("capacity", lvl_info.get("cap", 0.5)))
+    if isinstance(lvl_info, dict):
+        base_cap = float(lvl_info.get("capacity", lvl_info.get("cap", 0.5)))
+    else:
+        base_cap = float(lvl_info or 0.5)
+
     extra_storage = float(user_data.get("extra_storage", 0.0))
     raw_cap = base_cap + extra_storage
 
-    # 2. التحقق من صلاحية باقة VIP ومضاعفة السعة والبوت التلقائي
+    # 2. التحقق من صلاحية باقة VIP ودقة وقت الانتهاء
     vip_status = user_data.get("vip_status", {})
     is_double_storage_active = False
     is_auto_bot_active = False
 
+    expires_at_raw = None
     if isinstance(vip_status, dict):
-        expires_at_raw = vip_status.get("expires_at")
-        is_expired = False
-        if expires_at_raw:
-            try:
-                if isinstance(expires_at_raw, str):
-                    exp_dt = datetime.fromisoformat(expires_at_raw.replace('Z', '+00:00'))
-                elif isinstance(expires_at_raw, datetime):
-                    exp_dt = expires_at_raw
-                else:
-                    exp_dt = None
+        expires_at_raw = vip_status.get("expires_at") or vip_status.get("vip_expires_at") or vip_status.get("bot_expires_at")
+    
+    if not expires_at_raw:
+        expires_at_raw = user_data.get("bot_expires_at") or user_data.get("expires_at") or user_data.get("vip_expires_at")
 
-                if exp_dt and exp_dt <= now:
-                    is_expired = True
-            except Exception as e:
-                print(f"Error parsing VIP expiration: {e}")
-        else:
-            # في حال عدم وجود تاريخ انتهاء صريح أو كانت الباقة غير مفعّلة
-            is_expired = True
+    exp_dt = get_expiration_dt(expires_at_raw)
+    is_expired = (exp_dt is not None and exp_dt <= now)
 
-        if not is_expired:
+    if not is_expired:
+        if isinstance(vip_status, dict):
             if to_bool(vip_status.get("double_storage", False)):
                 is_double_storage_active = True
             if to_bool(vip_status.get("auto_bot", False)):
                 is_auto_bot_active = True
+
+        raw_bot_flag = to_bool(user_data.get("bot_active", user_data.get("has_bot", user_data.get("is_auto_bot_active", False))))
+        if raw_bot_flag:
+            is_auto_bot_active = True
 
     # 3. تطبيق مضاعفة السعة وتحديث خصائص البوت وحالة التفعيل الحقيقية
     effective_max_cap = raw_cap * 2.0 if is_double_storage_active else raw_cap
@@ -90,7 +110,7 @@ def calculate_user_effective_stats(user_data, game_settings, now):
 @farm_bp.route('/farm/player_data', methods=['GET', 'POST'])
 @farm_bp.route('/api/farm/player_data', methods=['GET', 'POST'])
 def get_player_data():
-    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية من Firebase وحساب قيم VIP والتجميع التلقائي"""
+    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية وإرجاع auto_claimed_amount المحسوبة أوفلاين في السيرفر"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success: 
@@ -98,54 +118,20 @@ def get_player_data():
     
     user_id_str = str(telegram_id)
     try:
+        # تقوم get_or_create_user_farm_data بإجراء الحساب التراكمي الأوفلاين وإضافة الناتج للرصيد وتحديث auto_claimed_amount
         user_data, game_settings, now = get_or_create_user_farm_data(user_id_str)
         
-        # حساب وتحديث السعة والسرعة الفعالة للمستخدم وفحص صلاحية VIP أولاً
+        # حساب وتحديث السعة والسرعة الفعالة للمستخدم وفحص صلاحية VIP
         user_data = calculate_user_effective_stats(user_data, game_settings, now)
 
-        max_cap = float(user_data.get("max_cap", 0.5))
         is_auto_bot_active = bool(user_data.get("is_auto_bot_active", False))
-        
-        # جلب أو احتساب كمية التجميع التلقائي للبوت عند وصول المخزن إلى 80% فأكثر (0.80 * max_cap)
         auto_claimed_amount = float(user_data.get("auto_claimed_amount", 0.0))
-        auto_claimed = bool(user_data.get("auto_claimed", False) or auto_claimed_amount > 0)
+        auto_claimed = auto_claimed_amount > 0
 
-        # عدم إجراء أي جمع تلقائي كطبقة حماية ثانية إلا إذا كان البوت فعالاً وباقة VIP غير منتهية
-        if is_auto_bot_active and not auto_claimed:
-            last_claim_raw = user_data.get("last_claim_time")
-            mining_rate = float(user_data.get("mining_rate", user_data.get("rate", 0.0001))) # معدل التعدين لكل ثانية
-            
-            if last_claim_raw:
-                try:
-                    if isinstance(last_claim_raw, str):
-                        last_claim_dt = datetime.fromisoformat(last_claim_raw.replace('Z', '+00:00'))
-                    elif isinstance(last_claim_raw, datetime):
-                        last_claim_dt = last_claim_raw
-                    else:
-                        last_claim_dt = None
-
-                    if last_claim_dt:
-                        elapsed_seconds = max(0, (now - last_claim_dt).total_seconds())
-                        accumulated = min(elapsed_seconds * mining_rate, max_cap)
-                        
-                        # شرط التجميع التلقائي: امتلاء المخزن بنسبة 80% على الأقل
-                        if accumulated >= (0.80 * max_cap) and accumulated > 0:
-                            claim_res = claim_mined_tokens_db(user_id_str)
-                            if claim_res.get("success"):
-                                auto_claimed_amount = float(claim_res.get("claimed", accumulated))
-                                auto_claimed = True
-                                # إعادة تحديث بيانات المستخدم بعد عملية الجمع التلقائي
-                                user_data, _, _ = get_or_create_user_farm_data(user_id_str)
-                                user_data = calculate_user_effective_stats(user_data, game_settings, now)
-                except Exception as e:
-                    print(f"Auto-collect calculation error: {e}")
-
-        # تضمين متغيرات التجميع التلقائي للبوت في بيانات اللاعب للواجهة
         user_data["auto_claimed"] = auto_claimed
-        user_data["auto_claimed_amount"] = round(auto_claimed_amount, 4)
+        user_data["auto_claimed_amount"] = round(auto_claimed_amount, 8)
         user_data["is_auto_bot_active"] = is_auto_bot_active
         user_data["bot_active"] = is_auto_bot_active
-        user_data["auto_collect_threshold"] = 0.80
 
         welcome_seen = to_bool(user_data.get("welcome_seen", False))
         user_data["welcome_seen"] = welcome_seen
@@ -179,9 +165,8 @@ def get_player_data():
             "server_time": now.isoformat(),
             "cooldown_seconds": cooldown_seconds,
             "auto_claimed": auto_claimed,
-            "auto_claimed_amount": round(auto_claimed_amount, 4),
+            "auto_claimed_amount": round(auto_claimed_amount, 8),
             "is_auto_bot_active": is_auto_bot_active,
-            "auto_collect_threshold": 0.80,
             "game_config": {
                 "daily_rewards": parsed_rewards,
                 "upgrade_costs": upgrade_costs,
@@ -224,7 +209,7 @@ def dismiss_welcome():
 @farm_bp.route('/farm/claim', methods=['POST'])
 @farm_bp.route('/api/farm/claim', methods=['POST'])
 def claim_mined_tokens():
-    """تجميع المحصول المعدن"""
+    """تجميع المحصول المعدن يدوياً"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
