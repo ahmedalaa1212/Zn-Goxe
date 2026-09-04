@@ -33,7 +33,7 @@ def to_bool(val):
 def calculate_user_effective_stats(user_data, game_settings, now):
     """
     احتساب السعة الكلية والخصائص الفعالة للمستخدم ديناميكياً
-    مع حساب تفعيل مضاعفة السعة لـ VIP والبوت التلقائي
+    مع حساب تفعيل مضاعفة السعة لـ VIP والبوت التلقائي وإلغاء التفعيل فور انتهاء الصلاحية
     """
     storage_configs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS.get("storage_capacities", {})
     storage_lvl = str(user_data.get("storage_level", 0))
@@ -44,7 +44,7 @@ def calculate_user_effective_stats(user_data, game_settings, now):
     extra_storage = float(user_data.get("extra_storage", 0.0))
     raw_cap = base_cap + extra_storage
 
-    # 2. التحقق من صلاحية باقة VIP ومضاعفة السعة
+    # 2. التحقق من صلاحية باقة VIP ومضاعفة السعة والبوت التلقائي
     vip_status = user_data.get("vip_status", {})
     is_double_storage_active = False
     is_auto_bot_active = False
@@ -65,6 +65,9 @@ def calculate_user_effective_stats(user_data, game_settings, now):
                     is_expired = True
             except Exception as e:
                 print(f"Error parsing VIP expiration: {e}")
+        else:
+            # في حال عدم وجود تاريخ انتهاء صريح أو كانت الباقة غير مفعّلة
+            is_expired = True
 
         if not is_expired:
             if to_bool(vip_status.get("double_storage", False)):
@@ -72,12 +75,13 @@ def calculate_user_effective_stats(user_data, game_settings, now):
             if to_bool(vip_status.get("auto_bot", False)):
                 is_auto_bot_active = True
 
-    # 3. تطبيق مضاعفة السعة في حال تفعيل VIP
+    # 3. تطبيق مضاعفة السعة وتحديث خصائص البوت وحالة التفعيل الحقيقية
     effective_max_cap = raw_cap * 2.0 if is_double_storage_active else raw_cap
     
     user_data["max_cap"] = round(effective_max_cap, 4)
     user_data["is_double_storage_active"] = is_double_storage_active
     user_data["is_auto_bot_active"] = is_auto_bot_active
+    user_data["bot_active"] = is_auto_bot_active  # توحيد المتغير لضمان مزامنة الواجهة وقاعدة البيانات
 
     return user_data
 
@@ -96,7 +100,7 @@ def get_player_data():
     try:
         user_data, game_settings, now = get_or_create_user_farm_data(user_id_str)
         
-        # حساب وتحديث السعة والسرعة الفعالة للمستخدم (تطبيق مضاعفة VIP)
+        # حساب وتحديث السعة والسرعة الفعالة للمستخدم وفحص صلاحية VIP أولاً
         user_data = calculate_user_effective_stats(user_data, game_settings, now)
 
         max_cap = float(user_data.get("max_cap", 0.5))
@@ -106,7 +110,7 @@ def get_player_data():
         auto_claimed_amount = float(user_data.get("auto_claimed_amount", 0.0))
         auto_claimed = bool(user_data.get("auto_claimed", False) or auto_claimed_amount > 0)
 
-        # في حال عدم التجميع المسبق في farm_db، نقوم بفحص شرط الـ 80% هنا كطبقة حماية إضافية
+        # عدم إجراء أي جمع تلقائي كطبقة حماية ثانية إلا إذا كان البوت فعالاً وباقة VIP غير منتهية
         if is_auto_bot_active and not auto_claimed:
             last_claim_raw = user_data.get("last_claim_time")
             mining_rate = float(user_data.get("mining_rate", user_data.get("rate", 0.0001))) # معدل التعدين لكل ثانية
@@ -140,7 +144,7 @@ def get_player_data():
         user_data["auto_claimed"] = auto_claimed
         user_data["auto_claimed_amount"] = round(auto_claimed_amount, 4)
         user_data["is_auto_bot_active"] = is_auto_bot_active
-        user_data["bot_active"] = is_auto_bot_active  # <--- إضافة هذا السطر لمنع ظهور البوت بدون اشتراك
+        user_data["bot_active"] = is_auto_bot_active
         user_data["auto_collect_threshold"] = 0.80
 
         welcome_seen = to_bool(user_data.get("welcome_seen", False))
@@ -362,7 +366,6 @@ def get_user_friends():
             from farm.farm_db import get_user_friends_db
             friends_data = get_user_friends_db(user_id_str)
         except ImportError:
-            # fallback في حال عدم الربط المباشر مع farm_db
             user_data, _, _ = get_or_create_user_farm_data(user_id_str)
             friends_data = {
                 "friends": user_data.get("referrals_list", []),
