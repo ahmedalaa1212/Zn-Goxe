@@ -89,7 +89,8 @@ def create_default_user_data_dict(user_id_str, game_settings, now_dt):
         "upgrades": {},
         "upgrades_count": 0,
         "welcome_seen": False,
-        "is_new_user": True
+        "is_new_user": True,
+        "bot_active": True
     }
 
 
@@ -229,7 +230,7 @@ def dismiss_welcome_db(user_id_str):
 
 
 def get_or_create_user_farm_data(user_id_str):
-    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة وتطبيق التصحيح التلقائي"""
+    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة وتطبيق التجميع التلقائي والتصحيح"""
     db = get_db()
     user_ref = db.collection('users').document(user_id_str)
     user_doc = user_ref.get()
@@ -269,6 +270,7 @@ def get_or_create_user_farm_data(user_id_str):
         if "last_claim_ad_date" not in user_data: auto_fix["last_claim_ad_date"] = None
         if "last_claim_time" not in user_data or not user_data.get("last_claim_time"):
             auto_fix["last_claim_time"] = now.isoformat()
+        if "bot_active" not in user_data: auto_fix["bot_active"] = True
             
         if "upgrades_count" not in user_data:
             upgrades_dict = user_data.get("upgrades", {})
@@ -289,8 +291,55 @@ def get_or_create_user_farm_data(user_id_str):
     user_data["mined_points"] = round(float(user_data.get("mined_points", user_data.get("total_mined", 0.0))), 8)
     user_data["total_mined"] = user_data["mined_points"]
     user_data["base_unclaimed"] = round(float(user_data.get("base_unclaimed", 0.0)), 8)
-    user_data["unclaimed"] = calculate_accrued_mined(user_data, now, expected_max_cap)
     
+    # حساب الكمية المعدنة الحالية في المخزن
+    raw_unclaimed = calculate_accrued_mined(user_data, now, expected_max_cap)
+    bot_active = to_bool(user_data.get("bot_active", user_data.get("has_bot", True)))
+    auto_claimed_amount = 0.0
+
+    # منطق التجميع التلقائي بواسطة البوت عند وصول المخزن لنسبة 80% أو أكثر
+    threshold = 0.8 * expected_max_cap
+    if bot_active and expected_max_cap > 0 and raw_unclaimed >= threshold and raw_unclaimed > 0:
+        auto_claimed_amount = raw_unclaimed
+        user_data["balance"] = round(user_data["balance"] + auto_claimed_amount, 8)
+        user_data["mined_points"] = round(user_data["mined_points"] + auto_claimed_amount, 8)
+        user_data["total_mined"] = user_data["mined_points"]
+        user_data["base_unclaimed"] = 0.0
+        user_data["unclaimed"] = 0.0
+        user_data["last_claim_time"] = now.isoformat()
+
+        try:
+            user_ref.update({
+                "balance": user_data["balance"],
+                "mined_points": user_data["mined_points"],
+                "total_mined": user_data["total_mined"],
+                "base_unclaimed": 0.0,
+                "unclaimed": 0.0,
+                "last_claim_time": user_data["last_claim_time"]
+            })
+
+            # إرسال مكافأة الإحالة إن وجدت
+            referrer_id = user_data.get("referrer_id") or user_data.get("referred_by") or user_data.get("invited_by")
+            if referrer_id and auto_claimed_amount > 0:
+                try:
+                    from friends.friends_db import add_referral_reward
+                    add_referral_reward(
+                        referrer_id=referrer_id,
+                        user_id=user_id_str,
+                        mined_amount=auto_claimed_amount,
+                        user_upgrades_count=user_data.get("upgrades_count"),
+                        user_name=user_data.get("first_name") or user_data.get("name") or user_data.get("username")
+                    )
+                except Exception as ref_e:
+                    print(f"⚠️ Error adding referral reward on auto-claim: {ref_e}")
+        except Exception as e:
+            print(f"⚠️ Error performing auto-claim update: {e}")
+    else:
+        user_data["unclaimed"] = raw_unclaimed
+
+    user_data["auto_claimed_amount"] = auto_claimed_amount
+    user_data["bot_active"] = bot_active
+
     is_welcome_seen = to_bool(user_data.get("welcome_seen", False))
     user_data["welcome_seen"] = is_welcome_seen
     user_data["is_new_user"] = not is_welcome_seen
@@ -637,8 +686,6 @@ def claim_daily_reward_db(user_id_str):
 
         raw_daily_day = int(user_data.get("daily_day") or user_data.get("daily_streak") or 1)
 
-        # إذا كانت المطالبة السابقة بالأمس، يزيد اليوم حتى 30 ويستقر عندها (40 ZN)
-        # إذا انقطع المستخدم لأكثر من 24+ ساعة (أكثر من يوم)، ينقضي التتابع ويعود لليوم 1 (0.2 ZN)
         if last_daily_claim == yesterday_str:
             effective_daily_day = min(raw_daily_day + 1, 30) if raw_daily_day < 30 else 30
         else:
@@ -700,7 +747,6 @@ def claim_daily_boost_db(user_id_str):
         today_str = now.strftime('%Y-%m-%d')
         last_boost_str = user_data.get("last_boost_time")
 
-        # التحقق من فترة الانتظار (3 ساعات = 10,800 ثانية من وقت التفعيل)
         if last_boost_str:
             try:
                 if isinstance(last_boost_str, (int, float)):
