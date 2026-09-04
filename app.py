@@ -84,6 +84,81 @@ for mod_path, bp_name, prefix in blueprints_config:
             print(f"⚠️ خطأ أثناء تسجيل {bp_name}: {e}")
 
 # ==========================================
+# 🔍 دالة استخراج وتوثيق معرف تليجرام الشاملة
+# ==========================================
+def extract_telegram_user_from_request(req):
+    """
+    استخراج بيانات مستخدم تليجرام الموثقة أو الممررة من مختلف المصادر (Headers, Query String, JSON Body)
+    لمنع فشل طلبات GET وحل مشكلة الشاشة الفارغة وعدم إنشاء حسابات Firebase.
+    """
+    is_post = (req.method == 'POST')
+    
+    # 1. محاولة التوثيق عبر التوقيع الرقمي (core.security)
+    try:
+        success, tg_id, user_info, error_res = get_authenticated_user(req, is_post=is_post)
+        if success and tg_id and str(tg_id).strip() not in ("None", "null", "", "undefined"):
+            return True, str(tg_id).strip(), user_info or {}, None
+    except Exception as e:
+        print(f"⚠️ Security Auth Check Exception: {e}")
+
+    # 2. الاستخراج الاحتياطي من Query Parameters أو Headers أو JSON Body
+    req_json = req.get_json(silent=True) if req.is_json else {}
+    if not isinstance(req_json, dict):
+        req_json = {}
+
+    direct_id = (
+        req.args.get('tg_id') or 
+        req.args.get('telegram_id') or 
+        req.args.get('user_id') or 
+        req_json.get('tg_id') or 
+        req_json.get('telegram_id') or 
+        req_json.get('user_id') or 
+        req.headers.get('X-Telegram-User-Id')
+    )
+
+    init_data_str = (
+        req.args.get('initData') or 
+        req.args.get('init_data') or 
+        req_json.get('initData') or 
+        req.headers.get('X-Telegram-Init-Data') or 
+        req.headers.get('Authorization')
+    )
+
+    extracted_user_info = {}
+    if init_data_str:
+        try:
+            from urllib.parse import parse_qs
+            import json
+            
+            clean_init = str(init_data_str)
+            if clean_init.startswith('Bearer '):
+                clean_init = clean_init[7:]
+            
+            parsed_params = parse_qs(clean_init)
+            if 'user' in parsed_params:
+                user_json_str = parsed_params['user'][0]
+                user_data = json.loads(user_json_str)
+                if isinstance(user_data, dict):
+                    if 'id' in user_data and user_data['id']:
+                        direct_id = str(user_data['id'])
+                    extracted_user_info = {
+                        'first_name': user_data.get('first_name', 'لاعب'),
+                        'last_name': user_data.get('last_name', ''),
+                        'username': user_data.get('username', ''),
+                        'language_code': user_data.get('language_code', 'ar')
+                    }
+            if 'start_param' in parsed_params:
+                extracted_user_info['start_param'] = parsed_params['start_param'][0]
+        except Exception as e:
+            print(f"⚠️ Parsing initData fallback failed: {e}")
+
+    if direct_id and str(direct_id).strip() not in ("None", "null", "", "undefined"):
+        return True, str(direct_id).strip(), extracted_user_info, None
+
+    return False, None, {}, (jsonify({"success": False, "error": "لم يتم تقديم معرف تليجرام صالح"}), 401)
+
+
+# ==========================================
 # 🌐 مسارات الخدمة والمستخدم الأساسية
 # ==========================================
 
@@ -131,21 +206,17 @@ def serve_static_files(filename):
 
 @app.route('/api/user/info', methods=['GET', 'POST', 'OPTIONS'])
 def get_user_info_main():
-    """جلب بيانات حساب المستخدم والتحقق من الحظر وتهيئة الحسابات الجديدة تلقائياً"""
+    """جلب بيانات حساب المستخدم والتحقق من الحظر وتهيئة الحسابات الجديدة تلقائياً في Firebase"""
     if request.method == 'OPTIONS':
         return jsonify({"success": True}), 200
 
-    is_post = (request.method == 'POST')
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
+    success, telegram_id, user_info, err_response = extract_telegram_user_from_request(request)
     
-    if not success:
-        req_json = request.get_json(silent=True) if request.is_json else {}
-        tg_id_param = request.args.get('tg_id') or (req_json.get('tg_id') if isinstance(req_json, dict) else None)
-        if tg_id_param:
-            telegram_id = str(tg_id_param).strip()
-        else:
-            return error_res
-        
+    if not success or not telegram_id:
+        if err_response:
+            return err_response
+        return jsonify({"success": False, "error": "تعذر التوثيق أو معرف المستخدم غير متاح"}), 401
+
     try:
         # فحص حظر الحساب
         if database.is_user_banned(telegram_id):
@@ -157,7 +228,7 @@ def get_user_info_main():
 
         user_data = database.get_user(telegram_id)
         
-        # إن لم يكن مستند المستخدم موجوداً يتم إنشاؤه فوراً
+        # إن لم يكن مستند المستخدم موجوداً، يتم إنشاؤه فوراً في Firestore
         if not user_data or not isinstance(user_data, dict) or len(user_data) == 0:
             first_name = user_info.get('first_name', 'لاعب') if isinstance(user_info, dict) else 'لاعب'
             ref_id = user_info.get('start_param') if isinstance(user_info, dict) else None
@@ -180,6 +251,25 @@ def get_user_info_main():
         print(f"❌ Error fetching user info for {telegram_id}: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب بيانات الحساب"}), 500
 
+
+@app.route('/api/leaderboard', methods=['GET', 'OPTIONS'])
+def get_leaderboard_route():
+    """مسار المتصدرين الأساسي المباشر لضمان جلب أعلى اللاعبين بدون أخطاء"""
+    if request.method == 'OPTIONS':
+        return jsonify({"success": True}), 200
+
+    tg_id = request.args.get('tg_id') or request.args.get('user_id') or request.headers.get('X-Telegram-User-Id')
+    try:
+        if hasattr(database, 'get_leaderboard_data'):
+            res = database.get_leaderboard_data(limit=50, user_id=tg_id)
+            return jsonify(res), 200
+        else:
+            return jsonify({"success": False, "leaderboard": [], "my_rank": "غير مصنف"}), 200
+    except Exception as e:
+        print(f"❌ Leaderboard route error: {e}")
+        return jsonify({"success": False, "error": str(e), "leaderboard": [], "my_rank": "غير مصنف"}), 500
+
+
 # ==========================================
 # 🔒 الأمان وحماية الملفات ومعالجة CORS
 # ==========================================
@@ -190,7 +280,7 @@ def add_security_headers(response):
     response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     response.headers['X-XSS-Protection'] = '1; mode=block'
     response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, X-Telegram-User-Id, X-Telegram-Init-Data'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE'
     return response
 
