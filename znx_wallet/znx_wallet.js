@@ -1,3 +1,19 @@
+/**
+ * 💎 ZNX Wallet Engine (Front-end Module)
+ * إدارة محفظة ZNX، تحويل النقاط، وعرض الترتيب والمتصدرين
+ */
+
+// 🛡️ دالة تنظيف النصوص للوقاية من ثغرات XSS
+function escapeHTML(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 function getUserId() {
     if (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
         return String(window.Telegram.WebApp.initDataUnsafe.user.id);
@@ -10,16 +26,7 @@ let USER_ID = getUserId();
 let userData = { balance: 0, usd_balance: 0, znx_balance: 0, total_znx_earned: 0 };
 let currentTier = null;
 let currentLivePrice = 0.0524;
-
-document.addEventListener('DOMContentLoaded', () => {
-    if (window.Telegram?.WebApp) {
-        window.Telegram.WebApp.ready();
-        window.Telegram.WebApp.expand();
-    }
-    USER_ID = getUserId();
-    initApp();
-    setInterval(tickLivePrice, 1000);
-});
+let livePriceInterval = null;
 
 function formatCoins(val, decimals = 2) {
     const num = parseFloat(val) || 0;
@@ -33,52 +40,73 @@ function formatCoins(val, decimals = 2) {
 }
 
 async function initApp() {
+    USER_ID = getUserId();
+    const initData = window.Telegram?.WebApp?.initData || '';
+
     try {
-        const res = await fetch(`/api/leaderboard/init?user_id=${USER_ID}`);
+        const res = await fetch(`/api/znx-wallet/data?user_id=${encodeURIComponent(USER_ID)}&initData=${encodeURIComponent(initData)}`, {
+            headers: {
+                'X-Telegram-User-Id': USER_ID,
+                'X-Telegram-Init-Data': initData
+            }
+        });
+        
         if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
         
         const data = await res.json();
         
         if (data.success) {
-            userData = data.user;
-            currentTier = data.current_tier;
-            currentLivePrice = data.live_price;
+            userData = data.user || data.player || userData;
+            currentTier = data.current_tier || data.tier || currentTier;
+            currentLivePrice = data.live_price || currentLivePrice;
 
             updateBalancesUI();
             updateGlobalStatsUI(data.global_total, data.max_global_znx);
-            renderTiersUI(data.tiers_all);
+            renderTiersUI(data.tiers_all || data.tiers);
             renderLeaderboardUI(data.leaderboard);
         } else {
-            console.error("فشل الجلب:", data.message);
+            console.error("⚠️ فشل جلب بيانات ZNX Wallet:", data.message || data.error);
         }
     } catch (err) {
-        console.error("خطأ الاتصال بالسيرفر:", err);
+        console.error("❌ خطأ الاتصال بسيرفر ZNX Wallet:", err);
     }
 }
 
 function updateBalancesUI() {
-    document.getElementById('znBalance').innerHTML = formatCoins(userData.balance || 0, 2);
-    document.getElementById('usdBalance').innerHTML = `$${formatCoins(userData.usd_balance || 0, 2)}`;
-    document.getElementById('znxBalance').innerHTML = formatCoins(userData.znx_balance || 0, 4);
+    const znEl = document.getElementById('znBalance');
+    const usdEl = document.getElementById('usdBalance');
+    const znxEl = document.getElementById('znxBalance');
+
+    if (znEl) znEl.innerHTML = formatCoins(userData.balance || 0, 2);
+    if (usdEl) usdEl.innerHTML = `$${formatCoins(userData.usd_balance || 0, 2)}`;
+    if (znxEl) znxEl.innerHTML = formatCoins(userData.znx_balance || 0, 4);
 }
 
 function updateGlobalStatsUI(globalTotal, maxGlobal) {
+    const ratioEl = document.getElementById('globalRatioText');
+    const barEl = document.getElementById('globalProgressBar');
+
     const total = globalTotal || 0;
     const max = maxGlobal || 35000000;
-    const pct = Math.min(100, (total / max) * 100);
+    const pct = Math.min(100, Math.max(0, (total / max) * 100));
     
-    document.getElementById('globalRatioText').innerHTML = `${formatCoins(total, 2)} / ${(max/1000000).toFixed(0)}M ZNX`;
-    document.getElementById('globalProgressBar').style.width = `${pct}%`;
+    if (ratioEl) ratioEl.innerHTML = `${formatCoins(total, 2)} / ${(max / 1000000).toFixed(0)}M ZNX`;
+    if (barEl) barEl.style.width = `${pct}%`;
 }
 
 function tickLivePrice() {
     const delta = (Math.random() - 0.48) * 0.0004;
     currentLivePrice = Math.max(0.01, currentLivePrice + delta);
-    document.getElementById('livePrice').innerText = `$${currentLivePrice.toFixed(4)}`;
+    const priceEl = document.getElementById('livePrice');
+    if (priceEl) {
+        priceEl.innerText = `$${currentLivePrice.toFixed(4)}`;
+    }
 }
 
 function selectOption(type) {
     const input = document.getElementById('convertInput');
+    if (!input) return;
+
     const bal = userData.balance || 0;
 
     if (type === 'max') {
@@ -92,52 +120,89 @@ function selectOption(type) {
 }
 
 function onInputChange() {
-    const points = parseFloat(document.getElementById('convertInput').value) || 0;
-    const rate = currentTier ? currentTier.rate : 10;
-    const znxGained = points / rate;
-    document.getElementById('znxPreview').innerHTML = `${formatCoins(znxGained, 4)} ZNX`;
+    const inputEl = document.getElementById('convertInput');
+    const previewEl = document.getElementById('znxPreview');
+    if (!inputEl || !previewEl) return;
+
+    const points = parseFloat(inputEl.value) || 0;
+    const rate = (currentTier && currentTier.rate) ? currentTier.rate : 10;
+    const znxGained = points > 0 ? (points / rate) : 0;
+
+    previewEl.innerHTML = `${formatCoins(znxGained, 4)} ZNX`;
 }
 
 async function submitConvert() {
-    const amount = parseFloat(document.getElementById('convertInput').value);
-    if (!amount || amount <= 0) {
-        alert("يرجى تحديد كمية صالحة للتحويل");
+    const inputEl = document.getElementById('convertInput');
+    const btnEl = document.getElementById('convertSubmitBtn') || document.querySelector('.convert-card .btn-action');
+    
+    if (!inputEl) return;
+
+    const amount = parseFloat(inputEl.value);
+    if (isNaN(amount) || amount <= 0) {
+        alert("يرجى تحديد كمية نقاط صالحة للتحويل");
         return;
     }
 
+    if (userData.balance && amount > userData.balance) {
+        alert("رصيدك الحالي غير كافٍ لإتمام العملية");
+        return;
+    }
+
+    // تعطيل الزر لمنع تكرار النقر
+    if (btnEl) btnEl.disabled = true;
+
     try {
-        const res = await fetch('/api/leaderboard/convert', {
+        const initData = window.Telegram?.WebApp?.initData || '';
+
+        const res = await fetch('/api/znx-wallet/convert', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: USER_ID, amount: amount })
+            headers: { 
+                'Content-Type': 'application/json',
+                'X-Telegram-Init-Data': initData,
+                'X-Telegram-User-Id': USER_ID
+            },
+            body: JSON.stringify({ 
+                user_id: USER_ID, 
+                tg_id: USER_ID,
+                initData: initData,
+                amount: amount 
+            })
         });
+
         const result = await res.json();
 
         if (result.success) {
-            alert(`تم التحويل بنجاح! حصلت على ${result.data.znx_gained} ZNX`);
-            document.getElementById('convertInput').value = '';
+            const gained = result.data?.znx_gained || result.znx_gained || 0;
+            alert(`تم التحويل بنجاح! حصلت على ${gained} ZNX`);
+            inputEl.value = '';
             onInputChange();
-            initApp();
+            await initApp();
         } else {
-            alert(`تنبيه: ${result.message}`);
+            alert(`تنبيه: ${result.message || result.error || "تعذر إجراء التحويل"}`);
         }
     } catch (err) {
+        console.error("❌ خطأ أثناء التحويل:", err);
         alert("حدث خطأ أثناء الاتصال بالسيرفر لإجراء التحويل.");
+    } finally {
+        if (btnEl) btnEl.disabled = false;
     }
 }
 
 function renderTiersUI(tiers) {
     const container = document.getElementById('tiersContainer');
-    container.innerHTML = '';
+    if (!container) return;
 
-    if (!tiers) return;
+    container.innerHTML = '';
+    if (!tiers || !Array.isArray(tiers)) return;
 
     tiers.forEach(t => {
         const isCurrent = currentTier && currentTier.tier === t.tier;
+        const safeName = escapeHTML(t.name);
+        
         container.innerHTML += `
             <div class="tier-item ${isCurrent ? 'current' : ''}">
                 <div>
-                    <strong>${t.name}</strong> 
+                    <strong>${safeName}</strong> 
                     ${isCurrent ? '<span class="tier-badge-active">شريحتك الحالية</span>' : ''}
                     <div style="color: var(--text-muted); font-size: 0.75rem; margin-top:2px;">
                         سعر التحويل: 1 ZNX = ${t.rate} ZN
@@ -154,10 +219,13 @@ function renderTiersUI(tiers) {
 function renderLeaderboardUI(list) {
     const podium = document.getElementById('podiumContainer');
     const rankings = document.getElementById('rankingsContainer');
+
+    if (!podium || !rankings) return;
+
     podium.innerHTML = '';
     rankings.innerHTML = '';
 
-    if (!list || list.length === 0) {
+    if (!list || !Array.isArray(list) || list.length === 0) {
         rankings.innerHTML = '<div style="text-align:center; padding:15px; color:var(--text-muted);">لا يوجد متصدرين حالياً</div>';
         return;
     }
@@ -167,21 +235,49 @@ function renderLeaderboardUI(list) {
     if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
 
     for (let i = 3; i < list.length; i++) {
+        const safeName = escapeHTML(list[i].name || 'لاعب');
         rankings.innerHTML += `
             <div class="leader-row">
-                <span>#${i + 1} ${list[i].name}</span>
-                <span style="color:var(--accent-blue); font-weight:bold;">${formatCoins(list[i].total_znx_earned, 4)} ZNX</span>
+                <span>#${i + 1} ${safeName}</span>
+                <span style="color:var(--accent-blue); font-weight:bold;">${formatCoins(list[i].total_znx_earned || 0, 4)} ZNX</span>
             </div>
         `;
     }
 }
 
 function createPodiumCard(item, rank, pClass) {
+    const safeName = escapeHTML(item.name || 'لاعب');
     return `
         <div class="podium-item ${pClass}">
             <div style="font-size:0.72rem; color:var(--text-muted);">المركز #${rank}</div>
-            <div style="font-weight:bold; font-size:0.82rem; margin:3px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.name}</div>
-            <div style="color:var(--accent-blue); font-weight:bold; font-size:0.78rem;">${formatCoins(item.total_znx_earned, 4)} ZNX</div>
+            <div style="font-weight:bold; font-size:0.82rem; margin:3px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${safeName}</div>
+            <div style="color:var(--accent-blue); font-weight:bold; font-size:0.78rem;">${formatCoins(item.total_znx_earned || 0, 4)} ZNX</div>
         </div>
     `;
+}
+
+// 🌐 ربط الدوال بالنطاق العام لاستخدامها في واجهات HTML والفرونت إند Dynamic Loading
+window.selectOption = selectOption;
+window.onInputChange = onInputChange;
+window.submitConvert = submitConvert;
+window.initZnxWallet = initApp;
+window.loadZnxWalletData = initApp;
+
+// 🚀 التشغيل التلقائي عند التحميل المباشر
+function startZnxModule() {
+    if (window.Telegram?.WebApp) {
+        window.Telegram.WebApp.ready();
+        window.Telegram.WebApp.expand();
+    }
+    USER_ID = getUserId();
+    initApp();
+
+    if (livePriceInterval) clearInterval(livePriceInterval);
+    livePriceInterval = setInterval(tickLivePrice, 1000);
+}
+
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(startZnxModule, 50);
+} else {
+    document.addEventListener('DOMContentLoaded', startZnxModule);
 }
