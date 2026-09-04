@@ -5,13 +5,11 @@ window.initFarmView = function() {
 };
 
 window.closeWelcomeModal = function() {
-    const modals = [document.getElementById('welcome-modal'), document.getElementById('auto-claim-modal')];
-    modals.forEach(modal => {
-        if (modal) {
-            modal.style.display = 'none';
-            modal.classList.remove('active', 'show');
-        }
-    });
+    const modal = document.getElementById('welcome-modal') || document.getElementById('auto-claim-modal');
+    if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('active', 'show');
+    }
 
     if (!window.userState) window.userState = {};
     if (!window.PlayerData) window.PlayerData = {};
@@ -344,13 +342,13 @@ window.closeWelcomeModal = function() {
         const blockId = window.ADSGRAM_BLOCK_ID || GAME_CONFIG.adsgramBlockId || "";
 
         if (!window.Adsgram || !isLoaded) {
-            console.error("Adsgram SDK لم يتم تحميله.");
+            console.error("Adsgram SDK لم يتم تحميلة.");
             toggleAdLoadingOverlay(false);
             return false;
         }
 
         if (!blockId || blockId.trim() === "") {
-            console.error("Adsgram Block ID مفقود!");
+            console.error("Adsgram Block ID missing!");
             toggleAdLoadingOverlay(false);
             return false;
         }
@@ -368,7 +366,7 @@ window.closeWelcomeModal = function() {
             };
 
             const timeoutTimer = setTimeout(() => {
-                console.log("انتهت مهلة إعلان Adsgram.");
+                console.log("Adsgram timeout reached.");
                 finish(false);
             }, 10000);
 
@@ -450,17 +448,18 @@ window.closeWelcomeModal = function() {
         }
     }
 
+    // تحديث الواجهة الخاصة ببادج البوت ونافذة التجميع التلقائي القادمة من السيرفر
     function updateBotAndAutoClaimUI(resData) {
         if (!resData) return;
 
-        // 1. تحديث إظهار بادج البوت النشط
+        // 1. تحديث إظهار شريط البوت النشط أعلى قائمة التعدين
         const isBotActive = resData.bot_active || resData.player?.bot_active || false;
         const botBadge = document.getElementById('bot-active-badge') || document.getElementById('bot-status-badge');
         if (botBadge) {
             botBadge.style.display = isBotActive ? 'inline-flex' : 'none';
         }
 
-        // 2. معالجة وتنبيه التجميع التلقائي القادم من السيرفر
+        // 2. معالجة وتنبيه التجميع التلقائي قادماً من السيرفر
         const autoCollected = parseFloat(resData.auto_claimed_amount || resData.auto_collected || 0);
         if (autoCollected > 0) {
             const autoModal = document.getElementById('auto-claim-modal') || document.getElementById('welcome-modal');
@@ -594,6 +593,12 @@ window.closeWelcomeModal = function() {
         const stgLvl = parseInt(pData.storage_level ?? 0, 10);
         const stgLvlEl = document.getElementById('storage-level-num');
         if (stgLvlEl) stgLvlEl.innerText = stgLvl + 1;
+
+        const isBotActive = pData.bot_active === true;
+        const botBadge = document.getElementById('bot-active-badge') || document.getElementById('bot-status-badge');
+        if (botBadge) {
+            botBadge.style.display = isBotActive ? 'inline-flex' : 'none';
+        }
 
         const upgradeStgBtn = document.getElementById('upgrade-storage-btn');
         if (upgradeStgBtn) {
@@ -824,7 +829,7 @@ window.closeWelcomeModal = function() {
 
         const remainingCooldown = Math.max(0, Math.ceil(MIN_CLAIM_INTERVAL - secondsPassed));
 
-        // 🔥 التجميع التلقائي فور وصول سعة المخزن إلى 80% أو أكثر 🔥
+        // التجميع التلقائي فور إملاء المخزن بنسبة 80% أو أكثر
         if (pct >= 80 && !isClaimingMain && !isCheckingAd && remainingCooldown <= 0 && unclaim > 0) {
             console.log("وصل المخزن إلى 80% أو أكثر، جارٍ التجميع التلقائي...");
             window.handleMainClaim();
