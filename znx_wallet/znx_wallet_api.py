@@ -72,17 +72,19 @@ def get_wallet_data():
 
         global_stats = znx_wallet_db.get_global_stats()
         all_tiers = global_stats.get('tiers_config') or znx_wallet_db.TIERS_CONFIG
+        total_global_znx = float(global_stats.get('total_converted_znx', 0.0))
 
         user_data = znx_wallet_db.get_user_data(str(user_id))
         current_balance = float(user_data.get('balance', 0.0))
-        current_tier = znx_wallet_db.get_user_tier(current_balance, all_tiers)
+        current_tier = znx_wallet_db.get_current_tier(global_znx=total_global_znx, user_points=current_balance, custom_tiers=all_tiers)
         
+        user_data['current_tier'] = current_tier
+
         lb_res = znx_wallet_db.get_leaderboard_data(limit=50, user_id=str(user_id))
         
         rankings = lb_res.get('leaderboard', []) if isinstance(lb_res, dict) else []
         my_rank = lb_res.get('my_rank', 'غير مصنف') if isinstance(lb_res, dict) else 'غير مصنف'
 
-        # تحويل القيم لنسخة آمنة لـ JSON
         serializable_tiers = []
         for t in all_tiers:
             t_copy = dict(t)
@@ -98,7 +100,7 @@ def get_wallet_data():
             'tiers': serializable_tiers,
             'leaderboard': rankings,
             'my_rank': my_rank,
-            'global_total': float(global_stats.get('total_converted_znx', 0.0)),
+            'global_total': total_global_znx,
             'max_global_znx': float(global_stats.get('max_global_znx', 35000000.0)),
             'live_price': 0.0524
         }), 200
