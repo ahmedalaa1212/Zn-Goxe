@@ -50,10 +50,13 @@
     let isTaskClaiming = false;
     let isClaimingRefEarnings = false;
 
+    // الإعدادات الافتراضية مع تحديث شرط الترقية إلى 1 بدلاً من 3
     window.FriendsConfig = {
-        min_upgrades_for_task: 3,
+        min_upgrades_for_task: 1,
         commission_percent: 10,
+        vip_commission_percent: 12,
         claim_fee_percent: 1.5,
+        vip_claim_fee_percent: 0.0,
         ref_tasks: {}
     };
 
@@ -226,20 +229,26 @@
 
     function updateDynamicTextsFromConfig() {
         const cfg = window.FriendsConfig || {};
-        
+        const pData = window.PlayerData || {};
+        const isVip = pData.is_vip || false;
+
+        const commPercent = pData.effective_commission ?? (isVip ? (cfg.vip_commission_percent || 12) : (cfg.commission_percent || 10));
+        const feePercent = pData.effective_claim_fee ?? (isVip ? (cfg.vip_claim_fee_percent || 0) : (cfg.claim_fee_percent || 1.5));
+        const minUpgrades = cfg.min_upgrades_for_task || 1;
+
         const elComm = document.getElementById('info-comm-percent');
-        if (elComm && cfg.commission_percent !== undefined) {
-            elComm.innerText = `${cfg.commission_percent}%`;
+        if (elComm) {
+            elComm.innerText = isVip ? `${commPercent}% 👑 VIP` : `${commPercent}%`;
         }
 
         const elUpgrades = document.getElementById('info-min-upgrades');
-        if (elUpgrades && cfg.min_upgrades_for_task !== undefined) {
-            elUpgrades.innerText = `${cfg.min_upgrades_for_task} ترقيات`;
+        if (elUpgrades) {
+            elUpgrades.innerText = minUpgrades === 1 ? "1 ترقية" : `${minUpgrades} ترقيات`;
         }
 
         const elFee = document.getElementById('info-claim-fee');
-        if (elFee && cfg.claim_fee_percent !== undefined) {
-            elFee.innerText = `${cfg.claim_fee_percent}%`;
+        if (elFee) {
+            elFee.innerText = isVip ? "0% (👑 VIP معفي)" : `${feePercent}%`;
         }
     }
 
@@ -294,6 +303,10 @@
             
             if (data && data.success && data.player) {
                 window.PlayerData = { ...window.PlayerData, ...data.player };
+                if (data.is_vip !== undefined) window.PlayerData.is_vip = data.is_vip;
+                if (data.effective_commission !== undefined) window.PlayerData.effective_commission = data.effective_commission;
+                if (data.effective_claim_fee !== undefined) window.PlayerData.effective_claim_fee = data.effective_claim_fee;
+
                 if (data.friends_config) {
                     window.FriendsConfig = data.friends_config;
                 }
@@ -377,7 +390,7 @@
         if (!listEl) return;
 
         const rawTasks = window.FriendsConfig?.ref_tasks || {};
-        const minUpgrades = window.FriendsConfig?.min_upgrades_for_task || 3;
+        const minUpgrades = window.FriendsConfig?.min_upgrades_for_task || 1;
 
         let taskKeys = Object.keys(rawTasks).sort((a, b) => {
             return (parseInt(rawTasks[a].reqFriends) || 0) - (parseInt(rawTasks[b].reqFriends) || 0);
@@ -390,6 +403,7 @@
 
         let html = '';
         const claimedList = (claimedTasks || []).map(String);
+        const upgradeText = minUpgrades === 1 ? "+1 ترقية" : `+${minUpgrades} ترقيات`;
 
         taskKeys.forEach(key => {
             const task = rawTasks[key];
@@ -415,7 +429,7 @@
                 <li style="background:#121215; border:1px solid #26262b; border-radius:12px; padding:12px; margin-bottom:10px; list-style:none; direction:rtl;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <div>
-                            <h4 style="margin:0; color:#fff; font-size:13px;">دعوة ${reqFriends} أصدقاء (${minUpgrades}+ ترقيات)</h4>
+                            <h4 style="margin:0; color:#fff; font-size:13px;">دعوة ${reqFriends} أصدقاء (${upgradeText})</h4>
                             <p style="margin:4px 0 0 0; color:#f39c12; font-size:11px; font-weight:bold;">مكافأة: ${formatInteger(reward)} ZN</p>
                         </div>
                         <div>${btnHtml}</div>
@@ -474,7 +488,11 @@
         isClaimingRefEarnings = true;
         const backup = cloneCurrentState();
 
-        const feePercent = parseFloat(window.FriendsConfig?.claim_fee_percent || 1.5);
+        const isVip = pData.is_vip || false;
+        const feePercent = pData.effective_claim_fee !== undefined 
+            ? parseFloat(pData.effective_claim_fee) 
+            : (isVip ? 0.0 : parseFloat(window.FriendsConfig?.claim_fee_percent || 1.5));
+
         const estimatedNet = pending * (1 - (feePercent / 100));
         const currentBal = getStoredBalance();
 
@@ -492,7 +510,8 @@
             
             if (data && data.success) {
                 const formattedNet = formatNumber(data.net_amount || estimatedNet);
-                showToast(`🎉 تم السحب بنجاح!\nأُضيف ${formattedNet} ZN إلى رصيدك (بعد خصم ${feePercent}% رسوم).`);
+                const feeText = isVip ? "(👑 بدون رسوم VIP)" : `(بعد خصم ${feePercent}% رسوم)`;
+                showToast(`🎉 تم السحب بنجاح!\nأُضيف ${formattedNet} ZN إلى رصيدك ${feeText}.`);
                 
                 if (data.new_balance !== undefined) {
                     setStoredBalance(data.new_balance);
@@ -576,7 +595,7 @@
         if (!container) return;
 
         const userId = getUserId();
-        const minUpgrades = window.FriendsConfig?.min_upgrades_for_task || 3;
+        const minUpgrades = window.FriendsConfig?.min_upgrades_for_task || 1;
 
         try {
             let data = await secureRequest('/api/friends/list', 'POST', {
@@ -593,8 +612,8 @@
                 data.friends.forEach(f => {
                     const cnt = f.upgrades_count || 0;
                     let statusHtml = cnt >= minUpgrades 
-                        ? `<span style="color: #2ecc71; font-size:11px;">مؤهل للمهام (${cnt}/${minUpgrades} ترقيات) ✅</span>`
-                        : `<span style="color: #f39c12; font-size:11px;">ينقصه ${minUpgrades - cnt} ترقية (${cnt}/${minUpgrades}) ⏳</span>`;
+                        ? `<span style="color: #2ecc71; font-size:11px;">مؤهل للمهام (${cnt}/${minUpgrades} ترقية) ✅</span>`
+                        : `<span style="color: #f39c12; font-size:11px;">ينقصه ترقية واحدة (${cnt}/${minUpgrades}) ⏳</span>`;
                     
                     const genVal = parseFloat(f.generated || f.earned_from_him || 0);
                     const formattedGen = formatNumberHTML(genVal);
