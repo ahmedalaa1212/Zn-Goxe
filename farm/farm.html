@@ -1,5 +1,61 @@
 <script src="https://js.onclickad.com/in-stream-ad-admanager/tma.js"></script>
 
+<!-- سكريبت تنظيف الكاش وإعادة ضبط حالة البوت عند تحميل الصفحة -->
+<script>
+(function() {
+    try {
+        // مسح مفاتيح الكاش القديمة المخزنة مؤقتاً للبوت
+        localStorage.removeItem('bot_active');
+        localStorage.removeItem('is_auto_bot_active');
+        
+        // تفريغ البيانات القديمة المخبأة في localStorage لمنع إظهار البوت كنشط بدون اشتراك
+        ['userState', 'farm_user_data', 'player_data'].forEach(function(key) {
+            const item = localStorage.getItem(key);
+            if (item) {
+                try {
+                    const parsed = JSON.parse(item);
+                    if (parsed && typeof parsed === 'object') {
+                        if (!parsed.is_auto_bot_active && !parsed.vip_active && !parsed.vip_status) {
+                            parsed.bot_active = false;
+                            parsed.is_auto_bot_active = false;
+                            localStorage.setItem(key, JSON.stringify(parsed));
+                        }
+                    }
+                } catch(e) {}
+            }
+        });
+
+        // التأكد من ضبط الحالة المبدئية للـ userState في الـ Window
+        if (window.userState) {
+            if (!window.userState.is_auto_bot_active && !window.userState.vip_active) {
+                window.userState.bot_active = false;
+                window.userState.is_auto_bot_active = false;
+            }
+        }
+    } catch(e) {
+        console.warn('Farm cache reset notice:', e);
+    }
+})();
+
+// دالة موحدة لإغلاق النوافذ المنبثقة (الترحيب والتجميع التلقائي)
+window.closeWelcomeModal = function() {
+    const welcomeModal = document.getElementById('welcome-modal');
+    if (welcomeModal) {
+        welcomeModal.style.display = 'none';
+        welcomeModal.classList.remove('active', 'show');
+    }
+    const autoClaimModal = document.getElementById('auto-claim-modal');
+    if (autoClaimModal) {
+        autoClaimModal.style.display = 'none';
+        autoClaimModal.classList.remove('active', 'show');
+    }
+};
+
+window.closeAutoClaimModal = function() {
+    window.closeWelcomeModal();
+};
+</script>
+
 <div class="farm-container">
     
     <!-- 1. الكروت العلوية: الرصيد، رصيد الدولار، ومعدل التعدين -->
@@ -123,7 +179,7 @@
             <span id="auto-claimed-amount" dir="ltr">0.00 ZN</span> 💰
         </div>
         <p class="welcome-subnote">تمت إضافة الأرباح المجمعة إلى رصيدك بنجاح.</p>
-        <button class="welcome-btn" onclick="window.closeWelcomeModal()">رائع، شكراً! 🚀</button>
+        <button class="welcome-btn" onclick="window.closeAutoClaimModal()">رائع، شكراً! 🚀</button>
     </div>
 </div>
 
@@ -332,7 +388,7 @@
     font-weight: 800;
     padding: 8px 12px;
     border-radius: 10px;
-    display: inline-flex;
+    display: none; /* إخفاء افتراضي لمنع الظهور العشوائي قبل تحميل بيانات السيرفر */
     align-items: center;
     justify-content: center;
     gap: 6px;
@@ -340,6 +396,10 @@
     box-sizing: border-box;
     margin-bottom: 12px;
     animation: pulseBot 2s infinite ease-in-out;
+}
+
+.bot-badge.active, .bot-badge.show {
+    display: inline-flex !important;
 }
 
 @keyframes pulseBot {
@@ -518,7 +578,7 @@
     background: rgba(11, 15, 25, 0.88);
     backdrop-filter: blur(8px);
     z-index: 9999;
-    display: flex;
+    display: none; /* الوضع الافتراضي مخفي لحين استدعاؤه من الكود */
     justify-content: center;
     align-items: center;
     padding: 20px;
@@ -583,10 +643,14 @@
     background: rgba(11, 15, 25, 0.85);
     backdrop-filter: blur(6px);
     z-index: 99999;
-    display: flex;
+    display: none;
     justify-content: center;
     align-items: center;
     direction: rtl;
+}
+
+.ad-loading-overlay.active, .ad-loading-overlay.show {
+    display: flex !important;
 }
 
 .ad-loading-content {
