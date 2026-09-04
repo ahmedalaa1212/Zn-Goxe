@@ -9,10 +9,7 @@ def init_dashboard():
     if not user_id:
         return jsonify({'success': False, 'message': 'المستخدم غير معرف'}), 400
 
-    user_data = leaderboard_db.get_user_data(user_id) or {
-        'balance': 0.0, 'usd_balance': 0.0, 'znx_balance': 0.0, 'total_znx_earned': 0.0, 'first_name': 'مستخدم'
-    }
-    
+    user_data = leaderboard_db.get_user_data(str(user_id))
     current_tier = leaderboard_db.get_user_tier(user_data['balance'])
     rankings = leaderboard_db.get_leaderboard_rankings()
     global_stats = leaderboard_db.get_global_stats()
