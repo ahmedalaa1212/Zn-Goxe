@@ -226,21 +226,23 @@
             
             <div class="info-box">
                 💡 <strong>شروط وأرباح الدعوة:</strong><br>
-                • تحصُل تلقائياً على <strong id="info-comm-percent">10%</strong> من كافة أرباح تعدين صديقك بشكل مستمر (12% لمشتركي VIP).<br>
-                • لاحتساب الصديق في <strong>شريط تقدم المهام والمكافآت</strong>، يجب عليه شراء <strong id="info-min-upgrades">1 ترقية</strong> لسرعة التعدين على الأقل (لحماية البوت من الحسابات الوهمية).
+                • تحصُل تلقائياً على <strong id="info-comm-percent">--%</strong> من كافة أرباح تعدين صديقك بشكل مستمر.<br>
+                • لاحتساب الصديق في <strong>شريط تقدم المهام والمكافآت</strong>، يجب عليه شراء <strong id="info-min-upgrades">--</strong> لسرعة التعدين على الأقل (لحماية البوت من الحسابات الوهمية).
             </div>
         </div>
 
         <div class="card ref-earnings-card">
             <h3>💰 سحب أرباح الأصدقاء</h3>
-            <small style="color: var(--text-muted); display: block; margin-bottom: 12px; font-size: 0.78rem;">* يتم خصم <span id="info-claim-fee">1.5%</span> رسوم تحويل عند السحب إلى الرصيد الأساسي (0% لمشتركي VIP).</small>
+            <small style="color: var(--text-muted); display: block; margin-bottom: 12px; font-size: 0.78rem;">* يتم خصم <span id="info-claim-fee">--%</span> رسوم تحويل عند السحب إلى الرصيد الأساسي.</small>
             <button type="button" onclick="claimRefEarnings()" id="btn-claim-ref" style="width: 100%; padding: 12px; font-size: 1rem;">سحب الأرباح الآن 💰</button>
         </div>
 
         <div class="card ref-tasks-card">
-            <h3>🎁 مكافآت الإنجازات (10 مهام)</h3>
+            <h3>🎁 مكافآت الإنجازات</h3>
             <div class="ref-tasks-scroll">
-                <ul id="ref-tasks-list" style="list-style: none; padding: 0; margin: 0;"></ul>
+                <ul id="ref-tasks-list" style="list-style: none; padding: 0; margin: 0;">
+                    <div class="empty-state">جاري تحميل المهام...</div>
+                </ul>
             </div>
         </div>
 
