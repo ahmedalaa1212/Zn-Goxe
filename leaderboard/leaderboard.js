@@ -1,11 +1,11 @@
 const USER_ID = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "5102387551";
-let userData = { balance: 0, usd_balance: 0, znx_balance: 0 };
+let userData = { balance: 0, usd_balance: 0, znx_balance: 0, total_znx_earned: 0 };
 let currentTier = null;
 let currentLivePrice = 0.0524;
 
 document.addEventListener('DOMContentLoaded', () => {
     initApp();
-    setInterval(tickLivePrice, 1000); // تحديث السعر بالثانية
+    setInterval(tickLivePrice, 1000);
 });
 
 async function initApp() {
@@ -19,6 +19,7 @@ async function initApp() {
             currentLivePrice = data.live_price;
 
             updateBalancesUI();
+            updateGlobalStatsUI(data.global_total, data.max_global_znx);
             renderTiersUI(data.tiers_all);
             renderLeaderboardUI(data.leaderboard);
         }
@@ -28,13 +29,23 @@ async function initApp() {
 }
 
 function updateBalancesUI() {
-    document.getElementById('znBalance').innerText = Math.floor(userData.balance).toLocaleString();
-    document.getElementById('usdBalance').innerText = `$${userData.usd_balance.toFixed(2)}`;
-    document.getElementById('znxBalance').innerText = userData.znx_balance.toFixed(4);
+    const bal = userData.balance || 0;
+    // إظهار الكسور إذا كان الرصيد أقل من 1000 نقطة لتجنب إظهار 0 عند وجود كسور
+    document.getElementById('znBalance').innerText = bal >= 1000 ? Math.floor(bal).toLocaleString() : bal.toFixed(2);
+    document.getElementById('usdBalance').innerText = `$${(userData.usd_balance || 0).toFixed(2)}`;
+    document.getElementById('znxBalance').innerText = (userData.znx_balance || 0).toFixed(4);
+}
+
+function updateGlobalStatsUI(globalTotal, maxGlobal) {
+    const total = globalTotal || 0;
+    const max = maxGlobal || 35000000;
+    const pct = Math.min(100, (total / max) * 100);
+    
+    document.getElementById('globalRatioText').innerText = `${total.toFixed(2)} / ${(max/1000000).toFixed(0)}M ZNX`;
+    document.getElementById('globalProgressBar').style.width = `${pct}%`;
 }
 
 function tickLivePrice() {
-    // التذبذب اللحظي لسعر العملة بالثانية
     const delta = (Math.random() - 0.48) * 0.0004;
     currentLivePrice = Math.max(0.01, currentLivePrice + delta);
     document.getElementById('livePrice').innerText = `$${currentLivePrice.toFixed(4)}`;
@@ -42,10 +53,12 @@ function tickLivePrice() {
 
 function selectOption(type) {
     const input = document.getElementById('convertInput');
+    const bal = userData.balance || 0;
+
     if (type === 'max') {
-        input.value = userData.balance;
+        input.value = bal;
     } else if (type === 'half') {
-        input.value = Math.floor(userData.balance / 2);
+        input.value = (bal / 2).toFixed(2);
     } else if (type === 'min') {
         input.value = currentTier ? currentTier.rate : 10;
     }
@@ -78,12 +91,12 @@ async function submitConvert() {
             alert(`تم التحويل بنجاح! حصلت على ${result.data.znx_gained} ZNX`);
             document.getElementById('convertInput').value = '';
             onInputChange();
-            initApp(); // إعادة تحميل الأرصدة والمتصدرين
+            initApp();
         } else {
-            alert(`فشل التحويل: ${result.message}`);
+            alert(`تنبيه: ${result.message}`);
         }
     } catch (err) {
-        alert("حدث خطأ أثناء إجراء التحويل.");
+        alert("حدث خطأ أثناء الاتصال بالسيرفر لإجراء التحويل.");
     }
 }
 
