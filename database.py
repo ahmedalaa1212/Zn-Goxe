@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -56,18 +57,42 @@ except Exception as e:
     print(f"⚠️ تنبيه أثناء التهيئة التلقائية لـ Firebase: {e}")
 
 
+# ==================== Data Serialization Helper (حل مشكلة SERVER_TIMESTAMP و JSON 500) ====================
+
+def sanitize_firestore_data(data):
+    """
+    تحويل كافة عناصر Firestore غير القابلة للترميز بـ JSON (مثل DatetimeWithNanoseconds أو SERVER_TIMESTAMP)
+    إلى صيغ نصوص ISO 8601 لمنع أخطاء 500 Internal Server Error في Flask.
+    """
+    if data is None:
+        return None
+    if isinstance(data, dict):
+        return {k: sanitize_firestore_data(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [sanitize_firestore_data(v) for v in data]
+    elif isinstance(data, datetime):
+        return data.isoformat()
+    elif hasattr(data, 'isoformat'):  # يشمل DatetimeWithNanoseconds في Firestore
+        return data.isoformat()
+    elif hasattr(data, '__dict__'):
+        return str(data)
+    else:
+        return data
+
+
 # ==================== Core User Operations (ضمان إنشاء وقراءة المستخدم) ====================
 
 def get_user(telegram_id):
-    """جلب بيانات المستخدم مباشرة من Firestore"""
+    """جلب بيانات المستخدم مباشرة من Firestore مع تنظيف التواريخ لتوافق JSON"""
     if not telegram_id:
         return None
     try:
         firestore_db = get_db()
-        doc_ref = firestore_db.collection('users').document(str(telegram_id).strip())
+        user_id_str = str(telegram_id).strip()
+        doc_ref = firestore_db.collection('users').document(user_id_str)
         doc = doc_ref.get()
         if doc.exists:
-            return doc.to_dict()
+            return sanitize_firestore_data(doc.to_dict())
         return None
     except Exception as e:
         print(f"❌ خطأ قراءة بيانات المستخدم {telegram_id}: {e}")
@@ -75,17 +100,23 @@ def get_user(telegram_id):
 
 
 def init_user(telegram_id, ref_id=None, first_name="لاعب"):
-    """إنشاء مستند المستخدم قسرياً في Firestore إن لم يكن موجوداً ومعالجة نظام الإحالات"""
+    """
+    إنشاء مستند المستخدم قسرياً في Firestore إن لم يكن موجوداً ومعالجة نظام الإحالات
+    مع تحويل كافة التواريخ إلى صيغ آمنة تمنع انهيار السيرفر 500 عند إرجاع JSON.
+    """
     if not telegram_id:
         return {}
     try:
         firestore_db = get_db()
         user_id_str = str(telegram_id).strip()
+        if not user_id_str or user_id_str in ("None", "null", ""):
+            return {}
+
         doc_ref = firestore_db.collection('users').document(user_id_str)
         doc = doc_ref.get()
 
         if not doc.exists:
-            clean_ref = str(ref_id).strip() if ref_id and str(ref_id).strip() != user_id_str else None
+            clean_ref = str(ref_id).strip() if ref_id and str(ref_id).strip() not in (user_id_str, "None", "null", "") else None
             
             new_user_data = {
                 'user_id': user_id_str,
@@ -119,7 +150,8 @@ def init_user(telegram_id, ref_id=None, first_name="لاعب"):
 
             doc = doc_ref.get()
 
-        return doc.to_dict() if doc.exists else {}
+        user_dict = doc.to_dict() if doc.exists else {}
+        return sanitize_firestore_data(user_dict)
     except Exception as e:
         print(f"❌ خطأ أثناء إنشاء/تهيئة حساب المستخدم {telegram_id}: {e}")
         return {}
@@ -145,6 +177,108 @@ def update_user(telegram_id, updates_dict):
     except Exception as e:
         print(f"❌ خطأ تحديث مستند المستخدم {telegram_id}: {e}")
         return False
+
+
+# ==================== Atomic Transactions (منع التزامن والثغرات المالية) ====================
+
+def atomic_update_balance(telegram_id, amount_change, is_usd=False):
+    """
+    تحديث رصيد المستخدم معاملاتيًا (Atomic Transaction) لمنع ثغرات Race Condition والتلاعب بالرصيد.
+    """
+    if not telegram_id:
+        return False, "المعرف غير صالح"
+
+    firestore_db = get_db()
+    user_id_str = str(telegram_id).strip()
+    doc_ref = firestore_db.collection('users').document(user_id_str)
+
+    @firestore.transactional
+    def update_in_transaction(transaction, doc_ref):
+        snapshot = doc_ref.get(transaction=transaction)
+        if not snapshot.exists:
+            return False, "المستخدم غير موجود"
+        
+        user_data = snapshot.to_dict()
+        field_name = 'usd_balance' if is_usd else 'balance'
+        current_balance = float(user_data.get(field_name, 0.0))
+        new_balance = current_balance + float(amount_change)
+
+        if new_balance < 0:
+            return False, "الرصيد غير كافٍ"
+
+        transaction.update(doc_ref, {field_name: new_balance})
+        return True, new_balance
+
+    try:
+        transaction = firestore_db.transaction()
+        success, result = update_in_transaction(transaction, doc_ref)
+        return success, result
+    except Exception as e:
+        print(f"❌ خطأ في معاملة تحديث الرصيد للمستخدم {telegram_id}: {e}")
+        return False, str(e)
+
+
+# ==================== Leaderboard System (نظام المتصدرين الموثق) ====================
+
+def get_leaderboard_data(limit=50, user_id=None):
+    """
+    جلب قائمة أعلى الحسابات رصيداً وحساب ترتيب المستخدم الحالي بدقة وأمان.
+    """
+    try:
+        firestore_db = get_db()
+        users_ref = firestore_db.collection('users')
+        query = users_ref.order_by('balance', direction=firestore.Query.DESCENDING).limit(limit)
+        docs = query.stream()
+
+        leaderboard = []
+        rank = 1
+        user_rank = None
+        user_in_top = False
+
+        target_user_id = str(user_id).strip() if user_id else None
+
+        for doc in docs:
+            data = doc.to_dict()
+            u_id = str(data.get('user_id') or doc.id)
+            user_entry = {
+                'rank': rank,
+                'user_id': u_id,
+                'first_name': data.get('first_name', 'لاعب'),
+                'balance': float(data.get('balance', 0.0)),
+                'usd_balance': float(data.get('usd_balance', 0.0)),
+                'farm_level': data.get('farm_level', 1)
+            }
+            leaderboard.append(user_entry)
+
+            if target_user_id and u_id == target_user_id:
+                user_rank = rank
+                user_in_top = True
+
+            rank += 1
+
+        # إذا لم يكن المستخدم في أول Limit لاعب، نحسب ترتيبه بدقة
+        if target_user_id and not user_in_top:
+            target_doc = users_ref.document(target_user_id).get()
+            if target_doc.exists:
+                target_data = target_doc.to_dict()
+                target_balance = float(target_data.get('balance', 0.0))
+                higher_docs = users_ref.where('balance', '>', target_balance).stream()
+                higher_count = sum(1 for _ in higher_docs)
+                user_rank = higher_count + 1
+
+        return {
+            'success': True,
+            'leaderboard': leaderboard,
+            'my_rank': user_rank or "غير مصنف"
+        }
+    except Exception as e:
+        print(f"❌ خطأ أثناء جلب قائمة المتصدرين: {e}")
+        return {
+            'success': False,
+            'error': str(e),
+            'leaderboard': [],
+            'my_rank': "غير مصنف"
+        }
 
 
 # ==================== Sub-Modules Re-exports ====================
