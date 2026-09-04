@@ -43,13 +43,12 @@ def get_user_data(user_id: str):
     if doc.exists:
         data = doc.to_dict()
         
-        # التأكد من كتابة الحقول المفقودة في الفيربيس فوراً حتى تظهر لك باللوحة
-        updates = {}
         balance = float(data.get('balance') or 0.0)
         usd_balance = float(data.get('usd_balance') or 0.0)
         znx_balance = float(data.get('znx_balance') or 0.0)
         total_znx_earned = float(data.get('total_znx_earned') or 0.0)
         
+        updates = {}
         if 'usd_balance' not in data: updates['usd_balance'] = usd_balance
         if 'znx_balance' not in data: updates['znx_balance'] = znx_balance
         if 'total_znx_earned' not in data: updates['total_znx_earned'] = total_znx_earned
@@ -65,7 +64,6 @@ def get_user_data(user_id: str):
             'first_name': data.get('first_name') or data.get('name') or 'لاعب'
         }
     else:
-        # إنشاء مستند جديد في الفيربيس إذا كان المستخدم غير موجود
         new_user = {
             'balance': 0.0,
             'usd_balance': 0.0,
@@ -77,23 +75,9 @@ def get_user_data(user_id: str):
         return new_user
 
 def get_leaderboard_rankings(limit=50):
+    rankings = []
     try:
-        users_ref = db.collection('users').order_by('total_znx_earned', direction=firestore.Query.DESCENDING).limit(limit)
-        docs = users_ref.stream()
-        rankings = []
-        for doc in docs:
-            d = doc.to_dict()
-            rankings.append({
-                'user_id': doc.id,
-                'name': d.get('first_name') or d.get('name') or 'لاعب',
-                'total_znx_earned': float(d.get('total_znx_earned') or 0.0),
-                'znx_balance': float(d.get('znx_balance') or 0.0)
-            })
-        return rankings
-    except Exception as e:
-        print(f"⚠️ Leaderboard query fallback: {e}")
         docs = db.collection('users').limit(100).stream()
-        rankings = []
         for doc in docs:
             d = doc.to_dict()
             rankings.append({
@@ -104,6 +88,9 @@ def get_leaderboard_rankings(limit=50):
             })
         rankings.sort(key=lambda x: x['total_znx_earned'], reverse=True)
         return rankings[:limit]
+    except Exception as e:
+        print(f"⚠️ Leaderboard query fallback error: {e}")
+        return rankings
 
 def execute_conversion(user_id: str, points_to_convert: float):
     global_ref = db.collection('znx_global_stats').document('summary')
@@ -142,7 +129,6 @@ def execute_conversion(user_id: str, points_to_convert: float):
     new_total_znx_earned = float(user_data.get('total_znx_earned') or 0.0) + znx_received
     new_global_total = total_global_znx + znx_received
 
-    # تحديث الحقول مباشرة في مستند الفيربيس
     user_ref.set({
         'balance': round(new_zn_balance, 4),
         'znx_balance': round(new_znx_balance, 6),
