@@ -452,7 +452,7 @@ window.closeWelcomeModal = function() {
         return accumulated;
     }
 
-    // تحديث الواجهة الخاصة ببادج البوت ونافذة التجميع التلقائي القادمة من السيرفر
+    // تحديث الواجهة الخاصة ببادج البوت ونافذة التجميع التلقائي القادمة من السيرفر فور فتح التطبيق
     function updateBotAndAutoClaimUI(resData) {
         if (!resData) return;
 
@@ -473,7 +473,7 @@ window.closeWelcomeModal = function() {
             botBadge.style.display = isBotActive ? 'inline-flex' : 'none';
         }
 
-        // 2. معالجة وتنبيه التجميع التلقائي قادماً من السيرفر
+        // 2. معالجة وإظهار نافذة التجميع التلقائي بناءً على القيمة المحسوبة أوفلاين في السيرفر
         const autoCollected = parseFloat(resData.auto_claimed_amount || resData.auto_collected || 0);
         if (autoCollected > 0) {
             const autoModal = document.getElementById('auto-claim-modal') || document.getElementById('welcome-modal');
@@ -853,13 +853,6 @@ window.closeWelcomeModal = function() {
 
         const remainingCooldown = Math.max(0, Math.ceil(MIN_CLAIM_INTERVAL - secondsPassed));
 
-        // التحقق صراحة من تفعيل البوت للمستخدم قبل التجميع التلقائي فور إملاء المخزن بنسبة 80% أو أكثر
-        const isBotActive = (pData.bot_active === true || pData.is_auto_bot_active === true);
-        if (pct >= 80 && isBotActive && !isClaimingMain && !isCheckingAd && remainingCooldown <= 0 && unclaim > 0) {
-            console.log("وصل المخزن إلى 80% أو أكثر للبوت المفعل، جارٍ التجميع التلقائي...");
-            window.handleMainClaim();
-        }
-
         const claimBtn = document.getElementById('claim-btn');
         if (claimBtn) {
             claimBtn.onclick = window.handleMainClaim;
@@ -957,7 +950,6 @@ window.closeWelcomeModal = function() {
                     window.PlayerData.max_cap = parseFloat(resData.max_cap);
                 }
 
-                // تجنب استرجاع تاريخ قديم يسبب تضارب الفارق الزمني
                 if (resData.last_claim_time) {
                     const serverClaimMs = parseServerDateMs(resData.last_claim_time);
                     if (serverClaimMs >= accrualTimeMs - 3000) {
@@ -1046,7 +1038,6 @@ window.closeWelcomeModal = function() {
                     window.PlayerData.upgrades = resData.upgrades;
                 }
 
-                // تجنب استرجاع تاريخ تجميع قديم من السيرفر يسبب تضارب وقت التعدين
                 if (resData.last_claim_time) {
                     const serverClaimMs = parseServerDateMs(resData.last_claim_time);
                     if (serverClaimMs >= accrualTimeMs - 3000) {
