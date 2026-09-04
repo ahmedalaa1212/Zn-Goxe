@@ -3,36 +3,41 @@ import leaderboard_db
 
 leaderboard_bp = Blueprint('leaderboard', __name__)
 
-@leaderboard_bp.route('/api/leaderboard/data', methods=['GET'])
-def get_leaderboard():
-    user_id = request.args.get('user_id')
-    stats = leaderboard_db.get_global_stats()
-    leaderboard = leaderboard_db.get_leaderboard_data()
+@leaderboard_bp.route('/api/leaderboard/init', methods=['GET'])
+def init_dashboard():
+    user_id = request.args.get('user_id', '')
+    if not user_id:
+        return jsonify({'success': False, 'message': 'المستخدم غير معرف'}), 400
+
+    user_data = leaderboard_db.get_user_data(user_id) or {
+        'balance': 0.0, 'usd_balance': 0.0, 'znx_balance': 0.0, 'total_znx_earned': 0.0
+    }
     
-    # حساب السعر اللحظي بناءً على نسبة استهلاك المجمّع
-    base_price = 0.05
-    total_converted = stats.get('total_converted_znx', 0)
-    live_price = base_price + (total_converted / 35_000_000) * 0.45
+    current_tier = leaderboard_db.get_user_tier(user_data['balance'])
+    rankings = leaderboard_db.get_leaderboard_rankings()
+    global_stats = leaderboard_db.get_global_stats()
 
     return jsonify({
         'success': True,
-        'global_total': round(total_converted, 2),
-        'max_limit': 35000000,
-        'live_price': round(live_price, 4),
-        'leaderboard': leaderboard
+        'user': user_data,
+        'current_tier': current_tier,
+        'tiers_all': leaderboard_db.TIERS_CONFIG,
+        'leaderboard': rankings,
+        'global_total': global_stats.get('total_converted_znx', 0.0),
+        'live_price': 0.0524 # سعر ابتدائي وسيتم رفعه تلقائياً بواسطة الواجهة
     })
 
 @leaderboard_bp.route('/api/leaderboard/convert', methods=['POST'])
-def convert_currency():
+def process_conversion():
     data = request.json or {}
     user_id = data.get('user_id')
-    points = data.get('points', 0)
+    amount = float(data.get('amount', 0))
 
-    if not user_id or points <= 0:
-        return jsonify({'success': False, 'message': 'بيانات الطلب غير صالحة.'}), 400
+    if not user_id or amount <= 0:
+        return jsonify({'success': False, 'message': 'كمية التحويل غير صالحة'}), 400
 
-    success, response = leaderboard_db.process_conversion(user_id, float(points))
+    success, result = leaderboard_db.execute_conversion(user_id, amount)
     if success:
-        return jsonify({'success': True, 'data': response})
+        return jsonify({'success': True, 'data': result})
     else:
-        return jsonify({'success': False, 'message': response}), 400
+        return jsonify({'success': False, 'message': result}), 400
