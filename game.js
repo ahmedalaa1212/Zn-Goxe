@@ -148,12 +148,11 @@ window.addEventListener('beforeunload', () => {
 });
 
 // ==========================================
-// 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة (مع المحافظة على الأمان والتوثيق)
+// 2. الاتصال بالسيرفر ومعالجة الاستجابة المباشرة
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
     
-    // استخراج وتأمين tg_id والتوثيق
     const currentTgId = window.userState?.tg_id || tg?.initDataUnsafe?.user?.id;
     if (currentTgId) {
         if (!window.userState.tg_id) window.userState.tg_id = currentTgId;
@@ -165,22 +164,16 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         headers['Authorization'] = `Bearer ${tg.initData}`;
     }
 
-    // بناء المسار المطلق بشكل آمن
     let targetUrl = endpoint;
     if (endpoint.startsWith('/')) {
         const baseUrl = (window.API_BASE_URL || '').replace(/\/$/, '');
         targetUrl = baseUrl + endpoint;
     }
 
-    // إرفاق بيانات التوثيق في Query Parameters للحماية المضاعفة
     try {
         const urlObj = new URL(targetUrl, window.location.href);
-        if (tg?.initData) {
-            urlObj.searchParams.set('initData', tg.initData);
-        }
-        if (currentTgId) {
-            urlObj.searchParams.set('tg_id', String(currentTgId));
-        }
+        if (tg?.initData) urlObj.searchParams.set('initData', tg.initData);
+        if (currentTgId) urlObj.searchParams.set('tg_id', String(currentTgId));
         targetUrl = urlObj.toString();
     } catch (e) {}
 
@@ -271,7 +264,7 @@ window.fetchTonPrice = async function() {
             }
         }
     } catch (err) {
-        console.warn("⚠️ لم يتم جلب سعر TON من CoinGecko، تم استخدام السعر المحلي المسجل:", window.currentTonPriceUSD);
+        console.warn("⚠️ لم يتم جلب سعر TON، تم استخدام السعر المحلي:", window.currentTonPriceUSD);
     } finally {
         window.updateTonPriceUI();
     }
@@ -285,9 +278,7 @@ window.updateTonPriceUI = function() {
     });
 
     const packagesStatus = document.querySelectorAll('#packages-loading-status, .packages-status');
-    packagesStatus.forEach(el => {
-        el.style.display = 'none';
-    });
+    packagesStatus.forEach(el => { el.style.display = 'none'; });
 };
 
 // ==========================================
@@ -403,7 +394,7 @@ window.initFirebaseRealtimeSync = function(userId) {
 };
 
 // ==========================================
-// 6. دالة إدارة عداد التجميع المحصنة
+// 6. دالة إدارة عداد التجميع
 // ==========================================
 let claimCooldownTimer = null;
 
@@ -484,12 +475,11 @@ window.updateClaimButtonState = function() {
 };
 
 // ==========================================
-// 7. العداد البصري التدريجي وتنسيق الأرقام العشرية
+// 7. العداد البصري التدريجي وتنسيق الأرقام
 // ==========================================
 window.formatBalance = function(val) {
     if (val === undefined || val === null || isNaN(val)) return '0.00';
     const num = parseFloat(val);
-    
     return num.toLocaleString('en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 6
@@ -522,7 +512,6 @@ let animationFrameId = null;
 
 function startLocalMiningSimulator() {
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
-    
     function tick() {
         if (!document.hidden) {
             const targetVal = parseFloat(window.userState?.balance || 0);
@@ -619,7 +608,7 @@ window.updateUI = function() {
 };
 
 // ==========================================
-// 8. تهيئة الإعدادات ودالة معالجة العروض
+// 8. الإعدادات والعروض
 // ==========================================
 window.initSettingsView = function() {
     const settingsView = document.getElementById('view-settings');
@@ -654,18 +643,16 @@ window.saveWalletAddress = async function() {
     }
 };
 
-// دالة توجيه اختيار العروض الـ 8 للمجلدات الداخلية
 window.openOfferCategory = function(offerId) {
     if (window.offersModule && typeof window.offersModule.openCategory === 'function') {
         window.offersModule.openCategory(offerId);
     } else {
-        console.log(`فتح المجلد الخاص بالعرض: ${offerId}`);
         window.dispatchEvent(new CustomEvent('openOfferCategory', { detail: { offerId } }));
     }
 };
 
 // ==========================================
-// 9. دالة جلب وعرض بيانات محفظة ZNX والمتصدرين المباشرة من السيرفر المحدث (/api/znx-wallet)
+// 9. دالة جلب وعرض بيانات محفظة ZNX والمتصدرين (/api/znx-wallet)
 // ==========================================
 window.loadZnxWalletData = async function() {
     const listContainer = document.getElementById('lb-list-container') || document.getElementById('znx-lb-list');
@@ -683,7 +670,6 @@ window.loadZnxWalletData = async function() {
     }
 
     try {
-        // الاتصال بموديول محفظة ZNX الجديد
         const res = await window.fetchAPI('/api/znx-wallet');
         if (!res || (!res.success && !Array.isArray(res.leaderboard))) {
             if (listContainer) listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #ff4d4d;">فشل جلب قائمة محفظة ZNX.</div>';
@@ -694,18 +680,15 @@ window.loadZnxWalletData = async function() {
         const myRank = res.my_rank ?? res.user_rank ?? '#--';
         const myBal = res.my_balance ?? res.balance ?? window.userState?.balance ?? 0;
 
-        // تحديث الرصيد الحقيقي للمستخدم مباشرة في userState
         if (res.my_balance !== undefined && !isNaN(parseFloat(res.my_balance))) {
             window.userState.balance = parseFloat(res.my_balance);
         } else if (res.balance !== undefined && !isNaN(parseFloat(res.balance))) {
             window.userState.balance = parseFloat(res.balance);
         }
 
-        // تحديث ترتيب المستخدم الشخصي ورصيده
         if (myRankVal) myRankVal.innerText = (typeof myRank === 'number') ? `#${myRank}` : myRank;
         if (myRankBalance) myRankBalance.innerHTML = `${window.formatNumberHTML(myBal)} ZN`;
 
-        // تصفير منصة التتويج
         if (pod1Name) pod1Name.innerText = '---';
         if (pod1Score) pod1Score.innerText = '0 ZN';
         if (pod2Name) pod2Name.innerText = '---';
@@ -713,7 +696,6 @@ window.loadZnxWalletData = async function() {
         if (pod3Name) pod3Name.innerText = '---';
         if (pod3Score) pod3Score.innerText = '0 ZN';
 
-        // تعبئة المراكز 3 الأوائل على منصة التتويج بأسماء محمية من XSS
         if (leaderboard.length > 0) {
             const p1 = leaderboard[0];
             if (pod1Name) pod1Name.innerText = window.escapeHTML(p1.first_name || p1.username || `لاعب ${p1.telegram_id || 1}`);
@@ -730,7 +712,6 @@ window.loadZnxWalletData = async function() {
             if (pod3Score) pod3Score.innerHTML = `${window.formatNumberHTML(p3.balance || 0)} ZN`;
         }
 
-        // بناء قائمة المتصدرين المتبقية
         if (listContainer) {
             if (leaderboard.length === 0) {
                 listContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #888;">لا يوجد لاعبون حالياً.</div>';
@@ -775,7 +756,7 @@ window.loadZnxWalletData = async function() {
     }
 };
 
-// التوافق مع جميع الاستدعاءات القديمة والجديدة لـ Leaderboard ومحفظة ZNX
+// ربط المسميات القديمة والحديثة بـ ZNX Wallet
 window.loadLeaderboardData = window.loadZnxWalletData;
 window.onLeaderboardTabOpen = window.loadZnxWalletData;
 window.initLeaderboardView = window.loadZnxWalletData;
@@ -785,8 +766,44 @@ if (typeof window.initZnxWallet !== 'function') {
 }
 
 // ==========================================
-// 10. التنقل الديناميكي المحصن واحتواء الهياكل المطلوبة (مُحدثة لتبويب znx_wallet)
+// 10. محرك التنقل والتحميل الديناميكي المدمج (loadZnxWalletView)
 // ==========================================
+window.loadZnxWalletView = async function() {
+    const container = document.getElementById('view-znx_wallet') || document.getElementById('view-leaderboard');
+    if (!container) return;
+
+    try {
+        // 1. جلب وحقن HTML إذا لم يكن محملاً
+        if (!container.innerHTML.trim() || container.children.length === 0) {
+            const res = await fetch('./znx_wallet/znx_wallet.html?v=4.2');
+            if (res.ok) {
+                container.innerHTML = await res.text();
+            }
+        }
+
+        // 2. تحميل ملف js الخاص بالنموذج مع معالجة تأخير الـ DOM
+        if (!document.getElementById('znx-wallet-script')) {
+            const script = document.createElement('script');
+            script.id = 'znx-wallet-script';
+            script.src = './znx_wallet/znx_wallet.js?v=4.2';
+            script.onload = () => {
+                setTimeout(() => { 
+                    if (typeof window.initZnxWallet === 'function') window.initZnxWallet(); 
+                }, 100);
+            };
+            document.body.appendChild(script);
+        } else {
+            setTimeout(() => {
+                if (typeof window.initZnxWallet === 'function') {
+                    window.initZnxWallet();
+                }
+            }, 50);
+        }
+    } catch (err) {
+        console.error("❌ خطأ تحميل شاشة ZNX Wallet:", err);
+    }
+};
+
 const loadedModules = new Set();
 const pendingLoads = new Map();
 
@@ -830,25 +847,14 @@ function renderDefaultViewContent(cleanViewName, targetView) {
                         <div style="font-size: 38px; margin: 10px 0 6px 0; color: #ff4d4d;"><i class="fas fa-fire"></i></div>
                         <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض fogo</div>
                     </div>
-                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_hitob')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer;">
-                        <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
-                        <div style="font-size: 38px; margin: 10px 0 6px 0; color: #e63946;"><i class="fas fa-bullseye"></i></div>
-                        <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض hitob</div>
-                    </div>
-                    <div class="offer-card-item" onclick="window.openOfferCategory('offer_wex')" style="background: #161b22; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px 10px; position: relative; cursor: pointer;">
-                        <span style="position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.1); color: #aaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: bold;">قريباً</span>
-                        <div style="font-size: 38px; margin: 10px 0 6px 0; color: #00b4d8;"><i class="fas fa-bolt"></i></div>
-                        <div style="font-weight: bold; font-size: 14px; color: #fff;">عرض wex</div>
-                    </div>
                 </div>
             </div>`;
     } else if (cleanViewName === 'znx_wallet') {
         targetView.innerHTML = `
             <div style="padding: 20px; color: #ffffff; text-align: center; direction: rtl; max-width: 500px; margin: 0 auto; padding-bottom: 90px;">
                 <h2 style="margin-bottom: 5px; color: #ffb703;"><i class="fas fa-wallet"></i> محفظة ZNX ومتصدرين التطبيق</h2>
-                <p style="color: #a0a0a0; font-size: 13px; margin-bottom: 20px;">عرض الرصيد الثلاثي، تحويل العملات، وشاشة كبار المطورين والمستثمرين</p>
+                <p style="color: #a0a0a0; font-size: 13px; margin-bottom: 20px;">عرض الرصيد، تحويل العملات، وشاشة كبار المطورين والمستثمرين</p>
 
-                <!-- منصة التتويج المراكز 3 الأوائل -->
                 <div style="display: flex; justify-content: center; align-items: flex-end; gap: 10px; margin-bottom: 25px;">
                     <div style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 12px 8px; flex: 1; text-align: center;">
                         <span style="font-size: 24px;">🥈</span>
@@ -867,12 +873,10 @@ function renderDefaultViewContent(cleanViewName, targetView) {
                     </div>
                 </div>
 
-                <!-- حاوية القائمة -->
                 <div id="lb-list-container" style="display: flex; flex-direction: column; gap: 8px; text-align: right;">
                     <div style="text-align: center; padding: 20px; color: #888;">جاري تحميل محفظة ZNX والتوب...</div>
                 </div>
 
-                <!-- شريط المستخدم السفلي -->
                 <div style="position: fixed; bottom: 65px; left: 50%; transform: translateX(-50%); width: calc(100% - 30px); max-width: 470px; background: #0088cc; color: white; padding: 12px 20px; border-radius: 14px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.4); z-index: 100;">
                     <span style="font-weight: bold; font-size: 14px;">ترتيبك الحالي: <span id="my-rank-val">#--</span></span>
                     <span style="font-weight: bold; font-size: 14px;">رصيدك: <span id="my-rank-balance">0.00 ZN</span></span>
@@ -910,15 +914,12 @@ window.switchView = async function(viewName) {
     if (cleanViewName === 'user' || cleanViewName === 'friends' || cleanViewName === 'friend') cleanViewName = 'friends';
     if (cleanViewName === 'offer' || cleanViewName === 'أرباح العروض' || cleanViewName === 'ارباح العروض') cleanViewName = 'offers';
     
-    // توجيه المتصدرين ومحفظة ZNX إلى الموديول الجديد znx_wallet
     if (cleanViewName === 'leaderboard' || cleanViewName === 'znx_wallet' || cleanViewName === 'znx-wallet' || cleanViewName === 'znxwallet') {
         cleanViewName = 'znx_wallet';
     }
 
-    // 1. إخفاء شاشة التحميل فوراً
     hideLoadingScreen();
 
-    // 2. تحديث إضاءة أزرار القائمة السفلى
     document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
     const targetNav = document.getElementById(`nav-${cleanViewName}`) || 
                       document.getElementById(`nav-leaderboard`) ||
@@ -926,14 +927,12 @@ window.switchView = async function(viewName) {
                       document.querySelector(`[data-view="${viewName}"]`);
     if (targetNav) targetNav.classList.add('active');
 
-    // 3. إخفاء الشاشات الأخرى وتفعيل الحاوية الحالية
     document.querySelectorAll('.game-view, [id^="view-"]').forEach(v => {
         v.classList.remove('active');
         v.style.display = 'none';
     });
     
     let targetView = document.getElementById(`view-${cleanViewName}`);
-    
     if (!targetView && cleanViewName === 'znx_wallet') {
         targetView = document.getElementById('view-leaderboard');
     }
@@ -951,7 +950,11 @@ window.switchView = async function(viewName) {
     targetView.style.width = '100%';
     targetView.style.minHeight = '100vh';
 
-    // 4. جلب المحتوى والسكريبت الديناميكي من مجلد znx_wallet
+    if (cleanViewName === 'znx_wallet') {
+        await window.loadZnxWalletView();
+        return;
+    }
+
     const hasPlaceholder = targetView.querySelector('.placeholder-container');
     const hasRealContent = !hasPlaceholder && (targetView.innerText.trim().length > 10 || targetView.querySelector('button, input, h1, h2, h3, h4'));
 
@@ -1025,7 +1028,6 @@ window.switchView = async function(viewName) {
         }
     }
 
-    // 5. تشغيل دالة التهيئة المخصصة للتبويب فورياً مع تغطية كافة الاحتمالات
     try {
         if (cleanViewName === 'farm' && typeof window.onFarmTabOpen === 'function') {
             window.onFarmTabOpen();
@@ -1040,16 +1042,6 @@ window.switchView = async function(viewName) {
             if (typeof window.onOffersTabOpen === 'function') await window.onOffersTabOpen();
             else if (typeof window.initOffersView === 'function') await window.initOffersView();
             else if (typeof window.loadOffersList === 'function') await window.loadOffersList();
-        } else if (cleanViewName === 'znx_wallet') {
-            if (typeof window.initZnxWallet === 'function') {
-                try { window.initZnxWallet(); } catch(e) { console.error("initZnxWallet Error:", e); }
-            }
-            if (window.znxWalletModule && typeof window.znxWalletModule.init === 'function') {
-                try { window.znxWalletModule.init(); } catch(e) { console.error("znxWalletModule Error:", e); }
-            }
-            if (typeof window.loadZnxWalletData === 'function') {
-                await window.loadZnxWalletData();
-            }
         } else if (cleanViewName === 'settings') {
             if (typeof window.initSettingsView === 'function') window.initSettingsView();
         }
@@ -1061,14 +1053,13 @@ window.switchView = async function(viewName) {
 };
 
 // ==========================================
-// 11. التشغيل المباشر عند بدء الصفحة
+// 11. التشغيل المباشر عند الإقلاع
 // ==========================================
 document.addEventListener('DOMContentLoaded', async () => {
     hideLoadingScreen();
     startLocalMiningSimulator();
     window.fetchTonPrice();
 
-    // التأكد من جلب بيانات الحساب المباشرة
     if (!window.userState.tg_id && tg?.initDataUnsafe?.user?.id) {
         window.userState.tg_id = tg.initDataUnsafe.user.id;
     }
