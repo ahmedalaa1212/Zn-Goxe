@@ -35,7 +35,7 @@ def _sanitize_id(user_id):
 # الحد الأقصى الكلي للعملات المستخرجة من مجمّع ZNX
 MAX_GLOBAL_ZNX = 35_000_000.0
 
-# إعدادات شرائح التحويل
+# إعدادات شرائح التحويل المطابقة لما تم تكوينه في قاعدة البيانات
 TIERS_CONFIG = [
     {"tier": 1, "name": "الشريحة الأولى", "min_pts": 0, "max_pts": 20_000_000, "rate": 10, "quota": 1_500_000},
     {"tier": 2, "name": "الشريحة الثانية", "min_pts": 20_000_000, "max_pts": 100_000_000, "rate": 30, "quota": 2_000_000},
@@ -57,7 +57,7 @@ def get_global_stats():
         if doc.exists:
             data = doc.to_dict() or {}
             data['max_global_znx'] = MAX_GLOBAL_ZNX
-            data['tiers_config'] = TIERS_CONFIG
+            data['tiers_config'] = data.get('tiers_config') or TIERS_CONFIG
             return data
         else:
             init_data = {
@@ -121,7 +121,6 @@ def get_user_data(user_id: str):
             total_znx_earned = float(data.get('total_znx_earned') or 0.0)
             first_name = data.get('first_name') or data.get('name') or 'لاعب'
             
-            # إكمال أي حقول مفقودة في Firestore لتجنب أخطاء الواجهة الأمامية
             updates = {}
             if 'usd_balance' not in data: updates['usd_balance'] = usd_balance
             if 'znx_balance' not in data: updates['znx_balance'] = znx_balance
@@ -167,7 +166,6 @@ def get_leaderboard_rankings(limit=50, user_id=None):
     user_rank = "غير مصنف"
     user_in_top = False
 
-    # 1. الاستعلام الأول المنظم المباشر
     try:
         query = db.collection('users').order_by('total_znx_earned', direction=firestore.Query.DESCENDING).limit(limit)
         docs = list(query.stream())
@@ -224,7 +222,6 @@ def get_leaderboard_rankings(limit=50, user_id=None):
         except Exception as ex:
             print(f"❌ Fallback leaderboard query failed: {ex}")
 
-    # حساب ترتيب المستخدم الحالي إذا لم يكن في أعلى القائمة
     if clean_target_id and not user_in_top:
         try:
             target_doc = db.collection('users').document(clean_target_id).get()
@@ -302,7 +299,6 @@ def execute_conversion(user_id: str, points_to_convert: float):
         current_tier = get_user_tier(current_zn_balance)
         znx_received = actual_points / current_tier['rate']
 
-        # التأكد من عدم تجاوز الحد المتبقي من المجمّع العام
         if total_global_znx + znx_received > MAX_GLOBAL_ZNX:
             znx_received = MAX_GLOBAL_ZNX - total_global_znx
             actual_points = znx_received * current_tier['rate']
@@ -314,7 +310,6 @@ def execute_conversion(user_id: str, points_to_convert: float):
         new_total_znx_earned = float(user_data.get('total_znx_earned') or 0.0) + znx_received
         new_global_total = total_global_znx + znx_received
 
-        # تحديث بيانات المستخدم
         trans.set(user_ref, {
             'balance': round(new_zn_balance, 4),
             'znx_balance': round(new_znx_balance, 6),
@@ -322,7 +317,6 @@ def execute_conversion(user_id: str, points_to_convert: float):
             'usd_balance': float(user_data.get('usd_balance') or 0.0)
         }, merge=True)
 
-        # تحديث المجمّع الكلي
         trans.set(global_ref, {
             'total_converted_znx': round(new_global_total, 6),
             'max_global_znx': MAX_GLOBAL_ZNX,
