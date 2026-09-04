@@ -109,7 +109,7 @@ function selectOption(type) {
 
     const bal = userData.balance || 0;
 
-    if (type === 'max') {
+    if (type === 'max' || !type) {
         input.value = bal;
     } else if (type === 'half') {
         input.value = (bal / 2).toFixed(2);
@@ -202,7 +202,7 @@ function renderTiersUI(tiers) {
             <div class="tier-item ${isCurrent ? 'current' : ''}">
                 <div>
                     <strong>${safeName}</strong> 
-                    ${isCurrent ? '<span class="tier-badge-active">شريحتك الحالية</span>' : ''}
+                    ${isCurrent ? '<span class="tier-badge-active">الشريحة الحالية</span>' : ''}
                     <div style="color: var(--text-muted); font-size: 0.75rem; margin-top:2px;">
                         سعر التحويل: 1 ZNX = ${t.rate} ZN
                     </div>
