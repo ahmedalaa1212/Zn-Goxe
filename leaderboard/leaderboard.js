@@ -1,4 +1,7 @@
-const USER_ID = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "5102387551";
+// استخراج معرف المستخدم بشكل ديناميكي من التليجرام أو الرابط
+const urlParams = new URLSearchParams(window.location.search);
+const USER_ID = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || urlParams.get('user_id') || urlParams.get('tg_id') || "5102387551";
+
 let userData = { balance: 0, usd_balance: 0, znx_balance: 0, total_znx_earned: 0 };
 let currentTier = null;
 let currentLivePrice = 0.0524;
@@ -7,6 +10,18 @@ document.addEventListener('DOMContentLoaded', () => {
     initApp();
     setInterval(tickLivePrice, 1000);
 });
+
+// دالة تنسيق الأرقام لجعل الأرقام العشرية صغيرة وبشكل أنيق
+function formatCoins(val, decimals = 2) {
+    const num = parseFloat(val) || 0;
+    const parts = num.toFixed(decimals).split('.');
+    const integerPart = parseInt(parts[0], 10).toLocaleString('en-US');
+    const decimalPart = parts[1];
+    if (decimals === 0 || !decimalPart) {
+        return integerPart;
+    }
+    return `${integerPart}<small class="dec">.${decimalPart}</small>`;
+}
 
 async function initApp() {
     try {
@@ -29,11 +44,9 @@ async function initApp() {
 }
 
 function updateBalancesUI() {
-    const bal = userData.balance || 0;
-    // إظهار الكسور إذا كان الرصيد أقل من 1000 نقطة لتجنب إظهار 0 عند وجود كسور
-    document.getElementById('znBalance').innerText = bal >= 1000 ? Math.floor(bal).toLocaleString() : bal.toFixed(2);
-    document.getElementById('usdBalance').innerText = `$${(userData.usd_balance || 0).toFixed(2)}`;
-    document.getElementById('znxBalance').innerText = (userData.znx_balance || 0).toFixed(4);
+    document.getElementById('znBalance').innerHTML = formatCoins(userData.balance || 0, 2);
+    document.getElementById('usdBalance').innerHTML = `$${formatCoins(userData.usd_balance || 0, 2)}`;
+    document.getElementById('znxBalance').innerHTML = formatCoins(userData.znx_balance || 0, 4);
 }
 
 function updateGlobalStatsUI(globalTotal, maxGlobal) {
@@ -41,7 +54,7 @@ function updateGlobalStatsUI(globalTotal, maxGlobal) {
     const max = maxGlobal || 35000000;
     const pct = Math.min(100, (total / max) * 100);
     
-    document.getElementById('globalRatioText').innerText = `${total.toFixed(2)} / ${(max/1000000).toFixed(0)}M ZNX`;
+    document.getElementById('globalRatioText').innerHTML = `${formatCoins(total, 2)} / ${(max/1000000).toFixed(0)}M ZNX`;
     document.getElementById('globalProgressBar').style.width = `${pct}%`;
 }
 
@@ -69,7 +82,7 @@ function onInputChange() {
     const points = parseFloat(document.getElementById('convertInput').value) || 0;
     const rate = currentTier ? currentTier.rate : 10;
     const znxGained = points / rate;
-    document.getElementById('znxPreview').innerText = `${znxGained.toFixed(4)} ZNX`;
+    document.getElementById('znxPreview').innerHTML = `${formatCoins(znxGained, 4)} ZNX`;
 }
 
 async function submitConvert() {
@@ -115,7 +128,7 @@ function renderTiersUI(tiers) {
                         سعر التحويل: 1 ZNX = ${t.rate} ZN
                     </div>
                 </div>
-                <div style="text-align: left; color: #38bdf8; font-weight: bold;">
+                <div style="text-align: left; color: var(--accent-blue); font-weight: bold;">
                     حصة الشريحة: ${(t.quota / 1000000).toFixed(1)}M
                 </div>
             </div>
@@ -129,6 +142,11 @@ function renderLeaderboardUI(list) {
     podium.innerHTML = '';
     rankings.innerHTML = '';
 
+    if (!list || list.length === 0) {
+        rankings.innerHTML = '<div style="text-align:center; padding:15px; color:var(--text-muted);">لا يوجد متصدرين حالياً</div>';
+        return;
+    }
+
     if (list.length >= 1) podium.innerHTML += createPodiumCard(list[0], 1, 'podium-1');
     if (list.length >= 2) podium.innerHTML += createPodiumCard(list[1], 2, 'podium-2');
     if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
@@ -137,7 +155,7 @@ function renderLeaderboardUI(list) {
         rankings.innerHTML += `
             <div class="leader-row">
                 <span>#${i + 1} ${list[i].name}</span>
-                <span style="color:#38bdf8; font-weight:bold;">${list[i].total_znx_earned} ZNX</span>
+                <span style="color:var(--accent-blue); font-weight:bold;">${formatCoins(list[i].total_znx_earned, 4)} ZNX</span>
             </div>
         `;
     }
@@ -146,9 +164,9 @@ function renderLeaderboardUI(list) {
 function createPodiumCard(item, rank, pClass) {
     return `
         <div class="podium-item ${pClass}">
-            <div style="font-size:0.75rem; color:var(--text-muted);"> المركز #${rank}</div>
-            <div style="font-weight:bold; font-size:0.85rem; margin:3px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.name}</div>
-            <div style="color:#38bdf8; font-weight:bold; font-size:0.8rem;">${item.total_znx_earned} ZNX</div>
+            <div style="font-size:0.72rem; color:var(--text-muted);">المركز #${rank}</div>
+            <div style="font-weight:bold; font-size:0.82rem; margin:3px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.name}</div>
+            <div style="color:var(--accent-blue); font-weight:bold; font-size:0.78rem;">${formatCoins(item.total_znx_earned, 4)} ZNX</div>
         </div>
     `;
 }
