@@ -22,9 +22,20 @@ function getUserId() {
 
 let USER_ID = getUserId();
 let userData = { balance: 0, usd_balance: 0, znx_balance: 0, total_znx_earned: 0 };
-let currentTier = null;
+let currentTier = { tier: 1, rate: 10, name: "الشريحة الأولى", quota: 1500000 };
 let currentLivePrice = 0.0524;
 let livePriceInterval = null;
+
+// شرائح افتراضية للعرض المباشر في حال التأخير
+const DEFAULT_TIERS = [
+    { tier: 1, name: "الشريحة الأولى", rate: 10, quota: 1500000 },
+    { tier: 2, name: "الشريحة الثانية", rate: 30, quota: 2000000 },
+    { tier: 3, name: "الشريحة الثالثة", rate: 80, quota: 2500000 },
+    { tier: 4, name: "الشريحة الرابعة", rate: 200, quota: 4000000 },
+    { tier: 5, name: "الشريحة الخامسة", rate: 600, quota: 5500000 },
+    { tier: 6, name: "الشريحة السادسة", rate: 1600, quota: 8000000 },
+    { tier: 7, name: "الشريحة السابعة", rate: 4000, quota: 9000000 }
+];
 
 function formatCoins(val, decimals = 2) {
     const num = parseFloat(val) || 0;
@@ -40,6 +51,9 @@ function formatCoins(val, decimals = 2) {
 async function initApp() {
     USER_ID = getUserId();
     const initData = window.Telegram?.WebApp?.initData || '';
+
+    // عرض الشرائح الافتراضية فوراً لتجنب فارغ الصفحة
+    renderTiersUI(DEFAULT_TIERS);
 
     try {
         const res = await fetch(`/api/znx-wallet/data?user_id=${encodeURIComponent(USER_ID)}&initData=${encodeURIComponent(initData)}`, {
@@ -59,13 +73,10 @@ async function initApp() {
             currentTier = data.current_tier || data.tier || currentTier;
             currentLivePrice = data.live_price || currentLivePrice;
 
-            // تحديث العناصر مع التأكد من وجودها بالـ DOM
             updateBalancesUI();
             updateGlobalStatsUI(data.global_total, data.max_global_znx);
-            renderTiersUI(data.tiers_all || data.tiers);
+            renderTiersUI(data.tiers_all || data.tiers || DEFAULT_TIERS);
             renderLeaderboardUI(data.leaderboard, data.my_rank);
-        } else {
-            console.error("⚠️ فشل جلب بيانات ZNX Wallet:", data.message || data.error);
         }
     } catch (err) {
         console.error("❌ خطأ الاتصال بسيرفر ZNX Wallet:", err);
@@ -192,11 +203,12 @@ function renderTiersUI(tiers) {
     if (!container) return;
 
     container.innerHTML = '';
-    if (!tiers || !Array.isArray(tiers)) return;
+    const tiersToRender = (tiers && Array.isArray(tiers) && tiers.length > 0) ? tiers : DEFAULT_TIERS;
 
-    tiers.forEach(t => {
-        const isCurrent = currentTier && currentTier.tier === t.tier;
+    tiersToRender.forEach(t => {
+        const isCurrent = currentTier && (currentTier.tier === t.tier || currentTier.rate === t.rate);
         const safeName = escapeHTML(t.name);
+        const quotaMB = t.quota ? (t.quota / 1000000).toFixed(1) : "0";
         
         container.innerHTML += `
             <div class="tier-item ${isCurrent ? 'current' : ''}">
@@ -208,7 +220,7 @@ function renderTiersUI(tiers) {
                     </div>
                 </div>
                 <div style="text-align: left; color: var(--accent-blue); font-weight: bold;">
-                    حصة الشريحة: ${(t.quota / 1000000).toFixed(1)}M
+                    حصة الشريحة: ${quotaMB}M
                 </div>
             </div>
         `;
