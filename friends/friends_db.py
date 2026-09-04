@@ -2,11 +2,13 @@ import time
 from firebase_admin import firestore
 import database
 
-# الإعدادات الافتراضية لنظام الأصدقاء (توسيع إلى 10 مهام مع مكافآت متدرجة)
+# الإعدادات الافتراضية لنظام الأصدقاء
 DEFAULT_FRIENDS_CONFIG = {
-    "commission_percent": 10.0,       # نسبة أرباح الإحالة من التعدين (10%)
-    "claim_fee_percent": 1.5,         # نسبة عمولة السحب (1.5%)
-    "min_upgrades_for_task": 3,       # عدد الترقيات المطلوب لاحتساب الصديق مؤهل للمهام
+    "commission_percent": 10.0,       # نسبة أرباح الإحالة العادية (10%)
+    "vip_commission_percent": 12.0,   # نسبة أرباح الإحالة لمشتركي VIP (12%)
+    "claim_fee_percent": 1.5,         # نسبة عمولة السحب العادية (1.5%)
+    "vip_claim_fee_percent": 0.0,     # نسبة عمولة السحب لمشتركي VIP (0%)
+    "min_upgrades_for_task": 1,       # عدد الترقيات المطلوب لاحتساب الصديق مؤهل للمهام (ترقية 1 فقط)
     "ref_tasks": {
         "1": {"reqFriends": 1, "reward": 50},
         "2": {"reqFriends": 3, "reward": 200},
@@ -24,6 +26,35 @@ DEFAULT_FRIENDS_CONFIG = {
 # ذاكرة تخزين مؤقت مع توقيت صلاحية (TTL) لتوفير قراءات الفايربيس
 _CONFIG_CACHE = {"data": None, "timestamp": 0}
 CACHE_TTL_SECONDS = 60  # كاش لمدة دقيقة كاملة
+
+
+def is_user_vip(tg_id, user_data=None):
+    """دالة مساعدة للتحقق مما إذا كان المستخدم يمتلك اشتراك VIP نشط"""
+    try:
+        now_ts = time.time()
+        if user_data is None:
+            db = database.get_db()
+            doc = db.collection("users").document(str(tg_id)).get()
+            if not doc.exists:
+                return False
+            user_data = doc.to_dict() or {}
+
+        # التحقق من خيار vip_active أو تاريخ انتهاء اشتراك الـ VIP
+        if user_data.get("vip_active") is True:
+            return True
+
+        vip_expires = user_data.get("vip_expires", 0)
+        if isinstance(vip_expires, (int, float)) and vip_expires > now_ts:
+            return True
+
+        if user_data.get("is_vip") is True:
+            return True
+
+        return False
+    except Exception as e:
+        print(f"⚠️ Error checking VIP status for {tg_id}: {e}")
+        return False
+
 
 def get_friends_config(force_refresh=False):
     """جلب إعدادات نظام الأصدقاء المخصصة من الفايربيس مع Caching حيوي لتوفير الاستهلاك"""
@@ -132,25 +163,32 @@ def get_user_friends(tg_id, limit=100):
 
 
 def add_referral_reward(referrer_id, user_id, mined_amount, user_upgrades_count=None, user_name=None):
-    """إضافة أرباح التعدين وتحديث بيانات مستند الصديق تلقائياً"""
+    """إضافة أرباح التعدين وتحديث بيانات مستند الصديق تلقائياً مع مراعاة نسبة VIP (12%)"""
     try:
         if not referrer_id or mined_amount <= 0:
             return False
         
         config = get_friends_config()
-        comm_percent = float(config.get("commission_percent", 10.0)) / 100.0
+        db = database.get_db()
+        ref_str = str(referrer_id)
+        user_str = str(user_id)
+
+        # التحقق مما إذا كان المُحيل يملك اشتراك VIP
+        referrer_ref = db.collection("users").document(ref_str)
+        ref_doc = referrer_ref.get()
+        referrer_data = ref_doc.to_dict() if ref_doc.exists else {}
+
+        if is_user_vip(ref_str, referrer_data):
+            comm_percent = float(config.get("vip_commission_percent", 12.0)) / 100.0
+        else:
+            comm_percent = float(config.get("commission_percent", 10.0)) / 100.0
 
         reward = round(float(mined_amount) * comm_percent, 6)
         if reward <= 0:
             return False
 
-        db = database.get_db()
-        ref_str = str(referrer_id)
-        user_str = str(user_id)
-
         # 1. تحديث الأرباح المعلقة والإجمالية للمُحيل بأمان
-        user_ref = db.collection("users").document(ref_str)
-        user_ref.set({
+        referrer_ref.set({
             "pending_ref_earnings": firestore.Increment(reward),
             "total_ref_earnings": firestore.Increment(reward),
         }, merge=True)
@@ -166,7 +204,7 @@ def add_referral_reward(referrer_id, user_id, mined_amount, user_upgrades_count=
         if user_upgrades_count is not None:
             friend_data["upgrades_count"] = int(user_upgrades_count)
 
-        friend_ref = user_ref.collection("friends").document(user_str)
+        friend_ref = referrer_ref.collection("friends").document(user_str)
         friend_ref.set(friend_data, merge=True)
 
         return True
@@ -181,7 +219,7 @@ def get_friends_list_db(tg_id):
 
 
 def get_friends_data_db(tg_id):
-    """جلب ملخص إحصائيات الأصدقاء والمكافآت وإعدادات قائمة الأصدقاء من الفايربيس"""
+    """جلب ملخص إحصائيات الأصدقاء والمكافآت وإعدادات قائمة الأصدقاء ديناميكياً مع حالة VIP"""
     try:
         db = database.get_db()
         user_ref = db.collection("users").document(str(tg_id))
@@ -191,11 +229,15 @@ def get_friends_data_db(tg_id):
         friends = get_user_friends(tg_id)
         config = get_friends_config()
         
-        min_upgrades = int(config.get("min_upgrades_for_task", 3))
+        min_upgrades = int(config.get("min_upgrades_for_task", 1))
         
-        # حساب الأصدقاء المؤهلين للمهام بناءً على شروط الترقيات
+        # حساب الأصدقاء المؤهلين للمهام بناءً على شرط الترقية (1 ترقية فقط)
         eligible_count = sum(1 for f in friends if f.get("upgrades_count", 0) >= min_upgrades)
         
+        vip_status = is_user_vip(tg_id, user_data)
+        effective_commission = float(config.get("vip_commission_percent", 12.0)) if vip_status else float(config.get("commission_percent", 10.0))
+        effective_claim_fee = float(config.get("vip_claim_fee_percent", 0.0)) if vip_status else float(config.get("claim_fee_percent", 1.5))
+
         return {
             "balance": round(float(user_data.get("balance", 0.0) or 0.0), 6),
             "pending_ref_earnings": round(float(user_data.get("pending_ref_earnings", 0.0) or 0.0), 6),
@@ -204,6 +246,9 @@ def get_friends_data_db(tg_id):
             "eligible_task_friends_count": eligible_count,
             "claimed_ref_tasks": user_data.get("claimed_ref_tasks", []),
             "referral_code": str(tg_id),
+            "is_vip": vip_status,
+            "effective_commission": effective_commission,
+            "effective_claim_fee": effective_claim_fee,
             "friends_config": config
         }
     except Exception as e:
@@ -217,19 +262,19 @@ def get_friends_data_db(tg_id):
             "eligible_task_friends_count": 0,
             "claimed_ref_tasks": [],
             "referral_code": str(tg_id),
+            "is_vip": False,
+            "effective_commission": 10.0,
+            "effective_claim_fee": 1.5,
             "friends_config": config
         }
 
 
 def claim_ref_earnings_db(tg_id):
-    """سحب أرباح الإحالات المعلقة وتحويلها للرصيد الرئيسي مع خصم نسبة الرسوم المحددة"""
+    """سحب أرباح الإحالات المعلقة وتحويلها للرصيد الرئيسي مع خصم الرسوم (0% لمشتركي VIP و 1.5% للعاديين)"""
     try:
         db = database.get_db()
         user_ref = db.collection("users").document(str(tg_id))
-        
         config = get_friends_config()
-        claim_fee_percent = float(config.get("claim_fee_percent", 1.5))
-        fee_rate = claim_fee_percent / 100.0
         
         @firestore.transactional
         def update_in_transaction(transaction, ref):
@@ -243,6 +288,11 @@ def claim_ref_earnings_db(tg_id):
             if pending <= 0:
                 return {"success": False, "error": "لا توجد أرباح معلقة للسحب"}
             
+            # التحقق من حالة الـ VIP لتحديد نسبة الخصم
+            vip_status = is_user_vip(tg_id, data)
+            claim_fee_percent = float(config.get("vip_claim_fee_percent", 0.0)) if vip_status else float(config.get("claim_fee_percent", 1.5))
+            fee_rate = claim_fee_percent / 100.0
+            
             fee_amount = round(pending * fee_rate, 6)
             net_amount = round(pending - fee_amount, 6)
             
@@ -254,13 +304,14 @@ def claim_ref_earnings_db(tg_id):
                 "pending_ref_earnings": 0.0
             })
             
+            fee_msg = "معفي من الرسوم (0% VIP)" if vip_status else f"خصم {fee_amount} ZN رسوم ({claim_fee_percent}%)"
             return {
                 "success": True,
                 "claimed_amount": pending,
                 "fee_amount": fee_amount,
                 "net_amount": net_amount,
                 "new_balance": new_balance,
-                "message": f"تم سحب {net_amount} ZN بنجاح إلى رصيدك (بعد خصم {fee_amount} ZN رسوم {claim_fee_percent}%)"
+                "message": f"تم سحب {net_amount} ZN بنجاح إلى رصيدك ({fee_msg})"
             }
         
         transaction = db.transaction()
@@ -277,7 +328,7 @@ def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
         user_ref = db.collection("users").document(str(tg_id))
         
         config = get_friends_config()
-        min_upgrades = int(config.get("min_upgrades_for_task", 3))
+        min_upgrades = int(config.get("min_upgrades_for_task", 1))
         ref_tasks = config.get("ref_tasks", {})
         
         task_info = ref_tasks.get(str(task_id))
@@ -288,7 +339,7 @@ def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
             actual_req_friends = int(req_friends)
             actual_reward = float(reward)
 
-        # تجهيز قائمة الأصدقاء وحساب المؤهلين قبل الدخول في معاملة التعديل
+        # تجهيز قائمة الأصدقاء وحساب المؤهلين (ترقية 1 على الأقل)
         friends = get_user_friends(tg_id)
         eligible_count = sum(1 for f in friends if f.get("upgrades_count", 0) >= min_upgrades)
 
