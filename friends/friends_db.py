@@ -8,7 +8,7 @@ DEFAULT_FRIENDS_CONFIG = {
     "vip_commission_percent": 12.0,   # نسبة أرباح الإحالة لمشتركي VIP (12%)
     "claim_fee_percent": 1.5,         # نسبة عمولة السحب العادية (1.5%)
     "vip_claim_fee_percent": 0.0,     # نسبة عمولة السحب لمشتركي VIP (0%)
-    "min_upgrades_for_task": 1,       # عدد الترقيات المطلوب لاحتساب الصديق مؤهل للمهام (ترقية 1 فقط)
+    "min_upgrades_for_task": 1,       # عدد الترقيات المطلوب لاحتساب الصديق مؤهل للمهام
     "ref_tasks": {
         "1": {"reqFriends": 1, "reward": 50},
         "2": {"reqFriends": 3, "reward": 200},
@@ -29,7 +29,7 @@ CACHE_TTL_SECONDS = 60  # كاش لمدة دقيقة كاملة
 
 
 def is_user_vip(tg_id, user_data=None):
-    """دالة مساعدة للتحقق مما إذا كان المستخدم يمتلك اشتراك VIP نشط"""
+    """دالة مساعدة للتحقق مما إذا كان المستخدم يمتلك اشتراك VIP نشط عبر كائن vip_status"""
     try:
         now_ts = time.time()
         if user_data is None:
@@ -39,16 +39,45 @@ def is_user_vip(tg_id, user_data=None):
                 return False
             user_data = doc.to_dict() or {}
 
-        # التحقق من خيار vip_active أو تاريخ انتهاء اشتراك الـ VIP
-        if user_data.get("vip_active") is True:
+        # 1. التحقق من كائن vip_status المتفرع في مستند المستخدم
+        vip_map = user_data.get("vip_status")
+        if isinstance(vip_map, dict):
+            # التأكد من حالة التفعيل داخل الكائن
+            if vip_map.get("is_active") is False or vip_map.get("active") is False:
+                pass
+            else:
+                expires_at = vip_map.get("expires_at")
+                package_id = vip_map.get("package_id")
+                
+                # فحص تاريخ انتهاء الاشتراك
+                if expires_at is not None:
+                    try:
+                        exp_ts = float(expires_at)
+                        # تحويل التوقيت من ميلي ثانية إلى ثوانٍ إذا لزم الأمر
+                        if exp_ts > 1e11:
+                            exp_ts /= 1000.0
+                        if exp_ts > now_ts:
+                            return True
+                    except (ValueError, TypeError):
+                        pass
+
+                # إذا كانت حالة النشاط محددة بـ True صراحة أو توجد باقة نشطة بدون تاريخ انتهاء
+                if vip_map.get("is_active") is True or vip_map.get("active") is True:
+                    return True
+                if package_id and expires_at is None:
+                    return True
+
+        # 2. فحص الحقول القديمة المباشرة للتوافق العكسي
+        if user_data.get("vip_active") is True or user_data.get("is_vip") is True:
             return True
 
         vip_expires = user_data.get("vip_expires", 0)
-        if isinstance(vip_expires, (int, float)) and vip_expires > now_ts:
-            return True
-
-        if user_data.get("is_vip") is True:
-            return True
+        if isinstance(vip_expires, (int, float)):
+            exp_ts = float(vip_expires)
+            if exp_ts > 1e11:
+                exp_ts /= 1000.0
+            if exp_ts > now_ts:
+                return True
 
         return False
     except Exception as e:
@@ -227,16 +256,25 @@ def get_friends_data_db(tg_id):
         
         user_data = doc.to_dict() if doc.exists else {}
         friends = get_user_friends(tg_id)
-        config = get_friends_config()
         
+        # إنشاء نسخة خاصة بالمستخدم من التكوين حتى لا تتأثر بالذاكرة المؤقتة العامة
+        config = get_friends_config().copy()
+        vip_status = is_user_vip(tg_id, user_data)
+        
+        if vip_status:
+            vip_map = user_data.get("vip_status") if isinstance(user_data.get("vip_status"), dict) else {}
+            vip_min_upgrades = vip_map.get("min_upgrades_for_task", 1)
+            config["min_upgrades_for_task"] = int(vip_min_upgrades)
+            effective_commission = float(config.get("vip_commission_percent", 12.0))
+            effective_claim_fee = float(config.get("vip_claim_fee_percent", 0.0))
+        else:
+            effective_commission = float(config.get("commission_percent", 10.0))
+            effective_claim_fee = float(config.get("claim_fee_percent", 1.5))
+
         min_upgrades = int(config.get("min_upgrades_for_task", 1))
         
-        # حساب الأصدقاء المؤهلين للمهام بناءً على شرط الترقية (1 ترقية فقط)
+        # حساب الأصدقاء المؤهلين للمهام بناءً على الشرط المخصص للمستخدم (1 ترقية للـ VIP)
         eligible_count = sum(1 for f in friends if f.get("upgrades_count", 0) >= min_upgrades)
-        
-        vip_status = is_user_vip(tg_id, user_data)
-        effective_commission = float(config.get("vip_commission_percent", 12.0)) if vip_status else float(config.get("commission_percent", 10.0))
-        effective_claim_fee = float(config.get("vip_claim_fee_percent", 0.0)) if vip_status else float(config.get("claim_fee_percent", 1.5))
 
         return {
             "balance": round(float(user_data.get("balance", 0.0) or 0.0), 6),
@@ -253,7 +291,7 @@ def get_friends_data_db(tg_id):
         }
     except Exception as e:
         print(f"❌ Error getting friends data for {tg_id}: {e}")
-        config = get_friends_config()
+        config = get_friends_config().copy()
         return {
             "balance": 0.0,
             "pending_ref_earnings": 0.0,
@@ -326,9 +364,18 @@ def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
     try:
         db = database.get_db()
         user_ref = db.collection("users").document(str(tg_id))
+        user_doc = user_ref.get()
+        user_data = user_doc.to_dict() if user_doc.exists else {}
         
+        vip_status = is_user_vip(tg_id, user_data)
         config = get_friends_config()
-        min_upgrades = int(config.get("min_upgrades_for_task", 1))
+        
+        if vip_status:
+            vip_map = user_data.get("vip_status") if isinstance(user_data.get("vip_status"), dict) else {}
+            min_upgrades = int(vip_map.get("min_upgrades_for_task", 1))
+        else:
+            min_upgrades = int(config.get("min_upgrades_for_task", 1))
+
         ref_tasks = config.get("ref_tasks", {})
         
         task_info = ref_tasks.get(str(task_id))
@@ -339,7 +386,7 @@ def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
             actual_req_friends = int(req_friends)
             actual_reward = float(reward)
 
-        # تجهيز قائمة الأصدقاء وحساب المؤهلين (ترقية 1 على الأقل)
+        # تجهيز قائمة الأصدقاء وحساب المؤهلين بحسب حالة الـ VIP للمستخدم
         friends = get_user_friends(tg_id)
         eligible_count = sum(1 for f in friends if f.get("upgrades_count", 0) >= min_upgrades)
 
@@ -352,13 +399,13 @@ def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
             if not snapshot.exists:
                 return {"success": False, "error": "المستخدم غير موجود"}
             
-            user_data = snapshot.to_dict() or {}
-            claimed_tasks = user_data.get("claimed_ref_tasks", [])
+            snap_data = snapshot.to_dict() or {}
+            claimed_tasks = snap_data.get("claimed_ref_tasks", [])
             
             if str(task_id) in [str(t) for t in claimed_tasks]:
                 return {"success": False, "error": "تم استلام مكافأة هذه المهمة من قبل"}
             
-            current_balance = float(user_data.get("balance", 0.0) or 0.0)
+            current_balance = float(snap_data.get("balance", 0.0) or 0.0)
             new_balance = round(current_balance + actual_reward, 6)
             
             new_claimed = list(claimed_tasks)
