@@ -1,4 +1,3 @@
-// استخراج هوية المستخدم بدقة من التليجرام أو الرابط
 function getUserId() {
     if (window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
         return String(window.Telegram.WebApp.initDataUnsafe.user.id);
@@ -7,7 +6,7 @@ function getUserId() {
     return urlParams.get('user_id') || urlParams.get('tg_id') || "5102387551";
 }
 
-const USER_ID = getUserId();
+let USER_ID = getUserId();
 let userData = { balance: 0, usd_balance: 0, znx_balance: 0, total_znx_earned: 0 };
 let currentTier = null;
 let currentLivePrice = 0.0524;
@@ -17,11 +16,11 @@ document.addEventListener('DOMContentLoaded', () => {
         window.Telegram.WebApp.ready();
         window.Telegram.WebApp.expand();
     }
+    USER_ID = getUserId();
     initApp();
     setInterval(tickLivePrice, 1000);
 });
 
-// تنسيق الأرقام مع تكبير الأعداد الصحيحة وتصغير الكسور
 function formatCoins(val, decimals = 2) {
     const num = parseFloat(val) || 0;
     const parts = num.toFixed(decimals).split('.');
@@ -130,6 +129,8 @@ async function submitConvert() {
 function renderTiersUI(tiers) {
     const container = document.getElementById('tiersContainer');
     container.innerHTML = '';
+
+    if (!tiers) return;
 
     tiers.forEach(t => {
         const isCurrent = currentTier && currentTier.tier === t.tier;
