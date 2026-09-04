@@ -16,7 +16,7 @@ friends_api = friends_bp
 @friends_bp.route('/friends/data', methods=['GET', 'POST'])
 @friends_bp.route('/api/friends/data', methods=['GET', 'POST'])
 def get_friends_data():
-    """جلب ملخص بيانات الأصدقاء والمكافآت مع المصادقة والحماية التامة"""
+    """جلب ملخص بيانات الأصدقاء والمكافآت مع المصادقة وحالة VIP الديناميكية"""
     is_auth, user_id, user_info, err_resp = get_authenticated_user(request, is_post=(request.method == 'POST'))
     if not is_auth:
         return err_resp
@@ -25,10 +25,18 @@ def get_friends_data():
         player_data = get_friends_data_db(str(user_id))
         friends_config = player_data.pop("friends_config", None) or get_friends_config()
         
+        # استخراج القيم الديناميكية الخاصة بالـ VIP لنقلها للواجهة مباشرة
+        is_vip = player_data.get("is_vip", False)
+        effective_commission = player_data.get("effective_commission", 10.0)
+        effective_claim_fee = player_data.get("effective_claim_fee", 1.5)
+
         return jsonify({
             "success": True, 
             "player": player_data,
-            "friends_config": friends_config
+            "friends_config": friends_config,
+            "is_vip": is_vip,
+            "effective_commission": effective_commission,
+            "effective_claim_fee": effective_claim_fee
         }), 200
     except Exception as e:
         print(f"❌ خطأ في API جلب بيانات الأصدقاء: {e}")
@@ -58,7 +66,7 @@ def get_friends_list():
 @friends_bp.route('/api/friends/claim-earnings', methods=['POST'])
 @friends_bp.route('/api/friends/claim_ref_earnings', methods=['POST'])
 def claim_ref_earnings():
-    """سحب أرباح الإحالة المعلقة مع التحقق من الهوية من التشفير الرسمى لتليجرام"""
+    """سحب أرباح الإحالة المعلقة مع احتساب خصم 0% للـ VIP أو 1.5% للعاديين"""
     is_auth, user_id, user_info, err_resp = get_authenticated_user(request, is_post=True)
     if not is_auth:
         return err_resp
@@ -78,7 +86,7 @@ def claim_ref_earnings():
 @friends_bp.route('/api/friends/claim-task', methods=['POST'])
 @friends_bp.route('/api/friends/claim_ref_task', methods=['POST'])
 def claim_ref_task():
-    """استلام مكافأة مهمة دعوة الأصدقاء بشكل مؤمن تماماً"""
+    """استلام مكافأة مهمة دعوة الأصدقاء مع التحقق من شروط الترقيات الجديدة"""
     is_auth, user_id, user_info, err_resp = get_authenticated_user(request, is_post=True)
     if not is_auth:
         return err_resp
