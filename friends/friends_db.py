@@ -1,4 +1,5 @@
 import time
+from datetime import datetime, timezone
 from firebase_admin import firestore
 import database
 
@@ -28,8 +29,50 @@ _CONFIG_CACHE = {"data": None, "timestamp": 0}
 CACHE_TTL_SECONDS = 60  # كاش لمدة دقيقة كاملة
 
 
+def _parse_timestamp(val):
+    """دالة مساعدة لتحليل وتوحيد قراءة التواريخ والطوابع الزمنية بأشكالها المختلفة (أرقام، نصوص ISO، كائنات datetime)"""
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        ts = float(val)
+        if ts > 1e11:  # التحويل من ميلي ثانية إلى ثوانٍ
+            ts /= 1000.0
+        return ts
+    if isinstance(val, datetime):
+        return val.timestamp()
+    if isinstance(val, str):
+        val_str = val.strip()
+        if not val_str:
+            return None
+        # محاولة قراءة الرقم من النص
+        try:
+            ts = float(val_str)
+            if ts > 1e11:
+                ts /= 1000.0
+            return ts
+        except ValueError:
+            pass
+        # محاولة قراءة صيغة ISO 8601
+        try:
+            clean_str = val_str.replace('Z', '+00:00')
+            dt = datetime.fromisoformat(clean_str)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except Exception:
+            pass
+        # محاولة قراءة الصيغ الشائعة الأخرى
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+            try:
+                dt = datetime.strptime(val_str, fmt).replace(tzinfo=timezone.utc)
+                return dt.timestamp()
+            except ValueError:
+                pass
+    return None
+
+
 def is_user_vip(tg_id, user_data=None):
-    """دالة مساعدة للتحقق مما إذا كان المستخدم يمتلك اشتراك VIP نشط عبر كائن vip_status"""
+    """دالة مساعدة للتحقق مما إذا كان المستخدم يمتلك اشتراك VIP نشط بجميع الأشكال والتنسيقات الممكنة في Firestore"""
     try:
         now_ts = time.time()
         if user_data is None:
@@ -39,45 +82,60 @@ def is_user_vip(tg_id, user_data=None):
                 return False
             user_data = doc.to_dict() or {}
 
-        # 1. التحقق من كائن vip_status المتفرع في مستند المستخدم
+        # 1. فحص كائن vip_status المتفرع
         vip_map = user_data.get("vip_status")
         if isinstance(vip_map, dict):
-            # التأكد من حالة التفعيل داخل الكائن
-            if vip_map.get("is_active") is False or vip_map.get("active") is False:
-                pass
-            else:
-                expires_at = vip_map.get("expires_at")
-                package_id = vip_map.get("package_id")
-                
-                # فحص تاريخ انتهاء الاشتراك
-                if expires_at is not None:
-                    try:
-                        exp_ts = float(expires_at)
-                        # تحويل التوقيت من ميلي ثانية إلى ثوانٍ إذا لزم الأمر
-                        if exp_ts > 1e11:
-                            exp_ts /= 1000.0
-                        if exp_ts > now_ts:
-                            return True
-                    except (ValueError, TypeError):
-                        pass
+            # التحقق من عدم وجود إلغاء صريح للخدمة
+            is_explicitly_inactive = (
+                vip_map.get("is_active") is False or 
+                vip_map.get("active") is False or 
+                str(vip_map.get("status", "")).lower() == "inactive"
+            )
+            if not is_explicitly_inactive:
+                # البحث عن تاريخ الانتهاء بجميع التسميات المحتملة
+                expires_raw = (
+                    vip_map.get("expires_at") or 
+                    vip_map.get("expiration_date") or 
+                    vip_map.get("expires") or 
+                    vip_map.get("end_date") or 
+                    vip_map.get("valid_until")
+                )
+                exp_ts = _parse_timestamp(expires_raw)
+                if exp_ts is not None:
+                    if exp_ts > now_ts:
+                        return True
+                else:
+                    # إذا لم يوجد تاريخ انتهاء لكن يوجد مسمى باقة أو تفعيل نشط
+                    package_id = (
+                        vip_map.get("package_id") or 
+                        vip_map.get("vip_package") or 
+                        vip_map.get("plan") or 
+                        vip_map.get("level")
+                    )
+                    if vip_map.get("is_active") is True or vip_map.get("active") is True or package_id:
+                        return True
+        elif isinstance(vip_map, bool) and vip_map:
+            return True
+        elif isinstance(vip_map, str) and (vip_map.lower() in ["true", "active"] or vip_map.upper().startswith("VIP")):
+            return True
 
-                # إذا كانت حالة النشاط محددة بـ True صراحة أو توجد باقة نشطة بدون تاريخ انتهاء
-                if vip_map.get("is_active") is True or vip_map.get("active") is True:
-                    return True
-                if package_id and expires_at is None:
-                    return True
-
-        # 2. فحص الحقول القديمة المباشرة للتوافق العكسي
+        # 2. فحص الحقول المباشرة في مستند المستخدم (لتأكيد التوافق مع كافة الباقات مثل VIP0, VIP1)
         if user_data.get("vip_active") is True or user_data.get("is_vip") is True:
             return True
 
-        vip_expires = user_data.get("vip_expires", 0)
-        if isinstance(vip_expires, (int, float)):
-            exp_ts = float(vip_expires)
-            if exp_ts > 1e11:
-                exp_ts /= 1000.0
-            if exp_ts > now_ts:
+        # فحص حقل plan أو vip_package أو vip_level المباشر
+        direct_plan = user_data.get("plan") or user_data.get("vip_package") or user_data.get("vip_level")
+        if isinstance(direct_plan, str) and (direct_plan.upper().startswith("VIP") or direct_plan.lower() in ["active", "true"]):
+            direct_expires = user_data.get("vip_expires") or user_data.get("vip_expires_at") or user_data.get("expires_at")
+            exp_ts = _parse_timestamp(direct_expires)
+            if exp_ts is None or exp_ts > now_ts:
                 return True
+
+        # فحص تواريخ الانتهاء المباشرة
+        direct_expires = user_data.get("vip_expires") or user_data.get("vip_expires_at")
+        exp_ts = _parse_timestamp(direct_expires)
+        if exp_ts is not None and exp_ts > now_ts:
+            return True
 
         return False
     except Exception as e:
@@ -262,9 +320,8 @@ def get_friends_data_db(tg_id):
         vip_status = is_user_vip(tg_id, user_data)
         
         if vip_status:
-            vip_map = user_data.get("vip_status") if isinstance(user_data.get("vip_status"), dict) else {}
-            vip_min_upgrades = vip_map.get("min_upgrades_for_task", 1)
-            config["min_upgrades_for_task"] = int(vip_min_upgrades)
+            # تعديل شرط الترقيات صراحة ليكون 1 ترقية لمشتركي الـ VIP
+            config["min_upgrades_for_task"] = 1
             effective_commission = float(config.get("vip_commission_percent", 12.0))
             effective_claim_fee = float(config.get("vip_claim_fee_percent", 0.0))
         else:
@@ -273,7 +330,7 @@ def get_friends_data_db(tg_id):
 
         min_upgrades = int(config.get("min_upgrades_for_task", 1))
         
-        # حساب الأصدقاء المؤهلين للمهام بناءً على الشرط المخصص للمستخدم (1 ترقية للـ VIP)
+        # حساب الأصدقاء المؤهلين للمهام بناءً على شرط المستخدم الخاص (1 ترقية للـ VIP)
         eligible_count = sum(1 for f in friends if f.get("upgrades_count", 0) >= min_upgrades)
 
         return {
@@ -368,11 +425,11 @@ def claim_ref_task_db(tg_id, task_id, reward=0, req_friends=1):
         user_data = user_doc.to_dict() if user_doc.exists else {}
         
         vip_status = is_user_vip(tg_id, user_data)
-        config = get_friends_config()
+        config = get_friends_config().copy()
         
         if vip_status:
-            vip_map = user_data.get("vip_status") if isinstance(user_data.get("vip_status"), dict) else {}
-            min_upgrades = int(vip_map.get("min_upgrades_for_task", 1))
+            config["min_upgrades_for_task"] = 1
+            min_upgrades = 1
         else:
             min_upgrades = int(config.get("min_upgrades_for_task", 1))
 
