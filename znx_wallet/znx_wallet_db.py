@@ -22,6 +22,16 @@ def _get_db():
         return firestore.client()
 
 
+def _sanitize_id(user_id):
+    """تنظيف وتدقيق معرف المستخدم لمنع الأخطاء والثغرات"""
+    if user_id is None:
+        return None
+    s_id = str(user_id).strip()
+    if not s_id or s_id.lower() in ("none", "null", "undefined", "false", "true"):
+        return None
+    return s_id
+
+
 # الحد الأقصى الكلي للعملات المستخرجة من مجمّع ZNX
 MAX_GLOBAL_ZNX = 35_000_000.0
 
@@ -39,21 +49,33 @@ TIERS_CONFIG = [
 
 def get_global_stats():
     """جلب أو إنشاء إحصائيات المجمّع العام لعملة ZNX"""
-    db = _get_db()
-    doc_ref = db.collection('znx_global_stats').document('summary')
-    doc = doc_ref.get()
-    
-    if doc.exists:
-        return doc.to_dict() or {}
-    else:
-        init_data = {
+    try:
+        db = _get_db()
+        doc_ref = db.collection('znx_global_stats').document('summary')
+        doc = doc_ref.get()
+        
+        if doc.exists:
+            data = doc.to_dict() or {}
+            data['max_global_znx'] = MAX_GLOBAL_ZNX
+            data['tiers_config'] = TIERS_CONFIG
+            return data
+        else:
+            init_data = {
+                'total_converted_znx': 0.0,
+                'max_global_znx': MAX_GLOBAL_ZNX,
+                'is_active': True,
+                'tiers_config': TIERS_CONFIG
+            }
+            doc_ref.set(init_data)
+            return init_data
+    except Exception as e:
+        print(f"⚠️ Error fetching ZNX global stats: {e}")
+        return {
             'total_converted_znx': 0.0,
             'max_global_znx': MAX_GLOBAL_ZNX,
             'is_active': True,
             'tiers_config': TIERS_CONFIG
         }
-        doc_ref.set(init_data)
-        return init_data
 
 
 def get_user_tier(user_points: float):
@@ -70,105 +92,169 @@ def get_user_tier(user_points: float):
 
 
 def get_user_data(user_id: str):
-    """جلب بيانات مستخدم محدد مع ضمان وجود حقول الرصيد الثلاثي"""
-    if not user_id:
-        return {
-            'balance': 0.0,
-            'usd_balance': 0.0,
-            'znx_balance': 0.0,
-            'total_znx_earned': 0.0,
-            'first_name': 'لاعب جديد'
-        }
+    """جلب بيانات مستخدم محدد مع ضمان وجود حقول الرصيد الثلاثي ومعلومات الشريحة الحالية"""
+    clean_uid = _sanitize_id(user_id)
+    default_user = {
+        'user_id': clean_uid or '',
+        'balance': 0.0,
+        'usd_balance': 0.0,
+        'znx_balance': 0.0,
+        'total_znx_earned': 0.0,
+        'first_name': 'لاعب جديد',
+        'current_tier': TIERS_CONFIG[0]
+    }
 
-    db = _get_db()
-    doc_ref = db.collection('users').document(str(user_id))
-    doc = doc_ref.get()
-    
-    if doc.exists:
-        data = doc.to_dict() or {}
+    if not clean_uid:
+        return default_user
+
+    try:
+        db = _get_db()
+        doc_ref = db.collection('users').document(clean_uid)
+        doc = doc_ref.get()
         
-        balance = float(data.get('balance') or 0.0)
-        usd_balance = float(data.get('usd_balance') or 0.0)
-        znx_balance = float(data.get('znx_balance') or 0.0)
-        total_znx_earned = float(data.get('total_znx_earned') or 0.0)
-        
-        updates = {}
-        if 'usd_balance' not in data: updates['usd_balance'] = usd_balance
-        if 'znx_balance' not in data: updates['znx_balance'] = znx_balance
-        if 'total_znx_earned' not in data: updates['total_znx_earned'] = total_znx_earned
-        
-        if updates:
-            doc_ref.set(updates, merge=True)
+        if doc.exists:
+            data = doc.to_dict() or {}
+            
+            balance = float(data.get('balance') or 0.0)
+            usd_balance = float(data.get('usd_balance') or 0.0)
+            znx_balance = float(data.get('znx_balance') or 0.0)
+            total_znx_earned = float(data.get('total_znx_earned') or 0.0)
+            first_name = data.get('first_name') or data.get('name') or 'لاعب'
+            
+            # إكمال أي حقول مفقودة في Firestore لتجنب أخطاء الواجهة الأمامية
+            updates = {}
+            if 'usd_balance' not in data: updates['usd_balance'] = usd_balance
+            if 'znx_balance' not in data: updates['znx_balance'] = znx_balance
+            if 'total_znx_earned' not in data: updates['total_znx_earned'] = total_znx_earned
+            
+            if updates:
+                doc_ref.set(updates, merge=True)
 
-        return {
-            'balance': balance,
-            'usd_balance': usd_balance,
-            'znx_balance': znx_balance,
-            'total_znx_earned': total_znx_earned,
-            'first_name': data.get('first_name') or data.get('name') or 'لاعب'
-        }
-    else:
-        new_user = {
-            'balance': 0.0,
-            'usd_balance': 0.0,
-            'znx_balance': 0.0,
-            'total_znx_earned': 0.0,
-            'first_name': 'لاعب جديد'
-        }
-        doc_ref.set(new_user)
-        return new_user
+            current_tier = get_user_tier(balance)
+
+            return {
+                'user_id': clean_uid,
+                'balance': balance,
+                'usd_balance': usd_balance,
+                'znx_balance': znx_balance,
+                'total_znx_earned': total_znx_earned,
+                'first_name': first_name,
+                'current_tier': current_tier
+            }
+        else:
+            current_tier = TIERS_CONFIG[0]
+            new_user = {
+                'user_id': clean_uid,
+                'balance': 0.0,
+                'usd_balance': 0.0,
+                'znx_balance': 0.0,
+                'total_znx_earned': 0.0,
+                'first_name': 'لاعب جديد',
+                'current_tier': current_tier
+            }
+            doc_ref.set(new_user, merge=True)
+            return new_user
+    except Exception as e:
+        print(f"❌ Error in get_user_data ({user_id}): {e}")
+        return default_user
 
 
-def get_leaderboard_rankings(limit=50):
-    """جلب أعلى اللاعبين كسباً لعملة ZNX"""
+def get_leaderboard_rankings(limit=50, user_id=None):
+    """جلب أعلى اللاعبين كسباً لعملة ZNX مع تحديد ترتيب المستخدم الحالي"""
     db = _get_db()
     rankings = []
-    
-    # 1. محاولة الاستعلام المنظم المباشر
+    clean_target_id = _sanitize_id(user_id)
+    user_rank = "غير مصنف"
+    user_in_top = False
+
+    # 1. الاستعلام الأول المنظم المباشر
     try:
         query = db.collection('users').order_by('total_znx_earned', direction=firestore.Query.DESCENDING).limit(limit)
-        docs = query.stream()
+        docs = list(query.stream())
+        
+        rank = 1
         for doc in docs:
             d = doc.to_dict() or {}
-            rankings.append({
-                'user_id': doc.id,
+            uid = str(d.get('user_id') or doc.id)
+            earned = float(d.get('total_znx_earned') or 0.0)
+            znx_bal = float(d.get('znx_balance') or 0.0)
+            
+            entry = {
+                'rank': rank,
+                'user_id': uid,
                 'name': d.get('first_name') or d.get('name') or 'لاعب',
-                'total_znx_earned': float(d.get('total_znx_earned') or 0.0),
-                'znx_balance': float(d.get('znx_balance') or 0.0)
-            })
-        if rankings:
-            return rankings
-    except Exception:
-        pass
+                'first_name': d.get('first_name') or d.get('name') or 'لاعب',
+                'total_znx_earned': earned,
+                'znx_balance': znx_bal,
+                'balance': float(d.get('balance') or 0.0)
+            }
+            rankings.append(entry)
 
-    # 2. الاستعلام الاحتياطي (Fallback) في حال عدم كشافات الفيربيس
-    try:
-        docs = db.collection('users').limit(100).stream()
-        for doc in docs:
-            d = doc.to_dict() or {}
-            rankings.append({
-                'user_id': doc.id,
-                'name': d.get('first_name') or d.get('name') or 'لاعب',
-                'total_znx_earned': float(d.get('total_znx_earned') or 0.0),
-                'znx_balance': float(d.get('znx_balance') or 0.0)
-            })
-        rankings.sort(key=lambda x: x['total_znx_earned'], reverse=True)
-        return rankings[:limit]
+            if clean_target_id and uid == clean_target_id:
+                user_rank = rank
+                user_in_top = True
+
+            rank += 1
+
     except Exception as e:
-        print(f"⚠️ Leaderboard query fallback error: {e}")
-        return rankings
+        print(f"⚠️ Ordered query failed, attempting fallback query: {e}")
+        try:
+            docs = db.collection('users').limit(100).stream()
+            raw_list = []
+            for doc in docs:
+                d = doc.to_dict() or {}
+                raw_list.append({
+                    'user_id': str(d.get('user_id') or doc.id),
+                    'name': d.get('first_name') or d.get('name') or 'لاعب',
+                    'first_name': d.get('first_name') or d.get('name') or 'لاعب',
+                    'total_znx_earned': float(d.get('total_znx_earned') or 0.0),
+                    'znx_balance': float(d.get('znx_balance') or 0.0),
+                    'balance': float(d.get('balance') or 0.0)
+                })
+            raw_list.sort(key=lambda x: x['total_znx_earned'], reverse=True)
+            
+            rank = 1
+            for item in raw_list[:limit]:
+                item['rank'] = rank
+                rankings.append(item)
+                if clean_target_id and item['user_id'] == clean_target_id:
+                    user_rank = rank
+                    user_in_top = True
+                rank += 1
+        except Exception as ex:
+            print(f"❌ Fallback leaderboard query failed: {ex}")
+
+    # حساب ترتيب المستخدم الحالي إذا لم يكن في أعلى القائمة
+    if clean_target_id and not user_in_top:
+        try:
+            target_doc = db.collection('users').document(clean_target_id).get()
+            if target_doc.exists:
+                t_data = target_doc.to_dict() or {}
+                t_earned = float(t_data.get('total_znx_earned') or 0.0)
+                higher_docs = db.collection('users').where('total_znx_earned', '>', t_earned).stream()
+                higher_count = sum(1 for _ in higher_docs)
+                user_rank = higher_count + 1
+        except Exception as e:
+            print(f"⚠️ Error calculating target user rank: {e}")
+
+    return {
+        'success': True,
+        'leaderboard': rankings,
+        'my_rank': user_rank
+    }
 
 
-def get_leaderboard_data(limit=50):
-    """🌉 جسر توافقي (Bridge) لاستدعاء بيانات الترتيب من الموديولات الأخرى مثل database.py"""
-    return get_leaderboard_rankings(limit=limit)
+def get_leaderboard_data(limit=50, user_id=None):
+    """🌉 جسر توافقي لاستدعاء بيانات الترتيب بصيغة قاموس ممتد للموديولات الأخرى"""
+    return get_leaderboard_rankings(limit=limit, user_id=user_id)
 
 
 def execute_conversion(user_id: str, points_to_convert: float):
     """
     🔒 معالجة عملية التحويل الذكية مع الحماية التامة من الثغرات والتزامن (Atomic Transaction)
     """
-    if not user_id:
+    clean_uid = _sanitize_id(user_id)
+    if not clean_uid:
         return False, "معرف المستخدم غير صالح."
 
     try:
@@ -181,7 +267,7 @@ def execute_conversion(user_id: str, points_to_convert: float):
 
     db = _get_db()
     transaction = db.transaction()
-    user_ref = db.collection('users').document(str(user_id))
+    user_ref = db.collection('users').document(clean_uid)
     global_ref = db.collection('znx_global_stats').document('summary')
 
     @firestore.transactional
