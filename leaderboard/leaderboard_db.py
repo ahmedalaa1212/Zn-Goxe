@@ -39,16 +39,42 @@ def get_user_tier(user_points: float):
 def get_user_data(user_id: str):
     doc_ref = db.collection('users').document(str(user_id))
     doc = doc_ref.get()
+    
     if doc.exists:
         data = doc.to_dict()
+        
+        # التأكد من كتابة الحقول المفقودة في الفيربيس فوراً حتى تظهر لك باللوحة
+        updates = {}
+        balance = float(data.get('balance') or 0.0)
+        usd_balance = float(data.get('usd_balance') or 0.0)
+        znx_balance = float(data.get('znx_balance') or 0.0)
+        total_znx_earned = float(data.get('total_znx_earned') or 0.0)
+        
+        if 'usd_balance' not in data: updates['usd_balance'] = usd_balance
+        if 'znx_balance' not in data: updates['znx_balance'] = znx_balance
+        if 'total_znx_earned' not in data: updates['total_znx_earned'] = total_znx_earned
+        
+        if updates:
+            doc_ref.set(updates, merge=True)
+
         return {
-            'balance': float(data.get('balance') or 0.0),
-            'usd_balance': float(data.get('usd_balance') or 0.0),
-            'znx_balance': float(data.get('znx_balance') or 0.0),
-            'total_znx_earned': float(data.get('total_znx_earned') or 0.0),
-            'first_name': data.get('first_name') or 'لاعب'
+            'balance': balance,
+            'usd_balance': usd_balance,
+            'znx_balance': znx_balance,
+            'total_znx_earned': total_znx_earned,
+            'first_name': data.get('first_name') or data.get('name') or 'لاعب'
         }
-    return None
+    else:
+        # إنشاء مستند جديد في الفيربيس إذا كان المستخدم غير موجود
+        new_user = {
+            'balance': 0.0,
+            'usd_balance': 0.0,
+            'znx_balance': 0.0,
+            'total_znx_earned': 0.0,
+            'first_name': 'لاعب جديد'
+        }
+        doc_ref.set(new_user)
+        return new_user
 
 def get_leaderboard_rankings(limit=50):
     try:
@@ -59,21 +85,20 @@ def get_leaderboard_rankings(limit=50):
             d = doc.to_dict()
             rankings.append({
                 'user_id': doc.id,
-                'name': d.get('first_name') or 'لاعب',
+                'name': d.get('first_name') or d.get('name') or 'لاعب',
                 'total_znx_earned': float(d.get('total_znx_earned') or 0.0),
                 'znx_balance': float(d.get('znx_balance') or 0.0)
             })
         return rankings
     except Exception as e:
         print(f"⚠️ Leaderboard query fallback: {e}")
-        # استعلام احتياطي في حالة عدم وجود الفهرس (Index)
         docs = db.collection('users').limit(100).stream()
         rankings = []
         for doc in docs:
             d = doc.to_dict()
             rankings.append({
                 'user_id': doc.id,
-                'name': d.get('first_name') or 'لاعب',
+                'name': d.get('first_name') or d.get('name') or 'لاعب',
                 'total_znx_earned': float(d.get('total_znx_earned') or 0.0),
                 'znx_balance': float(d.get('znx_balance') or 0.0)
             })
@@ -92,7 +117,7 @@ def execute_conversion(user_id: str, points_to_convert: float):
 
     user_doc = user_ref.get()
     if not user_doc.exists:
-        return False, "حساب المستخدم غير موجود."
+        return False, "حساب المستخدم غير موجود بالفيربيس."
 
     user_data = user_doc.to_dict()
     current_zn_balance = float(user_data.get('balance') or 0.0)
@@ -101,7 +126,7 @@ def execute_conversion(user_id: str, points_to_convert: float):
         return False, "كمية النقاط يجب أن تكون أكبر من الصفر."
 
     if current_zn_balance < points_to_convert:
-        return False, f"رصيد نقاط ZN غير كافٍ. رصيدك الحالي: {current_zn_balance:.4f}"
+        return False, f"رصيد نقاط ZN غير كافٍ. رصيدك الحالي: {current_zn_balance:,.2f}"
 
     current_tier = get_user_tier(current_zn_balance)
     znx_received = points_to_convert / current_tier['rate']
@@ -117,14 +142,16 @@ def execute_conversion(user_id: str, points_to_convert: float):
     new_total_znx_earned = float(user_data.get('total_znx_earned') or 0.0) + znx_received
     new_global_total = total_global_znx + znx_received
 
-    user_ref.update({
-        'balance': new_zn_balance,
-        'znx_balance': new_znx_balance,
-        'total_znx_earned': new_total_znx_earned
-    })
+    # تحديث الحقول مباشرة في مستند الفيربيس
+    user_ref.set({
+        'balance': round(new_zn_balance, 4),
+        'znx_balance': round(new_znx_balance, 6),
+        'total_znx_earned': round(new_total_znx_earned, 6),
+        'usd_balance': float(user_data.get('usd_balance') or 0.0)
+    }, merge=True)
 
     global_ref.set({
-        'total_converted_znx': new_global_total,
+        'total_converted_znx': round(new_global_total, 6),
         'max_global_znx': MAX_GLOBAL_ZNX,
         'is_active': new_global_total < MAX_GLOBAL_ZNX,
         'tiers_config': TIERS_CONFIG
