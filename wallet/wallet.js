@@ -1,6 +1,6 @@
 // wallet/wallet.js
 // =================================================================
-// 👛 ZN Goxe - Wallet Module (Standardized 4 Decimals UI)
+// 👛 ZN Goxe - Wallet Module (Standardized 4 Decimals UI & Triple Balance)
 // =================================================================
 
 window.walletModule = (function () {
@@ -53,26 +53,28 @@ window.walletModule = (function () {
 
     function updateBalancesUI() {
         const znElem = document.getElementById('zn-balance-display');
-        const znxElem = document.getElementById('znx-balance-display');
         const usdtElem = document.getElementById('usdt-balance-display');
+        const znxElem = document.getElementById('znx-balance-display');
 
         const znVal = getGlobalBalance(['balance', 'zn_balance', 'user_balance', 'coins']) ?? 0;
-        const znxVal = getGlobalBalance(['znx_balance', 'total_znx_earned', 'znx']) ?? 0;
         const usdtVal = getGlobalBalance(['usd_balance', 'usdt_balance', 'dollars', 'usd']) ?? 0;
+        const znxVal = getGlobalBalance(['znx_balance', 'total_znx_earned', 'znx']) ?? 0;
 
         const newZnHTML = formatSmartBalanceHTML(znVal);
-        const newZnxHTML = formatSmartBalanceHTML(znxVal);
         const newUsdtHTML = formatSmartBalanceHTML(usdtVal);
+        const newZnxHTML = formatSmartBalanceHTML(znxVal);
 
         if (znElem && znElem.innerHTML !== newZnHTML) znElem.innerHTML = newZnHTML;
-        if (znxElem && znxElem.innerHTML !== newZnxHTML) znxElem.innerHTML = newZnxHTML;
         if (usdtElem && usdtElem.innerHTML !== newUsdtHTML) usdtElem.innerHTML = newUsdtHTML;
+        if (znxElem && znxElem.innerHTML !== newZnxHTML) znxElem.innerHTML = newZnxHTML;
 
-        // تحديث جميع عناصر الرصيد العلوية في باقي الشاشات
+        // تحديث جميع عناصِر الرصيد العلوية بصفحات التطبيق الأخرى
         const elBalances = document.querySelectorAll('.zn-balance-display, #top-balance-wallet, #top-balance, #header-zn-balance, .user-balance');
         elBalances.forEach(el => {
             if (el.id !== 'zn-balance-display' && el.id !== 'znx-balance-display') {
-                if (el.textContent.includes('ZN')) {
+                if (el.textContent.includes('ZNX')) {
+                    el.innerHTML = `${newZnxHTML} ZNX`;
+                } else if (el.textContent.includes('ZN')) {
                     el.innerHTML = `${newZnHTML} ZN`;
                 } else {
                     el.innerHTML = newZnHTML;
@@ -122,23 +124,24 @@ window.walletModule = (function () {
             
             if (data.success) {
                 const newZn = parseFloat(data.zn_balance || 0);
-                const newZnx = parseFloat(data.znx_balance || 0);
                 const newUsdt = parseFloat(data.usdt_balance || 0);
+                const newZnx = parseFloat(data.znx_balance || 0);
 
                 if (!window.userState) window.userState = {};
 
                 window.userState.balance = newZn;
                 window.userState.zn_balance = newZn;
-                window.userState.znx_balance = newZnx;
                 window.userState.usd_balance = newUsdt;
                 window.userState.usdt_balance = newUsdt;
+                window.userState.znx_balance = newZnx;
+                window.userState.total_znx_earned = newZnx;
 
                 if (window.PlayerData) {
                     window.PlayerData.balance = window.userState.balance;
                     window.PlayerData.zn_balance = window.userState.zn_balance;
-                    window.PlayerData.znx_balance = window.userState.znx_balance;
                     window.PlayerData.usd_balance = window.userState.usd_balance;
                     window.PlayerData.usdt_balance = window.userState.usdt_balance;
+                    window.PlayerData.znx_balance = window.userState.znx_balance;
                 }
 
                 updateBalancesUI();
@@ -174,7 +177,6 @@ window.walletModule = (function () {
     async function switchTab(tabName, force = false) {
         const container = document.getElementById('wallet-subview-container');
 
-        // إذا كانت التبويبة المطلوبة معروضة ومحملة بالكامل، تجاهل الضغط نهائياً
         if (!force && currentTab === tabName && container && container.children.length > 0 && container.getAttribute('data-active-tab') === tabName) {
             return;
         }
@@ -203,7 +205,6 @@ window.walletModule = (function () {
 
         updateBalancesUI();
 
-        // استخدام الـ Cache لمنع الـ Fetch والريفرش
         if (viewCache[tabName]) {
             container.innerHTML = viewCache[tabName];
             await ensureSubModuleScriptLoaded(tabName);
@@ -249,7 +250,6 @@ window.walletModule = (function () {
         const container = document.getElementById('wallet-subview-container');
         const isSubContentPresent = container && container.children.length > 0;
 
-        // تجاهل تام للتحميل إذا كانت صفحة المحفظة مبنية ومفتوحة بالفعل
         if (!force && isWalletRendered && isSubContentPresent) {
             updateBalancesUI();
             return;
