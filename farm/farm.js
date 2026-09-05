@@ -5,7 +5,7 @@ window.initFarmView = function() {
 };
 
 window.closeWelcomeModal = function() {
-    const modal = document.getElementById('welcome-modal') || document.getElementById('auto-claim-modal');
+    const modal = document.getElementById('welcome-modal');
     if (modal) {
         modal.style.display = 'none';
         modal.classList.remove('active', 'show');
@@ -30,6 +30,14 @@ window.closeWelcomeModal = function() {
         }
     } catch (e) {
         console.error("خطأ حفظ حالة النافذة الترحيبية:", e);
+    }
+};
+
+window.closeAutoClaimModal = function() {
+    const modal = document.getElementById('auto-claim-modal');
+    if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('active', 'show');
     }
 };
 
@@ -80,6 +88,7 @@ window.closeWelcomeModal = function() {
     let isBoosting = false; 
     let isFetching = false;
     let isClaimingMain = false; 
+    let isAutoClaiming = false;
     let isCheckingAd = false; 
     let upgradingLevel = null;
     let isUpgradingStorage = false;
@@ -87,6 +96,7 @@ window.closeWelcomeModal = function() {
     let lastFetchTime = 0;
     const FETCH_THROTTLE_MS = 3000;
     let lastCheckedDate = "";
+    let lastAutoClaimAttempt = 0;
 
     function parseServerDateMs(dateStr) {
         if (!dateStr) return getAdjustedNowMs();
@@ -452,7 +462,7 @@ window.closeWelcomeModal = function() {
         return accumulated;
     }
 
-    // تحديث الواجهة الخاصة ببادج البوت ونافذة التجميع التلقائي القادمة من السيرفر فور فتح التطبيق
+    // تحديث الواجهة الخاصة ببادج البوت ونافذة التجميع التلقائي القادمة من السيرفر
     function updateBotAndAutoClaimUI(resData) {
         if (!resData) return;
 
@@ -473,10 +483,10 @@ window.closeWelcomeModal = function() {
             botBadge.style.display = isBotActive ? 'inline-flex' : 'none';
         }
 
-        // 2. معالجة وإظهار نافذة التجميع التلقائي بناءً على القيمة المحسوبة أوفلاين في السيرفر
+        // 2. معالجة وإظهار نافذة التجميع التلقائي الخاصة بالبوت
         const autoCollected = parseFloat(resData.auto_claimed_amount || resData.auto_collected || 0);
         if (autoCollected > 0) {
-            const autoModal = document.getElementById('auto-claim-modal') || document.getElementById('welcome-modal');
+            const autoModal = document.getElementById('auto-claim-modal');
             const autoAmountText = document.getElementById('auto-claimed-amount') || document.getElementById('modal-auto-amount');
             if (autoAmountText) {
                 autoAmountText.innerText = `${formatZnBalance(autoCollected)} ZN`;
@@ -487,6 +497,42 @@ window.closeWelcomeModal = function() {
             } else {
                 showToast(`🤖 تم التجميع التلقائي للبوت: ${formatZnBalance(autoCollected)} ZN!`);
             }
+        }
+    }
+
+    async function triggerAutoClaim80() {
+        if (isAutoClaiming || isClaimingMain) return;
+        isAutoClaiming = true;
+        
+        try {
+            let resData = await window.fetchAPI('/api/farm/claim', 'POST', {});
+            if (resData && resData.success) {
+                if (resData.server_time) syncServerTime(resData.server_time);
+                setStoredBalance(resData.new_balance ?? resData.balance, resData.new_usd_balance ?? resData.usd_balance);
+
+                if (!window.userState) window.userState = {};
+                if (!window.PlayerData) window.PlayerData = {};
+
+                if (resData.last_claim_time) {
+                    window.userState.last_claim_time = resData.last_claim_time;
+                    window.PlayerData.last_claim_time = resData.last_claim_time;
+                }
+
+                window.userState.unclaimed = 0.0;
+                window.PlayerData.unclaimed = 0.0;
+                window.userState.base_unclaimed = 0.0;
+                window.PlayerData.base_unclaimed = 0.0;
+
+                saveCachedData(window.userState);
+                window.updateFarmUI();
+
+                const claimedAmt = parseFloat(resData.claimed_amount || resData.amount || 0);
+                updateBotAndAutoClaimUI({ auto_claimed_amount: claimedAmt });
+            }
+        } catch (e) {
+            console.error("خطأ التجميع التلقائي الأونلاين (80%):", e);
+        } finally {
+            isAutoClaiming = false;
         }
     }
 
@@ -840,6 +886,15 @@ window.closeWelcomeModal = function() {
         if (window.userState) window.userState.unclaimed = unclaim;
         if (window.PlayerData) window.PlayerData.unclaimed = unclaim;
 
+        // آلية التجميع التلقائي الأونلاين للبوت فور الوصول إلى 80% من سعة المخزن
+        const isBotActive = (pData.bot_active === true || pData.is_auto_bot_active === true);
+        if (isBotActive && maxC > 0 && unclaim >= (maxC * 0.8) && !isAutoClaiming && !isClaimingMain && !isCheckingAd) {
+            if (Date.now() - lastAutoClaimAttempt > 10000) {
+                lastAutoClaimAttempt = Date.now();
+                triggerAutoClaim80();
+            }
+        }
+
         const progressEl = document.getElementById('storage-progress');
         const storageTextEl = document.getElementById('storage-text');
 
@@ -922,7 +977,6 @@ window.closeWelcomeModal = function() {
         isUpgradingStorage = true;
         const stateBackup = cloneCurrentState();
 
-        // 1. حساب وتثبيت المستحق الحالي بدقة قبل الترقية
         const accrualTimeMs = getAdjustedNowMs();
         accrueCurrentMining();
 
@@ -1002,7 +1056,6 @@ window.closeWelcomeModal = function() {
         upgradingLevel = level;
         const stateBackup = cloneCurrentState();
 
-        // 1. حساب وتثبيت المستحق الحالي بدقة بالسرعة القديمة قبل زيادة السرعة
         const accrualTimeMs = getAdjustedNowMs();
         accrueCurrentMining();
 
@@ -1189,7 +1242,7 @@ window.closeWelcomeModal = function() {
     };
 
     window.handleMainClaim = async function() {
-        if (isClaimingMain || isCheckingAd) return;
+        if (isClaimingMain || isCheckingAd || isAutoClaiming) return;
 
         const pData = window.userState || window.PlayerData || {};
         const todayStr = getTodayUTCStr(); 
