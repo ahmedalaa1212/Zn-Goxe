@@ -7,13 +7,15 @@
   .w-label { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #94a3b8; margin-bottom: 6px; font-weight: 600; }
   .user-bal-tag { color: #fbbf24; font-weight: bold; font-size: 13px; }
 
-  .input-with-btn { display: flex; gap: 8px; align-items: center; }
-  .w-input { flex: 1; background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; color: #38bdf8; font-size: 15px; font-weight: bold; box-sizing: border-box; outline: none; transition: border-color 0.2s; }
-  .w-input:focus { border-color: #38bdf8; }
-  .w-input[readonly] { background: #090d16; cursor: not-allowed; color: #94a3b8; }
+  /* حاوية مدخل الرقم مع زر MAX بالداخل */
+  .w-input-wrapper { position: relative; display: flex; align-items: center; width: 100%; }
+  .w-input { width: 100%; background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 75px 12px 14px; color: #38bdf8; font-size: 16px; font-weight: bold; box-sizing: border-box; outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
+  .w-input:focus { border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.15); }
   
-  .btn-max { background: linear-gradient(135deg, #0284c7, #38bdf8); color: #ffffff; border: none; padding: 12px 18px; border-radius: 12px; font-size: 13px; font-weight: bold; cursor: pointer; transition: transform 0.1s, opacity 0.2s; white-space: nowrap; }
-  .btn-max:active { transform: scale(0.95); }
+  /* تصميم زر MAX بداخل المربع بشكل احترافي */
+  .btn-max { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); background: linear-gradient(135deg, #0284c7, #38bdf8); color: #ffffff; border: none; padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 2px 6px rgba(56, 189, 248, 0.25); }
+  .btn-max:hover { opacity: 0.9; transform: translateY(-50%) scale(1.02); }
+  .btn-max:active { transform: translateY(-50%) scale(0.95); }
 
   .fee-details { background: #020617; border: 1px solid #1e293b; border-radius: 12px; padding: 12px; margin-bottom: 14px; font-size: 13px; }
   .fee-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
@@ -27,8 +29,6 @@
   .btn-submit-withdraw { width: 100%; background: linear-gradient(135deg, #10b981, #0284c7); color: #fff; border: none; padding: 15px; border-radius: 14px; font-size: 16px; font-weight: bold; cursor: pointer; transition: transform 0.1s, opacity 0.2s; }
   .btn-submit-withdraw:active { transform: scale(0.98); }
   .btn-submit-withdraw:disabled { background: #334155; color: #64748b; cursor: not-allowed; opacity: 0.6; }
-  
-  .badge-rate { font-size: 11px; padding: 4px 10px; border-radius: 8px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-weight: 600; border: 1px solid rgba(56, 189, 248, 0.3); }
 
   .btn-connect { width: 100%; background: rgba(56, 189, 248, 0.1); color: #38bdf8; border: 1px dashed #38bdf8; padding: 14px; border-radius: 12px; font-size: 14px; font-weight: bold; cursor: pointer; transition: 0.2s; display: flex; justify-content: center; align-items: center; gap: 8px; }
   .btn-connect:active { background: #38bdf8; color: #020617; }
@@ -45,11 +45,10 @@
 </style>
 
 <div class="withdraw-wrapper">
-  <!-- 1. ربط محفظة تلجرام وسعر العملة -->
+  <!-- 1. ربط محفظة تلجرام -->
   <div class="w-card">
     <div class="w-title">
       <span>🪙 عملة السحب: ZNX</span>
-      <span id="rate-status" class="badge-rate">جاري تحميل السعر... ⚡</span>
     </div>
 
     <div class="w-input-group">
@@ -75,25 +74,16 @@
 
     <div class="w-input-group">
       <label class="w-label" for="coins-input">عدد عملات ZNX المراد سحبها:</label>
-      <div class="input-with-btn">
+      <div class="w-input-wrapper">
         <input type="number" id="coins-input" class="w-input" placeholder="أدخل الكمية هنا..." min="1" step="any" />
-        <button type="button" class="btn-max" onclick="withdrawModule.setPreset('max')">🚀 MAX</button>
+        <button type="button" class="btn-max" onclick="withdrawModule.setPreset('max')">MAX 🚀</button>
       </div>
-    </div>
-
-    <div class="w-input-group">
-      <label class="w-label">القيمة التقديرية بالـ USD:</label>
-      <input type="text" id="usd-output" class="w-input" readonly value="$0.00 USD" />
     </div>
 
     <div class="fee-details">
       <div class="fee-row">
         <span>رسوم السحب والخدمة (5%):</span>
         <span id="fee-amount" class="fee-val">0 ZNX</span>
-      </div>
-      <div class="fee-row">
-        <span>سعر 1 ZNX اللحظي:</span>
-        <span id="coin-price-display" class="fee-val">$0.000010 USD</span>
       </div>
       <div class="fee-row">
         <span>الصافي النهائي المستلم:</span>
