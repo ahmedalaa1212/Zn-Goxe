@@ -15,7 +15,7 @@ wallet_bp.register_blueprint(withdraw_bp, url_prefix='/withdraw')
 
 @wallet_bp.route('/data', methods=['GET'])
 def get_wallet_data():
-    """جلب أرصدة ZN و ZNX و USDT مع التحقق الأمني المزدوج"""
+    """جلب أرصدة ZN و USDT و ZNX مع التحقق الأمني المزدوج"""
     user_id = request.args.get('user_id', type=int)
     header_user_id = request.headers.get('X-Telegram-User-Id')
     
@@ -29,6 +29,6 @@ def get_wallet_data():
     return jsonify({
         'success': True,
         'zn_balance': balances.get('zn_balance', 0.0),
-        'znx_balance': balances.get('znx_balance', 0.0),
-        'usdt_balance': balances.get('usdt_balance', 0.0)
+        'usdt_balance': balances.get('usdt_balance', 0.0),
+        'znx_balance': balances.get('znx_balance', 0.0)
     })
