@@ -37,22 +37,22 @@
     }
 })();
 
-// دالة موحدة لإغلاق النوافذ المنبثقة (الترحيب والتجميع التلقائي)
+// دالة مستقلة لإغلاق النافذة الترحيبية فقط
 window.closeWelcomeModal = function() {
     const welcomeModal = document.getElementById('welcome-modal');
     if (welcomeModal) {
         welcomeModal.style.display = 'none';
         welcomeModal.classList.remove('active', 'show');
     }
+};
+
+// دالة مستقلة لإغلاق نافذة إشعار التجميع التلقائي للبوت فقط
+window.closeAutoClaimModal = function() {
     const autoClaimModal = document.getElementById('auto-claim-modal');
     if (autoClaimModal) {
         autoClaimModal.style.display = 'none';
         autoClaimModal.classList.remove('active', 'show');
     }
-};
-
-window.closeAutoClaimModal = function() {
-    window.closeWelcomeModal();
 };
 </script>
 
