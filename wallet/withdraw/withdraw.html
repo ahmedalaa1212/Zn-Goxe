@@ -1,3 +1,5 @@
+<script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
+
 <style>
   .withdraw-wrapper { padding: 14px; color: #f8fafc; font-family: 'Cairo', system-ui, sans-serif; direction: rtl; max-width: 480px; margin: 0 auto; }
   .w-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 18px; padding: 18px; margin-bottom: 16px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3); }
@@ -30,7 +32,7 @@
   .btn-submit-withdraw:active { transform: scale(0.98); }
   .btn-submit-withdraw:disabled { background: #334155; color: #64748b; cursor: not-allowed; opacity: 0.6; }
 
-  .btn-connect { width: 100%; background: rgba(56, 189, 248, 0.1); color: #38bdf8; border: 1px dashed #38bdf8; padding: 14px; border-radius: 12px; font-size: 14px; font-weight: bold; cursor: pointer; transition: 0.2s; display: flex; justify-content: center; align-items: center; gap: 8px; }
+  .btn-connect { width: 100%; background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(16, 185, 129, 0.15)); color: #38bdf8; border: 1px dashed #38bdf8; padding: 14px; border-radius: 12px; font-size: 14px; font-weight: bold; cursor: pointer; transition: 0.2s; display: flex; justify-content: center; align-items: center; gap: 8px; }
   .btn-connect:active { background: #38bdf8; color: #020617; }
   .address-display { background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; color: #e2e8f0; font-size: 13px; margin-bottom: 10px; word-break: break-all; display: none; text-align: left; direction: ltr; font-family: monospace; }
 
@@ -45,7 +47,7 @@
 </style>
 
 <div class="withdraw-wrapper">
-  <!-- 1. ربط محفظة تلجرام -->
+  <!-- 1. ربط محفظة TON الحقيقية -->
   <div class="w-card">
     <div class="w-title">
       <span>🪙 عملة السحب: ZNX</span>
@@ -57,8 +59,8 @@
       </div>
       
       <div id="wallet-address-display" class="address-display"></div>
-      <button type="button" id="btn-connect-wallet" class="btn-connect" onclick="withdrawModule.openWalletModal()">
-        🔗 ربط محفظة تلجرام
+      <button type="button" id="btn-connect-wallet" class="btn-connect" onclick="withdrawModule.connectTonWallet()">
+        🔗 ربط محفظة TON (Telegram / Tonkeeper)
       </button>
 
       <input type="hidden" id="wallet-address-input" value="" />
@@ -69,13 +71,13 @@
   <div class="w-card">
     <div class="w-title">
       <span>طلب سحب ZNX</span>
-      <span id="user-balance-display" class="user-bal-tag">رصيدك: -- ZNX</span>
+      <span id="user-balance-display" class="user-bal-tag">رصيدك: 0.0000 ZNX</span>
     </div>
 
     <div class="w-input-group">
       <label class="w-label" for="coins-input">عدد عملات ZNX المراد سحبها:</label>
       <div class="w-input-wrapper">
-        <input type="number" id="coins-input" class="w-input" placeholder="أدخل الكمية هنا..." min="1" step="any" />
+        <input type="number" id="coins-input" class="w-input" placeholder="أدخل الكمية هنا..." min="0.000001" step="any" />
         <button type="button" class="btn-max" onclick="withdrawModule.setPreset('max')">MAX 🚀</button>
       </div>
     </div>
@@ -83,16 +85,16 @@
     <div class="fee-details">
       <div class="fee-row">
         <span>رسوم السحب والخدمة (5%):</span>
-        <span id="fee-amount" class="fee-val">0 ZNX</span>
+        <span id="fee-amount" class="fee-val">0.0000 ZNX</span>
       </div>
       <div class="fee-row">
         <span>الصافي النهائي المستلم:</span>
-        <span id="net-crypto" class="net-val">0 ZNX</span>
+        <span id="net-crypto" class="net-val">0.0000 ZNX</span>
       </div>
     </div>
 
     <div class="notice-box notice-info">
-      ℹ️ يتم اقتطاع رسوم 5% تلقائيًا وتصلك العملات مباشرة على عنوان محفظة تلجرام المربوطة.
+      ℹ️ يتم اقتطاع رسوم 5% تلقائيًا وتصلك العملات مباشرة على عنوان محفظة TON المربوطة.
     </div>
 
     <button type="button" id="confirm-withdraw-btn" class="btn-submit-withdraw" disabled onclick="withdrawModule.submitWithdrawal(event)">
@@ -100,14 +102,14 @@
     </button>
   </div>
 
-  <!-- 3. نافذة ربط المحفظة -->
+  <!-- 3. نافذة إدخال المحفظة الاحتياطية -->
   <div id="wallet-modal" class="modal-overlay">
     <div class="modal-card">
-      <div class="modal-title">🔗 ربط محفظة تلجرام</div>
+      <div class="modal-title">🔗 ربط محفظة TON</div>
       <div class="modal-subtitle">
-        أدخل عنوان محفظة تلجرام (TON Wallet) لاستلام عملات <strong>ZNX</strong> عليها:
+        أدخل عنوان محفظة TON / Telegram لاستلام عملات <strong>ZNX</strong> عليها:
       </div>
-      <input type="text" id="modal-wallet-input" class="w-input" placeholder="أدخل عنوان محفظة TON / Telegram" />
+      <input type="text" id="modal-wallet-input" class="w-input" placeholder="أدخل عنوان محفظة TON (e.g. UQ... / EQ...)" />
       <div class="modal-buttons">
         <button type="button" class="btn-save" onclick="withdrawModule.saveWalletAddress()">حفظ المحفظة</button>
         <button type="button" class="btn-cancel" onclick="withdrawModule.closeWalletModal()">إلغاء</button>
