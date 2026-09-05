@@ -176,7 +176,7 @@ def get_bot_expiration_dt(user_data):
     expires_at_raw = None
 
     if isinstance(vip_info, dict):
-        expires_at_raw = vip_info.get("expires_at") or vip_info.get("vip_expires_at") or vip_info.get("bot_expires_at") or vip_info.get("expire_date")
+        expires_at_raw = vip_info.get("expires_at") or vip_info.get("vip_expires_at") or vip_info.get("bot_expires_at") or vip_info.get("expire_date") or vip_info.get("expires_date")
     
     if not expires_at_raw:
         expires_at_raw = user_data.get("bot_expires_at") or user_data.get("expires_at") or user_data.get("vip_expires_at") or user_data.get("vip_expire_date")
@@ -274,11 +274,18 @@ def dismiss_welcome_db(user_id_str):
 
 
 def calculate_user_effective_stats(user_data, game_settings=None, now_dt=None):
-    """فحص وتحديث صلاحية اشتراك الباقة أو البوت وتحديث حالة bot_active بناءً على تاريخ الانتهاء الحالي"""
+    """فحص وتحديث صلاحية اشتراك الباقة أو البوت وتحديث حالة bot_active بناءً على vip_status وتاريخ الانتهاء"""
     if now_dt is None:
         now_dt = datetime.now(timezone.utc)
 
+    # فحص حالة البوت المباشرة أو المخزنة داخل كائن vip_status الفرعي
     raw_bot_flag = to_bool(user_data.get("bot_active", user_data.get("has_bot", user_data.get("is_auto_bot_active", False))))
+    
+    vip_info = user_data.get("vip_status")
+    if isinstance(vip_info, dict):
+        vip_bot = to_bool(vip_info.get("auto_bot", vip_info.get("is_auto_bot_active", vip_info.get("bot_active", False))))
+        raw_bot_flag = raw_bot_flag or vip_bot
+
     exp_dt = get_bot_expiration_dt(user_data)
 
     is_active = False
@@ -346,6 +353,9 @@ def get_or_create_user_farm_data(user_id_str):
             user_ref.update(auto_fix)
             user_data.update(auto_fix)
 
+    # 1. تحديث وتدقيق صلاحية البوت/VIP أولاً قبل الحساب التراكمي
+    user_data = calculate_user_effective_stats(user_data, game_settings, now)
+
     expected_max_cap = calculate_user_max_cap(user_data, game_settings)
     user_data["max_cap"] = expected_max_cap
     user_data["balance"] = round(float(user_data.get("balance", 0.0)), 8)
@@ -369,7 +379,7 @@ def get_or_create_user_farm_data(user_id_str):
     except Exception:
         last_claim_dt = now
 
-    raw_bot_flag = to_bool(user_data.get("bot_active", user_data.get("has_bot", user_data.get("is_auto_bot_active", False))))
+    is_bot_active = user_data.get("bot_active", False)
     exp_dt = get_bot_expiration_dt(user_data)
     hourly_rate = float(user_data.get("hourly_rate", 0.10))
     last_boost_str = user_data.get("last_boost_time")
@@ -377,54 +387,62 @@ def get_or_create_user_farm_data(user_id_str):
     auto_claimed_amount = 0.0
     db_updates = {}
 
-    # إذا كان البوت مفعلاً واستمر حتى أو خلال فترة خروج المستخدم
-    if raw_bot_flag and (exp_dt is None or exp_dt > last_claim_dt):
-        # النقطة الزمنية التي ينتهي عندها التجمِيع التلقائي المستمر (إما الآن أو لحظة انتهاء الاشتراك)
+    # إذا كان البوت مفعلاً حالياً أو كان مفعلاً أثناء فترة غياب المستخدم
+    if is_bot_active or (exp_dt and exp_dt > last_claim_dt):
         bot_end_dt = min(now, exp_dt) if exp_dt else now
-        
-        # التجميع التراكمي بدون حد للسعة max_cap
         bot_mined = _calculate_interval_mined(hourly_rate, last_claim_dt, bot_end_dt, last_boost_str)
-        auto_claimed_amount = round(user_data["base_unclaimed"] + bot_mined, 8)
+        accumulated_offline = round(user_data["base_unclaimed"] + bot_mined, 8)
+        threshold_80 = round(expected_max_cap * 0.8, 8)
 
-        # إضافة الرصيد المجمع أوفلاين مباشرة إلى balance و mined_points
-        user_data["balance"] = round(user_data["balance"] + auto_claimed_amount, 8)
-        user_data["mined_points"] = round(user_data["mined_points"] + auto_claimed_amount, 8)
-        user_data["total_mined"] = user_data["mined_points"]
-        user_data["base_unclaimed"] = 0.0
-
-        db_updates["balance"] = user_data["balance"]
-        db_updates["mined_points"] = user_data["mined_points"]
-        db_updates["total_mined"] = user_data["total_mined"]
-        db_updates["base_unclaimed"] = 0.0
-
-        # إن كان الاشتراك لا يزال سارياً في الوقت الحالي
-        if exp_dt is None or exp_dt > now:
-            user_data["bot_active"] = True
-            user_data["is_auto_bot_active"] = True
+        # فحص الوصول لنسبة 80% من سعة المخزن القصوى
+        if accumulated_offline >= threshold_80:
+            auto_claimed_amount = accumulated_offline
+            user_data["balance"] = round(user_data["balance"] + auto_claimed_amount, 8)
+            user_data["mined_points"] = round(user_data["mined_points"] + auto_claimed_amount, 8)
+            user_data["total_mined"] = user_data["mined_points"]
+            user_data["base_unclaimed"] = 0.0
             user_data["unclaimed"] = 0.0
-            user_data["last_claim_time"] = now.isoformat()
+            user_data["last_claim_time"] = bot_end_dt.isoformat()
 
-            db_updates["bot_active"] = True
-            db_updates["is_auto_bot_active"] = True
+            db_updates["balance"] = user_data["balance"]
+            db_updates["mined_points"] = user_data["mined_points"]
+            db_updates["total_mined"] = user_data["total_mined"]
+            db_updates["base_unclaimed"] = 0.0
             db_updates["unclaimed"] = 0.0
             db_updates["last_claim_time"] = user_data["last_claim_time"]
-        else:
-            # انتهت الباقة في منتصف فترة خروج المستخدم (بين last_claim_dt و now)
-            # يحسب التعدين اليدوي للفترة المتبقية بعد الانتهاء ويتوقف تلقائياً عند max_cap
-            manual_mined = _calculate_interval_mined(hourly_rate, exp_dt, now, last_boost_str)
-            user_data["unclaimed"] = round(min(manual_mined, expected_max_cap), 8)
-            user_data["last_claim_time"] = exp_dt.isoformat()
-            user_data["bot_active"] = False
-            user_data["is_auto_bot_active"] = False
 
-            db_updates["unclaimed"] = user_data["unclaimed"]
-            db_updates["last_claim_time"] = user_data["last_claim_time"]
-            db_updates["bot_active"] = False
-            db_updates["is_auto_bot_active"] = False
+            # إذا انتهت صلاحية البوت في منتصف فترة الغياب واستمر التعدين اليدوي بعد ذلك
+            if bot_end_dt < now:
+                post_bot_mined = _calculate_interval_mined(hourly_rate, bot_end_dt, now, last_boost_str)
+                user_data["unclaimed"] = round(min(post_bot_mined, expected_max_cap), 8)
+                user_data["base_unclaimed"] = user_data["unclaimed"]
+                db_updates["unclaimed"] = user_data["unclaimed"]
+                db_updates["base_unclaimed"] = user_data["base_unclaimed"]
+        else:
+            # لم يصل إلى 80% بعد -> يظل التعدين معلقاً في المخزن
+            user_data["base_unclaimed"] = accumulated_offline
+            user_data["unclaimed"] = accumulated_offline
+            db_updates["base_unclaimed"] = accumulated_offline
+            db_updates["unclaimed"] = accumulated_offline
+
+            if bot_end_dt < now:
+                post_bot_mined = _calculate_interval_mined(hourly_rate, bot_end_dt, now, last_boost_str)
+                manual_total = accumulated_offline + post_bot_mined
+                user_data["unclaimed"] = round(min(manual_total, expected_max_cap), 8)
+                user_data["base_unclaimed"] = user_data["unclaimed"]
+                db_updates["unclaimed"] = user_data["unclaimed"]
+                db_updates["base_unclaimed"] = user_data["base_unclaimed"]
+
+        is_currently_active = (exp_dt is None or exp_dt > now) if is_bot_active else False
+        user_data["bot_active"] = is_currently_active
+        user_data["is_auto_bot_active"] = is_currently_active
+        db_updates["bot_active"] = is_currently_active
+        db_updates["is_auto_bot_active"] = is_currently_active
     else:
-        # البوت غير مفعل أو انتهت صلاحيته قبل last_claim_dt (تعدين يدوي ويتوقف عند السعة القصوى max_cap)
+        # البوت غير مفعل -> تعدين يدوي ويتوقف عند السعة القصوى max_cap
         manual_mined = user_data["base_unclaimed"] + _calculate_interval_mined(hourly_rate, last_claim_dt, now, last_boost_str)
         user_data["unclaimed"] = round(min(manual_mined, expected_max_cap), 8)
+        user_data["base_unclaimed"] = user_data["unclaimed"]
         user_data["bot_active"] = False
         user_data["is_auto_bot_active"] = False
 
