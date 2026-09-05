@@ -1,19 +1,13 @@
 (function () {
-  let znxPriceUsd = 0.000010; // سعر افتراضي حتى يتم الجلب
   let userBalance = 0;
   let userWallet = "";
-  const feePercent = 5; // 5% رسوم السحب
+  const feePercent = 5;
 
   function parseInputValue(val) {
     if (val === null || val === undefined) return 0;
     const cleanStr = val.toString().replace(/,/g, '').trim();
     const num = parseFloat(cleanStr);
     return isNaN(num) ? 0 : num;
-  }
-
-  function formatUSD(num) {
-    if (!num || isNaN(num)) return "0.00";
-    return parseFloat(num).toFixed(4);
   }
 
   function getUserId() {
@@ -36,33 +30,6 @@
       return { valid: false, message: "⚠️ عنوان المحفظة قصير جدًا وغير صحيح." };
     }
     return { valid: true, message: "" };
-  }
-
-  async function fetchLivePrices() {
-    try {
-      let res = await fetch(`/api/wallet/withdraw/config?user_id=${getUserId()}`);
-      if (!res.ok) {
-        res = await fetch(`/api/withdraw/config?user_id=${getUserId()}`);
-      }
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.znx_price) {
-          znxPriceUsd = parseFloat(data.znx_price) || znxPriceUsd;
-        }
-      }
-    } catch (e) {
-      console.log('استخدام سعر ZNX الإفتراضي');
-    }
-    updatePriceDisplay();
-  }
-
-  function updatePriceDisplay() {
-    const priceDisplay = document.getElementById('coin-price-display');
-    const statusDisplay = document.getElementById('rate-status');
-    const priceStr = `$${znxPriceUsd < 0.001 ? znxPriceUsd.toFixed(6) : znxPriceUsd.toFixed(4)} USD`;
-    
-    if (priceDisplay) priceDisplay.innerText = priceStr;
-    if (statusDisplay) statusDisplay.innerText = `السعر اللحظي: ${priceStr} ⚡`;
   }
 
   function bindInputEvents() {
@@ -114,12 +81,10 @@
       }
       if (response.ok) {
         const data = await response.json();
-        userBalance = parseFloat(data.user_balance || data.zn_balance || 0);
+        userBalance = parseFloat(data.user_balance || data.znx_balance || 0);
         userWallet = data.wallet_address || (data.wallets && data.wallets.ZNX) || "";
-        if (data.znx_price) znxPriceUsd = parseFloat(data.znx_price);
 
         updateUIBalance();
-        updatePriceDisplay();
         updateWalletDisplay();
       }
     } catch (err) {
@@ -208,17 +173,10 @@
     const walletAddress = walletInput?.value?.trim() || "";
     const btn = document.getElementById("confirm-withdraw-btn");
 
-    const usdOutput = document.getElementById("usd-output");
     const feeAmount = document.getElementById("fee-amount");
     const netCryptoElem = document.getElementById("net-crypto");
 
-    if (coinsVal <= 0) {
-      resetCalculations();
-      if (btn) btn.disabled = true;
-      return;
-    }
-
-    if (coinsVal > userBalance) {
+    if (coinsVal <= 0 || coinsVal > userBalance) {
       resetCalculations();
       if (btn) btn.disabled = true;
       return;
@@ -226,11 +184,9 @@
 
     const feeCoins = coinsVal * (feePercent / 100);
     const netCoins = coinsVal - feeCoins;
-    const usdValue = coinsVal * znxPriceUsd;
 
-    if (usdOutput) usdOutput.value = `$${formatUSD(usdValue)} USD`;
     if (feeAmount) feeAmount.innerText = `${Math.round(feeCoins).toLocaleString()} ZNX (${feePercent}%)`;
-    if (netCryptoElem) netCryptoElem.innerText = `${netCoins.toLocaleString()} ZNX`;
+    if (netCryptoElem) netCryptoElem.innerText = `${Math.round(netCoins).toLocaleString()} ZNX`;
 
     if (btn) {
       const addrCheck = validateWalletAddress(walletAddress);
@@ -239,11 +195,9 @@
   }
 
   function resetCalculations() {
-    const usdOutput = document.getElementById("usd-output");
     const feeAmount = document.getElementById("fee-amount");
     const netCryptoElem = document.getElementById("net-crypto");
 
-    if (usdOutput) usdOutput.value = "$0.00 USD";
     if (feeAmount) feeAmount.innerText = "0 ZNX";
     if (netCryptoElem) netCryptoElem.innerText = "0 ZNX";
   }
@@ -315,7 +269,6 @@
   const withdrawModule = {
     init: function () {
       initWithdrawPage(getUserId());
-      fetchLivePrices();
     },
     setPreset: setPreset,
     calculateWithdraw: calculateWithdraw,
