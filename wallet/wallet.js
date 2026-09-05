@@ -53,21 +53,25 @@ window.walletModule = (function () {
 
     function updateBalancesUI() {
         const znElem = document.getElementById('zn-balance-display');
+        const znxElem = document.getElementById('znx-balance-display');
         const usdtElem = document.getElementById('usdt-balance-display');
 
         const znVal = getGlobalBalance(['balance', 'zn_balance', 'user_balance', 'coins']) ?? 0;
+        const znxVal = getGlobalBalance(['znx_balance', 'total_znx_earned', 'znx']) ?? 0;
         const usdtVal = getGlobalBalance(['usd_balance', 'usdt_balance', 'dollars', 'usd']) ?? 0;
 
         const newZnHTML = formatSmartBalanceHTML(znVal);
+        const newZnxHTML = formatSmartBalanceHTML(znxVal);
         const newUsdtHTML = formatSmartBalanceHTML(usdtVal);
 
         if (znElem && znElem.innerHTML !== newZnHTML) znElem.innerHTML = newZnHTML;
+        if (znxElem && znxElem.innerHTML !== newZnxHTML) znxElem.innerHTML = newZnxHTML;
         if (usdtElem && usdtElem.innerHTML !== newUsdtHTML) usdtElem.innerHTML = newUsdtHTML;
 
-        // تحديث جميع عناصِر الرصيد العلوية في المحفظة وباقي الشاشات بالتنسيق المصغر للأرقام العشرية
+        // تحديث جميع عناصر الرصيد العلوية في باقي الشاشات
         const elBalances = document.querySelectorAll('.zn-balance-display, #top-balance-wallet, #top-balance, #header-zn-balance, .user-balance');
         elBalances.forEach(el => {
-            if (el.id !== 'zn-balance-display') {
+            if (el.id !== 'zn-balance-display' && el.id !== 'znx-balance-display') {
                 if (el.textContent.includes('ZN')) {
                     el.innerHTML = `${newZnHTML} ZN`;
                 } else {
@@ -118,18 +122,21 @@ window.walletModule = (function () {
             
             if (data.success) {
                 const newZn = parseFloat(data.zn_balance || 0);
+                const newZnx = parseFloat(data.znx_balance || 0);
                 const newUsdt = parseFloat(data.usdt_balance || 0);
 
                 if (!window.userState) window.userState = {};
 
                 window.userState.balance = newZn;
                 window.userState.zn_balance = newZn;
+                window.userState.znx_balance = newZnx;
                 window.userState.usd_balance = newUsdt;
                 window.userState.usdt_balance = newUsdt;
 
                 if (window.PlayerData) {
                     window.PlayerData.balance = window.userState.balance;
                     window.PlayerData.zn_balance = window.userState.zn_balance;
+                    window.PlayerData.znx_balance = window.userState.znx_balance;
                     window.PlayerData.usd_balance = window.userState.usd_balance;
                     window.PlayerData.usdt_balance = window.userState.usdt_balance;
                 }
