@@ -14,22 +14,22 @@ get_db = safe_get_db
 
 def format_crypto_display(amount):
     if amount is None:
-        return "0"
+        return "0.0000"
     try:
         val = float(amount)
         if val == 0:
-            return "0"
-        formatted = f"{val:,.8f}".rstrip('0').rstrip('.')
-        return formatted if formatted else "0"
+            return "0.0000"
+        formatted = f"{val:,.4f}"
+        return formatted
     except Exception:
         return str(amount)
 
 def extract_user_balance(data):
-    """جلب رصيد ZNX للمستخدم بشكل دقيق مع دعم الحقول المختلفة"""
+    """جلب رصيد ZNX للمستخدم بشكل دقيق مع أولوية قصوى لـ znx_balance"""
     if not isinstance(data, dict):
         return 0.0
     
-    balance_keys = ['znx_balance', 'balance', 'zn_balance', 'coins', 'user_balance', 'zn_coins']
+    balance_keys = ['znx_balance', 'total_znx_earned', 'znx', 'balance']
     for key in balance_keys:
         if key in data and data[key] is not None:
             try:
