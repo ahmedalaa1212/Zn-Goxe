@@ -29,6 +29,7 @@ def get_config():
         "currency": "ZNX",
         "fee_percent": FEE_PERCENT,
         "user_balance": user_balance,
+        "znx_balance": user_balance,
         "wallet_address": wallet_address
     }), 200
 
@@ -83,8 +84,8 @@ def handle_withdraw():
 
     try:
         user_ref.update({
-            'balance': new_balance,
-            'znx_balance': new_balance
+            'znx_balance': new_balance,
+            'total_znx_earned': new_balance
         })
 
         tx_ref = db.collection('processed_txs').document()
@@ -104,7 +105,7 @@ def handle_withdraw():
 
         return jsonify({
             "success": True,
-            "message": f"تم تقديم طلب سحب {net_coins:,.0f} ZNX بنجاح وهو قيد المراجعة!",
+            "message": f"تم تقديم طلب سحب {net_coins:,.4f} ZNX بنجاح وهو قيد المراجعة!",
             "new_balance": new_balance
         }), 200
 
@@ -122,9 +123,9 @@ def notify_admin_withdraw(user_id, gross_coins, net_coins, wallet, tx_id):
         "<b>🚀 طلب سحب ZNX جديد</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
         f"<b>👤 المستخدم:</b> <code>{user_id}</code>\n"
-        f"<b>💰 المبلغ الكلي:</b> <code>{gross_coins:,.0f} ZNX</code>\n"
-        f"<b>💎 الصافي بعد الرسوم (5%):</b> <code>{net_coins:,.0f} ZNX</code>\n"
-        f"<b>📥 محفظة تلجرام:</b> <code>{wallet}</code>\n"
+        f"<b>💰 المبلغ الكلي:</b> <code>{gross_coins:,.4f} ZNX</code>\n"
+        f"<b>💎 الصافي بعد الرسوم (5%):</b> <code>{net_coins:,.4f} ZNX</code>\n"
+        f"<b>📥 محفظة TON:</b> <code>{wallet}</code>\n"
         f"<b>🆔 رقم المعاملة:</b> <code>#{tx_id}</code>\n"
         "━━━━━━━━━━━━━━━━━━"
     )
@@ -169,8 +170,8 @@ def telegram_webhook():
                     user_ref, _ = get_user_doc(user_id)
                     if user_ref:
                         user_ref.update({
-                            'balance': firestore.Increment(coins),
-                            'znx_balance': firestore.Increment(coins)
+                            'znx_balance': firestore.Increment(coins),
+                            'total_znx_earned': firestore.Increment(coins)
                         })
 
     return jsonify({"status": "ok"}), 200
