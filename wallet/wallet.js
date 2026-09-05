@@ -1,14 +1,16 @@
 // wallet/wallet.js
 // =================================================================
-// 👛 ZN Goxe - Wallet Module (Standardized 4 Decimals UI & Triple Balance)
+// 👛 ZN Goxe - Wallet Module (Realtime Firebase Sync & Instant Balances)
 // =================================================================
 
 window.walletModule = (function () {
     let currentTab = 'deposit';
     let isListening = false;
-    let isWalletRendered = false; // قفل لمنع إعادة بناء الواجهة إذا كانت مفتوحة بالفعل
+    let isWalletRendered = false; 
+    let pollInterval = null;
+    let unsubscribeFirestore = null;
     let lastFetchTime = 0;
-    const viewCache = {}; // تخزين القوائم للتحميل اللحظي بدون ريفرش
+    const viewCache = {};
 
     // 🎯 توحيد عرض الأرقام العشرية كـ نص عادي
     function formatSmartBalance(val) {
@@ -83,6 +85,59 @@ window.walletModule = (function () {
         });
     }
 
+    function applyNewBalances(zn, usdt, znx) {
+        const newZn = parseFloat(zn || 0);
+        const newUsdt = parseFloat(usdt || 0);
+        const newZnx = parseFloat(znx || 0);
+
+        if (!window.userState) window.userState = {};
+        window.userState.balance = newZn;
+        window.userState.zn_balance = newZn;
+        window.userState.usd_balance = newUsdt;
+        window.userState.usdt_balance = newUsdt;
+        window.userState.znx_balance = newZnx;
+        window.userState.total_znx_earned = newZnx;
+
+        if (window.PlayerData) {
+            window.PlayerData.balance = newZn;
+            window.PlayerData.zn_balance = newZn;
+            window.PlayerData.usd_balance = newUsdt;
+            window.PlayerData.usdt_balance = newUsdt;
+            window.PlayerData.znx_balance = newZnx;
+        }
+
+        updateBalancesUI();
+    }
+
+    function setupFirestoreRealtimeListener(userId) {
+        if (!userId) return false;
+        const strUserId = String(userId);
+
+        try {
+            let dbInstance = window.db || (window.firebase && window.firebase.firestore ? window.firebase.firestore() : null);
+            if (dbInstance && typeof dbInstance.collection === 'function') {
+                if (unsubscribeFirestore) unsubscribeFirestore();
+
+                unsubscribeFirestore = dbInstance.collection('users').doc(strUserId).onSnapshot((doc) => {
+                    if (doc.exists) {
+                        const data = doc.data();
+                        const zn = data.balance ?? data.zn_balance ?? 0;
+                        const usdt = data.usd_balance ?? data.usdt_balance ?? (data.upgrades?.usd_balance) ?? 0;
+                        const znx = data.znx_balance ?? data.total_znx_earned ?? data.znx ?? 0;
+                        
+                        applyNewBalances(zn, usdt, znx);
+                    }
+                }, (err) => {
+                    console.warn("⚠️ تنبيه استماع الفيربيس المباشر:", err);
+                });
+                return true;
+            }
+        } catch (e) {
+            console.warn("⚠️ لم يتم تفعيل SDK الفيربيس المباشر للواجهة، الاعتماد على المزامنة السريعة:", e);
+        }
+        return false;
+    }
+
     function attachRealtimeListeners() {
         if (isListening) return;
         isListening = true;
@@ -90,14 +145,20 @@ window.walletModule = (function () {
         window.addEventListener('userStateUpdated', () => {
             updateBalancesUI();
         });
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                fetchWalletBalances(true);
+            }
+        });
     }
 
     async function fetchWalletBalances(force = false) {
         updateBalancesUI();
 
         const now = Date.now();
-        // منع التكرار المفرط لطلبات الشبكة عند الضغط المتكرر
-        if (!force && lastFetchTime && (now - lastFetchTime < 30000)) {
+        // حظر بسيط لمدة ثانية واحدة فقط لمنع التكرار الشديد بدلاً من 30 ثانية
+        if (!force && lastFetchTime && (now - lastFetchTime < 1000)) {
             return;
         }
         lastFetchTime = now;
@@ -114,42 +175,32 @@ window.walletModule = (function () {
                 return;
             }
 
+            // محاولة ربط لسنر الفيربيس المباشر إن أمكن
+            setupFirestoreRealtimeListener(userId);
+
             const headers = { 'Content-Type': 'application/json' };
             if (userId) headers['X-Telegram-User-Id'] = String(userId);
             if (initData) headers['Authorization'] = `Bearer ${initData}`;
 
-            const res = await fetch(`/api/wallet/data?user_id=${userId}`, { headers });
+            const res = await fetch(`/api/wallet/data?user_id=${userId}&t=${Date.now()}`, { headers, cache: 'no-store' });
             if (!res.ok) throw new Error("Server response error");
             const data = await res.json();
             
             if (data.success) {
-                const newZn = parseFloat(data.zn_balance || 0);
-                const newUsdt = parseFloat(data.usdt_balance || 0);
-                const newZnx = parseFloat(data.znx_balance || 0);
-
-                if (!window.userState) window.userState = {};
-
-                window.userState.balance = newZn;
-                window.userState.zn_balance = newZn;
-                window.userState.usd_balance = newUsdt;
-                window.userState.usdt_balance = newUsdt;
-                window.userState.znx_balance = newZnx;
-                window.userState.total_znx_earned = newZnx;
-
-                if (window.PlayerData) {
-                    window.PlayerData.balance = window.userState.balance;
-                    window.PlayerData.zn_balance = window.userState.zn_balance;
-                    window.PlayerData.usd_balance = window.userState.usd_balance;
-                    window.PlayerData.usdt_balance = window.userState.usdt_balance;
-                    window.PlayerData.znx_balance = window.userState.znx_balance;
-                }
-
-                updateBalancesUI();
+                applyNewBalances(data.zn_balance, data.usdt_balance, data.znx_balance);
             }
         } catch (err) {
             console.warn("⚠️ اعتماد التحديث اللحظي المحلي:", err);
             updateBalancesUI();
         }
+    }
+
+    function startAutoPolling() {
+        if (pollInterval) clearInterval(pollInterval);
+        // تحديث سريع كل 3 ثوانٍ لضمان الانعكاس اللحظي التام لأي تغيير من الفيربيس
+        pollInterval = setInterval(() => {
+            fetchWalletBalances(true);
+        }, 3000);
     }
 
     async function ensureSubModuleScriptLoaded(tabName) {
@@ -203,7 +254,7 @@ window.walletModule = (function () {
         if (!container) return;
         container.setAttribute('data-active-tab', tabName);
 
-        updateBalancesUI();
+        fetchWalletBalances(true);
 
         if (viewCache[tabName]) {
             container.innerHTML = viewCache[tabName];
@@ -251,12 +302,13 @@ window.walletModule = (function () {
         const isSubContentPresent = container && container.children.length > 0;
 
         if (!force && isWalletRendered && isSubContentPresent) {
-            updateBalancesUI();
+            fetchWalletBalances(true);
             return;
         }
 
         isWalletRendered = true;
-        fetchWalletBalances(force);
+        fetchWalletBalances(true);
+        startAutoPolling();
         switchTab(currentTab || 'deposit', force);
     }
 
