@@ -50,11 +50,11 @@ def get_sqlite_conn():
 
 def get_user_wallet_balances(user_id: int) -> dict:
     """
-    جلب الأرصدة (ZN, USDT, ZNX) من Firebase Firestore أولاً ثم SQLite كاحتياطي
+    جلب الأرصدة (ZN, USDT, ZNX) المباشرة من Firebase Firestore كأولوية قصوى ثم SQLite
     """
     str_user_id = str(user_id)
     
-    # 1. القراءة المباشرة من Firebase Firestore
+    # 1. القراءة المباشرة واللحظية من Firebase Firestore
     db = get_firestore_db()
     if db:
         try:
@@ -65,6 +65,7 @@ def get_user_wallet_balances(user_id: int) -> dict:
             if doc.exists:
                 data = doc.to_dict()
             else:
+                # البحث في الفيربيس بناءً على tg_id بالأنواع المختلفة
                 query = db.collection('users').where('tg_id', '==', str_user_id).limit(1).get()
                 if query:
                     data = query[0].to_dict()
@@ -79,10 +80,14 @@ def get_user_wallet_balances(user_id: int) -> dict:
                 if zn_val is None:
                     zn_val = data.get('zn_balance', 0.0)
                 
-                # 2. USDT Balance
+                # 2. USDT Balance (مع فحص الحقل الرئيسي وحقل upgrades الفرعي إن وجد)
                 usdt_val = data.get('usd_balance')
                 if usdt_val is None:
-                    usdt_val = data.get('usdt_balance', 0.0)
+                    usdt_val = data.get('usdt_balance')
+                if usdt_val is None and isinstance(data.get('upgrades'), dict):
+                    usdt_val = data.get('upgrades', {}).get('usd_balance')
+                if usdt_val is None:
+                    usdt_val = 0.0
 
                 # 3. ZNX Balance
                 znx_val = data.get('znx_balance')
