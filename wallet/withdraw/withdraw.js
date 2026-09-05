@@ -1,13 +1,8 @@
 (function () {
-  let cryptoPrices = { DOGE: 0.10, TRX: 0.12, PEPE: 0.000008, LTC: 70.0 };
-  let selectedCurrency = "DOGE";
-  let withdrawConfig = null;
+  let znxPriceUsd = 0.000010; // سعر افتراضي حتى يتم الجلب
   let userBalance = 0;
-  let userLevel = 1;
-  let withdrawCount = 0;
-  let activeLevelIndex = 0;
-  let keyboardDebounceTimer = null;
-  let userWallets = {}; // حفظ المحافظ لكل عملة بشكل مستقل
+  let userWallet = "";
+  const feePercent = 5; // 5% رسوم السحب
 
   function parseInputValue(val) {
     if (val === null || val === undefined) return 0;
@@ -16,12 +11,9 @@
     return isNaN(num) ? 0 : num;
   }
 
-  // تنسيق قيم الدولار لإزالة الأصفار العشرية الزائدة
   function formatUSD(num) {
-    if (num === null || num === undefined || isNaN(num)) return "0";
-    const val = parseFloat(num);
-    if (val === 0) return "0";
-    return parseFloat(val.toFixed(4)).toString();
+    if (!num || isNaN(num)) return "0.00";
+    return parseFloat(num).toFixed(4);
   }
 
   function getUserId() {
@@ -35,65 +27,14 @@
     );
   }
 
-  /* التحقق الصارم من صحة عناوين FaucetPay ومنع عناوين المنصات الخارجية */
-  function validateWalletAddress(address, currency) {
+  function validateWalletAddress(address) {
     if (!address || typeof address !== 'string') {
-      return { 
-        valid: false, 
-        message: "⚠️ يرجى إدخال عنوان محفظة FaucetPay الخاص بك أو البريد الإلكتروني." 
-      };
+      return { valid: false, message: "⚠️ يرجى إدخال عنوان محفظة تلجرام الصحيح." };
     }
     const addr = address.trim();
-    if (addr.length === 0) {
-      return { 
-        valid: false, 
-        message: "⚠️ يرجى إدخال عنوان محفظة FaucetPay الخاص بك أو البريد الإلكتروني." 
-      };
+    if (addr.length < 10) {
+      return { valid: false, message: "⚠️ عنوان المحفظة قصير جدًا وغير صحيح." };
     }
-
-    // قبول البريد الإلكتروني المسجل في FaucetPay كخيار فرعي
-    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if (emailRegex.test(addr)) {
-      return { valid: true, message: "" };
-    }
-
-    const curr = (currency || selectedCurrency || "DOGE").toUpperCase();
-
-    // التحقق الصارم من هياكل عناوين FaucetPay حسب كل عملة
-    if (curr === "DOGE") {
-      if (/^D[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr)) {
-        return { valid: true, message: "" };
-      }
-      return {
-        valid: false,
-        message: "⚠️ عنوان DOGE غير صحيح! يجب أن يكون عنوان DOGE مضافاً ومربوطاً بحسابك في FaucetPay ويقتصر على عناوين FaucetPay فقط (يبدأ بـ D ومكون من 34 خانة) أو أدخل البريد الإلكتروني للفوست باي."
-      };
-    } else if (curr === "TRX") {
-      if (/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr)) {
-        return { valid: true, message: "" };
-      }
-      return {
-        valid: false,
-        message: "⚠️ عنوان TRX غير صحيح! يجب أن يكون عنوان TRX مربوطاً بـ FaucetPay (يبدأ بـ T ومكون من 34 خانة) ولن تقبل المحافظ الخارجية. أو أدخل بريد FaucetPay."
-      };
-    } else if (curr === "LTC") {
-      if (/^(L|M)[1-9A-HJ-NP-Za-km-z]{33}$/.test(addr) || /^ltc1[a-z0-9]{38,58}$/i.test(addr)) {
-        return { valid: true, message: "" };
-      }
-      return {
-        valid: false,
-        message: "⚠️ عنوان LTC غير صحيح! لن يتم قبول أي عنوان غير مربوط بـ FaucetPay (يجب أن يبدأ بـ L أو M أو ltc1). أو أدخل بريد FaucetPay."
-      };
-    } else if (curr === "PEPE") {
-      if (/^0x[a-fA-F0-9]{40}$/.test(addr)) {
-        return { valid: true, message: "" };
-      }
-      return {
-        valid: false,
-        message: "⚠️ عنوان PEPE غير صحيح! يجب أن يبدأ بـ 0x (شبكة BSC/ERC20) ومربوطاً بـ FaucetPay حصراً، أو أدخل بريد FaucetPay."
-      };
-    }
-
     return { valid: true, message: "" };
   }
 
@@ -105,205 +46,23 @@
       }
       if (res.ok) {
         const data = await res.json();
-        if (data && data.crypto_prices) {
-          cryptoPrices = { ...cryptoPrices, ...data.crypto_prices };
+        if (data && data.znx_price) {
+          znxPriceUsd = parseFloat(data.znx_price) || znxPriceUsd;
         }
       }
     } catch (e) {
-      console.log('استخدام الأسعار الاحتياطية عند تعذر الجلب اللحظي');
+      console.log('استخدام سعر ZNX الإفتراضي');
     }
     updatePriceDisplay();
   }
 
   function updatePriceDisplay() {
     const priceDisplay = document.getElementById('coin-price-display');
-    if (priceDisplay) {
-      const price = cryptoPrices[selectedCurrency] || 1;
-      const priceStr = price < 0.001 ? price.toFixed(8) : parseFloat(price.toFixed(4)).toString();
-      priceDisplay.innerText = `$${priceStr} USD`;
-    }
-  }
-
-  /* حقن تنسيقات الإخفاء الشاملة لأزرار محفظة تلجرام و TON Connect */
-  function injectTonConnectHideStyles(doc) {
-    try {
-      if (!doc || doc.getElementById('hide-ton-connect-style')) return;
-      const style = doc.createElement('style');
-      style.id = 'hide-ton-connect-style';
-      style.innerHTML = `
-        #ton-connect-button,
-        .ton-connect-button,
-        tc-root,
-        [class*="ton-connect"],
-        [id*="ton-connect"],
-        div[class*="tc-"],
-        button[class*="go-tonconnect"],
-        .go-tonconnect-btn,
-        [data-tc-button],
-        .tc-dropdown-button {
-          display: none !important;
-          visibility: hidden !important;
-          opacity: 0 !important;
-          pointer-events: none !important;
-          position: absolute !important;
-          top: -9999px !important;
-          left: -9999px !important;
-          width: 0 !important;
-          height: 0 !important;
-        }
-      `;
-      doc.head?.appendChild(style);
-    } catch (e) {}
-  }
-
-  /* البحث المستمر والديناميكي لإخفاء أي زر ربط محفظة ينشئه تلجرام أو TON Connect */
-  function hideTelegramWalletButtons() {
-    const targetDocs = [document];
-    try {
-      if (window.parent && window.parent !== window && window.parent.document) {
-        targetDocs.push(window.parent.document);
-      }
-      if (window.top && window.top !== window && window.top.document) {
-        targetDocs.push(window.top.document);
-      }
-    } catch (e) {}
-
-    targetDocs.forEach(doc => {
-      injectTonConnectHideStyles(doc);
-      try {
-        const elements = doc.querySelectorAll('#ton-connect-button, .ton-connect-button, tc-root, [class*="ton-connect"], [id*="ton-connect"], div[class*="tc-"], button[class*="go-tonconnect"], .go-tonconnect-btn, [data-tc-button]');
-        elements.forEach(el => {
-          el.style.setProperty('display', 'none', 'important');
-          el.style.setProperty('visibility', 'hidden', 'important');
-          el.style.setProperty('opacity', '0', 'important');
-          el.style.setProperty('pointer-events', 'none', 'important');
-        });
-      } catch (e) {}
-    });
-  }
-
-  function injectKeyboardStyles(doc) {
-    try {
-      if (!doc || doc.getElementById('keyboard-hide-nav-style')) return;
-      const style = doc.createElement('style');
-      style.id = 'keyboard-hide-nav-style';
-      style.innerHTML = `
-        body.keyboard-active .bottom-nav,
-        body.keyboard-active .nav-bar,
-        body.keyboard-active .navbar,
-        body.keyboard-active .footer-menu,
-        body.keyboard-active .main-menu,
-        body.keyboard-active .navigation-bar,
-        body.keyboard-active #bottom-nav,
-        body.keyboard-active #bottom-navigation,
-        body.keyboard-active #main-nav,
-        body.keyboard-active footer,
-        body.keyboard-active [class*="bottom-nav"],
-        body.keyboard-active [class*="footer"],
-        body.keyboard-active [class*="navigation"],
-        body.keyboard-active [id*="bottom-nav"],
-        body.keyboard-active [id*="footer"] {
-          display: none !important;
-          visibility: hidden !important;
-          opacity: 0 !important;
-          pointer-events: none !important;
-        }
-      `;
-      doc.head?.appendChild(style);
-    } catch (e) {}
-  }
-
-  function toggleKeyboardClass(active) {
-    const targetDocs = [document];
-    try {
-      if (window.parent && window.parent !== window && window.parent.document) {
-        targetDocs.push(window.parent.document);
-      }
-      if (window.top && window.top !== window && window.top.document) {
-        targetDocs.push(window.top.document);
-      }
-    } catch (e) {}
-
-    targetDocs.forEach(doc => {
-      try {
-        if (!doc || !doc.body) return;
-        injectKeyboardStyles(doc);
-        injectTonConnectHideStyles(doc);
-        if (active) {
-          doc.body.classList.add('keyboard-active');
-          doc.documentElement?.classList.add('keyboard-active');
-        } else {
-          doc.body.classList.remove('keyboard-active');
-          doc.documentElement?.classList.remove('keyboard-active');
-        }
-      } catch (e) {}
-    });
-  }
-
-  function hideMenus() {
-    if (keyboardDebounceTimer) {
-      clearTimeout(keyboardDebounceTimer);
-      keyboardDebounceTimer = null;
-    }
-    toggleKeyboardClass(true);
-  }
-
-  function showMenus(immediate = false) {
-    if (keyboardDebounceTimer) {
-      clearTimeout(keyboardDebounceTimer);
-      keyboardDebounceTimer = null;
-    }
-
-    if (immediate) {
-      toggleKeyboardClass(false);
-    } else {
-      keyboardDebounceTimer = setTimeout(() => {
-        const active = document.activeElement;
-        const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && !active.readOnly;
-        if (!isInput) {
-          toggleKeyboardClass(false);
-        }
-      }, 150);
-    }
-  }
-
-  function setupKeyboardListeners() {
-    if (window._keyboardListenersInitialized) return;
-    window._keyboardListenersInitialized = true;
-
-    toggleKeyboardClass(false);
-
-    document.addEventListener('focusin', (e) => {
-      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') && !e.target.readOnly) {
-        hideMenus();
-      }
-    }, true);
-
-    document.addEventListener('focusout', (e) => {
-      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
-        showMenus(false);
-      }
-    }, true);
-
-    if (window.visualViewport) {
-      let vpResizeTimer = null;
-      const initialHeight = window.visualViewport.height;
-
-      window.visualViewport.addEventListener('resize', () => {
-        if (vpResizeTimer) clearTimeout(vpResizeTimer);
-        vpResizeTimer = setTimeout(() => {
-          const currentHeight = window.visualViewport.height;
-          const active = document.activeElement;
-          const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && !active.readOnly;
-
-          if (initialHeight - currentHeight > 120 && isInput) {
-            hideMenus();
-          } else if (currentHeight >= initialHeight - 50 && !isInput) {
-            showMenus(true);
-          }
-        }, 100);
-      });
-    }
+    const statusDisplay = document.getElementById('rate-status');
+    const priceStr = `$${znxPriceUsd < 0.001 ? znxPriceUsd.toFixed(6) : znxPriceUsd.toFixed(4)} USD`;
+    
+    if (priceDisplay) priceDisplay.innerText = priceStr;
+    if (statusDisplay) statusDisplay.innerText = `السعر اللحظي: ${priceStr} ⚡`;
   }
 
   function bindInputEvents() {
@@ -314,7 +73,6 @@
       coinsInput.addEventListener("keyup", calculateWithdraw);
       coinsInput.addEventListener("change", calculateWithdraw);
     }
-    setupKeyboardListeners();
   }
 
   function updateWalletDisplay() {
@@ -322,19 +80,11 @@
     const displayDiv = document.getElementById("wallet-address-display");
     const connectBtn = document.getElementById("btn-connect-wallet");
 
-    let savedAddr = (userWallets && typeof userWallets === 'object') ? (userWallets[selectedCurrency] || "") : "";
+    if (hiddenInput) hiddenInput.value = userWallet;
 
-    // تصفية العنوان للعملة المختارة لمنع ظهور عناوين العملات الأخرى أو العناوين غير المعتمدة
-    const validCheck = validateWalletAddress(savedAddr, selectedCurrency);
-    if (!validCheck.valid) {
-      savedAddr = "";
-    }
-
-    if (hiddenInput) hiddenInput.value = savedAddr;
-
-    if (savedAddr && savedAddr.length > 0) {
+    if (userWallet && userWallet.length > 0) {
       if (displayDiv) {
-        displayDiv.innerText = savedAddr;
+        displayDiv.innerText = userWallet;
         displayDiv.style.display = "block";
       }
       if (connectBtn) {
@@ -346,7 +96,7 @@
         displayDiv.style.display = "none";
       }
       if (connectBtn) {
-        connectBtn.innerHTML = "🔗 ربط المحفظة";
+        connectBtn.innerHTML = "🔗 ربط محفظة تلجرام";
       }
     }
 
@@ -356,173 +106,58 @@
   async function initWithdrawPage(userId) {
     const currentUid = userId || getUserId();
     bindInputEvents();
-    hideTelegramWalletButtons();
 
     try {
       let response = await fetch(`/api/wallet/withdraw/config?user_id=${currentUid}`);
       if (!response.ok) {
         response = await fetch(`/api/withdraw/config?user_id=${currentUid}`);
       }
-      if (!response.ok) {
-        console.error("فشل الاتصال بـ API السحب:", response.status);
-        return;
-      }
-      const data = await response.json();
-
-      if (data.success || data.config) {
-        withdrawConfig = data.config || data;
-        if (data.crypto_prices) {
-          cryptoPrices = { ...cryptoPrices, ...data.crypto_prices };
-          updatePriceDisplay();
-        }
-
-        userBalance = parseFloat(data.user_balance ?? data.user?.balance) || 0;
-        withdrawCount = parseInt(data.withdraw_count) || 0;
-        userWallets = (typeof data.wallets === 'object' && data.wallets !== null) ? data.wallets : {};
-
-        if (withdrawConfig && withdrawConfig.levels) {
-          userLevel = Math.min(withdrawCount + 1, withdrawConfig.levels.length);
-          activeLevelIndex = Math.min(withdrawCount, withdrawConfig.levels.length - 1);
-        }
+      if (response.ok) {
+        const data = await response.json();
+        userBalance = parseFloat(data.user_balance || data.zn_balance || 0);
+        userWallet = data.wallet_address || (data.wallets && data.wallets.ZNX) || "";
+        if (data.znx_price) znxPriceUsd = parseFloat(data.znx_price);
 
         updateUIBalance();
-        renderLevelsGuide();
+        updatePriceDisplay();
         updateWalletDisplay();
       }
     } catch (err) {
-      console.error("خطأ جلب إعدادات السحب:", err);
-    } finally {
-      hideTelegramWalletButtons();
+      console.error("خطأ جلب بيانات السحب:", err);
     }
   }
 
   function updateUIBalance() {
     const userBalDisplay = document.getElementById("user-balance-display");
     if (userBalDisplay) {
-      userBalDisplay.innerText = `رصيدك: ${userBalance.toLocaleString()} ZN`;
+      userBalDisplay.innerText = `رصيدك: ${userBalance.toLocaleString()} ZNX`;
     }
-
-    const levelBadge = document.getElementById("level-indicator");
-    if (levelBadge) {
-      levelBadge.innerText = `المستوى ${userLevel}`;
-    }
-  }
-
-  // --- عرض دليل المستويات دون كشف نوع السحب (آلي / يدوي) وبدون أصفار عشرية زائفة ---
-  function renderLevelsGuide() {
-    const container = document.getElementById("levels-list-container");
-    const userLevelText = document.getElementById("current-user-level-text");
-    if (!withdrawConfig || !withdrawConfig.levels) return;
-
-    if (userLevelText) {
-      userLevelText.innerText = `المستوى: ${userLevel}`;
-    }
-
-    if (!container) return;
-
-    let html = "";
-    withdrawConfig.levels.forEach((lvl, idx) => {
-      const isActive = lvl.level === userLevel || idx === activeLevelIndex;
-      const usdMin = formatUSD(lvl.min / 100000);
-      const usdMax = formatUSD(lvl.max / 100000);
-
-      let znText = "";
-      let usdText = "";
-
-      if (lvl.min === lvl.max) {
-        znText = `${lvl.min.toLocaleString()} ZN`;
-        usdText = `$${usdMin}`;
-      } else {
-        znText = `من ${lvl.min.toLocaleString()} ZN إلى ${lvl.max.toLocaleString()} ZN`;
-        usdText = `$${usdMin} - $${usdMax}`;
-      }
-
-      html += `
-        <div class="level-item ${isActive ? 'active-level' : ''}">
-          <div>
-            <span>المستوى ${lvl.level}: ${znText}</span>
-            <br><small style="color:#94a3b8; direction: ltr; display: inline-block;">(${usdText})</small>
-          </div>
-          ${isActive ? '<span class="level-item-tag" style="color:#38bdf8;">مستواك الحالي ✅</span>' : ''}
-        </div>
-      `;
-    });
-
-    container.innerHTML = html;
-  }
-
-  function selectCurrency(curr) {
-    selectedCurrency = curr.toUpperCase();
-
-    document.querySelectorAll('.currency-btn').forEach(btn => btn.classList.remove('selected'));
-    const selectedBtn = document.getElementById(`coin-${selectedCurrency}`);
-    if (selectedBtn) selectedBtn.classList.add('selected');
-
-    const label = document.getElementById('selected-coin-label');
-    if (label) label.innerText = selectedCurrency;
-
-    updatePriceDisplay();
-    updateWalletDisplay();
   }
 
   function setPreset(type) {
-    if (!withdrawConfig || !withdrawConfig.levels || withdrawConfig.levels.length === 0) return;
-
-    const currentLvl = withdrawConfig.levels[activeLevelIndex] || withdrawConfig.levels[0];
     const coinsInput = document.getElementById("coins-input");
     if (!coinsInput) return;
 
-    let targetAmount = 0;
-    const minVal = currentLvl.min;
-    const levelMax = currentLvl.max >= 999999999 ? userBalance : currentLvl.max;
-    const maxVal = Math.min(userBalance, levelMax);
-
-    if (type === 'min') {
-      targetAmount = minVal;
-    } else if (type === 'half') {
-      targetAmount = Math.floor((minVal + maxVal) / 2);
-    } else if (type === 'max') {
-      targetAmount = maxVal > 0 ? maxVal : minVal;
+    if (type === 'max') {
+      coinsInput.value = userBalance;
     }
-
-    coinsInput.value = targetAmount;
     calculateWithdraw();
   }
 
   function openWalletModal() {
     const modal = document.getElementById("wallet-modal");
     const modalInput = document.getElementById("modal-wallet-input");
-    const modalLabel = document.getElementById("modal-coin-label");
-
-    if (modalLabel) modalLabel.innerText = selectedCurrency;
 
     if (modalInput) {
-      let saved = userWallets[selectedCurrency] || "";
-      if (!validateWalletAddress(saved, selectedCurrency).valid) {
-        saved = "";
-      }
-      modalInput.value = saved;
-      modalInput.placeholder = `أدخل عنوان FaucetPay الخاص بـ ${selectedCurrency} أو الإيميل`;
+      modalInput.value = userWallet;
     }
 
     if (modal) {
       modal.classList.add("active");
-      setTimeout(() => {
-        if (modalInput) {
-          modalInput.focus();
-          hideMenus();
-        }
-      }, 100);
     }
   }
 
   function closeWalletModal() {
-    if (document.activeElement && typeof document.activeElement.blur === 'function') {
-      document.activeElement.blur();
-    }
-    
-    showMenus(true);
-
     const modal = document.getElementById("wallet-modal");
     if (modal) {
       modal.classList.remove("active");
@@ -531,19 +166,13 @@
 
   async function saveWalletAddress() {
     const modalInput = document.getElementById("modal-wallet-input");
-    const saveBtn = document.querySelector("#wallet-modal .btn-save");
     const val = modalInput ? modalInput.value.trim() : "";
     const userId = getUserId();
 
-    const addressValidation = validateWalletAddress(val, selectedCurrency);
-    if (!addressValidation.valid) {
-      alert(addressValidation.message);
+    const check = validateWalletAddress(val);
+    if (!check.valid) {
+      alert(check.message);
       return;
-    }
-
-    if (saveBtn) {
-      saveBtn.disabled = true;
-      saveBtn.innerText = "جاري الحفظ...";
     }
 
     try {
@@ -552,104 +181,60 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: userId,
-          currency: selectedCurrency,
+          currency: 'ZNX',
           wallet_address: val
         })
       });
 
-      if (res.status === 404) {
-        res = await fetch('/api/withdraw/save-wallet', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: userId,
-            currency: selectedCurrency,
-            wallet_address: val
-          })
-        });
-      }
-
       const data = await res.json().catch(() => null);
 
       if (res.ok && data?.success) {
-        userWallets[selectedCurrency] = val;
+        userWallet = val;
         updateWalletDisplay();
         closeWalletModal();
       } else {
-        alert(data?.message || "حدث خطأ أثناء حفظ العنوان في قاعدة البيانات.");
+        alert(data?.message || "حدث خطأ أثناء حفظ المحفظة.");
       }
     } catch (e) {
       console.error(e);
-      alert("تعذر الاتصال بالخادم لحفظ العنوان.");
-    } finally {
-      if (saveBtn) {
-        saveBtn.disabled = false;
-        saveBtn.innerText = "حفظ";
-      }
+      alert("تعذر الاتصال بالخادم لحفظ المحفظة.");
     }
   }
 
   function calculateWithdraw() {
     const coinsInput = document.getElementById("coins-input");
     const walletInput = document.getElementById("wallet-address-input");
-    const coinsInputVal = parseInputValue(coinsInput?.value);
+    const coinsVal = parseInputValue(coinsInput?.value);
     const walletAddress = walletInput?.value?.trim() || "";
     const btn = document.getElementById("confirm-withdraw-btn");
-    const levelBadge = document.getElementById("level-indicator");
-
-    const priceUSD = cryptoPrices[selectedCurrency] || 1.0;
-    const currentLvl = withdrawConfig?.levels ? (withdrawConfig.levels[activeLevelIndex] || withdrawConfig.levels[0]) : null;
-
-    if (!withdrawConfig || coinsInputVal <= 0) {
-      resetCalculations();
-      if (btn) btn.disabled = true;
-      if (levelBadge) {
-        levelBadge.innerText = `المستوى ${userLevel}`;
-        levelBadge.style.color = "#38bdf8";
-      }
-      return;
-    }
-
-    if (userBalance < coinsInputVal) {
-      if (levelBadge) {
-        levelBadge.innerText = "الرصيد غير كافٍ ❌";
-        levelBadge.style.color = "#ef4444";
-      }
-      resetCalculations();
-      if (btn) btn.disabled = true;
-      return;
-    }
-
-    if (levelBadge) {
-      levelBadge.innerText = `المستوى ${userLevel}`;
-      levelBadge.style.color = "#38bdf8";
-    }
-
-    const usdRate = withdrawConfig.rate_coins_per_usd || 100000;
-    const grossUsdValue = coinsInputVal / usdRate;
-
-    const feePercent = withdrawConfig.fee_percent || 3;
-    const feeCoins = coinsInputVal * (feePercent / 100);
-    const netCoins = coinsInputVal - feeCoins;
-    const netUsd = netCoins / usdRate;
-
-    const finalNetCrypto = netUsd / priceUSD;
-    const decimals = selectedCurrency === 'PEPE' ? 2 : 8;
 
     const usdOutput = document.getElementById("usd-output");
     const feeAmount = document.getElementById("fee-amount");
     const netCryptoElem = document.getElementById("net-crypto");
 
-    if (usdOutput) usdOutput.value = `$${formatUSD(grossUsdValue)} USD`;
-    if (feeAmount) feeAmount.innerText = `${Math.round(feeCoins).toLocaleString()} ZN (${feePercent}%)`;
-    if (netCryptoElem) netCryptoElem.innerText = `${finalNetCrypto.toFixed(decimals)} ${selectedCurrency}`;
+    if (coinsVal <= 0) {
+      resetCalculations();
+      if (btn) btn.disabled = true;
+      return;
+    }
+
+    if (coinsVal > userBalance) {
+      resetCalculations();
+      if (btn) btn.disabled = true;
+      return;
+    }
+
+    const feeCoins = coinsVal * (feePercent / 100);
+    const netCoins = coinsVal - feeCoins;
+    const usdValue = coinsVal * znxPriceUsd;
+
+    if (usdOutput) usdOutput.value = `$${formatUSD(usdValue)} USD`;
+    if (feeAmount) feeAmount.innerText = `${Math.round(feeCoins).toLocaleString()} ZNX (${feePercent}%)`;
+    if (netCryptoElem) netCryptoElem.innerText = `${netCoins.toLocaleString()} ZNX`;
 
     if (btn) {
-      const isMinOk = currentLvl ? coinsInputVal >= currentLvl.min : true;
-      const isMaxOk = currentLvl ? coinsInputVal <= currentLvl.max : true;
-      const addrCheck = validateWalletAddress(walletAddress, selectedCurrency);
-
-      btn.disabled = !(isMinOk && isMaxOk && addrCheck.valid && userBalance >= coinsInputVal);
+      const addrCheck = validateWalletAddress(walletAddress);
+      btn.disabled = !(coinsVal > 0 && coinsVal <= userBalance && addrCheck.valid);
     }
   }
 
@@ -658,9 +243,9 @@
     const feeAmount = document.getElementById("fee-amount");
     const netCryptoElem = document.getElementById("net-crypto");
 
-    if (usdOutput) usdOutput.value = "$0 USD";
-    if (feeAmount) feeAmount.innerText = "0 ZN";
-    if (netCryptoElem) netCryptoElem.innerText = `0.00000000 ${selectedCurrency}`;
+    if (usdOutput) usdOutput.value = "$0.00 USD";
+    if (feeAmount) feeAmount.innerText = "0 ZNX";
+    if (netCryptoElem) netCryptoElem.innerText = "0 ZNX";
   }
 
   async function submitWithdrawal(event) {
@@ -674,13 +259,7 @@
     const btn = document.getElementById("confirm-withdraw-btn");
 
     if (!walletAddress) {
-      alert("⚠️ يرجى ربط عنوان محفظة FaucetPay أو البريد الإلكتروني للحساب أولاً!");
-      return;
-    }
-
-    const addressValidation = validateWalletAddress(walletAddress, selectedCurrency);
-    if (!addressValidation.valid) {
-      alert(addressValidation.message);
+      alert("⚠️ يرجى ربط محفظة تلجرام أولاً!");
       return;
     }
 
@@ -689,8 +268,8 @@
       return;
     }
 
-    if (userBalance > 0 && coins > userBalance) {
-      alert("رصيدك الحالي غير كافٍ لإتمام هذه العملية!");
+    if (coins > userBalance) {
+      alert("رصيدك الحالي غير كافٍ لإتمام العملية!");
       return;
     }
 
@@ -706,49 +285,21 @@
         body: JSON.stringify({
           user_id: userId,
           coins: coins,
-          coins_amount: coins,
-          currency: selectedCurrency,
-          wallet_address: walletAddress,
-          coin_price_usd: cryptoPrices[selectedCurrency]
+          currency: 'ZNX',
+          wallet_address: walletAddress
         })
       });
-
-      if (res.status === 404) {
-        res = await fetch('/api/withdraw/request', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_id: userId,
-            coins: coins,
-            coins_amount: coins,
-            currency: selectedCurrency,
-            wallet_address: walletAddress,
-            coin_price_usd: cryptoPrices[selectedCurrency]
-          })
-        });
-      }
 
       const data = await res.json().catch(() => null);
 
       if (data && data.success) {
-        alert(data.message || "تم إرسال طلب السحب بنجاح!");
-
-        if (typeof data.new_balance === 'number') {
-          userBalance = data.new_balance;
-        } else {
-          userBalance = Math.max(0, userBalance - coins);
-        }
-        withdrawCount += 1;
-
+        alert(data.message || "تم تقديم طلب السحب بنجاح!");
+        userBalance = data.new_balance !== undefined ? data.new_balance : (userBalance - coins);
         if (coinsInput) coinsInput.value = "";
         updateUIBalance();
         resetCalculations();
-
-        if (typeof window.loadWalletData === 'function') {
-          window.loadWalletData();
-        }
       } else {
-        alert(data?.message || "حدث خطأ أثناء معالجة الطلب.");
+        alert(data?.message || "حدث خطأ أثناء تقديم الطلب.");
       }
     } catch (err) {
       console.error(err);
@@ -763,18 +314,12 @@
 
   const withdrawModule = {
     init: function () {
-      const userId = getUserId();
-      initWithdrawPage(userId);
-      setupKeyboardListeners();
-      hideTelegramWalletButtons();
+      initWithdrawPage(getUserId());
+      fetchLivePrices();
     },
-    selectCurrency: selectCurrency,
     setPreset: setPreset,
     calculateWithdraw: calculateWithdraw,
     submitWithdrawal: submitWithdrawal,
-    validateWalletAddress: validateWalletAddress,
-    setupKeyboardListeners: setupKeyboardListeners,
-    hideTelegramWalletButtons: hideTelegramWalletButtons,
     openWalletModal: openWalletModal,
     closeWalletModal: closeWalletModal,
     saveWalletAddress: saveWalletAddress
@@ -785,18 +330,9 @@
     withdrawModule.init();
   };
 
-  window.selectCurrency = selectCurrency;
-  window.setPreset = setPreset;
-  window.calculateWithdraw = calculateWithdraw;
-  window.submitWithdrawal = submitSubmit = submitWithdrawal;
-
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => {
-      withdrawModule.init();
-      hideTelegramWalletButtons();
-    });
+    document.addEventListener("DOMContentLoaded", () => withdrawModule.init());
   } else {
     withdrawModule.init();
-    hideTelegramWalletButtons();
   }
 })();
