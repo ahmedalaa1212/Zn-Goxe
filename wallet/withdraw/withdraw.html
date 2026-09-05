@@ -3,23 +3,17 @@
   .w-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 18px; padding: 18px; margin-bottom: 16px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3); }
   .w-title { font-size: 15px; font-weight: 700; margin-bottom: 14px; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
   
-  .currency-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
-  .currency-btn { background: #1e293b; border: 2px solid transparent; border-radius: 12px; padding: 10px 4px; text-align: center; cursor: pointer; transition: all 0.2s; color: #94a3b8; font-weight: bold; font-size: 13px; }
-  .currency-btn.selected { border-color: #38bdf8; background: rgba(56, 189, 248, 0.15); color: #ffffff; }
-  .currency-btn img { width: 24px; height: 24px; display: block; margin: 0 auto 4px auto; }
-
   .w-input-group { margin-bottom: 14px; }
   .w-label { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #94a3b8; margin-bottom: 6px; font-weight: 600; }
-  .user-bal-tag { color: #fbbf24; font-weight: bold; font-size: 12px; }
-  
-  .w-input { width: 100%; background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; color: #38bdf8; font-size: 15px; font-weight: bold; box-sizing: border-box; outline: none; transition: border-color 0.2s; }
+  .user-bal-tag { color: #fbbf24; font-weight: bold; font-size: 13px; }
+
+  .input-with-btn { display: flex; gap: 8px; align-items: center; }
+  .w-input { flex: 1; background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; color: #38bdf8; font-size: 15px; font-weight: bold; box-sizing: border-box; outline: none; transition: border-color 0.2s; }
   .w-input:focus { border-color: #38bdf8; }
   .w-input[readonly] { background: #090d16; cursor: not-allowed; color: #94a3b8; }
   
-  .preset-buttons-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 8px; }
-  .btn-preset { background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid #38bdf8; color: #38bdf8; padding: 8px 6px; border-radius: 10px; font-size: 12px; font-weight: bold; cursor: pointer; transition: all 0.2s; text-align: center; }
-  .btn-preset:active { transform: scale(0.95); background: #38bdf8; color: #020617; }
-  .btn-preset.btn-max { background: linear-gradient(135deg, #0284c7, #38bdf8); color: #ffffff; border-color: #38bdf8; }
+  .btn-max { background: linear-gradient(135deg, #0284c7, #38bdf8); color: #ffffff; border: none; padding: 12px 18px; border-radius: 12px; font-size: 13px; font-weight: bold; cursor: pointer; transition: transform 0.1s, opacity 0.2s; white-space: nowrap; }
+  .btn-max:active { transform: scale(0.95); }
 
   .fee-details { background: #020617; border: 1px solid #1e293b; border-radius: 12px; padding: 12px; margin-bottom: 14px; font-size: 13px; }
   .fee-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
@@ -27,112 +21,45 @@
   .fee-val { font-weight: bold; color: #fbbf24; }
   .net-val { font-weight: bold; color: #4ade80; font-size: 14px; }
 
-  .levels-guide-box { background: #020617; border: 1px solid #1e293b; border-radius: 14px; padding: 12px; margin-bottom: 4px; font-size: 12px; }
-  .levels-guide-title { font-weight: bold; color: #fbbf24; margin-bottom: 8px; display: flex; justify-content: space-between; }
-  .level-item { display: flex; justify-content: space-between; padding: 8px; border-radius: 8px; margin-bottom: 6px; background: #0f172a; border: 1px solid transparent; }
-  .level-item.active-level { border-color: #38bdf8; background: rgba(56, 189, 248, 0.15); font-weight: bold; }
-  .level-item-tag { font-size: 10px; padding: 2px 6px; border-radius: 6px; font-weight: bold; background: #1e293b; color: #94a3b8; }
-
   .notice-box { padding: 12px; border-radius: 12px; font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
-  .notice-warning { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #fca5a5; }
   .notice-info { background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); color: #93c5fd; }
 
   .btn-submit-withdraw { width: 100%; background: linear-gradient(135deg, #10b981, #0284c7); color: #fff; border: none; padding: 15px; border-radius: 14px; font-size: 16px; font-weight: bold; cursor: pointer; transition: transform 0.1s, opacity 0.2s; }
   .btn-submit-withdraw:active { transform: scale(0.98); }
   .btn-submit-withdraw:disabled { background: #334155; color: #64748b; cursor: not-allowed; opacity: 0.6; }
-  .level-badge { font-size: 11px; padding: 3px 10px; border-radius: 8px; background: #1e293b; color: #38bdf8; font-weight: 600; }
+  
+  .badge-rate { font-size: 11px; padding: 4px 10px; border-radius: 8px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-weight: 600; border: 1px solid rgba(56, 189, 248, 0.3); }
 
-  .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); z-index: 99999; justify-content: center; align-items: center; padding: 20px; backdrop-filter: blur(4px); box-sizing: border-box; overflow-y: auto; }
+  .btn-connect { width: 100%; background: rgba(56, 189, 248, 0.1); color: #38bdf8; border: 1px dashed #38bdf8; padding: 14px; border-radius: 12px; font-size: 14px; font-weight: bold; cursor: pointer; transition: 0.2s; display: flex; justify-content: center; align-items: center; gap: 8px; }
+  .btn-connect:active { background: #38bdf8; color: #020617; }
+  .address-display { background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; color: #e2e8f0; font-size: 13px; margin-bottom: 10px; word-break: break-all; display: none; text-align: left; direction: ltr; font-family: monospace; }
+
+  .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); z-index: 99999; justify-content: center; align-items: center; padding: 20px; backdrop-filter: blur(4px); box-sizing: border-box; }
   .modal-overlay.active { display: flex; }
   .modal-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 18px; padding: 22px; width: 100%; max-width: 380px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); }
   .modal-title { color: #38bdf8; margin-top: 0; margin-bottom: 12px; font-size: 17px; font-weight: bold; text-align: center; }
   .modal-subtitle { font-size: 13px; color: #94a3b8; margin-bottom: 16px; text-align: center; line-height: 1.5; }
   .modal-buttons { display: flex; gap: 12px; margin-top: 20px; }
   .btn-save { flex: 1; background: #10b981; color: #fff; border: none; padding: 14px; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; }
-  .btn-save:active { transform: scale(0.95); }
   .btn-cancel { flex: 1; background: #ef4444; color: #fff; border: none; padding: 14px; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; }
-  .btn-cancel:active { transform: scale(0.95); }
-
-  body.keyboard-active .modal-overlay { align-items: flex-start; padding-top: 30px; }
-
-  .btn-connect { width: 100%; background: rgba(56, 189, 248, 0.1); color: #38bdf8; border: 1px dashed #38bdf8; padding: 14px; border-radius: 12px; font-size: 15px; font-weight: bold; cursor: pointer; transition: 0.2s; display: flex; justify-content: center; align-items: center; gap: 8px;}
-  .btn-connect:active { background: #38bdf8; color: #020617; }
-  .address-display { background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; color: #e2e8f0; font-size: 13px; margin-bottom: 10px; word-break: break-all; display: none; text-align: left; direction: ltr; font-family: monospace; }
-
-  body.keyboard-active .bottom-nav,
-  body.keyboard-active .nav-bar,
-  body.keyboard-active .navbar,
-  body.keyboard-active .footer-menu,
-  body.keyboard-active .main-menu,
-  body.keyboard-active .navigation-bar,
-  body.keyboard-active #bottom-nav,
-  body.keyboard-active #bottom-navigation,
-  body.keyboard-active #main-nav,
-  body.keyboard-active footer,
-  body.keyboard-active [class*="bottom-nav"],
-  body.keyboard-active [class*="footer"],
-  body.keyboard-active [class*="navigation"],
-  body.keyboard-active [id*="bottom-nav"],
-  body.keyboard-active [id*="footer"] {
-    display: none !important;
-    visibility: hidden !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-  }
-
-  #ton-connect-button,
-  .ton-connect-button,
-  tc-root,
-  [class*="ton-connect"],
-  [id*="ton-connect"],
-  div[class*="tc-"],
-  button[class*="go-tonconnect"],
-  .go-tonconnect-btn,
-  [data-tc-button],
-  .tc-dropdown-button {
-    display: none !important;
-    visibility: hidden !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-    position: absolute !important;
-    top: -9999px !important;
-    left: -9999px !important;
-    width: 0 !important;
-    height: 0 !important;
-  }
 </style>
 
 <div class="withdraw-wrapper">
-  <!-- 1. اختيار العملة وعنوان المحفظة -->
+  <!-- 1. ربط محفظة تلجرام وسعر العملة -->
   <div class="w-card">
     <div class="w-title">
-      <span>🪙 اختر عملة السحب (FaucetPay)</span>
-      <span id="rate-status" class="level-badge" style="color:#4ade80;">أسعار لحظية ⚡</span>
-    </div>
-
-    <div class="currency-grid">
-      <div class="currency-btn selected" onclick="withdrawModule.selectCurrency('DOGE')" id="coin-DOGE">
-        DOGE
-      </div>
-      <div class="currency-btn" onclick="withdrawModule.selectCurrency('TRX')" id="coin-TRX">
-        TRX
-      </div>
-      <div class="currency-btn" onclick="withdrawModule.selectCurrency('PEPE')" id="coin-PEPE">
-        PEPE
-      </div>
-      <div class="currency-btn" onclick="withdrawModule.selectCurrency('LTC')" id="coin-LTC">
-        LTC
-      </div>
+      <span>🪙 عملة السحب: ZNX</span>
+      <span id="rate-status" class="badge-rate">جاري تحميل السعر... ⚡</span>
     </div>
 
     <div class="w-input-group">
       <div class="w-label">
-        <span>عنوان محفظة الاستلام (<span id="selected-coin-label">DOGE</span>):</span>
+        <span>محفظة استلام تلجرام (TON Wallet):</span>
       </div>
       
       <div id="wallet-address-display" class="address-display"></div>
       <button type="button" id="btn-connect-wallet" class="btn-connect" onclick="withdrawModule.openWalletModal()">
-        🔗 ربط المحفظة
+        🔗 ربط محفظة تلجرام
       </button>
 
       <input type="hidden" id="wallet-address-input" value="" />
@@ -142,50 +69,40 @@
   <!-- 2. نموذج طلب السحب -->
   <div class="w-card">
     <div class="w-title">
-      <span>طلب سحب الأرباح</span>
-      <span id="level-indicator" class="level-badge">المستوى: --</span>
+      <span>طلب سحب ZNX</span>
+      <span id="user-balance-display" class="user-bal-tag">رصيدك: -- ZNX</span>
     </div>
 
     <div class="w-input-group">
-      <div class="w-label">
-        <span>عدد عملات ZNX المحددة للسحب:</span>
-        <span id="user-balance-display" class="user-bal-tag">رصيدك: -- ZNX</span>
-      </div>
-      <input type="number" id="coins-input" class="w-input" placeholder="أدخل عدد العملات أو اختر بالأسفل" value="" />
-      
-      <div class="preset-buttons-grid">
-        <button type="button" class="btn-preset" onclick="withdrawModule.setPreset('min')">حد أدنى</button>
-        <button type="button" class="btn-preset" onclick="withdrawModule.setPreset('half')">1/2 الكمية</button>
-        <button type="button" class="btn-preset btn-max" onclick="withdrawModule.setPreset('max')">🚀 MAX (الكل)</button>
+      <label class="w-label" for="coins-input">عدد عملات ZNX المراد سحبها:</label>
+      <div class="input-with-btn">
+        <input type="number" id="coins-input" class="w-input" placeholder="أدخل الكمية هنا..." min="1" step="any" />
+        <button type="button" class="btn-max" onclick="withdrawModule.setPreset('max')">🚀 MAX</button>
       </div>
     </div>
 
     <div class="w-input-group">
-      <label class="w-label">القيمة التقديرية بالـ USD (100,000 ZNX = $1.00):</label>
-      <input type="text" id="usd-output" class="w-input" readonly value="$0.0000 USD" />
+      <label class="w-label">القيمة التقديرية بالـ USD:</label>
+      <input type="text" id="usd-output" class="w-input" readonly value="$0.00 USD" />
     </div>
 
     <div class="fee-details">
       <div class="fee-row">
-        <span>رسوم التحويل والخدمة (3%):</span>
+        <span>رسوم السحب والخدمة (5%):</span>
         <span id="fee-amount" class="fee-val">0 ZNX</span>
       </div>
       <div class="fee-row">
-        <span>سعر العملة اللحظي:</span>
-        <span id="coin-price-display" class="fee-val">جاري الجلب...</span>
+        <span>سعر 1 ZNX اللحظي:</span>
+        <span id="coin-price-display" class="fee-val">$0.000010 USD</span>
       </div>
       <div class="fee-row">
-        <span>الصافي النهائي المستلم بمحفظتك:</span>
-        <span id="net-crypto" class="net-val">0.00000000 DOGE</span>
+        <span>الصافي النهائي المستلم:</span>
+        <span id="net-crypto" class="net-val">0 ZNX</span>
       </div>
-    </div>
-
-    <div class="notice-box notice-warning">
-      ⚠️ <strong>تنبيه منع الغش:</strong> يمنع استخدام الحسابات المتعددة أو برامج التلاعب. أي مخالفة تؤدي لحظر الحساب نهائياً.
     </div>
 
     <div class="notice-box notice-info">
-      ℹ️ <strong>ملاحظة هامة:</strong> النظام يدعم سحوبات منصة <strong>FaucetPay فقط</strong>. يُقبل عنوان المحفظة المربوط بـ FaucetPay أو إيميل الحساب فقط.
+      ℹ️ يتم اقتطاع رسوم 5% تلقائيًا وتصلك العملات مباشرة على عنوان محفظة تلجرام المربوطة.
     </div>
 
     <button type="button" id="confirm-withdraw-btn" class="btn-submit-withdraw" disabled onclick="withdrawModule.submitWithdrawal(event)">
@@ -193,27 +110,16 @@
     </button>
   </div>
 
-  <!-- 3. دليل مستويات السحب -->
-  <div class="w-card">
-    <div class="levels-guide-title">
-      <span>📂 دليل مستويات السحب اليومية</span>
-      <span id="current-user-level-text" style="color:#38bdf8;">المستوى: --</span>
-    </div>
-    <div id="levels-list-container" class="levels-guide-box">
-      <!-- تحميل المستويات ديناميكياً -->
-    </div>
-  </div>
-
-  <!-- 4. النافذة المنبثقة (Modal) لإدخال المحفظة -->
+  <!-- 3. نافذة ربط المحفظة -->
   <div id="wallet-modal" class="modal-overlay">
     <div class="modal-card">
-      <div class="modal-title">🔗 ربط محفظة FaucetPay</div>
+      <div class="modal-title">🔗 ربط محفظة تلجرام</div>
       <div class="modal-subtitle">
-        أدخل عنوان عملة <strong id="modal-coin-label" style="color: #fbbf24;">DOGE</strong> المربوط بحسابك في <strong>FaucetPay</strong> (أو البريد الإلكتروني للحساب):
+        أدخل عنوان محفظة تلجرام (TON Wallet) لاستلام عملات <strong>ZNX</strong> عليها:
       </div>
-      <input type="text" id="modal-wallet-input" class="w-input" placeholder="أدخل عنوان FaucetPay الخاص بـ DOGE" />
+      <input type="text" id="modal-wallet-input" class="w-input" placeholder="أدخل عنوان محفظة TON / Telegram" />
       <div class="modal-buttons">
-        <button type="button" class="btn-save" onclick="withdrawModule.saveWalletAddress()">حفظ</button>
+        <button type="button" class="btn-save" onclick="withdrawModule.saveWalletAddress()">حفظ المحفظة</button>
         <button type="button" class="btn-cancel" onclick="withdrawModule.closeWalletModal()">إلغاء</button>
       </div>
     </div>
