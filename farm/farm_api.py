@@ -13,6 +13,7 @@ from farm.farm_db import (
     dismiss_welcome_db,
     get_mining_leaderboard_db,
     parse_daily_rewards,
+    get_game_settings,
     DEFAULT_GAME_SETTINGS
 )
 
@@ -118,7 +119,7 @@ def get_player_data():
     
     user_id_str = str(telegram_id)
     try:
-        # تقوم get_or_create_user_farm_data بإجراء الحساب التراكمي الأوفلاين وإضافة الناتج للرصيد وتحديث auto_claimed_amount
+        # تقوم get_or_create_user_farm_data بإجراء الحساب التراكمي الأوفلاين وفحص شرط الـ 80%
         user_data, game_settings, now = get_or_create_user_farm_data(user_id_str)
         
         # حساب وتحديث السعة والسرعة الفعالة للمستخدم وفحص صلاحية VIP
@@ -184,6 +185,62 @@ def get_player_data():
         print(f"Error player_data: {e}")
         traceback.print_exc()
         return jsonify({"success": False, "error": "خطأ في جلب البيانات"}), 500
+
+
+@farm_bp.route('/cron_auto_claim', methods=['GET', 'POST'])
+@farm_bp.route('/farm/cron_auto_claim', methods=['GET', 'POST'])
+@farm_bp.route('/api/farm/cron_auto_claim', methods=['GET', 'POST'])
+def cron_auto_claim():
+    """
+    وظيفة خلفية (Cron Job) لتفقد جميع المشتركين في بوت التجميع التلقائي
+    وتفعيل التجميع التلقائي أوفلاين وإضافته للرصيد فور وصوله لنسبة 80% أو أكثر دون حاجة لفتح التطبيق
+    """
+    cron_secret = os.environ.get("CRON_SECRET", "")
+    provided_secret = request.headers.get("X-Cron-Secret") or request.args.get("secret") or ""
+    
+    if cron_secret and provided_secret != cron_secret:
+        return jsonify({"success": False, "error": "غير مصرح بالوصول"}), 403
+
+    try:
+        from database import get_db
+        db = get_db()
+        users_ref = db.collection('users')
+        
+        # البحث عن كافة المستخدمين الذين لديهم بوت مفعل بداخل بياناتهم
+        query = users_ref.where('bot_active', '==', True)
+        docs = list(query.stream())
+        
+        vip_query = users_ref.where('vip_status.auto_bot', '==', True)
+        vip_docs = list(vip_query.stream())
+        
+        all_docs_dict = {d.id: d for d in docs + vip_docs}
+        
+        processed_count = 0
+        auto_claimed_count = 0
+        total_claimed_amount = 0.0
+
+        for user_id, doc in all_docs_dict.items():
+            processed_count += 1
+            try:
+                user_data, _, _ = get_or_create_user_farm_data(user_id)
+                claimed_amt = float(user_data.get("auto_claimed_amount", 0.0))
+                if claimed_amt > 0:
+                    auto_claimed_count += 1
+                    total_claimed_amount += claimed_amt
+            except Exception as user_e:
+                print(f"⚠️ Error processing auto-claim cron for user {user_id}: {user_e}")
+
+        return jsonify({
+            "success": True,
+            "processed_users": processed_count,
+            "auto_claimed_users": auto_claimed_count,
+            "total_claimed_amount": round(total_claimed_amount, 8),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }), 200
+    except Exception as e:
+        print(f"Error cron_auto_claim: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": "خطأ أثناء تنفيذ المهمة الخلفية"}), 500
 
 
 @farm_bp.route('/dismiss_welcome', methods=['POST'])
