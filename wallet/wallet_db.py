@@ -50,7 +50,7 @@ def get_sqlite_conn():
 
 def get_user_wallet_balances(user_id: int) -> dict:
     """
-    جلب الرصيد من Firebase Firestore أولاً (المصدر الرئيسي)، ثم SQLite كاحتياطي
+    جلب الأرصدة (ZN, USDT, ZNX) من Firebase Firestore أولاً ثم SQLite كاحتياطي
     """
     str_user_id = str(user_id)
     
@@ -74,23 +74,27 @@ def get_user_wallet_balances(user_id: int) -> dict:
                         data = query_num[0].to_dict()
 
             if data:
-                # قراءة ZN Balance (balance أو zn_balance)
+                # 1. ZN Balance
                 zn_val = data.get('balance')
                 if zn_val is None:
                     zn_val = data.get('zn_balance', 0.0)
                 
-                # قراءة ZNX Balance مباشرة من znx_balance
-                znx_val = data.get('znx_balance', 0.0)
-
-                # قراءة USDT Balance (usd_balance أو usdt_balance)
+                # 2. USDT Balance
                 usdt_val = data.get('usd_balance')
                 if usdt_val is None:
                     usdt_val = data.get('usdt_balance', 0.0)
 
+                # 3. ZNX Balance
+                znx_val = data.get('znx_balance')
+                if znx_val is None:
+                    znx_val = data.get('total_znx_earned')
+                if znx_val is None:
+                    znx_val = data.get('znx', 0.0)
+
                 return {
                     'zn_balance': float(zn_val or 0.0),
-                    'znx_balance': float(znx_val or 0.0),
-                    'usdt_balance': float(usdt_val or 0.0)
+                    'usdt_balance': float(usdt_val or 0.0),
+                    'znx_balance': float(znx_val or 0.0)
                 }
         except Exception as e:
             print(f"⚠️ خطأ جلب الرصيد من Firestore: {e}")
@@ -101,42 +105,41 @@ def get_user_wallet_balances(user_id: int) -> dict:
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT balance, zn_balance, znx_balance, usd_balance, usdt_balance FROM users WHERE user_id = ? OR tg_id = ?", 
+                "SELECT balance, zn_balance, usd_balance, usdt_balance, znx_balance, total_znx_earned FROM users WHERE user_id = ? OR tg_id = ?", 
                 (user_id, str_user_id)
             )
             row = cursor.fetchone()
             if row:
                 keys = row.keys()
                 zn_val = row['balance'] if 'balance' in keys and row['balance'] is not None else row.get('zn_balance', 0.0)
-                znx_val = row['znx_balance'] if 'znx_balance' in keys and row['znx_balance'] is not None else 0.0
                 usdt_val = row['usd_balance'] if 'usd_balance' in keys and row['usd_balance'] is not None else row.get('usdt_balance', 0.0)
+                
+                znx_val = 0.0
+                if 'znx_balance' in keys and row['znx_balance'] is not None:
+                    znx_val = row['znx_balance']
+                elif 'total_znx_earned' in keys and row['total_znx_earned'] is not None:
+                    znx_val = row['total_znx_earned']
+
                 return {
                     'zn_balance': float(zn_val or 0.0),
-                    'znx_balance': float(znx_val or 0.0),
-                    'usdt_balance': float(usdt_val or 0.0)
+                    'usdt_balance': float(usdt_val or 0.0),
+                    'znx_balance': float(znx_val or 0.0)
                 }
         except Exception as e:
             print(f"⚠️ خطأ جلب الرصيد من SQLite: {e}")
         finally:
             conn.close()
 
-    return {'zn_balance': 0.0, 'znx_balance': 0.0, 'usdt_balance': 0.0}
+    return {'zn_balance': 0.0, 'usdt_balance': 0.0, 'znx_balance': 0.0}
 
 def update_user_balance(user_id: int, amount: float, currency: str = 'zn', operation: str = 'add') -> bool:
-    """تعديل الرصيد في Firebase Firestore و SQLite لتزامن كامل"""
+    """تعديل الرصيد في Firebase Firestore و SQLite لتزامن كامل (ZN, USDT, ZNX)"""
     str_user_id = str(user_id)
     curr = str(currency).lower()
     
-    if curr in ['znx', 'znx_balance']:
-        field_to_update = 'znx_balance'
-        target_cols = ['znx_balance']
-    elif curr in ['zn', 'balance']:
-        field_to_update = 'balance'
-        target_cols = ['zn_balance', 'balance']
-    else:
-        field_to_update = 'usd_balance'
-        target_cols = ['usdt_balance', 'usd_balance']
-
+    is_zn = curr in ['zn', 'balance']
+    is_znx = curr in ['znx', 'znx_balance', 'total_znx_earned']
+    
     amount_val = abs(float(amount))
     if operation == 'subtract':
         amount_val = -amount_val
@@ -150,6 +153,13 @@ def update_user_balance(user_id: int, amount: float, currency: str = 'zn', opera
             import firebase_admin
             from firebase_admin import firestore
             
+            if is_zn:
+                field_to_update = 'balance'
+            elif is_znx:
+                field_to_update = 'znx_balance'
+            else:
+                field_to_update = 'usd_balance'
+
             doc_ref = db.collection('users').document(str_user_id)
             doc_ref.update({
                 field_to_update: firestore.Increment(amount_val)
@@ -163,8 +173,14 @@ def update_user_balance(user_id: int, amount: float, currency: str = 'zn', opera
     if conn:
         try:
             cursor = conn.cursor()
+            if is_zn:
+                target_cols = ['zn_balance', 'balance']
+            elif is_znx:
+                target_cols = ['znx_balance', 'total_znx_earned']
+            else:
+                target_cols = ['usdt_balance', 'usd_balance']
+
             operator = '+' if operation == 'add' else '-'
-            
             set_statements = [f"{col} = MAX(0, COALESCE({col}, 0) {operator} ?)" for col in target_cols]
             set_clause = ", ".join(set_statements)
             params = [abs(float(amount))] * len(target_cols) + [user_id, str_user_id]
