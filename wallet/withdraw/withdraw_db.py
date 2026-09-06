@@ -1,6 +1,14 @@
+import time
 from datetime import datetime, timezone
 import firebase_admin
 from firebase_admin import firestore
+
+# --- نظام Caching لتوفير قراءات الفايربيس وتسريع الاستجابة ---
+_TIER_CACHE = {
+    "data": None,
+    "timestamp": 0
+}
+CACHE_TTL_SECONDS = 45  # كاش لمدة 45 ثانية لتقليل القراءات وتسريع الفتح
 
 def safe_get_db():
     try:
@@ -20,10 +28,9 @@ def format_crypto_display(amount):
         return "0.0000"
     try:
         val = float(amount)
-        if val == 0:
+        if val <= 0:
             return "0.0000"
-        formatted = f"{val:,.4f}"
-        return formatted
+        return f"{val:,.4f}"
     except Exception:
         return str(amount)
 
@@ -53,7 +60,11 @@ def extract_usd_balance(data):
         return 0.0
 
 def get_current_withdraw_tier():
-    """جلب بيانات الشريحة الحالية لسحب العملات بناءً على إجمالي المحول الكلي في الفايربيس"""
+    """جلب بيانات الشريحة الحالية لسحب العملات مع Caching فائق السرعة لتخفيف الضغط على الفايربيس"""
+    now = time.time()
+    if _TIER_CACHE["data"] and (now - _TIER_CACHE["timestamp"] < CACHE_TTL_SECONDS):
+        return _TIER_CACHE["data"]
+
     db = safe_get_db()
     default_tier = {
         "tier": 1,
@@ -67,38 +78,47 @@ def get_current_withdraw_tier():
     try:
         stats_doc = db.collection('znx_global_stats').document('summary').get()
         if not stats_doc.exists:
+            _TIER_CACHE["data"] = default_tier
+            _TIER_CACHE["timestamp"] = now
             return default_tier
         
         stats = stats_doc.to_dict() or {}
         total_global_znx = float(stats.get('total_converted_znx', 0.0))
         tiers = stats.get('tiers_config') or []
 
+        res_tier = default_tier
         for item in tiers:
             min_v = float(item.get("min_pts", 0.0))
             raw_max = item.get("max_pts")
             max_v = float('inf') if str(raw_max).lower() in ("inf", "infinity", "none") else float(raw_max)
             if min_v <= total_global_znx < max_v:
-                return {
+                res_tier = {
                     "tier": int(item.get('tier', 1)),
                     "name": str(item.get('name', 'الشريحة الحالية')),
                     "min_withdraw_znx": float(item.get('min_withdraw_znx', 1000.0)),
                     "fixed_fee_usd": float(item.get('fixed_fee_usd', 0.02))
                 }
-        if tiers:
-            last = tiers[-1]
-            return {
-                "tier": int(last.get('tier', 7)),
-                "name": str(last.get('name', 'الشريحة السابعة')),
-                "min_withdraw_znx": float(last.get('min_withdraw_znx', 2.5)),
-                "fixed_fee_usd": float(last.get('fixed_fee_usd', 0.02))
-            }
+                break
+        else:
+            if tiers:
+                last = tiers[-1]
+                res_tier = {
+                    "tier": int(last.get('tier', 7)),
+                    "name": str(last.get('name', 'الشريحة السابعة')),
+                    "min_withdraw_znx": float(last.get('min_withdraw_znx', 2.5)),
+                    "fixed_fee_usd": float(last.get('fixed_fee_usd', 0.02))
+                }
+        
+        _TIER_CACHE["data"] = res_tier
+        _TIER_CACHE["timestamp"] = now
+        return res_tier
     except Exception as e:
         print(f"⚠️ خطأ جلب شريحة السحب: {e}")
     
     return default_tier
 
 def get_user_doc(user_id):
-    """البحث عن مستند المستخدم برقم الـ ID أو tg_id"""
+    """البحث عن مستند المستخدم برقم الـ ID أو tg_id بسرعة وحماية"""
     db = safe_get_db()
     if not db:
         return None, None
