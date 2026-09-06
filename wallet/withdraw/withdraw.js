@@ -247,7 +247,7 @@
 
     window.addEventListener('userStateUpdated', syncBalanceFromGlobal);
     if (window.withdrawBalanceInterval) clearInterval(window.withdrawBalanceInterval);
-    window.withdrawBalanceInterval = setInterval(syncBalanceFromGlobal, 1500);
+    window.withdrawBalanceInterval = setInterval(syncBalanceFromGlobal, 2000);
   }
 
   function updateUIBalance() {
@@ -264,12 +264,14 @@
     if (tierBadge) tierBadge.innerText = currentTierName;
   }
 
+  // --- إصلاح زر MAX لمنع الأرقام العشوائية والغريبة ---
   function setPreset(type) {
     const coinsInput = document.getElementById("coins-input");
     if (!coinsInput) return;
 
     if (type === 'max') {
-      coinsInput.value = userBalance;
+      const safeBal = Math.max(0, parseFloat(userBalance) || 0);
+      coinsInput.value = safeBal > 0 ? safeBal : "";
     }
     calculateWithdraw();
   }
@@ -291,6 +293,37 @@
     const modal = document.getElementById("wallet-modal");
     if (modal) {
       modal.classList.remove("active");
+    }
+  }
+
+  function openFeeNoticeModal(requiredFee) {
+    const modal = document.getElementById("fee-notice-modal");
+    const reqFeeElem = document.getElementById("modal-required-fee");
+    const curUsdElem = document.getElementById("modal-current-usd");
+
+    if (reqFeeElem) reqFeeElem.innerText = requiredFee.toFixed(2);
+    if (curUsdElem) curUsdElem.innerText = usdBalance.toFixed(2);
+
+    if (modal) {
+      modal.classList.add("active");
+    }
+  }
+
+  function closeFeeNoticeModal() {
+    const modal = document.getElementById("fee-notice-modal");
+    if (modal) {
+      modal.classList.remove("active");
+    }
+  }
+
+  function goToDeposit() {
+    closeFeeNoticeModal();
+    if (typeof window.switchTab === 'function') {
+      window.switchTab('deposit');
+    } else {
+      const depositTabBtn = document.querySelector('[onclick*="deposit"], [data-tab="deposit"]');
+      if (depositTabBtn) depositTabBtn.click();
+      else alert("يرجى الانتقال لصفحة الإيداع لتعبئة رصيد الدولار ($0.02 USD).");
     }
   }
 
@@ -332,8 +365,8 @@
     if (btn) {
       const addrCheck = validateWalletAddress(walletAddress);
       const isEnoughCoins = coinsVal >= minWithdraw && coinsVal <= userBalance;
-      const isEnoughUsd = usdBalance >= fixedFeeUsd;
-      btn.disabled = !(isEnoughCoins && isEnoughUsd && addrCheck.valid);
+      // السماح بالنقر طالما المبلغ والمحفظة صحيحة لإظهار نافذة الرسوم إذا كان رصيد الدولار لا يكفي
+      btn.disabled = !(isEnoughCoins && addrCheck.valid);
     }
   }
 
@@ -363,12 +396,13 @@
     }
 
     if (coins > userBalance) {
-      alert("رصيدك الحالي غير كافٍ لإتمام العملية!");
+      alert("رصيدك الحالي من ZNX غير كافٍ لإتمام العملية!");
       return;
     }
 
+    // تنبيه احترافي وغير مزعج إذا كان رصيد الدولار أقل من الرسوم
     if (usdBalance < fixedFeeUsd) {
-      alert(`⚠️ رصيد الدولار لديك غير كافٍ لتغطية رسوم السحب ($${fixedFeeUsd}).`);
+      openFeeNoticeModal(fixedFeeUsd);
       return;
     }
 
@@ -404,6 +438,8 @@
         if (coinsInput) coinsInput.value = "";
         updateUIBalance();
         resetCalculations();
+      } else if (data && data.code === "INSUFFICIENT_USD") {
+        openFeeNoticeModal(data.fee_required || fixedFeeUsd);
       } else {
         alert(data?.message || "حدث خطأ أثناء تقديم الطلب.");
       }
@@ -428,6 +464,9 @@
     connectTonWallet: connectTonWallet,
     openWalletModal: openWalletModal,
     closeWalletModal: closeWalletModal,
+    openFeeNoticeModal: openFeeNoticeModal,
+    closeFeeNoticeModal: closeFeeNoticeModal,
+    goToDeposit: goToDeposit,
     saveWalletAddress: saveWalletAddress
   };
 
