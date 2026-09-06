@@ -30,13 +30,13 @@ def _sanitize_id(user_id):
 MAX_GLOBAL_ZNX = 32_500_000.0
 
 TIERS_CONFIG = [
-    {"tier": 1, "name": "الشريحة الأولى", "min_pts": 0.0, "max_pts": 1_500_000.0, "rate": 10, "quota": 1_500_000},
-    {"tier": 2, "name": "الشريحة الثانية", "min_pts": 1_500_000.0, "max_pts": 2_000_000.0, "rate": 30, "quota": 2_000_000},
-    {"tier": 3, "name": "الشريحة الثالثة", "min_pts": 2_000_000.0, "max_pts": 2_500_000.0, "rate": 80, "quota": 2_500_000},
-    {"tier": 4, "name": "الشريحة الرابعة", "min_pts": 2_500_000.0, "max_pts": 4_000_000.0, "rate": 200, "quota": 4_000_000},
-    {"tier": 5, "name": "الشريحة الخامسة", "min_pts": 4_000_000.0, "max_pts": 5_500_000.0, "rate": 600, "quota": 5_500_000},
-    {"tier": 6, "name": "الشريحة السادسة", "min_pts": 5_500_000.0, "max_pts": 8_000_000.0, "rate": 1600, "quota": 8_000_000},
-    {"tier": 7, "name": "الشريحة السابعة", "min_pts": 8_000_000.0, "max_pts": float('inf'), "rate": 4000, "quota": 9_000_000}
+    {"tier": 1, "name": "الشريحة الأولى", "min_pts": 0.0, "max_pts": 1_500_000.0, "rate": 10, "quota": 1_500_000, "min_withdraw_znx": 1000.0, "fixed_fee_usd": 0.02},
+    {"tier": 2, "name": "الشريحة الثانية", "min_pts": 1_500_000.0, "max_pts": 2_000_000.0, "rate": 30, "quota": 2_000_000, "min_withdraw_znx": 350.0, "fixed_fee_usd": 0.02},
+    {"tier": 3, "name": "الشريحة الثالثة", "min_pts": 2_000_000.0, "max_pts": 2_500_000.0, "rate": 80, "quota": 2_500_000, "min_withdraw_znx": 125.0, "fixed_fee_usd": 0.02},
+    {"tier": 4, "name": "الشريحة الرابعة", "min_pts": 2_500_000.0, "max_pts": 4_000_000.0, "rate": 200, "quota": 4_000_000, "min_withdraw_znx": 50.0, "fixed_fee_usd": 0.02},
+    {"tier": 5, "name": "الشريحة الخامسة", "min_pts": 4_000_000.0, "max_pts": 5_500_000.0, "rate": 600, "quota": 5_500_000, "min_withdraw_znx": 20.0, "fixed_fee_usd": 0.02},
+    {"tier": 6, "name": "الشريحة السادسة", "min_pts": 5_500_000.0, "max_pts": 8_000_000.0, "rate": 1600, "quota": 8_000_000, "min_withdraw_znx": 6.0, "fixed_fee_usd": 0.02},
+    {"tier": 7, "name": "الشريحة السابعة", "min_pts": 8_000_000.0, "max_pts": float('inf'), "rate": 4000, "quota": 9_000_000, "min_withdraw_znx": 2.5, "fixed_fee_usd": 0.02}
 ]
 
 
@@ -65,13 +65,18 @@ def get_global_stats():
                             except Exception:
                                 parsed_max = float('inf')
                         
+                        tier_num = int(t.get('tier', 1))
+                        def_tier = next((dt for dt in TIERS_CONFIG if dt['tier'] == tier_num), TIERS_CONFIG[0])
+
                         clean_tiers.append({
-                            'tier': int(t.get('tier', 1)),
-                            'name': str(t.get('name', '')),
-                            'min_pts': float(t.get('min_pts', 0)),
+                            'tier': tier_num,
+                            'name': str(t.get('name', def_tier['name'])),
+                            'min_pts': float(t.get('min_pts', def_tier['min_pts'])),
                             'max_pts': parsed_max,
-                            'rate': float(t.get('rate', 10)),
-                            'quota': float(t.get('quota', 0))
+                            'rate': float(t.get('rate', def_tier['rate'])),
+                            'quota': float(t.get('quota', def_tier['quota'])),
+                            'min_withdraw_znx': float(t.get('min_withdraw_znx', def_tier['min_withdraw_znx'])),
+                            'fixed_fee_usd': float(t.get('fixed_fee_usd', def_tier['fixed_fee_usd']))
                         })
                 data['tiers_config'] = clean_tiers
             else:
@@ -97,10 +102,6 @@ def get_global_stats():
 
 
 def get_current_tier(global_znx=0.0, user_points=0.0, custom_tiers=None):
-    """
-    تحديد الشريحة الحالية مباشرة بناءً على نطاق (min_pts و max_pts)
-    مقارنة بإجمالي العملات المحولة كلياً (total_converted_znx).
-    """
     tiers = custom_tiers or TIERS_CONFIG
 
     try:
