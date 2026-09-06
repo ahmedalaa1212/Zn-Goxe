@@ -42,6 +42,8 @@ window.closeAutoClaimModal = function() {
 };
 
 (function initFarm() {
+    'use strict';
+
     const tele = window.Telegram?.WebApp;
     const START_PARAM = tele?.initDataUnsafe?.start_param || "";
 
@@ -84,6 +86,7 @@ window.closeAutoClaimModal = function() {
 
     let MIN_CLAIM_INTERVAL = 15;
 
+    // حالات القفل لمنع الهجمات والنقرات المزدوجة
     let isClaimingDaily = false;
     let isBoosting = false; 
     let isFetching = false;
@@ -93,10 +96,22 @@ window.closeAutoClaimModal = function() {
     let upgradingLevel = null;
     let isUpgradingStorage = false;
 
+    let lastActionTime = 0;
+    const ACTION_DEBOUNCE_MS = 1000;
+
     let lastFetchTime = 0;
     const FETCH_THROTTLE_MS = 3000;
     let lastCheckedDate = "";
     let lastAutoClaimAttempt = 0;
+
+    function checkActionThrottle() {
+        const now = Date.now();
+        if (now - lastActionTime < ACTION_DEBOUNCE_MS) {
+            return false;
+        }
+        lastActionTime = now;
+        return true;
+    }
 
     function parseServerDateMs(dateStr) {
         if (!dateStr) return getAdjustedNowMs();
@@ -348,20 +363,20 @@ window.closeAutoClaimModal = function() {
         });
     }
 
-    async function showAdsgramAd() {
+    async function showAdsgramAdStrict() {
         toggleAdLoadingOverlay(true);
         
         const isLoaded = await ensureAdsgramLoaded();
         const blockId = window.ADSGRAM_BLOCK_ID || GAME_CONFIG.adsgramBlockId || "";
 
         if (!window.Adsgram || !isLoaded) {
-            console.error("Adsgram SDK لم يتم تحميلة.");
+            console.error("Adsgram SDK لم يتم تحميله.");
             toggleAdLoadingOverlay(false);
             return false;
         }
 
         if (!blockId || blockId.trim() === "") {
-            console.error("Adsgram Block ID missing!");
+            console.error("Adsgram Block ID مفقود!");
             toggleAdLoadingOverlay(false);
             return false;
         }
@@ -379,9 +394,9 @@ window.closeAutoClaimModal = function() {
             };
 
             const timeoutTimer = setTimeout(() => {
-                console.log("Adsgram timeout reached.");
+                console.log("انتهت مهلة انتظار إعلان Adsgram.");
                 finish(false);
-            }, 10000);
+            }, 15000);
 
             try {
                 const AdController = window.Adsgram.init({ blockId: blockId.trim() });
@@ -389,11 +404,11 @@ window.closeAutoClaimModal = function() {
                     console.log("تمت مشاهدة إعلان Adsgram بنجاح!");
                     finish(true);
                 }).catch((err) => {
-                    console.error("خطأ أو تخطي إعلان Adsgram:", err);
+                    console.error("خطأ أو عدم إكمال إعلان Adsgram:", err);
                     finish(false);
                 });
             } catch (e) {
-                console.error("استثناء تنفيذ Adsgram:", e);
+                console.error("استثناء أثناء تشغيل Adsgram:", e);
                 finish(false);
             }
         });
@@ -464,11 +479,9 @@ window.closeAutoClaimModal = function() {
         return accumulated;
     }
 
-    // تحديث الواجهة الخاصة ببادج البوت ونافذة التجميع التلقائي القادمة من السيرفر
     function updateBotAndAutoClaimUI(resData) {
         if (!resData) return;
 
-        // 1. تحديث إظهار شريط البوت النشط أعلى قائمة التعدين وتحديث الكاش
         const isBotActive = (resData.bot_active !== undefined) 
             ? resData.bot_active 
             : (resData.player?.bot_active !== undefined 
@@ -485,7 +498,6 @@ window.closeAutoClaimModal = function() {
             botBadge.style.display = isBotActive ? 'inline-flex' : 'none';
         }
 
-        // 2. معالجة وإظهار نافذة التجميع التلقائي الخاصة بالبوت
         const autoCollected = parseFloat(resData.auto_claimed_amount || resData.auto_collected || 0);
         if (autoCollected > 0) {
             const autoModal = document.getElementById('auto-claim-modal');
@@ -529,7 +541,7 @@ window.closeAutoClaimModal = function() {
                 window.PlayerData.last_accrual_time = parseServerDateMs(claimTime);
 
                 saveCachedData(window.userState);
-                window.updateFarmUI();
+                updateFarmUI();
 
                 const claimedAmt = parseFloat(resData.claimed_amount || resData.amount || 0);
                 updateBotAndAutoClaimUI({ auto_claimed_amount: claimedAmt });
@@ -545,7 +557,7 @@ window.closeAutoClaimModal = function() {
         const now = Date.now();
         if (isFetching) return; 
         if (!force && (now - lastFetchTime < FETCH_THROTTLE_MS)) {
-            window.updateFarmUI();
+            updateFarmUI();
             return;
         }
 
@@ -598,7 +610,6 @@ window.closeAutoClaimModal = function() {
                     Object.assign(window.PlayerData, resData.player);
                     Object.assign(window.userState, resData.player);
 
-                    // مزامنة حالة bot_active صراحة لمنع ظهور قيم كاش قديمة
                     const isBotActive = (resData.bot_active !== undefined)
                         ? resData.bot_active
                         : (resData.player.bot_active !== undefined
@@ -647,11 +658,57 @@ window.closeAutoClaimModal = function() {
             console.error("خطأ مزامنة المزرعة:", e); 
         } finally { 
             isFetching = false; 
-            window.updateFarmUI();
+            updateFarmUI();
         }
     };
 
-    window.updateFarmUI = function() {
+    function bindEventListeners() {
+        const upgradeStgBtn = document.getElementById('upgrade-storage-btn');
+        if (upgradeStgBtn && !upgradeStgBtn.dataset.listenerAttached) {
+            upgradeStgBtn.dataset.listenerAttached = "true";
+            upgradeStgBtn.addEventListener('click', internalHandleStorageUpgrade);
+        }
+
+        const boostBtn = document.getElementById('boost-btn');
+        if (boostBtn && !boostBtn.dataset.listenerAttached) {
+            boostBtn.dataset.listenerAttached = "true";
+            boostBtn.addEventListener('click', internalHandleDailyBoost);
+        }
+
+        const claimBtn = document.getElementById('claim-btn');
+        if (claimBtn && !claimBtn.dataset.listenerAttached) {
+            claimBtn.dataset.listenerAttached = "true";
+            claimBtn.addEventListener('click', internalHandleMainClaim);
+        }
+
+        const fieldsContainer = document.getElementById('mining-fields');
+        if (fieldsContainer && !fieldsContainer.dataset.listenerAttached) {
+            fieldsContainer.dataset.listenerAttached = "true";
+            fieldsContainer.addEventListener('click', (e) => {
+                const cardBtn = e.target.closest('[data-action="upgrade"]');
+                if (cardBtn) {
+                    const level = parseInt(cardBtn.dataset.level, 10);
+                    if (level) internalHandleUpgrade(level);
+                }
+            });
+        }
+
+        const rewardsContainer = document.getElementById('daily-rewards-container');
+        if (rewardsContainer && !rewardsContainer.dataset.listenerAttached) {
+            rewardsContainer.dataset.listenerAttached = "true";
+            rewardsContainer.addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-action="daily-claim"]');
+                if (btn) {
+                    const day = parseInt(btn.dataset.day, 10);
+                    if (day) internalHandleDailyClaim(day);
+                }
+            });
+        }
+    }
+
+    function updateFarmUI() {
+        bindEventListeners();
+
         const pData = window.userState || window.PlayerData || {};
         let bal = getStoredBalance();
         let usdBal = getStoredUsdBalance();
@@ -684,7 +741,6 @@ window.closeAutoClaimModal = function() {
 
         const upgradeStgBtn = document.getElementById('upgrade-storage-btn');
         if (upgradeStgBtn) {
-            upgradeStgBtn.onclick = window.handleStorageUpgrade;
             const nextLvl = stgLvl + 1;
             const nextCfg = GAME_CONFIG.storageConfig[nextLvl.toString()];
             if (stgLvl >= 8 || !nextCfg) {
@@ -735,14 +791,14 @@ window.closeAutoClaimModal = function() {
                     </div>`;
                 } else if (count > 0) {
                     fieldsHTML += `
-                    <div class="mining-card" onclick="window.handleUpgrade(${i})">
+                    <div class="mining-card" data-action="upgrade" data-level="${i}">
                         <div class="mining-card-icon">🏛️</div>
                         <div class="mining-card-title">مستوى ${i} (x${count})</div>
                         <button class="mining-card-btn" ${!canAfford || isAnyUpgrading ? 'disabled' : ''}>${isThisCardUpgrading ? 'جاري...' : `ترقية (${costStrZn}${costStrUsd})`}</button>
                     </div>`;
                 } else if (isUnlocked) {
                     fieldsHTML += `
-                    <div class="mining-card" onclick="window.handleUpgrade(${i})">
+                    <div class="mining-card" data-action="upgrade" data-level="${i}">
                         <div class="mining-card-icon">🏛️</div>
                         <div class="mining-card-title">مستوى ${i}</div>
                         <button class="mining-card-btn" ${!canAfford || isAnyUpgrading ? 'disabled' : ''}>${isThisCardUpgrading ? 'جاري...' : `شراء (${costStrZn}${costStrUsd})`}</button>
@@ -761,13 +817,14 @@ window.closeAutoClaimModal = function() {
 
         updateBoostButtonUI(pData);
         renderDailyRewards(); 
-    };
+    }
+
+    window.updateFarmUI = updateFarmUI;
 
     function updateBoostButtonUI(pData) {
         const boostBtn = document.getElementById('boost-btn');
         if (!boostBtn) return;
 
-        boostBtn.onclick = window.handleDailyBoost;
         const lastBoostTimeStr = pData.last_boost_time;
 
         if (!lastBoostTimeStr) {
@@ -813,7 +870,7 @@ window.closeAutoClaimModal = function() {
         if (typeof window.fetchPlayerDataFromServer === 'function') {
             await window.fetchPlayerDataFromServer(true);
         } else {
-            window.updateFarmUI();
+            updateFarmUI();
         }
     };
 
@@ -854,7 +911,7 @@ window.closeAutoClaimModal = function() {
                 if (dayNum < currentDailyDay) {
                     html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div style="font-size: 14px; font-weight: bold; color: #10b981;">✓</div></div>`;
                 } else if (dayNum === currentDailyDay) {
-                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="window.handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%; cursor: pointer;" ${isClaimingDaily ? 'disabled' : ''}>استلام</button></div>`;
+                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button data-action="daily-claim" data-day="${currentDailyDay}" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%; cursor: pointer;" ${isClaimingDaily ? 'disabled' : ''}>استلام</button></div>`;
                 } else {
                     html += `<div class="reward-day-card" style="opacity: 0.4;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div></div>`;
                 }
@@ -864,7 +921,7 @@ window.closeAutoClaimModal = function() {
     }
 
     loadCachedData();
-    window.updateFarmUI();
+    updateFarmUI();
 
     if (window.farmIntervalId) clearInterval(window.farmIntervalId);
     window.farmIntervalId = setInterval(() => {
@@ -899,7 +956,6 @@ window.closeAutoClaimModal = function() {
         if (window.userState) window.userState.unclaimed = unclaim;
         if (window.PlayerData) window.PlayerData.unclaimed = unclaim;
 
-        // آلية التجميع التلقائي الأونلاين للبوت فور الوصول إلى 80% من سعة المخزن
         const isBotActive = (pData.bot_active === true || pData.is_auto_bot_active === true);
         if (isBotActive && maxC > 0 && unclaim >= (maxC * 0.8) && !isAutoClaiming && !isClaimingMain && !isCheckingAd) {
             if (Date.now() - lastAutoClaimAttempt > 10000) {
@@ -926,8 +982,6 @@ window.closeAutoClaimModal = function() {
 
         const claimBtn = document.getElementById('claim-btn');
         if (claimBtn) {
-            claimBtn.onclick = window.handleMainClaim;
-
             if (isCheckingAd) {
                 claimBtn.innerText = "جاري فحص الإعلان... ⏳";
                 claimBtn.className = "claim-action-btn btn-disabled";
@@ -963,14 +1017,17 @@ window.closeAutoClaimModal = function() {
 
     function syncOnVisibility() {
         if (document.visibilityState === "visible") {
-            window.fetchPlayerDataFromServer(true);
+            if (typeof window.fetchPlayerDataFromServer === 'function') {
+                window.fetchPlayerDataFromServer(true);
+            }
         }
     }
 
     window.addEventListener('pageshow', syncOnVisibility);
     document.addEventListener("visibilitychange", syncOnVisibility);
 
-    window.handleStorageUpgrade = async function() {
+    async function internalHandleStorageUpgrade() {
+        if (!checkActionThrottle()) return;
         if (isUpgradingStorage) return;
 
         const pData = window.userState || window.PlayerData || {};
@@ -1002,7 +1059,7 @@ window.closeAutoClaimModal = function() {
             window.userState.max_cap = parseFloat(nextCfg.capacity);
             window.PlayerData.max_cap = parseFloat(nextCfg.capacity);
         }
-        window.updateFarmUI();
+        updateFarmUI();
 
         try {
             let resData = await window.fetchAPI('/api/farm/upgrade_storage', 'POST', {});
@@ -1041,11 +1098,12 @@ window.closeAutoClaimModal = function() {
             showToast("❌ حدث خطأ أثناء ترقية المخزن");
         } finally {
             isUpgradingStorage = false;
-            window.updateFarmUI();
+            updateFarmUI();
         }
-    };
+    }
 
-    window.handleUpgrade = async function(level) {
+    async function internalHandleUpgrade(level) {
+        if (!checkActionThrottle()) return;
         if (upgradingLevel !== null) return;
 
         const lvlCfg = GAME_CONFIG.upgradeCosts[level] || {};
@@ -1081,7 +1139,7 @@ window.closeAutoClaimModal = function() {
             window.userState.hourly_rate = currentHourly + addRate;
             window.PlayerData.hourly_rate = currentHourly + addRate;
         }
-        window.updateFarmUI();
+        updateFarmUI();
 
         try {
             let resData = await window.fetchAPI('/api/farm/upgrade', 'POST', { level: level });
@@ -1122,11 +1180,12 @@ window.closeAutoClaimModal = function() {
             showToast("❌ حدث خطأ أثناء عملية الشراء");
         } finally {
             upgradingLevel = null;
-            window.updateFarmUI();
+            updateFarmUI();
         }
-    };
+    }
 
-    window.handleDailyClaim = async function(dayNum) {
+    async function internalHandleDailyClaim(dayNum) {
+        if (!checkActionThrottle()) return;
         if (isClaimingDaily) return;
         isClaimingDaily = true;
         const stateBackup = cloneCurrentState();
@@ -1161,11 +1220,12 @@ window.closeAutoClaimModal = function() {
             showToast("❌ حدث خطأ أثناء استلام المكافأة اليومية");
         } finally {
             isClaimingDaily = false;
-            window.updateFarmUI();
+            updateFarmUI();
         }
-    };
+    }
 
-    window.handleDailyBoost = async function() {
+    async function internalHandleDailyBoost() {
+        if (!checkActionThrottle()) return;
         if (isBoosting) return;
         isBoosting = true;
         const stateBackup = cloneCurrentState();
@@ -1217,11 +1277,12 @@ window.closeAutoClaimModal = function() {
             showToast("❌ حدث خطأ أثناء تفعيل التعزيز");
         } finally {
             isBoosting = false;
-            window.updateFarmUI();
+            updateFarmUI();
         }
-    };
+    }
 
-    window.handleMainClaim = async function() {
+    async function internalHandleMainClaim() {
+        if (!checkActionThrottle()) return;
         if (isClaimingMain || isCheckingAd || isAutoClaiming) return;
 
         const pData = window.userState || window.PlayerData || {};
@@ -1236,17 +1297,20 @@ window.closeAutoClaimModal = function() {
 
         if (needsAdToday) {
             isCheckingAd = true; 
-            window.updateFarmUI();
+            updateFarmUI();
             try {
-                adShown = await showAdsgramAd(); 
-                if (!adShown) {
-                    console.warn("لم يتم عرض الإعلان بنجاح، سيتم السماح بالتجميع مع إعادة محاولة الإعلان المرة القادمة.");
-                }
+                adShown = await showAdsgramAdStrict(); 
             } catch(e) {
-                console.error("Ad Check Error:", e);
+                console.error("خطأ في فحص الإعلان:", e);
                 adShown = false;
             }
             isCheckingAd = false;
+
+            if (!adShown) {
+                showToast("⚠️ يجب إكمال مشاهدة الإعلان بالكامل لتأكيد تجميع أرباح اليوم.");
+                updateFarmUI();
+                return;
+            }
         }
 
         isClaimingMain = true;
@@ -1267,7 +1331,7 @@ window.closeAutoClaimModal = function() {
             window.PlayerData.last_claim_time = nowIso;
             window.userState.last_accrual_time = nowMs;
             window.PlayerData.last_accrual_time = nowMs;
-            window.updateFarmUI();
+            updateFarmUI();
         }
 
         try {
@@ -1290,7 +1354,7 @@ window.closeAutoClaimModal = function() {
                     window.PlayerData.ads_watched = resData.ads_watched;
                 }
 
-                if (adShown) {
+                if (needsAdToday && adShown) {
                     const savedAdDate = resData.last_claim_ad_date || todayStr;
                     window.userState.last_claim_ad_date = savedAdDate;
                     window.PlayerData.last_claim_ad_date = savedAdDate;
@@ -1318,10 +1382,8 @@ window.closeAutoClaimModal = function() {
         } finally {
             isClaimingMain = false;
             toggleAdLoadingOverlay(false);
-            window.updateFarmUI();
+            updateFarmUI();
         }
-    };
-
-    window.handleClaim = window.handleMainClaim;
+    }
 
 })();
