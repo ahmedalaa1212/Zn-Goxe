@@ -197,6 +197,8 @@ function renderTiersUI(tiers) {
     tiers.forEach(t => {
         const isCurrent = currentTier && (currentTier.tier === t.tier || currentTier.name === t.name);
         const safeName = escapeHTML(t.name);
+        const minW = t.min_withdraw_znx ? t.min_withdraw_znx : '--';
+        const feeUsd = t.fixed_fee_usd ? t.fixed_fee_usd : 0.02;
         
         container.innerHTML += `
             <div class="tier-item ${isCurrent ? 'current' : ''}">
@@ -204,7 +206,7 @@ function renderTiersUI(tiers) {
                     <strong>${safeName}</strong> 
                     ${isCurrent ? '<span class="tier-badge-active">الشريحة الحالية</span>' : ''}
                     <div style="color: var(--text-muted); font-size: 0.75rem; margin-top:2px;">
-                        سعر التحويل: 1 ZNX = ${t.rate} ZN
+                        سعر التحويل: 1 ZNX = ${t.rate} ZN | أدنى سحب: ${minW} ZNX | رسوم: $${feeUsd}
                     </div>
                 </div>
                 <div style="text-align: left; color: var(--accent-blue); font-weight: bold;">
