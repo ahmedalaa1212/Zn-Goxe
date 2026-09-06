@@ -63,7 +63,7 @@ async function initApp() {
             updateBalancesUI();
             updateGlobalStatsUI(data.global_total, data.max_global_znx);
             renderTiersUI(data.tiers_all || data.tiers);
-            renderLeaderboardUI(data.leaderboard, data.my_rank);
+            renderLeaderboardUI(data.leaderboard, data.my_rank, data.my_info);
         } else {
             console.error("⚠️ فشل جلب بيانات ZNX Wallet:", data.message || data.error);
         }
@@ -217,35 +217,59 @@ function renderTiersUI(tiers) {
     });
 }
 
-function renderLeaderboardUI(list, myRank) {
+function renderLeaderboardUI(list, myRank, myInfo) {
     const podium = document.getElementById('podiumContainer');
     const rankings = document.getElementById('rankingsContainer');
-    const rankBadge = document.getElementById('myRankBadge');
-
-    if (rankBadge && myRank !== undefined) {
-        rankBadge.innerText = `ترتيبك: ${myRank}`;
-    }
+    const myRankCard = document.getElementById('myRankCardContainer');
 
     if (!podium || !rankings) return;
 
     podium.innerHTML = '';
     rankings.innerHTML = '';
+    if (myRankCard) myRankCard.innerHTML = '';
 
     if (!list || !Array.isArray(list) || list.length === 0) {
         rankings.innerHTML = '<div style="text-align:center; padding:15px; color:var(--text-muted);">لا يوجد متصدرين حالياً</div>';
         return;
     }
 
+    // منصة التتويج للمراكز الثلاثة الأولى (Top 3 Podium)
     if (list.length >= 1) podium.innerHTML += createPodiumCard(list[0], 1, 'podium-1');
     if (list.length >= 2) podium.innerHTML += createPodiumCard(list[1], 2, 'podium-2');
     if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
 
-    for (let i = 3; i < list.length; i++) {
+    // باقي قائمة الـ 10 الأوائل (من المركز 4 إلى 10 فقط)
+    const limitCount = Math.min(10, list.length);
+    for (let i = 3; i < limitCount; i++) {
         const safeName = escapeHTML(list[i].name || list[i].first_name || 'لاعب');
+        const isMe = USER_ID && String(list[i].user_id) === String(USER_ID);
+
         rankings.innerHTML += `
-            <div class="leader-row">
-                <span>#${i + 1} ${safeName}</span>
+            <div class="leader-row ${isMe ? 'is-me-row' : ''}">
+                <span>#${i + 1} ${safeName} ${isMe ? '<span class="me-tag">(أنت)</span>' : ''}</span>
                 <span style="color:var(--accent-blue); font-weight:bold;">${formatCoins(list[i].total_znx_earned || 0, 4)} ZNX</span>
+            </div>
+        `;
+    }
+
+    // تصميم كارت احترافي يوضح ترتيب اللاعب الشخصي بدقة عالية
+    if (myRankCard) {
+        const earned = myInfo?.total_znx_earned ?? userData.total_znx_earned ?? 0;
+        const myName = escapeHTML(myInfo?.name || userData.first_name || 'أنت');
+        
+        let rankDisplay = (myRank !== undefined && myRank !== null) ? `#${myRank}` : 'غير مصنف';
+        let isTop10 = typeof myRank === 'number' && myRank <= 10;
+
+        myRankCard.innerHTML = `
+            <div class="my-rank-banner ${isTop10 ? 'in-top10' : ''}">
+                <div class="my-rank-left">
+                    <div class="my-rank-badge">ترتيبك الحالي: ${rankDisplay}</div>
+                    <div class="my-rank-name">${myName} ${isTop10 ? '🔥 (ضمن الـ 10 الأوائل)' : ''}</div>
+                </div>
+                <div class="my-rank-right">
+                    <div class="my-rank-earned">${formatCoins(earned, 4)} ZNX</div>
+                    <div class="my-rank-sub">إجمالي المكتسب</div>
+                </div>
             </div>
         `;
     }
@@ -253,10 +277,14 @@ function renderLeaderboardUI(list, myRank) {
 
 function createPodiumCard(item, rank, pClass) {
     const safeName = escapeHTML(item.name || item.first_name || 'لاعب');
+    const isMe = USER_ID && String(item.user_id) === String(USER_ID);
+
     return `
-        <div class="podium-item ${pClass}">
+        <div class="podium-item ${pClass} ${isMe ? 'is-me-podium' : ''}">
             <div style="font-size:0.72rem; color:var(--text-muted);">المركز #${rank}</div>
-            <div style="font-weight:bold; font-size:0.82rem; margin:3px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${safeName}</div>
+            <div style="font-weight:bold; font-size:0.82rem; margin:3px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                ${safeName} ${isMe ? '⭐' : ''}
+            </div>
             <div style="color:var(--accent-blue); font-weight:bold; font-size:0.78rem;">${formatCoins(item.total_znx_earned || 0, 4)} ZNX</div>
         </div>
     `;
