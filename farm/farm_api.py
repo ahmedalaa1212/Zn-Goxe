@@ -1,6 +1,9 @@
+
 import os
+import time
 import traceback
 from datetime import datetime, timezone
+from threading import Lock
 from flask import Blueprint, request, jsonify
 from core.security import get_authenticated_user
 from farm.farm_db import (
@@ -18,6 +21,33 @@ from farm.farm_db import (
 )
 
 farm_bp = Blueprint('farm', __name__)
+
+# ==========================================
+# 🛡️ نظام حماية المعدل المتقدم (Anti-Spam / Rate Limiting)
+# ==========================================
+_rate_limit_lock = Lock()
+_user_last_request = {}
+
+def is_rate_limited(user_id: str, endpoint: str, min_interval: float = 1.0) -> bool:
+    """
+    التحقق من منع الهجمات المكررة والسريعة (Anti-Spam Rate Limiter)
+    يمنع إرسال طلبات متعددة لنفس المسار خلال فترة أسرع من min_interval بالثواني
+    """
+    key = f"{user_id}:{endpoint}"
+    now_ts = time.time()
+    with _rate_limit_lock:
+        last_ts = _user_last_request.get(key, 0)
+        if now_ts - last_ts < min_interval:
+            return True
+        _user_last_request[key] = now_ts
+        
+        # التنظيف الدوري للذاكرة لتفادي التضخم
+        if len(_user_last_request) > 10000:
+            expired_keys = [k for k, v in _user_last_request.items() if now_ts - v > 300]
+            for k in expired_keys:
+                del _user_last_request[k]
+                
+        return False
 
 
 def to_bool(val):
@@ -118,6 +148,11 @@ def get_player_data():
         return error_res
     
     user_id_str = str(telegram_id)
+
+    # حماية ضد التكرار المفرط للطلبات
+    if is_rate_limited(user_id_str, "player_data", min_interval=0.5):
+        return jsonify({"success": False, "error": "يرجى الانتظار بين الطلبات"}), 429
+
     try:
         # تقوم get_or_create_user_farm_data بإجراء الحساب التراكمي الأوفلاين وفحص شرط الـ 80%
         user_data, game_settings, now = get_or_create_user_farm_data(user_id_str)
@@ -193,13 +228,17 @@ def get_player_data():
 def cron_auto_claim():
     """
     وظيفة خلفية (Cron Job) لتفقد جميع المشتركين في بوت التجميع التلقائي
-    وتفعيل التجميع التلقائي أوفلاين وإضافته للرصيد فور وصوله لنسبة 80% أو أكثر دون حاجة لفتح التطبيق
-    """
-    cron_secret = os.environ.get("CRON_SECRET", "")
-    provided_secret = request.headers.get("X-Cron-Secret") or request.args.get("secret") or ""
+    وتفعيل التجميع التلقائي أوفلاين وإضافته للرصيد فور وصوله لنسبة 80% أو أكثر دون حاجة لفتح التطبيق.
     
-    if cron_secret and provided_secret != cron_secret:
-        return jsonify({"success": False, "error": "غير مصرح بالوصول"}), 403
+    🔒 حماية حرجة: إغلاق ثغرة الوصول بدون مفتاح حماية معرف ومطابق تماماً.
+    """
+    cron_secret = os.environ.get("CRON_SECRET", "").strip()
+    provided_secret = (request.headers.get("X-Cron-Secret") or request.args.get("secret") or "").strip()
+    
+    # الثغرة السابقة: إذا لم يكن CRON_SECRET معرفاً في البيئة، كان الشرط يتجاوزه ويُنفذ لطلب أي شخص!
+    # الإصلاح: رفض الطلب قطعياً إذا كان المفتاح غير معرف في السيرفر أو لا يطابق المفتاح المرسل.
+    if not cron_secret or provided_secret != cron_secret:
+        return jsonify({"success": False, "error": "غير مصرح بالوصول - مفتاح الحماية غير متطابق أو غير مفعل"}), 403
 
     try:
         from database import get_db
@@ -253,6 +292,9 @@ def dismiss_welcome():
         return error_res
         
     user_id_str = str(telegram_id)
+    if is_rate_limited(user_id_str, "dismiss_welcome", min_interval=1.0):
+        return jsonify({"success": False, "error": "يرجى الانتظار قبل إعادة المحاولة"}), 429
+
     try:
         result = dismiss_welcome_db(user_id_str)
         return jsonify(result), 200
@@ -266,12 +308,17 @@ def dismiss_welcome():
 @farm_bp.route('/farm/claim', methods=['POST'])
 @farm_bp.route('/api/farm/claim', methods=['POST'])
 def claim_mined_tokens():
-    """تجميع المحصول المعدن يدوياً"""
+    """تجميع المحصول المعدن يدوياً مع حماية ضد السكريبتات والنقر المكرر"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
         
     user_id_str = str(telegram_id)
+
+    # 🛡️ حماية ضد استدعاء السكريبتات المتكرر والنقر السريع (حد أدنى 2 ثانية بين كل عملية تجميع)
+    if is_rate_limited(user_id_str, "claim", min_interval=2.0):
+        return jsonify({"success": False, "error": "تم استلام طلب التجميع بالفعل، يرجى الانتظار لحين اكتمال المعالجة"}), 429
+
     try:
         result = claim_mined_tokens_db(user_id_str)
         status_code = 200 if result.get("success") else 400
@@ -286,11 +333,17 @@ def claim_mined_tokens():
 @farm_bp.route('/farm/upgrade', methods=['POST'])
 @farm_bp.route('/api/farm/upgrade', methods=['POST'])
 def buy_upgrade():
-    """شراء ترقية سرعة التعدين"""
+    """شراء ترقية سرعة التعدين مع حماية تكرار الطلبات"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
         
+    user_id_str = str(telegram_id)
+
+    # 🛡️ حماية ضد الشراء المكرر السريع
+    if is_rate_limited(user_id_str, "upgrade", min_interval=1.5):
+        return jsonify({"success": False, "error": "جاري معالجة طلب الترقية، يرجى الانتظار"}), 429
+
     data = request.get_json(silent=True) or {}
     raw_level = data.get("level")
     level = str(raw_level) if raw_level is not None else ""
@@ -298,7 +351,6 @@ def buy_upgrade():
     if not level or level not in [str(i) for i in range(1, 10)]:
         return jsonify({"success": False, "error": "مستوى غير صحيح"}), 400
         
-    user_id_str = str(telegram_id)
     try:
         result = buy_upgrade_db(user_id_str, level)
         status_code = 200 if result.get("success") else 400
@@ -313,12 +365,17 @@ def buy_upgrade():
 @farm_bp.route('/farm/upgrade_storage', methods=['POST'])
 @farm_bp.route('/api/farm/upgrade_storage', methods=['POST'])
 def buy_storage_upgrade():
-    """شراء ترقية سعة المخزن"""
+    """شراء ترقية سعة المخزن مع حماية تكرار الطلبات"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
         
     user_id_str = str(telegram_id)
+
+    # 🛡️ حماية ضد الشراء المكرر السريع
+    if is_rate_limited(user_id_str, "upgrade_storage", min_interval=1.5):
+        return jsonify({"success": False, "error": "جاري معالجة طلب ترقية المخزن، يرجى الانتظار"}), 429
+
     try:
         result = buy_storage_db(user_id_str)
         status_code = 200 if result.get("success") else 400
@@ -333,12 +390,17 @@ def buy_storage_upgrade():
 @farm_bp.route('/farm/daily_claim', methods=['POST'])
 @farm_bp.route('/api/farm/daily_claim', methods=['POST'])
 def claim_daily():
-    """استلام المكافأة اليومية"""
+    """استلام المكافأة اليومية مع منع السبام والتكرار"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
         
     user_id_str = str(telegram_id)
+
+    # 🛡️ حماية ضد السبام والطلبات المكررة
+    if is_rate_limited(user_id_str, "daily_claim", min_interval=2.0):
+        return jsonify({"success": False, "error": "يرجى الانتظار قبل استلام المكافأة اليومية مجدداً"}), 429
+
     try:
         result = claim_daily_reward_db(user_id_str)
         status_code = 200 if result.get("success") else 400
@@ -353,12 +415,17 @@ def claim_daily():
 @farm_bp.route('/farm/daily_boost', methods=['POST'])
 @farm_bp.route('/api/farm/daily_boost', methods=['POST'])
 def claim_daily_boost():
-    """تفعيل التعزيز اليومي للسرعة لمدة ساعتين مع فترة انتظار 3 ساعات وتسجيل last_boost_time"""
+    """تفعيل التعزيز اليومي للسرعة لمدة ساعتين مع فترة انتظار 3 ساعات وتسجيل last_boost_time وتأمين ضد الطلبات الخارجية المكررة"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
         
     user_id_str = str(telegram_id)
+
+    # 🛡️ حماية ضد السبام والهجمات الخارجية المكررة (فترة انتظار لا تقل عن 3 ثوان بين المحاولات المتتالية)
+    if is_rate_limited(user_id_str, "daily_boost", min_interval=3.0):
+        return jsonify({"success": False, "error": "تم استلام طلب تفعيل التعزيز بالكامل، يرجى عدم تكرار الطلب"}), 429
+
     try:
         result = claim_daily_boost_db(user_id_str)
         status_code = 200 if result.get("success") else 400
@@ -379,6 +446,10 @@ def get_leaderboard():
     if not success: 
         return error_res
         
+    user_id_str = str(telegram_id)
+    if is_rate_limited(user_id_str, "leaderboard", min_interval=1.0):
+        return jsonify({"success": False, "error": "يرجى التمهل في طلب قائمة المتصدرين"}), 429
+
     try:
         leaderboard = get_mining_leaderboard_db(limit=10)
         return jsonify({"success": True, "leaderboard": leaderboard}), 200
@@ -403,6 +474,9 @@ def get_user_friends():
         return error_res
         
     user_id_str = str(telegram_id)
+    if is_rate_limited(user_id_str, "friends", min_interval=0.5):
+        return jsonify({"success": False, "error": "يرجى التمهل في طلب قائمة الأصدقاء"}), 429
+
     try:
         try:
             from farm.farm_db import get_user_friends_db
@@ -428,12 +502,17 @@ def get_user_friends():
 @farm_bp.route('/farm/claim_friends_reward', methods=['POST'])
 @farm_bp.route('/api/farm/claim_friends_reward', methods=['POST'])
 def claim_friends_reward():
-    """تجميع مكافآت دعوة الأصدقاء"""
+    """تجميع مكافآت دعوة الأصدقاء مع حماية ضد السبام"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
         
     user_id_str = str(telegram_id)
+
+    # 🛡️ حماية ضد السبام وتكرار الطلب
+    if is_rate_limited(user_id_str, "claim_friends_reward", min_interval=2.0):
+        return jsonify({"success": False, "error": "يرجى الانتظار قبل استلام مكافآت الإحالة مجدداً"}), 429
+
     try:
         try:
             from farm.farm_db import claim_referral_rewards_db
