@@ -121,13 +121,22 @@ window.closeAutoClaimModal = function() {
         return false;
     }
 
+    // دالة تحليل تاريخ السيرفر مع فحص المنطقة الزمنية بدقة
     function parseServerDateMs(dateStr) {
         if (!dateStr) return getAdjustedNowMs();
         if (typeof dateStr === 'number') return dateStr;
         let s = String(dateStr).trim().replace(' ', 'T');
-        if (!s.endsWith('Z') && !s.includes('+') && !s.includes('-')) {
+        
+        const tIndex = s.indexOf('T');
+        if (tIndex !== -1) {
+            const timePart = s.substring(tIndex + 1);
+            if (!timePart.includes('Z') && !timePart.includes('+') && !timePart.includes('-')) {
+                s += 'Z';
+            }
+        } else if (!s.includes('Z') && !s.includes('+') && !s.includes('-')) {
             s += 'Z';
         }
+
         const ms = new Date(s).getTime();
         return isNaN(ms) ? getAdjustedNowMs() : ms;
     }
@@ -372,10 +381,9 @@ window.closeAutoClaimModal = function() {
         });
     }
 
-    // إشارة الإعلان معدلة بحيث يتم تجاوزها بأمان أثناء إيقاف Adsgram
     async function showAdsgramAd() {
         if (!ENABLE_ADSGRAM) {
-            return true; // تجاوز الإعلان فوراً وبنجاح
+            return true;
         }
 
         toggleAdLoadingOverlay(true);
@@ -444,6 +452,7 @@ window.closeAutoClaimModal = function() {
         return 0;
     }
 
+    // حساب التعدين المباشر اعتماداً على last_claim_time لمنع التراكم المزدوج
     function accrueCurrentMining() {
         const pData = window.userState || window.PlayerData;
         if (!pData) return 0;
@@ -453,28 +462,19 @@ window.closeAutoClaimModal = function() {
         let boostRate = getActiveBoostRate(pData);
         let hRate = baseRate + boostRate;
 
-        let baseUnclaimed = parseFloat(pData.base_unclaimed || 0);
-        let lastAccrualMs = pData.last_accrual_time ? parseServerDateMs(pData.last_accrual_time) : (pData.last_claim_time ? parseServerDateMs(pData.last_claim_time) : getAdjustedNowMs());
+        let lastClaimMs = pData.last_claim_time ? parseServerDateMs(pData.last_claim_time) : getAdjustedNowMs();
+        let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimMs) / 1000);
+        let accumulated = (hRate / 3600.0) * secondsPassed;
         
-        let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastAccrualMs) / 1000);
-        let accumulated = baseUnclaimed + (hRate / 3600.0) * secondsPassed;
         if (accumulated >= maxC) accumulated = maxC;
 
-        const nowMs = getAdjustedNowMs();
-
-        pData.base_unclaimed = accumulated;
         pData.unclaimed = accumulated;
-        pData.last_accrual_time = nowMs;
 
         if (window.userState) {
-            window.userState.base_unclaimed = accumulated;
             window.userState.unclaimed = accumulated;
-            window.userState.last_accrual_time = nowMs;
         }
         if (window.PlayerData) {
-            window.PlayerData.base_unclaimed = accumulated;
             window.PlayerData.unclaimed = accumulated;
-            window.PlayerData.last_accrual_time = nowMs;
         }
 
         return accumulated;
@@ -821,9 +821,10 @@ window.closeAutoClaimModal = function() {
         }
     }
 
+    // اعتماد خيار التمهيل (Throttle) عند التنقل بين القوائم وتجنب طلب الإجبار القاسي
     window.onFarmTabOpen = async function() {
         if (typeof window.fetchPlayerDataFromServer === 'function') {
-            await window.fetchPlayerDataFromServer(true);
+            await window.fetchPlayerDataFromServer(false);
         } else {
             window.updateFarmUI();
         }
@@ -898,13 +899,12 @@ window.closeAutoClaimModal = function() {
         let boostRate = getActiveBoostRate(pData);
         let hRate = baseRate + boostRate;
         
-        let baseUnclaimed = parseFloat(pData.base_unclaimed || 0);
-        let lastAccrualMs = pData.last_accrual_time 
-            ? parseServerDateMs(pData.last_accrual_time) 
-            : (pData.last_claim_time ? parseServerDateMs(pData.last_claim_time) : getAdjustedNowMs());
+        let lastClaimMs = pData.last_claim_time 
+            ? parseServerDateMs(pData.last_claim_time) 
+            : getAdjustedNowMs();
         
-        let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastAccrualMs) / 1000);
-        let unclaim = baseUnclaimed + (hRate / 3600.0) * secondsPassed;
+        let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimMs) / 1000);
+        let unclaim = (hRate / 3600.0) * secondsPassed;
 
         if (unclaim >= maxC) unclaim = maxC;
         pData.unclaimed = unclaim;
@@ -974,7 +974,7 @@ window.closeAutoClaimModal = function() {
 
     function syncOnVisibility() {
         if (document.visibilityState === "visible") {
-            window.fetchPlayerDataFromServer(true);
+            window.fetchPlayerDataFromServer(false);
         }
     }
 
