@@ -2,11 +2,12 @@ from datetime import datetime, timezone
 import firebase_admin
 from firebase_admin import firestore
 
-FEE_USD_FIXED = 0.02
-
 def safe_get_db():
     try:
         if firebase_admin._apps:
+            return firestore.client()
+        else:
+            firebase_admin.initialize_app()
             return firestore.client()
     except Exception as e:
         print(f"⚠️ خطأ الاتصال بـ Firestore في withdraw_db: {e}")
@@ -21,7 +22,8 @@ def format_crypto_display(amount):
         val = float(amount)
         if val == 0:
             return "0.0000"
-        return f"{val:,.4f}"
+        formatted = f"{val:,.4f}"
+        return formatted
     except Exception:
         return str(amount)
 
@@ -41,105 +43,59 @@ def extract_user_balance(data):
                 pass
     return 0.0
 
-def extract_user_usd_balance(data):
-    """جلب رصيد الدولار للمستخدم بشكل دقيق"""
+def extract_usd_balance(data):
+    """جلب رصيد الدولار للمستخدم"""
     if not isinstance(data, dict):
         return 0.0
-    
-    usd_keys = ['usd_balance', 'usd', 'usd_amount']
-    for key in usd_keys:
-        if key in data and data[key] is not None:
-            try:
-                val = float(data[key])
-                if val >= 0:
-                    return val
-            except (ValueError, TypeError):
-                pass
-    return 0.0
-
-def get_global_znx_state():
-    """جلب إجمالي ZNX المحول كلياً لتحديد الشريحة الحالية"""
-    db = safe_get_db()
-    if not db:
-        return {"total_converted_znx": 0.0}
     try:
-        doc = db.collection('znx_global_state').document('summary').get()
-        if doc.exists:
-            d = doc.to_dict() or {}
+        return float(data.get('usd_balance', 0.0))
+    except (ValueError, TypeError):
+        return 0.0
+
+def get_current_withdraw_tier():
+    """جلب بيانات الشريحة الحالية لسحب العملات بناءً على إجمالي المحول الكلي في الفايربيس"""
+    db = safe_get_db()
+    default_tier = {
+        "tier": 1,
+        "name": "الشريحة الأولى",
+        "min_withdraw_znx": 1000.0,
+        "fixed_fee_usd": 0.02
+    }
+    if not db:
+        return default_tier
+
+    try:
+        stats_doc = db.collection('znx_global_stats').document('summary').get()
+        if not stats_doc.exists:
+            return default_tier
+        
+        stats = stats_doc.to_dict() or {}
+        total_global_znx = float(stats.get('total_converted_znx', 0.0))
+        tiers = stats.get('tiers_config') or []
+
+        for item in tiers:
+            min_v = float(item.get("min_pts", 0.0))
+            raw_max = item.get("max_pts")
+            max_v = float('inf') if str(raw_max).lower() in ("inf", "infinity", "none") else float(raw_max)
+            if min_v <= total_global_znx < max_v:
+                return {
+                    "tier": int(item.get('tier', 1)),
+                    "name": str(item.get('name', 'الشريحة الحالية')),
+                    "min_withdraw_znx": float(item.get('min_withdraw_znx', 1000.0)),
+                    "fixed_fee_usd": float(item.get('fixed_fee_usd', 0.02))
+                }
+        if tiers:
+            last = tiers[-1]
             return {
-                "total_converted_znx": float(d.get('total_converted_znx', 0.0))
+                "tier": int(last.get('tier', 7)),
+                "name": str(last.get('name', 'الشريحة السابعة')),
+                "min_withdraw_znx": float(last.get('min_withdraw_znx', 2.5)),
+                "fixed_fee_usd": float(last.get('fixed_fee_usd', 0.02))
             }
     except Exception as e:
-        print(f"⚠️ خطأ جلب znx_global_state: {e}")
-    return {"total_converted_znx": 0.0}
-
-def get_active_tier_info(total_converted):
-    """حساب الشريحة الحالية بناءً على total_converted_znx"""
-    total = float(total_converted or 0.0)
+        print(f"⚠️ خطأ جلب شريحة السحب: {e}")
     
-    if total < 1500000:
-        return {
-            "tier": 1,
-            "name": "الشريحة الأولى (0 حتى 1.5M ZNX)",
-            "min_znx": 1000.0,
-            "rate": 10,
-            "quota": 1500000,
-            "fee_usd": FEE_USD_FIXED
-        }
-    elif total < 2000000:
-        return {
-            "tier": 2,
-            "name": "الشريحة الثانية (1.5M إلى 2M ZNX)",
-            "min_znx": 350.0,
-            "rate": 30,
-            "quota": 2000000,
-            "fee_usd": FEE_USD_FIXED
-        }
-    elif total < 2500000:
-        return {
-            "tier": 3,
-            "name": "الشريحة الثالثة (2M إلى 2.5M ZNX)",
-            "min_znx": 125.0,
-            "rate": 80,
-            "quota": 2500000,
-            "fee_usd": FEE_USD_FIXED
-        }
-    elif total < 4000000:
-        return {
-            "tier": 4,
-            "name": "الشريحة الرابعة (2.5M إلى 4M ZNX)",
-            "min_znx": 50.0,
-            "rate": 200,
-            "quota": 4000000,
-            "fee_usd": FEE_USD_FIXED
-        }
-    elif total < 5500000:
-        return {
-            "tier": 5,
-            "name": "الشريحة الخامسة (4M إلى 5.5M ZNX)",
-            "min_znx": 20.0,
-            "rate": 600,
-            "quota": 5500000,
-            "fee_usd": FEE_USD_FIXED
-        }
-    elif total < 8000000:
-        return {
-            "tier": 6,
-            "name": "الشريحة السادسة (5.5M إلى 8M ZNX)",
-            "min_znx": 6.0,
-            "rate": 1600,
-            "quota": 8000000,
-            "fee_usd": FEE_USD_FIXED
-        }
-    else:
-        return {
-            "tier": 7,
-            "name": "الشريحة السابعة (فوق 8M ZNX)",
-            "min_znx": 2.5,
-            "rate": 4000,
-            "quota": 9000000,
-            "fee_usd": FEE_USD_FIXED
-        }
+    return default_tier
 
 def get_user_doc(user_id):
     """البحث عن مستند المستخدم برقم الـ ID أو tg_id"""
@@ -149,13 +105,11 @@ def get_user_doc(user_id):
     
     str_user_id = str(user_id).strip()
     
-    # 1. البحث المباشر برقم Document ID
     doc_ref = db.collection('users').document(str_user_id)
     doc = doc_ref.get()
     if doc.exists:
         return doc_ref, doc.to_dict()
     
-    # 2. البحث بحقول tg_id أو user_id أو telegram_id
     for field in ['tg_id', 'user_id', 'telegram_id']:
         q = db.collection('users').where(field, '==', str_user_id).limit(1).get()
         if q:
@@ -173,11 +127,8 @@ def get_user_full_details(user_id):
         if not data:
             return None
         
-        real_znx_balance = extract_user_balance(data)
-        real_usd_balance = extract_user_usd_balance(data)
-        global_state = get_global_znx_state()
-        active_tier = get_active_tier_info(global_state.get('total_converted_znx', 0.0))
-
+        real_balance = extract_user_balance(data)
+        usd_balance = extract_usd_balance(data)
         raw_wallets = data.get('wallets')
         wallets = raw_wallets if isinstance(raw_wallets, dict) else {}
         wallet_addr = data.get('wallet_address') or wallets.get('ZNX', '')
@@ -186,17 +137,14 @@ def get_user_full_details(user_id):
             "user_id": str(user_id),
             "first_name": data.get('first_name', 'غير محدد'),
             "username": data.get('username', 'لا يوجد'),
-            "balance": real_znx_balance,
-            "znx_balance": real_znx_balance,
-            "usd_balance": real_usd_balance,
-            "total_converted_znx": global_state.get('total_converted_znx', 0.0),
-            "active_tier": active_tier,
+            "balance": real_balance,
+            "znx_balance": real_balance,
+            "usd_balance": usd_balance,
             "is_banned": data.get('is_banned', False),
             "wallets": wallets,
             "wallet_address": wallet_addr
         }
-    except Exception as e:
-        print(f"⚠️ خطأ get_user_full_details: {e}")
+    except Exception:
         return None
 
 def save_user_wallet(user_id, currency, wallet_address):
