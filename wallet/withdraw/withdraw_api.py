@@ -71,17 +71,27 @@ def handle_save_wallet():
 def handle_withdraw():
     data = request.json or {}
     user_id = str(data.get('user_id', '')).strip()
-    coins = float(data.get('coins', 0))
+    try:
+        coins = float(data.get('coins', 0))
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "message": "مبلغ السحب غير صالح."}), 400
+
     wallet_address = str(data.get('wallet_address', '')).strip()
 
     if not user_id or not wallet_address or coins <= 0:
         return jsonify({"success": False, "message": "بيانات طلب السحب غير مكتملة."}), 400
 
     db = safe_get_db()
+    if not db:
+        return jsonify({"success": False, "message": "خطأ في الاتصال بقاعدة البيانات."}), 500
+
     user_ref, user_data = get_user_doc(user_id)
 
     if not user_ref or not user_data:
         return jsonify({"success": False, "message": "المستخدم غير موجود."}), 404
+
+    if user_data.get('is_banned', False):
+        return jsonify({"success": False, "message": "حسابك معطل ولا يمكنك إجراء عمليات سحب."}), 403
 
     tier_info = get_current_withdraw_tier()
     min_withdraw = tier_info.get('min_withdraw_znx', 1000.0)
@@ -93,27 +103,52 @@ def handle_withdraw():
     if coins < min_withdraw:
         return jsonify({
             "success": False, 
+            "code": "BELOW_MINIMUM",
             "message": f"الحد الأدنى للسحب بالشريحة الحالية هو {min_withdraw:g} ZNX."
         }), 400
 
     if coins > current_balance:
-        return jsonify({"success": False, "message": "رصيدك غير كافٍ لإتمام عملية السحب."}), 400
+        return jsonify({
+            "success": False, 
+            "code": "INSUFFICIENT_ZNX",
+            "message": "رصيدك من عملة ZNX غير كافٍ لإتمام عملية السحب."
+        }), 400
 
     if usd_balance < fixed_fee_usd:
         return jsonify({
             "success": False, 
-            "message": f"رصيد الدولار غير كافٍ لتغطية رسوم السحب الثابتة (${fixed_fee_usd})."
+            "code": "INSUFFICIENT_USD",
+            "fee_required": fixed_fee_usd,
+            "message": f"رسوم السحب لا تكفي! يجب إيداع مبلغ رسوم السحب ${fixed_fee_usd:.2f} USD لإتمام العملية."
         }), 400
 
-    new_znx_balance = max(0.0, current_balance - coins)
-    new_usd_balance = max(0.0, usd_balance - fixed_fee_usd)
+    # --- حماية قصوى بـ Transaction لمنع التلاعب بالتزامن (Atomic Transaction) ---
+    @firestore.transactional
+    def update_balances_in_transaction(transaction, ref):
+        snapshot = ref.get(transaction=transaction)
+        if not snapshot.exists:
+            raise Exception("المستخدم غير موجود.")
+        
+        snap_data = snapshot.to_dict() or {}
+        latest_znx = extract_user_balance(snap_data)
+        latest_usd = extract_usd_balance(snap_data)
+
+        if coins > latest_znx or latest_usd < fixed_fee_usd:
+            raise Exception("رصيدك تغير أثناء المعالجة.")
+
+        updated_znx = round(max(0.0, latest_znx - coins), 6)
+        updated_usd = round(max(0.0, latest_usd - fixed_fee_usd), 4)
+
+        transaction.update(ref, {
+            'znx_balance': updated_znx,
+            'total_znx_earned': updated_znx,
+            'usd_balance': updated_usd
+        })
+        return updated_znx, updated_usd
 
     try:
-        user_ref.update({
-            'znx_balance': new_znx_balance,
-            'total_znx_earned': new_znx_balance,
-            'usd_balance': new_usd_balance
-        })
+        transaction = db.transaction()
+        new_znx_balance, new_usd_balance = update_balances_in_transaction(transaction, user_ref)
 
         tx_ref = db.collection('processed_txs').document()
         tx_id = tx_ref.id
@@ -139,8 +174,8 @@ def handle_withdraw():
         }), 200
 
     except Exception as e:
-        print(f"⚠️ خطأ أثناء معالجة السحب: {e}")
-        return jsonify({"success": False, "message": "حدث خطأ أثناء معالجة الطلب."}), 500
+        print(f"⚠️ خطأ معالجة السحب المالي: {e}")
+        return jsonify({"success": False, "message": "تعذر إجراء السحب نظراً لتغير البيانات، يرجى إعادة المحاولة."}), 500
 
 def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
     bot_token = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN")
@@ -153,7 +188,7 @@ def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
         "━━━━━━━━━━━━━━━━━━\n"
         f"<b>👤 المستخدم:</b> <code>{user_id}</code>\n"
         f"<b>📊 الشريحة الحالية:</b> <code>{tier_name}</code>\n"
-        f"<b>💰 المبلغ المطلوبة:</b> <code>{coins:,.4f} ZNX</code>\n"
+        f"<b>💰 المبلغ المطلوب:</b> <code>{coins:,.4f} ZNX</code>\n"
         f"<b>💵 الرسوم المقتطعة:</b> <code>${fee_usd:.2f} USD</code>\n"
         f"<b>📥 محفظة TON:</b> <code>{wallet}</code>\n"
         f"<b>🆔 رقم المعاملة:</b> <code>#{tx_id}</code>\n"
