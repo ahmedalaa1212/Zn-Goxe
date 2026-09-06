@@ -248,18 +248,19 @@ def _calculate_interval_mined(hourly_rate, start_dt, end_dt, last_boost_str=None
 
 
 def calculate_accrued_mined(user_data, now_dt, max_cap, ignore_cap=False):
-    """حساب الكمية المعدنة الحالية بدقة مع معالجة اختلال التوقيت وتحديد السقف"""
+    """حساب الكمية المعدنة الحالية بدقة مباشرة من تاريخ آخر تجميع حقيقي مع تطبيق سقف التخزين"""
     last_claim_str = user_data.get("last_claim_time")
     hourly_rate = min(float(user_data.get("hourly_rate", 0.10)), MAX_SAFE_HOURLY_RATE)
-    base_unclaimed = max(0.0, float(user_data.get("base_unclaimed", user_data.get("unclaimed", 0.0))))
 
     last_claim = safe_parse_datetime(last_claim_str, now_dt)
+    if not last_claim:
+        last_claim = now_dt
     
     # معالجة حالة المستقبل (تلاعب بالساعة): إذا كان التاريخ أسبق من الآن بصورة شاذة
     if last_claim > (now_dt + timedelta(seconds=FUTURE_SKEW_TOLERANCE_SEC)):
         last_claim = now_dt
 
-    mined = base_unclaimed + _calculate_interval_mined(hourly_rate, last_claim, now_dt, user_data.get("last_boost_time"))
+    mined = _calculate_interval_mined(hourly_rate, last_claim, now_dt, user_data.get("last_boost_time"))
     
     if ignore_cap:
         return round(mined, 8)
@@ -304,7 +305,7 @@ def calculate_user_effective_stats(user_data, game_settings=None, now_dt=None):
 
 
 def get_or_create_user_farm_data(user_id_str):
-    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة وتطبيق الحساب التراكمي في السيرفر (Backend Offline Calculation)"""
+    """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة وحساب التعدين مباشرة من تاريخ آخر تجميع لمنع التراكم المكرر"""
     db = get_db()
     str_uid = str(user_id_str)
     user_ref = db.collection('users').document(str_uid)
@@ -340,7 +341,7 @@ def get_or_create_user_farm_data(user_id_str):
 
         if "daily_boost_rate" not in user_data: auto_fix["daily_boost_rate"] = 0.00
         if "last_boost_time" not in user_data: auto_fix["last_boost_time"] = None
-        if "base_unclaimed" not in user_data: auto_fix["base_unclaimed"] = float(user_data.get("unclaimed", 0.0))
+        if "base_unclaimed" not in user_data: auto_fix["base_unclaimed"] = 0.0
         if "ads_watched" not in user_data: auto_fix["ads_watched"] = 0
         if "storage_level" not in user_data: auto_fix["storage_level"] = 0
         if "upgrades" not in user_data: auto_fix["upgrades"] = {}
@@ -370,13 +371,12 @@ def get_or_create_user_farm_data(user_id_str):
     user_data["usd_balance"] = round(float(user_data.get("usd_balance", 0.0)), 8)
     user_data["mined_points"] = round(float(user_data.get("mined_points", user_data.get("total_mined", 0.0))), 8)
     user_data["total_mined"] = user_data["mined_points"]
-    user_data["base_unclaimed"] = round(float(user_data.get("base_unclaimed", 0.0)), 8)
 
     # ====================================================================
-    # منطق التجميع التراكمي في السيرفر (Backend Offline Calculation)
+    # منطق التجميع وحساب التعدين اللحظي (Backend Offline & Realtime Calculation)
     # ====================================================================
     last_claim_dt = safe_parse_datetime(user_data.get("last_claim_time"), now)
-    if last_claim_dt > (now + timedelta(seconds=FUTURE_SKEW_TOLERANCE_SEC)):
+    if not last_claim_dt or last_claim_dt > (now + timedelta(seconds=FUTURE_SKEW_TOLERANCE_SEC)):
         last_claim_dt = now
 
     is_bot_active = user_data.get("bot_active", False)
@@ -390,7 +390,7 @@ def get_or_create_user_farm_data(user_id_str):
     if is_bot_active or (exp_dt and exp_dt > last_claim_dt):
         bot_end_dt = min(now, exp_dt) if exp_dt else now
         bot_mined = _calculate_interval_mined(hourly_rate, last_claim_dt, bot_end_dt, last_boost_str)
-        accumulated_offline = round(user_data["base_unclaimed"] + bot_mined, 8)
+        accumulated_offline = round(bot_mined, 8)
         threshold_80 = round(expected_max_cap * 0.8, 8)
 
         if accumulated_offline >= threshold_80:
@@ -413,31 +413,22 @@ def get_or_create_user_farm_data(user_id_str):
                 post_bot_mined = _calculate_interval_mined(hourly_rate, bot_end_dt, now, last_boost_str)
                 user_data["unclaimed"] = round(min(post_bot_mined, expected_max_cap), 8)
                 user_data["base_unclaimed"] = user_data["unclaimed"]
-                db_updates["unclaimed"] = user_data["unclaimed"]
-                db_updates["base_unclaimed"] = user_data["base_unclaimed"]
         else:
-            user_data["base_unclaimed"] = accumulated_offline
-            user_data["unclaimed"] = accumulated_offline
-            db_updates["base_unclaimed"] = accumulated_offline
-            db_updates["unclaimed"] = accumulated_offline
-
-            if bot_end_dt < now:
-                post_bot_mined = _calculate_interval_mined(hourly_rate, bot_end_dt, now, last_boost_str)
-                manual_total = accumulated_offline + post_bot_mined
-                user_data["unclaimed"] = round(min(manual_total, expected_max_cap), 8)
-                user_data["base_unclaimed"] = user_data["unclaimed"]
-                db_updates["unclaimed"] = user_data["unclaimed"]
-                db_updates["base_unclaimed"] = user_data["base_unclaimed"]
+            total_mined_so_far = _calculate_interval_mined(hourly_rate, last_claim_dt, now, last_boost_str)
+            unclaimed_val = round(min(total_mined_so_far, expected_max_cap), 8)
+            user_data["unclaimed"] = unclaimed_val
+            user_data["base_unclaimed"] = unclaimed_val
 
         is_currently_active = (exp_dt is None or exp_dt > now) if is_bot_active else False
         user_data["bot_active"] = is_currently_active
         user_data["is_auto_bot_active"] = is_currently_active
-        db_updates["bot_active"] = is_currently_active
-        db_updates["is_auto_bot_active"] = is_currently_active
+        if is_currently_active != is_bot_active:
+            db_updates["bot_active"] = is_currently_active
+            db_updates["is_auto_bot_active"] = is_currently_active
     else:
-        manual_mined = user_data["base_unclaimed"] + _calculate_interval_mined(hourly_rate, last_claim_dt, now, last_boost_str)
-        user_data["unclaimed"] = round(min(manual_mined, expected_max_cap), 8)
-        user_data["base_unclaimed"] = user_data["unclaimed"]
+        unclaimed_val = calculate_accrued_mined(user_data, now, expected_max_cap)
+        user_data["unclaimed"] = unclaimed_val
+        user_data["base_unclaimed"] = unclaimed_val
         user_data["bot_active"] = False
         user_data["is_auto_bot_active"] = False
 
@@ -640,10 +631,7 @@ def buy_upgrade_db(user_id_str, level):
             if prev_count == 0:
                 return {"success": False, "error": "يجب شراء المستوى السابق أولاً"}
 
-        now_iso = now.isoformat()
-
         max_cap = calculate_user_max_cap(user_data, game_settings)
-        mined_amount = calculate_accrued_mined(user_data, now, max_cap)
 
         new_balance = round(max(0.0, current_balance - cost_zn), 8)
         new_usd_balance = round(max(0.0, current_usd_balance - cost_usd), 8)
@@ -655,16 +643,19 @@ def buy_upgrade_db(user_id_str, level):
         upgrades[lvl_key] = current_count + 1
         total_upgrades_count = sum(int(v) for v in upgrades.values() if isinstance(v, (int, float)))
 
+        last_claim_str = user_data.get("last_claim_time") or now.isoformat()
+
         transaction.update(ref, {
             "balance": new_balance,
             "usd_balance": new_usd_balance,
             "hourly_rate": new_hourly_rate,
             "upgrades": upgrades,
-            "upgrades_count": total_upgrades_count,
-            "last_claim_time": now_iso,
-            "base_unclaimed": mined_amount,
-            "unclaimed": mined_amount
+            "upgrades_count": total_upgrades_count
         })
+
+        user_data_copy = dict(user_data)
+        user_data_copy["hourly_rate"] = new_hourly_rate
+        updated_unclaimed = calculate_accrued_mined(user_data_copy, now, max_cap)
 
         referrer_id = user_data.get("referrer_id") or user_data.get("referred_by") or user_data.get("invited_by")
 
@@ -673,12 +664,12 @@ def buy_upgrade_db(user_id_str, level):
             "new_balance": new_balance,
             "new_usd_balance": new_usd_balance,
             "new_hourly_rate": new_hourly_rate,
-            "last_claim_time": now_iso,
-            "base_unclaimed": mined_amount,
-            "unclaimed": mined_amount,
+            "last_claim_time": last_claim_str,
+            "base_unclaimed": updated_unclaimed,
+            "unclaimed": updated_unclaimed,
             "upgrades": upgrades,
             "upgrades_count": total_upgrades_count,
-            "server_time": now_iso,
+            "server_time": now.isoformat(),
             "referrer_id": referrer_id
         }
 
@@ -747,24 +738,19 @@ def buy_storage_db(user_id_str):
         if cost_usd > 0 and current_usd_balance < cost_usd:
             return {"success": False, "error": f"رصيد الدولار غير كافٍ! يتطلب ${cost_usd:.2f} USD"}
 
-        now_iso = now.isoformat()
-
-        old_max_cap = calculate_user_max_cap(user_data, game_settings)
-        mined_amount = calculate_accrued_mined(user_data, now, old_max_cap)
-
         extra_cap = float(user_data.get("extra_storage", 0.0))
         new_max_cap = min(round(new_capacity + extra_cap, 4), MAX_SAFE_STORAGE_CAP)
         new_balance = round(max(0.0, current_balance - cost_zn), 8)
         new_usd_balance = round(max(0.0, current_usd_balance - cost_usd), 8)
 
+        mined_amount = calculate_accrued_mined(user_data, now, new_max_cap)
+        last_claim_str = user_data.get("last_claim_time") or now.isoformat()
+
         transaction.update(ref, {
             "balance": new_balance,
             "usd_balance": new_usd_balance,
             "storage_level": next_level,
-            "max_cap": new_max_cap,
-            "last_claim_time": now_iso,
-            "base_unclaimed": mined_amount,
-            "unclaimed": mined_amount
+            "max_cap": new_max_cap
         })
 
         return {
@@ -773,10 +759,10 @@ def buy_storage_db(user_id_str):
             "new_usd_balance": new_usd_balance,
             "storage_level": next_level,
             "max_cap": new_max_cap,
-            "last_claim_time": now_iso,
+            "last_claim_time": last_claim_str,
             "base_unclaimed": mined_amount,
             "unclaimed": mined_amount,
-            "server_time": now_iso
+            "server_time": now.isoformat()
         }
 
     try:
@@ -894,20 +880,22 @@ def claim_daily_boost_db(user_id_str):
                     }
 
         max_cap = calculate_user_max_cap(user_data, game_settings)
-        mined_amount = calculate_accrued_mined(user_data, now, max_cap)
+        
+        user_data_copy = dict(user_data)
+        user_data_copy["last_boost_time"] = now_iso
+        mined_amount = calculate_accrued_mined(user_data_copy, now, max_cap)
 
         current_balance = round(min(float(user_data.get("balance", 0.0)), MAX_SAFE_BALANCE), 8)
         current_usd_balance = round(float(user_data.get("usd_balance", 0.0)), 8)
         current_ads = int(user_data.get("ads_watched", 0) or 0)
         new_ads = current_ads + 1
 
+        last_claim_str = user_data.get("last_claim_time") or now_iso
+
         transaction.update(ref, {
             "last_boost_time": now_iso,
             "last_boost_date": today_str,
-            "ads_watched": new_ads,
-            "last_claim_time": now_iso,
-            "base_unclaimed": mined_amount,
-            "unclaimed": mined_amount
+            "ads_watched": new_ads
         })
 
         return {
@@ -918,7 +906,7 @@ def claim_daily_boost_db(user_id_str):
             "cooldown_hours": 3,
             "last_boost_time": now_iso,
             "last_boost_date": today_str,
-            "last_claim_time": now_iso,
+            "last_claim_time": last_claim_str,
             "base_unclaimed": mined_amount,
             "unclaimed": mined_amount,
             "new_balance": current_balance,
