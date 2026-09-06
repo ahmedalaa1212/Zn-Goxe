@@ -9,13 +9,43 @@
   .w-label { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #94a3b8; margin-bottom: 6px; font-weight: 600; }
   .user-bal-tag { color: #fbbf24; font-weight: bold; font-size: 13px; }
 
-  /* حاوية مدخل الرقم مع زر MAX بالداخل */
+  /* حاوية مدخل الرقم مع إصلاح تداخل أزرار MAX نهائياً */
   .w-input-wrapper { position: relative; display: flex; align-items: center; width: 100%; }
-  .w-input { width: 100%; background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 75px 12px 14px; color: #38bdf8; font-size: 16px; font-weight: bold; box-sizing: border-box; outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
+  .w-input { 
+    width: 100%; 
+    background: #020617; 
+    border: 1px solid #334155; 
+    border-radius: 12px; 
+    padding: 12px 14px 12px 90px; /* تم تحديد padding-left بـ 90px لحماية مساحة زر MAX */
+    color: #38bdf8; 
+    font-size: 16px; 
+    font-weight: bold; 
+    box-sizing: border-box; 
+    outline: none; 
+    direction: ltr;
+    text-align: right;
+    transition: border-color 0.2s, box-shadow 0.2s; 
+  }
   .w-input:focus { border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.15); }
   
-  /* تصميم زر MAX بداخل المربع بشكل احترافي */
-  .btn-max { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); background: linear-gradient(135deg, #0284c7, #38bdf8); color: #ffffff; border: none; padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 2px 6px rgba(56, 189, 248, 0.25); }
+  /* تصميم زر MAX بداخل المربع بشكل مرتّب وبدون تداخل */
+  .btn-max { 
+    position: absolute; 
+    left: 8px; 
+    top: 50%; 
+    transform: translateY(-50%); 
+    background: linear-gradient(135deg, #0284c7, #38bdf8); 
+    color: #ffffff; 
+    border: none; 
+    padding: 6px 12px; 
+    border-radius: 8px; 
+    font-size: 12px; 
+    font-weight: 700; 
+    cursor: pointer; 
+    transition: all 0.2s ease; 
+    box-shadow: 0 2px 6px rgba(56, 189, 248, 0.25); 
+    z-index: 5;
+  }
   .btn-max:hover { opacity: 0.9; transform: translateY(-50%) scale(1.02); }
   .btn-max:active { transform: translateY(-50%) scale(0.95); }
 
@@ -40,7 +70,7 @@
   .modal-overlay.active { display: flex; }
   .modal-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 18px; padding: 22px; width: 100%; max-width: 380px; box-shadow: 0 15px 35px rgba(0,0,0,0.6); }
   .modal-title { color: #38bdf8; margin-top: 0; margin-bottom: 12px; font-size: 17px; font-weight: bold; text-align: center; }
-  .modal-subtitle { font-size: 13px; color: #94a3b8; margin-bottom: 16px; text-align: center; line-height: 1.5; }
+  .modal-subtitle { font-size: 13px; color: #94a3b8; margin-bottom: 16px; text-align: center; line-height: 1.6; }
   .modal-buttons { display: flex; gap: 12px; margin-top: 20px; }
   .btn-save { flex: 1; background: #10b981; color: #fff; border: none; padding: 14px; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; }
   .btn-cancel { flex: 1; background: #ef4444; color: #fff; border: none; padding: 14px; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; }
@@ -117,10 +147,26 @@
       <div class="modal-subtitle">
         أدخل عنوان محفظة TON / Telegram لاستلام عملات <strong>ZNX</strong> عليها:
       </div>
-      <input type="text" id="modal-wallet-input" class="w-input" placeholder="أدخل عنوان محفظة TON (e.g. UQ... / EQ...)" />
+      <input type="text" id="modal-wallet-input" class="w-input" style="padding: 12px; text-align: left;" placeholder="أدخل عنوان محفظة TON (e.g. UQ... / EQ...)" />
       <div class="modal-buttons">
         <button type="button" class="btn-save" onclick="withdrawModule.saveWalletAddress()">حفظ المحفظة</button>
         <button type="button" class="btn-cancel" onclick="withdrawModule.closeWalletModal()">إلغاء</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. نافذة تنبيه نقص رسوم الدولار الاحترافية -->
+  <div id="fee-notice-modal" class="modal-overlay">
+    <div class="modal-card" style="border-color: #f59e0b;">
+      <div class="modal-title" style="color: #f59e0b;">⚠️ رسوم السحب لا تكفي</div>
+      <div class="modal-subtitle" style="color: #cbd5e1;">
+        يتطلب إتمام طلب السحب توفر رسوم ثابتة قدرها <strong style="color:#4ade80;">$<span id="modal-required-fee">0.02</span> USD</strong> في رصيد الدولار الخاص بك.<br/><br/>
+        رصيدك الحالي هو: <strong style="color:#ef4444;">$<span id="modal-current-usd">0.00</span> USD</strong>.<br/>
+        يرجى إيداع مبلغ رسوم السحب لتتمكن من تأكيد الطلب.
+      </div>
+      <div class="modal-buttons">
+        <button type="button" class="btn-save" style="background: #0284c7;" onclick="withdrawModule.goToDeposit()">💳 الإيداع الآن</button>
+        <button type="button" class="btn-cancel" onclick="withdrawModule.closeFeeNoticeModal()">إغلاق</button>
       </div>
     </div>
   </div>
