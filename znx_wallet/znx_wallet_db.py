@@ -197,15 +197,20 @@ def get_user_data(user_id: str):
         return default_user
 
 
-def get_leaderboard_rankings(limit=50, user_id=None):
+def get_leaderboard_rankings(limit=10, user_id=None):
+    """
+    جلب قائمة النخبة (أفضل 10 لاعبين فقط) مع احتساب ترتيب المستخدم الحالي بدقة
+    """
     db = _get_db()
     rankings = []
     clean_target_id = _sanitize_id(user_id)
     user_rank = "غير مصنف"
     user_in_top = False
+    my_user_info = None
 
     try:
-        docs = list(db.collection('users').limit(150).stream())
+        # جلب عينة من أعلى اللاعبين المكتسبين لعملة ZNX
+        docs = list(db.collection('users').limit(100).stream())
         raw_list = []
         for doc in docs:
             d = doc.to_dict() or {}
@@ -224,40 +229,58 @@ def get_leaderboard_rankings(limit=50, user_id=None):
                 'balance': bal
             })
         
+        # ترتيب تنازلي حسب إجمالي العملات المكتسبة
         raw_list.sort(key=lambda x: x['total_znx_earned'], reverse=True)
         
+        # حصر الترتيب الظاهر بـ 10 فقط (أفضل 10)
+        top_list = raw_list[:limit]
+        
         rank = 1
-        for item in raw_list[:limit]:
+        for item in top_list:
             item['rank'] = rank
             rankings.append(item)
             if clean_target_id and str(item['user_id']) == str(clean_target_id):
                 user_rank = rank
                 user_in_top = True
+                my_user_info = item
             rank += 1
 
     except Exception as e:
         print(f"❌ Leaderboard query failed: {e}")
 
+    # إذا لم يكن اللاعب ضمن العشرة الأوائل، نحسب ترتيبه بشكل مستقل
     if clean_target_id and not user_in_top:
         try:
             target_doc = db.collection('users').document(clean_target_id).get()
             if target_doc.exists:
                 t_data = target_doc.to_dict() or {}
                 t_earned = float(t_data.get('total_znx_earned') or 0.0)
+                t_name = str(t_data.get('first_name') or t_data.get('name') or 'لاعب')
+                
+                # حساب عدد اللاعبين الذين يتفوقون عليه بالإجمالي
                 all_docs = db.collection('users').stream()
                 higher_count = sum(1 for d in all_docs if float((d.to_dict() or {}).get('total_znx_earned') or 0) > t_earned)
+                
                 user_rank = higher_count + 1
+                my_user_info = {
+                    'user_id': clean_target_id,
+                    'name': t_name,
+                    'first_name': t_name,
+                    'total_znx_earned': t_earned,
+                    'rank': user_rank
+                }
         except Exception as e:
             print(f"⚠️ Error calculating target user rank: {e}")
 
     return {
         'success': True,
         'leaderboard': rankings,
-        'my_rank': user_rank
+        'my_rank': user_rank,
+        'my_info': my_user_info
     }
 
 
-def get_leaderboard_data(limit=50, user_id=None):
+def get_leaderboard_data(limit=10, user_id=None):
     return get_leaderboard_rankings(limit=limit, user_id=user_id)
 
 
