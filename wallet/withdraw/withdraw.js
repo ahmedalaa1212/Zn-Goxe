@@ -14,31 +14,33 @@
     return isNaN(num) ? 0 : num;
   }
 
-  // دالة تنسيق القيم الذكية بناءً على حجم الرقم
-  function formatCryptoSmart(val) {
+  // تنسيق الأرقام كـ String خام لخانه الإدخال والحسابات
+  function formatCryptoSmartRaw(val) {
     if (val === null || val === undefined || isNaN(val)) return "0";
     const num = parseFloat(val);
-    if (num === 0) return "0";
+    if (num <= 0) return "0";
 
-    let formatted = "";
     if (num >= 100) {
-      formatted = num.toFixed(0);
+      return Math.floor(num).toString();
     } else if (num >= 50) {
-      formatted = parseFloat(num.toFixed(2)).toString();
+      return parseFloat(num.toFixed(2)).toString();
     } else {
-      formatted = parseFloat(num.toFixed(4)).toString();
+      return parseFloat(num.toFixed(4)).toString();
     }
-    return formatted;
   }
 
-  // دالة تنسيق HTML لجعل الأرقام العشرية أصغر حسماً وأقل تبايناً
-  function formatCryptoSmartHTML(val) {
-    const str = formatCryptoSmart(val);
-    const parts = str.split('.');
+  // تنسيق الأرقام كـ HTML لتصغير الأرقام العشرية وتقليل تباينها
+  function formatCryptoSmartHtml(val) {
+    const raw = formatCryptoSmartRaw(val);
+    const parts = raw.split('.');
     if (parts.length > 1 && parts[1]) {
-      return `${parts[0]}<span style="font-size: 0.82em; opacity: 0.7; font-weight: normal;">.${parts[1]}</span>`;
+      return `${parts[0]}<span style="font-size: 0.8em; opacity: 0.75; font-weight: normal;">.${parts[1]}</span>`;
     }
-    return str;
+    return raw;
+  }
+
+  function formatCryptoSmart(val) {
+    return formatCryptoSmartRaw(val);
   }
 
   function getUserId() {
@@ -70,14 +72,6 @@
       coinsInput.addEventListener("input", calculateWithdraw);
       coinsInput.addEventListener("keyup", calculateWithdraw);
       coinsInput.addEventListener("change", calculateWithdraw);
-      
-      // إعادة تنسيق القيمة في الحقل عند مغادرته لمنع الأرقام العشوائية
-      coinsInput.addEventListener("blur", () => {
-        const val = parseInputValue(coinsInput.value);
-        if (val > 0) {
-          coinsInput.value = formatCryptoSmart(val);
-        }
-      });
     }
   }
 
@@ -284,21 +278,21 @@
     const feeInfo = document.getElementById("fee-amount");
     const tierBadge = document.getElementById("tier-badge");
 
-    if (userBalDisplay) userBalDisplay.innerHTML = `رصيدك: ${formatCryptoSmartHTML(userBalance)} ZNX`;
+    if (userBalDisplay) userBalDisplay.innerHTML = `رصيدك: ${formatCryptoSmartHtml(userBalance)} ZNX`;
     if (usdBalDisplay) usdBalDisplay.innerText = `$${usdBalance.toFixed(2)} USD`;
-    if (minInfo) minInfo.innerHTML = `الحد الأدنى: ${formatCryptoSmartHTML(minWithdraw)} ZNX`;
+    if (minInfo) minInfo.innerText = `الحد الأدنى: ${minWithdraw} ZNX`;
     if (feeInfo) feeInfo.innerText = `$${fixedFeeUsd.toFixed(2)} USD (من رصيد الدولار)`;
     if (tierBadge) tierBadge.innerText = currentTierName;
   }
 
-  // --- زر MAX الذكي مع التنسيق الجديد ---
+  // --- زر MAX منسق بحد أقصى بدون كسور غريبة ---
   function setPreset(type) {
     const coinsInput = document.getElementById("coins-input");
     if (!coinsInput) return;
 
     if (type === 'max') {
       const safeBal = Math.max(0, parseFloat(userBalance) || 0);
-      coinsInput.value = safeBal > 0 ? formatCryptoSmart(safeBal) : "";
+      coinsInput.value = safeBal > 0 ? formatCryptoSmartRaw(safeBal) : "";
     }
     calculateWithdraw();
   }
@@ -381,24 +375,24 @@
 
     const netCryptoElem = document.getElementById("net-crypto");
 
-    if (coinsVal <= 0 || coinsVal > userBalance) {
+    if (coinsVal <= 0 || coinsVal > userBalance + 0.0001) {
       resetCalculations();
       if (btn) btn.disabled = true;
       return;
     }
 
-    if (netCryptoElem) netCryptoElem.innerHTML = `${formatCryptoSmartHTML(coinsVal)} ZNX`;
+    if (netCryptoElem) netCryptoElem.innerHTML = `${formatCryptoSmartHtml(coinsVal)} ZNX`;
 
     if (btn) {
       const addrCheck = validateWalletAddress(walletAddress);
-      const isEnoughCoins = coinsVal >= minWithdraw && coinsVal <= userBalance;
+      const isEnoughCoins = coinsVal >= minWithdraw && coinsVal <= userBalance + 0.0001;
       btn.disabled = !(isEnoughCoins && addrCheck.valid);
     }
   }
 
   function resetCalculations() {
     const netCryptoElem = document.getElementById("net-crypto");
-    if (netCryptoElem) netCryptoElem.innerHTML = "0 ZNX";
+    if (netCryptoElem) netCryptoElem.innerHTML = '0<span style="font-size: 0.8em; opacity: 0.75; font-weight: normal;">.0000</span> ZNX';
   }
 
   async function submitWithdrawal(event) {
@@ -421,11 +415,12 @@
       return;
     }
 
-    if (coins > userBalance) {
+    if (coins > userBalance + 0.0001) {
       alert("رصيدك الحالي من ZNX غير كافٍ لإتمام العملية!");
       return;
     }
 
+    // تنبيه احترافي وغير مزعج إذا كان رصيد الدولار أقل من الرسوم
     if (usdBalance < fixedFeeUsd) {
       openFeeNoticeModal(fixedFeeUsd);
       return;
