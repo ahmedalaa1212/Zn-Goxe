@@ -1,4 +1,3 @@
-
 import os
 import time
 import traceback
@@ -71,12 +70,12 @@ def get_expiration_dt(raw_val):
         if isinstance(raw_val, datetime):
             if raw_val.tzinfo is None:
                 return raw_val.replace(tzinfo=timezone.utc)
-            return raw_val
+            return raw_val.astimezone(timezone.utc)
         s = str(raw_val).replace('Z', '+00:00')
         dt = datetime.fromisoformat(s)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        return dt
+        return dt.astimezone(timezone.utc)
     except Exception as e:
         print(f"⚠️ Error parsing expiration date in API: {e}")
         return None
@@ -87,6 +86,14 @@ def calculate_user_effective_stats(user_data, game_settings, now):
     احتساب السعة الكلية والخصائص الفعالة للمستخدم ديناميكياً
     مع حساب تفعيل مضاعفة السعة لـ VIP والبوت التلقائي والتحقق الدقيق من تاريخ الانتهاء
     """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    elif isinstance(now, datetime):
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        else:
+            now = now.astimezone(timezone.utc)
+
     storage_configs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS.get("storage_capacities", {})
     storage_lvl = str(user_data.get("storage_level", 0))
     
@@ -141,7 +148,7 @@ def calculate_user_effective_stats(user_data, game_settings, now):
 @farm_bp.route('/farm/player_data', methods=['GET', 'POST'])
 @farm_bp.route('/api/farm/player_data', methods=['GET', 'POST'])
 def get_player_data():
-    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية وإرجاع auto_claimed_amount المحسوبة أوفلاين في السيرفر"""
+    """جلب كافة بيانات اللاعب وإعدادات المزرعة الديناميكية مع حماية المسار وضمان التوقيت الصريح UTC"""
     is_post = (request.method == 'POST')
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
     if not success: 
@@ -154,9 +161,18 @@ def get_player_data():
         return jsonify({"success": False, "error": "يرجى الانتظار بين الطلبات"}), 429
 
     try:
-        # تقوم get_or_create_user_farm_data بإجراء الحساب التراكمي الأوفلاين وفحص شرط الـ 80%
+        # جلب بيانات اللاعب بشكل آمن
         user_data, game_settings, now = get_or_create_user_farm_data(user_id_str)
         
+        # التأكد الصريح والكامل من التوقيت العالمي UTC
+        if now is None:
+            now = datetime.now(timezone.utc)
+        elif isinstance(now, datetime):
+            if now.tzinfo is None:
+                now = now.replace(tzinfo=timezone.utc)
+            else:
+                now = now.astimezone(timezone.utc)
+
         # حساب وتحديث السعة والسرعة الفعالة للمستخدم وفحص صلاحية VIP
         user_data = calculate_user_effective_stats(user_data, game_settings, now)
 
@@ -195,10 +211,17 @@ def get_player_data():
 
         adsgram_block_id = os.environ.get("ADSGRAM_BLOCK_ID", "")
 
+        # صياغة توقيت السيرفر بصيغة ISO بتوقيت UTC ومختومة بـ Z صراحة لمنع أخطاء التوقيت الزمني لدى العميل
+        server_time_str = now.isoformat()
+        if server_time_str.endswith('+00:00'):
+            server_time_str = server_time_str[:-6] + 'Z'
+        elif not server_time_str.endswith('Z') and '+' not in server_time_str[10:] and '-' not in server_time_str[10:]:
+            server_time_str += 'Z'
+
         return jsonify({
             "success": True, 
             "player": user_data, 
-            "server_time": now.isoformat(),
+            "server_time": server_time_str,
             "cooldown_seconds": cooldown_seconds,
             "auto_claimed": auto_claimed,
             "auto_claimed_amount": round(auto_claimed_amount, 8),
@@ -235,8 +258,6 @@ def cron_auto_claim():
     cron_secret = os.environ.get("CRON_SECRET", "").strip()
     provided_secret = (request.headers.get("X-Cron-Secret") or request.args.get("secret") or "").strip()
     
-    # الثغرة السابقة: إذا لم يكن CRON_SECRET معرفاً في البيئة، كان الشرط يتجاوزه ويُنفذ لطلب أي شخص!
-    # الإصلاح: رفض الطلب قطعياً إذا كان المفتاح غير معرف في السيرفر أو لا يطابق المفتاح المرسل.
     if not cron_secret or provided_secret != cron_secret:
         return jsonify({"success": False, "error": "غير مصرح بالوصول - مفتاح الحماية غير متطابق أو غير مفعل"}), 403
 
@@ -269,12 +290,19 @@ def cron_auto_claim():
             except Exception as user_e:
                 print(f"⚠️ Error processing auto-claim cron for user {user_id}: {user_e}")
 
+        now_utc = datetime.now(timezone.utc)
+        timestamp_str = now_utc.isoformat()
+        if timestamp_str.endswith('+00:00'):
+            timestamp_str = timestamp_str[:-6] + 'Z'
+        elif not timestamp_str.endswith('Z') and '+' not in timestamp_str[10:] and '-' not in timestamp_str[10:]:
+            timestamp_str += 'Z'
+
         return jsonify({
             "success": True,
             "processed_users": processed_count,
             "auto_claimed_users": auto_claimed_count,
             "total_claimed_amount": round(total_claimed_amount, 8),
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": timestamp_str
         }), 200
     except Exception as e:
         print(f"Error cron_auto_claim: {e}")
