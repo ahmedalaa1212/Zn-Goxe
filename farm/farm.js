@@ -201,7 +201,10 @@ window.closeAutoClaimModal = function() {
         try {
             const serverMs = parseServerDateMs(serverTimeStr);
             if (!isNaN(serverMs)) {
-                window.serverTimeOffset = serverMs - Date.now();
+                const diff = serverMs - Date.now();
+                if (Math.abs(diff) < 86400000) {
+                    window.serverTimeOffset = diff;
+                }
             }
         } catch (e) {
             console.error("خطأ مزامنة وقت السيرفر:", e);
@@ -434,29 +437,28 @@ window.closeAutoClaimModal = function() {
         let boostRate = getActiveBoostRate(pData);
         let hRate = baseRate + boostRate;
 
-        let lastClaimStr = pData.last_claim_time;
-        let lastClaimTimeMs = lastClaimStr ? parseServerDateMs(lastClaimStr) : getAdjustedNowMs();
-        let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimTimeMs) / 1000);
-        
         let baseUnclaimed = parseFloat(pData.base_unclaimed || 0);
+        let lastAccrualMs = pData.last_accrual_time ? parseServerDateMs(pData.last_accrual_time) : (pData.last_claim_time ? parseServerDateMs(pData.last_claim_time) : getAdjustedNowMs());
+        
+        let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastAccrualMs) / 1000);
         let accumulated = baseUnclaimed + (hRate / 3600.0) * secondsPassed;
         if (accumulated >= maxC) accumulated = maxC;
 
-        const nowIso = new Date(getAdjustedNowMs()).toISOString();
+        const nowMs = getAdjustedNowMs();
 
         pData.base_unclaimed = accumulated;
         pData.unclaimed = accumulated;
-        pData.last_claim_time = nowIso;
+        pData.last_accrual_time = nowMs;
 
         if (window.userState) {
             window.userState.base_unclaimed = accumulated;
             window.userState.unclaimed = accumulated;
-            window.userState.last_claim_time = nowIso;
+            window.userState.last_accrual_time = nowMs;
         }
         if (window.PlayerData) {
             window.PlayerData.base_unclaimed = accumulated;
             window.PlayerData.unclaimed = accumulated;
-            window.PlayerData.last_claim_time = nowIso;
+            window.PlayerData.last_accrual_time = nowMs;
         }
 
         return accumulated;
@@ -513,15 +515,18 @@ window.closeAutoClaimModal = function() {
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
 
-                if (resData.last_claim_time) {
-                    window.userState.last_claim_time = resData.last_claim_time;
-                    window.PlayerData.last_claim_time = resData.last_claim_time;
-                }
+                const nowMs = getAdjustedNowMs();
+                const claimTime = resData.last_claim_time || new Date(nowMs).toISOString();
+
+                window.userState.last_claim_time = claimTime;
+                window.PlayerData.last_claim_time = claimTime;
 
                 window.userState.unclaimed = 0.0;
                 window.PlayerData.unclaimed = 0.0;
                 window.userState.base_unclaimed = 0.0;
                 window.PlayerData.base_unclaimed = 0.0;
+                window.userState.last_accrual_time = parseServerDateMs(claimTime);
+                window.PlayerData.last_accrual_time = parseServerDateMs(claimTime);
 
                 saveCachedData(window.userState);
                 window.updateFarmUI();
@@ -603,8 +608,15 @@ window.closeAutoClaimModal = function() {
                     window.PlayerData.bot_active = isBotActive;
                     window.userState.bot_active = isBotActive;
 
-                    window.userState.base_unclaimed = parseFloat(resData.player.unclaimed || 0);
-                    window.PlayerData.base_unclaimed = parseFloat(resData.player.unclaimed || 0);
+                    const serverUnclaimed = parseFloat(resData.player.unclaimed || 0);
+                    const serverTimeMs = resData.server_time ? parseServerDateMs(resData.server_time) : getAdjustedNowMs();
+
+                    window.userState.base_unclaimed = serverUnclaimed;
+                    window.PlayerData.base_unclaimed = serverUnclaimed;
+                    window.userState.unclaimed = serverUnclaimed;
+                    window.PlayerData.unclaimed = serverUnclaimed;
+                    window.userState.last_accrual_time = serverTimeMs;
+                    window.PlayerData.last_accrual_time = serverTimeMs;
 
                     if (resData.player.last_claim_ad_date) {
                         localStorage.setItem(adKey, resData.player.last_claim_ad_date);
@@ -874,11 +886,12 @@ window.closeAutoClaimModal = function() {
         let boostRate = getActiveBoostRate(pData);
         let hRate = baseRate + boostRate;
         
-        let lastClaimStr = pData.last_claim_time;
-        let lastClaimTimeMs = lastClaimStr ? parseServerDateMs(lastClaimStr) : getAdjustedNowMs();
-        
-        let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimTimeMs) / 1000);
         let baseUnclaimed = parseFloat(pData.base_unclaimed || 0);
+        let lastAccrualMs = pData.last_accrual_time 
+            ? parseServerDateMs(pData.last_accrual_time) 
+            : (pData.last_claim_time ? parseServerDateMs(pData.last_claim_time) : getAdjustedNowMs());
+        
+        let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastAccrualMs) / 1000);
         let unclaim = baseUnclaimed + (hRate / 3600.0) * secondsPassed;
 
         if (unclaim >= maxC) unclaim = maxC;
@@ -906,7 +919,10 @@ window.closeAutoClaimModal = function() {
             storageTextEl.innerText = `${formatStorageBalance(unclaim)} / ${maxC.toLocaleString('en-US', {maximumFractionDigits: 2})}`;
         }
 
-        const remainingCooldown = Math.max(0, Math.ceil(MIN_CLAIM_INTERVAL - secondsPassed));
+        let lastClaimStr = pData.last_claim_time;
+        let lastClaimTimeMs = lastClaimStr ? parseServerDateMs(lastClaimStr) : getAdjustedNowMs();
+        let secondsSinceClaim = Math.max(0, (getAdjustedNowMs() - lastClaimTimeMs) / 1000);
+        const remainingCooldown = Math.max(0, Math.ceil(MIN_CLAIM_INTERVAL - secondsSinceClaim));
 
         const claimBtn = document.getElementById('claim-btn');
         if (claimBtn) {
@@ -977,7 +993,6 @@ window.closeAutoClaimModal = function() {
         isUpgradingStorage = true;
         const stateBackup = cloneCurrentState();
 
-        const accrualTimeMs = getAdjustedNowMs();
         accrueCurrentMining();
 
         setStoredBalance(Math.max(0, bal - costZn), Math.max(0, usdBal - costUsd));
@@ -1004,21 +1019,15 @@ window.closeAutoClaimModal = function() {
                     window.PlayerData.max_cap = parseFloat(resData.max_cap);
                 }
 
-                if (resData.last_claim_time) {
-                    const serverClaimMs = parseServerDateMs(resData.last_claim_time);
-                    if (serverClaimMs >= accrualTimeMs - 3000) {
-                        window.userState.last_claim_time = resData.last_claim_time;
-                        window.PlayerData.last_claim_time = resData.last_claim_time;
-                    }
-                }
                 if (resData.unclaimed !== undefined) {
-                    const serverClaimMs = resData.last_claim_time ? parseServerDateMs(resData.last_claim_time) : 0;
-                    if (!resData.last_claim_time || serverClaimMs >= accrualTimeMs - 3000) {
-                        window.userState.unclaimed = parseFloat(resData.unclaimed);
-                        window.PlayerData.unclaimed = parseFloat(resData.unclaimed);
-                        window.userState.base_unclaimed = parseFloat(resData.unclaimed);
-                        window.PlayerData.base_unclaimed = parseFloat(resData.unclaimed);
-                    }
+                    const uVal = parseFloat(resData.unclaimed);
+                    window.userState.unclaimed = uVal;
+                    window.PlayerData.unclaimed = uVal;
+                    window.userState.base_unclaimed = uVal;
+                    window.PlayerData.base_unclaimed = uVal;
+                    const accrualMs = resData.server_time ? parseServerDateMs(resData.server_time) : getAdjustedNowMs();
+                    window.userState.last_accrual_time = accrualMs;
+                    window.PlayerData.last_accrual_time = accrualMs;
                 }
                 saveCachedData(window.userState);
                 showToast(`📦 تم ترقية سعة المخزن بنجاح إلى Level ${parseInt(resData.storage_level || nextLvl) + 1}!`);
@@ -1056,7 +1065,6 @@ window.closeAutoClaimModal = function() {
         upgradingLevel = level;
         const stateBackup = cloneCurrentState();
 
-        const accrualTimeMs = getAdjustedNowMs();
         accrueCurrentMining();
 
         setStoredBalance(Math.max(0, currentBal - costZn), Math.max(0, currentUsdBal - costUsd));
@@ -1091,21 +1099,15 @@ window.closeAutoClaimModal = function() {
                     window.PlayerData.upgrades = resData.upgrades;
                 }
 
-                if (resData.last_claim_time) {
-                    const serverClaimMs = parseServerDateMs(resData.last_claim_time);
-                    if (serverClaimMs >= accrualTimeMs - 3000) {
-                        window.userState.last_claim_time = resData.last_claim_time;
-                        window.PlayerData.last_claim_time = resData.last_claim_time;
-                    }
-                }
                 if (resData.unclaimed !== undefined) {
-                    const serverClaimMs = resData.last_claim_time ? parseServerDateMs(resData.last_claim_time) : 0;
-                    if (!resData.last_claim_time || serverClaimMs >= accrualTimeMs - 3000) {
-                        window.userState.unclaimed = parseFloat(resData.unclaimed);
-                        window.PlayerData.unclaimed = parseFloat(resData.unclaimed);
-                        window.userState.base_unclaimed = parseFloat(resData.unclaimed);
-                        window.PlayerData.base_unclaimed = parseFloat(resData.unclaimed);
-                    }
+                    const uVal = parseFloat(resData.unclaimed);
+                    window.userState.unclaimed = uVal;
+                    window.PlayerData.unclaimed = uVal;
+                    window.userState.base_unclaimed = uVal;
+                    window.PlayerData.base_unclaimed = uVal;
+                    const accrualMs = resData.server_time ? parseServerDateMs(resData.server_time) : getAdjustedNowMs();
+                    window.userState.last_accrual_time = accrualMs;
+                    window.PlayerData.last_accrual_time = accrualMs;
                 }
 
                 saveCachedData(window.userState);
@@ -1168,7 +1170,6 @@ window.closeAutoClaimModal = function() {
         isBoosting = true;
         const stateBackup = cloneCurrentState();
 
-        const accrualTimeMs = getAdjustedNowMs();
         accrueCurrentMining();
 
         try {
@@ -1179,23 +1180,8 @@ window.closeAutoClaimModal = function() {
                 if (resData.server_time) syncServerTime(resData.server_time);
 
                 if (resData.player) {
-                    const localClaimTime = window.userState.last_claim_time;
-                    const localBaseUnclaimed = window.userState.base_unclaimed;
-
                     Object.assign(window.PlayerData, resData.player);
                     Object.assign(window.userState, resData.player);
-
-                    if (resData.player.last_claim_time) {
-                        const serverClaimMs = parseServerDateMs(resData.player.last_claim_time);
-                        if (serverClaimMs < accrualTimeMs - 3000) {
-                            window.userState.last_claim_time = localClaimTime;
-                            window.PlayerData.last_claim_time = localClaimTime;
-                            window.userState.base_unclaimed = localBaseUnclaimed;
-                            window.PlayerData.base_unclaimed = localBaseUnclaimed;
-                            window.userState.unclaimed = localBaseUnclaimed;
-                            window.PlayerData.unclaimed = localBaseUnclaimed;
-                        }
-                    }
                 }
 
                 const newBal = resData.new_balance ?? resData.balance ?? resData.player?.balance;
@@ -1208,21 +1194,15 @@ window.closeAutoClaimModal = function() {
                     window.PlayerData.last_boost_time = bTime;
                 }
 
-                if (resData.last_claim_time) {
-                    const serverClaimMs = parseServerDateMs(resData.last_claim_time);
-                    if (serverClaimMs >= accrualTimeMs - 3000) {
-                        window.userState.last_claim_time = resData.last_claim_time;
-                        window.PlayerData.last_claim_time = resData.last_claim_time;
-                    }
-                }
                 if (resData.unclaimed !== undefined) {
-                    const serverClaimMs = resData.last_claim_time ? parseServerDateMs(resData.last_claim_time) : 0;
-                    if (!resData.last_claim_time || serverClaimMs >= accrualTimeMs - 3000) {
-                        window.userState.unclaimed = parseFloat(resData.unclaimed);
-                        window.PlayerData.unclaimed = parseFloat(resData.unclaimed);
-                        window.userState.base_unclaimed = parseFloat(resData.unclaimed);
-                        window.PlayerData.base_unclaimed = parseFloat(resData.unclaimed);
-                    }
+                    const uVal = parseFloat(resData.unclaimed);
+                    window.userState.unclaimed = uVal;
+                    window.PlayerData.unclaimed = uVal;
+                    window.userState.base_unclaimed = uVal;
+                    window.PlayerData.base_unclaimed = uVal;
+                    const accrualMs = resData.server_time ? parseServerDateMs(resData.server_time) : getAdjustedNowMs();
+                    window.userState.last_accrual_time = accrualMs;
+                    window.PlayerData.last_accrual_time = accrualMs;
                 }
 
                 showToast(`⚡ تم تفعيل تعزيز السرعة (+0.1 ZN/ساعة) لمدة ساعتين بنجاح!`);
@@ -1276,12 +1256,17 @@ window.closeAutoClaimModal = function() {
         if (currentUnclaimed > 0) {
             const currentBal = getStoredBalance();
             setStoredBalance(currentBal + currentUnclaimed, getStoredUsdBalance());
+            const nowMs = getAdjustedNowMs();
+            const nowIso = new Date(nowMs).toISOString();
+
             window.userState.unclaimed = 0.0;
             window.PlayerData.unclaimed = 0.0;
             window.userState.base_unclaimed = 0.0;
             window.PlayerData.base_unclaimed = 0.0;
-            window.userState.last_claim_time = new Date(getAdjustedNowMs()).toISOString();
-            window.PlayerData.last_claim_time = new Date(getAdjustedNowMs()).toISOString();
+            window.userState.last_claim_time = nowIso;
+            window.PlayerData.last_claim_time = nowIso;
+            window.userState.last_accrual_time = nowMs;
+            window.PlayerData.last_accrual_time = nowMs;
             window.updateFarmUI();
         }
 
@@ -1294,10 +1279,11 @@ window.closeAutoClaimModal = function() {
                 if (!window.userState) window.userState = {};
                 if (!window.PlayerData) window.PlayerData = {};
 
-                if (resData.last_claim_time) {
-                    window.userState.last_claim_time = resData.last_claim_time;
-                    window.PlayerData.last_claim_time = resData.last_claim_time;
-                }
+                const nowMs = getAdjustedNowMs();
+                const claimTime = resData.last_claim_time || new Date(nowMs).toISOString();
+
+                window.userState.last_claim_time = claimTime;
+                window.PlayerData.last_claim_time = claimTime;
 
                 if (resData.ads_watched !== undefined) {
                     window.userState.ads_watched = resData.ads_watched;
@@ -1315,6 +1301,8 @@ window.closeAutoClaimModal = function() {
                 window.PlayerData.unclaimed = 0.0;
                 window.userState.base_unclaimed = 0.0;
                 window.PlayerData.base_unclaimed = 0.0;
+                window.userState.last_accrual_time = parseServerDateMs(claimTime);
+                window.PlayerData.last_accrual_time = parseServerDateMs(claimTime);
 
                 saveCachedData(window.userState);
                 
