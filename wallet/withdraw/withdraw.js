@@ -1,7 +1,14 @@
 (function () {
   let userBalance = 0;
+  let usdBalance = 0;
   let userWallet = "";
-  const feePercent = 5;
+  let activeTier = {
+    tier: 1,
+    name: "الشريحة الأولى",
+    min_znx: 1000,
+    rate: 10,
+    fee_usd: 0.02
+  };
   let tonConnectUI = null;
 
   function parseInputValue(val) {
@@ -185,6 +192,7 @@
   // --- Real-time Balance Syncing ---
   function syncBalanceFromGlobal() {
     let currentZnx = null;
+    let currentUsd = null;
 
     if (window.userState && window.userState.znx_balance !== undefined) {
       currentZnx = parseFloat(window.userState.znx_balance);
@@ -192,8 +200,22 @@
       currentZnx = parseFloat(window.PlayerData.znx_balance);
     }
 
+    if (window.userState && window.userState.usd_balance !== undefined) {
+      currentUsd = parseFloat(window.userState.usd_balance);
+    }
+
+    let updated = false;
     if (currentZnx !== null && !isNaN(currentZnx) && currentZnx !== userBalance) {
       userBalance = currentZnx;
+      updated = true;
+    }
+
+    if (currentUsd !== null && !isNaN(currentUsd) && currentUsd !== usdBalance) {
+      usdBalance = currentUsd;
+      updated = true;
+    }
+
+    if (updated) {
       updateUIBalance();
       calculateWithdraw();
     }
@@ -212,12 +234,19 @@
       if (response.ok) {
         const data = await response.json();
         userBalance = parseFloat(data.znx_balance ?? data.user_balance ?? 0);
+        usdBalance = parseFloat(data.usd_balance ?? 0);
         userWallet = data.wallet_address || (data.wallets && data.wallets.ZNX) || "";
+
+        if (data.active_tier) {
+          activeTier = data.active_tier;
+        }
 
         if (window.userState) {
           window.userState.znx_balance = userBalance;
+          window.userState.usd_balance = usdBalance;
         }
 
+        updateTierDisplay();
         updateUIBalance();
         updateWalletDisplay();
       }
@@ -225,16 +254,39 @@
       console.error("خطأ جلب بيانات السحب:", err);
     }
 
-    // مزامنة لحظية فورية
     window.addEventListener('userStateUpdated', syncBalanceFromGlobal);
     if (window.withdrawBalanceInterval) clearInterval(window.withdrawBalanceInterval);
     window.withdrawBalanceInterval = setInterval(syncBalanceFromGlobal, 1500);
   }
 
+  function updateTierDisplay() {
+    const tierNameElem = document.getElementById("tier-name-display");
+    const tierTagElem = document.getElementById("tier-number-tag");
+    const tierMinElem = document.getElementById("tier-min-display");
+
+    if (tierNameElem) tierNameElem.innerText = `📊 ${activeTier.name}`;
+    if (tierTagElem) tierTagElem.innerText = `الشريحة ${activeTier.tier}`;
+    if (tierMinElem) tierMinElem.innerText = `${activeTier.min_znx.toLocaleString()} ZNX`;
+  }
+
   function updateUIBalance() {
     const userBalDisplay = document.getElementById("user-balance-display");
+    const usdBalDisplay = document.getElementById("usd-balance-display");
+    const usdWarnBox = document.getElementById("usd-warning-box");
+
     if (userBalDisplay) {
       userBalDisplay.innerText = `رصيدك: ${formatCryptoSmart(userBalance)} ZNX`;
+    }
+    if (usdBalDisplay) {
+      usdBalDisplay.innerText = `| الدولار: $${usdBalance.toFixed(4)}`;
+    }
+
+    if (usdWarnBox) {
+      if (usdBalance < 0.02) {
+        usdWarnBox.style.display = "block";
+      } else {
+        usdWarnBox.style.display = "none";
+      }
     }
   }
 
@@ -296,29 +348,33 @@
     const feeAmount = document.getElementById("fee-amount");
     const netCryptoElem = document.getElementById("net-crypto");
 
+    if (feeAmount) feeAmount.innerText = "0.02$";
+
     if (coinsVal <= 0 || coinsVal > userBalance) {
       resetCalculations();
       if (btn) btn.disabled = true;
       return;
     }
 
-    const feeCoins = coinsVal * (feePercent / 100);
-    const netCoins = coinsVal - feeCoins;
+    if (netCryptoElem) netCryptoElem.innerText = `${formatCryptoSmart(coinsVal)} ZNX`;
 
-    if (feeAmount) feeAmount.innerText = `${formatCryptoSmart(feeCoins)} ZNX (${feePercent}%)`;
-    if (netCryptoElem) netCryptoElem.innerText = `${formatCryptoSmart(netCoins)} ZNX`;
+    const addrCheck = validateWalletAddress(walletAddress);
+    const satisfiesMin = coinsVal >= activeTier.min_znx;
+    const hasEnoughUsd = usdBalance >= 0.02;
 
     if (btn) {
-      const addrCheck = validateWalletAddress(walletAddress);
-      btn.disabled = !(coinsVal > 0 && coinsVal <= userBalance && addrCheck.valid);
+      btn.disabled = !(
+        coinsVal > 0 &&
+        coinsVal <= userBalance &&
+        satisfiesMin &&
+        hasEnoughUsd &&
+        addrCheck.valid
+      );
     }
   }
 
   function resetCalculations() {
-    const feeAmount = document.getElementById("fee-amount");
     const netCryptoElem = document.getElementById("net-crypto");
-
-    if (feeAmount) feeAmount.innerText = "0.0000 ZNX";
     if (netCryptoElem) netCryptoElem.innerText = "0.0000 ZNX";
   }
 
@@ -342,8 +398,18 @@
       return;
     }
 
+    if (coins < activeTier.min_znx) {
+      alert(`⚠️ الحد الأدنى للسحب في ${activeTier.name} هو ${activeTier.min_znx.toLocaleString()} ZNX.`);
+      return;
+    }
+
     if (coins > userBalance) {
-      alert("رصيدك الحالي غير كافٍ لإتمام العملية!");
+      alert("رصيدك الحالي من ZNX غير كافٍ لإتمام العملية!");
+      return;
+    }
+
+    if (usdBalance < 0.02) {
+      alert("⚠️ رصيدك من الدولار غير كافٍ لسداد رسوم السحب (0.02$).");
       return;
     }
 
@@ -369,7 +435,13 @@
       if (data && data.success) {
         alert(data.message || "تم تقديم طلب السحب بنجاح!");
         userBalance = data.new_balance !== undefined ? data.new_balance : (userBalance - coins);
-        if (window.userState) window.userState.znx_balance = userBalance;
+        usdBalance = data.new_usd_balance !== undefined ? data.new_usd_balance : Math.max(0, usdBalance - 0.02);
+
+        if (window.userState) {
+          window.userState.znx_balance = userBalance;
+          window.userState.usd_balance = usdBalance;
+        }
+
         if (coinsInput) coinsInput.value = "";
         updateUIBalance();
         resetCalculations();
