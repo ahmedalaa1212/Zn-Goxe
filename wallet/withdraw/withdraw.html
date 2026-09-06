@@ -3,22 +3,18 @@
 <style>
   .withdraw-wrapper { padding: 14px; color: #f8fafc; font-family: 'Cairo', system-ui, sans-serif; direction: rtl; max-width: 480px; margin: 0 auto; }
   .w-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 18px; padding: 18px; margin-bottom: 16px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3); }
-  .w-title { font-size: 15px; font-weight: 700; margin-bottom: 14px; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .w-title { font-size: 15px; font-weight: 700; margin-bottom: 14px; color: #38bdf8; display: flex; justify-content: space-between; align-items: center; }
   
-  .tier-badge-card { background: linear-gradient(135deg, rgba(56, 189, 248, 0.1), rgba(16, 185, 129, 0.1)); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 14px; padding: 12px; margin-bottom: 16px; font-size: 13px; line-height: 1.6; }
-  .tier-title { color: #38bdf8; font-weight: bold; font-size: 14px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
-  .tier-detail-item { display: flex; justify-content: space-between; color: #cbd5e1; font-size: 12px; margin-top: 4px; }
-  .tier-val { font-weight: bold; color: #fbbf24; }
-
   .w-input-group { margin-bottom: 14px; }
   .w-label { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #94a3b8; margin-bottom: 6px; font-weight: 600; }
   .user-bal-tag { color: #fbbf24; font-weight: bold; font-size: 13px; }
-  .usd-bal-tag { color: #4ade80; font-weight: bold; font-size: 12px; }
 
+  /* حاوية مدخل الرقم مع زر MAX بالداخل */
   .w-input-wrapper { position: relative; display: flex; align-items: center; width: 100%; }
   .w-input { width: 100%; background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 12px 75px 12px 14px; color: #38bdf8; font-size: 16px; font-weight: bold; box-sizing: border-box; outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
   .w-input:focus { border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.15); }
   
+  /* تصميم زر MAX بداخل المربع بشكل احترافي */
   .btn-max { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); background: linear-gradient(135deg, #0284c7, #38bdf8); color: #ffffff; border: none; padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 2px 6px rgba(56, 189, 248, 0.25); }
   .btn-max:hover { opacity: 0.9; transform: translateY(-50%) scale(1.02); }
   .btn-max:active { transform: translateY(-50%) scale(0.95); }
@@ -31,7 +27,6 @@
 
   .notice-box { padding: 12px; border-radius: 12px; font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
   .notice-info { background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); color: #93c5fd; }
-  .notice-warn { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5; display: none; }
 
   .btn-submit-withdraw { width: 100%; background: linear-gradient(135deg, #10b981, #0284c7); color: #fff; border: none; padding: 15px; border-radius: 14px; font-size: 16px; font-weight: bold; cursor: pointer; transition: transform 0.1s, opacity 0.2s; }
   .btn-submit-withdraw:active { transform: scale(0.98); }
@@ -52,26 +47,11 @@
 </style>
 
 <div class="withdraw-wrapper">
-  <!-- 0. كارت الشريحة الحالية -->
-  <div class="tier-badge-card">
-    <div class="tier-title">
-      <span id="tier-name-display">📊 الشريحة الحالية: جاري التحميل...</span>
-      <span class="fee-val" id="tier-number-tag">--</span>
-    </div>
-    <div class="tier-detail-item">
-      <span>الحد الأدنى للسحب:</span>
-      <span id="tier-min-display" class="tier-val">1,000 ZNX</span>
-    </div>
-    <div class="tier-detail-item">
-      <span>رسوم السحب الثابتة:</span>
-      <span class="tier-val">0.02$ (من رصيد الدولار)</span>
-    </div>
-  </div>
-
   <!-- 1. ربط محفظة TON الحقيقية -->
   <div class="w-card">
     <div class="w-title">
       <span>🪙 عملة السحب: ZNX</span>
+      <span id="tier-badge" style="font-size:12px; color:#38bdf8; background:rgba(56,189,248,0.15); padding:3px 8px; border-radius:6px;">الشريحة الأولى</span>
     </div>
 
     <div class="w-input-group">
@@ -92,14 +72,14 @@
   <div class="w-card">
     <div class="w-title">
       <span>طلب سحب ZNX</span>
-      <div>
-        <span id="user-balance-display" class="user-bal-tag">رصيدك: 0.0000 ZNX</span>
-        <span id="usd-balance-display" class="usd-bal-tag" style="display:block; text-align: left;">| الدولار: $0.0000</span>
-      </div>
+      <span id="user-balance-display" class="user-bal-tag">رصيدك: 0.0000 ZNX</span>
     </div>
 
     <div class="w-input-group">
-      <label class="w-label" for="coins-input">عدد عملات ZNX المراد سحبها:</label>
+      <label class="w-label" for="coins-input">
+        <span>عدد عملات ZNX المراد سحبها:</span>
+        <span id="min-withdraw-info" style="color:#f59e0b; font-size:11px;">الحد الأدنى: 1000 ZNX</span>
+      </label>
       <div class="w-input-wrapper">
         <input type="number" id="coins-input" class="w-input" placeholder="أدخل الكمية هنا..." min="0.000001" step="any" />
         <button type="button" class="btn-max" onclick="withdrawModule.setPreset('max')">MAX 🚀</button>
@@ -108,8 +88,12 @@
 
     <div class="fee-details">
       <div class="fee-row">
-        <span>رسوم السحب (تقتطع من الدولار):</span>
-        <span id="fee-amount" class="fee-val">0.02$</span>
+        <span>رسوم السحب الثابتة:</span>
+        <span id="fee-amount" class="fee-val">$0.02 USD (من رصيد الدولار)</span>
+      </div>
+      <div class="fee-row">
+        <span>رصيد الدولار المتاح لديك:</span>
+        <span id="usd-balance-display" class="fee-val" style="color:#38bdf8;">$0.00 USD</span>
       </div>
       <div class="fee-row">
         <span>الصافي النهائي المستلم:</span>
@@ -118,11 +102,7 @@
     </div>
 
     <div class="notice-box notice-info">
-      ℹ️ يتم اقتطاع رسوم 0.02$ ثابتة تلقائيًا من رصيد الدولار لديك، وتصلك عملات ZNX مباشرة على محفظة TON المربوطة.
-    </div>
-
-    <div id="usd-warning-box" class="notice-box notice-warn">
-      ⚠️ رصيدك الحالي من الدولار غير كافٍ لسداد رسوم السحب (0.02$).
+      ℹ️ تقتطع رسوم السحب <strong>$0.02 ثابتة</strong> من رصيد الدولار الخاص بك، وتصلك العملات بالكامل على محفظة TON المربوطة.
     </div>
 
     <button type="button" id="confirm-withdraw-btn" class="btn-submit-withdraw" disabled onclick="withdrawModule.submitWithdrawal(event)">
