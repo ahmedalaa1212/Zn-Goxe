@@ -3,6 +3,12 @@ from datetime import datetime, timezone, timedelta
 from google.cloud import firestore
 from database import get_db
 
+# ==================== ثوابت وحدود الأمان القصوى (Sanity Checks Limits) ====================
+MAX_SAFE_BALANCE = 1000000000.0     # الحد الأقصى المسموح به للرصيد (1 مليار ZN)
+MAX_SAFE_HOURLY_RATE = 500.0        # الحد الأقصى لمعدل التعدين بالساعة (500 ZN/h)
+MAX_SAFE_STORAGE_CAP = 5000.0       # الحد الأقصى لسعة المخزن (5000 ZN)
+FUTURE_SKEW_TOLERANCE_SEC = 300     # التسامح المسموح لفرق التوقيت المستقبلي (5 دقائق)
+
 def to_bool(val):
     """تحويل قيم البوليان بشكل صحيح وآمن من القراءات المختلفة"""
     if isinstance(val, bool):
@@ -13,52 +19,76 @@ def to_bool(val):
         return val != 0
     return False
 
+
+def safe_parse_datetime(dt_raw, default_dt=None):
+    """معالجة آمنة لتحويل أي تاريخ أو ختم زمني إلى UTC مع حماية ضد التواريخ غير المنطقية"""
+    if dt_raw is None:
+        return default_dt
+    try:
+        if isinstance(dt_raw, (int, float)):
+            # حماية ضد أختام زمنية سالبة أو مستقبلية شاذة جداً (بعد عام 2100)
+            if dt_raw < 0 or dt_raw > 4102444800:
+                return default_dt
+            return datetime.fromtimestamp(dt_raw, tz=timezone.utc)
+        elif isinstance(dt_raw, datetime):
+            if dt_raw.tzinfo is None:
+                return dt_raw.replace(tzinfo=timezone.utc)
+            return dt_raw.astimezone(timezone.utc)
+        else:
+            s = str(dt_raw).strip().replace('Z', '+00:00')
+            dt = datetime.fromisoformat(s)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+    except Exception:
+        return default_dt
+
+
 # ==================== Caching لتوفير قراءات Firestore ====================
 _SETTINGS_CACHE = {"data": None, "timestamp": 0}
 CACHE_TTL_SECONDS = 15
 
-# ==================== الإعدادات الافتراضية الاقتصادية الجديدة ====================
+# ==================== الإعدادات الافتراضية الاقتصادية ====================
 DEFAULT_GAME_SETTINGS = {
-    # مصفوفة الـ 30 يوم الجديدة تبدأ بـ 0.2 ZN في اليوم الأول وتنتهي بـ 40 ZN في اليوم الـ 30
     "daily_rewards": [
         0.20, 0.30, 0.40, 0.50, 0.60, 0.80, 1.00, 1.20, 1.50, 2.00,
         2.50, 3.00, 3.50, 4.00, 5.00, 6.00, 7.00, 8.00, 10.0, 12.0,
         14.0, 16.0, 18.0, 20.0, 24.0, 28.0, 32.0, 35.0, 38.0, 40.0
     ],
     "mining_config": {
-        "daily_boost_reward": 0.10, # +0.1 ZN/ساعة عند التفعيل
+        "daily_boost_reward": 0.10,
         "max_daily_boost_rate": 4.5,
         "boost_max_reward_coins": 35.0,
         "claim_cooldown_seconds": 15,
-        "base_free_rate": 0.10,  # +0.1 ZN في الساعة للمستوى المجاني الأول
+        "base_free_rate": 0.10,
         "max_upgrades_per_level": 15
     },
     "storage_capacities": {
-        "0": {"capacity": 0.5, "cost_zn": 0.0, "cost_usd": 0.0},     # مستوى 1 (مجاني)
-        "1": {"capacity": 1.5, "cost_zn": 50.0, "cost_usd": 0.0},    # مستوى 2
-        "2": {"capacity": 4.0, "cost_zn": 200.0, "cost_usd": 0.20},  # مستوى 3
-        "3": {"capacity": 10.0, "cost_zn": 800.0, "cost_usd": 0.50},  # مستوى 4
-        "4": {"capacity": 25.0, "cost_zn": 2500.0, "cost_usd": 1.00}, # مستوى 5
-        "5": {"capacity": 60.0, "cost_zn": 7000.0, "cost_usd": 2.50}, # مستوى 6
-        "6": {"capacity": 150.0, "cost_zn": 20000.0, "cost_usd": 5.00}, # مستوى 7
-        "7": {"capacity": 400.0, "cost_zn": 50000.0, "cost_usd": 10.00}, # مستوى 8
-        "8": {"capacity": 1000.0, "cost_zn": 120000.0, "cost_usd": 20.00} # مستوى 9
+        "0": {"capacity": 0.5, "cost_zn": 0.0, "cost_usd": 0.0},
+        "1": {"capacity": 1.5, "cost_zn": 50.0, "cost_usd": 0.0},
+        "2": {"capacity": 4.0, "cost_zn": 200.0, "cost_usd": 0.20},
+        "3": {"capacity": 10.0, "cost_zn": 800.0, "cost_usd": 0.50},
+        "4": {"capacity": 25.0, "cost_zn": 2500.0, "cost_usd": 1.00},
+        "5": {"capacity": 60.0, "cost_zn": 7000.0, "cost_usd": 2.50},
+        "6": {"capacity": 150.0, "cost_zn": 20000.0, "cost_usd": 5.00},
+        "7": {"capacity": 400.0, "cost_zn": 50000.0, "cost_usd": 10.00},
+        "8": {"capacity": 1000.0, "cost_zn": 120000.0, "cost_usd": 20.00}
     },
     "upgrade_config": {
-        "1": {"cost_zn": 100.0, "cost_usd": 0.0, "rate_bonus": 0.20},    # ترقية مستوى 2 (+0.2 ZN/h)
-        "2": {"cost_zn": 400.0, "cost_usd": 0.25, "rate_bonus": 0.50},   # ترقية مستوى 3 (+0.5 ZN/h)
-        "3": {"cost_zn": 1500.0, "cost_usd": 0.60, "rate_bonus": 1.20},  # ترقية مستوى 4 (+1.2 ZN/h)
-        "4": {"cost_zn": 5000.0, "cost_usd": 1.25, "rate_bonus": 2.80},  # ترقية مستوى 5 (+2.8 ZN/h)
-        "5": {"cost_zn": 15000.0, "cost_usd": 3.00, "rate_bonus": 6.00}, # ترقية مستوى 6 (+6.0 ZN/h)
-        "6": {"cost_zn": 40000.0, "cost_usd": 6.00, "rate_bonus": 14.00}, # ترقية مستوى 7 (+14.0 ZN/h)
-        "7": {"cost_zn": 100000.0, "cost_usd": 12.00, "rate_bonus": 30.00}, # ترقية مستوى 8 (+30.0 ZN/h)
-        "8": {"cost_zn": 250000.0, "cost_usd": 25.00, "rate_bonus": 70.00}  # ترقية مستوى 9 (+70.0 ZN/h)
+        "1": {"cost_zn": 100.0, "cost_usd": 0.0, "rate_bonus": 0.20},
+        "2": {"cost_zn": 400.0, "cost_usd": 0.25, "rate_bonus": 0.50},
+        "3": {"cost_zn": 1500.0, "cost_usd": 0.60, "rate_bonus": 1.20},
+        "4": {"cost_zn": 5000.0, "cost_usd": 1.25, "rate_bonus": 2.80},
+        "5": {"cost_zn": 15000.0, "cost_usd": 3.00, "rate_bonus": 6.00},
+        "6": {"cost_zn": 40000.0, "cost_usd": 6.00, "rate_bonus": 14.00},
+        "7": {"cost_zn": 100000.0, "cost_usd": 12.00, "rate_bonus": 30.00},
+        "8": {"cost_zn": 250000.0, "cost_usd": 25.00, "rate_bonus": 70.00}
     }
 }
 
 
 def create_default_user_data_dict(user_id_str, game_settings, now_dt):
-    """إنشاء الهيكل الافتراضي لبيانات المستخدم بالتوقيت العالمي UTC وقيم بدقة عالية (DECIMAL/REAL 8)"""
+    """إنشاء الهيكل الافتراضي لبيانات المستخدم بالتوقيت العالمي UTC"""
     mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
     base_free_rate = float(mining_cfg.get("base_free_rate", 0.10))
     base_cap = get_base_storage_capacity(0, game_settings)
@@ -83,7 +113,7 @@ def create_default_user_data_dict(user_id_str, game_settings, now_dt):
         "last_claim_time": now_iso,
         "last_daily_claim_date": None,
         "last_boost_date": None,
-        "last_boost_time": None, # تم تسجيل زمن آخر تفعيل لمعزز السرعة
+        "last_boost_time": None,
         "last_claim_ad_date": None,
         "ads_watched": 0,
         "upgrades": {},
@@ -123,7 +153,7 @@ def get_game_settings(force_refresh=False):
 def parse_daily_rewards(rewards_data):
     """تحليل قائمة المكافآت اليومية بأمان لدعم قيم الفلوت"""
     if isinstance(rewards_data, list) and len(rewards_data) > 0:
-        return [float(x) for x in rewards_data]
+        return [max(0.0, min(float(x), 1000.0)) for x in rewards_data]
     if isinstance(rewards_data, dict):
         res = []
         for i in range(1, 31):
@@ -132,7 +162,7 @@ def parse_daily_rewards(rewards_data):
                 val = rewards_data.get(str(i))
             if val is None:
                 val = DEFAULT_GAME_SETTINGS["daily_rewards"][i-1]
-            res.append(float(val))
+            res.append(max(0.0, min(float(val), 1000.0)))
         return res
     return [float(x) for x in DEFAULT_GAME_SETTINGS["daily_rewards"]]
 
@@ -154,24 +184,25 @@ def get_base_storage_capacity(storage_level, settings=None):
         val = caps.get(lvl)
 
     if isinstance(val, dict):
-        return float(val.get("capacity", 0.5))
+        return min(float(val.get("capacity", 0.5)), MAX_SAFE_STORAGE_CAP)
     elif val is not None:
-        return float(val)
+        return min(float(val), MAX_SAFE_STORAGE_CAP)
     return 0.5
 
 
 def calculate_user_max_cap(user_data, settings=None):
-    """حساب أقصى سعة للمخزن المؤقت للمستخدم"""
+    """حساب أقصى سعة للمخزن المؤقت للمستخدم مع تطبيق فحص الحدود القصوى"""
     if not settings:
         settings = get_game_settings()
     stg_lvl = user_data.get("storage_level", 0)
     base_cap = get_base_storage_capacity(stg_lvl, settings)
-    extra_cap = float(user_data.get("extra_storage", 0.0))
-    return round(base_cap + extra_cap, 4)
+    extra_cap = max(0.0, float(user_data.get("extra_storage", 0.0)))
+    total_cap = base_cap + extra_cap
+    return min(round(total_cap, 4), MAX_SAFE_STORAGE_CAP)
 
 
 def get_bot_expiration_dt(user_data):
-    """استخراج تاريخ ووقت انتهاء باقة البوت/VIP إن وجد بشكل دقيق"""
+    """استخراج تاريخ ووقت انتهاء باقة البوت/VIP إن وجد بشكل دقيق مع حماية التاريخ"""
     vip_info = user_data.get("vip_status")
     expires_at_raw = None
 
@@ -181,94 +212,64 @@ def get_bot_expiration_dt(user_data):
     if not expires_at_raw:
         expires_at_raw = user_data.get("bot_expires_at") or user_data.get("expires_at") or user_data.get("vip_expires_at") or user_data.get("vip_expire_date")
 
-    if not expires_at_raw:
-        return None
-
-    try:
-        if isinstance(expires_at_raw, (int, float)):
-            return datetime.fromtimestamp(expires_at_raw, tz=timezone.utc)
-        elif isinstance(expires_at_raw, datetime):
-            exp_dt = expires_at_raw
-            if exp_dt.tzinfo is None:
-                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
-            return exp_dt
-        else:
-            exp_s = str(expires_at_raw).replace('Z', '+00:00')
-            exp_dt = datetime.fromisoformat(exp_s)
-            if exp_dt.tzinfo is None:
-                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
-            return exp_dt
-    except Exception as e:
-        print(f"⚠️ Error parsing bot expiration date: {e}")
-        return None
+    return safe_parse_datetime(expires_at_raw)
 
 
 def _calculate_interval_mined(hourly_rate, start_dt, end_dt, last_boost_str=None):
-    """حساب الكمية المعدنة الدقيقة بين نقطتين زمنيتين مع احتساب معزز السرعة المكتسب"""
-    if end_dt <= start_dt:
+    """حساب الكمية المعدنة الدقيقة بين نقطتين زمنيتين مع معالجة التواريخ والسرعة الفائقة"""
+    if not start_dt or not end_dt or end_dt <= start_dt:
         return 0.0
     
+    # حماية ضد المعدلات السلبية أو المتضخمة جداً
+    safe_rate = max(0.0, min(float(hourly_rate), MAX_SAFE_HOURLY_RATE))
     seconds_passed = (end_dt - start_dt).total_seconds()
-    base_mined = (hourly_rate / 3600.0) * seconds_passed
+    
+    # منع التعدين لمقادير زمنية سلبية أو خيالية (أكثر من سنة غياب دفعة واحدة)
+    if seconds_passed <= 0:
+        return 0.0
+    if seconds_passed > 31536000: # 365 يوم max
+        seconds_passed = 31536000
+
+    base_mined = (safe_rate / 3600.0) * seconds_passed
 
     boost_bonus = 0.0
     if last_boost_str:
-        try:
-            if isinstance(last_boost_str, (int, float)):
-                boost_start = datetime.fromtimestamp(last_boost_str, tz=timezone.utc)
-            else:
-                lb_s = str(last_boost_str).replace('Z', '+00:00')
-                boost_start = datetime.fromisoformat(lb_s)
-                if boost_start.tzinfo is None:
-                    boost_start = boost_start.replace(tzinfo=timezone.utc)
-
+        boost_start = safe_parse_datetime(last_boost_str)
+        if boost_start:
             boost_end = boost_start + timedelta(hours=2) # مدة المعزز 2 ساعة
-            
             overlap_start = max(start_dt, boost_start)
             overlap_end = min(end_dt, boost_end)
 
             if overlap_end > overlap_start:
                 boosted_seconds = (overlap_end - overlap_start).total_seconds()
                 boost_bonus = (0.10 / 3600.0) * boosted_seconds
-        except Exception as be:
-            print(f"⚠️ Error parsing last_boost_time in interval calculation: {be}")
 
     return base_mined + boost_bonus
 
 
 def calculate_accrued_mined(user_data, now_dt, max_cap, ignore_cap=False):
-    """حساب الكمية المعدنة الحالية بدقة 8 خانات عشرية بالتوقيت العالمي UTC شاملاً السرعة الإضافية للمعزز"""
+    """حساب الكمية المعدنة الحالية بدقة مع معالجة اختلال التوقيت وتحديد السقف"""
     last_claim_str = user_data.get("last_claim_time")
-    hourly_rate = float(user_data.get("hourly_rate", 0.10))
-    base_unclaimed = float(user_data.get("base_unclaimed", user_data.get("unclaimed", 0.0)))
+    hourly_rate = min(float(user_data.get("hourly_rate", 0.10)), MAX_SAFE_HOURLY_RATE)
+    base_unclaimed = max(0.0, float(user_data.get("base_unclaimed", user_data.get("unclaimed", 0.0))))
 
-    if not last_claim_str:
-        res = base_unclaimed if ignore_cap else min(base_unclaimed, max_cap)
-        return round(res, 8)
+    last_claim = safe_parse_datetime(last_claim_str, now_dt)
+    
+    # معالجة حالة المستقبل (تلاعب بالساعة): إذا كان التاريخ أسبق من الآن بصورة شاذة
+    if last_claim > (now_dt + timedelta(seconds=FUTURE_SKEW_TOLERANCE_SEC)):
+        last_claim = now_dt
 
-    try:
-        if isinstance(last_claim_str, (int, float)):
-            last_claim = datetime.fromtimestamp(last_claim_str, tz=timezone.utc)
-        else:
-            last_claim_s = str(last_claim_str).replace('Z', '+00:00')
-            last_claim = datetime.fromisoformat(last_claim_s)
-            if last_claim.tzinfo is None:
-                last_claim = last_claim.replace(tzinfo=timezone.utc)
-
-        mined = base_unclaimed + _calculate_interval_mined(hourly_rate, last_claim, now_dt, user_data.get("last_boost_time"))
-        if ignore_cap:
-            return round(mined, 8)
-        return round(min(mined, max_cap), 8)
-    except Exception as e:
-        print(f"⚠️ Error parsing last_claim_time: {e}")
-        res = base_unclaimed if ignore_cap else min(base_unclaimed, max_cap)
-        return round(res, 8)
+    mined = base_unclaimed + _calculate_interval_mined(hourly_rate, last_claim, now_dt, user_data.get("last_boost_time"))
+    
+    if ignore_cap:
+        return round(mined, 8)
+    return round(min(mined, max_cap), 8)
 
 
 def dismiss_welcome_db(user_id_str):
     """تعيين حالة مشاهدة النافذة الترحيبية لمنع ظهورها مجدداً"""
     db = get_db()
-    user_ref = db.collection('users').document(user_id_str)
+    user_ref = db.collection('users').document(str(user_id_str))
     user_ref.set({"welcome_seen": True, "is_new_user": False}, merge=True)
     return {"success": True, "welcome_seen": True, "is_new_user": False}
 
@@ -278,7 +279,6 @@ def calculate_user_effective_stats(user_data, game_settings=None, now_dt=None):
     if now_dt is None:
         now_dt = datetime.now(timezone.utc)
 
-    # فحص حالة البوت المباشرة أو المخزنة داخل كائن vip_status الفرعي
     raw_bot_flag = to_bool(user_data.get("bot_active", user_data.get("has_bot", user_data.get("is_auto_bot_active", False))))
     
     vip_info = user_data.get("vip_status")
@@ -293,6 +293,11 @@ def calculate_user_effective_stats(user_data, game_settings=None, now_dt=None):
         if exp_dt is None or exp_dt > now_dt:
             is_active = True
 
+    # تطبيق Sanity checks إضافية على الأرصدة
+    user_data["balance"] = min(max(0.0, float(user_data.get("balance", 0.0))), MAX_SAFE_BALANCE)
+    user_data["usd_balance"] = min(max(0.0, float(user_data.get("usd_balance", 0.0))), 1000000.0)
+    user_data["hourly_rate"] = min(max(0.10, float(user_data.get("hourly_rate", 0.10))), MAX_SAFE_HOURLY_RATE)
+
     user_data["bot_active"] = is_active
     user_data["is_auto_bot_active"] = is_active
     return user_data
@@ -301,7 +306,8 @@ def calculate_user_effective_stats(user_data, game_settings=None, now_dt=None):
 def get_or_create_user_farm_data(user_id_str):
     """جلب وتجهيز كافة بيانات المستخدم الخاصة بالمزرعة وتطبيق الحساب التراكمي في السيرفر (Backend Offline Calculation)"""
     db = get_db()
-    user_ref = db.collection('users').document(user_id_str)
+    str_uid = str(user_id_str)
+    user_ref = db.collection('users').document(str_uid)
     user_doc = user_ref.get()
     now = datetime.now(timezone.utc)
     game_settings = get_game_settings()
@@ -309,7 +315,7 @@ def get_or_create_user_farm_data(user_id_str):
     base_free_rate = float(mining_cfg.get("base_free_rate", 0.10))
 
     if not user_doc.exists:
-        user_data = create_default_user_data_dict(user_id_str, game_settings, now)
+        user_data = create_default_user_data_dict(str_uid, game_settings, now)
         user_ref.set(user_data)
     else:
         user_data = user_doc.to_dict() or {}
@@ -329,6 +335,8 @@ def get_or_create_user_farm_data(user_id_str):
         current_hr = float(user_data.get("hourly_rate", 0.0))
         if current_hr < base_free_rate and not user_data.get("upgrades"):
             auto_fix["hourly_rate"] = base_free_rate
+        elif current_hr > MAX_SAFE_HOURLY_RATE:
+            auto_fix["hourly_rate"] = MAX_SAFE_HOURLY_RATE
 
         if "daily_boost_rate" not in user_data: auto_fix["daily_boost_rate"] = 0.00
         if "last_boost_time" not in user_data: auto_fix["last_boost_time"] = None
@@ -353,12 +361,12 @@ def get_or_create_user_farm_data(user_id_str):
             user_ref.update(auto_fix)
             user_data.update(auto_fix)
 
-    # 1. تحديث وتدقيق صلاحية البوت/VIP أولاً قبل الحساب التراكمي
+    # 1. تحديث وتدقيق صلاحية البوت/VIP والحدود الأقصى
     user_data = calculate_user_effective_stats(user_data, game_settings, now)
 
     expected_max_cap = calculate_user_max_cap(user_data, game_settings)
     user_data["max_cap"] = expected_max_cap
-    user_data["balance"] = round(float(user_data.get("balance", 0.0)), 8)
+    user_data["balance"] = round(min(float(user_data.get("balance", 0.0)), MAX_SAFE_BALANCE), 8)
     user_data["usd_balance"] = round(float(user_data.get("usd_balance", 0.0)), 8)
     user_data["mined_points"] = round(float(user_data.get("mined_points", user_data.get("total_mined", 0.0))), 8)
     user_data["total_mined"] = user_data["mined_points"]
@@ -367,37 +375,27 @@ def get_or_create_user_farm_data(user_id_str):
     # ====================================================================
     # منطق التجميع التراكمي في السيرفر (Backend Offline Calculation)
     # ====================================================================
-    last_claim_str = user_data.get("last_claim_time")
-    try:
-        if isinstance(last_claim_str, (int, float)):
-            last_claim_dt = datetime.fromtimestamp(last_claim_str, tz=timezone.utc)
-        else:
-            last_claim_s = str(last_claim_str).replace('Z', '+00:00')
-            last_claim_dt = datetime.fromisoformat(last_claim_s)
-            if last_claim_dt.tzinfo is None:
-                last_claim_dt = last_claim_dt.replace(tzinfo=timezone.utc)
-    except Exception:
+    last_claim_dt = safe_parse_datetime(user_data.get("last_claim_time"), now)
+    if last_claim_dt > (now + timedelta(seconds=FUTURE_SKEW_TOLERANCE_SEC)):
         last_claim_dt = now
 
     is_bot_active = user_data.get("bot_active", False)
     exp_dt = get_bot_expiration_dt(user_data)
-    hourly_rate = float(user_data.get("hourly_rate", 0.10))
+    hourly_rate = min(float(user_data.get("hourly_rate", 0.10)), MAX_SAFE_HOURLY_RATE)
     last_boost_str = user_data.get("last_boost_time")
 
     auto_claimed_amount = 0.0
     db_updates = {}
 
-    # إذا كان البوت مفعلاً حالياً أو كان مفعلاً أثناء فترة غياب المستخدم
     if is_bot_active or (exp_dt and exp_dt > last_claim_dt):
         bot_end_dt = min(now, exp_dt) if exp_dt else now
         bot_mined = _calculate_interval_mined(hourly_rate, last_claim_dt, bot_end_dt, last_boost_str)
         accumulated_offline = round(user_data["base_unclaimed"] + bot_mined, 8)
         threshold_80 = round(expected_max_cap * 0.8, 8)
 
-        # فحص الوصول لنسبة 80% من سعة المخزن القصوى
         if accumulated_offline >= threshold_80:
             auto_claimed_amount = accumulated_offline
-            user_data["balance"] = round(user_data["balance"] + auto_claimed_amount, 8)
+            user_data["balance"] = round(min(user_data["balance"] + auto_claimed_amount, MAX_SAFE_BALANCE), 8)
             user_data["mined_points"] = round(user_data["mined_points"] + auto_claimed_amount, 8)
             user_data["total_mined"] = user_data["mined_points"]
             user_data["base_unclaimed"] = 0.0
@@ -411,7 +409,6 @@ def get_or_create_user_farm_data(user_id_str):
             db_updates["unclaimed"] = 0.0
             db_updates["last_claim_time"] = user_data["last_claim_time"]
 
-            # إذا انتهت صلاحية البوت في منتصف فترة الغياب واستمر التعدين اليدوي بعد ذلك
             if bot_end_dt < now:
                 post_bot_mined = _calculate_interval_mined(hourly_rate, bot_end_dt, now, last_boost_str)
                 user_data["unclaimed"] = round(min(post_bot_mined, expected_max_cap), 8)
@@ -419,7 +416,6 @@ def get_or_create_user_farm_data(user_id_str):
                 db_updates["unclaimed"] = user_data["unclaimed"]
                 db_updates["base_unclaimed"] = user_data["base_unclaimed"]
         else:
-            # لم يصل إلى 80% بعد -> يظل التعدين معلقاً في المخزن
             user_data["base_unclaimed"] = accumulated_offline
             user_data["unclaimed"] = accumulated_offline
             db_updates["base_unclaimed"] = accumulated_offline
@@ -439,7 +435,6 @@ def get_or_create_user_farm_data(user_id_str):
         db_updates["bot_active"] = is_currently_active
         db_updates["is_auto_bot_active"] = is_currently_active
     else:
-        # البوت غير مفعل -> تعدين يدوي ويتوقف عند السعة القصوى max_cap
         manual_mined = user_data["base_unclaimed"] + _calculate_interval_mined(hourly_rate, last_claim_dt, now, last_boost_str)
         user_data["unclaimed"] = round(min(manual_mined, expected_max_cap), 8)
         user_data["base_unclaimed"] = user_data["unclaimed"]
@@ -450,14 +445,12 @@ def get_or_create_user_farm_data(user_id_str):
             db_updates["bot_active"] = False
             db_updates["is_auto_bot_active"] = False
 
-    # حفظ التحديثات في Firestore
     if db_updates:
         try:
             user_ref.update(db_updates)
         except Exception as e:
             print(f"⚠️ Error updating offline farm calculations in DB: {e}")
 
-    # إضافة مكافأة الإحالة إن وجدت
     if auto_claimed_amount > 0:
         referrer_id = user_data.get("referrer_id") or user_data.get("referred_by") or user_data.get("invited_by")
         if referrer_id:
@@ -465,7 +458,7 @@ def get_or_create_user_farm_data(user_id_str):
                 from friends.friends_db import add_referral_reward
                 add_referral_reward(
                     referrer_id=referrer_id,
-                    user_id=user_id_str,
+                    user_id=str_uid,
                     mined_amount=auto_claimed_amount,
                     user_upgrades_count=user_data.get("upgrades_count"),
                     user_name=user_data.get("first_name") or user_data.get("name") or user_data.get("username")
@@ -498,9 +491,10 @@ def get_or_create_user_farm_data(user_id_str):
 
 
 def claim_mined_tokens_db(user_id_str):
-    """تجميع الرصيد المعدن وتحديث تاريخ الإعلان وتصفير المحصول المعلق"""
+    """تجميع الرصيد المعدن بأسلوب المعاملات الآمنة (Firestore Transaction) لمنع Race Condition"""
     db = get_db()
-    user_ref = db.collection('users').document(user_id_str)
+    str_uid = str(user_id_str)
+    user_ref = db.collection('users').document(str_uid)
     game_settings = get_game_settings()
     mining_cfg = game_settings.get("mining_config", DEFAULT_GAME_SETTINGS["mining_config"])
     cooldown_seconds = int(mining_cfg.get("claim_cooldown_seconds", 15))
@@ -512,23 +506,18 @@ def claim_mined_tokens_db(user_id_str):
         today_utc_str = now.strftime('%Y-%m-%d')
 
         if not snapshot.exists:
-            user_data = create_default_user_data_dict(user_id_str, game_settings, now)
+            user_data = create_default_user_data_dict(str_uid, game_settings, now)
             transaction.set(ref, user_data)
         else:
             user_data = snapshot.to_dict() or {}
 
         last_claim_str = user_data.get("last_claim_time")
         if last_claim_str:
-            try:
-                last_claim_s = str(last_claim_str).replace('Z', '+00:00')
-                last_claim = datetime.fromisoformat(last_claim_s)
-                if last_claim.tzinfo is None:
-                    last_claim = last_claim.replace(tzinfo=timezone.utc)
+            last_claim = safe_parse_datetime(last_claim_str)
+            if last_claim:
                 seconds_passed = (now - last_claim).total_seconds()
                 if seconds_passed < cooldown_seconds:
                     return {"success": False, "error": f"الرجاء الانتظار {cooldown_seconds} ثانية قبل التجميع مجدداً"}
-            except Exception:
-                pass
 
         max_cap = calculate_user_max_cap(user_data, game_settings)
         mined_amount = calculate_accrued_mined(user_data, now, max_cap)
@@ -540,7 +529,7 @@ def claim_mined_tokens_db(user_id_str):
         current_usd_balance = float(user_data.get("usd_balance", 0.0))
         current_mined_points = float(user_data.get("mined_points", user_data.get("total_mined", 0.0)))
 
-        new_balance = round(current_balance + mined_amount, 8)
+        new_balance = round(min(current_balance + mined_amount, MAX_SAFE_BALANCE), 8)
         new_mined_points = round(current_mined_points + mined_amount, 8)
         now_iso = now.isoformat()
 
@@ -586,7 +575,7 @@ def claim_mined_tokens_db(user_id_str):
             from friends.friends_db import add_referral_reward
             add_referral_reward(
                 referrer_id=result["referrer_id"],
-                user_id=user_id_str,
+                user_id=str_uid,
                 mined_amount=result["claimed_amount"],
                 user_upgrades_count=result.get("upgrades_count"),
                 user_name=result.get("user_name")
@@ -598,10 +587,11 @@ def claim_mined_tokens_db(user_id_str):
 
 
 def buy_upgrade_db(user_id_str, level):
-    """شراء ترقية سرعة التعدين مع حساب التكلفة المحددة ديناميكياً والتأكد من التدرج"""
-    level_str = str(level)
+    """شراء ترقية سرعة التعدين مع فحص التدرج، حدود الرصيد المعقولة وFirestore Transactions"""
+    level_str = str(level).strip()
     db = get_db()
-    user_ref = db.collection('users').document(user_id_str)
+    str_uid = str(user_id_str)
+    user_ref = db.collection('users').document(str_uid)
     game_settings = get_game_settings()
 
     upgrade_configs = game_settings.get("upgrade_config") or DEFAULT_GAME_SETTINGS["upgrade_config"]
@@ -619,7 +609,7 @@ def buy_upgrade_db(user_id_str, level):
         now = datetime.now(timezone.utc)
 
         if not snapshot.exists:
-            user_data = create_default_user_data_dict(user_id_str, game_settings, now)
+            user_data = create_default_user_data_dict(str_uid, game_settings, now)
             transaction.set(ref, user_data)
         else:
             user_data = snapshot.to_dict() or {}
@@ -655,10 +645,12 @@ def buy_upgrade_db(user_id_str, level):
         max_cap = calculate_user_max_cap(user_data, game_settings)
         mined_amount = calculate_accrued_mined(user_data, now, max_cap)
 
-        new_balance = round(current_balance - cost_zn, 8)
-        new_usd_balance = round(current_usd_balance - cost_usd, 8)
+        new_balance = round(max(0.0, current_balance - cost_zn), 8)
+        new_usd_balance = round(max(0.0, current_usd_balance - cost_usd), 8)
         current_hourly_rate = float(user_data.get("hourly_rate", 0.10))
-        new_hourly_rate = round(current_hourly_rate + rate_bonus, 4)
+        
+        # حماية ضد تجاوز الحد الأقصى لمعدل الساعات
+        new_hourly_rate = round(min(current_hourly_rate + rate_bonus, MAX_SAFE_HOURLY_RATE), 4)
 
         upgrades[lvl_key] = current_count + 1
         total_upgrades_count = sum(int(v) for v in upgrades.values() if isinstance(v, (int, float)))
@@ -700,9 +692,9 @@ def buy_upgrade_db(user_id_str, level):
         try:
             ref_id = str(res["referrer_id"])
             upg_cnt = res["upgrades_count"]
-            db.collection("users").document(ref_id).collection("friends").document(user_id_str).set({
+            db.collection("users").document(ref_id).collection("friends").document(str_uid).set({
                 "upgrades_count": upg_cnt,
-                "tg_id": user_id_str
+                "tg_id": str_uid
             }, merge=True)
         except Exception as e:
             print(f"⚠️ Warning updating friend upgrades_count for referrer: {e}")
@@ -711,9 +703,10 @@ def buy_upgrade_db(user_id_str, level):
 
 
 def buy_storage_db(user_id_str):
-    """شراء ترقية سعة التخزين للمستوى التالي من Firebase"""
+    """شراء ترقية سعة التخزين مع حماية أمان كاملة ومعاملات مجتمعة (Transaction)"""
     db = get_db()
-    user_ref = db.collection('users').document(user_id_str)
+    str_uid = str(user_id_str)
+    user_ref = db.collection('users').document(str_uid)
     game_settings = get_game_settings()
 
     storage_cfgs = game_settings.get("storage_capacities") or DEFAULT_GAME_SETTINGS["storage_capacities"]
@@ -724,7 +717,7 @@ def buy_storage_db(user_id_str):
         now = datetime.now(timezone.utc)
 
         if not snapshot.exists:
-            user_data = create_default_user_data_dict(user_id_str, game_settings, now)
+            user_data = create_default_user_data_dict(str_uid, game_settings, now)
             transaction.set(ref, user_data)
         else:
             user_data = snapshot.to_dict() or {}
@@ -760,9 +753,9 @@ def buy_storage_db(user_id_str):
         mined_amount = calculate_accrued_mined(user_data, now, old_max_cap)
 
         extra_cap = float(user_data.get("extra_storage", 0.0))
-        new_max_cap = round(new_capacity + extra_cap, 4)
-        new_balance = round(current_balance - cost_zn, 8)
-        new_usd_balance = round(current_usd_balance - cost_usd, 8)
+        new_max_cap = min(round(new_capacity + extra_cap, 4), MAX_SAFE_STORAGE_CAP)
+        new_balance = round(max(0.0, current_balance - cost_zn), 8)
+        new_usd_balance = round(max(0.0, current_usd_balance - cost_usd), 8)
 
         transaction.update(ref, {
             "balance": new_balance,
@@ -794,9 +787,10 @@ def buy_storage_db(user_id_str):
 
 
 def claim_daily_reward_db(user_id_str):
-    """استلام المكافأة اليومية (تصفير العداد لليوم 1 بـ 0.2 ZN في حال الانقطاع 24+ ساعة، وحفظ اليوم 30 بـ 40 ZN للزيارات المستمرة)"""
+    """استلام المكافأة اليومية آمن ومحمي ضد النقر المكرر والسباق الزمني"""
     db = get_db()
-    user_ref = db.collection('users').document(user_id_str)
+    str_uid = str(user_id_str)
+    user_ref = db.collection('users').document(str_uid)
     game_settings = get_game_settings()
     parsed_rewards = parse_daily_rewards(game_settings.get("daily_rewards"))
 
@@ -806,7 +800,7 @@ def claim_daily_reward_db(user_id_str):
         now = datetime.now(timezone.utc)
 
         if not snapshot.exists:
-            user_data = create_default_user_data_dict(user_id_str, game_settings, now)
+            user_data = create_default_user_data_dict(str_uid, game_settings, now)
             transaction.set(ref, user_data)
         else:
             user_data = snapshot.to_dict() or {}
@@ -831,7 +825,7 @@ def claim_daily_reward_db(user_id_str):
 
         current_balance = float(user_data.get("balance", 0.0))
         current_usd_balance = float(user_data.get("usd_balance", 0.0))
-        new_balance = round(current_balance + reward_amount, 8)
+        new_balance = round(min(current_balance + reward_amount, MAX_SAFE_BALANCE), 8)
         new_ads_watched = int(user_data.get("ads_watched", 0)) + 1
 
         transaction.update(ref, {
@@ -862,9 +856,10 @@ def claim_daily_reward_db(user_id_str):
 
 
 def claim_daily_boost_db(user_id_str):
-    """تفعيل المعزز اليومي وتسجيل last_boost_time للسرعة الإضافية (+0.1 ZN/ساعة لمدة ساعتين) مع فترة انتظار 3 ساعات"""
+    """تفعيل المعزز اليومي وتسجيل last_boost_time مع التحقق من فترة cooldown آمنة بـ Transaction"""
     db = get_db()
-    user_ref = db.collection('users').document(user_id_str)
+    str_uid = str(user_id_str)
+    user_ref = db.collection('users').document(str_uid)
     game_settings = get_game_settings()
 
     @firestore.transactional
@@ -873,7 +868,7 @@ def claim_daily_boost_db(user_id_str):
         now = datetime.now(timezone.utc)
 
         if not snapshot.exists:
-            user_data = create_default_user_data_dict(user_id_str, game_settings, now)
+            user_data = create_default_user_data_dict(str_uid, game_settings, now)
             transaction.set(ref, user_data)
         else:
             user_data = snapshot.to_dict() or {}
@@ -883,18 +878,11 @@ def claim_daily_boost_db(user_id_str):
         last_boost_str = user_data.get("last_boost_time")
 
         if last_boost_str:
-            try:
-                if isinstance(last_boost_str, (int, float)):
-                    last_boost = datetime.fromtimestamp(last_boost_str, tz=timezone.utc)
-                else:
-                    lb_s = str(last_boost_str).replace('Z', '+00:00')
-                    last_boost = datetime.fromisoformat(lb_s)
-                    if last_boost.tzinfo is None:
-                        last_boost = last_boost.replace(tzinfo=timezone.utc)
-
+            last_boost = safe_parse_datetime(last_boost_str)
+            if last_boost:
                 elapsed_seconds = (now - last_boost).total_seconds()
                 cooldown_seconds = 3 * 3600  # 3 ساعات فترة انتظار
-                if elapsed_seconds < cooldown_seconds:
+                if elapsed_seconds < cooldown_seconds and elapsed_seconds >= 0:
                     remaining_seconds = int(cooldown_seconds - elapsed_seconds)
                     rem_hours = remaining_seconds // 3600
                     rem_mins = (remaining_seconds % 3600) // 60
@@ -904,13 +892,11 @@ def claim_daily_boost_db(user_id_str):
                         "error": f"الرجاء الانتظار {time_str} قبل تفعيل المعزز مجدداً",
                         "remaining_seconds": remaining_seconds
                     }
-            except Exception as e:
-                print(f"⚠️ Error parsing last_boost_time: {e}")
 
         max_cap = calculate_user_max_cap(user_data, game_settings)
         mined_amount = calculate_accrued_mined(user_data, now, max_cap)
 
-        current_balance = round(float(user_data.get("balance", 0.0)), 8)
+        current_balance = round(min(float(user_data.get("balance", 0.0)), MAX_SAFE_BALANCE), 8)
         current_usd_balance = round(float(user_data.get("usd_balance", 0.0)), 8)
         current_ads = int(user_data.get("ads_watched", 0) or 0)
         new_ads = current_ads + 1
@@ -948,7 +934,7 @@ def claim_daily_boost_db(user_id_str):
 
 
 def get_mining_leaderboard_db(limit=10):
-    """جلب قائمة المتصدرين لأفضل 10 معدنين مرتبين تنازلياً"""
+    """جلب قائمة المتصدرين لأفضل المعدنين مع تنقية وتنظيف التواريخ والأرقام الشاَذة"""
     db = get_db()
     users_ref = db.collection('users')
     
@@ -982,6 +968,8 @@ def get_mining_leaderboard_db(limit=10):
 
         try:
             total_m = float(mined_val)
+            if total_m > MAX_SAFE_BALANCE:
+                total_m = MAX_SAFE_BALANCE
         except (ValueError, TypeError):
             total_m = 0.0
 
@@ -990,8 +978,8 @@ def get_mining_leaderboard_db(limit=10):
             "name": name,
             "total_mined": round(total_m, 8),
             "mined_points": round(total_m, 8),
-            "balance": round(float(data.get("balance", 0.0)), 8),
-            "hourly_rate": round(float(data.get("hourly_rate", 0.10)), 4)
+            "balance": round(min(float(data.get("balance", 0.0)), MAX_SAFE_BALANCE), 8),
+            "hourly_rate": round(min(float(data.get("hourly_rate", 0.10)), MAX_SAFE_HOURLY_RATE), 4)
         })
 
     leaderboard.sort(key=lambda x: x['mined_points'], reverse=True)
