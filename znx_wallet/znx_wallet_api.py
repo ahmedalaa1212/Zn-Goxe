@@ -80,10 +80,12 @@ def get_wallet_data():
         
         user_data['current_tier'] = current_tier
 
-        lb_res = znx_wallet_db.get_leaderboard_data(limit=50, user_id=str(user_id))
+        # حصر النتيجة في Top 10 لجعل النظام موفر وسريع للغاية
+        lb_res = znx_wallet_db.get_leaderboard_data(limit=10, user_id=str(user_id))
         
         rankings = lb_res.get('leaderboard', []) if isinstance(lb_res, dict) else []
         my_rank = lb_res.get('my_rank', 'غير مصنف') if isinstance(lb_res, dict) else 'غير مصنف'
+        my_info = lb_res.get('my_info', None) if isinstance(lb_res, dict) else None
 
         serializable_tiers = []
         for t in all_tiers:
@@ -100,6 +102,7 @@ def get_wallet_data():
             'tiers': serializable_tiers,
             'leaderboard': rankings,
             'my_rank': my_rank,
+            'my_info': my_info,
             'global_total': total_global_znx,
             'max_global_znx': float(global_stats.get('max_global_znx', 32500000.0)),
             'live_price': 0.0524
