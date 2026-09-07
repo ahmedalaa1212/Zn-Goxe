@@ -21,10 +21,10 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 ADMIN_WALLET_MNEMONIC = os.getenv("ADMIN_WALLET_MNEMONIC", "").strip()
 
 def transfer_znx_onchain(to_address_str, amount_znx):
-    """إرسال عملة ZNX حقيقياً على شبكة TON للبلوكشين مع إدارة آمنة للوقت ومحاولات الإعادة"""
+    """إرسال عملة ZNX حقيقياً على شبكة TON للبلوكشين مع توافق كامل لمحفظة W5 الحديثة"""
     if not ADMIN_WALLET_MNEMONIC:
         print("❌ خطأ: ADMIN_WALLET_MNEMONIC غير معرّف في متغيرات البيئة!")
-        return False, None, "لم يتم ضبط الكلمات المفتاحية (ADMIN_WALLET_MNEMONIC) الخاصة بمحفظة الأدمن في إعدادات البيئة."
+        return False, None, "لم يتم ضبط الكلمات المفتاحية (ADMIN_WALLET_MNEMONIC) الخاصة بمحفظة الأدمن في إعدادات Railway."
 
     try:
         loop = asyncio.new_event_loop()
@@ -36,7 +36,7 @@ def transfer_znx_onchain(to_address_str, amount_znx):
             loop.close()
     except asyncio.TimeoutError:
         print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من اللازم.")
-        return False, None, "استجابة شبكة TON بطيئة جداً، يرجى إعادة المحاولة."
+        return False, None, "استجابة شبكة TON بطيئة جداً أو تعذر الوصول للسيرفر، يرجى إعادة المحاولة."
     except Exception as e:
         print(f"❌ خطأ أثناء تنفيذ تحويل البلوكشين: {e}")
         return False, None, f"فشل التحويل الشبكي: {str(e)}"
@@ -45,8 +45,9 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     try:
         from pytoniq import LiteBalancer, Address, begin_cell
     except ImportError:
-        return False, None, "مكتبة pytoniq غير مثبتة على السيرفر!"
+        return False, None, "مكتبة pytoniq غير مثبتة على السيرفر! تأكد من إضافتها إلى requirements.txt"
 
+    # 1. تنقية وتنظيف العناوين والكلمات المفتاحية
     clean_recipient = str(to_address_str or "").strip().replace(" ", "").replace("\n", "").replace("\r", "")
     clean_contract = str(ZNX_CONTRACT_ADDRESS or "").strip().replace(" ", "").replace("\n", "").replace("\r", "")
 
@@ -54,10 +55,11 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     if len(mnemonics) not in [12, 24]:
         return False, None, "الكلمات المفتاحية ADMIN_WALLET_MNEMONIC غير صالحة (يجب أن تكون 12 أو 24 كلمة)."
 
+    # 2. التحقق من العناوين
     try:
         master_addr = Address(clean_contract)
     except Exception:
-        return False, None, f"عنوان عقد العملة غير صالح: '{clean_contract}'"
+        return False, None, f"عنوان عقد العملة (ZNX_CONTRACT_ADDRESS) غير صالح: '{clean_contract}'"
 
     try:
         recipient_addr = Address(clean_recipient)
@@ -70,7 +72,7 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
         lambda: LiteBalancer.from_config_url("https://ton.org/global.config.json", trust_level=1)
     ]
 
-    max_attempts = 4
+    max_attempts = 3
     last_error = ""
 
     for attempt in range(max_attempts):
@@ -80,67 +82,64 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
             provider = factory()
             await provider.start_up()
 
-            candidate_classes = []
+            # تحديد فئات المحافظ ودعم W5 بشكل أساسي لتفادي خطأ seqno
+            wallet = None
+            selected_version = None
+
+            wallet_classes_to_try = []
             try:
                 from pytoniq import WalletV5R1
-                candidate_classes.append(("W5 (V5R1)", WalletV5R1))
+                wallet_classes_to_try.append(("W5 (V5R1)", WalletV5R1))
             except ImportError:
                 pass
 
             try:
                 from pytoniq import WalletV4R2
-                candidate_classes.append(("V4R2", WalletV4R2))
+                wallet_classes_to_try.append(("V4R2", WalletV4R2))
             except ImportError:
                 pass
 
             try:
                 from pytoniq import WalletV3R2
-                candidate_classes.append(("V3R2", WalletV3R2))
+                wallet_classes_to_try.append(("V3R2", WalletV3R2))
             except ImportError:
                 pass
 
-            if not candidate_classes:
-                await provider.close_all()
-                return False, None, "لم يتم العثور على فئة محفظة مدعومة في pytoniq!"
-
-            wallet = None
-            selected_version = None
-
-            # فحص المحافظ المتوفرة واختيار المتاحة أو النشطة
-            for ver_name, WalletClass in candidate_classes:
+            for ver_name, WalletClass in wallet_classes_to_try:
                 try:
                     w_candidate = await WalletClass.from_mnemonic(provider, mnemonics)
+                    # التحقق من الرصيد والنشاط
                     acc_state = await provider.get_account_state(w_candidate.address)
-                    is_active = getattr(acc_state, 'is_active', False)
-                    balance = getattr(acc_state, 'balance', 0)
-
-                    # إذا كانت المحفظة نشطة ولديه رصيد غاز كافٍ أو حتى لو كانت غير مفعلة تماماً ولكنها المتوافقة
-                    if is_active or balance >= 0:
+                    if getattr(acc_state, 'balance', 0) > 30_000_000:
                         wallet = w_candidate
                         selected_version = ver_name
-                        print(f"✅ تم اختيار محفظة نوع: {ver_name} ({w_candidate.address.to_str()})")
+                        print(f"✅ تم اختيار المحفظة بنجاح: {ver_name} ({w_candidate.address.to_str()})")
                         break
                 except Exception as ex:
-                    print(f"⚠️ تجربة المحفظة {ver_name} فشلت: {ex}")
+                    print(f"⚠️ تجاوز محفظة {ver_name}: {ex}")
                     continue
 
-            if not wallet:
-                ver_name, WalletClass = candidate_classes[0]
+            if not wallet and wallet_classes_to_try:
+                ver_name, WalletClass = wallet_classes_to_try[0]
                 wallet = await WalletClass.from_mnemonic(provider, mnemonics)
                 selected_version = ver_name
 
-            # جلب محفظة الـ Jetton للأدمن
+            if not wallet:
+                await provider.close_all()
+                return False, None, "تعذر تهيئة محفظة الأدمن من الكلمات المفتاحية."
+
+            # 3. جلب عنوان محفظة الـ Jetton الخاصة بالأدمن
             owner_cell = begin_cell().store_address(wallet.address).end_cell()
             res = await provider.run_get_method(address=master_addr, method='get_wallet_address', stack=[owner_cell.begin_parse()])
             
             if not res or len(res) == 0:
                 await provider.close_all()
-                return False, None, "فشل جلب عنوان محفظة الـ Jetton الخاصة بالأدمن من عقد العملة."
+                return False, None, "فشل جلب عنوان محفظة الـ Jetton من عقد العملة الرئيسي."
 
             admin_jetton_wallet = res[0].load_address()
             nano_jettons = int(round(amount_znx * (10**9)))
 
-            # بناء حمولة التحويل القياسية لعملات Jetton
+            # 4. بناء هيكل حمولة التحويل القياسية لعملات Jetton
             jetton_body = (
                 begin_cell()
                 .store_uint(0x0f887ea5, 32)      # op::transfer
@@ -154,10 +153,10 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                 .end_cell()
             )
 
-            # التنفيذ الآمن لتفادي خطأ الـ seqno عبر استدعاء التحويل مباشرة مع رسوم غاز 0.08 TON
+            # التنفيذ الآمن للإرسال
             tx_hash = await wallet.transfer(
                 destination=admin_jetton_wallet,
-                amount=80_000_000, 
+                amount=70_000_000,               # 0.07 TON رسوم غاز كافية لتجنب أخطاء النفاذ
                 body=jetton_body
             )
 
@@ -166,18 +165,19 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
 
         except Exception as err:
             last_error = str(err)
-            print(f"⚠️ فشلت المحاولة {attempt + 1}/{max_attempts}: {err}")
+            print(f"⚠️ خطأ محاولة الاتصال رقم {attempt + 1}: {err}")
             if provider:
                 try:
                     await provider.close_all()
                 except Exception:
                     pass
             if attempt < max_attempts - 1:
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(1.0)
 
     return False, None, f"خطأ البلوكشين: {last_error}"
 
 def execute_admin_decision(tx_id, action):
+    """الدالة الأساسية لتنفيذ قرار المشرف وتحديث Firestore وتمرير التحويل"""
     db = safe_get_db()
     if not db or not tx_id:
         return False, "خطأ في الاتصال بقاعدة البيانات!"
@@ -192,11 +192,11 @@ def execute_admin_decision(tx_id, action):
     current_status = tx_data.get('status', 'pending')
 
     if current_status == 'processing':
-        return False, "المعاملة قيد المعالجة حالياً، يرجى الانتظار..."
+        return False, "المعاملة قيد المعالجة حالياً، يرجى الانتظار قليلاً..."
 
     if current_status != 'pending':
         status_txt = "تم قبولها" if current_status == 'completed' else "تم رفضها"
-        return False, f"هذه المعاملة تم معالجتها مسبقاً ({status_txt})!"
+        return False, f"هذه المعاملة تم معالجتها بالفعل ({status_txt})!"
 
     user_id = tx_data.get('user_id')
     coins = float(tx_data.get('coins', 0))
@@ -443,4 +443,57 @@ def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
 
 @withdraw_bp.route('/telegram-webhook', methods=['POST'])
 def telegram_webhook():
+    """معالج الويب هوك لاستجابة أزرار التليجرام (موافق / رفض)"""
+    data = request.json or {}
+    
+    # التعامل مع أزرار Inline Keyboards الموجهة للبوت
+    if 'callback_query' in data:
+        callback = data['callback_query']
+        callback_data = callback.get('data', '')
+        chat_id = callback['message']['chat']['id']
+        message_id = callback['message']['message_id']
+        
+        if callback_data.startswith('approve_tx_'):
+            tx_id = callback_data.replace('approve_tx_', '')
+            success, msg = execute_admin_decision(tx_id, "approve")
+            
+            # تعديل رسالة التليجرام لتوضيح الحالة وتحديث الأزرار
+            try:
+                requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
+                    json={"callback_query_id": callback['id'], "text": msg, "show_alert": True}
+                )
+                requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText",
+                    json={
+                        "chat_id": chat_id,
+                        "message_id": message_id,
+                        "text": callback['message']['text'] + f"\n\n<b>النتيجة:</b> {msg}",
+                        "parse_mode": "HTML"
+                    }
+                )
+            except Exception as e:
+                print(f"⚠️ خطأ تحديث رسالة التليجرام: {e}")
+
+        elif callback_data.startswith('reject_tx_'):
+            tx_id = callback_data.replace('reject_tx_', '')
+            success, msg = execute_admin_decision(tx_id, "reject")
+            
+            try:
+                requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
+                    json={"callback_query_id": callback['id'], "text": msg, "show_alert": True}
+                )
+                requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText",
+                    json={
+                        "chat_id": chat_id,
+                        "message_id": message_id,
+                        "text": callback['message']['text'] + f"\n\n<b>النتيجة:</b> {msg}",
+                        "parse_mode": "HTML"
+                    }
+                )
+            except Exception as e:
+                print(f"⚠️ خطأ تحديث رسالة التليجرام: {e}")
+
     return jsonify({"status": "ok"}), 200
