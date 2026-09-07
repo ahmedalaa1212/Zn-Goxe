@@ -61,56 +61,58 @@ def is_user_authorized(user_id):
 def handle_withdraw_decisions(call):
     try:
         user_id = call.from_user.id
+        cb_id = call.id
+        cb_data = call.data
+
+        # 1. الرد الفوري على تلجرام لإلغاء حالة التحميل (Spinning) فوراً
+        try:
+            bot.answer_callback_query(cb_id, "⏳ جاري تنفيذ الطلب...", show_alert=False)
+        except Exception as e:
+            print(f"⚠️ answer_callback_query error: {e}")
+
+        # 2. التحقق من الصلاحية
         if not is_user_authorized(user_id):
             try:
-                bot.answer_callback_query(call.id, "⛔ ليس لديك صلاحية لاتخاذ هذا القرار!", show_alert=True)
+                bot.send_message(call.message.chat.id, f"⛔ عذراً، ليس لديك صلاحية لاتخاذ هذا القرار!")
             except Exception:
                 pass
             return
 
-        cb_data = call.data
-        if cb_data.startswith("approve_tx_"):
-            tx_id = cb_data.replace("approve_tx_", "")
-            action = "approve"
-        else:
-            tx_id = cb_data.replace("reject_tx_", "")
-            action = "reject"
+        action = "approve" if cb_data.startswith("approve_tx_") else "reject"
+        tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
 
-        # تنفيذ قرار السحب المالي
-        try:
-            from wallet.withdraw.withdraw_api import execute_admin_decision
-            success, result_msg = execute_admin_decision(tx_id, action)
-            
-            # إجابة الزر مرة واحدة فقط لمنع خطأ تعليق الأزرار
+        # 3. تشغيل المعالجة والتحويل في Thread خلفي لمنع تجميد البوت
+        def process_in_background():
             try:
-                bot.answer_callback_query(call.id, result_msg[:200], show_alert=True)
-            except Exception:
-                pass
-            
-            if success:
+                from wallet.withdraw.withdraw_api import execute_admin_decision
+                success, result_msg = execute_admin_decision(tx_id, action)
+
                 orig_text = call.message.text or call.message.caption or ""
-                decision_badge = "\n\n✅ <b>تمت الموافقة والتحويل بنجاح!</b>" if action == "approve" else "\n\n❌ <b>تم رفض الطلب وإعادة الرصيد للمستخدم.</b>"
                 
+                if success:
+                    status_badge = "\n\n✅ <b>تمت الموافقة والتحويل بنجاح!</b>" if action == "approve" else "\n\n❌ <b>تم رفض الطلب وإعادة الرصيد للمستخدم.</b>"
+                    final_text = orig_text + status_badge
+                else:
+                    final_text = orig_text + f"\n\n⚠️ <b>تنبيه:</b> {result_msg}"
+
                 bot.edit_message_text(
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
-                    text=orig_text + decision_badge,
+                    text=final_text,
                     parse_mode="HTML",
                     reply_markup=None
                 )
-        except Exception as exec_err:
-            print(f"❌ خطأ عند تنفيذ قرار الأدمن: {exec_err}")
-            try:
-                bot.answer_callback_query(call.id, f"⚠️ حدث خطأ أثناء المعالجة: {str(exec_err)}", show_alert=True)
-            except Exception:
-                pass
+            except Exception as exec_err:
+                print(f"❌ خطأ عند تنفيذ قرار الأدمن: {exec_err}")
+                try:
+                    bot.send_message(call.message.chat.id, f"⚠️ حدث خطأ أثناء المعالجة: {str(exec_err)}")
+                except Exception:
+                    pass
+
+        threading.Thread(target=process_in_background, daemon=True).start()
 
     except Exception as e:
         print(f"❌ خطأ في معالج الأزرار التفاعلية: {e}")
-        try:
-            bot.answer_callback_query(call.id, "حدث خطأ غير متوقع.", show_alert=True)
-        except Exception:
-            pass
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -119,16 +121,13 @@ def send_welcome(message):
         first_name = message.from_user.first_name or "المستخدم"
         user_id_str = str(user_id).strip()
         
-        print(f"🔍 [Admin Bot Check] Received /start from User ID: {user_id_str}")
-        
         if not is_user_authorized(user_id):
             unauthorized_msg = (
                 f"⛔ <b>تنبيه أمني مشدد | Access Denied</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"⚠️ <b>عذراً {first_name}، محاولة دخول غير مصرح بها!</b>\n\n"
                 f"🆔 المعرف الخاص بك: <code>{user_id_str}</code>\n"
-                f"🔒 هذا البوت مخصص حصرياً للمالك والمشرفين المعتمدين في منصة <b>ZN Goxe</b>.\n\n"
-                f"<i>تم تسجيل محاولة الوصول في سجلات الأمان.</i>"
+                f"🔒 هذا البوت مخصص حصرياً للمالك والمشرفين المعتمدين في منصة <b>ZN Goxe</b>."
             )
             bot.reply_to(message, unauthorized_msg, parse_mode="HTML")
             return
@@ -141,8 +140,7 @@ def send_welcome(message):
             f"أهلاً بك يا <b>{first_name}</b> 👋\n"
             f"الرتبة: {role_label}\n"
             f"حالة الاتصال: 🟢 <b>نشط ومؤمن بالكامل</b>\n\n"
-            f"✨ <b>تم التحقق من صلاحياتك الأمنية بنجاح!</b>\n"
-            f"يمكنك الآن التحكم بجميع إعدادات الألعاب، العمولات، الأرباح والمشرفين عبر فتح لوحة التحكم المرفقة."
+            f"✨ <b>تم التحقق من صلاحياتك الأمنية بنجاح!</b>"
         )
 
         markup = InlineKeyboardMarkup()
@@ -165,11 +163,7 @@ def handle_all_messages(message):
         user_id = message.from_user.id
 
         if not is_user_authorized(user_id):
-            bot.reply_to(
-                message, 
-                "⛔ <b>وصول مرفوض:</b> لا تملك صلاحية لاستخدام أوامر هذا البوت.",
-                parse_mode="HTML"
-            )
+            bot.reply_to(message, "⛔ <b>وصول مرفوض:</b> لا تملك صلاحية لاستخدام أوامر هذا البوت.", parse_mode="HTML")
             return
         
         markup = InlineKeyboardMarkup()
@@ -177,12 +171,7 @@ def handle_all_messages(message):
         btn = InlineKeyboardButton(text="💻 فتح لوحة التحكم ⚡", web_app=webapp)
         markup.add(btn)
 
-        bot.reply_to(
-            message, 
-            "ℹ️ <b>يرجى الضغط على الزر أدناه للوصول المباشر إلى لوحة الإدارة:</b>",
-            reply_markup=markup,
-            parse_mode="HTML"
-        )
+        bot.reply_to(message, "ℹ️ <b>يرجى الضغط على الزر أدناه للوصول المباشر إلى لوحة الإدارة:</b>", reply_markup=markup, parse_mode="HTML")
     except Exception as e:
         print(f"❌ Error handling message: {e}")
 
@@ -195,8 +184,15 @@ def force_delete_webhook():
     except Exception as e:
         print(f"⚠️ Error resetting webhook: {e}")
 
+BOT_STARTED = False
+
 def run_bot_worker():
-    """تشغيل الاستماع لرسائل تلجرام في خلفية النظام"""
+    """تشغيل الاستماع لرسائل تلجرام في خلفية النظام لمرة واحدة فقط"""
+    global BOT_STARTED
+    if BOT_STARTED:
+        return
+    BOT_STARTED = True
+
     print("🚀 [Bot Worker] جارٍ إزالة الـ Webhook القديم وبدء الاستماع...")
     force_delete_webhook()
     time.sleep(1)
@@ -209,7 +205,7 @@ def run_bot_worker():
             time.sleep(3)
 
 # ==========================================
-# 4. تشغيل البوت تلقائياً عند تحميل السيرفر
+# 4. تشغيل البوت تلقائياً بطريقة آمنة
 # ==========================================
 bot_thread = threading.Thread(target=run_bot_worker, daemon=True)
 bot_thread.start()
