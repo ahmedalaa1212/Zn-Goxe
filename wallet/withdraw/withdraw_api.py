@@ -31,7 +31,7 @@ def transfer_znx_onchain(to_address_str, amount_znx):
         asyncio.set_event_loop(loop)
         try:
             task = loop.create_task(_async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx))
-            return loop.run_until_complete(asyncio.wait_for(task, timeout=18.0))
+            return loop.run_until_complete(asyncio.wait_for(task, timeout=25.0))
         finally:
             loop.close()
     except asyncio.TimeoutError:
@@ -43,13 +43,28 @@ def transfer_znx_onchain(to_address_str, amount_znx):
 
 async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     try:
-        from pytoniq import LiteBalancer, WalletV4R2, Address, begin_cell
+        from pytoniq import LiteBalancer, Address, begin_cell
     except ImportError:
         return False, None, "مكتبة pytoniq غير مثبتة على السيرفر! تأكد من إضافتها إلى requirements.txt"
+
+    # 1. تنقية وتنظيف العناوين والكلمات المفتاحية
+    clean_recipient = str(to_address_str or "").strip().replace(" ", "").replace("\n", "").replace("\r", "")
+    clean_contract = str(ZNX_CONTRACT_ADDRESS or "").strip().replace(" ", "").replace("\n", "").replace("\r", "")
 
     mnemonics = mnemonic_str.strip().split()
     if len(mnemonics) not in [12, 24]:
         return False, None, "الكلمات المفتاحية ADMIN_WALLET_MNEMONIC غير صالحة (يجب أن تكون 12 أو 24 كلمة)."
+
+    # 2. التحقق من العناوين
+    try:
+        master_addr = Address(clean_contract)
+    except Exception:
+        return False, None, f"عنوان عقد العملة (ZNX_CONTRACT_ADDRESS) غير صالح: '{clean_contract}'"
+
+    try:
+        recipient_addr = Address(clean_recipient)
+    except Exception:
+        return False, None, f"عنوان محفظة المستخدم غير صالح: '{clean_recipient}'"
 
     provider = LiteBalancer.from_mainnet_config(trust_level=2)
     try:
@@ -58,16 +73,65 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
         return False, None, f"تعذر الاتصال بسيرفرات شبكة TON: {str(p_err)}"
 
     try:
-        wallet = await WalletV4R2.from_mnemonic(provider, mnemonics)
-        master_addr = Address(ZNX_CONTRACT_ADDRESS)
-        recipient_addr = Address(to_address_str)
+        # 3. دعم فحص إصدارات المحفظة المتاحة تلقائياً (W5 / V4R2 / V3R2)
+        candidate_classes = []
+        try:
+            from pytoniq import WalletV5R1
+            candidate_classes.append(("W5 (V5R1)", WalletV5R1))
+        except ImportError:
+            pass
 
+        try:
+            from pytoniq import WalletV4R2
+            candidate_classes.append(("V4R2", WalletV4R2))
+        except ImportError:
+            pass
+
+        try:
+            from pytoniq import WalletV3R2
+            candidate_classes.append(("V3R2", WalletV3R2))
+        except ImportError:
+            pass
+
+        if not candidate_classes:
+            await provider.close_all()
+            return False, None, "لم يتم العثور على أي فئة محفظة مدعومة في pytoniq!"
+
+        wallet = None
+        selected_version = None
+
+        # البحث عن المحفظة النشطة على الشبكة والتي تحتوي على رصيد
+        for ver_name, WalletClass in candidate_classes:
+            try:
+                w_candidate = await WalletClass.from_mnemonic(provider, mnemonics)
+                acc_state = await provider.get_account_state(w_candidate.address)
+                
+                is_active = getattr(acc_state, 'is_active', False)
+                balance = getattr(acc_state, 'balance', 0)
+
+                if is_active or balance > 0:
+                    wallet = w_candidate
+                    selected_version = ver_name
+                    print(f"✅ تم العثور على محفظة نشطة من نوع: {ver_name} ({w_candidate.address.to_str()})")
+                    break
+            except Exception as ex:
+                print(f"⚠️ تجربة المحفظة {ver_name} فشلت: {ex}")
+                continue
+
+        # إن لم تكن المحفظة نشطة بعد، نختار أول خيار متاح (W5 أو V4R2)
+        if not wallet:
+            ver_name, WalletClass = candidate_classes[0]
+            wallet = await WalletClass.from_mnemonic(provider, mnemonics)
+            selected_version = ver_name
+
+        # 4. جلب محفظة الـ Jetton الخاصة بالأدمن
         owner_cell = begin_cell().store_address(wallet.address).end_cell()
         res = await provider.run_get_method(address=master_addr, method='get_wallet_address', stack=[owner_cell.begin_parse()])
         admin_jetton_wallet = res[0].load_address()
 
         nano_jettons = int(round(amount_znx * (10**9)))
 
+        # 5. بناء حمولة نقل العملة الرقمية (Jetton Transfer Payload)
         jetton_body = (
             begin_cell()
             .store_uint(0x0f887ea5, 32)
@@ -88,7 +152,7 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
         )
 
         await provider.close_all()
-        return True, str(tx_hash), "🟢 تم تحويل العملة بنجاح على البلوكشين!"
+        return True, str(tx_hash), f"🟢 تم تحويل العملة بنجاح عبر محفظة {selected_version}!"
 
     except Exception as err:
         try:
@@ -126,12 +190,10 @@ def execute_admin_decision(tx_id, action):
 
     try:
         if action == "approve":
-            # قفل الطلب مؤقتاً لتجنب التكرار عند الضغط المتعدد
             tx_ref.update({'status': 'processing'})
 
             onchain_ok, tx_hash, msg = transfer_znx_onchain(wallet_address, coins)
             if not onchain_ok:
-                # إعادة تعيين الحالة لإتاحة المحاولة مجدداً
                 tx_ref.update({'status': 'pending'})
                 return False, msg
 
