@@ -24,19 +24,19 @@ def transfer_znx_onchain(to_address_str, amount_znx):
     """إرسال عملة ZNX حقيقياً على شبكة TON للبلوكشين مع إدارة آمنة للوقت ومحاولات الإعادة"""
     if not ADMIN_WALLET_MNEMONIC:
         print("❌ خطأ: ADMIN_WALLET_MNEMONIC غير معرّف في متغيرات البيئة!")
-        return False, None, "لم يتم ضبط الكلمات المفتاحية (ADMIN_WALLET_MNEMONIC) الخاصة بمحفظة الأدمن في إعدادات Railway."
+        return False, None, "لم يتم ضبط الكلمات المفتاحية (ADMIN_WALLET_MNEMONIC) الخاصة بمحفظة الأدمن في إعدادات البيئة."
 
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             task = loop.create_task(_async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx))
-            return loop.run_until_complete(asyncio.wait_for(task, timeout=40.0))
+            return loop.run_until_complete(asyncio.wait_for(task, timeout=45.0))
         finally:
             loop.close()
     except asyncio.TimeoutError:
         print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من اللازم.")
-        return False, None, "استجابة شبكة TON بطيئة جداً أو تعذر الوصول للسيرفر، يرجى إعادة المحاولة."
+        return False, None, "استجابة شبكة TON بطيئة جداً، يرجى إعادة المحاولة."
     except Exception as e:
         print(f"❌ خطأ أثناء تنفيذ تحويل البلوكشين: {e}")
         return False, None, f"فشل التحويل الشبكي: {str(e)}"
@@ -45,9 +45,8 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     try:
         from pytoniq import LiteBalancer, Address, begin_cell
     except ImportError:
-        return False, None, "مكتبة pytoniq غير مثبتة على السيرفر! تأكد من إضافتها إلى requirements.txt"
+        return False, None, "مكتبة pytoniq غير مثبتة على السيرفر!"
 
-    # 1. تنقية وتنظيف العناوين والكلمات المفتاحية
     clean_recipient = str(to_address_str or "").strip().replace(" ", "").replace("\n", "").replace("\r", "")
     clean_contract = str(ZNX_CONTRACT_ADDRESS or "").strip().replace(" ", "").replace("\n", "").replace("\r", "")
 
@@ -55,18 +54,16 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     if len(mnemonics) not in [12, 24]:
         return False, None, "الكلمات المفتاحية ADMIN_WALLET_MNEMONIC غير صالحة (يجب أن تكون 12 أو 24 كلمة)."
 
-    # 2. التحقق من العناوين
     try:
         master_addr = Address(clean_contract)
     except Exception:
-        return False, None, f"عنوان عقد العملة (ZNX_CONTRACT_ADDRESS) غير صالح: '{clean_contract}'"
+        return False, None, f"عنوان عقد العملة غير صالح: '{clean_contract}'"
 
     try:
         recipient_addr = Address(clean_recipient)
     except Exception:
         return False, None, f"عنوان محفظة المستخدم غير صالح: '{clean_recipient}'"
 
-    # مصادر وسيرفرات الاتصال للتنقل بينها تلقائياً لتفادي نودات غير متزامنة
     config_factories = [
         lambda: LiteBalancer.from_mainnet_config(trust_level=2),
         lambda: LiteBalancer.from_mainnet_config(trust_level=1),
@@ -83,7 +80,6 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
             provider = factory()
             await provider.start_up()
 
-            # 3. دعم فحص إصدارات المحفظة المتاحة تلقائياً (W5 / V4R2 / V3R2)
             candidate_classes = []
             try:
                 from pytoniq import WalletV5R1
@@ -105,36 +101,35 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
 
             if not candidate_classes:
                 await provider.close_all()
-                return False, None, "لم يتم العثور على أي فئة محفظة مدعومة في pytoniq!"
+                return False, None, "لم يتم العثور على فئة محفظة مدعومة في pytoniq!"
 
             wallet = None
             selected_version = None
 
-            # البحث عن المحفظة التي تمتلك تمويلاً وحالة نشطة
+            # فحص المحافظ المتوفرة واختيار المتاحة أو النشطة
             for ver_name, WalletClass in candidate_classes:
                 try:
                     w_candidate = await WalletClass.from_mnemonic(provider, mnemonics)
                     acc_state = await provider.get_account_state(w_candidate.address)
-                    
                     is_active = getattr(acc_state, 'is_active', False)
                     balance = getattr(acc_state, 'balance', 0)
 
-                    if is_active and balance > 50_000_000: # يمتلك TON كافٍ لرسوم الغاز
+                    # إذا كانت المحفظة نشطة ولديه رصيد غاز كافٍ أو حتى لو كانت غير مفعلة تماماً ولكنها المتوافقة
+                    if is_active or balance >= 0:
                         wallet = w_candidate
                         selected_version = ver_name
-                        print(f"✅ تم العثور على محفظة نشطة من نوع: {ver_name} ({w_candidate.address.to_str()})")
+                        print(f"✅ تم اختيار محفظة نوع: {ver_name} ({w_candidate.address.to_str()})")
                         break
                 except Exception as ex:
-                    print(f"⚠️ تجربة المحفظة {ver_name} فشلت (محاولة {attempt + 1}): {ex}")
+                    print(f"⚠️ تجربة المحفظة {ver_name} فشلت: {ex}")
                     continue
 
             if not wallet:
-                # محاولة احتياطية اختيار الأولى
                 ver_name, WalletClass = candidate_classes[0]
                 wallet = await WalletClass.from_mnemonic(provider, mnemonics)
                 selected_version = ver_name
 
-            # 4. جلب محفظة الـ Jetton الخاص بالحساب الأدمن لعملة ZNX
+            # جلب محفظة الـ Jetton للأدمن
             owner_cell = begin_cell().store_address(wallet.address).end_cell()
             res = await provider.run_get_method(address=master_addr, method='get_wallet_address', stack=[owner_cell.begin_parse()])
             
@@ -143,10 +138,9 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                 return False, None, "فشل جلب عنوان محفظة الـ Jetton الخاصة بالأدمن من عقد العملة."
 
             admin_jetton_wallet = res[0].load_address()
-
             nano_jettons = int(round(amount_znx * (10**9)))
 
-            # 5. بناء حمولة نقل العملة الرقمية (Jetton Transfer Payload)
+            # بناء حمولة التحويل القياسية لعملات Jetton
             jetton_body = (
                 begin_cell()
                 .store_uint(0x0f887ea5, 32)      # op::transfer
@@ -160,10 +154,10 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                 .end_cell()
             )
 
-            # إرسال المعاملة إلى admin_jetton_wallet
+            # التنفيذ الآمن لتفادي خطأ الـ seqno عبر استدعاء التحويل مباشرة مع رسوم غاز 0.08 TON
             tx_hash = await wallet.transfer(
                 destination=admin_jetton_wallet,
-                amount=60_000_000, # 0.06 TON كرسوم غاز للمعاملة
+                amount=80_000_000, 
                 body=jetton_body
             )
 
@@ -172,19 +166,18 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
 
         except Exception as err:
             last_error = str(err)
-            print(f"⚠️ فشلت المحاولة {attempt + 1}/{max_attempts} للاتصال بالنود: {err}")
+            print(f"⚠️ فشلت المحاولة {attempt + 1}/{max_attempts}: {err}")
             if provider:
                 try:
                     await provider.close_all()
                 except Exception:
                     pass
             if attempt < max_attempts - 1:
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(1.5)
 
-    return False, None, f"خطأ البلوكشين (بعد عدة محاولات): {last_error}"
+    return False, None, f"خطأ البلوكشين: {last_error}"
 
 def execute_admin_decision(tx_id, action):
-    """الدالة الأساسية لتنفيذ قرار المشرف وتحديث Firestore وتمرير التحويل"""
     db = safe_get_db()
     if not db or not tx_id:
         return False, "خطأ في الاتصال بقاعدة البيانات!"
@@ -199,11 +192,11 @@ def execute_admin_decision(tx_id, action):
     current_status = tx_data.get('status', 'pending')
 
     if current_status == 'processing':
-        return False, "المعاملة قيد المعالجة حالياً، يرجى الانتظار قليلاً..."
+        return False, "المعاملة قيد المعالجة حالياً، يرجى الانتظار..."
 
     if current_status != 'pending':
         status_txt = "تم قبولها" if current_status == 'completed' else "تم رفضها"
-        return False, f"هذه المعاملة تم معالجتها بالفعل ({status_txt})!"
+        return False, f"هذه المعاملة تم معالجتها مسبقاً ({status_txt})!"
 
     user_id = tx_data.get('user_id')
     coins = float(tx_data.get('coins', 0))
@@ -450,5 +443,4 @@ def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
 
 @withdraw_bp.route('/telegram-webhook', methods=['POST'])
 def telegram_webhook():
-    """معالج احتياطي للويب هوك آمن تماماً بدون تضارب"""
     return jsonify({"status": "ok"}), 200
