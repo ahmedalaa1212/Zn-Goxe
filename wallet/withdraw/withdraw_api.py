@@ -16,6 +16,57 @@ withdraw_bp = Blueprint('withdraw_bp', __name__)
 BOT_TOKEN = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 
+def execute_admin_decision(tx_id, action):
+    """الدالة الأساسية لتنفيذ قرار المشرف (موافقة أو رفض) وتحديث Firestore وتعديل الرصيد"""
+    db = safe_get_db()
+    if not db or not tx_id:
+        return False, "⚠️ خطأ في الاتصال بقاعدة البيانات!"
+
+    tx_ref = db.collection('processed_txs').document(tx_id)
+    tx_doc = tx_ref.get()
+
+    if not tx_doc.exists:
+        return False, "❌ لم يتم العثور على طلب السحب!"
+
+    tx_data = tx_doc.to_dict() or {}
+    current_status = tx_data.get('status', 'pending')
+
+    if current_status != 'pending':
+        status_txt = "تم قبولها" if current_status == 'completed' else "تم رفضها"
+        return False, f"⚠️ هذه المعاملة تم معالجتها بالفعل ({status_txt})!"
+
+    user_id = tx_data.get('user_id')
+    coins = float(tx_data.get('coins', 0))
+    fee_usd = float(tx_data.get('fee_usd', 0.02))
+
+    try:
+        if action == "approve":
+            tx_ref.update({
+                'status': 'completed',
+                'processed_at': firestore.SERVER_TIMESTAMP
+            })
+            return True, "🟢 تم قبول طلب السحب بنجاح!"
+
+        else:  # Reject Action
+            tx_ref.update({
+                'status': 'rejected',
+                'processed_at': firestore.SERVER_TIMESTAMP
+            })
+
+            # إعادة الرصيد للمستخدم فوراً في قاعدة البيانات
+            user_ref, _ = get_user_doc(user_id)
+            if user_ref:
+                user_ref.update({
+                    'znx_balance': firestore.Increment(coins),
+                    'usd_balance': firestore.Increment(fee_usd)
+                })
+
+            return True, "🔴 تم رفض الطلب وإعادة الرصيد للمستخدم!"
+
+    except Exception as e:
+        print(f"⚠️ خطأ أثناء تنفيذ قرار السحب: {e}")
+        return False, f"حدث خطأ أثناء المعالجة: {str(e)}"
+
 @withdraw_bp.route('/config', methods=['GET'])
 def get_config():
     user_id = request.args.get('user_id') or "5102387551"
@@ -127,7 +178,6 @@ def handle_withdraw():
             "message": f"رسوم السحب لا تكفي! يجب إيداع مبلغ رسوم السحب ${fixed_fee_usd:.2f} USD لإتمام العملية."
         }), 400
 
-    # --- حماية قصوى بـ Transaction لمنع التلاعب بالتزامن (Atomic Transaction) ---
     @firestore.transactional
     def update_balances_in_transaction(transaction, ref):
         snapshot = ref.get(transaction=transaction)
@@ -214,7 +264,6 @@ def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
         print(f"⚠️ خطأ إرسال إشعار السحب للأدمن: {e}")
 
 def answer_callback_query(callback_query_id, text, show_alert=False):
-    """إيقاف عجلة التحميل في التلجرام وإظهار إشعار سريع للمسؤول"""
     if not BOT_TOKEN:
         return
     try:
@@ -227,7 +276,6 @@ def answer_callback_query(callback_query_id, text, show_alert=False):
         print(f"⚠️ خطأ في answerCallbackQuery: {e}")
 
 def edit_telegram_message(chat_id, message_id, new_text):
-    """تعديل الرسالة وحذف الأزرار لتأكيد الحالة النهائية"""
     if not BOT_TOKEN:
         return
     try:
@@ -238,7 +286,7 @@ def edit_telegram_message(chat_id, message_id, new_text):
                 "message_id": message_id,
                 "text": new_text,
                 "parse_mode": "HTML",
-                "reply_markup": {"inline_keyboard": []}  # إزالة الأزرار لمنع الضغط المزدوج
+                "reply_markup": {"inline_keyboard": []}
             },
             timeout=5
         )
@@ -262,42 +310,25 @@ def telegram_webhook():
         action = "approve" if cb_data.startswith("approve_tx_") else "reject"
         tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
 
-        db = safe_get_db()
-        if not db or not tx_id:
-            answer_callback_query(cb_id, "⚠️ خطأ في الاتصال بقاعدة البيانات!", show_alert=True)
-            return jsonify({"status": "db_error"}), 200
+        success, result_msg = execute_admin_decision(tx_id, action)
+        answer_callback_query(cb_id, result_msg, show_alert=not success)
 
-        tx_ref = db.collection('processed_txs').document(tx_id)
-        tx_doc = tx_ref.get()
-
-        if not tx_doc.exists:
-            answer_callback_query(cb_id, "❌ لم يتم العثور على المعاملة!", show_alert=True)
-            return jsonify({"status": "not_found"}), 200
-
-        tx_data = tx_doc.to_dict() or {}
-        current_status = tx_data.get('status', 'pending')
-
-        # لمنع المعالجة المزدوجة إذا تم الضغط على الزر سابقاً
-        if current_status != 'pending':
-            status_txt = "تم قبولها" if current_status == 'completed' else "تم رفضها"
-            answer_callback_query(cb_id, f"⚠️ هذه المعاملة تم معالجتها بالفعل ({status_txt})!", show_alert=True)
-            return jsonify({"status": "already_processed"}), 200
-
-        user_id = tx_data.get('user_id')
-        coins = float(tx_data.get('coins', 0))
-        fee_usd = float(tx_data.get('fee_usd', 0.02))
-        wallet = tx_data.get('wallet_address', '')
-        tier_name = tx_data.get('tier_name', '')
-
-        if action == "approve":
-            tx_ref.update({
-                'status': 'completed',
-                'processed_at': firestore.SERVER_TIMESTAMP
-            })
-            answer_callback_query(cb_id, "🟢 تم قبول طلب السحب بنجاح!")
+        if success:
+            db = safe_get_db()
+            tx_doc = db.collection('processed_txs').document(tx_id).get()
+            tx_data = tx_doc.to_dict() if tx_doc.exists else {}
             
+            user_id = tx_data.get('user_id')
+            coins = float(tx_data.get('coins', 0))
+            fee_usd = float(tx_data.get('fee_usd', 0.02))
+            wallet = tx_data.get('wallet_address', '')
+            tier_name = tx_data.get('tier_name', '')
+
+            status_label = "🟢 <i>الحالة: مكتملة ومقبولة</i>" if action == "approve" else "🔴 <i>الحالة: مرفوضة وتم استرجاع الرصيد</i>"
+            header_label = "✅ <b>تمت الموافقة على طلب السحب</b>" if action == "approve" else "❌ <b>تم رفض طلب السحب وإعادة الرصيد</b>"
+
             final_text = (
-                "✅ <b>تمت الموافقة على طلب السحب</b>\n"
+                f"{header_label}\n"
                 "━━━━━━━━━━━━━━━━━━\n"
                 f"👤 <b>المستخدم:</b> <code>{user_id}</code>\n"
                 f"📊 <b>الشريحة:</b> {tier_name}\n"
@@ -306,37 +337,7 @@ def telegram_webhook():
                 f"📥 <b>المحفظة:</b> <code>{wallet}</code>\n"
                 f"🆔 <b>المعاملة:</b> <code>#{tx_id}</code>\n"
                 "━━━━━━━━━━━━━━━━━━\n"
-                "🟢 <i>الحالة: مكتملة ومقبولة</i>"
-            )
-            edit_telegram_message(chat_id, message_id, final_text)
-
-        else: # Reject Action
-            tx_ref.update({
-                'status': 'rejected',
-                'processed_at': firestore.SERVER_TIMESTAMP
-            })
-
-            # إعادة الرصيد للمستخدم فوراً
-            user_ref, _ = get_user_doc(user_id)
-            if user_ref:
-                user_ref.update({
-                    'znx_balance': firestore.Increment(coins),
-                    'usd_balance': firestore.Increment(fee_usd)
-                })
-
-            answer_callback_query(cb_id, "🔴 تم رفض الطلب وإعادة الرصيد للمستخدم!")
-
-            final_text = (
-                "❌ <b>تم رفض طلب السحب وإعادة الرصيد</b>\n"
-                "━━━━━━━━━━━━━━━━━━\n"
-                f"👤 <b>المستخدم:</b> <code>{user_id}</code>\n"
-                f"📊 <b>الشريحة:</b> {tier_name}\n"
-                f"💰 <b>المبلغ المرجع:</b> <code>{coins:,.4f} ZNX</code>\n"
-                f"💵 <b>الرسوم المرجعة:</b> <code>${fee_usd:.2f} USD</code>\n"
-                f"📥 <b>المحفظة:</b> <code>{wallet}</code>\n"
-                f"🆔 <b>المعاملة:</b> <code>#{tx_id}</code>\n"
-                "━━━━━━━━━━━━━━━━━━\n"
-                "🔴 <i>الحالة: مرفوضة وتم استرجاع الرصيد</i>"
+                f"{status_label}"
             )
             edit_telegram_message(chat_id, message_id, final_text)
 
