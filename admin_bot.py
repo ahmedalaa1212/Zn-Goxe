@@ -7,7 +7,6 @@ from flask import Flask, jsonify
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
-# ضمان إضافة المسار الرئيسي للمشروع لمنع أخطاء الاستيراد
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
@@ -45,11 +44,9 @@ def is_user_authorized(user_id):
         return False
     user_id_str = str(user_id).strip()
     
-    # 👑 1. الأدمن الرئيسي له سلطة مطلقة مباشرة
     if user_id_str == str(ADMIN_ID):
         return True
         
-    # 🛡️ 2. التحقق من قاعدة البيانات للمشرفين المعتمدين
     try:
         if hasattr(database, 'is_admin_or_mod'):
             return database.is_admin_or_mod(user_id_str)
@@ -65,7 +62,10 @@ def handle_withdraw_decisions(call):
     try:
         user_id = call.from_user.id
         if not is_user_authorized(user_id):
-            bot.answer_callback_query(call.id, "⛔ ليس لديك صلاحية لاتخاذ هذا القرار!", show_alert=True)
+            try:
+                bot.answer_callback_query(call.id, "⛔ ليس لديك صلاحية لاتخاذ هذا القرار!", show_alert=True)
+            except Exception:
+                pass
             return
 
         cb_data = call.data
@@ -76,14 +76,16 @@ def handle_withdraw_decisions(call):
             tx_id = cb_data.replace("reject_tx_", "")
             action = "reject"
 
-        bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب...", show_alert=False)
-
-        # استدعاء دالة تنفيذ القرار من ملف withdraw_api
+        # تنفيذ قرار السحب المالي
         try:
             from wallet.withdraw.withdraw_api import execute_admin_decision
             success, result_msg = execute_admin_decision(tx_id, action)
             
-            bot.answer_callback_query(call.id, result_msg, show_alert=True)
+            # إجابة الزر مرة واحدة فقط لمنع خطأ تعليق الأزرار
+            try:
+                bot.answer_callback_query(call.id, result_msg[:200], show_alert=True)
+            except Exception:
+                pass
             
             if success:
                 orig_text = call.message.text or call.message.caption or ""
@@ -98,7 +100,10 @@ def handle_withdraw_decisions(call):
                 )
         except Exception as exec_err:
             print(f"❌ خطأ عند تنفيذ قرار الأدمن: {exec_err}")
-            bot.answer_callback_query(call.id, f"⚠️ حدث خطأ أثناء المعالجة: {str(exec_err)}", show_alert=True)
+            try:
+                bot.answer_callback_query(call.id, f"⚠️ حدث خطأ أثناء المعالجة: {str(exec_err)}", show_alert=True)
+            except Exception:
+                pass
 
     except Exception as e:
         print(f"❌ خطأ في معالج الأزرار التفاعلية: {e}")
@@ -158,7 +163,6 @@ def send_welcome(message):
 def handle_all_messages(message):
     try:
         user_id = message.from_user.id
-        user_id_str = str(user_id).strip()
 
         if not is_user_authorized(user_id):
             bot.reply_to(
