@@ -1,4 +1,6 @@
 import os
+import sys
+import asyncio
 import requests
 from flask import Blueprint, request, jsonify
 from firebase_admin import firestore
@@ -15,9 +17,77 @@ withdraw_bp = Blueprint('withdraw_bp', __name__)
 
 BOT_TOKEN = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+ADMIN_WALLET_MNEMONIC = os.getenv("ADMIN_WALLET_MNEMONIC", "").strip()
+
+def transfer_znx_onchain(to_address_str, amount_znx):
+    """إرسال عملة ZNX حقيقياً على شبكة TON للبلوكشين"""
+    if not ADMIN_WALLET_MNEMONIC:
+        print("⚠️ ADMIN_WALLET_MNEMONIC غير معرّف! سيتم قبول الطلب بالسجلات فقط.")
+        return True, None, "⚠️ تم قبول الطلب بالسيرفر فقط (لم يتم ضبط الكلمات المفتاحية ADMIN_WALLET_MNEMONIC للتحويل الآلي)."
+
+    try:
+        return asyncio.run(_async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx))
+    except Exception as e:
+        print(f"❌ خطأ أثناء تنفيذ تحويل البلوكشين: {e}")
+        return False, None, f"فشل التحويل الشبكي: {str(e)}"
+
+async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
+    try:
+        from pytoniq import LiteBalancer, WalletV4R2, Address, begin_cell
+    except ImportError:
+        return False, None, "مكتبة pytoniq غير مثبتة على السيرفر! يرجى إضافتها إلى requirements.txt"
+
+    mnemonics = mnemonic_str.strip().split()
+    if len(mnemonics) not in [12, 24]:
+        return False, None, "الكلمات المفتاحية ADMIN_WALLET_MNEMONIC غير صالحة (يجب أن تكون 12 أو 24 كلمة)."
+
+    provider = LiteBalancer.from_mainnet_config(trust_level=2)
+    await provider.start_up()
+
+    try:
+        # تحميل محفظة الأدمن
+        wallet = await WalletV4R2.from_mnemonic(provider, mnemonics)
+        master_addr = Address(ZNX_CONTRACT_ADDRESS)
+        recipient_addr = Address(to_address_str)
+
+        # جلب عنوان محفظة ZNX الخاصة بالأدمن من العقد الرئيسي
+        owner_cell = begin_cell().store_address(wallet.address).end_cell()
+        res = await provider.run_get_method(address=master_addr, method='get_wallet_address', stack=[owner_cell.begin_parse()])
+        admin_jetton_wallet = res[0].load_address()
+
+        # تحويل المبلغ حسب عدد الخانات العشرية للعملة (9 Decimals)
+        nano_jettons = int(round(amount_znx * (10**9)))
+
+        # بناء محتوى معاملة تحويل الـ Jetton (Opcode: 0x0f887ea5)
+        jetton_body = (
+            begin_cell()
+            .store_uint(0x0f887ea5, 32)
+            .store_uint(0, 64)
+            .store_coins(nano_jettons)
+            .store_address(recipient_addr)
+            .store_address(wallet.address)
+            .store_maybe_ref(None)
+            .store_coins(10_000_000)  # 0.01 TON Forward Amount
+            .store_maybe_ref(None)
+            .end_cell()
+        )
+
+        # إرسال المعاملة وإدراج 0.05 TON لتغطية رسوم الشبكة (Gas Fee)
+        tx_hash = await wallet.transfer(
+            destination=admin_jetton_wallet,
+            amount=50_000_000,
+            body=jetton_body
+        )
+
+        await provider.close_all()
+        return True, str(tx_hash), "🟢 تم تحويل العملة بنجاح على البلوكشين!"
+
+    except Exception as err:
+        await provider.close_all()
+        return False, None, f"خطأ البلوكشين: {str(err)}"
 
 def execute_admin_decision(tx_id, action):
-    """الدالة الأساسية لتنفيذ قرار المشرف (موافقة أو رفض) وتحديث Firestore وتعديل الرصيد"""
+    """الدالة الأساسية لتنفيذ قرار المشرف وتحديث Firestore وتمرير التحويل"""
     db = safe_get_db()
     if not db or not tx_id:
         return False, "⚠️ خطأ في الاتصال بقاعدة البيانات!"
@@ -38,14 +108,25 @@ def execute_admin_decision(tx_id, action):
     user_id = tx_data.get('user_id')
     coins = float(tx_data.get('coins', 0))
     fee_usd = float(tx_data.get('fee_usd', 0.02))
+    wallet_address = tx_data.get('wallet_address', '')
 
     try:
         if action == "approve":
-            tx_ref.update({
+            # 1. تنفيذ التحويل على شبكة TON أولاً
+            onchain_ok, tx_hash, msg = transfer_znx_onchain(wallet_address, coins)
+            if not onchain_ok:
+                return False, f"⛔ تعذر إجراء التحويل الآلي: {msg}"
+
+            # 2. تحديث الحالة في قاعدة البيانات بعد نجاح التحويل
+            update_payload = {
                 'status': 'completed',
                 'processed_at': firestore.SERVER_TIMESTAMP
-            })
-            return True, "🟢 تم قبول طلب السحب بنجاح!"
+            }
+            if tx_hash:
+                update_payload['tx_hash'] = tx_hash
+
+            tx_ref.update(update_payload)
+            return True, f"🟢 تم قبول الطلب وتحويل {coins:,.2f} ZNX إلى المحفظة بنجاح!"
 
         else:  # Reject Action
             tx_ref.update({
@@ -53,7 +134,7 @@ def execute_admin_decision(tx_id, action):
                 'processed_at': firestore.SERVER_TIMESTAMP
             })
 
-            # إعادة الرصيد للمستخدم فوراً في قاعدة البيانات
+            # إعادة الرصيد للمستخدم في قاعدة البيانات
             user_ref, _ = get_user_doc(user_id)
             if user_ref:
                 user_ref.update({
@@ -324,8 +405,8 @@ def telegram_webhook():
             wallet = tx_data.get('wallet_address', '')
             tier_name = tx_data.get('tier_name', '')
 
-            status_label = "🟢 <i>الحالة: مكتملة ومقبولة</i>" if action == "approve" else "🔴 <i>الحالة: مرفوضة وتم استرجاع الرصيد</i>"
-            header_label = "✅ <b>تمت الموافقة على طلب السحب</b>" if action == "approve" else "❌ <b>تم رفض طلب السحب وإعادة الرصيد</b>"
+            status_label = "🟢 <i>الحالة: مكتملة وتم التحويل للبلوكشين</i>" if action == "approve" else "🔴 <i>الحالة: مرفوضة وتم استرجاع الرصيد</i>"
+            header_label = "✅ <b>تمت الموافقة والتحويل بنجاح</b>" if action == "approve" else "❌ <b>تم رفض طلب السحب وإعادة الرصيد</b>"
 
             final_text = (
                 f"{header_label}\n"
