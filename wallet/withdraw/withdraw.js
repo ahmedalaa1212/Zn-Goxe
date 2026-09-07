@@ -14,7 +14,6 @@
     return isNaN(num) ? 0 : num;
   }
 
-  // تنسيق الأرقام كـ String خام لخانه الإدخال والحسابات
   function formatCryptoSmartRaw(val) {
     if (val === null || val === undefined || isNaN(val)) return "0";
     const num = parseFloat(val);
@@ -29,7 +28,6 @@
     }
   }
 
-  // تنسيق الأرقام كـ HTML لتصغير الأرقام العشرية وتقليل تباينها
   function formatCryptoSmartHtml(val) {
     const raw = formatCryptoSmartRaw(val);
     const parts = raw.split('.');
@@ -37,10 +35,6 @@
       return `${parts[0]}<span style="font-size: 0.8em; opacity: 0.75; font-weight: normal;">.${parts[1]}</span>`;
     }
     return raw;
-  }
-
-  function formatCryptoSmart(val) {
-    return formatCryptoSmartRaw(val);
   }
 
   function getUserId() {
@@ -75,7 +69,6 @@
     }
   }
 
-  // --- TONConnect Wallet System ---
   async function initTonConnect() {
     if (window.tonConnectInstance) {
       tonConnectUI = window.tonConnectInstance;
@@ -206,7 +199,6 @@
     return false;
   }
 
-  // --- Real-time Balance Syncing ---
   function syncBalanceFromGlobal() {
     let currentZnx = null;
     let currentUsd = null;
@@ -285,7 +277,6 @@
     if (tierBadge) tierBadge.innerText = currentTierName;
   }
 
-  // --- زر MAX منسق بحد أقصى بدون كسور غريبة ---
   function setPreset(type) {
     const coinsInput = document.getElementById("coins-input");
     if (!coinsInput) return;
@@ -420,7 +411,6 @@
       return;
     }
 
-    // تنبيه احترافي وغير مزعج إذا كان رصيد الدولار أقل من الرسوم
     if (usdBalance < fixedFeeUsd) {
       openFeeNoticeModal(fixedFeeUsd);
       return;
