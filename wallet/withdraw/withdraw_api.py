@@ -20,13 +20,22 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 ADMIN_WALLET_MNEMONIC = os.getenv("ADMIN_WALLET_MNEMONIC", "").strip()
 
 def transfer_znx_onchain(to_address_str, amount_znx):
-    """إرسال عملة ZNX حقيقياً على شبكة TON للبلوكشين"""
+    """إرسال عملة ZNX حقيقياً على شبكة TON للبلوكشين مع إدارة آمنة للوقت"""
     if not ADMIN_WALLET_MNEMONIC:
         print("⚠️ ADMIN_WALLET_MNEMONIC غير معرّف! سيتم قبول الطلب بالسجلات فقط.")
         return True, None, "⚠️ تم قبول الطلب بالسيرفر فقط (لم يتم ضبط الكلمات المفتاحية ADMIN_WALLET_MNEMONIC للتحويل الآلي)."
 
     try:
-        return asyncio.run(_async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            task = loop.create_task(_async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx))
+            return loop.run_until_complete(asyncio.wait_for(task, timeout=25.0))
+        finally:
+            loop.close()
+    except asyncio.TimeoutError:
+        print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من اللازم.")
+        return False, None, "استجابة شبكة TON بطيئة جداً، يرجى إعادة المحاولة."
     except Exception as e:
         print(f"❌ خطأ أثناء تنفيذ تحويل البلوكشين: {e}")
         return False, None, f"فشل التحويل الشبكي: {str(e)}"
@@ -35,30 +44,29 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     try:
         from pytoniq import LiteBalancer, WalletV4R2, Address, begin_cell
     except ImportError:
-        return False, None, "مكتبة pytoniq غير مثبتة على السيرفر! يرجى إضافتها إلى requirements.txt"
+        return False, None, "مكتبة pytoniq غير مثبتة على السيرفر! تأكد من تحديث requirements.txt"
 
     mnemonics = mnemonic_str.strip().split()
     if len(mnemonics) not in [12, 24]:
         return False, None, "الكلمات المفتاحية ADMIN_WALLET_MNEMONIC غير صالحة (يجب أن تكون 12 أو 24 كلمة)."
 
     provider = LiteBalancer.from_mainnet_config(trust_level=2)
-    await provider.start_up()
+    try:
+        await provider.start_up()
+    except Exception as p_err:
+        return False, None, f"تعذر الاتصال بسيرفرات شبكة TON: {str(p_err)}"
 
     try:
-        # تحميل محفظة الأدمن
         wallet = await WalletV4R2.from_mnemonic(provider, mnemonics)
         master_addr = Address(ZNX_CONTRACT_ADDRESS)
         recipient_addr = Address(to_address_str)
 
-        # جلب عنوان محفظة ZNX الخاصة بالأدمن من العقد الرئيسي
         owner_cell = begin_cell().store_address(wallet.address).end_cell()
         res = await provider.run_get_method(address=master_addr, method='get_wallet_address', stack=[owner_cell.begin_parse()])
         admin_jetton_wallet = res[0].load_address()
 
-        # تحويل المبلغ حسب عدد الخانات العشرية للعملة (9 Decimals)
         nano_jettons = int(round(amount_znx * (10**9)))
 
-        # بناء محتوى معاملة تحويل الـ Jetton (Opcode: 0x0f887ea5)
         jetton_body = (
             begin_cell()
             .store_uint(0x0f887ea5, 32)
@@ -67,12 +75,11 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
             .store_address(recipient_addr)
             .store_address(wallet.address)
             .store_maybe_ref(None)
-            .store_coins(10_000_000)  # 0.01 TON Forward Amount
+            .store_coins(10_000_000)
             .store_maybe_ref(None)
             .end_cell()
         )
 
-        # إرسال المعاملة وإدراج 0.05 TON لتغطية رسوم الشبكة (Gas Fee)
         tx_hash = await wallet.transfer(
             destination=admin_jetton_wallet,
             amount=50_000_000,
@@ -83,7 +90,10 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
         return True, str(tx_hash), "🟢 تم تحويل العملة بنجاح على البلوكشين!"
 
     except Exception as err:
-        await provider.close_all()
+        try:
+            await provider.close_all()
+        except Exception:
+            pass
         return False, None, f"خطأ البلوكشين: {str(err)}"
 
 def execute_admin_decision(tx_id, action):
@@ -112,12 +122,10 @@ def execute_admin_decision(tx_id, action):
 
     try:
         if action == "approve":
-            # 1. تنفيذ التحويل على شبكة TON أولاً
             onchain_ok, tx_hash, msg = transfer_znx_onchain(wallet_address, coins)
             if not onchain_ok:
                 return False, f"⛔ تعذر إجراء التحويل الآلي: {msg}"
 
-            # 2. تحديث الحالة في قاعدة البيانات بعد نجاح التحويل
             update_payload = {
                 'status': 'completed',
                 'processed_at': firestore.SERVER_TIMESTAMP
@@ -128,13 +136,12 @@ def execute_admin_decision(tx_id, action):
             tx_ref.update(update_payload)
             return True, f"🟢 تم قبول الطلب وتحويل {coins:,.2f} ZNX إلى المحفظة بنجاح!"
 
-        else:  # Reject Action
+        else:
             tx_ref.update({
                 'status': 'rejected',
                 'processed_at': firestore.SERVER_TIMESTAMP
             })
 
-            # إعادة الرصيد للمستخدم في قاعدة البيانات
             user_ref, _ = get_user_doc(user_id)
             if user_ref:
                 user_ref.update({
