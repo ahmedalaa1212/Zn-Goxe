@@ -19,6 +19,8 @@ pyTelegramBotAPI==4.14.0
 # 4. TON Blockchain & Wallet Integration
 # ==========================================
 tonsdk==1.0.14
+pytoniq==0.1.39
+pytoniq-core==0.1.36
 
 # ==========================================
 # 5. Utilities & Environment Handling
