@@ -56,13 +56,13 @@ def is_user_authorized(user_id):
     return False
 
 # ==========================================
-# 3. معالجة الأزرار التفاعلية (بدون تهنيج أو تعليق)
+# 3. معالجة الأزرار التفاعلية (حل مشكلة التعليق نهائياً)
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data and (call.data.startswith('approve_tx_') or call.data.startswith('reject_tx_')))
 def handle_withdraw_decisions(call):
-    # 1. إجابة تلجرام فوراً لإيقاف مؤشر التحميل الدائر في المحادثة
+    # 1. إجابة تلجرام فوراً وبدون أي تأخير لإلغاء مؤشر التحميل عن الزر
     try:
-        bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب...")
+        bot.answer_callback_query(call.id, "⏳ جاري استلام الطلب...")
     except Exception as e:
         print(f"⚠️ Answer callback error: {e}")
 
@@ -83,10 +83,10 @@ def handle_withdraw_decisions(call):
         message_id = call.message.message_id
         orig_text = call.message.text or call.message.caption or ""
 
-        # تنظيف أي تنبيهات أخطاء سابقة من الرسالة
-        clean_text = orig_text.split("\n\n⚠️")[0].split("\n\n⏳")[0]
+        # تنظيف أي نتائج أو تنبيهات سابقة
+        clean_text = orig_text.split("\n\nالنتيجة")[0].split("\n\n⚠️")[0].split("\n\n⏳")[0]
 
-        # 2. تغيير نص الرسالة فوراً لمرحلة المعالجة ليعرف المشرف أن الضغطة تم استلامها
+        # 2. تغيير نص الرسالة وإخفاء الأزرار فوراً لتفادي الضغط المزدوج
         try:
             bot.edit_message_text(
                 chat_id=chat_id,
@@ -98,7 +98,7 @@ def handle_withdraw_decisions(call):
         except Exception as e:
             print(f"⚠️ Error updating status to processing: {e}")
 
-        # 3. إرسال التنفيذ لخيط خلفي لتجنب تجميد البوت
+        # 3. إرسال عملية التنفيذ الثقيلة لخيط خلفي (Background Thread)
         threading.Thread(
             target=_process_withdraw_background,
             args=(chat_id, message_id, clean_text, tx_id, action),
@@ -108,25 +108,27 @@ def handle_withdraw_decisions(call):
     except Exception as e:
         print(f"❌ خطأ في معالج الأزرار التفاعلية: {e}")
 
-def _process_withdraw_background(chat_id, message_id, orig_clean_text, tx_id, action):
-    """دالة خلفية للاتصال بقاعدة البيانات والبلوكشين وتحديث الرسالة بآمان"""
+def _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action):
+    """دالة خلفية للاتصال بقاعدة البيانات والبلوكشين وتحديث الرسالة بآمان تام"""
     try:
         from wallet.withdraw.withdraw_api import execute_admin_decision
         success, result_msg = execute_admin_decision(tx_id, action)
 
+        # حماية النص من أخطاء HTML Parsing التي تمنع تحديث الرسالة
+        safe_msg = html.escape(str(result_msg))
+
         if success:
-            decision_badge = "\n\n✅ <b>تمت الموافقة والتحويل بنجاح!</b>" if action == "approve" else "\n\n🔴 <b>تم رفض الطلب وإعادة الرصيد للمستخدم.</b>"
+            status_icon = "🟢" if action == "approve" else "🔴"
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=orig_clean_text + decision_badge,
+                text=f"{clean_text}\n\n<b>النتيجة ({status_icon}):</b>\n{safe_msg}",
                 parse_mode="HTML",
                 reply_markup=None
             )
         else:
-            # تشفير نص الخطأ بـ html.escape لمنع كسر صيغة HTML وتوقف الرسالة عن التحديث
-            safe_error_msg = html.escape(str(result_msg))
-            error_notice = f"\n\n⚠️ <b>فشلت العملية:</b> {safe_error_msg}"
+            # في حالة الفشل: إعادة إظهار الأزرار مع نص الخطأ لإمكانية المحاولة مجدداً
+            error_notice = f"\n\n⚠️ <b>فشلت العملية:</b> {safe_msg}"
             
             markup = InlineKeyboardMarkup()
             markup.row(
@@ -137,7 +139,7 @@ def _process_withdraw_background(chat_id, message_id, orig_clean_text, tx_id, ac
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=orig_clean_text + error_notice,
+                text=clean_text + error_notice,
                 parse_mode="HTML",
                 reply_markup=markup
             )
@@ -157,7 +159,7 @@ def send_welcome(message):
             unauthorized_msg = (
                 f"⛔ <b>تنبيه أمني مشدد | Access Denied</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"⚠️ <b>عذراً {first_name}، محاولة دخول غير مصرح بها!</b>\n\n"
+                f"⚠️ <b>عذراً {html.escape(first_name)}، محاولة دخول غير مصرح بها!</b>\n\n"
                 f"🆔 المعرف الخاص بك: <code>{user_id_str}</code>\n"
                 f"🔒 هذا البوت مخصص حصرياً للمالك والمشرفين المعتمدين في منصة <b>ZN Goxe</b>.\n\n"
                 f"<i>تم تسجيل محاولة الوصول في سجلات الأمان.</i>"
@@ -170,7 +172,7 @@ def send_welcome(message):
         welcome_text = (
             f"⚡ <b>مرحباً بك في لوحة القيادة العليا | ZN Goxe</b> 🔥\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"أهلاً بك يا <b>{first_name}</b> 👋\n"
+            f"أهلاً بك يا <b>{html.escape(first_name)}</b> 👋\n"
             f"الرتبة: {role_label}\n"
             f"حالة الاتصال: 🟢 <b>نشط ومؤمن بالكامل</b>\n\n"
             f"✨ <b>تم التحقق من صلاحياتك الأمنية بنجاح!</b>\n"
