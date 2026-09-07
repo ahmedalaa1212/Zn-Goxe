@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import html
 import threading
 import requests
 from flask import Flask, jsonify
@@ -55,10 +56,16 @@ def is_user_authorized(user_id):
     return False
 
 # ==========================================
-# 3. معالجة الأزرار التفاعلية بشكل غير متزامن (Multithreaded)
+# 3. معالجة الأزرار التفاعلية (بدون تهنيج أو تعليق)
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data and (call.data.startswith('approve_tx_') or call.data.startswith('reject_tx_')))
 def handle_withdraw_decisions(call):
+    # 1. إجابة تلجرام فوراً لإيقاف مؤشر التحميل الدائر في المحادثة
+    try:
+        bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب...")
+    except Exception as e:
+        print(f"⚠️ Answer callback error: {e}")
+
     try:
         user_id = call.from_user.id
         if not is_user_authorized(user_id):
@@ -72,48 +79,54 @@ def handle_withdraw_decisions(call):
         action = "approve" if cb_data.startswith("approve_tx_") else "reject"
         tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
 
-        # 1. إجابة تلجرام فوراً لإيقاف دائرة التحميل
-        try:
-            action_text = "جاري تنفيذ التحويل..." if action == "approve" else "جاري رفض الطلب..."
-            bot.answer_callback_query(call.id, f"⏳ {action_text}", show_alert=False)
-        except Exception as e:
-            print(f"⚠️ Answer callback error: {e}")
-
-        # 2. تشغيل التنفيذ في خلفية مستقلة لعدم تجميد البوت
         chat_id = call.message.chat.id
         message_id = call.message.message_id
         orig_text = call.message.text or call.message.caption or ""
 
+        # تنظيف أي تنبيهات أخطاء سابقة من الرسالة
+        clean_text = orig_text.split("\n\n⚠️")[0].split("\n\n⏳")[0]
+
+        # 2. تغيير نص الرسالة فوراً لمرحلة المعالجة ليعرف المشرف أن الضغطة تم استلامها
+        try:
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=clean_text + "\n\n⏳ <b>جاري تنفيذ الطلب والاتصال بالشبكة...</b>",
+                parse_mode="HTML",
+                reply_markup=None
+            )
+        except Exception as e:
+            print(f"⚠️ Error updating status to processing: {e}")
+
+        # 3. إرسال التنفيذ لخيط خلفي لتجنب تجميد البوت
         threading.Thread(
             target=_process_withdraw_background,
-            args=(chat_id, message_id, orig_text, tx_id, action),
+            args=(chat_id, message_id, clean_text, tx_id, action),
             daemon=True
         ).start()
 
     except Exception as e:
         print(f"❌ خطأ في معالج الأزرار التفاعلية: {e}")
 
-def _process_withdraw_background(chat_id, message_id, orig_text, tx_id, action):
-    """دالة خلفية للاتصال بقاعدة البيانات والبلوكشين دون إغلاق خيط الاستماع الرئيسي"""
+def _process_withdraw_background(chat_id, message_id, orig_clean_text, tx_id, action):
+    """دالة خلفية للاتصال بقاعدة البيانات والبلوكشين وتحديث الرسالة بآمان"""
     try:
         from wallet.withdraw.withdraw_api import execute_admin_decision
         success, result_msg = execute_admin_decision(tx_id, action)
 
-        # تنظيف أي تنبيهات سابقة في متن الرسالة
-        clean_text = orig_text.split("\n\n⚠️")[0]
-
         if success:
-            decision_badge = "\n\n✅ <b>تمت الموافقة والتحويل بنجاح!</b>" if action == "approve" else "\n\n❌ <b>تم رفض الطلب وإعادة الرصيد للمستخدم.</b>"
+            decision_badge = "\n\n✅ <b>تمت الموافقة والتحويل بنجاح!</b>" if action == "approve" else "\n\n🔴 <b>تم رفض الطلب وإعادة الرصيد للمستخدم.</b>"
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=clean_text + decision_badge,
+                text=orig_clean_text + decision_badge,
                 parse_mode="HTML",
                 reply_markup=None
             )
         else:
-            # في حالة الفشل، نظهر الخطأ ونعيد إظهار الأزرار ليتمكن الأدمن من المحاولة مجدداً
-            error_notice = f"\n\n⚠️ <b>فشلت العملية:</b> {result_msg}"
+            # تشفير نص الخطأ بـ html.escape لمنع كسر صيغة HTML وتوقف الرسالة عن التحديث
+            safe_error_msg = html.escape(str(result_msg))
+            error_notice = f"\n\n⚠️ <b>فشلت العملية:</b> {safe_error_msg}"
             
             markup = InlineKeyboardMarkup()
             markup.row(
@@ -124,7 +137,7 @@ def _process_withdraw_background(chat_id, message_id, orig_text, tx_id, action):
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=clean_text + error_notice,
+                text=orig_clean_text + error_notice,
                 parse_mode="HTML",
                 reply_markup=markup
             )
