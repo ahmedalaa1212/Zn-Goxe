@@ -1,7 +1,11 @@
+import os
 import time
 from datetime import datetime, timezone
 import firebase_admin
 from firebase_admin import firestore
+
+# قراءة عنوان عقد العملة الذكي من متغيرات بيئة Railway
+ZNX_CONTRACT_ADDRESS = os.getenv("ZNX_CONTRACT_ADDRESS", "EQCp7mIbe-eR-j6b7opnHBtCbl74gnyYAP2XZlSpHkERkwdJ")
 
 # --- نظام Caching لتوفير قراءات الفايربيس وتسريع الاستجابة ---
 _TIER_CACHE = {
