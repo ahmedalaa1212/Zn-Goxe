@@ -31,7 +31,7 @@ def transfer_znx_onchain(to_address_str, amount_znx):
         asyncio.set_event_loop(loop)
         try:
             task = loop.create_task(_async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx))
-            return loop.run_until_complete(asyncio.wait_for(task, timeout=35.0))
+            return loop.run_until_complete(asyncio.wait_for(task, timeout=40.0))
         finally:
             loop.close()
     except asyncio.TimeoutError:
@@ -66,7 +66,7 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     except Exception:
         return False, None, f"عنوان محفظة المستخدم غير صالح: '{clean_recipient}'"
 
-    # مصادر وسيرفرات الاتصال للتنقل بينها تلقائياً لتفادي نودات 651 الغير متزامنة
+    # مصادر وسيرفرات الاتصال للتنقل بينها تلقائياً لتفادي نودات غير متزامنة
     config_factories = [
         lambda: LiteBalancer.from_mainnet_config(trust_level=2),
         lambda: LiteBalancer.from_mainnet_config(trust_level=1),
@@ -110,7 +110,7 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
             wallet = None
             selected_version = None
 
-            # البحث عن المحفظة النشطة على الشبكة والتي تحتوي على رصيد
+            # البحث عن المحفظة التي تمتلك تمويلاً وحالة نشطة
             for ver_name, WalletClass in candidate_classes:
                 try:
                     w_candidate = await WalletClass.from_mnemonic(provider, mnemonics)
@@ -119,7 +119,7 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                     is_active = getattr(acc_state, 'is_active', False)
                     balance = getattr(acc_state, 'balance', 0)
 
-                    if is_active or balance > 0:
+                    if is_active and balance > 50_000_000: # يمتلك TON كافٍ لرسوم الغاز
                         wallet = w_candidate
                         selected_version = ver_name
                         print(f"✅ تم العثور على محفظة نشطة من نوع: {ver_name} ({w_candidate.address.to_str()})")
@@ -128,15 +128,20 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                     print(f"⚠️ تجربة المحفظة {ver_name} فشلت (محاولة {attempt + 1}): {ex}")
                     continue
 
-            # إن لم تكن المحفظة نشطة بعد، نختار أول خيار متاح (W5 أو V4R2)
             if not wallet:
+                # محاولة احتياطية اختيار الأولى
                 ver_name, WalletClass = candidate_classes[0]
                 wallet = await WalletClass.from_mnemonic(provider, mnemonics)
                 selected_version = ver_name
 
-            # 4. جلب محفظة الـ Jetton الخاصة بالأدمن
+            # 4. جلب محفظة الـ Jetton الخاص بالحساب الأدمن لعملة ZNX
             owner_cell = begin_cell().store_address(wallet.address).end_cell()
             res = await provider.run_get_method(address=master_addr, method='get_wallet_address', stack=[owner_cell.begin_parse()])
+            
+            if not res or len(res) == 0:
+                await provider.close_all()
+                return False, None, "فشل جلب عنوان محفظة الـ Jetton الخاصة بالأدمن من عقد العملة."
+
             admin_jetton_wallet = res[0].load_address()
 
             nano_jettons = int(round(amount_znx * (10**9)))
@@ -144,20 +149,21 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
             # 5. بناء حمولة نقل العملة الرقمية (Jetton Transfer Payload)
             jetton_body = (
                 begin_cell()
-                .store_uint(0x0f887ea5, 32)
-                .store_uint(0, 64)
-                .store_coins(nano_jettons)
-                .store_address(recipient_addr)
-                .store_address(wallet.address)
-                .store_maybe_ref(None)
-                .store_coins(10_000_000)
-                .store_maybe_ref(None)
+                .store_uint(0x0f887ea5, 32)      # op::transfer
+                .store_uint(0, 64)               # query_id
+                .store_coins(nano_jettons)       # amount
+                .store_address(recipient_addr)   # destination
+                .store_address(wallet.address)   # response_destination
+                .store_maybe_ref(None)           # custom_payload
+                .store_coins(10_000_000)         # forward_ton_amount (0.01 TON)
+                .store_maybe_ref(None)           # forward_payload
                 .end_cell()
             )
 
+            # إرسال المعاملة إلى admin_jetton_wallet
             tx_hash = await wallet.transfer(
                 destination=admin_jetton_wallet,
-                amount=50_000_000,
+                amount=60_000_000, # 0.06 TON كرسوم غاز للمعاملة
                 body=jetton_body
             )
 
