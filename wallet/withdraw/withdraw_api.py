@@ -1,5 +1,6 @@
 import os
 import sys
+import html
 import asyncio
 import requests
 from flask import Blueprint, request, jsonify
@@ -22,8 +23,8 @@ ADMIN_WALLET_MNEMONIC = os.getenv("ADMIN_WALLET_MNEMONIC", "").strip()
 def transfer_znx_onchain(to_address_str, amount_znx):
     """إرسال عملة ZNX حقيقياً على شبكة TON للبلوكشين مع إدارة آمنة للوقت"""
     if not ADMIN_WALLET_MNEMONIC:
-        print("⚠️ ADMIN_WALLET_MNEMONIC غير معرّف! سيتم قبول الطلب بالسجلات فقط.")
-        return True, None, "⚠️ تم قبول الطلب بالسيرفر فقط (لم يتم ضبط الكلمات المفتاحية ADMIN_WALLET_MNEMONIC للتحويل الآلي)."
+        print("❌ خطأ: ADMIN_WALLET_MNEMONIC غير معرّف في متغيرات البيئة!")
+        return False, None, "لم يتم ضبط الكلمات المفتاحية (ADMIN_WALLET_MNEMONIC) الخاصة بمحفظة الأدمن في إعدادات Railway."
 
     try:
         loop = asyncio.new_event_loop()
@@ -35,7 +36,7 @@ def transfer_znx_onchain(to_address_str, amount_znx):
             loop.close()
     except asyncio.TimeoutError:
         print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من اللازم.")
-        return False, None, "استجابة شبكة TON بطيئة جداً، يرجى إعادة المحاولة."
+        return False, None, "استجابة شبكة TON بطيئة جداً أو تعذر الوصول للسيرفر، يرجى إعادة المحاولة."
     except Exception as e:
         print(f"❌ خطأ أثناء تنفيذ تحويل البلوكشين: {e}")
         return False, None, f"فشل التحويل الشبكي: {str(e)}"
@@ -44,7 +45,7 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     try:
         from pytoniq import LiteBalancer, WalletV4R2, Address, begin_cell
     except ImportError:
-        return False, None, "مكتبة pytoniq غير مثبتة على السيرفر! تأكد من تحديث requirements.txt"
+        return False, None, "مكتبة pytoniq غير مثبتة على السيرفر! تأكد من إضافتها إلى requirements.txt"
 
     mnemonics = mnemonic_str.strip().split()
     if len(mnemonics) not in [12, 24]:
@@ -100,23 +101,23 @@ def execute_admin_decision(tx_id, action):
     """الدالة الأساسية لتنفيذ قرار المشرف وتحديث Firestore وتمرير التحويل"""
     db = safe_get_db()
     if not db or not tx_id:
-        return False, "⚠️ خطأ في الاتصال بقاعدة البيانات!"
+        return False, "خطأ في الاتصال بقاعدة البيانات!"
 
     tx_ref = db.collection('processed_txs').document(tx_id)
     tx_doc = tx_ref.get()
 
     if not tx_doc.exists:
-        return False, "❌ لم يتم العثور على طلب السحب!"
+        return False, "لم يتم العثور على طلب السحب في قاعدة البيانات!"
 
     tx_data = tx_doc.to_dict() or {}
     current_status = tx_data.get('status', 'pending')
 
     if current_status == 'processing':
-        return False, "⏳ المعاملة قيد المعالجة حالياً، يرجى الانتظار..."
+        return False, "المعاملة قيد المعالجة حالياً، يرجى الانتظار قليلاً..."
 
     if current_status != 'pending':
         status_txt = "تم قبولها" if current_status == 'completed' else "تم رفضها"
-        return False, f"⚠️ هذه المعاملة تم معالجتها بالفعل ({status_txt})!"
+        return False, f"هذه المعاملة تم معالجتها بالفعل ({status_txt})!"
 
     user_id = tx_data.get('user_id')
     coins = float(tx_data.get('coins', 0))
@@ -125,14 +126,14 @@ def execute_admin_decision(tx_id, action):
 
     try:
         if action == "approve":
-            # قفل الطلب لمنع التكرار
+            # قفل الطلب مؤقتاً لتجنب التكرار عند الضغط المتعدد
             tx_ref.update({'status': 'processing'})
 
             onchain_ok, tx_hash, msg = transfer_znx_onchain(wallet_address, coins)
             if not onchain_ok:
-                # إرجاع الحالة لحالتها السابقة للسماح بالمحاولة مرة أخرى
+                # إعادة تعيين الحالة لإتاحة المحاولة مجدداً
                 tx_ref.update({'status': 'pending'})
-                return False, f"⛔ تعذر إجراء التحويل الآلي: {msg}"
+                return False, msg
 
             update_payload = {
                 'status': 'completed',
@@ -142,7 +143,7 @@ def execute_admin_decision(tx_id, action):
                 update_payload['tx_hash'] = tx_hash
 
             tx_ref.update(update_payload)
-            return True, f"🟢 تم قبول الطلب وتحويل {coins:,.2f} ZNX إلى المحفظة بنجاح!"
+            return True, f"🟢 تم قبول الطلب وتحويل {coins:,.2f} ZNX بنجاح!"
 
         else:
             tx_ref.update({
@@ -157,11 +158,10 @@ def execute_admin_decision(tx_id, action):
                     'usd_balance': firestore.Increment(fee_usd)
                 })
 
-            return True, "🔴 تم رفض الطلب وإعادة الرصيد للمستخدم!"
+            return True, "🔴 تم رفض الطلب وإعادة الرصيد للمستخدم بنجاح!"
 
     except Exception as e:
         print(f"⚠️ خطأ أثناء تنفيذ قرار السحب: {e}")
-        # إعادة تعيين الحالة لتجنب التعليق
         try:
             tx_ref.update({'status': 'pending'})
         except Exception:
@@ -364,86 +364,7 @@ def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
     except Exception as e:
         print(f"⚠️ خطأ إرسال إشعار السحب للأدمن: {e}")
 
-def answer_callback_query(callback_query_id, text, show_alert=False):
-    if not BOT_TOKEN:
-        return
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
-            json={"callback_query_id": callback_query_id, "text": text, "show_alert": show_alert},
-            timeout=5
-        )
-    except Exception as e:
-        print(f"⚠️ خطأ في answerCallbackQuery: {e}")
-
-def edit_telegram_message(chat_id, message_id, new_text):
-    if not BOT_TOKEN:
-        return
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText",
-            json={
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "text": new_text,
-                "parse_mode": "HTML",
-                "reply_markup": {"inline_keyboard": []}
-            },
-            timeout=5
-        )
-    except Exception as e:
-        print(f"⚠️ خطأ في editMessageText: {e}")
-
 @withdraw_bp.route('/telegram-webhook', methods=['POST'])
 def telegram_webhook():
-    update = request.json or {}
-    if "callback_query" in update:
-        cb = update["callback_query"]
-        cb_id = cb.get("id")
-        cb_data = cb.get("data", "")
-        message = cb.get("message", {})
-        chat_id = message.get("chat", {}).get("id")
-        message_id = message.get("message_id")
-
-        if not cb_data.startswith("approve_tx_") and not cb_data.startswith("reject_tx_"):
-            return jsonify({"status": "ignored"}), 200
-
-        action = "approve" if cb_data.startswith("approve_tx_") else "reject"
-        tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
-
-        answer_callback_query(cb_id, "⏳ جاري تنفيذ الطلب...", show_alert=False)
-
-        def _async_job():
-            success, result_msg = execute_admin_decision(tx_id, action)
-            if success:
-                db = safe_get_db()
-                tx_doc = db.collection('processed_txs').document(tx_id).get()
-                tx_data = tx_doc.to_dict() if tx_doc.exists else {}
-                
-                user_id = tx_data.get('user_id')
-                coins = float(tx_data.get('coins', 0))
-                fee_usd = float(tx_data.get('fee_usd', 0.02))
-                wallet = tx_data.get('wallet_address', '')
-                tier_name = tx_data.get('tier_name', '')
-
-                status_label = "🟢 <i>الحالة: مكتملة وتم التحويل للبلوكشين</i>" if action == "approve" else "🔴 <i>الحالة: مرفوضة وتم استرجاع الرصيد</i>"
-                header_label = "✅ <b>تمت الموافقة والتحويل بنجاح</b>" if action == "approve" else "❌ <b>تم رفض طلب السحب وإعادة الرصيد</b>"
-
-                final_text = (
-                    f"{header_label}\n"
-                    "━━━━━━━━━━━━━━━━━━\n"
-                    f"👤 <b>المستخدم:</b> <code>{user_id}</code>\n"
-                    f"📊 <b>الشريحة:</b> {tier_name}\n"
-                    f"💰 <b>المبلغ:</b> <code>{coins:,.4f} ZNX</code>\n"
-                    f"💵 <b>الرسوم:</b> <code>${fee_usd:.2f} USD</code>\n"
-                    f"📥 <b>المحفظة:</b> <code>{wallet}</code>\n"
-                    f"🆔 <b>المعاملة:</b> <code>#{tx_id}</code>\n"
-                    "━━━━━━━━━━━━━━━━━━\n"
-                    f"{status_label}"
-                )
-                edit_telegram_message(chat_id, message_id, final_text)
-
-        import threading
-        threading.Thread(target=_async_job, daemon=True).start()
-
+    """معالج احتياطي للويب هوك آمن تماماً بدون تضارب"""
     return jsonify({"status": "ok"}), 200
