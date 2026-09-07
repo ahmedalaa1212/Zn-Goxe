@@ -64,7 +64,6 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     except Exception:
         return False, None, f"عنوان محفظة المستخدم غير صالح: '{clean_recipient}'"
 
-    # ترتيب فئات المحافظ بتقديم V4R2 أولاً (المحفظة المفعلة بالسيرفر)
     wallet_classes_to_try = []
     try:
         from pytoniq import WalletV4R2
@@ -104,13 +103,12 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
             wallet = None
             selected_version = None
 
-            # البحث عن المحفظة المفعلة وبها رصيد
             for ver_name, WalletClass in wallet_classes_to_try:
                 try:
                     w_candidate = await WalletClass.from_mnemonic(provider, mnemonics)
                     acc_state = await provider.get_account_state(w_candidate.address)
                     bal = getattr(acc_state, 'balance', 0)
-                    if bal > 30_000_000:  # رصيد أكبر من 0.03 TON
+                    if bal > 30_000_000:
                         wallet = w_candidate
                         selected_version = ver_name
                         print(f"✅ تم اختيار المحفظة: {ver_name} ({w_candidate.address.to_str()})")
@@ -128,14 +126,12 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                 await provider.close_all()
                 return False, None, "تعذر إنشاء المحفظة من الكلمات المفتاحية."
 
-            # التحقق المباشر من رصيد TON
             acc_state = await provider.get_account_state(wallet.address)
             ton_balance = getattr(acc_state, 'balance', 0)
-            if ton_balance < 50_000_000:  # أقل من 0.05 TON
+            if ton_balance < 50_000_000:
                 await provider.close_all()
                 return False, None, f"رصيد TON في محفظة الأدمن ({wallet.address.to_str()}) غير كافٍ لرسوم المعاملة."
 
-            # جلب عنوان محفظة الـ Jetton الخاصة بالأدمن
             owner_cell = begin_cell().store_address(wallet.address).end_cell()
             res = await provider.run_get_method(
                 address=master_addr, 
@@ -150,24 +146,22 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
             admin_jetton_wallet = res[0].load_address()
             nano_jettons = int(round(amount_znx * (10**9)))
 
-            # بناء حمولة نقل الـ Jetton القياسية
             jetton_body = (
                 begin_cell()
-                .store_uint(0x0f887ea5, 32)      # op::transfer
-                .store_uint(0, 64)               # query_id
-                .store_coins(nano_jettons)       # amount
-                .store_address(recipient_addr)   # destination
-                .store_address(wallet.address)   # response_destination
-                .store_maybe_ref(None)           # custom_payload
-                .store_coins(10_000_000)         # forward_ton_amount (0.01 TON)
-                .store_maybe_ref(None)           # forward_payload
+                .store_uint(0x0f887ea5, 32)
+                .store_uint(0, 64)
+                .store_coins(nano_jettons)
+                .store_address(recipient_addr)
+                .store_address(wallet.address)
+                .store_maybe_ref(None)
+                .store_coins(10_000_000)
+                .store_maybe_ref(None)
                 .end_cell()
             )
 
-            # إرسال المعاملة على البلوكشين
             tx_hash = await wallet.transfer(
                 destination=admin_jetton_wallet,
-                amount=65_000_000,               # 0.065 TON تغطية كافية للغاز
+                amount=65_000_000,
                 body=jetton_body
             )
 
@@ -427,12 +421,12 @@ def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
     text = (
         "🚀 <b>طلب سحب ZNX جديد</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        f"👤 <b>المستخدم:</b> <code>{user_id}</code>\n"
-        f"📊 <b>الشريحة الحالية:</b> {tier_name}\n"
+        f"👤 <b>المستخدم:</b> <code>{html.escape(str(user_id))}</code>\n"
+        f"📊 <b>الشريحة الحالية:</b> {html.escape(str(tier_name))}\n"
         f"💰 <b>المبلغ المطلوب:</b> <code>{coins:,.4f} ZNX</code>\n"
         f"💵 <b>الرسوم المقتطعة:</b> <code>${fee_usd:.2f} USD</code>\n"
-        f"📥 <b>محفظة TON:</b>\n<code>{wallet}</code>\n"
-        f"🆔 <b>رقم المعاملة:</b> <code>#{tx_id}</code>\n"
+        f"📥 <b>محفظة TON:</b>\n<code>{html.escape(str(wallet))}</code>\n"
+        f"🆔 <b>رقم المعاملة:</b> <code>#{html.escape(str(tx_id))}</code>\n"
         "━━━━━━━━━━━━━━━━━━"
     )
     
@@ -451,80 +445,3 @@ def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
         )
     except Exception as e:
         print(f"⚠️ خطأ إرسال إشعار السحب للأدمن: {e}")
-
-@withdraw_bp.route('/telegram-webhook', methods=['POST'])
-def telegram_webhook():
-    """معالج الويب هوك لاستجابة أزرار التليجرام (موافق / رفض)"""
-    data = request.json or {}
-    
-    if 'callback_query' in data:
-        callback = data['callback_query']
-        callback_id = callback.get('id')
-        callback_data = callback.get('data', '')
-        message = callback.get('message', {})
-        chat_id = message.get('chat', {}).get('id')
-        message_id = message.get('message_id')
-        
-        if callback_data.startswith('approve_tx_'):
-            tx_id = callback_data.replace('approve_tx_', '').strip()
-            
-            # إشعار سريع للادمن
-            try:
-                requests.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
-                    json={"callback_query_id": callback_id, "text": "⏳ جاري تنفيذ التحويل على البلوكشين...", "show_alert": False},
-                    timeout=3
-                )
-            except Exception:
-                pass
-
-            success, msg = execute_admin_decision(tx_id, "approve")
-            status_icon = "🟢" if success else "❌"
-            
-            try:
-                # تحديث الرسالة وإغلاق الأزرار لمنع التكرار
-                requests.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText",
-                    json={
-                        "chat_id": chat_id,
-                        "message_id": message_id,
-                        "text": message.get('text', '') + f"\n\n<b>النتيجة ({status_icon}):</b>\n{msg}",
-                        "parse_mode": "HTML",
-                        "reply_markup": {"inline_keyboard": []}
-                    },
-                    timeout=5
-                )
-                requests.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
-                    json={"callback_query_id": callback_id, "text": msg, "show_alert": True},
-                    timeout=5
-                )
-            except Exception as e:
-                print(f"⚠️ خطأ تحديث رسالة التليجرام: {e}")
-
-        elif callback_data.startswith('reject_tx_'):
-            tx_id = callback_data.replace('reject_tx_', '').strip()
-            success, msg = execute_admin_decision(tx_id, "reject")
-            status_icon = "🔴" if success else "❌"
-            
-            try:
-                requests.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText",
-                    json={
-                        "chat_id": chat_id,
-                        "message_id": message_id,
-                        "text": message.get('text', '') + f"\n\n<b>النتيجة ({status_icon}):</b>\n{msg}",
-                        "parse_mode": "HTML",
-                        "reply_markup": {"inline_keyboard": []}
-                    },
-                    timeout=5
-                )
-                requests.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
-                    json={"callback_query_id": callback_id, "text": msg, "show_alert": True},
-                    timeout=5
-                )
-            except Exception as e:
-                print(f"⚠️ خطأ تحديث رسالة التليجرام: {e}")
-
-    return jsonify({"status": "ok"}), 200
