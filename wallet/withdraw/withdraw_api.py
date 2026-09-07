@@ -7,10 +7,14 @@ from .withdraw_db import (
     get_user_doc, 
     extract_user_balance, 
     extract_usd_balance, 
-    get_current_withdraw_tier
+    get_current_withdraw_tier,
+    ZNX_CONTRACT_ADDRESS
 )
 
 withdraw_bp = Blueprint('withdraw_bp', __name__)
+
+BOT_TOKEN = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN")
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 
 @withdraw_bp.route('/config', methods=['GET'])
 def get_config():
@@ -35,6 +39,7 @@ def get_config():
     return jsonify({
         "success": True,
         "currency": "ZNX",
+        "contract_address": ZNX_CONTRACT_ADDRESS,
         "fixed_fee_usd": tier_info.get("fixed_fee_usd", 0.02),
         "min_withdraw_znx": tier_info.get("min_withdraw_znx", 1000.0),
         "current_tier": tier_info,
@@ -141,7 +146,6 @@ def handle_withdraw():
 
         transaction.update(ref, {
             'znx_balance': updated_znx,
-            'total_znx_earned': updated_znx,
             'usd_balance': updated_usd
         })
         return updated_znx, updated_usd
@@ -178,20 +182,18 @@ def handle_withdraw():
         return jsonify({"success": False, "message": "تعذر إجراء السحب نظراً لتغير البيانات، يرجى إعادة المحاولة."}), 500
 
 def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
-    bot_token = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN")
-    admin_chat_id = os.getenv("ADMIN_CHAT_ID")
-    if not bot_token or not admin_chat_id:
+    if not BOT_TOKEN or not ADMIN_CHAT_ID:
         return
 
     text = (
-        "<b>🚀 طلب سحب ZNX جديد</b>\n"
+        "🚀 <b>طلب سحب ZNX جديد</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        f"<b>👤 المستخدم:</b> <code>{user_id}</code>\n"
-        f"<b>📊 الشريحة الحالية:</b> <code>{tier_name}</code>\n"
-        f"<b>💰 المبلغ المطلوب:</b> <code>{coins:,.4f} ZNX</code>\n"
-        f"<b>💵 الرسوم المقتطعة:</b> <code>${fee_usd:.2f} USD</code>\n"
-        f"<b>📥 محفظة TON:</b> <code>{wallet}</code>\n"
-        f"<b>🆔 رقم المعاملة:</b> <code>#{tx_id}</code>\n"
+        f"👤 <b>المستخدم:</b> <code>{user_id}</code>\n"
+        f"📊 <b>الشريحة الحالية:</b> {tier_name}\n"
+        f"💰 <b>المبلغ المطلوب:</b> <code>{coins:,.4f} ZNX</code>\n"
+        f"💵 <b>الرسوم المقتطعة:</b> <code>${fee_usd:.2f} USD</code>\n"
+        f"📥 <b>محفظة TON:</b>\n<code>{wallet}</code>\n"
+        f"🆔 <b>رقم المعاملة:</b> <code>#{tx_id}</code>\n"
         "━━━━━━━━━━━━━━━━━━"
     )
     
@@ -204,41 +206,138 @@ def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
 
     try:
         requests.post(
-            f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json={"chat_id": admin_chat_id, "text": text, "parse_mode": "HTML", "reply_markup": reply_markup},
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={"chat_id": ADMIN_CHAT_ID, "text": text, "parse_mode": "HTML", "reply_markup": reply_markup},
             timeout=5
         )
     except Exception as e:
         print(f"⚠️ خطأ إرسال إشعار السحب للأدمن: {e}")
+
+def answer_callback_query(callback_query_id, text, show_alert=False):
+    """إيقاف عجلة التحميل في التلجرام وإظهار إشعار سريع للمسؤول"""
+    if not BOT_TOKEN:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
+            json={"callback_query_id": callback_query_id, "text": text, "show_alert": show_alert},
+            timeout=5
+        )
+    except Exception as e:
+        print(f"⚠️ خطأ في answerCallbackQuery: {e}")
+
+def edit_telegram_message(chat_id, message_id, new_text):
+    """تعديل الرسالة وحذف الأزرار لتأكيد الحالة النهائية"""
+    if not BOT_TOKEN:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText",
+            json={
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": new_text,
+                "parse_mode": "HTML",
+                "reply_markup": {"inline_keyboard": []}  # إزالة الأزرار لمنع الضغط المزدوج
+            },
+            timeout=5
+        )
+    except Exception as e:
+        print(f"⚠️ خطأ في editMessageText: {e}")
 
 @withdraw_bp.route('/telegram-webhook', methods=['POST'])
 def telegram_webhook():
     update = request.json or {}
     if "callback_query" in update:
         cb = update["callback_query"]
+        cb_id = cb.get("id")
         cb_data = cb.get("data", "")
-        tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "")
+        message = cb.get("message", {})
+        chat_id = message.get("chat", {}).get("id")
+        message_id = message.get("message_id")
+
+        if not cb_data.startswith("approve_tx_") and not cb_data.startswith("reject_tx_"):
+            return jsonify({"status": "ignored"}), 200
+
         action = "approve" if cb_data.startswith("approve_tx_") else "reject"
+        tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
 
         db = safe_get_db()
-        if db and tx_id:
-            tx_ref = db.collection('processed_txs').document(tx_id)
-            tx_doc = tx_ref.get()
-            if tx_doc.exists:
-                tx_data = tx_doc.to_dict() or {}
-                if action == "approve":
-                    tx_ref.update({'status': 'completed'})
-                else:
-                    tx_ref.update({'status': 'rejected'})
-                    user_id = tx_data.get('user_id')
-                    coins = tx_data.get('coins', 0)
-                    fee_usd = tx_data.get('fee_usd', 0.02)
-                    user_ref, _ = get_user_doc(user_id)
-                    if user_ref:
-                        user_ref.update({
-                            'znx_balance': firestore.Increment(coins),
-                            'total_znx_earned': firestore.Increment(coins),
-                            'usd_balance': firestore.Increment(fee_usd)
-                        })
+        if not db or not tx_id:
+            answer_callback_query(cb_id, "⚠️ خطأ في الاتصال بقاعدة البيانات!", show_alert=True)
+            return jsonify({"status": "db_error"}), 200
+
+        tx_ref = db.collection('processed_txs').document(tx_id)
+        tx_doc = tx_ref.get()
+
+        if not tx_doc.exists:
+            answer_callback_query(cb_id, "❌ لم يتم العثور على المعاملة!", show_alert=True)
+            return jsonify({"status": "not_found"}), 200
+
+        tx_data = tx_doc.to_dict() or {}
+        current_status = tx_data.get('status', 'pending')
+
+        # لمنع المعالجة المزدوجة إذا تم الضغط على الزر سابقاً
+        if current_status != 'pending':
+            status_txt = "تم قبولها" if current_status == 'completed' else "تم رفضها"
+            answer_callback_query(cb_id, f"⚠️ هذه المعاملة تم معالجتها بالفعل ({status_txt})!", show_alert=True)
+            return jsonify({"status": "already_processed"}), 200
+
+        user_id = tx_data.get('user_id')
+        coins = float(tx_data.get('coins', 0))
+        fee_usd = float(tx_data.get('fee_usd', 0.02))
+        wallet = tx_data.get('wallet_address', '')
+        tier_name = tx_data.get('tier_name', '')
+
+        if action == "approve":
+            tx_ref.update({
+                'status': 'completed',
+                'processed_at': firestore.SERVER_TIMESTAMP
+            })
+            answer_callback_query(cb_id, "🟢 تم قبول طلب السحب بنجاح!")
+            
+            final_text = (
+                "✅ <b>تمت الموافقة على طلب السحب</b>\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                f"👤 <b>المستخدم:</b> <code>{user_id}</code>\n"
+                f"📊 <b>الشريحة:</b> {tier_name}\n"
+                f"💰 <b>المبلغ:</b> <code>{coins:,.4f} ZNX</code>\n"
+                f"💵 <b>الرسوم:</b> <code>${fee_usd:.2f} USD</code>\n"
+                f"📥 <b>المحفظة:</b> <code>{wallet}</code>\n"
+                f"🆔 <b>المعاملة:</b> <code>#{tx_id}</code>\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                "🟢 <i>الحالة: مكتملة ومقبولة</i>"
+            )
+            edit_telegram_message(chat_id, message_id, final_text)
+
+        else: # Reject Action
+            tx_ref.update({
+                'status': 'rejected',
+                'processed_at': firestore.SERVER_TIMESTAMP
+            })
+
+            # إعادة الرصيد للمستخدم فوراً
+            user_ref, _ = get_user_doc(user_id)
+            if user_ref:
+                user_ref.update({
+                    'znx_balance': firestore.Increment(coins),
+                    'usd_balance': firestore.Increment(fee_usd)
+                })
+
+            answer_callback_query(cb_id, "🔴 تم رفض الطلب وإعادة الرصيد للمستخدم!")
+
+            final_text = (
+                "❌ <b>تم رفض طلب السحب وإعادة الرصيد</b>\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                f"👤 <b>المستخدم:</b> <code>{user_id}</code>\n"
+                f"📊 <b>الشريحة:</b> {tier_name}\n"
+                f"💰 <b>المبلغ المرجع:</b> <code>{coins:,.4f} ZNX</code>\n"
+                f"💵 <b>الرسوم المرجعة:</b> <code>${fee_usd:.2f} USD</code>\n"
+                f"📥 <b>المحفظة:</b> <code>{wallet}</code>\n"
+                f"🆔 <b>المعاملة:</b> <code>#{tx_id}</code>\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                "🔴 <i>الحالة: مرفوضة وتم استرجاع الرصيد</i>"
+            )
+            edit_telegram_message(chat_id, message_id, final_text)
 
     return jsonify({"status": "ok"}), 200
