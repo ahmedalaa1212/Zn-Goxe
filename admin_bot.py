@@ -4,6 +4,7 @@ import time
 import html
 import threading
 import requests
+import re
 from flask import Flask, jsonify
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -55,26 +56,55 @@ def is_user_authorized(user_id):
         print(f"⚠️ Error checking moderator status: {e}")
     return False
 
+def safe_edit_message(chat_id, message_id, text, reply_markup=None):
+    """تحديث نص الرسالة بآمان وتجنب أخطاء HTML Parsing التي تسبب تعليق الأزرار"""
+    try:
+        return bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=text,
+            parse_mode="HTML",
+            reply_markup=reply_markup
+        )
+    except Exception as e:
+        err_str = str(e)
+        if "message is not modified" in err_str:
+            return True
+        print(f"⚠️ HTML edit failed ({e}), falling back to plain text...")
+        try:
+            plain_text = re.sub(r'<[^>]*>', '', text)
+            return bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=plain_text,
+                reply_markup=reply_markup
+            )
+        except Exception as ex:
+            print(f"❌ Critical error editing message: {ex}")
+            return False
+
 # ==========================================
 # 3. معالجة الأزرار التفاعلية (حل مشكلة التعليق نهائياً)
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data and (call.data.startswith('approve_tx_') or call.data.startswith('reject_tx_')))
 def handle_withdraw_decisions(call):
-    # 1. إجابة تلجرام فوراً وبدون أي تأخير لإلغاء مؤشر التحميل عن الزر
+    user_id = call.from_user.id
+
+    # 1. التحقق من صلاحيات المشرف فوراً قبل إجابة الطلب
+    if not is_user_authorized(user_id):
+        try:
+            bot.answer_callback_query(call.id, "⛔ ليس لديك صلاحية لاتخاذ هذا القرار!", show_alert=True)
+        except Exception:
+            pass
+        return
+
+    # 2. إجابة تلجرام فوراً لإغلاق مؤشر التحميل عن الزر
     try:
         bot.answer_callback_query(call.id, "⏳ جاري استلام الطلب...")
     except Exception as e:
         print(f"⚠️ Answer callback error: {e}")
 
     try:
-        user_id = call.from_user.id
-        if not is_user_authorized(user_id):
-            try:
-                bot.answer_callback_query(call.id, "⛔ ليس لديك صلاحية لاتخاذ هذا القرار!", show_alert=True)
-            except Exception:
-                pass
-            return
-
         cb_data = call.data
         action = "approve" if cb_data.startswith("approve_tx_") else "reject"
         tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
@@ -84,21 +114,13 @@ def handle_withdraw_decisions(call):
         orig_text = call.message.text or call.message.caption or ""
 
         # تنظيف أي نتائج أو تنبيهات سابقة
-        clean_text = orig_text.split("\n\nالنتيجة")[0].split("\n\n⚠️")[0].split("\n\n⏳")[0]
+        clean_text = orig_text.split("\n\nالنتيجة")[0].split("\n\n⚠️")[0].split("\n\n⏳")[0].strip()
 
-        # 2. تغيير نص الرسالة وإخفاء الأزرار فوراً لتفادي الضغط المزدوج
-        try:
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=clean_text + "\n\n⏳ <b>جاري تنفيذ الطلب والاتصال بالشبكة...</b>",
-                parse_mode="HTML",
-                reply_markup=None
-            )
-        except Exception as e:
-            print(f"⚠️ Error updating status to processing: {e}")
+        # 3. تغيير نص الرسالة وإخفاء الأزرار فوراً منعاً للضغط المزدوج
+        status_text = html.escape(clean_text) + "\n\n⏳ <b>جاري تنفيذ الطلب والاتصال بالشبكة...</b>"
+        safe_edit_message(chat_id, message_id, status_text, reply_markup=None)
 
-        # 3. إرسال عملية التنفيذ الثقيلة لخيط خلفي (Background Thread)
+        # 4. نقل المعالجة لخيط خلفي (Background Thread)
         threading.Thread(
             target=_process_withdraw_background,
             args=(chat_id, message_id, clean_text, tx_id, action),
@@ -114,18 +136,13 @@ def _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action)
         from wallet.withdraw.withdraw_api import execute_admin_decision
         success, result_msg = execute_admin_decision(tx_id, action)
 
-        # حماية النص من أخطاء HTML Parsing التي تمنع تحديث الرسالة
         safe_msg = html.escape(str(result_msg))
+        base_clean = html.escape(clean_text)
 
         if success:
             status_icon = "🟢" if action == "approve" else "🔴"
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=f"{clean_text}\n\n<b>النتيجة ({status_icon}):</b>\n{safe_msg}",
-                parse_mode="HTML",
-                reply_markup=None
-            )
+            final_text = f"{base_clean}\n\n<b>النتيجة ({status_icon}):</b>\n{safe_msg}"
+            safe_edit_message(chat_id, message_id, final_text, reply_markup=None)
         else:
             # في حالة الفشل: إعادة إظهار الأزرار مع نص الخطأ لإمكانية المحاولة مجدداً
             error_notice = f"\n\n⚠️ <b>فشلت العملية:</b> {safe_msg}"
@@ -136,13 +153,7 @@ def _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action)
                 InlineKeyboardButton("رفض 🔴", callback_data=f"reject_tx_{tx_id}")
             )
             
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=clean_text + error_notice,
-                parse_mode="HTML",
-                reply_markup=markup
-            )
+            safe_edit_message(chat_id, message_id, base_clean + error_notice, reply_markup=markup)
     except Exception as err:
         print(f"❌ خطأ أثناء تنفيذ الطلب في الخلفية: {err}")
 
@@ -243,10 +254,22 @@ def run_bot_worker():
             time.sleep(3)
 
 # ==========================================
-# 4. تشغيل البوت تلقائياً عند تحميل السيرفر
+# 4. تشغيل البوت مع حماية منع التكرار في Gunicorn
 # ==========================================
-bot_thread = threading.Thread(target=run_bot_worker, daemon=True)
-bot_thread.start()
+def start_bot_once():
+    """تضمن تشغيل خيط Polling واحد فقط لمنع تعارض الخيوط المتعددة"""
+    try:
+        import fcntl
+        lock_file = os.path.join(BASE_DIR, 'admin_bot.lock')
+        f = open(lock_file, 'w')
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except Exception:
+        pass
+        
+    bot_thread = threading.Thread(target=run_bot_worker, daemon=True)
+    bot_thread.start()
+
+start_bot_once()
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))
