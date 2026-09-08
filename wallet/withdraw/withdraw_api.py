@@ -3,6 +3,7 @@ import sys
 import html
 import asyncio
 import requests
+import time
 from flask import Blueprint, request, jsonify
 from firebase_admin import firestore
 from .withdraw_db import (
@@ -20,32 +21,6 @@ BOT_TOKEN = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 ADMIN_WALLET_MNEMONIC = os.getenv("ADMIN_WALLET_MNEMONIC", "").strip()
 
-def answer_telegram_callback(callback_query_id, text=""):
-    """الرد الفوري على Callback Query في تليجرام لإنهاء حالة الانتظار (التهنيج) فوراً"""
-    if not BOT_TOKEN or not callback_query_id:
-        return
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
-            json={"callback_query_id": str(callback_query_id), "text": text, "show_alert": False},
-            timeout=3
-        )
-    except Exception as e:
-        print(f"⚠️ خطأ الرد السريع على Callback Query: {e}")
-
-def remove_telegram_keyboard(chat_id, message_id):
-    """إزالة الأزرار التفاعلية لمنع الضغط المزدوج أثناء المعالجة"""
-    if not BOT_TOKEN or not chat_id or not message_id:
-        return
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageReplyMarkup",
-            json={"chat_id": chat_id, "message_id": message_id, "reply_markup": {"inline_keyboard": []}},
-            timeout=3
-        )
-    except Exception as e:
-        print(f"⚠️ خطأ تحديث لوحة الأزرار: {e}")
-
 def transfer_znx_onchain(to_address_str, amount_znx):
     """إرسال عملة ZNX حقيقياً على شبكة TON للبلوكشين عبر محفظة الأدمن W5 المعتمدة حصراً"""
     if not ADMIN_WALLET_MNEMONIC:
@@ -53,26 +28,12 @@ def transfer_znx_onchain(to_address_str, amount_znx):
         return False, None, "لم يتم ضبط الكلمات المفتاحية (ADMIN_WALLET_MNEMONIC) في إعدادات Railway."
 
     try:
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        if loop.is_running():
-            future = asyncio.run_coroutine_threadsafe(
-                _async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx), loop
-            )
-            return future.result(timeout=20.0)
-        else:
-            return loop.run_until_complete(
-                asyncio.wait_for(
-                    _async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx),
-                    timeout=20.0
-                )
-            )
+        return asyncio.run(asyncio.wait_for(
+            _async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx), 
+            timeout=25.0
+        ))
     except asyncio.TimeoutError:
-        print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من 20 ثانية (Timeout).")
+        print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من 25 ثانية (Timeout).")
         return False, None, "استجابة شبكة TON بطيئة حالياً، يرجى إعادة المحاولة."
     except Exception as e:
         print(f"❌ خطأ أثناء تنفيذ تحويل البلوكشين: {e}")
@@ -102,142 +63,117 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
         return False, None, f"عنوان محفظة المستخدم غير صالح: '{clean_recipient}'"
 
     nano_jettons_needed = int(round(amount_znx * (10**9)))
-    last_error = ""
+    provider = None
 
-    for attempt in range(2):
-        provider = None
+    try:
+        # الاتصال السريع بالميننت المباشر لتفادي تأخير جلب الإعدادات الخارجية
         try:
-            if attempt == 0:
-                provider = LiteBalancer.from_mainnet_config(trust_level=2)
-            else:
+            provider = LiteBalancer.from_mainnet_config(trust_level=2)
+            await asyncio.wait_for(provider.start_up(), timeout=8.0)
+        except Exception as e1:
+            print(f"⚠️ الاتصال بالميننت المباشر فشل: {e1}، جاري تجربة الرابط الاحتياطي...")
+            try:
                 provider = LiteBalancer.from_config_url("https://ton.org/global.config.json", trust_level=2)
+                await asyncio.wait_for(provider.start_up(), timeout=8.0)
+            except Exception as e2:
+                return False, None, f"تعذر الاتصال بعقد شبكة TON: {e2}"
 
-            await asyncio.wait_for(provider.start_up(), timeout=5.0)
+        # التعامل حصرياً مع محفظة W5 (WalletV5R1)
+        w_candidate = await WalletV5R1.from_mnemonic(provider, mnemonics)
+        admin_addr_str = w_candidate.address.to_str(is_user_friendly=True)
 
-            w_candidate = await WalletV5R1.from_mnemonic(provider, mnemonics)
-            admin_addr_str = w_candidate.address.to_str(is_user_friendly=True)
+        acc_state = await provider.get_account_state(w_candidate.address)
+        ton_bal = getattr(acc_state, 'balance', 0)
 
-            acc_state = await provider.get_account_state(w_candidate.address)
-            ton_bal = getattr(acc_state, 'balance', 0)
+        owner_cell = begin_cell().store_address(w_candidate.address).end_cell()
+        res_jw = await provider.run_get_method(
+            address=master_addr, 
+            method='get_wallet_address', 
+            stack=[owner_cell.begin_parse()]
+        )
 
-            owner_cell = begin_cell().store_address(w_candidate.address).end_cell()
-            res_jw = await provider.run_get_method(
-                address=master_addr, 
-                method='get_wallet_address', 
-                stack=[owner_cell.begin_parse()]
-            )
+        candidate_jwallet = None
+        if res_jw and len(res_jw) > 0:
+            if hasattr(res_jw[0], 'load_address'):
+                candidate_jwallet = res_jw[0].load_address()
+            elif hasattr(res_jw[0], 'begin_parse'):
+                candidate_jwallet = res_jw[0].begin_parse().load_address()
 
-            candidate_jwallet = None
-            if res_jw and len(res_jw) > 0:
-                if hasattr(res_jw[0], 'load_address'):
-                    candidate_jwallet = res_jw[0].load_address()
-                elif hasattr(res_jw[0], 'begin_parse'):
-                    candidate_jwallet = res_jw[0].begin_parse().load_address()
-
-            j_balance = 0
-            if candidate_jwallet:
-                try:
-                    res_data = await provider.run_get_method(
-                        address=candidate_jwallet,
-                        method='get_wallet_data',
-                        stack=[]
-                    )
-                    if res_data and len(res_data) > 0:
-                        j_balance = int(res_data[0])
-                except Exception as j_err:
-                    print(f"⚠️ تعذر جلب رصيد ZNX لممحفظة W5: {j_err}")
-
-            curr_znx = j_balance / (10**9)
-            curr_ton = ton_bal / (10**9)
-
-            print(f"🔍 فحص محفظة W5 ({admin_addr_str}): Gram/TON={curr_ton:.3f}, ZNX={curr_znx:,.2f}")
-
-            if ton_bal < 15_000_000:
-                await provider.close_all()
-                return False, None, (
-                    f"❌ رصيد الرسوم (Gram/TON) غير كافٍ في محفظة الأدمن W5!\n"
-                    f"المحفظة المستهدفة (W5):\n<code>{admin_addr_str}</code>\n"
-                    f"رصيد الرسوم الحالي: {curr_ton:.3f} Gram/TON\n"
-                    f"المطلوب للرسوم: 0.015 Gram/TON على الأقل\n"
-                    f"💡 يرجى التأكد من شحن محفظة W5 الموضحة أعلاه بعملة الرسوم ثم إعادة المحاولة."
+        j_balance = 0
+        if candidate_jwallet:
+            try:
+                res_data = await provider.run_get_method(
+                    address=candidate_jwallet,
+                    method='get_wallet_data',
+                    stack=[]
                 )
+                if res_data and len(res_data) > 0:
+                    j_balance = int(res_data[0])
+            except Exception as j_err:
+                print(f"⚠️ تعذر جلب رصيد ZNX لممحفظة W5: {j_err}")
 
-            if j_balance < nano_jettons_needed:
+        curr_znx = j_balance / (10**9)
+        curr_ton = ton_bal / (10**9)
+
+        print(f"🔍 فحص محفظة W5 ({admin_addr_str}): Gram/TON={curr_ton:.3f}, ZNX={curr_znx:,.2f}")
+
+        # التحقق من رصيد الرسوم
+        if ton_bal < 15_000_000:
+            return False, None, (
+                f"❌ رصيد الرسوم (Gram/TON) غير كافٍ في محفظة الأدمن W5!\n"
+                f"المحفظة المستهدفة (W5):\n<code>{admin_addr_str}</code>\n"
+                f"رصيد الرسوم الحالي: {curr_ton:.3f} Gram/TON\n"
+                f"المطلوب للرسوم: 0.015 Gram/TON على الأقل\n"
+                f"💡 يرجى التأكد من شحن محفظة W5 الموضحة أعلاه بعملة الرسوم ثم إعادة المحاولة."
+            )
+
+        # التحقق من رصيد ZNX
+        if j_balance < nano_jettons_needed:
+            return False, None, (
+                f"❌ رصيد ZNX غير كافٍ في محفظة الأدمن W5!\n"
+                f"المحفظة المستهدفة (W5):\n<code>{admin_addr_str}</code>\n"
+                f"رصيد ZNX الحالي: {curr_znx:,.2f} ZNX\n"
+                f"المطلوب: {amount_znx:,.2f} ZNX\n"
+                f"💡 يرجى إرسال عملات ZNX إلى محفظة W5 أعلاه ثم إعادة المحاولة."
+            )
+
+        # إنشاء حمولة تحويل Jetton عبر W5
+        jetton_body = (
+            begin_cell()
+            .store_uint(0x0f887ea5, 32)
+            .store_uint(0, 64)
+            .store_coins(nano_jettons_needed)
+            .store_address(recipient_addr)
+            .store_address(w_candidate.address)
+            .store_maybe_ref(None)
+            .store_coins(1_000_000)        # forward_ton_amount = 0.001 TON/Gram
+            .store_maybe_ref(None)
+            .end_cell()
+        )
+
+        tx_hash = await w_candidate.transfer(
+            destination=candidate_jwallet,
+            amount=20_000_000,             # 0.02 TON/Gram
+            body=jetton_body
+        )
+
+        if tx_hash:
+            return True, str(tx_hash), f"🟢 تم تحويل {amount_znx:,.2f} ZNX بنجاح إلى المحفظة عبر شبكة TON!"
+        else:
+            return False, None, "لم يتم استلام هاش المعاملة من شبكة TON."
+
+    except Exception as err:
+        print(f"⚠️ فشل تنفيذ تحويل W5: {err}")
+        return False, None, f"فشل اتصال البلوكشين: {str(err)}"
+    finally:
+        if provider:
+            try:
                 await provider.close_all()
-                return False, None, (
-                    f"❌ رصيد ZNX غير كافٍ في محفظة الأدمن W5!\n"
-                    f"المحفظة المستهدفة (W5):\n<code>{admin_addr_str}</code>\n"
-                    f"رصيد ZNX الحالي: {curr_znx:,.2f} ZNX\n"
-                    f"المطلوب: {amount_znx:,.2f} ZNX\n"
-                    f"💡 يرجى إرسال عملات ZNX إلى محفظة W5 أعلاه ثم إعادة المحاولة."
-                )
+            except Exception:
+                pass
 
-            jetton_body = (
-                begin_cell()
-                .store_uint(0x0f887ea5, 32)
-                .store_uint(0, 64)
-                .store_coins(nano_jettons_needed)
-                .store_address(recipient_addr)
-                .store_address(w_candidate.address)
-                .store_maybe_ref(None)
-                .store_coins(1_000_000)
-                .store_maybe_ref(None)
-                .end_cell()
-            )
-
-            tx_hash = await w_candidate.transfer(
-                destination=candidate_jwallet,
-                amount=20_000_000,
-                body=jetton_body
-            )
-
-            await provider.close_all()
-
-            if tx_hash:
-                return True, str(tx_hash), f"🟢 تم تحويل {amount_znx:,.2f} ZNX بنجاح إلى المحفظة عبر شبكة TON!"
-            else:
-                return False, None, "لم يتم استلام هاش المعاملة من شبكة TON."
-
-        except Exception as err:
-            last_error = str(err)
-            print(f"⚠️ محاولة {attempt + 1} فشلت: {err}")
-            if provider:
-                try:
-                    await provider.close_all()
-                except Exception:
-                    pass
-            if attempt < 1:
-                await asyncio.sleep(0.3)
-
-    return False, None, f"فشل اتصال البلوكشين: {last_error}"
-
-def handle_admin_callback(callback_data, callback_query_id=None, message_id=None):
-    """دالة مخصصة للنداء الفوري من معالج تليجرام لمعالجة الضغطات بدون أي تهنيج"""
-    if callback_query_id:
-        answer_telegram_callback(callback_query_id, "⏳ جاري تنفيذ الطلب...")
-
-    if not callback_data:
-        return False, "بيانات الإجراء غير صالحة"
-
-    if callback_data.startswith("approve_tx_"):
-        tx_id = callback_data.replace("approve_tx_", "").strip()
-        action = "approve"
-    elif callback_data.startswith("reject_tx_"):
-        tx_id = callback_data.replace("reject_tx_", "").strip()
-        action = "reject"
-    else:
-        return False, "إجراء غير معروف"
-
-    return execute_admin_decision(tx_id, action, callback_query_id=callback_query_id, message_id=message_id)
-
-def execute_admin_decision(tx_id, action, callback_query_id=None, message_id=None):
-    """الدالة الأساسية لتنفيذ قرار المشرف وتحديث Firestore مع حماية التضارب ومنع تهنيج الأزرار"""
-    if callback_query_id:
-        answer_telegram_callback(callback_query_id, "⏳ جاري المعالجة...")
-
-    if message_id and BOT_TOKEN and ADMIN_CHAT_ID:
-        remove_telegram_keyboard(ADMIN_CHAT_ID, message_id)
-
+def execute_admin_decision(tx_id, action):
+    """الدالة الأساسية لتنفيذ قرار المشرف وتحديث Firestore مع حماية التضارب عبر Transaction حصرية"""
     db = safe_get_db()
     if not db or not tx_id:
         return False, "خطأ في الاتصال بقاعدة البيانات!"
@@ -258,7 +194,22 @@ def execute_admin_decision(tx_id, action, callback_query_id=None, message_id=Non
         elif current_status == 'rejected':
             return False, "هذه المعاملة تم رفضها بالفعل وإعادة الرصيد للمستخدم!", None
         elif current_status == 'processing':
-            return False, "هذه المعاملة قيد المعالجة حالياً من قِبل المشرف!", None
+            # حماية ذكية: إذا مرت أكثر من 25 ثانية على حالة المعالجة، تعتبر علقت ويُسمح بإعادة المحاولة
+            p_started = data.get('processing_started_at')
+            is_stuck = False
+            if p_started:
+                try:
+                    if hasattr(p_started, 'timestamp'):
+                        stuck_seconds = time.time() - p_started.timestamp()
+                        if stuck_seconds > 25:
+                            is_stuck = True
+                except Exception:
+                    is_stuck = True
+            else:
+                is_stuck = True
+
+            if not is_stuck:
+                return False, "هذه المعاملة قيد المعالجة حالياً من قِبل المشرف!", None
 
         transaction.update(ref, {
             'status': 'processing',
