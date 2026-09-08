@@ -101,6 +101,7 @@
             padding: 12px;
             text-align: center;
             margin-bottom: 12px;
+            position: relative;
         }
 
         .price-badge {
@@ -109,15 +110,37 @@
             background: rgba(16, 185, 129, 0.1);
             padding: 2px 8px;
             border-radius: 12px;
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
             margin-bottom: 4px;
+        }
+
+        .pulse-dot {
+            width: 6px;
+            height: 6px;
+            background-color: #10b981;
+            border-radius: 50%;
+            display: inline-block;
+            animation: pulse 1.2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
         }
 
         .price-value {
             font-size: 1.5rem;
             font-weight: bold;
             color: #38bdf8;
+            transition: color 0.3s ease;
+            direction: ltr;
         }
+
+        .price-up { color: #10b981 !important; }
+        .price-down { color: #ef4444 !important; }
 
         .convert-card {
             background: var(--card-bg);
@@ -379,10 +402,10 @@
         </div>
     </div>
 
-    <!-- السعر اللحظي -->
+    <!-- السعر اللحظي المباشر -->
     <div class="price-card">
-        <span class="price-badge"><i class="fa-solid fa-circle-dot"></i> سعر مباشر بالثانية</span>
-        <div class="price-value" id="livePrice">$0.0524</div>
+        <span class="price-badge"><span class="pulse-dot"></span> سعر مباشر بالثانية (DEX)</span>
+        <div class="price-value" id="livePrice">$0.00002887</div>
     </div>
 
     <!-- لوحة التحويل -->
