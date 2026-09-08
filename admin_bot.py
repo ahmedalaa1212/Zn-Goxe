@@ -89,6 +89,16 @@ def safe_edit_message(chat_id, message_id, text, reply_markup=None):
             print(f"❌ Critical error editing message: {ex}")
             return False
 
+def make_copy_text_button(text, copy_value):
+    """إنشاء زر نسخ مباشر للحافظة مدعوم من تلجرام"""
+    try:
+        from telebot.types import CopyTextButton
+        return InlineKeyboardButton(text, copy_text=CopyTextButton(text=copy_value))
+    except Exception:
+        btn = InlineKeyboardButton(text, callback_data="none")
+        btn.copy_text = {"text": copy_value}
+        return btn
+
 # ==========================================
 # 3. معالجة الأزرار التفاعلية
 # ==========================================
@@ -106,7 +116,7 @@ def handle_withdraw_decisions(call):
 
     cb_data = call.data
 
-    # 2. زر نسخ عنوان المحفظة
+    # 2. زر نسخ عنوان المحفظة (في حال الضغط على رسائل قديمة)
     if cb_data.startswith("copy_addr_"):
         tx_id = cb_data.replace("copy_addr_", "").strip()
         wallet_addr = None
@@ -125,7 +135,6 @@ def handle_withdraw_decisions(call):
 
             if wallet_addr:
                 bot.answer_callback_query(call.id, f"📋 المحفظة:\n{wallet_addr}", show_alert=True)
-                bot.send_message(call.message.chat.id, f"<code>{wallet_addr}</code>", parse_mode="HTML")
             else:
                 bot.answer_callback_query(call.id, "❌ لم يتم العثور على عنوان المحفظة!", show_alert=True)
         except Exception as e:
@@ -154,12 +163,12 @@ def handle_withdraw_decisions(call):
 
         clean_text = re.split(r'\n\n(?:النتيجة|⚠️|⏳)', orig_text)[0].strip()
 
-        status_text = clean_text + "\n\n⏳ <b>جاري تحديث السجلات وتأفيذ الطلب...</b>"
+        status_text = clean_text + "\n\n⏳ <b>جاري تحديث السجلات وتنفيذ الطلب...</b>"
         safe_edit_message(chat_id, message_id, status_text, reply_markup=None)
 
         threading.Thread(
             target=_process_withdraw_background,
-            args=(chat_id, message_id, clean_text, tx_id, action),
+            args=(chat_id, message_id, clean_text, tx_id, action, user_id),
             daemon=True
         ).start()
 
@@ -168,11 +177,11 @@ def handle_withdraw_decisions(call):
         with _active_tx_lock:
             _active_transactions.discard(tx_id)
 
-def _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action):
-    """دالة خلفية للتحديث في قاعدة البيانات والأنظمة بدون بلوكشين"""
+def _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action, admin_id):
+    """دالة خلفية للتحديث في قاعدة البيانات والأنظمة"""
     try:
         from wallet.withdraw.withdraw_api import execute_admin_decision
-        success, result_msg = execute_admin_decision(tx_id, action)
+        success, result_msg = execute_admin_decision(tx_id, action, admin_id=admin_id)
 
         safe_msg = str(result_msg)
         base_clean = clean_text
@@ -184,14 +193,17 @@ def _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action)
         else:
             error_notice = f"\n\n⚠️ <b>فشلت العملية:</b>\n{safe_msg}"
             
+            # استخراج عنوان المحفظة لإعادة بناء زر النسخ المباشر
+            match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', clean_text)
+            wallet_addr = match.group(0) if match else ""
+
             markup = InlineKeyboardMarkup()
             markup.row(
                 InlineKeyboardButton("قبول 🟢", callback_data=f"approve_tx_{tx_id}"),
                 InlineKeyboardButton("رفض 🔴", callback_data=f"reject_tx_{tx_id}")
             )
-            markup.row(
-                InlineKeyboardButton("📋 نسخ عنوان المحفظة", callback_data=f"copy_addr_{tx_id}")
-            )
+            if wallet_addr:
+                markup.row(make_copy_text_button("📋 نسخ عنوان المحفظة", wallet_addr))
             
             safe_edit_message(chat_id, message_id, base_clean + error_notice, reply_markup=markup)
     except Exception as err:
