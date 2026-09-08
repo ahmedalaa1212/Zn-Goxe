@@ -38,7 +38,7 @@ if not BOT_TOKEN:
     print("❌ خطأ قاتل: لم يتم العثور على ADMIN_BOT_TOKEN في متغيرات البيئة!")
     sys.exit(1)
 
-bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=8)
+bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=16)
 
 # قفل آمن على مستوى Thread لمنع تكرار تشغيل الخيوط وتتبع المعاملات قيد المعالجة
 _bot_lock = threading.Lock()
@@ -100,19 +100,23 @@ def make_copy_text_button(text, copy_value):
         return btn
 
 # ==========================================
-# 3. معالجة الأزرار التفاعلية (بدون تهنيج واستجابة فورية)
+# 3. معالجة الأزرار التفاعلية (بدون تعليق واستجابة فورية)
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data and (call.data.startswith('approve_tx_') or call.data.startswith('reject_tx_') or call.data.startswith('copy_addr_')))
 def handle_withdraw_decisions(call):
-    # 1. الاستجابة المباشرة والفورية للتطبيق لإلغاء أي تهنيج أو تحميل
+    # إجابة فورية ومباشرة للتليجرام لإلغاء أي تعليق في الزر
     try:
-        bot.answer_callback_query(call.id, "⚡ جاري معالجة القرار...")
+        bot.answer_callback_query(call.id)
     except Exception:
         pass
 
+    # نقل المعالجة بالكامل لخيط خلفي لتجنب تجميد الواجهة
+    threading.Thread(target=_async_handle_callback, args=(call,), daemon=True).start()
+
+def _async_handle_callback(call):
     user_id = call.from_user.id
 
-    # 2. التحقق من صلاحيات المشرف
+    # التحقق من صلاحيات المشرف
     if not is_user_authorized(user_id):
         try:
             bot.answer_callback_query(call.id, "⛔ ليس لديك صلاحية لاتخاذ هذا القرار!", show_alert=True)
@@ -122,7 +126,7 @@ def handle_withdraw_decisions(call):
 
     cb_data = call.data
 
-    # 3. زر نسخ عنوان المحفظة
+    # زر نسخ عنوان المحفظة
     if cb_data.startswith("copy_addr_"):
         tx_id = cb_data.replace("copy_addr_", "").strip()
         wallet_addr = None
@@ -150,7 +154,7 @@ def handle_withdraw_decisions(call):
     action = "approve" if cb_data.startswith("approve_tx_") else "reject"
     tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
 
-    # 4. منع المعالجة المزدوجة لنفس المعاملة في نفس الوقت
+    # منع المعالجة المزدوجة لنفس المعاملة في نفس الوقت
     with _active_tx_lock:
         if tx_id in _active_transactions:
             return
@@ -166,12 +170,7 @@ def handle_withdraw_decisions(call):
         status_text = clean_text + "\n\n⏳ <b>جاري تحديث السجلات وتوثيق الطلب...</b>"
         safe_edit_message(chat_id, message_id, status_text, reply_markup=None)
 
-        # تنفيذ المعالجة في Thread منفصل لعدم حظر واستجابة البوت
-        threading.Thread(
-            target=_process_withdraw_background,
-            args=(chat_id, message_id, clean_text, tx_id, action, user_id),
-            daemon=True
-        ).start()
+        _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action, user_id)
 
     except Exception as e:
         print(f"❌ خطأ في معالج الأزرار التفاعلية: {e}")
@@ -194,7 +193,6 @@ def _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action,
         else:
             error_notice = f"\n\n⚠️ <b>فشلت العملية:</b>\n{safe_msg}"
             
-            # استخراج عنوان المحفظة لإعادة بناء زر النسخ المباشر
             match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', clean_text)
             wallet_addr = match.group(0) if match else ""
 
