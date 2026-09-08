@@ -12,7 +12,7 @@ _TIER_CACHE = {
     "data": None,
     "timestamp": 0
 }
-CACHE_TTL_SECONDS = 45  # كاش لمدة 45 ثانية لتقليل القراءات وتسريع الفتح
+CACHE_TTL_SECONDS = 5  # خفض الكاش إلى 5 ثوانٍ لضمان مزامنة الأرصدة فوراً عبر Multi-worker Gunicorn
 
 def safe_get_db():
     try:
@@ -39,19 +39,19 @@ def format_crypto_display(amount):
         return str(amount)
 
 def extract_user_balance(data):
-    """جلب رصيد ZNX للمستخدم بشكل دقيق مع أولوية قصوى لـ znx_balance"""
+    """جلب رصيد ZNX للمستخدم بشكل دقيق واعتماد حقل znx_balance فقط لمنع تكرار أو تضارب الأرصدة"""
     if not isinstance(data, dict):
         return 0.0
     
-    balance_keys = ['znx_balance', 'total_znx_earned', 'znx', 'balance']
-    for key in balance_keys:
-        if key in data and data[key] is not None:
-            try:
-                val = float(data[key])
-                if val >= 0:
-                    return val
-            except (ValueError, TypeError):
-                pass
+    # الاعتماد الصارم على حقل znx_balance المباشر وتجاهل total_znx_earned والرموز القديمة
+    if 'znx_balance' in data and data['znx_balance'] is not None:
+        try:
+            val = float(data['znx_balance'])
+            if val >= 0:
+                return val
+        except (ValueError, TypeError):
+            pass
+            
     return 0.0
 
 def extract_usd_balance(data):
