@@ -145,29 +145,68 @@ def get_user_doc(user_id):
     return None, None
 
 def get_user_full_details(user_id):
+    """جلب كامل التفاصيل المطلوبة لإشعار السحب اليدوي للأدمن"""
     try:
-        _, data = get_user_doc(user_id)
+        user_ref, data = get_user_doc(user_id)
         if not data:
             return None
         
-        real_balance = extract_user_balance(data)
+        real_znx_balance = extract_user_balance(data)
         usd_balance = extract_usd_balance(data)
+        zn_balance = float(data.get('balance', 0.0) or 0.0)
+        
         raw_wallets = data.get('wallets')
         wallets = raw_wallets if isinstance(raw_wallets, dict) else {}
         wallet_addr = data.get('wallet_address') or wallets.get('ZNX', '')
+
+        # 1. استخراج تاريخ التسجيل بوضوح (باليوم والساعة والدقيقة)
+        joined_str = "غير محدد"
+        joined_raw = data.get('created_at') or data.get('joined_at') or data.get('registration_date')
+        if joined_raw:
+            try:
+                if hasattr(joined_raw, 'strftime'):
+                    joined_str = joined_raw.strftime('%Y-%m-%d %H:%M:%S')
+                elif isinstance(joined_raw, (int, float)):
+                    joined_str = datetime.fromtimestamp(joined_raw, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                elif isinstance(joined_raw, str):
+                    joined_str = str(joined_raw)
+            except Exception:
+                pass
+
+        # 2. سرعة التعدين والترقيات والمخازن
+        hourly_rate = float(data.get('hourly_rate', 0.0) or 0.0)
+        upgrades_count = int(data.get('upgrades_count', 0) or 0)
+        storage_level = int(data.get('storage_level', 1) or 1)
+        max_cap = float(data.get('max_cap', 0.0) or 0.0)
+
+        # 3. حساب عدد الإحالات (الأصدقاء)
+        ref_count = int(data.get('referral_count', 0) or data.get('ref_count', 0) or 0)
+        if user_ref and ref_count == 0:
+            try:
+                friends_col = user_ref.collection('Friends').get()
+                ref_count = len(friends_col)
+            except Exception:
+                pass
 
         return {
             "user_id": str(user_id),
             "first_name": data.get('first_name', 'غير محدد'),
             "username": data.get('username', 'لا يوجد'),
-            "balance": real_balance,
-            "znx_balance": real_balance,
+            "znx_balance": real_znx_balance,
+            "zn_balance": zn_balance,
             "usd_balance": usd_balance,
+            "joined_at": joined_str,
+            "hourly_rate": hourly_rate,
+            "upgrades_count": upgrades_count,
+            "storage_level": storage_level,
+            "max_cap": max_cap,
+            "ref_count": ref_count,
             "is_banned": data.get('is_banned', False),
             "wallets": wallets,
             "wallet_address": wallet_addr
         }
-    except Exception:
+    except Exception as e:
+        print(f"⚠️ خطأ جلب تفاصيل المستخدم كاملة: {e}")
         return None
 
 def save_user_wallet(user_id, currency, wallet_address):
