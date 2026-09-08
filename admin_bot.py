@@ -113,9 +113,10 @@ def handle_withdraw_decisions(call):
         message_id = call.message.message_id
         orig_text = call.message.text or call.message.caption or ""
 
+        # تنظيف النص القديم بدون إعادة html.escape لتجنب كسر التنسيق
         clean_text = orig_text.split("\n\nالنتيجة")[0].split("\n\n⚠️")[0].split("\n\n⏳")[0].strip()
 
-        status_text = html.escape(clean_text) + "\n\n⏳ <b>جاري تنفيذ الطلب والاتصال بالشبكة...</b>"
+        status_text = clean_text + "\n\n⏳ <b>جاري تنفيذ الطلب والاتصال بالشبكة...</b>"
         safe_edit_message(chat_id, message_id, status_text, reply_markup=None)
 
         threading.Thread(
@@ -134,7 +135,7 @@ def _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action)
         success, result_msg = execute_admin_decision(tx_id, action)
 
         safe_msg = str(result_msg)
-        base_clean = html.escape(clean_text)
+        base_clean = clean_text
 
         if success:
             status_icon = "🟢" if action == "approve" else "🔴"
