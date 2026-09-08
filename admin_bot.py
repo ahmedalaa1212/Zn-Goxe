@@ -94,7 +94,7 @@ def safe_edit_message(chat_id, message_id, text, reply_markup=None):
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data and (call.data.startswith('approve_tx_') or call.data.startswith('reject_tx_')))
 def handle_withdraw_decisions(call):
-    # ⚡ إجابة التلجرام فوراً في أول سطر لإلغاء مؤشر تهنيج الأزرار لحظياً ⚡
+    # ⚡ إجابة التلجرام فوراً لإلغاء مؤشر تهنيج الزر لحظياً ⚡
     try:
         bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب...")
     except Exception:
@@ -125,7 +125,7 @@ def handle_withdraw_decisions(call):
         message_id = call.message.message_id
         orig_text = call.message.text or call.message.caption or ""
 
-        # تنظيف النص القديم بآمان باستخدام Regex ومنع تكرار رسائل الخطأ
+        # تنظيف النص القديم بآمان
         clean_text = re.split(r'\n\n(?:النتيجة|⚠️|⏳)', orig_text)[0].strip()
 
         # إزالة الأزرار التفاعلية فوراً وإظهار حالة "جاري التنفيذ"
