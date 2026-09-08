@@ -4,6 +4,7 @@ import html
 import asyncio
 import requests
 import time
+import concurrent.futures
 from flask import Blueprint, request, jsonify
 from firebase_admin import firestore
 from .withdraw_db import (
@@ -22,55 +23,42 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 ADMIN_WALLET_MNEMONIC = os.getenv("ADMIN_WALLET_MNEMONIC", "").strip()
 
 def transfer_znx_onchain(to_address_str, amount_znx):
-    """إرسال عملة ZNX حقيقياً على شبكة TON للبلوكشين عبر محفظة الأدمن W5 المعتمدة حصراً"""
+    """إرسال عملة ZNX حقيقياً على شبكة TON عبر Thread مستقل لتفادي تجميد السيرفر والأزرار"""
     if not ADMIN_WALLET_MNEMONIC:
         print("❌ خطأ: ADMIN_WALLET_MNEMONIC غير معرّف في متغيرات البيئة!")
         return False, None, "لم يتم ضبط الكلمات المفتاحية (ADMIN_WALLET_MNEMONIC) في إعدادات Railway."
 
-    try:
-        # معالجة آمنة لـ Event Loop لمنع أي تعارض أثناء التنفيذ
+    def _worker():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(_async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx))
+        finally:
+            loop.close()
 
-        if loop.is_running():
-            try:
-                import nest_asyncio
-                nest_asyncio.apply()
-            except ImportError:
-                pass
-            return loop.run_until_complete(
-                asyncio.wait_for(_async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx), timeout=30.0)
-            )
-        else:
-            return loop.run_until_complete(
-                asyncio.wait_for(_async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx), timeout=30.0)
-            )
-    except asyncio.TimeoutError:
-        print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من 30 ثانية (Timeout).")
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_worker)
+            return future.result(timeout=35.0)
+    except concurrent.futures.TimeoutError:
+        print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من 35 ثانية.")
         return False, None, "استجابة شبكة TON بطيئة حالياً، يرجى إعادة المحاولة."
     except Exception as e:
         print(f"❌ خطأ أثناء تنفيذ تحويل البلوكشين: {e}")
         return False, None, f"فشل التحويل الشبكي: {str(e)}"
 
 async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
-    # استيراد مرن وآمن متعدد المسارات لمكونات pytoniq للتعامل مع اختلاف الإصدارات
+    # استيراد ديناميكي شامل وشديد الأمان لمكونات pytoniq
     try:
-        # 1. جلب LiteBalancer
-        try:
-            from pytoniq import LiteBalancer
-        except ImportError:
-            from pytoniq.liteclient import LiteBalancer
+        import pytoniq
 
-        # 2. جلب WalletV5R1 من المسارات الفرعية المحتملة
         WalletV5R1 = None
-        try:
-            from pytoniq.contract.wallets import WalletV5R1
-        except ImportError:
+        # فحص كافة المسارات الممكنة لاستخراج صنف المحفظة W5
+        if hasattr(pytoniq, 'WalletV5R1'):
+            WalletV5R1 = pytoniq.WalletV5R1
+        else:
             try:
-                from pytoniq import WalletV5R1
+                from pytoniq.contract.wallets import WalletV5R1
             except ImportError:
                 try:
                     from pytoniq.contract.wallets.wallet_v5_r1 import WalletV5R1
@@ -80,21 +68,23 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                     except ImportError:
                         pass
 
-        if WalletV5R1 is None:
-            return False, None, "تعذر العثور على صنف WalletV5R1 داخل مسارات مكتبة pytoniq على السيرفر."
+        # LiteBalancer
+        LiteBalancer = getattr(pytoniq, 'LiteBalancer', None)
+        if not LiteBalancer:
+            from pytoniq.liteclient import LiteBalancer
 
-        # 3. جلب Address و begin_cell
+        # Address & begin_cell
         try:
             from pytoniq import Address, begin_cell
         except ImportError:
             from pytoniq_core import Address, begin_cell
 
-    except ImportError as err_imp:
+        if not WalletV5R1:
+            return False, None, "تعذر تحميل صنف المحفظة WalletV5R1 من مكتبة pytoniq على السيرفر."
+
+    except Exception as err_imp:
         print(f"❌ خطأ استيراد مكتبات TON: {err_imp}")
-        return False, None, f"فشل استيراد مكتبة pytoniq على السيرفر ({err_imp})."
-    except Exception as err_gen:
-        print(f"❌ خطأ غير متوقع أثناء تحميل pytoniq: {err_gen}")
-        return False, None, f"خطأ تحميل pytoniq: {err_gen}"
+        return False, None, f"فشل استيراد مكتبة pytoniq: {err_imp}"
 
     clean_recipient = str(to_address_str or "").strip().replace(" ", "").replace("\n", "").replace("\r", "")
     clean_contract = str(ZNX_CONTRACT_ADDRESS or "").strip().replace(" ", "").replace("\n", "").replace("\r", "")
@@ -117,7 +107,6 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     provider = None
 
     try:
-        # الاتصال بمالتي-نود الشبكة الرئيسية
         try:
             provider = LiteBalancer.from_mainnet_config(trust_level=2)
             await asyncio.wait_for(provider.start_up(), timeout=10.0)
@@ -129,7 +118,6 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
             except Exception as e2:
                 return False, None, f"تعذر الاتصال بعقد شبكة TON: {e2}"
 
-        # بناء المحفظة W5
         w_candidate = await WalletV5R1.from_mnemonic(provider, mnemonics)
         admin_addr_str = w_candidate.address.to_str(is_user_friendly=True)
 
@@ -155,7 +143,7 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                 candidate_jwallet = Address(res_jw[0])
 
         if not candidate_jwallet:
-            return False, None, "تعذر استخراج عنوان محفظة ZNX (Jetton Wallet) للأدمن من عقد العملة."
+            return False, None, "تعذر استخراج عنوان محفظة ZNX للأدمن من عقد العملة."
 
         j_balance = 0
         try:
@@ -174,27 +162,22 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
 
         print(f"🔍 فحص محفظة W5 ({admin_addr_str}): TON={curr_ton:.3f}, ZNX={curr_znx:,.2f}")
 
-        # التحقق من رصيد الرسوم (TON)
         if ton_bal < 15_000_000:
             return False, None, (
                 f"❌ رصيد الرسوم (TON) غير كافٍ في محفظة الأدمن W5!\n"
                 f"المحفظة المستهدفة (W5):\n<code>{admin_addr_str}</code>\n"
                 f"رصيد الرسوم الحالي: {curr_ton:.3f} TON\n"
-                f"المطلوب للرسوم: 0.015 TON على الأقل\n"
-                f"💡 يرجى التأكد من شحن محفظة W5 الموضحة أعلاه بعملة TON ثم إعادة المحاولة."
+                f"المطلوب للرسوم: 0.015 TON على الأقل"
             )
 
-        # التحقق من رصيد ZNX
         if j_balance < nano_jettons_needed:
             return False, None, (
                 f"❌ رصيد ZNX غير كافٍ في محفظة الأدمن W5!\n"
                 f"المحفظة المستهدفة (W5):\n<code>{admin_addr_str}</code>\n"
                 f"رصيد ZNX الحالي: {curr_znx:,.2f} ZNX\n"
-                f"المطلوب: {amount_znx:,.2f} ZNX\n"
-                f"💡 يرجى إرسال عملات ZNX إلى محفظة W5 أعلاه ثم إعادة المحاولة."
+                f"المطلوب: {amount_znx:,.2f} ZNX"
             )
 
-        # إنشاء حمولة تحويل Jetton عبر W5
         jetton_body = (
             begin_cell()
             .store_uint(0x0f887ea5, 32)
@@ -203,14 +186,14 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
             .store_address(recipient_addr)
             .store_address(w_candidate.address)
             .store_maybe_ref(None)
-            .store_coins(1_000_000)        # forward_ton_amount = 0.001 TON
+            .store_coins(1_000_000)
             .store_maybe_ref(None)
             .end_cell()
         )
 
         tx_hash = await w_candidate.transfer(
             destination=candidate_jwallet,
-            amount=20_000_000,             # 0.02 TON للغاز
+            amount=20_000_000,
             body=jetton_body
         )
 
@@ -230,7 +213,7 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                 pass
 
 def execute_admin_decision(tx_id, action):
-    """الدالة الأساسية لتنفيذ قرار المشرف وتحديث Firestore مع حماية التضارب عبر Transaction حصرية"""
+    """تنفيذ قرار المشرف وتحديث Firestore"""
     db = safe_get_db()
     if not db or not tx_id:
         return False, "خطأ في الاتصال بقاعدة البيانات!"
