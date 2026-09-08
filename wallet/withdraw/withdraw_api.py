@@ -36,7 +36,7 @@ def transfer_znx_onchain(to_address_str, amount_znx):
             loop.close()
     except asyncio.TimeoutError:
         print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من اللازم.")
-        return False, None, "استجابة شبكة TON بطيئة، يرجى إعادة المحاولة."
+        return False, None, "استجابة شبكة TON بطيئة حالياً، يرجى إعادة المحاولة بالضغط على موافقة مرة أخرى."
     except Exception as e:
         print(f"❌ خطأ أثناء تنفيذ تحويل البلوكشين: {e}")
         return False, None, f"فشل التحويل الشبكي: {str(e)}"
@@ -119,7 +119,6 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                     if ton_bal < 30_000_000:
                         continue
 
-                    # جلب عنوان محفظة الـ Jetton لهذه النسخة
                     owner_cell = begin_cell().store_address(w_candidate.address).end_cell()
                     res_jw = await provider.run_get_method(
                         address=master_addr, 
@@ -165,7 +164,6 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                     print(f"⚠️ تجربة {ver_name} فشلت: {ex}")
                     continue
 
-            # إذا لم يتم العثور على محفظة بها رصيد ZNX كافٍ
             if not wallet:
                 if best_fallback_wallet:
                     curr_znx = best_fallback_znx_bal / (10**9)
@@ -182,12 +180,11 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                     await provider.close_all()
                     return False, None, "تعذر التوصل إلى محفظة أدمن تحتوي على رصيد TON كافٍ لرسوم الشبكة."
 
-            # التحقق من رصيد غاز الـ TON
             acc_state = await provider.get_account_state(wallet.address)
             ton_balance = getattr(acc_state, 'balance', 0)
-            if ton_balance < 80_000_000:
+            if ton_balance < 50_000_000:
                 await provider.close_all()
-                return False, None, f"رصيد TON في محفظة الأدمن ({wallet.address.to_str()}) غير كافٍ لرسوم المعاملة (يلزم 0.08 TON)."
+                return False, None, f"رصيد TON في محفظة الأدمن ({wallet.address.to_str()}) غير كافٍ لرسوم المعاملة (يلزم 0.05 TON على الأقل)."
 
             jetton_body = (
                 begin_cell()
@@ -204,7 +201,7 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
 
             tx_hash = await wallet.transfer(
                 destination=selected_jetton_wallet,
-                amount=100_000_000,
+                amount=80_000_000,
                 body=jetton_body
             )
 
@@ -243,12 +240,10 @@ def execute_admin_decision(tx_id, action):
     tx_data = tx_doc.to_dict() or {}
     current_status = tx_data.get('status', 'pending')
 
-    if current_status == 'processing':
-        return False, "المعاملة قيد المعالجة حالياً، يرجى الانتظار قليلاً..."
-
-    if current_status != 'pending':
-        status_txt = "تم قبولها" if current_status == 'completed' else "تم رفضها"
-        return False, f"هذه المعاملة تم معالجتها بالفعل ({status_txt})!"
+    if current_status == 'completed':
+        return False, "هذه المعاملة تم قبولها وتحويلها بالفعل!"
+    elif current_status == 'rejected':
+        return False, "هذه المعاملة تم رفضها بالفعل وإعادة الرصيد للمستخدم!"
 
     user_id = tx_data.get('user_id')
     coins = float(tx_data.get('coins', 0))
