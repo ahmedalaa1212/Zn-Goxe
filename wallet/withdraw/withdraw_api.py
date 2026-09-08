@@ -10,6 +10,7 @@ from firebase_admin import firestore
 from .withdraw_db import (
     safe_get_db, 
     get_user_doc, 
+    get_user_full_details,
     extract_user_balance, 
     extract_usd_balance, 
     get_current_withdraw_tier,
@@ -20,195 +21,9 @@ withdraw_bp = Blueprint('withdraw_bp', __name__)
 
 BOT_TOKEN = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
-ADMIN_WALLET_MNEMONIC = os.getenv("ADMIN_WALLET_MNEMONIC", "").strip()
-
-def transfer_znx_onchain(to_address_str, amount_znx):
-    """إرسال عملة ZNX حقيقياً على شبكة TON مع دعم تلقائي لمحفظتي W5 و V4R2"""
-    if not ADMIN_WALLET_MNEMONIC:
-        print("❌ خطأ: ADMIN_WALLET_MNEMONIC غير معرّف في متغيرات البيئة!")
-        return False, None, "لم يتم ضبط الكلمات المفتاحية (ADMIN_WALLET_MNEMONIC) في إعدادات Railway."
-
-    def _worker():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(_async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx))
-        finally:
-            loop.close()
-
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_worker)
-            return future.result(timeout=22.0)
-    except concurrent.futures.TimeoutError:
-        print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من 22 ثانية.")
-        return False, None, "استجابة شبكة TON بطيئة حالياً، يرجى إعادة المحاولة."
-    except Exception as e:
-        print(f"❌ خطأ أثناء تنفيذ تحويل البلوكشين: {e}")
-        return False, None, f"فشل التحويل الشبكي: {str(e)}"
-
-async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
-    try:
-        from pytoniq import WalletV4R2, LiteBalancer, Address, begin_cell
-    except Exception as err_imp:
-        print(f"❌ خطأ استيراد مكتبات TON: {err_imp}")
-        return False, None, f"فشل استيراد مكتبة pytoniq: {err_imp}"
-
-    # محاولة استيراد صنف WalletV5 إن وجد في المكتبة
-    WalletV5Class = None
-    try:
-        from pytoniq import WalletV5R1 as WalletV5Class
-    except ImportError:
-        try:
-            from pytoniq import WalletV5 as WalletV5Class
-        except ImportError:
-            WalletV5Class = None
-
-    clean_recipient = str(to_address_str or "").strip().replace(" ", "").replace("\n", "").replace("\r", "")
-    clean_contract = str(ZNX_CONTRACT_ADDRESS or "").strip().replace(" ", "").replace("\n", "").replace("\r", "")
-
-    mnemonics = mnemonic_str.strip().split()
-    if len(mnemonics) not in [12, 24]:
-        return False, None, "الكلمات المفتاحية ADMIN_WALLET_MNEMONIC غير صالحة (يجب أن تكون 12 أو 24 كلمة)."
-
-    try:
-        master_addr = Address(clean_contract)
-    except Exception:
-        return False, None, f"عنوان عقد العملة غير صالح: '{clean_contract}'"
-
-    try:
-        recipient_addr = Address(clean_recipient)
-    except Exception:
-        return False, None, f"عنوان محفظة المستخدم غير صالح: '{clean_recipient}'"
-
-    nano_jettons_needed = int(round(amount_znx * (10**9)))
-    provider = None
-
-    try:
-        try:
-            provider = LiteBalancer.from_mainnet_config(trust_level=2)
-            await asyncio.wait_for(provider.start_up(), timeout=6.0)
-        except Exception as e1:
-            print(f"⚠️ الاتصال بالميننت المباشر فشل: {e1}، جاري تجربة الرابط الاحتياطي...")
-            try:
-                provider = LiteBalancer.from_config_url("https://ton.org/global.config.json", trust_level=2)
-                await asyncio.wait_for(provider.start_up(), timeout=6.0)
-            except Exception as e2:
-                return False, None, f"تعذر الاتصال بعقد شبكة TON: {e2}"
-
-        # تجهيز قائمة إصدارات المحافظ المفحوصة (W5 أولاً ثم V4R2)
-        candidates = []
-        if WalletV5Class is not None:
-            candidates.append(("W5", WalletV5Class))
-        candidates.append(("V4R2", WalletV4R2))
-
-        selected_wallet = None
-        selected_jwallet = None
-        selected_version = ""
-        debug_info = []
-
-        for version_name, wallet_cls in candidates:
-            try:
-                w_cand = await wallet_cls.from_mnemonic(provider, mnemonics)
-                cand_addr_str = w_cand.address.to_str(is_user_friendly=True)
-
-                acc_state = await provider.get_account_state(w_cand.address)
-                ton_bal = getattr(acc_state, 'balance', 0)
-
-                owner_cell = begin_cell().store_address(w_cand.address).end_cell()
-                res_jw = await provider.run_get_method(
-                    address=master_addr, 
-                    method='get_wallet_address', 
-                    stack=[owner_cell.begin_parse()]
-                )
-
-                candidate_jwallet = None
-                if res_jw and len(res_jw) > 0:
-                    if hasattr(res_jw[0], 'load_address'):
-                        candidate_jwallet = res_jw[0].load_address()
-                    elif hasattr(res_jw[0], 'begin_parse'):
-                        candidate_jwallet = res_jw[0].begin_parse().load_address()
-                    elif isinstance(res_jw[0], Address):
-                        candidate_jwallet = res_jw[0]
-                    elif isinstance(res_jw[0], str):
-                        candidate_jwallet = Address(res_jw[0])
-
-                j_balance = 0
-                if candidate_jwallet:
-                    try:
-                        res_data = await provider.run_get_method(
-                            address=candidate_jwallet,
-                            method='get_wallet_data',
-                            stack=[]
-                        )
-                        if res_data and len(res_data) > 0:
-                            j_balance = int(res_data[0])
-                    except Exception as j_err:
-                        print(f"⚠️ تعذر جلب رصيد ZNX لمحفظة {version_name}: {j_err}")
-
-                curr_znx = j_balance / (10**9)
-                curr_ton = ton_bal / (10**9)
-
-                print(f"🔍 فحص محفظة {version_name} ({cand_addr_str}): TON={curr_ton:.3f}, ZNX={curr_znx:,.2f}")
-                debug_info.append(f"• {version_name} (<code>{cand_addr_str[:8]}...{cand_addr_str[-6:]}</code>): {curr_ton:.3f} TON | {curr_znx:,.2f} ZNX")
-
-                # اختيار المحفظة فور العثور على رصيد TON و ZNX كافٍ
-                if ton_bal >= 15_000_000 and j_balance >= nano_jettons_needed:
-                    selected_wallet = w_cand
-                    selected_jwallet = candidate_jwallet
-                    selected_version = version_name
-                    break
-                elif ton_bal >= 15_000_000 and selected_wallet is None:
-                    selected_wallet = w_cand
-                    selected_jwallet = candidate_jwallet
-                    selected_version = version_name
-            except Exception as cand_err:
-                print(f"⚠️ فشل فحص محفظة {version_name}: {cand_err}")
-
-        if not selected_wallet or not selected_jwallet:
-            wallets_summary = "\n".join(debug_info) if debug_info else "تعذر قراءة المحافظ"
-            return False, None, (
-                f"❌ رصيد الرسوم (TON) أو ZNX غير كافٍ في محفظة الأدمن!\n"
-                f"ملخص المحافظ المكتشفة:\n{wallets_summary}\n"
-                f"المطلوب: 0.015 TON على الأقل + {amount_znx:,.2f} ZNX"
-            )
-
-        jetton_body = (
-            begin_cell()
-            .store_uint(0x0f887ea5, 32)
-            .store_uint(0, 64)
-            .store_coins(nano_jettons_needed)
-            .store_address(recipient_addr)
-            .store_address(selected_wallet.address)
-            .store_maybe_ref(None)
-            .store_coins(1_000_000)
-            .store_maybe_ref(None)
-            .end_cell()
-        )
-
-        tx_hash = await selected_wallet.transfer(
-            destination=selected_jwallet,
-            amount=20_000_000,
-            body=jetton_body
-        )
-
-        if tx_hash:
-            return True, str(tx_hash), f"🟢 تم تحويل {amount_znx:,.2f} ZNX بنجاح عبر محفظة الأدمن ({selected_version})!"
-        else:
-            return False, None, "لم يتم استلام هاش المعاملة من شبكة TON."
-
-    except Exception as err:
-        print(f"⚠️ فشل تنفيذ التحويل الشبكي: {err}")
-        return False, None, f"فشل اتصال البلوكشين: {str(err)}"
-    finally:
-        if provider:
-            try:
-                await provider.close_all()
-            except Exception:
-                pass
 
 def execute_admin_decision(tx_id, action):
-    """تنفيذ قرار المشرف وتحديث Firestore"""
+    """تنفيذ قرار المشرف وتحديث Firestore يدوياً بدون أي معالجة بلوكشين تلقائية"""
     db = safe_get_db()
     if not db or not tx_id:
         return False, "خطأ في الاتصال بقاعدة البيانات!"
@@ -225,9 +40,9 @@ def execute_admin_decision(tx_id, action):
         current_status = data.get('status', 'pending')
 
         if current_status == 'completed':
-            return False, "هذه المعاملة تم قبولها وتحويلها بالفعل!", None
+            return False, "هذه المعاملة تم قبولها مسبقاً!", None
         elif current_status == 'rejected':
-            return False, "هذه المعاملة تم رفضها بالفعل وإعادة الرصيد للمستخدم!", None
+            return False, "هذه المعاملة تم رفضها مسبقاً وإعادة الرصيد للمستخدم!", None
         elif current_status == 'processing':
             p_started = data.get('processing_started_at')
             is_stuck = False
@@ -260,25 +75,17 @@ def execute_admin_decision(tx_id, action):
         user_id = tx_data.get('user_id')
         coins = float(tx_data.get('coins', 0))
         fee_usd = float(tx_data.get('fee_usd', 0.02))
-        wallet_address = tx_data.get('wallet_address', '')
 
         if action == "approve":
-            onchain_ok, tx_hash, msg = transfer_znx_onchain(wallet_address, coins)
-            if not onchain_ok:
-                tx_ref.update({'status': 'pending'})
-                return False, msg
-
-            update_payload = {
+            # تم القبول يدوياً: اعتماد خصم الرصيد بإنهاء المعاملة بنجاح
+            tx_ref.update({
                 'status': 'completed',
                 'processed_at': firestore.SERVER_TIMESTAMP
-            }
-            if tx_hash:
-                update_payload['tx_hash'] = tx_hash
-
-            tx_ref.update(update_payload)
-            return True, f"🟢 تم قبول الطلب وتحويل {coins:,.2f} ZNX بنجاح!"
+            })
+            return True, f"🟢 تم قبول طلب السحب بنجاح! تم اعتماد خصم {coins:,.2f} ZNX من الحساب، يرجى تحويل العملة يدوياً."
 
         else:
+            # عند الرفض: تسجيل الفشل وإعادة الرصيد (ZNX والدولار) للمستخدم
             tx_ref.update({
                 'status': 'rejected',
                 'processed_at': firestore.SERVER_TIMESTAMP
@@ -291,7 +98,7 @@ def execute_admin_decision(tx_id, action):
                     'usd_balance': firestore.Increment(fee_usd)
                 })
 
-            return True, "🔴 تم رفض الطلب وإعادة الرصيد للمستخدم بنجاح!"
+            return True, "🔴 تم رفض الطلب وإعادة الرصيد بالكامل إلى حساب المستخدم بنجاح!"
 
     except Exception as e:
         print(f"⚠️ خطأ أثناء تنفيذ قرار السحب: {e}")
@@ -466,26 +273,52 @@ def handle_withdraw():
         return jsonify({"success": False, "message": "تعذر إجراء السحب، يرجى إعادة المحاولة."}), 500
 
 def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
+    """إرسال إشعار شامل ببيانات المستخدم وزر نسخ المحفظة للأدمن"""
     if not BOT_TOKEN or not ADMIN_CHAT_ID:
         return
 
+    full_details = get_user_full_details(user_id) or {}
+    
+    first_name = html.escape(str(full_details.get('first_name', 'غير محدد')))
+    username = html.escape(str(full_details.get('username', 'لا يوجد')))
+    joined_at = html.escape(str(full_details.get('joined_at', 'غير محدد')))
+    
+    znx_bal = full_details.get('znx_balance', 0.0)
+    zn_bal = full_details.get('zn_balance', 0.0)
+    
+    hourly_rate = full_details.get('hourly_rate', 0.0)
+    storage_lvl = full_details.get('storage_level', 1)
+    upgrades_cnt = full_details.get('upgrades_count', 0)
+    ref_cnt = full_details.get('ref_count', 0)
+
     text = (
-        "🚀 <b>طلب سحب ZNX جديد</b>\n"
+        "🚀 <b>طلب سحب ZNX جديد (تحويل يدوي)</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        f"👤 <b>المستخدم:</b> <code>{html.escape(str(user_id))}</code>\n"
-        f"📊 <b>الشريحة الحالية:</b> {html.escape(str(tier_name))}\n"
-        f"💰 <b>المبلغ المطلوب:</b> <code>{coins:,.4f} ZNX</code>\n"
-        f"💵 <b>الرسوم المقتطعة:</b> <code>${fee_usd:.2f} USD</code>\n"
-        f"📥 <b>محفظة TON:</b>\n<code>{html.escape(str(wallet))}</code>\n"
+        f"👤 <b>المستخدم:</b> <code>{html.escape(str(user_id))}</code> ({first_name} | @{username})\n"
+        f"📅 <b>تاريخ الانضمام:</b> <code>{joined_at}</code>\n\n"
+        f"💰 <b>رصيد ZNX الكلي:</b> <code>{znx_bal:,.4f} ZNX</code>\n"
+        f"💎 <b>رصيد ZN الحالي:</b> <code>{zn_bal:,.4f} ZN</code>\n\n"
+        f"⚡ <b>سرعة التعدين:</b> <code>{hourly_rate:g} ZN/h</code>\n"
+        f"📦 <b>المخزن / الترقيات:</b> level <code>{storage_lvl}</code> (ترقيات: <code>{upgrades_cnt}</code>)\n"
+        f"👥 <b>عدد الإحالات:</b> <code>{ref_cnt}</code> صديق\n\n"
+        f"📊 <b>الشريحة:</b> {html.escape(str(tier_name))}\n"
+        f"💵 <b>المبلغ المطلوب سحبه:</b> <code>{coins:,.4f} ZNX</code>\n"
+        f"💸 <b>الرسوم المقتطعة:</b> <code>${fee_usd:.2f} USD</code>\n\n"
+        f"📥 <b>عنوان المحفظة المحول عليها:</b>\n<code>{html.escape(str(wallet))}</code>\n\n"
         f"🆔 <b>رقم المعاملة:</b> <code>{html.escape(str(tx_id))}</code>\n"
         "━━━━━━━━━━━━━━━━━━"
     )
     
     reply_markup = {
-        "inline_keyboard": [[
-            {"text": "موافقة 🟢", "callback_data": f"approve_tx_{tx_id}"},
-            {"text": "رفض 🔴", "callback_data": f"reject_tx_{tx_id}"}
-        ]]
+        "inline_keyboard": [
+            [
+                {"text": "قبول 🟢", "callback_data": f"approve_tx_{tx_id}"},
+                {"text": "رفض 🔴", "callback_data": f"reject_tx_{tx_id}"}
+            ],
+            [
+                {"text": "📋 نسخ عنوان المحفظة", "callback_data": f"copy_addr_{tx_id}"}
+            ]
+        ]
     }
 
     try:
