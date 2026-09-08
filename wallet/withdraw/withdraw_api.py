@@ -5,6 +5,8 @@ import asyncio
 import requests
 import time
 import concurrent.futures
+import importlib
+import pkgutil
 from flask import Blueprint, request, jsonify
 from firebase_admin import firestore
 from .withdraw_db import (
@@ -21,6 +23,51 @@ withdraw_bp = Blueprint('withdraw_bp', __name__)
 BOT_TOKEN = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 ADMIN_WALLET_MNEMONIC = os.getenv("ADMIN_WALLET_MNEMONIC", "").strip()
+
+def _get_wallet_v5_class():
+    """استخراج صنف محفظة W5 بأعلى درجة أمان وموثوقية من كافة مسارات pytoniq"""
+    try:
+        import pytoniq
+
+        # 1. فحص التصدير المباشر من المستوى الأعلى
+        for cls_name in ['WalletV5R1', 'WalletV5', 'WalletV5R1Contract']:
+            if hasattr(pytoniq, cls_name):
+                return getattr(pytoniq, cls_name)
+
+        # 2. فحص المسارات المعروفة والشائعة في مكتبة pytoniq
+        possible_modules = [
+            'pytoniq.contract.wallets.wallet_v5',
+            'pytoniq.contract.wallets',
+            'pytoniq.contract.wallets.wallet_v5_r1',
+            'pytoniq.contracts.wallets.wallet_v5',
+            'pytoniq.contracts.wallets',
+            'pytoniq.wallets.wallet_v5',
+            'pytoniq.wallets'
+        ]
+
+        for mod_path in possible_modules:
+            try:
+                mod = importlib.import_module(mod_path)
+                for cls_name in ['WalletV5R1', 'WalletV5', 'WalletV5R1Contract']:
+                    if hasattr(mod, cls_name):
+                        return getattr(mod, cls_name)
+            except Exception:
+                pass
+
+        # 3. فحص ديناميكي شامل لمكونات الحزمة برمتها لضمان إيجاد الصنف أينما كان
+        if hasattr(pytoniq, '__path__'):
+            for _, modname, _ in pkgutil.walk_packages(pytoniq.__path__, pytoniq.__name__ + '.'):
+                try:
+                    m = importlib.import_module(modname)
+                    for cls_name in ['WalletV5R1', 'WalletV5', 'WalletV5R1Contract']:
+                        if hasattr(m, cls_name):
+                            return getattr(m, cls_name)
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"⚠️ Error locating WalletV5 class: {e}")
+
+    return None
 
 def transfer_znx_onchain(to_address_str, amount_znx):
     """إرسال عملة ZNX حقيقياً على شبكة TON عبر Thread مستقل لتفادي تجميد السيرفر والأزرار"""
@@ -52,26 +99,15 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     try:
         import pytoniq
 
-        WalletV5R1 = None
-        # فحص كافة المسارات الممكنة لاستخراج صنف المحفظة W5
-        if hasattr(pytoniq, 'WalletV5R1'):
-            WalletV5R1 = pytoniq.WalletV5R1
-        else:
-            try:
-                from pytoniq.contract.wallets import WalletV5R1
-            except ImportError:
-                try:
-                    from pytoniq.contract.wallets.wallet_v5_r1 import WalletV5R1
-                except ImportError:
-                    try:
-                        from pytoniq.contracts.wallets import WalletV5R1
-                    except ImportError:
-                        pass
+        WalletV5R1 = _get_wallet_v5_class()
 
         # LiteBalancer
         LiteBalancer = getattr(pytoniq, 'LiteBalancer', None)
         if not LiteBalancer:
-            from pytoniq.liteclient import LiteBalancer
+            try:
+                from pytoniq.liteclient import LiteBalancer
+            except ImportError:
+                from pytoniq.liteclient.client import LiteBalancer
 
         # Address & begin_cell
         try:
