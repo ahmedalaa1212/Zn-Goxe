@@ -40,10 +40,19 @@ def transfer_znx_onchain(to_address_str, amount_znx):
         return False, None, f"فشل التحويل الشبكي: {str(e)}"
 
 async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
+    # استيراد مرن وآمن لمكتبات TON لضمان التعرف على جميع مكوناتها
     try:
-        from pytoniq import LiteBalancer, Address, begin_cell, WalletV5R1
-    except ImportError:
-        return False, None, "مكتبة pytoniq غير مثبتة على السيرفر! تأكد من إضافتها إلى requirements.txt"
+        from pytoniq import LiteBalancer, WalletV5R1
+        try:
+            from pytoniq import Address, begin_cell
+        except ImportError:
+            from pytoniq_core import Address, begin_cell
+    except ImportError as err_imp:
+        print(f"❌ خطأ استيراد مكتبات TON: {err_imp}")
+        return False, None, f"فشل استيراد مكتبة pytoniq على السيرفر ({err_imp}). تأكد من رفع requirements.txt وإعادة تشغيل Build في Railway."
+    except Exception as err_gen:
+        print(f"❌ خطأ غير متوقع أثناء تحميل pytoniq: {err_gen}")
+        return False, None, f"خطأ تحميل pytoniq: {err_gen}"
 
     clean_recipient = str(to_address_str or "").strip().replace(" ", "").replace("\n", "").replace("\r", "")
     clean_contract = str(ZNX_CONTRACT_ADDRESS or "").strip().replace(" ", "").replace("\n", "").replace("\r", "")
@@ -98,6 +107,8 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                 candidate_jwallet = res_jw[0].load_address()
             elif hasattr(res_jw[0], 'begin_parse'):
                 candidate_jwallet = res_jw[0].begin_parse().load_address()
+            elif isinstance(res_jw[0], Address):
+                candidate_jwallet = res_jw[0]
 
         j_balance = 0
         if candidate_jwallet:
