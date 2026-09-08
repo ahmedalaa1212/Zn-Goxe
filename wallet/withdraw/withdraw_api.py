@@ -31,7 +31,7 @@ def transfer_znx_onchain(to_address_str, amount_znx):
         asyncio.set_event_loop(loop)
         try:
             task = loop.create_task(_async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx))
-            return loop.run_until_complete(asyncio.wait_for(task, timeout=60.0))
+            return loop.run_until_complete(asyncio.wait_for(task, timeout=45.0))
         finally:
             loop.close()
     except asyncio.TimeoutError:
@@ -128,7 +128,7 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
 
             acc_state = await provider.get_account_state(wallet.address)
             ton_balance = getattr(acc_state, 'balance', 0)
-            if ton_balance < 80_000_000: # يتطلب على الأقل 0.08 TON لرسوم الشبكة
+            if ton_balance < 80_000_000:
                 await provider.close_all()
                 return False, None, f"رصيد TON في محفظة الأدمن ({wallet.address.to_str()}) غير كافٍ لرسوم المعاملة."
 
@@ -143,7 +143,6 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                 await provider.close_all()
                 return False, None, "فشل جلب عنوان محفظة الـ Jetton من عقد العملة الرئيسي."
 
-            # استخراج عنوان Jetton Wallet بشكل آمن
             if hasattr(res[0], 'load_address'):
                 admin_jetton_wallet = res[0].load_address()
             elif hasattr(res[0], 'begin_parse'):
@@ -154,51 +153,32 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
 
             nano_jettons = int(round(amount_znx * (10**9)))
 
-            # صياغة محتوى معاملة تحويل الـ Jetton (TEP-74 Standard)
             jetton_body = (
                 begin_cell()
-                .store_uint(0x0f887ea5, 32)      # op: transfer
-                .store_uint(0, 64)               # query_id
-                .store_coins(nano_jettons)       # amount in nanoJettons
-                .store_address(recipient_addr)  # destination (المستلم)
-                .store_address(wallet.address)  # response_destination (لإعادة باقي الغاز)
-                .store_maybe_ref(None)           # custom_payload
-                .store_coins(15_000_000)         # forward_ton_amount (0.015 TON)
-                .store_maybe_ref(None)           # forward_payload
+                .store_uint(0x0f887ea5, 32)
+                .store_uint(0, 64)
+                .store_coins(nano_jettons)
+                .store_address(recipient_addr)
+                .store_address(wallet.address)
+                .store_maybe_ref(None)
+                .store_coins(15_000_000)
+                .store_maybe_ref(None)
                 .end_cell()
             )
 
-            old_seqno = 0
-            try:
-                old_seqno = await wallet.get_seqno()
-            except Exception:
-                pass
-
-            # إرسال المعاملة مع إرفاق 0.1 TON (100_000_000 nanoTON) لضمان إنشاء عقد للمستلم
+            # تنفيذ الإرسال الفوري لضمان عدم تعليق الزر
             tx_hash = await wallet.transfer(
                 destination=admin_jetton_wallet,
                 amount=100_000_000,
                 body=jetton_body
             )
 
-            # الانتظار للتأكد من تسجيل المعاملة على البلوكشين (زيادة seqno)
-            is_confirmed = False
-            for _ in range(6):
-                await asyncio.sleep(2.5)
-                try:
-                    new_seqno = await wallet.get_seqno()
-                    if new_seqno > old_seqno:
-                        is_confirmed = True
-                        break
-                except Exception:
-                    pass
-
             await provider.close_all()
 
-            if is_confirmed or tx_hash:
+            if tx_hash:
                 return True, str(tx_hash), f"🟢 تم تحويل {amount_znx:,.2f} ZNX بنجاح عبر محفظة {selected_version}!"
             else:
-                return False, None, "لم يتم تأكيد المعاملة من شبكة TON، يرجى المحاولة لاحقاً."
+                return False, None, "لم يتم استلام هاش المعاملة من شبكة TON."
 
         except Exception as err:
             last_error = str(err)
