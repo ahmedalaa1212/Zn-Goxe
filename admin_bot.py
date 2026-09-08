@@ -133,7 +133,7 @@ def handle_withdraw_decisions(call):
         clean_text = re.split(r'\n\n(?:النتيجة|⚠️|⏳)', orig_text)[0].strip()
 
         # إزالة الأزرار التفاعلية فوراً وإظهار حالة "جاري التنفيذ"
-        status_text = clean_text + "\n\n⏳ <b>جاري تنفيذ الطلب والاتصال بالشبكة...</b>"
+        status_text = clean_text + "\n\n⏳ <b>جاري تنفيذ الطلب والاتصال بشبكة TON...</b>"
         safe_edit_message(chat_id, message_id, status_text, reply_markup=None)
 
         threading.Thread(
