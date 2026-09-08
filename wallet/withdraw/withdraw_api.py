@@ -21,9 +21,62 @@ withdraw_bp = Blueprint('withdraw_bp', __name__)
 
 BOT_TOKEN = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+PROOF_CHANNEL_ID = os.getenv("PROOF_CHANNEL_ID", "@zngoxe_Proofs")
+
+def send_proof_to_channel(user_id, coins, wallet_address, tx_id):
+    """نشر إثبات السحب في قناة التوثيق الرسمية مع رابط تحقق مباشر"""
+    if not BOT_TOKEN or not PROOF_CHANNEL_ID:
+        return
+
+    # إخفاء جزء من معرّف المستخدم للحفاظ على الخصوصية
+    uid_str = str(user_id).strip()
+    masked_uid = f"{uid_str[:2]}****{uid_str[-3:]}" if len(uid_str) >= 6 else uid_str
+
+    # إخفاء جزء من عنوان المحفظة
+    w_str = str(wallet_address).strip()
+    masked_wallet = f"{w_str[:5]}...{w_str[-4:]}" if len(w_str) >= 12 else w_str
+
+    # رابط التحقق المباشر للمعاملة/المحفظة على شبكة TON
+    verify_url = f"https://tonviewer.com/{wallet_address}"
+
+    proof_text = (
+        "🎉 <b>إثبات سحب جديد من تطبيق ZN Goxe!</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👤 <b>المستخدم:</b> <code>{masked_uid}</code>\n"
+        f"💰 <b>المبلغ المسحوب:</b> <code>{coins:,.2f} ZNX</code>\n"
+        f"💎 <b>الصافي المستلم:</b> <code>{coins:,.2f} ZNX</code>\n"
+        f"📫 <b>المحفظة:</b> <code>{masked_wallet}</code>\n"
+        f"🆔 <b>رقم المعاملة:</b> <code>#{tx_id[:12]}</code>\n\n"
+        "✅ <b>تم التحويل بنجاح عبر شبكة TON</b>\n\n"
+        f'🔗 <a href="{verify_url}">اضغط هنا للتحقق من وصول الرصيد في حسابه عبر المستكشف 🔍</a>\n\n'
+        f"📢 <b>قناة إثباتات السحب الرسمية:</b>\n{PROOF_CHANNEL_ID}"
+    )
+
+    reply_markup = {
+        "inline_keyboard": [
+            [
+                {"text": "🔍 التحقق من المعاملة عبر Blockchain", "url": verify_url}
+            ]
+        ]
+    }
+
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={
+                "chat_id": PROOF_CHANNEL_ID,
+                "text": proof_text,
+                "parse_mode": "HTML",
+                "reply_markup": reply_markup,
+                "disable_web_page_preview": False
+            },
+            timeout=5
+        )
+    except Exception as e:
+        print(f"⚠️ خطأ أثناء إرسال منشور الإثبات للقناة: {e}")
 
 def execute_admin_decision(tx_id, action, admin_id=None):
-    """تنفيذ قرار المشرف وتحديث Firestore ومزامنة السجلات العامة وسجل المشرفين"""
+    """تنفيذ قرار المشرف وتحديث Firestore ومزامنة السجلات العامة ونشر الإثبات"""
     db = safe_get_db()
     if not db or not tx_id:
         return False, "خطأ في الاتصال بقاعدة البيانات!"
@@ -75,6 +128,7 @@ def execute_admin_decision(tx_id, action, admin_id=None):
         user_id = tx_data.get('user_id')
         coins = float(tx_data.get('coins', 0))
         fee_usd = float(tx_data.get('fee_usd', 0.02))
+        wallet_address = tx_data.get('wallet_address', '')
         new_status = 'completed' if action == "approve" else 'rejected'
         processed_by = str(admin_id) if admin_id else 'admin'
 
@@ -88,7 +142,9 @@ def execute_admin_decision(tx_id, action, admin_id=None):
         if action == "approve":
             # تم القبول يدوياً
             tx_ref.update(update_payload)
-            res_msg = f"🟢 تم قبول طلب السحب بنجاح! تم اعتماد خصم {coins:,.2f} ZNX من الحساب، يرجى تحويل العملة يدوياً."
+            res_msg = f"🟢 تم قبول طلب السحب بنجاح! تم اعتماد خصم {coins:,.2f} ZNX ونشر إثبات السحب بنجاح."
+            # إرسال منشور الإثبات في القناة
+            send_proof_to_channel(user_id, coins, wallet_address, tx_id)
         else:
             # عند الرفض: إرجاع الرصيد
             tx_ref.update(update_payload)
@@ -100,7 +156,7 @@ def execute_admin_decision(tx_id, action, admin_id=None):
                 })
             res_msg = "🔴 تم رفض الطلب وإعادة الرصيد بالكامل إلى حساب المستخدم بنجاح!"
 
-        # مزامنة السجلات لجميع المجموعات (لتظهر في لوحة التحكم وسجل المستخدم)
+        # مزامنة السجلات لجميع المجموعات
         try:
             db.collection('transactions').document(tx_id).update(update_payload)
         except Exception:
