@@ -40,6 +40,10 @@ if not BOT_TOKEN:
 
 bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=8)
 
+# قفل آمن على مستوى Thread لمنع تكرار تشغيل الخيوط في بيئة Railway/Gunicorn
+_bot_lock = threading.Lock()
+_bot_started = False
+
 def is_user_authorized(user_id):
     """فحص أمني دقيق وصارم لصلاحيات المستخدم"""
     if not user_id:
@@ -88,21 +92,21 @@ def safe_edit_message(chat_id, message_id, text, reply_markup=None):
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data and (call.data.startswith('approve_tx_') or call.data.startswith('reject_tx_')))
 def handle_withdraw_decisions(call):
+    # 1. إجابة تلجرام فوراً وبشكل مستقل لإيقاف أنيميشن التحميل فور الضغط
+    try:
+        bot.answer_callback_query(call.id, "⏳ جاري استلام الطلب...")
+    except Exception as e:
+        print(f"⚠️ Answer callback error: {e}")
+
     user_id = call.from_user.id
 
-    # 1. التحقق من صلاحيات المشرف فوراً
+    # 2. التحقق من صلاحيات المشرف
     if not is_user_authorized(user_id):
         try:
             bot.answer_callback_query(call.id, "⛔ ليس لديك صلاحية لاتخاذ هذا القرار!", show_alert=True)
         except Exception:
             pass
         return
-
-    # 2. إجابة تلجرام فوراً لإغلاق مؤشر التحميل عن الزر
-    try:
-        bot.answer_callback_query(call.id, "⏳ جاري استلام الطلب...")
-    except Exception as e:
-        print(f"⚠️ Answer callback error: {e}")
 
     try:
         cb_data = call.data
@@ -116,6 +120,7 @@ def handle_withdraw_decisions(call):
         # تنظيف النص القديم بدون إعادة html.escape لتجنب كسر التنسيق
         clean_text = orig_text.split("\n\nالنتيجة")[0].split("\n\n⚠️")[0].split("\n\n⏳")[0].strip()
 
+        # 3. إزالة الأزرار التفاعلية فوراً (reply_markup=None) لمنع الضغط المزدوج وتكرار الطلب
         status_text = clean_text + "\n\n⏳ <b>جاري تنفيذ الطلب والاتصال بالشبكة...</b>"
         safe_edit_message(chat_id, message_id, status_text, reply_markup=None)
 
@@ -251,18 +256,16 @@ def run_bot_worker():
             time.sleep(3)
 
 # ==========================================
-# 4. تشغيل البوت مع حماية منع التكرار في Gunicorn
+# 4. تشغيل البوت مع حماية منع التكرار باستخدام threading.Lock
 # ==========================================
 def start_bot_once():
     """تضمن تشغيل خيط Polling واحد فقط لمنع تعارض الخيوط المتعددة"""
-    try:
-        import fcntl
-        lock_file = os.path.join(BASE_DIR, 'admin_bot.lock')
-        f = open(lock_file, 'w')
-        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except Exception:
-        pass
-        
+    global _bot_started
+    with _bot_lock:
+        if _bot_started:
+            return
+        _bot_started = True
+
     bot_thread = threading.Thread(target=run_bot_worker, daemon=True)
     bot_thread.start()
 
