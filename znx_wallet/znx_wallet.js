@@ -2,6 +2,8 @@
  * 💎 ZNX Wallet Engine (Front-end Module)
  */
 
+const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwd";
+
 function escapeHTML(str) {
     if (!str) return '';
     return String(str)
@@ -23,8 +25,12 @@ function getUserId() {
 let USER_ID = getUserId();
 let userData = { balance: 0, usd_balance: 0, znx_balance: 0, total_znx_earned: 0 };
 let currentTier = null;
-let currentLivePrice = 0.0524;
-let livePriceInterval = null;
+
+// المتغيرات الخاصة بالسعر المباشر
+let currentLivePrice = 0.00002887;
+let targetLivePrice = 0.00002887;
+let priceFetchTimer = null;
+let priceTickerTimer = null;
 
 function formatCoins(val, decimals = 2) {
     const num = parseFloat(val) || 0;
@@ -35,6 +41,98 @@ function formatCoins(val, decimals = 2) {
         return integerPart;
     }
     return `${integerPart}<small class="dec">.${decimalPart}</small>`;
+}
+
+function formatPriceUsd(val) {
+    const num = parseFloat(val) || 0;
+    if (num <= 0) return "$0.00";
+    if (num < 0.0001) return `$${num.toFixed(8)}`;
+    if (num < 0.01) return `$${num.toFixed(6)}`;
+    if (num < 1) return `$${num.toFixed(4)}`;
+    return `$${num.toFixed(2)}`;
+}
+
+async function fetchRealZnxPrice() {
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+
+        const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${ZNX_TOKEN_CONTRACT}`, {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+            const data = await res.json();
+            if (data && data.pairs && data.pairs.length > 0) {
+                const pair = data.pairs[0];
+                const price = parseFloat(pair.priceUsd);
+                if (!isNaN(price) && price > 0) {
+                    setTargetPrice(price);
+                    return;
+                }
+            }
+        }
+    } catch (err) {
+        // الاتصال المباشر بـ DEXScreener تعذر، الاعتماد على السيرفر كخطة بديلة
+    }
+
+    try {
+        const serverRes = await fetch(`${window.location.origin}/api/znx-wallet/price`);
+        if (serverRes.ok) {
+            const serverData = await serverRes.json();
+            if (serverData.success && serverData.price > 0) {
+                setTargetPrice(serverData.price);
+            }
+        }
+    } catch (err) {
+        // التجاهل والاحتفاظ بآخر سعر معروف
+    }
+}
+
+function setTargetPrice(newPrice) {
+    if (!newPrice || isNaN(newPrice) || newPrice <= 0) return;
+    
+    const priceEl = document.getElementById('livePrice');
+    if (priceEl && newPrice !== targetLivePrice) {
+        if (newPrice > targetLivePrice) {
+            priceEl.classList.add('price-up');
+            priceEl.classList.remove('price-down');
+        } else if (newPrice < targetLivePrice) {
+            priceEl.classList.add('price-down');
+            priceEl.classList.remove('price-up');
+        }
+        setTimeout(() => {
+            priceEl.classList.remove('price-up', 'price-down');
+        }, 800);
+    }
+    
+    targetLivePrice = newPrice;
+}
+
+function tickLivePriceSubSecond() {
+    if (Math.abs(currentLivePrice - targetLivePrice) > 0.00000001) {
+        currentLivePrice += (targetLivePrice - currentLivePrice) * 0.3;
+    } else {
+        currentLivePrice = targetLivePrice;
+        const microNoise = (Math.random() - 0.5) * (targetLivePrice * 0.0005);
+        currentLivePrice = Math.max(0.00000001, targetLivePrice + microNoise);
+    }
+
+    const priceEl = document.getElementById('livePrice');
+    if (priceEl) {
+        priceEl.innerText = formatPriceUsd(currentLivePrice);
+    }
+}
+
+function startLivePriceEngine() {
+    fetchRealZnxPrice();
+
+    if (priceFetchTimer) clearInterval(priceFetchTimer);
+    priceFetchTimer = setInterval(fetchRealZnxPrice, 3000);
+
+    if (priceTickerTimer) clearInterval(priceTickerTimer);
+    priceTickerTimer = setInterval(tickLivePriceSubSecond, 400);
 }
 
 async function initApp() {
@@ -58,7 +156,10 @@ async function initApp() {
         if (data.success) {
             userData = data.user || data.player || userData;
             currentTier = data.current_tier || data.tier || currentTier;
-            currentLivePrice = data.live_price || currentLivePrice;
+
+            if (data.live_price && data.live_price > 0) {
+                setTargetPrice(data.live_price);
+            }
 
             updateBalancesUI();
             updateGlobalStatsUI(data.global_total, data.max_global_znx);
@@ -92,15 +193,6 @@ function updateGlobalStatsUI(globalTotal, maxGlobal) {
     
     if (ratioEl) ratioEl.innerHTML = `<span dir="ltr">${formatCoins(total, 0)} / ${(max / 1000000).toFixed(1)}M ZNX</span>`;
     if (barEl) barEl.style.width = `${pct}%`;
-}
-
-function tickLivePrice() {
-    const delta = (Math.random() - 0.48) * 0.0004;
-    currentLivePrice = Math.max(0.01, currentLivePrice + delta);
-    const priceEl = document.getElementById('livePrice');
-    if (priceEl) {
-        priceEl.innerText = `$${currentLivePrice.toFixed(4)}`;
-    }
 }
 
 function selectOption(type) {
@@ -233,12 +325,10 @@ function renderLeaderboardUI(list, myRank, myInfo) {
         return;
     }
 
-    // منصة التتويج للمراكز الثلاثة الأولى (Top 3 Podium)
     if (list.length >= 1) podium.innerHTML += createPodiumCard(list[0], 1, 'podium-1');
     if (list.length >= 2) podium.innerHTML += createPodiumCard(list[1], 2, 'podium-2');
     if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
 
-    // باقي قائمة الـ 10 الأوائل (من المركز 4 إلى 10 فقط)
     const limitCount = Math.min(10, list.length);
     for (let i = 3; i < limitCount; i++) {
         const safeName = escapeHTML(list[i].name || list[i].first_name || 'لاعب');
@@ -252,7 +342,6 @@ function renderLeaderboardUI(list, myRank, myInfo) {
         `;
     }
 
-    // تصميم كارت احترافي يوضح ترتيب اللاعب الشخصي بدقة عالية
     if (myRankCard) {
         const earned = myInfo?.total_znx_earned ?? userData.total_znx_earned ?? 0;
         const myName = escapeHTML(myInfo?.name || userData.first_name || 'أنت');
@@ -302,9 +391,7 @@ function startZnxModule() {
     }
     USER_ID = getUserId();
     initApp();
-
-    if (livePriceInterval) clearInterval(livePriceInterval);
-    livePriceInterval = setInterval(tickLivePrice, 1000);
+    startLivePriceEngine();
 }
 
 if (document.readyState === 'complete' || document.readyState === 'interactive') {
