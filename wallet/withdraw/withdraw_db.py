@@ -12,7 +12,7 @@ _TIER_CACHE = {
     "data": None,
     "timestamp": 0
 }
-CACHE_TTL_SECONDS = 5  # خفض الكاش إلى 5 ثوانٍ لضمان مزامنة الأرصدة فوراً عبر Multi-worker Gunicorn
+CACHE_TTL_SECONDS = 5  # خفض الكاش إلى 5 ثوانٍ لضمان مزامنة الأرصدة فوراً
 
 def safe_get_db():
     try:
@@ -43,7 +43,6 @@ def extract_user_balance(data):
     if not isinstance(data, dict):
         return 0.0
     
-    # الاعتماد الصارم على حقل znx_balance المباشر وتجاهل total_znx_earned والرموز القديمة
     if 'znx_balance' in data and data['znx_balance'] is not None:
         try:
             val = float(data['znx_balance'])
