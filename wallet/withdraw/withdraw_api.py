@@ -22,8 +22,8 @@ withdraw_bp = Blueprint('withdraw_bp', __name__)
 BOT_TOKEN = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 
-def execute_admin_decision(tx_id, action):
-    """تنفيذ قرار المشرف وتحديث Firestore يدوياً بدون أي معالجة بلوكشين تلقائية"""
+def execute_admin_decision(tx_id, action, admin_id=None):
+    """تنفيذ قرار المشرف وتحديث Firestore ومزامنة السجلات العامة وسجل المشرفين"""
     db = safe_get_db()
     if not db or not tx_id:
         return False, "خطأ في الاتصال بقاعدة البيانات!"
@@ -75,30 +75,57 @@ def execute_admin_decision(tx_id, action):
         user_id = tx_data.get('user_id')
         coins = float(tx_data.get('coins', 0))
         fee_usd = float(tx_data.get('fee_usd', 0.02))
+        new_status = 'completed' if action == "approve" else 'rejected'
+        processed_by = str(admin_id) if admin_id else 'admin'
+
+        update_payload = {
+            'status': new_status,
+            'processed_at': firestore.SERVER_TIMESTAMP,
+            'updated_at': firestore.SERVER_TIMESTAMP,
+            'processed_by': processed_by
+        }
 
         if action == "approve":
-            # تم القبول يدوياً: اعتماد خصم الرصيد بإنهاء المعاملة بنجاح
-            tx_ref.update({
-                'status': 'completed',
-                'processed_at': firestore.SERVER_TIMESTAMP
-            })
-            return True, f"🟢 تم قبول طلب السحب بنجاح! تم اعتماد خصم {coins:,.2f} ZNX من الحساب، يرجى تحويل العملة يدوياً."
-
+            # تم القبول يدوياً
+            tx_ref.update(update_payload)
+            res_msg = f"🟢 تم قبول طلب السحب بنجاح! تم اعتماد خصم {coins:,.2f} ZNX من الحساب، يرجى تحويل العملة يدوياً."
         else:
-            # عند الرفض: تسجيل الفشل وإعادة الرصيد (ZNX والدولار) للمستخدم
-            tx_ref.update({
-                'status': 'rejected',
-                'processed_at': firestore.SERVER_TIMESTAMP
-            })
-
+            # عند الرفض: إرجاع الرصيد
+            tx_ref.update(update_payload)
             user_ref, _ = get_user_doc(user_id)
             if user_ref:
                 user_ref.update({
                     'znx_balance': firestore.Increment(coins),
                     'usd_balance': firestore.Increment(fee_usd)
                 })
+            res_msg = "🔴 تم رفض الطلب وإعادة الرصيد بالكامل إلى حساب المستخدم بنجاح!"
 
-            return True, "🔴 تم رفض الطلب وإعادة الرصيد بالكامل إلى حساب المستخدم بنجاح!"
+        # مزامنة السجلات لجميع المجموعات (لتظهر في لوحة التحكم وسجل المستخدم)
+        try:
+            db.collection('transactions').document(tx_id).update(update_payload)
+        except Exception:
+            pass
+
+        try:
+            if user_id:
+                db.collection('users').document(user_id).collection('transactions').document(tx_id).update(update_payload)
+        except Exception:
+            pass
+
+        try:
+            db.collection('admin_logs').add({
+                'action': f"withdraw_{action}",
+                'tx_id': tx_id,
+                'user_id': user_id,
+                'admin_id': processed_by,
+                'status': new_status,
+                'amount': coins,
+                'timestamp': firestore.SERVER_TIMESTAMP
+            })
+        except Exception:
+            pass
+
+        return True, res_msg
 
     except Exception as e:
         print(f"⚠️ خطأ أثناء تنفيذ قرار السحب: {e}")
@@ -247,17 +274,29 @@ def handle_withdraw():
 
         tx_ref = db.collection('processed_txs').document()
         tx_id = tx_ref.id
-        tx_ref.set({
+
+        tx_record = {
+            'id': tx_id,
+            'tx_id': tx_id,
             'user_id': user_id,
             'coins': coins,
+            'amount': coins,
             'fee_usd': fixed_fee_usd,
             'net_coins': coins,
             'currency': 'ZNX',
             'tier_name': tier_info.get('name', ''),
             'wallet_address': wallet_address,
+            'type': 'withdraw',
             'status': 'pending',
-            'created_at': firestore.SERVER_TIMESTAMP
-        })
+            'created_at': firestore.SERVER_TIMESTAMP,
+            'updated_at': firestore.SERVER_TIMESTAMP,
+            'timestamp': firestore.SERVER_TIMESTAMP
+        }
+
+        # حفظ الطلب في السجل الرئيسي والموازي لضمان المزامنة التامة
+        tx_ref.set(tx_record)
+        db.collection('transactions').document(tx_id).set(tx_record)
+        db.collection('users').document(user_id).collection('transactions').document(tx_id).set(tx_record)
 
         notify_admin_withdraw(user_id, coins, fixed_fee_usd, wallet_address, tx_id, tier_info.get('name', ''))
 
@@ -273,7 +312,7 @@ def handle_withdraw():
         return jsonify({"success": False, "message": "تعذر إجراء السحب، يرجى إعادة المحاولة."}), 500
 
 def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
-    """إرسال إشعار شامل ببيانات المستخدم وزر نسخ المحفظة للأدمن"""
+    """إرسال إشعار شامل ببيانات المستخدم مع زر نسخ المحفظة المباشر"""
     if not BOT_TOKEN or not ADMIN_CHAT_ID:
         return
 
@@ -316,7 +355,7 @@ def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
                 {"text": "رفض 🔴", "callback_data": f"reject_tx_{tx_id}"}
             ],
             [
-                {"text": "📋 نسخ عنوان المحفظة", "callback_data": f"copy_addr_{tx_id}"}
+                {"text": "📋 نسخ عنوان المحفظة", "copy_text": {"text": str(wallet)}}
             ]
         ]
     }
