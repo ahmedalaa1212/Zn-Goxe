@@ -94,6 +94,12 @@ def safe_edit_message(chat_id, message_id, text, reply_markup=None):
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data and (call.data.startswith('approve_tx_') or call.data.startswith('reject_tx_')))
 def handle_withdraw_decisions(call):
+    # ⚡ إجابة التلجرام فوراً في أول سطر لإلغاء مؤشر تهنيج الأزرار لحظياً ⚡
+    try:
+        bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب...")
+    except Exception:
+        pass
+
     user_id = call.from_user.id
 
     # 1. التحقق من صلاحيات المشرف
@@ -111,18 +117,8 @@ def handle_withdraw_decisions(call):
     # 2. منع المعالجة المزدوجة لنفس المعاملة أثناء تنفيذها بالخلفية
     with _active_tx_lock:
         if tx_id in _active_transactions:
-            try:
-                bot.answer_callback_query(call.id, "⏳ المعاملة قيد المعالجة بالفعل، يرجى الانتظار...", show_alert=True)
-            except Exception:
-                pass
             return
         _active_transactions.add(tx_id)
-
-    # 3. إجابة تلجرام فوراً وبشكل مستقل لإيقاف أنيميشن التحميل
-    try:
-        bot.answer_callback_query(call.id, "⏳ جاري استلام الطلب والمعالجة...")
-    except Exception as e:
-        print(f"⚠️ Answer callback error: {e}")
 
     try:
         chat_id = call.message.chat.id
