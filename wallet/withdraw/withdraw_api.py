@@ -24,7 +24,7 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 PROOF_CHANNEL_ID = os.getenv("PROOF_CHANNEL_ID", "@zngoxe_Proofs")
 
 def send_proof_to_channel(user_id, coins, wallet_address, tx_id):
-    """نشر إثبات السحب في قناة التوثيق الرسمية مع رابط تحقق مباشر"""
+    """نشر إثبات السحب في قناة التوثيق الرسمية بدون صورة أو كارت رابط"""
     if not BOT_TOKEN or not PROOF_CHANNEL_ID:
         return
 
@@ -68,7 +68,8 @@ def send_proof_to_channel(user_id, coins, wallet_address, tx_id):
                 "text": proof_text,
                 "parse_mode": "HTML",
                 "reply_markup": reply_markup,
-                "disable_web_page_preview": False
+                "disable_web_page_preview": True,
+                "link_preview_options": {"is_disabled": True}
             },
             timeout=5
         )
