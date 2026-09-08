@@ -23,7 +23,7 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 ADMIN_WALLET_MNEMONIC = os.getenv("ADMIN_WALLET_MNEMONIC", "").strip()
 
 def transfer_znx_onchain(to_address_str, amount_znx):
-    """إرسال عملة ZNX حقيقياً على شبكة TON باستخدام محفظة V4R2 القياسية والمستقرة"""
+    """إرسال عملة ZNX حقيقياً على شبكة TON مع دعم تلقائي لمحفظتي W5 و V4R2"""
     if not ADMIN_WALLET_MNEMONIC:
         print("❌ خطأ: ADMIN_WALLET_MNEMONIC غير معرّف في متغيرات البيئة!")
         return False, None, "لم يتم ضبط الكلمات المفتاحية (ADMIN_WALLET_MNEMONIC) في إعدادات Railway."
@@ -39,9 +39,9 @@ def transfer_znx_onchain(to_address_str, amount_znx):
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(_worker)
-            return future.result(timeout=35.0)
+            return future.result(timeout=22.0)
     except concurrent.futures.TimeoutError:
-        print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من 35 ثانية.")
+        print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من 22 ثانية.")
         return False, None, "استجابة شبكة TON بطيئة حالياً، يرجى إعادة المحاولة."
     except Exception as e:
         print(f"❌ خطأ أثناء تنفيذ تحويل البلوكشين: {e}")
@@ -53,6 +53,16 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     except Exception as err_imp:
         print(f"❌ خطأ استيراد مكتبات TON: {err_imp}")
         return False, None, f"فشل استيراد مكتبة pytoniq: {err_imp}"
+
+    # محاولة استيراد صنف WalletV5 إن وجد في المكتبة
+    WalletV5Class = None
+    try:
+        from pytoniq import WalletV5R1 as WalletV5Class
+    except ImportError:
+        try:
+            from pytoniq import WalletV5 as WalletV5Class
+        except ImportError:
+            WalletV5Class = None
 
     clean_recipient = str(to_address_str or "").strip().replace(" ", "").replace("\n", "").replace("\r", "")
     clean_contract = str(ZNX_CONTRACT_ADDRESS or "").strip().replace(" ", "").replace("\n", "").replace("\r", "")
@@ -77,74 +87,90 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     try:
         try:
             provider = LiteBalancer.from_mainnet_config(trust_level=2)
-            await asyncio.wait_for(provider.start_up(), timeout=10.0)
+            await asyncio.wait_for(provider.start_up(), timeout=6.0)
         except Exception as e1:
             print(f"⚠️ الاتصال بالميننت المباشر فشل: {e1}، جاري تجربة الرابط الاحتياطي...")
             try:
                 provider = LiteBalancer.from_config_url("https://ton.org/global.config.json", trust_level=2)
-                await asyncio.wait_for(provider.start_up(), timeout=10.0)
+                await asyncio.wait_for(provider.start_up(), timeout=6.0)
             except Exception as e2:
                 return False, None, f"تعذر الاتصال بعقد شبكة TON: {e2}"
 
-        # استخدام محفظة V4R2 القياسية المضمونة
-        w_candidate = await WalletV4R2.from_mnemonic(provider, mnemonics)
-        admin_addr_str = w_candidate.address.to_str(is_user_friendly=True)
+        # تجهيز قائمة إصدارات المحافظ المفحوصة (W5 أولاً ثم V4R2)
+        candidates = []
+        if WalletV5Class is not None:
+            candidates.append(("W5", WalletV5Class))
+        candidates.append(("V4R2", WalletV4R2))
 
-        acc_state = await provider.get_account_state(w_candidate.address)
-        ton_bal = getattr(acc_state, 'balance', 0)
+        selected_wallet = None
+        selected_jwallet = None
+        selected_version = ""
+        debug_info = []
 
-        owner_cell = begin_cell().store_address(w_candidate.address).end_cell()
-        res_jw = await provider.run_get_method(
-            address=master_addr, 
-            method='get_wallet_address', 
-            stack=[owner_cell.begin_parse()]
-        )
+        for version_name, wallet_cls in candidates:
+            try:
+                w_cand = await wallet_cls.from_mnemonic(provider, mnemonics)
+                cand_addr_str = w_cand.address.to_str(is_user_friendly=True)
 
-        candidate_jwallet = None
-        if res_jw and len(res_jw) > 0:
-            if hasattr(res_jw[0], 'load_address'):
-                candidate_jwallet = res_jw[0].load_address()
-            elif hasattr(res_jw[0], 'begin_parse'):
-                candidate_jwallet = res_jw[0].begin_parse().load_address()
-            elif isinstance(res_jw[0], Address):
-                candidate_jwallet = res_jw[0]
-            elif isinstance(res_jw[0], str):
-                candidate_jwallet = Address(res_jw[0])
+                acc_state = await provider.get_account_state(w_cand.address)
+                ton_bal = getattr(acc_state, 'balance', 0)
 
-        if not candidate_jwallet:
-            return False, None, "تعذر استخراج عنوان محفظة ZNX للأدمن من عقد العملة."
+                owner_cell = begin_cell().store_address(w_cand.address).end_cell()
+                res_jw = await provider.run_get_method(
+                    address=master_addr, 
+                    method='get_wallet_address', 
+                    stack=[owner_cell.begin_parse()]
+                )
 
-        j_balance = 0
-        try:
-            res_data = await provider.run_get_method(
-                address=candidate_jwallet,
-                method='get_wallet_data',
-                stack=[]
-            )
-            if res_data and len(res_data) > 0:
-                j_balance = int(res_data[0])
-        except Exception as j_err:
-            print(f"⚠️ تعذر جلب رصيد ZNX لمحفظة V4R2: {j_err}")
+                candidate_jwallet = None
+                if res_jw and len(res_jw) > 0:
+                    if hasattr(res_jw[0], 'load_address'):
+                        candidate_jwallet = res_jw[0].load_address()
+                    elif hasattr(res_jw[0], 'begin_parse'):
+                        candidate_jwallet = res_jw[0].begin_parse().load_address()
+                    elif isinstance(res_jw[0], Address):
+                        candidate_jwallet = res_jw[0]
+                    elif isinstance(res_jw[0], str):
+                        candidate_jwallet = Address(res_jw[0])
 
-        curr_znx = j_balance / (10**9)
-        curr_ton = ton_bal / (10**9)
+                j_balance = 0
+                if candidate_jwallet:
+                    try:
+                        res_data = await provider.run_get_method(
+                            address=candidate_jwallet,
+                            method='get_wallet_data',
+                            stack=[]
+                        )
+                        if res_data and len(res_data) > 0:
+                            j_balance = int(res_data[0])
+                    except Exception as j_err:
+                        print(f"⚠️ تعذر جلب رصيد ZNX لمحفظة {version_name}: {j_err}")
 
-        print(f"🔍 فحص محفظة V4R2 ({admin_addr_str}): TON={curr_ton:.3f}, ZNX={curr_znx:,.2f}")
+                curr_znx = j_balance / (10**9)
+                curr_ton = ton_bal / (10**9)
 
-        if ton_bal < 15_000_000:
+                print(f"🔍 فحص محفظة {version_name} ({cand_addr_str}): TON={curr_ton:.3f}, ZNX={curr_znx:,.2f}")
+                debug_info.append(f"• {version_name} (<code>{cand_addr_str[:8]}...{cand_addr_str[-6:]}</code>): {curr_ton:.3f} TON | {curr_znx:,.2f} ZNX")
+
+                # اختيار المحفظة فور العثور على رصيد TON و ZNX كافٍ
+                if ton_bal >= 15_000_000 and j_balance >= nano_jettons_needed:
+                    selected_wallet = w_cand
+                    selected_jwallet = candidate_jwallet
+                    selected_version = version_name
+                    break
+                elif ton_bal >= 15_000_000 and selected_wallet is None:
+                    selected_wallet = w_cand
+                    selected_jwallet = candidate_jwallet
+                    selected_version = version_name
+            except Exception as cand_err:
+                print(f"⚠️ فشل فحص محفظة {version_name}: {cand_err}")
+
+        if not selected_wallet or not selected_jwallet:
+            wallets_summary = "\n".join(debug_info) if debug_info else "تعذر قراءة المحافظ"
             return False, None, (
-                f"❌ رصيد الرسوم (TON) غير كافٍ في محفظة الأدمن V4R2!\n"
-                f"المحفظة المستهدفة (V4R2):\n<code>{admin_addr_str}</code>\n"
-                f"رصيد الرسوم الحالي: {curr_ton:.3f} TON\n"
-                f"المطلوب للرسوم: 0.015 TON على الأقل"
-            )
-
-        if j_balance < nano_jettons_needed:
-            return False, None, (
-                f"❌ رصيد ZNX غير كافٍ في محفظة الأدمن V4R2!\n"
-                f"المحفظة المستهدفة (V4R2):\n<code>{admin_addr_str}</code>\n"
-                f"رصيد ZNX الحالي: {curr_znx:,.2f} ZNX\n"
-                f"المطلوب: {amount_znx:,.2f} ZNX"
+                f"❌ رصيد الرسوم (TON) أو ZNX غير كافٍ في محفظة الأدمن!\n"
+                f"ملخص المحافظ المكتشفة:\n{wallets_summary}\n"
+                f"المطلوب: 0.015 TON على الأقل + {amount_znx:,.2f} ZNX"
             )
 
         jetton_body = (
@@ -153,26 +179,26 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
             .store_uint(0, 64)
             .store_coins(nano_jettons_needed)
             .store_address(recipient_addr)
-            .store_address(w_candidate.address)
+            .store_address(selected_wallet.address)
             .store_maybe_ref(None)
             .store_coins(1_000_000)
             .store_maybe_ref(None)
             .end_cell()
         )
 
-        tx_hash = await w_candidate.transfer(
-            destination=candidate_jwallet,
+        tx_hash = await selected_wallet.transfer(
+            destination=selected_jwallet,
             amount=20_000_000,
             body=jetton_body
         )
 
         if tx_hash:
-            return True, str(tx_hash), f"🟢 تم تحويل {amount_znx:,.2f} ZNX بنجاح إلى المحفظة عبر شبكة TON!"
+            return True, str(tx_hash), f"🟢 تم تحويل {amount_znx:,.2f} ZNX بنجاح عبر محفظة الأدمن ({selected_version})!"
         else:
             return False, None, "لم يتم استلام هاش المعاملة من شبكة TON."
 
     except Exception as err:
-        print(f"⚠️ فشل تنفيذ تحويل V4R2: {err}")
+        print(f"⚠️ فشل تنفيذ التحويل الشبكي: {err}")
         return False, None, f"فشل اتصال البلوكشين: {str(err)}"
     finally:
         if provider:
@@ -209,7 +235,7 @@ def execute_admin_decision(tx_id, action):
                 try:
                     if hasattr(p_started, 'timestamp'):
                         stuck_seconds = time.time() - p_started.timestamp()
-                        if stuck_seconds > 25:
+                        if stuck_seconds > 15:
                             is_stuck = True
                 except Exception:
                     is_stuck = True
