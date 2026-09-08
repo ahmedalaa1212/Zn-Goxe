@@ -447,7 +447,6 @@
         userBalance = data.new_balance !== undefined ? parseFloat(data.new_balance) : (userBalance - coins);
         usdBalance = data.new_usd_balance !== undefined ? parseFloat(data.new_usd_balance) : Math.max(0, usdBalance - fixedFeeUsd);
         
-        // تحديث الحالات العالمية فوراً بدون انتظار التحديث التلقائي
         if (window.userState) {
           window.userState.znx_balance = userBalance;
           window.userState.usd_balance = usdBalance;
