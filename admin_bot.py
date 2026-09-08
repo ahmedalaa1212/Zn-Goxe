@@ -57,7 +57,7 @@ def is_user_authorized(user_id):
     return False
 
 def safe_edit_message(chat_id, message_id, text, reply_markup=None):
-    """تحديث نص الرسالة بآمان وتجنب أخطاء HTML Parsing التي تسبب تعليق الأزرار"""
+    """تحديث نص الرسالة بآمان وتجنب أخطاء HTML Parsing"""
     try:
         return bot.edit_message_text(
             chat_id=chat_id,
@@ -84,13 +84,13 @@ def safe_edit_message(chat_id, message_id, text, reply_markup=None):
             return False
 
 # ==========================================
-# 3. معالجة الأزرار التفاعلية (حل مشكلة التعليق نهائياً)
+# 3. معالجة الأزرار التفاعلية
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data and (call.data.startswith('approve_tx_') or call.data.startswith('reject_tx_')))
 def handle_withdraw_decisions(call):
     user_id = call.from_user.id
 
-    # 1. التحقق من صلاحيات المشرف فوراً قبل إجابة الطلب
+    # 1. التحقق من صلاحيات المشرف فوراً
     if not is_user_authorized(user_id):
         try:
             bot.answer_callback_query(call.id, "⛔ ليس لديك صلاحية لاتخاذ هذا القرار!", show_alert=True)
@@ -113,14 +113,11 @@ def handle_withdraw_decisions(call):
         message_id = call.message.message_id
         orig_text = call.message.text or call.message.caption or ""
 
-        # تنظيف أي نتائج أو تنبيهات سابقة
         clean_text = orig_text.split("\n\nالنتيجة")[0].split("\n\n⚠️")[0].split("\n\n⏳")[0].strip()
 
-        # 3. تغيير نص الرسالة وإخفاء الأزرار فوراً منعاً للضغط المزدوج
         status_text = html.escape(clean_text) + "\n\n⏳ <b>جاري تنفيذ الطلب والاتصال بالشبكة...</b>"
         safe_edit_message(chat_id, message_id, status_text, reply_markup=None)
 
-        # 4. نقل المعالجة لخيط خلفي (Background Thread)
         threading.Thread(
             target=_process_withdraw_background,
             args=(chat_id, message_id, clean_text, tx_id, action),
@@ -136,7 +133,7 @@ def _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action)
         from wallet.withdraw.withdraw_api import execute_admin_decision
         success, result_msg = execute_admin_decision(tx_id, action)
 
-        safe_msg = html.escape(str(result_msg))
+        safe_msg = str(result_msg)
         base_clean = html.escape(clean_text)
 
         if success:
@@ -144,8 +141,7 @@ def _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action)
             final_text = f"{base_clean}\n\n<b>النتيجة ({status_icon}):</b>\n{safe_msg}"
             safe_edit_message(chat_id, message_id, final_text, reply_markup=None)
         else:
-            # في حالة الفشل: إعادة إظهار الأزرار مع نص الخطأ لإمكانية المحاولة مجدداً
-            error_notice = f"\n\n⚠️ <b>فشلت العملية:</b> {safe_msg}"
+            error_notice = f"\n\n⚠️ <b>فشلت العملية:</b>\n{safe_msg}"
             
             markup = InlineKeyboardMarkup()
             markup.row(
