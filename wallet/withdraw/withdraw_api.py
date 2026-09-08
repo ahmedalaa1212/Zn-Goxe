@@ -5,8 +5,6 @@ import asyncio
 import requests
 import time
 import concurrent.futures
-import importlib
-import pkgutil
 from flask import Blueprint, request, jsonify
 from firebase_admin import firestore
 from .withdraw_db import (
@@ -24,53 +22,8 @@ BOT_TOKEN = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 ADMIN_WALLET_MNEMONIC = os.getenv("ADMIN_WALLET_MNEMONIC", "").strip()
 
-def _get_wallet_v5_class():
-    """استخراج صنف محفظة W5 بأعلى درجة أمان وموثوقية من كافة مسارات pytoniq"""
-    try:
-        import pytoniq
-
-        # 1. فحص التصدير المباشر من المستوى الأعلى
-        for cls_name in ['WalletV5R1', 'WalletV5', 'WalletV5R1Contract']:
-            if hasattr(pytoniq, cls_name):
-                return getattr(pytoniq, cls_name)
-
-        # 2. فحص المسارات المعروفة والشائعة في مكتبة pytoniq
-        possible_modules = [
-            'pytoniq.contract.wallets.wallet_v5',
-            'pytoniq.contract.wallets',
-            'pytoniq.contract.wallets.wallet_v5_r1',
-            'pytoniq.contracts.wallets.wallet_v5',
-            'pytoniq.contracts.wallets',
-            'pytoniq.wallets.wallet_v5',
-            'pytoniq.wallets'
-        ]
-
-        for mod_path in possible_modules:
-            try:
-                mod = importlib.import_module(mod_path)
-                for cls_name in ['WalletV5R1', 'WalletV5', 'WalletV5R1Contract']:
-                    if hasattr(mod, cls_name):
-                        return getattr(mod, cls_name)
-            except Exception:
-                pass
-
-        # 3. فحص ديناميكي شامل لمكونات الحزمة برمتها لضمان إيجاد الصنف أينما كان
-        if hasattr(pytoniq, '__path__'):
-            for _, modname, _ in pkgutil.walk_packages(pytoniq.__path__, pytoniq.__name__ + '.'):
-                try:
-                    m = importlib.import_module(modname)
-                    for cls_name in ['WalletV5R1', 'WalletV5', 'WalletV5R1Contract']:
-                        if hasattr(m, cls_name):
-                            return getattr(m, cls_name)
-                except Exception:
-                    pass
-    except Exception as e:
-        print(f"⚠️ Error locating WalletV5 class: {e}")
-
-    return None
-
 def transfer_znx_onchain(to_address_str, amount_znx):
-    """إرسال عملة ZNX حقيقياً على شبكة TON عبر Thread مستقل لتفادي تجميد السيرفر والأزرار"""
+    """إرسال عملة ZNX حقيقياً على شبكة TON باستخدام محفظة V4R2 القياسية والمستقرة"""
     if not ADMIN_WALLET_MNEMONIC:
         print("❌ خطأ: ADMIN_WALLET_MNEMONIC غير معرّف في متغيرات البيئة!")
         return False, None, "لم يتم ضبط الكلمات المفتاحية (ADMIN_WALLET_MNEMONIC) في إعدادات Railway."
@@ -95,29 +48,8 @@ def transfer_znx_onchain(to_address_str, amount_znx):
         return False, None, f"فشل التحويل الشبكي: {str(e)}"
 
 async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
-    # استيراد ديناميكي شامل وشديد الأمان لمكونات pytoniq
     try:
-        import pytoniq
-
-        WalletV5R1 = _get_wallet_v5_class()
-
-        # LiteBalancer
-        LiteBalancer = getattr(pytoniq, 'LiteBalancer', None)
-        if not LiteBalancer:
-            try:
-                from pytoniq.liteclient import LiteBalancer
-            except ImportError:
-                from pytoniq.liteclient.client import LiteBalancer
-
-        # Address & begin_cell
-        try:
-            from pytoniq import Address, begin_cell
-        except ImportError:
-            from pytoniq_core import Address, begin_cell
-
-        if not WalletV5R1:
-            return False, None, "تعذر تحميل صنف المحفظة WalletV5R1 من مكتبة pytoniq على السيرفر."
-
+        from pytoniq import WalletV4R2, LiteBalancer, Address, begin_cell
     except Exception as err_imp:
         print(f"❌ خطأ استيراد مكتبات TON: {err_imp}")
         return False, None, f"فشل استيراد مكتبة pytoniq: {err_imp}"
@@ -154,7 +86,8 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
             except Exception as e2:
                 return False, None, f"تعذر الاتصال بعقد شبكة TON: {e2}"
 
-        w_candidate = await WalletV5R1.from_mnemonic(provider, mnemonics)
+        # استخدام محفظة V4R2 القياسية المضمونة
+        w_candidate = await WalletV4R2.from_mnemonic(provider, mnemonics)
         admin_addr_str = w_candidate.address.to_str(is_user_friendly=True)
 
         acc_state = await provider.get_account_state(w_candidate.address)
@@ -191,25 +124,25 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
             if res_data and len(res_data) > 0:
                 j_balance = int(res_data[0])
         except Exception as j_err:
-            print(f"⚠️ تعذر جلب رصيد ZNX لمحفظة W5: {j_err}")
+            print(f"⚠️ تعذر جلب رصيد ZNX لمحفظة V4R2: {j_err}")
 
         curr_znx = j_balance / (10**9)
         curr_ton = ton_bal / (10**9)
 
-        print(f"🔍 فحص محفظة W5 ({admin_addr_str}): TON={curr_ton:.3f}, ZNX={curr_znx:,.2f}")
+        print(f"🔍 فحص محفظة V4R2 ({admin_addr_str}): TON={curr_ton:.3f}, ZNX={curr_znx:,.2f}")
 
         if ton_bal < 15_000_000:
             return False, None, (
-                f"❌ رصيد الرسوم (TON) غير كافٍ في محفظة الأدمن W5!\n"
-                f"المحفظة المستهدفة (W5):\n<code>{admin_addr_str}</code>\n"
+                f"❌ رصيد الرسوم (TON) غير كافٍ في محفظة الأدمن V4R2!\n"
+                f"المحفظة المستهدفة (V4R2):\n<code>{admin_addr_str}</code>\n"
                 f"رصيد الرسوم الحالي: {curr_ton:.3f} TON\n"
                 f"المطلوب للرسوم: 0.015 TON على الأقل"
             )
 
         if j_balance < nano_jettons_needed:
             return False, None, (
-                f"❌ رصيد ZNX غير كافٍ في محفظة الأدمن W5!\n"
-                f"المحفظة المستهدفة (W5):\n<code>{admin_addr_str}</code>\n"
+                f"❌ رصيد ZNX غير كافٍ في محفظة الأدمن V4R2!\n"
+                f"المحفظة المستهدفة (V4R2):\n<code>{admin_addr_str}</code>\n"
                 f"رصيد ZNX الحالي: {curr_znx:,.2f} ZNX\n"
                 f"المطلوب: {amount_znx:,.2f} ZNX"
             )
@@ -239,7 +172,7 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
             return False, None, "لم يتم استلام هاش المعاملة من شبكة TON."
 
     except Exception as err:
-        print(f"⚠️ فشل تنفيذ تحويل W5: {err}")
+        print(f"⚠️ فشل تنفيذ تحويل V4R2: {err}")
         return False, None, f"فشل اتصال البلوكشين: {str(err)}"
     finally:
         if provider:
