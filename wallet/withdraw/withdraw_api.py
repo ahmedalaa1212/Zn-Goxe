@@ -21,7 +21,7 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 ADMIN_WALLET_MNEMONIC = os.getenv("ADMIN_WALLET_MNEMONIC", "").strip()
 
 def transfer_znx_onchain(to_address_str, amount_znx):
-    """إرسال عملة ZNX حقيقياً على شبكة TON للبلوكشين عبر محفظة الأدمن W5 المعتمدة"""
+    """إرسال عملة ZNX حقيقياً على شبكة TON للبلوكشين عبر محفظة الأدمن W5 المعتمدة حصراً"""
     if not ADMIN_WALLET_MNEMONIC:
         print("❌ خطأ: ADMIN_WALLET_MNEMONIC غير معرّف في متغيرات البيئة!")
         return False, None, "لم يتم ضبط الكلمات المفتاحية (ADMIN_WALLET_MNEMONIC) في إعدادات Railway."
@@ -40,7 +40,7 @@ def transfer_znx_onchain(to_address_str, amount_znx):
 
 async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     try:
-        from pytoniq import LiteBalancer, Address, begin_cell
+        from pytoniq import LiteBalancer, Address, begin_cell, WalletV5R1
     except ImportError:
         return False, None, "مكتبة pytoniq غير مثبتة على السيرفر! تأكد من إضافتها إلى requirements.txt"
 
@@ -61,29 +61,6 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     except Exception:
         return False, None, f"عنوان محفظة المستخدم غير صالح: '{clean_recipient}'"
 
-    wallet_classes_to_try = []
-
-    # 1. W5 (V5R1) - المحفظة المعتمدة والافتراضية في Tonkeeper
-    try:
-        from pytoniq import WalletV5R1
-        wallet_classes_to_try.append(("W5 (V5R1)", WalletV5R1))
-    except ImportError:
-        pass
-
-    # 2. V4R2
-    try:
-        from pytoniq import WalletV4R2
-        wallet_classes_to_try.append(("V4R2", WalletV4R2))
-    except ImportError:
-        pass
-
-    # 3. V3R2
-    try:
-        from pytoniq import WalletV3R2
-        wallet_classes_to_try.append(("V3R2", WalletV3R2))
-    except ImportError:
-        pass
-
     config_sources = [
         "https://ton.org/global.config.json",
         "https://ton-mainnet-configs.s3.amazonaws.com/ton-global.config.json"
@@ -102,113 +79,83 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
 
             await asyncio.wait_for(provider.start_up(), timeout=10.0)
 
-            wallet = None
-            selected_version = None
-            selected_jetton_wallet = None
-            
-            best_fallback_wallet = None
-            best_fallback_version = None
-            best_fallback_jwallet = None
-            best_fallback_znx_bal = -1
-            best_fallback_ton_bal = 0
+            # التعامل حصرياً مع محفظة W5 (WalletV5R1)
+            w_candidate = await WalletV5R1.from_mnemonic(provider, mnemonics)
+            admin_addr_str = w_candidate.address.to_str(is_user_friendly=True)
 
-            for ver_name, WalletClass in wallet_classes_to_try:
+            acc_state = await provider.get_account_state(w_candidate.address)
+            ton_bal = getattr(acc_state, 'balance', 0)
+
+            owner_cell = begin_cell().store_address(w_candidate.address).end_cell()
+            res_jw = await provider.run_get_method(
+                address=master_addr, 
+                method='get_wallet_address', 
+                stack=[owner_cell.begin_parse()]
+            )
+
+            candidate_jwallet = None
+            if res_jw and len(res_jw) > 0:
+                if hasattr(res_jw[0], 'load_address'):
+                    candidate_jwallet = res_jw[0].load_address()
+                elif hasattr(res_jw[0], 'begin_parse'):
+                    candidate_jwallet = res_jw[0].begin_parse().load_address()
+
+            j_balance = 0
+            if candidate_jwallet:
                 try:
-                    w_candidate = await WalletClass.from_mnemonic(provider, mnemonics)
-                    acc_state = await provider.get_account_state(w_candidate.address)
-                    ton_bal = getattr(acc_state, 'balance', 0)
-
-                    owner_cell = begin_cell().store_address(w_candidate.address).end_cell()
-                    res_jw = await provider.run_get_method(
-                        address=master_addr, 
-                        method='get_wallet_address', 
-                        stack=[owner_cell.begin_parse()]
+                    res_data = await provider.run_get_method(
+                        address=candidate_jwallet,
+                        method='get_wallet_data',
+                        stack=[]
                     )
+                    if res_data and len(res_data) > 0:
+                        j_balance = int(res_data[0])
+                except Exception as j_err:
+                    print(f"⚠️ تعذر جلب رصيد ZNX لممحفظة W5: {j_err}")
 
-                    candidate_jwallet = None
-                    if res_jw and len(res_jw) > 0:
-                        if hasattr(res_jw[0], 'load_address'):
-                            candidate_jwallet = res_jw[0].load_address()
-                        elif hasattr(res_jw[0], 'begin_parse'):
-                            candidate_jwallet = res_jw[0].begin_parse().load_address()
+            curr_znx = j_balance / (10**9)
+            curr_ton = ton_bal / (10**9)
 
-                    j_balance = 0
-                    if candidate_jwallet:
-                        try:
-                            res_data = await provider.run_get_method(
-                                address=candidate_jwallet,
-                                method='get_wallet_data',
-                                stack=[]
-                            )
-                            if res_data and len(res_data) > 0:
-                                j_balance = int(res_data[0])
-                        except Exception as j_err:
-                            print(f"⚠️ تعذر جلب رصيد ZNX للنسخة {ver_name}: {j_err}")
+            print(f"🔍 فحص محفظة W5 ({admin_addr_str}): Gram/TON={curr_ton:.3f}, ZNX={curr_znx:,.2f}")
 
-                    print(f"🔍 فحص المحفظة {ver_name} ({w_candidate.address.to_str(is_user_friendly=True)}): Gas/Gram={ton_bal/1e9:.3f}, ZNX={j_balance/1e9:,.2f}")
+            # التحقق من رصيد الرسوم
+            if ton_bal < 15_000_000:
+                await provider.close_all()
+                return False, None, (
+                    f"❌ رصيد الرسوم (Gram/TON) غير كافٍ في محفظة الأدمن W5!\n"
+                    f"المحفظة المستهدفة (W5):\n<code>{admin_addr_str}</code>\n"
+                    f"رصيد الرسوم الحالي: {curr_ton:.3f} Gram/TON\n"
+                    f"المطلوب للرسوم: 0.015 Gram/TON على الأقل\n"
+                    f"💡 يرجى التأكد من شحن محفظة W5 الموضحة أعلاه بعملة الرسوم ثم إعادة المحاولة."
+                )
 
-                    # احتساب المحفظة كخيار احتياطي للتقرير
-                    if j_balance > best_fallback_znx_bal or (j_balance == best_fallback_znx_bal and ton_bal > best_fallback_ton_bal):
-                        best_fallback_wallet = w_candidate
-                        best_fallback_version = ver_name
-                        best_fallback_jwallet = candidate_jwallet
-                        best_fallback_znx_bal = j_balance
-                        best_fallback_ton_bal = ton_bal
+            # التحقق من رصيد ZNX
+            if j_balance < nano_jettons_needed:
+                await provider.close_all()
+                return False, None, (
+                    f"❌ رصيد ZNX غير كافٍ في محفظة الأدمن W5!\n"
+                    f"المحفظة المستهدفة (W5):\n<code>{admin_addr_str}</code>\n"
+                    f"رصيد ZNX الحالي: {curr_znx:,.2f} ZNX\n"
+                    f"المطلوب: {amount_znx:,.2f} ZNX\n"
+                    f"💡 يرجى إرسال عملات ZNX إلى محفظة W5 أعلاه ثم إعادة المحاولة."
+                )
 
-                    # التثبيت في حال وجود رصيد رسوم (0.015 Gram/TON) ورصيد عملة كافٍ
-                    if ton_bal >= 15_000_000 and j_balance >= nano_jettons_needed:
-                        wallet = w_candidate
-                        selected_version = ver_name
-                        selected_jetton_wallet = candidate_jwallet
-                        break
-
-                except Exception as ex:
-                    print(f"⚠️ تجربة {ver_name} فشلت: {ex}")
-                    continue
-
-            if not wallet:
-                if best_fallback_wallet:
-                    curr_znx = max(0, best_fallback_znx_bal) / (10**9)
-                    curr_ton = best_fallback_ton_bal / (10**9)
-                    admin_addr = best_fallback_wallet.address.to_str(is_user_friendly=True)
-                    await provider.close_all()
-
-                    if best_fallback_ton_bal < 15_000_000:
-                        return False, None, (
-                            f"❌ رصيد الرسوم (Gram/TON) غير كافٍ في محفظة الأدمن!\n"
-                            f"المحفظة المستهدفة ({best_fallback_version}):\n<code>{admin_addr}</code>\n"
-                            f"رصيد الرسوم الحالي: {curr_ton:.3f} Gram/TON\n"
-                            f"المطلوب للرسوم: 0.015 Gram/TON على الأقل\n"
-                            f"💡 يرجى التأكد من شحن المحفظة الموضحة أعلاه بعملة الرسوم ثم إعادة المحاولة."
-                        )
-                    else:
-                        return False, None, (
-                            f"❌ رصيد ZNX غير كافٍ في محفظة الأدمن!\n"
-                            f"المحفظة المستهدفة ({best_fallback_version}):\n<code>{admin_addr}</code>\n"
-                            f"رصيد ZNX الحالي: {curr_znx:,.2f} ZNX\n"
-                            f"المطلوب: {amount_znx:,.2f} ZNX\n"
-                            f"💡 يرجى إرسال عملات ZNX إلى المحفظة أعلاه ثم إعادة المحاولة."
-                        )
-                else:
-                    await provider.close_all()
-                    return False, None, "تعذر التوصل إلى محفظة أدمن صالحة عبر الكلمات المفتاحية."
-
-            # إنشاء حمولة تحويل Jetton
+            # إنشاء حمولة تحويل Jetton عبر W5
             jetton_body = (
                 begin_cell()
                 .store_uint(0x0f887ea5, 32)
                 .store_uint(0, 64)
                 .store_coins(nano_jettons_needed)
                 .store_address(recipient_addr)
-                .store_address(wallet.address)
+                .store_address(w_candidate.address)
                 .store_maybe_ref(None)
                 .store_coins(1_000_000)        # forward_ton_amount = 0.001 TON/Gram
                 .store_maybe_ref(None)
                 .end_cell()
             )
 
-            tx_hash = await wallet.transfer(
-                destination=selected_jetton_wallet,
+            tx_hash = await w_candidate.transfer(
+                destination=candidate_jwallet,
                 amount=20_000_000,             # 0.02 TON/Gram
                 body=jetton_body
             )
