@@ -28,28 +28,70 @@ def transfer_znx_onchain(to_address_str, amount_znx):
         return False, None, "لم يتم ضبط الكلمات المفتاحية (ADMIN_WALLET_MNEMONIC) في إعدادات Railway."
 
     try:
-        return asyncio.run(asyncio.wait_for(
-            _async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx), 
-            timeout=25.0
-        ))
+        # معالجة آمنة لـ Event Loop لمنع أي تعارض أثناء التنفيذ
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        if loop.is_running():
+            try:
+                import nest_asyncio
+                nest_asyncio.apply()
+            except ImportError:
+                pass
+            return loop.run_until_complete(
+                asyncio.wait_for(_async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx), timeout=30.0)
+            )
+        else:
+            return loop.run_until_complete(
+                asyncio.wait_for(_async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx), timeout=30.0)
+            )
     except asyncio.TimeoutError:
-        print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من 25 ثانية (Timeout).")
+        print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من 30 ثانية (Timeout).")
         return False, None, "استجابة شبكة TON بطيئة حالياً، يرجى إعادة المحاولة."
     except Exception as e:
         print(f"❌ خطأ أثناء تنفيذ تحويل البلوكشين: {e}")
         return False, None, f"فشل التحويل الشبكي: {str(e)}"
 
 async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
-    # استيراد مرن وآمن لمكتبات TON لضمان التعرف على جميع مكوناتها
+    # استيراد مرن وآمن متعدد المسارات لمكونات pytoniq للتعامل مع اختلاف الإصدارات
     try:
-        from pytoniq import LiteBalancer, WalletV5R1
+        # 1. جلب LiteBalancer
+        try:
+            from pytoniq import LiteBalancer
+        except ImportError:
+            from pytoniq.liteclient import LiteBalancer
+
+        # 2. جلب WalletV5R1 من المسارات الفرعية المحتملة
+        WalletV5R1 = None
+        try:
+            from pytoniq.contract.wallets import WalletV5R1
+        except ImportError:
+            try:
+                from pytoniq import WalletV5R1
+            except ImportError:
+                try:
+                    from pytoniq.contract.wallets.wallet_v5_r1 import WalletV5R1
+                except ImportError:
+                    try:
+                        from pytoniq.contracts.wallets import WalletV5R1
+                    except ImportError:
+                        pass
+
+        if WalletV5R1 is None:
+            return False, None, "تعذر العثور على صنف WalletV5R1 داخل مسارات مكتبة pytoniq على السيرفر."
+
+        # 3. جلب Address و begin_cell
         try:
             from pytoniq import Address, begin_cell
         except ImportError:
             from pytoniq_core import Address, begin_cell
+
     except ImportError as err_imp:
         print(f"❌ خطأ استيراد مكتبات TON: {err_imp}")
-        return False, None, f"فشل استيراد مكتبة pytoniq على السيرفر ({err_imp}). تأكد من رفع requirements.txt وإعادة تشغيل Build في Railway."
+        return False, None, f"فشل استيراد مكتبة pytoniq على السيرفر ({err_imp})."
     except Exception as err_gen:
         print(f"❌ خطأ غير متوقع أثناء تحميل pytoniq: {err_gen}")
         return False, None, f"خطأ تحميل pytoniq: {err_gen}"
@@ -75,19 +117,19 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     provider = None
 
     try:
-        # الاتصال السريع بالميننت المباشر لتفادي تأخير جلب الإعدادات الخارجية
+        # الاتصال بمالتي-نود الشبكة الرئيسية
         try:
             provider = LiteBalancer.from_mainnet_config(trust_level=2)
-            await asyncio.wait_for(provider.start_up(), timeout=8.0)
+            await asyncio.wait_for(provider.start_up(), timeout=10.0)
         except Exception as e1:
             print(f"⚠️ الاتصال بالميننت المباشر فشل: {e1}، جاري تجربة الرابط الاحتياطي...")
             try:
                 provider = LiteBalancer.from_config_url("https://ton.org/global.config.json", trust_level=2)
-                await asyncio.wait_for(provider.start_up(), timeout=8.0)
+                await asyncio.wait_for(provider.start_up(), timeout=10.0)
             except Exception as e2:
                 return False, None, f"تعذر الاتصال بعقد شبكة TON: {e2}"
 
-        # التعامل حصرياً مع محفظة W5 (WalletV5R1)
+        # بناء المحفظة W5
         w_candidate = await WalletV5R1.from_mnemonic(provider, mnemonics)
         admin_addr_str = w_candidate.address.to_str(is_user_friendly=True)
 
@@ -109,33 +151,37 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                 candidate_jwallet = res_jw[0].begin_parse().load_address()
             elif isinstance(res_jw[0], Address):
                 candidate_jwallet = res_jw[0]
+            elif isinstance(res_jw[0], str):
+                candidate_jwallet = Address(res_jw[0])
+
+        if not candidate_jwallet:
+            return False, None, "تعذر استخراج عنوان محفظة ZNX (Jetton Wallet) للأدمن من عقد العملة."
 
         j_balance = 0
-        if candidate_jwallet:
-            try:
-                res_data = await provider.run_get_method(
-                    address=candidate_jwallet,
-                    method='get_wallet_data',
-                    stack=[]
-                )
-                if res_data and len(res_data) > 0:
-                    j_balance = int(res_data[0])
-            except Exception as j_err:
-                print(f"⚠️ تعذر جلب رصيد ZNX لممحفظة W5: {j_err}")
+        try:
+            res_data = await provider.run_get_method(
+                address=candidate_jwallet,
+                method='get_wallet_data',
+                stack=[]
+            )
+            if res_data and len(res_data) > 0:
+                j_balance = int(res_data[0])
+        except Exception as j_err:
+            print(f"⚠️ تعذر جلب رصيد ZNX لمحفظة W5: {j_err}")
 
         curr_znx = j_balance / (10**9)
         curr_ton = ton_bal / (10**9)
 
-        print(f"🔍 فحص محفظة W5 ({admin_addr_str}): Gram/TON={curr_ton:.3f}, ZNX={curr_znx:,.2f}")
+        print(f"🔍 فحص محفظة W5 ({admin_addr_str}): TON={curr_ton:.3f}, ZNX={curr_znx:,.2f}")
 
-        # التحقق من رصيد الرسوم
+        # التحقق من رصيد الرسوم (TON)
         if ton_bal < 15_000_000:
             return False, None, (
-                f"❌ رصيد الرسوم (Gram/TON) غير كافٍ في محفظة الأدمن W5!\n"
+                f"❌ رصيد الرسوم (TON) غير كافٍ في محفظة الأدمن W5!\n"
                 f"المحفظة المستهدفة (W5):\n<code>{admin_addr_str}</code>\n"
-                f"رصيد الرسوم الحالي: {curr_ton:.3f} Gram/TON\n"
-                f"المطلوب للرسوم: 0.015 Gram/TON على الأقل\n"
-                f"💡 يرجى التأكد من شحن محفظة W5 الموضحة أعلاه بعملة الرسوم ثم إعادة المحاولة."
+                f"رصيد الرسوم الحالي: {curr_ton:.3f} TON\n"
+                f"المطلوب للرسوم: 0.015 TON على الأقل\n"
+                f"💡 يرجى التأكد من شحن محفظة W5 الموضحة أعلاه بعملة TON ثم إعادة المحاولة."
             )
 
         # التحقق من رصيد ZNX
@@ -157,14 +203,14 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
             .store_address(recipient_addr)
             .store_address(w_candidate.address)
             .store_maybe_ref(None)
-            .store_coins(1_000_000)        # forward_ton_amount = 0.001 TON/Gram
+            .store_coins(1_000_000)        # forward_ton_amount = 0.001 TON
             .store_maybe_ref(None)
             .end_cell()
         )
 
         tx_hash = await w_candidate.transfer(
             destination=candidate_jwallet,
-            amount=20_000_000,             # 0.02 TON/Gram
+            amount=20_000_000,             # 0.02 TON للغاز
             body=jetton_body
         )
 
@@ -205,7 +251,6 @@ def execute_admin_decision(tx_id, action):
         elif current_status == 'rejected':
             return False, "هذه المعاملة تم رفضها بالفعل وإعادة الرصيد للمستخدم!", None
         elif current_status == 'processing':
-            # حماية ذكية: إذا مرت أكثر من 25 ثانية على حالة المعالجة، تعتبر علقت ويُسمح بإعادة المحاولة
             p_started = data.get('processing_started_at')
             is_stuck = False
             if p_started:
