@@ -40,9 +40,11 @@ if not BOT_TOKEN:
 
 bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=8)
 
-# قفل آمن على مستوى Thread لمنع تكرار تشغيل الخيوط في بيئة Railway/Gunicorn
+# قفل آمن على مستوى Thread لمنع تكرار تشغيل الخيوط وتتبع المعاملات قيد المعالجة
 _bot_lock = threading.Lock()
 _bot_started = False
+_active_tx_lock = threading.Lock()
+_active_transactions = set()
 
 def is_user_authorized(user_id):
     """فحص أمني دقيق وصارم لصلاحيات المستخدم"""
@@ -92,15 +94,9 @@ def safe_edit_message(chat_id, message_id, text, reply_markup=None):
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data and (call.data.startswith('approve_tx_') or call.data.startswith('reject_tx_')))
 def handle_withdraw_decisions(call):
-    # 1. إجابة تلجرام فوراً وبشكل مستقل لإيقاف أنيميشن التحميل فور الضغط
-    try:
-        bot.answer_callback_query(call.id, "⏳ جاري استلام الطلب...")
-    except Exception as e:
-        print(f"⚠️ Answer callback error: {e}")
-
     user_id = call.from_user.id
 
-    # 2. التحقق من صلاحيات المشرف
+    # 1. التحقق من صلاحيات المشرف
     if not is_user_authorized(user_id):
         try:
             bot.answer_callback_query(call.id, "⛔ ليس لديك صلاحية لاتخاذ هذا القرار!", show_alert=True)
@@ -108,19 +104,35 @@ def handle_withdraw_decisions(call):
             pass
         return
 
-    try:
-        cb_data = call.data
-        action = "approve" if cb_data.startswith("approve_tx_") else "reject"
-        tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
+    cb_data = call.data
+    action = "approve" if cb_data.startswith("approve_tx_") else "reject"
+    tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
 
+    # 2. منع المعالجة المزدوجة لنفس المعاملة أثناء تنفيذها بالخلفية
+    with _active_tx_lock:
+        if tx_id in _active_transactions:
+            try:
+                bot.answer_callback_query(call.id, "⏳ المعاملة قيد المعالجة بالفعل، يرجى الانتظار...", show_alert=True)
+            except Exception:
+                pass
+            return
+        _active_transactions.add(tx_id)
+
+    # 3. إجابة تلجرام فوراً وبشكل مستقل لإيقاف أنيميشن التحميل
+    try:
+        bot.answer_callback_query(call.id, "⏳ جاري استلام الطلب والمعالجة...")
+    except Exception as e:
+        print(f"⚠️ Answer callback error: {e}")
+
+    try:
         chat_id = call.message.chat.id
         message_id = call.message.message_id
         orig_text = call.message.text or call.message.caption or ""
 
-        # تنظيف النص القديم بدون إعادة html.escape لتجنب كسر التنسيق
-        clean_text = orig_text.split("\n\nالنتيجة")[0].split("\n\n⚠️")[0].split("\n\n⏳")[0].strip()
+        # تنظيف النص القديم بآمان باستخدام Regex ومنع تكرار رسائل الخطأ
+        clean_text = re.split(r'\n\n(?:النتيجة|⚠️|⏳)', orig_text)[0].strip()
 
-        # 3. إزالة الأزرار التفاعلية فوراً (reply_markup=None) لمنع الضغط المزدوج وتكرار الطلب
+        # إزالة الأزرار التفاعلية فوراً وإظهار حالة "جاري التنفيذ"
         status_text = clean_text + "\n\n⏳ <b>جاري تنفيذ الطلب والاتصال بالشبكة...</b>"
         safe_edit_message(chat_id, message_id, status_text, reply_markup=None)
 
@@ -132,6 +144,8 @@ def handle_withdraw_decisions(call):
 
     except Exception as e:
         print(f"❌ خطأ في معالج الأزرار التفاعلية: {e}")
+        with _active_tx_lock:
+            _active_transactions.discard(tx_id)
 
 def _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action):
     """دالة خلفية للاتصال بقاعدة البيانات والبلوكشين وتحديث الرسالة بآمان تام"""
@@ -158,6 +172,10 @@ def _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action)
             safe_edit_message(chat_id, message_id, base_clean + error_notice, reply_markup=markup)
     except Exception as err:
         print(f"❌ خطأ أثناء تنفيذ الطلب في الخلفية: {err}")
+    finally:
+        # ضمان إزالة المعاملة من قفل الحماية فور الانتهاء
+        with _active_tx_lock:
+            _active_transactions.discard(tx_id)
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
