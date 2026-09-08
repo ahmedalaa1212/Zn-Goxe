@@ -426,7 +426,7 @@ def notify_admin_withdraw(user_id, coins, fee_usd, wallet, tx_id, tier_name):
         f"💰 <b>المبلغ المطلوب:</b> <code>{coins:,.4f} ZNX</code>\n"
         f"💵 <b>الرسوم المقتطعة:</b> <code>${fee_usd:.2f} USD</code>\n"
         f"📥 <b>محفظة TON:</b>\n<code>{html.escape(str(wallet))}</code>\n"
-        f"🆔 <b>رقم المعاملة:</b> <code>#{html.escape(str(tx_id))}</code>\n"
+        f"🆔 <b>رقم المعاملة:</b> <code>{html.escape(str(tx_id))}</code>\n"
         "━━━━━━━━━━━━━━━━━━"
     )
     
