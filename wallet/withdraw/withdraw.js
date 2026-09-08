@@ -53,8 +53,9 @@
       return { valid: false, message: "⚠️ يرجى اختيار محفظة TON الصحيحة." };
     }
     const addr = address.trim();
-    if (addr.length < 10) {
-      return { valid: false, message: "⚠️ عنوان المحفظة غير صحيح." };
+    const tonRegex = /^(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}$/;
+    if (!tonRegex.test(addr)) {
+      return { valid: false, message: "⚠️ عنوان المحفظة غير صحيح! يجب أن يكون عنوان TON صالحاً يبدأ بـ EQ أو UQ وطوله 48 حرفاً." };
     }
     return { valid: true, message: "" };
   }
@@ -401,6 +402,12 @@
       return;
     }
 
+    const addrCheck = validateWalletAddress(walletAddress);
+    if (!addrCheck.valid) {
+      alert(addrCheck.message);
+      return;
+    }
+
     if (coins < minWithdraw) {
       alert(`⚠️ الحد الأدنى للسحب لهذه الشريحة هو ${minWithdraw} ZNX.`);
       return;
@@ -437,13 +444,20 @@
 
       if (data && data.success) {
         alert(data.message || "تم تقديم طلب السحب بنجاح!");
-        userBalance = data.new_balance !== undefined ? data.new_balance : (userBalance - coins);
-        usdBalance = data.new_usd_balance !== undefined ? data.new_usd_balance : Math.max(0, usdBalance - fixedFeeUsd);
+        userBalance = data.new_balance !== undefined ? parseFloat(data.new_balance) : (userBalance - coins);
+        usdBalance = data.new_usd_balance !== undefined ? parseFloat(data.new_usd_balance) : Math.max(0, usdBalance - fixedFeeUsd);
         
+        // تحديث الحالات العالمية فوراً بدون انتظار التحديث التلقائي
         if (window.userState) {
           window.userState.znx_balance = userBalance;
           window.userState.usd_balance = usdBalance;
         }
+        if (window.PlayerData) {
+          window.PlayerData.znx_balance = userBalance;
+          window.PlayerData.usd_balance = usdBalance;
+        }
+
+        window.dispatchEvent(new Event('userStateUpdated'));
 
         if (coinsInput) coinsInput.value = "";
         updateUIBalance();
@@ -454,7 +468,7 @@
         alert(data?.message || "حدث خطأ أثناء تقديم الطلب.");
       }
     } catch (err) {
-      console.error(err);
+      console.error("خطأ أثناء إرسال طلب السحب:", err);
       alert("حدث خطأ أثناء الاتصال بالخادم.");
     } finally {
       if (btn) {
