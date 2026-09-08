@@ -20,6 +20,32 @@ BOT_TOKEN = os.getenv("ADMIN_BOT_TOKEN") or os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 ADMIN_WALLET_MNEMONIC = os.getenv("ADMIN_WALLET_MNEMONIC", "").strip()
 
+def answer_telegram_callback(callback_query_id, text=""):
+    """الرد الفوري على Callback Query في تليجرام لإنهاء حالة الانتظار (التهنيج) فوراً"""
+    if not BOT_TOKEN or not callback_query_id:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
+            json={"callback_query_id": str(callback_query_id), "text": text, "show_alert": False},
+            timeout=3
+        )
+    except Exception as e:
+        print(f"⚠️ خطأ الرد السريع على Callback Query: {e}")
+
+def remove_telegram_keyboard(chat_id, message_id):
+    """إزالة الأزرار التفاعلية لمنع الضغط المزدوج أثناء المعالجة"""
+    if not BOT_TOKEN or not chat_id or not message_id:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageReplyMarkup",
+            json={"chat_id": chat_id, "message_id": message_id, "reply_markup": {"inline_keyboard": []}},
+            timeout=3
+        )
+    except Exception as e:
+        print(f"⚠️ خطأ تحديث لوحة الأزرار: {e}")
+
 def transfer_znx_onchain(to_address_str, amount_znx):
     """إرسال عملة ZNX حقيقياً على شبكة TON للبلوكشين عبر محفظة الأدمن W5 المعتمدة حصراً"""
     if not ADMIN_WALLET_MNEMONIC:
@@ -27,12 +53,26 @@ def transfer_znx_onchain(to_address_str, amount_znx):
         return False, None, "لم يتم ضبط الكلمات المفتاحية (ADMIN_WALLET_MNEMONIC) في إعدادات Railway."
 
     try:
-        return asyncio.run(asyncio.wait_for(
-            _async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx), 
-            timeout=25.0
-        ))
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        if loop.is_running():
+            future = asyncio.run_coroutine_threadsafe(
+                _async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx), loop
+            )
+            return future.result(timeout=20.0)
+        else:
+            return loop.run_until_complete(
+                asyncio.wait_for(
+                    _async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx),
+                    timeout=20.0
+                )
+            )
     except asyncio.TimeoutError:
-        print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من 25 ثانية (Timeout).")
+        print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من 20 ثانية (Timeout).")
         return False, None, "استجابة شبكة TON بطيئة حالياً، يرجى إعادة المحاولة."
     except Exception as e:
         print(f"❌ خطأ أثناء تنفيذ تحويل البلوكشين: {e}")
@@ -61,25 +101,19 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     except Exception:
         return False, None, f"عنوان محفظة المستخدم غير صالح: '{clean_recipient}'"
 
-    config_sources = [
-        "https://ton.org/global.config.json",
-        "https://ton-mainnet-configs.s3.amazonaws.com/ton-global.config.json"
-    ]
-
     nano_jettons_needed = int(round(amount_znx * (10**9)))
     last_error = ""
 
-    for attempt, cfg_url in enumerate(config_sources):
+    for attempt in range(2):
         provider = None
         try:
-            try:
-                provider = LiteBalancer.from_config_url(cfg_url, trust_level=2)
-            except Exception:
+            if attempt == 0:
                 provider = LiteBalancer.from_mainnet_config(trust_level=2)
+            else:
+                provider = LiteBalancer.from_config_url("https://ton.org/global.config.json", trust_level=2)
 
-            await asyncio.wait_for(provider.start_up(), timeout=10.0)
+            await asyncio.wait_for(provider.start_up(), timeout=5.0)
 
-            # التعامل حصرياً مع محفظة W5 (WalletV5R1)
             w_candidate = await WalletV5R1.from_mnemonic(provider, mnemonics)
             admin_addr_str = w_candidate.address.to_str(is_user_friendly=True)
 
@@ -118,7 +152,6 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
 
             print(f"🔍 فحص محفظة W5 ({admin_addr_str}): Gram/TON={curr_ton:.3f}, ZNX={curr_znx:,.2f}")
 
-            # التحقق من رصيد الرسوم
             if ton_bal < 15_000_000:
                 await provider.close_all()
                 return False, None, (
@@ -129,7 +162,6 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                     f"💡 يرجى التأكد من شحن محفظة W5 الموضحة أعلاه بعملة الرسوم ثم إعادة المحاولة."
                 )
 
-            # التحقق من رصيد ZNX
             if j_balance < nano_jettons_needed:
                 await provider.close_all()
                 return False, None, (
@@ -140,7 +172,6 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                     f"💡 يرجى إرسال عملات ZNX إلى محفظة W5 أعلاه ثم إعادة المحاولة."
                 )
 
-            # إنشاء حمولة تحويل Jetton عبر W5
             jetton_body = (
                 begin_cell()
                 .store_uint(0x0f887ea5, 32)
@@ -149,14 +180,14 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                 .store_address(recipient_addr)
                 .store_address(w_candidate.address)
                 .store_maybe_ref(None)
-                .store_coins(1_000_000)        # forward_ton_amount = 0.001 TON/Gram
+                .store_coins(1_000_000)
                 .store_maybe_ref(None)
                 .end_cell()
             )
 
             tx_hash = await w_candidate.transfer(
                 destination=candidate_jwallet,
-                amount=20_000_000,             # 0.02 TON/Gram
+                amount=20_000_000,
                 body=jetton_body
             )
 
@@ -175,13 +206,38 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                     await provider.close_all()
                 except Exception:
                     pass
-            if attempt < len(config_sources) - 1:
-                await asyncio.sleep(0.5)
+            if attempt < 1:
+                await asyncio.sleep(0.3)
 
     return False, None, f"فشل اتصال البلوكشين: {last_error}"
 
-def execute_admin_decision(tx_id, action):
-    """الدالة الأساسية لتنفيذ قرار المشرف وتحديث Firestore مع حماية التضارب عبر Transaction حصرية"""
+def handle_admin_callback(callback_data, callback_query_id=None, message_id=None):
+    """دالة مخصصة للنداء الفوري من معالج تليجرام لمعالجة الضغطات بدون أي تهنيج"""
+    if callback_query_id:
+        answer_telegram_callback(callback_query_id, "⏳ جاري تنفيذ الطلب...")
+
+    if not callback_data:
+        return False, "بيانات الإجراء غير صالحة"
+
+    if callback_data.startswith("approve_tx_"):
+        tx_id = callback_data.replace("approve_tx_", "").strip()
+        action = "approve"
+    elif callback_data.startswith("reject_tx_"):
+        tx_id = callback_data.replace("reject_tx_", "").strip()
+        action = "reject"
+    else:
+        return False, "إجراء غير معروف"
+
+    return execute_admin_decision(tx_id, action, callback_query_id=callback_query_id, message_id=message_id)
+
+def execute_admin_decision(tx_id, action, callback_query_id=None, message_id=None):
+    """الدالة الأساسية لتنفيذ قرار المشرف وتحديث Firestore مع حماية التضارب ومنع تهنيج الأزرار"""
+    if callback_query_id:
+        answer_telegram_callback(callback_query_id, "⏳ جاري المعالجة...")
+
+    if message_id and BOT_TOKEN and ADMIN_CHAT_ID:
+        remove_telegram_keyboard(ADMIN_CHAT_ID, message_id)
+
     db = safe_get_db()
     if not db or not tx_id:
         return False, "خطأ في الاتصال بقاعدة البيانات!"
