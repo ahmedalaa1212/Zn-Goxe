@@ -100,13 +100,19 @@ def make_copy_text_button(text, copy_value):
         return btn
 
 # ==========================================
-# 3. معالجة الأزرار التفاعلية
+# 3. معالجة الأزرار التفاعلية (بدون تهنيج واستجابة فورية)
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data and (call.data.startswith('approve_tx_') or call.data.startswith('reject_tx_') or call.data.startswith('copy_addr_')))
 def handle_withdraw_decisions(call):
+    # 1. الاستجابة المباشرة والفورية للتطبيق لإلغاء أي تهنيج أو تحميل
+    try:
+        bot.answer_callback_query(call.id, "⚡ جاري معالجة القرار...")
+    except Exception:
+        pass
+
     user_id = call.from_user.id
 
-    # 1. التحقق من صلاحيات المشرف
+    # 2. التحقق من صلاحيات المشرف
     if not is_user_authorized(user_id):
         try:
             bot.answer_callback_query(call.id, "⛔ ليس لديك صلاحية لاتخاذ هذا القرار!", show_alert=True)
@@ -116,7 +122,7 @@ def handle_withdraw_decisions(call):
 
     cb_data = call.data
 
-    # 2. زر نسخ عنوان المحفظة (في حال الضغط على رسائل قديمة)
+    # 3. زر نسخ عنوان المحفظة
     if cb_data.startswith("copy_addr_"):
         tx_id = cb_data.replace("copy_addr_", "").strip()
         wallet_addr = None
@@ -141,16 +147,10 @@ def handle_withdraw_decisions(call):
             bot.answer_callback_query(call.id, f"⚠️ خطأ: {e}", show_alert=True)
         return
 
-    # إجابة التلجرام فوراً
-    try:
-        bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب...")
-    except Exception:
-        pass
-
     action = "approve" if cb_data.startswith("approve_tx_") else "reject"
     tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
 
-    # 3. منع المعالجة المزدوجة لنفس المعاملة أثناء تنفيذها بالخلفية
+    # 4. منع المعالجة المزدوجة لنفس المعاملة في نفس الوقت
     with _active_tx_lock:
         if tx_id in _active_transactions:
             return
@@ -163,9 +163,10 @@ def handle_withdraw_decisions(call):
 
         clean_text = re.split(r'\n\n(?:النتيجة|⚠️|⏳)', orig_text)[0].strip()
 
-        status_text = clean_text + "\n\n⏳ <b>جاري تحديث السجلات وتنفيذ الطلب...</b>"
+        status_text = clean_text + "\n\n⏳ <b>جاري تحديث السجلات وتوثيق الطلب...</b>"
         safe_edit_message(chat_id, message_id, status_text, reply_markup=None)
 
+        # تنفيذ المعالجة في Thread منفصل لعدم حظر واستجابة البوت
         threading.Thread(
             target=_process_withdraw_background,
             args=(chat_id, message_id, clean_text, tx_id, action, user_id),
