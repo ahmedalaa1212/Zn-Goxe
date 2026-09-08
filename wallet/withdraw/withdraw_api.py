@@ -21,20 +21,19 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 ADMIN_WALLET_MNEMONIC = os.getenv("ADMIN_WALLET_MNEMONIC", "").strip()
 
 def transfer_znx_onchain(to_address_str, amount_znx):
-    """إرسال عملة ZNX حقيقياً على شبكة TON للبلوكشين عبر محفظة الأدمن المعتمدة"""
+    """إرسال عملة ZNX حقيقياً على شبكة TON للبلوكشين عبر محفظة الأدمن W5 المعتمدة"""
     if not ADMIN_WALLET_MNEMONIC:
         print("❌ خطأ: ADMIN_WALLET_MNEMONIC غير معرّف في متغيرات البيئة!")
         return False, None, "لم يتم ضبط الكلمات المفتاحية (ADMIN_WALLET_MNEMONIC) في إعدادات Railway."
 
     try:
-        # استخدام asyncio.run المباشرة لتجنب تجميد خيط Flask (Asyncio Deadlock)
         return asyncio.run(asyncio.wait_for(
             _async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx), 
-            timeout=15.0
+            timeout=20.0
         ))
     except asyncio.TimeoutError:
-        print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من 15 ثانية (Timeout).")
-        return False, None, "استجابة شبكة TON بطيئة حالياً (تجاوزت 15 ثانية)، يرجى إعادة المحاولة."
+        print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من 20 ثانية (Timeout).")
+        return False, None, "استجابة شبكة TON بطيئة حالياً، يرجى إعادة المحاولة."
     except Exception as e:
         print(f"❌ خطأ أثناء تنفيذ تحويل البلوكشين: {e}")
         return False, None, f"فشل التحويل الشبكي: {str(e)}"
@@ -63,25 +62,28 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
         return False, None, f"عنوان محفظة المستخدم غير صالح: '{clean_recipient}'"
 
     wallet_classes_to_try = []
-    try:
-        from pytoniq import WalletV4R2
-        wallet_classes_to_try.append(("V4R2", WalletV4R2))
-    except ImportError:
-        pass
 
+    # 1. W5 (V5R1) - أولوية قصوى لأن محفظتك المعتمدة في Tonkeeper هي W5
     try:
         from pytoniq import WalletV5R1
         wallet_classes_to_try.append(("W5 (V5R1)", WalletV5R1))
     except ImportError:
         pass
 
+    # 2. V4R2
+    try:
+        from pytoniq import WalletV4R2
+        wallet_classes_to_try.append(("V4R2", WalletV4R2))
+    except ImportError:
+        pass
+
+    # 3. V3R2
     try:
         from pytoniq import WalletV3R2
         wallet_classes_to_try.append(("V3R2", WalletV3R2))
     except ImportError:
         pass
 
-    # قائمة محطات شبكة TON الموثوقة مع استخدام trust_level=2 لتسريع وشحن الاستجابة
     config_sources = [
         "https://ton.org/global.config.json",
         "https://ton-mainnet-configs.s3.amazonaws.com/ton-global.config.json"
@@ -115,7 +117,8 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                     acc_state = await provider.get_account_state(w_candidate.address)
                     ton_bal = getattr(acc_state, 'balance', 0)
 
-                    if ton_bal < 30_000_000:
+                    # خفض الحد الأدنى المطلوب لرسوم TON عند الفحص البدائي إلى 0.01 TON
+                    if ton_bal < 10_000_000:
                         continue
 
                     owner_cell = begin_cell().store_address(w_candidate.address).end_cell()
@@ -181,26 +184,30 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
 
             acc_state = await provider.get_account_state(wallet.address)
             ton_balance = getattr(acc_state, 'balance', 0)
-            if ton_balance < 50_000_000:
-                await provider.close_all()
-                return False, None, f"رصيد TON في محفظة الأدمن ({wallet.address.to_str()}) غير كافٍ لرسوم المعاملة (يلزم 0.05 TON على الأقل)."
 
+            # خفض شرط رصيد TON لرسوم التحويل إلى 0.015 TON فقط
+            if ton_balance < 15_000_000:
+                await provider.close_all()
+                return False, None, f"رصيد TON في محفظة الأدمن ({wallet.address.to_str()}) غير كافٍ لرسوم المعاملة (يلزم 0.015 TON على الأقل)."
+
+            # إنشاء حمولة تحويل Jetton برسوم منخفضة للغاية (0.001 TON للتمرير + 0.02 TON كـ Gas)
             jetton_body = (
                 begin_cell()
                 .store_uint(0x0f887ea5, 32)
                 .store_uint(0, 64)
                 .store_coins(nano_jettons_needed)
                 .store_address(recipient_addr)
-                .store_address(wallet.address)
+                .store_address(wallet.address) # إعادة الفائض تلقائياً لعنوان الأدمن
                 .store_maybe_ref(None)
-                .store_coins(15_000_000)
+                .store_coins(1_000_000)        # forward_ton_amount = 0.001 TON
                 .store_maybe_ref(None)
                 .end_cell()
             )
 
+            # إرفاق 0.02 TON فقط كـ Maximum Gas (البلوكشين يستهلك حوالي 0.008 TON ويرجع الباقي لمحفظتك)
             tx_hash = await wallet.transfer(
                 destination=selected_jetton_wallet,
-                amount=80_000_000,
+                amount=20_000_000,             # 0.02 TON
                 body=jetton_body
             )
 
@@ -248,7 +255,6 @@ def execute_admin_decision(tx_id, action):
         elif current_status == 'processing':
             return False, "هذه المعاملة قيد المعالجة حالياً من قِبل المشرف!", None
 
-        # تحديث الحالة فوراً إلى processing لحجب دخول أي ضغطة أخرى أثناء المعالجة
         transaction.update(ref, {
             'status': 'processing',
             'processing_started_at': firestore.SERVER_TIMESTAMP
@@ -269,7 +275,6 @@ def execute_admin_decision(tx_id, action):
         if action == "approve":
             onchain_ok, tx_hash, msg = transfer_znx_onchain(wallet_address, coins)
             if not onchain_ok:
-                # إعادة الحالة إلى pending عند فشل التحويل الشبكي للسماح بالمحاولة مجدداً
                 tx_ref.update({'status': 'pending'})
                 return False, msg
 
