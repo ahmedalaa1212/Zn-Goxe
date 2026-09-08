@@ -92,14 +92,8 @@ def safe_edit_message(chat_id, message_id, text, reply_markup=None):
 # ==========================================
 # 3. معالجة الأزرار التفاعلية
 # ==========================================
-@bot.callback_query_handler(func=lambda call: call.data and (call.data.startswith('approve_tx_') or call.data.startswith('reject_tx_')))
+@bot.callback_query_handler(func=lambda call: call.data and (call.data.startswith('approve_tx_') or call.data.startswith('reject_tx_') or call.data.startswith('copy_addr_')))
 def handle_withdraw_decisions(call):
-    # ⚡ إجابة التلجرام فوراً في أول سطر لإلغاء مؤشر تهنيج الأزرار لحظياً ⚡
-    try:
-        bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب...")
-    except Exception:
-        pass
-
     user_id = call.from_user.id
 
     # 1. التحقق من صلاحيات المشرف
@@ -111,10 +105,43 @@ def handle_withdraw_decisions(call):
         return
 
     cb_data = call.data
+
+    # 2. زر نسخ عنوان المحفظة
+    if cb_data.startswith("copy_addr_"):
+        tx_id = cb_data.replace("copy_addr_", "").strip()
+        wallet_addr = None
+        
+        try:
+            db = database.get_db() if hasattr(database, 'get_db') else None
+            if db:
+                doc = db.collection('processed_txs').document(tx_id).get()
+                if doc.exists:
+                    wallet_addr = doc.to_dict().get('wallet_address')
+
+            if not wallet_addr:
+                match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', call.message.text or "")
+                if match:
+                    wallet_addr = match.group(0)
+
+            if wallet_addr:
+                bot.answer_callback_query(call.id, f"📋 المحفظة:\n{wallet_addr}", show_alert=True)
+                bot.send_message(call.message.chat.id, f"<code>{wallet_addr}</code>", parse_mode="HTML")
+            else:
+                bot.answer_callback_query(call.id, "❌ لم يتم العثور على عنوان المحفظة!", show_alert=True)
+        except Exception as e:
+            bot.answer_callback_query(call.id, f"⚠️ خطأ: {e}", show_alert=True)
+        return
+
+    # إجابة التلجرام فوراً
+    try:
+        bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب...")
+    except Exception:
+        pass
+
     action = "approve" if cb_data.startswith("approve_tx_") else "reject"
     tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
 
-    # 2. منع المعالجة المزدوجة لنفس المعاملة أثناء تنفيذها بالخلفية
+    # 3. منع المعالجة المزدوجة لنفس المعاملة أثناء تنفيذها بالخلفية
     with _active_tx_lock:
         if tx_id in _active_transactions:
             return
@@ -125,11 +152,9 @@ def handle_withdraw_decisions(call):
         message_id = call.message.message_id
         orig_text = call.message.text or call.message.caption or ""
 
-        # تنظيف النص القديم بآمان باستخدام Regex ومنع تكرار رسائل الخطأ
         clean_text = re.split(r'\n\n(?:النتيجة|⚠️|⏳)', orig_text)[0].strip()
 
-        # إزالة الأزرار التفاعلية فوراً وإظهار حالة "جاري التنفيذ"
-        status_text = clean_text + "\n\n⏳ <b>جاري تنفيذ الطلب والاتصال بشبكة TON...</b>"
+        status_text = clean_text + "\n\n⏳ <b>جاري تحديث السجلات وتأفيذ الطلب...</b>"
         safe_edit_message(chat_id, message_id, status_text, reply_markup=None)
 
         threading.Thread(
@@ -144,7 +169,7 @@ def handle_withdraw_decisions(call):
             _active_transactions.discard(tx_id)
 
 def _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action):
-    """دالة خلفية للاتصال بقاعدة البيانات والبلوكشين وتحديث الرسالة بآمان تام"""
+    """دالة خلفية للتحديث في قاعدة البيانات والأنظمة بدون بلوكشين"""
     try:
         from wallet.withdraw.withdraw_api import execute_admin_decision
         success, result_msg = execute_admin_decision(tx_id, action)
@@ -161,15 +186,17 @@ def _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action)
             
             markup = InlineKeyboardMarkup()
             markup.row(
-                InlineKeyboardButton("موافقة 🟢", callback_data=f"approve_tx_{tx_id}"),
+                InlineKeyboardButton("قبول 🟢", callback_data=f"approve_tx_{tx_id}"),
                 InlineKeyboardButton("رفض 🔴", callback_data=f"reject_tx_{tx_id}")
+            )
+            markup.row(
+                InlineKeyboardButton("📋 نسخ عنوان المحفظة", callback_data=f"copy_addr_{tx_id}")
             )
             
             safe_edit_message(chat_id, message_id, base_clean + error_notice, reply_markup=markup)
     except Exception as err:
         print(f"❌ خطأ أثناء تنفيذ الطلب في الخلفية: {err}")
     finally:
-        # ضمان إزالة المعاملة من قفل الحماية فور الانتهاء
         with _active_tx_lock:
             _active_transactions.discard(tx_id)
 
