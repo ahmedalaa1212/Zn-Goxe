@@ -66,14 +66,14 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
 
     wallet_classes_to_try = []
     try:
-        from pytoniq import WalletV5R1
-        wallet_classes_to_try.append(("W5 (V5R1)", WalletV5R1))
+        from pytoniq import WalletV4R2
+        wallet_classes_to_try.append(("V4R2", WalletV4R2))
     except ImportError:
         pass
 
     try:
-        from pytoniq import WalletV4R2
-        wallet_classes_to_try.append(("V4R2", WalletV4R2))
+        from pytoniq import WalletV5R1
+        wallet_classes_to_try.append(("W5 (V5R1)", WalletV5R1))
     except ImportError:
         pass
 
@@ -88,6 +88,7 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
         "https://ton-mainnet-configs.s3.amazonaws.com/ton-global.config.json"
     ]
 
+    nano_jettons_needed = int(round(amount_znx * (10**9)))
     last_error = ""
 
     for attempt, cfg_url in enumerate(config_sources):
@@ -102,62 +103,97 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
 
             wallet = None
             selected_version = None
+            selected_jetton_wallet = None
+            
+            best_fallback_wallet = None
+            best_fallback_version = None
+            best_fallback_jwallet = None
+            best_fallback_znx_bal = 0
 
             for ver_name, WalletClass in wallet_classes_to_try:
                 try:
                     w_candidate = await WalletClass.from_mnemonic(provider, mnemonics)
                     acc_state = await provider.get_account_state(w_candidate.address)
-                    bal = getattr(acc_state, 'balance', 0)
-                    if bal > 30_000_000:
+                    ton_bal = getattr(acc_state, 'balance', 0)
+
+                    if ton_bal < 30_000_000:
+                        continue
+
+                    # جلب عنوان محفظة الـ Jetton لهذه النسخة
+                    owner_cell = begin_cell().store_address(w_candidate.address).end_cell()
+                    res_jw = await provider.run_get_method(
+                        address=master_addr, 
+                        method='get_wallet_address', 
+                        stack=[owner_cell.begin_parse()]
+                    )
+
+                    candidate_jwallet = None
+                    if res_jw and len(res_jw) > 0:
+                        if hasattr(res_jw[0], 'load_address'):
+                            candidate_jwallet = res_jw[0].load_address()
+                        elif hasattr(res_jw[0], 'begin_parse'):
+                            candidate_jwallet = res_jw[0].begin_parse().load_address()
+
+                    j_balance = 0
+                    if candidate_jwallet:
+                        try:
+                            res_data = await provider.run_get_method(
+                                address=candidate_jwallet,
+                                method='get_wallet_data',
+                                stack=[]
+                            )
+                            if res_data and len(res_data) > 0:
+                                j_balance = int(res_data[0])
+                        except Exception as j_err:
+                            print(f"⚠️ تعذر جلب رصيد ZNX للنسخة {ver_name}: {j_err}")
+
+                    print(f"🔍 فحص المحفظة {ver_name} ({w_candidate.address.to_str()}): TON={ton_bal/1e9:.3f}, ZNX={j_balance/1e9:,.2f}")
+
+                    if j_balance >= nano_jettons_needed:
                         wallet = w_candidate
                         selected_version = ver_name
-                        print(f"✅ تم اختيار المحفظة: {ver_name} ({w_candidate.address.to_str()})")
+                        selected_jetton_wallet = candidate_jwallet
                         break
+
+                    if not best_fallback_wallet or j_balance > best_fallback_znx_bal:
+                        best_fallback_wallet = w_candidate
+                        best_fallback_version = ver_name
+                        best_fallback_jwallet = candidate_jwallet
+                        best_fallback_znx_bal = j_balance
+
                 except Exception as ex:
                     print(f"⚠️ تجربة {ver_name} فشلت: {ex}")
                     continue
 
-            if not wallet and wallet_classes_to_try:
-                ver_name, WalletClass = wallet_classes_to_try[0]
-                wallet = await WalletClass.from_mnemonic(provider, mnemonics)
-                selected_version = ver_name
-
+            # إذا لم يتم العثور على محفظة بها رصيد ZNX كافٍ
             if not wallet:
-                await provider.close_all()
-                return False, None, "تعذر إنشاء المحفظة من الكلمات المفتاحية."
+                if best_fallback_wallet:
+                    curr_znx = best_fallback_znx_bal / (10**9)
+                    admin_addr = best_fallback_wallet.address.to_str(is_user_friendly=True)
+                    await provider.close_all()
+                    return False, None, (
+                        f"❌ رصيد ZNX غير كافٍ في محفظة الأدمن!\n"
+                        f"المحفظة المستخدمة ({best_fallback_version}):\n<code>{admin_addr}</code>\n"
+                        f"الرصيد الحالي: {curr_znx:,.2f} ZNX\n"
+                        f"المطلوب: {amount_znx:,.2f} ZNX\n"
+                        f"💡 يرجى إرسال عملات ZNX إلى محفظة الأدمن الموضحة أعلاه ثم الضغط على موافقة مجدداً."
+                    )
+                else:
+                    await provider.close_all()
+                    return False, None, "تعذر التوصل إلى محفظة أدمن تحتوي على رصيد TON كافٍ لرسوم الشبكة."
 
+            # التحقق من رصيد غاز الـ TON
             acc_state = await provider.get_account_state(wallet.address)
             ton_balance = getattr(acc_state, 'balance', 0)
             if ton_balance < 80_000_000:
                 await provider.close_all()
-                return False, None, f"رصيد TON في محفظة الأدمن ({wallet.address.to_str()}) غير كافٍ لرسوم المعاملة."
-
-            owner_cell = begin_cell().store_address(wallet.address).end_cell()
-            res = await provider.run_get_method(
-                address=master_addr, 
-                method='get_wallet_address', 
-                stack=[owner_cell.begin_parse()]
-            )
-
-            if not res or len(res) == 0:
-                await provider.close_all()
-                return False, None, "فشل جلب عنوان محفظة الـ Jetton من عقد العملة الرئيسي."
-
-            if hasattr(res[0], 'load_address'):
-                admin_jetton_wallet = res[0].load_address()
-            elif hasattr(res[0], 'begin_parse'):
-                admin_jetton_wallet = res[0].begin_parse().load_address()
-            else:
-                await provider.close_all()
-                return False, None, "تعذر قراءة عنوان محفظة الـ Jetton."
-
-            nano_jettons = int(round(amount_znx * (10**9)))
+                return False, None, f"رصيد TON في محفظة الأدمن ({wallet.address.to_str()}) غير كافٍ لرسوم المعاملة (يلزم 0.08 TON)."
 
             jetton_body = (
                 begin_cell()
                 .store_uint(0x0f887ea5, 32)
                 .store_uint(0, 64)
-                .store_coins(nano_jettons)
+                .store_coins(nano_jettons_needed)
                 .store_address(recipient_addr)
                 .store_address(wallet.address)
                 .store_maybe_ref(None)
@@ -166,9 +202,8 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                 .end_cell()
             )
 
-            # تنفيذ الإرسال الفوري لضمان عدم تعليق الزر
             tx_hash = await wallet.transfer(
-                destination=admin_jetton_wallet,
+                destination=selected_jetton_wallet,
                 amount=100_000_000,
                 body=jetton_body
             )
@@ -176,7 +211,7 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
             await provider.close_all()
 
             if tx_hash:
-                return True, str(tx_hash), f"🟢 تم تحويل {amount_znx:,.2f} ZNX بنجاح عبر محفظة {selected_version}!"
+                return True, str(tx_hash), f"🟢 تم تحويل {amount_znx:,.2f} ZNX بنجاح إلى المحفظة عبر شبكة TON!"
             else:
                 return False, None, "لم يتم استلام هاش المعاملة من شبكة TON."
 
