@@ -27,16 +27,14 @@ def transfer_znx_onchain(to_address_str, amount_znx):
         return False, None, "لم يتم ضبط الكلمات المفتاحية (ADMIN_WALLET_MNEMONIC) في إعدادات Railway."
 
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            task = loop.create_task(_async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx))
-            return loop.run_until_complete(asyncio.wait_for(task, timeout=45.0))
-        finally:
-            loop.close()
+        # استخدام asyncio.run المباشرة لتجنب تجميد خيط Flask (Asyncio Deadlock)
+        return asyncio.run(asyncio.wait_for(
+            _async_transfer_znx(ADMIN_WALLET_MNEMONIC, to_address_str, amount_znx), 
+            timeout=15.0
+        ))
     except asyncio.TimeoutError:
-        print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من اللازم.")
-        return False, None, "استجابة شبكة TON بطيئة حالياً، يرجى إعادة المحاولة بالضغط على موافقة مرة أخرى."
+        print("❌ خطأ: استغرق الاتصال بشبكة TON وقتاً أطول من 15 ثانية (Timeout).")
+        return False, None, "استجابة شبكة TON بطيئة حالياً (تجاوزت 15 ثانية)، يرجى إعادة المحاولة."
     except Exception as e:
         print(f"❌ خطأ أثناء تنفيذ تحويل البلوكشين: {e}")
         return False, None, f"فشل التحويل الشبكي: {str(e)}"
@@ -83,6 +81,7 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
     except ImportError:
         pass
 
+    # قائمة محطات شبكة TON الموثوقة مع استخدام trust_level=2 لتسريع وشحن الاستجابة
     config_sources = [
         "https://ton.org/global.config.json",
         "https://ton-mainnet-configs.s3.amazonaws.com/ton-global.config.json"
@@ -95,11 +94,11 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
         provider = None
         try:
             try:
-                provider = LiteBalancer.from_config_url(cfg_url, trust_level=1)
+                provider = LiteBalancer.from_config_url(cfg_url, trust_level=2)
             except Exception:
-                provider = LiteBalancer.from_mainnet_config(trust_level=1)
+                provider = LiteBalancer.from_mainnet_config(trust_level=2)
 
-            await provider.start_up()
+            await asyncio.wait_for(provider.start_up(), timeout=10.0)
 
             wallet = None
             selected_version = None
@@ -221,41 +220,56 @@ async def _async_transfer_znx(mnemonic_str, to_address_str, amount_znx):
                 except Exception:
                     pass
             if attempt < len(config_sources) - 1:
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(0.5)
 
     return False, None, f"فشل اتصال البلوكشين: {last_error}"
 
 def execute_admin_decision(tx_id, action):
-    """الدالة الأساسية لتنفيذ قرار المشرف وتحديث Firestore وتمرير التحويل"""
+    """الدالة الأساسية لتنفيذ قرار المشرف وتحديث Firestore مع حماية التضارب عبر Transaction حصرية"""
     db = safe_get_db()
     if not db or not tx_id:
         return False, "خطأ في الاتصال بقاعدة البيانات!"
 
     tx_ref = db.collection('processed_txs').document(tx_id)
-    tx_doc = tx_ref.get()
 
-    if not tx_doc.exists:
-        return False, "لم يتم العثور على طلب السحب في قاعدة البيانات!"
+    @firestore.transactional
+    def lock_and_claim_tx(transaction, ref):
+        snapshot = ref.get(transaction=transaction)
+        if not snapshot.exists:
+            return False, "لم يتم العثور على طلب السحب في قاعدة البيانات!", None
 
-    tx_data = tx_doc.to_dict() or {}
-    current_status = tx_data.get('status', 'pending')
+        data = snapshot.to_dict() or {}
+        current_status = data.get('status', 'pending')
 
-    if current_status == 'completed':
-        return False, "هذه المعاملة تم قبولها وتحويلها بالفعل!"
-    elif current_status == 'rejected':
-        return False, "هذه المعاملة تم رفضها بالفعل وإعادة الرصيد للمستخدم!"
+        if current_status == 'completed':
+            return False, "هذه المعاملة تم قبولها وتحويلها بالفعل!", None
+        elif current_status == 'rejected':
+            return False, "هذه المعاملة تم رفضها بالفعل وإعادة الرصيد للمستخدم!", None
+        elif current_status == 'processing':
+            return False, "هذه المعاملة قيد المعالجة حالياً من قِبل المشرف!", None
 
-    user_id = tx_data.get('user_id')
-    coins = float(tx_data.get('coins', 0))
-    fee_usd = float(tx_data.get('fee_usd', 0.02))
-    wallet_address = tx_data.get('wallet_address', '')
+        # تحديث الحالة فوراً إلى processing لحجب دخول أي ضغطة أخرى أثناء المعالجة
+        transaction.update(ref, {
+            'status': 'processing',
+            'processing_started_at': firestore.SERVER_TIMESTAMP
+        })
+        return True, "OK", data
 
     try:
-        if action == "approve":
-            tx_ref.update({'status': 'processing'})
+        transaction = db.transaction()
+        claimed, err_msg, tx_data = lock_and_claim_tx(transaction, tx_ref)
+        if not claimed:
+            return False, err_msg
 
+        user_id = tx_data.get('user_id')
+        coins = float(tx_data.get('coins', 0))
+        fee_usd = float(tx_data.get('fee_usd', 0.02))
+        wallet_address = tx_data.get('wallet_address', '')
+
+        if action == "approve":
             onchain_ok, tx_hash, msg = transfer_znx_onchain(wallet_address, coins)
             if not onchain_ok:
+                # إعادة الحالة إلى pending عند فشل التحويل الشبكي للسماح بالمحاولة مجدداً
                 tx_ref.update({'status': 'pending'})
                 return False, msg
 
