@@ -4,6 +4,9 @@
 """
 
 import math
+import time
+import json
+import urllib.request
 from flask import Blueprint, jsonify, request
 
 try:
@@ -15,6 +18,38 @@ except ImportError:
         from . import znx_wallet_db
 
 znx_wallet_bp = Blueprint('znx_wallet_bp', __name__)
+
+ZNX_CONTRACT_ADDRESS = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwd"
+_PRICE_CACHE = {
+    'price': 0.00002887,
+    'last_updated': 0
+}
+
+
+def fetch_live_dex_price():
+    """جلب السعر اللحظي من DEXScreener مع التخزين المؤقت (Cache) لحماية السيرفر من الحظر"""
+    now = time.time()
+    if now - _PRICE_CACHE['last_updated'] < 5 and _PRICE_CACHE['price'] > 0:
+        return _PRICE_CACHE['price']
+
+    try:
+        url = f"https://api.dexscreener.com/latest/dex/tokens/{ZNX_CONTRACT_ADDRESS}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            if resp.status == 200:
+                body = resp.read().decode('utf-8')
+                data = json.loads(body)
+                if data and 'pairs' in data and len(data['pairs']) > 0:
+                    pair = data['pairs'][0]
+                    price_usd = float(pair.get('priceUsd', 0.0))
+                    if price_usd > 0:
+                        _PRICE_CACHE['price'] = price_usd
+                        _PRICE_CACHE['last_updated'] = now
+                        return price_usd
+    except Exception as e:
+        print(f"⚠️ Failed to fetch DEX price on server: {e}")
+
+    return _PRICE_CACHE['price']
 
 
 def _extract_user_id():
@@ -40,7 +75,6 @@ def _extract_user_id():
         if init_data_str:
             try:
                 from urllib.parse import parse_qs
-                import json
                 clean_init = str(init_data_str)
                 if clean_init.startswith('Bearer '):
                     clean_init = clean_init[7:]
@@ -59,6 +93,20 @@ def _extract_user_id():
                 return user_id_str
 
     return None
+
+
+@znx_wallet_bp.route('/price', methods=['GET', 'OPTIONS'])
+def get_price_only():
+    """مسار خفيف مخصص لجلب السعر المباشر فقط"""
+    if request.method == 'OPTIONS':
+        return jsonify({'success': True}), 200
+
+    price = fetch_live_dex_price()
+    return jsonify({
+        'success': True,
+        'price': price,
+        'contract': ZNX_CONTRACT_ADDRESS
+    }), 200
 
 
 @znx_wallet_bp.route('/data', methods=['GET', 'POST', 'OPTIONS'])
@@ -80,7 +128,6 @@ def get_wallet_data():
         
         user_data['current_tier'] = current_tier
 
-        # حصر النتيجة في Top 10 لجعل النظام موفر وسريع للغاية
         lb_res = znx_wallet_db.get_leaderboard_data(limit=10, user_id=str(user_id))
         
         rankings = lb_res.get('leaderboard', []) if isinstance(lb_res, dict) else []
@@ -94,6 +141,8 @@ def get_wallet_data():
                 t_copy['max_pts'] = "inf"
             serializable_tiers.append(t_copy)
 
+        live_price = fetch_live_dex_price()
+
         return jsonify({
             'success': True,
             'user': user_data,
@@ -105,7 +154,7 @@ def get_wallet_data():
             'my_info': my_info,
             'global_total': total_global_znx,
             'max_global_znx': float(global_stats.get('max_global_znx', 32500000.0)),
-            'live_price': 0.0524
+            'live_price': live_price
         }), 200
 
     except Exception as e:
