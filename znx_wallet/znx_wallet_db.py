@@ -198,9 +198,6 @@ def get_user_data(user_id: str):
 
 
 def get_leaderboard_rankings(limit=10, user_id=None):
-    """
-    جلب قائمة النخبة (أفضل 10 لاعبين فقط) مع احتساب ترتيب المستخدم الحالي بدقة
-    """
     db = _get_db()
     rankings = []
     clean_target_id = _sanitize_id(user_id)
@@ -209,7 +206,6 @@ def get_leaderboard_rankings(limit=10, user_id=None):
     my_user_info = None
 
     try:
-        # جلب عينة من أعلى اللاعبين المكتسبين لعملة ZNX
         docs = list(db.collection('users').limit(100).stream())
         raw_list = []
         for doc in docs:
@@ -229,10 +225,7 @@ def get_leaderboard_rankings(limit=10, user_id=None):
                 'balance': bal
             })
         
-        # ترتيب تنازلي حسب إجمالي العملات المكتسبة
         raw_list.sort(key=lambda x: x['total_znx_earned'], reverse=True)
-        
-        # حصر الترتيب الظاهر بـ 10 فقط (أفضل 10)
         top_list = raw_list[:limit]
         
         rank = 1
@@ -248,7 +241,6 @@ def get_leaderboard_rankings(limit=10, user_id=None):
     except Exception as e:
         print(f"❌ Leaderboard query failed: {e}")
 
-    # إذا لم يكن اللاعب ضمن العشرة الأوائل، نحسب ترتيبه بشكل مستقل
     if clean_target_id and not user_in_top:
         try:
             target_doc = db.collection('users').document(clean_target_id).get()
@@ -257,7 +249,6 @@ def get_leaderboard_rankings(limit=10, user_id=None):
                 t_earned = float(t_data.get('total_znx_earned') or 0.0)
                 t_name = str(t_data.get('first_name') or t_data.get('name') or 'لاعب')
                 
-                # حساب عدد اللاعبين الذين يتفوقون عليه بالإجمالي
                 all_docs = db.collection('users').stream()
                 higher_count = sum(1 for d in all_docs if float((d.to_dict() or {}).get('total_znx_earned') or 0) > t_earned)
                 
