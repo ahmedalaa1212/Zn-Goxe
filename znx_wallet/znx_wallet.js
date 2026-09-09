@@ -2,7 +2,7 @@
  * 💎 ZNX Wallet Engine (Front-end Module)
  */
 
-const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwd";
+const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ";
 
 function escapeHTML(str) {
     if (!str) return '';
@@ -26,7 +26,7 @@ let USER_ID = getUserId();
 let userData = { balance: 0, usd_balance: 0, znx_balance: 0, total_znx_earned: 0 };
 let currentTier = null;
 
-// المتغيرات الخاصة بالسعر المباشر
+// المتغيرات الخاصة بالسعر المباشر (تبدأ من الصفر)
 let currentLivePrice = 0;
 let targetLivePrice = 0;
 let priceFetchTimer = null;
@@ -46,7 +46,7 @@ function formatCoins(val, decimals = 2) {
 
 function formatPriceUsd(val) {
     const num = parseFloat(val) || 0;
-    if (num <= 0) return "$0.00000000";
+    if (num <= 0) return "جاري التحديث...";
     if (num < 0.0001) return `$${num.toFixed(8)}`;
     if (num < 0.01) return `$${num.toFixed(6)}`;
     if (num < 1) return `$${num.toFixed(4)}`;
@@ -54,49 +54,24 @@ function formatPriceUsd(val) {
 }
 
 async function fetchRealZnxPrice() {
-    // الاعتماد المباشر والسريع على API السيرفر الخفي لمنع مشاكل CORS
+    // الاعتماد المباشر على سيرفر البوت بتاعك لمنع الحظر (CORS) من المتصفح
     try {
         const serverRes = await fetch(`${window.location.origin}/api/znx-wallet/price?t=${Date.now()}`);
         if (serverRes.ok) {
             const serverData = await serverRes.json();
             if (serverData.success && serverData.price > 0) {
                 setTargetPrice(serverData.price);
-                return;
             }
         }
     } catch (err) {
-        // التجاهل والاحتفاظ بآخر سعر معروف
-    }
-
-    // محاولة ثانوية وجانبية مباشرة من العميل في حال استجاب DEXScreener
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000);
-
-        const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${ZNX_TOKEN_CONTRACT}`, {
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-            const data = await res.json();
-            if (data && data.pairs && data.pairs.length > 0) {
-                const pair = data.pairs[0];
-                const price = parseFloat(pair.priceUsd);
-                if (!isNaN(price) && price > 0) {
-                    setTargetPrice(price);
-                }
-            }
-        }
-    } catch (err) {
-        // التجاهل
+        console.warn("جاري إعادة المحاولة لجلب السعر...");
     }
 }
 
 function setTargetPrice(newPrice) {
     if (!newPrice || isNaN(newPrice) || newPrice <= 0) return;
     
-    if (!isPriceInitialized) {
+    if (!isPriceInitialized || currentLivePrice === 0) {
         currentLivePrice = newPrice;
         targetLivePrice = newPrice;
         isPriceInitialized = true;
@@ -142,9 +117,11 @@ function tickLivePriceSubSecond() {
 function startLivePriceEngine() {
     fetchRealZnxPrice();
 
+    // تحديث السعر من السيرفر كل 5 ثواني
     if (priceFetchTimer) clearInterval(priceFetchTimer);
-    priceFetchTimer = setInterval(fetchRealZnxPrice, 2500);
+    priceFetchTimer = setInterval(fetchRealZnxPrice, 5000);
 
+    // حركة النبض للسعر في الواجهة
     if (priceTickerTimer) clearInterval(priceTickerTimer);
     priceTickerTimer = setInterval(tickLivePriceSubSecond, 300);
 }
