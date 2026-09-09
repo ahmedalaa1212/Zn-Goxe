@@ -405,7 +405,8 @@
     <!-- السعر اللحظي المباشر -->
     <div class="price-card">
         <span class="price-badge"><span class="pulse-dot"></span> سعر مباشر بالثانية (DEX)</span>
-        <div class="price-value" id="livePrice">$0.00002887</div>
+        <!-- تم تغيير السعر الافتراضي هنا لكلمة "جاري التحديث" -->
+        <div class="price-value" id="livePrice">جاري التحديث...</div>
     </div>
 
     <!-- لوحة التحويل -->
@@ -440,18 +441,14 @@
     <!-- عرش نخبة ZNX -->
     <div class="section-title">
         <span><i class="fa-solid fa-crown" style="color:#d97706;"></i> عرش نخبة ZNX</span>
-        <span class="top10-badge"><i class="fa-solid fa-trophy"></i> أفضل 10 كبار</span>
+        <span class="top10-badge"><i class="fa-solid fa-fire"></i> Top 10</span>
     </div>
 
-    <!-- بطاقة الترتيب الخاصة باللاعب نفسه -->
     <div id="myRankCardContainer"></div>
 
-    <!-- قائمة المتصدرين (منصة التتويج والـ 10 الأوائل) -->
     <div class="podium" id="podiumContainer"></div>
-    <div id="rankingsContainer"></div>
-
-    <!-- ربط ملف الجافاسكريبت المحرك -->
-    <script src="znx_wallet.js"></script>
+    
+    <div id="rankingsContainer" style="margin-bottom: 20px;"></div>
 
 </body>
 </html>
