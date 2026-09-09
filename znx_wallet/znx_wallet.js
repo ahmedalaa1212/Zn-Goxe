@@ -26,7 +26,7 @@ let USER_ID = getUserId();
 let userData = { balance: 0, usd_balance: 0, znx_balance: 0, total_znx_earned: 0 };
 let currentTier = null;
 
-// المتغيرات الخاصة بالسعر المباشر (تبدأ من الصفر)
+// المتغيرات الخاصة بالسعر المباشر
 let currentLivePrice = 0;
 let targetLivePrice = 0;
 let priceFetchTimer = null;
@@ -54,9 +54,17 @@ function formatPriceUsd(val) {
 }
 
 async function fetchRealZnxPrice() {
-    // الاعتماد المباشر على سيرفر البوت بتاعك لمنع الحظر (CORS) من المتصفح
     try {
-        const serverRes = await fetch(`${window.location.origin}/api/znx-wallet/price?t=${Date.now()}`);
+        // إرسال طلب جلب السعر مع إلغاء التخزين المؤقت (cache: 'no-store')
+        const serverRes = await fetch(`${window.location.origin}/api/znx-wallet/price?t=${Date.now()}`, {
+            method: 'GET',
+            cache: 'no-store',
+            headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache'
+            }
+        });
+
         if (serverRes.ok) {
             const serverData = await serverRes.json();
             if (serverData.success && serverData.price > 0) {
@@ -64,7 +72,7 @@ async function fetchRealZnxPrice() {
             }
         }
     } catch (err) {
-        console.warn("جاري إعادة المحاولة لجلب السعر...");
+        console.warn("جاري إعادة المحاولة لجلب السعر اللحظي...");
     }
 }
 
@@ -115,13 +123,14 @@ function tickLivePriceSubSecond() {
 }
 
 function startLivePriceEngine() {
+    // جلب فوري للسعر فور تحميل الصفحة
     fetchRealZnxPrice();
 
-    // تحديث السعر من السيرفر كل 5 ثواني
+    // تحديث السعر من الـ API بطلب مباشر بدون كاش كل 3 ثوانٍ
     if (priceFetchTimer) clearInterval(priceFetchTimer);
-    priceFetchTimer = setInterval(fetchRealZnxPrice, 5000);
+    priceFetchTimer = setInterval(fetchRealZnxPrice, 3000);
 
-    // حركة النبض للسعر في الواجهة
+    // حركة النبض والتفاعل اللحظي للسعر في الواجهة
     if (priceTickerTimer) clearInterval(priceTickerTimer);
     priceTickerTimer = setInterval(tickLivePriceSubSecond, 300);
 }
@@ -134,9 +143,11 @@ async function initApp() {
     try {
         const res = await fetch(apiUrl, {
             method: 'GET',
+            cache: 'no-store',
             headers: {
                 'X-Telegram-User-Id': USER_ID,
-                'X-Telegram-Init-Data': initData
+                'X-Telegram-Init-Data': initData,
+                'Cache-Control': 'no-cache'
             }
         });
         
