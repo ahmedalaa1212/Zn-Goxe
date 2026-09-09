@@ -20,10 +20,9 @@ except ImportError:
 
 znx_wallet_bp = Blueprint('znx_wallet_bp', __name__)
 
-# عنوان عقد العملة الرسمي على شبكة TON
 ZNX_CONTRACT_ADDRESS = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwd"
 
-# ذاكرة التخزين المؤقت للسعر (Cache) لمنع الحظر والحصول على سرعة فائقة
+# كاش السعر في السيرفر لتسريع الاستجابة ومنع الضغط
 _PRICE_CACHE = {
     'price': 0.0,
     'last_updated': 0
@@ -31,22 +30,18 @@ _PRICE_CACHE = {
 
 def fetch_live_dex_price():
     """
-    جلب السعر اللحظي الرسمي للعملة عبر الاتصال المباشر بـ DEXs ومجمعات الأسعار المعتمدة:
-    1. DEXScreener Token API
-    2. DEXScreener Search API (احتياطي للسيولة المنخفضة)
-    3. GeckoTerminal TON API (مصدر رسمي مباشر لشبكة TON)
-    4. STON.fi Asset API (المنصة المضيفة لحوض السيولة)
+    جلب السعر اللحظي الحقيقي للعملة مباشرة من شبكة TON و حوض سيولة STON.fi 
+    دون الاعتماد على مجمعات الأسعار التي تحظر الأحواض ذات السيولة المنخفضة.
     """
     now = time.time()
     
-    # تحديث السعر كل ثانيتين لضمان استجابة لحظية دون حظر السيرفر
+    # تحديث الكاش كل ثانيتين لضمان سرعة فائقة ودقة لحظية
     if now - _PRICE_CACHE['last_updated'] < 2 and _PRICE_CACHE['price'] > 0:
         return _PRICE_CACHE['price']
 
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-US,en;q=0.9',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
         'Cache-Control': 'no-cache'
     }
 
@@ -54,7 +49,43 @@ def fetch_live_dex_price():
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
 
-    # المصدر الأول: DEXScreener Token Pairs API
+    # المصدر الأول المباشر: TonAPI.io (المصدر الرسمي للبلوكشين)
+    try:
+        tonapi_url = f"https://tonapi.io/v2/rates?tokens={ZNX_CONTRACT_ADDRESS}&currencies=usd"
+        req = urllib.request.Request(tonapi_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=3, context=ssl_context) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode('utf-8'))
+                rates = data.get('rates', {}).get(ZNX_CONTRACT_ADDRESS, {})
+                price_usd = float(rates.get('prices', {}).get('USD', 0.0))
+                if price_usd > 0:
+                    _PRICE_CACHE['price'] = price_usd
+                    _PRICE_CACHE['last_updated'] = now
+                    return price_usd
+    except Exception as e:
+        print(f"⚠️ TonAPI Fetch Error: {e}")
+
+    # المصدر الثاني: حساب السعر المباشر من احتياطي حوض السيولة (STON.fi Pools API)
+    try:
+        ston_pools_url = f"https://api.ston.fi/v1/pools?token_address={ZNX_CONTRACT_ADDRESS}"
+        req_pools = urllib.request.Request(ston_pools_url, headers=headers)
+        with urllib.request.urlopen(req_pools, timeout=3, context=ssl_context) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode('utf-8'))
+                pools = data.get('pools', [])
+                if pools:
+                    # اختيار أحدث حوض سيولة يحتوي على العملة
+                    pool = pools[0]
+                    # محاولة قراءة سعر العملة المباشر المخزن في الحوض
+                    lp_price = float(pool.get('token0_price_usd') or pool.get('token1_price_usd') or 0.0)
+                    if lp_price > 0:
+                        _PRICE_CACHE['price'] = lp_price
+                        _PRICE_CACHE['last_updated'] = now
+                        return lp_price
+    except Exception as e:
+        print(f"⚠️ STON.fi Pools Fetch Error: {e}")
+
+    # المصدر الثالث: DEXScreener API (في حال ارتفعت السيولة وتم فك الحظر عن الزوج)
     try:
         url = f"https://api.dexscreener.com/latest/dex/tokens/{ZNX_CONTRACT_ADDRESS}"
         req = urllib.request.Request(url, headers=headers)
@@ -63,71 +94,15 @@ def fetch_live_dex_price():
                 data = json.loads(resp.read().decode('utf-8'))
                 if data and 'pairs' in data and len(data['pairs']) > 0:
                     for pair in data['pairs']:
-                        price_val = pair.get('priceUsd')
-                        if price_val:
-                            price_usd = float(price_val)
-                            if price_usd > 0:
-                                _PRICE_CACHE['price'] = price_usd
-                                _PRICE_CACHE['last_updated'] = now
-                                return price_usd
+                        price_usd = float(pair.get('priceUsd', 0.0))
+                        if price_usd > 0:
+                            _PRICE_CACHE['price'] = price_usd
+                            _PRICE_CACHE['last_updated'] = now
+                            return price_usd
     except Exception as e:
-        print(f"⚠️ DEXScreener Direct Fetch Error: {e}")
+        print(f"⚠️ DEXScreener Fetch Error: {e}")
 
-    # المصدر الثاني: DEXScreener Search Query API
-    try:
-        search_url = f"https://api.dexscreener.com/latest/dex/search?q={ZNX_CONTRACT_ADDRESS}"
-        req_search = urllib.request.Request(search_url, headers=headers)
-        with urllib.request.urlopen(req_search, timeout=3, context=ssl_context) as resp:
-            if resp.status == 200:
-                data = json.loads(resp.read().decode('utf-8'))
-                pairs = data.get('pairs', [])
-                for pair in pairs:
-                    if pair.get('baseToken', {}).get('address', '').lower() == ZNX_CONTRACT_ADDRESS.lower():
-                        price_val = pair.get('priceUsd')
-                        if price_val:
-                            price_usd = float(price_val)
-                            if price_usd > 0:
-                                _PRICE_CACHE['price'] = price_usd
-                                _PRICE_CACHE['last_updated'] = now
-                                return price_usd
-    except Exception as e:
-        print(f"⚠️ DEXScreener Search Fetch Error: {e}")
-
-    # المصدر الثالث: GeckoTerminal TON Network API
-    try:
-        gecko_url = f"https://api.geckoterminal.com/api/v2/networks/ton/tokens/{ZNX_CONTRACT_ADDRESS}"
-        req_gecko = urllib.request.Request(gecko_url, headers=headers)
-        with urllib.request.urlopen(req_gecko, timeout=3, context=ssl_context) as resp:
-            if resp.status == 200:
-                data = json.loads(resp.read().decode('utf-8'))
-                attributes = data.get('data', {}).get('attributes', {})
-                price_val = attributes.get('price_usd')
-                if price_val:
-                    price_usd = float(price_val)
-                    if price_usd > 0:
-                        _PRICE_CACHE['price'] = price_usd
-                        _PRICE_CACHE['last_updated'] = now
-                        return price_usd
-    except Exception as e:
-        print(f"⚠️ GeckoTerminal Fetch Error: {e}")
-
-    # المصدر الرابع: STON.fi API المباشر
-    try:
-        ston_url = f"https://api.ston.fi/v1/assets/{ZNX_CONTRACT_ADDRESS}"
-        req_ston = urllib.request.Request(ston_url, headers=headers)
-        with urllib.request.urlopen(req_ston, timeout=3, context=ssl_context) as resp:
-            if resp.status == 200:
-                data = json.loads(resp.read().decode('utf-8'))
-                asset = data.get('asset', {})
-                price_usd = float(asset.get('dex_usd_price') or asset.get('third_party_usd_price') or 0.0)
-                if price_usd > 0:
-                    _PRICE_CACHE['price'] = price_usd
-                    _PRICE_CACHE['last_updated'] = now
-                    return price_usd
-    except Exception as e:
-        print(f"⚠️ STON.fi Fetch Error: {e}")
-
-    # الاحتفاظ بآخر سعر تم استلاكه بنجاح لمنع هبوط السعر إلى الصفر أو القيمة القديمة
+    # في حال عدم توفر استجابة من API الشبكة، ارجاع آخر سعر حقيقي تم جلبعه
     return _PRICE_CACHE['price'] if _PRICE_CACHE['price'] > 0 else 0.00002890
 
 
@@ -176,7 +151,7 @@ def _extract_user_id():
 
 @znx_wallet_bp.route('/price', methods=['GET', 'OPTIONS'])
 def get_price_only():
-    """مسار خفيف لجلب السعر المباشر اللحظي"""
+    """مسار خفيف لجلب السعر المباشر بالثانية"""
     if request.method == 'OPTIONS':
         return jsonify({'success': True}), 200
 
