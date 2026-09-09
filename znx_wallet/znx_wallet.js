@@ -27,10 +27,11 @@ let userData = { balance: 0, usd_balance: 0, znx_balance: 0, total_znx_earned: 0
 let currentTier = null;
 
 // المتغيرات الخاصة بالسعر المباشر
-let currentLivePrice = 0.00002887;
-let targetLivePrice = 0.00002887;
+let currentLivePrice = 0;
+let targetLivePrice = 0;
 let priceFetchTimer = null;
 let priceTickerTimer = null;
+let isPriceInitialized = false;
 
 function formatCoins(val, decimals = 2) {
     const num = parseFloat(val) || 0;
@@ -45,7 +46,7 @@ function formatCoins(val, decimals = 2) {
 
 function formatPriceUsd(val) {
     const num = parseFloat(val) || 0;
-    if (num <= 0) return "$0.00";
+    if (num <= 0) return "$0.00000000";
     if (num < 0.0001) return `$${num.toFixed(8)}`;
     if (num < 0.01) return `$${num.toFixed(6)}`;
     if (num < 1) return `$${num.toFixed(4)}`;
@@ -53,9 +54,24 @@ function formatPriceUsd(val) {
 }
 
 async function fetchRealZnxPrice() {
+    // الاعتماد المباشر والسريع على API السيرفر الخفي لمنع مشاكل CORS
+    try {
+        const serverRes = await fetch(`${window.location.origin}/api/znx-wallet/price?t=${Date.now()}`);
+        if (serverRes.ok) {
+            const serverData = await serverRes.json();
+            if (serverData.success && serverData.price > 0) {
+                setTargetPrice(serverData.price);
+                return;
+            }
+        }
+    } catch (err) {
+        // التجاهل والاحتفاظ بآخر سعر معروف
+    }
+
+    // محاولة ثانوية وجانبية مباشرة من العميل في حال استجاب DEXScreener
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
 
         const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${ZNX_TOKEN_CONTRACT}`, {
             signal: controller.signal
@@ -69,30 +85,26 @@ async function fetchRealZnxPrice() {
                 const price = parseFloat(pair.priceUsd);
                 if (!isNaN(price) && price > 0) {
                     setTargetPrice(price);
-                    return;
                 }
             }
         }
     } catch (err) {
-        // الاتصال المباشر بـ DEXScreener تعذر، الاعتماد على السيرفر كخطة بديلة
-    }
-
-    try {
-        const serverRes = await fetch(`${window.location.origin}/api/znx-wallet/price`);
-        if (serverRes.ok) {
-            const serverData = await serverRes.json();
-            if (serverData.success && serverData.price > 0) {
-                setTargetPrice(serverData.price);
-            }
-        }
-    } catch (err) {
-        // التجاهل والاحتفاظ بآخر سعر معروف
+        // التجاهل
     }
 }
 
 function setTargetPrice(newPrice) {
     if (!newPrice || isNaN(newPrice) || newPrice <= 0) return;
     
+    if (!isPriceInitialized) {
+        currentLivePrice = newPrice;
+        targetLivePrice = newPrice;
+        isPriceInitialized = true;
+        const priceEl = document.getElementById('livePrice');
+        if (priceEl) priceEl.innerText = formatPriceUsd(newPrice);
+        return;
+    }
+
     const priceEl = document.getElementById('livePrice');
     if (priceEl && newPrice !== targetLivePrice) {
         if (newPrice > targetLivePrice) {
@@ -111,11 +123,13 @@ function setTargetPrice(newPrice) {
 }
 
 function tickLivePriceSubSecond() {
+    if (targetLivePrice <= 0) return;
+
     if (Math.abs(currentLivePrice - targetLivePrice) > 0.00000001) {
         currentLivePrice += (targetLivePrice - currentLivePrice) * 0.3;
     } else {
         currentLivePrice = targetLivePrice;
-        const microNoise = (Math.random() - 0.5) * (targetLivePrice * 0.0005);
+        const microNoise = (Math.random() - 0.5) * (targetLivePrice * 0.0003);
         currentLivePrice = Math.max(0.00000001, targetLivePrice + microNoise);
     }
 
@@ -129,10 +143,10 @@ function startLivePriceEngine() {
     fetchRealZnxPrice();
 
     if (priceFetchTimer) clearInterval(priceFetchTimer);
-    priceFetchTimer = setInterval(fetchRealZnxPrice, 3000);
+    priceFetchTimer = setInterval(fetchRealZnxPrice, 2500);
 
     if (priceTickerTimer) clearInterval(priceTickerTimer);
-    priceTickerTimer = setInterval(tickLivePriceSubSecond, 400);
+    priceTickerTimer = setInterval(tickLivePriceSubSecond, 300);
 }
 
 async function initApp() {
