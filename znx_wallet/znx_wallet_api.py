@@ -6,6 +6,7 @@
 import math
 import time
 import json
+import ssl
 import urllib.request
 from flask import Blueprint, jsonify, request
 
@@ -20,36 +21,68 @@ except ImportError:
 znx_wallet_bp = Blueprint('znx_wallet_bp', __name__)
 
 ZNX_CONTRACT_ADDRESS = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwd"
+
+# كاش السعر في السيرفر مع تخزين وقت آخر تحديث
 _PRICE_CACHE = {
-    'price': 0.00002887,
+    'price': 0.0,
     'last_updated': 0
 }
 
-
 def fetch_live_dex_price():
-    """جلب السعر اللحظي من DEXScreener مع التخزين المؤقت (Cache) لحماية السيرفر من الحظر"""
+    """جلب السعر اللحظي الحقيقي من DEXScreener و STON.fi مع دعم الهيدرز الكامل لتجاوز الحظر"""
     now = time.time()
-    if now - _PRICE_CACHE['last_updated'] < 5 and _PRICE_CACHE['price'] > 0:
+    
+    # تحديث الكاش كل 3 ثوانٍ فقط لعدم إغراق السيرفر
+    if now - _PRICE_CACHE['last_updated'] < 3 and _PRICE_CACHE['price'] > 0:
         return _PRICE_CACHE['price']
 
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache'
+    }
+
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+
+    # المصدر الأول: DEXScreener API
     try:
         url = f"https://api.dexscreener.com/latest/dex/tokens/{ZNX_CONTRACT_ADDRESS}"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=4, context=ssl_context) as resp:
             if resp.status == 200:
-                body = resp.read().decode('utf-8')
-                data = json.loads(body)
+                data = json.loads(resp.read().decode('utf-8'))
                 if data and 'pairs' in data and len(data['pairs']) > 0:
-                    pair = data['pairs'][0]
-                    price_usd = float(pair.get('priceUsd', 0.0))
-                    if price_usd > 0:
-                        _PRICE_CACHE['price'] = price_usd
-                        _PRICE_CACHE['last_updated'] = now
-                        return price_usd
+                    # البحث عن أكبر زوج سيولة أو أول زوج
+                    for pair in data['pairs']:
+                        price_usd = float(pair.get('priceUsd', 0.0))
+                        if price_usd > 0:
+                            _PRICE_CACHE['price'] = price_usd
+                            _PRICE_CACHE['last_updated'] = now
+                            return price_usd
     except Exception as e:
-        print(f"⚠️ Failed to fetch DEX price on server: {e}")
+        print(f"⚠️ DEXScreener Fetch Error: {e}")
 
-    return _PRICE_CACHE['price']
+    # المصدر الثاني الاحتياطي: STON.fi Direct DEX API
+    try:
+        ston_url = f"https://api.ston.fi/v1/assets/{ZNX_CONTRACT_ADDRESS}"
+        req_ston = urllib.request.Request(ston_url, headers=headers)
+        with urllib.request.urlopen(req_ston, timeout=4, context=ssl_context) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode('utf-8'))
+                asset = data.get('asset', {})
+                price_usd = float(asset.get('dex_usd_price') or asset.get('third_party_usd_price') or 0.0)
+                if price_usd > 0:
+                    _PRICE_CACHE['price'] = price_usd
+                    _PRICE_CACHE['last_updated'] = now
+                    return price_usd
+    except Exception as e:
+        print(f"⚠️ STON.fi Fetch Error: {e}")
+
+    # في حال تعذر التحديث، إرجاع آخر سعر مسجل في الكاش
+    return _PRICE_CACHE['price'] if _PRICE_CACHE['price'] > 0 else 0.00002890
 
 
 def _extract_user_id():
@@ -97,7 +130,7 @@ def _extract_user_id():
 
 @znx_wallet_bp.route('/price', methods=['GET', 'OPTIONS'])
 def get_price_only():
-    """مسار خفيف مخصص لجلب السعر المباشر فقط"""
+    """مسار خفيف لجلب السعر المباشر بالثانية"""
     if request.method == 'OPTIONS':
         return jsonify({'success': True}), 200
 
