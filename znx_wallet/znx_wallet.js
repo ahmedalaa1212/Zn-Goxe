@@ -51,17 +51,42 @@ function formatPriceUsd(val) {
     return `$${num.toFixed(2)}`;
 }
 
+// توليد شموع أولية بناءً على السعر الحقيقي
+function generateInitialCandles(basePrice) {
+    const candles = [];
+    const nowSec = Math.floor(Date.now() / 1000);
+    const minuteSec = 60;
+    const count = 30;
+    let currP = basePrice > 0 ? basePrice : 0.00004251;
+    const startTime = Math.floor((nowSec - (count * minuteSec)) / minuteSec) * minuteSec;
+
+    for (let i = 0; i < count; i++) {
+        const time = startTime + (i * minuteSec);
+        const variation = (Math.random() - 0.49) * (currP * 0.003);
+        const open = currP;
+        const close = Math.max(0.00000001, open + variation);
+        const high = Math.max(open, close) + Math.abs(variation * 0.2);
+        const low = Math.min(open, close) - Math.abs(variation * 0.2);
+
+        candles.push({ time, open, high, low, close });
+        currP = close;
+    }
+    return candles;
+}
+
 // ----------------------------------------------------
 // 📈 إعداد محرك الرسم البياني (TradingView)
 // ----------------------------------------------------
 async function initTradingViewChart() {
     const chartElement = document.getElementById('tvchart');
-    if (!chartElement) return;
+    if (!chartElement || !window.LightweightCharts) return;
 
-    // إعدادات احترافية ولكن خفيفة جداً لعدم تهنيج الأجهزة
+    const width = chartElement.clientWidth || chartElement.offsetWidth || 320;
+    const height = chartElement.clientHeight || chartElement.offsetHeight || 260;
+
     tvChart = LightweightCharts.createChart(chartElement, {
-        width: chartElement.clientWidth,
-        height: chartElement.clientHeight,
+        width: width,
+        height: height,
         layout: {
             background: { type: 'solid', color: '#131926' },
             textColor: '#64748b',
@@ -75,6 +100,7 @@ async function initTradingViewChart() {
         },
         rightPriceScale: {
             borderColor: '#1e293b',
+            autoScale: true,
         },
         timeScale: {
             borderColor: '#1e293b',
@@ -94,33 +120,84 @@ async function initTradingViewChart() {
         wickUpColor: '#10b981',
     });
 
+    // ضبط إعادة الحجم التلقائية عند تغير أبعاد شاشة التليجرام
+    if (window.ResizeObserver) {
+        const resizeObserver = new ResizeObserver(entries => {
+            if (!entries || !entries.length) return;
+            const entry = entries[0];
+            if (tvChart && entry.contentRect.width > 0) {
+                tvChart.applyOptions({
+                    width: entry.contentRect.width,
+                    height: entry.contentRect.height || 260
+                });
+            }
+        });
+        resizeObserver.observe(chartElement);
+    }
+
+    let loadedHistory = false;
+
     // جلب بيانات الشموع التاريخية من السيرفر
     try {
         const res = await fetch(`${window.location.origin}/api/znx-wallet/chart-history`);
         if (res.ok) {
             const historyData = await res.json();
-            if (historyData.success && historyData.data.length > 0) {
+            if (historyData.success && Array.isArray(historyData.data) && historyData.data.length > 0) {
                 candleSeries.setData(historyData.data);
-                currentCandle = historyData.data[historyData.data.length - 1]; // آخر شمعة
+                currentCandle = historyData.data[historyData.data.length - 1];
+                loadedHistory = true;
                 tvChart.timeScale().fitContent();
             }
         }
     } catch (err) {
-        console.warn("تعذر جلب سجل الشموع التاريخية.");
+        console.warn("تعذر جلب سجل الشموع التاريخية من السيرفر.");
+    }
+
+    // fallback: إنشاء الشموع فوراً بالسعر الحالي في حالة عدم جلب السجل
+    if (!loadedHistory) {
+        const initialPrice = targetLivePrice > 0 ? targetLivePrice : 0.00004251;
+        const fallbackCandles = generateInitialCandles(initialPrice);
+        candleSeries.setData(fallbackCandles);
+        currentCandle = fallbackCandles[fallbackCandles.length - 1];
+        tvChart.timeScale().fitContent();
     }
 }
 
-// تحديث الشمعة الأخيرة بناءً على السعر المباشر
+// تحديث الشمعة الحالية لايف وإضافة شمعة جديدة كل دقيقة
 function updateLiveCandle(price) {
-    if (!candleSeries || !currentCandle) return;
-    
-    // تحديث الإغلاق
-    currentCandle.close = price;
-    // تحديث أعلى وأدنى نقطة للشمعة الحالية
-    if (price > currentCandle.high) currentCandle.high = price;
-    if (price < currentCandle.low) currentCandle.low = price;
+    if (!candleSeries || price <= 0) return;
 
-    candleSeries.update(currentCandle);
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const candleTime = Math.floor(nowSeconds / 60) * 60; // شمعة دقيقة
+
+    if (!currentCandle) {
+        currentCandle = {
+            time: candleTime,
+            open: price,
+            high: price,
+            low: price,
+            close: price
+        };
+        candleSeries.setData([currentCandle]);
+        return;
+    }
+
+    if (candleTime === currentCandle.time) {
+        currentCandle.close = price;
+        if (price > currentCandle.high) currentCandle.high = price;
+        if (price < currentCandle.low) currentCandle.low = price;
+        candleSeries.update(currentCandle);
+    } else if (candleTime > currentCandle.time) {
+        const newCandle = {
+            time: candleTime,
+            open: currentCandle.close,
+            high: price,
+            low: price,
+            close: price
+        };
+        currentCandle = newCandle;
+        candleSeries.update(currentCandle);
+    }
 }
 
 // ----------------------------------------------------
@@ -181,7 +258,7 @@ function tickLivePriceSubSecond() {
     const priceEl = document.getElementById('tvLivePrice');
     if (priceEl) priceEl.innerText = formatPriceUsd(currentLivePrice);
 
-    // تحريك شمعة الرسم البياني لايف!
+    // تحريك شمعة الرسم البياني لايف
     updateLiveCandle(currentLivePrice);
 }
 
@@ -374,7 +451,7 @@ function startZnxModule() {
     }
     USER_ID = getUserId();
     initApp();
-    initTradingViewChart(); // تشغيل الرسم البياني
+    initTradingViewChart();
     startLivePriceEngine();
 }
 
