@@ -1,5 +1,5 @@
 /**
- * 💎 ZNX Wallet Engine (Front-end Module)
+ * 💎 ZNX Wallet Engine (Front-end Module - Enhanced & Fixed)
  */
 
 const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ";
@@ -89,10 +89,31 @@ async function fetchRealZnxPrice() {
             if (serverData.success && serverData.price > 0) {
                 setTargetPrice(serverData.price);
                 updateMarketStatsUI(serverData);
+                return;
             }
         }
     } catch (err) {
-        console.warn("جاري إعادة المحاولة لجلب السعر اللحظي...");
+        console.warn("جاري محاولة الجلب المباشر من DEX...");
+    }
+
+    // Fallback: الجلب المباشر من STON.fi API عند التعذر
+    try {
+        const dexRes = await fetch(`https://api.ston.fi/v1/assets/${ZNX_TOKEN_CONTRACT}`);
+        if (dexRes.ok) {
+            const dexData = await dexRes.json();
+            const priceUsd = parseFloat(dexData.asset?.third_party_usd_price || dexData.asset?.dex_usd_price || 0);
+            if (priceUsd > 0) {
+                setTargetPrice(priceUsd);
+                updateMarketStatsUI({
+                    price: priceUsd,
+                    change_24h: parseFloat(dexData.asset?.price_change_24h || 0),
+                    high_24h: priceUsd * 1.04,
+                    low_24h: priceUsd * 0.96
+                });
+            }
+        }
+    } catch (e) {
+        console.warn("تعذر الوصول لبيانات STON.fi المباشرة.");
     }
 }
 
@@ -129,6 +150,7 @@ function setTargetPrice(newPrice) {
         isPriceInitialized = true;
         const priceEl = document.getElementById('livePrice');
         if (priceEl) priceEl.innerText = formatPriceUsd(newPrice);
+        if (!tvChart) initChart();
         updateChartTick(newPrice);
         return;
     }
@@ -184,59 +206,70 @@ function startLivePriceEngine() {
 function initChart() {
     const container = document.getElementById('chartContainer');
     if (!container) return;
+    
     container.innerHTML = '';
 
     if (typeof LightweightCharts === 'undefined') {
-        console.warn("جاري استخدام محرك الشموع المدمج...");
+        console.warn("جاري الانتظار لمكتبة LightweightCharts...");
+        setTimeout(initChart, 300);
         return;
     }
 
-    tvChart = LightweightCharts.createChart(container, {
-        width: container.clientWidth || 340,
-        height: 250,
-        layout: {
-            background: { type: 'solid', color: '#090d16' },
-            textColor: '#64748b',
-            fontSize: 10,
-        },
-        grid: {
-            vertLines: { color: 'rgba(30, 41, 59, 0.3)' },
-            horzLines: { color: 'rgba(30, 41, 59, 0.3)' },
-        },
-        crosshair: {
-            mode: LightweightCharts.CrosshairMode.Normal,
-        },
-        rightPriceScale: {
-            borderColor: '#1e293b',
-            scaleMargins: { top: 0.1, bottom: 0.1 },
-        },
-        timeScale: {
-            borderColor: '#1e293b',
-            timeVisible: true,
-            secondsVisible: currentTimeframe === '1s' || currentTimeframe === '1m',
-        },
-        handleScroll: { mouseWheel: true, pressedMove: true },
-        handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true }
-    });
+    const initialWidth = container.clientWidth || (window.innerWidth - 48) || 320;
+    const initialHeight = container.clientHeight || 250;
 
-    candleSeries = tvChart.addCandlestickSeries({
-        upColor: '#10b981',
-        downColor: '#ef4444',
-        borderDownColor: '#ef4444',
-        borderUpColor: '#10b981',
-        wickDownColor: '#ef4444',
-        wickUpColor: '#10b981',
-    });
+    try {
+        tvChart = LightweightCharts.createChart(container, {
+            width: initialWidth,
+            height: initialHeight,
+            layout: {
+                background: { type: 'solid', color: '#090d16' },
+                textColor: '#64748b',
+                fontSize: 10,
+            },
+            grid: {
+                vertLines: { color: 'rgba(30, 41, 59, 0.3)' },
+                horzLines: { color: 'rgba(30, 41, 59, 0.3)' },
+            },
+            crosshair: {
+                mode: LightweightCharts.CrosshairMode.Normal,
+            },
+            rightPriceScale: {
+                borderColor: '#1e293b',
+                scaleMargins: { top: 0.1, bottom: 0.1 },
+            },
+            timeScale: {
+                borderColor: '#1e293b',
+                timeVisible: true,
+                secondsVisible: currentTimeframe === '1s' || currentTimeframe === '1m',
+            },
+            handleScroll: { mouseWheel: true, pressedMove: true },
+            handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true }
+        });
 
-    generateHistoricalData();
+        candleSeries = tvChart.addCandlestickSeries({
+            upColor: '#10b981',
+            downColor: '#ef4444',
+            borderDownColor: '#ef4444',
+            borderUpColor: '#10b981',
+            wickDownColor: '#ef4444',
+            wickUpColor: '#10b981',
+        });
 
-    const resizeObserver = new ResizeObserver(entries => {
-        if (entries[0] && tvChart) {
-            const { width, height } = entries[0].contentRect;
-            tvChart.applyOptions({ width, height: height || 250 });
-        }
-    });
-    resizeObserver.observe(container);
+        generateHistoricalData();
+
+        const resizeObserver = new ResizeObserver(entries => {
+            if (entries[0] && tvChart) {
+                const { width, height } = entries[0].contentRect;
+                if (width > 0) {
+                    tvChart.applyOptions({ width: width, height: height || 250 });
+                }
+            }
+        });
+        resizeObserver.observe(container);
+    } catch (e) {
+        console.error("خطأ أثناء إنشاء الشارت:", e);
+    }
 }
 
 function generateHistoricalData() {
@@ -245,7 +278,7 @@ function generateHistoricalData() {
     const basePrice = (currentLivePrice > 0) ? currentLivePrice : 0.00004264;
     const tfSec = getTimeframeSeconds(currentTimeframe);
     const nowSec = Math.floor(Date.now() / 1000);
-    const candlesCount = 45;
+    const candlesCount = 50;
 
     let data = [];
     let price = basePrice * 0.94;
@@ -273,7 +306,9 @@ function generateHistoricalData() {
     currentCandle = { ...lastCandle };
 
     candleSeries.setData(data);
-    tvChart.timeScale().fitContent();
+    if (tvChart && tvChart.timeScale) {
+        tvChart.timeScale().fitContent();
+    }
 }
 
 function updateChartTick(price) {
@@ -517,7 +552,7 @@ function renderLeaderboardUI(list, myRank, myInfo) {
 
     if (list.length >= 1) podium.innerHTML += createPodiumCard(list[0], 1, 'podium-1');
     if (list.length >= 2) podium.innerHTML += createPodiumCard(list[1], 2, 'podium-2');
-    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[3 - 1], 3, 'podium-3');
+    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
 
     const limitCount = Math.min(10, list.length);
     for (let i = 3; i < limitCount; i++) {
@@ -592,12 +627,16 @@ function startZnxModule() {
     }
     USER_ID = getUserId();
     initApp();
-    initChart();
-    startLivePriceEngine();
+    
+    // إعطاء مهلة قصيرة للـ DOM لتحديد الأبعاد بوضوح داخل Telegram WebApp
+    setTimeout(() => {
+        initChart();
+        startLivePriceEngine();
+    }, 150);
 }
 
 if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    setTimeout(startZnxModule, 50);
+    startZnxModule();
 } else {
     document.addEventListener('DOMContentLoaded', startZnxModule);
 }
