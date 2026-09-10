@@ -6,12 +6,7 @@ const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ";
 
 function escapeHTML(str) {
     if (!str) return '';
-    return String(str)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+    return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 }
 
 function getUserId() {
@@ -26,21 +21,24 @@ let USER_ID = getUserId();
 let userData = { balance: 0, usd_balance: 0, znx_balance: 0, total_znx_earned: 0 };
 let currentTier = null;
 
-// المتغيرات الخاصة بالسعر المباشر
+// السعر والرسم البياني
 let currentLivePrice = 0;
 let targetLivePrice = 0;
 let priceFetchTimer = null;
 let priceTickerTimer = null;
 let isPriceInitialized = false;
 
+// متغيرات الـ TradingView Chart
+let tvChart = null;
+let candleSeries = null;
+let currentCandle = null;
+
 function formatCoins(val, decimals = 2) {
     const num = parseFloat(val) || 0;
     const parts = num.toFixed(decimals).split('.');
     const integerPart = parseInt(parts[0], 10).toLocaleString('en-US');
     const decimalPart = parts[1];
-    if (decimals === 0 || !decimalPart) {
-        return integerPart;
-    }
+    if (decimals === 0 || !decimalPart) return integerPart;
     return `${integerPart}<small class="dec">.${decimalPart}</small>`;
 }
 
@@ -53,42 +51,107 @@ function formatPriceUsd(val) {
     return `$${num.toFixed(2)}`;
 }
 
+// ----------------------------------------------------
+// 📈 إعداد محرك الرسم البياني (TradingView)
+// ----------------------------------------------------
+async function initTradingViewChart() {
+    const chartElement = document.getElementById('tvchart');
+    if (!chartElement) return;
+
+    // إعدادات احترافية ولكن خفيفة جداً لعدم تهنيج الأجهزة
+    tvChart = LightweightCharts.createChart(chartElement, {
+        width: chartElement.clientWidth,
+        height: chartElement.clientHeight,
+        layout: {
+            background: { type: 'solid', color: '#131926' },
+            textColor: '#64748b',
+        },
+        grid: {
+            vertLines: { color: 'rgba(30, 41, 59, 0.5)' },
+            horzLines: { color: 'rgba(30, 41, 59, 0.5)' },
+        },
+        crosshair: {
+            mode: LightweightCharts.CrosshairMode.Normal,
+        },
+        rightPriceScale: {
+            borderColor: '#1e293b',
+        },
+        timeScale: {
+            borderColor: '#1e293b',
+            timeVisible: true,
+            secondsVisible: false,
+        },
+        handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
+        handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+    });
+
+    candleSeries = tvChart.addCandlestickSeries({
+        upColor: '#10b981',
+        downColor: '#ef4444',
+        borderDownColor: '#ef4444',
+        borderUpColor: '#10b981',
+        wickDownColor: '#ef4444',
+        wickUpColor: '#10b981',
+    });
+
+    // جلب بيانات الشموع التاريخية من السيرفر
+    try {
+        const res = await fetch(`${window.location.origin}/api/znx-wallet/chart-history`);
+        if (res.ok) {
+            const historyData = await res.json();
+            if (historyData.success && historyData.data.length > 0) {
+                candleSeries.setData(historyData.data);
+                currentCandle = historyData.data[historyData.data.length - 1]; // آخر شمعة
+                tvChart.timeScale().fitContent();
+            }
+        }
+    } catch (err) {
+        console.warn("تعذر جلب سجل الشموع التاريخية.");
+    }
+}
+
+// تحديث الشمعة الأخيرة بناءً على السعر المباشر
+function updateLiveCandle(price) {
+    if (!candleSeries || !currentCandle) return;
+    
+    // تحديث الإغلاق
+    currentCandle.close = price;
+    // تحديث أعلى وأدنى نقطة للشمعة الحالية
+    if (price > currentCandle.high) currentCandle.high = price;
+    if (price < currentCandle.low) currentCandle.low = price;
+
+    candleSeries.update(currentCandle);
+}
+
+// ----------------------------------------------------
+
 async function fetchRealZnxPrice() {
     try {
-        // إرسال طلب جلب السعر مع إلغاء التخزين المؤقت (cache: 'no-store')
         const serverRes = await fetch(`${window.location.origin}/api/znx-wallet/price?t=${Date.now()}`, {
-            method: 'GET',
-            cache: 'no-store',
-            headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache'
-            }
+            method: 'GET', cache: 'no-store'
         });
-
         if (serverRes.ok) {
             const serverData = await serverRes.json();
             if (serverData.success && serverData.price > 0) {
                 setTargetPrice(serverData.price);
             }
         }
-    } catch (err) {
-        console.warn("جاري إعادة المحاولة لجلب السعر اللحظي...");
-    }
+    } catch (err) {}
 }
 
 function setTargetPrice(newPrice) {
     if (!newPrice || isNaN(newPrice) || newPrice <= 0) return;
     
+    const priceEl = document.getElementById('tvLivePrice');
+
     if (!isPriceInitialized || currentLivePrice === 0) {
         currentLivePrice = newPrice;
         targetLivePrice = newPrice;
         isPriceInitialized = true;
-        const priceEl = document.getElementById('livePrice');
         if (priceEl) priceEl.innerText = formatPriceUsd(newPrice);
         return;
     }
 
-    const priceEl = document.getElementById('livePrice');
     if (priceEl && newPrice !== targetLivePrice) {
         if (newPrice > targetLivePrice) {
             priceEl.classList.add('price-up');
@@ -101,7 +164,6 @@ function setTargetPrice(newPrice) {
             priceEl.classList.remove('price-up', 'price-down');
         }, 800);
     }
-    
     targetLivePrice = newPrice;
 }
 
@@ -116,21 +178,18 @@ function tickLivePriceSubSecond() {
         currentLivePrice = Math.max(0.00000001, targetLivePrice + microNoise);
     }
 
-    const priceEl = document.getElementById('livePrice');
-    if (priceEl) {
-        priceEl.innerText = formatPriceUsd(currentLivePrice);
-    }
+    const priceEl = document.getElementById('tvLivePrice');
+    if (priceEl) priceEl.innerText = formatPriceUsd(currentLivePrice);
+
+    // تحريك شمعة الرسم البياني لايف!
+    updateLiveCandle(currentLivePrice);
 }
 
 function startLivePriceEngine() {
-    // جلب فوري للسعر فور تحميل الصفحة
     fetchRealZnxPrice();
-
-    // تحديث السعر من الـ API بطلب مباشر بدون كاش كل 3 ثوانٍ
     if (priceFetchTimer) clearInterval(priceFetchTimer);
     priceFetchTimer = setInterval(fetchRealZnxPrice, 3000);
 
-    // حركة النبض والتفاعل اللحظي للسعر في الواجهة
     if (priceTickerTimer) clearInterval(priceTickerTimer);
     priceTickerTimer = setInterval(tickLivePriceSubSecond, 300);
 }
@@ -141,38 +200,21 @@ async function initApp() {
     const apiUrl = `${window.location.origin}/api/znx-wallet/data?user_id=${encodeURIComponent(USER_ID)}&initData=${encodeURIComponent(initData)}`;
 
     try {
-        const res = await fetch(apiUrl, {
-            method: 'GET',
-            cache: 'no-store',
-            headers: {
-                'X-Telegram-User-Id': USER_ID,
-                'X-Telegram-Init-Data': initData,
-                'Cache-Control': 'no-cache'
-            }
-        });
-        
+        const res = await fetch(apiUrl, { method: 'GET', cache: 'no-store', headers: { 'X-Telegram-User-Id': USER_ID } });
         if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
-        
         const data = await res.json();
-        
         if (data.success) {
             userData = data.user || data.player || userData;
             currentTier = data.current_tier || data.tier || currentTier;
 
-            if (data.live_price && data.live_price > 0) {
-                setTargetPrice(data.live_price);
-            }
+            if (data.live_price && data.live_price > 0) setTargetPrice(data.live_price);
 
             updateBalancesUI();
             updateGlobalStatsUI(data.global_total, data.max_global_znx);
             renderTiersUI(data.tiers_all || data.tiers);
             renderLeaderboardUI(data.leaderboard, data.my_rank, data.my_info);
-        } else {
-            console.error("⚠️ فشل جلب بيانات ZNX Wallet:", data.message || data.error);
         }
-    } catch (err) {
-        console.error("❌ خطأ الاتصال بسيرفر ZNX Wallet:", err);
-    }
+    } catch (err) { console.error("❌ خطأ الاتصال:", err); }
 }
 
 function updateBalancesUI() {
@@ -188,7 +230,6 @@ function updateBalancesUI() {
 function updateGlobalStatsUI(globalTotal, maxGlobal) {
     const ratioEl = document.getElementById('globalRatioText');
     const barEl = document.getElementById('globalProgressBar');
-
     const total = globalTotal || 0;
     const max = maxGlobal || 32500000;
     const pct = Math.min(100, Math.max(0, (total / max) * 100));
@@ -200,16 +241,10 @@ function updateGlobalStatsUI(globalTotal, maxGlobal) {
 function selectOption(type) {
     const input = document.getElementById('convertInput');
     if (!input) return;
-
     const bal = userData.balance || 0;
-
-    if (type === 'max' || !type) {
-        input.value = bal;
-    } else if (type === 'half') {
-        input.value = (bal / 2).toFixed(2);
-    } else if (type === 'min') {
-        input.value = currentTier ? currentTier.rate : 10;
-    }
+    if (type === 'max' || !type) input.value = bal;
+    else if (type === 'half') input.value = (bal / 2).toFixed(2);
+    else if (type === 'min') input.value = currentTier ? currentTier.rate : 10;
     onInputChange();
 }
 
@@ -217,64 +252,38 @@ function onInputChange() {
     const inputEl = document.getElementById('convertInput');
     const previewEl = document.getElementById('znxPreview');
     if (!inputEl || !previewEl) return;
-
     const points = parseFloat(inputEl.value) || 0;
     const rate = (currentTier && currentTier.rate) ? currentTier.rate : 10;
     const znxGained = points > 0 ? (points / rate) : 0;
-
     previewEl.innerHTML = `${formatCoins(znxGained, 4)} ZNX`;
 }
 
 async function submitConvert() {
     const inputEl = document.getElementById('convertInput');
     const btnEl = document.getElementById('convertSubmitBtn');
-    
     if (!inputEl) return;
 
     const amount = parseFloat(inputEl.value);
-    if (isNaN(amount) || amount <= 0) {
-        alert("يرجى تحديد كمية نقاط صالحة للتحويل");
-        return;
-    }
-
-    if (userData.balance !== undefined && amount > userData.balance) {
-        alert("رصيدك الحالي غير كافٍ لإتمام العملية");
-        return;
-    }
+    if (isNaN(amount) || amount <= 0) return alert("يرجى تحديد كمية نقاط صالحة للتحويل");
+    if (userData.balance !== undefined && amount > userData.balance) return alert("رصيدك الحالي غير كافٍ لإتمام العملية");
 
     if (btnEl) btnEl.disabled = true;
 
     try {
         const initData = window.Telegram?.WebApp?.initData || '';
-
         const res = await fetch(`${window.location.origin}/api/znx-wallet/convert`, {
             method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'X-Telegram-Init-Data': initData,
-                'X-Telegram-User-Id': USER_ID
-            },
-            body: JSON.stringify({ 
-                user_id: USER_ID, 
-                tg_id: USER_ID,
-                initData: initData,
-                amount: amount 
-            })
+            headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': initData, 'X-Telegram-User-Id': USER_ID },
+            body: JSON.stringify({ user_id: USER_ID, amount: amount })
         });
-
         const result = await res.json();
-
         if (result.success) {
-            const gained = result.data?.znx_gained || result.znx_gained || 0;
-            alert(`تم التحويل بنجاح! حصلت على ${gained} ZNX`);
+            alert(`تم التحويل بنجاح! حصلت على ${result.data?.znx_gained || result.znx_gained || 0} ZNX`);
             inputEl.value = '';
             onInputChange();
             await initApp();
-        } else {
-            alert(`تنبيه: ${result.message || result.error || "تعذر إجراء التحويل"}`);
-        }
+        } else alert(`تنبيه: ${result.message || "تعذر إجراء التحويل"}`);
     } catch (err) {
-        console.error("❌ خطأ أثناء التحويل:", err);
         alert("حدث خطأ أثناء الاتصال بالسيرفر لإجراء التحويل.");
     } finally {
         if (btnEl) btnEl.disabled = false;
@@ -284,30 +293,21 @@ async function submitConvert() {
 function renderTiersUI(tiers) {
     const container = document.getElementById('tiersContainer');
     if (!container) return;
-
     container.innerHTML = '';
     if (!tiers || !Array.isArray(tiers)) return;
 
     tiers.forEach(t => {
         const isCurrent = currentTier && (currentTier.tier === t.tier || currentTier.name === t.name);
-        const safeName = escapeHTML(t.name);
-        const minW = t.min_withdraw_znx ? t.min_withdraw_znx : '--';
-        const feeUsd = t.fixed_fee_usd ? t.fixed_fee_usd : 0.02;
-        
         container.innerHTML += `
             <div class="tier-item ${isCurrent ? 'current' : ''}">
                 <div>
-                    <strong>${safeName}</strong> 
+                    <strong>${escapeHTML(t.name)}</strong> 
                     ${isCurrent ? '<span class="tier-badge-active">الشريحة الحالية</span>' : ''}
                     <div style="color: var(--text-muted); font-size: 0.75rem; margin-top:2px;">
-                        سعر التحويل: 1 ZNX = ${t.rate} ZN | أدنى سحب: ${minW} ZNX | رسوم: $${feeUsd}
+                        سعر التحويل: 1 ZNX = ${t.rate} ZN | أدنى سحب: ${t.min_withdraw_znx || '--'} ZNX
                     </div>
                 </div>
-                <div style="text-align: left; color: var(--accent-blue); font-weight: bold;">
-                    حصة الشريحة: ${(t.quota / 1000000).toFixed(1)}M
-                </div>
-            </div>
-        `;
+            </div>`;
     });
 }
 
@@ -315,76 +315,57 @@ function renderLeaderboardUI(list, myRank, myInfo) {
     const podium = document.getElementById('podiumContainer');
     const rankings = document.getElementById('rankingsContainer');
     const myRankCard = document.getElementById('myRankCardContainer');
-
     if (!podium || !rankings) return;
 
-    podium.innerHTML = '';
-    rankings.innerHTML = '';
-    if (myRankCard) myRankCard.innerHTML = '';
-
-    if (!list || !Array.isArray(list) || list.length === 0) {
-        rankings.innerHTML = '<div style="text-align:center; padding:15px; color:var(--text-muted);">لا يوجد متصدرين حالياً</div>';
-        return;
-    }
+    podium.innerHTML = ''; rankings.innerHTML = ''; if (myRankCard) myRankCard.innerHTML = '';
+    if (!list || list.length === 0) { rankings.innerHTML = '<div style="text-align:center; padding:15px; color:var(--text-muted);">لا يوجد متصدرين حالياً</div>'; return; }
 
     if (list.length >= 1) podium.innerHTML += createPodiumCard(list[0], 1, 'podium-1');
     if (list.length >= 2) podium.innerHTML += createPodiumCard(list[1], 2, 'podium-2');
     if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
 
-    const limitCount = Math.min(10, list.length);
-    for (let i = 3; i < limitCount; i++) {
-        const safeName = escapeHTML(list[i].name || list[i].first_name || 'لاعب');
+    for (let i = 3; i < Math.min(10, list.length); i++) {
         const isMe = USER_ID && String(list[i].user_id) === String(USER_ID);
-
         rankings.innerHTML += `
             <div class="leader-row ${isMe ? 'is-me-row' : ''}">
-                <span>#${i + 1} ${safeName} ${isMe ? '<span class="me-tag">(أنت)</span>' : ''}</span>
+                <span>#${i + 1} ${escapeHTML(list[i].name || list[i].first_name || 'لاعب')} ${isMe ? '<span class="me-tag">(أنت)</span>' : ''}</span>
                 <span style="color:var(--accent-blue); font-weight:bold;">${formatCoins(list[i].total_znx_earned || 0, 4)} ZNX</span>
-            </div>
-        `;
+            </div>`;
     }
 
     if (myRankCard) {
         const earned = myInfo?.total_znx_earned ?? userData.total_znx_earned ?? 0;
-        const myName = escapeHTML(myInfo?.name || userData.first_name || 'أنت');
-        
-        let rankDisplay = (myRank !== undefined && myRank !== null) ? `#${myRank}` : 'غير مصنف';
+        let rankDisplay = (myRank !== null) ? `#${myRank}` : 'غير مصنف';
         let isTop10 = typeof myRank === 'number' && myRank <= 10;
-
         myRankCard.innerHTML = `
             <div class="my-rank-banner ${isTop10 ? 'in-top10' : ''}">
                 <div class="my-rank-left">
                     <div class="my-rank-badge">ترتيبك الحالي: ${rankDisplay}</div>
-                    <div class="my-rank-name">${myName} ${isTop10 ? '🔥 (ضمن الـ 10 الأوائل)' : ''}</div>
+                    <div class="my-rank-name">${escapeHTML(myInfo?.name || userData.first_name || 'أنت')} ${isTop10 ? '🔥' : ''}</div>
                 </div>
                 <div class="my-rank-right">
                     <div class="my-rank-earned">${formatCoins(earned, 4)} ZNX</div>
                     <div class="my-rank-sub">إجمالي المكتسب</div>
                 </div>
-            </div>
-        `;
+            </div>`;
     }
 }
 
 function createPodiumCard(item, rank, pClass) {
-    const safeName = escapeHTML(item.name || item.first_name || 'لاعب');
     const isMe = USER_ID && String(item.user_id) === String(USER_ID);
-
     return `
         <div class="podium-item ${pClass} ${isMe ? 'is-me-podium' : ''}">
             <div style="font-size:0.72rem; color:var(--text-muted);">المركز #${rank}</div>
             <div style="font-weight:bold; font-size:0.82rem; margin:3px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                ${safeName} ${isMe ? '⭐' : ''}
+                ${escapeHTML(item.name || item.first_name || 'لاعب')} ${isMe ? '⭐' : ''}
             </div>
             <div style="color:var(--accent-blue); font-weight:bold; font-size:0.78rem;">${formatCoins(item.total_znx_earned || 0, 4)} ZNX</div>
-        </div>
-    `;
+        </div>`;
 }
 
 window.selectOption = selectOption;
 window.onInputChange = onInputChange;
 window.submitConvert = submitConvert;
-window.initZnxWallet = initApp;
 
 function startZnxModule() {
     if (window.Telegram?.WebApp) {
@@ -393,6 +374,7 @@ function startZnxModule() {
     }
     USER_ID = getUserId();
     initApp();
+    initTradingViewChart(); // تشغيل الرسم البياني
     startLivePriceEngine();
 }
 
