@@ -192,6 +192,7 @@
             margin-top: 8px;
             border: 1px solid var(--border-color);
             transition: background-color 0.2s;
+            cursor: pointer;
         }
 
         .ston-link-btn:active {
@@ -500,18 +501,20 @@
             </div>
         </div>
 
-        <!-- حاوية الرسم البياني التفاعلي من DexScreener المباشر بدون ثقل -->
+        <!-- حاوية الرسم البياني التفاعلي من DexScreener المباشر -->
         <div class="chart-container-box">
             <iframe 
-                src="https://dexscreener.com/ton/EQA0uIZQz8yFJdLCxpz7uXkjcylnnvGl3_KpE2zDUV5LCdXL?embed=1&theme=dark&trades=0&info=0" 
+                src="https://dexscreener.com/ton/EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ?embed=1&theme=dark&trades=0&info=0" 
                 title="ZNX Live DEX Chart" 
-                loading="lazy">
+                loading="lazy"
+                allow="clipboard-write"
+                sandbox="allow-scripts allow-same-origin allow-popups">
             </iframe>
         </div>
 
-        <a href="https://app.ston.fi/pools/EQA0uIZQz8yFJdLCxpz7uXkjcylnnvGl3_KpE2zDUV5LCdXL" target="_blank" class="ston-link-btn">
+        <button type="button" onclick="openStonLink()" class="ston-link-btn">
             <i class="fa-solid fa-arrow-up-right-from-square"></i> عرض المجمّع الرسمي على STON.fi
-        </a>
+        </button>
     </div>
 
     <!-- لوحة التحويل -->
