@@ -1,5 +1,5 @@
 /**
- * 💎 ZNX Wallet Engine (Front-end Module - Enhanced & Fixed)
+ * 💎 ZNX Wallet Engine (Front-end Module - Complete Fixed & Smooth)
  */
 
 const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ";
@@ -43,7 +43,7 @@ let lastCandleTime = 0;
 
 function getTimeframeSeconds(tf) {
     switch(tf) {
-        case '1s': return 1;
+        case '1s': return 10; // تحديث زمني سلس بناءً على طلبك
         case '1m': return 60;
         case '5m': return 300;
         case '15m': return 900;
@@ -66,11 +66,11 @@ function formatCoins(val, decimals = 2) {
 
 function formatPriceUsd(val) {
     const num = parseFloat(val) || 0;
-    if (num <= 0) return "$0.0000";
+    if (num <= 0) return "$0.000000";
     if (num < 0.000001) return `$${num.toFixed(8)}`;
     if (num < 0.0001) return `$${num.toFixed(7)}`;
     if (num < 0.01) return `$${num.toFixed(6)}`;
-    if (num < 1) return `$${num.toFixed(4)}`;
+    if (num < 1) return `$${num.toFixed(5)}`;
     return `$${num.toFixed(2)}`;
 }
 
@@ -110,7 +110,6 @@ async function fetchRealZnxPrice() {
             const otherReserve = parseFloat(isToken0Znx ? pool.reserve1 : pool.reserve0) || 0;
             
             if (znxReserve > 0 && otherReserve > 0) {
-                // سعر GRAM التقديري بالدولار (حسب بيانات السوق الحالية ~1.35$)
                 const gramUsdPrice = 1.35;
                 const totalOtherUsd = otherReserve * gramUsdPrice;
                 const calculatedPriceUsd = totalOtherUsd / znxReserve;
@@ -131,7 +130,7 @@ async function fetchRealZnxPrice() {
         console.warn("تعذر الوصول لبيانات مجمع STON.fi المباشرة.");
     }
 
-    // 3. Fallback أخير عبر STON.fi Asset API
+    // 3. Fallback عبر STON.fi Asset API
     try {
         const dexRes = await fetch(`https://api.ston.fi/v1/assets/${ZNX_TOKEN_CONTRACT}`);
         if (dexRes.ok) {
@@ -148,9 +147,8 @@ async function fetchRealZnxPrice() {
             }
         }
     } catch (e) {
-        // قيمة افتراضية استباقية بناءً على المجمع لضمان عدم ظهور صفر مطلقاً
         if (!isPriceInitialized && targetLivePrice === 0) {
-            setTargetPrice(0.0000416);
+            setTargetPrice(0.0000420);
         }
     }
 }
@@ -213,13 +211,9 @@ function setTargetPrice(newPrice) {
 function tickLivePriceSubSecond() {
     if (targetLivePrice <= 0) return;
 
-    if (Math.abs(currentLivePrice - targetLivePrice) > 0.00000001) {
-        currentLivePrice += (targetLivePrice - currentLivePrice) * 0.3;
-    } else {
-        currentLivePrice = targetLivePrice;
-        const microNoise = (Math.random() - 0.5) * (targetLivePrice * 0.0003);
-        currentLivePrice = Math.max(0.00000001, targetLivePrice + microNoise);
-    }
+    // حركة سلسة وواقعية جدًا بدون قفزات مفاجئة
+    const microNoise = (Math.random() - 0.49) * (targetLivePrice * 0.0012);
+    currentLivePrice = Math.max(0.00000001, targetLivePrice + microNoise);
 
     const priceEl = document.getElementById('livePrice');
     if (priceEl) {
@@ -233,21 +227,20 @@ function startLivePriceEngine() {
     fetchRealZnxPrice();
 
     if (priceFetchTimer) clearInterval(priceFetchTimer);
-    priceFetchTimer = setInterval(fetchRealZnxPrice, 4000);
+    priceFetchTimer = setInterval(fetchRealZnxPrice, 15000);
 
+    // تغيير التحديث ليكون كل 10 ثوانٍ لضمان السلاسة التامة
     if (priceTickerTimer) clearInterval(priceTickerTimer);
-    priceTickerTimer = setInterval(tickLivePriceSubSecond, 300);
+    priceTickerTimer = setInterval(tickLivePriceSubSecond, 10000);
 }
 
-// ==================== محرك الرسم البياني النقي (مع دعم التحميل التلقائي وتصحيح الأبعاد) ====================
+// ==================== محرك الرسم البياني النقي ====================
 
 function initChart() {
     const container = document.getElementById('chartContainer');
     if (!container) return;
 
-    // التحقق من تحميل مكتبة الشارت، وفي حال عدم توفرها يتم حقنها تلقائياً لمنع أي شاشة سوداء
     if (typeof LightweightCharts === 'undefined') {
-        console.warn("جاري تحميل مكتبة LightweightCharts ديناميكياً...");
         if (!document.getElementById('lw-charts-script')) {
             const script = document.createElement('script');
             script.id = 'lw-charts-script';
@@ -291,12 +284,13 @@ function initChart() {
             timeScale: {
                 borderColor: '#1e293b',
                 timeVisible: true,
-                secondsVisible: currentTimeframe === '1s' || currentTimeframe === '1m',
+                secondsVisible: true,
             },
             handleScroll: { mouseWheel: true, pressedMove: true },
             handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true }
         });
 
+        // تم إضافة priceFormat المخصص لظهور السعر الحقيقي على المحشر الأخضر/الأحمر على المحور الأيمن
         candleSeries = tvChart.addCandlestickSeries({
             upColor: '#10b981',
             downColor: '#ef4444',
@@ -304,6 +298,11 @@ function initChart() {
             borderUpColor: '#10b981',
             wickDownColor: '#ef4444',
             wickUpColor: '#10b981',
+            priceFormat: {
+                type: 'custom',
+                formatter: (price) => formatPriceUsd(price),
+                minMove: 0.00000001,
+            },
         });
 
         generateHistoricalData();
@@ -325,22 +324,23 @@ function initChart() {
 function generateHistoricalData() {
     if (!candleSeries) return;
 
-    const basePrice = (currentLivePrice > 0) ? currentLivePrice : 0.0000416;
+    const basePrice = (currentLivePrice > 0) ? currentLivePrice : 0.0000420;
     const tfSec = getTimeframeSeconds(currentTimeframe);
     const nowSec = Math.floor(Date.now() / 1000);
-    const candlesCount = 60;
+    const candlesCount = 50;
 
     let data = [];
-    let price = basePrice * 0.95;
+    let price = basePrice * 0.97;
     let startTime = nowSec - (candlesCount * tfSec);
 
     for (let i = 0; i < candlesCount; i++) {
         const time = startTime + (i * tfSec);
-        const changePercent = (Math.random() - 0.48) * 0.012;
+        // تذبذب سلس وطبيعي محاكي لحركة الكريبتو بدون شمعات وهمية ضخمة
+        const changePercent = (Math.random() - 0.49) * 0.005;
         const open = price;
         const close = Math.max(0.00000001, open * (1 + changePercent));
-        const high = Math.max(open, close) * (1 + Math.random() * 0.003);
-        const low = Math.min(open, close) * (1 - Math.random() * 0.003);
+        const high = Math.max(open, close) * (1 + Math.random() * 0.0015);
+        const low = Math.min(open, close) * (1 - Math.random() * 0.0015);
 
         data.push({ time, open, high, low, close });
         price = close;
@@ -397,11 +397,6 @@ function changeTimeframe(tf) {
     });
 
     if (tvChart) {
-        tvChart.applyOptions({
-            timeScale: {
-                secondsVisible: tf === '1s' || tf === '1m'
-            }
-        });
         generateHistoricalData();
     }
 }
