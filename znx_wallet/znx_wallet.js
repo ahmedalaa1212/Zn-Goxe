@@ -402,10 +402,20 @@ function createPodiumCard(item, rank, pClass) {
     `;
 }
 
+function openStonLink() {
+    const stonUrl = `https://app.ston.fi/swap?chartVisible=true&ft=TON&tt=${ZNX_TOKEN_CONTRACT}`;
+    if (window.Telegram?.WebApp?.openLink) {
+        window.Telegram.WebApp.openLink(stonUrl);
+    } else {
+        window.open(stonUrl, '_blank');
+    }
+}
+
 window.selectOption = selectOption;
 window.onInputChange = onInputChange;
 window.submitConvert = submitConvert;
 window.initZnxWallet = initApp;
+window.openStonLink = openStonLink;
 
 function startZnxModule() {
     if (window.Telegram?.WebApp) {
