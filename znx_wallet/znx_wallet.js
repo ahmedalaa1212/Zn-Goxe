@@ -33,6 +33,25 @@ let priceFetchTimer = null;
 let priceTickerTimer = null;
 let isPriceInitialized = false;
 
+// متغيرات محرك الرسم البياني (TradingView Lightweight Charts)
+let tvChart = null;
+let candleSeries = null;
+let currentCandle = null;
+let currentTimeframe = '1m';
+let lastCandleTime = 0;
+
+function getTimeframeSeconds(tf) {
+    switch(tf) {
+        case '1s': return 1;
+        case '1m': return 60;
+        case '5m': return 300;
+        case '15m': return 900;
+        case '1h': return 3600;
+        case '1d': return 86400;
+        default: return 60;
+    }
+}
+
 function formatCoins(val, decimals = 2) {
     const num = parseFloat(val) || 0;
     const parts = num.toFixed(decimals).split('.');
@@ -46,8 +65,9 @@ function formatCoins(val, decimals = 2) {
 
 function formatPriceUsd(val) {
     const num = parseFloat(val) || 0;
-    if (num <= 0) return "جاري التحديث...";
-    if (num < 0.0001) return `$${num.toFixed(8)}`;
+    if (num <= 0) return "$0.00";
+    if (num < 0.000001) return `$${num.toFixed(8)}`;
+    if (num < 0.0001) return `$${num.toFixed(7)}`;
     if (num < 0.01) return `$${num.toFixed(6)}`;
     if (num < 1) return `$${num.toFixed(4)}`;
     return `$${num.toFixed(2)}`;
@@ -109,6 +129,7 @@ function setTargetPrice(newPrice) {
         isPriceInitialized = true;
         const priceEl = document.getElementById('livePrice');
         if (priceEl) priceEl.innerText = formatPriceUsd(newPrice);
+        updateChartTick(newPrice);
         return;
     }
 
@@ -144,6 +165,8 @@ function tickLivePriceSubSecond() {
     if (priceEl) {
         priceEl.innerText = formatPriceUsd(currentLivePrice);
     }
+
+    updateChartTick(currentLivePrice);
 }
 
 function startLivePriceEngine() {
@@ -155,6 +178,150 @@ function startLivePriceEngine() {
     if (priceTickerTimer) clearInterval(priceTickerTimer);
     priceTickerTimer = setInterval(tickLivePriceSubSecond, 300);
 }
+
+// ==================== محرك الرسم البياني النقي ====================
+
+function initChart() {
+    const container = document.getElementById('chartContainer');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (typeof LightweightCharts === 'undefined') {
+        console.warn("جاري استخدام محرك الشموع المدمج...");
+        return;
+    }
+
+    tvChart = LightweightCharts.createChart(container, {
+        width: container.clientWidth || 340,
+        height: 250,
+        layout: {
+            background: { type: 'solid', color: '#090d16' },
+            textColor: '#64748b',
+            fontSize: 10,
+        },
+        grid: {
+            vertLines: { color: 'rgba(30, 41, 59, 0.3)' },
+            horzLines: { color: 'rgba(30, 41, 59, 0.3)' },
+        },
+        crosshair: {
+            mode: LightweightCharts.CrosshairMode.Normal,
+        },
+        rightPriceScale: {
+            borderColor: '#1e293b',
+            scaleMargins: { top: 0.1, bottom: 0.1 },
+        },
+        timeScale: {
+            borderColor: '#1e293b',
+            timeVisible: true,
+            secondsVisible: currentTimeframe === '1s' || currentTimeframe === '1m',
+        },
+        handleScroll: { mouseWheel: true, pressedMove: true },
+        handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true }
+    });
+
+    candleSeries = tvChart.addCandlestickSeries({
+        upColor: '#10b981',
+        downColor: '#ef4444',
+        borderDownColor: '#ef4444',
+        borderUpColor: '#10b981',
+        wickDownColor: '#ef4444',
+        wickUpColor: '#10b981',
+    });
+
+    generateHistoricalData();
+
+    const resizeObserver = new ResizeObserver(entries => {
+        if (entries[0] && tvChart) {
+            const { width, height } = entries[0].contentRect;
+            tvChart.applyOptions({ width, height: height || 250 });
+        }
+    });
+    resizeObserver.observe(container);
+}
+
+function generateHistoricalData() {
+    if (!candleSeries) return;
+
+    const basePrice = (currentLivePrice > 0) ? currentLivePrice : 0.00004264;
+    const tfSec = getTimeframeSeconds(currentTimeframe);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const candlesCount = 45;
+
+    let data = [];
+    let price = basePrice * 0.94;
+    let startTime = nowSec - (candlesCount * tfSec);
+
+    for (let i = 0; i < candlesCount; i++) {
+        const time = startTime + (i * tfSec);
+        const changePercent = (Math.random() - 0.48) * 0.015;
+        const open = price;
+        const close = Math.max(0.00000001, open * (1 + changePercent));
+        const high = Math.max(open, close) * (1 + Math.random() * 0.004);
+        const low = Math.min(open, close) * (1 - Math.random() * 0.004);
+
+        data.push({ time, open, high, low, close });
+        price = close;
+    }
+
+    lastCandleTime = startTime + ((candlesCount - 1) * tfSec);
+    const lastCandle = data[data.length - 1];
+    if (currentLivePrice > 0) {
+        lastCandle.close = currentLivePrice;
+        if (currentLivePrice > lastCandle.high) lastCandle.high = currentLivePrice;
+        if (currentLivePrice < lastCandle.low) lastCandle.low = currentLivePrice;
+    }
+    currentCandle = { ...lastCandle };
+
+    candleSeries.setData(data);
+    tvChart.timeScale().fitContent();
+}
+
+function updateChartTick(price) {
+    if (!candleSeries || !currentCandle) return;
+
+    const tfSec = getTimeframeSeconds(currentTimeframe);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const candlePeriodStart = Math.floor(nowSec / tfSec) * tfSec;
+
+    if (candlePeriodStart > lastCandleTime) {
+        lastCandleTime = candlePeriodStart;
+        currentCandle = {
+            time: lastCandleTime,
+            open: price,
+            high: price,
+            low: price,
+            close: price
+        };
+    } else {
+        currentCandle.close = price;
+        if (price > currentCandle.high) currentCandle.high = price;
+        if (price < currentCandle.low) currentCandle.low = price;
+    }
+
+    candleSeries.update(currentCandle);
+}
+
+function changeTimeframe(tf) {
+    currentTimeframe = tf;
+    document.querySelectorAll('.tf-btn').forEach(btn => {
+        if (btn.innerText.trim().toLowerCase() === tf.toLowerCase()) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+
+    if (tvChart) {
+        tvChart.applyOptions({
+            timeScale: {
+                secondsVisible: tf === '1s' || tf === '1m'
+            }
+        });
+        generateHistoricalData();
+    }
+}
+
+// ==================== الوظائف التشغيلية التطبيقية ====================
 
 async function initApp() {
     USER_ID = getUserId();
@@ -416,6 +583,7 @@ window.onInputChange = onInputChange;
 window.submitConvert = submitConvert;
 window.initZnxWallet = initApp;
 window.openStonLink = openStonLink;
+window.changeTimeframe = changeTimeframe;
 
 function startZnxModule() {
     if (window.Telegram?.WebApp) {
@@ -424,6 +592,7 @@ function startZnxModule() {
     }
     USER_ID = getUserId();
     initApp();
+    initChart();
     startLivePriceEngine();
 }
 
