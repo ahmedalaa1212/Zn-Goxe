@@ -51,10 +51,20 @@ def get_global_stats():
             if 'max_global_znx' not in data:
                 data['max_global_znx'] = MAX_GLOBAL_ZNX
             
+            # حماية لقيمة total_converted_znx لضمان تحويلها دائماً لـ float
+            try:
+                data['total_converted_znx'] = float(data.get('total_converted_znx', 0.0))
+            except Exception:
+                data['total_converted_znx'] = 0.0
+
             raw_tiers = data.get('tiers_config')
-            if isinstance(raw_tiers, list) and len(raw_tiers) > 0:
+            if isinstance(raw_tiers, (list, dict)):
+                # تحويل القاموس إلى قائمة في حال تم تخزينها بأسماء الفهارس في الفيربيس
+                if isinstance(raw_tiers, dict):
+                    raw_tiers = [v for k, v in sorted(raw_tiers.items(), key=lambda x: str(x[0]))]
+                
                 clean_tiers = []
-                for t in raw_tiers:
+                for idx, t in enumerate(raw_tiers):
                     if isinstance(t, dict):
                         raw_max = t.get('max_pts')
                         if str(raw_max).lower() in ("inf", "infinity", "none"):
@@ -65,7 +75,7 @@ def get_global_stats():
                             except Exception:
                                 parsed_max = float('inf')
                         
-                        tier_num = int(t.get('tier', 1))
+                        tier_num = int(t.get('tier', idx + 1))
                         def_tier = next((dt for dt in TIERS_CONFIG if dt['tier'] == tier_num), TIERS_CONFIG[0])
 
                         clean_tiers.append({
@@ -78,7 +88,10 @@ def get_global_stats():
                             'min_withdraw_znx': float(t.get('min_withdraw_znx', def_tier['min_withdraw_znx'])),
                             'fixed_fee_usd': float(t.get('fixed_fee_usd', def_tier['fixed_fee_usd']))
                         })
-                data['tiers_config'] = clean_tiers
+                if clean_tiers:
+                    data['tiers_config'] = clean_tiers
+                else:
+                    data['tiers_config'] = TIERS_CONFIG
             else:
                 data['tiers_config'] = TIERS_CONFIG
             return data
@@ -103,12 +116,15 @@ def get_global_stats():
 
 def get_current_tier(global_znx=0.0, user_points=0.0, custom_tiers=None):
     tiers = custom_tiers or TIERS_CONFIG
+    if not tiers:
+        tiers = TIERS_CONFIG
 
     try:
-        g_znx = float(global_znx) if global_znx and not math.isnan(global_znx) else 0.0
+        g_znx = float(global_znx) if global_znx and not math.isnan(float(global_znx)) else 0.0
     except (ValueError, TypeError):
         g_znx = 0.0
 
+    # البحث عن الشريحة المطبقة بناءً على إجمالي المجمّع
     for item in tiers:
         try:
             min_v = float(item.get("min_pts", 0.0))
@@ -120,6 +136,7 @@ def get_current_tier(global_znx=0.0, user_points=0.0, custom_tiers=None):
         except Exception:
             continue
 
+    # في حال كان المجمّع يتجاوز حدود كل الشرائح، يتم إرجاع الشريحة الأخيرة دائماً بدون أخطاء
     return tiers[-1]
 
 
