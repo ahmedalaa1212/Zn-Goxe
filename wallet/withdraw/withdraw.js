@@ -6,6 +6,7 @@
   let fixedFeeUsd = 0.02;
   let currentTierName = "الشريحة الأولى";
   let tonConnectUI = null;
+  let isSubmitting = false;
 
   function parseInputValue(val) {
     if (val === null || val === undefined) return 0;
@@ -378,7 +379,7 @@
     if (btn) {
       const addrCheck = validateWalletAddress(walletAddress);
       const isEnoughCoins = coinsVal >= minWithdraw && coinsVal <= userBalance + 0.0001;
-      btn.disabled = !(isEnoughCoins && addrCheck.valid);
+      btn.disabled = !(isEnoughCoins && addrCheck.valid) || isSubmitting;
     }
   }
 
@@ -389,6 +390,7 @@
 
   async function submitWithdrawal(event) {
     if (event) event.preventDefault();
+    if (isSubmitting) return;
 
     const coinsInput = document.getElementById("coins-input");
     const walletInput = document.getElementById("wallet-address-input");
@@ -423,6 +425,7 @@
       return;
     }
 
+    isSubmitting = true;
     if (btn) {
       btn.disabled = true;
       btn.innerText = "جاري معالجة الطلب...";
@@ -470,6 +473,7 @@
       console.error("خطأ أثناء إرسال طلب السحب:", err);
       alert("حدث خطأ أثناء الاتصال بالخادم.");
     } finally {
+      isSubmitting = false;
       if (btn) {
         btn.innerText = "تأكيد السحب";
         calculateWithdraw();
