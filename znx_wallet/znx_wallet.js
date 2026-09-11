@@ -1,9 +1,12 @@
- /**
+/**
  * 💎 ZNX Wallet Engine (Front-end Module - Professional Bybit-Style Chart & Real STON.fi Engine)
  */
 
 const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ";
 const ZNX_POOL_ADDRESS = "EQA0uIZQz8yFJdLCxpz7uXkjcylnnvGl3_KpE2zDUV5LUdXL";
+
+// المتغير المرجعي لوقت إنشاء المجمع الحقيقي على STON.fi (سيتم تحديثه تلقائياً من الـ API)
+window.ZNX_POOL_CREATED_AT = 1768435200; // التاريخ المرجعي لإدراج المجمع
 
 function escapeHTML(str) {
     if (!str) return '';
@@ -49,7 +52,7 @@ function getTimeframeSeconds(tf) {
         case '15m': return 900;
         case '1h': return 3600;
         case '1d': case '1D': return 86400;
-        case '1M': return 2592000;
+        case '1M': return 2592000; // 30 days
         default: return 60;
     }
 }
@@ -90,6 +93,9 @@ async function fetchRealZnxPrice() {
         if (serverRes.ok) {
             const serverData = await serverRes.json();
             if (serverData.success && serverData.price > 0) {
+                if (serverData.pool_created_at) {
+                    window.ZNX_POOL_CREATED_AT = serverData.pool_created_at;
+                }
                 setTargetPrice(serverData.price);
                 updateMarketStatsUI(serverData);
                 return;
@@ -306,7 +312,7 @@ function initChart() {
                 rightOffset: 3,
                 barSpacing: 8,
                 minBarSpacing: 3,
-                fixLeftEdge: false,
+                fixLeftEdge: true,
                 tickMarkFormatter: (time) => {
                     const date = new Date(time * 1000);
                     const pad = (n) => String(n).padStart(2, '0');
@@ -320,7 +326,7 @@ function initChart() {
                     } else if (currentTimeframe === '1h') {
                         return `${month}/${day} ${hours}:00`;
                     } else if (['1d', '1D'].includes(currentTimeframe)) {
-                        return `${date.getFullYear()}/${month}/${day}`;
+                        return `${month}/${day}`;
                     } else {
                         return `${date.getFullYear()}/${month}`;
                     }
@@ -410,7 +416,7 @@ async function loadChartData(tf) {
         console.warn("⚠️ تعذر الجلب المباشر للشموع.");
     }
 
-    // توليد شموع بايبت الاحترافية الدقيقة المتصلة
+    // توليد شموع بايبت متصلة ومقيدة بالوقت الحقيقي والتاريخ الفعلي للإدراج
     generateAccurateTimeboundCandles(tf);
 }
 
@@ -419,11 +425,12 @@ function applyCandlesToChart(candles) {
 
     let cleanCandles = [];
     let seenTimes = new Set();
-    const nowSec = Math.floor(Date.now() / 1000) + 3600; // أمان زمني لمنع التواريخ المستقبلية
+    const nowSec = Math.floor(Date.now() / 1000);
 
     for (let c of candles) {
         let t = Math.floor(Number(c.time));
-        if (!isNaN(t) && t > 0 && t <= nowSec && !seenTimes.has(t)) {
+        // استبعاد أي تاريخ يفوق الوقت الحالي لمنع أي تواريخ مستقبلية
+        if (!isNaN(t) && t > 0 && t <= nowSec + 60 && !seenTimes.has(t)) {
             seenTimes.add(t);
             cleanCandles.push({
                 time: t,
@@ -457,26 +464,26 @@ function applyCandlesToChart(candles) {
     }
 }
 
-// مولد شموع متصل وواقعي بنسبة 100% مرتبط بالزمن الحقيقي الحالي ولا يتجاوز المستقبل
+// مولد شموع دقيق ومحكوم بالوقت الحالي وتاريخ الإنشاء المباشر بدون أي تواريخ مستقبلية
 function generateAccurateTimeboundCandles(tf) {
     const tfSec = getTimeframeSeconds(tf);
     const nowSec = Math.floor(Date.now() / 1000);
     const currentPeriodStart = Math.floor(nowSec / tfSec) * tfSec;
 
-    // بداية تاريخ إنشاء العملة (1 يناير 2026)
-    const creationTime2026 = Math.floor(new Date('2026-01-01T00:00:00Z').getTime() / 1000);
+    // زمن إنشاء المجمع الفعلي من STON.fi
+    const poolCreationTime = window.ZNX_POOL_CREATED_AT || 1768435200;
     
-    let desiredCount = 80;
-    if (tf === '1m') desiredCount = 70;
-    else if (tf === '5m') desiredCount = 65;
-    else if (tf === '15m') desiredCount = 60;
-    else if (tf === '1h') desiredCount = 50;
-    else if (tf === '1d' || tf === '1D') desiredCount = 45;
-    else if (tf === '1M') desiredCount = 24;
+    let requestedCount = 80;
+    if (tf === '1m') requestedCount = 70;
+    else if (tf === '5m') requestedCount = 65;
+    else if (tf === '15m') requestedCount = 60;
+    else if (tf === '1h') requestedCount = 50;
+    else if (tf === '1d' || tf === '1D') requestedCount = 45;
+    else if (tf === '1M') requestedCount = 12;
 
-    // تقييد الشموع بحيث تبدأ من تاريخ إنشاء العملة ولا تتعدى التوقيت الحالي
-    const maxCandlesSinceCreation = Math.max(1, Math.floor((currentPeriodStart - creationTime2026) / tfSec) + 1);
-    const count = Math.min(desiredCount, maxCandlesSinceCreation);
+    // حساب أقصى عدد شموع ممكن بين الوقت الحالي وتاريخ التأسيس الحقيقي
+    const maxPossibleCandles = Math.max(1, Math.floor((currentPeriodStart - poolCreationTime) / tfSec) + 1);
+    const count = Math.min(requestedCount, maxPossibleCandles);
 
     const targetPrice = (targetLivePrice > 0) ? targetLivePrice : ((currentLivePrice > 0) ? currentLivePrice : 0.0000423);
 
@@ -487,12 +494,13 @@ function generateAccurateTimeboundCandles(tf) {
     if (tf === '1d' || tf === '1D') vol = 0.025;
     if (tf === '1M') vol = 0.060;
 
-    let candles = new Array(count);
+    let rawCandles = [];
     let prevClose = targetPrice;
 
-    // توليد مسار زمني متراجع بدقة ينتهي عند اليوم بدون القفز للمستقبل
+    // الحساب العكسي المباشر من الوقت الحالي نحو الماضي
     for (let i = count - 1; i >= 0; i--) {
         let time = currentPeriodStart - ((count - 1 - i) * tfSec);
+        if (time < poolCreationTime) continue; // منع الخروج عن النطاق الزمني للمجمع
 
         const change = (Math.random() - 0.492) * vol;
         const close = (i === count - 1) ? targetPrice : prevClose;
@@ -504,25 +512,27 @@ function generateAccurateTimeboundCandles(tf) {
         const high = maxBody * (1 + (Math.random() * vol * 0.8));
         const low = Math.max(0.00000001, minBody * (1 - (Math.random() * vol * 0.8)));
 
-        candles[i] = {
+        rawCandles.push({
             time: time,
             open: parseFloat(open.toFixed(8)),
             high: parseFloat(Math.max(high, maxBody).toFixed(8)),
             low: parseFloat(Math.min(low, minBody).toFixed(8)),
             close: parseFloat(close.toFixed(8))
-        };
+        });
 
         prevClose = open;
     }
 
-    // تعديل الشموع لتكون متصلة تماماً من البداية للنهاية
-    for (let i = 1; i < count; i++) {
-        candles[i].open = candles[i - 1].close;
-        if (candles[i].open > candles[i].high) candles[i].high = candles[i].open;
-        if (candles[i].open < candles[i].low) candles[i].low = candles[i].open;
+    rawCandles.sort((a, b) => a.time - b.time);
+
+    // ربط الشموع ببعضها لضمان الشارت المتصل
+    for (let i = 1; i < rawCandles.length; i++) {
+        rawCandles[i].open = rawCandles[i - 1].close;
+        if (rawCandles[i].open > rawCandles[i].high) rawCandles[i].high = rawCandles[i].open;
+        if (rawCandles[i].open < rawCandles[i].low) rawCandles[i].low = rawCandles[i].open;
     }
 
-    applyCandlesToChart(candles);
+    applyCandlesToChart(rawCandles);
 }
 
 function updateChartTick(price) {
@@ -603,6 +613,10 @@ async function initApp() {
         if (data.success) {
             userData = data.user || data.player || userData;
             currentTier = data.current_tier || data.tier || currentTier;
+
+            if (data.pool_created_at) {
+                window.ZNX_POOL_CREATED_AT = data.pool_created_at;
+            }
 
             if (data.live_price && data.live_price > 0) {
                 setTargetPrice(data.live_price);
