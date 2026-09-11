@@ -1,5 +1,6 @@
 from firebase_admin import firestore
 import database
+import time
 
 def modify_user_balance_admin(tg_id, amount, balance_type="balance", operation="add", admin_name="السوبر أدمن"):
     """تعديل رصيد مستخدم (إضافة / خصم / تعيين) بواسطة الأدمن الرئيسي"""
@@ -104,3 +105,73 @@ def get_system_global_analytics():
     except Exception as e:
         print(f"❌ Error getting global analytics: {e}")
         return {}
+
+
+# ------------------- الإضافات الجديدة للنظام الإشعارات ------------------- #
+
+def get_all_user_ids():
+    """استخراج قائمة بكل معرفات المستخدمين غير المحظورين"""
+    try:
+        db = database.get_db()
+        users_ref = db.collection("users").stream()
+        user_ids = []
+
+        for doc in users_ref:
+            data = doc.to_dict() or {}
+            if not data.get("banned", False):
+                try:
+                    user_ids.append(int(doc.id))
+                except ValueError:
+                    continue
+        return user_ids
+    except Exception as e:
+        print(f"❌ Error fetching user IDs: {e}")
+        return []
+
+
+def get_user_by_id(tg_id):
+    """فحص وجود مستخدم محدد وإرجاع بياناته"""
+    try:
+        db = database.get_db()
+        user_doc = db.collection("users").document(str(tg_id)).get()
+        if user_doc.exists:
+            return True, user_doc.to_dict()
+        return False, None
+    except Exception as e:
+        print(f"❌ Error checking user {tg_id}: {e}")
+        return False, None
+
+
+def log_broadcast_campaign(admin_name, message, total_targets, success_count, blocked_count):
+    """أرشفة وتسجيل نتائج حملة الإرسال الجماعي"""
+    try:
+        db = database.get_db()
+        campaign_data = {
+            "admin_name": admin_name,
+            "message_snippet": message[:100] + "..." if len(message) > 100 else message,
+            "total_targets": total_targets,
+            "success_count": success_count,
+            "blocked_count": blocked_count,
+            "failed_count": max(0, total_targets - (success_count + blocked_count)),
+            "timestamp": firestore.SERVER_TIMESTAMP,
+            "created_at_str": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        db.collection("broadcasts").add(campaign_data)
+        database.log_admin_action(admin_name, f"حملة إرسال جماعي: تم {success_count}/{total_targets} | حظر {blocked_count}")
+        return True
+    except Exception as e:
+        print(f"❌ Error logging broadcast campaign: {e}")
+        return False
+
+
+def get_latest_broadcast_stats():
+    """جلب بيانات أحدث حملة إرسال محفوظة"""
+    try:
+        db = database.get_db()
+        docs = db.collection("broadcasts").order_by("timestamp", direction=firestore.Query.DESCENDING).limit(1).stream()
+        for doc in docs:
+            return doc.to_dict()
+        return None
+    except Exception as e:
+        print(f"❌ Error fetching latest broadcast: {e}")
+        return None
