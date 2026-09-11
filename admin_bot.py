@@ -5,6 +5,7 @@ import html
 import threading
 import requests
 import re
+import socket
 from flask import Flask, jsonify
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -40,14 +41,18 @@ if not BOT_TOKEN:
 
 bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=16)
 
-# قفل آمن على مستوى Thread لمنع تكرار تشغيل الخيوط وتتبع المعاملات قيد المعالجة
+# قفل آمن وتتبع المعاملات والسجل المؤقت للصلاحيات
 _bot_lock = threading.Lock()
 _bot_started = False
 _active_tx_lock = threading.Lock()
 _active_transactions = set()
 
+# ذاكرة مؤقتة لصلاحيات المشرفين لتسريع الاستجابة كسرعة البرق (TTL = 120 ثانية)
+_AUTH_CACHE = {}
+_AUTH_CACHE_TTL = 120
+
 def is_user_authorized(user_id):
-    """فحص أمني دقيق وصارم لصلاحيات المستخدم"""
+    """فحص أمني سريع جداً مع كاش مؤقت لتفادي بطء الاستعلامات"""
     if not user_id:
         return False
     user_id_str = str(user_id).strip()
@@ -55,9 +60,17 @@ def is_user_authorized(user_id):
     if user_id_str == str(ADMIN_ID):
         return True
         
+    now = time.time()
+    if user_id_str in _AUTH_CACHE:
+        cached_auth, cached_time = _AUTH_CACHE[user_id_str]
+        if now - cached_time < _AUTH_CACHE_TTL:
+            return cached_auth
+
     try:
         if hasattr(database, 'is_admin_or_mod'):
-            return database.is_admin_or_mod(user_id_str)
+            auth = bool(database.is_admin_or_mod(user_id_str))
+            _AUTH_CACHE[user_id_str] = (auth, now)
+            return auth
     except Exception as e:
         print(f"⚠️ Error checking moderator status: {e}")
     return False
@@ -90,33 +103,26 @@ def safe_edit_message(chat_id, message_id, text, reply_markup=None):
             return False
 
 def make_copy_text_button(text, copy_value):
-    """إنشاء زر نسخ مباشر للحافظة مدعوم من تلجرام"""
+    """إنشاء زر نسخ مباشر للحافظة مدعوم رسمياً من تلجرام للنسخ بضغطة واحدة"""
     try:
         from telebot.types import CopyTextButton
         return InlineKeyboardButton(text, copy_text=CopyTextButton(text=copy_value))
     except Exception:
-        btn = InlineKeyboardButton(text, callback_data="none")
-        btn.copy_text = {"text": copy_value}
-        return btn
+        return InlineKeyboardButton(text, callback_data=f"copy_addr_{copy_value}")
 
 # ==========================================
-# 3. معالجة الأزرار التفاعلية (بدون تعليق واستجابة فورية)
+# 3. معالجة الأزرار التفاعلية (استجابة فورية فائقة السرعة)
 # ==========================================
-@bot.callback_query_handler(func=lambda call: call.data and (call.data.startswith('approve_tx_') or call.data.startswith('reject_tx_') or call.data.startswith('copy_addr_')))
+@bot.callback_query_handler(func=lambda call: call.data and (
+    call.data.startswith('approve_tx_') or 
+    call.data.startswith('reject_tx_') or 
+    call.data.startswith('copy_addr_')
+))
 def handle_withdraw_decisions(call):
-    # إجابة فورية ومباشرة للتليجرام لإلغاء أي تعليق في الزر
-    try:
-        bot.answer_callback_query(call.id)
-    except Exception:
-        pass
-
-    # نقل المعالجة بالكامل لخيط خلفي لتجنب تجميد الواجهة
-    threading.Thread(target=_async_handle_callback, args=(call,), daemon=True).start()
-
-def _async_handle_callback(call):
     user_id = call.from_user.id
+    cb_data = call.data
 
-    # التحقق من صلاحيات المشرف
+    # 1. فحص الصلاحيات بسرعة البرق
     if not is_user_authorized(user_id):
         try:
             bot.answer_callback_query(call.id, "⛔ ليس لديك صلاحية لاتخاذ هذا القرار!", show_alert=True)
@@ -124,66 +130,67 @@ def _async_handle_callback(call):
             pass
         return
 
-    cb_data = call.data
-
-    # زر نسخ عنوان المحفظة
+    # 2. معالجة زر نسخ المحفظة فوراً وبدون أي استعلامات بطيئة
     if cb_data.startswith("copy_addr_"):
-        tx_id = cb_data.replace("copy_addr_", "").strip()
-        wallet_addr = None
-        
-        try:
-            db = database.get_db() if hasattr(database, 'get_db') else None
-            if db:
-                doc = db.collection('processed_txs').document(tx_id).get()
-                if doc.exists:
-                    wallet_addr = doc.to_dict().get('wallet_address')
+        addr_part = cb_data.replace("copy_addr_", "").strip()
+        wallet_addr = addr_part if len(addr_part) >= 30 else None
 
-            if not wallet_addr:
-                match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', call.message.text or "")
-                if match:
-                    wallet_addr = match.group(0)
+        if not wallet_addr:
+            match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', call.message.text or call.message.caption or "")
+            if match:
+                wallet_addr = match.group(0)
 
-            if wallet_addr:
-                bot.answer_callback_query(call.id, f"📋 المحفظة:\n{wallet_addr}", show_alert=True)
-            else:
+        if wallet_addr:
+            try:
+                bot.answer_callback_query(call.id, f"📋 عنوان المحفظة:\n{wallet_addr}", show_alert=True)
+            except Exception:
+                pass
+        else:
+            try:
                 bot.answer_callback_query(call.id, "❌ لم يتم العثور على عنوان المحفظة!", show_alert=True)
-        except Exception as e:
-            bot.answer_callback_query(call.id, f"⚠️ خطأ: {e}", show_alert=True)
+            except Exception:
+                pass
         return
 
+    # 3. قرارات القبول والرفض
     action = "approve" if cb_data.startswith("approve_tx_") else "reject"
     tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
 
-    # منع المعالجة المزدوجة لنفس المعاملة في نفس الوقت
+    # حماية من المعالجة المزدوجة بنفس الوقت
     with _active_tx_lock:
         if tx_id in _active_transactions:
+            try:
+                bot.answer_callback_query(call.id, "⏳ الطلب قيد المعالجة بالفعل...", show_alert=False)
+            except Exception:
+                pass
             return
         _active_transactions.add(tx_id)
 
+    # إجابة فورية لتأكيد الضغط فوراً وتفريغ الزر
+    action_text = "القبول 🟢" if action == "approve" else "الرفض 🔴"
     try:
-        chat_id = call.message.chat.id
-        message_id = call.message.message_id
-        orig_text = call.message.text or call.message.caption or ""
+        bot.answer_callback_query(call.id, f"⚡ جاري تنفيذ قرار {action_text}...")
+    except Exception:
+        pass
 
+    # تنفيذ العملية في خيط خلفي مستقل
+    threading.Thread(
+        target=_async_handle_withdraw_process,
+        args=(call.message.chat.id, call.message.message_id, call.message.text or call.message.caption or "", tx_id, action, user_id),
+        daemon=True
+    ).start()
+
+def _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action, admin_id):
+    """دالة المعالجة الخلفية لتحديث السجلات واستدعاء backend"""
+    try:
         clean_text = re.split(r'\n\n(?:النتيجة|⚠️|⏳)', orig_text)[0].strip()
-
         status_text = clean_text + "\n\n⏳ <b>جاري تحديث السجلات وتوثيق الطلب...</b>"
         safe_edit_message(chat_id, message_id, status_text, reply_markup=None)
 
-        _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action, user_id)
-
-    except Exception as e:
-        print(f"❌ خطأ في معالج الأزرار التفاعلية: {e}")
-        with _active_tx_lock:
-            _active_transactions.discard(tx_id)
-
-def _process_withdraw_background(chat_id, message_id, clean_text, tx_id, action, admin_id):
-    """دالة خلفية للتحديث في قاعدة البيانات والأنظمة"""
-    try:
         from wallet.withdraw.withdraw_api import execute_admin_decision
         success, result_msg = execute_admin_decision(tx_id, action, admin_id=admin_id)
 
-        safe_msg = str(result_msg)
+        safe_msg = html.escape(str(result_msg))
         base_clean = clean_text
 
         if success:
@@ -294,9 +301,23 @@ def force_delete_webhook():
     except Exception as e:
         print(f"⚠️ Error resetting webhook: {e}")
 
+def acquire_polling_lock():
+    """قفل لضمان عدم تكرار عملية Polling في أكتر من Worker بـ Gunicorn على Railway"""
+    try:
+        lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        lock_socket.bind(('127.0.0.1', 47823))
+        return lock_socket
+    except socket.error:
+        print("⚠️ [Bot Worker] عملية Polling تعمل بالفعل في Worker آخر. تم إلغاء التكرار لمنع تعارض 409 Conflict.")
+        return None
+
 def run_bot_worker():
-    """تشغيل الاستماع لرسائل تلجرام في خلفية النظام"""
-    print("🚀 [Bot Worker] جارٍ إزالة الـ Webhook القديم وبدء الاستماع...")
+    """تشغيل الاستماع لرسائل تلجرام مع تفادي التعارض وعمليات التكرار"""
+    lock = acquire_polling_lock()
+    if lock is None:
+        return
+
+    print("🚀 [Bot Worker] جارٍ إزالة الـ Webhook القديم وبدء الاستماع الفائق...")
     force_delete_webhook()
     time.sleep(1)
         
@@ -308,10 +329,10 @@ def run_bot_worker():
             time.sleep(3)
 
 # ==========================================
-# 4. تشغيل البوت مع حماية منع التكرار باستخدام threading.Lock
+# 4. تشغيل البوت بآمان
 # ==========================================
 def start_bot_once():
-    """تضمن تشغيل خيط Polling واحد فقط لمنع تعارض الخيوط المتعددة"""
+    """تضمن تشغيل خيط Polling واحد فقط"""
     global _bot_started
     with _bot_lock:
         if _bot_started:
