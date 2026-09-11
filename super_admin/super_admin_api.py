@@ -11,7 +11,7 @@ import super_admin.super_admin_db as super_admin_db
 
 super_admin_bp = Blueprint('super_admin_bp', __name__)
 
-# ⚠️ الاعتماد الحصري والشارم على توكن بوت المستخدمين الرئيسي (Zn Goxe)
+# الاعتماد الحصري والصارم على توكن بوت المستخدمين الرئيسي (Zn Goxe)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 bot = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
 
@@ -36,7 +36,6 @@ def extract_admin_id_from_request(req):
         if admin_id:
             return str(admin_id).strip()
 
-    # استخراج ID تلقائياً من initData الخاص بالتليجرام
     init_data = req.headers.get("X-Telegram-Init-Data") or req.headers.get("Authorization", "").replace("Bearer ", "")
     if init_data:
         try:
@@ -59,15 +58,12 @@ def verify_admin_access(req):
         if not admin_id:
             return False, "غير مصرح: المعرف مفقود", None
 
-        # جلب جميع متغيرات الأدمن الممكنة من Railway لضمان المطابقة
         env_admin_id = str(os.getenv("ADMIN_ID", "")).strip()
         env_super_admin_id = str(os.getenv("SUPER_ADMIN_ID", "")).strip()
 
-        # 🎯 السماح المباشر إذا كان صاحب الطلب هو الأدمن الرئيسي
         if admin_id in [env_admin_id, env_super_admin_id, "5102387551"]:
             return True, "تم التحقق بنجاح (الأدمن الرئيسي)", "السوبر أدمن الرئيسي"
 
-        # الفحص في قاعدة البيانات للأدمن أو المشرفين المعتمدين
         db = database.get_db()
         if db:
             admin_ref = db.collection("admins").document(str(admin_id)).get()
@@ -93,7 +89,6 @@ def async_broadcast_worker(user_ids, message_text, button_text=None, button_url=
     current_broadcast_status["failed"] = 0
     current_broadcast_status["blocked"] = 0
 
-    # تجهيز الأزرار التفاعلية
     markup = None
     if button_text and button_url:
         markup = InlineKeyboardMarkup()
@@ -129,13 +124,11 @@ def async_broadcast_worker(user_ids, message_text, button_text=None, button_url=
         except Exception:
             current_broadcast_status["failed"] += 1
 
-        # فاصل زمني (0.035 ثانية) لمنع حظر البوت
         time.sleep(0.035)
 
     current_broadcast_status["is_running"] = False
     current_broadcast_status["last_campaign_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
-    # أرشفة الحملة في قاعدة البيانات
     super_admin_db.log_broadcast_campaign(
         admin_name=admin_name,
         message=message_text,
@@ -166,7 +159,6 @@ def send_admin_message():
     if not BOT_TOKEN or not bot:
         return jsonify({"success": False, "message": "توكن بوت المستخدمين (BOT_TOKEN) غير مضبوط في متغيرات البيئة"}), 500
 
-    # 🎯 إرسال لمستخدم فردي عبر بوت المستخدمين الرئيسي
     if target_type == "single":
         if not target_id:
             return jsonify({"success": False, "message": "يرجى إدخال معرف المستخدم (ID)"}), 400
@@ -210,7 +202,6 @@ def send_admin_message():
         except Exception as e:
             return jsonify({"success": False, "message": f"فشل الإرسال عبر البوت: {str(e)}"}), 500
 
-    # 📢 إرسال جماعي لكافة المستخدمين عبر بوت المستخدمين الرئيسي
     elif target_type == "all":
         if current_broadcast_status["is_running"]:
             return jsonify({"success": False, "message": "توجد حملة إرسال جارٍ تنفيذها بالفعل، يرجى الانتظار"}), 400
@@ -219,7 +210,6 @@ def send_admin_message():
         if not user_ids:
             return jsonify({"success": False, "message": "لا يوجد مستخدمين نشطين للإرسال إليهم"}), 400
 
-        # إطلاق معالج الإرسال في الخلفية
         thread = threading.Thread(
             target=async_broadcast_worker,
             args=(user_ids, message_text, button_text, button_url, image_url, admin_name)
