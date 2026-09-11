@@ -1,5 +1,5 @@
 /**
- * 💎 ZNX Wallet Engine (Front-end Module - Complete Fixed & Smooth)
+ * 💎 ZNX Wallet Engine (Front-end Module - Ultra Smooth Candle & Price Engine)
  */
 
 const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ";
@@ -27,11 +27,12 @@ let USER_ID = getUserId();
 let userData = { balance: 0, usd_balance: 0, znx_balance: 0, total_znx_earned: 0 };
 let currentTier = null;
 
-// المتغيرات الخاصة بالسعر المباشر والإحصائيات
+// المتغيرات الخاصة بالسعر المباشر والإحصائيات المحسنة لضمان السلاسة الفائقة
 let currentLivePrice = 0;
 let targetLivePrice = 0;
 let priceFetchTimer = null;
 let priceTickerTimer = null;
+let smoothLoopTimer = null;
 let isPriceInitialized = false;
 
 // متغيرات محرك الرسم البياني (TradingView Lightweight Charts)
@@ -43,12 +44,12 @@ let lastCandleTime = 0;
 
 function getTimeframeSeconds(tf) {
     switch(tf) {
-        case '1s': return 10; // تحديث زمني سلس بناءً على طلبك
         case '1m': return 60;
         case '5m': return 300;
         case '15m': return 900;
         case '1h': return 3600;
-        case '1d': return 86400;
+        case '1d': case '1D': return 86400;
+        case '1M': return 2592000; // 30 يوماً بالثواني
         default: return 60;
     }
 }
@@ -98,7 +99,7 @@ async function fetchRealZnxPrice() {
         console.warn("جاري محاولة الجلب المباشر من مجمع STON.fi...");
     }
 
-    // 2. الجلب المباشر من مجمع STON.fi (زوج ZNX/GRAM) وحساب السعر الحقيقي
+    // 2. الجلب المباشر من مجمع STON.fi (زوج ZNX/GRAM)
     try {
         const poolRes = await fetch(`https://api.ston.fi/v1/pools/${ZNX_POOL_ADDRESS}`);
         if (poolRes.ok) {
@@ -208,12 +209,21 @@ function setTargetPrice(newPrice) {
     targetLivePrice = newPrice;
 }
 
-function tickLivePriceSubSecond() {
+// محرك الانتقال السلس الشديد الدقة (Smooth Lerp Loop - 20 FPS)
+function updateSmoothTick() {
     if (targetLivePrice <= 0) return;
 
-    // حركة سلسة وواقعية جدًا بدون قفزات مفاجئة
-    const microNoise = (Math.random() - 0.49) * (targetLivePrice * 0.0012);
-    currentLivePrice = Math.max(0.00000001, targetLivePrice + microNoise);
+    if (currentLivePrice === 0) {
+        currentLivePrice = targetLivePrice;
+    } else {
+        // انتقال انسيابي مرن بسلاسة فائقة في التغير المفاجئ
+        const diff = targetLivePrice - currentLivePrice;
+        if (Math.abs(diff) > 1e-10) {
+            currentLivePrice += diff * 0.15;
+        } else {
+            currentLivePrice = targetLivePrice;
+        }
+    }
 
     const priceEl = document.getElementById('livePrice');
     if (priceEl) {
@@ -227,14 +237,23 @@ function startLivePriceEngine() {
     fetchRealZnxPrice();
 
     if (priceFetchTimer) clearInterval(priceFetchTimer);
-    priceFetchTimer = setInterval(fetchRealZnxPrice, 15000);
+    priceFetchTimer = setInterval(fetchRealZnxPrice, 10000);
 
-    // تغيير التحديث ليكون كل 10 ثوانٍ لضمان السلاسة التامة
+    // ذبذبات بسيطة جداً محاكية لعمق تذبذب السوق كل ثانية ونصف
     if (priceTickerTimer) clearInterval(priceTickerTimer);
-    priceTickerTimer = setInterval(tickLivePriceSubSecond, 10000);
+    priceTickerTimer = setInterval(() => {
+        if (targetLivePrice > 0) {
+            const microNoise = (Math.random() - 0.495) * (targetLivePrice * 0.0008);
+            targetLivePrice = Math.max(0.00000001, targetLivePrice + microNoise);
+        }
+    }, 1500);
+
+    // محرك تحريك الشموع السلس (كل 50 ملي ثانية)
+    if (smoothLoopTimer) clearInterval(smoothLoopTimer);
+    smoothLoopTimer = setInterval(updateSmoothTick, 50);
 }
 
-// ==================== محرك الرسم البياني النقي ====================
+// ==================== محرك الرسم البياني النقي والربط التام ====================
 
 function initChart() {
     const container = document.getElementById('chartContainer');
@@ -279,18 +298,18 @@ function initChart() {
             },
             rightPriceScale: {
                 borderColor: '#1e293b',
-                scaleMargins: { top: 0.1, bottom: 0.1 },
+                scaleMargins: { top: 0.15, bottom: 0.15 },
+                autoScale: true,
             },
             timeScale: {
                 borderColor: '#1e293b',
                 timeVisible: true,
-                secondsVisible: true,
+                secondsVisible: false,
             },
             handleScroll: { mouseWheel: true, pressedMove: true },
             handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true }
         });
 
-        // تم إضافة priceFormat المخصص لظهور السعر الحقيقي على المحشر الأخضر/الأحمر على المحور الأيمن
         candleSeries = tvChart.addCandlestickSeries({
             upColor: '#10b981',
             downColor: '#ef4444',
@@ -321,41 +340,48 @@ function initChart() {
     }
 }
 
+// توليد البيانات التاريخية بشكل عكسي للربط التام بين السعر والمؤشر بدون انقطاع
 function generateHistoricalData() {
     if (!candleSeries) return;
 
-    const basePrice = (currentLivePrice > 0) ? currentLivePrice : 0.0000420;
+    const basePrice = (targetLivePrice > 0) ? targetLivePrice : (currentLivePrice > 0 ? currentLivePrice : 0.0000420);
     const tfSec = getTimeframeSeconds(currentTimeframe);
     const nowSec = Math.floor(Date.now() / 1000);
+    const candlePeriodStart = Math.floor(nowSec / tfSec) * tfSec;
     const candlesCount = 50;
 
-    let data = [];
-    let price = basePrice * 0.97;
-    let startTime = nowSec - (candlesCount * tfSec);
+    let candles = new Array(candlesCount);
+    let currClose = basePrice;
 
-    for (let i = 0; i < candlesCount; i++) {
-        const time = startTime + (i * tfSec);
-        // تذبذب سلس وطبيعي محاكي لحركة الكريبتو بدون شمعات وهمية ضخمة
-        const changePercent = (Math.random() - 0.49) * 0.005;
-        const open = price;
-        const close = Math.max(0.00000001, open * (1 + changePercent));
-        const high = Math.max(open, close) * (1 + Math.random() * 0.0015);
-        const low = Math.min(open, close) * (1 - Math.random() * 0.0015);
+    // البناء العكسي يضمن إغلاق آخر شمعة بالضبط عند سعر المؤشر الحقيقي
+    for (let i = candlesCount - 1; i >= 0; i--) {
+        const time = candlePeriodStart - ((candlesCount - 1 - i) * tfSec);
+        
+        let volatility = 0.003;
+        if (currentTimeframe === '1h') volatility = 0.008;
+        if (currentTimeframe === '1d' || currentTimeframe === '1D') volatility = 0.018;
+        if (currentTimeframe === '1M') volatility = 0.035;
 
-        data.push({ time, open, high, low, close });
-        price = close;
+        const changePercent = (Math.random() - 0.49) * volatility; 
+        const open = Math.max(0.00000001, currClose / (1 + changePercent));
+        const high = Math.max(open, currClose) * (1 + Math.random() * (volatility * 0.4));
+        const low = Math.min(open, currClose) * (1 - Math.random() * (volatility * 0.4));
+
+        candles[i] = {
+            time: time,
+            open: Number(open.toFixed(8)),
+            high: Number(high.toFixed(8)),
+            low: Number(low.toFixed(8)),
+            close: Number(currClose.toFixed(8))
+        };
+
+        currClose = open;
     }
 
-    lastCandleTime = startTime + ((candlesCount - 1) * tfSec);
-    const lastCandle = data[data.length - 1];
-    if (currentLivePrice > 0) {
-        lastCandle.close = currentLivePrice;
-        if (currentLivePrice > lastCandle.high) lastCandle.high = currentLivePrice;
-        if (currentLivePrice < lastCandle.low) lastCandle.low = currentLivePrice;
-    }
-    currentCandle = { ...lastCandle };
+    lastCandleTime = candlePeriodStart;
+    currentCandle = { ...candles[candles.length - 1] };
 
-    candleSeries.setData(data);
+    candleSeries.setData(candles);
     if (tvChart && tvChart.timeScale) {
         tvChart.timeScale().fitContent();
     }
@@ -389,7 +415,7 @@ function updateChartTick(price) {
 function changeTimeframe(tf) {
     currentTimeframe = tf;
     document.querySelectorAll('.tf-btn').forEach(btn => {
-        if (btn.innerText.trim().toLowerCase() === tf.toLowerCase()) {
+        if (btn.innerText.trim() === tf) {
             btn.classList.add('active');
         } else {
             btn.classList.remove('active');
@@ -597,7 +623,7 @@ function renderLeaderboardUI(list, myRank, myInfo) {
 
     if (list.length >= 1) podium.innerHTML += createPodiumCard(list[0], 1, 'podium-1');
     if (list.length >= 2) podium.innerHTML += createPodiumCard(list[1], 2, 'podium-2');
-    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
+    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[3] ? list[2] : list[2], 3, 'podium-3');
 
     const limitCount = Math.min(10, list.length);
     for (let i = 3; i < limitCount; i++) {
