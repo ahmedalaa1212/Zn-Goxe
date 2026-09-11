@@ -1,8 +1,10 @@
 import os
 import html
+import re
 import traceback
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from telebot.apihelper import ApiTelegramException
 import database
 
 # ==========================================
@@ -105,7 +107,7 @@ def start_command(message):
             f"استعد لخوض تجربة تفاعلية فريدة تجمع بين التسلية، التحدي، وجمع المكافآت! 🏆\n\n"
             f"✨ <b>ماذا ينتظرك داخل التطبيق؟</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"🚜 <b>مزرعة ZN الرقمية:</b> طوّر أجهزتك ودع نقاطك تنمو باستمرار.\n"
+            f"🚜 <b>مزرعة ZN الرقمية:</b> طوّر أجهزة ودع نقاطك تنمو باستمرار.\n"
             f"🎯 <b>المهام والتحديات:</b> أكمل المطبوعات اليومية واقتنص الكنوز.\n"
             f"🤝 <b>نظام التحالفات:</b> ادعُ أصدقاءك وابنِ إمبراطوريتك الخاصة.\n"
             f"⚔️ <b>المنافسات المباشرة:</b> نافس على صدارة القائمة واثبت وجودك!\n"
@@ -165,7 +167,72 @@ def how_to_play_callback(call):
         traceback.print_exc()
 
 # ==========================================
-# 4. معالج كافة الرسائل العادية (Fallback)
+# 4. دالة معالج استقبال وإرسال الإشعارات والرسائل الإدارية الموحدة (Super Admin Engine)
+# ==========================================
+def send_admin_broadcast(chat_id, message_text, photo_url=None, button_text=None, button_url=None):
+    """
+    دالة موحدة لإرسال الرسائل الفردية والجماعية القادمة من لوحة التحكم (super_admin).
+    تضمن توافقية HTML وحماية البوت من السقوط وتحديد حظر المستخدمين (403 Forbidden).
+    """
+    try:
+        markup = None
+        if button_text and button_url:
+            markup = InlineKeyboardMarkup()
+            target_url = str(button_url).strip()
+            if not target_url.startswith(('http://', 'https://', 'tg://')):
+                target_url = f"https://{target_url}"
+            markup.add(InlineKeyboardButton(text=str(button_text).strip(), url=target_url))
+
+        # إرسال كرسالة ميديا في حالة وجود رابط صورة
+        if photo_url and str(photo_url).strip():
+            try:
+                return bot.send_photo(
+                    chat_id=chat_id,
+                    photo=str(photo_url).strip(),
+                    caption=message_text,
+                    parse_mode="HTML",
+                    reply_markup=markup
+                )
+            except ApiTelegramException as photo_err:
+                # إذا حدث خطأ في تنسيق HTML، يتم إعادة الإرسال كنص عادي بدون التنسيق لمنع توقف الحملة
+                if "can't parse entities" in str(photo_err).lower():
+                    return bot.send_photo(
+                        chat_id=chat_id,
+                        photo=str(photo_url).strip(),
+                        caption=message_text,
+                        reply_markup=markup
+                    )
+                raise photo_err
+
+        # إرسال كرسالة نصية معالجة بـ HTML
+        try:
+            return bot.send_message(
+                chat_id=chat_id,
+                text=message_text,
+                parse_mode="HTML",
+                reply_markup=markup,
+                disable_web_page_preview=False
+            )
+        except ApiTelegramException as text_err:
+            # إعادة المحاولة بدون parse_mode في حال الإدخال الخاطئ للأكواد
+            if "can't parse entities" in str(text_err).lower():
+                return bot.send_message(
+                    chat_id=chat_id,
+                    text=message_text,
+                    reply_markup=markup
+                )
+            raise text_err
+
+    except ApiTelegramException as api_err:
+        # التقاط حالة حظر البوت بواسطة المستخدم (403 Forbidden)
+        if api_err.error_code == 403 or "bot was blocked by the user" in str(api_err).lower():
+            return {"status": "blocked", "error": str(api_err)}
+        return {"status": "failed", "error": str(api_err)}
+    except Exception as e:
+        return {"status": "failed", "error": str(e)}
+
+# ==========================================
+# 5. معالج كافة الرسائل العادية (Fallback)
 # ==========================================
 @bot.message_handler(func=lambda message: True)
 def default_message_handler(message):
@@ -188,7 +255,7 @@ def default_message_handler(message):
         traceback.print_exc()
 
 # ==========================================
-# 5. تشغيل البوت والحماية من السقوط
+# 6. تشغيل البوت والحماية من السقوط
 # ==========================================
 if __name__ == '__main__':
     # 🎯 الخطوة الحاسمة: مسح أي Webhook قديم وتصفية الرسائل المعلقة لإجبار التليجرام على الاستجابة
