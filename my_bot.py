@@ -2,6 +2,7 @@ import os
 import html
 import re
 import traceback
+from datetime import datetime
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from telebot.apihelper import ApiTelegramException
@@ -14,6 +15,9 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN')
 WEB_URL = os.environ.get('WEB_URL', 'https://zn-goxe-production.up.railway.app').strip().rstrip('/')
 PROOFS_CHANNEL_URL = os.environ.get('PROOFS_CHANNEL_URL', 'https://t.me/zngoxe_Proofs').strip()
 OFFICIAL_CHANNEL_URL = os.environ.get('OFFICIAL_CHANNEL_URL', 'https://t.me/zngoxe').strip()
+
+# متغير قناة إشعارات المستخدمين الجدد
+NEW_USERS_CHANNEL_ID = os.environ.get('NEW_USERS_CHANNEL_ID')
 
 # التأكد من وجود https:// لضمان عمل WebApp بدون مشاكل
 if not WEB_URL.startswith('http'):
@@ -67,7 +71,7 @@ def start_command(message):
             # إنشاء أو تحديث المستخدم في قاعدة البيانات
             is_new = database.init_user(tg_id, ref_id=ref_id, first_name=raw_first_name)
             
-            # إرسال إشعار للداعي
+            # إرسال إشعار للداعي إذا كان المستخدم جديداً
             if is_new and ref_id:
                 try:
                     bot.send_message(
@@ -81,6 +85,31 @@ def start_command(message):
                     )
                 except Exception as e:
                     print(f"⚠️ تعذر إرسال الإشعار للمحيل ({ref_id}): {e}")
+
+            # 📢 إرسال إشعار دخول مستخدم جديد للقناة الخاصة بالمالك
+            if is_new and NEW_USERS_CHANNEL_ID:
+                try:
+                    username_str = f"@{message.from_user.username}" if message.from_user.username else "بدون يوزر نايم"
+                    join_time = datetime.now().strftime("%Y-%m-%d %I:%M %p")
+                    ref_str = f"<code>{ref_id}</code>" if ref_id else "مباشر (بدون إحالة)"
+                    
+                    log_text = (
+                        f"🆕 <b>مستخدم جديد انضم للبوت!</b>\n\n"
+                        f"👤 <b>الاسم:</b> {first_name}\n"
+                        f"🏷️ <b>اليوزر:</b> {username_str}\n"
+                        f"🆔 <b>الآيدي:</b> <code>{tg_id}</code>\n"
+                        f"🔗 <b>طريقة الدخول:</b> {ref_str}\n"
+                        f"⏰ <b>وقت الدخول:</b> {join_time}"
+                    )
+                    
+                    bot.send_message(
+                        chat_id=NEW_USERS_CHANNEL_ID,
+                        text=log_text,
+                        parse_mode="HTML"
+                    )
+                except Exception as log_err:
+                    print(f"⚠️ تعذر إرسال إشعار المستخدم الجديد للقناة: {log_err}")
+
         except Exception as db_err:
             print(f"⚠️ خطأ في العمليات الخاصة بقاعدة البيانات (تم المتابعة لضمان الرد): {db_err}")
         
