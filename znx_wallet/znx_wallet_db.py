@@ -36,8 +36,36 @@ TIERS_CONFIG = [
     {"tier": 4, "name": "الشريحة الرابعة", "min_pts": 2_500_000.0, "max_pts": 4_000_000.0, "rate": 200, "quota": 4_000_000, "min_withdraw_znx": 50.0, "fixed_fee_usd": 0.02},
     {"tier": 5, "name": "الشريحة الخامسة", "min_pts": 4_000_000.0, "max_pts": 5_500_000.0, "rate": 600, "quota": 5_500_000, "min_withdraw_znx": 20.0, "fixed_fee_usd": 0.02},
     {"tier": 6, "name": "الشريحة السادسة", "min_pts": 5_500_000.0, "max_pts": 8_000_000.0, "rate": 1600, "quota": 8_000_000, "min_withdraw_znx": 6.0, "fixed_fee_usd": 0.02},
-    {"tier": 7, "name": "الشريحة السابعة", "min_pts": 8_000_000.0, "max_pts": float('inf'), "rate": 4000, "quota": 9_000_000, "min_withdraw_znx": 2.5, "fixed_fee_usd": 0.02}
+    {"tier": 7, "name": "الشريحة السابعة", "min_pts": 8_000_000.0, "max_pts": "Infinity", "rate": 4000, "quota": 9_000_000, "min_withdraw_znx": 2.5, "fixed_fee_usd": 0.02}
 ]
+
+
+def _clean_tier_dict(t, def_tier):
+    """تنظيف وتنسيق بيانات الشريحة لتكون صالحة للتشفير في JSON دون أخطاء Infinity"""
+    if not isinstance(t, dict):
+        return def_tier
+
+    raw_max = t.get('max_pts')
+    if str(raw_max).lower() in ("inf", "infinity", "none") or raw_max == float('inf'):
+        json_max = "Infinity"
+    else:
+        try:
+            json_max = float(raw_max)
+        except Exception:
+            json_max = "Infinity"
+
+    tier_num = int(t.get('tier', def_tier.get('tier', 1)))
+
+    return {
+        'tier': tier_num,
+        'name': str(t.get('name', def_tier.get('name', f'الشريحة {tier_num}'))),
+        'min_pts': float(t.get('min_pts', def_tier.get('min_pts', 0.0))),
+        'max_pts': json_max,
+        'rate': float(t.get('rate', def_tier.get('rate', 10))),
+        'quota': float(t.get('quota', def_tier.get('quota', 1_000_000))),
+        'min_withdraw_znx': float(t.get('min_withdraw_znx', def_tier.get('min_withdraw_znx', 1.0))),
+        'fixed_fee_usd': float(t.get('fixed_fee_usd', def_tier.get('fixed_fee_usd', 0.02)))
+    }
 
 
 def get_global_stats():
@@ -48,59 +76,55 @@ def get_global_stats():
         
         if doc.exists:
             data = doc.to_dict() or {}
-            if 'max_global_znx' not in data:
-                data['max_global_znx'] = MAX_GLOBAL_ZNX
             
-            # حماية لقيمة total_converted_znx لضمان تحويلها دائماً لـ float
+            # قراءة إجمالي العملات المحولة بمرونة
             try:
-                data['total_converted_znx'] = float(data.get('total_converted_znx', 0.0))
-            except Exception:
-                data['total_converted_znx'] = 0.0
+                total_converted = float(data.get('total_converted_znx', 0.0))
+            except (ValueError, TypeError):
+                total_converted = 0.0
 
+            try:
+                max_global = float(data.get('max_global_znx', MAX_GLOBAL_ZNX))
+            except (ValueError, TypeError):
+                max_global = MAX_GLOBAL_ZNX
+
+            # جلب وتجميع الشرائح مهما كانت هيكلتها في الفيربيس (قائمة أو خريطة أو حقول مباشرة 0,1,2...)
             raw_tiers = data.get('tiers_config')
-            if isinstance(raw_tiers, (list, dict)):
-                # تحويل القاموس إلى قائمة في حال تم تخزينها بأسماء الفهارس في الفيربيس
-                if isinstance(raw_tiers, dict):
-                    raw_tiers = [v for k, v in sorted(raw_tiers.items(), key=lambda x: str(x[0]))]
-                
-                clean_tiers = []
-                for idx, t in enumerate(raw_tiers):
-                    if isinstance(t, dict):
-                        raw_max = t.get('max_pts')
-                        if str(raw_max).lower() in ("inf", "infinity", "none"):
-                            parsed_max = float('inf')
-                        else:
-                            try:
-                                parsed_max = float(raw_max)
-                            except Exception:
-                                parsed_max = float('inf')
-                        
-                        tier_num = int(t.get('tier', idx + 1))
-                        def_tier = next((dt for dt in TIERS_CONFIG if dt['tier'] == tier_num), TIERS_CONFIG[0])
+            parsed_tiers_list = []
 
-                        clean_tiers.append({
-                            'tier': tier_num,
-                            'name': str(t.get('name', def_tier['name'])),
-                            'min_pts': float(t.get('min_pts', def_tier['min_pts'])),
-                            'max_pts': parsed_max,
-                            'rate': float(t.get('rate', def_tier['rate'])),
-                            'quota': float(t.get('quota', def_tier['quota'])),
-                            'min_withdraw_znx': float(t.get('min_withdraw_znx', def_tier['min_withdraw_znx'])),
-                            'fixed_fee_usd': float(t.get('fixed_fee_usd', def_tier['fixed_fee_usd']))
-                        })
-                if clean_tiers:
-                    data['tiers_config'] = clean_tiers
-                else:
-                    data['tiers_config'] = TIERS_CONFIG
+            if isinstance(raw_tiers, list) and len(raw_tiers) > 0:
+                parsed_tiers_list = raw_tiers
+            elif isinstance(raw_tiers, dict) and len(raw_tiers) > 0:
+                sorted_keys = sorted(raw_tiers.keys(), key=lambda x: int(x) if str(x).isdigit() else x)
+                parsed_tiers_list = [raw_tiers[k] for k in sorted_keys]
             else:
-                data['tiers_config'] = TIERS_CONFIG
-            return data
+                # التحقق من وجود الحقول المباشرة 0, 1, 2, 3... في جذر المستند (مثل صورة الفيربيس لديك)
+                root_tier_keys = [k for k in data.keys() if str(k).isdigit()]
+                if root_tier_keys:
+                    root_tier_keys.sort(key=lambda x: int(x))
+                    parsed_tiers_list = [data[k] for k in root_tier_keys if isinstance(data[k], dict)]
+
+            clean_tiers = []
+            if parsed_tiers_list:
+                for idx, t in enumerate(parsed_tiers_list):
+                    def_t = TIERS_CONFIG[idx] if idx < len(TIERS_CONFIG) else TIERS_CONFIG[-1]
+                    clean_tiers.append(_clean_tier_dict(t, def_t))
+            else:
+                clean_tiers = [_clean_tier_dict(t, t) for t in TIERS_CONFIG]
+
+            return {
+                'total_converted_znx': total_converted,
+                'max_global_znx': max_global,
+                'is_active': total_converted < max_global,
+                'tiers_config': clean_tiers
+            }
         else:
+            init_tiers = [_clean_tier_dict(t, t) for t in TIERS_CONFIG]
             init_data = {
                 'total_converted_znx': 0.0,
                 'max_global_znx': MAX_GLOBAL_ZNX,
                 'is_active': True,
-                'tiers_config': TIERS_CONFIG
+                'tiers_config': init_tiers
             }
             doc_ref.set(init_data)
             return init_data
@@ -110,34 +134,33 @@ def get_global_stats():
             'total_converted_znx': 0.0,
             'max_global_znx': MAX_GLOBAL_ZNX,
             'is_active': True,
-            'tiers_config': TIERS_CONFIG
+            'tiers_config': [_clean_tier_dict(t, t) for t in TIERS_CONFIG]
         }
 
 
 def get_current_tier(global_znx=0.0, user_points=0.0, custom_tiers=None):
     tiers = custom_tiers or TIERS_CONFIG
-    if not tiers:
-        tiers = TIERS_CONFIG
 
     try:
-        g_znx = float(global_znx) if global_znx and not math.isnan(float(global_znx)) else 0.0
+        g_znx = float(global_znx) if global_znx is not None and not math.isnan(float(global_znx)) else 0.0
     except (ValueError, TypeError):
         g_znx = 0.0
 
-    # البحث عن الشريحة المطبقة بناءً على إجمالي المجمّع
     for item in tiers:
         try:
             min_v = float(item.get("min_pts", 0.0))
             raw_max = item.get("max_pts")
-            max_v = float('inf') if str(raw_max).lower() in ("inf", "infinity", "none") else float(raw_max)
+            if str(raw_max).lower() in ("inf", "infinity", "none"):
+                max_v = float('inf')
+            else:
+                max_v = float(raw_max)
 
             if min_v <= g_znx < max_v:
                 return item
         except Exception:
             continue
 
-    # في حال كان المجمّع يتجاوز حدود كل الشرائح، يتم إرجاع الشريحة الأخيرة دائماً بدون أخطاء
-    return tiers[-1]
+    return tiers[-1] if tiers else TIERS_CONFIG[-1]
 
 
 def get_user_tier(user_points: float, custom_tiers=None, global_znx=0.0):
@@ -146,6 +169,7 @@ def get_user_tier(user_points: float, custom_tiers=None, global_znx=0.0):
 
 def get_user_data(user_id: str):
     clean_uid = _sanitize_id(user_id)
+    default_tier = _clean_tier_dict(TIERS_CONFIG[0], TIERS_CONFIG[0])
     default_user = {
         'user_id': clean_uid or '',
         'balance': 0.0,
@@ -153,7 +177,7 @@ def get_user_data(user_id: str):
         'znx_balance': 0.0,
         'total_znx_earned': 0.0,
         'first_name': 'لاعب جديد',
-        'current_tier': TIERS_CONFIG[0]
+        'current_tier': default_tier
     }
 
     if not clean_uid:
