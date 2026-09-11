@@ -1,534 +1,404 @@
-// =========================================
-// super_admin.js - الربط التفاعلي المستقر للوحة الإدارة العليا (ZN Go & Big Arena)
-// =========================================
+// super_admin/super_admin.js
+// JavaScript Controller for Super Admin WebApp Console
 
-const API_BASE = "/api";
-
-/**
- * جلب بيانات التوثيق الخاصة بالتليجرام لتضمينها في طلبات الـ fetch
- */
-function getTelegramInitData() {
-    return window.Telegram?.WebApp?.initData || "";
-}
-
-/**
- * تجهيز الهيدرز الأساسية لمصادقة الأدمن مع السيرفر
- */
-function getAuthHeaders() {
-    const initData = getTelegramInitData();
+// استخراج رؤوس التوثيق الخاصة بـ Telegram WebApp لإرسالها مع جميع الطلبات
+function getAdminHeaders() {
+    const initData = window.Telegram?.WebApp?.initData || "";
+    const adminId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "";
     return {
-        'Content-Type': 'application/json',
-        'X-Telegram-Init-Data': initData,
-        'Authorization': `Bearer ${initData}`
+        "Content-Type": "application/json",
+        "X-Telegram-Init-Data": initData,
+        "X-Admin-ID": adminId.toString(),
+        "Authorization": `Bearer ${initData}`
     };
 }
 
-/**
- * معالج موحد لطلبات الشبكة للتحقق من كود 403 وإغلاق التطبيق فوراً
- */
-async function apiFetch(url, options = {}) {
-    const defaultHeaders = getAuthHeaders();
-    options.headers = { ...defaultHeaders, ...(options.headers || {}) };
-
-    try {
-        const response = await fetch(url, options);
-        if (response.status === 403) {
-            alert("⛔ عذراً، البوت مخصص للإدارة فقط!");
-            if (window.Telegram && window.Telegram.WebApp) {
-                window.Telegram.WebApp.close();
-            }
-            throw new Error("Unauthorized access (403)");
+// تبديل إظهار/إخفاء حقل معرف المستخدم الفردي حسب الاختيار (جماعي / فردي)
+function toggleTargetInput() {
+    const targetTypeSelect = document.getElementById('msgTargetType');
+    const singleTargetGroup = document.getElementById('singleTargetGroup');
+    if (targetTypeSelect && singleTargetGroup) {
+        if (targetTypeSelect.value === 'single') {
+            singleTargetGroup.style.display = 'flex';
+        } else {
+            singleTargetGroup.style.display = 'none';
         }
-        return response;
-    } catch (err) {
-        console.error("API Fetch Error:", err);
-        throw err;
     }
 }
 
-/**
- * دالة الفحص الأولية للتأكد من هويّة الأدمن فور فتح الصفحة
- */
-async function verifyAdminAccessOnLoad() {
+// إرسال الرسالة والإشعارات الإدارية (مباشرة أو جماعية)
+async function sendAdminMessage() {
+    const targetTypeSelect = document.getElementById('msgTargetType');
+    const targetUserIdInput = document.getElementById('targetUserId');
+    const msgContentInput = document.getElementById('msgContent');
+    const msgImageUrlInput = document.getElementById('msgImageUrl');
+    const msgBtnTextInput = document.getElementById('msgBtnText');
+    const msgBtnUrlInput = document.getElementById('msgBtnUrl');
+    const btnSend = document.getElementById('btnSendMessage');
+
+    const targetType = targetTypeSelect ? targetTypeSelect.value : 'all';
+    const targetId = targetUserIdInput ? targetUserIdInput.value.trim() : '';
+    const message = msgContentInput ? msgContentInput.value.trim() : '';
+    const imageUrl = msgImageUrlInput ? msgImageUrlInput.value.trim() : '';
+    const btnText = msgBtnTextInput ? msgBtnTextInput.value.trim() : '';
+    const btnUrl = msgBtnUrlInput ? msgBtnUrlInput.value.trim() : '';
+
+    // التحقق المباشر من صحة المدخلات
+    if (!message) {
+        alert("⚠️ يرجى إدخال نص الرسالة المراد إرسالها.");
+        if (msgContentInput) msgContentInput.focus();
+        return;
+    }
+
+    if (targetType === 'single' && !targetId) {
+        alert("⚠️ يرجى إدخال معرّف المستخدم (Telegram ID) المستهدف.");
+        if (targetUserIdInput) targetUserIdInput.focus();
+        return;
+    }
+
+    if (btnText && !btnUrl) {
+        alert("⚠️ عند إضافة نص للزر التفاعلي، يجب إدخال رابط الزر (URL) أيضاً.");
+        if (msgBtnUrlInput) msgBtnUrlInput.focus();
+        return;
+    }
+
+    // تأكيد قبل الإرسال الجماعي لتجنب الأخطاء
+    if (targetType === 'all') {
+        const confirmBroadcast = confirm("⚠️ تنبيه: أنت على وشك إرسال هذه الرسالة كبث جماعي لكل مستخدمي البوت.\n\nهل أنت متأكد من الاستمرار؟");
+        if (!confirmBroadcast) return;
+    }
+
+    // تعطيل الزر مؤقتاً لحين انتهاء العملية
+    if (btnSend) {
+        btnSend.disabled = true;
+        btnSend.style.opacity = '0.6';
+        btnSend.innerText = '⏳ جاري تنفيذ الإرسال...';
+    }
+
     try {
-        const res = await fetch(`${API_BASE}/verify_admin`, {
+        const response = await fetch('/api/super-admin/send-message', {
             method: 'POST',
-            headers: getAuthHeaders(),
-            body: JSON.stringify({ initData: getTelegramInitData() })
+            headers: getAdminHeaders(),
+            body: JSON.stringify({
+                target_type: targetType,
+                target_id: targetType === 'single' ? targetId : null,
+                message: message,
+                image_url: imageUrl || null,
+                button_text: btnText || null,
+                button_url: btnUrl || null
+            })
         });
 
-        if (res.status === 403 || !res.ok) {
-            alert("⛔ عذراً، البوت مخصص للإدارة فقط!");
-            if (window.Telegram && window.Telegram.WebApp) {
-                window.Telegram.WebApp.close();
-            }
-            return false;
-        }
+        const data = await response.json();
 
-        const data = await res.json();
-        if (!data.success) {
-            alert("⛔ عذراً، البوت مخصص للإدارة فقط!");
-            if (window.Telegram && window.Telegram.WebApp) {
-                window.Telegram.WebApp.close();
-            }
-            return false;
+        if (data.success) {
+            alert("✅ " + data.message);
+            if (msgContentInput) msgContentInput.value = '';
+            if (msgImageUrlInput) msgImageUrlInput.value = '';
+            if (msgBtnTextInput) msgBtnTextInput.value = '';
+            if (msgBtnUrlInput) msgBtnUrlInput.value = '';
+            if (targetUserIdInput && targetType === 'single') targetUserIdInput.value = '';
+            
+            // تحديث كارت الإحصائيات فور الإرسال
+            fetchBroadcastStats();
+        } else {
+            alert("❌ فشل الإرسال: " + (data.message || "حدث خطأ غير معروف"));
         }
-
-        return true;
-    } catch (err) {
-        console.error("❌ Auth verification failed:", err);
-        alert("⛔ عذراً، البوت مخصص للإدارة فقط!");
-        if (window.Telegram && window.Telegram.WebApp) {
-            window.Telegram.WebApp.close();
+    } catch (error) {
+        console.error("Error sending admin message:", error);
+        alert("❌ تعذر الاتصال بالخادم: " + error.message);
+    } finally {
+        if (btnSend) {
+            btnSend.disabled = false;
+            btnSend.style.opacity = '1';
+            btnSend.innerText = '🚀 إرسال الرسالة الآن';
         }
-        return false;
     }
 }
 
-/**
- * تهيئة القسم وتنفيذ جلب البيانات فور تحميل واجهة الإدارة العليا
- */
-async function initSuperAdmin() {
-    initEvents();
-    const isAuthorized = await verifyAdminAccessOnLoad();
-    if (!isAuthorized) return;
-
-    loadDashboardStats();
-    loadZnGoSettings();
-    loadBigArenaSettings();
-    loadModerators();
-    loadAdminLogs();
-}
-
-window.initSuperAdmin = initSuperAdmin;
-
-if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", initSuperAdmin);
-} else {
-    initSuperAdmin();
-}
-
-/**
- * ربط الأحداث التفاعلية لحقول الإدخال والنسب تلقائياً
- */
-function initEvents() {
-    // 1. ربط حقول لعبة شبكة ZN Go
-    const grid36BotInput = document.getElementById('grid36-bot-margin');
-    if (grid36BotInput && !grid36BotInput.dataset.bound) {
-        grid36BotInput.dataset.bound = "true";
-        grid36BotInput.addEventListener('input', calculateZnGoMargins);
-    }
-
-    // 2. ربط حقول لعبة الساحة الكبرى
-    const bigArenaBotInput = document.getElementById('big-arena-bot-margin');
-    if (bigArenaBotInput && !bigArenaBotInput.dataset.bound) {
-        bigArenaBotInput.dataset.bound = "true";
-        bigArenaBotInput.addEventListener('input', calculateBigArenaMargins);
-    }
-}
-window.initEvents = initEvents;
-
-/**
- * حساب نسبة اللاعبين تلقائياً (100 - نسبة البوت) لشبكة ZN Go
- */
-function calculateZnGoMargins() {
-    const botInput = document.getElementById('grid36-bot-margin');
-    const userInput = document.getElementById('grid36-user-margin');
-    
-    if (!botInput || !userInput) return;
-
-    let botMargin = parseFloat(botInput.value);
-    if (isNaN(botMargin)) { userInput.value = ''; return; }
-    if (botMargin < 0) botMargin = 0;
-    if (botMargin > 100) botMargin = 100;
-
-    userInput.value = parseFloat((100.0 - botMargin).toFixed(2));
-}
-window.calculateZnGoMargins = calculateZnGoMargins;
-
-/**
- * حساب نسبة اللاعبين تلقائياً (100 - نسبة البوت) للساحة الكبرى
- */
-function calculateBigArenaMargins() {
-    const botInput = document.getElementById('big-arena-bot-margin');
-    const userInput = document.getElementById('big-arena-user-margin');
-    
-    if (!botInput || !userInput) return;
-
-    let botMargin = parseFloat(botInput.value);
-    if (isNaN(botMargin)) { userInput.value = ''; return; }
-    if (botMargin < 0) botMargin = 0;
-    if (botMargin > 100) botMargin = 100;
-
-    userInput.value = parseFloat((100.0 - botMargin).toFixed(2));
-}
-window.calculateBigArenaMargins = calculateBigArenaMargins;
-
-/**
- * زر التحديث الشامل لجلب أحدث الأرقام والإعدادات من السيرفر
- */
-async function refreshDashboard() {
-    await loadDashboardStats();
-    await loadZnGoSettings();
-    await loadBigArenaSettings();
-    await loadModerators();
-    await loadAdminLogs();
-    alert("🔄 تم تحديث البيانات بنجاح من الفايربيس!");
-}
-window.refreshDashboard = refreshDashboard;
-
-// ==========================================
-// 1. جلب وحفظ إعدادات الألعاب بشكل منفصل (ZN Go & Big Arena)
-// ==========================================
-
-async function loadDashboardStats() {
-    const botProfitEl = document.getElementById('bot-profit-val');
-    const userProfitEl = document.getElementById('user-profit-val');
-    const actualMarginEl = document.getElementById('actual-profit-pct');
+// جلب وتحديث حالة الإرسال الجماعي الحية
+async function fetchBroadcastStats() {
+    const statusBox = document.getElementById('broadcastStatusBox');
+    const detailsContainer = document.getElementById('broadcastProgressDetails');
 
     try {
-        const response = await apiFetch(`${API_BASE}/admin/dashboard-stats`, { method: 'GET' });
-        const result = await response.json();
+        const response = await fetch('/api/super-admin/broadcast-stats', {
+            method: 'GET',
+            headers: getAdminHeaders()
+        });
 
-        if (response.ok && (result.status === 'success' || result.success)) {
-            const stats = result.stats || {};
-            
-            const botProfit = stats.total_bot_profit || 0;
-            const userProfit = stats.total_user_profit || stats.total_wins || 0;
-            const actualMargin = stats.actual_bot_percent || stats.actual_margin || 0;
+        const data = await response.json();
 
-            if (botProfitEl) botProfitEl.innerText = Number(botProfit).toLocaleString('ar-EG');
-            if (userProfitEl) userProfitEl.innerText = Number(userProfit).toLocaleString('ar-EG');
-            if (actualMarginEl) actualMarginEl.innerText = `${actualMargin}%`;
+        if (data.success && statusBox && detailsContainer) {
+            statusBox.style.display = 'block';
+            const live = data.live_status || {};
+            const latest = data.latest_campaign || null;
 
-            if (result.zn_go_config || result.grid_36) {
-                populateZnGoUI(result.zn_go_config || result.grid_36);
-            }
-            if (result.big_arena) {
-                populateBigArenaUI(result.big_arena);
+            if (live.is_running) {
+                const percentage = live.total > 0 ? Math.round((live.sent / live.total) * 100) : 0;
+                detailsContainer.innerHTML = `
+                    <div style="color: var(--accent-gold); font-weight: bold; margin-bottom: 4px;">⚙️ حملة إرسال جارية حالياً (${percentage}%):</div>
+                    <div>🟢 تم الإرسال بنجاح: <b>${live.sent}</b> / ${live.total}</div>
+                    <div>🚫 حظروا البوت: <b>${live.blocked}</b></div>
+                    <div>❌ فشل الإرسال: <b>${live.failed}</b></div>
+                `;
+            } else if (latest) {
+                detailsContainer.innerHTML = `
+                    <div style="color: var(--accent-green); font-weight: bold; margin-bottom: 4px;">✅ آخر حملة إرسال مكتملة (${latest.created_at_str || 'مؤخراً'}):</div>
+                    <div>👤 المشرف المسؤول: <b>${latest.admin_name || 'الأدمن'}</b></div>
+                    <div>🎯 إجمالي المستهدفين: <b>${latest.total_targets || 0}</b></div>
+                    <div>🟢 تم التسليم بنجاح: <b>${latest.success_count || 0}</b></div>
+                    <div>🚫 حظروا البوت: <b>${latest.blocked_count || 0}</b></div>
+                    <div>❌ تعذر التسليم: <b>${latest.failed_count || 0}</b></div>
+                `;
+            } else {
+                detailsContainer.innerHTML = '<div>ℹ️ لا توجد حملات إرسال جارية أو مسجلة مؤخراً.</div>';
             }
         }
     } catch (error) {
-        console.error("❌ خطأ في جلب إحصائيات لوحة التحكم:", error);
+        console.error("Error fetching broadcast stats:", error);
     }
 }
-window.loadDashboardStats = loadDashboardStats;
 
-/**
- * جلب إعدادات لعبة شبكة ZN Go حصرياً المربوطة بـ Firestore
- */
+// تحميل التحليلات الكلية والإحصائيات لرأس اللوحة
+async function loadGlobalAnalytics() {
+    try {
+        const response = await fetch('/api/super-admin/analytics', {
+            method: 'GET',
+            headers: getAdminHeaders()
+        });
+        const data = await response.json();
+        if (data.success && data.analytics) {
+            const stats = data.analytics.game_stats || {};
+            const botProfitElem = document.getElementById('bot-profit-val');
+            const userProfitElem = document.getElementById('user-profit-val');
+            const actualProfitPctElem = document.getElementById('actual-profit-pct');
+
+            if (botProfitElem) botProfitElem.innerText = (stats.total_house_profit || 0).toLocaleString();
+            if (userProfitElem) userProfitElem.innerText = (stats.total_player_payout || 0).toLocaleString();
+            if (actualProfitPctElem) actualProfitPctElem.innerText = (stats.actual_margin_pct || 0) + '%';
+        }
+    } catch (err) {
+        console.error("Failed to load global analytics:", err);
+    }
+}
+
+// إدارة إعدادات لعبة شبكة ZN Go
 async function loadZnGoSettings() {
     try {
-        const response = await apiFetch(`${API_BASE}/admin/zn-go-settings`, { method: 'GET' });
-        const result = await response.json();
-        if (response.ok && result.success && result.config) {
-            populateZnGoUI(result.config);
-            if (result.stats && result.stats.actual_bot_percent !== undefined) {
-                const actualMarginEl = document.getElementById('actual-profit-pct');
-                if (actualMarginEl) actualMarginEl.innerText = `${result.stats.actual_bot_percent}%`;
-            }
+        const response = await fetch('/api/super-admin/zngo-settings', {
+            method: 'GET',
+            headers: getAdminHeaders()
+        });
+        const data = await response.json();
+        if (data.success && data.settings) {
+            const botMargin = document.getElementById('grid36-bot-margin');
+            const userMargin = document.getElementById('grid36-user-margin');
+            const minBet = document.getElementById('grid36-min-bet');
+
+            if (botMargin) botMargin.value = data.settings.bot_margin || 70;
+            if (userMargin) userMargin.value = (100 - (data.settings.bot_margin || 70)).toFixed(2);
+            if (minBet) minBet.value = data.settings.min_bet || 10;
         }
-    } catch (error) {
-        console.error("❌ خطأ في جلب إعدادات شبكة ZN Go:", error);
+    } catch (err) {
+        console.error("Failed to load ZN Go settings:", err);
     }
 }
-window.loadZnGoSettings = loadZnGoSettings;
-window.loadGrid36Settings = loadZnGoSettings; // الحفاظ على توافق الأسماء القديمة
 
-function populateZnGoUI(cfg) {
-    const botInput = document.getElementById('grid36-bot-margin');
-    const userInput = document.getElementById('grid36-user-margin');
-    const minBetInput = document.getElementById('grid36-min-bet');
-
-    const botMargin = cfg.bot_profit ?? cfg.bot_margin ?? 70;
-    const playerMargin = cfg.player_profit ?? cfg.player_margin ?? (100 - botMargin);
-
-    if (botInput) botInput.value = botMargin;
-    if (userInput) userInput.value = playerMargin;
-    if (minBetInput) minBetInput.value = cfg.min_bet ?? 10;
-}
-
-/**
- * حفظ إعدادات لعبة شبكة ZN Go دون إرسال خيار التفعيل/الإيقاف
- */
 async function saveZnGoSettings() {
-    const botInput = document.getElementById('grid36-bot-margin');
-    const minBetInput = document.getElementById('grid36-min-bet');
-
-    if (!botInput || !minBetInput) return;
-
-    const botProfit = parseFloat(botInput.value);
-    const minBet = parseFloat(minBetInput.value);
-    const playerProfit = parseFloat((100.0 - botProfit).toFixed(2));
-
-    if (isNaN(botProfit) || botProfit < 0 || botProfit > 100) {
-        alert("⚠️ نسبة أرباح البوت لشبكة ZN Go يجب أن تكون بين 0 و 100!");
-        return;
-    }
-
-    if (isNaN(minBet) || minBet < 0) {
-        alert("⚠️ يرجى إدخال حد أدنى صحيح للرهان لشبكة ZN Go!");
-        return;
-    }
-
-    const payload = {
-        initData: getTelegramInitData(),
-        bot_profit: botProfit,
-        bot_margin: botProfit,
-        player_profit: playerProfit,
-        player_margin: playerProfit,
-        min_bet: minBet
-    };
+    const botMargin = parseFloat(document.getElementById('grid36-bot-margin')?.value || 70);
+    const minBet = parseFloat(document.getElementById('grid36-min-bet')?.value || 10);
 
     try {
-        const response = await apiFetch(`${API_BASE}/admin/zn-go-settings`, {
+        const response = await fetch('/api/super-admin/zngo-settings', {
             method: 'POST',
-            body: JSON.stringify(payload)
+            headers: getAdminHeaders(),
+            body: JSON.stringify({ bot_margin: botMargin, min_bet: minBet })
         });
-        const result = await response.json();
-
-        if (response.ok && result.success) {
-            alert(`✅ ${result.message || 'تم حفظ إعدادات شبكة ZN Go بنجاح!'}`);
-            loadZnGoSettings();
-            loadAdminLogs();
+        const data = await response.json();
+        if (data.success) {
+            alert("✅ تم حفظ إعدادات لعبة ZN Go بنجاح!");
         } else {
-            alert(`❌ خطأ: ${result.message || result.error || 'حدث خطأ أثناء الحفظ'}`);
+            alert("❌ " + (data.message || "فشل حفظ الإعدادات"));
         }
-    } catch (error) {
-        console.error("❌ خطأ أثناء حفظ إعدادات شبكة ZN Go:", error);
+    } catch (err) {
+        alert("❌ حدث خطأ أثناء الحفظ: " + err.message);
     }
 }
-window.saveZnGoSettings = saveZnGoSettings;
-window.saveGrid36Settings = saveZnGoSettings; // التوافق مع الاستدعاء من HTML
 
-/**
- * جلب إعدادات لعبة الساحة الكبرى
- */
+// إدارة إعدادات لعبة الساحة الكبرى
 async function loadBigArenaSettings() {
     try {
-        const response = await apiFetch(`${API_BASE}/admin/settings/big_arena`, { method: 'GET' });
-        const result = await response.json();
-        if (response.ok && result.success && result.config) {
-            populateBigArenaUI(result.config);
+        const response = await fetch('/api/super-admin/big-arena-settings', {
+            method: 'GET',
+            headers: getAdminHeaders()
+        });
+        const data = await response.json();
+        if (data.success && data.settings) {
+            const botMargin = document.getElementById('big-arena-bot-margin');
+            const userMargin = document.getElementById('big-arena-user-margin');
+            const minBet = document.getElementById('big-arena-min-bet');
+            const enabled = document.getElementById('big-arena-enabled');
+
+            if (botMargin) botMargin.value = data.settings.bot_margin || 70;
+            if (userMargin) userMargin.value = (100 - (data.settings.bot_margin || 70)).toFixed(2);
+            if (minBet) minBet.value = data.settings.min_bet || 10;
+            if (enabled) enabled.checked = !!data.settings.enabled;
         }
-    } catch (error) {
-        console.error("❌ خطأ في جلب إعدادات الساحة الكبرى:", error);
+    } catch (err) {
+        console.error("Failed to load Big Arena settings:", err);
     }
 }
-window.loadBigArenaSettings = loadBigArenaSettings;
 
-function populateBigArenaUI(cfg) {
-    const botInput = document.getElementById('big-arena-bot-margin');
-    const userInput = document.getElementById('big-arena-user-margin');
-    const minBetInput = document.getElementById('big-arena-min-bet');
-    const enabledToggle = document.getElementById('big-arena-enabled');
-
-    if (botInput) botInput.value = cfg.bot_margin ?? 70;
-    if (userInput) userInput.value = cfg.player_margin ?? (100 - (cfg.bot_margin ?? 70));
-    if (minBetInput) minBetInput.value = cfg.min_bet ?? 10;
-    if (enabledToggle) enabledToggle.checked = cfg.enabled ?? true;
-}
-
-/**
- * حفظ إعدادات لعبة الساحة الكبرى
- */
 async function saveBigArenaSettings() {
-    const botInput = document.getElementById('big-arena-bot-margin');
-    const minBetInput = document.getElementById('big-arena-min-bet');
-    const enabledToggle = document.getElementById('big-arena-enabled');
-
-    if (!botInput || !minBetInput) return;
-
-    const botMargin = parseFloat(botInput.value);
-    const minBet = parseFloat(minBetInput.value);
-    const enabled = enabledToggle ? enabledToggle.checked : true;
-
-    if (isNaN(botMargin) || botMargin < 0 || botMargin > 100) {
-        alert("⚠️ نسبة أرباح البوت للساحة الكبرى يجب أن تكون بين 0 و 100!");
-        return;
-    }
-
-    if (isNaN(minBet) || minBet < 0) {
-        alert("⚠️ يرجى إدخال حد أدنى صحيح للرهان للساحة الكبرى!");
-        return;
-    }
-
-    const payload = {
-        initData: getTelegramInitData(),
-        bot_margin: botMargin,
-        min_bet: minBet,
-        enabled: enabled
-    };
+    const botMargin = parseFloat(document.getElementById('big-arena-bot-margin')?.value || 70);
+    const minBet = parseFloat(document.getElementById('big-arena-min-bet')?.value || 10);
+    const enabled = document.getElementById('big-arena-enabled')?.checked || false;
 
     try {
-        const response = await apiFetch(`${API_BASE}/admin/settings/big_arena`, {
+        const response = await fetch('/api/super-admin/big-arena-settings', {
             method: 'POST',
-            body: JSON.stringify(payload)
+            headers: getAdminHeaders(),
+            body: JSON.stringify({ bot_margin: botMargin, min_bet: minBet, enabled: enabled })
         });
-        const result = await response.json();
-
-        if (response.ok && result.success) {
-            alert(`✅ ${result.message || 'تم حفظ إعدادات الساحة الكبرى بنجاح!'}`);
-            loadBigArenaSettings();
-            loadAdminLogs();
+        const data = await response.json();
+        if (data.success) {
+            alert("✅ تم حفظ إعدادات الساحة الكبرى بنجاح!");
         } else {
-            alert(`❌ خطأ: ${result.message || result.error || 'حدث خطأ أثناء الحفظ'}`);
+            alert("❌ " + (data.message || "فشل حفظ الإعدادات"));
         }
-    } catch (error) {
-        console.error("❌ خطأ أثناء حفظ إعدادات الساحة الكبرى:", error);
+    } catch (err) {
+        alert("❌ حدث خطأ أثناء الحفظ: " + err.message);
     }
 }
-window.saveBigArenaSettings = saveBigArenaSettings;
 
-// ==========================================
-// 2. إدارة المشرفين والصلاحيات والسجلات (Admin & Mod Management)
-// ==========================================
-
+// إدارة المشرفين والصلاحيات
 async function addNewModerator() {
-    const modIdInput = document.getElementById('modTelegramId');
-    const modNameInput = document.getElementById('modName');
-
-    const modId = modIdInput ? modIdInput.value.trim() : "";
-    const modName = modNameInput ? modNameInput.value.trim() : "";
+    const modId = document.getElementById('modTelegramId')?.value.trim();
+    const modName = document.getElementById('modName')?.value.trim();
 
     if (!modId || !modName) {
-        alert("⚠️ يرجى إدخال ID المشرف والاسم بشكل صحيح!");
+        alert("⚠️ يرجى إدخال معرّف التليجرام واسم المشرف.");
         return;
     }
 
     const permissions = {
-        users: document.getElementById('perm_users')?.checked || false,
-        support: document.getElementById('perm_support')?.checked || false,
-        settings: document.getElementById('perm_settings')?.checked || false,
-        transactions: document.getElementById('perm_transactions')?.checked || false,
-        security: document.getElementById('perm_security')?.checked || false,
-        ads: document.getElementById('perm_ads')?.checked || false,
-    };
-
-    const payload = {
-        initData: getTelegramInitData(),
-        id: modId,
-        name: modName,
-        permissions: permissions,
-        addedBy: "المدير العام"
+        perm_users: document.getElementById('perm_users')?.checked || false,
+        perm_support: document.getElementById('perm_support')?.checked || false,
+        perm_settings: document.getElementById('perm_settings')?.checked || false,
+        perm_transactions: document.getElementById('perm_transactions')?.checked || false,
+        perm_security: document.getElementById('perm_security')?.checked || false,
+        perm_ads: document.getElementById('perm_ads')?.checked || false
     };
 
     try {
-        const response = await apiFetch(`${API_BASE}/moderators`, {
+        const response = await fetch('/api/super-admin/add-moderator', {
             method: 'POST',
-            body: JSON.stringify(payload)
+            headers: getAdminHeaders(),
+            body: JSON.stringify({ telegram_id: modId, name: modName, permissions: permissions })
         });
-
-        const result = await response.json();
-
-        if (response.ok && result.success) {
-            alert(`✅ ${result.message || 'تمت إضافة المشرف بنجاح!'}`);
-            if (modIdInput) modIdInput.value = '';
-            if (modNameInput) modNameInput.value = '';
+        const data = await response.json();
+        if (data.success) {
+            alert("✅ تمت إضافة المشرف بنجاح!");
+            if (document.getElementById('modTelegramId')) document.getElementById('modTelegramId').value = '';
+            if (document.getElementById('modName')) document.getElementById('modName').value = '';
             loadModerators();
-            loadAdminLogs();
         } else {
-            alert(`❌ خطأ: ${result.message || result.error}`);
+            alert("❌ " + (data.message || "فشل إضافة المشرف"));
         }
-    } catch (error) {
-        console.error("خطأ في الاتصال عند إضافة المشرف:", error);
+    } catch (err) {
+        alert("❌ حدث خطأ أثناء إضافة المشرف: " + err.message);
     }
 }
-window.addNewModerator = addNewModerator;
 
 async function loadModerators() {
-    const listContainer = document.getElementById('moderatorsList');
-    if (!listContainer) return;
+    const listElem = document.getElementById('moderatorsList');
+    if (!listElem) return;
 
     try {
-        const response = await apiFetch(`${API_BASE}/moderators`, { method: 'GET' });
-        const result = await response.json();
-
-        if (!response.ok || !result.success || !result.moderators || result.moderators.length === 0) {
-            listContainer.innerHTML = `<p class="empty-msg">لا يوجد مشرفين مضافين حالياً.</p>`;
-            return;
-        }
-
-        let html = '';
-        result.moderators.forEach(mod => {
-            const deleteBtn = mod.isMain 
-                ? `<span style="font-size: 10px; color: #f59e0b;">👑 مدير رئيسي</span>` 
-                : `<button class="btn-danger-sm" onclick="deleteModerator('${mod.id}', '${mod.name}')">حذف ❌</button>`;
-
-            html += `
+        const response = await fetch('/api/super-admin/list-moderators', {
+            method: 'GET',
+            headers: getAdminHeaders()
+        });
+        const data = await response.json();
+        if (data.success && data.moderators) {
+            if (data.moderators.length === 0) {
+                listElem.innerHTML = '<p class="empty-msg">لا يوجد مشرفين مضافين حالياً.</p>';
+                return;
+            }
+            listElem.innerHTML = data.moderators.map(mod => `
                 <div class="mod-item">
                     <div class="mod-info">
-                        <strong>👤 ${mod.name}</strong>
-                        <span>ID: ${mod.id} | أضيف في: ${mod.addedAt || 'غير محدد'}</span>
+                        <strong>${mod.name}</strong>
+                        <span>ID: ${mod.telegram_id}</span>
                     </div>
-                    ${deleteBtn}
+                    <button class="btn-refresh" style="color: var(--accent-red); border-color: var(--accent-red);" onclick="removeModerator('${mod.telegram_id}')">🗑️ حذف</button>
                 </div>
-            `;
-        });
-
-        listContainer.innerHTML = html;
-
-    } catch (error) {
-        console.error("خطأ في جلب بيانات المشرفين:", error);
-        listContainer.innerHTML = `<p class="empty-msg" style="color:#ef4444;">⚠️ تعذر جلب قائمة المشرفين.</p>`;
+            `).join('');
+        }
+    } catch (err) {
+        listElem.innerHTML = '<p class="empty-msg">تعذر تحميل قائمة المشرفين.</p>';
     }
 }
-window.loadModerators = loadModerators;
 
-async function deleteModerator(modId, modName) {
-    if (!confirm(`⚠️ هل أنت متأكد من حذف المشرف (${modName}) وسحب جميع صلاحياته؟`)) {
-        return;
-    }
+async function removeModerator(telegramId) {
+    if (!confirm(`هل أنت تأكد من رغبتك في حذف المشرف صاحب المعرف ${telegramId}؟`)) return;
 
     try {
-        const response = await apiFetch(`${API_BASE}/moderators/${modId}?deletedBy=المدير العام`, {
-            method: 'DELETE'
+        const response = await fetch('/api/super-admin/remove-moderator', {
+            method: 'POST',
+            headers: getAdminHeaders(),
+            body: JSON.stringify({ telegram_id: telegramId })
         });
-
-        const result = await response.json();
-
-        if (response.ok && result.success) {
-            alert(`✅ ${result.message || 'تم حذف المشرف بنجاح'}`);
+        const data = await response.json();
+        if (data.success) {
+            alert("✅ تم حذف المشرف بنجاح.");
             loadModerators();
-            loadAdminLogs();
         } else {
-            alert(`❌ خطأ: ${result.message || result.error}`);
+            alert("❌ " + (data.message || "فشل حذف المشرف"));
         }
-    } catch (error) {
-        console.error("خطأ أثناء الحذف:", error);
+    } catch (err) {
+        alert("❌ حدث خطأ أثناء الحذف: " + err.message);
     }
 }
-window.deleteModerator = deleteModerator;
 
+// تحميل سجل النشاطات الإدارية
 async function loadAdminLogs() {
-    const logsContainer = document.getElementById('adminLogs');
-    if (!logsContainer) return;
+    const logsElem = document.getElementById('adminLogs');
+    if (!logsElem) return;
 
     try {
-        const response = await apiFetch(`${API_BASE}/admin-logs`, { method: 'GET' });
-        const result = await response.json();
-
-        if (!response.ok || !result.success || !result.logs || result.logs.length === 0) {
-            logsContainer.innerHTML = `<p class="empty-msg">لا توجد تحركات مسجلة حالياً.</p>`;
-            return;
-        }
-
-        let html = '';
-        result.logs.forEach(log => {
-            html += `
-                <div class="log-item">
-                    <span class="log-admin">⚙️ ${log.admin || 'النظام'}</span>
-                    <span style="color:#e2e8f0;">${log.action}</span>
-                    <span class="log-time">${log.timestamp || ''}</span>
-                </div>
-            `;
+        const response = await fetch('/api/super-admin/logs', {
+            method: 'GET',
+            headers: getAdminHeaders()
         });
-
-        logsContainer.innerHTML = html;
-
-    } catch (error) {
-        console.error("خطأ في جلب السجلات:", error);
-        logsContainer.innerHTML = `<p class="empty-msg" style="color:#ef4444;">⚠️ تعذر تحميل سجل النشاط.</p>`;
+        const data = await response.json();
+        if (data.success && data.logs) {
+            if (data.logs.length === 0) {
+                logsElem.innerHTML = '<p class="empty-msg">لا توجد سجلات إدارية حديثة.</p>';
+                return;
+            }
+            logsElem.innerHTML = data.logs.map(log => `
+                <div class="log-item">
+                    <div class="mod-info">
+                        <strong>${log.admin_name || 'مشرف'}</strong>
+                        <span>${log.action || ''}</span>
+                    </div>
+                    <span style="color: var(--text-muted); font-size: 10px;">${log.timestamp || ''}</span>
+                </div>
+            `).join('');
+        }
+    } catch (err) {
+        logsElem.innerHTML = '<p class="empty-msg">تعذر تحميل سجل النشاطات.</p>';
     }
 }
-window.loadAdminLogs = loadAdminLogs;
+
+// تهيئة الصفحة وتحميل البيانات أولياً فور اكتمال الجاهزية
+document.addEventListener('DOMContentLoaded', () => {
+    loadGlobalAnalytics();
+    loadZnGoSettings();
+    loadBigArenaSettings();
+    loadModerators();
+    loadAdminLogs();
+    fetchBroadcastStats();
+});
