@@ -624,7 +624,14 @@ async function initApp() {
 
             updateBalancesUI();
             updateGlobalStatsUI(data.global_total, data.max_global_znx);
-            renderTiersUI(data.tiers_all || data.tiers);
+            
+            // قراءة الشرائح بشكل آمن في حال تم إرجاعها كـ Object أو Array
+            let rawTiers = data.tiers_all || data.tiers || data.tiers_config;
+            if (rawTiers && typeof rawTiers === 'object' && !Array.isArray(rawTiers)) {
+                rawTiers = Object.values(rawTiers);
+            }
+            
+            renderTiersUI(rawTiers);
             renderLeaderboardUI(data.leaderboard, data.my_rank, data.my_info);
         } else {
             console.error("⚠️ فشل جلب بيانات ZNX Wallet:", data.message || data.error);
@@ -648,8 +655,8 @@ function updateGlobalStatsUI(globalTotal, maxGlobal) {
     const ratioEl = document.getElementById('globalRatioText');
     const barEl = document.getElementById('globalProgressBar');
 
-    const total = globalTotal || 0;
-    const max = maxGlobal || 32500000;
+    const total = parseFloat(globalTotal) || 0;
+    const max = parseFloat(maxGlobal) || 32500000;
     const pct = Math.min(100, Math.max(0, (total / max) * 100));
     
     if (ratioEl) ratioEl.innerHTML = `<span dir="ltr">${formatCoins(total, 0)} / ${(max / 1000000).toFixed(1)}M ZNX</span>`;
@@ -667,7 +674,7 @@ function selectOption(type) {
     } else if (type === 'half') {
         input.value = (bal / 2).toFixed(2);
     } else if (type === 'min') {
-        input.value = currentTier ? currentTier.rate : 10;
+        input.value = (currentTier && currentTier.rate) ? currentTier.rate : 10;
     }
     onInputChange();
 }
@@ -678,7 +685,7 @@ function onInputChange() {
     if (!inputEl || !previewEl) return;
 
     const points = parseFloat(inputEl.value) || 0;
-    const rate = (currentTier && currentTier.rate) ? currentTier.rate : 10;
+    const rate = (currentTier && currentTier.rate) ? parseFloat(currentTier.rate) : 10;
     const znxGained = points > 0 ? (points / rate) : 0;
 
     previewEl.innerHTML = `${formatCoins(znxGained, 4)} ZNX`;
@@ -745,13 +752,25 @@ function renderTiersUI(tiers) {
     if (!container) return;
 
     container.innerHTML = '';
-    if (!tiers || !Array.isArray(tiers)) return;
+    
+    let tiersList = tiers;
+    if (tiersList && typeof tiersList === 'object' && !Array.isArray(tiersList)) {
+        tiersList = Object.values(tiersList);
+    }
 
-    tiers.forEach(t => {
-        const isCurrent = currentTier && (currentTier.tier === t.tier || currentTier.name === t.name);
-        const safeName = escapeHTML(t.name);
+    if (!tiersList || !Array.isArray(tiersList) || tiersList.length === 0) return;
+
+    tiersList.forEach(t => {
+        if (!t) return;
+        const isCurrent = currentTier && (
+            (currentTier.tier && t.tier && Number(currentTier.tier) === Number(t.tier)) ||
+            (currentTier.name && t.name && currentTier.name === t.name)
+        );
+        const safeName = escapeHTML(t.name || `الشريحة ${t.tier || ''}`);
         const minW = t.min_withdraw_znx ? t.min_withdraw_znx : '--';
-        const feeUsd = t.fixed_fee_usd ? t.fixed_fee_usd : 0.02;
+        const feeUsd = t.fixed_fee_usd !== undefined ? t.fixed_fee_usd : 0.02;
+        const quotaM = t.quota ? (parseFloat(t.quota) / 1000000).toFixed(1) : '1.5';
+        const rate = t.rate || 10;
         
         container.innerHTML += `
             <div class="tier-item ${isCurrent ? 'current' : ''}">
@@ -759,11 +778,11 @@ function renderTiersUI(tiers) {
                     <strong>${safeName}</strong> 
                     ${isCurrent ? '<span class="tier-badge-active">الشريحة الحالية</span>' : ''}
                     <div style="color: var(--text-muted); font-size: 0.75rem; margin-top:2px;">
-                        سعر التحويل: 1 ZNX = ${t.rate} ZN | أدنى سحب: ${minW} ZNX | رسوم: $${feeUsd}
+                        سعر التحويل: 1 ZNX = ${rate} ZN | أدنى سحب: ${minW} ZNX | رسوم: $${feeUsd}
                     </div>
                 </div>
                 <div style="text-align: left; color: var(--accent-blue); font-weight: bold;">
-                    حصة الشريحة: ${(t.quota / 1000000).toFixed(1)}M
+                    حصة الشريحة: ${quotaM}M
                 </div>
             </div>
         `;
@@ -788,7 +807,7 @@ function renderLeaderboardUI(list, myRank, myInfo) {
 
     if (list.length >= 1) podium.innerHTML += createPodiumCard(list[0], 1, 'podium-1');
     if (list.length >= 2) podium.innerHTML += createPodiumCard(list[1], 2, 'podium-2');
-    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[3] ? list[2] : list[2], 3, 'podium-3');
+    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
 
     const limitCount = Math.min(10, list.length);
     for (let i = 3; i < limitCount; i++) {
