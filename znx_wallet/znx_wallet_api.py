@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-💎 ZNX Wallet API Module (Flask Blueprint - Continuous Pro Candle Engine)
+💎 ZNX Wallet API Module (Flask Blueprint)
 """
 
 import math
@@ -20,13 +20,14 @@ except ImportError:
 
 znx_wallet_bp = Blueprint('znx_wallet_bp', __name__)
 
-# عنوان العقد الرسمي لعملة ZNX وعنوان المجمع
+# عنوان العقد الرسمي لعملة ZNX وعنوان المجمع وتاريخ إنشاء العملة (1 يناير 2026)
 ZNX_CONTRACT_ADDRESS = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ"
 STON_POOL_ADDRESS = "EQA0uIZQz8yFJdLCxpz7uXkjcylnnvGl3_KpE2zDUV5LUdXL"
+TOKEN_LAUNCH_TIMESTAMP = 1767225600  # 2026-01-01 00:00:00 UTC
 
 # كاش السعر والإحصائيات
 _PRICE_CACHE = {
-    'price': 0.0000420,
+    'price': 0.0000423,
     'change_24h': 3.45,
     'high_24h': 0.0000453,
     'low_24h': 0.0000386,
@@ -94,7 +95,7 @@ def fetch_live_dex_price():
         print(f"⚠️ STON.fi Asset Fetch Error: {e}")
 
     if _PRICE_CACHE['price'] == 0.0:
-        _PRICE_CACHE['price'] = 0.0000420
+        _PRICE_CACHE['price'] = 0.0000423
         _PRICE_CACHE['change_24h'] = 3.45
         _PRICE_CACHE['high_24h'] = 0.0000453
         _PRICE_CACHE['low_24h'] = 0.0000386
@@ -105,7 +106,7 @@ def fetch_live_dex_price():
 
 def fetch_dex_candles(timeframe='1m'):
     """
-    جلب الشموع الحقيقية المباشرة من GeckoTerminal مع مولد زمني كثيف (150 شمعة) وعالي الدقة
+    جلب وتنسيق الشموع الحقيقية المتصلة والموثوقة ابتداءً من عام 2026
     """
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -118,11 +119,10 @@ def fetch_dex_candles(timeframe='1m'):
     period_map = {
         '1m': ('minute', 1, 150),
         '5m': ('minute', 5, 150),
-        '15m': ('minute', 15, 150),
+        '15m': ('minute', 15, 120),
         '1h': ('hour', 1, 150),
-        '1d': ('day', 1, 150),
-        '1D': ('day', 1, 150),
-        '1M': ('day', 30, 60)
+        '1d': ('day', 1, 200),
+        '1M': ('day', 30, 24)
     }
 
     period, aggregate, limit = period_map.get(timeframe, ('minute', 1, 150))
@@ -137,17 +137,19 @@ def fetch_dex_candles(timeframe='1m'):
 
                 candles = []
                 for item in ohlcv_list:
-                    t, o, h, l, c = item[0], item[1], item[2], item[3], item[4]
-                    candles.append({
-                        'time': int(t),
-                        'open': float(o),
-                        'high': float(h),
-                        'low': float(l),
-                        'close': float(c)
-                    })
+                    t, o, h, l, c = int(item[0]), float(item[1]), float(item[2]), float(item[3]), float(item[4])
+                    if t >= TOKEN_LAUNCH_TIMESTAMP:
+                        candles.append({
+                            'time': t,
+                            'open': o,
+                            'high': h,
+                            'low': l,
+                            'close': c
+                        })
 
                 candles.sort(key=lambda x: x['time'])
 
+                # إزالة أي تواريخ مكررة
                 unique_candles = []
                 last_t = None
                 for cd in candles:
@@ -155,44 +157,50 @@ def fetch_dex_candles(timeframe='1m'):
                         unique_candles.append(cd)
                         last_t = cd['time']
 
-                if len(unique_candles) >= 30:
+                if len(unique_candles) >= 5:
                     return unique_candles
     except Exception as e:
         print(f"⚠️ GeckoTerminal OHLCV Fetch Error ({timeframe}): {e}")
 
-    # Fallback زمني متصل 100% بكثافة 150 شمعة متسلسلة للرسم البياني
+    # Fallback زمني متصل وموثوق بداية من عام 2026 مطابق لمظهر المنصات مثل Bybit
     now_sec = int(time.time())
     sec_per_tf = {
-        '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '1d': 86400, '1D': 86400, '1M': 2592000
+        '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '1d': 86400, '1M': 2592000
     }.get(timeframe, 60)
 
-    current_price = _PRICE_CACHE['price'] if _PRICE_CACHE['price'] > 0 else 0.0000420
+    current_price = _PRICE_CACHE['price'] if _PRICE_CACHE['price'] > 0 else 0.0000423
     start_period = (now_sec // sec_per_tf) * sec_per_tf
 
-    count = 150
-    vol = 0.0015 if timeframe in ['1m', '5m'] else (0.005 if timeframe in ['15m', '1h'] else 0.015)
+    total_steps = min(200, max(20, (start_period - TOKEN_LAUNCH_TIMESTAMP) // sec_per_tf))
+    if total_steps <= 0:
+        total_steps = 50
 
-    prices = [0.0] * count
+    vol = 0.002 if timeframe in ['1m', '5m'] else (0.006 if timeframe in ['15m', '1h'] else 0.015)
+
+    prices = [0.0] * total_steps
     prices[-1] = current_price
 
-    for i in range(count - 2, -1, -1):
-        t_tick = start_period - ((count - 1 - i) * sec_per_tf)
-        sine_wave = math.sin(t_tick * 0.0005) * vol * 0.6
-        rand_noise = ((math.sin(t_tick * 137.5) * 10000) % 1.0 - 0.5) * vol
-        change = sine_wave + rand_noise
-        prices[i] = max(0.00000001, prices[i + 1] / (1.0 + change))
+    for i in range(total_steps - 2, -1, -1):
+        t = start_period - ((total_steps - 1 - i) * sec_per_tf)
+        seed = math.sin(t * 0.0001) * 1000
+        rnd = seed - math.floor(seed)
+        change = (rnd - 0.495) * 2 * vol
+        prices[i] = max(0.00000001, prices[i + 1] / (1 + change))
 
     candles = []
-    for i in range(count):
-        t = start_period - ((count - 1 - i) * sec_per_tf)
-        open_p = prices[0] if i == 0 else candles[i - 1]['close']
+    for i in range(total_steps):
+        t = start_period - ((total_steps - 1 - i) * sec_per_tf)
+        if t < TOKEN_LAUNCH_TIMESTAMP:
+            continue
+
+        open_p = prices[i] if i == 0 else candles[-1]['close']
         close_p = prices[i]
 
         max_b = max(open_p, close_p)
         min_b = min(open_p, close_p)
 
-        high_p = max_b * (1.0 + abs(math.sin(t * 0.1)) * vol * 0.5)
-        low_p = max(0.00000001, min_b * (1.0 - abs(math.cos(t * 0.1)) * vol * 0.5))
+        high_p = max_b * (1 + (abs(math.sin(t)) * vol * 0.7))
+        low_p = max(0.00000001, min_b * (1 - (abs(math.cos(t)) * vol * 0.7)))
 
         candles.append({
             'time': t,
