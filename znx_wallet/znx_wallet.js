@@ -5,9 +5,6 @@
 const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ";
 const ZNX_POOL_ADDRESS = "EQA0uIZQz8yFJdLCxpz7uXkjcylnnvGl3_KpE2zDUV5LUdXL";
 
-// تاريخ إنشاء المجمع والعملة كحد أدنى (أغسطس 2026) لمنع ظهور أعوام قديمة
-const TOKEN_LAUNCH_TIMESTAMP = 1785542400; 
-
 function escapeHTML(str) {
     if (!str) return '';
     return String(str)
@@ -30,7 +27,7 @@ let USER_ID = getUserId();
 let userData = { balance: 0, usd_balance: 0, znx_balance: 0, total_znx_earned: 0 };
 let currentTier = null;
 
-// المتغيرات الخاصة بالسعر المباشر والإحصائيات المحسنة لضمان السلاسة الفائقة
+// المتغيرات الخاصة بالسعر المباشر والإحصائيات
 let currentLivePrice = 0;
 let targetLivePrice = 0;
 let priceFetchTimer = null;
@@ -79,7 +76,7 @@ function formatPriceUsd(val) {
 }
 
 async function fetchRealZnxPrice() {
-    // 1. محاولة الجلب من سيرفر الخلفية الخاص بك أولاً
+    // 1. الجلب من السيرفر الخلفي
     try {
         const serverRes = await fetch(`${window.location.origin}/api/znx-wallet/price?t=${Date.now()}`, {
             method: 'GET',
@@ -152,7 +149,7 @@ async function fetchRealZnxPrice() {
         }
     } catch (e) {
         if (!isPriceInitialized && targetLivePrice === 0) {
-            setTargetPrice(0.0000420);
+            setTargetPrice(0.0000423);
         }
     }
 }
@@ -212,7 +209,6 @@ function setTargetPrice(newPrice) {
     targetLivePrice = newPrice;
 }
 
-// محرك الانتقال السلس الشديد الدقة (Smooth Lerp Loop - 20 FPS)
 function updateSmoothTick() {
     if (targetLivePrice <= 0) return;
 
@@ -253,7 +249,7 @@ function startLivePriceEngine() {
     smoothLoopTimer = setInterval(updateSmoothTick, 50);
 }
 
-// ==================== محرك الرسم البياني الحقيقي والربط التام ====================
+// ==================== محرك الرسم البياني الاحترافي ====================
 
 function initChart() {
     const container = document.getElementById('chartContainer');
@@ -281,6 +277,8 @@ function initChart() {
     const height = container.clientHeight || 250;
 
     try {
+        const isIntraday = ['1m', '5m', '15m', '1h'].includes(currentTimeframe);
+
         tvChart = LightweightCharts.createChart(container, {
             width: width,
             height: height,
@@ -303,7 +301,7 @@ function initChart() {
             },
             timeScale: {
                 borderColor: '#1e293b',
-                timeVisible: true,
+                timeVisible: isIntraday,
                 secondsVisible: false,
                 tickMarkFormatter: (time) => {
                     const date = new Date(time * 1000);
@@ -315,10 +313,13 @@ function initChart() {
                         const day = date.getDate();
                         const h = String(date.getHours()).padStart(2, '0');
                         return `${day}d ${h}:00`;
-                    } else {
+                    } else if (['1d', '1D'].includes(currentTimeframe)) {
                         const day = date.getDate();
                         const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
                         return `${day} ${months[date.getMonth()]}`;
+                    } else {
+                        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                        return `${months[date.getMonth()]} ${date.getFullYear().toString().slice(-2)}`;
                     }
                 }
             },
@@ -356,7 +357,6 @@ function initChart() {
     }
 }
 
-// جلب بيانات الشموع الحقيقية الموزونة زمنياً من API
 async function loadChartData(tf) {
     if (!candleSeries) return;
 
@@ -373,7 +373,7 @@ async function loadChartData(tf) {
         console.warn("⚠️ تعذر جلب الشموع عبر السيرفر، جاري المحاولة المباشرة...");
     }
 
-    // Fallback: جلب مباشر من GeckoTerminal (المزود المباشر لـ STON.fi DEX)
+    // Fallback: GeckoTerminal
     try {
         let period = 'minute';
         let agg = 1;
@@ -397,28 +397,8 @@ async function loadChartData(tf) {
                     close: parseFloat(item[4])
                 }));
 
-                // تصفية وإزالة التكرارات والتأكد من تاريخ الإطلاق
-                let cleanCandles = [];
-                let seenTimes = new Set();
-
-                for (let c of candles) {
-                    let t = Math.floor(Number(c.time));
-                    if (!isNaN(t) && !seenTimes.has(t) && t >= TOKEN_LAUNCH_TIMESTAMP) {
-                        seenTimes.add(t);
-                        cleanCandles.push({
-                            time: t,
-                            open: Number(c.open),
-                            high: Number(c.high),
-                            low: Number(c.low),
-                            close: Number(c.close)
-                        });
-                    }
-                }
-
-                cleanCandles.sort((a, b) => a.time - b.time);
-
-                if (cleanCandles.length > 0) {
-                    applyCandlesToChart(cleanCandles);
+                if (candles.length > 0) {
+                    applyCandlesToChart(candles);
                     return;
                 }
             }
@@ -427,15 +407,37 @@ async function loadChartData(tf) {
         console.warn("⚠️ تعذر الجلب المباشر للشموع.");
     }
 
-    // مولد احتياطي يضمن دقة الطوابع الزمنية وعدم التجاوز قبل تاريخ إنشاء العملة
+    // توليد شموع واقعية متصلة بالكامل
     generateAccurateTimeboundCandles(tf);
 }
 
 function applyCandlesToChart(candles) {
     if (!candleSeries || !candles || candles.length === 0) return;
 
-    candleSeries.setData(candles);
-    const last = candles[candles.length - 1];
+    let cleanCandles = [];
+    let seenTimes = new Set();
+
+    for (let c of candles) {
+        let t = Math.floor(Number(c.time));
+        if (!isNaN(t) && t > 0 && !seenTimes.has(t)) {
+            seenTimes.add(t);
+            cleanCandles.push({
+                time: t,
+                open: Number(c.open),
+                high: Number(c.high),
+                low: Number(c.low),
+                close: Number(c.close)
+            });
+        }
+    }
+
+    cleanCandles.sort((a, b) => a.time - b.time);
+
+    if (cleanCandles.length === 0) return;
+
+    candleSeries.setData(cleanCandles);
+
+    const last = cleanCandles[cleanCandles.length - 1];
     lastCandleTime = last.time;
     currentCandle = { ...last };
 
@@ -451,53 +453,53 @@ function applyCandlesToChart(candles) {
     }
 }
 
-// مولد احتياطي يضمن دقة الطوابع الزمنية بالدقيقة والساعة وتاريخ الإطلاق فقط
+// مولد شموع متصل وواقعي مع ذيول وفروقات حقيقية مطابق لمظهر بايبت
 function generateAccurateTimeboundCandles(tf) {
-    const basePrice = (targetLivePrice > 0) ? targetLivePrice : (currentLivePrice > 0 ? currentLivePrice : 0.0000420);
     const tfSec = getTimeframeSeconds(tf);
     const nowSec = Math.floor(Date.now() / 1000);
-    const candlePeriodStart = Math.floor(nowSec / tfSec) * tfSec;
+    const currentPeriodStart = Math.floor(nowSec / tfSec) * tfSec;
     
-    // عدم توليد أي شمعة أقدم من تاريخ إطلاق المجمع الحقيقي
-    const maxCandlesByLaunch = Math.floor((candlePeriodStart - TOKEN_LAUNCH_TIMESTAMP) / tfSec);
-    const count = Math.max(2, Math.min(50, maxCandlesByLaunch > 0 ? maxCandlesByLaunch : 10));
+    const count = (tf === '1m') ? 60 : ((tf === '5m') ? 50 : ((tf === '15m') ? 45 : ((tf === '1h') ? 40 : ((tf === '1d' || tf === '1D') ? 30 : 24))));
+    const targetPrice = (targetLivePrice > 0) ? targetLivePrice : ((currentLivePrice > 0) ? currentLivePrice : 0.0000423);
+
+    let vol = 0.003; 
+    if (tf === '5m') vol = 0.006;
+    if (tf === '15m') vol = 0.010;
+    if (tf === '1h') vol = 0.018;
+    if (tf === '1d' || tf === '1D') vol = 0.035;
+    if (tf === '1M') vol = 0.080;
+
+    let prices = new Array(count);
+    prices[count - 1] = targetPrice;
+
+    // مسار أسعار واقعي مع السير العشوائي
+    for (let i = count - 2; i >= 0; i--) {
+        const randomChange = (Math.random() - 0.495) * 2 * vol;
+        prices[i] = Math.max(0.00000001, prices[i + 1] / (1 + randomChange));
+    }
 
     let candles = [];
-    let currClose = basePrice;
+    for (let i = 0; i < count; i++) {
+        const time = currentPeriodStart - ((count - 1 - i) * tfSec);
+        const open = (i === 0) ? prices[0] * (1 + (Math.random() - 0.5) * vol) : candles[i - 1].close;
+        const close = prices[i];
 
-    for (let i = count - 1; i >= 0; i--) {
-        const time = candlePeriodStart - (i * tfSec);
-        if (time < TOKEN_LAUNCH_TIMESTAMP) continue;
-        
-        let vol = 0.002;
-        if (tf === '1h') vol = 0.005;
-        if (tf === '1d' || tf === '1D') vol = 0.012;
-        if (tf === '1M') vol = 0.025;
+        const maxBody = Math.max(open, close);
+        const minBody = Math.min(open, close);
 
-        const seed1 = Math.sin(time * 0.001) * 10000;
-        const seed2 = Math.cos(time * 0.001) * 10000;
-        const r1 = seed1 - Math.floor(seed1);
-        const r2 = seed2 - Math.floor(seed2);
-
-        const changePercent = (r1 - 0.49) * vol;
-        const open = Math.max(0.00000001, currClose / (1 + changePercent));
-        const high = Math.max(open, currClose) * (1 + (r2 * vol * 0.2));
-        const low = Math.min(open, currClose) * (1 - ((1 - r2) * vol * 0.2));
+        const upperWick = maxBody * (1 + Math.random() * vol * 0.9);
+        const lowerWick = Math.max(0.00000001, minBody * (1 - Math.random() * vol * 0.9));
 
         candles.push({
             time: time,
-            open: Number(open.toFixed(8)),
-            high: Number(high.toFixed(8)),
-            low: Number(low.toFixed(8)),
-            close: Number(currClose.toFixed(8))
+            open: parseFloat(open.toFixed(8)),
+            high: parseFloat(Math.max(upperWick, maxBody).toFixed(8)),
+            low: parseFloat(Math.min(lowerWick, minBody).toFixed(8)),
+            close: parseFloat(close.toFixed(8))
         });
-
-        currClose = open;
     }
 
-    if (candles.length > 0) {
-        applyCandlesToChart(candles);
-    }
+    applyCandlesToChart(candles);
 }
 
 function updateChartTick(price) {
@@ -522,7 +524,11 @@ function updateChartTick(price) {
         if (price < currentCandle.low) currentCandle.low = price;
     }
 
-    candleSeries.update(currentCandle);
+    try {
+        candleSeries.update(currentCandle);
+    } catch (e) {
+        console.warn("تنبيه تحديث الشمعة الحالية:", e);
+    }
 }
 
 function changeTimeframe(tf) {
@@ -531,7 +537,7 @@ function changeTimeframe(tf) {
 
     document.querySelectorAll('.tf-btn').forEach(btn => {
         const txt = btn.innerText.trim();
-        if (txt === tf || (tf === '1d' && txt === '1D') || (tf === '1D' && txt === '1d')) {
+        if (txt === tf || (tf === '1d' && txt === '1D') || (tf === '1D' && txt === '1d') || (tf === '1M' && txt === '1M')) {
             btn.classList.add('active');
         } else {
             btn.classList.remove('active');
@@ -539,6 +545,12 @@ function changeTimeframe(tf) {
     });
 
     if (tvChart) {
+        const isIntraday = ['1m', '5m', '15m', '1h'].includes(tf);
+        tvChart.timeScale().applyOptions({
+            timeVisible: isIntraday,
+            secondsVisible: false
+        });
+
         loadChartData(currentTimeframe);
     }
 }
