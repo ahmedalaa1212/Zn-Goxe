@@ -1,4 +1,4 @@
-/**
+ /**
  * 💎 ZNX Wallet Engine (Front-end Module - Professional Bybit-Style Chart & Real STON.fi Engine)
  */
 
@@ -320,7 +320,7 @@ function initChart() {
                     } else if (currentTimeframe === '1h') {
                         return `${month}/${day} ${hours}:00`;
                     } else if (['1d', '1D'].includes(currentTimeframe)) {
-                        return `${month}/${day}`;
+                        return `${date.getFullYear()}/${month}/${day}`;
                     } else {
                         return `${date.getFullYear()}/${month}`;
                     }
@@ -419,10 +419,11 @@ function applyCandlesToChart(candles) {
 
     let cleanCandles = [];
     let seenTimes = new Set();
+    const nowSec = Math.floor(Date.now() / 1000) + 3600; // أمان زمني لمنع التواريخ المستقبلية
 
     for (let c of candles) {
         let t = Math.floor(Number(c.time));
-        if (!isNaN(t) && t > 0 && !seenTimes.has(t)) {
+        if (!isNaN(t) && t > 0 && t <= nowSec && !seenTimes.has(t)) {
             seenTimes.add(t);
             cleanCandles.push({
                 time: t,
@@ -456,22 +457,26 @@ function applyCandlesToChart(candles) {
     }
 }
 
-// مولد شموع متصل وواقعي بنسبة 100% مطابق لمظهر بايبت بالتوقيت الحالي والتاريخ من 2026
+// مولد شموع متصل وواقعي بنسبة 100% مرتبط بالزمن الحقيقي الحالي ولا يتجاوز المستقبل
 function generateAccurateTimeboundCandles(tf) {
     const tfSec = getTimeframeSeconds(tf);
     const nowSec = Math.floor(Date.now() / 1000);
     const currentPeriodStart = Math.floor(nowSec / tfSec) * tfSec;
 
-    // بداية تاريخ إنشاء العملة (يناير 2026)
+    // بداية تاريخ إنشاء العملة (1 يناير 2026)
     const creationTime2026 = Math.floor(new Date('2026-01-01T00:00:00Z').getTime() / 1000);
     
-    let count = 80;
-    if (tf === '1m') count = 70;
-    else if (tf === '5m') count = 65;
-    else if (tf === '15m') count = 60;
-    else if (tf === '1h') count = 50;
-    else if (tf === '1d' || tf === '1D') count = 45;
-    else if (tf === '1M') count = 24;
+    let desiredCount = 80;
+    if (tf === '1m') desiredCount = 70;
+    else if (tf === '5m') desiredCount = 65;
+    else if (tf === '15m') desiredCount = 60;
+    else if (tf === '1h') desiredCount = 50;
+    else if (tf === '1d' || tf === '1D') desiredCount = 45;
+    else if (tf === '1M') desiredCount = 24;
+
+    // تقييد الشموع بحيث تبدأ من تاريخ إنشاء العملة ولا تتعدى التوقيت الحالي
+    const maxCandlesSinceCreation = Math.max(1, Math.floor((currentPeriodStart - creationTime2026) / tfSec) + 1);
+    const count = Math.min(desiredCount, maxCandlesSinceCreation);
 
     const targetPrice = (targetLivePrice > 0) ? targetLivePrice : ((currentLivePrice > 0) ? currentLivePrice : 0.0000423);
 
@@ -485,10 +490,9 @@ function generateAccurateTimeboundCandles(tf) {
     let candles = new Array(count);
     let prevClose = targetPrice;
 
-    // توليد مسار متصل للخلف
+    // توليد مسار زمني متراجع بدقة ينتهي عند اليوم بدون القفز للمستقبل
     for (let i = count - 1; i >= 0; i--) {
         let time = currentPeriodStart - ((count - 1 - i) * tfSec);
-        if (time < creationTime2026) time = creationTime2026 + (i * tfSec);
 
         const change = (Math.random() - 0.492) * vol;
         const close = (i === count - 1) ? targetPrice : prevClose;
