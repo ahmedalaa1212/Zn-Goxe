@@ -1,7 +1,6 @@
 // super_admin/super_admin.js
 // JavaScript Controller for Super Admin WebApp Console
 
-// استخراج رؤوس التوثيق الخاصة بـ Telegram WebApp لإرسالها مع جميع الطلبات
 function getAdminHeaders() {
     const initData = window.Telegram?.WebApp?.initData || "";
     const adminId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "";
@@ -13,7 +12,6 @@ function getAdminHeaders() {
     };
 }
 
-// تبديل إظهار/إخفاء حقل معرف المستخدم الفردي حسب الاختيار (جماعي / فردي)
 function toggleTargetInput() {
     const targetTypeSelect = document.getElementById('msgTargetType');
     const singleTargetGroup = document.getElementById('singleTargetGroup');
@@ -26,7 +24,6 @@ function toggleTargetInput() {
     }
 }
 
-// إرسال الرسالة والإشعارات الإدارية (مباشرة أو جماعية)
 async function sendAdminMessage() {
     const targetTypeSelect = document.getElementById('msgTargetType');
     const targetUserIdInput = document.getElementById('targetUserId');
@@ -43,7 +40,6 @@ async function sendAdminMessage() {
     const btnText = msgBtnTextInput ? msgBtnTextInput.value.trim() : '';
     const btnUrl = msgBtnUrlInput ? msgBtnUrlInput.value.trim() : '';
 
-    // التحقق المباشر من صحة المدخلات
     if (!message) {
         alert("⚠️ يرجى إدخال نص الرسالة المراد إرسالها.");
         if (msgContentInput) msgContentInput.focus();
@@ -62,13 +58,11 @@ async function sendAdminMessage() {
         return;
     }
 
-    // تأكيد قبل الإرسال الجماعي لتجنب الأخطاء
     if (targetType === 'all') {
-        const confirmBroadcast = confirm("⚠️ تنبيه: أنت على وشك إرسال هذه الرسالة كبث جماعي لكل مستخدمي البوت.\n\nهل أنت متأكد من الاستمرار؟");
+        const confirmBroadcast = confirm("⚠️ تنبيه: أنت على وشك إرسال هذه الرسالة كبث جماعي لكل مستخدمي البوت عبر بوت المستخدمين الرئيسي.\n\nهل أنت متأكد من الاستمرار؟");
         if (!confirmBroadcast) return;
     }
 
-    // تعطيل الزر مؤقتاً لحين انتهاء العملية
     if (btnSend) {
         btnSend.disabled = true;
         btnSend.style.opacity = '0.6';
@@ -99,7 +93,6 @@ async function sendAdminMessage() {
             if (msgBtnUrlInput) msgBtnUrlInput.value = '';
             if (targetUserIdInput && targetType === 'single') targetUserIdInput.value = '';
             
-            // تحديث كارت الإحصائيات فور الإرسال
             fetchBroadcastStats();
         } else {
             alert("❌ فشل الإرسال: " + (data.message || "حدث خطأ غير معروف"));
@@ -116,7 +109,6 @@ async function sendAdminMessage() {
     }
 }
 
-// جلب وتحديث حالة الإرسال الجماعي الحية
 async function fetchBroadcastStats() {
     const statusBox = document.getElementById('broadcastStatusBox');
     const detailsContainer = document.getElementById('broadcastProgressDetails');
@@ -160,7 +152,6 @@ async function fetchBroadcastStats() {
     }
 }
 
-// تحميل التحليلات الكلية والإحصائيات لرأس اللوحة
 async function loadGlobalAnalytics() {
     try {
         const response = await fetch('/api/super-admin/analytics', {
@@ -183,7 +174,6 @@ async function loadGlobalAnalytics() {
     }
 }
 
-// إدارة إعدادات لعبة شبكة ZN Go
 async function loadZnGoSettings() {
     try {
         const response = await fetch('/api/super-admin/zngo-settings', {
@@ -226,7 +216,6 @@ async function saveZnGoSettings() {
     }
 }
 
-// إدارة إعدادات لعبة الساحة الكبرى
 async function loadBigArenaSettings() {
     try {
         const response = await fetch('/api/super-admin/big-arena-settings', {
@@ -272,7 +261,6 @@ async function saveBigArenaSettings() {
     }
 }
 
-// إدارة المشرفين والصلاحيات
 async function addNewModerator() {
     const modId = document.getElementById('modTelegramId')?.value.trim();
     const modName = document.getElementById('modName')?.value.trim();
@@ -362,7 +350,6 @@ async function removeModerator(telegramId) {
     }
 }
 
-// تحميل سجل النشاطات الإدارية
 async function loadAdminLogs() {
     const logsElem = document.getElementById('adminLogs');
     if (!logsElem) return;
@@ -393,7 +380,6 @@ async function loadAdminLogs() {
     }
 }
 
-// تهيئة الصفحة وتحميل البيانات أولياً فور اكتمال الجاهزية
 document.addEventListener('DOMContentLoaded', () => {
     loadGlobalAnalytics();
     loadZnGoSettings();
