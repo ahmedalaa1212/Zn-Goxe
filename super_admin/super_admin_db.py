@@ -31,7 +31,10 @@ def modify_user_balance_admin(tg_id, amount, balance_type="balance", operation="
             return False, "نوع العملية غير معروف", current_val
 
         user_ref.update({field_key: new_val})
-        database.log_admin_action(admin_name, f"تعديل رصيد {field_key} للمستخدم {tg_id_str}: من {current_val} إلى {new_val}")
+        try:
+            database.log_admin_action(admin_name, f"تعديل رصيد {field_key} للمستخدم {tg_id_str}: من {current_val} إلى {new_val}")
+        except Exception:
+            pass
 
         return True, f"تم تعديل رصيد {field_key} بنجاح إلى {new_val}", new_val
     except Exception as e:
@@ -66,7 +69,11 @@ def reset_user_account_admin(tg_id, admin_name="السوبر أدمن"):
             "total_losses": 0.0
         })
 
-        database.log_admin_action(admin_name, f"تصفير حساب المستخدم {tg_id_str} بالكامل")
+        try:
+            database.log_admin_action(admin_name, f"تصفير حساب المستخدم {tg_id_str} بالكامل")
+        except Exception:
+            pass
+
         return True, f"تم إعادة تصفير حساب المستخدم {tg_id_str} بنجاح!"
     except Exception as e:
         print(f"❌ Error resetting user account: {e}")
@@ -89,10 +96,14 @@ def get_system_global_analytics():
             d = u.to_dict() or {}
             total_balance_zn += float(d.get("balance", 0.0) or 0.0)
             total_ad_balance += float(d.get("ad_balance", 0.0) or 0.0)
-            if d.get("banned", False):
+            if d.get("banned", False) or d.get("is_banned", False):
                 banned_users_count += 1
 
-        game_stats = database.get_game_profit_stats()
+        game_stats = {}
+        try:
+            game_stats = database.get_game_profit_stats()
+        except Exception:
+            pass
 
         return {
             "total_users": total_users,
@@ -107,22 +118,22 @@ def get_system_global_analytics():
         return {}
 
 
-# ------------------- الإضافات الجديدة للنظام الإشعارات ------------------- #
+# ------------------- وظائف نظام الإشعارات ------------------- #
 
 def get_all_user_ids():
     """استخراج قائمة بكل معرفات المستخدمين غير المحظورين"""
     try:
         db = database.get_db()
+        if not db:
+            return []
+            
         users_ref = db.collection("users").stream()
         user_ids = []
 
         for doc in users_ref:
             data = doc.to_dict() or {}
-            if not data.get("banned", False):
-                try:
-                    user_ids.append(int(doc.id))
-                except ValueError:
-                    continue
+            if not (data.get("banned", False) or data.get("is_banned", False)):
+                user_ids.append(str(doc.id))
         return user_ids
     except Exception as e:
         print(f"❌ Error fetching user IDs: {e}")
@@ -133,6 +144,9 @@ def get_user_by_id(tg_id):
     """فحص وجود مستخدم محدد وإرجاع بياناته"""
     try:
         db = database.get_db()
+        if not db:
+            return False, None
+
         user_doc = db.collection("users").document(str(tg_id)).get()
         if user_doc.exists:
             return True, user_doc.to_dict()
@@ -146,6 +160,9 @@ def log_broadcast_campaign(admin_name, message, total_targets, success_count, bl
     """أرشفة وتسجيل نتائج حملة الإرسال الجماعي"""
     try:
         db = database.get_db()
+        if not db:
+            return False
+
         campaign_data = {
             "admin_name": admin_name,
             "message_snippet": message[:100] + "..." if len(message) > 100 else message,
@@ -157,7 +174,12 @@ def log_broadcast_campaign(admin_name, message, total_targets, success_count, bl
             "created_at_str": time.strftime("%Y-%m-%d %H:%M:%S")
         }
         db.collection("broadcasts").add(campaign_data)
-        database.log_admin_action(admin_name, f"حملة إرسال جماعي: تم {success_count}/{total_targets} | حظر {blocked_count}")
+        
+        try:
+            database.log_admin_action(admin_name, f"حملة إرسال جماعي: تم {success_count}/{total_targets} | حظر {blocked_count}")
+        except Exception:
+            pass
+
         return True
     except Exception as e:
         print(f"❌ Error logging broadcast campaign: {e}")
@@ -168,6 +190,9 @@ def get_latest_broadcast_stats():
     """جلب بيانات أحدث حملة إرسال محفوظة"""
     try:
         db = database.get_db()
+        if not db:
+            return None
+
         docs = db.collection("broadcasts").order_by("timestamp", direction=firestore.Query.DESCENDING).limit(1).stream()
         for doc in docs:
             return doc.to_dict()
