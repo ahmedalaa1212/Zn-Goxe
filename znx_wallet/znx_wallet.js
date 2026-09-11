@@ -5,6 +5,9 @@
 const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ";
 const ZNX_POOL_ADDRESS = "EQA0uIZQz8yFJdLCxpz7uXkjcylnnvGl3_KpE2zDUV5LUdXL";
 
+// تاريخ إنشاء المجمع والعملة كحد أدنى (أغسطس 2026) لمنع ظهور أعوام قديمة
+const TOKEN_LAUNCH_TIMESTAMP = 1785542400; 
+
 function escapeHTML(str) {
     if (!str) return '';
     return String(str)
@@ -49,7 +52,7 @@ function getTimeframeSeconds(tf) {
         case '15m': return 900;
         case '1h': return 3600;
         case '1d': case '1D': return 86400;
-        case '1M': return 2592000; // 30 يوماً
+        case '1M': return 2592000;
         default: return 60;
     }
 }
@@ -149,7 +152,7 @@ async function fetchRealZnxPrice() {
         }
     } catch (e) {
         if (!isPriceInitialized && targetLivePrice === 0) {
-            setTargetPrice(0.0000423);
+            setTargetPrice(0.0000420);
         }
     }
 }
@@ -168,13 +171,13 @@ function updateMarketStatsUI(data) {
     if (highEl && data.high_24h) {
         highEl.innerText = formatPriceUsd(data.high_24h);
     } else if (highEl && targetLivePrice > 0) {
-        highEl.innerText = formatPriceUsd(targetLivePrice * 1.04);
+        highEl.innerText = formatPriceUsd(targetLivePrice * 1.05);
     }
 
     if (lowEl && data.low_24h) {
         lowEl.innerText = formatPriceUsd(data.low_24h);
     } else if (lowEl && targetLivePrice > 0) {
-        lowEl.innerText = formatPriceUsd(targetLivePrice * 0.96);
+        lowEl.innerText = formatPriceUsd(targetLivePrice * 0.95);
     }
 }
 
@@ -209,7 +212,7 @@ function setTargetPrice(newPrice) {
     targetLivePrice = newPrice;
 }
 
-// محرك الانتقال السلس الشديد الدقة (Smooth Lerp Loop)
+// محرك الانتقال السلس الشديد الدقة (Smooth Lerp Loop - 20 FPS)
 function updateSmoothTick() {
     if (targetLivePrice <= 0) return;
 
@@ -276,7 +279,6 @@ function initChart() {
 
     const width = container.clientWidth || container.parentElement?.clientWidth || window.innerWidth - 32 || 350;
     const height = container.clientHeight || 250;
-    const isDailyOrHigher = (currentTimeframe === '1d' || currentTimeframe === '1D' || currentTimeframe === '1M');
 
     try {
         tvChart = LightweightCharts.createChart(container, {
@@ -301,8 +303,24 @@ function initChart() {
             },
             timeScale: {
                 borderColor: '#1e293b',
-                timeVisible: !isDailyOrHigher,
+                timeVisible: true,
                 secondsVisible: false,
+                tickMarkFormatter: (time) => {
+                    const date = new Date(time * 1000);
+                    if (['1m', '5m', '15m'].includes(currentTimeframe)) {
+                        const h = String(date.getHours()).padStart(2, '0');
+                        const m = String(date.getMinutes()).padStart(2, '0');
+                        return `${h}:${m}`;
+                    } else if (currentTimeframe === '1h') {
+                        const day = date.getDate();
+                        const h = String(date.getHours()).padStart(2, '0');
+                        return `${day}d ${h}:00`;
+                    } else {
+                        const day = date.getDate();
+                        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                        return `${day} ${months[date.getMonth()]}`;
+                    }
+                }
             },
             handleScroll: { mouseWheel: true, pressedMove: true },
             handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true }
@@ -355,7 +373,7 @@ async function loadChartData(tf) {
         console.warn("⚠️ تعذر جلب الشموع عبر السيرفر، جاري المحاولة المباشرة...");
     }
 
-    // Fallback: جلب مباشر من GeckoTerminal
+    // Fallback: جلب مباشر من GeckoTerminal (المزود المباشر لـ STON.fi DEX)
     try {
         let period = 'minute';
         let agg = 1;
@@ -365,7 +383,7 @@ async function loadChartData(tf) {
         else if (tf === '1d' || tf === '1D') { period = 'day'; agg = 1; }
         else if (tf === '1M') { period = 'day'; agg = 30; }
 
-        const directUrl = `https://api.geckoterminal.com/api/v2/networks/ton/pools/${ZNX_POOL_ADDRESS}/ohlcv/${period}?aggregate=${agg}&limit=60`;
+        const directUrl = `https://api.geckoterminal.com/api/v2/networks/ton/pools/${ZNX_POOL_ADDRESS}/ohlcv/${period}?aggregate=${agg}&limit=100`;
         const directRes = await fetch(directUrl);
         if (directRes.ok) {
             const json = await directRes.json();
@@ -377,16 +395,28 @@ async function loadChartData(tf) {
                     high: parseFloat(item[2]),
                     low: parseFloat(item[3]),
                     close: parseFloat(item[4])
-                })).sort((a, b) => a.time - b.time);
+                }));
 
+                // تصفية وإزالة التكرارات والتأكد من تاريخ الإطلاق
                 let cleanCandles = [];
-                let lastT = null;
+                let seenTimes = new Set();
+
                 for (let c of candles) {
-                    if (c.time !== lastT && !isNaN(c.time) && !isNaN(c.close)) {
-                        cleanCandles.push(c);
-                        lastT = c.time;
+                    let t = Math.floor(Number(c.time));
+                    if (!isNaN(t) && !seenTimes.has(t) && t >= TOKEN_LAUNCH_TIMESTAMP) {
+                        seenTimes.add(t);
+                        cleanCandles.push({
+                            time: t,
+                            open: Number(c.open),
+                            high: Number(c.high),
+                            low: Number(c.low),
+                            close: Number(c.close)
+                        });
                     }
                 }
+
+                cleanCandles.sort((a, b) => a.time - b.time);
+
                 if (cleanCandles.length > 0) {
                     applyCandlesToChart(cleanCandles);
                     return;
@@ -397,7 +427,7 @@ async function loadChartData(tf) {
         console.warn("⚠️ تعذر الجلب المباشر للشموع.");
     }
 
-    // توليد احتياطي مضبوط زمنياً ومستنسخ عكسياً للربط التام بالسعر الحالي
+    // مولد احتياطي يضمن دقة الطوابع الزمنية وعدم التجاوز قبل تاريخ إنشاء العملة
     generateAccurateTimeboundCandles(tf);
 }
 
@@ -421,55 +451,53 @@ function applyCandlesToChart(candles) {
     }
 }
 
-// مولد احتياطي يضمن سلاسة الشموع وعدم وجود قفزات مفاجئة بالسعر
+// مولد احتياطي يضمن دقة الطوابع الزمنية بالدقيقة والساعة وتاريخ الإطلاق فقط
 function generateAccurateTimeboundCandles(tf) {
-    const basePrice = (targetLivePrice > 0) ? targetLivePrice : (currentLivePrice > 0 ? currentLivePrice : 0.0000423);
+    const basePrice = (targetLivePrice > 0) ? targetLivePrice : (currentLivePrice > 0 ? currentLivePrice : 0.0000420);
     const tfSec = getTimeframeSeconds(tf);
     const nowSec = Math.floor(Date.now() / 1000);
     const candlePeriodStart = Math.floor(nowSec / tfSec) * tfSec;
     
-    let count = 50;
-    if (tf === '1d' || tf === '1D') count = 30;
-    if (tf === '1M') count = 24;
+    // عدم توليد أي شمعة أقدم من تاريخ إطلاق المجمع الحقيقي
+    const maxCandlesByLaunch = Math.floor((candlePeriodStart - TOKEN_LAUNCH_TIMESTAMP) / tfSec);
+    const count = Math.max(2, Math.min(50, maxCandlesByLaunch > 0 ? maxCandlesByLaunch : 10));
 
-    let candles = new Array(count);
-    let currentClose = basePrice;
+    let candles = [];
+    let currClose = basePrice;
 
-    let vol = 0.0015;
-    if (tf === '5m') vol = 0.003;
-    if (tf === '15m') vol = 0.005;
-    if (tf === '1h') vol = 0.008;
-    if (tf === '1d' || tf === '1D') vol = 0.018;
-    if (tf === '1M') vol = 0.035;
-
-    // توليد عكسي يبدأ من الوقت الحالي للخلف لمنع القفزات المفاجئة
-    for (let i = 0; i < count; i++) {
+    for (let i = count - 1; i >= 0; i--) {
         const time = candlePeriodStart - (i * tfSec);
+        if (time < TOKEN_LAUNCH_TIMESTAMP) continue;
         
-        const seed1 = Math.sin(time * 0.0001) * 10000;
-        const seed2 = Math.cos(time * 0.0001) * 10000;
+        let vol = 0.002;
+        if (tf === '1h') vol = 0.005;
+        if (tf === '1d' || tf === '1D') vol = 0.012;
+        if (tf === '1M') vol = 0.025;
+
+        const seed1 = Math.sin(time * 0.001) * 10000;
+        const seed2 = Math.cos(time * 0.001) * 10000;
         const r1 = seed1 - Math.floor(seed1);
         const r2 = seed2 - Math.floor(seed2);
 
-        const pctChange = (r1 - 0.48) * vol;
-        const closeVal = currentClose;
-        let openVal = Math.max(0.00000001, closeVal / (1 + pctChange));
-        
-        let highVal = Math.max(openVal, closeVal) * (1 + (r2 * vol * 0.4));
-        let lowVal = Math.min(openVal, closeVal) * (1 - ((1 - r2) * vol * 0.4));
+        const changePercent = (r1 - 0.49) * vol;
+        const open = Math.max(0.00000001, currClose / (1 + changePercent));
+        const high = Math.max(open, currClose) * (1 + (r2 * vol * 0.2));
+        const low = Math.min(open, currClose) * (1 - ((1 - r2) * vol * 0.2));
 
-        candles[count - 1 - i] = {
+        candles.push({
             time: time,
-            open: Number(openVal.toFixed(8)),
-            high: Number(highVal.toFixed(8)),
-            low: Number(lowVal.toFixed(8)),
-            close: Number(closeVal.toFixed(8))
-        };
+            open: Number(open.toFixed(8)),
+            high: Number(high.toFixed(8)),
+            low: Number(low.toFixed(8)),
+            close: Number(currClose.toFixed(8))
+        });
 
-        currentClose = openVal;
+        currClose = open;
     }
 
-    applyCandlesToChart(candles);
+    if (candles.length > 0) {
+        applyCandlesToChart(candles);
+    }
 }
 
 function updateChartTick(price) {
@@ -503,7 +531,7 @@ function changeTimeframe(tf) {
 
     document.querySelectorAll('.tf-btn').forEach(btn => {
         const txt = btn.innerText.trim();
-        if (txt.toLowerCase() === tf.toLowerCase()) {
+        if (txt === tf || (tf === '1d' && txt === '1D') || (tf === '1D' && txt === '1d')) {
             btn.classList.add('active');
         } else {
             btn.classList.remove('active');
@@ -511,13 +539,6 @@ function changeTimeframe(tf) {
     });
 
     if (tvChart) {
-        const isDailyOrHigher = (tf === '1d' || tf === '1D' || tf === '1M');
-        tvChart.applyOptions({
-            timeScale: {
-                timeVisible: !isDailyOrHigher,
-                secondsVisible: false,
-            }
-        });
         loadChartData(currentTimeframe);
     }
 }
@@ -718,7 +739,7 @@ function renderLeaderboardUI(list, myRank, myInfo) {
 
     if (list.length >= 1) podium.innerHTML += createPodiumCard(list[0], 1, 'podium-1');
     if (list.length >= 2) podium.innerHTML += createPodiumCard(list[1], 2, 'podium-2');
-    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
+    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[3] ? list[2] : list[2], 3, 'podium-3');
 
     const limitCount = Math.min(10, list.length);
     for (let i = 3; i < limitCount; i++) {
