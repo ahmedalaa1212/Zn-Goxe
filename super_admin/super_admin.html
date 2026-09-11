@@ -170,20 +170,18 @@
             white-space: nowrap;
         }
 
-        .input-group input {
+        .input-group input, .input-group select, .input-group textarea {
             background: var(--input-bg);
             border: 1px solid var(--card-border);
             border-radius: 8px;
             padding: 8px;
             color: var(--text-main);
             font-size: 13px;
-            text-align: center;
-            font-weight: bold;
-            width: 100%;
             outline: none;
+            width: 100%;
         }
 
-        .input-group input:focus {
+        .input-group input:focus, .input-group select:focus, .input-group textarea:focus {
             border-color: var(--accent-gold);
         }
 
@@ -264,16 +262,6 @@
             color: var(--text-muted);
         }
 
-        .btn-danger-sm {
-            background: rgba(239, 68, 68, 0.15);
-            color: var(--accent-red);
-            border: 1px solid var(--accent-red);
-            border-radius: 6px;
-            padding: 4px 8px;
-            font-size: 10px;
-            cursor: pointer;
-        }
-
         .empty-msg {
             text-align: center;
             font-size: 11px;
@@ -281,13 +269,18 @@
             padding: 10px;
         }
 
-        ::-webkit-scrollbar {
-            width: 4px;
+        .broadcast-status-box {
+            background: var(--input-bg);
+            border: 1px dashed var(--accent-gold);
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 11px;
+            margin-top: 10px;
+            display: none;
         }
-        ::-webkit-scrollbar-thumb {
-            background: var(--card-border);
-            border-radius: 4px;
-        }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 4px; }
     </style>
 </head>
 <body>
@@ -295,7 +288,7 @@
     <div class="container">
         <div class="header">
             <h1>👑 لوحة الإدارة العليا</h1>
-            <p>نظام التحكم المركزي بالأرباح والصلاحيات</p>
+            <p>نظام التحكم المركزي بالأرباح والصلاحيات والإشعارات</p>
         </div>
 
         <!-- كروت الإحصائيات الحية -->
@@ -311,6 +304,55 @@
             <div class="stat-card blue">
                 <div class="title">الربح الفعلي</div>
                 <div class="value" id="actual-profit-pct">0%</div>
+            </div>
+        </div>
+
+        <!-- 📢 الكارت الجديد: مركز الرسائل والإشعارات -->
+        <div class="section-card" style="border: 1px solid var(--accent-blue);">
+            <div class="section-header">
+                <div class="section-title" style="color: var(--accent-blue);">📢 مركز الرسائل والإشعارات</div>
+                <button class="btn-refresh" onclick="fetchBroadcastStats()">🔄 الحالة الحية</button>
+            </div>
+
+            <div class="input-group" style="margin-bottom: 10px;">
+                <label>هدف الإرسال</label>
+                <select id="msgTargetType" onchange="toggleTargetInput()">
+                    <option value="all">🎯 جميع المستخدمين (بث جماعي)</option>
+                    <option value="single">👤 مستخدم محدد برقم (ID)</option>
+                </select>
+            </div>
+
+            <div class="input-group" id="singleTargetGroup" style="margin-bottom: 10px; display: none;">
+                <label>معرف المستخدم (Telegram ID)</label>
+                <input type="text" id="targetUserId" placeholder="مثال: 123456789">
+            </div>
+
+            <div class="input-group" style="margin-bottom: 10px;">
+                <label>نص الرسالة (يدعم تنسيق HTML)</label>
+                <textarea id="msgContent" rows="4" placeholder="اكتب نص الرسالة هنا... يمكنك استخدام <b>غامق</b> أو <a href='...'>رابط</a>"></textarea>
+            </div>
+
+            <div class="input-group" style="margin-bottom: 10px;">
+                <label>رابط صورة مرفقة (اختياري)</label>
+                <input type="url" id="msgImageUrl" placeholder="https://example.com/image.jpg">
+            </div>
+
+            <div class="margin-controls" style="grid-template-columns: 1fr 1fr; margin-bottom: 12px;">
+                <div class="input-group">
+                    <label>نص الزر التفاعلي (اختياري)</label>
+                    <input type="text" id="msgBtnText" placeholder="مثال: انضم الآن">
+                </div>
+                <div class="input-group">
+                    <label>رابط الزر (URL)</label>
+                    <input type="url" id="msgBtnUrl" placeholder="https://t.me/...">
+                </div>
+            </div>
+
+            <button class="btn-primary" id="btnSendMessage" onclick="sendAdminMessage()" style="background: var(--accent-blue); color: #fff;">🚀 إرسال الرسالة الآن</button>
+
+            <div class="broadcast-status-box" id="broadcastStatusBox">
+                <div style="font-weight: bold; color: var(--accent-gold); margin-bottom: 4px;">📊 حالة الإرسال الحالية:</div>
+                <div id="broadcastProgressDetails">جاري الاتصال...</div>
             </div>
         </div>
 
@@ -423,7 +465,6 @@
                 window.Telegram.WebApp.expand();
             }
 
-            // حساب نسبة اللاعب التلقائية لشبكة ZN Go
             const gBot = document.getElementById('grid36-bot-margin');
             const gUser = document.getElementById('grid36-user-margin');
             if (gBot && gUser) {
@@ -433,7 +474,6 @@
                 });
             }
 
-            // حساب نسبة اللاعب التلقائية للساحة الكبرى
             const aBot = document.getElementById('big-arena-bot-margin');
             const aUser = document.getElementById('big-arena-user-margin');
             if (aBot && aUser) {
