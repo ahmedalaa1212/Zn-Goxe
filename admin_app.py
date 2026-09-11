@@ -1,3 +1,4 @@
+# admin_app.py
 import os
 import sys
 import time
@@ -42,6 +43,7 @@ def is_admin_authorized(telegram_id):
 # ==========================================
 # 🤖 تشغيل بوت الأدمن في الخلفية داخل نفس التطبيق
 # ==========================================
+bot = None
 if BOT_TOKEN:
     import telebot
     from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -152,6 +154,23 @@ if BOT_TOKEN:
 # ==========================================
 # تسجيل المسارات (Blueprints)
 # ==========================================
+
+# تسجيل موديول الإدارة العليا والإشعارات الجديد Super Admin
+try:
+    from super_admin.super_admin_api import super_admin_bp
+    app.register_blueprint(super_admin_bp, url_prefix='/api/super-admin')
+    
+    # تمرير كائن البوت لموديول super_admin_api لضمان الربط المباشر عند الإرسال
+    try:
+        from super_admin import super_admin_api
+        if hasattr(super_admin_api, 'set_bot'):
+            super_admin_api.set_bot(bot)
+        elif hasattr(super_admin_api, 'bot') and bot:
+            super_admin_api.bot = bot
+    except Exception as bot_bind_err:
+        print(f"⚠️ Note on binding bot instance to super_admin_api: {bot_bind_err}")
+except Exception as e:
+    print(f"⚠️ لم يتم تحميل module super_admin: {e}")
 
 try:
     from addons.addons_api import addons_bp
