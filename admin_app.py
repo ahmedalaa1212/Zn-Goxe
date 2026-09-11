@@ -5,7 +5,6 @@ import time
 import threading
 import requests
 
-# ضمان إضافة المسار الرئيسي للمشروع لمنع أخطاء الاستيراد (ImportError)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
@@ -18,12 +17,11 @@ from core.security import get_authenticated_user
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 
-# إعداد CORS للوصول إلى كافة مسارات API
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 WEB_URL = os.environ.get('WEB_URL', 'https://admin-zn-production.up.railway.app').strip().rstrip('/')
 ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551").strip()
-BOT_TOKEN = os.environ.get("ADMIN_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
+ADMIN_BOT_TOKEN = os.environ.get("ADMIN_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
 
 def is_admin_authorized(telegram_id):
     """فحص موحد: الأدمن الرئيسي له السلطة المطلقة دائماً"""
@@ -41,16 +39,16 @@ def is_admin_authorized(telegram_id):
         return False
 
 # ==========================================
-# 🤖 تشغيل بوت الأدمن في الخلفية داخل نفس التطبيق
+# 🤖 تشغيل بوت الأدمن في الخلفية لوصل لوحة الإدارة فقط
 # ==========================================
-bot = None
-if BOT_TOKEN:
+admin_bot = None
+if ADMIN_BOT_TOKEN:
     import telebot
     from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
-    bot = telebot.TeleBot(BOT_TOKEN)
+    admin_bot = telebot.TeleBot(ADMIN_BOT_TOKEN)
 
-    @bot.message_handler(commands=['start'])
+    @admin_bot.message_handler(commands=['start'])
     def send_welcome(message):
         try:
             user_id = message.from_user.id
@@ -68,7 +66,7 @@ if BOT_TOKEN:
                     f"🔒 هذا البوت مخصص حصرياً للمالك والمشرفين المعتمدين في منصة <b>ZN Goxe</b>.\n\n"
                     f"<i>تم تسجيل محاولة الوصول في سجلات الأمان.</i>"
                 )
-                bot.reply_to(message, unauthorized_msg, parse_mode="HTML")
+                admin_bot.reply_to(message, unauthorized_msg, parse_mode="HTML")
                 return
 
             role_label = "👑 <b>المدير العام للنظام (Owner)</b>" if user_id_str == str(ADMIN_ID) else "🛡️ <b>مشرف معتمد (Administrator)</b>"
@@ -90,7 +88,7 @@ if BOT_TOKEN:
             btn = InlineKeyboardButton(text="💻 فتح لوحة التحكم الرئيسية ⚡", web_app=webapp)
             markup.add(btn)
 
-            bot.send_message(
+            admin_bot.send_message(
                 message.chat.id,
                 welcome_text,
                 reply_markup=markup,
@@ -99,14 +97,14 @@ if BOT_TOKEN:
         except Exception as e:
             print(f"❌ Error replying to /start: {e}")
 
-    @bot.message_handler(func=lambda message: True)
+    @admin_bot.message_handler(func=lambda message: True)
     def handle_all_messages(message):
         try:
             user_id = message.from_user.id
             user_id_str = str(user_id).strip()
 
             if not is_admin_authorized(user_id_str):
-                bot.reply_to(
+                admin_bot.reply_to(
                     message, 
                     "⛔ <b>وصول مرفوض:</b> لا تملك صلاحية لاستخدام أوامر هذا البوت.",
                     parse_mode="HTML"
@@ -120,7 +118,7 @@ if BOT_TOKEN:
             btn = InlineKeyboardButton(text="💻 فتح لوحة التحكم ⚡", web_app=webapp)
             markup.add(btn)
 
-            bot.reply_to(
+            admin_bot.reply_to(
                 message, 
                 "ℹ️ <b>يرجى الضغط على الزر أدناه للوصول المباشر إلى لوحة الإدارة:</b>",
                 reply_markup=markup,
@@ -131,21 +129,21 @@ if BOT_TOKEN:
 
     def force_delete_webhook():
         try:
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true"
+            url = f"https://api.telegram.org/bot{ADMIN_BOT_TOKEN}/deleteWebhook?drop_pending_updates=true"
             res = requests.get(url, timeout=10)
             print(f"🔄 Webhook cleanup response: {res.json()}")
         except Exception as e:
             print(f"⚠️ Error resetting webhook: {e}")
 
     def run_bot_worker():
-        print("🚀 [Bot Worker] جارٍ إزالة الـ Webhook القديم وبدء الاستماع...")
+        print("🚀 [Admin Bot Worker] جارٍ إزالة الـ Webhook القديم وبدء الاستماع...")
         force_delete_webhook()
         time.sleep(1)
         while True:
             try:
-                bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)
+                admin_bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)
             except Exception as e:
-                print(f"❌ Error in Telegram Bot Polling: {e}")
+                print(f"❌ Error in Admin Telegram Bot Polling: {e}")
                 time.sleep(3)
 
     bot_thread = threading.Thread(target=run_bot_worker, daemon=True)
@@ -155,20 +153,9 @@ if BOT_TOKEN:
 # تسجيل المسارات (Blueprints)
 # ==========================================
 
-# تسجيل موديول الإدارة العليا والإشعارات الجديد Super Admin
 try:
     from super_admin.super_admin_api import super_admin_bp
     app.register_blueprint(super_admin_bp, url_prefix='/api/super-admin')
-    
-    # تمرير كائن البوت لموديول super_admin_api لضمان الربط المباشر عند الإرسال
-    try:
-        from super_admin import super_admin_api
-        if hasattr(super_admin_api, 'set_bot'):
-            super_admin_api.set_bot(bot)
-        elif hasattr(super_admin_api, 'bot') and bot:
-            super_admin_api.bot = bot
-    except Exception as bot_bind_err:
-        print(f"⚠️ Note on binding bot instance to super_admin_api: {bot_bind_err}")
 except Exception as e:
     print(f"⚠️ لم يتم تحميل module super_admin: {e}")
 
@@ -431,10 +418,6 @@ def admin_logs_handler():
 
     logs = database.get_admin_logs(limit=50)
     return jsonify({"success": True, "logs": logs}), 200
-
-# ==========================================
-# المسارات الخدمية وتوجيه الصفحات
-# ==========================================
 
 @app.route('/tonconnect-manifest.json')
 def serve_tonconnect_manifest():
