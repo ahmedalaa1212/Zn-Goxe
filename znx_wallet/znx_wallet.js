@@ -49,7 +49,7 @@ function getTimeframeSeconds(tf) {
         case '15m': return 900;
         case '1h': return 3600;
         case '1d': case '1D': return 86400;
-        case '1M': return 2592000;
+        case '1M': return 2592000; // 30 يوماً
         default: return 60;
     }
 }
@@ -149,7 +149,7 @@ async function fetchRealZnxPrice() {
         }
     } catch (e) {
         if (!isPriceInitialized && targetLivePrice === 0) {
-            setTargetPrice(0.0000420);
+            setTargetPrice(0.0000423);
         }
     }
 }
@@ -168,13 +168,13 @@ function updateMarketStatsUI(data) {
     if (highEl && data.high_24h) {
         highEl.innerText = formatPriceUsd(data.high_24h);
     } else if (highEl && targetLivePrice > 0) {
-        highEl.innerText = formatPriceUsd(targetLivePrice * 1.05);
+        highEl.innerText = formatPriceUsd(targetLivePrice * 1.04);
     }
 
     if (lowEl && data.low_24h) {
         lowEl.innerText = formatPriceUsd(data.low_24h);
     } else if (lowEl && targetLivePrice > 0) {
-        lowEl.innerText = formatPriceUsd(targetLivePrice * 0.95);
+        lowEl.innerText = formatPriceUsd(targetLivePrice * 0.96);
     }
 }
 
@@ -209,7 +209,7 @@ function setTargetPrice(newPrice) {
     targetLivePrice = newPrice;
 }
 
-// محرك الانتقال السلس الشديد الدقة (Smooth Lerp Loop - 20 FPS)
+// محرك الانتقال السلس الشديد الدقة (Smooth Lerp Loop)
 function updateSmoothTick() {
     if (targetLivePrice <= 0) return;
 
@@ -276,6 +276,7 @@ function initChart() {
 
     const width = container.clientWidth || container.parentElement?.clientWidth || window.innerWidth - 32 || 350;
     const height = container.clientHeight || 250;
+    const isDailyOrHigher = (currentTimeframe === '1d' || currentTimeframe === '1D' || currentTimeframe === '1M');
 
     try {
         tvChart = LightweightCharts.createChart(container, {
@@ -300,7 +301,7 @@ function initChart() {
             },
             timeScale: {
                 borderColor: '#1e293b',
-                timeVisible: true,
+                timeVisible: !isDailyOrHigher,
                 secondsVisible: false,
             },
             handleScroll: { mouseWheel: true, pressedMove: true },
@@ -361,7 +362,7 @@ async function loadChartData(tf) {
         if (tf === '5m') agg = 5;
         else if (tf === '15m') agg = 15;
         else if (tf === '1h') { period = 'hour'; agg = 1; }
-        else if (tf === '1d') { period = 'day'; agg = 1; }
+        else if (tf === '1d' || tf === '1D') { period = 'day'; agg = 1; }
         else if (tf === '1M') { period = 'day'; agg = 30; }
 
         const directUrl = `https://api.geckoterminal.com/api/v2/networks/ton/pools/${ZNX_POOL_ADDRESS}/ohlcv/${period}?aggregate=${agg}&limit=60`;
@@ -378,24 +379,25 @@ async function loadChartData(tf) {
                     close: parseFloat(item[4])
                 })).sort((a, b) => a.time - b.time);
 
-                // إزالة التكرارات بالوقت
                 let cleanCandles = [];
                 let lastT = null;
                 for (let c of candles) {
-                    if (c.time !== lastT) {
+                    if (c.time !== lastT && !isNaN(c.time) && !isNaN(c.close)) {
                         cleanCandles.push(c);
                         lastT = c.time;
                     }
                 }
-                applyCandlesToChart(cleanCandles);
-                return;
+                if (cleanCandles.length > 0) {
+                    applyCandlesToChart(cleanCandles);
+                    return;
+                }
             }
         }
     } catch (e) {
         console.warn("⚠️ تعذر الجلب المباشر للشموع.");
     }
 
-    // توليد احتياطي مضبوط زمنياً ودقيق 100% بالوقت الفعلي الحالي دون أعوام قديمة
+    // توليد احتياطي مضبوط زمنياً ومستنسخ عكسياً للربط التام بالسعر الحالي
     generateAccurateTimeboundCandles(tf);
 }
 
@@ -419,44 +421,52 @@ function applyCandlesToChart(candles) {
     }
 }
 
-// مولد احتياطي يضمن دقة الطوابع الزمنية بالدقيقة والساعة مع الوقت الحالي دائماً
+// مولد احتياطي يضمن سلاسة الشموع وعدم وجود قفزات مفاجئة بالسعر
 function generateAccurateTimeboundCandles(tf) {
-    const basePrice = (targetLivePrice > 0) ? targetLivePrice : (currentLivePrice > 0 ? currentLivePrice : 0.0000420);
+    const basePrice = (targetLivePrice > 0) ? targetLivePrice : (currentLivePrice > 0 ? currentLivePrice : 0.0000423);
     const tfSec = getTimeframeSeconds(tf);
     const nowSec = Math.floor(Date.now() / 1000);
     const candlePeriodStart = Math.floor(nowSec / tfSec) * tfSec;
-    const count = 50;
+    
+    let count = 50;
+    if (tf === '1d' || tf === '1D') count = 30;
+    if (tf === '1M') count = 24;
 
-    let candles = [];
-    let currClose = basePrice;
+    let candles = new Array(count);
+    let currentClose = basePrice;
 
-    for (let i = count - 1; i >= 0; i--) {
+    let vol = 0.0015;
+    if (tf === '5m') vol = 0.003;
+    if (tf === '15m') vol = 0.005;
+    if (tf === '1h') vol = 0.008;
+    if (tf === '1d' || tf === '1D') vol = 0.018;
+    if (tf === '1M') vol = 0.035;
+
+    // توليد عكسي يبدأ من الوقت الحالي للخلف لمنع القفزات المفاجئة
+    for (let i = 0; i < count; i++) {
         const time = candlePeriodStart - (i * tfSec);
         
-        let vol = 0.002;
-        if (tf === '1h') vol = 0.006;
-        if (tf === '1d' || tf === '1D') vol = 0.015;
-        if (tf === '1M') vol = 0.030;
-
-        const seed1 = Math.sin(time * 0.001) * 10000;
-        const seed2 = Math.cos(time * 0.001) * 10000;
+        const seed1 = Math.sin(time * 0.0001) * 10000;
+        const seed2 = Math.cos(time * 0.0001) * 10000;
         const r1 = seed1 - Math.floor(seed1);
         const r2 = seed2 - Math.floor(seed2);
 
-        const changePercent = (r1 - 0.49) * vol;
-        const open = Math.max(0.00000001, currClose / (1 + changePercent));
-        const high = Math.max(open, currClose) * (1 + (r2 * vol * 0.3));
-        const low = Math.min(open, currClose) * (1 - ((1 - r2) * vol * 0.3));
+        const pctChange = (r1 - 0.48) * vol;
+        const closeVal = currentClose;
+        let openVal = Math.max(0.00000001, closeVal / (1 + pctChange));
+        
+        let highVal = Math.max(openVal, closeVal) * (1 + (r2 * vol * 0.4));
+        let lowVal = Math.min(openVal, closeVal) * (1 - ((1 - r2) * vol * 0.4));
 
-        candles.push({
+        candles[count - 1 - i] = {
             time: time,
-            open: Number(open.toFixed(8)),
-            high: Number(high.toFixed(8)),
-            low: Number(low.toFixed(8)),
-            close: Number(currClose.toFixed(8))
-        });
+            open: Number(openVal.toFixed(8)),
+            high: Number(highVal.toFixed(8)),
+            low: Number(lowVal.toFixed(8)),
+            close: Number(closeVal.toFixed(8))
+        };
 
-        currClose = open;
+        currentClose = openVal;
     }
 
     applyCandlesToChart(candles);
@@ -493,7 +503,7 @@ function changeTimeframe(tf) {
 
     document.querySelectorAll('.tf-btn').forEach(btn => {
         const txt = btn.innerText.trim();
-        if (txt === tf || (tf === '1d' && txt === '1D') || (tf === '1D' && txt === '1d')) {
+        if (txt.toLowerCase() === tf.toLowerCase()) {
             btn.classList.add('active');
         } else {
             btn.classList.remove('active');
@@ -501,6 +511,13 @@ function changeTimeframe(tf) {
     });
 
     if (tvChart) {
+        const isDailyOrHigher = (tf === '1d' || tf === '1D' || tf === '1M');
+        tvChart.applyOptions({
+            timeScale: {
+                timeVisible: !isDailyOrHigher,
+                secondsVisible: false,
+            }
+        });
         loadChartData(currentTimeframe);
     }
 }
@@ -701,7 +718,7 @@ function renderLeaderboardUI(list, myRank, myInfo) {
 
     if (list.length >= 1) podium.innerHTML += createPodiumCard(list[0], 1, 'podium-1');
     if (list.length >= 2) podium.innerHTML += createPodiumCard(list[1], 2, 'podium-2');
-    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[3] ? list[2] : list[2], 3, 'podium-3');
+    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
 
     const limitCount = Math.min(10, list.length);
     for (let i = 3; i < limitCount; i++) {
