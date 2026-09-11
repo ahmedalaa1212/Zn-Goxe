@@ -105,7 +105,7 @@ def fetch_live_dex_price():
 
 def fetch_dex_candles(timeframe='1m'):
     """
-    جلب الشموع الحقيقية المباشرة من GeckoTerminal / STON.fi مع توليد شموع بايبت متصلة ومطابقة للتاريخ الحقيقي
+    جلب الشموع الحقيقية المباشرة من GeckoTerminal / STON.fi مع توليد شموع متصلة ومطابقة للتاريخ الحقيقي بدون أي قفزات مستقبلية
     """
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -150,8 +150,9 @@ def fetch_dex_candles(timeframe='1m'):
                 # تصفية وتجهيز الشموع
                 unique_candles = []
                 last_t = None
+                now_sec = int(time.time()) + 3600
                 for cd in candles:
-                    if cd['time'] != last_t:
+                    if cd['time'] != last_t and cd['time'] <= now_sec:
                         unique_candles.append(cd)
                         last_t = cd['time']
 
@@ -169,10 +170,12 @@ def fetch_dex_candles(timeframe='1m'):
     current_price = _PRICE_CACHE['price'] if _PRICE_CACHE['price'] > 0 else 0.0000420
     start_period = (now_sec // sec_per_tf) * sec_per_tf
     
-    # تاريخ الإنشاء بداية من 2026
+    # تاريخ الإنشاء بداية من 2026 (1 يناير 2026 UTC)
     creation_time = 1767225600 # 2026-01-01 00:00:00 UTC
 
-    num_candles = limit
+    max_candles = max(1, int((start_period - creation_time) // sec_per_tf) + 1)
+    num_candles = min(limit, max_candles)
+    
     raw_candles = []
     curr_close = current_price
 
@@ -180,8 +183,6 @@ def fetch_dex_candles(timeframe='1m'):
 
     for i in range(num_candles):
         t = start_period - ((num_candles - 1 - i) * sec_per_tf)
-        if t < creation_time:
-            t = creation_time + (i * sec_per_tf)
 
         # توليد موجي عشوائي يحاكي الأسواق الحقيقية
         seed = (t * 13) % 10000
