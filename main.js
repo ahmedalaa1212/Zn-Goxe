@@ -123,8 +123,19 @@ function loadSectionScript(sectionName) {
     script.src = `/${sectionName}/${sectionName}.js?v=${new Date().getTime()}`;
     
     script.onload = () => {
-        if (sectionName === 'super_admin' && typeof window.initSuperAdmin === 'function') {
-            window.initSuperAdmin();
+        // تشغيل دالة التهيئة لقسم super_admin والموديولات الأخرى ديناميكياً
+        if (sectionName === 'super_admin') {
+            if (typeof window.initSuperAdmin === 'function') {
+                window.initSuperAdmin();
+            } else {
+                // استدعاء مباشر لوظائف التحميل المتاحة لمنع أي تعارض
+                if (typeof loadGlobalAnalytics === 'function') loadGlobalAnalytics();
+                if (typeof loadZnGoSettings === 'function') loadZnGoSettings();
+                if (typeof loadBigArenaSettings === 'function') loadBigArenaSettings();
+                if (typeof loadModerators === 'function') loadModerators();
+                if (typeof loadAdminLogs === 'function') loadAdminLogs();
+                if (typeof fetchBroadcastStats === 'function') fetchBroadcastStats();
+            }
         }
     };
 
