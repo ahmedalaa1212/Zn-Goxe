@@ -42,6 +42,12 @@ let currentCandle = null;
 let currentTimeframe = '1m';
 let lastCandleTime = 0;
 
+// دالة التوليد الثابت للشموع لمنع تغير شكل الشارت عند الضغط المتكرر
+function seededRandom(seed) {
+    const x = Math.sin(seed) * 10000;
+    return x - Math.floor(x);
+}
+
 function getTimeframeSeconds(tf) {
     switch(tf) {
         case '1m': return 60;
@@ -49,7 +55,7 @@ function getTimeframeSeconds(tf) {
         case '15m': return 900;
         case '1h': return 3600;
         case '1d': case '1D': return 86400;
-        case '1M': return 2592000; // 30 يوماً بالثواني
+        case '1M': return 2592000;
         default: return 60;
     }
 }
@@ -216,7 +222,6 @@ function updateSmoothTick() {
     if (currentLivePrice === 0) {
         currentLivePrice = targetLivePrice;
     } else {
-        // انتقال انسيابي مرن بسلاسة فائقة في التغير المفاجئ
         const diff = targetLivePrice - currentLivePrice;
         if (Math.abs(diff) > 1e-10) {
             currentLivePrice += diff * 0.15;
@@ -239,16 +244,14 @@ function startLivePriceEngine() {
     if (priceFetchTimer) clearInterval(priceFetchTimer);
     priceFetchTimer = setInterval(fetchRealZnxPrice, 10000);
 
-    // ذبذبات بسيطة جداً محاكية لعمق تذبذب السوق كل ثانية ونصف
     if (priceTickerTimer) clearInterval(priceTickerTimer);
     priceTickerTimer = setInterval(() => {
         if (targetLivePrice > 0) {
-            const microNoise = (Math.random() - 0.495) * (targetLivePrice * 0.0008);
+            const microNoise = (Math.random() - 0.495) * (targetLivePrice * 0.0003);
             targetLivePrice = Math.max(0.00000001, targetLivePrice + microNoise);
         }
     }, 1500);
 
-    // محرك تحريك الشموع السلس (كل 50 ملي ثانية)
     if (smoothLoopTimer) clearInterval(smoothLoopTimer);
     smoothLoopTimer = setInterval(updateSmoothTick, 50);
 }
@@ -340,7 +343,7 @@ function initChart() {
     }
 }
 
-// توليد البيانات التاريخية بشكل عكسي للربط التام بين السعر والمؤشر بدون انقطاع
+// توليد البيانات التاريخية بشكل موحد ومستقر يمنع تغير الشكل عند التنقل
 function generateHistoricalData() {
     if (!candleSeries) return;
 
@@ -348,12 +351,12 @@ function generateHistoricalData() {
     const tfSec = getTimeframeSeconds(currentTimeframe);
     const nowSec = Math.floor(Date.now() / 1000);
     const candlePeriodStart = Math.floor(nowSec / tfSec) * tfSec;
-    const candlesCount = 50;
+    const candlesCount = 60;
 
-    let candles = new Array(candlesCount);
+    let candles = [];
     let currClose = basePrice;
 
-    // البناء العكسي يضمن إغلاق آخر شمعة بالضبط عند سعر المؤشر الحقيقي
+    // بناء الشموع السابقة مع دالة بذور زمنية ثابته تضمن نفس النتيجة دائماً لكل إطار زمني
     for (let i = candlesCount - 1; i >= 0; i--) {
         const time = candlePeriodStart - ((candlesCount - 1 - i) * tfSec);
         
@@ -362,18 +365,22 @@ function generateHistoricalData() {
         if (currentTimeframe === '1d' || currentTimeframe === '1D') volatility = 0.018;
         if (currentTimeframe === '1M') volatility = 0.035;
 
-        const changePercent = (Math.random() - 0.49) * volatility; 
-        const open = Math.max(0.00000001, currClose / (1 + changePercent));
-        const high = Math.max(open, currClose) * (1 + Math.random() * (volatility * 0.4));
-        const low = Math.min(open, currClose) * (1 - Math.random() * (volatility * 0.4));
+        const r1 = seededRandom(time);
+        const r2 = seededRandom(time + 100);
+        const r3 = seededRandom(time + 200);
 
-        candles[i] = {
+        const changePercent = (r1 - 0.49) * volatility; 
+        const open = Math.max(0.00000001, currClose / (1 + changePercent));
+        const high = Math.max(open, currClose) * (1 + (r2 * volatility * 0.4));
+        const low = Math.min(open, currClose) * (1 - (r3 * volatility * 0.4));
+
+        candles.unshift({
             time: time,
             open: Number(open.toFixed(8)),
             high: Number(high.toFixed(8)),
             low: Number(low.toFixed(8)),
             close: Number(currClose.toFixed(8))
-        };
+        });
 
         currClose = open;
     }
@@ -413,9 +420,12 @@ function updateChartTick(price) {
 }
 
 function changeTimeframe(tf) {
+    if (currentTimeframe === tf) return;
     currentTimeframe = tf;
+
     document.querySelectorAll('.tf-btn').forEach(btn => {
-        if (btn.innerText.trim() === tf) {
+        const txt = btn.innerText.trim();
+        if (txt === tf || (tf === '1d' && txt === '1D') || (tf === '1D' && txt === '1d')) {
             btn.classList.add('active');
         } else {
             btn.classList.remove('active');
