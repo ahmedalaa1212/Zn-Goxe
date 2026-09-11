@@ -24,18 +24,19 @@ znx_wallet_bp = Blueprint('znx_wallet_bp', __name__)
 ZNX_CONTRACT_ADDRESS = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ"
 STON_POOL_ADDRESS = "EQA0uIZQz8yFJdLCxpz7uXkjcylnnvGl3_KpE2zDUV5LUdXL"
 
-# كاش السعر والإحصائيات
+# كاش السعر والإحصائيات وتاريخ إنشاء المجمع
 _PRICE_CACHE = {
     'price': 0.0000420,
     'change_24h': 3.45,
     'high_24h': 0.0000453,
     'low_24h': 0.0000386,
+    'pool_created_at': 1768435200, # وقت إنشاء المجمع المباشر
     'last_updated': 0
 }
 
 def fetch_live_dex_price():
     """
-    جلب السعر والإحصائيات المباشرة للعملة من DEX (DexScreener / STON.fi)
+    جلب السعر والإحصائيات وتاريخ الإنشاء المباشر للمجمع من DEX (DexScreener / STON.fi)
     """
     now = time.time()
     
@@ -61,6 +62,12 @@ def fetch_live_dex_price():
                 data = json.loads(resp.read().decode('utf-8'))
                 pair = data.get('pair') or (data.get('pairs', [{}])[0] if data.get('pairs') else {})
                 price_usd = float(pair.get('priceUsd', 0.0))
+                
+                # استخراج تاريخ إنشاء المجمع بالثواني
+                pair_created_at = pair.get('pairCreatedAt')
+                if pair_created_at:
+                    _PRICE_CACHE['pool_created_at'] = int(pair_created_at / 1000)
+
                 if price_usd > 0:
                     _PRICE_CACHE['price'] = price_usd
                     _PRICE_CACHE['change_24h'] = float(pair.get('priceChange', {}).get('h24', 0.0))
@@ -105,7 +112,7 @@ def fetch_live_dex_price():
 
 def fetch_dex_candles(timeframe='1m'):
     """
-    جلب الشموع الحقيقية المباشرة من GeckoTerminal / STON.fi مع توليد شموع متصلة ومطابقة للتاريخ الحقيقي بدون أي قفزات مستقبلية
+    جلب الشموع الحقيقية المباشرة من GeckoTerminal / STON.fi مع تقييد الشموع بالتاريخ الفعلي
     """
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -121,11 +128,13 @@ def fetch_dex_candles(timeframe='1m'):
         '15m': ('minute', 15, 60),
         '1h': ('hour', 1, 50),
         '1d': ('day', 1, 45),
-        '1M': ('day', 30, 24)
+        '1M': ('day', 30, 12)
     }
 
     period, aggregate, limit = period_map.get(timeframe, ('minute', 1, 80))
     url = f"https://api.geckoterminal.com/api/v2/networks/ton/pools/{STON_POOL_ADDRESS}/ohlcv/{period}?aggregate={aggregate}&limit={limit}"
+
+    now_sec = int(time.time())
 
     try:
         req = urllib.request.Request(url, headers=headers)
@@ -136,55 +145,53 @@ def fetch_dex_candles(timeframe='1m'):
 
                 candles = []
                 for item in ohlcv_list:
-                    t, o, h, l, c = item[0], item[1], item[2], item[3], item[4]
-                    candles.append({
-                        'time': int(t),
-                        'open': float(o),
-                        'high': float(h),
-                        'low': float(l),
-                        'close': float(c)
-                    })
+                    t, o, h, l, c = int(item[0]), float(item[1]), float(item[2]), float(item[3]), float(item[4])
+                    # استبعاد أي تواريخ مستقبلية
+                    if t <= now_sec + 60:
+                        candles.append({
+                            'time': t,
+                            'open': o,
+                            'high': h,
+                            'low': l,
+                            'close': c
+                        })
 
                 candles.sort(key=lambda x: x['time'])
 
-                # تصفية وتجهيز الشموع
                 unique_candles = []
                 last_t = None
-                now_sec = int(time.time()) + 3600
                 for cd in candles:
-                    if cd['time'] != last_t and cd['time'] <= now_sec:
+                    if cd['time'] != last_t:
                         unique_candles.append(cd)
                         last_t = cd['time']
 
-                if len(unique_candles) >= 10:
+                if len(unique_candles) >= 5:
                     return unique_candles
     except Exception as e:
         print(f"⚠️ GeckoTerminal OHLCV Fetch Error ({timeframe}): {e}")
 
-    # Fallback زمني دقيق جداً 100% مرتبط بـ UNIX Timestamp المباشر وتاريخ الإنشاء في 2026
-    now_sec = int(time.time())
+    # Fallback زمني محكوم بلحظة الآن وتاريخ إنشاء المجمع
     sec_per_tf = {
         '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '1d': 86400, '1M': 2592000
     }.get(timeframe, 60)
 
     current_price = _PRICE_CACHE['price'] if _PRICE_CACHE['price'] > 0 else 0.0000420
     start_period = (now_sec // sec_per_tf) * sec_per_tf
-    
-    # تاريخ الإنشاء بداية من 2026 (1 يناير 2026 UTC)
-    creation_time = 1767225600 # 2026-01-01 00:00:00 UTC
+    creation_time = _PRICE_CACHE.get('pool_created_at', 1768435200)
 
-    max_candles = max(1, int((start_period - creation_time) // sec_per_tf) + 1)
-    num_candles = min(limit, max_candles)
-    
+    # حساب أقصى عدد شموع محكوم بالافتتاح
+    max_possible = max(1, (start_period - creation_time) // sec_per_tf + 1)
+    num_candles = min(limit, max_possible)
+
     raw_candles = []
     curr_close = current_price
-
     vol = 0.0015 if timeframe in ['1m', '5m'] else (0.005 if timeframe in ['15m', '1h'] else 0.02)
 
     for i in range(num_candles):
         t = start_period - ((num_candles - 1 - i) * sec_per_tf)
+        if t < creation_time:
+            continue
 
-        # توليد موجي عشوائي يحاكي الأسواق الحقيقية
         seed = (t * 13) % 10000
         rnd = (math.sin(seed) + 1) / 2.0
         change = (rnd - 0.495) * vol
@@ -207,7 +214,6 @@ def fetch_dex_candles(timeframe='1m'):
         })
         curr_close = close_p
 
-    # جعل إغلاق الشمعة الأخيرة يطابق السعر الحالي المباشر
     if raw_candles:
         raw_candles[-1]['close'] = round(current_price, 8)
         if current_price > raw_candles[-1]['high']:
@@ -274,6 +280,7 @@ def get_price_only():
         'change_24h': cache['change_24h'],
         'high_24h': cache['high_24h'],
         'low_24h': cache['low_24h'],
+        'pool_created_at': cache.get('pool_created_at', 1768435200),
         'contract': ZNX_CONTRACT_ADDRESS,
         'timestamp': int(time.time())
     }), 200
@@ -343,7 +350,8 @@ def get_wallet_data():
             'live_price': price_data['price'],
             'change_24h': price_data['change_24h'],
             'high_24h': price_data['high_24h'],
-            'low_24h': price_data['low_24h']
+            'low_24h': price_data['low_24h'],
+            'pool_created_at': price_data.get('pool_created_at', 1768435200)
         }), 200
 
     except Exception as e:
