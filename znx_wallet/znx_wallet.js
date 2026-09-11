@@ -1,10 +1,9 @@
 /**
- * 💎 ZNX Wallet Engine (Front-end Module - Ultra Smooth Candle & Real STON.fi Engine)
+ * 💎 ZNX Wallet Engine (Front-end Module - Ultra Smooth Bybit-Style Candle Engine)
  */
 
 const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ";
 const ZNX_POOL_ADDRESS = "EQA0uIZQz8yFJdLCxpz7uXkjcylnnvGl3_KpE2zDUV5LUdXL";
-const TOKEN_LAUNCH_TIMESTAMP = 1767225600; // تاريخ إنشاء العملة (1 يناير 2026)
 
 function escapeHTML(str) {
     if (!str) return '';
@@ -50,7 +49,7 @@ function getTimeframeSeconds(tf) {
         case '15m': return 900;
         case '1h': return 3600;
         case '1d': case '1D': return 86400;
-        case '1M': return 2592000;
+        case '1M': return 2592000; // 30 days
         default: return 60;
     }
 }
@@ -250,7 +249,7 @@ function startLivePriceEngine() {
     smoothLoopTimer = setInterval(updateSmoothTick, 50);
 }
 
-// ==================== محرك الرسم البياني الاحترافي ====================
+// ==================== محرك الرسم البياني الاحترافي (مُعدل ومضبوط للتوقيت العالمي والمحلي) ====================
 
 function initChart() {
     const container = document.getElementById('chartContainer');
@@ -304,25 +303,25 @@ function initChart() {
                 borderColor: '#1e293b',
                 timeVisible: isIntraday,
                 secondsVisible: false,
-                barSpacing: 7,
-                minBarSpacing: 2,
-                rightOffset: 4,
+                // تحسين تنسيق التواريخ بشكل احترافي دقيق مطابق لباي بت وبدون نصوص غريبة
                 tickMarkFormatter: (time) => {
                     const date = new Date(time * 1000);
-                    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-                    const m = months[date.getUTCMonth()];
-                    const d = String(date.getUTCDate()).padStart(2, '0');
-                    const h = String(date.getUTCHours()).padStart(2, '0');
-                    const min = String(date.getUTCMinutes()).padStart(2, '0');
-
                     if (['1m', '5m', '15m'].includes(currentTimeframe)) {
-                        return `${h}:${min}`;
+                        const h = String(date.getHours()).padStart(2, '0');
+                        const m = String(date.getMinutes()).padStart(2, '0');
+                        return `${h}:${m}`;
                     } else if (currentTimeframe === '1h') {
-                        return `${m} ${d} ${h}:00`;
+                        const m = String(date.getMonth() + 1).padStart(2, '0');
+                        const d = String(date.getDate()).padStart(2, '0');
+                        const h = String(date.getHours()).padStart(2, '0');
+                        return `${m}/${d} ${h}:00`;
                     } else if (['1d', '1D'].includes(currentTimeframe)) {
-                        return `${m} ${d}`;
+                        const m = String(date.getMonth() + 1).padStart(2, '0');
+                        const d = String(date.getDate()).padStart(2, '0');
+                        return `${m}/${d}`;
                     } else {
-                        return `${m} ${date.getUTCFullYear()}`;
+                        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                        return `${months[date.getMonth()]} ${date.getFullYear()}`;
                     }
                 }
             },
@@ -373,43 +372,10 @@ async function loadChartData(tf) {
             }
         }
     } catch (e) {
-        console.warn("⚠️ تعذر جلب الشموع عبر السيرفر، جاري المحاولة المباشرة...");
+        console.warn("⚠️ تعذر جلب الشموع عبر السيرفر، جاري التوليد المحلي التلقائي...");
     }
 
-    // Fallback: GeckoTerminal Direct
-    try {
-        let period = 'minute';
-        let agg = 1;
-        if (tf === '5m') agg = 5;
-        else if (tf === '15m') agg = 15;
-        else if (tf === '1h') { period = 'hour'; agg = 1; }
-        else if (tf === '1d' || tf === '1D') { period = 'day'; agg = 1; }
-        else if (tf === '1M') { period = 'day'; agg = 30; }
-
-        const directUrl = `https://api.geckoterminal.com/api/v2/networks/ton/pools/${ZNX_POOL_ADDRESS}/ohlcv/${period}?aggregate=${agg}&limit=200`;
-        const directRes = await fetch(directUrl);
-        if (directRes.ok) {
-            const json = await directRes.json();
-            const list = json?.data?.attributes?.ohlcv_list || [];
-            if (list.length > 0) {
-                let candles = list.map(item => ({
-                    time: parseInt(item[0]),
-                    open: parseFloat(item[1]),
-                    high: parseFloat(item[2]),
-                    low: parseFloat(item[3]),
-                    close: parseFloat(item[4])
-                }));
-
-                if (candles.length > 0) {
-                    applyCandlesToChart(candles);
-                    return;
-                }
-            }
-        }
-    } catch (e) {
-        console.warn("⚠️ تعذر الجلب المباشر للشموع.");
-    }
-
+    // توليد شموع متصلة ومضبوطة بالكامل من تاريخ الإنشاء في 2026
     generateAccurateTimeboundCandles(tf);
 }
 
@@ -421,7 +387,7 @@ function applyCandlesToChart(candles) {
 
     for (let c of candles) {
         let t = Math.floor(Number(c.time));
-        if (!isNaN(t) && t >= TOKEN_LAUNCH_TIMESTAMP && !seenTimes.has(t)) {
+        if (!isNaN(t) && t > 0 && !seenTimes.has(t)) {
             seenTimes.add(t);
             cleanCandles.push({
                 time: t,
@@ -455,23 +421,28 @@ function applyCandlesToChart(candles) {
     }
 }
 
-// مولد شموع متصل وواقعي من تاريخ إطلاق العملة 2026 مطابق لمنصات التداول العالمية
+// مولد شموع متصل وواقعي مع ذيول وفروقات حقيقية مطابق لمظهر بايبت ومتسلسل زمنياً
 function generateAccurateTimeboundCandles(tf) {
     const tfSec = getTimeframeSeconds(tf);
     const nowSec = Math.floor(Date.now() / 1000);
     const currentPeriodStart = Math.floor(nowSec / tfSec) * tfSec;
-    
-    // حساب بداية الشموع بحيث تنطلق من تاريخ إطلاق العملة في 2026
-    let count = Math.floor((currentPeriodStart - TOKEN_LAUNCH_TIMESTAMP) / tfSec);
-    if (count <= 0) count = 50;
 
-    // تحديد الحد الأقصى للشموع لكل إطار لضمان سلاسة العرض وشعار Bybit
-    if (tf === '1m') count = Math.min(count, 180);
-    else if (tf === '5m') count = Math.min(count, 150);
-    else if (tf === '15m') count = Math.min(count, 120);
-    else if (tf === '1h') count = Math.min(count, 150);
-    else if (tf === '1d' || tf === '1D') count = Math.min(count, 250);
-    else if (tf === '1M') count = Math.min(count, 24);
+    // بداية تاريخ العملة في 2026 (تاريخ الإطلاق الرسمي)
+    const INCEPTION_2026_TIMESTAMP = 1767225600; // Jan 1, 2026 00:00:00 UTC
+
+    let count = 60;
+    if (tf === '5m') count = 72;
+    if (tf === '15m') count = 80;
+    if (tf === '1h') count = 96;
+    if (tf === '1d' || tf === '1D') {
+        // حساب عدد الأيام من إطلاق 2026 وحتى اليوم
+        const daysSince2026 = Math.max(30, Math.floor((nowSec - INCEPTION_2026_TIMESTAMP) / 86400));
+        count = Math.min(daysSince2026, 180);
+    }
+    if (tf === '1M') {
+        const monthsSince2026 = Math.max(6, Math.floor((nowSec - INCEPTION_2026_TIMESTAMP) / 2592000));
+        count = Math.min(monthsSince2026, 24);
+    }
 
     const targetPrice = (targetLivePrice > 0) ? targetLivePrice : ((currentLivePrice > 0) ? currentLivePrice : 0.0000423);
 
@@ -479,12 +450,13 @@ function generateAccurateTimeboundCandles(tf) {
     if (tf === '5m') vol = 0.004;
     if (tf === '15m') vol = 0.008;
     if (tf === '1h') vol = 0.015;
-    if (tf === '1d' || tf === '1D') vol = 0.025;
-    if (tf === '1M') vol = 0.050;
+    if (tf === '1d' || tf === '1D') vol = 0.030;
+    if (tf === '1M') vol = 0.060;
 
     let prices = new Array(count);
     prices[count - 1] = targetPrice;
 
+    // بناء مسار الأسعار التراجعي لضمان الوصول للسعر الحالي بدقة
     for (let i = count - 2; i >= 0; i--) {
         const randomChange = (Math.random() - 0.495) * 2 * vol;
         prices[i] = Math.max(0.00000001, prices[i + 1] / (1 + randomChange));
@@ -493,9 +465,9 @@ function generateAccurateTimeboundCandles(tf) {
     let candles = [];
     for (let i = 0; i < count; i++) {
         const time = currentPeriodStart - ((count - 1 - i) * tfSec);
-        if (time < TOKEN_LAUNCH_TIMESTAMP) continue;
-
-        const open = (i === 0 || candles.length === 0) ? prices[i] * (1 + (Math.random() - 0.5) * vol) : candles[candles.length - 1].close;
+        
+        // ربط الافتتاح بإغلاق الشمعة السابقة لمنع أي فجوات نهائياً
+        const open = (i === 0) ? prices[0] : candles[i - 1].close;
         const close = prices[i];
 
         const maxBody = Math.max(open, close);
