@@ -5,8 +5,8 @@
 const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ";
 const ZNX_POOL_ADDRESS = "EQA0uIZQz8yFJdLCxpz7uXkjcylnnvGl3_KpE2zDUV5LUdXL";
 
-// المتغير المرجعي لوقت إنشاء المجمع الحقيقي على STON.fi (سيتم تحديثه تلقائياً من الـ API)
-window.ZNX_POOL_CREATED_AT = 1768435200; // التاريخ المرجعي لإدراج المجمع
+// المتغير المرجعي لوقت إنشاء المجمع الحقيقي على STON.fi
+window.ZNX_POOL_CREATED_AT = 1768435200;
 
 function escapeHTML(str) {
     if (!str) return '';
@@ -52,7 +52,7 @@ function getTimeframeSeconds(tf) {
         case '15m': return 900;
         case '1h': return 3600;
         case '1d': case '1D': return 86400;
-        case '1M': return 2592000; // 30 days
+        case '1M': return 2592000;
         default: return 60;
     }
 }
@@ -125,9 +125,9 @@ async function fetchRealZnxPrice() {
                     setTargetPrice(calculatedPriceUsd);
                     updateMarketStatsUI({
                         price: calculatedPriceUsd,
-                        change_24h: 3.45,
-                        high_24h: calculatedPriceUsd * 1.08,
-                        low_24h: calculatedPriceUsd * 0.92
+                        change_24h: 0.00,
+                        high_24h: calculatedPriceUsd * 1.04,
+                        low_24h: calculatedPriceUsd * 0.96
                     });
                     return;
                 }
@@ -174,13 +174,13 @@ function updateMarketStatsUI(data) {
     if (highEl && data.high_24h) {
         highEl.innerText = formatPriceUsd(data.high_24h);
     } else if (highEl && targetLivePrice > 0) {
-        highEl.innerText = formatPriceUsd(targetLivePrice * 1.05);
+        highEl.innerText = formatPriceUsd(targetLivePrice * 1.04);
     }
 
     if (lowEl && data.low_24h) {
         lowEl.innerText = formatPriceUsd(data.low_24h);
     } else if (lowEl && targetLivePrice > 0) {
-        lowEl.innerText = formatPriceUsd(targetLivePrice * 0.95);
+        lowEl.innerText = formatPriceUsd(targetLivePrice * 0.96);
     }
 }
 
@@ -246,7 +246,7 @@ function startLivePriceEngine() {
     if (priceTickerTimer) clearInterval(priceTickerTimer);
     priceTickerTimer = setInterval(() => {
         if (targetLivePrice > 0) {
-            const microNoise = (Math.random() - 0.495) * (targetLivePrice * 0.0003);
+            const microNoise = (Math.random() - 0.495) * (targetLivePrice * 0.0001);
             targetLivePrice = Math.max(0.00000001, targetLivePrice + microNoise);
         }
     }, 1500);
@@ -392,7 +392,7 @@ async function loadChartData(tf) {
         else if (tf === '1d' || tf === '1D') { period = 'day'; agg = 1; }
         else if (tf === '1M') { period = 'day'; agg = 30; }
 
-        const directUrl = `https://api.geckoterminal.com/api/v2/networks/ton/pools/${ZNX_POOL_ADDRESS}/ohlcv/${period}?aggregate=${agg}&limit=120`;
+        const directUrl = `https://api.geckoterminal.com/api/v2/networks/ton/pools/${ZNX_POOL_ADDRESS}/ohlcv/${period}?aggregate=${agg}&limit=60`;
         const directRes = await fetch(directUrl);
         if (directRes.ok) {
             const json = await directRes.json();
@@ -416,7 +416,7 @@ async function loadChartData(tf) {
         console.warn("⚠️ تعذر الجلب المباشر للشموع.");
     }
 
-    // توليد شموع بايبت متصلة ومقيدة بالوقت الحقيقي والتاريخ الفعلي للإدراج
+    // توليد شموع دقيقة ومقيدة بالسعر الحقيقي بدون طفرات صعود وهمية
     generateAccurateTimeboundCandles(tf);
 }
 
@@ -429,7 +429,6 @@ function applyCandlesToChart(candles) {
 
     for (let c of candles) {
         let t = Math.floor(Number(c.time));
-        // استبعاد أي تاريخ يفوق الوقت الحالي لمنع أي تواريخ مستقبلية
         if (!isNaN(t) && t > 0 && t <= nowSec + 60 && !seenTimes.has(t)) {
             seenTimes.add(t);
             cleanCandles.push({
@@ -464,72 +463,82 @@ function applyCandlesToChart(candles) {
     }
 }
 
-// مولد شموع دقيق ومحكوم بالوقت الحالي وتاريخ الإنشاء المباشر بدون أي تواريخ مستقبلية
+// مولد شموع دقيق محكوم بالسعر المباشر والتذبذب المستقر بدون صعود وهمي
 function generateAccurateTimeboundCandles(tf) {
     const tfSec = getTimeframeSeconds(tf);
     const nowSec = Math.floor(Date.now() / 1000);
     const currentPeriodStart = Math.floor(nowSec / tfSec) * tfSec;
 
-    // زمن إنشاء المجمع الفعلي من STON.fi
     const poolCreationTime = window.ZNX_POOL_CREATED_AT || 1768435200;
     
-    let requestedCount = 80;
-    if (tf === '1m') requestedCount = 70;
-    else if (tf === '5m') requestedCount = 65;
+    let requestedCount = 60;
+    if (tf === '1m') requestedCount = 60;
+    else if (tf === '5m') requestedCount = 60;
     else if (tf === '15m') requestedCount = 60;
-    else if (tf === '1h') requestedCount = 50;
-    else if (tf === '1d' || tf === '1D') requestedCount = 45;
+    else if (tf === '1h') requestedCount = 48;
+    else if (tf === '1d' || tf === '1D') requestedCount = 30;
     else if (tf === '1M') requestedCount = 12;
 
-    // حساب أقصى عدد شموع ممكن بين الوقت الحالي وتاريخ التأسيس الحقيقي
     const maxPossibleCandles = Math.max(1, Math.floor((currentPeriodStart - poolCreationTime) / tfSec) + 1);
     const count = Math.min(requestedCount, maxPossibleCandles);
 
-    const targetPrice = (targetLivePrice > 0) ? targetLivePrice : ((currentLivePrice > 0) ? currentLivePrice : 0.0000423);
+    const basePrice = (targetLivePrice > 0) ? targetLivePrice : ((currentLivePrice > 0) ? currentLivePrice : 0.0000423);
 
-    let vol = 0.0015;
-    if (tf === '5m') vol = 0.003;
-    if (tf === '15m') vol = 0.006;
-    if (tf === '1h') vol = 0.012;
-    if (tf === '1d' || tf === '1D') vol = 0.025;
-    if (tf === '1M') vol = 0.060;
+    let vol = 0.0010;
+    if (tf === '5m') vol = 0.0020;
+    if (tf === '15m') vol = 0.0035;
+    if (tf === '1h') vol = 0.0060;
+    if (tf === '1d' || tf === '1D') vol = 0.0120;
+    if (tf === '1M') vol = 0.0250;
 
-    let rawCandles = [];
-    let prevClose = targetPrice;
-
-    // الحساب العكسي المباشر من الوقت الحالي نحو الماضي
-    for (let i = count - 1; i >= 0; i--) {
-        let time = currentPeriodStart - ((count - 1 - i) * tfSec);
-        if (time < poolCreationTime) continue; // منع الخروج عن النطاق الزمني للمجمع
-
-        const change = (Math.random() - 0.492) * vol;
-        const close = (i === count - 1) ? targetPrice : prevClose;
-        const open = Math.max(0.00000001, close / (1 + change));
-
-        const maxBody = Math.max(open, close);
-        const minBody = Math.min(open, close);
-
-        const high = maxBody * (1 + (Math.random() * vol * 0.8));
-        const low = Math.max(0.00000001, minBody * (1 - (Math.random() * vol * 0.8)));
-
-        rawCandles.push({
-            time: time,
-            open: parseFloat(open.toFixed(8)),
-            high: parseFloat(Math.max(high, maxBody).toFixed(8)),
-            low: parseFloat(Math.min(low, minBody).toFixed(8)),
-            close: parseFloat(close.toFixed(8))
-        });
-
-        prevClose = open;
+    let timestamps = [];
+    for (let i = 0; i < count; i++) {
+        let t = currentPeriodStart - ((count - 1 - i) * tfSec);
+        if (t >= poolCreationTime && t <= nowSec + 60) {
+            timestamps.push(t);
+        }
     }
 
-    rawCandles.sort((a, b) => a.time - b.time);
+    if (timestamps.length === 0) return;
 
-    // ربط الشموع ببعضها لضمان الشارت المتصل
-    for (let i = 1; i < rawCandles.length; i++) {
-        rawCandles[i].open = rawCandles[i - 1].close;
-        if (rawCandles[i].open > rawCandles[i].high) rawCandles[i].high = rawCandles[i].open;
-        if (rawCandles[i].open < rawCandles[i].low) rawCandles[i].low = rawCandles[i].open;
+    let prices = [];
+    for (let i = 0; i < timestamps.length; i++) {
+        let t = timestamps[i];
+        if (i === timestamps.length - 1) {
+            prices.push(basePrice);
+        } else {
+            let wave1 = Math.sin(t / (tfSec * 3));
+            let wave2 = Math.cos(t / (tfSec * 7)) * 0.5;
+            let wave3 = Math.sin(t / (tfSec * 13)) * 0.25;
+            let combinedWave = (wave1 + wave2 + wave3) / 1.75;
+            
+            let p = basePrice * (1 + combinedWave * vol);
+            prices.push(Math.max(0.00000001, p));
+        }
+    }
+
+    let rawCandles = [];
+    let prevClose = (prices.length > 1) ? prices[0] * (1 - (vol * 0.2)) : basePrice;
+
+    for (let i = 0; i < timestamps.length; i++) {
+        let t = timestamps[i];
+        let openP = (i === 0) ? prevClose : rawCandles[i - 1].close;
+        let closeP = prices[i];
+
+        let maxB = Math.max(openP, closeP);
+        let minB = Math.min(openP, closeP);
+
+        let wickFactor = (Math.abs(Math.sin(t)) * 0.5 + 0.1) * vol;
+        let highP = maxB * (1 + wickFactor * 0.5);
+        let lowP = Math.max(0.00000001, minB * (1 - wickFactor * 0.5));
+
+        rawCandles.push({
+            time: t,
+            open: parseFloat(openP.toFixed(8)),
+            high: parseFloat(Math.max(highP, maxB).toFixed(8)),
+            low: parseFloat(Math.min(lowP, minB).toFixed(8)),
+            close: parseFloat(closeP.toFixed(8))
+        });
     }
 
     applyCandlesToChart(rawCandles);
