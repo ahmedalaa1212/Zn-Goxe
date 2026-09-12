@@ -26,10 +26,10 @@ STON_POOL_ADDRESS = "EQA0uIZQz8yFJdLCxpz7uXkjcylnnvGl3_KpE2zDUV5LUdXL"
 
 # كاش السعر والإحصائيات وتاريخ إنشاء المجمع
 _PRICE_CACHE = {
-    'price': 0.0000420,
-    'change_24h': 3.45,
-    'high_24h': 0.0000453,
-    'low_24h': 0.0000386,
+    'price': 0.0000423,
+    'change_24h': 0.00,
+    'high_24h': 0.0000440,
+    'low_24h': 0.0000406,
     'pool_created_at': 1768435200, # وقت إنشاء المجمع المباشر
     'last_updated': 0
 }
@@ -71,8 +71,8 @@ def fetch_live_dex_price():
                 if price_usd > 0:
                     _PRICE_CACHE['price'] = price_usd
                     _PRICE_CACHE['change_24h'] = float(pair.get('priceChange', {}).get('h24', 0.0))
-                    _PRICE_CACHE['high_24h'] = price_usd * 1.04
-                    _PRICE_CACHE['low_24h'] = price_usd * 0.96
+                    _PRICE_CACHE['high_24h'] = round(price_usd * 1.04, 8)
+                    _PRICE_CACHE['low_24h'] = round(price_usd * 0.96, 8)
                     _PRICE_CACHE['last_updated'] = now
                     return _PRICE_CACHE
     except Exception as e:
@@ -101,10 +101,10 @@ def fetch_live_dex_price():
         print(f"⚠️ STON.fi Asset Fetch Error: {e}")
 
     if _PRICE_CACHE['price'] == 0.0:
-        _PRICE_CACHE['price'] = 0.0000420
-        _PRICE_CACHE['change_24h'] = 3.45
-        _PRICE_CACHE['high_24h'] = 0.0000453
-        _PRICE_CACHE['low_24h'] = 0.0000386
+        _PRICE_CACHE['price'] = 0.0000423
+        _PRICE_CACHE['change_24h'] = 0.00
+        _PRICE_CACHE['high_24h'] = 0.0000440
+        _PRICE_CACHE['low_24h'] = 0.0000406
         _PRICE_CACHE['last_updated'] = now
 
     return _PRICE_CACHE
@@ -123,15 +123,15 @@ def fetch_dex_candles(timeframe='1m'):
     ssl_context.verify_mode = ssl.CERT_NONE
 
     period_map = {
-        '1m': ('minute', 1, 80),
-        '5m': ('minute', 5, 70),
+        '1m': ('minute', 1, 60),
+        '5m': ('minute', 5, 60),
         '15m': ('minute', 15, 60),
-        '1h': ('hour', 1, 50),
-        '1d': ('day', 1, 45),
+        '1h': ('hour', 1, 48),
+        '1d': ('day', 1, 30),
         '1M': ('day', 30, 12)
     }
 
-    period, aggregate, limit = period_map.get(timeframe, ('minute', 1, 80))
+    period, aggregate, limit = period_map.get(timeframe, ('minute', 1, 60))
     url = f"https://api.geckoterminal.com/api/v2/networks/ton/pools/{STON_POOL_ADDRESS}/ohlcv/{period}?aggregate={aggregate}&limit={limit}"
 
     now_sec = int(time.time())
@@ -146,14 +146,13 @@ def fetch_dex_candles(timeframe='1m'):
                 candles = []
                 for item in ohlcv_list:
                     t, o, h, l, c = int(item[0]), float(item[1]), float(item[2]), float(item[3]), float(item[4])
-                    # استبعاد أي تواريخ مستقبلية
                     if t <= now_sec + 60:
                         candles.append({
                             'time': t,
-                            'open': o,
-                            'high': h,
-                            'low': l,
-                            'close': c
+                            'open': round(o, 8),
+                            'high': round(h, 8),
+                            'low': round(l, 8),
+                            'close': round(c, 8)
                         })
 
                 candles.sort(key=lambda x: x['time'])
@@ -170,56 +169,63 @@ def fetch_dex_candles(timeframe='1m'):
     except Exception as e:
         print(f"⚠️ GeckoTerminal OHLCV Fetch Error ({timeframe}): {e}")
 
-    # Fallback زمني محكوم بلحظة الآن وتاريخ إنشاء المجمع
+    # Fallback محكّم ومضبوط بالسعر الفعلي المستقر والنطاق الزمني الصحيح
     sec_per_tf = {
         '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '1d': 86400, '1M': 2592000
     }.get(timeframe, 60)
 
-    current_price = _PRICE_CACHE['price'] if _PRICE_CACHE['price'] > 0 else 0.0000420
+    current_price = _PRICE_CACHE['price'] if _PRICE_CACHE['price'] > 0 else 0.0000423
     start_period = (now_sec // sec_per_tf) * sec_per_tf
     creation_time = _PRICE_CACHE.get('pool_created_at', 1768435200)
 
-    # حساب أقصى عدد شموع محكوم بالافتتاح
     max_possible = max(1, (start_period - creation_time) // sec_per_tf + 1)
     num_candles = min(limit, max_possible)
 
-    raw_candles = []
-    curr_close = current_price
-    vol = 0.0015 if timeframe in ['1m', '5m'] else (0.005 if timeframe in ['15m', '1h'] else 0.02)
+    vol_map = {
+        '1m': 0.0010, '5m': 0.0020, '15m': 0.0035, '1h': 0.0060, '1d': 0.0120, '1M': 0.0250
+    }
+    vol = vol_map.get(timeframe, 0.0010)
 
+    timestamps = []
     for i in range(num_candles):
         t = start_period - ((num_candles - 1 - i) * sec_per_tf)
-        if t < creation_time:
-            continue
+        if t >= creation_time and t <= now_sec + 60:
+            timestamps.append(t)
 
-        seed = (t * 13) % 10000
-        rnd = (math.sin(seed) + 1) / 2.0
-        change = (rnd - 0.495) * vol
+    raw_candles = []
+    if timestamps:
+        prices = []
+        for i, t in enumerate(timestamps):
+            if i == len(timestamps) - 1:
+                prices.append(current_price)
+            else:
+                w1 = math.sin(t / (sec_per_tf * 3))
+                w2 = math.cos(t / (sec_per_tf * 7)) * 0.5
+                w3 = math.sin(t / (sec_per_tf * 13)) * 0.25
+                combined = (w1 + w2 + w3) / 1.75
+                p = current_price * (1 + combined * vol)
+                prices.append(max(0.00000001, p))
 
-        open_p = curr_close
-        close_p = max(0.00000001, open_p * (1 + change))
+        prev_close = prices[0] * (1 - vol * 0.2) if len(prices) > 1 else current_price
 
-        max_b = max(open_p, close_p)
-        min_b = min(open_p, close_p)
+        for i, t in enumerate(timestamps):
+            open_p = prev_close if i == 0 else raw_candles[i - 1]['close']
+            close_p = prices[i]
 
-        high_p = max_b * (1 + (abs(math.cos(t)) * vol * 0.5))
-        low_p = max(0.00000001, min_b * (1 - (abs(math.sin(t)) * vol * 0.5)))
+            max_b = max(open_p, close_p)
+            min_b = min(open_p, close_p)
 
-        raw_candles.append({
-            'time': t,
-            'open': round(open_p, 8),
-            'high': round(high_p, 8),
-            'low': round(low_p, 8),
-            'close': round(close_p, 8)
-        })
-        curr_close = close_p
+            wick = (abs(math.sin(t)) * 0.5 + 0.1) * vol
+            high_p = max_b * (1 + wick * 0.5)
+            low_p = max(0.00000001, min_b * (1 - wick * 0.5))
 
-    if raw_candles:
-        raw_candles[-1]['close'] = round(current_price, 8)
-        if current_price > raw_candles[-1]['high']:
-            raw_candles[-1]['high'] = round(current_price, 8)
-        if current_price < raw_candles[-1]['low']:
-            raw_candles[-1]['low'] = round(current_price, 8)
+            raw_candles.append({
+                'time': t,
+                'open': round(open_p, 8),
+                'high': round(max(high_p, max_b), 8),
+                'low': round(min(low_p, min_b), 8),
+                'close': round(close_p, 8)
+            })
 
     return raw_candles
 
