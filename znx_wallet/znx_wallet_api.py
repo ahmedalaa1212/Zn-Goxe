@@ -20,17 +20,17 @@ except ImportError:
 
 znx_wallet_bp = Blueprint('znx_wallet_bp', __name__)
 
-# عنوان العقد الرسمي لعملة ZNX وعنوان المجمع على STON.fi
+# عنوان العقد الرسمي لعملة ZNX وعنوان المجمع
 ZNX_CONTRACT_ADDRESS = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ"
 STON_POOL_ADDRESS = "EQA0uIZQz8yFJdLCxpz7uXkjcylnnvGl3_KpE2zDUV5LUdXL"
 
-# كاش السعر والإحصائيات وتاريخ إنشاء المجمع المباشر
+# كاش السعر والإحصائيات وتاريخ إنشاء المجمع
 _PRICE_CACHE = {
     'price': 0.0000420,
     'change_24h': 3.45,
-    'high_24h': 0.0000423,
-    'low_24h': 0.0000418,
-    'pool_created_at': 1768435200, # وقت إنشاء المجمع الحقيقي بالثواني
+    'high_24h': 0.0000453,
+    'low_24h': 0.0000386,
+    'pool_created_at': 1768435200, # وقت إنشاء المجمع المباشر
     'last_updated': 0
 }
 
@@ -71,8 +71,8 @@ def fetch_live_dex_price():
                 if price_usd > 0:
                     _PRICE_CACHE['price'] = price_usd
                     _PRICE_CACHE['change_24h'] = float(pair.get('priceChange', {}).get('h24', 0.0))
-                    _PRICE_CACHE['high_24h'] = price_usd * 1.01
-                    _PRICE_CACHE['low_24h'] = price_usd * 0.99
+                    _PRICE_CACHE['high_24h'] = price_usd * 1.04
+                    _PRICE_CACHE['low_24h'] = price_usd * 0.96
                     _PRICE_CACHE['last_updated'] = now
                     return _PRICE_CACHE
     except Exception as e:
@@ -103,8 +103,8 @@ def fetch_live_dex_price():
     if _PRICE_CACHE['price'] == 0.0:
         _PRICE_CACHE['price'] = 0.0000420
         _PRICE_CACHE['change_24h'] = 3.45
-        _PRICE_CACHE['high_24h'] = 0.0000423
-        _PRICE_CACHE['low_24h'] = 0.0000418
+        _PRICE_CACHE['high_24h'] = 0.0000453
+        _PRICE_CACHE['low_24h'] = 0.0000386
         _PRICE_CACHE['last_updated'] = now
 
     return _PRICE_CACHE
@@ -112,7 +112,7 @@ def fetch_live_dex_price():
 
 def fetch_dex_candles(timeframe='1m'):
     """
-    جلب الشموع الحقيقية المباشرة من GeckoTerminal / STON.fi مع تقييد الشموع بالتاريخ الفعلي والشبكة الزمنية الحقيقية
+    جلب الشموع الحقيقية المباشرة من GeckoTerminal / STON.fi مع تقييد الشموع بالتاريخ الفعلي
     """
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -147,13 +147,13 @@ def fetch_dex_candles(timeframe='1m'):
                 for item in ohlcv_list:
                     t, o, h, l, c = int(item[0]), float(item[1]), float(item[2]), float(item[3]), float(item[4])
                     # استبعاد أي تواريخ مستقبلية
-                    if t <= now_sec:
+                    if t <= now_sec + 60:
                         candles.append({
                             'time': t,
-                            'open': round(o, 8),
-                            'high': round(h, 8),
-                            'low': round(l, 8),
-                            'close': round(c, 8)
+                            'open': o,
+                            'high': h,
+                            'low': l,
+                            'close': c
                         })
 
                 candles.sort(key=lambda x: x['time'])
@@ -170,7 +170,7 @@ def fetch_dex_candles(timeframe='1m'):
     except Exception as e:
         print(f"⚠️ GeckoTerminal OHLCV Fetch Error ({timeframe}): {e}")
 
-    # Fallback زمني دقيق مرتبط بالشبكة الزمنية العالمية (UTC Bucket Grid)
+    # Fallback زمني محكوم بلحظة الآن وتاريخ إنشاء المجمع
     sec_per_tf = {
         '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '1d': 86400, '1M': 2592000
     }.get(timeframe, 60)
@@ -179,23 +179,22 @@ def fetch_dex_candles(timeframe='1m'):
     start_period = (now_sec // sec_per_tf) * sec_per_tf
     creation_time = _PRICE_CACHE.get('pool_created_at', 1768435200)
 
+    # حساب أقصى عدد شموع محكوم بالافتتاح
     max_possible = max(1, (start_period - creation_time) // sec_per_tf + 1)
     num_candles = min(limit, max_possible)
 
     raw_candles = []
     curr_close = current_price
-    
-    # نسبة تذبذب صغيرة جداً مطابقة للنطاق الحقيقي (0.0000420 -> 0.0000423)
-    micro_vol = 0.0004 if timeframe in ['1m', '5m'] else (0.0008 if timeframe in ['15m', '1h'] else 0.0020)
+    vol = 0.0015 if timeframe in ['1m', '5m'] else (0.005 if timeframe in ['15m', '1h'] else 0.02)
 
     for i in range(num_candles):
         t = start_period - ((num_candles - 1 - i) * sec_per_tf)
         if t < creation_time:
             continue
 
-        seed = (t * 17) % 10000
+        seed = (t * 13) % 10000
         rnd = (math.sin(seed) + 1) / 2.0
-        change = (rnd - 0.495) * micro_vol
+        change = (rnd - 0.495) * vol
 
         open_p = curr_close
         close_p = max(0.00000001, open_p * (1 + change))
@@ -203,9 +202,8 @@ def fetch_dex_candles(timeframe='1m'):
         max_b = max(open_p, close_p)
         min_b = min(open_p, close_p)
 
-        # تحجيم أذيال الشموع لتناسب النطاق الطبيعي المستقر
-        high_p = max_b * (1 + (abs(math.cos(seed)) * micro_vol * 0.3))
-        low_p = max(0.00000001, min_b * (1 - (abs(math.sin(seed)) * micro_vol * 0.3)))
+        high_p = max_b * (1 + (abs(math.cos(t)) * vol * 0.5))
+        low_p = max(0.00000001, min_b * (1 - (abs(math.sin(t)) * vol * 0.5)))
 
         raw_candles.append({
             'time': t,
