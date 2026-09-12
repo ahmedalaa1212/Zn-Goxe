@@ -27,9 +27,9 @@ STON_POOL_ADDRESS = "EQA0uIZQz8yFJdLCxpz7uXkjcylnnvGl3_KpE2zDUV5LUdXL"
 # كاش السعر والإحصائيات وتاريخ إنشاء المجمع
 _PRICE_CACHE = {
     'price': 0.0000423,
-    'change_24h': 0.00,
-    'high_24h': 0.0000440,
-    'low_24h': 0.0000406,
+    'change_24h': 0.45,
+    'high_24h': 0.0000425,
+    'low_24h': 0.0000420,
     'pool_created_at': 1768435200, # وقت إنشاء المجمع المباشر
     'last_updated': 0
 }
@@ -63,16 +63,15 @@ def fetch_live_dex_price():
                 pair = data.get('pair') or (data.get('pairs', [{}])[0] if data.get('pairs') else {})
                 price_usd = float(pair.get('priceUsd', 0.0))
                 
-                # استخراج تاريخ إنشاء المجمع بالثواني
                 pair_created_at = pair.get('pairCreatedAt')
                 if pair_created_at:
                     _PRICE_CACHE['pool_created_at'] = int(pair_created_at / 1000)
 
                 if price_usd > 0:
                     _PRICE_CACHE['price'] = price_usd
-                    _PRICE_CACHE['change_24h'] = float(pair.get('priceChange', {}).get('h24', 0.0))
-                    _PRICE_CACHE['high_24h'] = round(price_usd * 1.04, 8)
-                    _PRICE_CACHE['low_24h'] = round(price_usd * 0.96, 8)
+                    _PRICE_CACHE['change_24h'] = float(pair.get('priceChange', {}).get('h24', 0.45))
+                    _PRICE_CACHE['high_24h'] = price_usd * 1.005
+                    _PRICE_CACHE['low_24h'] = price_usd * 0.995
                     _PRICE_CACHE['last_updated'] = now
                     return _PRICE_CACHE
     except Exception as e:
@@ -95,6 +94,8 @@ def fetch_live_dex_price():
                     price_usd = float(p_str)
                     if price_usd > 0:
                         _PRICE_CACHE['price'] = price_usd
+                        _PRICE_CACHE['high_24h'] = price_usd * 1.005
+                        _PRICE_CACHE['low_24h'] = price_usd * 0.995
                         _PRICE_CACHE['last_updated'] = now
                         return _PRICE_CACHE
     except Exception as e:
@@ -102,9 +103,9 @@ def fetch_live_dex_price():
 
     if _PRICE_CACHE['price'] == 0.0:
         _PRICE_CACHE['price'] = 0.0000423
-        _PRICE_CACHE['change_24h'] = 0.00
-        _PRICE_CACHE['high_24h'] = 0.0000440
-        _PRICE_CACHE['low_24h'] = 0.0000406
+        _PRICE_CACHE['change_24h'] = 0.45
+        _PRICE_CACHE['high_24h'] = 0.0000425
+        _PRICE_CACHE['low_24h'] = 0.0000420
         _PRICE_CACHE['last_updated'] = now
 
     return _PRICE_CACHE
@@ -112,7 +113,7 @@ def fetch_live_dex_price():
 
 def fetch_dex_candles(timeframe='1m'):
     """
-    جلب الشموع الحقيقية المباشرة من GeckoTerminal / STON.fi مع تقييد الشموع بالتاريخ الفعلي
+    جلب الشموع المباشرة أو توليد حركة واقعية دقيقة محكومة بالوقت الحالي وتاريخ التأسيس الفعلي
     """
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -123,15 +124,15 @@ def fetch_dex_candles(timeframe='1m'):
     ssl_context.verify_mode = ssl.CERT_NONE
 
     period_map = {
-        '1m': ('minute', 1, 60),
-        '5m': ('minute', 5, 60),
+        '1m': ('minute', 1, 80),
+        '5m': ('minute', 5, 70),
         '15m': ('minute', 15, 60),
-        '1h': ('hour', 1, 48),
-        '1d': ('day', 1, 30),
+        '1h': ('hour', 1, 50),
+        '1d': ('day', 1, 45),
         '1M': ('day', 30, 12)
     }
 
-    period, aggregate, limit = period_map.get(timeframe, ('minute', 1, 60))
+    period, aggregate, limit = period_map.get(timeframe, ('minute', 1, 80))
     url = f"https://api.geckoterminal.com/api/v2/networks/ton/pools/{STON_POOL_ADDRESS}/ohlcv/{period}?aggregate={aggregate}&limit={limit}"
 
     now_sec = int(time.time())
@@ -149,10 +150,10 @@ def fetch_dex_candles(timeframe='1m'):
                     if t <= now_sec + 60:
                         candles.append({
                             'time': t,
-                            'open': round(o, 8),
-                            'high': round(h, 8),
-                            'low': round(l, 8),
-                            'close': round(c, 8)
+                            'open': o,
+                            'high': h,
+                            'low': l,
+                            'close': c
                         })
 
                 candles.sort(key=lambda x: x['time'])
@@ -169,7 +170,7 @@ def fetch_dex_candles(timeframe='1m'):
     except Exception as e:
         print(f"⚠️ GeckoTerminal OHLCV Fetch Error ({timeframe}): {e}")
 
-    # Fallback محكّم ومضبوط بالسعر الفعلي المستقر والنطاق الزمني الصحيح
+    # Fallback زمني دقيق ومحكوم بلحظة الآن وتاريخ إنشاء المجمع بدون شطحات وهمية
     sec_per_tf = {
         '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '1d': 86400, '1M': 2592000
     }.get(timeframe, 60)
@@ -178,54 +179,42 @@ def fetch_dex_candles(timeframe='1m'):
     start_period = (now_sec // sec_per_tf) * sec_per_tf
     creation_time = _PRICE_CACHE.get('pool_created_at', 1768435200)
 
-    max_possible = max(1, (start_period - creation_time) // sec_per_tf + 1)
-    num_candles = min(limit, max_possible)
+    earliest_allowed = max(creation_time, start_period - ((limit - 1) * sec_per_tf))
+    start_time = (earliest_allowed // sec_per_tf) * sec_per_tf
+    num_candles = max(1, (start_period - start_time) // sec_per_tf + 1)
 
-    vol_map = {
-        '1m': 0.0010, '5m': 0.0020, '15m': 0.0035, '1h': 0.0060, '1d': 0.0120, '1M': 0.0250
-    }
-    vol = vol_map.get(timeframe, 0.0010)
+    vol = 0.0003  # تذبذب منخفض للغاية مطابق لواقع السعر الثابت
 
-    timestamps = []
-    for i in range(num_candles):
-        t = start_period - ((num_candles - 1 - i) * sec_per_tf)
-        if t >= creation_time and t <= now_sec + 60:
-            timestamps.append(t)
+    prices = [current_price]
+    running_p = current_price
+    for i in range(1, num_candles):
+        t_temp = start_time + i * 17
+        delta = (((t_temp % 10000) / 10000.0) - 0.498) * vol * current_price
+        running_p = max(0.00000001, running_p - delta)
+        prices.insert(0, running_p)
 
     raw_candles = []
-    if timestamps:
-        prices = []
-        for i, t in enumerate(timestamps):
-            if i == len(timestamps) - 1:
-                prices.append(current_price)
-            else:
-                w1 = math.sin(t / (sec_per_tf * 3))
-                w2 = math.cos(t / (sec_per_tf * 7)) * 0.5
-                w3 = math.sin(t / (sec_per_tf * 13)) * 0.25
-                combined = (w1 + w2 + w3) / 1.75
-                p = current_price * (1 + combined * vol)
-                prices.append(max(0.00000001, p))
+    for i in range(num_candles):
+        t = start_time + (i * sec_per_tf)
+        if t > now_sec + 60:
+            break
 
-        prev_close = prices[0] * (1 - vol * 0.2) if len(prices) > 1 else current_price
+        open_p = prices[0] if i == 0 else raw_candles[i - 1]['close']
+        close_p = prices[i]
 
-        for i, t in enumerate(timestamps):
-            open_p = prev_close if i == 0 else raw_candles[i - 1]['close']
-            close_p = prices[i]
+        min_b = min(open_p, close_p)
+        max_b = max(open_p, close_p)
 
-            max_b = max(open_p, close_p)
-            min_b = min(open_p, close_p)
+        high_p = max_b * (1 + (abs(math.sin(t)) * 0.0002))
+        low_p = max(0.00000001, min_b * (1 - (abs(math.cos(t)) * 0.0002)))
 
-            wick = (abs(math.sin(t)) * 0.5 + 0.1) * vol
-            high_p = max_b * (1 + wick * 0.5)
-            low_p = max(0.00000001, min_b * (1 - wick * 0.5))
-
-            raw_candles.append({
-                'time': t,
-                'open': round(open_p, 8),
-                'high': round(max(high_p, max_b), 8),
-                'low': round(min(low_p, min_b), 8),
-                'close': round(close_p, 8)
-            })
+        raw_candles.append({
+            'time': t,
+            'open': round(open_p, 8),
+            'high': round(max(high_p, max_b), 8),
+            'low': round(min(low_p, min_b), 8),
+            'close': round(close_p, 8)
+        })
 
     return raw_candles
 
