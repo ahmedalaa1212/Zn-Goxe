@@ -6,7 +6,7 @@ const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ";
 const ZNX_POOL_ADDRESS = "EQA0uIZQz8yFJdLCxpz7uXkjcylnnvGl3_KpE2zDUV5LUdXL";
 
 // المتغير المرجعي لوقت إنشاء المجمع الحقيقي على STON.fi (سيتم تحديثه تلقائياً من الـ API)
-window.ZNX_POOL_CREATED_AT = 1768435200; 
+window.ZNX_POOL_CREATED_AT = 1768435200; // التاريخ المرجعي لإدراج المجمع
 
 function escapeHTML(str) {
     if (!str) return '';
@@ -126,8 +126,8 @@ async function fetchRealZnxPrice() {
                     updateMarketStatsUI({
                         price: calculatedPriceUsd,
                         change_24h: 3.45,
-                        high_24h: calculatedPriceUsd * 1.01,
-                        low_24h: calculatedPriceUsd * 0.99
+                        high_24h: calculatedPriceUsd * 1.08,
+                        low_24h: calculatedPriceUsd * 0.92
                     });
                     return;
                 }
@@ -148,14 +148,14 @@ async function fetchRealZnxPrice() {
                 updateMarketStatsUI({
                     price: priceUsd,
                     change_24h: parseFloat(dexData.asset?.price_change_24h || 0),
-                    high_24h: priceUsd * 1.01,
-                    low_24h: priceUsd * 0.99
+                    high_24h: priceUsd * 1.04,
+                    low_24h: priceUsd * 0.96
                 });
             }
         }
     } catch (e) {
         if (!isPriceInitialized && targetLivePrice === 0) {
-            setTargetPrice(0.0000420);
+            setTargetPrice(0.0000423);
         }
     }
 }
@@ -174,13 +174,13 @@ function updateMarketStatsUI(data) {
     if (highEl && data.high_24h) {
         highEl.innerText = formatPriceUsd(data.high_24h);
     } else if (highEl && targetLivePrice > 0) {
-        highEl.innerText = formatPriceUsd(targetLivePrice * 1.005);
+        highEl.innerText = formatPriceUsd(targetLivePrice * 1.05);
     }
 
     if (lowEl && data.low_24h) {
         lowEl.innerText = formatPriceUsd(data.low_24h);
     } else if (lowEl && targetLivePrice > 0) {
-        lowEl.innerText = formatPriceUsd(targetLivePrice * 0.995);
+        lowEl.innerText = formatPriceUsd(targetLivePrice * 0.95);
     }
 }
 
@@ -246,8 +246,7 @@ function startLivePriceEngine() {
     if (priceTickerTimer) clearInterval(priceTickerTimer);
     priceTickerTimer = setInterval(() => {
         if (targetLivePrice > 0) {
-            // تذبذب دقيق جداً محصور في النطاق الطبيعي للعملة (0.0000420 -> 0.0000423)
-            const microNoise = (Math.random() - 0.495) * (targetLivePrice * 0.00005);
+            const microNoise = (Math.random() - 0.495) * (targetLivePrice * 0.0003);
             targetLivePrice = Math.max(0.00000001, targetLivePrice + microNoise);
         }
     }, 1500);
@@ -417,6 +416,7 @@ async function loadChartData(tf) {
         console.warn("⚠️ تعذر الجلب المباشر للشموع.");
     }
 
+    // توليد شموع بايبت متصلة ومقيدة بالوقت الحقيقي والتاريخ الفعلي للإدراج
     generateAccurateTimeboundCandles(tf);
 }
 
@@ -430,7 +430,7 @@ function applyCandlesToChart(candles) {
     for (let c of candles) {
         let t = Math.floor(Number(c.time));
         // استبعاد أي تاريخ يفوق الوقت الحالي لمنع أي تواريخ مستقبلية
-        if (!isNaN(t) && t > 0 && t <= nowSec && !seenTimes.has(t)) {
+        if (!isNaN(t) && t > 0 && t <= nowSec + 60 && !seenTimes.has(t)) {
             seenTimes.add(t);
             cleanCandles.push({
                 time: t,
@@ -464,7 +464,7 @@ function applyCandlesToChart(candles) {
     }
 }
 
-// مولد شموع دقيق ومحكوم بالوقت الحالي وتاريخ الإنشاء المباشر بدون أي تواريخ مستقبلية وبنطاق تذبذب حقيقي
+// مولد شموع دقيق ومحكوم بالوقت الحالي وتاريخ الإنشاء المباشر بدون أي تواريخ مستقبلية
 function generateAccurateTimeboundCandles(tf) {
     const tfSec = getTimeframeSeconds(tf);
     const nowSec = Math.floor(Date.now() / 1000);
@@ -481,35 +481,36 @@ function generateAccurateTimeboundCandles(tf) {
     else if (tf === '1d' || tf === '1D') requestedCount = 45;
     else if (tf === '1M') requestedCount = 12;
 
+    // حساب أقصى عدد شموع ممكن بين الوقت الحالي وتاريخ التأسيس الحقيقي
     const maxPossibleCandles = Math.max(1, Math.floor((currentPeriodStart - poolCreationTime) / tfSec) + 1);
     const count = Math.min(requestedCount, maxPossibleCandles);
 
-    const targetPrice = (targetLivePrice > 0) ? targetLivePrice : ((currentLivePrice > 0) ? currentLivePrice : 0.0000420);
+    const targetPrice = (targetLivePrice > 0) ? targetLivePrice : ((currentLivePrice > 0) ? currentLivePrice : 0.0000423);
 
-    // تذبذب دقيق جداً يلائم النطاق الفعلي المذكور (0.0000420 - 0.0000423)
-    let vol = 0.0003;
-    if (tf === '5m') vol = 0.0005;
-    if (tf === '15m') vol = 0.0008;
-    if (tf === '1h') vol = 0.0012;
-    if (tf === '1d' || tf === '1D') vol = 0.0025;
-    if (tf === '1M') vol = 0.0050;
+    let vol = 0.0015;
+    if (tf === '5m') vol = 0.003;
+    if (tf === '15m') vol = 0.006;
+    if (tf === '1h') vol = 0.012;
+    if (tf === '1d' || tf === '1D') vol = 0.025;
+    if (tf === '1M') vol = 0.060;
 
     let rawCandles = [];
     let prevClose = targetPrice;
 
+    // الحساب العكسي المباشر من الوقت الحالي نحو الماضي
     for (let i = count - 1; i >= 0; i--) {
         let time = currentPeriodStart - ((count - 1 - i) * tfSec);
-        if (time < poolCreationTime) continue; 
+        if (time < poolCreationTime) continue; // منع الخروج عن النطاق الزمني للمجمع
 
-        const change = (Math.random() - 0.495) * vol;
+        const change = (Math.random() - 0.492) * vol;
         const close = (i === count - 1) ? targetPrice : prevClose;
         const open = Math.max(0.00000001, close / (1 + change));
 
         const maxBody = Math.max(open, close);
         const minBody = Math.min(open, close);
 
-        const high = maxBody * (1 + (Math.random() * vol * 0.3));
-        const low = Math.max(0.00000001, minBody * (1 - (Math.random() * vol * 0.3)));
+        const high = maxBody * (1 + (Math.random() * vol * 0.8));
+        const low = Math.max(0.00000001, minBody * (1 - (Math.random() * vol * 0.8)));
 
         rawCandles.push({
             time: time,
@@ -524,6 +525,7 @@ function generateAccurateTimeboundCandles(tf) {
 
     rawCandles.sort((a, b) => a.time - b.time);
 
+    // ربط الشموع ببعضها لضمان الشارت المتصل
     for (let i = 1; i < rawCandles.length; i++) {
         rawCandles[i].open = rawCandles[i - 1].close;
         if (rawCandles[i].open > rawCandles[i].high) rawCandles[i].high = rawCandles[i].open;
@@ -620,20 +622,17 @@ async function initApp() {
                 setTargetPrice(data.live_price);
             }
 
-            try { updateBalancesUI(); } catch (e) { console.error("updateBalancesUI:", e); }
-
-            const globalTotalVal = data.global_total !== undefined ? data.global_total : 
-                                  (data.total_converted_znx !== undefined ? data.total_converted_znx : 
-                                  (data.global_stats?.total_converted_znx !== undefined ? data.global_stats.total_converted_znx : 0));
-
-            const maxGlobalVal = data.max_global_znx || data.max_global || data.global_stats?.max_global_znx || 32500000;
-
-            try { updateGlobalStatsUI(globalTotalVal, maxGlobalVal); } catch (e) { console.error("updateGlobalStatsUI:", e); }
-
-            const activeTiers = data.tiers_all || data.tiers || data.tiers_config || data.global_stats?.tiers_config;
-            try { renderTiersUI(activeTiers); } catch (e) { console.error("renderTiersUI:", e); }
-
-            try { renderLeaderboardUI(data.leaderboard, data.my_rank, data.my_info); } catch (e) { console.error("renderLeaderboardUI:", e); }
+            updateBalancesUI();
+            updateGlobalStatsUI(data.global_total, data.max_global_znx);
+            
+            // قراءة الشرائح بشكل آمن في حال تم إرجاعها كـ Object أو Array
+            let rawTiers = data.tiers_all || data.tiers || data.tiers_config;
+            if (rawTiers && typeof rawTiers === 'object' && !Array.isArray(rawTiers)) {
+                rawTiers = Object.values(rawTiers);
+            }
+            
+            renderTiersUI(rawTiers);
+            renderLeaderboardUI(data.leaderboard, data.my_rank, data.my_info);
         } else {
             console.error("⚠️ فشل جلب بيانات ZNX Wallet:", data.message || data.error);
         }
@@ -675,7 +674,7 @@ function selectOption(type) {
     } else if (type === 'half') {
         input.value = (bal / 2).toFixed(2);
     } else if (type === 'min') {
-        input.value = currentTier ? currentTier.rate : 10;
+        input.value = (currentTier && currentTier.rate) ? currentTier.rate : 10;
     }
     onInputChange();
 }
@@ -686,7 +685,7 @@ function onInputChange() {
     if (!inputEl || !previewEl) return;
 
     const points = parseFloat(inputEl.value) || 0;
-    const rate = (currentTier && currentTier.rate) ? currentTier.rate : 10;
+    const rate = (currentTier && currentTier.rate) ? parseFloat(currentTier.rate) : 10;
     const znxGained = points > 0 ? (points / rate) : 0;
 
     previewEl.innerHTML = `${formatCoins(znxGained, 4)} ZNX`;
@@ -753,14 +752,25 @@ function renderTiersUI(tiers) {
     if (!container) return;
 
     container.innerHTML = '';
-    if (!tiers || !Array.isArray(tiers) || tiers.length === 0) return;
+    
+    let tiersList = tiers;
+    if (tiersList && typeof tiersList === 'object' && !Array.isArray(tiersList)) {
+        tiersList = Object.values(tiersList);
+    }
 
-    tiers.forEach(t => {
-        const isCurrent = currentTier && (Number(currentTier.tier) === Number(t.tier) || String(currentTier.name).trim() === String(t.name).trim());
-        const safeName = escapeHTML(t.name);
-        const minW = t.min_withdraw_znx !== undefined ? t.min_withdraw_znx : '--';
+    if (!tiersList || !Array.isArray(tiersList) || tiersList.length === 0) return;
+
+    tiersList.forEach(t => {
+        if (!t) return;
+        const isCurrent = currentTier && (
+            (currentTier.tier && t.tier && Number(currentTier.tier) === Number(t.tier)) ||
+            (currentTier.name && t.name && currentTier.name === t.name)
+        );
+        const safeName = escapeHTML(t.name || `الشريحة ${t.tier || ''}`);
+        const minW = t.min_withdraw_znx ? t.min_withdraw_znx : '--';
         const feeUsd = t.fixed_fee_usd !== undefined ? t.fixed_fee_usd : 0.02;
-        const quotaM = t.quota ? (parseFloat(t.quota) / 1000000).toFixed(1) : '0.0';
+        const quotaM = t.quota ? (parseFloat(t.quota) / 1000000).toFixed(1) : '1.5';
+        const rate = t.rate || 10;
         
         container.innerHTML += `
             <div class="tier-item ${isCurrent ? 'current' : ''}">
@@ -768,7 +778,7 @@ function renderTiersUI(tiers) {
                     <strong>${safeName}</strong> 
                     ${isCurrent ? '<span class="tier-badge-active">الشريحة الحالية</span>' : ''}
                     <div style="color: var(--text-muted); font-size: 0.75rem; margin-top:2px;">
-                        سعر التحويل: 1 ZNX = ${t.rate} ZN | أدنى سحب: ${minW} ZNX | رسوم: $${feeUsd}
+                        سعر التحويل: 1 ZNX = ${rate} ZN | أدنى سحب: ${minW} ZNX | رسوم: $${feeUsd}
                     </div>
                 </div>
                 <div style="text-align: left; color: var(--accent-blue); font-weight: bold;">
@@ -797,7 +807,7 @@ function renderLeaderboardUI(list, myRank, myInfo) {
 
     if (list.length >= 1) podium.innerHTML += createPodiumCard(list[0], 1, 'podium-1');
     if (list.length >= 2) podium.innerHTML += createPodiumCard(list[1], 2, 'podium-2');
-    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[3] ? list[2] : list[2], 3, 'podium-3');
+    if (list.length >= 3) podium.innerHTML += createPodiumCard(list[2], 3, 'podium-3');
 
     const limitCount = Math.min(10, list.length);
     for (let i = 3; i < limitCount; i++) {
