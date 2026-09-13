@@ -92,6 +92,59 @@
         .tg-open-btn:hover {
             background: #0077b5;
         }
+
+        /* تنسيق شاشة الحظر النهائي لتعدد الحسابات */
+        #banned-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100vh;
+            background: #090d16;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            z-index: 9999999;
+            padding: 20px;
+            box-sizing: border-box;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        .banned-card {
+            max-width: 360px;
+            background: #18111e;
+            padding: 30px 20px;
+            border-radius: 20px;
+            border: 1px solid #7f1d1d;
+            box-shadow: 0 10px 30px rgba(220, 38, 38, 0.25);
+        }
+        .banned-card i.fa-user-slash {
+            font-size: 60px;
+            color: #ef4444;
+            margin-bottom: 15px;
+        }
+        .banned-card h2 {
+            font-size: 20px;
+            margin-bottom: 10px;
+            color: #fca5a5;
+        }
+        .banned-card p {
+            font-size: 14px;
+            color: #cbd5e1;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+        .banned-badge {
+            display: inline-block;
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            padding: 6px 14px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -105,6 +158,16 @@
             <a href="https://t.me/zngoxe_bot/Zngoxe" id="tg-bot-link" target="_blank" rel="noopener noreferrer" class="tg-open-btn">
                 <i class="fab fa-telegram"></i> فتح في تليجرام
             </a>
+        </div>
+    </div>
+
+    <!-- شاشة الحظر المخصصة لتعدد الحسابات -->
+    <div id="banned-screen" style="display: none;">
+        <div class="banned-card">
+            <i class="fas fa-user-slash"></i>
+            <h2>تم حظر الحساب والجهاز</h2>
+            <p id="banned-reason">لقد تم اكتشاف استخدام أكثر من حساب على هذا الجهاز (تعدد الحسابات). تم حظر جميع الحسابات المرتبطة بهذا الجهاز نهائياً وفقاً لشروط الخدمة.</p>
+            <div class="banned-badge">كود الحظر: MULTI_ACCOUNT_VIOLATION</div>
         </div>
     </div>
 
@@ -221,6 +284,165 @@
             if (viewport) {
                 viewport.addEventListener('resize', handleViewportChange);
             }
+        })();
+    </script>
+
+    <!-- محرك بصمة الجهاز ومعرّف الأمان الممتد (Anti Multi-Account Device Engine) -->
+    <script>
+        (function() {
+            function setCookie(name, value, days) {
+                let expires = "";
+                if (days) {
+                    const date = new Date();
+                    date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+                    expires = "; expires=" + date.toUTCString();
+                }
+                document.cookie = name + "=" + (value || "") + expires + "; path=/; SameSite=Strict";
+            }
+
+            function getCookie(name) {
+                const nameEQ = name + "=";
+                const ca = document.cookie.split(';');
+                for (let i = 0; i < ca.length; i++) {
+                    let c = ca[i];
+                    while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+                    if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+                }
+                return null;
+            }
+
+            function getIDBValue(key) {
+                return new Promise((resolve) => {
+                    try {
+                        const request = indexedDB.open("ZnGoxe_DeviceDB", 1);
+                        request.onupgradeneeded = (e) => {
+                            const db = e.target.result;
+                            if (!db.objectStoreNames.contains("store")) {
+                                db.createObjectStore("store");
+                            }
+                        };
+                        request.onsuccess = (e) => {
+                            const db = e.target.result;
+                            const tx = db.transaction("store", "readonly");
+                            const store = tx.objectStore("store");
+                            const req = store.get(key);
+                            req.onsuccess = () => resolve(req.result || null);
+                            req.onerror = () => resolve(null);
+                        };
+                        request.onerror = () => resolve(null);
+                    } catch (err) {
+                        resolve(null);
+                    }
+                });
+            }
+
+            function setIDBValue(key, val) {
+                try {
+                    const request = indexedDB.open("ZnGoxe_DeviceDB", 1);
+                    request.onupgradeneeded = (e) => {
+                        const db = e.target.result;
+                        if (!db.objectStoreNames.contains("store")) {
+                            db.createObjectStore("store");
+                        }
+                    };
+                    request.onsuccess = (e) => {
+                        const db = e.target.result;
+                        const tx = db.transaction("store", "readwrite");
+                        const store = tx.objectStore("store");
+                        store.put(val, key);
+                    };
+                } catch (err) {}
+            }
+
+            function generateUUID() {
+                return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+                    return v.toString(16);
+                });
+            }
+
+            async function getOrCreateDeviceId() {
+                let localId = localStorage.getItem("zn_device_uuid");
+                let cookieId = getCookie("zn_device_uuid");
+                let idbId = await getIDBValue("zn_device_uuid");
+
+                let deviceId = localId || cookieId || idbId;
+
+                if (!deviceId) {
+                    deviceId = generateUUID();
+                }
+
+                try { localStorage.setItem("zn_device_uuid", deviceId); } catch(e){}
+                setCookie("zn_device_uuid", deviceId, 3650);
+                setIDBValue("zn_device_uuid", deviceId);
+
+                return deviceId;
+            }
+
+            function getDeviceFingerprint() {
+                try {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    ctx.textBaseline = "top";
+                    ctx.font = "14px 'Arial'";
+                    ctx.textBaseline = "alphabetic";
+                    ctx.fillStyle = "#f60";
+                    ctx.fillRect(125, 1, 62, 20);
+                    ctx.fillStyle = "#069";
+                    ctx.fillText("ZN_GOXE_FP", 2, 15);
+                    ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
+                    ctx.fillText("ZN_GOXE_FP", 4, 17);
+                    const canvasData = canvas.toDataURL();
+
+                    const fpComponents = [
+                        navigator.userAgent,
+                        navigator.language,
+                        screen.colorDepth,
+                        screen.width + "x" + screen.height,
+                        new Date().getTimezoneOffset(),
+                        sessionStorage ? 1 : 0,
+                        localStorage ? 1 : 0,
+                        indexedDB ? 1 : 0,
+                        navigator.hardwareConcurrency || 'unknown',
+                        canvasData
+                    ].join('||');
+
+                    let h1 = 0xdeadbeef ^ 0, h2 = 0x41c6ce57 ^ 0;
+                    for (let i = 0, ch; i < fpComponents.length; i++) {
+                        ch = fpComponents.charCodeAt(i);
+                        h1 = Math.imul(h1 ^ ch, 2654435761);
+                        h2 = Math.imul(h2 ^ ch, 1597334677);
+                    }
+                    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 16), 3266489909);
+                    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 16), 3266489909);
+                    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+                } catch (e) {
+                    return "fallback_fp_" + (navigator.userAgent || "").length;
+                }
+            }
+
+            window.ZnAntiMultiAccount = {
+                getOrCreateDeviceId: getOrCreateDeviceId,
+                getDeviceFingerprint: getDeviceFingerprint,
+                showBannedScreen: function(reason) {
+                    const app = document.getElementById('app');
+                    const nav = document.getElementById('main-nav');
+                    const loading = document.getElementById('loading-screen');
+                    const bannedScreen = document.getElementById('banned-screen');
+                    const reasonElem = document.getElementById('banned-reason');
+
+                    if (app) app.style.display = 'none';
+                    if (nav) nav.style.display = 'none';
+                    if (loading) loading.style.display = 'none';
+
+                    if (reasonElem && reason) {
+                        reasonElem.innerText = reason;
+                    }
+                    if (bannedScreen) {
+                        bannedScreen.style.display = 'flex';
+                    }
+                }
+            };
         })();
     </script>
 
