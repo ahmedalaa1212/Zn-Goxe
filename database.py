@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 بيانات التطبيق الرئيسية مع ربط موديول ZNX Wallet وقاعدة البيانات
+نظام الأمان ومنع تعدد الحسابات والأجهزة (Multi-Accounting System)
 """
 import json
 import os
@@ -137,6 +138,189 @@ def sanitize_firestore_data(data):
         return str(data)
     else:
         return data
+
+
+# ==================== Multi-Accounting & Device Security Engine ====================
+
+def ban_user_and_device(telegram_id, device_id=None, reason="تعدد حسابات غير مصرح به", fingerprint_hash=None):
+    """
+    حظر المستخدم والجهاز وإدراجهما في القائمة السوداء لمنع الدخول مستقبلاً.
+    """
+    user_id_str = _sanitize_telegram_id(telegram_id)
+    firestore_db = get_db()
+    now_ts = firestore.SERVER_TIMESTAMP
+
+    # 1. حظر حساب المستخدم في مجموعة users
+    if user_id_str:
+        try:
+            firestore_db.collection('users').document(user_id_str).set({
+                'is_banned': True,
+                'ban_reason': reason,
+                'banned_at': now_ts
+            }, merge=True)
+            print(f"🚫 تم حظر المستخدم {user_id_str} | السبب: {reason}")
+        except Exception as e:
+            print(f"❌ خطأ حظر المستخدم {user_id_str}: {e}")
+
+    # 2. حظر الجهاز في مجموعة banned_devices و devices
+    if device_id and str(device_id).strip() and str(device_id).lower() not in ('none', 'null', 'undefined'):
+        clean_device_id = str(device_id).strip()
+        try:
+            # تحديث/إضافة إلى قائمة الأجهزة المحظورة
+            banned_dev_ref = firestore_db.collection('banned_devices').document(clean_device_id)
+            ban_payload = {
+                'device_id': clean_device_id,
+                'reason': reason,
+                'banned_at': now_ts,
+            }
+            if user_id_str:
+                ban_payload['associated_users'] = firestore.ArrayUnion([user_id_str])
+            if fingerprint_hash:
+                ban_payload['fingerprint_hash'] = str(fingerprint_hash).strip()
+
+            banned_dev_ref.set(ban_payload, merge=True)
+
+            # تحديث حالة الجهاز في مجموعة devices
+            firestore_db.collection('devices').document(clean_device_id).set({
+                'is_banned': True,
+                'ban_reason': reason,
+                'banned_at': now_ts
+            }, merge=True)
+
+            print(f"🚫 تم حظر الجهاز {clean_device_id} وإدراجه في banned_devices | السبب: {reason}")
+        except Exception as e:
+            print(f"❌ خطأ حظر الجهاز {clean_device_id}: {e}")
+
+    return True
+
+
+def check_and_bind_device(telegram_id, device_id, fingerprint_hash=None):
+    """
+    فحص حظر متعدد الحسابات والأجهزة:
+    1. التأكد من عدم حظر المستخدم أو الجهاز في banned_devices.
+    2. ربط الجهاز بأول حساب يدخل منه (primary_user_id).
+    3. إذا حاول حساب مختلف الدخول بنفس الجهاز -> حظر الحسابين والجهاز فوراً.
+    """
+    user_id_str = _sanitize_telegram_id(telegram_id)
+    if not user_id_str:
+        return {"allowed": False, "banned": True, "reason": "معرف المستخدم غير صالح"}
+
+    clean_device_id = str(device_id or '').strip()
+    clean_fingerprint = str(fingerprint_hash or '').strip()
+
+    # إذا لم يتم تمرير معرّف جهاز، نكتفي بفحص الحظر العام للمستخدم
+    if not clean_device_id or clean_device_id.lower() in ('none', 'null', 'undefined', 'false', 'true'):
+        if is_user_banned(user_id_str):
+            return {"allowed": False, "banned": True, "reason": "حسابك محظور من استخدام التطبيق."}
+        return {"allowed": True}
+
+    firestore_db = get_db()
+
+    # أ. فحص ما إذا كان المستخدم محظوراً مسبقاً
+    if is_user_banned(user_id_str):
+        return {"allowed": False, "banned": True, "reason": "حسابك محظور من استخدام التطبيق."}
+
+    try:
+        # ب. فحص القائمة السوداء للأجهزة (banned_devices)
+        banned_doc = firestore_db.collection('banned_devices').document(clean_device_id).get()
+        if banned_doc.exists:
+            # حظر الحساب الحالي فوراً محاولة استخدام جهاز محظور
+            ban_user_and_device(user_id_str, clean_device_id, "محاولة استخدام جهاز محظور مسبقاً", clean_fingerprint)
+            return {
+                "allowed": False,
+                "banned": True,
+                "reason": "تم حظر هذا الجهاز وحسابك نهائياً بسبب انتهاك سياسة منع تعدد الحسابات."
+            }
+
+        # ج. فحص سجل الجهاز في مجموعة devices
+        device_ref = firestore_db.collection('devices').document(clean_device_id)
+        device_doc = device_ref.get()
+
+        if device_doc.exists:
+            dev_data = device_doc.to_dict() or {}
+
+            # هل الجهاز معلم كـ محظور؟
+            if dev_data.get('is_banned', False):
+                ban_user_and_device(user_id_str, clean_device_id, dev_data.get('ban_reason', 'جهاز محظور'), clean_fingerprint)
+                return {
+                    "allowed": False,
+                    "banned": True,
+                    "reason": "تم حظر هذا الجهاز وحسابك بسبب انتهاك شروط الاستخدام."
+                }
+
+            primary_user_id = str(dev_data.get('primary_user_id', '')).strip()
+            associated_users = dev_data.get('users', [])
+
+            # اكتشاف تعدد الحسابات (حساب آخر مختلف يحاول استخدام نفس الجهاز)
+            if primary_user_id and primary_user_id != user_id_str:
+                reason_msg = f"اكتشاف تعدد حسابات على نفس الجهاز ({clean_device_id}). الحساب الرئيسي: {primary_user_id}، الحساب الجديد: {user_id_str}"
+                print(f"🚨 ALERT: Multi-account detected! Primary: {primary_user_id}, Current: {user_id_str}")
+
+                # 1. حظر الحساب الحالي
+                ban_user_and_device(user_id_str, clean_device_id, reason_msg, clean_fingerprint)
+                # 2. حظر الحساب الأساسي الذي ارتبط بالجهاز أول مرة
+                ban_user_and_device(primary_user_id, clean_device_id, reason_msg, clean_fingerprint)
+                # 3. حظر أي حسابات أخرى ارتبطت بنفس الجهاز
+                for assoc_uid in associated_users:
+                    if assoc_uid and assoc_uid not in (user_id_str, primary_user_id):
+                        ban_user_and_device(assoc_uid, clean_device_id, reason_msg, clean_fingerprint)
+
+                return {
+                    "allowed": False,
+                    "banned": True,
+                    "reason": "تم حظر حسابك وجميع الحسابات المرتبطة بهذا الجهاز فوراً بسبب كشف استخدام أكثر من حساب على نفس الجهاز."
+                }
+
+            # الجهاز مرتبط بنجاح بنفس المستخدم -> تحديث آخير للدخول
+            device_ref.set({
+                'last_seen': firestore.SERVER_TIMESTAMP,
+                'users': firestore.ArrayUnion([user_id_str])
+            }, merge=True)
+
+            return {"allowed": True}
+
+        else:
+            # د. الجهاز جديد كلياً ولم يُسجل من قبل
+            # فحص إضافي عبر البصمة (fingerprint_hash) للتحقق من عدم وجود جهاز آخر بنفس البصمة مرتبط بحساب مختلف
+            if clean_fingerprint:
+                fp_matches = firestore_db.collection('devices').where('fingerprint_hash', '==', clean_fingerprint).limit(5).stream()
+                for match in fp_matches:
+                    match_data = match.to_dict() or {}
+                    other_primary = str(match_data.get('primary_user_id', '')).strip()
+                    if other_primary and other_primary != user_id_str:
+                        reason_msg = f"اكتشاف تطابق بصمة الجهاز ({clean_fingerprint}) مع حساب آخر ({other_primary})"
+                        print(f"🚨 ALERT: Multi-account detected via Fingerprint! Existing: {other_primary}, Current: {user_id_str}")
+                        ban_user_and_device(user_id_str, clean_device_id, reason_msg, clean_fingerprint)
+                        ban_user_and_device(other_primary, match.id, reason_msg, clean_fingerprint)
+                        return {
+                            "allowed": False,
+                            "banned": True,
+                            "reason": "تم حظر الحساب والجهاز فوراً بسبب تطابق بصمة الجهاز مع حساب آخر مسجل."
+                        }
+
+            # تسجيل الجهاز الجديد وربطه بالحساب الحالي كـ primary_user_id
+            device_ref.set({
+                'device_id': clean_device_id,
+                'primary_user_id': user_id_str,
+                'users': [user_id_str],
+                'fingerprint_hash': clean_fingerprint if clean_fingerprint else None,
+                'created_at': firestore.SERVER_TIMESTAMP,
+                'last_seen': firestore.SERVER_TIMESTAMP,
+                'is_banned': False
+            }, merge=True)
+
+            # تحديث مستند المستخدم بمعرف الجهاز والبصمة
+            firestore_db.collection('users').document(user_id_str).set({
+                'device_id': clean_device_id,
+                'fingerprint_hash': clean_fingerprint if clean_fingerprint else None
+            }, merge=True)
+
+            print(f"✅ تم ربط الجهاز الجديد {clean_device_id} بالحساب الأساسي {user_id_str}")
+            return {"allowed": True}
+
+    except Exception as e:
+        print(f"❌ خطأ في فحص الجهاز وتعدد الحسابات للمستخدم {user_id_str}: {e}")
+        return {"allowed": True}
 
 
 # ==================== Core User Operations (ضمان إنشاء وقراءة المستخدم) ====================
