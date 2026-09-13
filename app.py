@@ -172,6 +172,38 @@ def extract_telegram_user_from_request(req):
     return False, None, {}, (jsonify({"success": False, "error": "لم يتم تقديم معرف تليجرام صالح"}), 401)
 
 
+def extract_device_info_from_request(req):
+    """
+    استخراج معرّف الجهاز والبصمة الممررة في Request Headers أو Query Params أو JSON Body.
+    """
+    req_json = req.get_json(silent=True) if req.is_json else {}
+    if not isinstance(req_json, dict):
+        req_json = {}
+
+    device_id = (
+        req.headers.get('X-Device-Id') or
+        req.args.get('device_id') or
+        req.args.get('deviceId') or
+        req_json.get('device_id') or
+        req_json.get('deviceId')
+    )
+
+    fingerprint = (
+        req.headers.get('X-Device-Fingerprint') or
+        req.args.get('fingerprint') or
+        req.args.get('fingerprint_hash') or
+        req.args.get('deviceFingerprint') or
+        req_json.get('fingerprint') or
+        req_json.get('fingerprint_hash') or
+        req_json.get('deviceFingerprint')
+    )
+
+    clean_device_id = str(device_id).strip() if device_id and str(device_id).strip() not in ("None", "null", "", "undefined") else None
+    clean_fingerprint = str(fingerprint).strip() if fingerprint and str(fingerprint).strip() not in ("None", "null", "", "undefined") else None
+
+    return clean_device_id, clean_fingerprint
+
+
 # ==========================================
 # 🌐 مسارات الخدمة والمستخدم الأساسية
 # ==========================================
@@ -233,7 +265,7 @@ def serve_static_files(filename):
 
 @app.route('/api/user/info', methods=['GET', 'POST', 'OPTIONS'])
 def get_user_info_main():
-    """جلب بيانات حساب المستخدم والتحقق من الحظر وتهيئة الحسابات الجديدة تلقائياً في Firebase"""
+    """جلب بيانات حساب المستخدم والتحقق من الحظر وربط/فحص بصمة الجهاز للحماية من تعدد الحسابات"""
     if request.method == 'OPTIONS':
         return jsonify({"success": True}), 200
 
@@ -245,11 +277,49 @@ def get_user_info_main():
         return jsonify({"success": False, "error": "تعذر التوثيق أو معرف المستخدم غير متاح"}), 401
 
     try:
-        # فحص حظر الحساب
-        if database.is_user_banned(telegram_id):
+        # 1. فحص حظر الحساب المباشر من قاعدة البيانات
+        if hasattr(database, 'is_user_banned') and database.is_user_banned(telegram_id):
             return jsonify({
                 "success": False, 
-                "error": "حسابك معطل حالياً بسبب مخالفة الشروط",
+                "error": "حسابك معطل حالياً بسبب مخالفة الشروط وتعدد الحسابات",
+                "banned": True
+            }), 403
+
+        # 2. استخراج بيانات الجهاز وفحص بصمة الجهاز لمنع تعدد الحسابات
+        device_id, fingerprint = extract_device_info_from_request(request)
+        if device_id and hasattr(database, 'check_and_bind_device'):
+            try:
+                device_check = database.check_and_bind_device(telegram_id, device_id, fingerprint)
+                
+                # التعامل مع مخرجات check_and_bind_device
+                is_allowed = True
+                ban_reason = "تم حظر الحساب والجهاز فوراً لتجاوز الشروط واكتشاف تعدد الحسابات على نفس الجهاز."
+
+                if isinstance(device_check, dict):
+                    if device_check.get('banned') or device_check.get('allowed') is False or device_check.get('success') is False:
+                        is_allowed = False
+                        if device_check.get('reason'):
+                            ban_reason = device_check.get('reason')
+                        elif device_check.get('error'):
+                            ban_reason = device_check.get('error')
+                elif device_check is False:
+                    is_allowed = False
+
+                if not is_allowed:
+                    return jsonify({
+                        "success": False,
+                        "error": ban_reason,
+                        "banned": True
+                    }), 403
+
+            except Exception as dev_err:
+                print(f"⚠️ Device verification exception for {telegram_id}: {dev_err}")
+
+        # إعادة فحص حالة الحظر في حال قامت دالة check_and_bind_device بحظر الحساب داخل قاعدة البيانات
+        if hasattr(database, 'is_user_banned') and database.is_user_banned(telegram_id):
+            return jsonify({
+                "success": False,
+                "error": "تم حظر هذا الحساب وجميع الحسابات المرتبطة بهذا الجهاز بسبب تعدد الحسابات",
                 "banned": True
             }), 403
 
@@ -339,7 +409,7 @@ def add_security_headers(response):
     response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     response.headers['X-XSS-Protection'] = '1; mode=block'
     response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, X-Telegram-User-Id, X-Telegram-Init-Data'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, X-Telegram-User-Id, X-Telegram-Init-Data, X-Device-Id, X-Device-Fingerprint'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE'
     return response
 
