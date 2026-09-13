@@ -1,4 +1,229 @@
 // ==========================================
+// 0. نظام حظر تعدد الحسابات وبصمة الجهاز (Multi-Accounting & Device Fingerprint Engine)
+// ==========================================
+const DB_NAME = 'ZN_Device_DB';
+const STORE_NAME = 'device_store';
+
+function getIDBValue(key) {
+    return new Promise((resolve) => {
+        if (!window.indexedDB) return resolve(null);
+        try {
+            const req = indexedDB.open(DB_NAME, 1);
+            req.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    db.createObjectStore(STORE_NAME);
+                }
+            };
+            req.onsuccess = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(STORE_NAME)) return resolve(null);
+                const tx = db.transaction(STORE_NAME, 'readonly');
+                const store = tx.objectStore(STORE_NAME);
+                const getReq = store.get(key);
+                getReq.onsuccess = () => resolve(getReq.result || null);
+                getReq.onerror = () => resolve(null);
+            };
+            req.onerror = () => resolve(null);
+        } catch (err) {
+            resolve(null);
+        }
+    });
+}
+
+function setIDBValue(key, val) {
+    return new Promise((resolve) => {
+        if (!window.indexedDB) return resolve(false);
+        try {
+            const req = indexedDB.open(DB_NAME, 1);
+            req.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    db.createObjectStore(STORE_NAME);
+                }
+            };
+            req.onsuccess = (e) => {
+                const db = e.target.result;
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                store.put(val, key);
+                tx.oncomplete = () => resolve(true);
+                tx.onerror = () => resolve(false);
+            };
+            req.onerror = () => resolve(false);
+        } catch (err) {
+            resolve(false);
+        }
+    });
+}
+
+function setCookie(name, value, days = 3650) {
+    try {
+        const d = new Date();
+        d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
+        document.cookie = `${name}=${encodeURIComponent(value)};expires=${d.toUTCString()};path=/;SameSite=Strict`;
+    } catch (e) {}
+}
+
+function getCookie(name) {
+    try {
+        const nameEQ = name + "=";
+        const ca = document.cookie.split(';');
+        for (let i = 0; i < ca.length; i++) {
+            let c = ca[i].trim();
+            if (c.indexOf(nameEQ) === 0) return decodeURIComponent(c.substring(nameEQ.length, c.length));
+        }
+    } catch (e) {}
+    return null;
+}
+
+function generateCanvasFingerprint() {
+    try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 200;
+        canvas.height = 50;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return 'no-canvas-ctx';
+        ctx.textBaseline = 'top';
+        ctx.font = "14px 'Arial'";
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillStyle = '#f60';
+        ctx.fillRect(125, 1, 62, 20);
+        ctx.fillStyle = '#069';
+        ctx.fillText('ZN-GOXE-FP-2026', 2, 15);
+        ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
+        ctx.fillText('ZN-GOXE-FP-2026', 4, 17);
+        return canvas.toDataURL();
+    } catch (e) {
+        return 'canvas-error';
+    }
+}
+
+async function hashString(str) {
+    if (window.crypto && window.crypto.subtle) {
+        try {
+            const msgUint8 = new TextEncoder().encode(str);
+            const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgUint8);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        } catch (e) {}
+    }
+    let hash = 5381;
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) + hash) + str.charCodeAt(i);
+    }
+    return 'fp_' + Math.abs(hash).toString(16);
+}
+
+let cachedDeviceId = null;
+window.getOrCreateDeviceId = async function() {
+    if (cachedDeviceId) return cachedDeviceId;
+
+    let deviceId = null;
+    try {
+        deviceId = localStorage.getItem('device_uuid');
+    } catch (e) {}
+
+    if (!deviceId) {
+        deviceId = getCookie('device_uuid');
+    }
+
+    if (!deviceId) {
+        deviceId = await getIDBValue('device_uuid');
+    }
+
+    if (!deviceId) {
+        if (window.crypto && window.crypto.randomUUID) {
+            deviceId = window.crypto.randomUUID();
+        } else {
+            deviceId = 'dev_' + Date.now() + '_' + Math.random().toString(36).substring(2, 15);
+        }
+    }
+
+    try { localStorage.setItem('device_uuid', deviceId); } catch (e) {}
+    setCookie('device_uuid', deviceId);
+    await setIDBValue('device_uuid', deviceId);
+
+    cachedDeviceId = deviceId;
+    return deviceId;
+};
+
+let cachedFingerprint = null;
+window.getDeviceFingerprint = async function() {
+    if (cachedFingerprint) return cachedFingerprint;
+
+    const components = [
+        navigator.userAgent || '',
+        navigator.language || '',
+        screen.width + 'x' + screen.height + 'x' + (screen.colorDepth || 24),
+        new Date().getTimezoneOffset(),
+        Intl?.DateTimeFormat()?.resolvedOptions()?.timeZone || '',
+        navigator.hardwareConcurrency || 0,
+        navigator.deviceMemory || 0,
+        navigator.maxTouchPoints || 0,
+        generateCanvasFingerprint()
+    ];
+
+    const rawString = components.join('||');
+    cachedFingerprint = await hashString(rawString);
+    return cachedFingerprint;
+};
+
+window.showBannedScreen = function(reasonMessage) {
+    const appEl = document.getElementById('app');
+    const navEl = document.getElementById('main-nav');
+    const loaders = document.querySelectorAll('#loading-screen, .loading-screen, #loader');
+
+    if (appEl) appEl.style.display = 'none';
+    if (navEl) navEl.style.display = 'none';
+    loaders.forEach(el => { el.style.display = 'none'; });
+
+    let bannedEl = document.getElementById('banned-screen');
+    if (!bannedEl) {
+        bannedEl = document.createElement('div');
+        bannedEl.id = 'banned-screen';
+        bannedEl.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #0d1117;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 24px;
+            z-index: 999999;
+            direction: rtl;
+            font-family: system-ui, -apple-system, sans-serif;
+        `;
+        document.body.appendChild(bannedEl);
+    }
+
+    const safeMessage = window.escapeHTML(reasonMessage || 'تم حظر هذا الحساب والجهاز بسبب استخدام أكثر من حساب على نفس الجهاز.');
+
+    bannedEl.innerHTML = `
+        <div style="background: rgba(255, 77, 77, 0.1); border: 2px solid #ff4d4d; border-radius: 20px; padding: 30px 20px; max-width: 420px; width: 100%; box-shadow: 0 10px 30px rgba(255, 77, 77, 0.2);">
+            <div style="font-size: 64px; margin-bottom: 15px;">🚫</div>
+            <h2 style="color: #ff4d4d; margin-bottom: 15px; font-size: 24px; font-weight: bold;">تم حظر الحساب والجهاز</h2>
+            <p style="color: #e6e6e6; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">
+                ${safeMessage}
+            </p>
+            <div style="background: rgba(0,0,0,0.4); padding: 12px; border-radius: 10px; font-size: 12px; color: #888; margin-bottom: 20px; text-align: right;">
+                ⚠️ <b>تنبيه حظر تعدد الحسابات:</b> يمنع استخدام أكثر من حساب تليجرام واحد على نفس الجهاز. تم حظر جميع الحسابات المرتبطة بهذا الجهاز بشكل نهائي.
+            </div>
+            <button onclick="window.Telegram?.WebApp?.close()" style="background: #ff4d4d; color: white; border: none; padding: 12px 24px; border-radius: 12px; font-weight: bold; font-size: 15px; cursor: pointer; width: 100%;">
+                إغلاق التطبيق
+            </button>
+        </div>
+    `;
+    bannedEl.style.display = 'flex';
+};
+
+// ==========================================
 // 1. التهيئة والتخزين المحلي (Local-First Architecture)
 // ==========================================
 const tg = window.Telegram?.WebApp;
@@ -152,6 +377,18 @@ window.addEventListener('beforeunload', () => {
 // ==========================================
 window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
     const headers = { 'Content-Type': 'application/json' };
+
+    // جلب أو توليد معرّف الجهاز وبصمته الرقمية
+    let deviceId = null;
+    let fingerprint = null;
+    try {
+        deviceId = await window.getOrCreateDeviceId();
+        fingerprint = await window.getDeviceFingerprint();
+        if (deviceId) headers['X-Device-Id'] = deviceId;
+        if (fingerprint) headers['X-Device-Fingerprint'] = fingerprint;
+    } catch (e) {
+        console.warn("⚠️ خطأ في معالجة بصمة الجهاز:", e);
+    }
     
     const currentTgId = window.userState?.tg_id || tg?.initDataUnsafe?.user?.id;
     if (currentTgId) {
@@ -174,6 +411,8 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         const urlObj = new URL(targetUrl, window.location.href);
         if (tg?.initData) urlObj.searchParams.set('initData', tg.initData);
         if (currentTgId) urlObj.searchParams.set('tg_id', String(currentTgId));
+        if (deviceId) urlObj.searchParams.set('device_id', deviceId);
+        if (fingerprint) urlObj.searchParams.set('device_fingerprint', fingerprint);
         targetUrl = urlObj.toString();
     } catch (e) {}
 
@@ -187,11 +426,20 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
         const data = await res.json();
         
         if (!res.ok) {
-            if (res.status === 403 && data.error?.includes("محظور")) { 
-                alert("حسابك محظور."); 
-                tg?.close(); 
+            if (res.status === 403 || data.banned === true || data.is_banned === true) { 
+                const banReason = data.error || data.message || "حسابك وجهازك محظوران بسبب كشف تعدد الحسابات.";
+                window.showBannedScreen(banReason);
+                if (tg && typeof tg.close === 'function') {
+                    setTimeout(() => tg.close(), 3000);
+                }
             }
-            throw new Error(data.error || `HTTP ${res.status}`);
+            throw new Error(data.error || data.message || `HTTP ${res.status}`);
+        }
+
+        if (data.banned === true || data.is_banned === true) {
+            const banReason = data.error || data.message || "حسابك وجهازك محظوران بسبب كشف تعدد الحسابات.";
+            window.showBannedScreen(banReason);
+            throw new Error(banReason);
         }
 
         if (data.server_time) {
@@ -1057,6 +1305,13 @@ window.switchView = async function(viewName) {
 // ==========================================
 document.addEventListener('DOMContentLoaded', async () => {
     hideLoadingScreen();
+
+    // تهيئة بصمة الجهاز ومعرف الجهاز مبكراً
+    try {
+        await window.getOrCreateDeviceId();
+        await window.getDeviceFingerprint();
+    } catch(e) {}
+
     startLocalMiningSimulator();
     window.fetchTonPrice();
 
