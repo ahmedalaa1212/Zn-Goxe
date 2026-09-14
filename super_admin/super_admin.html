@@ -105,7 +105,7 @@
 
         .stat-card.gold .value { color: var(--accent-gold); }
         .stat-card.green .value { color: var(--accent-green); }
-        .stat-card.blue .value { color: var(--accent-blue); }
+        .stat-card.red .value { color: var(--accent-red); }
 
         .section-card {
             background: var(--card-bg);
@@ -232,7 +232,7 @@
             height: 15px;
         }
 
-        .moderators-list, .admin-logs {
+        .moderators-list, .admin-logs, .user-active-list {
             display: flex;
             flex-direction: column;
             gap: 8px;
@@ -240,7 +240,7 @@
             overflow-y: auto;
         }
 
-        .mod-item, .log-item {
+        .mod-item, .log-item, .user-active-item {
             background: var(--input-bg);
             border: 1px solid var(--card-border);
             border-radius: 8px;
@@ -251,13 +251,13 @@
             font-size: 11px;
         }
 
-        .mod-info {
+        .mod-info, .user-info {
             display: flex;
             flex-direction: column;
             gap: 2px;
         }
 
-        .mod-info span {
+        .mod-info span, .user-info span {
             font-size: 10px;
             color: var(--text-muted);
         }
@@ -279,6 +279,16 @@
             display: none;
         }
 
+        .badge-count {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+            border: 1px solid var(--accent-green);
+        }
+
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 4px; }
     </style>
@@ -288,26 +298,45 @@
     <div class="container">
         <div class="header">
             <h1>👑 لوحة الإدارة العليا</h1>
-            <p>نظام التحكم المركزي بالأرباح والصلاحيات والإشعارات</p>
+            <p>نظام التحكم المركزي بالإحصائيات والحظر والإشعارات والصلاحيات</p>
         </div>
 
-        <!-- كروت الإحصائيات الحية -->
+        <!-- 📊 كروت الإحصائيات الحية للمستخدمين -->
         <div class="grid-stats">
             <div class="stat-card gold">
-                <div class="title">أرباح البوت</div>
-                <div class="value" id="bot-profit-val">0</div>
+                <div class="title">إجمالي المسجلين</div>
+                <div class="value" id="total-users-val">0</div>
             </div>
             <div class="stat-card green">
-                <div class="title">أرباح اللاعبين</div>
-                <div class="value" id="user-profit-val">0</div>
+                <div class="title">المتفاعلين اليوم</div>
+                <div class="value" id="active-users-val">0</div>
             </div>
-            <div class="stat-card blue">
-                <div class="title">الربح الفعلي</div>
-                <div class="value" id="actual-profit-pct">0%</div>
+            <div class="stat-card red">
+                <div class="title">المستخدمين المحظورين</div>
+                <div class="value" id="banned-users-val">0</div>
             </div>
         </div>
 
-        <!-- 📢 الكارت الجديد: مركز الرسائل والإشعارات -->
+        <!-- 🔨 قسم إدارة الحظر والأمان (Ban / Unban Console) -->
+        <div class="section-card" style="border: 1px solid var(--accent-red);">
+            <div class="section-header">
+                <div class="section-title" style="color: var(--accent-red);">🔨 إدارة الحظر والأمان</div>
+            </div>
+            <div class="input-group" style="margin-bottom: 10px;">
+                <label>معرّف المستخدم (Telegram ID)</label>
+                <input type="text" id="banUserId" placeholder="مثال: 123456789">
+            </div>
+            <div class="input-group" style="margin-bottom: 12px;">
+                <label>سبب الحظر (اختياري)</label>
+                <input type="text" id="banReason" placeholder="مثال: مخالفة الشروط والإحتيال">
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <button class="btn-primary" onclick="banUser()" style="background: var(--accent-red); color: #fff;">🚫 حظر المستخدم</button>
+                <button class="btn-primary" onclick="unbanUser()" style="background: var(--accent-green); color: #fff;">🟢 فك الحظر</button>
+            </div>
+        </div>
+
+        <!-- 📢 مركز الرسائل والإشعارات -->
         <div class="section-card" style="border: 1px solid var(--accent-blue);">
             <div class="section-header">
                 <div class="section-title" style="color: var(--accent-blue);">📢 مركز الرسائل والإشعارات</div>
@@ -356,61 +385,15 @@
             </div>
         </div>
 
-        <!-- 🎮 الكارت الأول: لعبة شبكة ZN Go -->
+        <!-- 🏆 جدول أكثر المستخدمين نشاطاً -->
         <div class="section-card">
             <div class="section-header">
-                <div class="section-title">🎮 لعبة شبكة ZN Go</div>
-                <button class="btn-refresh" onclick="loadZnGoSettings()">🔄 تحديث</button>
+                <div class="section-title">🏆 أكثر المستخدمين نشاطاً</div>
+                <button class="btn-refresh" onclick="loadTopActiveUsers()">🔄 تحديث</button>
             </div>
-            
-            <div class="margin-controls">
-                <div class="input-group">
-                    <label>أرباح البوت (%)</label>
-                    <input type="number" id="grid36-bot-margin" min="0" max="100" placeholder="70">
-                </div>
-                <div class="input-group">
-                    <label>أرباح اللاعبين (%)</label>
-                    <input type="number" id="grid36-user-margin" placeholder="30" readonly style="opacity:0.7;">
-                </div>
-                <div class="input-group">
-                    <label>الحد الأدنى للرهان</label>
-                    <input type="number" id="grid36-min-bet" min="0" placeholder="10">
-                </div>
+            <div class="user-active-list" id="topActiveUsersList">
+                <p class="empty-msg">⏳ جاري تحميل قائمة الأكثر نشاطاً...</p>
             </div>
-
-            <button class="btn-primary" id="btnSaveGrid36" onclick="saveZnGoSettings()" style="background: var(--accent-green); color: #fff;">💾 حفظ إعدادات شبكة ZN Go</button>
-        </div>
-
-        <!-- 🏟️ الكارت الثاني: لعبة الساحة الكبرى -->
-        <div class="section-card" style="border: 1px solid var(--accent-gold);">
-            <div class="section-header">
-                <div class="section-title" style="color: var(--accent-gold);">🏟️ لعبة الساحة الكبرى</div>
-                <button class="btn-refresh" onclick="loadBigArenaSettings()">🔄 تحديث</button>
-            </div>
-            
-            <div class="margin-controls">
-                <div class="input-group">
-                    <label>أرباح البوت (%)</label>
-                    <input type="number" id="big-arena-bot-margin" min="0" max="100" placeholder="70">
-                </div>
-                <div class="input-group">
-                    <label>أرباح اللاعبين (%)</label>
-                    <input type="number" id="big-arena-user-margin" placeholder="30" readonly style="opacity:0.7;">
-                </div>
-                <div class="input-group">
-                    <label>الحد الأدنى للرهان</label>
-                    <input type="number" id="big-arena-min-bet" min="0" placeholder="10">
-                </div>
-            </div>
-
-            <div class="input-group" style="margin-bottom: 12px; background: var(--input-bg); padding: 8px; border-radius: 8px; border: 1px solid var(--card-border);">
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-main); font-size: 11px;">
-                    <input type="checkbox" id="big-arena-enabled" style="accent-color: var(--accent-gold); width: 16px; height: 16px;" checked>
-                    <span>تفعيل وتشغيل لعبة الساحة الكبرى</span>
-                </label>
-            </div>
-
-            <button class="btn-primary" id="btnSaveBigArena" onclick="saveBigArenaSettings()" style="background: var(--accent-green); color: #fff;">💾 حفظ إعدادات الساحة الكبرى</button>
         </div>
 
         <!-- قسم إدارة المشرفين والصلاحيات -->
@@ -433,7 +416,7 @@
                 <label class="perm-item"><input type="checkbox" id="perm_support" checked> الدعم الفني</label>
                 <label class="perm-item"><input type="checkbox" id="perm_settings"> الإعدادات العامة</label>
                 <label class="perm-item"><input type="checkbox" id="perm_transactions"> المعاملات والمالية</label>
-                <label class="perm-item"><input type="checkbox" id="perm_security"> الحظر والأمان</label>
+                <label class="perm-item"><input type="checkbox" id="perm_security" checked> الحظر والأمان</label>
                 <label class="perm-item"><input type="checkbox" id="perm_ads"> المهام والإعلانات</label>
             </div>
 
@@ -463,24 +446,6 @@
             if (window.Telegram && window.Telegram.WebApp) {
                 window.Telegram.WebApp.ready();
                 window.Telegram.WebApp.expand();
-            }
-
-            const gBot = document.getElementById('grid36-bot-margin');
-            const gUser = document.getElementById('grid36-user-margin');
-            if (gBot && gUser) {
-                gBot.addEventListener('input', () => {
-                    const val = parseFloat(gBot.value) || 0;
-                    gUser.value = Math.max(0, 100 - val).toFixed(2);
-                });
-            }
-
-            const aBot = document.getElementById('big-arena-bot-margin');
-            const aUser = document.getElementById('big-arena-user-margin');
-            if (aBot && aUser) {
-                aBot.addEventListener('input', () => {
-                    const val = parseFloat(aBot.value) || 0;
-                    aUser.value = Math.max(0, 100 - val).toFixed(2);
-                });
             }
         });
     </script>
