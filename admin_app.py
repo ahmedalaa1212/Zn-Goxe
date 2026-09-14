@@ -17,7 +17,7 @@ from core.security import get_authenticated_user
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+CORS(app, resources={r"/api/*": {"origins": "*", "allow_headers": ["Content-Type", "Authorization", "X-Init-Data", "X-Device-Id", "X-Device-Fingerprint"]}})
 
 WEB_URL = os.environ.get('WEB_URL', 'https://admin-zn-production.up.railway.app').strip().rstrip('/')
 ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551").strip()
@@ -337,6 +337,18 @@ def get_user_info_main():
         return error_res
         
     try:
+        device_id = request.headers.get('X-Device-Id') or request.args.get('device_id')
+        fingerprint = request.headers.get('X-Device-Fingerprint') or request.args.get('fingerprint')
+
+        if hasattr(database, 'check_and_bind_device') and device_id:
+            device_check = database.check_and_bind_device(telegram_id, device_id, fingerprint)
+            if device_check and device_check.get("banned"):
+                return jsonify({
+                    "success": False,
+                    "error": device_check.get("reason", "تم حظر الحساب والجهاز بسبب تعدد الحسابات"),
+                    "banned": True
+                }), 403
+
         if database.is_user_banned(telegram_id):
             return jsonify({"success": False, "error": "حسابك معطل حالياً", "banned": True}), 403
 
@@ -349,6 +361,7 @@ def get_user_info_main():
             
         return jsonify({"success": True, "user": user_data}), 200
     except Exception as e:
+        print(f"❌ Error in get_user_info_main: {e}")
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب بيانات الحساب"}), 500
 
 @app.after_request
