@@ -44,32 +44,102 @@ try:
 except ImportError as e:
     print(f"⚠️ Note: super_admin_db module import warning: {e}")
 
-    # 🚫 دالة fallback لحظر مستخدم
+    # 🚫 دالة fallback لحظر مستخدم وحجب جهازه
     def ban_user_db(tg_id, reason="تم الحظر من قبل الإدارة العليا", admin_name="السوبر أدمن"):
         try:
             db = _get_db()
             if not db:
                 return False, "قاعدة البيانات غير متوفرة"
-            db.collection("users").document(str(tg_id)).update({
+            
+            tg_id_str = str(tg_id).strip()
+            user_ref = db.collection("users").document(tg_id_str)
+            user_doc = user_ref.get()
+            
+            # 1. تحديث حقول الحظر بالتوازي (banned و is_banned)
+            user_ref.update({
                 "banned": True,
                 "is_banned": True,
                 "ban_reason": reason
             })
-            return True, f"تم حظر المستخدم {tg_id}"
+
+            # 2. البحث عن معرف الجهاز المرتبط بالمستخدم وحفظه في banned_devices
+            import time
+            device_ids = set()
+            
+            if user_doc.exists:
+                u_data = user_doc.to_dict() or {}
+                if u_data.get("device_id"):
+                    device_ids.add(str(u_data.get("device_id")).strip())
+
+            # البحث في مجموعة الأجهزة (devices)
+            try:
+                dev_docs = db.collection("devices").where("primary_user_id", "==", tg_id_str).stream()
+                for d in dev_docs:
+                    device_ids.add(str(d.id).strip())
+            except Exception as d_err:
+                print(f"⚠️ Warning searching devices collection: {d_err}")
+
+            # إدراج كل معرّف جهاز في مجموعة banned_devices
+            for dev_id in device_ids:
+                if dev_id:
+                    db.collection("banned_devices").document(dev_id).set({
+                        "device_id": dev_id,
+                        "banned_user_id": tg_id_str,
+                        "reason": reason,
+                        "banned_by": admin_name,
+                        "timestamp": time.time()
+                    }, merge=True)
+
+            return True, f"تم حظر المستخدم {tg_id_str} وحظر الأجهزة المرتبطة به بنجاح"
         except Exception as err:
             return False, f"خطأ في الحظر الاحتياطي: {err}"
 
-    # 🟢 دالة fallback لفك الحظر
+    # 🟢 دالة fallback لفك الحظر عن المستخدم وجهازه
     def unban_user_db(tg_id, admin_name="السوبر أدمن"):
         try:
             db = _get_db()
             if not db:
                 return False, "قاعدة البيانات غير متوفرة"
-            db.collection("users").document(str(tg_id)).update({
+            
+            tg_id_str = str(tg_id).strip()
+            user_ref = db.collection("users").document(tg_id_str)
+            user_doc = user_ref.get()
+
+            # 1. إرجاع حقول الحظر إلى False وإلغاء السبب
+            user_ref.update({
                 "banned": False,
-                "is_banned": False
+                "is_banned": False,
+                "ban_reason": None
             })
-            return True, f"تم فك الحظر عن المستخدم {tg_id}"
+
+            # 2. جلب جميع الأجهزة المرتبطة بهذا المستخدم لمسحها من banned_devices
+            device_ids = set()
+            if user_doc.exists:
+                u_data = user_doc.to_dict() or {}
+                if u_data.get("device_id"):
+                    device_ids.add(str(u_data.get("device_id")).strip())
+
+            try:
+                dev_docs = db.collection("devices").where("primary_user_id", "==", tg_id_str).stream()
+                for d in dev_docs:
+                    device_ids.add(str(d.id).strip())
+            except Exception as d_err:
+                print(f"⚠️ Warning searching devices for unban: {d_err}")
+
+            # مسح الأجهزة من قائمة الأجهزة المحظورة
+            for dev_id in device_ids:
+                if dev_id:
+                    db.collection("banned_devices").document(dev_id).delete()
+
+            # مسح أي قيود حظر إضافية مسجلة بـ Telegram ID في banned_devices
+            try:
+                bd_docs = db.collection("banned_devices").where("banned_user_id", "==", tg_id_str).stream()
+                for bd in bd_docs:
+                    db.collection("banned_devices").document(bd.id).delete()
+            except Exception as bd_err:
+                print(f"⚠️ Warning cleaning banned_devices by user id: {bd_err}")
+
+            return True, f"تم فك الحظر عن المستخدم {tg_id_str} وجميع الأجهزة المربوطة به بنجاح"
         except Exception as err:
             return False, f"خطأ في فك الحظر الاحتياطي: {err}"
 
