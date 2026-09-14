@@ -311,10 +311,10 @@ def get_analytics():
         return jsonify({"success": False, "message": f"خطأ أثناء جلب التحليلات: {str(e)}"}), 500
 
 
-# 🚫 مسار حظر المستخدم
+# 🚫 مسار حظر المستخدم والأجهزة المربوطة به
 @super_admin_bp.route('/ban-user', methods=['POST'])
 def ban_user():
-    """مسار حظر مستخدم في النظام"""
+    """مسار حظر مستخدم في النظام وحظر جهازه المربوط به"""
     is_valid, msg, admin_name = verify_admin_access(request)
     if not is_valid:
         return jsonify({"success": False, "message": msg}), 403
@@ -330,20 +330,20 @@ def ban_user():
         success, res_msg = super_admin_db.ban_user_db(str(telegram_id).strip(), reason, admin_name)
         if success:
             try:
-                database.log_admin_action(admin_name, f"حظر المستخدم {telegram_id} - السبب: {reason}")
+                database.log_admin_action(admin_name, f"حظر المستخدم {telegram_id} والأجهزة المربوطة به - السبب: {reason}")
             except Exception:
                 pass
-            return jsonify({"success": True, "message": res_msg or f"تم حظر المستخدم {telegram_id} بنجاح"})
+            return jsonify({"success": True, "message": res_msg or f"تم حظر المستخدم {telegram_id} والجهاز المربوط به بنجاح"})
         else:
             return jsonify({"success": False, "message": res_msg or "فشل حظر المستخدم"}), 400
     except Exception as e:
         return jsonify({"success": False, "message": f"خطأ أثناء تنفيذ الحظر: {str(e)}"}), 500
 
 
-# 🟢 مسار فك الحظر عن مستخدم
+# 🟢 مسار فك الحظر عن مستخدم وجميع الأجهزة المربوطة به
 @super_admin_bp.route('/unban-user', methods=['POST'])
 def unban_user():
-    """مسار فك الحظر عن مستخدم"""
+    """مسار فك الحظر عن مستخدم وجميع الأجهزة المربوطة به"""
     is_valid, msg, admin_name = verify_admin_access(request)
     if not is_valid:
         return jsonify({"success": False, "message": msg}), 403
@@ -358,10 +358,10 @@ def unban_user():
         success, res_msg = super_admin_db.unban_user_db(str(telegram_id).strip(), admin_name)
         if success:
             try:
-                database.log_admin_action(admin_name, f"فك الحظر عن المستخدم {telegram_id}")
+                database.log_admin_action(admin_name, f"فك الحظر عن المستخدم {telegram_id} وجميع الأجهزة المربوطة به")
             except Exception:
                 pass
-            return jsonify({"success": True, "message": res_msg or f"تم فك الحظر عن المستخدم {telegram_id} بنجاح"})
+            return jsonify({"success": True, "message": res_msg or f"تم فك الحظر عن المستخدم {telegram_id} وجميع الأجهزة المربوطة به بنجاح"})
         else:
             return jsonify({"success": False, "message": res_msg or "فشل فك الحظر"}), 400
     except Exception as e:
