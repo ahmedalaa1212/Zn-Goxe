@@ -78,7 +78,7 @@ if ADMIN_BOT_TOKEN:
                 f"الرتبة: {role_label}\n"
                 f"حالة الاتصال: 🟢 <b>نشط ومؤمن بالكامل</b>\n\n"
                 f"✨ <b>تم التحقق من صلاحياتك الأمنية بنجاح!</b>\n"
-                f"يمكنك الآن التحكم بجميع إعدادات الألعاب، العمولات، الأرباح والمشرفين عبر فتح لوحة التحكم المرفقة."
+                f"يمكنك الآن متابعة تحليلات المستخدمين والتفاعل، إدارة نظام الحظر والأمان، والمشرفين عبر فتح لوحة التحكم المرفقة."
             )
 
             ADMIN_WEBAPP_URL = WEB_URL if WEB_URL.endswith('/admin') else f"{WEB_URL}/admin"
@@ -226,12 +226,12 @@ except Exception as e:
     print(f"⚠️ لم يتم تحميل module admin_chat: {e}")
 
 # ==========================================
-# مسارات إدارة اللعبة والداشبورد
+# مسارات إدارة الداشبورد والحماية العامة
 # ==========================================
 
 @app.route('/health')
 def health_check():
-    return jsonify({"status": "online", "bot": "Pot admin ZN Goxe"}), 200
+    return jsonify({"status": "online", "bot": "Bot admin ZN Goxe"}), 200
 
 @app.route('/api/verify_admin', methods=['POST'])
 def verify_admin_access():
@@ -245,110 +245,6 @@ def verify_admin_access():
         
     return jsonify({"success": False, "error": "عذراً، البوت مخصص للإدارة والمشرفين فقط!"}), 403
 
-@app.route('/api/admin/zn-go-settings', methods=['GET', 'POST'])
-@app.route('/api/admin/settings/grid_36', methods=['GET', 'POST'])
-def admin_zn_go_settings():
-    is_post = (request.method == 'POST')
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
-    if not success:
-        return error_res
-
-    if not is_admin_authorized(telegram_id):
-        return jsonify({"success": False, "error": "غير مصرح لك للوصول للإدارة"}), 403
-
-    if request.method == 'GET':
-        try:
-            settings = database.get_game_settings() or {}
-            zn_cfg = settings.get("zn_go_config") or settings.get("grid_game_config", {})
-            stats = database.get_game_profit_stats()
-
-            raw_target = float(zn_cfg.get("target_margin", 0.70))
-            bot_profit = round(raw_target * 100.0 if raw_target <= 1.0 else raw_target, 2)
-            player_profit = round(100.0 - bot_profit, 2)
-            min_bet = float(zn_cfg.get("min_bet", 10.0))
-
-            return jsonify({
-                "success": True,
-                "config": {
-                    "bot_profit": bot_profit,
-                    "bot_margin": bot_profit,
-                    "player_profit": player_profit,
-                    "player_margin": player_profit,
-                    "min_bet": min_bet
-                },
-                "stats": stats
-            }), 200
-        except Exception as e:
-            print(f"❌ Error reading ZN Go settings: {e}")
-            return jsonify({"success": False, "error": "خطأ أثناء قراءة البيانات"}), 500
-
-    elif request.method == 'POST':
-        try:
-            data = request.get_json() or {}
-            bot_profit = data.get("bot_profit", data.get("bot_margin"))
-            min_bet = data.get("min_bet")
-
-            if bot_profit is None or min_bet is None:
-                return jsonify({"success": False, "error": "يرجى تقديم كافة حقول البيانات المطلوب حفظها"}), 400
-
-            bot_margin_val = float(bot_profit)
-            min_bet_val = float(min_bet)
-
-            ok = database.update_zn_go_config(
-                min_bet=min_bet_val,
-                target_margin=bot_margin_val / 100.0 if bot_margin_val > 1.0 else bot_margin_val
-            )
-
-            if ok:
-                admin_name = user_info.get("first_name", f"Admin {telegram_id}") if isinstance(user_info, dict) else f"Admin {telegram_id}"
-                database.log_admin_action(
-                    admin_name,
-                    f"تحديث إعدادات ZN Go: أرباح البوت {bot_margin_val}%، الحد الأدنى {min_bet_val}"
-                )
-                return jsonify({"success": True, "message": "تم حفظ إعدادات شبكة ZN Go بنجاح!"}), 200
-            else:
-                return jsonify({"success": False, "error": "فشل حفظ الإعدادات في الفايربيس"}), 500
-        except Exception as e:
-            print(f"❌ Error updating ZN Go settings: {e}")
-            return jsonify({"success": False, "error": f"حدث خطأ أثناء التحديث: {str(e)}"}), 500
-
-@app.route('/api/admin/settings/big_arena', methods=['GET', 'POST'])
-def admin_big_arena_settings():
-    is_post = (request.method == 'POST')
-    success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=is_post)
-    if not success:
-        return error_res
-
-    if not is_admin_authorized(telegram_id):
-        return jsonify({"success": False, "error": "غير مصرح لك للوصول للإدارة"}), 403
-
-    if request.method == 'GET':
-        arena_cfg = database.get_arena_config()
-        raw_target = float(arena_cfg.get("target_margin", 0.70))
-        bot_margin = round(raw_target * 100.0 if raw_target <= 1.0 else raw_target, 2)
-        return jsonify({
-            "success": True,
-            "config": {
-                "bot_margin": bot_margin,
-                "player_margin": round(100.0 - bot_margin, 2),
-                "min_bet": float(arena_cfg.get("entry_fee", 10.0)),
-                "enabled": True
-            }
-        }), 200
-
-    elif request.method == 'POST':
-        data = request.get_json() or {}
-        bot_margin = data.get("bot_margin")
-        min_bet = data.get("min_bet")
-
-        ok = database.update_arena_config(
-            entry_fee=min_bet,
-            target_margin=bot_margin
-        )
-        if ok:
-            return jsonify({"success": True, "message": "تم حفظ إعدادات الساحة الكبرى بنجاح!"}), 200
-        return jsonify({"success": False, "error": "حدث خطأ أثناء حفظ بيانات الساحة"}), 500
-
 @app.route('/api/admin/dashboard-stats', methods=['GET'])
 def admin_dashboard_stats():
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=False)
@@ -358,8 +254,15 @@ def admin_dashboard_stats():
     if not is_admin_authorized(telegram_id):
         return jsonify({"success": False, "error": "غير مصرح لك للوصول للإدارة"}), 403
 
-    res = database.get_admin_dashboard_stats()
-    return jsonify(res), 200
+    try:
+        if hasattr(database, 'get_system_global_analytics'):
+            res = database.get_system_global_analytics()
+        else:
+            res = database.get_admin_dashboard_stats()
+        return jsonify({"success": True, "stats": res}), 200
+    except Exception as e:
+        print(f"❌ Error fetching dashboard stats: {e}")
+        return jsonify({"success": False, "error": "خطأ أثناء جلب إحصائيات اللوحة"}), 500
 
 @app.route('/api/moderators', methods=['GET', 'POST'])
 @app.route('/api/moderators/<mod_id>', methods=['DELETE'])
