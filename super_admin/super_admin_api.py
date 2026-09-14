@@ -36,7 +36,7 @@ def extract_admin_id_from_request(req):
         return str(admin_id).strip()
 
     if req.is_json and req.json:
-        admin_id = req.json.get("admin_id") or req.json.get("tg_id")
+        admin_id = req.json.get("admin_id") or req.json.get("tg_id") or req.json.get("telegram_id")
         if admin_id:
             return str(admin_id).strip()
 
@@ -75,10 +75,10 @@ def verify_admin_access(req):
                 admin_data = admin_ref.to_dict() or {}
                 permissions = admin_data.get("permissions", {})
                 
-                if permissions.get("perm_users") or permissions.get("perm_ads") or admin_data.get("is_super", False) or admin_data.get("role") == "super_admin":
+                if permissions.get("perm_users") or permissions.get("perm_security") or permissions.get("perm_ads") or admin_data.get("is_super", False) or admin_data.get("role") == "super_admin":
                     return True, "تم التحقق بنجاح", admin_data.get("name", "مشرف")
 
-        return False, "حساب إداري غير موجود", None
+        return False, "حساب إداري غير موجود أو لا يملك صلاحية access", None
     except Exception as e:
         return False, f"خطأ في التوثيق: {str(e)}", None
 
@@ -291,3 +291,166 @@ def get_broadcast_stats():
         "live_status": current_broadcast_status,
         "latest_campaign": latest_campaign
     })
+
+
+# 📈 مسار التحليلات الجديد (إحصائيات المستخدمين، المتفاعلين، والأكثر نشاطاً)
+@super_admin_bp.route('/analytics', methods=['GET'])
+def get_analytics():
+    """مسار جلب الإحصائيات العامة للمستخدمين والمتفاعلين والأكثر نشاطاً"""
+    is_valid, msg, admin_name = verify_admin_access(request)
+    if not is_valid:
+        return jsonify({"success": False, "message": msg}), 403
+
+    try:
+        analytics_data = super_admin_db.get_system_global_analytics()
+        return jsonify({
+            "success": True,
+            "analytics": analytics_data
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": f"خطأ أثناء جلب التحليلات: {str(e)}"}), 500
+
+
+# 🚫 مسار حظر المستخدم
+@super_admin_bp.route('/ban-user', methods=['POST'])
+def ban_user():
+    """مسار حظر مستخدم في النظام"""
+    is_valid, msg, admin_name = verify_admin_access(request)
+    if not is_valid:
+        return jsonify({"success": False, "message": msg}), 403
+
+    data = request.json or {}
+    telegram_id = data.get("telegram_id") or data.get("tg_id") or data.get("user_id")
+    reason = data.get("reason", "تم الحظر من قبل الإدارة العليا")
+
+    if not telegram_id:
+        return jsonify({"success": False, "message": "معرّف المستخدم (Telegram ID) مطلوب"}), 400
+
+    try:
+        success, res_msg = super_admin_db.ban_user_db(str(telegram_id).strip(), reason, admin_name)
+        if success:
+            try:
+                database.log_admin_action(admin_name, f"حظر المستخدم {telegram_id} - السبب: {reason}")
+            except Exception:
+                pass
+            return jsonify({"success": True, "message": res_msg or f"تم حظر المستخدم {telegram_id} بنجاح"})
+        else:
+            return jsonify({"success": False, "message": res_msg or "فشل حظر المستخدم"}), 400
+    except Exception as e:
+        return jsonify({"success": False, "message": f"خطأ أثناء تنفيذ الحظر: {str(e)}"}), 500
+
+
+# 🟢 مسار فك الحظر عن مستخدم
+@super_admin_bp.route('/unban-user', methods=['POST'])
+def unban_user():
+    """مسار فك الحظر عن مستخدم"""
+    is_valid, msg, admin_name = verify_admin_access(request)
+    if not is_valid:
+        return jsonify({"success": False, "message": msg}), 403
+
+    data = request.json or {}
+    telegram_id = data.get("telegram_id") or data.get("tg_id") or data.get("user_id")
+
+    if not telegram_id:
+        return jsonify({"success": False, "message": "معرّف المستخدم (Telegram ID) مطلوب"}), 400
+
+    try:
+        success, res_msg = super_admin_db.unban_user_db(str(telegram_id).strip(), admin_name)
+        if success:
+            try:
+                database.log_admin_action(admin_name, f"فك الحظر عن المستخدم {telegram_id}")
+            except Exception:
+                pass
+            return jsonify({"success": True, "message": res_msg or f"تم فك الحظر عن المستخدم {telegram_id} بنجاح"})
+        else:
+            return jsonify({"success": False, "message": res_msg or "فشل فك الحظر"}), 400
+    except Exception as e:
+        return jsonify({"success": False, "message": f"خطأ أثناء فك الحظر: {str(e)}"}), 500
+
+
+# 👤 مسار إضافة مشرف جديد
+@super_admin_bp.route('/add-moderator', methods=['POST'])
+def add_moderator():
+    """مسار إضافة مشرف جديد ورصد صلاحياته"""
+    is_valid, msg, admin_name = verify_admin_access(request)
+    if not is_valid:
+        return jsonify({"success": False, "message": msg}), 403
+
+    data = request.json or {}
+    telegram_id = data.get("telegram_id")
+    name = data.get("name")
+    permissions = data.get("permissions", {})
+
+    if not telegram_id or not name:
+        return jsonify({"success": False, "message": "معرّف التليجرام واسم المشرف مطلوبان"}), 400
+
+    try:
+        success, res_msg = super_admin_db.add_moderator_db(str(telegram_id).strip(), name, permissions, admin_name)
+        if success:
+            try:
+                database.log_admin_action(admin_name, f"إضافة المشرف {name} ({telegram_id})")
+            except Exception:
+                pass
+            return jsonify({"success": True, "message": res_msg or "تمت إضافة المشرف بنجاح"})
+        else:
+            return jsonify({"success": False, "message": res_msg or "فشل إضافة المشرف"}), 400
+    except Exception as e:
+        return jsonify({"success": False, "message": f"خطأ أثناء إضافة المشرف: {str(e)}"}), 500
+
+
+# 🛡️ مسار جلب قائمة المشرفين
+@super_admin_bp.route('/list-moderators', methods=['GET'])
+def list_moderators():
+    """مسار جلب قائمة المشرفين المسجلين"""
+    is_valid, msg, _ = verify_admin_access(request)
+    if not is_valid:
+        return jsonify({"success": False, "message": msg}), 403
+
+    try:
+        moderators = super_admin_db.list_moderators_db()
+        return jsonify({"success": True, "moderators": moderators})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"خطأ أثناء جلب المشرفين: {str(e)}"}), 500
+
+
+# 🗑️ مسار حذف مشرف
+@super_admin_bp.route('/remove-moderator', methods=['POST'])
+def remove_moderator():
+    """مسار حذف مشرف من النظام"""
+    is_valid, msg, admin_name = verify_admin_access(request)
+    if not is_valid:
+        return jsonify({"success": False, "message": msg}), 403
+
+    data = request.json or {}
+    telegram_id = data.get("telegram_id")
+
+    if not telegram_id:
+        return jsonify({"success": False, "message": "معرّف المشرف مطلوب"}), 400
+
+    try:
+        success, res_msg = super_admin_db.remove_moderator_db(str(telegram_id).strip(), admin_name)
+        if success:
+            try:
+                database.log_admin_action(admin_name, f"حذف المشرف {telegram_id}")
+            except Exception:
+                pass
+            return jsonify({"success": True, "message": res_msg or "تم حذف المشرف بنجاح"})
+        else:
+            return jsonify({"success": False, "message": res_msg or "فشل حذف المشرف"}), 400
+    except Exception as e:
+        return jsonify({"success": False, "message": f"خطأ أثناء حذف المشرف: {str(e)}"}), 500
+
+
+# 📜 مسار جلب السجلات الإدارية
+@super_admin_bp.route('/logs', methods=['GET'])
+def get_logs():
+    """مسار جلب سجل الحركات الإدارية"""
+    is_valid, msg, _ = verify_admin_access(request)
+    if not is_valid:
+        return jsonify({"success": False, "message": msg}), 403
+
+    try:
+        logs = super_admin_db.get_admin_logs()
+        return jsonify({"success": True, "logs": logs})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"خطأ أثناء جلب السجلات: {str(e)}"}), 500
