@@ -13,6 +13,7 @@ async function apiFetch(url, options = {}) {
     const initData = getInitData();
     const defaultHeaders = {
         'X-Telegram-Init-Data': initData,
+        'X-Init-Data': initData,
         'Authorization': `Bearer ${initData}`,
         'Content-Type': 'application/json'
     };
@@ -154,7 +155,7 @@ function loadSectionScript(sectionName) {
                 // 1️⃣ جلب التحليلات الحية للمستخدمين (إجمالي، متفاعلين اليوم، المحظورين)
                 if (typeof loadGlobalAnalytics === 'function') loadGlobalAnalytics();
                 
-                // 2️⃣ جلب قائمة أكثر المستخدمين نشاطاً (Top Active Users) - جديد
+                // 2️⃣ جلب قائمة أكثر المستخدمين نشاطاً (Top Active Users)
                 if (typeof loadTopActiveUsers === 'function') loadTopActiveUsers();
                 
                 // 3️⃣ جلب باقي الموديولات المستمرة (المشرفين، السجلات، الإحصائيات)
@@ -168,7 +169,8 @@ function loadSectionScript(sectionName) {
     document.body.appendChild(script);
 }
 
-// دالة مخصصة لفتح قسم الإدارة العليا
-function loadSuperAdminSection(btnElement) {
+// تصدير دوال تحميل الأقسام إلى النافذة العامة
+window.loadSection = loadSection;
+window.loadSuperAdminSection = function(btnElement) {
     loadSection('super_admin', btnElement);
-}
+};
