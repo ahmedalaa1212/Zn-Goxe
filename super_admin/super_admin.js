@@ -104,7 +104,7 @@ async function sendAdminMessage() {
         const data = await response.json();
 
         if (data.success) {
-            alert("✅ " + data.message);
+            alert("✅ " + (data.message || "تم إرسال الرسالة بنجاح."));
             if (msgContentInput) msgContentInput.value = '';
             if (msgImageUrlInput) msgImageUrlInput.value = '';
             if (msgBtnTextInput) msgBtnTextInput.value = '';
@@ -146,14 +146,14 @@ async function fetchBroadcastStats() {
             if (live.is_running) {
                 const percentage = live.total > 0 ? Math.round((live.sent / live.total) * 100) : 0;
                 detailsContainer.innerHTML = `
-                    <div style="color: var(--accent-gold); font-weight: bold; margin-bottom: 4px;">⚙️ حملة إرسال جارية حالياً (${percentage}%):</div>
+                    <div style="color: var(--accent-gold, #f39c12); font-weight: bold; margin-bottom: 4px;">⚙️ حملة إرسال جارية حالياً (${percentage}%):</div>
                     <div>🟢 تم الإرسال بنجاح: <b>${live.sent}</b> / ${live.total}</div>
                     <div>🚫 حظروا البوت: <b>${live.blocked}</b></div>
                     <div>❌ فشل الإرسال: <b>${live.failed}</b></div>
                 `;
             } else if (latest) {
                 detailsContainer.innerHTML = `
-                    <div style="color: var(--accent-green); font-weight: bold; margin-bottom: 4px;">✅ آخر حملة إرسال مكتملة (${latest.created_at_str || 'مؤخراً'}):</div>
+                    <div style="color: var(--accent-green, #2ecc71); font-weight: bold; margin-bottom: 4px;">✅ آخر حملة إرسال مكتملة (${latest.created_at_str || 'مؤخراً'}):</div>
                     <div>👤 المشرف المسؤول: <b>${latest.admin_name || 'الأدمن'}</b></div>
                     <div>🎯 إجمالي المستهدفين: <b>${latest.total_targets || 0}</b></div>
                     <div>🟢 تم التسليم بنجاح: <b>${latest.success_count || 0}</b></div>
@@ -185,8 +185,9 @@ async function loadGlobalAnalytics() {
             if (activeUsersElem) activeUsersElem.innerText = (data.analytics.active_today || 0).toLocaleString();
             if (bannedUsersElem) bannedUsersElem.innerText = (data.analytics.banned_users || 0).toLocaleString();
 
-            if (data.analytics.top_users) {
-                renderTopActiveUsersList(data.analytics.top_users);
+            const topUsers = data.analytics.top_users || data.analytics.top_active_users;
+            if (topUsers) {
+                renderTopActiveUsersList(topUsers);
             }
         }
     } catch (err) {
@@ -204,8 +205,9 @@ async function loadTopActiveUsers() {
             method: 'GET'
         });
         const data = await response.json();
-        if (data.success && data.analytics && data.analytics.top_users) {
-            renderTopActiveUsersList(data.analytics.top_users);
+        const topUsers = data.analytics ? (data.analytics.top_users || data.analytics.top_active_users) : null;
+        if (data.success && topUsers) {
+            renderTopActiveUsersList(topUsers);
         } else {
             listElem.innerHTML = '<p class="empty-msg">لا توجد بيانات متاحة حالياً.</p>';
         }
@@ -219,20 +221,25 @@ function renderTopActiveUsersList(users) {
     const listElem = document.getElementById('topActiveUsersList');
     if (!listElem) return;
 
-    if (!users || users.length === 0) {
+    if (!users || !Array.isArray(users) || users.length === 0) {
         listElem.innerHTML = '<p class="empty-msg">لا يوجد مستخدمون نشطون حالياً.</p>';
         return;
     }
 
-    listElem.innerHTML = users.map((user, index) => `
-        <div class="user-active-item">
-            <div class="user-info">
-                <strong>#${index + 1} ${user.name || 'مستخدم'}</strong>
-                <span>ID: ${user.telegram_id || user.user_id}</span>
+    listElem.innerHTML = users.map((user, index) => {
+        const uId = user.telegram_id || user.user_id || user.tg_id || '—';
+        const uName = user.name || user.first_name || 'مستخدم';
+        const interactionsCount = (user.interactions !== undefined ? user.interactions : (user.activity_count || 0));
+        return `
+            <div class="user-active-item">
+                <div class="user-info">
+                    <strong>#${index + 1} ${uName}</strong>
+                    <span>ID: ${uId}</span>
+                </div>
+                <span class="badge-count">${Number(interactionsCount).toLocaleString()} تفاعل</span>
             </div>
-            <span class="badge-count">${(user.interactions || user.activity_count || 0).toLocaleString()} تفاعل</span>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 // 🚫 دالة حظر مستخدم وحظر جهازه
@@ -257,6 +264,7 @@ async function banUser() {
             method: 'POST',
             body: JSON.stringify({
                 telegram_id: userId,
+                tg_id: userId,
                 reason: reason || "تم الحظر من قبل الإدارة العليا"
             })
         });
@@ -292,7 +300,10 @@ async function unbanUser() {
     try {
         const response = await requestApi('/api/super-admin/unban-user', {
             method: 'POST',
-            body: JSON.stringify({ telegram_id: userId })
+            body: JSON.stringify({
+                telegram_id: userId,
+                tg_id: userId
+            })
         });
 
         const data = await response.json();
@@ -369,7 +380,7 @@ async function loadModerators() {
                         <strong>${mod.name}</strong>
                         <span>ID: ${mod.telegram_id}</span>
                     </div>
-                    <button class="btn-refresh" style="color: var(--accent-red); border-color: var(--accent-red);" onclick="removeModerator('${mod.telegram_id}')">🗑️ حذف</button>
+                    <button class="btn-refresh" style="color: var(--accent-red, #e74c3c); border-color: var(--accent-red, #e74c3c);" onclick="removeModerator('${mod.telegram_id}')">🗑️ حذف</button>
                 </div>
             `).join('');
         }
@@ -416,10 +427,10 @@ async function loadAdminLogs() {
             logsElem.innerHTML = data.logs.map(log => `
                 <div class="log-item">
                     <div class="mod-info">
-                        <strong>${log.admin_name || 'مشرف'}</strong>
+                        <strong>${log.admin || log.admin_name || 'مشرف'}</strong>
                         <span>${log.action || ''}</span>
                     </div>
-                    <span style="color: var(--text-muted); font-size: 10px;">${log.timestamp || ''}</span>
+                    <span style="color: var(--text-muted, #888); font-size: 10px;">${log.timestamp || ''}</span>
                 </div>
             `).join('');
         }
