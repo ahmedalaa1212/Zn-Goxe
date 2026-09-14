@@ -1,5 +1,5 @@
 // ==========================================
-// 🛡️ نظام الحماية المتقدم للوحة التحكم
+// 🛡️ نظام الحماية المتقدم للوحة التحكم (main.js)
 // ==========================================
 const tg = window.Telegram?.WebApp;
 
@@ -7,6 +7,30 @@ const tg = window.Telegram?.WebApp;
 function getInitData() {
     return tg?.initData || window.Telegram?.WebApp?.initData || "";
 }
+
+// 🔐 دالة موحدة لإجراء طلبات الـ API مع إرفاق التوثيق التلقائي في الـ Headers
+async function apiFetch(url, options = {}) {
+    const initData = getInitData();
+    const defaultHeaders = {
+        'X-Telegram-Init-Data': initData,
+        'Authorization': `Bearer ${initData}`,
+        'Content-Type': 'application/json'
+    };
+
+    const mergedOptions = {
+        ...options,
+        headers: {
+            ...defaultHeaders,
+            ...(options.headers || {})
+        }
+    };
+
+    return fetch(url, mergedOptions);
+}
+
+// تصدير الدوال للاستخدام العام في باقي الموديولات للحد من أخطاء الـ Scope
+window.getInitData = getInitData;
+window.apiFetch = apiFetch;
 
 document.addEventListener("DOMContentLoaded", async () => {
     if (tg) {
@@ -16,7 +40,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     const initData = getInitData();
 
-    // 1. فحص وجود بيانات التليجرام
+    // 1. فحص وجود بيانات التليجرام ومنع المتصفحات الخارجية
     if (!initData) {
         showAccessDenied("⛔ تنبيه أمني: لا يمكنك فتح هذه اللوحة من المتصفح مباشرة! يجب فتحها حصرياً من داخل بوت الأدمن.");
         return;
@@ -24,20 +48,15 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // 2. التحقق من الهوية والصلاحيات من الباك إند
     try {
-        const response = await fetch('/api/verify_admin', {
+        const response = await apiFetch('/api/verify_admin', {
             method: 'POST',
-            headers: {
-                'X-Telegram-Init-Data': initData,
-                'Authorization': `Bearer ${initData}`,
-                'Content-Type': 'application/json'
-            },
             body: JSON.stringify({ initData: initData })
         });
 
         const data = await response.json();
 
         if (response.ok && data.success) {
-            // السماح بالدخول
+            // السماح بالدخول وإظهار اللوحة
             const accessDeniedEl = document.getElementById("accessDenied");
             const adminPanelEl = document.getElementById("adminPanel");
 
@@ -58,6 +77,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 });
 
+// دالة عرض شاشة رفض الوصول
 function showAccessDenied(message) {
     const screen = document.getElementById("accessDenied");
     const adminPanel = document.getElementById("adminPanel");
@@ -78,7 +98,7 @@ function showAccessDenied(message) {
 }
 
 // ==========================================
-// 🔄 دالة تحميل الأقسام (ترافقها الحماية للـ Headers)
+// 🔄 دالة تحميل الأقسام وتنسيق الشريط الجانبي
 // ==========================================
 async function loadSection(sectionName, btnElement) {
     if (btnElement) {
@@ -113,6 +133,9 @@ async function loadSection(sectionName, btnElement) {
     }
 }
 
+// ==========================================
+// 📜 دالة تحميل وتنفيذ سكربتات الأقسام ديناميكياً
+// ==========================================
 function loadSectionScript(sectionName) {
     const scriptId = `script_${sectionName}`;
     const oldScript = document.getElementById(scriptId);
@@ -123,15 +146,18 @@ function loadSectionScript(sectionName) {
     script.src = `/${sectionName}/${sectionName}.js?v=${new Date().getTime()}`;
     
     script.onload = () => {
-        // تشغيل دالة التهيئة لقسم super_admin والموديولات الأخرى ديناميكياً
+        // تشغيل دالة التهيئة لقسم super_admin والموديولات الجديدة ديناميكياً
         if (sectionName === 'super_admin') {
             if (typeof window.initSuperAdmin === 'function') {
                 window.initSuperAdmin();
             } else {
-                // استدعاء مباشر لوظائف التحميل المتاحة لمنع أي تعارض
+                // 1️⃣ جلب التحليلات الحية للمستخدمين (إجمالي، متفاعلين اليوم، المحظورين)
                 if (typeof loadGlobalAnalytics === 'function') loadGlobalAnalytics();
-                if (typeof loadZnGoSettings === 'function') loadZnGoSettings();
-                if (typeof loadBigArenaSettings === 'function') loadBigArenaSettings();
+                
+                // 2️⃣ جلب قائمة أكثر المستخدمين نشاطاً (Top Active Users) - جديد
+                if (typeof loadTopActiveUsers === 'function') loadTopActiveUsers();
+                
+                // 3️⃣ جلب باقي الموديولات المستمرة (المشرفين، السجلات، الإحصائيات)
                 if (typeof loadModerators === 'function') loadModerators();
                 if (typeof loadAdminLogs === 'function') loadAdminLogs();
                 if (typeof fetchBroadcastStats === 'function') fetchBroadcastStats();
@@ -142,6 +168,7 @@ function loadSectionScript(sectionName) {
     document.body.appendChild(script);
 }
 
+// دالة مخصصة لفتح قسم الإدارة العليا
 function loadSuperAdminSection(btnElement) {
     loadSection('super_admin', btnElement);
 }
