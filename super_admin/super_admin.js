@@ -152,6 +152,7 @@ async function fetchBroadcastStats() {
     }
 }
 
+// 🔄 تحديث دالة التحليلات العامة لتعكس إحصائيات المستخدمين
 async function loadGlobalAnalytics() {
     try {
         const response = await fetch('/api/super-admin/analytics', {
@@ -160,104 +161,140 @@ async function loadGlobalAnalytics() {
         });
         const data = await response.json();
         if (data.success && data.analytics) {
-            const stats = data.analytics.game_stats || {};
-            const botProfitElem = document.getElementById('bot-profit-val');
-            const userProfitElem = document.getElementById('user-profit-val');
-            const actualProfitPctElem = document.getElementById('actual-profit-pct');
+            const totalUsersElem = document.getElementById('total-users-val');
+            const activeUsersElem = document.getElementById('active-users-val');
+            const bannedUsersElem = document.getElementById('banned-users-val');
 
-            if (botProfitElem) botProfitElem.innerText = (stats.total_house_profit || 0).toLocaleString();
-            if (userProfitElem) userProfitElem.innerText = (stats.total_player_payout || 0).toLocaleString();
-            if (actualProfitPctElem) actualProfitPctElem.innerText = (stats.actual_margin_pct || 0) + '%';
+            if (totalUsersElem) totalUsersElem.innerText = (data.analytics.total_users || 0).toLocaleString();
+            if (activeUsersElem) activeUsersElem.innerText = (data.analytics.active_today || 0).toLocaleString();
+            if (bannedUsersElem) bannedUsersElem.innerText = (data.analytics.banned_users || 0).toLocaleString();
+
+            if (data.analytics.top_users) {
+                renderTopActiveUsersList(data.analytics.top_users);
+            }
         }
     } catch (err) {
         console.error("Failed to load global analytics:", err);
     }
 }
 
-async function loadZnGoSettings() {
+// 🏆 دالة جلب وقائمة أكثر المستخدمين تفاعلاً
+async function loadTopActiveUsers() {
+    const listElem = document.getElementById('topActiveUsersList');
+    if (!listElem) return;
+
     try {
-        const response = await fetch('/api/super-admin/zngo-settings', {
+        const response = await fetch('/api/super-admin/analytics', {
             method: 'GET',
             headers: getAdminHeaders()
         });
         const data = await response.json();
-        if (data.success && data.settings) {
-            const botMargin = document.getElementById('grid36-bot-margin');
-            const userMargin = document.getElementById('grid36-user-margin');
-            const minBet = document.getElementById('grid36-min-bet');
-
-            if (botMargin) botMargin.value = data.settings.bot_margin || 70;
-            if (userMargin) userMargin.value = (100 - (data.settings.bot_margin || 70)).toFixed(2);
-            if (minBet) minBet.value = data.settings.min_bet || 10;
+        if (data.success && data.analytics && data.analytics.top_users) {
+            renderTopActiveUsersList(data.analytics.top_users);
+        } else {
+            listElem.innerHTML = '<p class="empty-msg">لا توجد بيانات متاحة حالياً.</p>';
         }
     } catch (err) {
-        console.error("Failed to load ZN Go settings:", err);
+        console.error("Failed to load top active users:", err);
+        listElem.innerHTML = '<p class="empty-msg">تعذر تحميل قائمة الأكثر نشاطاً.</p>';
     }
 }
 
-async function saveZnGoSettings() {
-    const botMargin = parseFloat(document.getElementById('grid36-bot-margin')?.value || 70);
-    const minBet = parseFloat(document.getElementById('grid36-min-bet')?.value || 10);
+function renderTopActiveUsersList(users) {
+    const listElem = document.getElementById('topActiveUsersList');
+    if (!listElem) return;
+
+    if (!users || users.length === 0) {
+        listElem.innerHTML = '<p class="empty-msg">لا يوجد مستخدمون نشطون حالياً.</p>';
+        return;
+    }
+
+    listElem.innerHTML = users.map((user, index) => `
+        <div class="user-active-item">
+            <div class="user-info">
+                <strong>#${index + 1} ${user.name || 'مستخدم'}</strong>
+                <span>ID: ${user.telegram_id || user.user_id}</span>
+            </div>
+            <span class="badge-count">${(user.interactions || user.activity_count || 0).toLocaleString()} تفاعل</span>
+        </div>
+    `).join('');
+}
+
+// 🚫 دالة حظر مستخدم
+async function banUser() {
+    const userIdInput = document.getElementById('banUserId');
+    const reasonInput = document.getElementById('banReason');
+
+    const userId = userIdInput ? userIdInput.value.trim() : '';
+    const reason = reasonInput ? reasonInput.value.trim() : '';
+
+    if (!userId) {
+        alert("⚠️ يرجى إدخال معرّف المستخدم (Telegram ID) المراد حظره.");
+        if (userIdInput) userIdInput.focus();
+        return;
+    }
+
+    const confirmBan = confirm(`🚫 هل أنت متأكد من حظر المستخدم صاحب المعرّف (${userId})؟`);
+    if (!confirmBan) return;
 
     try {
-        const response = await fetch('/api/super-admin/zngo-settings', {
+        const response = await fetch('/api/super-admin/ban-user', {
             method: 'POST',
             headers: getAdminHeaders(),
-            body: JSON.stringify({ bot_margin: botMargin, min_bet: minBet })
+            body: JSON.stringify({
+                telegram_id: userId,
+                reason: reason || "تم الحظر من قبل الإدارة العليا"
+            })
         });
+
         const data = await response.json();
+
         if (data.success) {
-            alert("✅ تم حفظ إعدادات لعبة ZN Go بنجاح!");
+            alert("✅ " + (data.message || "تم حظر المستخدم بنجاح."));
+            if (userIdInput) userIdInput.value = '';
+            if (reasonInput) reasonInput.value = '';
+            loadGlobalAnalytics();
+            loadAdminLogs();
         } else {
-            alert("❌ " + (data.message || "فشل حفظ الإعدادات"));
+            alert("❌ فشل عملية الحظر: " + (data.message || "حدث خطأ غير معروف"));
         }
     } catch (err) {
-        alert("❌ حدث خطأ أثناء الحفظ: " + err.message);
+        console.error("Error banning user:", err);
+        alert("❌ حدث خطأ أثناء تنفيذ الحظر: " + err.message);
     }
 }
 
-async function loadBigArenaSettings() {
-    try {
-        const response = await fetch('/api/super-admin/big-arena-settings', {
-            method: 'GET',
-            headers: getAdminHeaders()
-        });
-        const data = await response.json();
-        if (data.success && data.settings) {
-            const botMargin = document.getElementById('big-arena-bot-margin');
-            const userMargin = document.getElementById('big-arena-user-margin');
-            const minBet = document.getElementById('big-arena-min-bet');
-            const enabled = document.getElementById('big-arena-enabled');
+// 🟢 دالة فك الحظر عن مستخدم
+async function unbanUser() {
+    const userIdInput = document.getElementById('banUserId');
+    const userId = userIdInput ? userIdInput.value.trim() : '';
 
-            if (botMargin) botMargin.value = data.settings.bot_margin || 70;
-            if (userMargin) userMargin.value = (100 - (data.settings.bot_margin || 70)).toFixed(2);
-            if (minBet) minBet.value = data.settings.min_bet || 10;
-            if (enabled) enabled.checked = !!data.settings.enabled;
-        }
-    } catch (err) {
-        console.error("Failed to load Big Arena settings:", err);
+    if (!userId) {
+        alert("⚠️ يرجى إدخال معرّف المستخدم (Telegram ID) لفك الحظر عنه.");
+        if (userIdInput) userIdInput.focus();
+        return;
     }
-}
-
-async function saveBigArenaSettings() {
-    const botMargin = parseFloat(document.getElementById('big-arena-bot-margin')?.value || 70);
-    const minBet = parseFloat(document.getElementById('big-arena-min-bet')?.value || 10);
-    const enabled = document.getElementById('big-arena-enabled')?.checked || false;
 
     try {
-        const response = await fetch('/api/super-admin/big-arena-settings', {
+        const response = await fetch('/api/super-admin/unban-user', {
             method: 'POST',
             headers: getAdminHeaders(),
-            body: JSON.stringify({ bot_margin: botMargin, min_bet: minBet, enabled: enabled })
+            body: JSON.stringify({ telegram_id: userId })
         });
+
         const data = await response.json();
+
         if (data.success) {
-            alert("✅ تم حفظ إعدادات الساحة الكبرى بنجاح!");
+            alert("✅ " + (data.message || "تم فك الحظر عن المستخدم بنجاح."));
+            if (userIdInput) userIdInput.value = '';
+            loadGlobalAnalytics();
+            loadAdminLogs();
         } else {
-            alert("❌ " + (data.message || "فشل حفظ الإعدادات"));
+            alert("❌ فشل فك الحظر: " + (data.message || "حدث خطأ غير معروف"));
         }
     } catch (err) {
-        alert("❌ حدث خطأ أثناء الحفظ: " + err.message);
+        console.error("Error unbanning user:", err);
+        alert("❌ حدث خطأ أثناء فك الحظر: " + err.message);
     }
 }
 
@@ -291,6 +328,7 @@ async function addNewModerator() {
             if (document.getElementById('modTelegramId')) document.getElementById('modTelegramId').value = '';
             if (document.getElementById('modName')) document.getElementById('modName').value = '';
             loadModerators();
+            loadAdminLogs();
         } else {
             alert("❌ " + (data.message || "فشل إضافة المشرف"));
         }
@@ -342,6 +380,7 @@ async function removeModerator(telegramId) {
         if (data.success) {
             alert("✅ تم حذف المشرف بنجاح.");
             loadModerators();
+            loadAdminLogs();
         } else {
             alert("❌ " + (data.message || "فشل حذف المشرف"));
         }
@@ -382,8 +421,7 @@ async function loadAdminLogs() {
 
 document.addEventListener('DOMContentLoaded', () => {
     loadGlobalAnalytics();
-    loadZnGoSettings();
-    loadBigArenaSettings();
+    loadTopActiveUsers();
     loadModerators();
     loadAdminLogs();
     fetchBroadcastStats();
