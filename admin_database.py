@@ -24,18 +24,95 @@ except ImportError as e:
     print(f"⚠️ Error importing addons_db in admin_database: {e}")
 
 
-# ==================== إعادة توجيه وظائف نظام الإشعارات والأدمن الرئيسي (Super Admin) ====================
+# ==================== إعادة توجيه وظائف نظام الإدارة العليا والحظر والتحليلات (Super Admin) ====================
 try:
     from super_admin.super_admin_db import (
+        ban_user_db,
+        unban_user_db,
+        get_system_global_analytics,
+        add_moderator_db,
+        list_moderators_db,
+        remove_moderator_db,
+        get_admin_logs,
+        modify_user_balance_admin,
+        reset_user_account_admin,
         get_all_user_ids,
-        log_broadcast_campaign,
         get_user_by_id,
-        get_latest_broadcast_campaign
+        log_broadcast_campaign,
+        get_latest_broadcast_stats
     )
 except ImportError as e:
     print(f"⚠️ Note: super_admin_db module import warning: {e}")
-    
-    # دوال احتياطية آمنة لضمان استقرار النظام في حال عدم التصدير المباشر
+
+    # 🚫 دالة fallback لحظر مستخدم
+    def ban_user_db(tg_id, reason="تم الحظر من قبل الإدارة العليا", admin_name="السوبر أدمن"):
+        try:
+            db = _get_db()
+            if not db:
+                return False, "قاعدة البيانات غير متوفرة"
+            db.collection("users").document(str(tg_id)).update({
+                "banned": True,
+                "is_banned": True,
+                "ban_reason": reason
+            })
+            return True, f"تم حظر المستخدم {tg_id}"
+        except Exception as err:
+            return False, f"خطأ في الحظر الاحتياطي: {err}"
+
+    # 🟢 دالة fallback لفك الحظر
+    def unban_user_db(tg_id, admin_name="السوبر أدمن"):
+        try:
+            db = _get_db()
+            if not db:
+                return False, "قاعدة البيانات غير متوفرة"
+            db.collection("users").document(str(tg_id)).update({
+                "banned": False,
+                "is_banned": False
+            })
+            return True, f"تم فك الحظر عن المستخدم {tg_id}"
+        except Exception as err:
+            return False, f"خطأ في فك الحظر الاحتياطي: {err}"
+
+    # 📊 دالة fallback للتحليلات الكلية
+    def get_system_global_analytics():
+        try:
+            db = _get_db()
+            if not db:
+                return {"total_users": 0, "active_today": 0, "banned_users": 0, "top_active_users": []}
+            users = list(db.collection("users").stream())
+            total_users = len(users)
+            banned_count = sum(1 for u in users if (u.to_dict() or {}).get("banned") or (u.to_dict() or {}).get("is_banned"))
+            return {
+                "total_users": total_users,
+                "active_today": max(0, total_users - banned_count),
+                "banned_users": banned_count,
+                "total_circulating_zn": 0.0,
+                "top_active_users": []
+            }
+        except Exception as err:
+            print(f"❌ Error getting analytics fallback: {err}")
+            return {"total_users": 0, "active_today": 0, "banned_users": 0, "top_active_users": []}
+
+    # 👤 دوال fallback للمشرفين والسجلات
+    def add_moderator_db(tg_id, name, permissions=None, admin_name="السوبر أدمن"):
+        return False, "غير مدعوم في الوضع الاحتياطي"
+
+    def list_moderators_db():
+        return []
+
+    def remove_moderator_db(tg_id, admin_name="السوبر أدمن"):
+        return False, "غير مدعوم في الوضع الاحتياطي"
+
+    def get_admin_logs(limit=50):
+        return []
+
+    def modify_user_balance_admin(tg_id, amount, balance_type="balance", operation="add", admin_name="السوبر أدمن"):
+        return False, "غير مدعوم في الوضع الاحتياطي", 0.0
+
+    def reset_user_account_admin(tg_id, admin_name="السوبر أدمن"):
+        return False, "غير مدعوم في الوضع الاحتياطي"
+
+    # 📢 دوال fallback للإشعارات والبث الجماعي
     def get_all_user_ids():
         try:
             db = _get_db()
@@ -45,28 +122,27 @@ except ImportError as e:
             user_ids = []
             for doc in users_ref:
                 data = doc.to_dict() or {}
-                if not data.get('is_banned', False):
+                if not (data.get('banned', False) or data.get('is_banned', False)):
                     user_ids.append(str(doc.id))
             return user_ids
         except Exception as err:
             print(f"❌ Error fetching user ids fallback: {err}")
             return []
 
-    def log_broadcast_campaign(admin_name, message, total_targets, success_count, blocked_count, failed_count):
+    def log_broadcast_campaign(admin_name, message, total_targets, success_count, blocked_count):
         try:
             db = _get_db()
             if not db:
                 return False
             import time
-            doc_ref = db.collection('broadcast_campaigns').document()
+            doc_ref = db.collection('broadcasts').document()
             doc_ref.set({
                 'id': doc_ref.id,
                 'admin_name': admin_name,
-                'message': message,
+                'message_snippet': message[:100],
                 'total_targets': total_targets,
                 'success_count': success_count,
                 'blocked_count': blocked_count,
-                'failed_count': failed_count,
                 'created_at': time.time()
             })
             return True
@@ -78,19 +154,19 @@ except ImportError as e:
         try:
             db = _get_db()
             if not db:
-                return None
+                return False, None
             doc = db.collection('users').document(str(user_id)).get()
-            return doc.to_dict() if doc.exists else None
+            return (True, doc.to_dict()) if doc.exists else (False, None)
         except Exception as err:
             print(f"❌ Error fetching user fallback: {err}")
-            return None
+            return False, None
 
-    def get_latest_broadcast_campaign():
+    def get_latest_broadcast_stats():
         try:
             db = _get_db()
             if not db:
                 return None
-            docs = db.collection('broadcast_campaigns').order_by('created_at', direction='DESCENDING').limit(1).get()
+            docs = db.collection('broadcasts').order_by('created_at', direction='DESCENDING').limit(1).get()
             for doc in docs:
                 return doc.to_dict()
             return None
