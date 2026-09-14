@@ -81,9 +81,9 @@ def reset_user_account_admin(tg_id, admin_name="السوبر أدمن"):
         return False, f"حدث خطأ: {e}"
 
 
-# 🚫 دالة حظر مستخدم مع تسجيل التاريخ والسبب وحفظ الحركة
+# 🚫 دالة حظر مستخدم وحظر جهازه بالتوازي مع تسجيل البيانات والسجلات
 def ban_user_db(tg_id, reason="تم الحظر من قبل الإدارة العليا", admin_name="السوبر أدمن"):
-    """حظر مستخدم وتحديث حالته وتدوين الحركة إدارياً"""
+    """حظر مستخدم وتحديث حقول الحظر وحظر كافة أجهزته المربوطة به في مجموعة banned_devices"""
     try:
         if not tg_id:
             return False, "معرف المستخدم مطلوب"
@@ -91,11 +91,15 @@ def ban_user_db(tg_id, reason="تم الحظر من قبل الإدارة الع
         db = database.get_db()
         tg_id_str = str(tg_id).strip()
         user_ref = db.collection("users").document(tg_id_str)
+        user_doc = user_ref.get()
 
-        if not user_ref.get().exists:
+        if not user_doc.exists:
             return False, f"المستخدم رقم ({tg_id_str}) غير مسجل في النظام"
 
+        user_data = user_doc.to_dict() or {}
         now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        # 1. تحديث حقول الحظر بالتوازي (banned و is_banned) لتوافق بوت المستخدم ولوحة الأدمن
         user_ref.update({
             "banned": True,
             "is_banned": True,
@@ -104,20 +108,44 @@ def ban_user_db(tg_id, reason="تم الحظر من قبل الإدارة الع
             "banned_by": admin_name
         })
 
+        # 2. حظر جميع الأجهزة المرتبطة بالحساب في مجموعة banned_devices
+        device_ids = set()
+
+        single_device = user_data.get("device_id") or user_data.get("hardware_id") or user_data.get("device_fingerprint")
+        if single_device:
+            device_ids.add(str(single_device).strip())
+
+        list_devices = user_data.get("device_ids") or user_data.get("devices") or []
+        if isinstance(list_devices, list):
+            for dev in list_devices:
+                if dev:
+                    device_ids.add(str(dev).strip())
+
+        for dev_id in device_ids:
+            if dev_id:
+                db.collection("banned_devices").document(dev_id).set({
+                    "device_id": dev_id,
+                    "telegram_id": tg_id_str,
+                    "tg_id": tg_id_str,
+                    "reason": reason,
+                    "banned_at": now_str,
+                    "banned_by": admin_name
+                }, merge=True)
+
         try:
-            database.log_admin_action(admin_name, f"حظر المستخدم {tg_id_str} - السبب: {reason}")
+            database.log_admin_action(admin_name, f"حظر المستخدم {tg_id_str} والأجهزة ({', '.join(device_ids) if device_ids else 'غير محددة'}) - السبب: {reason}")
         except Exception:
             pass
 
-        return True, f"تم حظر المستخدم {tg_id_str} بنجاح"
+        return True, f"تم حظر المستخدم {tg_id_str} والأجهزة المربوطة به بنجاح"
     except Exception as e:
         print(f"❌ Error banning user {tg_id}: {e}")
         return False, f"حدث خطأ أثناء حظر المستخدم: {e}"
 
 
-# 🟢 دالة فك الحظر عن مستخدم
+# 🟢 دالة فك الحظر عن مستخدم وإلغاء حظر كافة أجهزته المربوطة به
 def unban_user_db(tg_id, admin_name="السوبر أدمن"):
-    """فك الحظر عن مستخدم وتحديث حالته في قاعدة البيانات"""
+    """فك الحظر عن مستخدم وتحديث حقول الحظر وحذف كافة أجهزته من مجموعة banned_devices"""
     try:
         if not tg_id:
             return False, "معرف المستخدم مطلوب"
@@ -125,11 +153,15 @@ def unban_user_db(tg_id, admin_name="السوبر أدمن"):
         db = database.get_db()
         tg_id_str = str(tg_id).strip()
         user_ref = db.collection("users").document(tg_id_str)
+        user_doc = user_ref.get()
 
-        if not user_ref.get().exists:
+        if not user_doc.exists:
             return False, f"المستخدم رقم ({tg_id_str}) غير مسجل في النظام"
 
+        user_data = user_doc.to_dict() or {}
         now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        # 1. تحديث حقول الحظر بالتوازي (banned: False و is_banned: False)
         user_ref.update({
             "banned": False,
             "is_banned": False,
@@ -137,12 +169,45 @@ def unban_user_db(tg_id, admin_name="السوبر أدمن"):
             "unbanned_by": admin_name
         })
 
+        # 2. جمع معرّفات الأجهزة المربوطة بالحساب وإزالتها مباشرة
+        device_ids = set()
+
+        single_device = user_data.get("device_id") or user_data.get("hardware_id") or user_data.get("device_fingerprint")
+        if single_device:
+            device_ids.add(str(single_device).strip())
+
+        list_devices = user_data.get("device_ids") or user_data.get("devices") or []
+        if isinstance(list_devices, list):
+            for dev in list_devices:
+                if dev:
+                    device_ids.add(str(dev).strip())
+
+        # حذف الأجهزة المحددة مباشرة من banned_devices
+        for dev_id in device_ids:
+            if dev_id:
+                try:
+                    db.collection("banned_devices").document(dev_id).delete()
+                except Exception as de:
+                    print(f"⚠️ Error deleting device {dev_id} from banned_devices: {de}")
+
+        # 3. حذف أي أجهزة مسجلة بمُعرّف المستخدم من مجموعة banned_devices لمنع الحظر التلقائي
         try:
-            database.log_admin_action(admin_name, f"فك الحظر عن المستخدم {tg_id_str}")
+            for field in ["telegram_id", "tg_id", "user_id"]:
+                banned_docs = db.collection("banned_devices").where(field, "==", tg_id_str).stream()
+                for doc in banned_docs:
+                    try:
+                        doc.reference.delete()
+                    except Exception:
+                        pass
+        except Exception as qe:
+            print(f"⚠️ Error querying banned_devices for {tg_id_str}: {qe}")
+
+        try:
+            database.log_admin_action(admin_name, f"فك الحظر عن المستخدم {tg_id_str} وجميع الأجهزة المربوطة به")
         except Exception:
             pass
 
-        return True, f"تم فك الحظر عن المستخدم {tg_id_str} بنجاح"
+        return True, f"تم فك الحظر عن المستخدم {tg_id_str} وجميع أجهزته بنجاح"
     except Exception as e:
         print(f"❌ Error unbanning user {tg_id}: {e}")
         return False, f"حدث خطأ أثناء فك الحظر: {e}"
