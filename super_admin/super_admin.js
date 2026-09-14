@@ -1,15 +1,34 @@
-// super_admin/super_admin.js
+// =========================================================
+// 👑 super_admin/super_admin.js
 // JavaScript Controller for Super Admin WebApp Console
+// =========================================================
 
+// دالة احتياطية لجلب هيدرات التوثيق الإداري عند عدم توفر apiFetch
 function getAdminHeaders() {
-    const initData = window.Telegram?.WebApp?.initData || "";
+    const initData = window.Telegram?.WebApp?.initData || window.getInitData?.() || "";
     const adminId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "";
     return {
         "Content-Type": "application/json",
         "X-Telegram-Init-Data": initData,
+        "X-Init-Data": initData,
         "X-Admin-ID": adminId.toString(),
         "Authorization": `Bearer ${initData}`
     };
+}
+
+// دالة مساعدة لاستدعاء API مع استخدام apiFetch الموحدة بمرونة
+async function requestApi(url, options = {}) {
+    if (typeof window.apiFetch === 'function') {
+        return window.apiFetch(url, options);
+    }
+    const mergedOptions = {
+        ...options,
+        headers: {
+            ...getAdminHeaders(),
+            ...(options.headers || {})
+        }
+    };
+    return fetch(url, mergedOptions);
 }
 
 function toggleTargetInput() {
@@ -70,9 +89,8 @@ async function sendAdminMessage() {
     }
 
     try {
-        const response = await fetch('/api/super-admin/send-message', {
+        const response = await requestApi('/api/super-admin/send-message', {
             method: 'POST',
-            headers: getAdminHeaders(),
             body: JSON.stringify({
                 target_type: targetType,
                 target_id: targetType === 'single' ? targetId : null,
@@ -114,9 +132,8 @@ async function fetchBroadcastStats() {
     const detailsContainer = document.getElementById('broadcastProgressDetails');
 
     try {
-        const response = await fetch('/api/super-admin/broadcast-stats', {
-            method: 'GET',
-            headers: getAdminHeaders()
+        const response = await requestApi('/api/super-admin/broadcast-stats', {
+            method: 'GET'
         });
 
         const data = await response.json();
@@ -155,9 +172,8 @@ async function fetchBroadcastStats() {
 // 🔄 تحديث دالة التحليلات العامة لتعكس إحصائيات المستخدمين
 async function loadGlobalAnalytics() {
     try {
-        const response = await fetch('/api/super-admin/analytics', {
-            method: 'GET',
-            headers: getAdminHeaders()
+        const response = await requestApi('/api/super-admin/analytics', {
+            method: 'GET'
         });
         const data = await response.json();
         if (data.success && data.analytics) {
@@ -184,9 +200,8 @@ async function loadTopActiveUsers() {
     if (!listElem) return;
 
     try {
-        const response = await fetch('/api/super-admin/analytics', {
-            method: 'GET',
-            headers: getAdminHeaders()
+        const response = await requestApi('/api/super-admin/analytics', {
+            method: 'GET'
         });
         const data = await response.json();
         if (data.success && data.analytics && data.analytics.top_users) {
@@ -220,7 +235,7 @@ function renderTopActiveUsersList(users) {
     `).join('');
 }
 
-// 🚫 دالة حظر مستخدم
+// 🚫 دالة حظر مستخدم وحظر جهازه
 async function banUser() {
     const userIdInput = document.getElementById('banUserId');
     const reasonInput = document.getElementById('banReason');
@@ -234,13 +249,12 @@ async function banUser() {
         return;
     }
 
-    const confirmBan = confirm(`🚫 هل أنت متأكد من حظر المستخدم صاحب المعرّف (${userId})؟`);
+    const confirmBan = confirm(`🚫 هل أنت متأكد من حظر المستخدم (${userId}) وحظر الأجهزة المربوطة به؟`);
     if (!confirmBan) return;
 
     try {
-        const response = await fetch('/api/super-admin/ban-user', {
+        const response = await requestApi('/api/super-admin/ban-user', {
             method: 'POST',
-            headers: getAdminHeaders(),
             body: JSON.stringify({
                 telegram_id: userId,
                 reason: reason || "تم الحظر من قبل الإدارة العليا"
@@ -250,7 +264,7 @@ async function banUser() {
         const data = await response.json();
 
         if (data.success) {
-            alert("✅ " + (data.message || "تم حظر المستخدم بنجاح."));
+            alert("✅ " + (data.message || "تم حظر الحساب والأجهزة المربوطة به بنجاح."));
             if (userIdInput) userIdInput.value = '';
             if (reasonInput) reasonInput.value = '';
             loadGlobalAnalytics();
@@ -264,7 +278,7 @@ async function banUser() {
     }
 }
 
-// 🟢 دالة فك الحظر عن مستخدم
+// 🟢 دالة فك الحظر عن حساب المستخدم وجميع الأجهزة المربوطة به
 async function unbanUser() {
     const userIdInput = document.getElementById('banUserId');
     const userId = userIdInput ? userIdInput.value.trim() : '';
@@ -276,16 +290,15 @@ async function unbanUser() {
     }
 
     try {
-        const response = await fetch('/api/super-admin/unban-user', {
+        const response = await requestApi('/api/super-admin/unban-user', {
             method: 'POST',
-            headers: getAdminHeaders(),
             body: JSON.stringify({ telegram_id: userId })
         });
 
         const data = await response.json();
 
         if (data.success) {
-            alert("✅ " + (data.message || "تم فك الحظر عن المستخدم بنجاح."));
+            alert("✅ " + (data.message || "تم فك حظر حساب التليجرام وجميع الأجهزة المربوطة به بنجاح."));
             if (userIdInput) userIdInput.value = '';
             loadGlobalAnalytics();
             loadAdminLogs();
@@ -317,9 +330,8 @@ async function addNewModerator() {
     };
 
     try {
-        const response = await fetch('/api/super-admin/add-moderator', {
+        const response = await requestApi('/api/super-admin/add-moderator', {
             method: 'POST',
-            headers: getAdminHeaders(),
             body: JSON.stringify({ telegram_id: modId, name: modName, permissions: permissions })
         });
         const data = await response.json();
@@ -342,9 +354,8 @@ async function loadModerators() {
     if (!listElem) return;
 
     try {
-        const response = await fetch('/api/super-admin/list-moderators', {
-            method: 'GET',
-            headers: getAdminHeaders()
+        const response = await requestApi('/api/super-admin/list-moderators', {
+            method: 'GET'
         });
         const data = await response.json();
         if (data.success && data.moderators) {
@@ -371,9 +382,8 @@ async function removeModerator(telegramId) {
     if (!confirm(`هل أنت تأكد من رغبتك في حذف المشرف صاحب المعرف ${telegramId}؟`)) return;
 
     try {
-        const response = await fetch('/api/super-admin/remove-moderator', {
+        const response = await requestApi('/api/super-admin/remove-moderator', {
             method: 'POST',
-            headers: getAdminHeaders(),
             body: JSON.stringify({ telegram_id: telegramId })
         });
         const data = await response.json();
@@ -394,9 +404,8 @@ async function loadAdminLogs() {
     if (!logsElem) return;
 
     try {
-        const response = await fetch('/api/super-admin/logs', {
-            method: 'GET',
-            headers: getAdminHeaders()
+        const response = await requestApi('/api/super-admin/logs', {
+            method: 'GET'
         });
         const data = await response.json();
         if (data.success && data.logs) {
@@ -419,10 +428,30 @@ async function loadAdminLogs() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+// دالة تهيئة موديول الإدارة العليا
+function initSuperAdmin() {
     loadGlobalAnalytics();
     loadTopActiveUsers();
     loadModerators();
     loadAdminLogs();
     fetchBroadcastStats();
+}
+
+// تصدير الدوال على مستوى النطاق العام window لعدم حدوث أخطاء Scope
+window.initSuperAdmin = initSuperAdmin;
+window.banUser = banUser;
+window.unbanUser = unbanUser;
+window.sendAdminMessage = sendAdminMessage;
+window.fetchBroadcastStats = fetchBroadcastStats;
+window.loadGlobalAnalytics = loadGlobalAnalytics;
+window.loadTopActiveUsers = loadTopActiveUsers;
+window.addNewModerator = addNewModerator;
+window.loadModerators = loadModerators;
+window.removeModerator = removeModerator;
+window.loadAdminLogs = loadAdminLogs;
+window.toggleTargetInput = toggleTargetInput;
+
+// تشغيل التهيئة عند اكتمال تحميل المستند
+document.addEventListener('DOMContentLoaded', () => {
+    initSuperAdmin();
 });
