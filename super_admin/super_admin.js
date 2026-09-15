@@ -153,7 +153,7 @@ async function fetchBroadcastStats() {
                 const percentage = live.total > 0 ? Math.round((live.sent / live.total) * 100) : 0;
                 detailsContainer.innerHTML = `
                     <div style="color: var(--accent-gold, #f39c12); font-weight: bold; margin-bottom: 4px;">⚙️ حملة إرسال جارية حالياً (${percentage}%):</div>
-                    <div>🟢 تم الإرسال بنجاح: <b>${live.sent}</b> / ${live.total}</div>
+                    <div>🟢 تم الإرسال بنجاح: <b>${live.sent}</b> /${live.total}</div>
                     <div>🚫 حظروا البوت: <b>${live.blocked}</b></div>
                     <div>❌ فشل الإرسال: <b>${live.failed}</b></div>
                 `;
@@ -248,7 +248,7 @@ function renderTopActiveUsersList(users) {
         return `
             <div class="user-active-item">
                 <div class="user-info">
-                    <strong>#${index + 1} ${uName}</strong>
+                    <strong>#${index + 1}${uName}</strong>
                     <span>ID: ${uId}${extraInfo}</span>
                 </div>
                 <span class="badge-count">${Number(interactionsCount).toLocaleString()} تفاعل</span>
