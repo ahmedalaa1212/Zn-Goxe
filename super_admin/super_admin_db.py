@@ -353,9 +353,8 @@ def ban_user_db(tg_id, reason="تم الحظر من قبل الإدارة الع
         return False, f"حدث خطأ أثناء حظر المستخدم: {e}"
 
 
-# 🟢 دالة فك الحظر عن مستخدم وإلغاء حظر كافة أجهزته المربوطة به
+# 🟢 دالة فك الحظر المحدثة لمنع حلقة الحظر وفك الحظر المتبادلة
 def unban_user_db(tg_id, admin_name="السوبر أدمن"):
-    """فك الحظر عن مستخدم وتحديث حقول الحظر وحذف كافة أجهزته من مجموعة banned_devices وتحديث devices"""
     try:
         if not tg_id:
             return False, "معرف المستخدم مطلوب"
@@ -372,7 +371,7 @@ def unban_user_db(tg_id, admin_name="السوبر أدمن"):
 
         now_str = time.strftime("%Y-%m-%d %H:%M:%S")
 
-        # 1. إلغاء الحظر وتصفير حالة الحظر في كافة حقول ملف المستخدم
+        # 1. إلغاء الحظر من مستند المستخدم الرئيسي
         user_ref.update({
             "banned": False,
             "is_banned": False,
@@ -383,92 +382,33 @@ def unban_user_db(tg_id, admin_name="السوبر أدمن"):
             "unbanned_by": admin_name
         })
 
-        # 2. جمع كافة الأجهزة المرتبطة بملف المستخدم
+        # 2. جلب وتحديث كافة الأجهزة المرتبطة بالمستخدم وإزالة حظرها كلياً من مجموعة devices
         device_ids = _find_associated_devices(db, user_doc, tg_id_str)
-
-        # 3. فك حظر الأجهزة في مجموعة devices وحذفها من banned_devices
         for dev_id in device_ids:
             if not dev_id:
                 continue
-
-            other_user_banned = False
             try:
-                dev_ref = db.collection("devices").document(str(dev_id))
-                dev_doc = dev_ref.get()
-                if dev_doc.exists:
-                    d_data = dev_doc.to_dict() or {}
-                    linked_users = set()
-                    p_user = d_data.get("primary_user_id")
-                    if p_user:
-                        linked_users.add(str(p_user).strip())
-                    u_list = d_data.get("users") or []
-                    if isinstance(u_list, list):
-                        for u_item in u_list:
-                            if u_item:
-                                linked_users.add(str(u_item).strip())
+                db.collection("devices").document(str(dev_id)).update({
+                    "is_banned": False,
+                    "banned": False,
+                    "unbanned_at": now_str,
+                    "unbanned_by": admin_name
+                })
+            except Exception:
+                pass
 
-                    # استبعاد المستخدم الحالي من الفحص
-                    linked_users.discard(tg_id_str)
-
-                    # التأكد إن كان يوجد حساب آخر محظور ما زال يستعمل نفس الجهاز
-                    for l_uid in linked_users:
-                        _, l_user_doc = _find_user_doc(db, l_uid)
-                        if l_user_doc and l_user_doc.exists:
-                            l_data = l_user_doc.to_dict() or {}
-                            if l_data.get("banned") or l_data.get("is_banned") or l_data.get("ban") or l_data.get("status") == "banned":
-                                other_user_banned = True
-                                break
-
-                    if not other_user_banned:
-                        dev_ref.update({
-                            "is_banned": False,
-                            "banned": False,
-                            "unbanned_at": now_str,
-                            "unbanned_by": admin_name
-                        })
-            except Exception as de:
-                print(f"⚠️ Error checking/updating device {dev_id}: {de}")
-
-            # إذا لم يكن هناك حساب آخر محظور على هذا الجهاز، قم بحذفه من قائمة الأجهزة المحظورة
-            if not other_user_banned:
-                try:
-                    db.collection("banned_devices").document(str(dev_id)).delete()
-                except Exception as bde:
-                    print(f"⚠️ Error deleting banned_devices/{dev_id}: {bde}")
-
-        # 4. حذف أي مستندات متبقية في banned_devices مرتبطة بمعرّف التليجرام
-        tg_id_int = None
-        try:
-            tg_id_int = int(tg_id_str)
-        except ValueError:
-            pass
-
-        target_vals = [tg_id_str]
-        if tg_id_int is not None:
-            target_vals.append(tg_id_int)
-
-        search_fields = ["telegram_id", "tg_id", "user_id", "device_id", "tg_id_int", "telegram_id_int"]
-
-        for field in search_fields:
-            for val in target_vals:
-                try:
-                    banned_docs = db.collection("banned_devices").where(field, "==", val).stream()
-                    for bdoc in banned_docs:
-                        try:
-                            bdoc.reference.delete()
-                        except Exception:
-                            pass
-                except Exception as qe:
-                    print(f"⚠️ Error deleting leftover banned_devices field {field}={val}: {qe}")
+            try:
+                db.collection("banned_devices").document(str(dev_id)).delete()
+            except Exception:
+                pass
 
         try:
-            database.log_admin_action(admin_name, f"فك الحظر عن المستخدم {tg_id_str} وجميع الأجهزة المربوطة به")
+            database.log_admin_action(admin_name, f"فك الحظر الشامل عن المستخدم {tg_id_str} وجميع أجهزته المربوطة")
         except Exception:
             pass
 
-        return True, f"تم فك الحظر عن المستخدم {tg_id_str} وجميع أجهزته بنجاح"
+        return True, f"تم فك الحظر الشامل عن المستخدم {tg_id_str} وجميع أجهزته بنجاح"
     except Exception as e:
-        print(f"❌ Error unbanning user {tg_id}: {e}")
         return False, f"حدث خطأ أثناء فك الحظر: {e}"
 
 
@@ -550,7 +490,6 @@ def get_banned_users_db():
                         "banned_by": str(banned_by)
                     }
                 elif tg_id_str and tg_id_str in banned_map:
-                    # تحديث التفاصيل إن كانت أحدث في banned_devices
                     if bd_data.get("reason") and banned_map[tg_id_str]["ban_reason"] == "تم الحظر من قبل الإدارة العليا":
                         banned_map[tg_id_str]["ban_reason"] = bd_data.get("reason")
                         banned_map[tg_id_str]["reason"] = bd_data.get("reason")
@@ -679,9 +618,9 @@ def get_admin_logs(limit=50):
         return []
 
 
-# 📊 دالة التحليلات العامة المحدثة (إجمالي المسجلين، المتفاعلين اليوم 24 ساعة، المحظورين، والأكثر نشاطاً)
-def get_system_global_analytics():
-    """تحليلات النظام الكلية: حساب إجمالي المستخدمين، المتفاعلين اليوم خلال 24 ساعة تلقائياً، المحظورين، وأكثر المستخدمين نشاطاً"""
+# 📊 دالة التحليلات العامة المحدثة بحجم محدد لمنع Timeout مع قراءة حقول Zn Goxe المباشرة
+def get_system_global_analytics(limit=500):
+    """تحليلات النظام الكلية مع تقييد الحجم لحماية الاستجابة وقراءة حقول التعدين والضغط والنشاط المباشرة"""
     try:
         db = database.get_db()
         if not db:
@@ -695,23 +634,23 @@ def get_system_global_analytics():
                 "top_active_users": []
             }
 
-        users_docs = db.collection("users").stream()
+        # 1. جلب المحظورين أولاً لمنع البطء
+        banned_list = get_banned_users_db()
+        banned_ids_set = {str(bu.get("telegram_id")).strip() for bu in banned_list if bu.get("telegram_id")}
+        banned_users_count = len(banned_ids_set)
+
+        # 2. استعلام محدد الحجم لمنع انتهاء وقت الاتصال (Timeout)
+        users_docs = db.collection("users").limit(limit).stream()
 
         total_users = 0
         active_today_count = 0
-        banned_users_count = 0
         total_balance_zn = 0.0
         total_ad_balance = 0.0
 
         now_ts = time.time()
-        one_day_seconds = 86400  # 24 ساعة بالضبط
+        one_day_seconds = 86400  # 24 ساعة
 
         user_activity_list = []
-
-        # جلب قائمة المحظورين للتأكد من المزامنة المطلقة لعدد المحظورين
-        banned_list = get_banned_users_db()
-        banned_ids_set = {str(bu.get("telegram_id")).strip() for bu in banned_list if bu.get("telegram_id")}
-        banned_users_count = len(banned_ids_set)
 
         for u in users_docs:
             total_users += 1
@@ -719,13 +658,13 @@ def get_system_global_analytics():
                 d = u.to_dict() or {}
                 tg_id_str = str(d.get("telegram_id") or d.get("tg_id") or u.id).strip()
 
-                # تجميع الأرصدة المتداولة
-                bal = _safe_float(d.get("balance"))
+                # الأرصدة المتداولة ورصيد التعدين
+                bal = _safe_float(d.get("balance") or d.get("zn_balance"))
                 ad_bal = _safe_float(d.get("ad_balance"))
                 total_balance_zn += bal
                 total_ad_balance += ad_bal
 
-                # هل المستخدم محظور؟
+                # فحص الحظر
                 is_banned = (tg_id_str in banned_ids_set) or bool(
                     d.get("banned") or 
                     d.get("is_banned") or 
@@ -733,12 +672,12 @@ def get_system_global_analytics():
                     d.get("status") == "banned"
                 )
 
-                # حساب المستخدمين النشطين خلال آخر 24 ساعة تلقائياً
+                # قراءة التفاعل والنشاط بما يغطي حقول Zn Goxe
                 last_active_raw = (
+                    d.get("last_active_at") or
                     d.get("last_active") or 
                     d.get("last_seen") or 
                     d.get("updated_at") or 
-                    d.get("last_active_at") or 
                     d.get("last_login") or 
                     d.get("last_seen_at")
                 )
@@ -753,13 +692,15 @@ def get_system_global_analytics():
                 if is_active_today:
                     active_today_count += 1
 
-                # تجميع حجم تفاعلات المستخدم بمرونة
-                act_cnt = _safe_int(d.get("activity_count")) or _safe_int(d.get("interactions")) or _safe_int(d.get("total_clicks")) or _safe_int(d.get("clicks")) or _safe_int(d.get("taps"))
+                # قراءة حقول التعدين والضغط والمهام للتطبيق
+                tap_cnt = _safe_int(d.get("tap_count")) or _safe_int(d.get("taps")) or _safe_int(d.get("clicks")) or _safe_int(d.get("total_clicks"))
+                act_cnt = _safe_int(d.get("activity_count")) or _safe_int(d.get("interactions"))
                 tasks_cnt = _safe_int(d.get("completed_tasks"))
                 bets_cnt = _safe_int(d.get("total_bets"))
                 refs_cnt = _safe_int(d.get("referrals")) or _safe_int(d.get("referrals_count"))
+                mined_val = _safe_float(d.get("total_mined"))
 
-                interactions = act_cnt + tasks_cnt + bets_cnt
+                interactions = tap_cnt + act_cnt + tasks_cnt + bets_cnt + (1 if mined_val > 0 else 0)
                 if interactions == 0:
                     if is_active_today or bal > 0 or tasks_cnt > 0:
                         interactions = max(1, tasks_cnt, refs_cnt)
