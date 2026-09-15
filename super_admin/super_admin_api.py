@@ -35,6 +35,9 @@ def extract_admin_id_from_request(req):
     if admin_id and str(admin_id).strip():
         return str(admin_id).strip()
 
+    if req.args and (req.args.get("admin_id") or req.args.get("tg_id")):
+        return str(req.args.get("admin_id") or req.args.get("tg_id")).strip()
+
     if req.is_json and req.json:
         admin_id = req.json.get("admin_id") or req.json.get("tg_id") or req.json.get("telegram_id")
         if admin_id:
@@ -303,12 +306,24 @@ def get_analytics():
 
     try:
         analytics_data = super_admin_db.get_system_global_analytics()
+        if not isinstance(analytics_data, dict):
+            analytics_data = {}
+            
         return jsonify({
             "success": True,
             "analytics": analytics_data
         })
     except Exception as e:
-        return jsonify({"success": False, "message": f"خطأ أثناء جلب التحليلات: {str(e)}"}), 500
+        return jsonify({
+            "success": False, 
+            "message": f"خطأ أثناء جلب التحليلات: {str(e)}",
+            "analytics": {
+                "total_users": 0,
+                "active_24h": 0,
+                "banned_users": 0,
+                "top_active_users": []
+            }
+        }), 200
 
 
 # 🚫 مسار جلب قائمة المستخدمين المحظورين بالكامل
@@ -321,13 +336,21 @@ def get_banned_users():
 
     try:
         banned_users = super_admin_db.get_banned_users_db()
+        if not isinstance(banned_users, list):
+            banned_users = []
+            
         return jsonify({
             "success": True,
             "banned_users": banned_users,
             "total_banned": len(banned_users)
         })
     except Exception as e:
-        return jsonify({"success": False, "message": f"خطأ أثناء جلب قائمة المحظورين: {str(e)}"}), 500
+        return jsonify({
+            "success": False, 
+            "message": f"خطأ أثناء جلب قائمة المحظورين: {str(e)}",
+            "banned_users": [],
+            "total_banned": 0
+        }), 200
 
 
 # 🚫 مسار حظر المستخدم والأجهزة المربوطة به
