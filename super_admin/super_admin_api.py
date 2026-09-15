@@ -293,7 +293,7 @@ def get_broadcast_stats():
     })
 
 
-# 📈 مسار التحليلات الجديد (إحصائيات المستخدمين، المتفاعلين، والأكثر نشاطاً)
+# 📈 مسار التحليلات (إحصائيات المستخدمين، المتفاعلين خلال 24 ساعة، والمحظورين)
 @super_admin_bp.route('/analytics', methods=['GET'])
 def get_analytics():
     """مسار جلب الإحصائيات العامة للمستخدمين والمتفاعلين والأكثر نشاطاً"""
@@ -309,6 +309,25 @@ def get_analytics():
         })
     except Exception as e:
         return jsonify({"success": False, "message": f"خطأ أثناء جلب التحليلات: {str(e)}"}), 500
+
+
+# 🚫 مسار جلب قائمة المستخدمين المحظورين بالكامل
+@super_admin_bp.route('/banned-users', methods=['GET'])
+def get_banned_users():
+    """مسار جلب كافة الحسابات والأجهزة المحظورة بالنظام وتفاصيلها"""
+    is_valid, msg, admin_name = verify_admin_access(request)
+    if not is_valid:
+        return jsonify({"success": False, "message": msg}), 403
+
+    try:
+        banned_users = super_admin_db.get_banned_users_db()
+        return jsonify({
+            "success": True,
+            "banned_users": banned_users,
+            "total_banned": len(banned_users)
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": f"خطأ أثناء جلب قائمة المحظورين: {str(e)}"}), 500
 
 
 # 🚫 مسار حظر المستخدم والأجهزة المربوطة به
