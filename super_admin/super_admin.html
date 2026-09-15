@@ -459,6 +459,10 @@
                 window.Telegram.WebApp.ready();
                 window.Telegram.WebApp.expand();
             }
+            // إعادة تحميل البيانات تلقائياً بعد تهيئة التوثيق
+            if (typeof initSuperAdmin === 'function') {
+                initSuperAdmin();
+            }
         });
     </script>
 </body>
