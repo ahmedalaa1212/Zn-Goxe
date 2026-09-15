@@ -337,6 +337,17 @@
             <p style="font-size: 11px; color: var(--text-muted); margin-top: 8px; text-align: center;">💡 تنبيه: عمليات الحظر وفك الحظر تطبق تلقائياً على حساب التليجرام وجميع الأجهزة المحظورة المربوطة به.</p>
         </div>
 
+        <!-- 🚫 قسم قائمة المستخدمين المحظورين -->
+        <div class="section-card" style="border: 1px solid var(--accent-red);">
+            <div class="section-header">
+                <div class="section-title" style="color: var(--accent-red);">🚫 قائمة المستخدمين المحظورين</div>
+                <button class="btn-refresh" onclick="loadBannedUsers()">🔄 تحديث</button>
+            </div>
+            <div class="user-active-list" id="bannedUsersList">
+                <p class="empty-msg">⏳ جاري تحميل قائمة المحظورين...</p>
+            </div>
+        </div>
+
         <!-- 📢 مركز الرسائل والإشعارات -->
         <div class="section-card" style="border: 1px solid var(--accent-blue);">
             <div class="section-header">
