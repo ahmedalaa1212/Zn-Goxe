@@ -242,6 +242,104 @@ function renderTopActiveUsersList(users) {
     }).join('');
 }
 
+// 🚫 دالة جلب قائمة المحظورين وتحديث الواجهة والعداد
+async function loadBannedUsers() {
+    const listElem = document.getElementById('bannedUsersList');
+    try {
+        const response = await requestApi('/api/super-admin/banned-users', {
+            method: 'GET'
+        });
+        const data = await response.json();
+        if (data.success) {
+            const bannedUsersElem = document.getElementById('banned-users-val');
+            if (bannedUsersElem && data.total_banned !== undefined) {
+                bannedUsersElem.innerText = Number(data.total_banned).toLocaleString();
+            }
+            if (listElem) {
+                renderBannedUsersList(data.banned_users || []);
+            }
+        } else {
+            if (listElem) {
+                listElem.innerHTML = '<p class="empty-msg">فشل جلب قائمة المحظورين.</p>';
+            }
+        }
+    } catch (err) {
+        console.error("Failed to load banned users:", err);
+        if (listElem) {
+            listElem.innerHTML = '<p class="empty-msg">تعذر تحميل قائمة المحظورين.</p>';
+        }
+    }
+}
+
+// 🎨 دالة بناء وتصميم عناصر قائمة المحظورين
+function renderBannedUsersList(users) {
+    const listElem = document.getElementById('bannedUsersList');
+    if (!listElem) return;
+
+    if (!users || !Array.isArray(users) || users.length === 0) {
+        listElem.innerHTML = '<p class="empty-msg">لا يوجد مستخدمون محظورون حالياً.</p>';
+        return;
+    }
+
+    listElem.innerHTML = users.map(user => {
+        const uId = user.telegram_id || user.user_id || user.tg_id || '—';
+        const uName = user.name || user.first_name || user.username || 'مستخدم محظور';
+        const reason = user.ban_reason || user.reason || 'لا يوجد سبب محدد';
+        const bannedAt = user.banned_at || user.date || '—';
+
+        return `
+            <div class="user-active-item" style="flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px; background: rgba(231, 76, 60, 0.05); border: 1px solid rgba(231, 76, 60, 0.2); border-radius: 8px; margin-bottom: 8px;">
+                <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                    <div class="user-info">
+                        <strong style="color: var(--accent-red, #e74c3c);">${uName}</strong>
+                        <span>ID: ${uId}</span>
+                    </div>
+                    <button class="btn-refresh" style="color: var(--accent-green, #2ecc71); border-color: var(--accent-green, #2ecc71);" onclick="unbanUserDirect('${uId}')">🟢 فك الحظر</button>
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted, #aaa); width: 100%;">
+                    <div>📌 <b>السبب:</b> ${reason}</div>
+                    <div>📅 <b>التاريخ:</b> ${bannedAt}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// 🟢 دالة فك الحظر المباشر من قائمة المحظورين
+async function unbanUserDirect(userId) {
+    if (!userId || userId === '—') {
+        alert("⚠️ معرّف المستخدم غير صالح.");
+        return;
+    }
+
+    const confirmUnban = confirm(`🟢 هل أنت متأكد من فك الحظر عن المستخدم (${userId}) وجميع الأجهزة المربوطة به؟`);
+    if (!confirmUnban) return;
+
+    try {
+        const response = await requestApi('/api/super-admin/unban-user', {
+            method: 'POST',
+            body: JSON.stringify({
+                telegram_id: userId,
+                tg_id: userId
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            alert("✅ " + (data.message || "تم فك حظر الحساب والأجهزة بنجاح."));
+            loadBannedUsers();
+            loadGlobalAnalytics();
+            loadAdminLogs();
+        } else {
+            alert("❌ فشل فك الحظر: " + (data.message || "حدث خطأ غير معروف"));
+        }
+    } catch (err) {
+        console.error("Error unbanning user directly:", err);
+        alert("❌ حدث خطأ أثناء فك الحظر: " + err.message);
+    }
+}
+
 // 🚫 دالة حظر مستخدم وحظر جهازه
 async function banUser() {
     const userIdInput = document.getElementById('banUserId') || document.getElementById('unbanUserId') || document.getElementById('targetUserId');
@@ -277,6 +375,7 @@ async function banUser() {
             if (document.getElementById('unbanUserId')) document.getElementById('unbanUserId').value = '';
             if (reasonInput) reasonInput.value = '';
             loadGlobalAnalytics();
+            loadBannedUsers();
             loadAdminLogs();
         } else {
             alert("❌ فشل عملية الحظر: " + (data.message || "حدث خطأ غير معروف"));
@@ -314,6 +413,7 @@ async function unbanUser() {
             if (document.getElementById('banUserId')) document.getElementById('banUserId').value = '';
             if (document.getElementById('unbanUserId')) document.getElementById('unbanUserId').value = '';
             loadGlobalAnalytics();
+            loadBannedUsers();
             loadAdminLogs();
         } else {
             alert("❌ فشل فك الحظر: " + (data.message || "حدث خطأ غير معروف"));
@@ -445,6 +545,7 @@ async function loadAdminLogs() {
 function initSuperAdmin() {
     loadGlobalAnalytics();
     loadTopActiveUsers();
+    loadBannedUsers();
     loadModerators();
     loadAdminLogs();
     fetchBroadcastStats();
@@ -454,6 +555,9 @@ function initSuperAdmin() {
 window.initSuperAdmin = initSuperAdmin;
 window.banUser = banUser;
 window.unbanUser = unbanUser;
+window.unbanUserDirect = unbanUserDirect;
+window.loadBannedUsers = loadBannedUsers;
+window.renderBannedUsersList = renderBannedUsersList;
 window.sendAdminMessage = sendAdminMessage;
 window.fetchBroadcastStats = fetchBroadcastStats;
 window.loadGlobalAnalytics = loadGlobalAnalytics;
