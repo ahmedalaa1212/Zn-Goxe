@@ -244,7 +244,7 @@ function renderTopActiveUsersList(users) {
 
 // 🚫 دالة حظر مستخدم وحظر جهازه
 async function banUser() {
-    const userIdInput = document.getElementById('banUserId');
+    const userIdInput = document.getElementById('banUserId') || document.getElementById('unbanUserId') || document.getElementById('targetUserId');
     const reasonInput = document.getElementById('banReason');
 
     const userId = userIdInput ? userIdInput.value.trim() : '';
@@ -273,7 +273,8 @@ async function banUser() {
 
         if (data.success) {
             alert("✅ " + (data.message || "تم حظر الحساب والأجهزة المربوطة به بنجاح."));
-            if (userIdInput) userIdInput.value = '';
+            if (document.getElementById('banUserId')) document.getElementById('banUserId').value = '';
+            if (document.getElementById('unbanUserId')) document.getElementById('unbanUserId').value = '';
             if (reasonInput) reasonInput.value = '';
             loadGlobalAnalytics();
             loadAdminLogs();
@@ -288,7 +289,7 @@ async function banUser() {
 
 // 🟢 دالة فك الحظر عن حساب المستخدم وجميع الأجهزة المربوطة به
 async function unbanUser() {
-    const userIdInput = document.getElementById('banUserId');
+    const userIdInput = document.getElementById('unbanUserId') || document.getElementById('banUserId') || document.getElementById('targetUserId');
     const userId = userIdInput ? userIdInput.value.trim() : '';
 
     if (!userId) {
@@ -310,7 +311,8 @@ async function unbanUser() {
 
         if (data.success) {
             alert("✅ " + (data.message || "تم فك حظر حساب التليجرام وجميع الأجهزة المربوطة به بنجاح."));
-            if (userIdInput) userIdInput.value = '';
+            if (document.getElementById('banUserId')) document.getElementById('banUserId').value = '';
+            if (document.getElementById('unbanUserId')) document.getElementById('unbanUserId').value = '';
             loadGlobalAnalytics();
             loadAdminLogs();
         } else {
