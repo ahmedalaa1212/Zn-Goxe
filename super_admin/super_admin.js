@@ -3,37 +3,44 @@
 // JavaScript Controller for Super Admin WebApp Console
 // =========================================================
 
-// دالة جلب هيدرات التوثيق الإداري مع الدعم الاحتياطي لـ URL Parameters
-function getAdminHeaders() {
+// دالة استخراج معرّف الأدمن الحالي بذكاء
+function getAdminId() {
     const urlParams = new URLSearchParams(window.location.search);
     const urlAdminId = urlParams.get('admin_id') || urlParams.get('tg_id') || "";
-    
-    const initData = window.Telegram?.WebApp?.initData || window.getInitData?.() || "";
     const tgAdminId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "";
-    
-    const finalAdminId = tgAdminId || urlAdminId || "5102387551";
+    return (tgAdminId || urlAdminId || "5102387551").toString();
+}
+
+// دالة جلب هيدرات التوثيق الإداري مع الدعم الاحتياطي لـ URL Parameters
+function getAdminHeaders() {
+    const adminId = getAdminId();
+    const initData = window.Telegram?.WebApp?.initData || window.getInitData?.() || "";
 
     return {
         "Content-Type": "application/json",
         "X-Telegram-Init-Data": initData,
         "X-Init-Data": initData,
-        "X-Admin-ID": finalAdminId.toString(),
+        "X-Admin-ID": adminId,
         "Authorization": `Bearer ${initData}`
     };
 }
 
-// دالة مساعدة لاستدعاء API مع استخدام apiFetch الموحدة بمرونة
+// دالة مساعدة لاستدعاء API مع دمج الهيدرات بشكل مضمون
 async function requestApi(url, options = {}) {
-    if (typeof window.apiFetch === 'function') {
-        return window.apiFetch(url, options);
-    }
+    const adminHeaders = getAdminHeaders();
+    const mergedHeaders = {
+        ...adminHeaders,
+        ...(options.headers || {})
+    };
+    
     const mergedOptions = {
         ...options,
-        headers: {
-            ...getAdminHeaders(),
-            ...(options.headers || {})
-        }
+        headers: mergedHeaders
     };
+
+    if (typeof window.apiFetch === 'function') {
+        return window.apiFetch(url, mergedOptions);
+    }
     return fetch(url, mergedOptions);
 }
 
@@ -103,7 +110,8 @@ async function sendAdminMessage() {
                 message: message,
                 image_url: imageUrl || null,
                 button_text: btnText || null,
-                button_url: btnUrl || null
+                button_url: btnUrl || null,
+                admin_id: getAdminId()
             })
         });
 
@@ -153,7 +161,7 @@ async function fetchBroadcastStats() {
                 const percentage = live.total > 0 ? Math.round((live.sent / live.total) * 100) : 0;
                 detailsContainer.innerHTML = `
                     <div style="color: var(--accent-gold, #f39c12); font-weight: bold; margin-bottom: 4px;">⚙️ حملة إرسال جارية حالياً (${percentage}%):</div>
-                    <div>🟢 تم الإرسال بنجاح: <b>${live.sent}</b> /${live.total}</div>
+                    <div>🟢 تم الإرسال بنجاح: <b>${live.sent}</b> / ${live.total}</div>
                     <div>🚫 حظروا البوت: <b>${live.blocked}</b></div>
                     <div>❌ فشل الإرسال: <b>${live.failed}</b></div>
                 `;
@@ -223,7 +231,7 @@ async function loadTopActiveUsers() {
     }
 }
 
-// 🎨 دالة عرض أكثر المستخدمين تفاعلاً ونشاطاً (تدعم حقول التفاعل التراكمية والتعدين ورصيد ZN)
+// 🎨 دالة عرض أكثر المستخدمين تفاعلاً ونشاطاً
 function renderTopActiveUsersList(users) {
     const listElem = document.getElementById('topActiveUsersList');
     if (!listElem) return;
@@ -237,7 +245,6 @@ function renderTopActiveUsersList(users) {
         const uId = user.telegram_id || user.user_id || user.tg_id || '—';
         const uName = user.name || user.first_name || user.username || 'مستخدم';
         
-        // استخراج تفاعلات المستخدم أو حقول التعدين والضغط المتاحة بمرونة
         const interactionsCount = (user.interactions !== undefined && user.interactions !== null)
             ? user.interactions
             : (user.activity_count ?? user.tap_count ?? user.total_mined ?? user.zn_balance ?? user.balance ?? 0);
@@ -248,7 +255,7 @@ function renderTopActiveUsersList(users) {
         return `
             <div class="user-active-item">
                 <div class="user-info">
-                    <strong>#${index + 1}${uName}</strong>
+                    <strong>#${index + 1} ${uName}</strong>
                     <span>ID: ${uId}${extraInfo}</span>
                 </div>
                 <span class="badge-count">${Number(interactionsCount).toLocaleString()} تفاعل</span>
@@ -330,12 +337,17 @@ async function unbanUserDirect(userId) {
     const confirmUnban = confirm(`🟢 هل أنت متأكد من فك الحظر عن المستخدم (${userId}) وجميع الأجهزة المربوطة به؟`);
     if (!confirmUnban) return;
 
+    const currentAdminId = getAdminId();
+
     try {
         const response = await requestApi('/api/super-admin/unban-user', {
             method: 'POST',
             body: JSON.stringify({
                 telegram_id: userId,
-                tg_id: userId
+                target_id: userId,
+                user_id: userId,
+                admin_id: currentAdminId,
+                performed_by: currentAdminId
             })
         });
 
@@ -372,12 +384,17 @@ async function banUser() {
     const confirmBan = confirm(`🚫 هل أنت متأكد من حظر المستخدم (${userId}) وحظر الأجهزة المربوطة به؟`);
     if (!confirmBan) return;
 
+    const currentAdminId = getAdminId();
+
     try {
         const response = await requestApi('/api/super-admin/ban-user', {
             method: 'POST',
             body: JSON.stringify({
                 telegram_id: userId,
-                tg_id: userId,
+                target_id: userId,
+                user_id: userId,
+                admin_id: currentAdminId,
+                performed_by: currentAdminId,
                 reason: reason || "تم الحظر من قبل الإدارة العليا"
             })
         });
@@ -412,12 +429,17 @@ async function unbanUser() {
         return;
     }
 
+    const currentAdminId = getAdminId();
+
     try {
         const response = await requestApi('/api/super-admin/unban-user', {
             method: 'POST',
             body: JSON.stringify({
                 telegram_id: userId,
-                tg_id: userId
+                target_id: userId,
+                user_id: userId,
+                admin_id: currentAdminId,
+                performed_by: currentAdminId
             })
         });
 
@@ -460,7 +482,7 @@ async function addNewModerator() {
     try {
         const response = await requestApi('/api/super-admin/add-moderator', {
             method: 'POST',
-            body: JSON.stringify({ telegram_id: modId, name: modName, permissions: permissions })
+            body: JSON.stringify({ telegram_id: modId, name: modName, permissions: permissions, admin_id: getAdminId() })
         });
         const data = await response.json();
         if (data.success) {
@@ -512,7 +534,7 @@ async function removeModerator(telegramId) {
     try {
         const response = await requestApi('/api/super-admin/remove-moderator', {
             method: 'POST',
-            body: JSON.stringify({ telegram_id: telegramId })
+            body: JSON.stringify({ telegram_id: telegramId, admin_id: getAdminId() })
         });
         const data = await response.json();
         if (data.success) {
@@ -566,9 +588,10 @@ function initSuperAdmin() {
     fetchBroadcastStats();
 }
 
-// تصدير الدوال على مستوى النطاق العام window لعدم حدوث أخطاء Scope
+// تصدير الدوال على مستوى النطاق العام window
 window.initSuperAdmin = initSuperAdmin;
 window.getAdminHeaders = getAdminHeaders;
+window.getAdminId = getAdminId;
 window.banUser = banUser;
 window.unbanUser = unbanUser;
 window.unbanUserDirect = unbanUserDirect;
