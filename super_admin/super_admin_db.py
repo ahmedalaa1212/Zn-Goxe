@@ -45,6 +45,76 @@ def _find_user_doc(db, tg_id):
     return None, None
 
 
+def _find_associated_devices(db, user_doc, tg_id_str):
+    """جمع كافة المعرفات والأجهزة المربوطة بالمستخدم من ملفه الشخصي ومن مجموعة devices ومجموعة banned_devices"""
+    device_ids = set()
+    if not tg_id_str:
+        return device_ids
+
+    tg_id_str = str(tg_id_str).strip()
+    device_ids.add(tg_id_str)
+
+    tg_id_int = None
+    try:
+        tg_id_int = int(tg_id_str)
+    except ValueError:
+        pass
+
+    # 1. استخراج الأجهزة المسجلة داخل مستند المستخدم مباشرة
+    if user_doc and user_doc.exists:
+        u_data = user_doc.to_dict() or {}
+        doc_id = str(user_doc.id).strip()
+        if doc_id:
+            device_ids.add(doc_id)
+
+        for key in ["device_id", "hardware_id", "device_fingerprint", "last_device_id", "fingerprint_hash"]:
+            val = u_data.get(key)
+            if val:
+                device_ids.add(str(val).strip())
+
+        for key in ["device_ids", "devices", "known_devices"]:
+            val_list = u_data.get(key)
+            if isinstance(val_list, list):
+                for dev in val_list:
+                    if dev:
+                        device_ids.add(str(dev).strip())
+            elif isinstance(val_list, dict):
+                for dev_k in val_list.keys():
+                    if dev_k:
+                        device_ids.add(str(dev_k).strip())
+
+    # 2. البحث في مجموعة devices الشاملة عن أي جهاز مرتبط بهذا المستخدم
+    search_vals = [tg_id_str]
+    if tg_id_int is not None:
+        search_vals.append(tg_id_int)
+
+    if db:
+        for s_val in search_vals:
+            # البحث بـ primary_user_id
+            try:
+                dev_docs = db.collection("devices").where("primary_user_id", "==", s_val).stream()
+                for ddoc in dev_docs:
+                    device_ids.add(str(ddoc.id).strip())
+                    d_data = ddoc.to_dict() or {}
+                    if d_data.get("device_id"):
+                        device_ids.add(str(d_data.get("device_id")).strip())
+            except Exception as e:
+                print(f"⚠️ Error querying devices by primary_user_id ({s_val}): {e}")
+
+            # البحث داخل مصفوفة users
+            try:
+                dev_docs = db.collection("devices").where("users", "array_contains", s_val).stream()
+                for ddoc in dev_docs:
+                    device_ids.add(str(ddoc.id).strip())
+                    d_data = ddoc.to_dict() or {}
+                    if d_data.get("device_id"):
+                        device_ids.add(str(d_data.get("device_id")).strip())
+            except Exception as e:
+                print(f"⚠️ Error querying devices by users array ({s_val}): {e}")
+
+    return device_ids
+
+
 def _parse_to_timestamp(val):
     """تحويل قيم التواريخ المختلفة إلى Timestamp بالثواني بأمان"""
     if val is None:
@@ -188,9 +258,9 @@ def reset_user_account_admin(tg_id, admin_name="السوبر أدمن"):
         return False, f"حدث خطأ: {e}"
 
 
-# 🚫 دالة حظر مستخدم وحظر جهازه بالتوازي مع تسجيل البيانات والسجلات
+# 🚫 دالة حظر مستخدم وحظر جهازه بالتوازي مع كافة مجموعات قاعدة البيانات
 def ban_user_db(tg_id, reason="تم الحظر من قبل الإدارة العليا", admin_name="السوبر أدمن"):
-    """حظر مستخدم وتحديث حقول الحظر وحظر كافة أجهزته المربوطة به في مجموعة banned_devices"""
+    """حظر مستخدم وتحديث حقول الحظر وحظر كافة أجهزته المربوطة به في مجموعات users, devices, banned_devices"""
     try:
         if not tg_id:
             return False, "معرف المستخدم مطلوب"
@@ -205,11 +275,9 @@ def ban_user_db(tg_id, reason="تم الحظر من قبل الإدارة الع
         if not user_doc or not user_doc.exists:
             return False, f"المستخدم رقم ({tg_id_str}) غير مسجل في النظام"
 
-        user_data = user_doc.to_dict() or {}
-        doc_id_str = str(user_doc.id)
         now_str = time.strftime("%Y-%m-%d %H:%M:%S")
 
-        # 1. تحديث كافة حقول الحظر لضمان التوافق التام مع كافة برمجيات البوت
+        # 1. تحديث كافة حقول الحظر في مستند المستخدم (users)
         user_ref.update({
             "banned": True,
             "is_banned": True,
@@ -220,23 +288,8 @@ def ban_user_db(tg_id, reason="تم الحظر من قبل الإدارة الع
             "banned_by": admin_name
         })
 
-        # 2. حظر جميع الأجهزة المرتبطة بالحساب في مجموعة banned_devices
-        device_ids = set()
-
-        single_device = user_data.get("device_id") or user_data.get("hardware_id") or user_data.get("device_fingerprint")
-        if single_device:
-            device_ids.add(str(single_device).strip())
-
-        list_devices = user_data.get("device_ids") or user_data.get("devices") or []
-        if isinstance(list_devices, list):
-            for dev in list_devices:
-                if dev:
-                    device_ids.add(str(dev).strip())
-
-        # إضافة معرّفات الحساب كأجهزة احتياطية لضمان الحظر
-        device_ids.add(tg_id_str)
-        if doc_id_str:
-            device_ids.add(doc_id_str)
+        # 2. جمع كافة المعرفات والأجهزة المرتبطة به
+        device_ids = _find_associated_devices(db, user_doc, tg_id_str)
 
         tg_id_int = None
         try:
@@ -244,28 +297,52 @@ def ban_user_db(tg_id, reason="تم الحظر من قبل الإدارة الع
         except ValueError:
             pass
 
+        # 3. حظر كل جهاز في مجموعة devices ومجموعة banned_devices
         for dev_id in device_ids:
-            if dev_id:
-                ban_payload = {
-                    "device_id": str(dev_id),
-                    "telegram_id": tg_id_str,
-                    "tg_id": tg_id_str,
-                    "reason": reason,
-                    "banned_at": now_str,
-                    "banned_by": admin_name
-                }
-                if tg_id_int is not None:
-                    ban_payload["tg_id_int"] = tg_id_int
-                    ban_payload["telegram_id_int"] = tg_id_int
+            if not dev_id:
+                continue
 
+            # أ) تحديث مستند الجهاز في مجموعة devices إن وجد
+            try:
+                dev_ref = db.collection("devices").document(str(dev_id))
+                dev_doc = dev_ref.get()
+                if dev_doc.exists:
+                    dev_ref.update({
+                        "is_banned": True,
+                        "banned": True,
+                        "ban_reason": reason,
+                        "banned_at": now_str,
+                        "banned_by": admin_name
+                    })
+            except Exception as de:
+                print(f"⚠️ Error updating device doc in devices/{dev_id}: {de}")
+
+            # ب) إضافة أو دمج سجل الحظر في مجموعة banned_devices
+            ban_payload = {
+                "device_id": str(dev_id),
+                "telegram_id": tg_id_str,
+                "tg_id": tg_id_str,
+                "reason": reason,
+                "banned_at": now_str,
+                "banned_by": admin_name,
+                "is_banned": True,
+                "banned": True
+            }
+            if tg_id_int is not None:
+                ban_payload["tg_id_int"] = tg_id_int
+                ban_payload["telegram_id_int"] = tg_id_int
+
+            try:
                 db.collection("banned_devices").document(str(dev_id)).set(ban_payload, merge=True)
+            except Exception as bde:
+                print(f"⚠️ Error setting banned_devices/{dev_id}: {bde}")
 
         try:
-            database.log_admin_action(admin_name, f"حظر المستخدم {tg_id_str} والأجهزة المربوطة - السبب: {reason}")
+            database.log_admin_action(admin_name, f"حظر المستخدم {tg_id_str} والأجهزة المربوطة ({len(device_ids)}) - السبب: {reason}")
         except Exception:
             pass
 
-        return True, f"تم حظر المستخدم {tg_id_str} وجميع أجهزته بنجاح"
+        return True, f"تم حظر المستخدم {tg_id_str} وجميع أجهزته المربوطة بنجاح"
     except Exception as e:
         print(f"❌ Error banning user {tg_id}: {e}")
         return False, f"حدث خطأ أثناء حظر المستخدم: {e}"
@@ -273,7 +350,7 @@ def ban_user_db(tg_id, reason="تم الحظر من قبل الإدارة الع
 
 # 🟢 دالة فك الحظر عن مستخدم وإلغاء حظر كافة أجهزته المربوطة به
 def unban_user_db(tg_id, admin_name="السوبر أدمن"):
-    """فك الحظر عن مستخدم وتحديث حقول الحظر وحذف كافة أجهزته من مجموعة banned_devices"""
+    """فك الحظر عن مستخدم وتحديث حقول الحظر وحذف كافة أجهزته من مجموعة banned_devices وتحديث devices"""
     try:
         if not tg_id:
             return False, "معرف المستخدم مطلوب"
@@ -288,11 +365,9 @@ def unban_user_db(tg_id, admin_name="السوبر أدمن"):
         if not user_doc or not user_doc.exists:
             return False, f"المستخدم رقم ({tg_id_str}) غير مسجل في النظام"
 
-        user_data = user_doc.to_dict() or {}
-        doc_id_str = str(user_doc.id)
         now_str = time.strftime("%Y-%m-%d %H:%M:%S")
 
-        # 1. إلغاء الحظر وتصفير حالة الحظر في كافة الحقول
+        # 1. إلغاء الحظر وتصفير حالة الحظر في كافة حقول ملف المستخدم
         user_ref.update({
             "banned": False,
             "is_banned": False,
@@ -303,32 +378,60 @@ def unban_user_db(tg_id, admin_name="السوبر أدمن"):
             "unbanned_by": admin_name
         })
 
-        # 2. جمع معرّفات الأجهزة وإزالتها مباشرة
-        device_ids = set()
+        # 2. جمع كافة الأجهزة المرتبطة بملف المستخدم
+        device_ids = _find_associated_devices(db, user_doc, tg_id_str)
 
-        single_device = user_data.get("device_id") or user_data.get("hardware_id") or user_data.get("device_fingerprint")
-        if single_device:
-            device_ids.add(str(single_device).strip())
-
-        list_devices = user_data.get("device_ids") or user_data.get("devices") or []
-        if isinstance(list_devices, list):
-            for dev in list_devices:
-                if dev:
-                    device_ids.add(str(dev).strip())
-
-        device_ids.add(tg_id_str)
-        if doc_id_str:
-            device_ids.add(doc_id_str)
-
-        # حذف مستندات الأجهزة مباشرة باستخدام المعرّفات
+        # 3. فك حظر الأجهزة في مجموعة devices وحذفها من banned_devices
         for dev_id in device_ids:
-            if dev_id:
+            if not dev_id:
+                continue
+
+            other_user_banned = False
+            try:
+                dev_ref = db.collection("devices").document(str(dev_id))
+                dev_doc = dev_ref.get()
+                if dev_doc.exists:
+                    d_data = dev_doc.to_dict() or {}
+                    linked_users = set()
+                    p_user = d_data.get("primary_user_id")
+                    if p_user:
+                        linked_users.add(str(p_user).strip())
+                    u_list = d_data.get("users") or []
+                    if isinstance(u_list, list):
+                        for u_item in u_list:
+                            if u_item:
+                                linked_users.add(str(u_item).strip())
+
+                    # استبعاد المستخدم الحالي من الفحص
+                    linked_users.discard(tg_id_str)
+
+                    # التأكد إن كان يوجد حساب آخر محظور ما زال يستعمل نفس الجهاز
+                    for l_uid in linked_users:
+                        _, l_user_doc = _find_user_doc(db, l_uid)
+                        if l_user_doc and l_user_doc.exists:
+                            l_data = l_user_doc.to_dict() or {}
+                            if l_data.get("banned") or l_data.get("is_banned") or l_data.get("ban") or l_data.get("status") == "banned":
+                                other_user_banned = True
+                                break
+
+                    if not other_user_banned:
+                        dev_ref.update({
+                            "is_banned": False,
+                            "banned": False,
+                            "unbanned_at": now_str,
+                            "unbanned_by": admin_name
+                        })
+            except Exception as de:
+                print(f"⚠️ Error checking/updating device {dev_id}: {de}")
+
+            # إذا لم يكن هناك حساب آخر محظور على هذا الجهاز، قم بحذفه من قائمة الأجهزة المحظورة
+            if not other_user_banned:
                 try:
                     db.collection("banned_devices").document(str(dev_id)).delete()
-                except Exception as de:
-                    print(f"⚠️ Error deleting device doc {dev_id}: {de}")
+                except Exception as bde:
+                    print(f"⚠️ Error deleting banned_devices/{dev_id}: {bde}")
 
-        # 3. الاستعلام عن أي مستندات متبقية في banned_devices (سواء أرقام أو نصوص) وحذفها
+        # 4. حذف أي مستندات متبقية في banned_devices مرتبطة بمعرّف التليجرام
         tg_id_int = None
         try:
             tg_id_int = int(tg_id_str)
@@ -351,7 +454,7 @@ def unban_user_db(tg_id, admin_name="السوبر أدمن"):
                         except Exception:
                             pass
                 except Exception as qe:
-                    print(f"⚠️ Error querying banned_devices for field {field}={val}: {qe}")
+                    print(f"⚠️ Error deleting leftover banned_devices field {field}={val}: {qe}")
 
         try:
             database.log_admin_action(admin_name, f"فك الحظر عن المستخدم {tg_id_str} وجميع الأجهزة المربوطة به")
