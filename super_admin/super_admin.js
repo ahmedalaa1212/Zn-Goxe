@@ -3,15 +3,21 @@
 // JavaScript Controller for Super Admin WebApp Console
 // =========================================================
 
-// دالة احتياطية لجلب هيدرات التوثيق الإداري عند عدم توفر apiFetch
+// دالة جلب هيدرات التوثيق الإداري مع الدعم الاحتياطي لـ URL Parameters
 function getAdminHeaders() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlAdminId = urlParams.get('admin_id') || urlParams.get('tg_id') || "";
+    
     const initData = window.Telegram?.WebApp?.initData || window.getInitData?.() || "";
-    const adminId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "";
+    const tgAdminId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || "";
+    
+    const finalAdminId = tgAdminId || urlAdminId || "5102387551";
+
     return {
         "Content-Type": "application/json",
         "X-Telegram-Init-Data": initData,
         "X-Init-Data": initData,
-        "X-Admin-ID": adminId.toString(),
+        "X-Admin-ID": finalAdminId.toString(),
         "Authorization": `Bearer ${initData}`
     };
 }
@@ -217,6 +223,7 @@ async function loadTopActiveUsers() {
     }
 }
 
+// 🎨 دالة عرض أكثر المستخدمين تفاعلاً ونشاطاً (تدعم حقول التفاعل التراكمية والتعدين ورصيد ZN)
 function renderTopActiveUsersList(users) {
     const listElem = document.getElementById('topActiveUsersList');
     if (!listElem) return;
@@ -228,13 +235,21 @@ function renderTopActiveUsersList(users) {
 
     listElem.innerHTML = users.map((user, index) => {
         const uId = user.telegram_id || user.user_id || user.tg_id || '—';
-        const uName = user.name || user.first_name || 'مستخدم';
-        const interactionsCount = (user.interactions !== undefined ? user.interactions : (user.activity_count || 0));
+        const uName = user.name || user.first_name || user.username || 'مستخدم';
+        
+        // استخراج تفاعلات المستخدم أو حقول التعدين والضغط المتاحة بمرونة
+        const interactionsCount = (user.interactions !== undefined && user.interactions !== null)
+            ? user.interactions
+            : (user.activity_count ?? user.tap_count ?? user.total_mined ?? user.zn_balance ?? user.balance ?? 0);
+
+        const znBalance = user.zn_balance !== undefined ? user.zn_balance : user.balance;
+        const extraInfo = (znBalance !== undefined && znBalance !== null) ? ` | ZN: ${Number(znBalance).toLocaleString()}` : '';
+
         return `
             <div class="user-active-item">
                 <div class="user-info">
                     <strong>#${index + 1} ${uName}</strong>
-                    <span>ID: ${uId}</span>
+                    <span>ID: ${uId}${extraInfo}</span>
                 </div>
                 <span class="badge-count">${Number(interactionsCount).toLocaleString()} تفاعل</span>
             </div>
@@ -553,6 +568,7 @@ function initSuperAdmin() {
 
 // تصدير الدوال على مستوى النطاق العام window لعدم حدوث أخطاء Scope
 window.initSuperAdmin = initSuperAdmin;
+window.getAdminHeaders = getAdminHeaders;
 window.banUser = banUser;
 window.unbanUser = unbanUser;
 window.unbanUserDirect = unbanUserDirect;
@@ -562,6 +578,7 @@ window.sendAdminMessage = sendAdminMessage;
 window.fetchBroadcastStats = fetchBroadcastStats;
 window.loadGlobalAnalytics = loadGlobalAnalytics;
 window.loadTopActiveUsers = loadTopActiveUsers;
+window.renderTopActiveUsersList = renderTopActiveUsersList;
 window.addNewModerator = addNewModerator;
 window.loadModerators = loadModerators;
 window.removeModerator = removeModerator;
