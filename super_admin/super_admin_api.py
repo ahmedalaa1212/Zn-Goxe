@@ -31,19 +31,26 @@ def set_bot(new_bot):
 
 def extract_admin_id_from_request(req):
     """استخراج Telegram ID الخاص بالأدمن من كافة المصادر الممكنة في الطلب"""
+    # 1. من الـ Headers المباشرة
     admin_id = req.headers.get("X-Admin-ID")
     if admin_id and str(admin_id).strip():
         return str(admin_id).strip()
 
-    if req.args and (req.args.get("admin_id") or req.args.get("tg_id")):
-        return str(req.args.get("admin_id") or req.args.get("tg_id")).strip()
+    # 2. من الـ Query Parameters في الـ URL
+    if req.args:
+        arg_id = req.args.get("admin_id") or req.args.get("tg_id") or req.args.get("user_id")
+        if arg_id and str(arg_id).strip():
+            return str(arg_id).strip()
 
-    if req.is_json and req.json:
-        admin_id = req.json.get("admin_id") or req.json.get("tg_id") or req.json.get("telegram_id")
-        if admin_id:
-            return str(admin_id).strip()
+    # 3. من الـ JSON Body إن وجد
+    req_json = req.get_json(silent=True)
+    if req_json and isinstance(req_json, dict):
+        body_id = req_json.get("admin_id") or req_json.get("tg_id") or req_json.get("telegram_id") or req_json.get("user_id")
+        if body_id and str(body_id).strip():
+            return str(body_id).strip()
 
-    init_data = req.headers.get("X-Telegram-Init-Data") or req.headers.get("Authorization", "").replace("Bearer ", "")
+    # 4. من بيانات Telegram WebApp InitData (سواء في Headers أو Authorization)
+    init_data = req.headers.get("X-Telegram-Init-Data") or req.headers.get("X-Init-Data") or req.headers.get("Authorization", "").replace("Bearer ", "")
     if init_data:
         try:
             parsed = urllib.parse.parse_qs(init_data)
@@ -179,7 +186,7 @@ def send_admin_message():
     if not is_valid:
         return jsonify({"success": False, "message": msg}), 403
 
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     target_type = data.get("target_type", "all")
     target_id = data.get("target_id")
     message_text = data.get("message")
@@ -361,7 +368,7 @@ def ban_user():
     if not is_valid:
         return jsonify({"success": False, "message": msg}), 403
 
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     telegram_id = data.get("telegram_id") or data.get("tg_id") or data.get("user_id")
     reason = data.get("reason", "تم الحظر من قبل الإدارة العليا")
 
@@ -390,7 +397,7 @@ def unban_user():
     if not is_valid:
         return jsonify({"success": False, "message": msg}), 403
 
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     telegram_id = data.get("telegram_id") or data.get("tg_id") or data.get("user_id")
 
     if not telegram_id:
@@ -418,7 +425,7 @@ def add_moderator():
     if not is_valid:
         return jsonify({"success": False, "message": msg}), 403
 
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     telegram_id = data.get("telegram_id")
     name = data.get("name")
     permissions = data.get("permissions", {})
@@ -463,7 +470,7 @@ def remove_moderator():
     if not is_valid:
         return jsonify({"success": False, "message": msg}), 403
 
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     telegram_id = data.get("telegram_id")
 
     if not telegram_id:
