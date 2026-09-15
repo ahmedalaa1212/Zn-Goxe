@@ -120,6 +120,8 @@ def _parse_to_timestamp(val):
     if val is None:
         return None
     if isinstance(val, (int, float)):
+        if val > 1e11:  # التعامل مع الوقت بالمللي ثانية
+            return float(val / 1000.0)
         return float(val)
     if isinstance(val, datetime):
         try:
@@ -131,7 +133,10 @@ def _parse_to_timestamp(val):
         if not val_str:
             return None
         try:
-            return float(val_str)
+            parsed_num = float(val_str)
+            if parsed_num > 1e11:
+                return parsed_num / 1000.0
+            return parsed_num
         except ValueError:
             pass
         for fmt in (
@@ -467,6 +472,99 @@ def unban_user_db(tg_id, admin_name="السوبر أدمن"):
         return False, f"حدث خطأ أثناء فك الحظر: {e}"
 
 
+# 🚫 دالة جلب كافة الحسابات والأجهزة المحظورة بالنظام بالتفاصيل
+def get_banned_users_db():
+    """جلب قائمة بكل المستخدمين المحظورة حساباتهم أو أجهزتهم بجميع بيانات التفاعل والتفاصيل"""
+    try:
+        db = database.get_db()
+        if not db:
+            return []
+
+        banned_map = {}
+
+        # 1. البحث في مجموعة users عن الحسابات المحظورة
+        try:
+            users_docs = db.collection("users").stream()
+            for u in users_docs:
+                d = u.to_dict() or {}
+                tg_id_str = str(d.get("telegram_id") or d.get("tg_id") or u.id).strip()
+
+                is_banned = bool(
+                    d.get("banned") or 
+                    d.get("is_banned") or 
+                    d.get("ban") or 
+                    d.get("status") == "banned"
+                )
+
+                if is_banned:
+                    name = d.get("first_name") or d.get("name") or d.get("username") or f"مستخدم ({tg_id_str})"
+                    username = d.get("username", "—")
+                    if username and username != "—" and not username.startswith("@"):
+                        username = f"@{username}"
+
+                    reason = d.get("ban_reason") or d.get("reason") or "تم الحظر من قبل الإدارة العليا"
+                    banned_at = d.get("banned_at") or d.get("ban_date") or d.get("created_at") or "غير محدد"
+                    banned_by = d.get("banned_by") or "السوبر أدمن"
+
+                    banned_map[tg_id_str] = {
+                        "telegram_id": tg_id_str,
+                        "tg_id": tg_id_str,
+                        "name": name,
+                        "username": username,
+                        "ban_reason": reason,
+                        "reason": reason,
+                        "banned_at": str(banned_at),
+                        "banned_by": str(banned_by)
+                    }
+        except Exception as e:
+            print(f"⚠️ Error streaming users for banned list: {e}")
+
+        # 2. جلب البيانات والتأكيدات من مجموعة banned_devices
+        try:
+            bd_docs = db.collection("banned_devices").stream()
+            for bd in bd_docs:
+                bd_data = bd.to_dict() or {}
+                tg_id_str = str(bd_data.get("telegram_id") or bd_data.get("tg_id") or bd_data.get("user_id") or "").strip()
+
+                if tg_id_str and tg_id_str not in banned_map:
+                    _, u_doc = _find_user_doc(db, tg_id_str)
+                    u_data = u_doc.to_dict() if (u_doc and u_doc.exists) else {}
+
+                    name = u_data.get("first_name") or u_data.get("name") or u_data.get("username") or f"مستخدم ({tg_id_str})"
+                    username = u_data.get("username", "—")
+                    if username and username != "—" and not username.startswith("@"):
+                        username = f"@{username}"
+
+                    reason = bd_data.get("reason") or bd_data.get("ban_reason") or "حظر جهاز / حساب"
+                    banned_at = bd_data.get("banned_at") or "غير محدد"
+                    banned_by = bd_data.get("banned_by") or "السوبر أدمن"
+
+                    banned_map[tg_id_str] = {
+                        "telegram_id": tg_id_str,
+                        "tg_id": tg_id_str,
+                        "name": name,
+                        "username": username,
+                        "ban_reason": reason,
+                        "reason": reason,
+                        "banned_at": str(banned_at),
+                        "banned_by": str(banned_by)
+                    }
+                elif tg_id_str and tg_id_str in banned_map:
+                    # تحديث التفاصيل إن كانت أحدث في banned_devices
+                    if bd_data.get("reason") and banned_map[tg_id_str]["ban_reason"] == "تم الحظر من قبل الإدارة العليا":
+                        banned_map[tg_id_str]["ban_reason"] = bd_data.get("reason")
+                        banned_map[tg_id_str]["reason"] = bd_data.get("reason")
+                    if bd_data.get("banned_at") and banned_map[tg_id_str]["banned_at"] == "غير محدد":
+                        banned_map[tg_id_str]["banned_at"] = str(bd_data.get("banned_at"))
+        except Exception as e:
+            print(f"⚠️ Error streaming banned_devices for banned list: {e}")
+
+        return list(banned_map.values())
+    except Exception as e:
+        print(f"❌ Error fetching banned users db: {e}")
+        return []
+
+
 # 👤 دالة إضافة مشرف جديد
 def add_moderator_db(tg_id, name, permissions=None, admin_name="السوبر أدمن"):
     """إضافة مشرف جديد وتسجيل صلاحياته"""
@@ -581,9 +679,9 @@ def get_admin_logs(limit=50):
         return []
 
 
-# 📊 دالة التحليلات العامة المحدثة (إجمالي، متفاعلين اليوم، محظورين، والأكثر نشاطاً)
+# 📊 دالة التحليلات العامة المحدثة (إجمالي المسجلين، المتفاعلين اليوم 24 ساعة، المحظورين، والأكثر نشاطاً)
 def get_system_global_analytics():
-    """تحليلات النظام الكلية: حساب إجمالي المستخدمين، المتفاعلين اليوم، المحظورين، وأكثر المستخدمين نشاطاً"""
+    """تحليلات النظام الكلية: حساب إجمالي المستخدمين، المتفاعلين اليوم خلال 24 ساعة تلقائياً، المحظورين، وأكثر المستخدمين نشاطاً"""
     try:
         db = database.get_db()
         if not db:
@@ -606,15 +704,20 @@ def get_system_global_analytics():
         total_ad_balance = 0.0
 
         now_ts = time.time()
-        one_day_seconds = 86400
+        one_day_seconds = 86400  # 24 ساعة بالضبط
 
         user_activity_list = []
+
+        # جلب قائمة المحظورين للتأكد من المزامنة المطلقة لعدد المحظورين
+        banned_list = get_banned_users_db()
+        banned_ids_set = {str(bu.get("telegram_id")).strip() for bu in banned_list if bu.get("telegram_id")}
+        banned_users_count = len(banned_ids_set)
 
         for u in users_docs:
             total_users += 1
             try:
                 d = u.to_dict() or {}
-                tg_id_str = str(d.get("telegram_id") or d.get("tg_id") or u.id)
+                tg_id_str = str(d.get("telegram_id") or d.get("tg_id") or u.id).strip()
 
                 # تجميع الأرصدة المتداولة
                 bal = _safe_float(d.get("balance"))
@@ -622,17 +725,15 @@ def get_system_global_analytics():
                 total_balance_zn += bal
                 total_ad_balance += ad_bal
 
-                # حساب المستخدمين المحظورين
-                is_banned = bool(
+                # هل المستخدم محظور؟
+                is_banned = (tg_id_str in banned_ids_set) or bool(
                     d.get("banned") or 
                     d.get("is_banned") or 
                     d.get("ban") or 
                     d.get("status") == "banned"
                 )
-                if is_banned:
-                    banned_users_count += 1
 
-                # حساب المستخدمين النشطين خلال آخر 24 ساعة
+                # حساب المستخدمين النشطين خلال آخر 24 ساعة تلقائياً
                 last_active_raw = (
                     d.get("last_active") or 
                     d.get("last_seen") or 
