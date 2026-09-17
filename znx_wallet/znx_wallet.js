@@ -104,7 +104,7 @@ async function fetchRealZnxPrice() {
         console.warn("جاري محاولة الجلب المباشر من DexScreener...");
     }
 
-    // 2. الجلب المباشر عبر DexScreener (متوافق كاملاً مع CORS ومتصفح التليجرام)
+    // 2. الجلب المباشر عبر DexScreener (بناءً على عنوان المجمع)
     try {
         const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/pairs/ton/${ZNX_POOL_ADDRESS}`);
         if (dexRes.ok) {
@@ -120,6 +120,30 @@ async function fetchRealZnxPrice() {
                     updateMarketStatsUI({
                         price: livePrice,
                         change_24h: pair.priceChange?.h24 ? parseFloat(pair.priceChange.h24) : 0,
+                        high_24h: pair.priceUsd * 1.02,
+                        low_24h: pair.priceUsd * 0.98
+                    });
+                    return;
+                }
+            }
+        }
+    } catch (e) {
+        console.warn("تعذر الجلب المباشر من DexScreener Pair.");
+    }
+
+    // 3. الجلب المباشر عبر DexScreener (بناءً على عقد العملة)
+    try {
+        const tokenDexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${ZNX_TOKEN_CONTRACT}`);
+        if (tokenDexRes.ok) {
+            const tokenDexData = await tokenDexRes.json();
+            const pair = tokenDexData.pairs && tokenDexData.pairs[0];
+            if (pair && pair.priceUsd) {
+                const livePrice = parseFloat(pair.priceUsd);
+                if (livePrice > 0) {
+                    setTargetPrice(livePrice);
+                    updateMarketStatsUI({
+                        price: livePrice,
+                        change_24h: pair.priceChange?.h24 ? parseFloat(pair.priceChange.h24) : 0,
                         high_24h: livePrice * 1.02,
                         low_24h: livePrice * 0.98
                     });
@@ -128,10 +152,10 @@ async function fetchRealZnxPrice() {
             }
         }
     } catch (e) {
-        console.warn("تعذر الجلب المباشر من DexScreener.");
+        console.warn("تعذر الجلب المباشر من DexScreener Token.");
     }
 
-    // 3. الجلب المباشر من مجمع STON.fi
+    // 4. الجلب المباشر من مجمع STON.fi
     try {
         const poolRes = await fetch(`https://api.ston.fi/v1/pools/${ZNX_POOL_ADDRESS}`);
         if (poolRes.ok) {
@@ -169,7 +193,7 @@ async function fetchRealZnxPrice() {
         console.warn("تعذر الوصول لبيانات مجمع STON.fi المباشرة.");
     }
 
-    // 4. Fallback عبر STON.fi Asset API
+    // 5. Fallback عبر STON.fi Asset API
     try {
         const dexRes = await fetch(`https://api.ston.fi/v1/assets/${ZNX_TOKEN_CONTRACT}`);
         if (dexRes.ok) {
@@ -186,9 +210,7 @@ async function fetchRealZnxPrice() {
             }
         }
     } catch (e) {
-        if (!isPriceInitialized && targetLivePrice === 0) {
-            setTargetPrice(0.000702);
-        }
+        console.warn("جاري انتظار تحديث السعر الحقيقي من الشبكة...");
     }
 }
 
@@ -466,6 +488,9 @@ function applyCandlesToChart(candles) {
 }
 
 function generateAccurateTimeboundCandles(tf) {
+    const targetPrice = (targetLivePrice > 0) ? targetLivePrice : currentLivePrice;
+    if (!targetPrice || targetPrice <= 0) return;
+
     const tfSec = getTimeframeSeconds(tf);
     const nowSec = Math.floor(Date.now() / 1000);
     const currentPeriodStart = Math.floor(nowSec / tfSec) * tfSec;
@@ -475,8 +500,6 @@ function generateAccurateTimeboundCandles(tf) {
 
     const maxPossibleCandles = Math.max(1, Math.floor((currentPeriodStart - poolCreationTime) / tfSec) + 1);
     const count = Math.min(requestedCount, maxPossibleCandles);
-
-    const targetPrice = (targetLivePrice > 0) ? targetLivePrice : ((currentLivePrice > 0) ? currentLivePrice : 0.000702);
 
     let rawCandles = [];
 
@@ -498,7 +521,7 @@ function generateAccurateTimeboundCandles(tf) {
 }
 
 function updateChartTick(price) {
-    if (!candleSeries) return;
+    if (!candleSeries || price <= 0) return;
 
     const tfSec = getTimeframeSeconds(currentTimeframe);
     const nowSec = Math.floor(Date.now() / 1000);
@@ -819,11 +842,12 @@ function createPodiumCard(item, rank, pClass) {
 }
 
 function openStonLink() {
-    const stonUrl = `https://app.ston.fi/pools/${ZNX_POOL_ADDRESS}`;
+    // فتح رابط صفحة المجمع والتداول المباشر للعملة دون أخطاء
+    const poolUrl = `https://dexscreener.com/ton/${ZNX_POOL_ADDRESS}`;
     if (window.Telegram?.WebApp?.openLink) {
-        window.Telegram.WebApp.openLink(stonUrl);
+        window.Telegram.WebApp.openLink(poolUrl);
     } else {
-        window.open(stonUrl, '_blank');
+        window.open(poolUrl, '_blank');
     }
 }
 
