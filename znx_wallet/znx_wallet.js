@@ -5,8 +5,8 @@
 const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ";
 const ZNX_POOL_ADDRESS = "EQB_Anc7ln6e-oAVUOrgcvmzqGtupciTcWCDLCriN7ZSlW7R6";
 
-// المتغير المرجعي لوقت إنشاء المجمع الحقيقي على STON.fi (سيتم تحديثه تلقائياً من الـ API)
-window.ZNX_POOL_CREATED_AT = 1768435200; // التاريخ المرجعي لإدراج المجمع
+// المتغير المرجعي لوقت إنشاء المجمع الحقيقي على STON.fi
+window.ZNX_POOL_CREATED_AT = 1768435200; 
 
 function escapeHTML(str) {
     if (!str) return '';
@@ -34,7 +34,6 @@ let currentTier = null;
 let currentLivePrice = 0;
 let targetLivePrice = 0;
 let priceFetchTimer = null;
-let priceTickerTimer = null;
 let smoothLoopTimer = null;
 let isPriceInitialized = false;
 
@@ -42,7 +41,7 @@ let isPriceInitialized = false;
 let tvChart = null;
 let candleSeries = null;
 let currentCandle = null;
-let currentTimeframe = '5m'; // ضبط الإطار الزمني الافتراضي على 5m
+let currentTimeframe = '5m'; // الإطار الزمني موحد ودائم على 5m
 let lastCandleTime = 0;
 
 function getTimeframeSeconds(tf) {
@@ -52,7 +51,7 @@ function getTimeframeSeconds(tf) {
         case '15m': return 900;
         case '1h': return 3600;
         case '1d': case '1D': return 86400;
-        case '1M': return 2592000; // 30 days
+        case '1M': return 2592000;
         default: return 300;
     }
 }
@@ -79,7 +78,7 @@ function formatPriceUsd(val) {
 }
 
 async function fetchRealZnxPrice() {
-    // 1. الجلب من السيرفر الخلفي
+    // 1. الجلب من السيرفر الخلفي أولاً
     try {
         const serverRes = await fetch(`${window.location.origin}/api/znx-wallet/price?t=${Date.now()}`, {
             method: 'GET',
@@ -105,7 +104,7 @@ async function fetchRealZnxPrice() {
         console.warn("جاري محاولة الجلب المباشر من مجمع STON.fi...");
     }
 
-    // 2. الجلب المباشر من مجمع STON.fi واحتساب السعر الفعلي المباشر (USDT / ZNX)
+    // 2. الجلب المباشر من مجمع STON.fi واحتساب السعر المباشر (USDT / ZNX)
     try {
         const poolRes = await fetch(`https://api.ston.fi/v1/pools/${ZNX_POOL_ADDRESS}`);
         if (poolRes.ok) {
@@ -120,7 +119,7 @@ async function fetchRealZnxPrice() {
                 let znxAmount = rawZnxReserve;
                 let usdtAmount = rawUsdtReserve;
 
-                // تحويل الوحدات الصغرى (Nano Units): ZNX=9 decimals, USDT=6 decimals
+                // تحويل الوحدات الصغرى (Nano Units): ZNX = 9 decimals, USDT = 6 decimals
                 if (rawZnxReserve > 1e6 && rawUsdtReserve > 1e3) {
                     znxAmount = rawZnxReserve / 1e9;
                     usdtAmount = rawUsdtReserve / 1e6;
@@ -132,9 +131,9 @@ async function fetchRealZnxPrice() {
                     setTargetPrice(calculatedPriceUsd);
                     updateMarketStatsUI({
                         price: calculatedPriceUsd,
-                        change_24h: pool.price_change_24h ? parseFloat(pool.price_change_24h) : 3.45,
-                        high_24h: calculatedPriceUsd * 1.05,
-                        low_24h: calculatedPriceUsd * 0.95
+                        change_24h: pool.price_change_24h ? parseFloat(pool.price_change_24h) : 0.00,
+                        high_24h: calculatedPriceUsd * 1.02,
+                        low_24h: calculatedPriceUsd * 0.98
                     });
                     return;
                 }
@@ -155,8 +154,8 @@ async function fetchRealZnxPrice() {
                 updateMarketStatsUI({
                     price: priceUsd,
                     change_24h: parseFloat(dexData.asset?.price_change_24h || 0),
-                    high_24h: priceUsd * 1.04,
-                    low_24h: priceUsd * 0.96
+                    high_24h: priceUsd * 1.02,
+                    low_24h: priceUsd * 0.98
                 });
             }
         }
@@ -181,13 +180,13 @@ function updateMarketStatsUI(data) {
     if (highEl && data.high_24h) {
         highEl.innerText = formatPriceUsd(data.high_24h);
     } else if (highEl && targetLivePrice > 0) {
-        highEl.innerText = formatPriceUsd(targetLivePrice * 1.05);
+        highEl.innerText = formatPriceUsd(targetLivePrice * 1.02);
     }
 
     if (lowEl && data.low_24h) {
         lowEl.innerText = formatPriceUsd(data.low_24h);
     } else if (lowEl && targetLivePrice > 0) {
-        lowEl.innerText = formatPriceUsd(targetLivePrice * 0.95);
+        lowEl.innerText = formatPriceUsd(targetLivePrice * 0.98);
     }
 }
 
@@ -230,7 +229,7 @@ function updateSmoothTick() {
     } else {
         const diff = targetLivePrice - currentLivePrice;
         if (Math.abs(diff) > 1e-10) {
-            currentLivePrice += diff * 0.15;
+            currentLivePrice += diff * 0.20;
         } else {
             currentLivePrice = targetLivePrice;
         }
@@ -248,13 +247,7 @@ function startLivePriceEngine() {
     fetchRealZnxPrice();
 
     if (priceFetchTimer) clearInterval(priceFetchTimer);
-    priceFetchTimer = setInterval(fetchRealZnxPrice, 1500); // تحديث كل 1.5 ثانية لجلب السعر اللحظي
-
-    // إلغاء مؤقت الفبركة الضوئية العشوائية بالكامل
-    if (priceTickerTimer) {
-        clearInterval(priceTickerTimer);
-        priceTickerTimer = null;
-    }
+    priceFetchTimer = setInterval(fetchRealZnxPrice, 1500); // تحديث السعر كل 1.5 ثانية لجلب التغير اللحظي الحقيقي
 
     if (smoothLoopTimer) clearInterval(smoothLoopTimer);
     smoothLoopTimer = setInterval(updateSmoothTick, 50);
@@ -288,8 +281,6 @@ function initChart() {
     const height = container.clientHeight || 250;
 
     try {
-        const isIntraday = ['1m', '5m', '15m', '1h'].includes(currentTimeframe);
-
         tvChart = LightweightCharts.createChart(container, {
             width: width,
             height: height,
@@ -312,7 +303,7 @@ function initChart() {
             },
             timeScale: {
                 borderColor: '#1e293b',
-                timeVisible: isIntraday,
+                timeVisible: true,
                 secondsVisible: false,
                 rightOffset: 3,
                 barSpacing: 8,
@@ -376,7 +367,7 @@ async function loadChartData(tf) {
         console.warn("⚠️ تعذر جلب الشموع عبر السيرفر، جاري المحاولة المباشرة...");
     }
 
-    // Fallback: GeckoTerminal Direct
+    // Fallback: GeckoTerminal Direct API
     try {
         const directUrl = `https://api.geckoterminal.com/api/v2/networks/ton/pools/${ZNX_POOL_ADDRESS}/ohlcv/minute?aggregate=5&limit=120`;
         const directRes = await fetch(directUrl);
@@ -449,67 +440,46 @@ function applyCandlesToChart(candles) {
 }
 
 function generateAccurateTimeboundCandles(tf) {
-    const tfSec = getTimeframeSeconds(tf); // 300 seconds for 5m
+    const tfSec = getTimeframeSeconds(tf); // 300 seconds (5m)
     const nowSec = Math.floor(Date.now() / 1000);
     const currentPeriodStart = Math.floor(nowSec / tfSec) * tfSec;
 
     const poolCreationTime = window.ZNX_POOL_CREATED_AT || 1768435200;
-    const requestedCount = 65;
+    const requestedCount = 60;
 
     const maxPossibleCandles = Math.max(1, Math.floor((currentPeriodStart - poolCreationTime) / tfSec) + 1);
     const count = Math.min(requestedCount, maxPossibleCandles);
 
     const targetPrice = (targetLivePrice > 0) ? targetLivePrice : ((currentLivePrice > 0) ? currentLivePrice : 0.000702);
-    let vol = 0.003;
 
     let rawCandles = [];
-    let prevClose = targetPrice;
 
     for (let i = count - 1; i >= 0; i--) {
-        let time = currentPeriodStart - ((count - 1 - i) * tfSec);
+        let time = currentPeriodStart - (i * tfSec);
         if (time < poolCreationTime) continue;
-
-        const change = (Math.random() - 0.492) * vol;
-        const close = (i === count - 1) ? targetPrice : prevClose;
-        const open = Math.max(0.00000001, close / (1 + change));
-
-        const maxBody = Math.max(open, close);
-        const minBody = Math.min(open, close);
-
-        const high = maxBody * (1 + (Math.random() * vol * 0.8));
-        const low = Math.max(0.00000001, minBody * (1 - (Math.random() * vol * 0.8)));
 
         rawCandles.push({
             time: time,
-            open: parseFloat(open.toFixed(8)),
-            high: parseFloat(Math.max(high, maxBody).toFixed(8)),
-            low: parseFloat(Math.min(low, minBody).toFixed(8)),
-            close: parseFloat(close.toFixed(8))
+            open: parseFloat(targetPrice.toFixed(8)),
+            high: parseFloat(targetPrice.toFixed(8)),
+            low: parseFloat(targetPrice.toFixed(8)),
+            close: parseFloat(targetPrice.toFixed(8))
         });
-
-        prevClose = open;
     }
 
     rawCandles.sort((a, b) => a.time - b.time);
-
-    for (let i = 1; i < rawCandles.length; i++) {
-        rawCandles[i].open = rawCandles[i - 1].close;
-        if (rawCandles[i].open > rawCandles[i].high) rawCandles[i].high = rawCandles[i].open;
-        if (rawCandles[i].open < rawCandles[i].low) rawCandles[i].low = rawCandles[i].open;
-    }
-
     applyCandlesToChart(rawCandles);
 }
 
 function updateChartTick(price) {
-    if (!candleSeries || !currentCandle) return;
+    if (!candleSeries) return;
 
-    // حساب بداية الإطار الزمني الحالي بناءً على مضاعفات 300 ثانية (خاصة بـ 5m)
+    // حساب بداية الإطار الزمني الحالي بناءً على مضاعفات 300 ثانية (إطار الـ 5 دقائق)
     const tfSec = getTimeframeSeconds(currentTimeframe);
     const nowSec = Math.floor(Date.now() / 1000);
     const candlePeriodStart = Math.floor(nowSec / tfSec) * tfSec;
 
-    if (candlePeriodStart > lastCandleTime) {
+    if (!currentCandle || candlePeriodStart > lastCandleTime) {
         lastCandleTime = candlePeriodStart;
         currentCandle = {
             time: lastCandleTime,
@@ -532,12 +502,11 @@ function updateChartTick(price) {
 }
 
 function changeTimeframe(tf) {
-    if (currentTimeframe === tf) return;
-    currentTimeframe = tf;
+    currentTimeframe = '5m';
 
     document.querySelectorAll('.tf-btn').forEach(btn => {
         const txt = btn.innerText.trim();
-        if (txt === tf || (tf === '5m' && txt === '5m')) {
+        if (txt === '5m') {
             btn.classList.add('active');
         } else {
             btn.classList.remove('active');
@@ -550,7 +519,7 @@ function changeTimeframe(tf) {
             secondsVisible: false
         });
 
-        loadChartData(currentTimeframe);
+        loadChartData('5m');
     }
 }
 
