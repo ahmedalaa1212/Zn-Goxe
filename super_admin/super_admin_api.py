@@ -303,16 +303,23 @@ def get_broadcast_stats():
     })
 
 
-# 📈 مسار التحليلات (إحصائيات المستخدمين، المتفاعلين خلال 24 ساعة، والمحظورين)
+# 📈 مسار التحليلات (إحصائيات المستخدمين، المتفاعلين اليوم، والأكثر نشاطاً مع الفلترة الزمنية)
 @super_admin_bp.route('/analytics', methods=['GET'])
 def get_analytics():
-    """مسار جلب الإحصائيات العامة للمستخدمين والمتفاعلين والأكثر نشاطاً"""
+    """مسار جلب الإحصائيات العامة للمستخدمين والمتفاعلين والأكثر نشاطاً وفق نطاق زمني محدد"""
     is_valid, msg, admin_name = verify_admin_access(request)
     if not is_valid:
         return jsonify({"success": False, "message": msg}), 403
 
     try:
-        analytics_data = super_admin_db.get_system_global_analytics()
+        # قراءة معطيات المدى الزمني من Query Parameters
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+
+        analytics_data = super_admin_db.get_system_global_analytics(
+            start_date=start_date,
+            end_date=end_date
+        )
         if not isinstance(analytics_data, dict):
             analytics_data = {}
             
@@ -326,7 +333,7 @@ def get_analytics():
             "message": f"خطأ أثناء جلب التحليلات: {str(e)}",
             "analytics": {
                 "total_users": 0,
-                "active_24h": 0,
+                "active_today": 0,
                 "banned_users": 0,
                 "top_active_users": []
             }
