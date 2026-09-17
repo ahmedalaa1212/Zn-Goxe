@@ -30,18 +30,19 @@ _PRICE_CACHE = {
     'change_24h': 0.0,
     'high_24h': 0.000715,
     'low_24h': 0.000690,
-    'pool_created_at': 1768435200, # وقت إنشاء المجمع المباشر
+    'pool_created_at': 1768435200,  # وقت إنشاء المجمع المباشر
     'last_updated': 0
 }
 
+
 def fetch_live_dex_price():
     """
-    جلب السعر والإحصائيات وتاريخ الإنشاء المباشر للمجمع من DEX (STON.fi Pool Direct / DexScreener)
+    جلب السعر والإحصائيات المباشرة من STON.fi Direct Pool (USDT / ZNX) مع كاش ثانية واحدة للتغير اللحظي.
     """
     now = time.time()
-    
-    # تقليل زمن الكاش إلى ثانية واحدة لضمان جلب السعر اللحظي المباشر
-    if now - _PRICE_CACHE['last_updated'] < 1 and _PRICE_CACHE['price'] > 0:
+
+    # تقليل زمن الكاش إلى ثانية واحدة لضمان إرجاع السعر المباشر فوراً للتحديث اللحظي (1.5s)
+    if now - _PRICE_CACHE['last_updated'] < 1.0 and _PRICE_CACHE['price'] > 0:
         return _PRICE_CACHE
 
     headers = {
@@ -54,7 +55,7 @@ def fetch_live_dex_price():
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
 
-    # المصدر الأول: API المجمع الخفيف المباشر من STON.fi (حساب السعر المباشر: USDT / ZNX)
+    # المصدر الأول: API المجمع المباشر من STON.fi (احتساب السعر المباشر: USDT / ZNX)
     try:
         ston_pool_url = f"https://api.ston.fi/v1/pools/{STON_POOL_ADDRESS}"
         req = urllib.request.Request(ston_pool_url, headers=headers)
@@ -62,20 +63,20 @@ def fetch_live_dex_price():
             if resp.status == 200:
                 data = json.loads(resp.read().decode('utf-8'))
                 pool_info = data.get('pool') if isinstance(data, dict) else {}
-                
+
                 if pool_info:
                     t0_address = str(pool_info.get('token0_address', '')).lower()
                     t1_address = str(pool_info.get('token1_address', '')).lower()
-                    
+
                     t0_bal = float(pool_info.get('token0_balance', 0) or 0)
                     t1_bal = float(pool_info.get('token1_balance', 0) or 0)
-                    
+
                     znx_addr = ZNX_CONTRACT_ADDRESS.lower()
-                    
+
                     znx_reserve = 0.0
                     usdt_reserve = 0.0
-                    
-                    # مطابقة عناوين العملات واستخراج الاحتياطي الحقيقي لكل عملة
+
+                    # مطابقة عناوين العملات واستخراج الاحتياطي الحقيقي (ZNX: 9 decimals, USDT: 6 decimals)
                     if t0_address == znx_addr:
                         znx_reserve = t0_bal / (10 ** 9)
                         usdt_reserve = t1_bal / (10 ** 6)
@@ -97,7 +98,7 @@ def fetch_live_dex_price():
     except Exception as e:
         print(f"⚠️ STON.fi Direct Pool Fetch Error: {e}")
 
-    # المصدر الثاني: DexScreener API المباشر للمجمّع
+    # المصدر الثاني: DexScreener API الاحتياطي المباشر
     try:
         dex_url = f"https://api.dexscreener.com/latest/dex/pairs/ton/{STON_POOL_ADDRESS}"
         req = urllib.request.Request(dex_url, headers=headers)
@@ -106,7 +107,7 @@ def fetch_live_dex_price():
                 data = json.loads(resp.read().decode('utf-8'))
                 pair = data.get('pair') or (data.get('pairs', [{}])[0] if data.get('pairs') else {})
                 price_usd = float(pair.get('priceUsd', 0.0))
-                
+
                 pair_created_at = pair.get('pairCreatedAt')
                 if pair_created_at:
                     _PRICE_CACHE['pool_created_at'] = int(pair_created_at / 1000)
@@ -121,7 +122,7 @@ def fetch_live_dex_price():
     except Exception as e:
         print(f"⚠️ DexScreener API Fetch Error: {e}")
 
-    # المصدر الثالث: STON.fi Direct Asset API
+    # المصدر الثالث: STON.fi Asset API
     try:
         ston_asset_url = f"https://api.ston.fi/v1/assets/{ZNX_CONTRACT_ADDRESS}"
         req = urllib.request.Request(ston_asset_url, headers=headers)
@@ -130,8 +131,8 @@ def fetch_live_dex_price():
                 data = json.loads(resp.read().decode('utf-8'))
                 asset = data.get('asset', {}) if isinstance(data, dict) else {}
                 p_str = (
-                    asset.get('dex_usd_price') or 
-                    asset.get('dex_price_usd') or 
+                    asset.get('dex_usd_price') or
+                    asset.get('dex_price_usd') or
                     asset.get('third_party_usd_price')
                 )
                 if p_str:
@@ -143,6 +144,7 @@ def fetch_live_dex_price():
     except Exception as e:
         print(f"⚠️ STON.fi Asset Fetch Error: {e}")
 
+    # القيم الافتراضية المباشرة عند التعذر
     if _PRICE_CACHE['price'] == 0.0:
         _PRICE_CACHE['price'] = 0.000702
         _PRICE_CACHE['change_24h'] = 0.0
@@ -155,7 +157,7 @@ def fetch_live_dex_price():
 
 def fetch_dex_candles(timeframe='5m'):
     """
-    جلب الشموع الحقيقية المباشرة مع اعتماد الإطار الزمني 5m بشكل دائم وإلغاء الشموع العشوائية الفبركة
+    جلب بيانات الشموع وتثبيت الإطار الزمني على 5m حقيقي وإلغاء أي قيم فبركة أو عشوائية.
     """
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -165,7 +167,7 @@ def fetch_dex_candles(timeframe='5m'):
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
 
-    # تثبيت التجميع على 5 دقائق (5m)
+    # تثبيت التجميع دائماً على 5 دقائق (5m)
     period, aggregate, limit = ('minute', 5, 70)
     url = f"https://api.geckoterminal.com/api/v2/networks/ton/pools/{STON_POOL_ADDRESS}/ohlcv/{period}?aggregate={aggregate}&limit={limit}"
 
@@ -199,13 +201,20 @@ def fetch_dex_candles(timeframe='5m'):
                         unique_candles.append(cd)
                         last_t = cd['time']
 
-                if len(unique_candles) >= 5:
+                if len(unique_candles) >= 1:
+                    # تحديث إغلاق الشمعة الحالية بالسعر المباشر اللحظي من المجمع
+                    current_live_price = _PRICE_CACHE.get('price', 0.0)
+                    if current_live_price > 0:
+                        unique_candles[-1]['close'] = current_live_price
+                        unique_candles[-1]['high'] = max(unique_candles[-1]['high'], current_live_price)
+                        unique_candles[-1]['low'] = min(unique_candles[-1]['low'], current_live_price)
+
                     return unique_candles
     except Exception as e:
-        print(f"⚠️ GeckoTerminal OHLCV Fetch Error ({timeframe}): {e}")
+        print(f"⚠️ GeckoTerminal OHLCV Fetch Error: {e}")
 
-    # Fallback محكوم بلحظة الآن والسعر المباشر الحقيقي بدون توليد أي ضوضاء أو أرقام عشوائية
-    sec_per_tf = 300  # 5 دقائق دائماً
+    # Fallback حقيقي مبني على الإغلاق المباشر وسلسلة أطر 300 ثانية بدون أي توليد أرقام عشوائية
+    sec_per_tf = 300  # 5 دقائق حصراً
     current_price = _PRICE_CACHE['price'] if _PRICE_CACHE['price'] > 0 else 0.000702
     start_period = (now_sec // sec_per_tf) * sec_per_tf
     creation_time = _PRICE_CACHE.get('pool_created_at', 1768435200)
@@ -234,7 +243,7 @@ def fetch_dex_candles(timeframe='5m'):
 
 def _extract_user_id():
     user_id = None
-    
+
     if request.method == 'GET':
         user_id = request.args.get('user_id') or request.args.get('tg_id') or request.args.get('telegram_id')
     elif request.method == 'POST':
@@ -247,9 +256,9 @@ def _extract_user_id():
 
     if not user_id:
         init_data_str = (
-            request.args.get('initData') or 
-            request.args.get('init_data') or 
-            request.headers.get('X-Telegram-Init-Data') or 
+            request.args.get('initData') or
+            request.args.get('init_data') or
+            request.headers.get('X-Telegram-Init-Data') or
             request.headers.get('Authorization')
         )
         if init_data_str:
@@ -305,7 +314,7 @@ def get_candles_only():
 
     return jsonify({
         'success': True,
-        'timeframe': tf,
+        'timeframe': '5m',
         'candles': candles
     }), 200
 
@@ -326,11 +335,11 @@ def get_wallet_data():
         user_data = znx_wallet_db.get_user_data(str(user_id))
         current_balance = float(user_data.get('balance', 0.0))
         current_tier = znx_wallet_db.get_current_tier(global_znx=total_global_znx, user_points=current_balance, custom_tiers=all_tiers)
-        
+
         user_data['current_tier'] = current_tier
 
         lb_res = znx_wallet_db.get_leaderboard_data(limit=10, user_id=str(user_id))
-        
+
         rankings = lb_res.get('leaderboard', []) if isinstance(lb_res, dict) else []
         my_rank = lb_res.get('my_rank', 'غير مصنف') if isinstance(lb_res, dict) else 'غير مصنف'
         my_info = lb_res.get('my_info', None) if isinstance(lb_res, dict) else None
