@@ -263,6 +263,46 @@ def serve_static_files(filename):
         return jsonify({"success": False, "error": "حدث خطأ أثناء جلب الملف"}), 500
 
 
+# ==========================================
+# 🔄 نقطة نهاية API النشاط اليومي (Ping/Sync)
+# ==========================================
+
+@app.route('/api/ping', methods=['POST', 'OPTIONS'])
+def sync_user_activity():
+    """استقبال طلب إشارة النشاط (Ping) وتحديث حقل last_active_at في قاعدة البيانات"""
+    if request.method == 'OPTIONS':
+        return jsonify({"success": True}), 200
+
+    try:
+        data = request.get_json(silent=True) or {}
+        
+        # استخراج user_id من الجسم أو الـ Headers أو عبر دالة التوثيق
+        user_id = (
+            data.get('user_id') or 
+            data.get('tg_id') or 
+            request.headers.get('X-User-ID') or 
+            request.headers.get('X-Telegram-User-Id')
+        )
+
+        if not user_id:
+            success, extracted_id, _, _ = extract_telegram_user_from_request(request)
+            if success and extracted_id:
+                user_id = extracted_id
+
+        if not user_id:
+            return jsonify({"success": False, "message": "Missing user_id"}), 400
+
+        # تحديث حقل last_active_at في قاعدة البيانات
+        if hasattr(database, 'update_user_last_active'):
+            database.update_user_last_active(user_id)
+
+        return jsonify({"success": True, "message": "Activity updated"}), 200
+
+    except Exception as e:
+        print(f"❌ Error updating activity ping: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route('/api/user/info', methods=['GET', 'POST', 'OPTIONS'])
 def get_user_info_main():
     """جلب بيانات حساب المستخدم والتحقق من الحظر وربط/فحص بصمة الجهاز للحماية من تعدد الحسابات"""
@@ -409,7 +449,7 @@ def add_security_headers(response):
     response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     response.headers['X-XSS-Protection'] = '1; mode=block'
     response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, X-Telegram-User-Id, X-Telegram-Init-Data, X-Device-Id, X-Device-Fingerprint'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, X-Telegram-User-Id, X-Telegram-Init-Data, X-Device-Id, X-Device-Fingerprint, X-User-ID'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE'
     return response
 
