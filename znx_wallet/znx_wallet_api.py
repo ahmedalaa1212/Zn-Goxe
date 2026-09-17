@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-💎 ZNX Wallet API Module (Flask Blueprint) - Fixed & Optimized
+💎 ZNX Wallet API Module (Flask Blueprint) - Live Price & Dynamic Candles Fixed
 """
 
 import math
@@ -20,17 +20,17 @@ except ImportError:
 
 znx_wallet_bp = Blueprint('znx_wallet_bp', __name__)
 
-# عنوان العقد الرسمي لعملة ZNX وعنوان المجمع المباشر الجديد على STON.fi
+# عنوان العقد الرسمي لعملة ZNX وعنوان المجمع المباشر على STON.fi
 ZNX_CONTRACT_ADDRESS = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ"
 STON_POOL_ADDRESS = "EQB_Anc7ln6e-oAVUOrgcvmzqGtupciTcWCDLCriN7ZSlW7R6"
 
-# كاش السعر والإحصائيات
+# كاش السعر والإحصائيات المباشرة (يبدأ من 0.0 بدلاً من سعر ثابت)
 _PRICE_CACHE = {
-    'price': 0.000702,
+    'price': 0.0,
     'change_24h': 0.0,
-    'high_24h': 0.000715,
-    'low_24h': 0.000690,
-    'pool_created_at': 1735689600,  # وقت افتراضي آمن (يناير 2025)
+    'high_24h': 0.0,
+    'low_24h': 0.0,
+    'pool_created_at': 1735689600,
     'last_updated': 0
 }
 
@@ -43,12 +43,12 @@ _CANDLES_CACHE = {
 
 def fetch_live_dex_price():
     """
-    جلب السعر والإحصائيات المباشرة مع كاش آمن (2.5 ثانية) لمنع الحظر من STON.fi و DexScreener
+    جلب السعر والإحصائيات المباشرة من STON.fi و DexScreener مع كاش آمن (3 ثوانٍ)
     """
     now = time.time()
 
-    # كاش آمن لمدة 2.5 ثانية لحماية السيرفر من Rate Limiting ومطابقة سرعة البلوكات على شبكة TON
-    if now - _PRICE_CACHE['last_updated'] < 2.5 and _PRICE_CACHE['price'] > 0:
+    # كاش آمن لمدة 3 ثوانٍ لحماية السيرفر من Rate Limit ومطابقة سرعة البلوكات على شبكة TON
+    if now - _PRICE_CACHE['last_updated'] < 3 and _PRICE_CACHE['price'] > 0:
         return _PRICE_CACHE
 
     headers = {
@@ -62,11 +62,37 @@ def fetch_live_dex_price():
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
 
-    # المصدر الأول: DexScreener API (الأسرع والأكثر استقراراً)
+    # المصدر الأول: STON.fi Asset API المباشر عبر عقد ZNX نفسه (الأكثر ضماناً)
+    try:
+        ston_asset_url = f"https://api.ston.fi/v1/assets/{ZNX_CONTRACT_ADDRESS}"
+        req = urllib.request.Request(ston_asset_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=4, context=ssl_context) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode('utf-8'))
+                asset = data.get('asset', {}) if isinstance(data, dict) else {}
+                p_str = (
+                    asset.get('dex_usd_price') or
+                    asset.get('dex_price_usd') or
+                    asset.get('third_party_usd_price')
+                )
+                if p_str:
+                    price_usd = float(p_str)
+                    if price_usd > 0:
+                        _PRICE_CACHE['price'] = price_usd
+                        if _PRICE_CACHE['high_24h'] == 0:
+                            _PRICE_CACHE['high_24h'] = price_usd
+                        if _PRICE_CACHE['low_24h'] == 0:
+                            _PRICE_CACHE['low_24h'] = price_usd
+                        _PRICE_CACHE['last_updated'] = now
+                        return _PRICE_CACHE
+    except Exception as e:
+        print(f"⚠️ STON.fi Direct Asset API Fetch Error: {e}")
+
+    # المصدر الثاني: DexScreener API
     try:
         dex_url = f"https://api.dexscreener.com/latest/dex/pairs/ton/{STON_POOL_ADDRESS}"
         req = urllib.request.Request(dex_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=3, context=ssl_context) as resp:
+        with urllib.request.urlopen(req, timeout=4, context=ssl_context) as resp:
             if resp.status == 200:
                 data = json.loads(resp.read().decode('utf-8'))
                 pair = data.get('pair') or (data.get('pairs', [{}])[0] if data.get('pairs') else {})
@@ -80,7 +106,6 @@ def fetch_live_dex_price():
                     _PRICE_CACHE['price'] = price_usd
                     _PRICE_CACHE['change_24h'] = float(pair.get('priceChange', {}).get('h24', 0.0) or 0.0)
 
-                    # استخراج High/Low الحقيقي إن وجد بدلاً من الضرب الجزافي
                     h24 = pair.get('high24h') or pair.get('priceHigh24h')
                     l24 = pair.get('low24h') or pair.get('priceLow24h')
 
@@ -99,11 +124,11 @@ def fetch_live_dex_price():
     except Exception as e:
         print(f"⚠️ DexScreener API Fetch Error: {e}")
 
-    # المصدر الثاني: STON.fi Direct Pool API (حساب المجمع المباشر USDT / ZNX)
+    # المصدر الثالث: STON.fi Direct Pool API
     try:
         ston_pool_url = f"https://api.ston.fi/v1/pools/{STON_POOL_ADDRESS}"
         req = urllib.request.Request(ston_pool_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=3, context=ssl_context) as resp:
+        with urllib.request.urlopen(req, timeout=4, context=ssl_context) as resp:
             if resp.status == 200:
                 data = json.loads(resp.read().decode('utf-8'))
                 pool_info = data.get('pool') if isinstance(data, dict) else {}
@@ -115,7 +140,7 @@ def fetch_live_dex_price():
                     t0_bal = float(pool_info.get('token0_balance', 0) or 0)
                     t1_bal = float(pool_info.get('token1_balance', 0) or 0)
 
-                    znx_raw_part = ZNX_CONTRACT_ADDRESS[3:25].lower()  # مطابقة مرنة لتفادي اختلاف صيغ العقد (Raw / User Friendly)
+                    znx_raw_part = ZNX_CONTRACT_ADDRESS[3:25].lower()
 
                     if znx_raw_part in t0_address or t0_address in ZNX_CONTRACT_ADDRESS.lower():
                         znx_reserve = t0_bal / (10 ** 9)
@@ -124,7 +149,6 @@ def fetch_live_dex_price():
                         znx_reserve = t1_bal / (10 ** 9)
                         usdt_reserve = t0_bal / (10 ** 6)
                     else:
-                        # افتراض تلقائي: الحساب الأكبر هو ZNX (9 decimals) والأصغر USDT (6 decimals)
                         znx_reserve = max(t0_bal, t1_bal) / (10 ** 9)
                         usdt_reserve = min(t0_bal, t1_bal) / (10 ** 6)
 
@@ -139,44 +163,21 @@ def fetch_live_dex_price():
     except Exception as e:
         print(f"⚠️ STON.fi Direct Pool Fetch Error: {e}")
 
-    # المصدر الثالث: STON.fi Asset API
-    try:
-        ston_asset_url = f"https://api.ston.fi/v1/assets/{ZNX_CONTRACT_ADDRESS}"
-        req = urllib.request.Request(ston_asset_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=3, context=ssl_context) as resp:
-            if resp.status == 200:
-                data = json.loads(resp.read().decode('utf-8'))
-                asset = data.get('asset', {}) if isinstance(data, dict) else {}
-                p_str = (
-                    asset.get('dex_usd_price') or
-                    asset.get('dex_price_usd') or
-                    asset.get('third_party_usd_price')
-                )
-                if p_str:
-                    price_usd = float(p_str)
-                    if price_usd > 0:
-                        _PRICE_CACHE['price'] = price_usd
-                        _PRICE_CACHE['last_updated'] = now
-                        return _PRICE_CACHE
-    except Exception as e:
-        print(f"⚠️ STON.fi Asset Fetch Error: {e}")
-
-    # في حال تعذر جميع المصادر المؤقت، يتم الاحتفاظ بأحدث سعر تم نجاح جلبه سابقاً
     _PRICE_CACHE['last_updated'] = now
     return _PRICE_CACHE
 
 
 def fetch_dex_candles(timeframe='5m'):
     """
-    جلب بيانات الشموع مع كاش (15 ثانية) لمنع حظر IP من GeckoTerminal وتحديث سعر الإغلاق لحظياً
+    جلب بيانات الشموع مع كاش (15 ثانية) وتحديث سعر الإغلاق للشمعة الأخيرة فوراً مع السعر الحي
     """
     now_sec = int(time.time())
 
-    # 1. تحديث السعر المباشر أولاً للتأكد من ربط الشموع بأحدث سعر حي
+    # 1. تحديث السعر المباشر أولاً
     current_price_cache = fetch_live_dex_price()
-    current_live_price = current_price_cache.get('price', 0.000702)
+    current_live_price = current_price_cache.get('price', 0.0)
 
-    # 2. فحص كاش الشموع (تحديث كل 15 ثانية لحماية GeckoTerminal من Rate Limit)
+    # 2. فحص كاش الشموع (15 ثانية)
     if now_sec - _CANDLES_CACHE['last_updated'] < 15 and len(_CANDLES_CACHE['candles']) > 0:
         candles = _CANDLES_CACHE['candles']
         if candles and current_live_price > 0:
@@ -236,7 +237,7 @@ def fetch_dex_candles(timeframe='5m'):
     except Exception as e:
         print(f"⚠️ GeckoTerminal OHLCV Fetch Error: {e}")
 
-    # استخدام الشموع المخزنة سابقاً بدلاً من توليد شارت مستقيم إذا تعذر الاتصال بـ GeckoTerminal
+    # إذا تعذر جلب الشموع الجديدة، نستخدم الشموع المخزنة سابقاً ونحدث الشمعة الأخيرة بالسعر الحي
     if len(_CANDLES_CACHE['candles']) > 0:
         candles = _CANDLES_CACHE['candles']
         if current_live_price > 0:
@@ -245,9 +246,9 @@ def fetch_dex_candles(timeframe='5m'):
             candles[-1]['low'] = min(candles[-1]['low'], current_live_price)
         return candles
 
-    # Fallback احتياطي أخير في حال أول تشغيل للسيرفر وبدون كاش سابق
+    # Fallback مؤقت أخير بديناميكية واقعية إذا كان أول تشغيل بدون كاش سابق
     sec_per_tf = 300
-    current_price = current_live_price if current_live_price > 0 else 0.000702
+    current_price = current_live_price if current_live_price > 0 else 0.000700
     start_period = (now_sec // sec_per_tf) * sec_per_tf
     creation_time = _PRICE_CACHE.get('pool_created_at', 1735689600)
 
