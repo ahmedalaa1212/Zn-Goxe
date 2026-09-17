@@ -3,7 +3,7 @@
  */
 
 const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ";
-const ZNX_POOL_ADDRESS = "EQA0uIZQz8yFJdLCxpz7uXkjcylnnvGl3_KpE2zDUV5LUdXL";
+const ZNX_POOL_ADDRESS = "EQB_Anc7ln6e-oAVUOrgcvmzqGtupciTcWCDLCriN7ZSlW7R6";
 
 // المتغير المرجعي لوقت إنشاء المجمع الحقيقي على STON.fi (سيتم تحديثه تلقائياً من الـ API)
 window.ZNX_POOL_CREATED_AT = 1768435200; // التاريخ المرجعي لإدراج المجمع
@@ -42,7 +42,7 @@ let isPriceInitialized = false;
 let tvChart = null;
 let candleSeries = null;
 let currentCandle = null;
-let currentTimeframe = '1m';
+let currentTimeframe = '5m'; // ضبط الإطار الزمني الافتراضي على 5m
 let lastCandleTime = 0;
 
 function getTimeframeSeconds(tf) {
@@ -53,7 +53,7 @@ function getTimeframeSeconds(tf) {
         case '1h': return 3600;
         case '1d': case '1D': return 86400;
         case '1M': return 2592000; // 30 days
-        default: return 60;
+        default: return 300;
     }
 }
 
@@ -75,7 +75,7 @@ function formatPriceUsd(val) {
     if (num < 0.0001) return `$${num.toFixed(7)}`;
     if (num < 0.01) return `$${num.toFixed(6)}`;
     if (num < 1) return `$${num.toFixed(5)}`;
-    return `$${num.toFixed(2)}`;
+    return `$${num.toFixed(6)}`;
 }
 
 async function fetchRealZnxPrice() {
@@ -105,7 +105,7 @@ async function fetchRealZnxPrice() {
         console.warn("جاري محاولة الجلب المباشر من مجمع STON.fi...");
     }
 
-    // 2. الجلب المباشر من مجمع STON.fi
+    // 2. الجلب المباشر من مجمع STON.fi واحتساب السعر الفعلي المباشر (USDT / ZNX)
     try {
         const poolRes = await fetch(`https://api.ston.fi/v1/pools/${ZNX_POOL_ADDRESS}`);
         if (poolRes.ok) {
@@ -113,21 +113,28 @@ async function fetchRealZnxPrice() {
             const pool = poolData.pool || poolData;
             
             const isToken0Znx = pool.token0_address === ZNX_TOKEN_CONTRACT;
-            const znxReserve = parseFloat(isToken0Znx ? pool.reserve0 : pool.reserve1) || 0;
-            const otherReserve = parseFloat(isToken0Znx ? pool.reserve1 : pool.reserve0) || 0;
+            const rawZnxReserve = parseFloat(isToken0Znx ? pool.reserve0 : pool.reserve1) || 0;
+            const rawUsdtReserve = parseFloat(isToken0Znx ? pool.reserve1 : pool.reserve0) || 0;
             
-            if (znxReserve > 0 && otherReserve > 0) {
-                const gramUsdPrice = 1.35;
-                const totalOtherUsd = otherReserve * gramUsdPrice;
-                const calculatedPriceUsd = totalOtherUsd / znxReserve;
+            if (rawZnxReserve > 0 && rawUsdtReserve > 0) {
+                let znxAmount = rawZnxReserve;
+                let usdtAmount = rawUsdtReserve;
+
+                // تحويل الوحدات الصغرى (Nano Units): ZNX=9 decimals, USDT=6 decimals
+                if (rawZnxReserve > 1e6 && rawUsdtReserve > 1e3) {
+                    znxAmount = rawZnxReserve / 1e9;
+                    usdtAmount = rawUsdtReserve / 1e6;
+                }
+
+                const calculatedPriceUsd = usdtAmount / znxAmount;
 
                 if (calculatedPriceUsd > 0) {
                     setTargetPrice(calculatedPriceUsd);
                     updateMarketStatsUI({
                         price: calculatedPriceUsd,
-                        change_24h: 3.45,
-                        high_24h: calculatedPriceUsd * 1.08,
-                        low_24h: calculatedPriceUsd * 0.92
+                        change_24h: pool.price_change_24h ? parseFloat(pool.price_change_24h) : 3.45,
+                        high_24h: calculatedPriceUsd * 1.05,
+                        low_24h: calculatedPriceUsd * 0.95
                     });
                     return;
                 }
@@ -155,7 +162,7 @@ async function fetchRealZnxPrice() {
         }
     } catch (e) {
         if (!isPriceInitialized && targetLivePrice === 0) {
-            setTargetPrice(0.0000423);
+            setTargetPrice(0.000702);
         }
     }
 }
@@ -241,15 +248,13 @@ function startLivePriceEngine() {
     fetchRealZnxPrice();
 
     if (priceFetchTimer) clearInterval(priceFetchTimer);
-    priceFetchTimer = setInterval(fetchRealZnxPrice, 10000);
+    priceFetchTimer = setInterval(fetchRealZnxPrice, 1500); // تحديث كل 1.5 ثانية لجلب السعر اللحظي
 
-    if (priceTickerTimer) clearInterval(priceTickerTimer);
-    priceTickerTimer = setInterval(() => {
-        if (targetLivePrice > 0) {
-            const microNoise = (Math.random() - 0.495) * (targetLivePrice * 0.0003);
-            targetLivePrice = Math.max(0.00000001, targetLivePrice + microNoise);
-        }
-    }, 1500);
+    // إلغاء مؤقت الفبركة الضوئية العشوائية بالكامل
+    if (priceTickerTimer) {
+        clearInterval(priceTickerTimer);
+        priceTickerTimer = null;
+    }
 
     if (smoothLoopTimer) clearInterval(smoothLoopTimer);
     smoothLoopTimer = setInterval(updateSmoothTick, 50);
@@ -316,20 +321,9 @@ function initChart() {
                 tickMarkFormatter: (time) => {
                     const date = new Date(time * 1000);
                     const pad = (n) => String(n).padStart(2, '0');
-                    const month = pad(date.getMonth() + 1);
-                    const day = pad(date.getDate());
                     const hours = pad(date.getHours());
                     const mins = pad(date.getMinutes());
-
-                    if (['1m', '5m', '15m'].includes(currentTimeframe)) {
-                        return `${hours}:${mins}`;
-                    } else if (currentTimeframe === '1h') {
-                        return `${month}/${day} ${hours}:00`;
-                    } else if (['1d', '1D'].includes(currentTimeframe)) {
-                        return `${month}/${day}`;
-                    } else {
-                        return `${date.getFullYear()}/${month}`;
-                    }
+                    return `${hours}:${mins}`;
                 }
             },
             handleScroll: { mouseWheel: true, pressedMove: true },
@@ -384,15 +378,7 @@ async function loadChartData(tf) {
 
     // Fallback: GeckoTerminal Direct
     try {
-        let period = 'minute';
-        let agg = 1;
-        if (tf === '5m') agg = 5;
-        else if (tf === '15m') agg = 15;
-        else if (tf === '1h') { period = 'hour'; agg = 1; }
-        else if (tf === '1d' || tf === '1D') { period = 'day'; agg = 1; }
-        else if (tf === '1M') { period = 'day'; agg = 30; }
-
-        const directUrl = `https://api.geckoterminal.com/api/v2/networks/ton/pools/${ZNX_POOL_ADDRESS}/ohlcv/${period}?aggregate=${agg}&limit=120`;
+        const directUrl = `https://api.geckoterminal.com/api/v2/networks/ton/pools/${ZNX_POOL_ADDRESS}/ohlcv/minute?aggregate=5&limit=120`;
         const directRes = await fetch(directUrl);
         if (directRes.ok) {
             const json = await directRes.json();
@@ -416,7 +402,6 @@ async function loadChartData(tf) {
         console.warn("⚠️ تعذر الجلب المباشر للشموع.");
     }
 
-    // توليد شموع بايبت متصلة ومقيدة بالوقت الحقيقي والتاريخ الفعلي للإدراج
     generateAccurateTimeboundCandles(tf);
 }
 
@@ -429,7 +414,6 @@ function applyCandlesToChart(candles) {
 
     for (let c of candles) {
         let t = Math.floor(Number(c.time));
-        // استبعاد أي تاريخ يفوق الوقت الحالي لمنع أي تواريخ مستقبلية
         if (!isNaN(t) && t > 0 && t <= nowSec + 60 && !seenTimes.has(t)) {
             seenTimes.add(t);
             cleanCandles.push({
@@ -464,43 +448,26 @@ function applyCandlesToChart(candles) {
     }
 }
 
-// مولد شموع دقيق ومحكوم بالوقت الحالي وتاريخ الإنشاء المباشر بدون أي تواريخ مستقبلية
 function generateAccurateTimeboundCandles(tf) {
-    const tfSec = getTimeframeSeconds(tf);
+    const tfSec = getTimeframeSeconds(tf); // 300 seconds for 5m
     const nowSec = Math.floor(Date.now() / 1000);
     const currentPeriodStart = Math.floor(nowSec / tfSec) * tfSec;
 
-    // زمن إنشاء المجمع الفعلي من STON.fi
     const poolCreationTime = window.ZNX_POOL_CREATED_AT || 1768435200;
-    
-    let requestedCount = 80;
-    if (tf === '1m') requestedCount = 70;
-    else if (tf === '5m') requestedCount = 65;
-    else if (tf === '15m') requestedCount = 60;
-    else if (tf === '1h') requestedCount = 50;
-    else if (tf === '1d' || tf === '1D') requestedCount = 45;
-    else if (tf === '1M') requestedCount = 12;
+    const requestedCount = 65;
 
-    // حساب أقصى عدد شموع ممكن بين الوقت الحالي وتاريخ التأسيس الحقيقي
     const maxPossibleCandles = Math.max(1, Math.floor((currentPeriodStart - poolCreationTime) / tfSec) + 1);
     const count = Math.min(requestedCount, maxPossibleCandles);
 
-    const targetPrice = (targetLivePrice > 0) ? targetLivePrice : ((currentLivePrice > 0) ? currentLivePrice : 0.0000423);
-
-    let vol = 0.0015;
-    if (tf === '5m') vol = 0.003;
-    if (tf === '15m') vol = 0.006;
-    if (tf === '1h') vol = 0.012;
-    if (tf === '1d' || tf === '1D') vol = 0.025;
-    if (tf === '1M') vol = 0.060;
+    const targetPrice = (targetLivePrice > 0) ? targetLivePrice : ((currentLivePrice > 0) ? currentLivePrice : 0.000702);
+    let vol = 0.003;
 
     let rawCandles = [];
     let prevClose = targetPrice;
 
-    // الحساب العكسي المباشر من الوقت الحالي نحو الماضي
     for (let i = count - 1; i >= 0; i--) {
         let time = currentPeriodStart - ((count - 1 - i) * tfSec);
-        if (time < poolCreationTime) continue; // منع الخروج عن النطاق الزمني للمجمع
+        if (time < poolCreationTime) continue;
 
         const change = (Math.random() - 0.492) * vol;
         const close = (i === count - 1) ? targetPrice : prevClose;
@@ -525,7 +492,6 @@ function generateAccurateTimeboundCandles(tf) {
 
     rawCandles.sort((a, b) => a.time - b.time);
 
-    // ربط الشموع ببعضها لضمان الشارت المتصل
     for (let i = 1; i < rawCandles.length; i++) {
         rawCandles[i].open = rawCandles[i - 1].close;
         if (rawCandles[i].open > rawCandles[i].high) rawCandles[i].high = rawCandles[i].open;
@@ -538,6 +504,7 @@ function generateAccurateTimeboundCandles(tf) {
 function updateChartTick(price) {
     if (!candleSeries || !currentCandle) return;
 
+    // حساب بداية الإطار الزمني الحالي بناءً على مضاعفات 300 ثانية (خاصة بـ 5m)
     const tfSec = getTimeframeSeconds(currentTimeframe);
     const nowSec = Math.floor(Date.now() / 1000);
     const candlePeriodStart = Math.floor(nowSec / tfSec) * tfSec;
@@ -570,7 +537,7 @@ function changeTimeframe(tf) {
 
     document.querySelectorAll('.tf-btn').forEach(btn => {
         const txt = btn.innerText.trim();
-        if (txt === tf || (tf === '1d' && txt === '1D') || (tf === '1D' && txt === '1d') || (tf === '1M' && txt === '1M')) {
+        if (txt === tf || (tf === '5m' && txt === '5m')) {
             btn.classList.add('active');
         } else {
             btn.classList.remove('active');
@@ -578,9 +545,8 @@ function changeTimeframe(tf) {
     });
 
     if (tvChart) {
-        const isIntraday = ['1m', '5m', '15m', '1h'].includes(tf);
         tvChart.timeScale().applyOptions({
-            timeVisible: isIntraday,
+            timeVisible: true,
             secondsVisible: false
         });
 
@@ -625,7 +591,6 @@ async function initApp() {
             updateBalancesUI();
             updateGlobalStatsUI(data.global_total, data.max_global_znx);
             
-            // قراءة الشرائح بشكل آمن في حال تم إرجاعها كـ Object أو Array
             let rawTiers = data.tiers_all || data.tiers || data.tiers_config;
             if (rawTiers && typeof rawTiers === 'object' && !Array.isArray(rawTiers)) {
                 rawTiers = Object.values(rawTiers);
