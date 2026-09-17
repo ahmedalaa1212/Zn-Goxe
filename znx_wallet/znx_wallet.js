@@ -3,6 +3,7 @@
  */
 
 const ZNX_TOKEN_CONTRACT = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ";
+const USDT_TOKEN_CONTRACT = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"; // عقد USDT الرسمي على TON
 const ZNX_POOL_ADDRESS = "EQB_Anc7ln6e-oAVUOrgcvmzqGtupciTcWCDLCriN7ZSlW7R6";
 
 // المتغير المرجعي لوقت إنشاء المجمع الحقيقي على STON.fi
@@ -41,7 +42,7 @@ let isPriceInitialized = false;
 let tvChart = null;
 let candleSeries = null;
 let currentCandle = null;
-let currentTimeframe = '5m'; // الإطار الزمني موحد ودائم على 5m
+let currentTimeframe = '5m';
 let lastCandleTime = 0;
 
 function getTimeframeSeconds(tf) {
@@ -78,65 +79,58 @@ function formatPriceUsd(val) {
 }
 
 async function fetchRealZnxPrice() {
-    // 1. الجلب من السيرفر الخلفي أولاً
+    // 1. الجلب المباشر المباشر من DexScreener لجميع أزواج التداول الخاصة بالمجمع
     try {
-        const serverRes = await fetch(`${window.location.origin}/api/znx-wallet/price?t=${Date.now()}`, {
-            method: 'GET',
-            cache: 'no-store',
-            headers: {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache'
-            }
-        });
-
-        if (serverRes.ok) {
-            const serverData = await serverRes.json();
-            if (serverData.success && serverData.price > 0) {
-                if (serverData.pool_created_at) {
-                    window.ZNX_POOL_CREATED_AT = serverData.pool_created_at;
-                }
-                setTargetPrice(serverData.price);
-                updateMarketStatsUI(serverData);
-                return;
-            }
-        }
-    } catch (err) {
-        console.warn("جاري محاولة الجلب المباشر من الشبكة...");
-    }
-
-    // 2. الجلب المباشر عبر DexScreener بواسطة عقد العملة (أكثر دقة واستقراراً)
-    try {
-        const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${ZNX_TOKEN_CONTRACT}`);
+        const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/pairs/ton/${ZNX_POOL_ADDRESS}`);
         if (dexRes.ok) {
             const dexData = await dexRes.json();
-            const pair = dexData.pairs && dexData.pairs.length > 0 ? dexData.pairs[0] : null;
-            if (pair && pair.priceUsd) {
+            const pair = dexData.pair || (dexData.pairs && dexData.pairs[0]);
+            if (pair && pair.priceUsd && parseFloat(pair.priceUsd) > 0) {
                 const livePrice = parseFloat(pair.priceUsd);
-                if (livePrice > 0) {
-                    if (pair.pairCreatedAt) {
-                        window.ZNX_POOL_CREATED_AT = Math.floor(pair.pairCreatedAt / 1000);
-                    }
-                    setTargetPrice(livePrice);
-                    updateMarketStatsUI({
-                        price: livePrice,
-                        change_24h: pair.priceChange?.h24 ? parseFloat(pair.priceChange.h24) : 0,
-                        high_24h: pair.priceUsd ? livePrice : 0,
-                        low_24h: pair.priceUsd ? livePrice : 0
-                    });
-                    return;
+                if (pair.pairCreatedAt) {
+                    window.ZNX_POOL_CREATED_AT = Math.floor(pair.pairCreatedAt / 1000);
                 }
+                setTargetPrice(livePrice);
+                updateMarketStatsUI({
+                    price: livePrice,
+                    change_24h: pair.priceChange?.h24 ? parseFloat(pair.priceChange.h24) : 0,
+                    high_24h: pair.priceUsd ? livePrice : 0,
+                    low_24h: pair.priceUsd ? livePrice : 0
+                });
+                return;
             }
         }
     } catch (e) {
         console.warn("تعذر الجلب المباشر من DexScreener.");
     }
 
+    // 2. الجلب المباشر من GeckoTerminal API
+    try {
+        const geckoRes = await fetch(`https://api.geckoterminal.com/api/v2/networks/ton/pools/${ZNX_POOL_ADDRESS}`);
+        if (geckoRes.ok) {
+            const geckoData = await geckoRes.json();
+            const priceUsd = parseFloat(geckoData?.data?.attributes?.base_token_price_usd || 0);
+            if (priceUsd > 0) {
+                setTargetPrice(priceUsd);
+                updateMarketStatsUI({
+                    price: priceUsd,
+                    change_24h: parseFloat(geckoData?.data?.attributes?.price_change_percentage?.h24 || 0),
+                    high_24h: priceUsd,
+                    low_24h: priceUsd
+                });
+                return;
+            }
+        }
+    } catch (e) {
+        console.warn("تعذر الجلب المباشر من GeckoTerminal.");
+    }
+
     // 3. الجلب المباشر من STON.fi Asset API
     try {
-        const dexRes = await fetch(`https://api.ston.fi/v1/assets/${ZNX_TOKEN_CONTRACT}`);
-        if (dexRes.ok) {
-            const dexData = await dexRes.json();
-            const asset = dexData.asset || dexData;
+        const stonRes = await fetch(`https://api.ston.fi/v1/assets/${ZNX_TOKEN_CONTRACT}`);
+        if (stonRes.ok) {
+            const stonData = await stonRes.json();
+            const asset = stonData.asset || stonData;
             const priceUsd = parseFloat(asset?.dex_usd_price || asset?.third_party_usd_price || 0);
             if (priceUsd > 0) {
                 setTargetPrice(priceUsd);
@@ -150,45 +144,29 @@ async function fetchRealZnxPrice() {
             }
         }
     } catch (e) {
-        console.warn("تعذر الجلب من STON.fi Assets API.");
+        console.warn("تعذر الجلب المباشر من STON.fi Assets.");
     }
 
-    // 4. الجلب المباشر من مجمع STON.fi عبر الاحتياطي
+    // 4. الاحتياطي فقط (Fallback) للسيرفر الخلفي إذا فشلت شبكات DEX المباشرة
     try {
-        const poolRes = await fetch(`https://api.ston.fi/v1/pools/${ZNX_POOL_ADDRESS}`);
-        if (poolRes.ok) {
-            const poolData = await poolRes.json();
-            const pool = poolData.pool || poolData;
-            
-            const isToken0Znx = pool.token0_address === ZNX_TOKEN_CONTRACT;
-            const rawZnxReserve = parseFloat(isToken0Znx ? (pool.reserve0 || pool.token0_balance) : (pool.reserve1 || pool.token1_balance)) || 0;
-            const rawUsdtReserve = parseFloat(isToken0Znx ? (pool.reserve1 || pool.token1_balance) : (pool.reserve0 || pool.token0_balance)) || 0;
-            
-            if (rawZnxReserve > 0 && rawUsdtReserve > 0) {
-                let znxAmount = rawZnxReserve;
-                let usdtAmount = rawUsdtReserve;
+        const serverRes = await fetch(`${window.location.origin}/api/znx-wallet/price?t=${Date.now()}`, {
+            method: 'GET',
+            cache: 'no-store',
+            headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+        });
 
-                if (rawZnxReserve > 1e6 && rawUsdtReserve > 1e3) {
-                    znxAmount = rawZnxReserve / 1e9;
-                    usdtAmount = rawUsdtReserve / 1e6;
+        if (serverRes.ok) {
+            const serverData = await serverRes.json();
+            if (serverData.success && serverData.price > 0) {
+                if (serverData.pool_created_at) {
+                    window.ZNX_POOL_CREATED_AT = serverData.pool_created_at;
                 }
-
-                const calculatedPriceUsd = usdtAmount / znxAmount;
-
-                if (calculatedPriceUsd > 0) {
-                    setTargetPrice(calculatedPriceUsd);
-                    updateMarketStatsUI({
-                        price: calculatedPriceUsd,
-                        change_24h: pool.price_change_24h ? parseFloat(pool.price_change_24h) : 0.00,
-                        high_24h: calculatedPriceUsd,
-                        low_24h: calculatedPriceUsd
-                    });
-                    return;
-                }
+                setTargetPrice(serverData.price);
+                updateMarketStatsUI(serverData);
             }
         }
-    } catch (e) {
-        console.warn("تعذر الوصول لبيانات مجمع STON.fi المباشرة.");
+    } catch (err) {
+        console.warn("فشل جلب السيرفر المباشر.");
     }
 }
 
@@ -577,10 +555,6 @@ async function initApp() {
                 window.ZNX_POOL_CREATED_AT = data.pool_created_at;
             }
 
-            if (data.live_price && data.live_price > 0) {
-                setTargetPrice(data.live_price);
-            }
-
             updateBalancesUI();
             updateGlobalStatsUI(data.global_total, data.max_global_znx);
             
@@ -597,6 +571,9 @@ async function initApp() {
     } catch (err) {
         console.error("❌ خطأ الاتصال بسيرفر ZNX Wallet:", err);
     }
+
+    // جلب السعر المباشر فوراً من DEX لمنع استلام سعر ثابت قديم من السيرفر
+    fetchRealZnxPrice();
 }
 
 function updateBalancesUI() {
@@ -818,8 +795,8 @@ function createPodiumCard(item, rank, pClass) {
 }
 
 function openStonLink() {
-    // توجيه مباشر إلى صفحة الصرف والتداول الخاصة بعقد العملة على STON.fi بدون خطأ 404
-    const stonUrl = `https://app.ston.fi/swap?chartVisible=true&ft=TON&tt=${ZNX_TOKEN_CONTRACT}`;
+    // فتح رابط الصرف بين USDT و ZNX مباشرة على STON.fi
+    const stonUrl = `https://app.ston.fi/swap?chartVisible=true&ft=${USDT_TOKEN_CONTRACT}&tt=${ZNX_TOKEN_CONTRACT}`;
     if (window.Telegram?.WebApp?.openLink) {
         window.Telegram.WebApp.openLink(stonUrl);
     } else {
