@@ -403,6 +403,23 @@
                 <div class="section-title">🏆 أكثر المستخدمين نشاطاً</div>
                 <button class="btn-refresh" onclick="loadTopActiveUsers()">🔄 تحديث</button>
             </div>
+
+            <!-- 📅 شريط الفلترة الزمنية -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+                <div class="input-group">
+                    <label>من تاريخ</label>
+                    <input type="date" id="topActiveStartDate">
+                </div>
+                <div class="input-group">
+                    <label>إلى تاريخ</label>
+                    <input type="date" id="topActiveEndDate">
+                </div>
+            </div>
+            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                <button class="btn-primary" onclick="loadTopActiveUsers()" style="background: var(--accent-blue); color: #fff; padding: 8px; font-size: 12px; flex: 1;">🔍 تطبيق الفلتر</button>
+                <button class="btn-primary" onclick="resetTopActiveFilter()" style="background: var(--card-border); color: var(--text-main); padding: 8px; font-size: 12px; flex: 1;">🔄 إعادة ضبط</button>
+            </div>
+
             <div class="user-active-list" id="topActiveUsersList">
                 <p class="empty-msg">⏳ جاري تحميل قائمة الأكثر نشاطاً...</p>
             </div>
