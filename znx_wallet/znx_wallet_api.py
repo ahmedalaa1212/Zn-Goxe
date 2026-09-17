@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-💎 ZNX Wallet API Module (Flask Blueprint)
+💎 ZNX Wallet API Module (Flask Blueprint) - Fixed & Optimized
 """
 
 import math
@@ -24,13 +24,19 @@ znx_wallet_bp = Blueprint('znx_wallet_bp', __name__)
 ZNX_CONTRACT_ADDRESS = "EQCp7mlbe-eR-j6b7opnHBtCbl74gnyYAP2XZISphkERkwdJ"
 STON_POOL_ADDRESS = "EQB_Anc7ln6e-oAVUOrgcvmzqGtupciTcWCDLCriN7ZSlW7R6"
 
-# كاش السعر والإحصائيات وتاريخ إنشاء المجمع
+# كاش السعر والإحصائيات
 _PRICE_CACHE = {
     'price': 0.000702,
     'change_24h': 0.0,
     'high_24h': 0.000715,
     'low_24h': 0.000690,
-    'pool_created_at': 1768435200,  # وقت إنشاء المجمع المباشر
+    'pool_created_at': 1735689600,  # وقت افتراضي آمن (يناير 2025)
+    'last_updated': 0
+}
+
+# كاش الشموع لمنع حظر IP السيرفر من GeckoTerminal (Rate Limit 429)
+_CANDLES_CACHE = {
+    'candles': [],
     'last_updated': 0
 }
 
@@ -56,7 +62,7 @@ def fetch_live_dex_price():
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
 
-    # المصدر الأول: DexScreener API (الأسرع والأكثر استقراراً ضد الحظر)
+    # المصدر الأول: DexScreener API (الأسرع والأكثر استقراراً)
     try:
         dex_url = f"https://api.dexscreener.com/latest/dex/pairs/ton/{STON_POOL_ADDRESS}"
         req = urllib.request.Request(dex_url, headers=headers)
@@ -73,8 +79,21 @@ def fetch_live_dex_price():
                 if price_usd > 0:
                     _PRICE_CACHE['price'] = price_usd
                     _PRICE_CACHE['change_24h'] = float(pair.get('priceChange', {}).get('h24', 0.0) or 0.0)
-                    _PRICE_CACHE['high_24h'] = max(_PRICE_CACHE.get('high_24h', 0), price_usd * 1.01)
-                    _PRICE_CACHE['low_24h'] = min(_PRICE_CACHE.get('low_24h', price_usd), price_usd * 0.99) if _PRICE_CACHE.get('low_24h', 0) > 0 else price_usd * 0.99
+
+                    # استخراج High/Low الحقيقي إن وجد بدلاً من الضرب الجزافي
+                    h24 = pair.get('high24h') or pair.get('priceHigh24h')
+                    l24 = pair.get('low24h') or pair.get('priceLow24h')
+
+                    if h24:
+                        _PRICE_CACHE['high_24h'] = float(h24)
+                    else:
+                        _PRICE_CACHE['high_24h'] = max(_PRICE_CACHE.get('high_24h', price_usd), price_usd)
+
+                    if l24:
+                        _PRICE_CACHE['low_24h'] = float(l24)
+                    else:
+                        _PRICE_CACHE['low_24h'] = min(_PRICE_CACHE.get('low_24h', price_usd), price_usd) if _PRICE_CACHE.get('low_24h', 0) > 0 else price_usd
+
                     _PRICE_CACHE['last_updated'] = now
                     return _PRICE_CACHE
     except Exception as e:
@@ -96,24 +115,25 @@ def fetch_live_dex_price():
                     t0_bal = float(pool_info.get('token0_balance', 0) or 0)
                     t1_bal = float(pool_info.get('token1_balance', 0) or 0)
 
-                    znx_addr = ZNX_CONTRACT_ADDRESS.lower()
+                    znx_raw_part = ZNX_CONTRACT_ADDRESS[3:25].lower()  # مطابقة مرنة لتفادي اختلاف صيغ العقد (Raw / User Friendly)
 
-                    if t0_address == znx_addr:
+                    if znx_raw_part in t0_address or t0_address in ZNX_CONTRACT_ADDRESS.lower():
                         znx_reserve = t0_bal / (10 ** 9)
                         usdt_reserve = t1_bal / (10 ** 6)
-                    elif t1_address == znx_addr:
+                    elif znx_raw_part in t1_address or t1_address in ZNX_CONTRACT_ADDRESS.lower():
                         znx_reserve = t1_bal / (10 ** 9)
                         usdt_reserve = t0_bal / (10 ** 6)
                     else:
-                        znx_reserve = t0_bal / (10 ** 9)
-                        usdt_reserve = t1_bal / (10 ** 6)
+                        # افتراض تلقائي: الحساب الأكبر هو ZNX (9 decimals) والأصغر USDT (6 decimals)
+                        znx_reserve = max(t0_bal, t1_bal) / (10 ** 9)
+                        usdt_reserve = min(t0_bal, t1_bal) / (10 ** 6)
 
                     if znx_reserve > 0 and usdt_reserve > 0:
                         price_usd = usdt_reserve / znx_reserve
                         if price_usd > 0:
                             _PRICE_CACHE['price'] = price_usd
-                            _PRICE_CACHE['high_24h'] = max(_PRICE_CACHE.get('high_24h', 0), price_usd * 1.01)
-                            _PRICE_CACHE['low_24h'] = min(_PRICE_CACHE.get('low_24h', price_usd), price_usd * 0.99)
+                            _PRICE_CACHE['high_24h'] = max(_PRICE_CACHE.get('high_24h', price_usd), price_usd)
+                            _PRICE_CACHE['low_24h'] = min(_PRICE_CACHE.get('low_24h', price_usd), price_usd) if _PRICE_CACHE.get('low_24h', 0) > 0 else price_usd
                             _PRICE_CACHE['last_updated'] = now
                             return _PRICE_CACHE
     except Exception as e:
@@ -148,8 +168,23 @@ def fetch_live_dex_price():
 
 def fetch_dex_candles(timeframe='5m'):
     """
-    جلب بيانات الشموع وتثبيت الإطار الزمني على 5m حقيقي وربط الإغلاق بالسعر اللحظي المباشر
+    جلب بيانات الشموع مع كاش (15 ثانية) لمنع حظر IP من GeckoTerminal وتحديث سعر الإغلاق لحظياً
     """
+    now_sec = int(time.time())
+
+    # 1. تحديث السعر المباشر أولاً للتأكد من ربط الشموع بأحدث سعر حي
+    current_price_cache = fetch_live_dex_price()
+    current_live_price = current_price_cache.get('price', 0.000702)
+
+    # 2. فحص كاش الشموع (تحديث كل 15 ثانية لحماية GeckoTerminal من Rate Limit)
+    if now_sec - _CANDLES_CACHE['last_updated'] < 15 and len(_CANDLES_CACHE['candles']) > 0:
+        candles = _CANDLES_CACHE['candles']
+        if candles and current_live_price > 0:
+            candles[-1]['close'] = current_live_price
+            candles[-1]['high'] = max(candles[-1]['high'], current_live_price)
+            candles[-1]['low'] = min(candles[-1]['low'], current_live_price)
+        return candles
+
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Accept': 'application/json'
@@ -160,8 +195,6 @@ def fetch_dex_candles(timeframe='5m'):
 
     period, aggregate, limit = ('minute', 5, 70)
     url = f"https://api.geckoterminal.com/api/v2/networks/ton/pools/{STON_POOL_ADDRESS}/ohlcv/{period}?aggregate={aggregate}&limit={limit}"
-
-    now_sec = int(time.time())
 
     try:
         req = urllib.request.Request(url, headers=headers)
@@ -192,21 +225,31 @@ def fetch_dex_candles(timeframe='5m'):
                         last_t = cd['time']
 
                 if len(unique_candles) >= 1:
-                    current_live_price = _PRICE_CACHE.get('price', 0.0)
                     if current_live_price > 0:
                         unique_candles[-1]['close'] = current_live_price
                         unique_candles[-1]['high'] = max(unique_candles[-1]['high'], current_live_price)
                         unique_candles[-1]['low'] = min(unique_candles[-1]['low'], current_live_price)
 
+                    _CANDLES_CACHE['candles'] = unique_candles
+                    _CANDLES_CACHE['last_updated'] = now_sec
                     return unique_candles
     except Exception as e:
         print(f"⚠️ GeckoTerminal OHLCV Fetch Error: {e}")
 
-    # Fallback حقيقي يعتمد على السعر المباشر الأخير بدون تصفير أو قيم وهمية
+    # استخدام الشموع المخزنة سابقاً بدلاً من توليد شارت مستقيم إذا تعذر الاتصال بـ GeckoTerminal
+    if len(_CANDLES_CACHE['candles']) > 0:
+        candles = _CANDLES_CACHE['candles']
+        if current_live_price > 0:
+            candles[-1]['close'] = current_live_price
+            candles[-1]['high'] = max(candles[-1]['high'], current_live_price)
+            candles[-1]['low'] = min(candles[-1]['low'], current_live_price)
+        return candles
+
+    # Fallback احتياطي أخير في حال أول تشغيل للسيرفر وبدون كاش سابق
     sec_per_tf = 300
-    current_price = _PRICE_CACHE['price'] if _PRICE_CACHE['price'] > 0 else 0.000702
+    current_price = current_live_price if current_live_price > 0 else 0.000702
     start_period = (now_sec // sec_per_tf) * sec_per_tf
-    creation_time = _PRICE_CACHE.get('pool_created_at', 1768435200)
+    creation_time = _PRICE_CACHE.get('pool_created_at', 1735689600)
 
     max_possible = max(1, (start_period - creation_time) // sec_per_tf + 1)
     num_candles = min(limit, max_possible)
@@ -227,6 +270,8 @@ def fetch_dex_candles(timeframe='5m'):
             'close': p
         })
 
+    _CANDLES_CACHE['candles'] = raw_candles
+    _CANDLES_CACHE['last_updated'] = now_sec
     return raw_candles
 
 
@@ -285,7 +330,7 @@ def get_price_only():
         'change_24h': cache['change_24h'],
         'high_24h': cache['high_24h'],
         'low_24h': cache['low_24h'],
-        'pool_created_at': cache.get('pool_created_at', 1768435200),
+        'pool_created_at': cache.get('pool_created_at', 1735689600),
         'contract': ZNX_CONTRACT_ADDRESS,
         'timestamp': int(time.time())
     }), 200
@@ -355,7 +400,7 @@ def get_wallet_data():
             'change_24h': price_data['change_24h'],
             'high_24h': price_data['high_24h'],
             'low_24h': price_data['low_24h'],
-            'pool_created_at': price_data.get('pool_created_at', 1768435200)
+            'pool_created_at': price_data.get('pool_created_at', 1735689600)
         }), 200
 
     except Exception as e:
