@@ -374,6 +374,8 @@ def init_user(telegram_id, ref_id=None, first_name="لاعب"):
                 'ref_by': clean_ref,
                 'referrals_count': 0,
                 'created_at': firestore.SERVER_TIMESTAMP,
+                'last_active_at': firestore.SERVER_TIMESTAMP,
+                'interactions': 1,
                 'last_withdraw_date': None,
                 'withdraw_count': 0,
                 'is_banned': False,
@@ -433,6 +435,28 @@ def update_user(telegram_id, updates_dict):
         return True
     except Exception as e:
         print(f"❌ خطأ تحديث مستند المستخدم {user_id_str}: {e}")
+        return False
+
+
+def update_user_last_active(user_id):
+    """
+    تحديث وقت آخر نشاط للمستخدم (last_active_at) وزيادة عدد التفاعلات (interactions)
+    تُستدعى تلقائياً عند قيام المستخدم بالـ Ping أو فتح تطبيق الويب.
+    """
+    user_id_str = _sanitize_telegram_id(user_id)
+    if not user_id_str:
+        return False
+
+    try:
+        firestore_db = get_db()
+        doc_ref = firestore_db.collection('users').document(user_id_str)
+        doc_ref.set({
+            'last_active_at': firestore.SERVER_TIMESTAMP,
+            'interactions': firestore.Increment(1)
+        }, merge=True)
+        return True
+    except Exception as e:
+        print(f"❌ خطأ في تحديث نشاط المستخدم {user_id_str}: {e}")
         return False
 
 
