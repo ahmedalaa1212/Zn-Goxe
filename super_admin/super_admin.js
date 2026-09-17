@@ -209,13 +209,31 @@ async function loadGlobalAnalytics() {
     }
 }
 
-// 🏆 دالة جلب وقائمة أكثر المستخدمين تفاعلاً
+// 🏆 دالة جلب قائمة أكثر المستخدمين تفاعلاً مع دعم الفلترة الزمنية
 async function loadTopActiveUsers() {
     const listElem = document.getElementById('topActiveUsersList');
     if (!listElem) return;
 
+    // قراءة قيم مدخلات التواريخ للفلترة
+    const startDateInput = document.getElementById('topActiveStartDate');
+    const endDateInput = document.getElementById('topActiveEndDate');
+    
+    const startDate = startDateInput ? startDateInput.value.trim() : '';
+    const endDate = endDateInput ? endDateInput.value.trim() : '';
+
+    // بناء الرابط مع الـ Query Parameters إن وجدت
+    let endpoint = '/api/super-admin/analytics';
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    
+    const queryString = params.toString();
+    if (queryString) {
+        endpoint += `?${queryString}`;
+    }
+
     try {
-        const response = await requestApi('/api/super-admin/analytics', {
+        const response = await requestApi(endpoint, {
             method: 'GET'
         });
         const data = await response.json();
@@ -223,12 +241,23 @@ async function loadTopActiveUsers() {
         if (data.success && topUsers) {
             renderTopActiveUsersList(topUsers);
         } else {
-            listElem.innerHTML = '<p class="empty-msg">لا توجد بيانات متاحة حالياً.</p>';
+            listElem.innerHTML = '<p class="empty-msg">لا توجد بيانات متاحة حالياً للفترة المحددة.</p>';
         }
     } catch (err) {
         console.error("Failed to load top active users:", err);
         listElem.innerHTML = '<p class="empty-msg">تعذر تحميل قائمة الأكثر نشاطاً.</p>';
     }
+}
+
+// 🔄 دالة إعادة ضبط الفلتر الزمني لقائمة الأكثر نشاطاً
+function resetTopActiveFilter() {
+    const startDateInput = document.getElementById('topActiveStartDate');
+    const endDateInput = document.getElementById('topActiveEndDate');
+    
+    if (startDateInput) startDateInput.value = '';
+    if (endDateInput) endDateInput.value = '';
+    
+    loadTopActiveUsers();
 }
 
 // 🎨 دالة عرض أكثر المستخدمين تفاعلاً ونشاطاً
@@ -601,6 +630,7 @@ window.sendAdminMessage = sendAdminMessage;
 window.fetchBroadcastStats = fetchBroadcastStats;
 window.loadGlobalAnalytics = loadGlobalAnalytics;
 window.loadTopActiveUsers = loadTopActiveUsers;
+window.resetTopActiveFilter = resetTopActiveFilter;
 window.renderTopActiveUsersList = renderTopActiveUsersList;
 window.addNewModerator = addNewModerator;
 window.loadModerators = loadModerators;
