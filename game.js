@@ -498,6 +498,34 @@ window.fetchAPI = async function(endpoint, method = 'GET', bodyData = null) {
 };
 
 // ==========================================
+// 2.1. دالة إرسال إشارة النشاط اليومي (Ping)
+// ==========================================
+async function sendUserPing() {
+    try {
+        const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+        const userId = tgUser?.id || window.userState?.tg_id || localStorage.getItem('user_id');
+
+        if (!userId) return;
+
+        if (typeof window.fetchAPI === 'function') {
+            await window.fetchAPI('/api/ping', 'POST', { user_id: userId });
+        } else {
+            await fetch('/api/ping', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': window.Telegram?.WebApp?.initData || ''
+                },
+                body: JSON.stringify({ user_id: userId })
+            });
+        }
+    } catch (error) {
+        console.error("Failed to send activity ping:", error);
+    }
+}
+window.sendUserPing = sendUserPing;
+
+// ==========================================
 // 3. جلب سعر TON المباشر وتحديث الباقات
 // ==========================================
 window.fetchTonPrice = async function() {
@@ -1305,6 +1333,9 @@ window.switchView = async function(viewName) {
 // ==========================================
 document.addEventListener('DOMContentLoaded', async () => {
     hideLoadingScreen();
+
+    // إرسال إشارة النشاط اليومي مباشرة فور تحميل الصفحة
+    sendUserPing();
 
     // تهيئة بصمة الجهاز ومعرف الجهاز مبكراً
     try {
