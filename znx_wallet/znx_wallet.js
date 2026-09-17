@@ -101,10 +101,37 @@ async function fetchRealZnxPrice() {
             }
         }
     } catch (err) {
-        console.warn("جاري محاولة الجلب المباشر من مجمع STON.fi...");
+        console.warn("جاري محاولة الجلب المباشر من DexScreener...");
     }
 
-    // 2. الجلب المباشر من مجمع STON.fi واحتساب السعر المباشر (USDT / ZNX)
+    // 2. الجلب المباشر عبر DexScreener (متوافق كاملاً مع CORS ومتصفح التليجرام)
+    try {
+        const dexRes = await fetch(`https://api.dexscreener.com/latest/dex/pairs/ton/${ZNX_POOL_ADDRESS}`);
+        if (dexRes.ok) {
+            const dexData = await dexRes.json();
+            const pair = dexData.pair || (dexData.pairs && dexData.pairs[0]);
+            if (pair && pair.priceUsd) {
+                const livePrice = parseFloat(pair.priceUsd);
+                if (livePrice > 0) {
+                    if (pair.pairCreatedAt) {
+                        window.ZNX_POOL_CREATED_AT = Math.floor(pair.pairCreatedAt / 1000);
+                    }
+                    setTargetPrice(livePrice);
+                    updateMarketStatsUI({
+                        price: livePrice,
+                        change_24h: pair.priceChange?.h24 ? parseFloat(pair.priceChange.h24) : 0,
+                        high_24h: livePrice * 1.02,
+                        low_24h: livePrice * 0.98
+                    });
+                    return;
+                }
+            }
+        }
+    } catch (e) {
+        console.warn("تعذر الجلب المباشر من DexScreener.");
+    }
+
+    // 3. الجلب المباشر من مجمع STON.fi
     try {
         const poolRes = await fetch(`https://api.ston.fi/v1/pools/${ZNX_POOL_ADDRESS}`);
         if (poolRes.ok) {
@@ -112,14 +139,13 @@ async function fetchRealZnxPrice() {
             const pool = poolData.pool || poolData;
             
             const isToken0Znx = pool.token0_address === ZNX_TOKEN_CONTRACT;
-            const rawZnxReserve = parseFloat(isToken0Znx ? pool.reserve0 : pool.reserve1) || 0;
-            const rawUsdtReserve = parseFloat(isToken0Znx ? pool.reserve1 : pool.reserve0) || 0;
+            const rawZnxReserve = parseFloat(isToken0Znx ? (pool.reserve0 || pool.token0_balance) : (pool.reserve1 || pool.token1_balance)) || 0;
+            const rawUsdtReserve = parseFloat(isToken0Znx ? (pool.reserve1 || pool.token1_balance) : (pool.reserve0 || pool.token0_balance)) || 0;
             
             if (rawZnxReserve > 0 && rawUsdtReserve > 0) {
                 let znxAmount = rawZnxReserve;
                 let usdtAmount = rawUsdtReserve;
 
-                // تحويل الوحدات الصغرى (Nano Units): ZNX = 9 decimals, USDT = 6 decimals
                 if (rawZnxReserve > 1e6 && rawUsdtReserve > 1e3) {
                     znxAmount = rawZnxReserve / 1e9;
                     usdtAmount = rawUsdtReserve / 1e6;
@@ -143,7 +169,7 @@ async function fetchRealZnxPrice() {
         console.warn("تعذر الوصول لبيانات مجمع STON.fi المباشرة.");
     }
 
-    // 3. Fallback عبر STON.fi Asset API
+    // 4. Fallback عبر STON.fi Asset API
     try {
         const dexRes = await fetch(`https://api.ston.fi/v1/assets/${ZNX_TOKEN_CONTRACT}`);
         if (dexRes.ok) {
@@ -247,7 +273,7 @@ function startLivePriceEngine() {
     fetchRealZnxPrice();
 
     if (priceFetchTimer) clearInterval(priceFetchTimer);
-    priceFetchTimer = setInterval(fetchRealZnxPrice, 1500); // تحديث السعر كل 1.5 ثانية لجلب التغير اللحظي الحقيقي
+    priceFetchTimer = setInterval(fetchRealZnxPrice, 2500); // جلب آمن كل 2.5 ثانية لمنع الحظر
 
     if (smoothLoopTimer) clearInterval(smoothLoopTimer);
     smoothLoopTimer = setInterval(updateSmoothTick, 50);
@@ -440,7 +466,7 @@ function applyCandlesToChart(candles) {
 }
 
 function generateAccurateTimeboundCandles(tf) {
-    const tfSec = getTimeframeSeconds(tf); // 300 seconds (5m)
+    const tfSec = getTimeframeSeconds(tf);
     const nowSec = Math.floor(Date.now() / 1000);
     const currentPeriodStart = Math.floor(nowSec / tfSec) * tfSec;
 
@@ -474,7 +500,6 @@ function generateAccurateTimeboundCandles(tf) {
 function updateChartTick(price) {
     if (!candleSeries) return;
 
-    // حساب بداية الإطار الزمني الحالي بناءً على مضاعفات 300 ثانية (إطار الـ 5 دقائق)
     const tfSec = getTimeframeSeconds(currentTimeframe);
     const nowSec = Math.floor(Date.now() / 1000);
     const candlePeriodStart = Math.floor(nowSec / tfSec) * tfSec;
