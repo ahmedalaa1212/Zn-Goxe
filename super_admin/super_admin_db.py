@@ -725,9 +725,9 @@ def get_admin_logs(limit=50):
         return []
 
 
-# 📊 دالة التحليلات العامة المحدثة بحجم محدد لمنع Timeout مع قراءة حقول Zn Goxe المباشرة
-def get_system_global_analytics(limit=500):
-    """تحليلات النظام الكلية مع تقييد الحجم لحماية الاستجابة وقراءة حقول التعدين والضغط والنشاط المباشرة"""
+# 📊 دالة التحليلات العامة المحدثة مع دعم الفلترة الزمنية والنشاط اليومي المتجدد
+def get_system_global_analytics(limit=500, start_date=None, end_date=None):
+    """تحليلات النظام الكلية مع تقييد الحجم ودعم المدى الزمني والاحتساب التلقائي للنشاط اليومي"""
     try:
         db = database.get_db()
         if not db:
@@ -746,16 +746,29 @@ def get_system_global_analytics(limit=500):
         banned_ids_set = {str(bu.get("telegram_id")).strip() for bu in banned_list if bu.get("telegram_id")}
         banned_users_count = len(banned_ids_set)
 
-        # 2. استعلام محدد الحجم لمنع انتهاء وقت الاتصال (Timeout)
+        # 2. احتساب بداية اليوم الحالي (ساعة 00:00:00 بتوقيت السيرفر) لتصفير وتجديد عداد النشاط اليومي تلقائياً
+        now_dt = datetime.now()
+        start_of_today_dt = now_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_of_today_ts = start_of_today_dt.timestamp()
+
+        # 3. تحويل التاريخين (start_date و end_date) إلى Timestamp عند توفرهما للفلترة الزمنية
+        filter_start_ts = None
+        filter_end_ts = None
+
+        if start_date:
+            date_str = str(start_date).strip()
+            filter_start_ts = _parse_to_timestamp(f"{date_str} 00:00:00") if len(date_str) == 10 else _parse_to_timestamp(date_str)
+        if end_date:
+            date_str = str(end_date).strip()
+            filter_end_ts = _parse_to_timestamp(f"{date_str} 23:59:59") if len(date_str) == 10 else _parse_to_timestamp(date_str)
+
+        # 4. استعلام محدد الحجم لمنع انتهاء وقت الاتصال (Timeout)
         users_docs = db.collection("users").limit(limit).stream()
 
         total_users = 0
         active_today_count = 0
         total_balance_zn = 0.0
         total_ad_balance = 0.0
-
-        now_ts = time.time()
-        one_day_seconds = 86400  # 24 ساعة
 
         user_activity_list = []
 
@@ -779,7 +792,7 @@ def get_system_global_analytics(limit=500):
                     d.get("status") == "banned"
                 )
 
-                # قراءة التفاعل والنشاط بما يغطي حقول Zn Goxe
+                # قراءة التفاعل والنشاط
                 last_active_raw = (
                     d.get("last_active_at") or
                     d.get("last_active") or 
@@ -789,15 +802,19 @@ def get_system_global_analytics(limit=500):
                     d.get("last_seen_at")
                 )
                 last_active_ts = _parse_to_timestamp(last_active_raw)
+                
+                # فحص النشاط اليومي المتجدد (إذا كان أحدث من أو يساوي منتصف ليل اليوم)
                 is_active_today = False
-
-                if last_active_ts is not None:
-                    diff = now_ts - last_active_ts
-                    if 0 <= diff <= one_day_seconds:
-                        is_active_today = True
-
-                if is_active_today:
+                if last_active_ts is not None and last_active_ts >= start_of_today_ts:
+                    is_active_today = True
                     active_today_count += 1
+
+                # التحقق من وقوع نشاط المستخدم داخل النطاق الزمني المحدد للفلتر (إن وجد)
+                in_time_range = True
+                if filter_start_ts is not None and (last_active_ts is None or last_active_ts < filter_start_ts):
+                    in_time_range = False
+                if filter_end_ts is not None and (last_active_ts is None or last_active_ts > filter_end_ts):
+                    in_time_range = False
 
                 # قراءة حقول التعدين والضغط والمهام للتطبيق
                 tap_cnt = _safe_int(d.get("tap_count")) or _safe_int(d.get("taps")) or _safe_int(d.get("clicks")) or _safe_int(d.get("total_clicks"))
@@ -819,17 +836,19 @@ def get_system_global_analytics(limit=500):
 
                 last_active_disp = d.get("last_active_str") or d.get("last_seen_str") or ("نشط اليوم" if is_active_today else "سابقاً")
 
-                user_activity_list.append({
-                    "telegram_id": tg_id_str,
-                    "user_id": tg_id_str,
-                    "name": name,
-                    "username": username,
-                    "interactions": interactions,
-                    "activity_count": interactions,
-                    "balance": round(bal, 2),
-                    "is_banned": is_banned,
-                    "last_active": last_active_disp
-                })
+                # إدراج المستخدم في قائمة الأكثر نشاطاً إذا كان يطابق الفلتر الزمني
+                if in_time_range:
+                    user_activity_list.append({
+                        "telegram_id": tg_id_str,
+                        "user_id": tg_id_str,
+                        "name": name,
+                        "username": username,
+                        "interactions": interactions,
+                        "activity_count": interactions,
+                        "balance": round(bal, 2),
+                        "is_banned": is_banned,
+                        "last_active": last_active_disp
+                    })
             except Exception as doc_e:
                 print(f"⚠️ Error processing user doc {u.id}: {doc_e}")
                 continue
