@@ -6,15 +6,30 @@ import threading
 import requests
 import re
 import socket
+from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, jsonify
 import telebot
+from telebot import apihelper
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+
+# ==========================================
+# 0. تحسين أداء الشبكة وتسريع الاستجابة (HTTP Keep-Alive & Connection Pooling)
+# ==========================================
+apihelper.SESSION_TIME_TO_LIVE = 5 * 60
+apihelper.CONNECT_TIMEOUT = 3.5
+apihelper.READ_TIMEOUT = 10
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 import database
+
+# استيراد مسبق للوحدات الثقيلة لمنع البطء أثناء معالجة الطلبات
+try:
+    from wallet.withdraw.withdraw_api import execute_admin_decision
+except Exception:
+    execute_admin_decision = None
 
 # ==========================================
 # 1. إعداد خادم Web خفيف لإبقاء Railway نشطاً (Online)
@@ -39,7 +54,11 @@ if not BOT_TOKEN:
     print("❌ خطأ قاتل: لم يتم العثور على ADMIN_BOT_TOKEN في متغيرات البيئة!")
     sys.exit(1)
 
-bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=16)
+# رفع عدد خيوط المعالجة إلى 32 لتفادي الانتظار أثناء ضغط الطلبات
+bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=32)
+
+# executor مخصص للمهام الخلفية السريعة دون تعطيل مسار البوت الرئيسي
+_executor = ThreadPoolExecutor(max_workers=20, thread_name_prefix="async_admin_worker")
 
 # قفل آمن وتتبع المعاملات والسجل المؤقت للصلاحيات
 _bot_lock = threading.Lock()
@@ -47,12 +66,13 @@ _bot_started = False
 _active_tx_lock = threading.Lock()
 _active_transactions = set()
 
-# ذاكرة مؤقتة لصلاحيات المشرفين لتسريع الاستجابة كسرعة البرق (TTL = 120 ثانية)
+# ذاكرة مؤقتة لصلاحيات المشرفين آمنة برمجياً لتسريع الاستجابة (TTL = 120 ثانية)
 _AUTH_CACHE = {}
+_AUTH_CACHE_LOCK = threading.Lock()
 _AUTH_CACHE_TTL = 120
 
 def is_user_authorized(user_id):
-    """فحص أمني سريع جداً مع كاش مؤقت لتفادي بطء الاستعلامات"""
+    """فحص أمني سريع جداً مع كاش مؤقت خيطي لتفادي بطء الاستعلامات"""
     if not user_id:
         return False
     user_id_str = str(user_id).strip()
@@ -61,15 +81,17 @@ def is_user_authorized(user_id):
         return True
         
     now = time.time()
-    if user_id_str in _AUTH_CACHE:
-        cached_auth, cached_time = _AUTH_CACHE[user_id_str]
-        if now - cached_time < _AUTH_CACHE_TTL:
-            return cached_auth
+    with _AUTH_CACHE_LOCK:
+        if user_id_str in _AUTH_CACHE:
+            cached_auth, cached_time = _AUTH_CACHE[user_id_str]
+            if now - cached_time < _AUTH_CACHE_TTL:
+                return cached_auth
 
     try:
         if hasattr(database, 'is_admin_or_mod'):
             auth = bool(database.is_admin_or_mod(user_id_str))
-            _AUTH_CACHE[user_id_str] = (auth, now)
+            with _AUTH_CACHE_LOCK:
+                _AUTH_CACHE[user_id_str] = (auth, now)
             return auth
     except Exception as e:
         print(f"⚠️ Error checking moderator status: {e}")
@@ -119,10 +141,23 @@ def make_copy_text_button(text, copy_value):
     call.data.startswith('copy_addr_')
 ))
 def handle_withdraw_decisions(call):
-    user_id = call.from_user.id
-    cb_data = call.data
+    cb_data = call.data or ""
 
-    # 1. فحص الصلاحيات بسرعة البرق
+    # 1. معالجة زر النسخ فوراً في أجزاء من المليثانية
+    if cb_data.startswith("copy_addr_"):
+        addr_part = cb_data.replace("copy_addr_", "").strip()
+        if not addr_part or len(addr_part) < 20:
+            match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', call.message.text or call.message.caption or "")
+            addr_part = match.group(0) if match else "غير متوفر"
+
+        try:
+            bot.answer_callback_query(call.id, f"📋 عنوان المحفظة:\n{addr_part}", show_alert=True)
+        except Exception:
+            pass
+        return
+
+    # 2. فحص الصلاحيات بسرعة البرق من الكاش
+    user_id = call.from_user.id
     if not is_user_authorized(user_id):
         try:
             bot.answer_callback_query(call.id, "⛔ ليس لديك صلاحية لاتخاذ هذا القرار!", show_alert=True)
@@ -130,33 +165,10 @@ def handle_withdraw_decisions(call):
             pass
         return
 
-    # 2. معالجة زر نسخ المحفظة فوراً وبدون أي استعلامات بطيئة
-    if cb_data.startswith("copy_addr_"):
-        addr_part = cb_data.replace("copy_addr_", "").strip()
-        wallet_addr = addr_part if len(addr_part) >= 30 else None
-
-        if not wallet_addr:
-            match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', call.message.text or call.message.caption or "")
-            if match:
-                wallet_addr = match.group(0)
-
-        if wallet_addr:
-            try:
-                bot.answer_callback_query(call.id, f"📋 عنوان المحفظة:\n{wallet_addr}", show_alert=True)
-            except Exception:
-                pass
-        else:
-            try:
-                bot.answer_callback_query(call.id, "❌ لم يتم العثور على عنوان المحفظة!", show_alert=True)
-            except Exception:
-                pass
-        return
-
-    # 3. قرارات القبول والرفض
+    # 3. استخراج البيانات وحماية القفل المزدوج
     action = "approve" if cb_data.startswith("approve_tx_") else "reject"
     tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
 
-    # حماية من المعالجة المزدوجة بنفس الوقت
     with _active_tx_lock:
         if tx_id in _active_transactions:
             try:
@@ -166,28 +178,36 @@ def handle_withdraw_decisions(call):
             return
         _active_transactions.add(tx_id)
 
-    # إجابة فورية لتأكيد الضغط فوراً وتفريغ الزر
+    # 4. إجابة تلجرام فوراً قبل أي عملية ذات استهلاك زمني لإلغاء دائرة التحميل مباشرة
     action_text = "القبول 🟢" if action == "approve" else "الرفض 🔴"
     try:
         bot.answer_callback_query(call.id, f"⚡ جاري تنفيذ قرار {action_text}...")
     except Exception:
         pass
 
-    # تنفيذ العملية في خيط خلفي مستقل
-    threading.Thread(
-        target=_async_handle_withdraw_process,
-        args=(call.message.chat.id, call.message.message_id, call.message.text or call.message.caption or "", tx_id, action, user_id),
-        daemon=True
-    ).start()
+    # 5. تحويل عملية المعالجة إلى خيط خلفي مستقل عبر Executor المخصص
+    _executor.submit(
+        _async_handle_withdraw_process,
+        call.message.chat.id,
+        call.message.message_id,
+        call.message.text or call.message.caption or "",
+        tx_id,
+        action,
+        user_id
+    )
 
 def _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action, admin_id):
     """دالة المعالجة الخلفية لتحديث السجلات واستدعاء backend"""
+    global execute_admin_decision
     try:
         clean_text = re.split(r'\n\n(?:النتيجة|⚠️|⏳)', orig_text)[0].strip()
         status_text = clean_text + "\n\n⏳ <b>جاري تحديث السجلات وتوثيق الطلب...</b>"
         safe_edit_message(chat_id, message_id, status_text, reply_markup=None)
 
-        from wallet.withdraw.withdraw_api import execute_admin_decision
+        if execute_admin_decision is None:
+            from wallet.withdraw.withdraw_api import execute_admin_decision as exec_fn
+            execute_admin_decision = exec_fn
+
         success, result_msg = execute_admin_decision(tx_id, action, admin_id=admin_id)
 
         safe_msg = html.escape(str(result_msg))
