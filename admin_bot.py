@@ -4,6 +4,8 @@ import time
 import html
 import threading
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import re
 import socket
 from concurrent.futures import ThreadPoolExecutor
@@ -13,8 +15,17 @@ from telebot import apihelper
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 # ==========================================
-# 0. تحسين أداء الشبكة وتسريع الاتصال (HTTP Keep-Alive & Connection Pooling)
+# 0. حل مشكلة اختناق الشبكة (High-Concurrency HTTP Connection Pool)
 # ==========================================
+# إنشاء جلسة HTTP فائقة السرعة تتحمل حتى 100 اتصال متزامن لتفادي Deadlock الأزرار
+http_session = requests.Session()
+retries = Retry(total=3, backoff_factor=0.2, status_forcelist=[500, 502, 503, 504])
+adapter = HTTPAdapter(pool_connections=100, pool_maxsize=100, max_retries=retries)
+http_session.mount("https://", adapter)
+http_session.mount("http://", adapter)
+
+# إجبار Telebot على استخدام جلسة الاتصال الموسعة
+apihelper.CUSTOM_REQUEST_SENDER = http_session.request
 apihelper.SESSION_TIME_TO_LIVE = 5 * 60
 apihelper.CONNECT_TIMEOUT = 3.5
 apihelper.READ_TIMEOUT = 10
@@ -57,7 +68,7 @@ if not BOT_TOKEN:
 # رفع عدد خيوط الاستجابة للطلبات المتزامنة
 bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=32)
 
-# executor مخصص للمهام الخلفية السريعة
+# executor مخصص للمهام الخلفية السريعة بسعة 30 خيط
 _executor = ThreadPoolExecutor(max_workers=30, thread_name_prefix="async_admin_worker")
 
 # قفل آمن وتتبع المعاملات والسجل المؤقت للصلاحيات
@@ -141,13 +152,13 @@ def make_copy_text_button(text, copy_value):
     call.data.startswith('copy_addr_')
 ))
 def handle_withdraw_decisions(call):
-    # 🔥 السطر الأول والخطوة الأهم: إجابة تلجرام فوراً لإلغاء دائرة التحميل في أجزاء من المليثانية!
+    # 🔥 إلغاء دائرة التحميل فوراً عند ضغط الزر من قِبل المستخدم في أقل من 10 ملي ثانية
     try:
         bot.answer_callback_query(call.id)
     except Exception:
         pass
 
-    # تحويل كافة العمليات الأخرى (فحص داتابيز + قفل + تنفيذ) إلى خيط خلفي مستقل فوراً
+    # تحويل كافة العمليات الأخرى (فحص داتابيز + قفل + تنفيذ) إلى خيط خلفي مستقل
     _executor.submit(_process_callback_async, call)
 
 def _process_callback_async(call):
@@ -324,7 +335,7 @@ def acquire_polling_lock():
         return None
 
 def run_bot_worker():
-    """تشغيل الاستماع لرسائل تلجرام مع تفادي التعارض"""
+    """تشغيل استماع فائق الثبات ومقاوم للانقطاعات الصامتة على Railway"""
     lock = acquire_polling_lock()
     if lock is None:
         return
@@ -335,10 +346,17 @@ def run_bot_worker():
         
     while True:
         try:
-            bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)
+            # تنظيف أي استماع قديم معلق قبل بدء الدورة الجديدة
+            try:
+                bot.stop_polling()
+            except Exception:
+                pass
+            
+            # تشغيل الاستماع مع إعادة اتصال تلقائي ذكي
+            bot.polling(non_stop=True, interval=0, timeout=15, long_polling_timeout=15)
         except Exception as e:
             print(f"❌ Error in Telegram Bot Polling: {e}")
-            time.sleep(3)
+            time.sleep(2)
 
 # ==========================================
 # 4. تشغيل البوت
