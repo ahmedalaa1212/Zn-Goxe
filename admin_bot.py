@@ -4,28 +4,16 @@ import time
 import html
 import threading
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 import re
-import socket
 from concurrent.futures import ThreadPoolExecutor
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 import telebot
 from telebot import apihelper
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 # ==========================================
-# 0. حل مشكلة اختناق الشبكة (High-Concurrency HTTP Connection Pool)
+# 0. تحسين أداء الشبكة وتسريع الاتصال
 # ==========================================
-# إنشاء جلسة HTTP فائقة السرعة تتحمل حتى 100 اتصال متزامن لتفادي Deadlock الأزرار
-http_session = requests.Session()
-retries = Retry(total=3, backoff_factor=0.2, status_forcelist=[500, 502, 503, 504])
-adapter = HTTPAdapter(pool_connections=100, pool_maxsize=100, max_retries=retries)
-http_session.mount("https://", adapter)
-http_session.mount("http://", adapter)
-
-# إجبار Telebot على استخدام جلسة الاتصال الموسعة
-apihelper.CUSTOM_REQUEST_SENDER = http_session.request
 apihelper.SESSION_TIME_TO_LIVE = 5 * 60
 apihelper.CONNECT_TIMEOUT = 3.5
 apihelper.READ_TIMEOUT = 10
@@ -43,41 +31,29 @@ except Exception:
     execute_admin_decision = None
 
 # ==========================================
-# 1. إعداد خادم Web خفيف لإبقاء Railway نشطاً (Online)
-# ==========================================
-app = Flask(__name__)
-
-@app.route('/')
-@app.route('/health')
-def health_check():
-    return jsonify({"status": "online", "bot": "Bot admin ZN Goxe"}), 200
-
-# ==========================================
-# 2. جلب متغيرات البيئة وإعداد البوت
+# 1. جلب متغيرات البيئة وإعداد البوت
 # ==========================================
 BOT_TOKEN = os.environ.get("ADMIN_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
 ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551").strip()
 
 BASE_URL = os.environ.get("WEB_URL", "https://admin-zn-production.up.railway.app").strip().rstrip('/')
 ADMIN_WEBAPP_URL = BASE_URL if BASE_URL.endswith('/admin') else f"{BASE_URL}/admin"
+WEBHOOK_URL = f"{BASE_URL}/webhook"
 
 if not BOT_TOKEN:
     print("❌ خطأ قاتل: لم يتم العثور على ADMIN_BOT_TOKEN في متغيرات البيئة!")
     sys.exit(1)
 
-# رفع عدد خيوط الاستجابة للطلبات المتزامنة
+# إعداد البوت مع 32 خيط معالجة
 bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=32)
 
-# executor مخصص للمهام الخلفية السريعة بسعة 30 خيط
+# executor مخصص للمهام الخلفية السريعة
 _executor = ThreadPoolExecutor(max_workers=30, thread_name_prefix="async_admin_worker")
 
-# قفل آمن وتتبع المعاملات والسجل المؤقت للصلاحيات
-_bot_lock = threading.Lock()
-_bot_started = False
+# أقفال وتتبع المعاملات والسجل المؤقت للصلاحيات
 _active_tx_lock = threading.Lock()
 _active_transactions = set()
 
-# ذاكرة مؤقتة لصلاحيات المشرفين آمنة برمجياً
 _AUTH_CACHE = {}
 _AUTH_CACHE_LOCK = threading.Lock()
 _AUTH_CACHE_TTL = 120
@@ -144,7 +120,28 @@ def make_copy_text_button(text, copy_value):
         return InlineKeyboardButton(text, callback_data=f"copy_addr_{copy_value}")
 
 # ==========================================
-# 3. معالجة الأزرار التفاعلية (استجابة فورية فائقة السرعة بدون تهنيج)
+# 2. إعداد خادم Web ومسار Webhook الاستقبال الفوري
+# ==========================================
+app = Flask(__name__)
+
+@app.route('/')
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "online", "bot": "Bot admin ZN Goxe", "mode": "webhook"}), 200
+
+@app.route('/webhook', methods=['POST'])
+def telegram_webhook():
+    """استقبال تحديثات تلجرام فوراً عبر Webhook وتحويلها للبوت"""
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return '', 200
+    else:
+        return jsonify({"error": "Bad Request"}), 400
+
+# ==========================================
+# 3. معالجة الأزرار التفاعلية (استجابة فورية بدون تهنيج)
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data and (
     call.data.startswith('approve_tx_') or 
@@ -152,17 +149,17 @@ def make_copy_text_button(text, copy_value):
     call.data.startswith('copy_addr_')
 ))
 def handle_withdraw_decisions(call):
-    # 🔥 إلغاء دائرة التحميل فوراً عند ضغط الزر من قِبل المستخدم في أقل من 10 ملي ثانية
+    # إجابة تلجرام فوراً لإلغاء دائرة التحميل المعلقة
     try:
         bot.answer_callback_query(call.id)
     except Exception:
         pass
 
-    # تحويل كافة العمليات الأخرى (فحص داتابيز + قفل + تنفيذ) إلى خيط خلفي مستقل
+    # نقل جميع العمليات والتحققات للخلفية فوراً
     _executor.submit(_process_callback_async, call)
 
 def _process_callback_async(call):
-    """معالجة كافة الفحوصات والقرارات في الخلفية دون تعطيل واجهة تلجرام"""
+    """معالجة كافة الفحوصات والقرارات في الخلفية"""
     cb_data = call.data or ""
     user_id = call.from_user.id
     chat_id = call.message.chat.id
@@ -181,7 +178,7 @@ def _process_callback_async(call):
             pass
         return
 
-    # 2. فحص الصلاحيات من الكاش أو الداتابيز
+    # 2. فحص الصلاحيات
     if not is_user_authorized(user_id):
         try:
             bot.send_message(chat_id, "⛔ <b>عذراً:</b> ليس لديك صلاحية لاتخاذ هذا القرار!", parse_mode="HTML")
@@ -198,7 +195,7 @@ def _process_callback_async(call):
             return
         _active_transactions.add(tx_id)
 
-    # 4. تنفيذ العملية وتحديث حالة الرسالة
+    # 4. تنفيذ العملية وتحديث الرسالة
     _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action, user_id)
 
 def _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action, admin_id):
@@ -269,7 +266,7 @@ def send_welcome(message):
             f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"أهلاً بك يا <b>{html.escape(first_name)}</b> 👋\n"
             f"الرتبة: {role_label}\n"
-            f"حالة الاتصال: 🟢 <b>نشط ومؤمن بالكامل</b>\n\n"
+            f"حالة الاتصال: 🟢 <b>نشط ومؤمن بالكامل (Webhook Mode)</b>\n\n"
             f"✨ <b>تم التحقق من صلاحياتك الأمنية بنجاح!</b>\n"
             f"يمكنك الآن التحكم بجميع إعدادات الألعاب، العمولات، الأرباح والمشرفين عبر فتح لوحة التحكم المرفقة."
         )
@@ -315,64 +312,23 @@ def handle_all_messages(message):
     except Exception as e:
         print(f"❌ Error handling message: {e}")
 
-def force_delete_webhook():
-    """حذف أي Webhook معلق فوراً عبر HTTP المباشر"""
+def setup_webhook():
+    """حذف Webhook القديم وتفعيل الرابط الجديد تلقائياً عند الإقلاع"""
     try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true"
-        res = requests.get(url, timeout=10)
-        print(f"🔄 Webhook cleanup response: {res.json()}")
+        bot.remove_webhook()
+        time.sleep(1)
+        res = bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
+        if res:
+            print(f"✅ [Webhook] Successfully set Webhook to: {WEBHOOK_URL}")
+        else:
+            print("❌ [Webhook] Failed to set Webhook.")
     except Exception as e:
-        print(f"⚠️ Error resetting webhook: {e}")
-
-def acquire_polling_lock():
-    """قفل لضمان عدم تكرار عملية Polling في أكثر من Worker"""
-    try:
-        lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        lock_socket.bind(('127.0.0.1', 47823))
-        return lock_socket
-    except socket.error:
-        print("⚠️ [Bot Worker] عملية Polling تعمل بالفعل في Worker آخر.")
-        return None
-
-def run_bot_worker():
-    """تشغيل استماع فائق الثبات ومقاوم للانقطاعات الصامتة على Railway"""
-    lock = acquire_polling_lock()
-    if lock is None:
-        return
-
-    print("🚀 [Bot Worker] جارٍ إزالة الـ Webhook القديم وبدء الاستماع الفائق...")
-    force_delete_webhook()
-    time.sleep(1)
-        
-    while True:
-        try:
-            # تنظيف أي استماع قديم معلق قبل بدء الدورة الجديدة
-            try:
-                bot.stop_polling()
-            except Exception:
-                pass
-            
-            # تشغيل الاستماع مع إعادة اتصال تلقائي ذكي
-            bot.polling(non_stop=True, interval=0, timeout=15, long_polling_timeout=15)
-        except Exception as e:
-            print(f"❌ Error in Telegram Bot Polling: {e}")
-            time.sleep(2)
+        print(f"⚠️ [Webhook] Error setting webhook: {e}")
 
 # ==========================================
-# 4. تشغيل البوت
+# 4. تشغيل السيرفر وتفعيل Webhook
 # ==========================================
-def start_bot_once():
-    """تضمن تشغيل خيط Polling واحد فقط"""
-    global _bot_started
-    with _bot_lock:
-        if _bot_started:
-            return
-        _bot_started = True
-
-    bot_thread = threading.Thread(target=run_bot_worker, daemon=True)
-    bot_thread.start()
-
-start_bot_once()
+setup_webhook()
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))
