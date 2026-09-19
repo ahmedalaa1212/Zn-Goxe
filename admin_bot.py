@@ -80,7 +80,7 @@ def is_user_authorized(user_id):
     return False
 
 def safe_edit_message(chat_id, message_id, text, reply_markup=None):
-    """تحديث نص الرسالة بآمان"""
+    """تحديث نص الرسالة بآمان وتجنب أخطاء HTML Parsing"""
     try:
         return bot.edit_message_text(
             chat_id=chat_id,
@@ -148,7 +148,7 @@ def manual_set_webhook():
         
         bot.remove_webhook()
         time.sleep(1)
-        res = bot.set_webhook(url=target_webhook, drop_pending_updates=True)
+        res = bot.set_webhook(url=target_webhook, drop_pending_updates=False)
         return jsonify({
             "success": bool(res),
             "webhook_url": target_webhook,
@@ -158,7 +158,7 @@ def manual_set_webhook():
         return jsonify({"success": False, "error": str(e)}), 500
 
 # ==========================================
-# 3. معالجة الأزرار والرسائل
+# 3. معالجة الأزرار والرسائل (مخصصة للقنوات والمجموعات)
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data and (
     call.data.startswith('approve_tx_') or 
@@ -166,46 +166,66 @@ def manual_set_webhook():
     call.data.startswith('copy_addr_')
 ))
 def handle_withdraw_decisions(call):
-    try:
-        bot.answer_callback_query(call.id)
-    except Exception:
-        pass
+    # تمرير المعالجة للمصنع الخلفي فوراً
     _executor.submit(_process_callback_async, call)
 
 def _process_callback_async(call):
-    cb_data = call.data or ""
-    user_id = call.from_user.id
-    chat_id = call.message.chat.id
-    message_id = call.message.message_id
-    orig_text = call.message.text or call.message.caption or ""
+    try:
+        cb_data = call.data or ""
+        user_id = call.from_user.id
+        chat_id = call.message.chat.id if call.message else user_id
+        message_id = call.message.message_id if call.message else None
+        orig_text = (call.message.text or call.message.caption or "") if call.message else ""
 
-    if cb_data.startswith("copy_addr_"):
-        addr_part = cb_data.replace("copy_addr_", "").strip()
-        if not addr_part or len(addr_part) < 20:
-            match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', orig_text)
-            addr_part = match.group(0) if match else "غير متوفر"
-        try:
-            bot.send_message(chat_id, f"📋 <b>عنوان المحفظة للنسخ:</b>\n<code>{addr_part}</code>", parse_mode="HTML")
-        except Exception:
-            pass
-        return
-
-    if not is_user_authorized(user_id):
-        try:
-            bot.send_message(chat_id, "⛔ <b>عذراً:</b> ليس لديك صلاحية لاتخاذ هذا القرار!", parse_mode="HTML")
-        except Exception:
-            pass
-        return
-
-    action = "approve" if cb_data.startswith("approve_tx_") else "reject"
-    tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
-
-    with _active_tx_lock:
-        if tx_id in _active_transactions:
+        # 1. زر النسخ - إظهار العنوان في نافذة منبثقة (Alert) بدلاً من كتابة رسالة في القناة
+        if cb_data.startswith("copy_addr_"):
+            addr_part = cb_data.replace("copy_addr_", "").strip()
+            if not addr_part or len(addr_part) < 20:
+                match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', orig_text)
+                addr_part = match.group(0) if match else "غير متوفر"
+            
+            try:
+                bot.answer_callback_query(
+                    call.id, 
+                    text=f"📋 عنوان المحفظة:\n{addr_part}", 
+                    show_alert=True
+                )
+            except Exception:
+                pass
             return
-        _active_transactions.add(tx_id)
 
-    _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action, user_id)
+        # 2. فحص الصلاحيات للمشرفين
+        if not is_user_authorized(user_id):
+            try:
+                bot.answer_callback_query(
+                    call.id, 
+                    text="⛔ عذراً: ليس لديك صلاحية لاتخاذ هذا القرار!", 
+                    show_alert=True
+                )
+            except Exception:
+                pass
+            return
+
+        # إجابة التلجرام فوراً لإيقاف دائرة التحميل على الزر
+        try:
+            bot.answer_callback_query(call.id, text="⏳ جاري معالجة الطلب...")
+        except Exception:
+            pass
+
+        # 3. استخراج البيانات والتحقق من القفل المزدوج
+        action = "approve" if cb_data.startswith("approve_tx_") else "reject"
+        tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
+
+        with _active_tx_lock:
+            if tx_id in _active_transactions:
+                return
+            _active_transactions.add(tx_id)
+
+        if message_id:
+            _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action, user_id)
+
+    except Exception as e:
+        print(f"❌ Exception in _process_callback_async: {e}")
 
 def _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action, admin_id):
     global execute_admin_decision
@@ -320,23 +340,28 @@ def handle_all_messages(message):
         print(f"❌ Error handling message: {e}")
 
 # ==========================================
-# 4. إعداد الـ Webhook في الخلفية لمنع تأخير إقلاع السيرفر
+# 4. إعداد الـ Webhook الذكي (بدون حظر التلجرام)
 # ==========================================
 def init_webhook_bg():
-    """تفعيل الـ Webhook في خيط خلفي بعد تشغيل سيرفر Flask مباشرة"""
-    time.sleep(2)
+    """تفعيل الـ Webhook بأمان دون تكرار الطلبات لمنع الحظر"""
+    time.sleep(3)
     base_url = os.environ.get("WEB_URL", "https://admin-zn-production.up.railway.app").strip().rstrip('/')
     target_webhook = f"{base_url}/webhook"
     try:
-        print(f"🔄 Setting Telegram Webhook to: {target_webhook}")
-        bot.remove_webhook()
-        time.sleep(1)
-        res = bot.set_webhook(url=target_webhook, drop_pending_updates=True)
-        print(f"✅ Webhook setup result: {res}")
+        # الفحص أولاً لمنع إعادة الضبط المتكرر
+        webhook_info = bot.get_webhook_info()
+        if webhook_info.url != target_webhook:
+            print(f"🔄 Updating Telegram Webhook to: {target_webhook}")
+            bot.remove_webhook()
+            time.sleep(1)
+            res = bot.set_webhook(url=target_webhook, drop_pending_updates=False)
+            print(f"✅ Webhook setup result: {res}")
+        else:
+            print(f"✅ Webhook is already active and verified: {target_webhook}")
     except Exception as e:
         print(f"⚠️ Webhook setup error: {e}")
 
-# تشغيل عملية ربط الـ Webhook في خيط خلفي
+# تشغيل عملية الربط في الخلفية
 threading.Thread(target=init_webhook_bg, daemon=True).start()
 
 if __name__ == "__main__":
