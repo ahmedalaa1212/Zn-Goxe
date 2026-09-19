@@ -13,7 +13,7 @@ from telebot import apihelper
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 # ==========================================
-# 0. تحسين أداء الشبكة وتسريع الاستجابة (HTTP Keep-Alive & Connection Pooling)
+# 0. تحسين أداء الشبكة وتسريع الاتصال (HTTP Keep-Alive & Connection Pooling)
 # ==========================================
 apihelper.SESSION_TIME_TO_LIVE = 5 * 60
 apihelper.CONNECT_TIMEOUT = 3.5
@@ -25,7 +25,7 @@ if BASE_DIR not in sys.path:
 
 import database
 
-# استيراد مسبق للوحدات الثقيلة لمنع البطء أثناء معالجة الطلبات
+# استيراد مسبق للوحدات الثقيلة لمنع التأخير أثناء معالجة الطلبات
 try:
     from wallet.withdraw.withdraw_api import execute_admin_decision
 except Exception:
@@ -54,11 +54,11 @@ if not BOT_TOKEN:
     print("❌ خطأ قاتل: لم يتم العثور على ADMIN_BOT_TOKEN في متغيرات البيئة!")
     sys.exit(1)
 
-# رفع عدد خيوط المعالجة إلى 32 لتفادي الانتظار أثناء ضغط الطلبات
+# رفع عدد خيوط الاستجابة للطلبات المتزامنة
 bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=32)
 
-# executor مخصص للمهام الخلفية السريعة دون تعطيل مسار البوت الرئيسي
-_executor = ThreadPoolExecutor(max_workers=20, thread_name_prefix="async_admin_worker")
+# executor مخصص للمهام الخلفية السريعة
+_executor = ThreadPoolExecutor(max_workers=30, thread_name_prefix="async_admin_worker")
 
 # قفل آمن وتتبع المعاملات والسجل المؤقت للصلاحيات
 _bot_lock = threading.Lock()
@@ -66,13 +66,13 @@ _bot_started = False
 _active_tx_lock = threading.Lock()
 _active_transactions = set()
 
-# ذاكرة مؤقتة لصلاحيات المشرفين آمنة برمجياً لتسريع الاستجابة (TTL = 120 ثانية)
+# ذاكرة مؤقتة لصلاحيات المشرفين آمنة برمجياً
 _AUTH_CACHE = {}
 _AUTH_CACHE_LOCK = threading.Lock()
 _AUTH_CACHE_TTL = 120
 
 def is_user_authorized(user_id):
-    """فحص أمني سريع جداً مع كاش مؤقت خيطي لتفادي بطء الاستعلامات"""
+    """فحص أمني سريع مع كاش مؤقت خيطي لتفادي بطء الاستعلامات"""
     if not user_id:
         return False
     user_id_str = str(user_id).strip()
@@ -125,7 +125,7 @@ def safe_edit_message(chat_id, message_id, text, reply_markup=None):
             return False
 
 def make_copy_text_button(text, copy_value):
-    """إنشاء زر نسخ مباشر للحافظة مدعوم رسمياً من تلجرام للنسخ بضغطة واحدة"""
+    """إنشاء زر نسخ مباشر للحافظة"""
     try:
         from telebot.types import CopyTextButton
         return InlineKeyboardButton(text, copy_text=CopyTextButton(text=copy_value))
@@ -133,7 +133,7 @@ def make_copy_text_button(text, copy_value):
         return InlineKeyboardButton(text, callback_data=f"copy_addr_{copy_value}")
 
 # ==========================================
-# 3. معالجة الأزرار التفاعلية (استجابة فورية فائقة السرعة)
+# 3. معالجة الأزرار التفاعلية (استجابة فورية فائقة السرعة بدون تهنيج)
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data and (
     call.data.startswith('approve_tx_') or 
@@ -141,26 +141,39 @@ def make_copy_text_button(text, copy_value):
     call.data.startswith('copy_addr_')
 ))
 def handle_withdraw_decisions(call):
-    cb_data = call.data or ""
+    # 🔥 السطر الأول والخطوة الأهم: إجابة تلجرام فوراً لإلغاء دائرة التحميل في أجزاء من المليثانية!
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
 
-    # 1. معالجة زر النسخ فوراً في أجزاء من المليثانية
+    # تحويل كافة العمليات الأخرى (فحص داتابيز + قفل + تنفيذ) إلى خيط خلفي مستقل فوراً
+    _executor.submit(_process_callback_async, call)
+
+def _process_callback_async(call):
+    """معالجة كافة الفحوصات والقرارات في الخلفية دون تعطيل واجهة تلجرام"""
+    cb_data = call.data or ""
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    message_id = call.message.message_id
+    orig_text = call.message.text or call.message.caption or ""
+
+    # 1. معالجة زر النسخ
     if cb_data.startswith("copy_addr_"):
         addr_part = cb_data.replace("copy_addr_", "").strip()
         if not addr_part or len(addr_part) < 20:
-            match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', call.message.text or call.message.caption or "")
+            match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', orig_text)
             addr_part = match.group(0) if match else "غير متوفر"
-
         try:
-            bot.answer_callback_query(call.id, f"📋 عنوان المحفظة:\n{addr_part}", show_alert=True)
+            bot.send_message(chat_id, f"📋 <b>عنوان المحفظة للنسخ:</b>\n<code>{addr_part}</code>", parse_mode="HTML")
         except Exception:
             pass
         return
 
-    # 2. فحص الصلاحيات بسرعة البرق من الكاش
-    user_id = call.from_user.id
+    # 2. فحص الصلاحيات من الكاش أو الداتابيز
     if not is_user_authorized(user_id):
         try:
-            bot.answer_callback_query(call.id, "⛔ ليس لديك صلاحية لاتخاذ هذا القرار!", show_alert=True)
+            bot.send_message(chat_id, "⛔ <b>عذراً:</b> ليس لديك صلاحية لاتخاذ هذا القرار!", parse_mode="HTML")
         except Exception:
             pass
         return
@@ -171,30 +184,11 @@ def handle_withdraw_decisions(call):
 
     with _active_tx_lock:
         if tx_id in _active_transactions:
-            try:
-                bot.answer_callback_query(call.id, "⏳ الطلب قيد المعالجة بالفعل...", show_alert=False)
-            except Exception:
-                pass
             return
         _active_transactions.add(tx_id)
 
-    # 4. إجابة تلجرام فوراً قبل أي عملية ذات استهلاك زمني لإلغاء دائرة التحميل مباشرة
-    action_text = "القبول 🟢" if action == "approve" else "الرفض 🔴"
-    try:
-        bot.answer_callback_query(call.id, f"⚡ جاري تنفيذ قرار {action_text}...")
-    except Exception:
-        pass
-
-    # 5. تحويل عملية المعالجة إلى خيط خلفي مستقل عبر Executor المخصص
-    _executor.submit(
-        _async_handle_withdraw_process,
-        call.message.chat.id,
-        call.message.message_id,
-        call.message.text or call.message.caption or "",
-        tx_id,
-        action,
-        user_id
-    )
+    # 4. تنفيذ العملية وتحديث حالة الرسالة
+    _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action, user_id)
 
 def _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action, admin_id):
     """دالة المعالجة الخلفية لتحديث السجلات واستدعاء backend"""
@@ -244,8 +238,6 @@ def send_welcome(message):
         user_id = message.from_user.id
         first_name = message.from_user.first_name or "المستخدم"
         user_id_str = str(user_id).strip()
-        
-        print(f"🔍 [Admin Bot Check] Received /start from User ID: {user_id_str}")
         
         if not is_user_authorized(user_id):
             unauthorized_msg = (
@@ -322,17 +314,17 @@ def force_delete_webhook():
         print(f"⚠️ Error resetting webhook: {e}")
 
 def acquire_polling_lock():
-    """قفل لضمان عدم تكرار عملية Polling في أكتر من Worker بـ Gunicorn على Railway"""
+    """قفل لضمان عدم تكرار عملية Polling في أكثر من Worker"""
     try:
         lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         lock_socket.bind(('127.0.0.1', 47823))
         return lock_socket
     except socket.error:
-        print("⚠️ [Bot Worker] عملية Polling تعمل بالفعل في Worker آخر. تم إلغاء التكرار لمنع تعارض 409 Conflict.")
+        print("⚠️ [Bot Worker] عملية Polling تعمل بالفعل في Worker آخر.")
         return None
 
 def run_bot_worker():
-    """تشغيل الاستماع لرسائل تلجرام مع تفادي التعارض وعمليات التكرار"""
+    """تشغيل الاستماع لرسائل تلجرام مع تفادي التعارض"""
     lock = acquire_polling_lock()
     if lock is None:
         return
@@ -349,7 +341,7 @@ def run_bot_worker():
             time.sleep(3)
 
 # ==========================================
-# 4. تشغيل البوت بآمان
+# 4. تشغيل البوت
 # ==========================================
 def start_bot_once():
     """تضمن تشغيل خيط Polling واحد فقط"""
