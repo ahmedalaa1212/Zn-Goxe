@@ -24,7 +24,7 @@ if BASE_DIR not in sys.path:
 
 import database
 
-# استيراد مسبق للوحدات الثقيلة لمنع التأخير أثناء معالجة الطلبات
+# استيراد مسبق للوحدات الثقيلة لمنع التأخير
 try:
     from wallet.withdraw.withdraw_api import execute_admin_decision
 except Exception:
@@ -38,19 +38,14 @@ ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551").strip()
 
 BASE_URL = os.environ.get("WEB_URL", "https://admin-zn-production.up.railway.app").strip().rstrip('/')
 ADMIN_WEBAPP_URL = BASE_URL if BASE_URL.endswith('/admin') else f"{BASE_URL}/admin"
-WEBHOOK_URL = f"{BASE_URL}/webhook"
 
 if not BOT_TOKEN:
     print("❌ خطأ قاتل: لم يتم العثور على ADMIN_BOT_TOKEN في متغيرات البيئة!")
     sys.exit(1)
 
-# إعداد البوت مع 32 خيط معالجة
 bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=32)
-
-# executor مخصص للمهام الخلفية السريعة
 _executor = ThreadPoolExecutor(max_workers=30, thread_name_prefix="async_admin_worker")
 
-# أقفال وتتبع المعاملات والسجل المؤقت للصلاحيات
 _active_tx_lock = threading.Lock()
 _active_transactions = set()
 
@@ -59,7 +54,7 @@ _AUTH_CACHE_LOCK = threading.Lock()
 _AUTH_CACHE_TTL = 120
 
 def is_user_authorized(user_id):
-    """فحص أمني سريع مع كاش مؤقت خيطي لتفادي بطء الاستعلامات"""
+    """فحص أمني سريع مع كاش مؤقت خيطي"""
     if not user_id:
         return False
     user_id_str = str(user_id).strip()
@@ -85,7 +80,7 @@ def is_user_authorized(user_id):
     return False
 
 def safe_edit_message(chat_id, message_id, text, reply_markup=None):
-    """تحديث نص الرسالة بآمان وتجنب أخطاء HTML Parsing"""
+    """تحديث نص الرسالة بآمان"""
     try:
         return bot.edit_message_text(
             chat_id=chat_id,
@@ -120,7 +115,7 @@ def make_copy_text_button(text, copy_value):
         return InlineKeyboardButton(text, callback_data=f"copy_addr_{copy_value}")
 
 # ==========================================
-# 2. إعداد خادم Web ومسار Webhook الاستقبال الفوري
+# 2. إعداد خادم Web ومسارات Webhook
 # ==========================================
 app = Flask(__name__)
 
@@ -131,17 +126,39 @@ def health_check():
 
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
-    """استقبال تحديثات تلجرام فوراً عبر Webhook وتحويلها للبوت"""
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return '', 200
-    else:
-        return jsonify({"error": "Bad Request"}), 400
+    """استقبال التحديثات من تلجرام مع حماية ضد الأخطاء"""
+    try:
+        json_str = request.get_data().decode('utf-8')
+        if json_str:
+            update = telebot.types.Update.de_json(json_str)
+            if update:
+                bot.process_new_updates([update])
+    except Exception as e:
+        print(f"❌ Error processing webhook update: {e}")
+    return 'OK', 200
+
+@app.route('/set_webhook', methods=['GET', 'POST'])
+def manual_set_webhook():
+    """مسار اختبار وتفعيل الـ Webhook يدويًا لضمان الربط الصحيح"""
+    try:
+        host_url = os.environ.get("WEB_URL", "").strip().rstrip('/')
+        if not host_url:
+            host_url = f"https://{request.host}"
+        target_webhook = f"{host_url}/webhook"
+        
+        bot.remove_webhook()
+        time.sleep(1)
+        res = bot.set_webhook(url=target_webhook, drop_pending_updates=True)
+        return jsonify({
+            "success": bool(res),
+            "webhook_url": target_webhook,
+            "status": "Webhook set successfully!" if res else "Failed to set webhook"
+        }), 200
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 # ==========================================
-# 3. معالجة الأزرار التفاعلية (استجابة فورية بدون تهنيج)
+# 3. معالجة الأزرار والرسائل
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data and (
     call.data.startswith('approve_tx_') or 
@@ -149,24 +166,19 @@ def telegram_webhook():
     call.data.startswith('copy_addr_')
 ))
 def handle_withdraw_decisions(call):
-    # إجابة تلجرام فوراً لإلغاء دائرة التحميل المعلقة
     try:
         bot.answer_callback_query(call.id)
     except Exception:
         pass
-
-    # نقل جميع العمليات والتحققات للخلفية فوراً
     _executor.submit(_process_callback_async, call)
 
 def _process_callback_async(call):
-    """معالجة كافة الفحوصات والقرارات في الخلفية"""
     cb_data = call.data or ""
     user_id = call.from_user.id
     chat_id = call.message.chat.id
     message_id = call.message.message_id
     orig_text = call.message.text or call.message.caption or ""
 
-    # 1. معالجة زر النسخ
     if cb_data.startswith("copy_addr_"):
         addr_part = cb_data.replace("copy_addr_", "").strip()
         if not addr_part or len(addr_part) < 20:
@@ -178,7 +190,6 @@ def _process_callback_async(call):
             pass
         return
 
-    # 2. فحص الصلاحيات
     if not is_user_authorized(user_id):
         try:
             bot.send_message(chat_id, "⛔ <b>عذراً:</b> ليس لديك صلاحية لاتخاذ هذا القرار!", parse_mode="HTML")
@@ -186,7 +197,6 @@ def _process_callback_async(call):
             pass
         return
 
-    # 3. استخراج البيانات وحماية القفل المزدوج
     action = "approve" if cb_data.startswith("approve_tx_") else "reject"
     tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
 
@@ -195,11 +205,9 @@ def _process_callback_async(call):
             return
         _active_transactions.add(tx_id)
 
-    # 4. تنفيذ العملية وتحديث الرسالة
     _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action, user_id)
 
 def _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action, admin_id):
-    """دالة المعالجة الخلفية لتحديث السجلات واستدعاء backend"""
     global execute_admin_decision
     try:
         clean_text = re.split(r'\n\n(?:النتيجة|⚠️|⏳)', orig_text)[0].strip()
@@ -221,7 +229,6 @@ def _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action
             safe_edit_message(chat_id, message_id, final_text, reply_markup=None)
         else:
             error_notice = f"\n\n⚠️ <b>فشلت العملية:</b>\n{safe_msg}"
-            
             match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', clean_text)
             wallet_addr = match.group(0) if match else ""
 
@@ -266,7 +273,7 @@ def send_welcome(message):
             f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"أهلاً بك يا <b>{html.escape(first_name)}</b> 👋\n"
             f"الرتبة: {role_label}\n"
-            f"حالة الاتصال: 🟢 <b>نشط ومؤمن بالكامل (Webhook Mode)</b>\n\n"
+            f"حالة الاتصال: 🟢 <b>نشط ومؤمن بالكامل</b>\n\n"
             f"✨ <b>تم التحقق من صلاحياتك الأمنية بنجاح!</b>\n"
             f"يمكنك الآن التحكم بجميع إعدادات الألعاب، العمولات، الأرباح والمشرفين عبر فتح لوحة التحكم المرفقة."
         )
@@ -312,23 +319,25 @@ def handle_all_messages(message):
     except Exception as e:
         print(f"❌ Error handling message: {e}")
 
-def setup_webhook():
-    """حذف Webhook القديم وتفعيل الرابط الجديد تلقائياً عند الإقلاع"""
+# ==========================================
+# 4. إعداد الـ Webhook في الخلفية لمنع تأخير إقلاع السيرفر
+# ==========================================
+def init_webhook_bg():
+    """تفعيل الـ Webhook في خيط خلفي بعد تشغيل سيرفر Flask مباشرة"""
+    time.sleep(2)
+    base_url = os.environ.get("WEB_URL", "https://admin-zn-production.up.railway.app").strip().rstrip('/')
+    target_webhook = f"{base_url}/webhook"
     try:
+        print(f"🔄 Setting Telegram Webhook to: {target_webhook}")
         bot.remove_webhook()
         time.sleep(1)
-        res = bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
-        if res:
-            print(f"✅ [Webhook] Successfully set Webhook to: {WEBHOOK_URL}")
-        else:
-            print("❌ [Webhook] Failed to set Webhook.")
+        res = bot.set_webhook(url=target_webhook, drop_pending_updates=True)
+        print(f"✅ Webhook setup result: {res}")
     except Exception as e:
-        print(f"⚠️ [Webhook] Error setting webhook: {e}")
+        print(f"⚠️ Webhook setup error: {e}")
 
-# ==========================================
-# 4. تشغيل السيرفر وتفعيل Webhook
-# ==========================================
-setup_webhook()
+# تشغيل عملية ربط الـ Webhook في خيط خلفي
+threading.Thread(target=init_webhook_bg, daemon=True).start()
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))
