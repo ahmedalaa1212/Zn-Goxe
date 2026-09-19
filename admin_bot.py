@@ -5,14 +5,15 @@ import html
 import threading
 import requests
 import re
+import socket
 from concurrent.futures import ThreadPoolExecutor
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 import telebot
 from telebot import apihelper
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 # ==========================================
-# 0. تحسين أداء الشبكة وتسريع الاتصال
+# 0. تحسين أداء الشبكة وتسريع الاتصال (HTTP Keep-Alive & Connection Pooling)
 # ==========================================
 apihelper.SESSION_TIME_TO_LIVE = 5 * 60
 apihelper.CONNECT_TIMEOUT = 3.5
@@ -24,14 +25,24 @@ if BASE_DIR not in sys.path:
 
 import database
 
-# استيراد مسبق للوحدات الثقيلة لمنع التأخير
+# استيراد مسبق للوحدات الثقيلة لمنع التأخير أثناء معالجة الطلبات
 try:
     from wallet.withdraw.withdraw_api import execute_admin_decision
 except Exception:
     execute_admin_decision = None
 
 # ==========================================
-# 1. جلب متغيرات البيئة وإعداد البوت
+# 1. إعداد خادم Web خفيف لإبقاء Railway نشطاً (Online)
+# ==========================================
+app = Flask(__name__)
+
+@app.route('/')
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "online", "bot": "Bot admin ZN Goxe"}), 200
+
+# ==========================================
+# 2. جلب متغيرات البيئة وإعداد البوت
 # ==========================================
 BOT_TOKEN = os.environ.get("ADMIN_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
 ADMIN_ID = os.environ.get("ADMIN_ID", "5102387551").strip()
@@ -43,18 +54,25 @@ if not BOT_TOKEN:
     print("❌ خطأ قاتل: لم يتم العثور على ADMIN_BOT_TOKEN في متغيرات البيئة!")
     sys.exit(1)
 
+# رفع عدد خيوط الاستجابة للطلبات المتزامنة
 bot = telebot.TeleBot(BOT_TOKEN, threaded=True, num_threads=32)
+
+# executor مخصص للمهام الخلفية السريعة
 _executor = ThreadPoolExecutor(max_workers=30, thread_name_prefix="async_admin_worker")
 
+# قفل آمن وتتبع المعاملات والسجل المؤقت للصلاحيات
+_bot_lock = threading.Lock()
+_bot_started = False
 _active_tx_lock = threading.Lock()
 _active_transactions = set()
 
+# ذاكرة مؤقتة لصلاحيات المشرفين آمنة برمجياً
 _AUTH_CACHE = {}
 _AUTH_CACHE_LOCK = threading.Lock()
 _AUTH_CACHE_TTL = 120
 
 def is_user_authorized(user_id):
-    """فحص أمني سريع مع كاش مؤقت خيطي"""
+    """فحص أمني سريع مع كاش مؤقت خيطي لتفادي بطء الاستعلامات"""
     if not user_id:
         return False
     user_id_str = str(user_id).strip()
@@ -115,50 +133,7 @@ def make_copy_text_button(text, copy_value):
         return InlineKeyboardButton(text, callback_data=f"copy_addr_{copy_value}")
 
 # ==========================================
-# 2. إعداد خادم Web ومسارات Webhook
-# ==========================================
-app = Flask(__name__)
-
-@app.route('/')
-@app.route('/health')
-def health_check():
-    return jsonify({"status": "online", "bot": "Bot admin ZN Goxe", "mode": "webhook"}), 200
-
-@app.route('/webhook', methods=['POST'])
-def telegram_webhook():
-    """استقبال التحديثات من تلجرام مع حماية ضد الأخطاء"""
-    try:
-        json_str = request.get_data().decode('utf-8')
-        if json_str:
-            update = telebot.types.Update.de_json(json_str)
-            if update:
-                bot.process_new_updates([update])
-    except Exception as e:
-        print(f"❌ Error processing webhook update: {e}")
-    return 'OK', 200
-
-@app.route('/set_webhook', methods=['GET', 'POST'])
-def manual_set_webhook():
-    """مسار اختبار وتفعيل الـ Webhook يدويًا لضمان الربط الصحيح"""
-    try:
-        host_url = os.environ.get("WEB_URL", "").strip().rstrip('/')
-        if not host_url:
-            host_url = f"https://{request.host}"
-        target_webhook = f"{host_url}/webhook"
-        
-        bot.remove_webhook()
-        time.sleep(1)
-        res = bot.set_webhook(url=target_webhook, drop_pending_updates=False)
-        return jsonify({
-            "success": bool(res),
-            "webhook_url": target_webhook,
-            "status": "Webhook set successfully!" if res else "Failed to set webhook"
-        }), 200
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-# ==========================================
-# 3. معالجة الأزرار والرسائل (مخصصة للقنوات والمجموعات)
+# 3. معالجة الأزرار التفاعلية (استجابة فورية فائقة السرعة بدون تهنيج)
 # ==========================================
 @bot.callback_query_handler(func=lambda call: call.data and (
     call.data.startswith('approve_tx_') or 
@@ -166,68 +141,57 @@ def manual_set_webhook():
     call.data.startswith('copy_addr_')
 ))
 def handle_withdraw_decisions(call):
-    # تمرير المعالجة للمصنع الخلفي فوراً
+    # 🔥 السطر الأول والخطوة الأهم: إجابة تلجرام فوراً لإلغاء دائرة التحميل في أجزاء من المليثانية!
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
+
+    # تحويل كافة العمليات الأخرى (فحص داتابيز + قفل + تنفيذ) إلى خيط خلفي مستقل فوراً
     _executor.submit(_process_callback_async, call)
 
 def _process_callback_async(call):
-    try:
-        cb_data = call.data or ""
-        user_id = call.from_user.id
-        chat_id = call.message.chat.id if call.message else user_id
-        message_id = call.message.message_id if call.message else None
-        orig_text = (call.message.text or call.message.caption or "") if call.message else ""
+    """معالجة كافة الفحوصات والقرارات في الخلفية دون تعطيل واجهة تلجرام"""
+    cb_data = call.data or ""
+    user_id = call.from_user.id
+    chat_id = call.message.chat.id
+    message_id = call.message.message_id
+    orig_text = call.message.text or call.message.caption or ""
 
-        # 1. زر النسخ - إظهار العنوان في نافذة منبثقة (Alert) بدلاً من كتابة رسالة في القناة
-        if cb_data.startswith("copy_addr_"):
-            addr_part = cb_data.replace("copy_addr_", "").strip()
-            if not addr_part or len(addr_part) < 20:
-                match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', orig_text)
-                addr_part = match.group(0) if match else "غير متوفر"
-            
-            try:
-                bot.answer_callback_query(
-                    call.id, 
-                    text=f"📋 عنوان المحفظة:\n{addr_part}", 
-                    show_alert=True
-                )
-            except Exception:
-                pass
-            return
-
-        # 2. فحص الصلاحيات للمشرفين
-        if not is_user_authorized(user_id):
-            try:
-                bot.answer_callback_query(
-                    call.id, 
-                    text="⛔ عذراً: ليس لديك صلاحية لاتخاذ هذا القرار!", 
-                    show_alert=True
-                )
-            except Exception:
-                pass
-            return
-
-        # إجابة التلجرام فوراً لإيقاف دائرة التحميل على الزر
+    # 1. معالجة زر النسخ
+    if cb_data.startswith("copy_addr_"):
+        addr_part = cb_data.replace("copy_addr_", "").strip()
+        if not addr_part or len(addr_part) < 20:
+            match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', orig_text)
+            addr_part = match.group(0) if match else "غير متوفر"
         try:
-            bot.answer_callback_query(call.id, text="⏳ جاري معالجة الطلب...")
+            bot.send_message(chat_id, f"📋 <b>عنوان المحفظة للنسخ:</b>\n<code>{addr_part}</code>", parse_mode="HTML")
         except Exception:
             pass
+        return
 
-        # 3. استخراج البيانات والتحقق من القفل المزدوج
-        action = "approve" if cb_data.startswith("approve_tx_") else "reject"
-        tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
+    # 2. فحص الصلاحيات من الكاش أو الداتابيز
+    if not is_user_authorized(user_id):
+        try:
+            bot.send_message(chat_id, "⛔ <b>عذراً:</b> ليس لديك صلاحية لاتخاذ هذا القرار!", parse_mode="HTML")
+        except Exception:
+            pass
+        return
 
-        with _active_tx_lock:
-            if tx_id in _active_transactions:
-                return
-            _active_transactions.add(tx_id)
+    # 3. استخراج البيانات وحماية القفل المزدوج
+    action = "approve" if cb_data.startswith("approve_tx_") else "reject"
+    tx_id = cb_data.replace("approve_tx_", "").replace("reject_tx_", "").strip()
 
-        if message_id:
-            _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action, user_id)
+    with _active_tx_lock:
+        if tx_id in _active_transactions:
+            return
+        _active_transactions.add(tx_id)
 
-    except Exception as e:
-        print(f"❌ Exception in _process_callback_async: {e}")
+    # 4. تنفيذ العملية وتحديث حالة الرسالة
+    _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action, user_id)
 
 def _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action, admin_id):
+    """دالة المعالجة الخلفية لتحديث السجلات واستدعاء backend"""
     global execute_admin_decision
     try:
         clean_text = re.split(r'\n\n(?:النتيجة|⚠️|⏳)', orig_text)[0].strip()
@@ -249,6 +213,7 @@ def _async_handle_withdraw_process(chat_id, message_id, orig_text, tx_id, action
             safe_edit_message(chat_id, message_id, final_text, reply_markup=None)
         else:
             error_notice = f"\n\n⚠️ <b>فشلت العملية:</b>\n{safe_msg}"
+            
             match = re.search(r'(EQ|UQ|0:)[a-zA-Z0-9_-]{46,48}', clean_text)
             wallet_addr = match.group(0) if match else ""
 
@@ -339,30 +304,57 @@ def handle_all_messages(message):
     except Exception as e:
         print(f"❌ Error handling message: {e}")
 
-# ==========================================
-# 4. إعداد الـ Webhook الذكي (بدون حظر التلجرام)
-# ==========================================
-def init_webhook_bg():
-    """تفعيل الـ Webhook بأمان دون تكرار الطلبات لمنع الحظر"""
-    time.sleep(3)
-    base_url = os.environ.get("WEB_URL", "https://admin-zn-production.up.railway.app").strip().rstrip('/')
-    target_webhook = f"{base_url}/webhook"
+def force_delete_webhook():
+    """حذف أي Webhook معلق فوراً عبر HTTP المباشر"""
     try:
-        # الفحص أولاً لمنع إعادة الضبط المتكرر
-        webhook_info = bot.get_webhook_info()
-        if webhook_info.url != target_webhook:
-            print(f"🔄 Updating Telegram Webhook to: {target_webhook}")
-            bot.remove_webhook()
-            time.sleep(1)
-            res = bot.set_webhook(url=target_webhook, drop_pending_updates=False)
-            print(f"✅ Webhook setup result: {res}")
-        else:
-            print(f"✅ Webhook is already active and verified: {target_webhook}")
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true"
+        res = requests.get(url, timeout=10)
+        print(f"🔄 Webhook cleanup response: {res.json()}")
     except Exception as e:
-        print(f"⚠️ Webhook setup error: {e}")
+        print(f"⚠️ Error resetting webhook: {e}")
 
-# تشغيل عملية الربط في الخلفية
-threading.Thread(target=init_webhook_bg, daemon=True).start()
+def acquire_polling_lock():
+    """قفل لضمان عدم تكرار عملية Polling في أكثر من Worker"""
+    try:
+        lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        lock_socket.bind(('127.0.0.1', 47823))
+        return lock_socket
+    except socket.error:
+        print("⚠️ [Bot Worker] عملية Polling تعمل بالفعل في Worker آخر.")
+        return None
+
+def run_bot_worker():
+    """تشغيل الاستماع لرسائل تلجرام مع تفادي التعارض"""
+    lock = acquire_polling_lock()
+    if lock is None:
+        return
+
+    print("🚀 [Bot Worker] جارٍ إزالة الـ Webhook القديم وبدء الاستماع الفائق...")
+    force_delete_webhook()
+    time.sleep(1)
+        
+    while True:
+        try:
+            bot.infinity_polling(skip_pending=True, timeout=20, long_polling_timeout=10)
+        except Exception as e:
+            print(f"❌ Error in Telegram Bot Polling: {e}")
+            time.sleep(3)
+
+# ==========================================
+# 4. تشغيل البوت
+# ==========================================
+def start_bot_once():
+    """تضمن تشغيل خيط Polling واحد فقط"""
+    global _bot_started
+    with _bot_lock:
+        if _bot_started:
+            return
+        _bot_started = True
+
+    bot_thread = threading.Thread(target=run_bot_worker, daemon=True)
+    bot_thread.start()
+
+start_bot_once()
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))
