@@ -1,9 +1,23 @@
 import time
+from datetime import datetime
 from firebase_admin import firestore
 import database
 
 _BAN_CACHE = {}
 BAN_CACHE_TTL = 120
+
+def _serialize_firestore_val(val):
+    """دالة مساعدة لتحويل التواريخ وكائنات الفايربيس لنصوص قابلة للإرسال JSON"""
+    if hasattr(val, 'isoformat'):
+        return val.isoformat()
+    elif isinstance(val, datetime):
+        return val.strftime('%Y-%m-%d %H:%M:%S')
+    elif isinstance(val, dict):
+        return {k: _serialize_firestore_val(v) for k, v in val.items()}
+    elif isinstance(val, list):
+        return [_serialize_firestore_val(v) for v in val]
+    return val
+
 
 def is_user_banned(tg_id):
     """التحقق السريع من حالة حظر المستخدم باستخدام الكاش"""
@@ -42,10 +56,12 @@ def ban_user(tg_id, ban_status=True):
             {"banned": bool(ban_status)}
         )
         _BAN_CACHE[tg_id_str] = (bool(ban_status), time.time() + BAN_CACHE_TTL)
-        database.log_admin_action(
-            "المدير العام",
-            f"{'حظر' if ban_status else 'إلغاء حظر'} المستخدم {tg_id_str}",
-        )
+        
+        if hasattr(database, 'log_admin_action'):
+            database.log_admin_action(
+                "المدير العام",
+                f"{'حظر' if ban_status else 'إلغاء حظر'} المستخدم {tg_id_str}",
+            )
         return True, (
             "تم حظر المستخدم بنجاح" if ban_status else "تم إلغاء الحظر بنجاح"
         )
@@ -75,6 +91,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
                 "tg_id": tg_id_str,
                 "first_name": first_name or "صديقي",
                 "balance": 0.0,
+                "znx_balance": 0.0,
                 "ad_balance": 0.0,
                 "usd_balance": 0.0,
                 "hourly_rate": 0.0,
@@ -129,7 +146,7 @@ def init_user(tg_id, ref_id=None, first_name="صديقي"):
 
 
 def get_user(tg_id):
-    """جلب بيانات مستخدم محدد"""
+    """جلب كافة بيانات مستخدم محدد بالكامل"""
     try:
         if not tg_id:
             return None
@@ -138,14 +155,12 @@ def get_user(tg_id):
         doc = user_ref.get()
         if doc.exists:
             data = doc.to_dict() or {}
-            data["id"] = doc.id
+            data["id"] = str(doc.id)
 
-            data["balance"] = float(data.get("balance", 0.0) or 0.0)
-            data["usd_balance"] = float(data.get("usd_balance", 0.0) or 0.0)
-            data["ad_balance"] = float(data.get("ad_balance", 0.0) or 0.0)
-            data["total_bets"] = float(data.get("total_bets", 0.0) or 0.0)
-            data["total_wins"] = float(data.get("total_wins", 0.0) or 0.0)
-            data["total_losses"] = float(data.get("total_losses", 0.0) or 0.0)
+            # معالجة التواريخ والكائنات لضمان التوافق مع JSON
+            for k, v in data.items():
+                data[k] = _serialize_firestore_val(v)
+
             return data
         return None
     except Exception as e:
@@ -153,8 +168,8 @@ def get_user(tg_id):
         return None
 
 
-def get_all_users_admin(limit=100):
-    """جلب قائمة للمستخدمين للوحة الأدمن"""
+def get_all_users_admin(limit=1000):
+    """جلب جميع حقول وقيم كافة المستخدمين للوحة التحكم"""
     try:
         db = database.get_db()
         users_ref = db.collection("users").limit(limit)
@@ -163,12 +178,34 @@ def get_all_users_admin(limit=100):
         users_list = []
         for doc in docs:
             d = doc.to_dict() or {}
-            users_list.append({
-                "tg_id": str(d.get("tg_id", doc.id)),
-                "first_name": d.get("first_name", "مستخدم"),
-                "balance": float(d.get("balance", 0.0) or 0.0),
-                "banned": bool(d.get("banned", False)),
-            })
+            user_data = {"id": str(doc.id)}
+            
+            # استخراج جميع الحقول وتنسيقها للفيو
+            for k, v in d.items():
+                user_data[k] = _serialize_firestore_val(v)
+
+            # القيم الافتراضية المضمونة
+            user_data["tg_id"] = str(d.get("tg_id", doc.id))
+            user_data["first_name"] = d.get("first_name", "مستخدم")
+            user_data["name"] = user_data["first_name"]
+            user_data["balance"] = float(d.get("balance", 0.0) or 0.0)
+            user_data["znx_balance"] = float(d.get("znx_balance", 0.0) or 0.0)
+            user_data["usd_balance"] = float(d.get("usd_balance", 0.0) or 0.0)
+            user_data["ad_balance"] = float(d.get("ad_balance", 0.0) or 0.0)
+            user_data["banned"] = bool(d.get("banned", False))
+            user_data["isBanned"] = user_data["banned"]
+            
+            # تنسيق تاريخ الانضمام للمشاهدة
+            joined_at = d.get("joined_at")
+            if hasattr(joined_at, 'strftime'):
+                user_data["joinDate"] = joined_at.strftime('%Y-%m-%d')
+            elif isinstance(joined_at, str):
+                user_data["joinDate"] = joined_at.split('T')[0]
+            else:
+                user_data["joinDate"] = "غير معروف"
+
+            users_list.append(user_data)
+            
         return users_list
     except Exception as e:
         print(f"❌ Error fetching all users for admin: {e}")
@@ -186,39 +223,3 @@ def update_user(tg_id, update_data):
     except Exception as e:
         print(f"❌ Error updating user {tg_id}: {e}")
         return False
-
-
-def get_leaderboard(limit=10):
-    """جلب قائمة المتصدرين بسرعة مع الكاش"""
-    now = time.time()
-    if (
-        database._LEADERBOARD_CACHE is not None
-        and (now - database._LEADERBOARD_CACHE_TIME) < database.LEADERBOARD_CACHE_TTL
-    ):
-        return database._LEADERBOARD_CACHE
-
-    try:
-        db = database.get_db()
-        users_ref = (
-            db.collection("users")
-            .order_by("balance", direction=firestore.Query.DESCENDING)
-            .limit(limit)
-        )
-        docs = users_ref.stream()
-
-        leaderboard = []
-        for i, doc in enumerate(docs, start=1):
-            d = doc.to_dict() or {}
-            leaderboard.append({
-                "rank": i,
-                "tg_id": str(d.get("tg_id", doc.id)),
-                "first_name": d.get("first_name", "صديقي"),
-                "balance": float(d.get("balance", 0.0) or 0.0),
-            })
-
-        database._LEADERBOARD_CACHE = leaderboard
-        database._LEADERBOARD_CACHE_TIME = now
-        return leaderboard
-    except Exception as e:
-        print(f"❌ Error fetching leaderboard: {e}")
-        return database._LEADERBOARD_CACHE or []
