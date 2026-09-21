@@ -435,29 +435,41 @@ window.closeAutoClaimModal = function() {
         return 0;
     }
 
-    // حساب التعدين المباشر اعتماداً على last_claim_time لمنع التراكم المزدوج
+    // حساب وتثبيت التعدين المباشر لمنع تطبيق السرعة الجديدة بأثر رجعي على الفترة الماضية
     function accrueCurrentMining() {
         const pData = window.userState || window.PlayerData;
         if (!pData) return 0;
+
+        let nowMs = getAdjustedNowMs();
+        let lastAccrualMs = pData.last_accrual_time 
+            ? parseServerDateMs(pData.last_accrual_time) 
+            : (pData.last_claim_time ? parseServerDateMs(pData.last_claim_time) : nowMs);
+
+        let secondsPassed = Math.max(0, (nowMs - lastAccrualMs) / 1000);
 
         let maxC = parseFloat(pData.max_cap ?? 0.5);
         let baseRate = parseFloat(pData.hourly_rate ?? 0.1);
         let boostRate = getActiveBoostRate(pData);
         let hRate = baseRate + boostRate;
 
-        let lastClaimMs = pData.last_claim_time ? parseServerDateMs(pData.last_claim_time) : getAdjustedNowMs();
-        let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimMs) / 1000);
-        let accumulated = (hRate / 3600.0) * secondsPassed;
-        
+        let baseUnclaimed = parseFloat(pData.base_unclaimed ?? pData.unclaimed ?? 0);
+        let accumulated = baseUnclaimed + ((hRate / 3600.0) * secondsPassed);
+
         if (accumulated >= maxC) accumulated = maxC;
 
+        pData.base_unclaimed = accumulated;
         pData.unclaimed = accumulated;
+        pData.last_accrual_time = nowMs;
 
         if (window.userState) {
+            window.userState.base_unclaimed = accumulated;
             window.userState.unclaimed = accumulated;
+            window.userState.last_accrual_time = nowMs;
         }
         if (window.PlayerData) {
+            window.PlayerData.base_unclaimed = accumulated;
             window.PlayerData.unclaimed = accumulated;
+            window.PlayerData.last_accrual_time = nowMs;
         }
 
         return accumulated;
@@ -882,12 +894,14 @@ window.closeAutoClaimModal = function() {
         let boostRate = getActiveBoostRate(pData);
         let hRate = baseRate + boostRate;
         
-        let lastClaimMs = pData.last_claim_time 
-            ? parseServerDateMs(pData.last_claim_time) 
-            : getAdjustedNowMs();
-        
-        let secondsPassed = Math.max(0, (getAdjustedNowMs() - lastClaimMs) / 1000);
-        let unclaim = (hRate / 3600.0) * secondsPassed;
+        let nowMs = getAdjustedNowMs();
+        let lastAccrualMs = pData.last_accrual_time 
+            ? parseServerDateMs(pData.last_accrual_time) 
+            : (pData.last_claim_time ? parseServerDateMs(pData.last_claim_time) : nowMs);
+
+        let secondsPassed = Math.max(0, (nowMs - lastAccrualMs) / 1000);
+        let baseUnclaimed = parseFloat(pData.base_unclaimed ?? pData.unclaimed ?? 0);
+        let unclaim = baseUnclaimed + ((hRate / 3600.0) * secondsPassed);
 
         if (unclaim >= maxC) unclaim = maxC;
         pData.unclaimed = unclaim;
@@ -1010,7 +1024,7 @@ window.closeAutoClaimModal = function() {
                 }
                 if (resData.max_cap !== undefined) {
                     window.userState.max_cap = parseFloat(resData.max_cap);
-                    window.PlayerData.max_cap = parseFloat(resData.max_cap);
+                    window.PlayerData.max_cap = parseFloat(nextCfg.capacity);
                 }
 
                 if (resData.unclaimed !== undefined) {
@@ -1059,6 +1073,7 @@ window.closeAutoClaimModal = function() {
         upgradingLevel = level;
         const stateBackup = cloneCurrentState();
 
+        // أولاً: تجميد وتثبيت الرصيد المعدّن بالسرعة القديمة حتى هذه اللحظة بالضبط
         accrueCurrentMining();
 
         setStoredBalance(Math.max(0, currentBal - costZn), Math.max(0, currentUsdBal - costUsd));
