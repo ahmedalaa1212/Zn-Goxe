@@ -6,6 +6,7 @@
         color: #f8fafc;
         font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
         padding-bottom: 30px;
+        direction: rtl;
     }
     .u-card {
         background: #1e293b;
@@ -66,15 +67,19 @@
         background: #d97706;
     }
 
-    /* أشكال نتائج الاستعراض الشامل */
+    /* شريط تعداد النتائج */
     .u-count-tag {
         background: #0f172a;
-        padding: 10px 15px;
+        padding: 12px 16px;
         border-radius: 8px;
         border: 1px solid #334155;
-        color: #94a3b8;
-        font-size: 14px;
-        margin-bottom: 10px;
+        color: #f59e0b;
+        font-size: 15px;
+        margin-bottom: 15px;
+        font-weight: bold;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
     }
     .u-loading, .u-error, .u-empty {
         text-align: center;
@@ -88,132 +93,110 @@
     .u-error { color: #ef4444; }
     .u-empty { color: #94a3b8; }
 
-    /* البطاقات الكاملة */
-    .u-full-card {
+    /* الكارت والجدول الشامل للمستخدم */
+    .u-single-card {
         background: #1e293b;
         border: 1px solid #334155;
         border-radius: 12px;
-        padding: 15px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+        padding: 16px;
+        margin-bottom: 25px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     }
-    .u-card-header {
+    .u-card-top {
         display: flex;
         justify-content: space-between;
         align-items: center;
+        border-bottom: 2px solid #334155;
+        padding-bottom: 12px;
+        margin-bottom: 15px;
         flex-wrap: wrap;
         gap: 10px;
-        border-bottom: 1px solid #334155;
-        padding-bottom: 10px;
-        margin-bottom: 12px;
     }
-    .u-user-title {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-    .u-user-name {
-        font-size: 17px;
+    .u-top-name {
+        font-size: 18px;
         font-weight: bold;
-        color: #f8fafc;
-    }
-    .u-user-id {
-        background: #0f172a;
         color: #f59e0b;
-        padding: 3px 8px;
-        border-radius: 6px;
-        font-family: monospace;
-        font-size: 13px;
-        border: 1px solid #334155;
-    }
-    .u-joined-date {
-        color: #38bdf8;
-        font-size: 12px;
-    }
-
-    /* شبكة الأقسام التفصيلية */
-    .u-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 12px;
-    }
-    .u-box {
-        background: #0f172a;
-        border-radius: 8px;
-        padding: 12px;
-        border: 1px solid #334155;
-    }
-    .u-box h4 {
-        margin: 0 0 10px 0;
-        font-size: 14px;
-        border-bottom: 1px solid #1e293b;
-        padding-bottom: 6px;
-    }
-    .u-box-gold h4 { color: #f59e0b; }
-    .u-box-blue h4 { color: #38bdf8; }
-    .u-box-green h4 { color: #10b981; }
-    .u-box-purple h4 { color: #a855f7; }
-    .u-box-orange h4 { color: #f97316; }
-    .u-box-gray h4 { color: #cbd5e1; }
-
-    .u-box ul {
-        list-style: none;
-        padding: 0;
-        margin: 0;
         display: flex;
-        flex-direction: column;
-        gap: 6px;
-        font-size: 12px;
-    }
-    .u-box ul li {
-        display: flex;
-        justify-content: space-between;
         align-items: center;
         gap: 8px;
-        border-bottom: 1px dashed #1e293b;
-        padding-bottom: 4px;
     }
-    .u-box ul li span {
-        color: #94a3b8;
+    .u-top-badge {
+        background: #0f172a;
+        color: #10b981;
+        padding: 4px 12px;
+        border-radius: 6px;
+        border: 1px solid #10b981;
+        font-size: 13px;
+        font-weight: bold;
     }
-    .u-box ul li strong {
-        color: #f8fafc;
-        word-break: break-all;
-        text-align: left;
+
+    /* جدول بيانات المستخدم الموحد */
+    .u-data-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #0f172a;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid #334155;
     }
-    .u-wallet {
-        color: #a7f3d0 !important;
-        font-family: monospace;
-        font-size: 11px;
+    .u-data-table th, .u-data-table td {
+        padding: 11px 14px;
+        text-align: right;
+        border-bottom: 1px solid #1e293b;
+        font-size: 13px;
     }
-    .u-null { color: #64748b; font-style: italic; }
-    .u-true { color: #10b981; font-weight: bold; }
-    .u-false { color: #ef4444; font-weight: bold; }
-    .u-json {
+    .u-data-table th {
         background: #1e293b;
-        padding: 5px;
-        border-radius: 4px;
-        max-height: 80px;
-        overflow-y: auto;
-        margin: 0;
-        font-size: 10px;
         color: #f59e0b;
+        font-size: 14px;
+        border-bottom: 2px solid #334155;
+    }
+    
+    /* ألوان العرض المطلوب: السؤال لون والاجابة لون */
+    .u-data-table td.u-label {
+        color: #38bdf8 !important; /* لون أزرق سماوي للخاصية/السؤال */
+        font-weight: bold;
+        width: 45%;
+        background: rgba(255, 255, 255, 0.015);
+        border-left: 1px solid #1e293b;
+    }
+    .u-data-table td.u-value {
+        color: #10b981 !important; /* لون أخضر زمردي مُميز للقيمة/الإجابة */
+        font-weight: 600;
+        word-break: break-all;
+    }
+    .u-data-table tr:hover {
+        background: rgba(245, 158, 11, 0.04);
+    }
+
+    .u-null { color: #64748b !important; font-style: italic; }
+    .u-true { color: #10b981 !important; font-weight: bold; }
+    .u-false { color: #ef4444 !important; font-weight: bold; }
+    .u-wallet-val { color: #a7f3d0 !important; font-family: monospace; font-size: 12px; }
+    .u-json-val {
+        background: #1e293b;
+        padding: 6px;
+        border-radius: 4px;
+        max-height: 100px;
+        overflow-y: auto;
+        font-size: 11px;
+        color: #f59e0b;
+        margin: 0;
     }
 </style>
 
 <div class="users-section animate-fade-in">
-    <!-- كارت البحث -->
     <div class="u-card">
-        <h2 class="u-header-title">🔍 محرك استعراض بيانات المستخدمين الشامل</h2>
-        <p class="u-header-desc">عرض مستودع البيانات كاملاً مباشرة دون أزرار أو حظر</p>
+        <h2 class="u-header-title">👑 لوحة استعراض بيانات المستخدمين الشاملة</h2>
+        <p class="u-header-desc">تُعرض أفضل 5 حسابات في الإحالات افتراضياً، أو يمكنك البحث بالـ ID لرؤية حساب معين فقط.</p>
         
         <div class="u-search-box">
-            <input type="text" id="uSearchInput" placeholder="🔎 ادخل ID المستخدم، الاسم، أو عنوان المحفظة للبحث الفوري..." oninput="uSearch()">
-            <button onclick="uFetch()">🔄 إعادة جلب وتحديث كافة الحقول</button>
+            <input type="text" id="uSearchInput" placeholder="🔎 ادخل ID المستخدم للبحث الفوري وعرض جدوله..." oninput="uSearch()">
+            <button onclick="uFetch()">🔄 إعادة جلب البيانات وتحديث القائمة</button>
         </div>
     </div>
 
-    <!-- مكان عرض كروت الحسابات التفصيلية -->
+    <!-- حاوية الجداول الشاملة -->
     <div id="uResultsContainer">
         <div class="u-loading">⏳ جاري تحميل البيانات...</div>
     </div>
