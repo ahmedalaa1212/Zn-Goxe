@@ -425,23 +425,6 @@ window.closeAutoClaimModal = function() {
         });
     }
 
-    function showMonetagAd() {
-        return new Promise((resolve) => {
-            if (typeof window.show_11322720 === 'function') {
-                toggleAdLoadingOverlay(true);
-                window.show_11322720().then(() => {
-                    toggleAdLoadingOverlay(false);
-                    resolve(true);
-                }).catch((e) => {
-                    toggleAdLoadingOverlay(false);
-                    resolve(true); 
-                });
-            } else {
-                resolve(true);
-            }
-        });
-    }
-
     function getActiveBoostRate(pData) {
         if (!pData || !pData.last_boost_time) return 0;
         let lastBoostMs = parseServerDateMs(pData.last_boost_time);
@@ -1143,8 +1126,6 @@ window.closeAutoClaimModal = function() {
         const stateBackup = cloneCurrentState();
 
         try {
-            await showMonetagAd();
-
             let resData = await window.fetchAPI('/api/farm/daily_claim', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
@@ -1184,8 +1165,6 @@ window.closeAutoClaimModal = function() {
         accrueCurrentMining();
 
         try {
-            await showMonetagAd();
-
             let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
             if (resData && resData.success) {
                 if (resData.server_time) syncServerTime(resData.server_time);
