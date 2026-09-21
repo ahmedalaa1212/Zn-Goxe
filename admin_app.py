@@ -154,6 +154,12 @@ if ADMIN_BOT_TOKEN:
 # ==========================================
 
 try:
+    from users.users_api import users_bp
+    app.register_blueprint(users_bp)
+except Exception as e:
+    print(f"⚠️ لم يتم تحميل module users: {e}")
+
+try:
     from super_admin.super_admin_api import super_admin_bp
     app.register_blueprint(super_admin_bp, url_prefix='/api/super-admin')
 except Exception as e:
