@@ -39,9 +39,10 @@ def get_all_users_admin(limit=2000):
             for k, v in d.items():
                 user_data[k] = _serialize_firestore_val(v)
 
-            # ضمان وجود معرف التليجرام والاسم والعملات الأساسية
+            # ضمان وجود معرف التليجرام والاسم وعدد الإحالات
             user_data["tg_id"] = str(d.get("tg_id", doc.id))
             user_data["first_name"] = d.get("first_name", "مستخدم")
+            user_data["invited_friends_count"] = d.get("invited_friends_count", 0)
             
             users_list.append(user_data)
             
