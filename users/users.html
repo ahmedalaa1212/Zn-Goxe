@@ -69,7 +69,7 @@
     }
     .u-table {
         width: 100%;
-        min-width: 500px;
+        min-width: 550px;
         border-collapse: collapse;
         text-align: center;
     }
@@ -94,28 +94,88 @@
         font-weight: bold;
     }
     .u-btn {
-        padding: 6px 12px;
+        padding: 6px 10px;
         border-radius: 6px;
         border: none;
         font-weight: bold;
-        font-size: 12px;
+        font-size: 11px;
         cursor: pointer;
         margin: 2px;
+        transition: 0.2s;
     }
     .u-btn-ban { background: #ef4444; color: #fff; }
     .u-btn-unban { background: #10b981; color: #fff; }
     .u-btn-add { background: #3b82f6; color: #fff; }
     .u-btn-deduct { background: #d97706; color: #fff; }
+    .u-btn-details { background: #8b5cf6; color: #fff; }
+
+    /* Modal Styles */
+    .u-modal-overlay {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0, 0, 0, 0.75);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        padding: 15px;
+    }
+    .u-modal {
+        background: #1e293b;
+        border-radius: 12px;
+        width: 100%;
+        max-width: 700px;
+        max-height: 85vh;
+        overflow-y: auto;
+        border: 1px solid #475569;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        padding: 20px;
+    }
+    .u-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #334155;
+        padding-bottom: 10px;
+        margin-bottom: 15px;
+    }
+    .u-modal-close {
+        background: #ef4444;
+        color: #fff;
+        border: none;
+        padding: 5px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+    }
+    .u-info-card {
+        background: #0f172a;
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid #334155;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .u-info-title {
+        color: #94a3b8;
+        font-size: 11px;
+    }
+    .u-info-val {
+        color: #fff;
+        font-weight: bold;
+        font-size: 13px;
+    }
 </style>
 
 <div class="users-section animate-fade-in">
     <!-- كارت البحث -->
     <div class="u-card">
-        <h2 class="u-header-title">👥 بيانات المستخدمين</h2>
-        <p class="u-header-desc">إدارة جميع مستخدمين البوت والتحكم بهم</p>
+        <h2 class="u-header-title">👥 بيانات المستخدمين الشاملة</h2>
+        <p class="u-header-desc">عرض وتحكم بجميع مستخدمين البوت والأرصدة والإحالات والمخازن</p>
         
         <div class="u-search-box">
-            <input type="text" id="uSearchInput" placeholder="🔍 ابحث بالـ ID أو الاسم..." oninput="uSearch()">
+            <input type="text" id="uSearchInput" placeholder="🔍 ابحث بالـ ID أو الاسم أو المحفظة..." oninput="uSearch()">
             <button onclick="uFetch()">🔄 تحديث البيانات</button>
         </div>
     </div>
@@ -128,15 +188,28 @@
                     <tr>
                         <th>ID</th>
                         <th>الاسم</th>
-                        <th>الرصيد</th>
+                        <th>الرصيد الرئيسي</th>
                         <th>الانضمام</th>
-                        <th>الإجراءات</th>
+                        <th>الإجراءات والبيانات</th>
                     </tr>
                 </thead>
                 <tbody id="uTableBody">
-                    <tr><td colspan="5" style="color: #f59e0b; padding: 25px;">جاري جلب البيانات... ⏳</td></tr>
+                    <tr><td colspan="5" style="color: #f59e0b; padding: 25px;">جاري جلب كافة بيانات الفايربيس... ⏳</td></tr>
                 </tbody>
             </table>
+        </div>
+    </div>
+</div>
+
+<!-- مودال التفاصيل الكاملة -->
+<div id="uDetailModal" class="u-modal-overlay">
+    <div class="u-modal">
+        <div class="u-modal-header">
+            <h3 style="margin: 0; color: #f59e0b;">📋 تفاصيل حساب المستخدم الكاملة</h3>
+            <button class="u-modal-close" onclick="uCloseModal()">إغلاق ✖</button>
+        </div>
+        <div id="uModalContent">
+            <!-- سيتم إضافة البيانات ديناميكياً هنا -->
         </div>
     </div>
 </div>
