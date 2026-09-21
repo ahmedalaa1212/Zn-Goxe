@@ -147,18 +147,25 @@ function loadSectionScript(sectionName) {
     script.src = `/${sectionName}/${sectionName}.js?v=${new Date().getTime()}`;
     
     script.onload = () => {
-        // تشغيل دالة التهيئة لقسم super_admin والموديولات الجديدة ديناميكياً
-        if (sectionName === 'super_admin') {
+        // 👥 تشغيل موديول بيانات المستخدمين تلقائياً
+        if (sectionName === 'users') {
+            if (typeof window.uFetch === 'function') {
+                window.uFetch();
+            }
+        }
+        
+        // 👑 تشغيل دالة التهيئة لقسم super_admin والموديولات التابعة له
+        else if (sectionName === 'super_admin') {
             if (typeof window.initSuperAdmin === 'function') {
                 window.initSuperAdmin();
             } else {
-                // 1️⃣ جلب التحليلات الحية للمستخدمين (إجمالي، متفاعلين اليوم، المحظورين)
+                // 1️⃣ جلب التحليلات الحية للمستخدمين
                 if (typeof loadGlobalAnalytics === 'function') loadGlobalAnalytics();
                 
-                // 2️⃣ جلب قائمة أكثر المستخدمين نشاطاً (Top Active Users)
+                // 2️⃣ جلب قائمة أكثر المستخدمين نشاطاً
                 if (typeof loadTopActiveUsers === 'function') loadTopActiveUsers();
                 
-                // 3️⃣ جلب باقي الموديولات المستمرة (المشرفين، السجلات، الإحصائيات)
+                // 3️⃣ جلب باقي الموديولات (المشرفين، السجلات، الإحصائيات)
                 if (typeof loadModerators === 'function') loadModerators();
                 if (typeof loadAdminLogs === 'function') loadAdminLogs();
                 if (typeof fetchBroadcastStats === 'function') fetchBroadcastStats();
