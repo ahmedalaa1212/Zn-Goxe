@@ -131,7 +131,10 @@
     </div>
 
     <div class="notice-box notice-info">
-      ℹ️ تقتطع رسوم السحب <strong>$0.02 ثابتة</strong> من رصيد الدولار الخاص بك، وتصلك العملات بالكامل على محفظة TON المربوطة.
+      ℹ️ <strong>معلومات وتنبيهات السحب:</strong><br/>
+      • مدة معالجة وتأكيد الطلب تستغرق من <strong>1 دقيقة عمل إلى 48 ساعة</strong>.<br/>
+      • يتم اقتطاع رسوم السحب الثابتة الموضحة أعلاه (<strong id="notice-fee-display" style="color:#fbbf24;">$0.02 USD</strong>) من رصيد الدولار لديك، وتصلك عملات ZNX بالكامل دون أي خصم.<br/>
+      • تأكد دائماً من صحة المحفظة المربوطة قبل تأكيد عملية السحب.
     </div>
 
     <button type="button" id="confirm-withdraw-btn" class="btn-submit-withdraw" disabled onclick="withdrawModule.submitWithdrawal(event)">
@@ -173,3 +176,32 @@
 
 <!-- نقل استدعاء المكتبة للأسفل لضمان اكتمال تحميل الـ DOM قبل التشغيل -->
 <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
+
+<script>
+  // سكريبت ذكي لمزامنة قيمة الرسوم تلقائياً في نص التنبيه عند تغيرها فوق
+  (function() {
+    function updateNoticeFee() {
+      const feeElem = document.getElementById('fee-amount');
+      const noticeFeeElem = document.getElementById('notice-fee-display');
+      if (feeElem && noticeFeeElem) {
+        let text = feeElem.innerText || feeElem.textContent || '';
+        let cleanFee = text.split('(')[0].trim();
+        if (cleanFee) {
+          noticeFeeElem.textContent = cleanFee;
+        }
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', updateNoticeFee);
+    } else {
+      updateNoticeFee();
+    }
+
+    const target = document.getElementById('fee-amount');
+    if (target && window.MutationObserver) {
+      const observer = new MutationObserver(updateNoticeFee);
+      observer.observe(target, { childList: true, characterData: true, subtree: true });
+    }
+  })();
+</script>
