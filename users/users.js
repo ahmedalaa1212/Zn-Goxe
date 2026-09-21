@@ -22,6 +22,14 @@ async function uFetch() {
 
         if (json.success) {
             uDataList = json.users || [];
+            
+            // ترتيب المستخدمين تنازلياً حسب عدد الإحالات
+            uDataList.sort((a, b) => {
+                let refA = Number(a.invited_friends_count) || 0;
+                let refB = Number(b.invited_friends_count) || 0;
+                return refB - refA;
+            });
+
             uSearch();
         } else {
             container.innerHTML = `<div class="u-error">❌ فشل الجلب: ${json.message || 'خطأ غير معروف'}</div>`;
@@ -32,149 +40,137 @@ async function uFetch() {
     }
 }
 
-// دالة مساعدة لتنسيق القيم المفقودة
-function fmt(val) {
+// دالة تنسيق القيم واللون الخاص بها
+function fmtVal(val) {
     if (val === undefined || val === null || val === '') return '<span class="u-null">غير محدد</span>';
     if (typeof val === 'boolean') return val ? '<span class="u-true">نعم (True)</span>' : '<span class="u-false">لا (False)</span>';
-    if (typeof val === 'object') return `<pre class="u-json">${JSON.stringify(val, null, 1)}</pre>`;
+    if (typeof val === 'object') return `<pre class="u-json-val">${JSON.stringify(val, null, 1)}</pre>`;
     return val;
 }
 
-// عرض البيانات بأسلوب بطاقات وجداول تفصيلية شاملة
-function uRender(usersList) {
+// عرض البيانات في جدول واحد شامل لكل مستخدم
+function uRender(usersList, isSearch = false) {
     const container = document.getElementById('uResultsContainer');
     if (!container) return;
     container.innerHTML = '';
 
     if (!usersList || usersList.length === 0) {
-        container.innerHTML = '<div class="u-empty">لا يوجد مستخدمين يطابقون كلمة البحث.</div>';
+        container.innerHTML = '<div class="u-empty">❌ لا يوجد مستخدمين يطابقون ID أو كلمة البحث.</div>';
         return;
     }
 
-    // إظهار عدد النتائج
+    // شريط العنوان العلوي
     const countHeader = document.createElement('div');
     countHeader.className = 'u-count-tag';
-    countHeader.innerHTML = `📊 إجمالي نتائج البحث: <strong>${usersList.length}</strong> مستخدم`;
+    if (isSearch) {
+        countHeader.innerHTML = `<span>🔍 نتائج البحث عن المستخدم:</span> <span>${usersList.length} مستخدم</span>`;
+    } else {
+        countHeader.innerHTML = `<span>🏆 أفضل 5 مستخدمين في عدد الإحالات:</span> <span>${usersList.length} من أصل ${uDataList.length}</span>`;
+    }
     container.appendChild(countHeader);
 
-    usersList.forEach(u => {
+    usersList.forEach((u, index) => {
         let card = document.createElement('div');
-        card.className = 'u-full-card';
+        card.className = 'u-single-card';
+
+        let refCount = Number(u.invited_friends_count) || 0;
+        let rankBadge = isSearch ? `عدد الإحالات: ${refCount}` : `🏆 المركز #${index + 1} (إحالات: ${refCount})`;
+
+        // قائمة الحقول الشاملة مرتبة كـ (سؤال / جواب)
+        const fields = [
+            { label: "🆔 ID المستخدم (Telegram ID):", value: u.tg_id || u.document_id },
+            { label: "👤 اسم المستخدم (First Name):", value: u.first_name || "مستخدم" },
+            { label: "📅 تاريخ الانضمام (Joined Date):", value: u.joined_at || u.joinDate },
+            { label: "👥 عدد الإحالات (Invited Friends):", value: u.invited_friends_count },
+            { label: "🔗 تم دعوته بواسطة (Referred By):", value: u.referred_by },
+            { label: "💰 الرصيد الرئيسي (Balance):", value: u.balance },
+            { label: "🪙 رصيد ZNX:", value: u.znx_balance },
+            { label: "💵 رصيد الدولار (USD):", value: u.usd_balance ? `$${u.usd_balance}` : null },
+            { label: "📢 رصيد الإعلانات (Ad Balance):", value: u.ad_balance },
+            { label: "⛏️ النقاط المعدنة (Mined Points):", value: u.mined_points },
+            { label: "🎁 الأرباح غير المطالب بها (Unclaimed):", value: u.unclaimed },
+            { label: "⚡ معدل التعدين / ساعة (Hourly Rate):", value: u.hourly_rate },
+            { label: "🚀 معدل البوست اليومي (Daily Boost):", value: u.daily_boost_rate },
+            { label: "📦 مستوى المخزن (Storage Level):", value: u.storage_level },
+            { label: "➕ المخزن الإضافي (Extra Storage):", value: u.extra_storage },
+            { label: "🔋 السعة القصوى (Max Cap):", value: u.max_cap },
+            { label: "⚡ الطاقة الحالية (Energy):", value: u.energy },
+            { label: "⌛ أرباح إحالة معلقة:", value: u.pending_ref_earnings },
+            { label: "💎 إجمالي أرباح الإحالات:", value: u.total_ref_earnings },
+            { label: "🔥 الستريك اليومي (Daily Streak):", value: u.daily_streak },
+            { label: "📆 اليوم الحالي (Daily Day):", value: u.daily_day },
+            { label: "📺 الإعلانات المشاهدة:", value: u.ads_watched },
+            { label: "🌐 عنوان المحفظة (Wallet):", value: u.wallet_address ? `<span class="u-wallet-val">${u.wallet_address}</span>` : null, isRawHTML: true },
+            { label: "🕒 آخر نشاط (Last Active):", value: u.last_active },
+            { label: "⏱️ آخر مطالبة (Last Claim):", value: u.last_claim_time },
+            { label: "🤖 البوت نشط؟ (Bot Active):", value: u.bot_active },
+            { label: "🚫 حالة الحظر (Banned):", value: u.banned },
+            { label: "📱 معرف الجهاز (Device ID):", value: u.device_id },
+            { label: "🎲 إجمالي الرهانات (Total Bets):", value: u.total_bets },
+            { label: "🏆 إجمالي الفوز (Total Wins):", value: u.total_wins },
+            { label: "❌ إجمالي الخسائر (Total Losses):", value: u.total_losses },
+            { label: "💬 عدد التفاعلات (Interactions):", value: u.interactions },
+            { label: "🛠️ عدد الترقايات (Upgrades Count):", value: u.upgrades_count },
+            { label: "📜 قائمة الترقايات (Upgrades):", value: u.upgrades },
+            { label: "✅ المهام المكتملة (Completed Tasks):", value: u.completed_tasks }
+        ];
+
+        // بناء صفوف الجدول الموحد
+        let rowsHtml = fields.map(f => {
+            let valFormatted = f.isRawHTML ? (f.value || fmtVal(f.value)) : fmtVal(f.value);
+            return `
+                <tr>
+                    <td class="u-label">${f.label}</td>
+                    <td class="u-value">${valFormatted}</td>
+                </tr>
+            `;
+        }).join('');
 
         card.innerHTML = `
-            <!-- الهيدر الخاص بالمستخدم -->
-            <div class="u-card-header">
-                <div class="u-user-title">
-                    <span class="u-user-name">👤 ${u.first_name || 'مستخدم بدون اسم'}</span>
-                    <span class="u-user-id">ID: ${u.tg_id || u.document_id}</span>
-                </div>
-                <div class="u-joined-date">
-                    📅 الانضمام: ${u.joined_at || u.joinDate || 'غير مسجل'}
-                </div>
+            <div class="u-card-top">
+                <div class="u-top-name">👤 ${u.first_name || 'مستخدم بدون اسم'}</div>
+                <div class="u-top-badge">${rankBadge}</div>
             </div>
 
-            <!-- شبكة البيانات المفصلة -->
-            <div class="u-grid">
-                <!-- قسم الأرصدة والعملات -->
-                <div class="u-box u-box-gold">
-                    <h4>💰 الأرصدة والعملات</h4>
-                    <ul>
-                        <li><span>الرصيد الرئيسي (Balance):</span> <strong>${fmt(u.balance)}</strong></li>
-                        <li><span>رصيد ZNX:</span> <strong>${fmt(u.znx_balance)}</strong></li>
-                        <li><span>رصيد الدولار (USD):</span> <strong>$${fmt(u.usd_balance)}</strong></li>
-                        <li><span>رصيد الإعلانات:</span> <strong>${fmt(u.ad_balance)}</strong></li>
-                        <li><span>النقاط المعدنة (Mined):</span> <strong>${fmt(u.mined_points)}</strong></li>
-                        <li><span>غير المطالب به (Unclaimed):</span> <strong>${fmt(u.unclaimed)}</strong></li>
-                    </ul>
-                </div>
-
-                <!-- قسم السرعات والمخازن والطاقة -->
-                <div class="u-box u-box-blue">
-                    <h4>⚡ السرعات والمخازن والتعدين</h4>
-                    <ul>
-                        <li><span>معدل التعدين/ساعة:</span> <strong>${fmt(u.hourly_rate)}</strong></li>
-                        <li><span>معدل البوست اليومي:</span> <strong>${fmt(u.daily_boost_rate)}</strong></li>
-                        <li><span>مستوى المخزن (Storage Level):</span> <strong>${fmt(u.storage_level)}</strong></li>
-                        <li><span>المخزن الإضافي:</span> <strong>${fmt(u.extra_storage)}</strong></li>
-                        <li><span>السعة القصوى (Max Cap):</span> <strong>${fmt(u.max_cap)}</strong></li>
-                        <li><span>الطاقة (Energy):</span> <strong>${fmt(u.energy)}</strong></li>
-                    </ul>
-                </div>
-
-                <!-- قسم الإحالات والنشاط -->
-                <div class="u-box u-box-green">
-                    <h4>👥 الإحالات والنشاط اليومي</h4>
-                    <ul>
-                        <li><span>عدد الأصدقاء المدعوين:</span> <strong>${fmt(u.invited_friends_count)}</strong></li>
-                        <li><span>تمت دعوته بواسطة (Ref By):</span> <strong>${fmt(u.referred_by)}</strong></li>
-                        <li><span>أرباح إحالة معلقة:</span> <strong>${fmt(u.pending_ref_earnings)}</strong></li>
-                        <li><span>إجمالي أرباح الإحالات:</span> <strong>${fmt(u.total_ref_earnings)}</strong></li>
-                        <li><span>الستريك اليومي (Streak):</span> <strong>${fmt(u.daily_streak)}</strong></li>
-                        <li><span>اليوم الحالي (Daily Day):</span> <strong>${fmt(u.daily_day)}</strong></li>
-                        <li><span>الإعلانات المشاهدة:</span> <strong>${fmt(u.ads_watched)}</strong></li>
-                    </ul>
-                </div>
-
-                <!-- قسم الحساب والمحفظة والأوقات -->
-                <div class="u-box u-box-purple">
-                    <h4>🌐 الحساب والمحفظة والأوقات</h4>
-                    <ul>
-                        <li><span>عنوان المحفظة:</span> <strong class="u-wallet">${fmt(u.wallet_address)}</strong></li>
-                        <li><span>آخر نشاط (Last Active):</span> <strong>${fmt(u.last_active)}</strong></li>
-                        <li><span>آخر مطالبة (Last Claim):</span> <strong>${fmt(u.last_claim_time)}</strong></li>
-                        <li><span>البوت نشط؟:</span> <strong>${fmt(u.bot_active)}</strong></li>
-                        <li><span>حالة الحظر:</span> <strong>${fmt(u.banned)}</strong></li>
-                        <li><span>معرف الجهاز (Device ID):</span> <strong>${fmt(u.device_id)}</strong></li>
-                    </ul>
-                </div>
-
-                <!-- قسم الرهانات والألعاب -->
-                <div class="u-box u-box-orange">
-                    <h4>🎲 إحصائيات الرهانات والألعاب</h4>
-                    <ul>
-                        <li><span>إجمالي الرهانات (Bets):</span> <strong>${fmt(u.total_bets)}</strong></li>
-                        <li><span>إجمالي الفوز (Wins):</span> <strong>${fmt(u.total_wins)}</strong></li>
-                        <li><span>إجمالي الخسائر (Losses):</span> <strong>${fmt(u.total_losses)}</strong></li>
-                        <li><span>التفاعلات (Interactions):</span> <strong>${fmt(u.interactions)}</strong></li>
-                    </ul>
-                </div>
-
-                <!-- قسم التطويرات والمهام المكتملة -->
-                <div class="u-box u-box-gray">
-                    <h4>🛠️ الترقية والمهام (Upgrades & Tasks)</h4>
-                    <ul>
-                        <li><span>عدد الترقايات:</span> <strong>${fmt(u.upgrades_count)}</strong></li>
-                        <li><span>قائمة الترقايات (Upgrades):</span> ${fmt(u.upgrades)}</li>
-                        <li><span>المهام المكتملة (Completed Tasks):</span> ${fmt(u.completed_tasks)}</li>
-                    </ul>
-                </div>
-            </div>
+            <table class="u-data-table">
+                <thead>
+                    <tr>
+                        <th>الخاصية / البيان</th>
+                        <th>القيمة المسجلة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rowsHtml}
+                </tbody>
+            </table>
         `;
 
         container.appendChild(card);
     });
 }
 
-// البحث والفلترة الفورية بكل البيانات
+// دالة البحث بالـ ID وعرض المستخدم المحدد فقط أو التكفّل بالأفضل 5
 function uSearch() {
     let input = document.getElementById('uSearchInput');
     let term = input ? input.value.trim().toLowerCase() : '';
 
     if (!term) {
-        uRender(uDataList);
+        // حالة عدم وجود كلمة بحث: إظهار أفضل 5 في الإحالات فقط
+        let top5 = uDataList.slice(0, 5);
+        uRender(top5, false);
         return;
     }
 
+    // حالة وجود بحث: مطابقة الـ ID أو اسم المستخدم
     let filtered = uDataList.filter(u => 
         String(u.tg_id || '').toLowerCase().includes(term) || 
         String(u.document_id || '').toLowerCase().includes(term) || 
         String(u.first_name || '').toLowerCase().includes(term) ||
-        String(u.wallet_address || '').toLowerCase().includes(term) ||
-        String(u.referred_by || '').toLowerCase().includes(term)
+        String(u.wallet_address || '').toLowerCase().includes(term)
     );
 
-    uRender(filtered);
+    uRender(filtered, true);
 }
 
-// بدء التشغيل عند تحميل الصفحة
+// تشغيل جلب البيانات عند التحميل
 uFetch();
