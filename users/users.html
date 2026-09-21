@@ -3,20 +3,20 @@
         display: flex;
         flex-direction: column;
         gap: 15px;
-        color: #fff;
-        font-family: Tahoma, Arial, sans-serif;
-        padding-bottom: 20px;
+        color: #f8fafc;
+        font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+        padding-bottom: 30px;
     }
     .u-card {
         background: #1e293b;
         border-radius: 12px;
-        padding: 15px;
+        padding: 18px;
         border: 1px solid #334155;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
     }
     .u-header-title {
         color: #f59e0b;
-        font-size: 18px;
+        font-size: 20px;
         margin: 0 0 5px 0;
         display: flex;
         align-items: center;
@@ -24,7 +24,7 @@
     }
     .u-header-desc {
         color: #94a3b8;
-        font-size: 12px;
+        font-size: 13px;
         margin: 0;
     }
     .u-search-box {
@@ -35,17 +35,19 @@
     }
     .u-search-box input {
         width: 100%;
-        padding: 12px;
+        padding: 14px;
         border-radius: 8px;
         border: 1px solid #475569;
         background: #0f172a;
         color: #fff;
-        font-size: 14px;
+        font-size: 15px;
         box-sizing: border-box;
         outline: none;
+        transition: 0.2s;
     }
     .u-search-box input:focus {
         border-color: #f59e0b;
+        box-shadow: 0 0 8px rgba(245, 158, 11, 0.3);
     }
     .u-search-box button {
         width: 100%;
@@ -55,7 +57,7 @@
         padding: 12px;
         border-radius: 8px;
         font-weight: bold;
-        font-size: 14px;
+        font-size: 15px;
         cursor: pointer;
         transition: 0.2s;
     }
@@ -63,153 +65,156 @@
         transform: scale(0.98);
         background: #d97706;
     }
-    .u-table-container {
-        width: 100%;
-        overflow-x: auto;
-    }
-    .u-table {
-        width: 100%;
-        min-width: 550px;
-        border-collapse: collapse;
-        text-align: center;
-    }
-    .u-table th {
-        background: #0f172a;
-        color: #94a3b8;
-        padding: 12px 10px;
-        font-size: 13px;
-        white-space: nowrap;
-    }
-    .u-table td {
-        padding: 12px 10px;
-        border-bottom: 1px solid #334155;
-        vertical-align: middle;
-        font-size: 13px;
-    }
-    .u-badge {
-        background: #334155;
-        padding: 4px 8px;
-        border-radius: 6px;
-        color: #f8fafc;
-        font-weight: bold;
-    }
-    .u-btn {
-        padding: 6px 10px;
-        border-radius: 6px;
-        border: none;
-        font-weight: bold;
-        font-size: 11px;
-        cursor: pointer;
-        margin: 2px;
-        transition: 0.2s;
-    }
-    .u-btn-ban { background: #ef4444; color: #fff; }
-    .u-btn-unban { background: #10b981; color: #fff; }
-    .u-btn-add { background: #3b82f6; color: #fff; }
-    .u-btn-deduct { background: #d97706; color: #fff; }
-    .u-btn-details { background: #8b5cf6; color: #fff; }
 
-    /* Modal Styles */
-    .u-modal-overlay {
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0, 0, 0, 0.75);
-        display: none;
-        justify-content: center;
-        align-items: center;
-        z-index: 9999;
-        padding: 15px;
+    /* أشكال نتائج الاستعراض الشامل */
+    .u-count-tag {
+        background: #0f172a;
+        padding: 10px 15px;
+        border-radius: 8px;
+        border: 1px solid #334155;
+        color: #94a3b8;
+        font-size: 14px;
+        margin-bottom: 10px;
     }
-    .u-modal {
+    .u-loading, .u-error, .u-empty {
+        text-align: center;
+        padding: 30px;
         background: #1e293b;
         border-radius: 12px;
-        width: 100%;
-        max-width: 700px;
-        max-height: 85vh;
-        overflow-y: auto;
-        border: 1px solid #475569;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-        padding: 20px;
+        border: 1px solid #334155;
+        font-size: 15px;
     }
-    .u-modal-header {
+    .u-loading { color: #f59e0b; }
+    .u-error { color: #ef4444; }
+    .u-empty { color: #94a3b8; }
+
+    /* البطاقات الكاملة */
+    .u-full-card {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 12px;
+        padding: 15px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    }
+    .u-card-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
         border-bottom: 1px solid #334155;
         padding-bottom: 10px;
-        margin-bottom: 15px;
+        margin-bottom: 12px;
     }
-    .u-modal-close {
-        background: #ef4444;
-        color: #fff;
-        border: none;
-        padding: 5px 12px;
-        border-radius: 6px;
-        cursor: pointer;
+    .u-user-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .u-user-name {
+        font-size: 17px;
         font-weight: bold;
+        color: #f8fafc;
     }
-    .u-info-card {
+    .u-user-id {
         background: #0f172a;
-        padding: 10px;
-        border-radius: 8px;
+        color: #f59e0b;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-family: monospace;
+        font-size: 13px;
         border: 1px solid #334155;
+    }
+    .u-joined-date {
+        color: #38bdf8;
+        font-size: 12px;
+    }
+
+    /* شبكة الأقسام التفصيلية */
+    .u-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 12px;
+    }
+    .u-box {
+        background: #0f172a;
+        border-radius: 8px;
+        padding: 12px;
+        border: 1px solid #334155;
+    }
+    .u-box h4 {
+        margin: 0 0 10px 0;
+        font-size: 14px;
+        border-bottom: 1px solid #1e293b;
+        padding-bottom: 6px;
+    }
+    .u-box-gold h4 { color: #f59e0b; }
+    .u-box-blue h4 { color: #38bdf8; }
+    .u-box-green h4 { color: #10b981; }
+    .u-box-purple h4 { color: #a855f7; }
+    .u-box-orange h4 { color: #f97316; }
+    .u-box-gray h4 { color: #cbd5e1; }
+
+    .u-box ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 6px;
+        font-size: 12px;
     }
-    .u-info-title {
+    .u-box ul li {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        border-bottom: 1px dashed #1e293b;
+        padding-bottom: 4px;
+    }
+    .u-box ul li span {
         color: #94a3b8;
+    }
+    .u-box ul li strong {
+        color: #f8fafc;
+        word-break: break-all;
+        text-align: left;
+    }
+    .u-wallet {
+        color: #a7f3d0 !important;
+        font-family: monospace;
         font-size: 11px;
     }
-    .u-info-val {
-        color: #fff;
-        font-weight: bold;
-        font-size: 13px;
+    .u-null { color: #64748b; font-style: italic; }
+    .u-true { color: #10b981; font-weight: bold; }
+    .u-false { color: #ef4444; font-weight: bold; }
+    .u-json {
+        background: #1e293b;
+        padding: 5px;
+        border-radius: 4px;
+        max-height: 80px;
+        overflow-y: auto;
+        margin: 0;
+        font-size: 10px;
+        color: #f59e0b;
     }
 </style>
 
 <div class="users-section animate-fade-in">
     <!-- كارت البحث -->
     <div class="u-card">
-        <h2 class="u-header-title">👥 بيانات المستخدمين الشاملة</h2>
-        <p class="u-header-desc">عرض وتحكم بجميع مستخدمين البوت والأرصدة والإحالات والمخازن</p>
+        <h2 class="u-header-title">🔍 محرك استعراض بيانات المستخدمين الشامل</h2>
+        <p class="u-header-desc">عرض مستودع البيانات كاملاً مباشرة دون أزرار أو حظر</p>
         
         <div class="u-search-box">
-            <input type="text" id="uSearchInput" placeholder="🔍 ابحث بالـ ID أو الاسم أو المحفظة..." oninput="uSearch()">
-            <button onclick="uFetch()">🔄 تحديث البيانات</button>
+            <input type="text" id="uSearchInput" placeholder="🔎 ادخل ID المستخدم، الاسم، أو عنوان المحفظة للبحث الفوري..." oninput="uSearch()">
+            <button onclick="uFetch()">🔄 إعادة جلب وتحديث كافة الحقول</button>
         </div>
     </div>
 
-    <!-- كارت الجدول -->
-    <div class="u-card" style="padding: 0; overflow: hidden;">
-        <div class="u-table-container">
-            <table class="u-table">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>الاسم</th>
-                        <th>الرصيد الرئيسي</th>
-                        <th>الانضمام</th>
-                        <th>الإجراءات والبيانات</th>
-                    </tr>
-                </thead>
-                <tbody id="uTableBody">
-                    <tr><td colspan="5" style="color: #f59e0b; padding: 25px;">جاري جلب كافة بيانات الفايربيس... ⏳</td></tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-
-<!-- مودال التفاصيل الكاملة -->
-<div id="uDetailModal" class="u-modal-overlay">
-    <div class="u-modal">
-        <div class="u-modal-header">
-            <h3 style="margin: 0; color: #f59e0b;">📋 تفاصيل حساب المستخدم الكاملة</h3>
-            <button class="u-modal-close" onclick="uCloseModal()">إغلاق ✖</button>
-        </div>
-        <div id="uModalContent">
-            <!-- سيتم إضافة البيانات ديناميكياً هنا -->
-        </div>
+    <!-- مكان عرض كروت الحسابات التفصيلية -->
+    <div id="uResultsContainer">
+        <div class="u-loading">⏳ جاري تحميل البيانات...</div>
     </div>
 </div>
