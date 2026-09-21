@@ -1,5 +1,5 @@
 /**
- * ZN Farm Logic - Encapsulated & Secured Module
+ * ZN Farm Logic - Encapsulated & Secured Module (Fixed Accrual & Retroactive Jumps)
  */
 
 // الدوال العامة للتحكم بالنوافذ المنبثقة
@@ -435,7 +435,7 @@ window.closeAutoClaimModal = function() {
         return 0;
     }
 
-    // حساب وتثبيت التعدين المباشر لمنع تطبيق السرعة الجديدة بأثر رجعي على الفترة الماضية
+    // حساب وتثبيت التعدين المباشر بالسرعة القديمة وتحديد التجميد بدقة
     function accrueCurrentMining() {
         const pData = window.userState || window.PlayerData;
         if (!pData) return 0;
@@ -452,7 +452,8 @@ window.closeAutoClaimModal = function() {
         let boostRate = getActiveBoostRate(pData);
         let hRate = baseRate + boostRate;
 
-        let baseUnclaimed = parseFloat(pData.base_unclaimed ?? pData.unclaimed ?? 0);
+        // الاعتماد المباشر على الرصيد المتراكم الأصلي لحمايته من أي قفزة
+        let baseUnclaimed = parseFloat(pData.base_unclaimed !== undefined ? pData.base_unclaimed : (pData.unclaimed || 0));
         let accumulated = baseUnclaimed + ((hRate / 3600.0) * secondsPassed);
 
         if (accumulated >= maxC) accumulated = maxC;
@@ -900,7 +901,7 @@ window.closeAutoClaimModal = function() {
             : (pData.last_claim_time ? parseServerDateMs(pData.last_claim_time) : nowMs);
 
         let secondsPassed = Math.max(0, (nowMs - lastAccrualMs) / 1000);
-        let baseUnclaimed = parseFloat(pData.base_unclaimed ?? pData.unclaimed ?? 0);
+        let baseUnclaimed = parseFloat(pData.base_unclaimed !== undefined ? pData.base_unclaimed : (pData.unclaimed || 0));
         let unclaim = baseUnclaimed + ((hRate / 3600.0) * secondsPassed);
 
         if (unclaim >= maxC) unclaim = maxC;
@@ -999,9 +1000,11 @@ window.closeAutoClaimModal = function() {
         }
 
         isUpgradingStorage = true;
-        const stateBackup = cloneCurrentState();
 
+        // أولاً: تجميد وتثبيت الرصيد المعدّن بالسرعة والحدود القديمة
         accrueCurrentMining();
+
+        const stateBackup = cloneCurrentState();
 
         setStoredBalance(Math.max(0, bal - costZn), Math.max(0, usdBal - costUsd));
         window.userState.storage_level = nextLvl;
@@ -1027,16 +1030,7 @@ window.closeAutoClaimModal = function() {
                     window.PlayerData.max_cap = parseFloat(nextCfg.capacity);
                 }
 
-                if (resData.unclaimed !== undefined) {
-                    const uVal = parseFloat(resData.unclaimed);
-                    window.userState.unclaimed = uVal;
-                    window.PlayerData.unclaimed = uVal;
-                    window.userState.base_unclaimed = uVal;
-                    window.PlayerData.base_unclaimed = uVal;
-                    const accrualMs = resData.server_time ? parseServerDateMs(resData.server_time) : getAdjustedNowMs();
-                    window.userState.last_accrual_time = accrualMs;
-                    window.PlayerData.last_accrual_time = accrualMs;
-                }
+                // تم منع استبدال unclaimed المحاسب دقيقاً بحسابات راجعة من السيرفر
                 saveCachedData(window.userState);
                 showToast(`📦 تم ترقية سعة المخزن بنجاح إلى Level ${parseInt(resData.storage_level || nextLvl) + 1}!`);
             } else {
@@ -1071,10 +1065,11 @@ window.closeAutoClaimModal = function() {
         }
 
         upgradingLevel = level;
-        const stateBackup = cloneCurrentState();
 
-        // أولاً: تجميد وتثبيت الرصيد المعدّن بالسرعة القديمة حتى هذه اللحظة بالضبط
+        // أولاً: تجميد وتثبيت الرصيد المعدّن بالسرعة القديمة حتى هذه اللحظة بالتمام والكمال
         accrueCurrentMining();
+
+        const stateBackup = cloneCurrentState();
 
         setStoredBalance(Math.max(0, currentBal - costZn), Math.max(0, currentUsdBal - costUsd));
 
@@ -1108,17 +1103,7 @@ window.closeAutoClaimModal = function() {
                     window.PlayerData.upgrades = resData.upgrades;
                 }
 
-                if (resData.unclaimed !== undefined) {
-                    const uVal = parseFloat(resData.unclaimed);
-                    window.userState.unclaimed = uVal;
-                    window.PlayerData.unclaimed = uVal;
-                    window.userState.base_unclaimed = uVal;
-                    window.PlayerData.base_unclaimed = uVal;
-                    const accrualMs = resData.server_time ? parseServerDateMs(resData.server_time) : getAdjustedNowMs();
-                    window.userState.last_accrual_time = accrualMs;
-                    window.PlayerData.last_accrual_time = accrualMs;
-                }
-
+                // تجنب كتابة unclaimed من استجابة السيرفر لمنع أي قفزة راجعة
                 saveCachedData(window.userState);
                 showToast(`🏛️ تم ترقية المستوى ${level} بنجاح!`);
             } else {
@@ -1175,9 +1160,10 @@ window.closeAutoClaimModal = function() {
     window.handleDailyBoost = async function() {
         if (isDebouncedClick() || isBoosting) return;
         isBoosting = true;
-        const stateBackup = cloneCurrentState();
-
+        
         accrueCurrentMining();
+
+        const stateBackup = cloneCurrentState();
 
         try {
             let resData = await window.fetchAPI('/api/farm/daily_boost', 'POST', {});
@@ -1197,17 +1183,6 @@ window.closeAutoClaimModal = function() {
                     const bTime = resData.last_boost_time || resData.player?.last_boost_time;
                     window.userState.last_boost_time = bTime;
                     window.PlayerData.last_boost_time = bTime;
-                }
-
-                if (resData.unclaimed !== undefined) {
-                    const uVal = parseFloat(resData.unclaimed);
-                    window.userState.unclaimed = uVal;
-                    window.PlayerData.unclaimed = uVal;
-                    window.userState.base_unclaimed = uVal;
-                    window.PlayerData.base_unclaimed = uVal;
-                    const accrualMs = resData.server_time ? parseServerDateMs(resData.server_time) : getAdjustedNowMs();
-                    window.userState.last_accrual_time = accrualMs;
-                    window.PlayerData.last_accrual_time = accrualMs;
                 }
 
                 showToast(`⚡ تم تفعيل تعزيز السرعة (+0.1 ZN/ساعة) لمدة ساعتين بنجاح!`);
