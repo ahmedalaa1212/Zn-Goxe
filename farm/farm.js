@@ -49,8 +49,8 @@ window.closeAutoClaimModal = function() {
 (function initFarmModule() {
     'use strict';
 
-    // مفتاح إيقاف/تفعيل إعلانات Adsgram مؤقتاً
-    const ENABLE_ADSGRAM = false; 
+    // تفعيل إعلانات Adsgram
+    const ENABLE_ADSGRAM = true; 
 
     const tele = window.Telegram?.WebApp;
     const START_PARAM = tele?.initDataUnsafe?.start_param || "";
@@ -410,7 +410,7 @@ window.closeAutoClaimModal = function() {
 
             const timeoutTimer = setTimeout(() => {
                 finish(false);
-            }, 10000);
+            }, 12000);
 
             try {
                 const AdController = window.Adsgram.init({ blockId: blockId.trim() });
@@ -778,16 +778,17 @@ window.closeAutoClaimModal = function() {
         boostBtn.onclick = window.handleDailyBoost;
         const lastBoostTimeStr = pData.last_boost_time;
 
+        if (isCheckingAd || isBoosting) {
+            boostBtn.className = "boost-btn btn-disabled";
+            boostBtn.disabled = true;
+            boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 10px;">جاري...</span>`;
+            return;
+        }
+
         if (!lastBoostTimeStr) {
-            if (!isBoosting) {
-                boostBtn.className = "boost-btn";
-                boostBtn.disabled = false;
-                boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">+0.1/h</span>`;
-            } else {
-                boostBtn.className = "boost-btn btn-disabled";
-                boostBtn.disabled = true;
-                boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 10px;">تفعيل...</span>`;
-            }
+            boostBtn.className = "boost-btn";
+            boostBtn.disabled = false;
+            boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">+0.1/h</span>`;
             return;
         }
 
@@ -805,19 +806,12 @@ window.closeAutoClaimModal = function() {
             boostBtn.disabled = true;
             boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 8px;">${formatTimeDifference(remainingCooldown)}</span>`;
         } else {
-            if (!isBoosting) {
-                boostBtn.className = "boost-btn";
-                boostBtn.disabled = false;
-                boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">+0.1/h</span>`;
-            } else {
-                boostBtn.className = "boost-btn btn-disabled";
-                boostBtn.disabled = true;
-                boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 10px;">تفعيل...</span>`;
-            }
+            boostBtn.className = "boost-btn";
+            boostBtn.disabled = false;
+            boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">+0.1/h</span>`;
         }
     }
 
-    // اعتماد خيار التمهيل (Throttle) عند التنقل بين القوائم وتجنب طلب الإجبار القاسي
     window.onFarmTabOpen = async function() {
         if (typeof window.fetchPlayerDataFromServer === 'function') {
             await window.fetchPlayerDataFromServer(false);
@@ -863,7 +857,7 @@ window.closeAutoClaimModal = function() {
                 if (dayNum < currentDailyDay) {
                     html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div style="font-size: 14px; font-weight: bold; color: #10b981;">✓</div></div>`;
                 } else if (dayNum === currentDailyDay) {
-                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="window.handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%; cursor: pointer;" ${isClaimingDaily ? 'disabled' : ''}>استلام</button></div>`;
+                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="window.handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%; cursor: pointer;" ${isClaimingDaily || isCheckingAd ? 'disabled' : ''}>${isCheckingAd ? 'جاري الإعلان...' : 'استلام'}</button></div>`;
                 } else {
                     html += `<div class="reward-day-card" style="opacity: 0.4;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div></div>`;
                 }
@@ -1001,7 +995,6 @@ window.closeAutoClaimModal = function() {
 
         isUpgradingStorage = true;
 
-        // أولاً: تجميد وتثبيت الرصيد المعدّن بالسرعة والحدود القديمة
         accrueCurrentMining();
 
         const stateBackup = cloneCurrentState();
@@ -1030,7 +1023,6 @@ window.closeAutoClaimModal = function() {
                     window.PlayerData.max_cap = parseFloat(nextCfg.capacity);
                 }
 
-                // تم منع استبدال unclaimed المحاسب دقيقاً بحسابات راجعة من السيرفر
                 saveCachedData(window.userState);
                 showToast(`📦 تم ترقية سعة المخزن بنجاح إلى Level ${parseInt(resData.storage_level || nextLvl) + 1}!`);
             } else {
@@ -1066,7 +1058,6 @@ window.closeAutoClaimModal = function() {
 
         upgradingLevel = level;
 
-        // أولاً: تجميد وتثبيت الرصيد المعدّن بالسرعة القديمة حتى هذه اللحظة بالتمام والكمال
         accrueCurrentMining();
 
         const stateBackup = cloneCurrentState();
@@ -1103,7 +1094,6 @@ window.closeAutoClaimModal = function() {
                     window.PlayerData.upgrades = resData.upgrades;
                 }
 
-                // تجنب كتابة unclaimed من استجابة السيرفر لمنع أي قفزة راجعة
                 saveCachedData(window.userState);
                 showToast(`🏛️ تم ترقية المستوى ${level} بنجاح!`);
             } else {
@@ -1120,8 +1110,29 @@ window.closeAutoClaimModal = function() {
         }
     };
 
+    // استلام المكافأة اليومية (مشروط بمشاهدة الإعلان كاملاً)
     window.handleDailyClaim = async function(dayNum) {
-        if (isDebouncedClick() || isClaimingDaily) return;
+        if (isDebouncedClick() || isClaimingDaily || isCheckingAd) return;
+
+        isCheckingAd = true;
+        window.updateFarmUI();
+
+        let adWatched = false;
+        try {
+            adWatched = await showAdsgramAd();
+        } catch (e) {
+            console.error("خطأ عرض إعلان المكافأة اليومية:", e);
+            adWatched = false;
+        } finally {
+            isCheckingAd = false;
+            window.updateFarmUI();
+        }
+
+        if (!adWatched) {
+            showToast("❌ يجب مشاهدة الإعلان كاملاً لكي تتمكن من استلام المكافأة اليومية!");
+            return;
+        }
+
         isClaimingDaily = true;
         const stateBackup = cloneCurrentState();
 
@@ -1157,10 +1168,30 @@ window.closeAutoClaimModal = function() {
         }
     };
 
+    // تفعيل تسريع التعدين (مشروط بمشاهدة الإعلان كاملاً)
     window.handleDailyBoost = async function() {
-        if (isDebouncedClick() || isBoosting) return;
+        if (isDebouncedClick() || isBoosting || isCheckingAd) return;
+
+        isCheckingAd = true;
+        window.updateFarmUI();
+
+        let adWatched = false;
+        try {
+            adWatched = await showAdsgramAd();
+        } catch (e) {
+            console.error("خطأ عرض إعلان تسريع التعدين:", e);
+            adWatched = false;
+        } finally {
+            isCheckingAd = false;
+            window.updateFarmUI();
+        }
+
+        if (!adWatched) {
+            showToast("❌ يجب مشاهدة الإعلان كاملاً لكي تتمكن من تفعيل تسريع التعدين!");
+            return;
+        }
+
         isBoosting = true;
-        
         accrueCurrentMining();
 
         const stateBackup = cloneCurrentState();
