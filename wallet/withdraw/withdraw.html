@@ -72,6 +72,33 @@
   .btn-cancel { flex: 1; background: #ef4444; color: #fff; border: none; padding: 14px; border-radius: 12px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 14px; }
 </style>
 
+<!-- مشغل كود المزامنة التلقائية يعمل فورياً حتى عند تحميل الصفحة عبر innerHTML -->
+<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onerror="
+  (function syncFeeHandler() {
+    function updateNoticeFee() {
+      var feeElem = document.getElementById('fee-amount');
+      var noticeFeeElem = document.getElementById('notice-fee-display');
+      if (feeElem && noticeFeeElem) {
+        var text = feeElem.innerText || feeElem.textContent || '';
+        var cleanFee = text.split('(')[0].trim();
+        if (cleanFee && noticeFeeElem.textContent !== cleanFee) {
+          noticeFeeElem.textContent = cleanFee;
+        }
+      }
+    }
+    updateNoticeFee();
+    var feeElem = document.getElementById('fee-amount');
+    if (feeElem && !window._withdrawFeeSyncInit) {
+      window._withdrawFeeSyncInit = true;
+      if (window.MutationObserver) {
+        var obs = new MutationObserver(updateNoticeFee);
+        obs.observe(feeElem, { childList: true, characterData: true, subtree: true });
+      }
+      setInterval(updateNoticeFee, 200);
+    }
+  })();
+" style="display:none;" />
+
 <!-- عنصر جذر ثابت ومخفي لـ TONConnect لمنع أخطاء الإنشاء الديناميكي -->
 <div id="ton-connect-hidden-root" style="display:none;"></div>
 
@@ -174,34 +201,4 @@
   </div>
 </div>
 
-<!-- نقل استدعاء المكتبة للأسفل لضمان اكتمال تحميل الـ DOM قبل التشغيل -->
 <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
-
-<script>
-  // سكريبت ذكي لمزامنة قيمة الرسوم تلقائياً في نص التنبيه عند تغيرها فوق
-  (function() {
-    function updateNoticeFee() {
-      const feeElem = document.getElementById('fee-amount');
-      const noticeFeeElem = document.getElementById('notice-fee-display');
-      if (feeElem && noticeFeeElem) {
-        let text = feeElem.innerText || feeElem.textContent || '';
-        let cleanFee = text.split('(')[0].trim();
-        if (cleanFee) {
-          noticeFeeElem.textContent = cleanFee;
-        }
-      }
-    }
-
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', updateNoticeFee);
-    } else {
-      updateNoticeFee();
-    }
-
-    const target = document.getElementById('fee-amount');
-    if (target && window.MutationObserver) {
-      const observer = new MutationObserver(updateNoticeFee);
-      observer.observe(target, { childList: true, characterData: true, subtree: true });
-    }
-  })();
-</script>
