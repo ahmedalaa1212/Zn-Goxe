@@ -270,12 +270,14 @@
     const usdBalDisplay = document.getElementById("usd-balance-display");
     const minInfo = document.getElementById("min-withdraw-info");
     const feeInfo = document.getElementById("fee-amount");
+    const noticeFeeDisplay = document.getElementById("notice-fee-display");
     const tierBadge = document.getElementById("tier-badge");
 
     if (userBalDisplay) userBalDisplay.innerHTML = `رصيدك: ${formatCryptoSmartHtml(userBalance)} ZNX`;
     if (usdBalDisplay) usdBalDisplay.innerText = `$${usdBalance.toFixed(2)} USD`;
     if (minInfo) minInfo.innerText = `الحد الأدنى: ${minWithdraw} ZNX`;
     if (feeInfo) feeInfo.innerText = `$${fixedFeeUsd.toFixed(2)} USD (من رصيد الدولار)`;
+    if (noticeFeeDisplay) noticeFeeDisplay.innerText = `$${fixedFeeUsd.toFixed(2)} USD`;
     if (tierBadge) tierBadge.innerText = currentTierName;
   }
 
@@ -337,7 +339,7 @@
     } else {
       const depositTabBtn = document.querySelector('[onclick*="deposit"], [data-tab="deposit"]');
       if (depositTabBtn) depositTabBtn.click();
-      else alert("يرجى الانتقال لصفحة الإيداع لتعبئة رصيد الدولار ($0.02 USD).");
+      else alert("يرجى الانتقال لصفحة الإيداع لتعبئة رصيد الدولار.");
     }
   }
 
