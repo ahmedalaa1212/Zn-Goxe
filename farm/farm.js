@@ -55,7 +55,7 @@ window.closeAutoClaimModal = function() {
     // إعدادات اللعبة المحمية داخل النطاق الخاص
     const GAME_CONFIG = {
         monetagZoneId: window.MONETAG_ZONE_ID || "11322720",
-        monetixBlockId: window.MONETIX_BLOCK_ID || "",
+        monetixBlockId: window.MONETIX_BLOCK_ID || "MX-3AE08FE9",
         maxUpgradesPerLevel: 15,
         dailyBoostReward: 0.10, // زيادة السرعة بمقدار 0.1 ZN/ساعة
         boostDurationMs: 2 * 60 * 60 * 1000, // تعمل لمدة 2 ساعة
@@ -376,19 +376,25 @@ window.closeAutoClaimModal = function() {
                 }
             };
 
+            // رفع مهلة الانتظار إلى 60 ثانية لإعطاء المستخدم المدى الكامل لمشاهدة وإغلاق الإعلان
             const timeoutTimer = setTimeout(() => {
                 console.warn("Monetag Ad timeout.");
                 finish(false);
-            }, 15000);
+            }, 60000);
 
             if (typeof window[functionName] === 'function') {
                 try {
-                    window[functionName]().then(() => {
+                    const adPromise = window[functionName]();
+                    if (adPromise && typeof adPromise.then === 'function') {
+                        adPromise.then(() => {
+                            finish(true);
+                        }).catch((e) => {
+                            console.error("خطأ تشغيل إعلان Monetag:", e);
+                            finish(false);
+                        });
+                    } else {
                         finish(true);
-                    }).catch((e) => {
-                        console.error("خطأ تشغيل إعلان Monetag:", e);
-                        finish(false);
-                    });
+                    }
                 } catch (e) {
                     console.error("استدعاء Monetag فشل:", e);
                     finish(false);
@@ -400,7 +406,7 @@ window.closeAutoClaimModal = function() {
         });
     }
 
-    // --- إعلانات Monetix الخاصة بمكافأة تسريع التعدين (0.1/h) ---
+    // --- إعلانات Monetix الخاصة بمكافأة تسريع التعدين (+0.1 ZN/ساعة) ---
     async function showMonetixAd() {
         toggleAdLoadingOverlay(true);
 
@@ -416,26 +422,27 @@ window.closeAutoClaimModal = function() {
                 }
             };
 
+            // مهلة انتظار 60 ثانية لإتاحة وقت مشاهدة وإغلاق الإعلان
             const timeoutTimer = setTimeout(() => {
                 console.warn("Monetix Ad timeout.");
                 finish(false);
-            }, 15000);
+            }, 60000);
 
-            // فحص وجود الدوال أو كائنات Monetix SDK
-            if (typeof window.showMonetixAd === 'function') {
+            if (typeof window.showRewardAd === 'function') {
                 try {
-                    window.showMonetixAd().then(() => finish(true)).catch(() => finish(false));
+                    window.showRewardAd(function(res) {
+                        if (res && (res.status === "completed" || res.status === "closed")) {
+                            finish(true);
+                        } else {
+                            finish(false);
+                        }
+                    });
                 } catch (e) {
-                    finish(false);
-                }
-            } else if (typeof window.Monetix === 'object' && typeof window.Monetix.show === 'function') {
-                try {
-                    window.Monetix.show().then(() => finish(true)).catch(() => finish(false));
-                } catch (e) {
+                    console.error("خطأ تشغيل إعلان Monetix:", e);
                     finish(false);
                 }
             } else {
-                console.warn("Monetix SDK غير جاهز أو الحساب قيد المراجعة.");
+                console.warn("Monetix SDK غير متوفر أو لم يتم تحميل كود showRewardAd بعد.");
                 finish(false);
             }
         });
@@ -1118,7 +1125,6 @@ window.closeAutoClaimModal = function() {
     window.handleDailyClaim = async function(dayNum) {
         if (isDebouncedClick() || isClaimingDaily) return;
         
-        // 1. تشغيل إعلان Monetag ومنع الاستلام حتى اكتماله
         showToast("⏳ جاري تحميل الإعلان لاستلام المكافأة اليومية...");
         const adSuccess = await showMonetagAd();
 
@@ -1166,7 +1172,6 @@ window.closeAutoClaimModal = function() {
     window.handleDailyBoost = async function() {
         if (isDebouncedClick() || isBoosting) return;
 
-        // 1. تشغيل إعلان Monetix ومنع التفعيل حتى اكتماله
         showToast("⏳ جاري تحميل إعلان تسريع التعدين...");
         const adSuccess = await showMonetixAd();
 
