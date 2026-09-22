@@ -209,7 +209,9 @@ def get_player_data():
         cooldown_seconds = int(mining_cfg.get("claim_cooldown_seconds", 15))
         max_upgrades_per_level = int(mining_cfg.get("max_upgrades_per_level", 15))
 
-        adsgram_block_id = os.environ.get("ADSGRAM_BLOCK_ID", "").strip()
+        # جلب معرفات الإعلانات من متغيرات البيئة في Railway
+        monetag_zone_id = (os.environ.get("MONETAG_ZONE_ID") or os.environ.get("MONETAG_ID") or "").strip()
+        monetix_zone_id = (os.environ.get("MONETIX_ZONE_ID") or os.environ.get("MONETIX_ID") or "").strip()
 
         # صياغة توقيت السيرفر بصيغة ISO بتوقيت UTC ومختومة بـ Z صراحة لمنع أخطاء التوقيت الزمني لدى العميل
         server_time_str = now.isoformat()
@@ -236,7 +238,8 @@ def get_player_data():
                 "max_upgrades_per_level": max_upgrades_per_level,
                 "boost_cooldown_seconds": 10800, # 3 ساعات فترة انتظار المعزز
                 "boost_duration_seconds": 7200,   # 2 ساعة مدة التفعيل
-                "adsgram_block_id": adsgram_block_id
+                "monetag_zone_id": monetag_zone_id,
+                "monetix_zone_id": monetix_zone_id
             }
         }), 200
     except Exception as e:
@@ -412,7 +415,7 @@ def buy_storage_upgrade():
 @farm_bp.route('/farm/daily_claim', methods=['POST'])
 @farm_bp.route('/api/farm/daily_claim', methods=['POST'])
 def claim_daily():
-    """استلام المكافأة اليومية بعد التحقق الصارم من مشاهدة إعلان Adsgram بالكامل"""
+    """استلام المكافأة اليومية بعد التحقق الصارم من مشاهدة إعلان Monetag بالكامل"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
@@ -423,18 +426,23 @@ def claim_daily():
     if is_rate_limited(user_id_str, "daily_claim", min_interval=2.0):
         return jsonify({"success": False, "error": "يرجى الانتظار قبل استلام المكافأة اليومية مجدداً"}), 429
 
-    # 📺 التحقق الصارم من مشاهدة إعلان Adsgram
-    adsgram_block_id = os.environ.get("ADSGRAM_BLOCK_ID", "").strip()
+    # 📺 التحقق الصارم من مشاهدة إعلان Monetag
+    monetag_zone_id = (os.environ.get("MONETAG_ZONE_ID") or os.environ.get("MONETAG_ID") or "").strip()
     data = request.get_json(silent=True) or {}
     
-    # عند تفعيل معرف Adsgram في متغرات البيئة، يُلزم المستخدم بتجاوز الإعلان
-    if adsgram_block_id:
-        ad_watched = to_bool(data.get("ad_watched", False)) or to_bool(data.get("ad_completed", False)) or to_bool(data.get("adsgram", False))
-        if not ad_watched:
-            return jsonify({
-                "success": False, 
-                "error": "يجب مشاهدة إعلان Adsgram بالكامل أولاً لاستلام المكافأة اليومية"
-            }), 400
+    # يجب التأكد من مشاهدة إعلان Monetag بالكامل قبل منح المكافأة
+    ad_watched = (
+        to_bool(data.get("ad_watched", False)) or 
+        to_bool(data.get("ad_completed", False)) or 
+        to_bool(data.get("monetag_watched", False)) or 
+        to_bool(data.get("monetag_completed", False))
+    )
+    
+    if not ad_watched:
+        return jsonify({
+            "success": False, 
+            "error": "يجب مشاهدة إعلان Monetag بالكامل أولاً لاستلام المكافأة اليومية"
+        }), 400
 
     try:
         result = claim_daily_reward_db(user_id_str)
@@ -450,7 +458,7 @@ def claim_daily():
 @farm_bp.route('/farm/daily_boost', methods=['POST'])
 @farm_bp.route('/api/farm/daily_boost', methods=['POST'])
 def claim_daily_boost():
-    """تفعيل التعزيز اليومي لسرعة التعدين (+0.10/ساعة) بعد التحقق الصارم من مشاهدة إعلان Adsgram بالكامل"""
+    """تفعيل التعزيز اليومي لسرعة التعدين (+0.10/ساعة) بعد التحقق الصارم من مشاهدة إعلان Monetix بالكامل"""
     success, telegram_id, user_info, error_res = get_authenticated_user(request, is_post=True)
     if not success: 
         return error_res
@@ -461,18 +469,23 @@ def claim_daily_boost():
     if is_rate_limited(user_id_str, "daily_boost", min_interval=3.0):
         return jsonify({"success": False, "error": "تم استلام طلب تفعيل التعزيز بالكامل، يرجى عدم تكرار الطلب"}), 429
 
-    # 📺 التحقق الصارم من مشاهدة إعلان Adsgram
-    adsgram_block_id = os.environ.get("ADSGRAM_BLOCK_ID", "").strip()
+    # 📺 التحقق الصارم من مشاهدة إعلان Monetix
+    monetix_zone_id = (os.environ.get("MONETIX_ZONE_ID") or os.environ.get("MONETIX_ID") or "").strip()
     data = request.get_json(silent=True) or {}
     
-    # عند تفعيل معرف Adsgram في متغيرات البيئة، يُلزم المستخدم بتجاوز الإعلان
-    if adsgram_block_id:
-        ad_watched = to_bool(data.get("ad_watched", False)) or to_bool(data.get("ad_completed", False)) or to_bool(data.get("adsgram", False))
-        if not ad_watched:
-            return jsonify({
-                "success": False, 
-                "error": "يجب مشاهدة إعلان Adsgram بالكامل أولاً لتفعيل معزز سرعة التعدين"
-            }), 400
+    # يجب التأكد من مشاهدة إعلان Monetix بالكامل قبل تفعيل التعزيز
+    ad_watched = (
+        to_bool(data.get("ad_watched", False)) or 
+        to_bool(data.get("ad_completed", False)) or 
+        to_bool(data.get("monetix_watched", False)) or 
+        to_bool(data.get("monetix_completed", False))
+    )
+    
+    if not ad_watched:
+        return jsonify({
+            "success": False, 
+            "error": "يجب مشاهدة إعلان Monetix بالكامل أولاً لتفعيل معزز سرعة التعدين"
+        }), 400
 
     try:
         result = claim_daily_boost_db(user_id_str)
