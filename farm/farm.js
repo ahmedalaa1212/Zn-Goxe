@@ -384,7 +384,6 @@ window.closeAutoClaimModal = function() {
             if (typeof window[functionName] === 'function') {
                 try {
                     const adPromise = window[functionName]();
-                    setTimeout(() => toggleAdLoadingOverlay(false), 300);
 
                     if (adPromise && typeof adPromise.then === 'function') {
                         adPromise.then((res) => {
@@ -450,8 +449,6 @@ window.closeAutoClaimModal = function() {
 
             if (monetixFn) {
                 try {
-                    setTimeout(() => toggleAdLoadingOverlay(false), 500);
-
                     // فحص دقيق لحالة اكتمال أو إغلاق الإعلان الصريحة فقط
                     const checkSuccessStatus = (status) => {
                         if (status === true) return true;
@@ -467,8 +464,22 @@ window.closeAutoClaimModal = function() {
                         return false;
                     };
 
+                    const checkStartStatus = (status) => {
+                        if (typeof status === 'string') {
+                            const str = status.toLowerCase();
+                            return str === 'start' || str === 'started' || str === 'show' || str === 'shown' || str === 'open' || str === 'opened';
+                        }
+                        if (typeof status === 'object' && status !== null) {
+                            const st = (status.status || status.state || status.event || status.type || '').toString().toLowerCase();
+                            return st === 'start' || st === 'started' || st === 'show' || st === 'shown' || st === 'open' || st === 'opened';
+                        }
+                        return false;
+                    };
+
                     const res = monetixFn(function(status) {
-                        if (checkSuccessStatus(status)) {
+                        if (checkStartStatus(status)) {
+                            toggleAdLoadingOverlay(false);
+                        } else if (checkSuccessStatus(status)) {
                             finish(true);
                         } else if (status === false || (typeof status === 'string' && (status === 'failed' || status === 'error' || status === 'skipped' || status === 'dismissed'))) {
                             finish(false);
@@ -477,7 +488,9 @@ window.closeAutoClaimModal = function() {
 
                     if (res && typeof res.then === 'function') {
                         res.then((r) => {
-                            if (checkSuccessStatus(r)) {
+                            if (checkStartStatus(r)) {
+                                toggleAdLoadingOverlay(false);
+                            } else if (checkSuccessStatus(r)) {
                                 finish(true);
                             } else if (r === false) {
                                 finish(false);
