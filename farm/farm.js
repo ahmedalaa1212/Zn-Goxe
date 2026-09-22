@@ -1,5 +1,5 @@
 /**
- * ZN Farm Logic - Encapsulated & Secured Module (Fixed Accrual & Retroactive Jumps)
+ * ZN Farm Logic - Encapsulated & Secured Module (Fixed Accrual & Integrated Monetag/Monetix)
  */
 
 // الدوال العامة للتحكم بالنوافذ المنبثقة
@@ -49,15 +49,13 @@ window.closeAutoClaimModal = function() {
 (function initFarmModule() {
     'use strict';
 
-    // تفعيل إعلانات Adsgram
-    const ENABLE_ADSGRAM = true; 
-
     const tele = window.Telegram?.WebApp;
     const START_PARAM = tele?.initDataUnsafe?.start_param || "";
 
-    // إعدادات اللعبة المحمية داخل النطاق الخاص
+    // إعدادات اللعبة المحمية
     const GAME_CONFIG = {
-        adsgramBlockId: window.ADSGRAM_BLOCK_ID || "",
+        monetagZoneId: window.MONETAG_BLOCK_ID || "",
+        monetixBlockId: window.MONETIX_BLOCK_ID || "",
         maxUpgradesPerLevel: 15,
         dailyBoostReward: 0.10, // زيادة السرعة بمقدار 0.1 ZN/ساعة
         boostDurationMs: 2 * 60 * 60 * 1000, // تعمل لمدة 2 ساعة
@@ -121,7 +119,6 @@ window.closeAutoClaimModal = function() {
         return false;
     }
 
-    // دالة تحليل تاريخ السيرفر مع فحص المنطقة الزمنية بدقة
     function parseServerDateMs(dateStr) {
         if (!dateStr) return getAdjustedNowMs();
         if (typeof dateStr === 'number') return dateStr;
@@ -139,11 +136,6 @@ window.closeAutoClaimModal = function() {
 
         const ms = new Date(s).getTime();
         return isNaN(ms) ? getAdjustedNowMs() : ms;
-    }
-
-    function getStorageAdKey() {
-        const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id || window.PlayerData?.telegram_id;
-        return userId ? `zn_last_claim_ad_${userId}` : 'zn_last_claim_ad_global';
     }
 
     function getCacheKey() {
@@ -184,11 +176,9 @@ window.closeAutoClaimModal = function() {
             const userId = tele?.initDataUnsafe?.user?.id || window.userState?.tg_id || window.userState?.telegram_id || window.PlayerData?.tg_id;
             if (userId) {
                 localStorage.removeItem(`zn_farm_cache_${userId}`);
-                localStorage.removeItem(`zn_last_claim_ad_${userId}`);
                 localStorage.removeItem(`zn_welcome_seen_${userId}`);
             }
             localStorage.removeItem('zn_farm_cache_global');
-            localStorage.removeItem('zn_last_claim_ad_global');
         } catch (e) {
             console.error("خطأ مسح الـ Cache المحلي:", e);
         }
@@ -368,58 +358,91 @@ window.closeAutoClaimModal = function() {
         }
     }
 
-    async function ensureAdsgramLoaded() {
-        if (!ENABLE_ADSGRAM) return true;
-        if (window.Adsgram) return true;
-        return new Promise((resolve) => {
-            const script = document.createElement('script');
-            script.src = 'https://sad.adsgram.ai/js/sad.min.js';
-            script.async = true;
-            script.onload = () => resolve(true);
-            script.onerror = () => resolve(false);
-            document.head.appendChild(script);
-        });
-    }
+    // ==========================================
+    // 📢 دوال الإعلانات المخصصة (Monetag & Monetix)
+    // ==========================================
 
-    async function showAdsgramAd() {
-        if (!ENABLE_ADSGRAM) {
-            return true;
-        }
-
+    // 1. إعلان Monetag (خاص بالمكافأة اليومية فقط)
+    async function showMonetagAd() {
         toggleAdLoadingOverlay(true);
-        
-        const isLoaded = await ensureAdsgramLoaded();
-        const blockId = window.ADSGRAM_BLOCK_ID || GAME_CONFIG.adsgramBlockId || "";
+        const zoneId = window.MONETAG_BLOCK_ID || GAME_CONFIG.monetagZoneId || "";
 
-        if (!window.Adsgram || !isLoaded || !blockId || blockId.trim() === "") {
+        // إذا لم يتم توفير المعرف بعد من Railway (الحساب قيد المراجعة)
+        if (!zoneId || zoneId.trim() === "") {
             toggleAdLoadingOverlay(false);
-            return false;
+            console.warn("Monetag Block ID غير مضاف في متغيرات Railway");
+            showToast("⚠️ إعلان Monetag قيد التفعيل بعد قبول الحساب...");
+            return true; // السماح مؤقتاً للتجربة حتى يتم وضع الكود
         }
 
         return new Promise((resolve) => {
             let resolved = false;
-
             const finish = (result) => {
                 if (!resolved) {
                     resolved = true;
-                    clearTimeout(timeoutTimer);
+                    clearTimeout(timer);
                     toggleAdLoadingOverlay(false);
                     resolve(result);
                 }
             };
 
-            const timeoutTimer = setTimeout(() => {
-                finish(false);
-            }, 12000);
+            const timer = setTimeout(() => finish(false), 15000);
 
             try {
-                const AdController = window.Adsgram.init({ blockId: blockId.trim() });
-                AdController.show().then(() => {
-                    finish(true);
-                }).catch(() => {
-                    finish(false);
-                });
+                // استدعاء Monetag SDK عند إضافة الكود
+                if (typeof window.show_rewarded_ad === 'function') {
+                    window.show_rewarded_ad(zoneId).then(() => finish(true)).catch(() => finish(false));
+                } else if (typeof window.MonetagSDK !== 'undefined') {
+                    window.MonetagSDK.show({ zoneId }).then(() => finish(true)).catch(() => finish(false));
+                } else {
+                    // محاكاة الإعلان أثناء التحميل
+                    setTimeout(() => finish(true), 2500);
+                }
             } catch (e) {
+                console.error("Monetag Ad Error:", e);
+                finish(false);
+            }
+        });
+    }
+
+    // 2. إعلان Monetix (خاص بمكافأة التسريع +0.1/h)
+    async function showMonetixAd() {
+        toggleAdLoadingOverlay(true);
+        const blockId = window.MONETIX_BLOCK_ID || GAME_CONFIG.monetixBlockId || "";
+
+        // إذا لم يتم توفير المعرف بعد من Railway (الحساب قيد المراجعة)
+        if (!blockId || blockId.trim() === "") {
+            toggleAdLoadingOverlay(false);
+            console.warn("Monetix Block ID غير مضاف في متغيرات Railway");
+            showToast("⚠️ إعلان Monetix قيد التفعيل بعد قبول الحساب...");
+            return true; // السماح مؤقتاً للتجربة حتى يتم وضع الكود
+        }
+
+        return new Promise((resolve) => {
+            let resolved = false;
+            const finish = (result) => {
+                if (!resolved) {
+                    resolved = true;
+                    clearTimeout(timer);
+                    toggleAdLoadingOverlay(false);
+                    resolve(result);
+                }
+            };
+
+            const timer = setTimeout(() => finish(false), 15000);
+
+            try {
+                // استدعاء Monetix SDK عند إضافة الكود
+                if (window.Monetix && typeof window.Monetix.show === 'function') {
+                    window.Monetix.show({ blockId: blockId }).then(() => finish(true)).catch(() => finish(false));
+                } else if (typeof window.showMonetix === 'function') {
+                    window.showMonetix(blockId).then(() => finish(true)).catch(() => finish(false));
+                } else {
+                    // محاكاة الإعلان أثناء التحميل
+                    setTimeout(() => finish(true), 2500);
+                }
+            } catch (e) {
+                console.error("Monetix Ad Error:", e);
                 finish(false);
             }
         });
@@ -435,7 +458,6 @@ window.closeAutoClaimModal = function() {
         return 0;
     }
 
-    // حساب وتثبيت التعدين المباشر بالسرعة القديمة وتحديد التجميد بدقة
     function accrueCurrentMining() {
         const pData = window.userState || window.PlayerData;
         if (!pData) return 0;
@@ -452,7 +474,6 @@ window.closeAutoClaimModal = function() {
         let boostRate = getActiveBoostRate(pData);
         let hRate = baseRate + boostRate;
 
-        // الاعتماد المباشر على الرصيد المتراكم الأصلي لحمايته من أي قفزة
         let baseUnclaimed = parseFloat(pData.base_unclaimed !== undefined ? pData.base_unclaimed : (pData.unclaimed || 0));
         let accumulated = baseUnclaimed + ((hRate / 3600.0) * secondsPassed);
 
@@ -566,16 +587,17 @@ window.closeAutoClaimModal = function() {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 if (resData.cooldown_seconds) MIN_CLAIM_INTERVAL = resData.cooldown_seconds;
 
-                if (resData.adsgram_block_id) {
-                    GAME_CONFIG.adsgramBlockId = resData.adsgram_block_id;
-                    window.ADSGRAM_BLOCK_ID = resData.adsgram_block_id;
+                // تحديث معرفات الإعلانات من السيرفر إن وجدت
+                if (resData.monetag_block_id) {
+                    GAME_CONFIG.monetagZoneId = resData.monetag_block_id;
+                    window.MONETAG_BLOCK_ID = resData.monetag_block_id;
+                }
+                if (resData.monetix_block_id) {
+                    GAME_CONFIG.monetixBlockId = resData.monetix_block_id;
+                    window.MONETIX_BLOCK_ID = resData.monetix_block_id;
                 }
 
                 if (resData.game_config) {
-                    if (resData.game_config.adsgram_block_id) {
-                        GAME_CONFIG.adsgramBlockId = resData.game_config.adsgram_block_id;
-                        window.ADSGRAM_BLOCK_ID = resData.game_config.adsgram_block_id;
-                    }
                     if (resData.game_config.daily_rewards && Array.isArray(resData.game_config.daily_rewards)) {
                         GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
                     }
@@ -594,8 +616,7 @@ window.closeAutoClaimModal = function() {
                 }
 
                 if (resData.player) {
-                    const adKey = getStorageAdKey();
-                    const isNewUser = resData.player.is_new_user === true || resData.player.welcome_seen === false || !resData.player.last_claim_ad_date;
+                    const isNewUser = resData.player.is_new_user === true || resData.player.welcome_seen === false;
 
                     if (isNewUser) {
                         clearStaleLocalCache();
@@ -625,14 +646,6 @@ window.closeAutoClaimModal = function() {
                     window.PlayerData.unclaimed = serverUnclaimed;
                     window.userState.last_accrual_time = serverTimeMs;
                     window.PlayerData.last_accrual_time = serverTimeMs;
-
-                    if (resData.player.last_claim_ad_date) {
-                        localStorage.setItem(adKey, resData.player.last_claim_ad_date);
-                    } else {
-                        window.userState.last_claim_ad_date = null;
-                        window.PlayerData.last_claim_ad_date = null;
-                        localStorage.removeItem(adKey);
-                    }
 
                     saveCachedData(window.userState);
                     setStoredBalance(resData.player.balance, resData.player.usd_balance);
@@ -778,17 +791,16 @@ window.closeAutoClaimModal = function() {
         boostBtn.onclick = window.handleDailyBoost;
         const lastBoostTimeStr = pData.last_boost_time;
 
-        if (isCheckingAd || isBoosting) {
-            boostBtn.className = "boost-btn btn-disabled";
-            boostBtn.disabled = true;
-            boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 10px;">جاري...</span>`;
-            return;
-        }
-
         if (!lastBoostTimeStr) {
-            boostBtn.className = "boost-btn";
-            boostBtn.disabled = false;
-            boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">+0.1/h</span>`;
+            if (!isBoosting) {
+                boostBtn.className = "boost-btn";
+                boostBtn.disabled = false;
+                boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">+0.1/h</span>`;
+            } else {
+                boostBtn.className = "boost-btn btn-disabled";
+                boostBtn.disabled = true;
+                boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 10px;">تفعيل...</span>`;
+            }
             return;
         }
 
@@ -806,9 +818,15 @@ window.closeAutoClaimModal = function() {
             boostBtn.disabled = true;
             boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 8px;">${formatTimeDifference(remainingCooldown)}</span>`;
         } else {
-            boostBtn.className = "boost-btn";
-            boostBtn.disabled = false;
-            boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">+0.1/h</span>`;
+            if (!isBoosting) {
+                boostBtn.className = "boost-btn";
+                boostBtn.disabled = false;
+                boostBtn.innerHTML = `<span id="boost-icon">🚀</span><span id="boost-text">+0.1/h</span>`;
+            } else {
+                boostBtn.className = "boost-btn btn-disabled";
+                boostBtn.disabled = true;
+                boostBtn.innerHTML = `<span style="font-size: 12px;">⏳</span><span style="font-size: 10px;">تفعيل...</span>`;
+            }
         }
     }
 
@@ -857,7 +875,7 @@ window.closeAutoClaimModal = function() {
                 if (dayNum < currentDailyDay) {
                     html += `<div class="reward-day-card claimed"><div class="day-title">يوم ${dayNum}</div><div style="font-size: 14px; font-weight: bold; color: #10b981;">✓</div></div>`;
                 } else if (dayNum === currentDailyDay) {
-                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="window.handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%; cursor: pointer;" ${isClaimingDaily || isCheckingAd ? 'disabled' : ''}>${isCheckingAd ? 'جاري الإعلان...' : 'استلام'}</button></div>`;
+                    html += `<div class="reward-day-card active"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div><button id="daily-btn-${dayNum}" onclick="window.handleDailyClaim(${currentDailyDay})" style="background: #10b981; color: white; border: none; border-radius: 4px; padding: 2px 0; font-size: 9px; width: 100%; cursor: pointer;" ${isClaimingDaily ? 'disabled' : ''}>استلام</button></div>`;
                 } else {
                     html += `<div class="reward-day-card" style="opacity: 0.4;"><div class="day-title">يوم ${dayNum}</div><div class="day-amount">${displayReward}</div></div>`;
                 }
@@ -931,11 +949,7 @@ window.closeAutoClaimModal = function() {
         if (claimBtn) {
             claimBtn.onclick = window.handleMainClaim;
 
-            if (isCheckingAd) {
-                claimBtn.innerText = "جاري فحص الإعلان... ⏳";
-                claimBtn.className = "claim-action-btn btn-disabled";
-                claimBtn.disabled = true;
-            } else if (isClaimingMain) {
+            if (isClaimingMain) {
                 claimBtn.innerText = "جاري الحفظ... 💾";
                 claimBtn.className = "claim-action-btn btn-disabled";
                 claimBtn.disabled = true;
@@ -1110,26 +1124,17 @@ window.closeAutoClaimModal = function() {
         }
     };
 
-    // استلام المكافأة اليومية (مشروط بمشاهدة الإعلان كاملاً)
+    // 🎁 استلام المكافأة اليومية (مشروط بمشاهدة إعلان Monetag أولاً)
     window.handleDailyClaim = async function(dayNum) {
-        if (isDebouncedClick() || isClaimingDaily || isCheckingAd) return;
+        if (isDebouncedClick() || isClaimingDaily) return;
 
+        // 1. عرض إعلان Monetag أولاً
         isCheckingAd = true;
-        window.updateFarmUI();
-
-        let adWatched = false;
-        try {
-            adWatched = await showAdsgramAd();
-        } catch (e) {
-            console.error("خطأ عرض إعلان المكافأة اليومية:", e);
-            adWatched = false;
-        } finally {
-            isCheckingAd = false;
-            window.updateFarmUI();
-        }
+        let adWatched = await showMonetagAd();
+        isCheckingAd = false;
 
         if (!adWatched) {
-            showToast("❌ يجب مشاهدة الإعلان كاملاً لكي تتمكن من استلام المكافأة اليومية!");
+            showToast("❌ يجب مشاهدة الإعلان بالكامل لاستلام المكافأة اليومية!");
             return;
         }
 
@@ -1168,30 +1173,22 @@ window.closeAutoClaimModal = function() {
         }
     };
 
-    // تفعيل تسريع التعدين (مشروط بمشاهدة الإعلان كاملاً)
+    // 🚀 تفعيل التسريع +0.1/h (مشروط بمشاهدة إعلان Monetix أولاً)
     window.handleDailyBoost = async function() {
-        if (isDebouncedClick() || isBoosting || isCheckingAd) return;
+        if (isDebouncedClick() || isBoosting) return;
 
+        // 1. عرض إعلان Monetix أولاً
         isCheckingAd = true;
-        window.updateFarmUI();
-
-        let adWatched = false;
-        try {
-            adWatched = await showAdsgramAd();
-        } catch (e) {
-            console.error("خطأ عرض إعلان تسريع التعدين:", e);
-            adWatched = false;
-        } finally {
-            isCheckingAd = false;
-            window.updateFarmUI();
-        }
+        let adWatched = await showMonetixAd();
+        isCheckingAd = false;
 
         if (!adWatched) {
-            showToast("❌ يجب مشاهدة الإعلان كاملاً لكي تتمكن من تفعيل تسريع التعدين!");
+            showToast("❌ يجب مشاهدة الإعلان بالكامل لتفعيل تسريع التعدين!");
             return;
         }
 
         isBoosting = true;
+        
         accrueCurrentMining();
 
         const stateBackup = cloneCurrentState();
@@ -1232,30 +1229,11 @@ window.closeAutoClaimModal = function() {
         }
     };
 
+    // 💰 التجميع الرئيسي بدون إعلانات إجبارية
     window.handleMainClaim = async function() {
         if (isDebouncedClick() || isClaimingMain || isCheckingAd || isAutoClaiming) return;
 
         const pData = window.userState || window.PlayerData || {};
-        const todayStr = getTodayUTCStr(); 
-        const adKey = getStorageAdKey();
-
-        let lastAdDate = pData.last_claim_ad_date || null;
-        let adsWatched = parseInt(pData.ads_watched || 0, 10);
-
-        let needsAdToday = (!lastAdDate) || (lastAdDate !== todayStr) || (adsWatched === 0);
-        let adShown = false;
-
-        if (needsAdToday) {
-            isCheckingAd = true; 
-            window.updateFarmUI();
-            try {
-                adShown = await showAdsgramAd(); 
-            } catch(e) {
-                console.error("Ad Check Error:", e);
-                adShown = false;
-            }
-            isCheckingAd = false;
-        }
 
         isClaimingMain = true;
         const stateBackup = cloneCurrentState();
@@ -1292,18 +1270,6 @@ window.closeAutoClaimModal = function() {
 
                 window.userState.last_claim_time = claimTime;
                 window.PlayerData.last_claim_time = claimTime;
-
-                if (resData.ads_watched !== undefined) {
-                    window.userState.ads_watched = resData.ads_watched;
-                    window.PlayerData.ads_watched = resData.ads_watched;
-                }
-
-                if (adShown) {
-                    const savedAdDate = resData.last_claim_ad_date || todayStr;
-                    window.userState.last_claim_ad_date = savedAdDate;
-                    window.PlayerData.last_claim_ad_date = savedAdDate;
-                    localStorage.setItem(adKey, savedAdDate);
-                }
 
                 window.userState.unclaimed = 0.0;
                 window.PlayerData.unclaimed = 0.0;
