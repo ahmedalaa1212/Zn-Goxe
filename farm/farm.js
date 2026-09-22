@@ -384,12 +384,12 @@ window.closeAutoClaimModal = function() {
             if (typeof window[functionName] === 'function') {
                 try {
                     const adPromise = window[functionName]();
-                    // إخفاء الشاشة المعتمة كي لا تحجب واجهة الإعلان
                     setTimeout(() => toggleAdLoadingOverlay(false), 300);
 
                     if (adPromise && typeof adPromise.then === 'function') {
-                        adPromise.then(() => {
-                            finish(true);
+                        adPromise.then((res) => {
+                            if (res !== false) finish(true);
+                            else finish(false);
                         }).catch((e) => {
                             console.error("خطأ تشغيل إعلان Monetag:", e);
                             finish(false);
@@ -429,7 +429,6 @@ window.closeAutoClaimModal = function() {
                 finish(false);
             }, 60000);
 
-            // تحديد اسم دالة Monetix حسب التعريفات المتاحة في السكريبت
             const blockId = GAME_CONFIG.monetixBlockId || "MX-3AE08FE9";
             const cleanBlockId = blockId.replace(/[^a-zA-Z0-9]/g, '_');
             const noDashBlockId = blockId.replace(/[^a-zA-Z0-9]/g, '');
@@ -451,23 +450,38 @@ window.closeAutoClaimModal = function() {
 
             if (monetixFn) {
                 try {
-                    // إخفاء الـ Overlay بعد بدء الإعلان فوراً حتى لا يحجب الإعلان
                     setTimeout(() => toggleAdLoadingOverlay(false), 500);
 
+                    // فحص دقيق لحالة اكتمال أو إغلاق الإعلان الصريحة فقط
+                    const checkSuccessStatus = (status) => {
+                        if (status === true) return true;
+                        if (typeof status === 'string') {
+                            const str = status.toLowerCase();
+                            return str === 'completed' || str === 'closed' || str === 'rewarded' || str === 'true';
+                        }
+                        if (typeof status === 'object' && status !== null) {
+                            if (status.rewarded === true || status.completed === true || status.closed === true) return true;
+                            const st = (status.status || status.state || status.event || status.type || '').toString().toLowerCase();
+                            return st === 'completed' || st === 'closed' || st === 'rewarded';
+                        }
+                        return false;
+                    };
+
                     const res = monetixFn(function(status) {
-                        let st = (typeof status === 'object' && status !== null) ? (status.status || status.state || 'completed') : status;
-                        if (st === 'completed' || st === 'closed' || st === 'rewarded' || st === true || status === true) {
+                        if (checkSuccessStatus(status)) {
                             finish(true);
-                        } else {
+                        } else if (status === false || (typeof status === 'string' && (status === 'failed' || status === 'error' || status === 'skipped' || status === 'dismissed'))) {
                             finish(false);
                         }
                     });
 
-                    // التعامل مع الحالات التي تُرجع فيها الدالة Promise
                     if (res && typeof res.then === 'function') {
                         res.then((r) => {
-                            if (r !== false) finish(true);
-                            else finish(false);
+                            if (checkSuccessStatus(r)) {
+                                finish(true);
+                            } else if (r === false) {
+                                finish(false);
+                            }
                         }).catch((err) => {
                             console.error("Monetix Promise Error:", err);
                             finish(false);
