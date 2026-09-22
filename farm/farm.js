@@ -1,5 +1,5 @@
 /**
- * ZN Farm Logic - Encapsulated & Secured Module (Fixed Accrual & Integrated Monetag/Monetix)
+ * ZN Farm Logic - Encapsulated & Secured Module (Fixed Accrual & Retroactive Jumps)
  */
 
 // الدوال العامة للتحكم بالنوافذ المنبثقة
@@ -52,9 +52,9 @@ window.closeAutoClaimModal = function() {
     const tele = window.Telegram?.WebApp;
     const START_PARAM = tele?.initDataUnsafe?.start_param || "";
 
-    // إعدادات اللعبة المحمية
+    // إعدادات اللعبة المحمية داخل النطاق الخاص
     const GAME_CONFIG = {
-        monetagZoneId: window.MONETAG_BLOCK_ID || "",
+        monetagZoneId: window.MONETAG_ZONE_ID || "11322720",
         monetixBlockId: window.MONETIX_BLOCK_ID || "",
         maxUpgradesPerLevel: 15,
         dailyBoostReward: 0.10, // زيادة السرعة بمقدار 0.1 ZN/ساعة
@@ -99,7 +99,6 @@ window.closeAutoClaimModal = function() {
     let isFetching = false;
     let isClaimingMain = false; 
     let isAutoClaiming = false;
-    let isCheckingAd = false; 
     let upgradingLevel = null;
     let isUpgradingStorage = false;
 
@@ -119,6 +118,7 @@ window.closeAutoClaimModal = function() {
         return false;
     }
 
+    // دالة تحليل تاريخ السيرفر مع فحص المنطقة الزمنية بدقة
     function parseServerDateMs(dateStr) {
         if (!dateStr) return getAdjustedNowMs();
         if (typeof dateStr === 'number') return dateStr;
@@ -358,91 +358,84 @@ window.closeAutoClaimModal = function() {
         }
     }
 
-    // ==========================================
-    // 📢 دوال الإعلانات المخصصة (Monetag & Monetix)
-    // ==========================================
-
-    // 1. إعلان Monetag (خاص بالمكافأة اليومية فقط)
+    // --- إعلانات Monetag الخاصة بالتسجيل اليومي ---
     async function showMonetagAd() {
         toggleAdLoadingOverlay(true);
-        const zoneId = window.MONETAG_BLOCK_ID || GAME_CONFIG.monetagZoneId || "";
-
-        // إذا لم يتم توفير المعرف بعد من Railway (الحساب قيد المراجعة)
-        if (!zoneId || zoneId.trim() === "") {
-            toggleAdLoadingOverlay(false);
-            console.warn("Monetag Block ID غير مضاف في متغيرات Railway");
-            showToast("⚠️ إعلان Monetag قيد التفعيل بعد قبول الحساب...");
-            return true; // السماح مؤقتاً للتجربة حتى يتم وضع الكود
-        }
+        const zoneId = GAME_CONFIG.monetagZoneId || "11322720";
+        const functionName = window.MONETAG_SDK_NAME || `show_${zoneId}`;
 
         return new Promise((resolve) => {
             let resolved = false;
+
             const finish = (result) => {
                 if (!resolved) {
                     resolved = true;
-                    clearTimeout(timer);
+                    clearTimeout(timeoutTimer);
                     toggleAdLoadingOverlay(false);
                     resolve(result);
                 }
             };
 
-            const timer = setTimeout(() => finish(false), 15000);
+            const timeoutTimer = setTimeout(() => {
+                console.warn("Monetag Ad timeout.");
+                finish(false);
+            }, 15000);
 
-            try {
-                // استدعاء Monetag SDK عند إضافة الكود
-                if (typeof window.show_rewarded_ad === 'function') {
-                    window.show_rewarded_ad(zoneId).then(() => finish(true)).catch(() => finish(false));
-                } else if (typeof window.MonetagSDK !== 'undefined') {
-                    window.MonetagSDK.show({ zoneId }).then(() => finish(true)).catch(() => finish(false));
-                } else {
-                    // محاكاة الإعلان أثناء التحميل
-                    setTimeout(() => finish(true), 2500);
+            if (typeof window[functionName] === 'function') {
+                try {
+                    window[functionName]().then(() => {
+                        finish(true);
+                    }).catch((e) => {
+                        console.error("خطأ تشغيل إعلان Monetag:", e);
+                        finish(false);
+                    });
+                } catch (e) {
+                    console.error("استدعاء Monetag فشل:", e);
+                    finish(false);
                 }
-            } catch (e) {
-                console.error("Monetag Ad Error:", e);
+            } else {
+                console.warn(`دالة Monetag الإعلانية غير متوفرة (${functionName}). تأكد من إدراج السكريبت في الصفحة.`);
                 finish(false);
             }
         });
     }
 
-    // 2. إعلان Monetix (خاص بمكافأة التسريع +0.1/h)
+    // --- إعلانات Monetix الخاصة بمكافأة تسريع التعدين (0.1/h) ---
     async function showMonetixAd() {
         toggleAdLoadingOverlay(true);
-        const blockId = window.MONETIX_BLOCK_ID || GAME_CONFIG.monetixBlockId || "";
-
-        // إذا لم يتم توفير المعرف بعد من Railway (الحساب قيد المراجعة)
-        if (!blockId || blockId.trim() === "") {
-            toggleAdLoadingOverlay(false);
-            console.warn("Monetix Block ID غير مضاف في متغيرات Railway");
-            showToast("⚠️ إعلان Monetix قيد التفعيل بعد قبول الحساب...");
-            return true; // السماح مؤقتاً للتجربة حتى يتم وضع الكود
-        }
 
         return new Promise((resolve) => {
             let resolved = false;
+
             const finish = (result) => {
                 if (!resolved) {
                     resolved = true;
-                    clearTimeout(timer);
+                    clearTimeout(timeoutTimer);
                     toggleAdLoadingOverlay(false);
                     resolve(result);
                 }
             };
 
-            const timer = setTimeout(() => finish(false), 15000);
+            const timeoutTimer = setTimeout(() => {
+                console.warn("Monetix Ad timeout.");
+                finish(false);
+            }, 15000);
 
-            try {
-                // استدعاء Monetix SDK عند إضافة الكود
-                if (window.Monetix && typeof window.Monetix.show === 'function') {
-                    window.Monetix.show({ blockId: blockId }).then(() => finish(true)).catch(() => finish(false));
-                } else if (typeof window.showMonetix === 'function') {
-                    window.showMonetix(blockId).then(() => finish(true)).catch(() => finish(false));
-                } else {
-                    // محاكاة الإعلان أثناء التحميل
-                    setTimeout(() => finish(true), 2500);
+            // فحص وجود الدوال أو كائنات Monetix SDK
+            if (typeof window.showMonetixAd === 'function') {
+                try {
+                    window.showMonetixAd().then(() => finish(true)).catch(() => finish(false));
+                } catch (e) {
+                    finish(false);
                 }
-            } catch (e) {
-                console.error("Monetix Ad Error:", e);
+            } else if (typeof window.Monetix === 'object' && typeof window.Monetix.show === 'function') {
+                try {
+                    window.Monetix.show().then(() => finish(true)).catch(() => finish(false));
+                } catch (e) {
+                    finish(false);
+                }
+            } else {
+                console.warn("Monetix SDK غير جاهز أو الحساب قيد المراجعة.");
                 finish(false);
             }
         });
@@ -458,6 +451,7 @@ window.closeAutoClaimModal = function() {
         return 0;
     }
 
+    // حساب وتثبيت التعدين المباشر بالسرعة القديمة وتحديد التجميد بدقة
     function accrueCurrentMining() {
         const pData = window.userState || window.PlayerData;
         if (!pData) return 0;
@@ -587,17 +581,13 @@ window.closeAutoClaimModal = function() {
                 if (resData.server_time) syncServerTime(resData.server_time);
                 if (resData.cooldown_seconds) MIN_CLAIM_INTERVAL = resData.cooldown_seconds;
 
-                // تحديث معرفات الإعلانات من السيرفر إن وجدت
-                if (resData.monetag_block_id) {
-                    GAME_CONFIG.monetagZoneId = resData.monetag_block_id;
-                    window.MONETAG_BLOCK_ID = resData.monetag_block_id;
-                }
-                if (resData.monetix_block_id) {
-                    GAME_CONFIG.monetixBlockId = resData.monetix_block_id;
-                    window.MONETIX_BLOCK_ID = resData.monetix_block_id;
-                }
+                if (resData.monetag_zone_id) GAME_CONFIG.monetagZoneId = resData.monetag_zone_id;
+                if (resData.monetix_block_id) GAME_CONFIG.monetixBlockId = resData.monetix_block_id;
 
                 if (resData.game_config) {
+                    if (resData.game_config.monetag_zone_id) GAME_CONFIG.monetagZoneId = resData.game_config.monetag_zone_id;
+                    if (resData.game_config.monetix_block_id) GAME_CONFIG.monetixBlockId = resData.game_config.monetix_block_id;
+
                     if (resData.game_config.daily_rewards && Array.isArray(resData.game_config.daily_rewards)) {
                         GAME_CONFIG.dailyRewards = resData.game_config.daily_rewards;
                     }
@@ -922,7 +912,7 @@ window.closeAutoClaimModal = function() {
         if (window.PlayerData) window.PlayerData.unclaimed = unclaim;
 
         const isBotActive = (pData.bot_active === true || pData.is_auto_bot_active === true);
-        if (isBotActive && maxC > 0 && unclaim >= (maxC * 0.8) && !isAutoClaiming && !isClaimingMain && !isCheckingAd) {
+        if (isBotActive && maxC > 0 && unclaim >= (maxC * 0.8) && !isAutoClaiming && !isClaimingMain) {
             if (Date.now() - lastAutoClaimAttempt > 10000) {
                 lastAutoClaimAttempt = Date.now();
                 triggerAutoClaim80();
@@ -1124,17 +1114,16 @@ window.closeAutoClaimModal = function() {
         }
     };
 
-    // 🎁 استلام المكافأة اليومية (مشروط بمشاهدة إعلان Monetag أولاً)
+    // --- استلام المكافأة اليومية (مشروط بمشاهدة إعلان Monetag كاملاً) ---
     window.handleDailyClaim = async function(dayNum) {
         if (isDebouncedClick() || isClaimingDaily) return;
+        
+        // 1. تشغيل إعلان Monetag ومنع الاستلام حتى اكتماله
+        showToast("⏳ جاري تحميل الإعلان لاستلام المكافأة اليومية...");
+        const adSuccess = await showMonetagAd();
 
-        // 1. عرض إعلان Monetag أولاً
-        isCheckingAd = true;
-        let adWatched = await showMonetagAd();
-        isCheckingAd = false;
-
-        if (!adWatched) {
-            showToast("❌ يجب مشاهدة الإعلان بالكامل لاستلام المكافأة اليومية!");
+        if (!adSuccess) {
+            showToast("❌ يجب مشاهدة الإعلان كاملاً لاستلام المكافأة اليومية!");
             return;
         }
 
@@ -1159,7 +1148,7 @@ window.closeAutoClaimModal = function() {
                     window.PlayerData.last_daily_claim_date = resData.last_daily_claim_date;
                 }
                 saveCachedData(window.userState);
-                showToast(`🎉 تم استلام مكافأة اليوم ${resData.daily_day} بنجاح!`);
+                showToast(`🎉 تم مشاهدة الإعلان واستلام مكافأة اليوم ${resData.daily_day} بنجاح!`);
             } else {
                 showToast(resData?.error || "❌ تعذر استلام المكافأة");
             }
@@ -1173,17 +1162,16 @@ window.closeAutoClaimModal = function() {
         }
     };
 
-    // 🚀 تفعيل التسريع +0.1/h (مشروط بمشاهدة إعلان Monetix أولاً)
+    // --- تسريع التعدين اليومي (مشروط بمشاهدة إعلان Monetix كاملاً) ---
     window.handleDailyBoost = async function() {
         if (isDebouncedClick() || isBoosting) return;
 
-        // 1. عرض إعلان Monetix أولاً
-        isCheckingAd = true;
-        let adWatched = await showMonetixAd();
-        isCheckingAd = false;
+        // 1. تشغيل إعلان Monetix ومنع التفعيل حتى اكتماله
+        showToast("⏳ جاري تحميل إعلان تسريع التعدين...");
+        const adSuccess = await showMonetixAd();
 
-        if (!adWatched) {
-            showToast("❌ يجب مشاهدة الإعلان بالكامل لتفعيل تسريع التعدين!");
+        if (!adSuccess) {
+            showToast("❌ يجب مشاهدة إعلان Monetix بكامل مدته لتفعيل تسريع التعدين!");
             return;
         }
 
@@ -1213,7 +1201,7 @@ window.closeAutoClaimModal = function() {
                     window.PlayerData.last_boost_time = bTime;
                 }
 
-                showToast(`⚡ تم تفعيل تعزيز السرعة (+0.1 ZN/ساعة) لمدة ساعتين بنجاح!`);
+                showToast(`⚡ تم مشاهدة الإعلان وتفعيل تعزيز السرعة (+0.1 ZN/ساعة) لمدة ساعتين بنجاح!`);
                 saveCachedData(window.userState);
             } else {
                 restoreState(stateBackup);
@@ -1229,12 +1217,11 @@ window.closeAutoClaimModal = function() {
         }
     };
 
-    // 💰 التجميع الرئيسي بدون إعلانات إجبارية
+    // --- تجميع الرصيد الرئيسي (مباشر وبدون أي إعلانات) ---
     window.handleMainClaim = async function() {
-        if (isDebouncedClick() || isClaimingMain || isCheckingAd || isAutoClaiming) return;
+        if (isDebouncedClick() || isClaimingMain || isAutoClaiming) return;
 
         const pData = window.userState || window.PlayerData || {};
-
         isClaimingMain = true;
         const stateBackup = cloneCurrentState();
 
@@ -1291,7 +1278,6 @@ window.closeAutoClaimModal = function() {
             showToast("❌ حدث خطأ أثناء التجميع");
         } finally {
             isClaimingMain = false;
-            toggleAdLoadingOverlay(false);
             window.updateFarmUI();
         }
     };
