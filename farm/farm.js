@@ -376,7 +376,6 @@ window.closeAutoClaimModal = function() {
                 }
             };
 
-            // رفع مهلة الانتظار إلى 60 ثانية لإعطاء المستخدم المدى الكامل لمشاهدة وإغلاق الإعلان
             const timeoutTimer = setTimeout(() => {
                 console.warn("Monetag Ad timeout.");
                 finish(false);
@@ -385,6 +384,9 @@ window.closeAutoClaimModal = function() {
             if (typeof window[functionName] === 'function') {
                 try {
                     const adPromise = window[functionName]();
+                    // إخفاء الشاشة المعتمة كي لا تحجب واجهة الإعلان
+                    setTimeout(() => toggleAdLoadingOverlay(false), 300);
+
                     if (adPromise && typeof adPromise.then === 'function') {
                         adPromise.then(() => {
                             finish(true);
@@ -422,21 +424,55 @@ window.closeAutoClaimModal = function() {
                 }
             };
 
-            // مهلة انتظار 60 ثانية لإتاحة وقت مشاهدة وإغلاق الإعلان
             const timeoutTimer = setTimeout(() => {
                 console.warn("Monetix Ad timeout.");
                 finish(false);
             }, 60000);
 
+            // تحديد اسم دالة Monetix حسب التعريفات المتاحة في السكريبت
+            const blockId = GAME_CONFIG.monetixBlockId || "MX-3AE08FE9";
+            const cleanBlockId = blockId.replace(/[^a-zA-Z0-9]/g, '_');
+            const noDashBlockId = blockId.replace(/[^a-zA-Z0-9]/g, '');
+
+            let monetixFn = null;
             if (typeof window.showRewardAd === 'function') {
+                monetixFn = window.showRewardAd;
+            } else if (typeof window.show_reward_ad === 'function') {
+                monetixFn = window.show_reward_ad;
+            } else if (typeof window[`show_${cleanBlockId}`] === 'function') {
+                monetixFn = window[`show_${cleanBlockId}`];
+            } else if (typeof window[`show_${noDashBlockId}`] === 'function') {
+                monetixFn = window[`show_${noDashBlockId}`];
+            } else if (window.Monetix && typeof window.Monetix.showReward === 'function') {
+                monetixFn = window.Monetix.showReward.bind(window.Monetix);
+            } else if (window.Monetix && typeof window.Monetix.show === 'function') {
+                monetixFn = window.Monetix.show.bind(window.Monetix);
+            }
+
+            if (monetixFn) {
                 try {
-                    window.showRewardAd(function(res) {
-                        if (res && (res.status === "completed" || res.status === "closed")) {
+                    // إخفاء الـ Overlay بعد بدء الإعلان فوراً حتى لا يحجب الإعلان
+                    setTimeout(() => toggleAdLoadingOverlay(false), 500);
+
+                    const res = monetixFn(function(status) {
+                        let st = (typeof status === 'object' && status !== null) ? (status.status || status.state || 'completed') : status;
+                        if (st === 'completed' || st === 'closed' || st === 'rewarded' || st === true || status === true) {
                             finish(true);
                         } else {
                             finish(false);
                         }
                     });
+
+                    // التعامل مع الحالات التي تُرجع فيها الدالة Promise
+                    if (res && typeof res.then === 'function') {
+                        res.then((r) => {
+                            if (r !== false) finish(true);
+                            else finish(false);
+                        }).catch((err) => {
+                            console.error("Monetix Promise Error:", err);
+                            finish(false);
+                        });
+                    }
                 } catch (e) {
                     console.error("خطأ تشغيل إعلان Monetix:", e);
                     finish(false);
@@ -1121,11 +1157,10 @@ window.closeAutoClaimModal = function() {
         }
     };
 
-    // --- استلام المكافأة اليومية (مشروط بمشاهدة إعلان Monetag كاملاً) ---
+    // --- استلام المكافأة اليومية (مباشر عبر إعلان Monetag) ---
     window.handleDailyClaim = async function(dayNum) {
         if (isDebouncedClick() || isClaimingDaily) return;
         
-        showToast("⏳ جاري تحميل الإعلان لاستلام المكافأة اليومية...");
         const adSuccess = await showMonetagAd();
 
         if (!adSuccess) {
@@ -1168,11 +1203,10 @@ window.closeAutoClaimModal = function() {
         }
     };
 
-    // --- تسريع التعدين اليومي (مشروط بمشاهدة إعلان Monetix كاملاً) ---
+    // --- تسريع التعدين اليومي (مباشر عبر إعلان Monetix) ---
     window.handleDailyBoost = async function() {
         if (isDebouncedClick() || isBoosting) return;
 
-        showToast("⏳ جاري تحميل إعلان تسريع التعدين...");
         const adSuccess = await showMonetixAd();
 
         if (!adSuccess) {
