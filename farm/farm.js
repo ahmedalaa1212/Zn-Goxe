@@ -413,11 +413,13 @@ window.closeAutoClaimModal = function() {
 
         return new Promise((resolve) => {
             let resolved = false;
+            let startHideTimer = null;
 
             const finish = (result) => {
                 if (!resolved) {
                     resolved = true;
                     clearTimeout(timeoutTimer);
+                    clearTimeout(startHideTimer);
                     toggleAdLoadingOverlay(false);
                     resolve(result);
                 }
@@ -449,7 +451,6 @@ window.closeAutoClaimModal = function() {
 
             if (monetixFn) {
                 try {
-                    // فحص دقيق لحالة اكتمال أو إغلاق الإعلان الصريحة فقط
                     const checkSuccessStatus = (status) => {
                         if (status === true) return true;
                         if (typeof status === 'string') {
@@ -464,33 +465,28 @@ window.closeAutoClaimModal = function() {
                         return false;
                     };
 
-                    const checkStartStatus = (status) => {
-                        if (typeof status === 'string') {
-                            const str = status.toLowerCase();
-                            return str === 'start' || str === 'started' || str === 'show' || str === 'shown' || str === 'open' || str === 'opened';
-                        }
-                        if (typeof status === 'object' && status !== null) {
-                            const st = (status.status || status.state || status.event || status.type || '').toString().toLowerCase();
-                            return st === 'start' || st === 'started' || st === 'show' || st === 'shown' || st === 'open' || st === 'opened';
-                        }
-                        return false;
-                    };
+                    const handleMonetixCallback = (status) => {
+                        // إخفاء شاشة التحميل فور ورود أي استجابة أو إشعار من الإعلان
+                        toggleAdLoadingOverlay(false);
 
-                    const res = monetixFn(function(status) {
-                        if (checkStartStatus(status)) {
-                            toggleAdLoadingOverlay(false);
-                        } else if (checkSuccessStatus(status)) {
+                        if (checkSuccessStatus(status)) {
                             finish(true);
                         } else if (status === false || (typeof status === 'string' && (status === 'failed' || status === 'error' || status === 'skipped' || status === 'dismissed'))) {
                             finish(false);
                         }
-                    });
+                    };
+
+                    const res = monetixFn(handleMonetixCallback);
+
+                    // إخفاء شاشة "جاري التحميل" فوراً بمجرد طلب فتح الإعلان ليظهر الإعلان بوضوح بدون القائمة فوقه
+                    startHideTimer = setTimeout(() => {
+                        toggleAdLoadingOverlay(false);
+                    }, 500);
 
                     if (res && typeof res.then === 'function') {
                         res.then((r) => {
-                            if (checkStartStatus(r)) {
-                                toggleAdLoadingOverlay(false);
-                            } else if (checkSuccessStatus(r)) {
+                            toggleAdLoadingOverlay(false);
+                            if (checkSuccessStatus(r)) {
                                 finish(true);
                             } else if (r === false) {
                                 finish(false);
