@@ -1,10 +1,11 @@
 // =========================================
-// ملف عرض كافة بيانات المستخدمين (users/users.js)
+// ملف إدارة وعرض بيانات المستخدمين Muted & Filtered
+// users/users.js
 // =========================================
 
-let uDataList = [];
+let uDataList = []; // البيانات الكاملة القادمة من السيرفر
 
-// جلب البيانات من السيرفر
+// 1. جلب البيانات من السيرفر
 async function uFetch() {
     const container = document.getElementById('uResultsContainer');
     if (!container) return;
@@ -22,25 +23,184 @@ async function uFetch() {
 
         if (json.success) {
             uDataList = json.users || [];
-            
-            // ترتيب المستخدمين تنازلياً حسب عدد الإحالات
-            uDataList.sort((a, b) => {
-                let refA = Number(a.invited_friends_count) || 0;
-                let refB = Number(b.invited_friends_count) || 0;
-                return refB - refA;
-            });
-
-            uSearch();
+            uUpdateQuickStats(uDataList);
+            uApplyFilters();
         } else {
             container.innerHTML = `<div class="u-error">❌ فشل الجلب: ${json.message || 'خطأ غير معروف'}</div>`;
         }
     } catch (err) {
         console.error("Fetch error:", err);
-        container.innerHTML = `<div class="u-error">❌ تعذر الاتصال بالسيرفر! تأكد من ربط users_bp في سيرفر Flask.</div>`;
+        container.innerHTML = `<div class="u-error">❌ تعذر الاتصال بالسيرفر! تأكد من تشغيل السيرفر وربط users_bp.</div>`;
     }
 }
 
-// دالة تنسيق القيم واللون الخاص بها
+// 2. تحديث شريط الإحصائيات التحليلي السريع
+function uUpdateQuickStats(list) {
+    let total = list.length;
+    let active = list.filter(u => u.bot_active === true || u.bot_active === 'true').length;
+    let totalRefs = list.reduce((acc, u) => acc + (Number(u.invited_friends_count) || 0), 0);
+    let totalAds = list.reduce((acc, u) => acc + (Number(u.ads_watched) || 0), 0);
+
+    const elTotal = document.getElementById('statTotalUsers');
+    const elActive = document.getElementById('statActiveUsers');
+    const elRefs = document.getElementById('statTotalRefs');
+    const elAds = document.getElementById('statTotalAds');
+
+    if (elTotal) elTotal.innerText = total.toLocaleString('ar-EG');
+    if (elActive) elActive.innerText = active.toLocaleString('ar-EG');
+    if (elRefs) elRefs.innerText = totalRefs.toLocaleString('ar-EG');
+    if (elAds) elAds.innerText = totalAds.toLocaleString('ar-EG');
+}
+
+// 3. دالة تحويل التاريخ لغرض التصفية الفعالة
+function parseUserDate(dateStr) {
+    if (!dateStr) return null;
+    let d = new Date(dateStr);
+    if (!isNaN(d.getTime())) return d;
+
+    // معالجة النصوص البرمجية أو الصياغات غير القياسية
+    let cleaned = String(dateStr).replace('Sept', 'Sep');
+    d = new Date(cleaned);
+    return !isNaN(d.getTime()) ? d : null;
+}
+
+// 4. تطبيق جميع الفلاتر والفرز
+function uApplyFilters() {
+    if (!uDataList || uDataList.length === 0) return;
+
+    let sortBy = document.getElementById('uSortBy')?.value || 'invited_friends_count';
+    let limitVal = document.getElementById('uLimit')?.value || '5';
+    let statusFilter = document.getElementById('uStatusFilter')?.value || 'all';
+    let dateFromStr = document.getElementById('uDateFrom')?.value || '';
+    let dateToStr = document.getElementById('uDateTo')?.value || '';
+    let searchTerm = document.getElementById('uSearchInput')?.value.trim().toLowerCase() || '';
+
+    let filtered = [...uDataList];
+
+    // أ) تصفية حسب نص البحث (ID, Name, Wallet, Device ID)
+    if (searchTerm) {
+        filtered = filtered.filter(u => 
+            String(u.tg_id || '').toLowerCase().includes(searchTerm) || 
+            String(u.document_id || '').toLowerCase().includes(searchTerm) || 
+            String(u.first_name || '').toLowerCase().includes(searchTerm) ||
+            String(u.wallet_address || '').toLowerCase().includes(searchTerm) ||
+            String(u.device_id || '').toLowerCase().includes(searchTerm)
+        );
+    }
+
+    // ب) تصفية حسب حالة الحساب
+    if (statusFilter === 'active') {
+        filtered = filtered.filter(u => u.bot_active === true || u.bot_active === 'true');
+    } else if (statusFilter === 'banned') {
+        filtered = filtered.filter(u => u.banned === true || u.banned === 'true');
+    } else if (statusFilter === 'unbanned') {
+        filtered = filtered.filter(u => !u.banned || u.banned === 'false');
+    } else if (statusFilter === 'wallet') {
+        filtered = filtered.filter(u => u.wallet_address && String(u.wallet_address).trim() !== '');
+    }
+
+    // ج) تصفية حسب نطاق التاريخ (تاريخ الانضمام)
+    if (dateFromStr) {
+        let fromDate = new Date(dateFromStr + 'T00:00:00');
+        filtered = filtered.filter(u => {
+            let uDate = parseUserDate(u.joined_at || u.joinDate);
+            return uDate ? uDate >= fromDate : true;
+        });
+    }
+    if (dateToStr) {
+        let toDate = new Date(dateToStr + 'T23:59:59');
+        filtered = filtered.filter(u => {
+            let uDate = parseUserDate(u.joined_at || u.joinDate);
+            return uDate ? uDate <= toDate : true;
+        });
+    }
+
+    // د) ترتيب القائمة تنازلياً حسب المعيار المختار
+    filtered.sort((a, b) => {
+        let valA = a[sortBy];
+        let valB = b[sortBy];
+
+        // معالجة القوائم مثل المهام المكتملة
+        if (Array.isArray(valA)) valA = valA.length;
+        if (Array.isArray(valB)) valB = valB.length;
+
+        let numA = Number(valA) || 0;
+        let numB = Number(valB) || 0;
+
+        return numB - numA;
+    });
+
+    // هـ) تحديد عدد النتائج المعروضة (Top N)
+    let displayList = filtered;
+    if (limitVal !== 'all') {
+        let lim = parseInt(limitVal, 10) || 5;
+        displayList = filtered.slice(0, lim);
+    }
+
+    // و) عرض القائمة المفلترة
+    uRender(displayList, filtered.length, sortBy, limitVal, searchTerm !== '');
+}
+
+// 5. الاختصارات السريعة للتاريخ
+function uSetQuickDate(preset, btnEl) {
+    // تحديث الشكل النشط للأزرار
+    document.querySelectorAll('.u-btn-preset').forEach(b => b.classList.remove('active'));
+    if (btnEl) btnEl.classList.add('active');
+
+    let dateFromInput = document.getElementById('uDateFrom');
+    let dateToInput = document.getElementById('uDateTo');
+
+    if (!dateFromInput || !dateToInput) return;
+
+    let now = new Date();
+
+    if (preset === 'all') {
+        dateFromInput.value = '';
+        dateToInput.value = '';
+    } else if (preset === 'today') {
+        let yyyy = now.getFullYear();
+        let mm = String(now.getMonth() + 1).padStart(2, '0');
+        let dd = String(now.getDate()).padStart(2, '0');
+        let todayStr = `${yyyy}-${mm}-${dd}`;
+        dateFromInput.value = todayStr;
+        dateToInput.value = todayStr;
+    } else if (preset === '7days') {
+        let past = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        dateFromInput.value = past.toISOString().split('T')[0];
+        dateToInput.value = now.toISOString().split('T')[0];
+    } else if (preset === '30days') {
+        let past = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        dateFromInput.value = past.toISOString().split('T')[0];
+        dateToInput.value = now.toISOString().split('T')[0];
+    }
+
+    uApplyFilters();
+}
+
+// 6. إعادة ضبط جميع الفلاتر
+function uResetFilters() {
+    let sortSelect = document.getElementById('uSortBy');
+    let limitSelect = document.getElementById('uLimit');
+    let statusSelect = document.getElementById('uStatusFilter');
+    let dateFrom = document.getElementById('uDateFrom');
+    let dateTo = document.getElementById('uDateTo');
+    let search = document.getElementById('uSearchInput');
+
+    if (sortSelect) sortSelect.value = 'invited_friends_count';
+    if (limitSelect) limitSelect.value = '5';
+    if (statusSelect) statusSelect.value = 'all';
+    if (dateFrom) dateFrom.value = '';
+    if (dateTo) dateTo.value = '';
+    if (search) search.value = '';
+
+    document.querySelectorAll('.u-btn-preset').forEach(b => b.classList.remove('active'));
+    let allBtn = document.querySelector('.u-btn-preset');
+    if (allBtn) allBtn.classList.add('active');
+
+    uApplyFilters();
+}
+
+// 7. تنسيق القيم والخصائص
 function fmtVal(val) {
     if (val === undefined || val === null || val === '') return '<span class="u-null">غير محدد</span>';
     if (typeof val === 'boolean') return val ? '<span class="u-true">نعم (True)</span>' : '<span class="u-false">لا (False)</span>';
@@ -48,24 +208,46 @@ function fmtVal(val) {
     return val;
 }
 
-// عرض البيانات في جدول واحد شامل لكل مستخدم
-function uRender(usersList, isSearch = false) {
+// 8. عنوان وصياغة معيار الفرز المختار
+function getCriteriaTitle(sortBy) {
+    const titles = {
+        'invited_friends_count': 'عدد الإحالات',
+        'ads_watched': 'مشاهدة الإعلانات الإجمالية',
+        'daily_streak': 'ستريك التسجيل اليومي',
+        'daily_boost_rate': 'مكافأة/معدل التسريع',
+        'balance': 'الرصيد الرئيسي',
+        'mined_points': 'النقاط المعدنة',
+        'usd_balance': 'رصيد الدولار USD',
+        'znx_balance': 'رصيد ZNX',
+        'completed_tasks': 'المهام المكتملة',
+        'interactions': 'عدد التفاعلات',
+        'total_wins': 'إجمالي الفوز بالألعاب'
+    };
+    return titles[sortBy] || 'المعيار المختار';
+}
+
+// 9. عرض الكروت والجداول الموحدة للمستخدمين
+function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch) {
     const container = document.getElementById('uResultsContainer');
     if (!container) return;
     container.innerHTML = '';
 
     if (!usersList || usersList.length === 0) {
-        container.innerHTML = '<div class="u-empty">❌ لا يوجد مستخدمين يطابقون ID أو كلمة البحث.</div>';
+        container.innerHTML = '<div class="u-empty">❌ لا يوجد مستخدمين يطابقون خيارات البحث أو التصفية الحالية.</div>';
         return;
     }
 
-    // شريط العنوان العلوي
+    // شريط العنوان العلوي للنتائج
     const countHeader = document.createElement('div');
     countHeader.className = 'u-count-tag';
+    
+    let criteriaName = getCriteriaTitle(sortBy);
+    let limitText = limitVal === 'all' ? 'جميع المستوفين' : `أفضل ${usersList.length}`;
+
     if (isSearch) {
-        countHeader.innerHTML = `<span>🔍 نتائج البحث عن المستخدم:</span> <span>${usersList.length} مستخدم</span>`;
+        countHeader.innerHTML = `<span>🔍 نتائج البحث المباشر:</span> <span>عرض ${usersList.length} من إجمالي ${totalFilteredCount} مستخدم</span>`;
     } else {
-        countHeader.innerHTML = `<span>🏆 أفضل 5 مستخدمين في عدد الإحالات:</span> <span>${usersList.length} من أصل ${uDataList.length}</span>`;
+        countHeader.innerHTML = `<span>🏆 ${limitText} في [${criteriaName}]:</span> <span>معروض ${usersList.length} من أصل ${totalFilteredCount} مستخدم مطابق</span>`;
     }
     container.appendChild(countHeader);
 
@@ -73,10 +255,16 @@ function uRender(usersList, isSearch = false) {
         let card = document.createElement('div');
         card.className = 'u-single-card';
 
-        let refCount = Number(u.invited_friends_count) || 0;
-        let rankBadge = isSearch ? `عدد الإحالات: ${refCount}` : `🏆 المركز #${index + 1} (إحالات: ${refCount})`;
+        // حساب القيمة البارزة المعروضة في الشارة
+        let mainVal = u[sortBy];
+        if (Array.isArray(mainVal)) mainVal = mainVal.length;
+        if (mainVal === undefined || mainVal === null) mainVal = 0;
 
-        // قائمة الحقول الشاملة مرتبة كـ (سؤال / جواب)
+        let rankBadge = isSearch 
+            ? `${criteriaName}: ${mainVal}` 
+            : `🏆 المركز #${index + 1} (${criteriaName}: ${mainVal})`;
+
+        // قائمة حقول البيانات الشاملة للمستخدم (سؤال / جواب)
         const fields = [
             { label: "🆔 ID المستخدم (Telegram ID):", value: u.tg_id || u.document_id },
             { label: "👤 اسم المستخدم (First Name):", value: u.first_name || "مستخدم" },
@@ -87,19 +275,19 @@ function uRender(usersList, isSearch = false) {
             { label: "🪙 رصيد ZNX:", value: u.znx_balance },
             { label: "💵 رصيد الدولار (USD):", value: u.usd_balance ? `$${u.usd_balance}` : null },
             { label: "📢 رصيد الإعلانات (Ad Balance):", value: u.ad_balance },
+            { label: "📺 الإعلانات المشاهدة (Ads Watched):", value: u.ads_watched },
+            { label: "🔥 الستريك اليومي (Daily Streak):", value: u.daily_streak },
+            { label: "📆 اليوم الحالي (Daily Day):", value: u.daily_day },
+            { label: "🚀 معدل البوست اليومي (Daily Boost):", value: u.daily_boost_rate },
             { label: "⛏️ النقاط المعدنة (Mined Points):", value: u.mined_points },
             { label: "🎁 الأرباح غير المطالب بها (Unclaimed):", value: u.unclaimed },
             { label: "⚡ معدل التعدين / ساعة (Hourly Rate):", value: u.hourly_rate },
-            { label: "🚀 معدل البوست اليومي (Daily Boost):", value: u.daily_boost_rate },
             { label: "📦 مستوى المخزن (Storage Level):", value: u.storage_level },
             { label: "➕ المخزن الإضافي (Extra Storage):", value: u.extra_storage },
             { label: "🔋 السعة القصوى (Max Cap):", value: u.max_cap },
             { label: "⚡ الطاقة الحالية (Energy):", value: u.energy },
             { label: "⌛ أرباح إحالة معلقة:", value: u.pending_ref_earnings },
             { label: "💎 إجمالي أرباح الإحالات:", value: u.total_ref_earnings },
-            { label: "🔥 الستريك اليومي (Daily Streak):", value: u.daily_streak },
-            { label: "📆 اليوم الحالي (Daily Day):", value: u.daily_day },
-            { label: "📺 الإعلانات المشاهدة:", value: u.ads_watched },
             { label: "🌐 عنوان المحفظة (Wallet):", value: u.wallet_address ? `<span class="u-wallet-val">${u.wallet_address}</span>` : null, isRawHTML: true },
             { label: "🕒 آخر نشاط (Last Active):", value: u.last_active },
             { label: "⏱️ آخر مطالبة (Last Claim):", value: u.last_claim_time },
@@ -149,28 +337,5 @@ function uRender(usersList, isSearch = false) {
     });
 }
 
-// دالة البحث بالـ ID وعرض المستخدم المحدد فقط أو التكفّل بالأفضل 5
-function uSearch() {
-    let input = document.getElementById('uSearchInput');
-    let term = input ? input.value.trim().toLowerCase() : '';
-
-    if (!term) {
-        // حالة عدم وجود كلمة بحث: إظهار أفضل 5 في الإحالات فقط
-        let top5 = uDataList.slice(0, 5);
-        uRender(top5, false);
-        return;
-    }
-
-    // حالة وجود بحث: مطابقة الـ ID أو اسم المستخدم
-    let filtered = uDataList.filter(u => 
-        String(u.tg_id || '').toLowerCase().includes(term) || 
-        String(u.document_id || '').toLowerCase().includes(term) || 
-        String(u.first_name || '').toLowerCase().includes(term) ||
-        String(u.wallet_address || '').toLowerCase().includes(term)
-    );
-
-    uRender(filtered, true);
-}
-
-// تشغيل جلب البيانات عند التحميل
+// تشغيل جلب البيانات تلقائياً عند فتح الصفحة
 uFetch();
