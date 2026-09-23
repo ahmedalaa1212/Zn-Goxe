@@ -21,8 +21,8 @@ def _serialize_firestore_val(val):
         return str(val)
 
 
-def get_all_users_admin(limit=2000):
-    """جلب كافة بيانات المستخدمين من مستندات users بالكامل"""
+def get_all_users_admin(limit=5000):
+    """جلب كافة بيانات المستخدمين من مستندات users بالكامل بدون نقص"""
     try:
         db = database.get_db()
         users_ref = db.collection("users").limit(limit)
@@ -35,14 +35,17 @@ def get_all_users_admin(limit=2000):
             # تجهيز قاموس البيانات الشامل للمستخدم
             user_data = {"document_id": str(doc.id)}
             
-            # تحويل كل حقل موجود داخل فايربيس تلقائياً
+            # تحويل كل حقل موجود داخل الفايربيس تلقائياً
             for k, v in d.items():
                 user_data[k] = _serialize_firestore_val(v)
 
-            # ضمان وجود معرف التليجرام والاسم وعدد الإحالات
+            # ضمان وجود المعرفات الأساسية مع القيم الافتراضية
             user_data["tg_id"] = str(d.get("tg_id", doc.id))
             user_data["first_name"] = d.get("first_name", "مستخدم")
             user_data["invited_friends_count"] = d.get("invited_friends_count", 0)
+            user_data["ads_watched"] = d.get("ads_watched", 0)
+            user_data["daily_streak"] = d.get("daily_streak", 0)
+            user_data["daily_boost_rate"] = d.get("daily_boost_rate", 0)
             
             users_list.append(user_data)
             
