@@ -1347,3 +1347,4 @@ window.closeAutoClaimModal = function() {
     window.handleClaim = window.handleMainClaim;
 
 })();
+
