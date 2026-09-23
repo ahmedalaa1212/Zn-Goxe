@@ -4,17 +4,20 @@
         flex-direction: column;
         gap: 15px;
         color: #f8fafc;
-        font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         padding-bottom: 30px;
         direction: rtl;
     }
+
+    /* الكروت الرئيسية */
     .u-card {
         background: #1e293b;
         border-radius: 12px;
         padding: 18px;
         border: 1px solid #334155;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     }
+    
     .u-header-title {
         color: #f59e0b;
         font-size: 20px;
@@ -22,65 +25,163 @@
         display: flex;
         align-items: center;
         gap: 8px;
+        font-weight: bold;
     }
     .u-header-desc {
         color: #94a3b8;
         font-size: 13px;
-        margin: 0;
+        margin: 0 0 15px 0;
+        line-height: 1.5;
     }
-    .u-search-box {
+
+    /* شريط الإحصائيات السريعة */
+    .u-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        gap: 10px;
+        margin-bottom: 15px;
+    }
+    .u-stat-item {
+        background: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 10px;
+        text-align: center;
+    }
+    .u-stat-val {
+        font-size: 16px;
+        font-weight: bold;
+        color: #10b981;
+    }
+    .u-stat-lbl {
+        font-size: 11px;
+        color: #94a3b8;
+        margin-top: 3px;
+    }
+
+    /* شبكة عناصر الفلترة والبحث */
+    .u-filter-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 12px;
+        background: #0f172a;
+        padding: 14px;
+        border-radius: 10px;
+        border: 1px solid #334155;
+    }
+
+    .u-field-group {
         display: flex;
         flex-direction: column;
-        gap: 10px;
-        margin-top: 15px;
+        gap: 6px;
     }
-    .u-search-box input {
+    .u-field-group label {
+        font-size: 12px;
+        color: #f59e0b;
+        font-weight: 600;
+    }
+    .u-field-group select, 
+    .u-field-group input {
         width: 100%;
-        padding: 14px;
+        padding: 10px;
         border-radius: 8px;
         border: 1px solid #475569;
-        background: #0f172a;
+        background: #1e293b;
         color: #fff;
-        font-size: 15px;
+        font-size: 13px;
         box-sizing: border-box;
         outline: none;
         transition: 0.2s;
     }
-    .u-search-box input:focus {
+    .u-field-group select:focus, 
+    .u-field-group input:focus {
         border-color: #f59e0b;
-        box-shadow: 0 0 8px rgba(245, 158, 11, 0.3);
+        box-shadow: 0 0 6px rgba(245, 158, 11, 0.3);
     }
-    .u-search-box button {
-        width: 100%;
-        background: #f59e0b;
-        color: #000;
-        border: none;
-        padding: 12px;
-        border-radius: 8px;
-        font-weight: bold;
-        font-size: 15px;
+
+    /* أزرار اختصارات التواريخ */
+    .u-date-presets {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 4px;
+    }
+    .u-btn-preset {
+        background: #1e293b;
+        border: 1px solid #475569;
+        color: #cbd5e1;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 11px;
         cursor: pointer;
         transition: 0.2s;
     }
-    .u-search-box button:active {
+    .u-btn-preset:hover, .u-btn-preset.active {
+        background: #f59e0b;
+        color: #000;
+        font-weight: bold;
+        border-color: #f59e0b;
+    }
+
+    /* أزرار العمليات */
+    .u-actions-bar {
+        display: flex;
+        gap: 10px;
+        margin-top: 15px;
+        flex-wrap: wrap;
+    }
+    .u-btn-primary {
+        flex: 2;
+        background: #f59e0b;
+        color: #000;
+        border: none;
+        padding: 11px;
+        border-radius: 8px;
+        font-weight: bold;
+        font-size: 14px;
+        cursor: pointer;
+        transition: 0.2s;
+        min-width: 160px;
+    }
+    .u-btn-primary:active {
         transform: scale(0.98);
         background: #d97706;
     }
+    .u-btn-secondary {
+        flex: 1;
+        background: #334155;
+        color: #f8fafc;
+        border: 1px solid #475569;
+        padding: 11px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 13px;
+        cursor: pointer;
+        transition: 0.2s;
+        min-width: 120px;
+    }
+    .u-btn-secondary:hover {
+        background: #475569;
+    }
 
-    /* شريط تعداد النتائج */
+    /* شريط نتائج الفرز */
     .u-count-tag {
         background: #0f172a;
         padding: 12px 16px;
         border-radius: 8px;
         border: 1px solid #334155;
         color: #f59e0b;
-        font-size: 15px;
+        font-size: 14px;
         margin-bottom: 15px;
         font-weight: bold;
         display: flex;
         align-items: center;
         justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 8px;
     }
+
+    /* حالات التحميل والخطأ */
     .u-loading, .u-error, .u-empty {
         text-align: center;
         padding: 30px;
@@ -99,7 +200,7 @@
         border: 1px solid #334155;
         border-radius: 12px;
         padding: 16px;
-        margin-bottom: 25px;
+        margin-bottom: 20px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     }
     .u-card-top {
@@ -113,7 +214,7 @@
         gap: 10px;
     }
     .u-top-name {
-        font-size: 18px;
+        font-size: 17px;
         font-weight: bold;
         color: #f59e0b;
         display: flex;
@@ -123,14 +224,14 @@
     .u-top-badge {
         background: #0f172a;
         color: #10b981;
-        padding: 4px 12px;
+        padding: 5px 12px;
         border-radius: 6px;
         border: 1px solid #10b981;
         font-size: 13px;
         font-weight: bold;
     }
 
-    /* جدول بيانات المستخدم الموحد */
+    /* جدول بيانات المستخدم */
     .u-data-table {
         width: 100%;
         border-collapse: collapse;
@@ -140,7 +241,7 @@
         border: 1px solid #334155;
     }
     .u-data-table th, .u-data-table td {
-        padding: 11px 14px;
+        padding: 10px 12px;
         text-align: right;
         border-bottom: 1px solid #1e293b;
         font-size: 13px;
@@ -148,20 +249,19 @@
     .u-data-table th {
         background: #1e293b;
         color: #f59e0b;
-        font-size: 14px;
+        font-size: 13px;
         border-bottom: 2px solid #334155;
     }
     
-    /* ألوان العرض المطلوب: السؤال لون والاجابة لون */
     .u-data-table td.u-label {
-        color: #38bdf8 !important; /* لون أزرق سماوي للخاصية/السؤال */
+        color: #38bdf8 !important; /* لون أزرق سماوي للخاصية */
         font-weight: bold;
         width: 45%;
         background: rgba(255, 255, 255, 0.015);
         border-left: 1px solid #1e293b;
     }
     .u-data-table td.u-value {
-        color: #10b981 !important; /* لون أخضر زمردي مُميز للقيمة/الإجابة */
+        color: #10b981 !important; /* لون أخضر زمردي للقيمة */
         font-weight: 600;
         word-break: break-all;
     }
@@ -169,6 +269,7 @@
         background: rgba(245, 158, 11, 0.04);
     }
 
+    /* تنسيق ألوان قيم البيانات */
     .u-null { color: #64748b !important; font-style: italic; }
     .u-true { color: #10b981 !important; font-weight: bold; }
     .u-false { color: #ef4444 !important; font-weight: bold; }
@@ -187,16 +288,111 @@
 
 <div class="users-section animate-fade-in">
     <div class="u-card">
-        <h2 class="u-header-title">👑 لوحة استعراض بيانات المستخدمين الشاملة</h2>
-        <p class="u-header-desc">تُعرض أفضل 5 حسابات في الإحالات افتراضياً، أو يمكنك البحث بالـ ID لرؤية حساب معين فقط.</p>
+        <h2 class="u-header-title">👑 لوحة استعراض وتحليل بيانات المستخدمين</h2>
+        <p class="u-header-desc">قم بالتصفية حسب أفضل المتفاعلين والإحالات ومشاهدي الإعلانات مع إمكانية تحديد الفترة الزمنية للانضمام.</p>
+
+        <!-- شريط إحصائيات تحليلي سريع -->
+        <div class="u-stats-grid" id="uQuickStats">
+            <div class="u-stat-item">
+                <div class="u-stat-val" id="statTotalUsers">0</div>
+                <div class="u-stat-lbl">إجمالي المستخدمين</div>
+            </div>
+            <div class="u-stat-item">
+                <div class="u-stat-val" id="statActiveUsers">0</div>
+                <div class="u-stat-lbl">البوت نشط</div>
+            </div>
+            <div class="u-stat-item">
+                <div class="u-stat-val" id="statTotalRefs">0</div>
+                <div class="u-stat-lbl">إجمالي الإحالات</div>
+            </div>
+            <div class="u-stat-item">
+                <div class="u-stat-val" id="statTotalAds">0</div>
+                <div class="u-stat-lbl">الإعلانات المشاهدة</div>
+            </div>
+        </div>
         
-        <div class="u-search-box">
-            <input type="text" id="uSearchInput" placeholder="🔎 ادخل ID المستخدم للبحث الفوري وعرض جدوله..." oninput="uSearch()">
-            <button onclick="uFetch()">🔄 إعادة جلب البيانات وتحديث القائمة</button>
+        <!-- لوحة التحكم بالفلترة والفرز -->
+        <div class="u-filter-grid">
+            <!-- 1. معيار الفرز الرئيسي -->
+            <div class="u-field-group">
+                <label for="uSortBy">🏆 معيار العرض / الفرز المفضّل:</label>
+                <select id="uSortBy" onchange="uApplyFilters()">
+                    <option value="invited_friends_count">👥 أفضل الإحالات (Invited Friends)</option>
+                    <option value="ads_watched">📺 أفضل مشاهدة إعلانات إجمالية (Ads Watched)</option>
+                    <option value="daily_streak">🔥 أفضل التسجيل والستريك اليومي (Daily Streak)</option>
+                    <option value="daily_boost_rate">🚀 أفضل مكافأة/معدل التسريع (Boost Rate)</option>
+                    <option value="balance">💰 أعلى رصيد رئيسي (Balance)</option>
+                    <option value="mined_points">⛏️ أعلى نقاط معدنة (Mined Points)</option>
+                    <option value="usd_balance">💵 أعلى رصيد دولار (USD Balance)</option>
+                    <option value="znx_balance">🪙 أعلى رصيد ZNX</option>
+                    <option value="completed_tasks">✅ الأكثر إكمالاً للمهام (Tasks)</option>
+                    <option value="interactions">💬 الأكثر تفاعلاً مع البوت (Interactions)</option>
+                    <option value="total_wins">🎲 الأكثر فوزاً بالألعاب (Total Wins)</option>
+                </select>
+            </div>
+
+            <!-- 2. تحديد عدد النتائج -->
+            <div class="u-field-group">
+                <label for="uLimit">🔢 عدد الحسابات المعروضة:</label>
+                <select id="uLimit" onchange="uApplyFilters()">
+                    <option value="5">أفضل 5 مستخدمين (Top 5)</option>
+                    <option value="10">أفضل 10 مستخدمين (Top 10)</option>
+                    <option value="20">أفضل 20 مستخدم (Top 20)</option>
+                    <option value="50">أفضل 50 مستخدم (Top 50)</option>
+                    <option value="all">جميع الحسابات (All)</option>
+                </select>
+            </div>
+
+            <!-- 3. فلتر حالة الحساب -->
+            <div class="u-field-group">
+                <label for="uStatusFilter">🛡️ تصفية حالة الحساب:</label>
+                <select id="uStatusFilter" onchange="uApplyFilters()">
+                    <option value="all">جميع الحسابات</option>
+                    <option value="active">النشطين فقط (Bot Active)</option>
+                    <option value="banned">المحظورين فقط (Banned)</option>
+                    <option value="unbanned">غير المحظورين فقط</option>
+                    <option value="wallet">الرابطين محفظة فقط</option>
+                </select>
+            </div>
+
+            <!-- 4. فلتر التاريخ من -->
+            <div class="u-field-group">
+                <label for="uDateFrom">📅 تاريخ الانضمام (من):</label>
+                <input type="date" id="uDateFrom" onchange="uApplyFilters()">
+            </div>
+
+            <!-- 5. فلتر التاريخ إلى -->
+            <div class="u-field-group">
+                <label for="uDateTo">📅 تاريخ الانضمام (إلى):</label>
+                <input type="date" id="uDateTo" onchange="uApplyFilters()">
+            </div>
+
+            <!-- 6. حقل البحث المباشر -->
+            <div class="u-field-group" style="grid-column: 1 / -1;">
+                <label for="uSearchInput">🔎 بحث فوري بالـ ID أو الاسم أو المحفظة:</label>
+                <input type="text" id="uSearchInput" placeholder="ادخل ID التليجرام، اسم المستخدم، عنوان المحفظة أو معرف الجهاز..." oninput="uApplyFilters()">
+            </div>
+        </div>
+
+        <!-- اختصارات تحديد الفترة الزمنية -->
+        <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <span style="font-size: 12px; color: #94a3b8; font-weight: bold;">⏱️ اختصارات الفترات الزمنية:</span>
+            <div class="u-date-presets">
+                <button type="button" class="u-btn-preset active" onclick="uSetQuickDate('all', this)">الكل</button>
+                <button type="button" class="u-btn-preset" onclick="uSetQuickDate('today', this)">اليوم</button>
+                <button type="button" class="u-btn-preset" onclick="uSetQuickDate('7days', this)">آخر 7 أيام</button>
+                <button type="button" class="u-btn-preset" onclick="uSetQuickDate('30days', this)">آخر 30 يوماً</button>
+            </div>
+        </div>
+
+        <!-- شريط إجراءات التحديث وإعادة الضبط -->
+        <div class="u-actions-bar">
+            <button class="u-btn-primary" onclick="uFetch()">🔄 تحديث وجلب أحدث البيانات الحية</button>
+            <button class="u-btn-secondary" onclick="uResetFilters()">🧹 إعادة ضبط كافة الفلاتر</button>
         </div>
     </div>
 
-    <!-- حاوية الجداول الشاملة -->
+    <!-- حاوية عرض النتائج -->
     <div id="uResultsContainer">
         <div class="u-loading">⏳ جاري تحميل البيانات...</div>
     </div>
