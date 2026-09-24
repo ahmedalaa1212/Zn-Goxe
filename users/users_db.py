@@ -11,6 +11,11 @@ def _serialize_firestore_val(val):
         return val.isoformat()
     elif isinstance(val, datetime):
         return val.strftime('%Y-%m-%d %H:%M:%S')
+    elif hasattr(val, 'to_datetime'): # كائنات الفايربيس DatetimeWithNanoseconds
+        try:
+            return val.to_datetime().strftime('%Y-%m-%d %H:%M:%S')
+        except Exception:
+            return str(val)
     elif isinstance(val, dict):
         return {str(k): _serialize_firestore_val(v) for k, v in val.items()}
     elif isinstance(val, list):
@@ -22,56 +27,91 @@ def _serialize_firestore_val(val):
 
 
 def get_all_users_admin(limit=5000):
-    """جلب كافة بيانات المستخدمين من مستندات users بالكامل وحساب الإحالات الحقيقية"""
+    """جلب كافة بيانات المستخدمين من مستندات users وحساب الإحالات الحقيقية المباشرة في الوقت الفعلي"""
     try:
         db = database.get_db()
         users_ref = db.collection("users").limit(limit)
         docs = users_ref.stream()
 
-        users_list = []
+        users_map = {}
+        referrals_by_inviter = {}
+
+        # 1. تجميع البيانات وتجهيز المعرفات والتواريخ
         for doc in docs:
             d = doc.to_dict() or {}
+            doc_id = str(doc.id)
             
-            # تجهيز قاموس البيانات الشامل للمستخدم
-            user_data = {"document_id": str(doc.id)}
+            user_data = {"document_id": doc_id}
             
-            # تحويل كل حقل موجود داخل الفايربيس تلقائياً
             for k, v in d.items():
                 user_data[k] = _serialize_firestore_val(v)
 
-            # ضمان وجود المعرفات الأساسية مع القيم الافتراضية
-            user_data["tg_id"] = str(d.get("tg_id", doc.id))
-            user_data["first_name"] = d.get("first_name", d.get("name", "مستخدم"))
+            tg_id = str(d.get("tg_id") or d.get("telegram_id") or doc_id)
+            user_data["tg_id"] = tg_id
+            user_data["first_name"] = str(d.get("first_name") or d.get("name") or "مستخدم")
             
-            # حساب الإحالات الحقيقية بدقة من كافة الحقول المحتملة
-            ref_count = 0
-            if "invited_friends_count" in d and d["invited_friends_count"] is not None:
-                try:
-                    ref_count = int(d["invited_friends_count"])
-                except Exception:
-                    ref_count = 0
-            elif "referrals_count" in d and d["referrals_count"] is not None:
-                try:
-                    ref_count = int(d["referrals_count"])
-                except Exception:
-                    ref_count = 0
-            elif isinstance(d.get("invited_friends"), list):
-                ref_count = len(d["invited_friends"])
-            elif isinstance(d.get("referrals"), list):
-                ref_count = len(d["referrals"])
-
-            user_data["invited_friends_count"] = ref_count
-            user_data["ads_watched"] = int(d.get("ads_watched", d.get("total_ads", 0)) or 0)
-            user_data["daily_streak"] = int(d.get("daily_streak", 0) or 0)
-            user_data["daily_boost_rate"] = float(d.get("daily_boost_rate", 0) or 0)
-            
-            # ضمان وجود تاريخ الانضمام
-            user_data["joined_at"] = _serialize_firestore_val(
-                d.get("joined_at") or d.get("joinDate") or d.get("created_at") or d.get("timestamp") or ""
+            # توحيد تاريخ الانضمام من كافة المسميات المحتملة
+            joined_at = (
+                d.get("joined_at") or 
+                d.get("joinDate") or 
+                d.get("created_at") or 
+                d.get("createdAt") or 
+                d.get("registered_at") or 
+                d.get("timestamp") or 
+                d.get("last_active_at") or 
+                ""
             )
+            user_data["joined_at"] = _serialize_firestore_val(joined_at)
+
+            # تحويل القيم الرقمية لضمان عدم وجود أخطاء نصوص
+            try:
+                user_data["invited_friends_count"] = int(d.get("invited_friends_count") or 0)
+            except (ValueError, TypeError):
+                user_data["invited_friends_count"] = 0
+
+            try:
+                user_data["ads_watched"] = int(d.get("ads_watched") or 0)
+            except (ValueError, TypeError):
+                user_data["ads_watched"] = 0
+
+            try:
+                user_data["daily_streak"] = int(d.get("daily_streak") or 0)
+            except (ValueError, TypeError):
+                user_data["daily_streak"] = 0
+
+            try:
+                user_data["daily_boost_rate"] = float(d.get("daily_boost_rate") or 0)
+            except (ValueError, TypeError):
+                user_data["daily_boost_rate"] = 0.0
+
+            referred_by = str(d.get("referred_by") or "").strip()
+            user_data["referred_by"] = referred_by
+
+            users_map[tg_id] = user_data
+
+            # ربط الإحالة بالداعي إذا كان معرّف الداعي موجوداً
+            if referred_by and referred_by != "None":
+                if referred_by not in referrals_by_inviter:
+                    referrals_by_inviter[referred_by] = []
+                referrals_by_inviter[referred_by].append({
+                    "tg_id": tg_id,
+                    "joined_at": user_data["joined_at"]
+                })
+
+        # 2. حساب وتحديث الإحالات الحقيقية لكل داعي
+        users_list = []
+        for tg_id, u_data in users_map.items():
+            refs_details = referrals_by_inviter.get(tg_id, [])
+            actual_count = len(refs_details)
             
-            users_list.append(user_data)
+            # إرفاق تفاصيل الإحالات المباشرة لاستخدامها في الفلترة الزمنية
+            u_data["referrals_list"] = refs_details
             
+            # اعتماد الأرقام الحقيقية المكتشفة في الوقت الفعلي
+            u_data["invited_friends_count"] = max(u_data["invited_friends_count"], actual_count)
+            
+            users_list.append(u_data)
+
         return users_list
     except Exception as e:
         print(f"❌ Error fetching all users from Firebase: {e}")
