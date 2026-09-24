@@ -1,34 +1,11 @@
 // =========================================
-// ملف إدارة وعرض بيانات المستخدمين المحدث realtime
+// ملف إدارة وعرض بيانات المستخدمين Muted & Filtered
 // users/users.js
 // =========================================
 
 let uDataList = []; // البيانات الكاملة القادمة من السيرفر
 
-// دالة مساعدة لاستخراج القيم الرقمية الحقيقية (بما فيها أطوال المصفوفات وحقول الإحالات المتنوعة)
-function uExtractNum(u, key) {
-    if (!u) return 0;
-
-    if (key === 'invited_friends_count') {
-        if (u.invited_friends_count !== undefined && u.invited_friends_count !== null && u.invited_friends_count !== '') {
-            let n = Number(u.invited_friends_count);
-            if (!isNaN(n)) return n;
-        }
-        if (Array.isArray(u.invited_friends)) return u.invited_friends.length;
-        if (Array.isArray(u.referrals)) return u.referrals.length;
-        if (u.referrals_count !== undefined) return Number(u.referrals_count) || 0;
-        return 0;
-    }
-
-    let val = u[key];
-    if (Array.isArray(val)) return val.length;
-    if (val === undefined || val === null || val === '') return 0;
-    
-    let num = Number(val);
-    return isNaN(num) ? 0 : num;
-}
-
-// 1. جلب البيانات من السيرفر
+// 1. جلب البيانات المباشرة من السيرفر
 async function uFetch() {
     const container = document.getElementById('uResultsContainer');
     if (!container) return;
@@ -36,9 +13,7 @@ async function uFetch() {
     container.innerHTML = '<div class="u-loading">⏳ جاري جلب جميع البيانات الحية من الفايربيس...</div>';
 
     try {
-        let res = await fetch('/api/users?t=' + new Date().getTime(), {
-            cache: 'no-store'
-        });
+        let res = await fetch('/api/users?t=' + new Date().getTime());
         
         if (!res.ok) {
             throw new Error(`خطأ في السيرفر برقم: ${res.status}`);
@@ -55,16 +30,16 @@ async function uFetch() {
         }
     } catch (err) {
         console.error("Fetch error:", err);
-        container.innerHTML = `<div class="u-error">❌ تعذر الاتصال بالسيرفر! تأكد من تشغيل السيرفر وربط users_bp.</div>`;
+        container.innerHTML = `<div class="u-error">❌ تعذر الاتصال بالسيرفر! تأكد من تشغيل السيرفر ورابط users_bp.</div>`;
     }
 }
 
 // 2. تحديث شريط الإحصائيات التحليلي السريع
 function uUpdateQuickStats(list) {
     let total = list.length;
-    let active = list.filter(u => u.bot_active === true || u.bot_active === 'true' || u.is_active === true).length;
-    let totalRefs = list.reduce((acc, u) => acc + uExtractNum(u, 'invited_friends_count'), 0);
-    let totalAds = list.reduce((acc, u) => acc + uExtractNum(u, 'ads_watched'), 0);
+    let active = list.filter(u => u.bot_active === true || u.bot_active === 'true' || String(u.bot_active).toLowerCase() === 'true').length;
+    let totalRefs = list.reduce((acc, u) => acc + (Number(u.invited_friends_count) || 0), 0);
+    let totalAds = list.reduce((acc, u) => acc + (Number(u.ads_watched) || 0), 0);
 
     const elTotal = document.getElementById('statTotalUsers');
     const elActive = document.getElementById('statActiveUsers');
@@ -83,12 +58,12 @@ function parseUserDate(dateStr) {
     let d = new Date(dateStr);
     if (!isNaN(d.getTime())) return d;
 
-    let cleaned = String(dateStr).replace('Sept', 'Sep').replace(' ', 'T');
+    let cleaned = String(dateStr).replace('Sept', 'Sep').replace(/\s+/g, 'T');
     d = new Date(cleaned);
     return !isNaN(d.getTime()) ? d : null;
 }
 
-// 4. تطبيق جميع الفلاتر والفرز
+// 4. تطبيق جميع الفلاتر والفرز بالتفصيل الحقيقي
 function uApplyFilters() {
     if (!uDataList || uDataList.length === 0) return;
 
@@ -114,35 +89,64 @@ function uApplyFilters() {
 
     // ب) تصفية حسب حالة الحساب
     if (statusFilter === 'active') {
-        filtered = filtered.filter(u => u.bot_active === true || u.bot_active === 'true' || u.is_active === true);
+        filtered = filtered.filter(u => u.bot_active === true || u.bot_active === 'true' || String(u.bot_active).toLowerCase() === 'true');
     } else if (statusFilter === 'banned') {
-        filtered = filtered.filter(u => u.banned === true || u.banned === 'true');
+        filtered = filtered.filter(u => u.banned === true || u.banned === 'true' || String(u.banned).toLowerCase() === 'true');
     } else if (statusFilter === 'unbanned') {
-        filtered = filtered.filter(u => !u.banned || u.banned === 'false');
+        filtered = filtered.filter(u => !u.banned || u.banned === 'false' || String(u.banned).toLowerCase() === 'false');
     } else if (statusFilter === 'wallet') {
         filtered = filtered.filter(u => u.wallet_address && String(u.wallet_address).trim() !== '');
     }
 
-    // ج) تصفية حسب نطاق التاريخ (تاريخ الانضمام) - تم تصحيح الخلل للعودة بـ false إن لم يوجد تاريخ
-    if (dateFromStr) {
-        let fromDate = new Date(dateFromStr + 'T00:00:00');
+    // ج) معالجة الفلترة الزمنية والتاريخ
+    let hasDateFilter = Boolean(dateFromStr || dateToStr);
+    let fromDate = dateFromStr ? new Date(dateFromStr + 'T00:00:00') : null;
+    let toDate = dateToStr ? new Date(dateToStr + 'T23:59:59') : null;
+
+    // حساب إحالات كل مستخدم المقبولة ضمن نطاق التاريخ المحدد
+    filtered.forEach(u => {
+        if (Array.isArray(u.referrals_list) && u.referrals_list.length > 0) {
+            let refsInPeriod = u.referrals_list.filter(ref => {
+                let refDate = parseUserDate(ref.joined_at);
+                if (!refDate) return true;
+                if (fromDate && refDate < fromDate) return false;
+                if (toDate && refDate > toDate) return false;
+                return true;
+            });
+            u._period_refs = refsInPeriod.length;
+        } else {
+            u._period_refs = Number(u.invited_friends_count) || 0;
+        }
+    });
+
+    // إذا تم تحديد تاريخ ولكن المقياس ليس الإحالات -> يتم فلترة تاريخ انضمام الحساب نفسه
+    if (hasDateFilter && sortBy !== 'invited_friends_count') {
         filtered = filtered.filter(u => {
-            let uDate = parseUserDate(u.joined_at || u.joinDate || u.created_at || u.timestamp);
-            return uDate ? uDate >= fromDate : false;
-        });
-    }
-    if (dateToStr) {
-        let toDate = new Date(dateToStr + 'T23:59:59');
-        filtered = filtered.filter(u => {
-            let uDate = parseUserDate(u.joined_at || u.joinDate || u.created_at || u.timestamp);
-            return uDate ? uDate <= toDate : false;
+            let uDate = parseUserDate(u.joined_at || u.joinDate || u.created_at || u.last_active_at);
+            if (!uDate) return false;
+            if (fromDate && uDate < fromDate) return false;
+            if (toDate && uDate > toDate) return false;
+            return true;
         });
     }
 
-    // د) ترتيب القائمة تنازلياً حسب المعيار المختار مع معالجة البيانات الدقيقة
+    // د) ترتيب القائمة تنازلياً حسب المعيار المختار
     filtered.sort((a, b) => {
-        let numA = uExtractNum(a, sortBy);
-        let numB = uExtractNum(b, sortBy);
+        let valA, valB;
+
+        if (sortBy === 'invited_friends_count' && hasDateFilter) {
+            valA = a._period_refs !== undefined ? a._period_refs : (Number(a.invited_friends_count) || 0);
+            valB = b._period_refs !== undefined ? b._period_refs : (Number(b.invited_friends_count) || 0);
+        } else {
+            valA = a[sortBy];
+            valB = b[sortBy];
+        }
+
+        if (Array.isArray(valA)) valA = valA.length;
+        if (Array.isArray(valB)) valB = valB.length;
+
+        let numA = Number(valA) || 0;
+        let numB = Number(valB) || 0;
 
         return numB - numA;
     });
@@ -155,7 +159,7 @@ function uApplyFilters() {
     }
 
     // و) عرض القائمة المفلترة
-    uRender(displayList, filtered.length, sortBy, limitVal, searchTerm !== '');
+    uRender(displayList, filtered.length, sortBy, limitVal, searchTerm !== '', hasDateFilter);
 }
 
 // 5. الاختصارات السريعة للتاريخ
@@ -243,7 +247,7 @@ function getCriteriaTitle(sortBy) {
 }
 
 // 9. عرض الكروت والجداول الموحدة للمستخدمين
-function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch) {
+function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch, hasDateFilter) {
     const container = document.getElementById('uResultsContainer');
     if (!container) return;
     container.innerHTML = '';
@@ -270,22 +274,34 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch) {
         let card = document.createElement('div');
         card.className = 'u-single-card';
 
-        let mainVal = uExtractNum(u, sortBy);
+        let mainVal = u[sortBy];
+        if (sortBy === 'invited_friends_count' && hasDateFilter && u._period_refs !== undefined) {
+            mainVal = `${u._period_refs} (خلال الفترة) | ${u.invited_friends_count} (إجمالي)`;
+        } else {
+            if (Array.isArray(mainVal)) mainVal = mainVal.length;
+            if (mainVal === undefined || mainVal === null) mainVal = 0;
+        }
+
         let rankBadge = isSearch 
             ? `${criteriaName}: ${mainVal}` 
             : `🏆 المركز #${index + 1} (${criteriaName}: ${mainVal})`;
+
+        let refDisplayVal = u.invited_friends_count;
+        if (hasDateFilter && u._period_refs !== undefined) {
+            refDisplayVal = `${u.invited_friends_count} (منها ${u._period_refs} إحالة خلال الفترة المحددة)`;
+        }
 
         const fields = [
             { label: "🆔 ID المستخدم (Telegram ID):", value: u.tg_id || u.document_id },
             { label: "👤 اسم المستخدم (First Name):", value: u.first_name || "مستخدم" },
             { label: "📅 تاريخ الانضمام (Joined Date):", value: u.joined_at || u.joinDate },
-            { label: "👥 عدد الإحالات الحقيقية (Invited Friends):", value: uExtractNum(u, 'invited_friends_count') },
+            { label: "👥 عدد الإحالات (Invited Friends):", value: refDisplayVal },
             { label: "🔗 تم دعوته بواسطة (Referred By):", value: u.referred_by },
             { label: "💰 الرصيد الرئيسي (Balance):", value: u.balance },
             { label: "🪙 رصيد ZNX:", value: u.znx_balance },
             { label: "💵 رصيد الدولار (USD):", value: u.usd_balance ? `$${u.usd_balance}` : null },
             { label: "📢 رصيد الإعلانات (Ad Balance):", value: u.ad_balance },
-            { label: "📺 الإعلانات المشاهدة (Ads Watched):", value: uExtractNum(u, 'ads_watched') },
+            { label: "📺 الإعلانات المشاهدة (Ads Watched):", value: u.ads_watched },
             { label: "🔥 الستريك اليومي (Daily Streak):", value: u.daily_streak },
             { label: "📆 اليوم الحالي (Daily Day):", value: u.daily_day },
             { label: "🚀 معدل البوست اليومي (Daily Boost):", value: u.daily_boost_rate },
@@ -299,9 +315,9 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch) {
             { label: "⌛ أرباح إحالة معلقة:", value: u.pending_ref_earnings },
             { label: "💎 إجمالي أرباح الإحالات:", value: u.total_ref_earnings },
             { label: "🌐 عنوان المحفظة (Wallet):", value: u.wallet_address ? `<span class="u-wallet-val">${u.wallet_address}</span>` : null, isRawHTML: true },
-            { label: "🕒 آخر نشاط (Last Active):", value: u.last_active },
+            { label: "🕒 آخر نشاط (Last Active):", value: u.last_active || u.last_active_at },
             { label: "⏱️ آخر مطالبة (Last Claim):", value: u.last_claim_time },
-            { label: "🤖 البوت نشط؟ (Bot Active):", value: u.bot_active ?? u.is_active },
+            { label: "🤖 البوت نشط؟ (Bot Active):", value: u.bot_active },
             { label: "🚫 حالة الحظر (Banned):", value: u.banned },
             { label: "📱 معرف الجهاز (Device ID):", value: u.device_id },
             { label: "🎲 إجمالي الرهانات (Total Bets):", value: u.total_bets },
