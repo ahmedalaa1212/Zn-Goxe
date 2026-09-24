@@ -1,11 +1,34 @@
 // =========================================
-// ملف إدارة وعرض بيانات المستخدمين Muted & Filtered
+// ملف إدارة وعرض بيانات المستخدمين المحدث realtime
 // users/users.js
 // =========================================
 
 let uDataList = []; // البيانات الكاملة القادمة من السيرفر
 
-// 1. جلب البيانات الحية المباشرة من السيرفر
+// دالة مساعدة لاستخراج القيم الرقمية الحقيقية (بما فيها أطوال المصفوفات وحقول الإحالات المتنوعة)
+function uExtractNum(u, key) {
+    if (!u) return 0;
+
+    if (key === 'invited_friends_count') {
+        if (u.invited_friends_count !== undefined && u.invited_friends_count !== null && u.invited_friends_count !== '') {
+            let n = Number(u.invited_friends_count);
+            if (!isNaN(n)) return n;
+        }
+        if (Array.isArray(u.invited_friends)) return u.invited_friends.length;
+        if (Array.isArray(u.referrals)) return u.referrals.length;
+        if (u.referrals_count !== undefined) return Number(u.referrals_count) || 0;
+        return 0;
+    }
+
+    let val = u[key];
+    if (Array.isArray(val)) return val.length;
+    if (val === undefined || val === null || val === '') return 0;
+    
+    let num = Number(val);
+    return isNaN(num) ? 0 : num;
+}
+
+// 1. جلب البيانات من السيرفر
 async function uFetch() {
     const container = document.getElementById('uResultsContainer');
     if (!container) return;
@@ -36,23 +59,12 @@ async function uFetch() {
     }
 }
 
-// 2. تحديث شريط الإحصائيات التحليلي السريع بالبيانات الفعلية
+// 2. تحديث شريط الإحصائيات التحليلي السريع
 function uUpdateQuickStats(list) {
     let total = list.length;
-    let active = list.filter(u => u.bot_active === true || u.bot_active === 'true').length;
-    
-    // جمع الإحالات والإعلانات بدقة متناهية
-    let totalRefs = list.reduce((acc, u) => {
-        let count = Number(u.invited_friends_count);
-        if (isNaN(count)) count = 0;
-        return acc + count;
-    }, 0);
-
-    let totalAds = list.reduce((acc, u) => {
-        let count = Number(u.ads_watched);
-        if (isNaN(count)) count = 0;
-        return acc + count;
-    }, 0);
+    let active = list.filter(u => u.bot_active === true || u.bot_active === 'true' || u.is_active === true).length;
+    let totalRefs = list.reduce((acc, u) => acc + uExtractNum(u, 'invited_friends_count'), 0);
+    let totalAds = list.reduce((acc, u) => acc + uExtractNum(u, 'ads_watched'), 0);
 
     const elTotal = document.getElementById('statTotalUsers');
     const elActive = document.getElementById('statActiveUsers');
@@ -65,28 +77,20 @@ function uUpdateQuickStats(list) {
     if (elAds) elAds.innerText = totalAds.toLocaleString('ar-EG');
 }
 
-// 3. دالة تحويل وتحليل التاريخ لغرض التصفية الزمانية الدقيقة
+// 3. دالة تحويل التاريخ لغرض التصفية الفعالة
 function parseUserDate(dateStr) {
     if (!dateStr) return null;
-    
-    // دعم كائنات التواريخ والأرقام الزمنية
-    if (typeof dateStr === 'number') return new Date(dateStr);
-    
-    let str = String(dateStr).trim();
-    if (!str) return null;
-
-    let d = new Date(str);
+    let d = new Date(dateStr);
     if (!isNaN(d.getTime())) return d;
 
-    // معالجة النصوص البرمجية أو الصياغات غير القياسية (مثل Sept أو صيغ التايم ستامب)
-    let cleaned = str.replace('Sept', 'Sep').replace(' ', 'T');
+    let cleaned = String(dateStr).replace('Sept', 'Sep').replace(' ', 'T');
     d = new Date(cleaned);
     return !isNaN(d.getTime()) ? d : null;
 }
 
-// 4. تطبيق جميع الفلاتر والفرز بالتفصيل
+// 4. تطبيق جميع الفلاتر والفرز
 function uApplyFilters() {
-    if (!uDataList) return;
+    if (!uDataList || uDataList.length === 0) return;
 
     let sortBy = document.getElementById('uSortBy')?.value || 'invited_friends_count';
     let limitVal = document.getElementById('uLimit')?.value || '5';
@@ -110,7 +114,7 @@ function uApplyFilters() {
 
     // ب) تصفية حسب حالة الحساب
     if (statusFilter === 'active') {
-        filtered = filtered.filter(u => u.bot_active === true || u.bot_active === 'true');
+        filtered = filtered.filter(u => u.bot_active === true || u.bot_active === 'true' || u.is_active === true);
     } else if (statusFilter === 'banned') {
         filtered = filtered.filter(u => u.banned === true || u.banned === 'true');
     } else if (statusFilter === 'unbanned') {
@@ -119,36 +123,26 @@ function uApplyFilters() {
         filtered = filtered.filter(u => u.wallet_address && String(u.wallet_address).trim() !== '');
     }
 
-    // ج) تصفية حسب نطاق التاريخ (تاريخ الانضمام)
+    // ج) تصفية حسب نطاق التاريخ (تاريخ الانضمام) - تم تصحيح الخلل للعودة بـ false إن لم يوجد تاريخ
     if (dateFromStr) {
         let fromDate = new Date(dateFromStr + 'T00:00:00');
         filtered = filtered.filter(u => {
-            let uDate = parseUserDate(u.joined_at || u.joinDate || u.created_at);
+            let uDate = parseUserDate(u.joined_at || u.joinDate || u.created_at || u.timestamp);
             return uDate ? uDate >= fromDate : false;
         });
     }
     if (dateToStr) {
         let toDate = new Date(dateToStr + 'T23:59:59');
         filtered = filtered.filter(u => {
-            let uDate = parseUserDate(u.joined_at || u.joinDate || u.created_at);
+            let uDate = parseUserDate(u.joined_at || u.joinDate || u.created_at || u.timestamp);
             return uDate ? uDate <= toDate : false;
         });
     }
 
-    // د) ترتيب القائمة تنازلياً حسب المعيار المختار مع معالجة الأرقام والمصفوفات
+    // د) ترتيب القائمة تنازلياً حسب المعيار المختار مع معالجة البيانات الدقيقة
     filtered.sort((a, b) => {
-        let valA = a[sortBy];
-        let valB = b[sortBy];
-
-        // في حالة وجود مصفوفات مثل المهام أو قوائم الإحالة
-        if (Array.isArray(valA)) valA = valA.length;
-        if (Array.isArray(valB)) valB = valB.length;
-
-        let numA = parseFloat(valA);
-        let numB = parseFloat(valB);
-
-        if (isNaN(numA)) numA = 0;
-        if (isNaN(numB)) numB = 0;
+        let numA = uExtractNum(a, sortBy);
+        let numB = uExtractNum(b, sortBy);
 
         return numB - numA;
     });
@@ -233,7 +227,7 @@ function fmtVal(val) {
 // 8. عنوان وصياغة معيار الفرز المختار
 function getCriteriaTitle(sortBy) {
     const titles = {
-        'invited_friends_count': 'عدد الإحالات الحقيقي',
+        'invited_friends_count': 'عدد الإحالات الحقيقية',
         'ads_watched': 'مشاهدة الإعلانات الإجمالية',
         'daily_streak': 'ستريك التسجيل اليومي',
         'daily_boost_rate': 'مكافأة/معدل التسريع',
@@ -276,10 +270,7 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch) {
         let card = document.createElement('div');
         card.className = 'u-single-card';
 
-        let mainVal = u[sortBy];
-        if (Array.isArray(mainVal)) mainVal = mainVal.length;
-        if (mainVal === undefined || mainVal === null) mainVal = 0;
-
+        let mainVal = uExtractNum(u, sortBy);
         let rankBadge = isSearch 
             ? `${criteriaName}: ${mainVal}` 
             : `🏆 المركز #${index + 1} (${criteriaName}: ${mainVal})`;
@@ -288,13 +279,13 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch) {
             { label: "🆔 ID المستخدم (Telegram ID):", value: u.tg_id || u.document_id },
             { label: "👤 اسم المستخدم (First Name):", value: u.first_name || "مستخدم" },
             { label: "📅 تاريخ الانضمام (Joined Date):", value: u.joined_at || u.joinDate },
-            { label: "👥 عدد الإحالات الحقيقي (Invited Friends):", value: u.invited_friends_count },
-            { label: "🔗 تم دعوته بواسطة (Referred By):", value: u.referred_by || u.ref_by },
+            { label: "👥 عدد الإحالات الحقيقية (Invited Friends):", value: uExtractNum(u, 'invited_friends_count') },
+            { label: "🔗 تم دعوته بواسطة (Referred By):", value: u.referred_by },
             { label: "💰 الرصيد الرئيسي (Balance):", value: u.balance },
             { label: "🪙 رصيد ZNX:", value: u.znx_balance },
             { label: "💵 رصيد الدولار (USD):", value: u.usd_balance ? `$${u.usd_balance}` : null },
             { label: "📢 رصيد الإعلانات (Ad Balance):", value: u.ad_balance },
-            { label: "📺 الإعلانات المشاهدة (Ads Watched):", value: u.ads_watched },
+            { label: "📺 الإعلانات المشاهدة (Ads Watched):", value: uExtractNum(u, 'ads_watched') },
             { label: "🔥 الستريك اليومي (Daily Streak):", value: u.daily_streak },
             { label: "📆 اليوم الحالي (Daily Day):", value: u.daily_day },
             { label: "🚀 معدل البوست اليومي (Daily Boost):", value: u.daily_boost_rate },
@@ -310,7 +301,7 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch) {
             { label: "🌐 عنوان المحفظة (Wallet):", value: u.wallet_address ? `<span class="u-wallet-val">${u.wallet_address}</span>` : null, isRawHTML: true },
             { label: "🕒 آخر نشاط (Last Active):", value: u.last_active },
             { label: "⏱️ آخر مطالبة (Last Claim):", value: u.last_claim_time },
-            { label: "🤖 البوت نشط؟ (Bot Active):", value: u.bot_active },
+            { label: "🤖 البوت نشط؟ (Bot Active):", value: u.bot_active ?? u.is_active },
             { label: "🚫 حالة الحظر (Banned):", value: u.banned },
             { label: "📱 معرف الجهاز (Device ID):", value: u.device_id },
             { label: "🎲 إجمالي الرهانات (Total Bets):", value: u.total_bets },
