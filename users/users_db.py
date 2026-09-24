@@ -22,7 +22,7 @@ def _serialize_firestore_val(val):
 
 
 def get_all_users_admin(limit=5000):
-    """جلب كافة بيانات المستخدمين الحية من الفايربيس وتوحيد حقول الإحالات والتواريخ"""
+    """جلب كافة بيانات المستخدمين من مستندات users بالكامل وحساب الإحالات الحقيقية"""
     try:
         db = database.get_db()
         users_ref = db.collection("users").limit(limit)
@@ -32,57 +32,43 @@ def get_all_users_admin(limit=5000):
         for doc in docs:
             d = doc.to_dict() or {}
             
-            # 1. تحويل ونقل كافة الحقول الموجودة داخل المستند بدون استثناء
+            # تجهيز قاموس البيانات الشامل للمستخدم
             user_data = {"document_id": str(doc.id)}
+            
+            # تحويل كل حقل موجود داخل الفايربيس تلقائياً
             for k, v in d.items():
                 user_data[k] = _serialize_firestore_val(v)
 
-            # 2. ضمان توحيد معيار معرف المستخدم والاسم
-            user_data["tg_id"] = str(d.get("tg_id", d.get("user_id", d.get("id", doc.id))))
+            # ضمان وجود المعرفات الأساسية مع القيم الافتراضية
+            user_data["tg_id"] = str(d.get("tg_id", doc.id))
             user_data["first_name"] = d.get("first_name", d.get("name", "مستخدم"))
-
-            # 3. استخراج وتوحيد عدد الإحالات الحقيقي بغض النظر عن طريقة حفظه في قاعدة البيانات
-            invited_count = 0
-            if "invited_friends_count" in d and d["invited_friends_count"] is not None:
-                invited_count = d["invited_friends_count"]
-            elif "referrals_count" in d and d["referrals_count"] is not None:
-                invited_count = d["referrals_count"]
-            elif "referral_count" in d and d["referral_count"] is not None:
-                invited_count = d["referral_count"]
-            elif "invited_count" in d and d["invited_count"] is not None:
-                invited_count = d["invited_count"]
-            elif isinstance(d.get("invited_friends"), list):
-                invited_count = len(d.get("invited_friends"))
-            elif isinstance(d.get("referrals"), list):
-                invited_count = len(d.get("referrals"))
             
-            try:
-                user_data["invited_friends_count"] = int(invited_count)
-            except Exception:
-                user_data["invited_friends_count"] = 0
+            # حساب الإحالات الحقيقية بدقة من كافة الحقول المحتملة
+            ref_count = 0
+            if "invited_friends_count" in d and d["invited_friends_count"] is not None:
+                try:
+                    ref_count = int(d["invited_friends_count"])
+                except Exception:
+                    ref_count = 0
+            elif "referrals_count" in d and d["referrals_count"] is not None:
+                try:
+                    ref_count = int(d["referrals_count"])
+                except Exception:
+                    ref_count = 0
+            elif isinstance(d.get("invited_friends"), list):
+                ref_count = len(d["invited_friends"])
+            elif isinstance(d.get("referrals"), list):
+                ref_count = len(d["referrals"])
 
-            # 4. توحيد واستخراج تاريخ الانضمام الحقيقي
-            joined_at = (
-                d.get("joined_at") or 
-                d.get("joinDate") or 
-                d.get("created_at") or 
-                d.get("createdAt") or 
-                d.get("timestamp") or 
-                ""
-            )
-            user_data["joined_at"] = _serialize_firestore_val(joined_at)
-
-            # 5. توحيد واستخراج حالة نشاط البوت
-            bot_active = d.get("bot_active")
-            if bot_active is None:
-                bot_active = d.get("is_active", d.get("active", True))
-            user_data["bot_active"] = bool(bot_active)
-
-            # 6. قيم الإحصائيات التراكمية مع القيم الافتراضية
-            user_data["ads_watched"] = int(d.get("ads_watched", d.get("ads_count", 0)) or 0)
+            user_data["invited_friends_count"] = ref_count
+            user_data["ads_watched"] = int(d.get("ads_watched", d.get("total_ads", 0)) or 0)
             user_data["daily_streak"] = int(d.get("daily_streak", 0) or 0)
             user_data["daily_boost_rate"] = float(d.get("daily_boost_rate", 0) or 0)
-            user_data["banned"] = bool(d.get("banned", False))
+            
+            # ضمان وجود تاريخ الانضمام
+            user_data["joined_at"] = _serialize_firestore_val(
+                d.get("joined_at") or d.get("joinDate") or d.get("created_at") or d.get("timestamp") or ""
+            )
             
             users_list.append(user_data)
             
