@@ -52,15 +52,31 @@ function uUpdateQuickStats(list) {
     if (elAds) elAds.innerText = totalAds.toLocaleString('ar-EG');
 }
 
-// 3. دالة تحويل التاريخ لغرض التصفية الفعالة
+// 3. دالة تحويل وتحليل التاريخ لغرض التصفية الفعالة بكل الصيغ
 function parseUserDate(dateStr) {
     if (!dateStr) return null;
-    let d = new Date(dateStr);
+
+    // إذا كانت القيمة بالفعل رقم timestamp (مثل epoch)
+    if (typeof dateStr === 'number') {
+        let num = dateStr;
+        if (num < 10000000000) num *= 1000;
+        let d = new Date(num);
+        return !isNaN(d.getTime()) ? d : null;
+    }
+
+    let str = String(dateStr).trim();
+    if (!str) return null;
+
+    // محاولة تحويل مباشر
+    let d = new Date(str);
     if (!isNaN(d.getTime())) return d;
 
-    let cleaned = String(dateStr).replace('Sept', 'Sep').replace(/\s+/g, 'T');
-    d = new Date(cleaned);
-    return !isNaN(d.getTime()) ? d : null;
+    // معالجة المسافات والصيغ الخاصة (ISO with space or Sept)
+    let ISOstr = str.replace(' ', 'T').replace('Sept', 'Sep');
+    d = new Date(ISOstr);
+    if (!isNaN(d.getTime())) return d;
+
+    return null;
 }
 
 // 4. تطبيق جميع الفلاتر والفرز بالتفصيل الحقيقي
@@ -98,45 +114,58 @@ function uApplyFilters() {
         filtered = filtered.filter(u => u.wallet_address && String(u.wallet_address).trim() !== '');
     }
 
-    // ج) معالجة الفلترة الزمنية والتاريخ
+    // ج) تجهيز نطاق التاريخ بالمللي ثانية لضمان الدقة
     let hasDateFilter = Boolean(dateFromStr || dateToStr);
-    let fromDate = dateFromStr ? new Date(dateFromStr + 'T00:00:00') : null;
-    let toDate = dateToStr ? new Date(dateToStr + 'T23:59:59') : null;
+    let fromTime = null;
+    let toTime = null;
 
-    // حساب إحالات كل مستخدم المقبولة ضمن نطاق التاريخ المحدد
+    if (dateFromStr) {
+        let [y, m, d] = dateFromStr.split('-').map(Number);
+        fromTime = new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+    }
+    if (dateToStr) {
+        let [y, m, d] = dateToStr.split('-').map(Number);
+        toTime = new Date(y, m - 1, d, 23, 59, 59, 999).getTime();
+    }
+
+    // د) حساب إحالات كل مستخدم المقبولة ضمن نطاق التاريخ المحدد
     filtered.forEach(u => {
         if (Array.isArray(u.referrals_list) && u.referrals_list.length > 0) {
             let refsInPeriod = u.referrals_list.filter(ref => {
+                if (!hasDateFilter) return true;
                 let refDate = parseUserDate(ref.joined_at);
-                if (!refDate) return true;
-                if (fromDate && refDate < fromDate) return false;
-                if (toDate && refDate > toDate) return false;
+                if (!refDate) return false;
+                let t = refDate.getTime();
+                if (fromTime !== null && t < fromTime) return false;
+                if (toTime !== null && t > toTime) return false;
                 return true;
             });
             u._period_refs = refsInPeriod.length;
         } else {
-            u._period_refs = Number(u.invited_friends_count) || 0;
+            // إذا لم تكن هناك قائمة إحالات مفصلة
+            u._period_refs = hasDateFilter ? 0 : (Number(u.invited_friends_count) || 0);
         }
     });
 
-    // إذا تم تحديد تاريخ ولكن المقياس ليس الإحالات -> يتم فلترة تاريخ انضمام الحساب نفسه
+    // هـ) إذا تم تحديد تاريخ ومعيار العرض ليس الإحالات -> يتم فلترة تاريخ انضمام الحساب نفسه
     if (hasDateFilter && sortBy !== 'invited_friends_count') {
         filtered = filtered.filter(u => {
             let uDate = parseUserDate(u.joined_at || u.joinDate || u.created_at || u.last_active_at);
             if (!uDate) return false;
-            if (fromDate && uDate < fromDate) return false;
-            if (toDate && uDate > toDate) return false;
+            let t = uDate.getTime();
+            if (fromTime !== null && t < fromTime) return false;
+            if (toTime !== null && t > toTime) return false;
             return true;
         });
     }
 
-    // د) ترتيب القائمة تنازلياً حسب المعيار المختار
+    // و) ترتيب القائمة تنازلياً حسب المعيار المختار
     filtered.sort((a, b) => {
         let valA, valB;
 
         if (sortBy === 'invited_friends_count' && hasDateFilter) {
-            valA = a._period_refs !== undefined ? a._period_refs : (Number(a.invited_friends_count) || 0);
-            valB = b._period_refs !== undefined ? b._period_refs : (Number(b.invited_friends_count) || 0);
+            valA = a._period_refs !== undefined ? a._period_refs : 0;
+            valB = b._period_refs !== undefined ? b._period_refs : 0;
         } else {
             valA = a[sortBy];
             valB = b[sortBy];
@@ -151,14 +180,14 @@ function uApplyFilters() {
         return numB - numA;
     });
 
-    // هـ) تحديد عدد النتائج المعروضة (Top N)
+    // ز) تحديد عدد النتائج المعروضة (Top N)
     let displayList = filtered;
     if (limitVal !== 'all') {
         let lim = parseInt(limitVal, 10) || 5;
         displayList = filtered.slice(0, lim);
     }
 
-    // و) عرض القائمة المفلترة
+    // ح) عرض القائمة المفلترة
     uRender(displayList, filtered.length, sortBy, limitVal, searchTerm !== '', hasDateFilter);
 }
 
@@ -231,7 +260,7 @@ function fmtVal(val) {
 // 8. عنوان وصياغة معيار الفرز المختار
 function getCriteriaTitle(sortBy) {
     const titles = {
-        'invited_friends_count': 'عدد الإحالات الحقيقية',
+        'invited_friends_count': 'إحالات الفترة / الإجمالي',
         'ads_watched': 'مشاهدة الإعلانات الإجمالية',
         'daily_streak': 'ستريك التسجيل اليومي',
         'daily_boost_rate': 'مكافأة/معدل التسريع',
@@ -276,7 +305,7 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch, hasD
 
         let mainVal = u[sortBy];
         if (sortBy === 'invited_friends_count' && hasDateFilter && u._period_refs !== undefined) {
-            mainVal = `${u._period_refs} (خلال الفترة) | ${u.invited_friends_count} (إجمالي)`;
+            mainVal = `${u._period_refs} (إحالات الفترة) | ${u.invited_friends_count} (الإجمالي)`;
         } else {
             if (Array.isArray(mainVal)) mainVal = mainVal.length;
             if (mainVal === undefined || mainVal === null) mainVal = 0;
@@ -288,7 +317,7 @@ function uRender(usersList, totalFilteredCount, sortBy, limitVal, isSearch, hasD
 
         let refDisplayVal = u.invited_friends_count;
         if (hasDateFilter && u._period_refs !== undefined) {
-            refDisplayVal = `${u.invited_friends_count} (منها ${u._period_refs} إحالة خلال الفترة المحددة)`;
+            refDisplayVal = `${u.invited_friends_count} إجمالي (منها ${u._period_refs} إحالة خلال الفترة المحددة)`;
         }
 
         const fields = [
